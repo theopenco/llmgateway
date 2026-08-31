@@ -1,15 +1,16 @@
 # Airside — What It Costs To List
 
-Last updated: 2026-08-27
+Last updated: 2026-08-31
 
 > Airside is the carrier console where an AI model provider lists its models on LLM Gateway. There is no subscription and no minimum volume: you set the prices developers pay, you choose the gateway margin you accept, and you share margin only on traffic you win.
 
 ## Listing a carrier
 
-- Price: free where no listing fee is configured on the deployment.
-- Where a listing fee applies: a one-time fee per provider company, charged via Stripe, payable before a claim is approved. Non-refundable, including if the claim is later rejected or revoked.
+- Price: a one-time $2,500 listing fee per provider company on llmgateway.io, charged via Stripe, payable before a claim is approved. Non-refundable, including if the claim is later rejected or revoked. (Self-hosted deployments without a configured fee list for free.)
+- Providers we already work with can skip the fee with an invite code we share with them — entered during onboarding instead of paying.
 - Recurring platform fee: none.
 - Minimum volume or revenue commitment: none.
+- One listing covers your whole team: invite up to 10 crew members to the console.
 
 ## What you charge
 
@@ -22,6 +23,7 @@ Last updated: 2026-08-27
 - You keep your billed traffic less the gateway margin you accept.
 - The margin is a control in your console, not a fixed rate: raising the margin you accept improves your routing score, lowering it keeps more revenue per request.
 - An optional routing discount lowers your effective price in the routing election only, winning more traffic. It changes neither the public price developers pay nor what you're paid per token.
+- Margin and discount changes are filed like tariffs: they are reviewed by the LLM Gateway team and only reach routing once approved.
 - The console reports traffic, not amounts owed. Settlement — schedule, currency, minimums — is governed by a separate written agreement.
 
 ## How traffic is allocated

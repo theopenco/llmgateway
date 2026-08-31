@@ -167,29 +167,25 @@ function FareCard({
 		"put",
 		"/airside/routing-settings/{providerId}",
 		{
-			onSuccess: async (data) => {
+			onSuccess: async () => {
 				await queryClient.invalidateQueries({
 					queryKey: api.queryOptions("get", "/airside/routing-settings", {
 						params: { query: { providerCompanyId } },
 					}).queryKey,
 				});
-				const boost = data.settings.routingAdjustment;
 				toast.success(
-					boost < 0
-						? `Saved — dispatch now routes ${setting.providerId} as ${Math.round((1 + boost) * 100)}% of its price.`
-						: boost > 0
-							? "Saved — note that a raised landing fee prices you up in routing."
-							: "Saved — routing at neutral.",
+					"Fare change filed — it takes effect once our team approves it.",
 				);
 			},
 			onError: (error) => {
 				toast.error(
-					(error as { message?: string })?.message ?? "Failed to save fares",
+					(error as { message?: string })?.message ?? "Failed to file fares",
 				);
 			},
 		},
 	);
 
+	const pending = setting.pendingFiling;
 	const adjustment = baselineMargin - margin - discount;
 	const dirty =
 		discount !== setting.discountPercent || margin !== setting.marginPercent;
@@ -215,6 +211,22 @@ function FareCard({
 				</div>
 			</CardHeader>
 			<CardContent className="space-y-6">
+				{pending ? (
+					<div
+						className="border-primary/40 bg-primary/5 rounded-lg border p-3"
+						data-testid={`pending-fare-filing-${setting.providerId}`}
+					>
+						<p className="text-sm font-medium">Fare change awaiting approval</p>
+						<p className="text-muted-foreground mt-1 font-mono text-xs">
+							discount {formatPercent(pending.discountPercent)} · landing fee{" "}
+							{formatPercent(pending.marginPercent)}
+						</p>
+						<p className="text-muted-foreground mt-1 text-xs">
+							Our team reviews every fare change before it reaches dispatch.
+							Your live fares stay in effect until then.
+						</p>
+					</div>
+				) : null}
 				<div>
 					<div className="mb-2 flex items-baseline justify-between">
 						<span className="text-sm font-medium">Traffic discount</span>
@@ -227,6 +239,7 @@ function FareCard({
 						min={0}
 						max={50}
 						step={1}
+						disabled={!!pending}
 						data-testid="discount-slider"
 						onValueChange={([value]) => setDiscount(value / 100)}
 					/>
@@ -250,6 +263,7 @@ function FareCard({
 						min={5}
 						max={50}
 						step={1}
+						disabled={!!pending}
 						data-testid="margin-slider"
 						onValueChange={([value]) => setMargin(value / 100)}
 					/>
@@ -275,7 +289,7 @@ function FareCard({
 					<Button
 						size="sm"
 						className="font-semibold"
-						disabled={!dirty || update.isPending}
+						disabled={!!pending || !dirty || update.isPending}
 						data-testid={`save-fares-${setting.providerId}`}
 						onClick={() =>
 							update.mutate({
@@ -288,7 +302,11 @@ function FareCard({
 							})
 						}
 					>
-						{update.isPending ? "Saving…" : "Save fares"}
+						{pending
+							? "Awaiting approval"
+							: update.isPending
+								? "Filing…"
+								: "File fare change"}
 					</Button>
 				</div>
 			</CardContent>
@@ -394,8 +412,8 @@ export default function FaresPage() {
 						<p className="text-muted-foreground border-border border-t pt-3 text-xs">
 							Cost dominates: your fares, discount and landing fee all feed the
 							price score. Availability is next — sustained downtime carries an
-							extra penalty — then throughput and latency. Your sliders apply to
-							routing within minutes of saving.
+							extra penalty — then throughput and latency. Fare changes are
+							filed for review and reach dispatch within minutes of approval.
 						</p>
 					</CardContent>
 				</Card>

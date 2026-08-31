@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -11,6 +13,7 @@ import { verifiedWebsiteDomain } from "@/lib/airside-domains.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 
 import {
+	AIRSIDE_BASELINE_MARGIN,
 	and,
 	cdb,
 	computeAirsideAdjustment,
@@ -82,6 +85,61 @@ type FilingWithRelations = typeof tables.providerPriceFiling.$inferSelect & {
 	providerCompany: typeof tables.providerCompany.$inferSelect;
 };
 
+// A carrier's requested routing-knob change. Approving writes the values into
+// provider_routing_settings; nothing reaches the routing election before that.
+const adminRoutingFilingSchema = z.object({
+	id: z.string(),
+	providerId: z.string(),
+	status: z.enum(["pending", "approved", "rejected"]),
+	discountPercent: z.number(),
+	marginPercent: z.number(),
+	routingAdjustment: z.number(),
+	// The live values, for judging the delta under review.
+	currentDiscountPercent: z.number(),
+	currentMarginPercent: z.number(),
+	reviewNote: z.string().nullable(),
+	reviewedAt: z.string().nullable(),
+	createdAt: z.string(),
+	company: z.object({
+		id: z.string(),
+		name: z.string(),
+		website: z.string().nullable(),
+	}),
+});
+
+type RoutingFilingWithCompany =
+	typeof tables.providerRoutingFiling.$inferSelect & {
+		providerCompany: typeof tables.providerCompany.$inferSelect;
+	};
+
+function serializeAdminRoutingFiling(
+	row: RoutingFilingWithCompany,
+	current: typeof tables.providerRoutingSettings.$inferSelect | undefined,
+) {
+	const discountPercent = Number(row.discountPercent);
+	const marginPercent = Number(row.marginPercent);
+	return {
+		id: row.id,
+		providerId: row.providerId,
+		status: row.status,
+		discountPercent,
+		marginPercent,
+		routingAdjustment: computeAirsideAdjustment(discountPercent, marginPercent),
+		currentDiscountPercent: current ? Number(current.discountPercent) : 0,
+		currentMarginPercent: current
+			? Number(current.marginPercent)
+			: AIRSIDE_BASELINE_MARGIN,
+		reviewNote: row.reviewNote,
+		reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
+		createdAt: row.createdAt.toISOString(),
+		company: {
+			id: row.providerCompany.id,
+			name: row.providerCompany.name,
+			website: row.providerCompany.website,
+		},
+	};
+}
+
 /** Whether any static catalogue model claims this name as its id or alias. */
 function staticModelNameExists(modelName: string): boolean {
 	return catalogueModels.some(
@@ -148,10 +206,13 @@ const listFilings = createRoute({
 					schema: z.object({
 						filings: z.array(adminFilingSchema),
 						pendingCount: z.number(),
+						routingFilings: z.array(adminRoutingFilingSchema),
+						routingPendingCount: z.number(),
 					}),
 				},
 			},
-			description: "Airside price filings, oldest pending first.",
+			description:
+				"Airside price and fare-change filings, oldest pending first.",
 		},
 	},
 });
@@ -172,11 +233,41 @@ adminAirside.openapi(listFilings, async (c) => {
 		where: { status: { eq: "pending" } },
 		columns: { id: true },
 	});
+	const routingRows = await db.query.providerRoutingFiling.findMany({
+		where: query.status ? { status: { eq: query.status } } : undefined,
+		with: { providerCompany: true },
+		orderBy: { createdAt: "asc" },
+		limit: query.limit ?? 50,
+		offset: query.offset ?? 0,
+	});
+	const routingPending = await db.query.providerRoutingFiling.findMany({
+		where: { status: { eq: "pending" } },
+		columns: { id: true },
+	});
+	const currentSettings = routingRows.length
+		? await db.query.providerRoutingSettings.findMany({
+				where: {
+					providerId: {
+						in: [...new Set(routingRows.map((row) => row.providerId))],
+					},
+				},
+			})
+		: [];
+	const currentByProvider = new Map(
+		currentSettings.map((row) => [row.providerId, row]),
+	);
 	return c.json({
 		filings: rows.map((row) =>
 			serializeAdminFiling(row as FilingWithRelations),
 		),
 		pendingCount: pending.length,
+		routingFilings: routingRows.map((row) =>
+			serializeAdminRoutingFiling(
+				row as RoutingFilingWithCompany,
+				currentByProvider.get(row.providerId),
+			),
+		),
+		routingPendingCount: routingPending.length,
 	});
 });
 
@@ -685,6 +776,22 @@ adminAirside.openapi(revokeClaim, async (c) => {
 		await tx
 			.delete(tables.providerRoutingSettings)
 			.where(eq(tables.providerRoutingSettings.providerId, claim.providerId));
+		// A pending fare change would otherwise survive as a zombie and block
+		// the provider's next owner (one pending filing per provider).
+		await tx
+			.update(tables.providerRoutingFiling)
+			.set({
+				status: "rejected",
+				reviewedBy: user?.id ?? null,
+				reviewNote: "Carrier claim revoked",
+				reviewedAt: new Date(),
+			})
+			.where(
+				and(
+					eq(tables.providerRoutingFiling.providerId, claim.providerId),
+					eq(tables.providerRoutingFiling.status, "pending"),
+				),
+			);
 		// Revocation ends portal control entirely: the company's listings for
 		// this provider stop routing and stop accepting edits or filings.
 		const companyModels = await tx
@@ -923,4 +1030,328 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 			};
 		}),
 	});
+});
+
+// ---------------------------------------------------------------------------
+// Fare-change (routing) filings — approving one is what moves the knobs.
+// ---------------------------------------------------------------------------
+
+async function getPendingRoutingFiling(id: string) {
+	const filing = await db.query.providerRoutingFiling.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	if (!filing) {
+		throw new HTTPException(404, { message: "Filing not found" });
+	}
+	if (filing.status !== "pending") {
+		throw new HTTPException(409, {
+			message: "This filing has already been reviewed.",
+		});
+	}
+	return filing as RoutingFilingWithCompany;
+}
+
+async function serializeRoutingFilingWithCurrent(id: string) {
+	const filing = await db.query.providerRoutingFiling.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	const current = filing
+		? await db.query.providerRoutingSettings.findFirst({
+				where: { providerId: { eq: filing.providerId } },
+			})
+		: undefined;
+	return serializeAdminRoutingFiling(
+		filing as RoutingFilingWithCompany,
+		current,
+	);
+}
+
+const approveRoutingFiling = createRoute({
+	method: "post",
+	path: "/airside/routing-filings/{id}/approve",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ filing: adminRoutingFilingSchema }),
+				},
+			},
+			description:
+				"The approved filing. Its values are now the carrier's live routing settings.",
+		},
+	},
+});
+
+adminAirside.openapi(approveRoutingFiling, async (c) => {
+	const user = c.get("user");
+	const { id } = c.req.valid("param");
+	const filing = await getPendingRoutingFiling(id);
+	// cdb: the gateway prices the routing election from provider_routing_settings.
+	await cdb.transaction(async (tx) => {
+		const updated = await tx
+			.update(tables.providerRoutingFiling)
+			.set({
+				status: "approved",
+				reviewedBy: user?.id ?? null,
+				reviewedAt: new Date(),
+			})
+			.where(
+				and(
+					eq(tables.providerRoutingFiling.id, id),
+					eq(tables.providerRoutingFiling.status, "pending"),
+				),
+			)
+			.returning({ id: tables.providerRoutingFiling.id });
+		if (updated.length === 0) {
+			throw new HTTPException(409, {
+				message: "This filing has already been reviewed.",
+			});
+		}
+		// Upsert keyed on the provider's unique settings row; ownership is
+		// refreshed because the row can predate a change of hands.
+		await tx
+			.insert(tables.providerRoutingSettings)
+			.values({
+				providerId: filing.providerId,
+				providerCompanyId: filing.providerCompanyId,
+				discountPercent: filing.discountPercent,
+				marginPercent: filing.marginPercent,
+			})
+			.onConflictDoUpdate({
+				target: tables.providerRoutingSettings.providerId,
+				set: {
+					providerCompanyId: filing.providerCompanyId,
+					discountPercent: filing.discountPercent,
+					marginPercent: filing.marginPercent,
+				},
+			});
+	});
+	return c.json({ filing: await serializeRoutingFilingWithCurrent(id) });
+});
+
+const rejectRoutingFiling = createRoute({
+	method: "post",
+	path: "/airside/routing-filings/{id}/reject",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						reviewNote: z.string().max(1000).optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ filing: adminRoutingFilingSchema }),
+				},
+			},
+			description: "The rejected filing. Live routing settings are untouched.",
+		},
+	},
+});
+
+adminAirside.openapi(rejectRoutingFiling, async (c) => {
+	const user = c.get("user");
+	const { id } = c.req.valid("param");
+	const { reviewNote } = c.req.valid("json");
+	await getPendingRoutingFiling(id);
+	const updated = await db
+		.update(tables.providerRoutingFiling)
+		.set({
+			status: "rejected",
+			reviewedBy: user?.id ?? null,
+			reviewNote: reviewNote ?? null,
+			reviewedAt: new Date(),
+		})
+		.where(
+			and(
+				eq(tables.providerRoutingFiling.id, id),
+				eq(tables.providerRoutingFiling.status, "pending"),
+			),
+		)
+		.returning({ id: tables.providerRoutingFiling.id });
+	if (updated.length === 0) {
+		throw new HTTPException(409, {
+			message: "This filing has already been reviewed.",
+		});
+	}
+	return c.json({ filing: await serializeRoutingFilingWithCurrent(id) });
+});
+
+// ---------------------------------------------------------------------------
+// Listing invite codes — minted here, redeemed in the carrier onboarding to
+// skip the listing fee.
+// ---------------------------------------------------------------------------
+
+const adminInviteCodeSchema = z.object({
+	id: z.string(),
+	code: z.string(),
+	note: z.string().nullable(),
+	maxUses: z.number(),
+	usedCount: z.number(),
+	revokedAt: z.string().nullable(),
+	createdAt: z.string(),
+	// Companies that redeemed this code.
+	redeemedBy: z.array(z.object({ id: z.string(), name: z.string() })),
+});
+
+// No ambiguous characters (0/O, 1/I/L) — codes get read out loud.
+const INVITE_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+
+function generateInviteCode(): string {
+	const bytes = randomBytes(8);
+	const chars = Array.from(bytes, (byte) =>
+		INVITE_CODE_ALPHABET.charAt(byte % INVITE_CODE_ALPHABET.length),
+	);
+	return `AIR-${chars.slice(0, 4).join("")}-${chars.slice(4).join("")}`;
+}
+
+function serializeInviteCode(
+	row: typeof tables.airsideInviteCode.$inferSelect,
+	redeemedBy: { id: string; name: string }[],
+) {
+	return {
+		id: row.id,
+		code: row.code,
+		note: row.note,
+		maxUses: row.maxUses,
+		usedCount: row.usedCount,
+		revokedAt: row.revokedAt ? row.revokedAt.toISOString() : null,
+		createdAt: row.createdAt.toISOString(),
+		redeemedBy,
+	};
+}
+
+const listInviteCodes = createRoute({
+	method: "get",
+	path: "/airside/invite-codes",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ codes: z.array(adminInviteCodeSchema) }),
+				},
+			},
+			description: "Listing invite codes, newest first.",
+		},
+	},
+});
+
+adminAirside.openapi(listInviteCodes, async (c) => {
+	const rows = await db.query.airsideInviteCode.findMany({
+		orderBy: { createdAt: "desc" },
+		limit: 200,
+	});
+	const codes = rows.map((row) => row.code);
+	const redeemers = codes.length
+		? await db.query.providerCompany.findMany({
+				where: { listingInviteCode: { in: codes } },
+				columns: { id: true, name: true, listingInviteCode: true },
+			})
+		: [];
+	return c.json({
+		codes: rows.map((row) =>
+			serializeInviteCode(
+				row,
+				redeemers
+					.filter((company) => company.listingInviteCode === row.code)
+					.map((company) => ({ id: company.id, name: company.name })),
+			),
+		),
+	});
+});
+
+const createInviteCode = createRoute({
+	method: "post",
+	path: "/airside/invite-codes",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						note: z.string().max(200).optional(),
+						maxUses: z.number().int().min(1).max(100).default(1),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({ code: adminInviteCodeSchema }),
+				},
+			},
+			description: "The freshly minted invite code.",
+		},
+	},
+});
+
+adminAirside.openapi(createInviteCode, async (c) => {
+	const user = c.get("user");
+	const { note, maxUses } = c.req.valid("json");
+	const [row] = await db
+		.insert(tables.airsideInviteCode)
+		.values({
+			code: generateInviteCode(),
+			note: note ?? null,
+			maxUses,
+			createdBy: user?.id ?? null,
+		})
+		.returning();
+	return c.json({ code: serializeInviteCode(row, []) }, 201);
+});
+
+const revokeInviteCode = createRoute({
+	method: "post",
+	path: "/airside/invite-codes/{id}/revoke",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ code: adminInviteCodeSchema }),
+				},
+			},
+			description: "The revoked code. It can no longer be redeemed.",
+		},
+	},
+});
+
+adminAirside.openapi(revokeInviteCode, async (c) => {
+	const { id } = c.req.valid("param");
+	const [row] = await db
+		.update(tables.airsideInviteCode)
+		.set({ revokedAt: new Date() })
+		.where(
+			and(
+				eq(tables.airsideInviteCode.id, id),
+				sql`${tables.airsideInviteCode.revokedAt} IS NULL`,
+			),
+		)
+		.returning();
+	if (!row) {
+		throw new HTTPException(404, {
+			message: "Invite code not found or already revoked.",
+		});
+	}
+	const redeemers = await db.query.providerCompany.findMany({
+		where: { listingInviteCode: { eq: row.code } },
+		columns: { id: true, name: true },
+	});
+	return c.json({ code: serializeInviteCode(row, redeemers) });
 });

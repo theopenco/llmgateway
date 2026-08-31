@@ -146,6 +146,11 @@ export default function TermsPage() {
 				to approval, to any level of traffic, or to any minimum revenue.
 			</p>
 			<p>
+				We may waive the fee at our discretion, including through invite codes
+				we issue to providers we already work with. A waived fee confers the
+				same rights, and no more, than a paid one.
+			</p>
+			<p>
 				Self-hosted and non-commercial deployments of LLM Gateway may run
 				without a listing fee configured; in that case no fee is charged and
 				this section does not apply.
@@ -220,10 +225,12 @@ export default function TermsPage() {
 				which overrides automatic selection entirely.
 			</p>
 			<p>
-				The discount and margin controls in the console take effect immediately
-				and apply prospectively to requests routed after the change. They change
-				how your models are scored and what you are paid; they do not change
-				prices already billed.
+				Changes to the discount and margin controls in the console are filed for
+				review, like tariff filings, and take effect only once we approve them;
+				your previously effective values remain in force until then. Approved
+				changes apply prospectively to requests routed after the change. They
+				change how your models are scored and what you are paid; they do not
+				change prices already billed.
 			</p>
 			<hr />
 

@@ -78,6 +78,57 @@ async function activateClaim(providerId = "mistral") {
 		.where(eq(tables.providerClaim.providerId, providerId));
 }
 
+// Fast-path for tests that aren't about the fare-change approval flow itself.
+async function setRoutingSettings(
+	providerCompanyId: string,
+	providerId: string,
+	discountPercent: number,
+	marginPercent: number,
+) {
+	await db
+		.insert(tables.providerRoutingSettings)
+		.values({
+			providerCompanyId,
+			providerId,
+			discountPercent: String(discountPercent),
+			marginPercent: String(marginPercent),
+		})
+		.onConflictDoUpdate({
+			target: tables.providerRoutingSettings.providerId,
+			set: {
+				providerCompanyId,
+				discountPercent: String(discountPercent),
+				marginPercent: String(marginPercent),
+			},
+		});
+}
+
+// A second account sharing the fixture password, for crew/membership tests.
+async function createSecondUser(email: string) {
+	const id = `crew-${email.replace(/[^a-z0-9]/gi, "-")}`;
+	await db.insert(tables.user).values({
+		id,
+		name: "Crew Member",
+		email,
+		emailVerified: true,
+	});
+	await db.insert(tables.account).values({
+		id: `${id}-account`,
+		providerId: "credential",
+		accountId: `${id}-account`,
+		userId: id,
+		password:
+			"c11ef27a7f9264be08db228ebb650888:a4d985a9c6bd98608237fd507534424950aa7fc255930d972242b81cbe78594f8568feb0d067e95ddf7be242ad3e9d013f695f4414fce68bfff091079f1dc460",
+	});
+	const auth = await app.request("/auth/sign-in/email", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ email, password: "admin@example.com1A" }),
+	});
+	expect(auth.status).toBe(200);
+	return auth.headers.get("set-cookie")!;
+}
+
 async function createModel(
 	cookie: string,
 	providerCompanyId: string,
@@ -698,6 +749,7 @@ describe("airside provider portal", () => {
 	});
 
 	it("keeps carrier settings independent of admin prioritization", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
@@ -711,7 +763,7 @@ describe("airside provider portal", () => {
 			reason: "manual penalty",
 		});
 
-		const updated = await app.request(
+		const filed = await app.request(
 			"/airside/routing-settings/mistral",
 			json(
 				cookie,
@@ -723,10 +775,15 @@ describe("airside provider portal", () => {
 				"PUT",
 			),
 		);
-		expect(updated.status).toBe(200);
-		const { settings } = await updated.json();
+		expect(filed.status).toBe(201);
+		const { filing } = await filed.json();
+		const approved = await app.request(
+			`/admin/airside/routing-filings/${filing.id}/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
 		// 0.2 (baseline) - 0.3 (margin) - 0.2 (discount) = -0.3
-		expect(settings.routingAdjustment).toBeCloseTo(-0.3);
+		expect((await approved.json()).filing.routingAdjustment).toBeCloseTo(-0.3);
 
 		// The admin row is untouched, and no airside row was mirrored in.
 		const multipliers = await db.query.routingScoreMultiplier.findMany({
@@ -748,19 +805,8 @@ describe("airside provider portal", () => {
 		);
 		expect(approved.status).toBe(200);
 
-		// Give the carrier a live boost first.
-		await app.request(
-			"/airside/routing-settings/mistral",
-			json(
-				cookie,
-				{
-					providerCompanyId: company.id,
-					discountPercent: 0.1,
-					marginPercent: 0.3,
-				},
-				"PUT",
-			),
-		);
+		// Give the carrier a live boost first (fast-path, not the filing flow).
+		await setRoutingSettings(company.id, "mistral", 0.1, 0.3);
 		// Carrier settings never touch routing_score_multiplier.
 		expect(
 			await db.query.routingScoreMultiplier.findFirst({
@@ -812,7 +858,8 @@ describe("airside provider portal", () => {
 		expect(again.status).toBe(409);
 	});
 
-	it("updates routing settings without touching multipliers", async () => {
+	it("runs fare changes through the admin approval queue", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
@@ -829,11 +876,12 @@ describe("airside provider portal", () => {
 			marginPercent: 0.2,
 			discountPercent: 0,
 			routingAdjustment: 0,
+			pendingFiling: null,
 		});
 
 		// Accepting a larger gateway margin + a discount → negative adjustment
-		// (routing boost): 0.2 − 0.3 − 0.1 = −0.2.
-		const updated = await app.request(
+		// (routing boost): 0.2 − 0.3 − 0.1 = −0.2 — but only as a pending filing.
+		const filed = await app.request(
 			"/airside/routing-settings/mistral",
 			json(
 				cookie,
@@ -845,10 +893,65 @@ describe("airside provider portal", () => {
 				"PUT",
 			),
 		);
-		expect(updated.status).toBe(200);
-		const { settings } = await updated.json();
-		expect(settings.routingAdjustment).toBeCloseTo(-0.2);
+		expect(filed.status).toBe(201);
+		const { filing } = await filed.json();
+		expect(filing.status).toBe("pending");
+		expect(filing.routingAdjustment).toBeCloseTo(-0.2);
 
+		// Nothing is live yet, and the portal shows the pending filing.
+		expect(
+			await db.query.providerRoutingSettings.findFirst({
+				where: { providerId: { eq: "mistral" } },
+			}),
+		).toBeFalsy();
+		const whilePending = await app.request(
+			`/airside/routing-settings?providerCompanyId=${company.id}`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect((await whilePending.json()).settings[0]).toMatchObject({
+			marginPercent: 0.2,
+			pendingFiling: expect.objectContaining({ id: filing.id }),
+		});
+
+		// One fare change in flight per provider.
+		const doubled = await app.request(
+			"/airside/routing-settings/mistral",
+			json(
+				cookie,
+				{
+					providerCompanyId: company.id,
+					discountPercent: 0.2,
+					marginPercent: 0.3,
+				},
+				"PUT",
+			),
+		);
+		expect(doubled.status).toBe(409);
+
+		// The admin queue lists it with the live values alongside.
+		const queue = await app.request("/admin/airside/filings?status=pending", {
+			headers: { Cookie: cookie },
+		});
+		const queueBody = await queue.json();
+		expect(queueBody.routingPendingCount).toBe(1);
+		expect(queueBody.routingFilings[0]).toMatchObject({
+			id: filing.id,
+			providerId: "mistral",
+			currentDiscountPercent: 0,
+			currentMarginPercent: 0.2,
+		});
+
+		// Approval applies the values to the live routing settings.
+		const approved = await app.request(
+			`/admin/airside/routing-filings/${filing.id}/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+		const stored = await db.query.providerRoutingSettings.findFirst({
+			where: { providerId: { eq: "mistral" } },
+		});
+		expect(Number(stored!.marginPercent)).toBeCloseTo(0.3);
+		expect(Number(stored!.discountPercent)).toBeCloseTo(0.1);
 		// The adjustment lives only in provider_routing_settings — no
 		// routing_score_multiplier row is mirrored in.
 		expect(
@@ -856,29 +959,70 @@ describe("airside provider portal", () => {
 				where: { provider: { eq: "mistral" } },
 			}),
 		).toBeFalsy();
+		// Re-review conflicts.
+		expect(
+			(
+				await app.request(
+					`/admin/airside/routing-filings/${filing.id}/approve`,
+					json(cookie),
+				)
+			).status,
+		).toBe(409);
 
-		const stored = await db.query.providerRoutingSettings.findFirst({
-			where: { providerId: { eq: "mistral" } },
-		});
-		expect(Number(stored!.marginPercent)).toBeCloseTo(0.3);
-		expect(Number(stored!.discountPercent)).toBeCloseTo(0.1);
-
-		const neutral = await app.request(
+		// Filing the live values again is a no-op request.
+		const noop = await app.request(
 			"/airside/routing-settings/mistral",
 			json(
 				cookie,
 				{
 					providerCompanyId: company.id,
-					discountPercent: 0,
-					marginPercent: 0.2,
+					discountPercent: 0.1,
+					marginPercent: 0.3,
 				},
 				"PUT",
 			),
 		);
-		expect(neutral.status).toBe(200);
-		expect((await neutral.json()).settings.routingAdjustment).toBe(0);
+		expect(noop.status).toBe(400);
 
-		// Out-of-bounds margins are rejected.
+		// A rejected filing leaves the live settings untouched.
+		const secondFiled = await app.request(
+			"/airside/routing-settings/mistral",
+			json(
+				cookie,
+				{
+					providerCompanyId: company.id,
+					discountPercent: 0.3,
+					marginPercent: 0.4,
+				},
+				"PUT",
+			),
+		);
+		expect(secondFiled.status).toBe(201);
+		const secondFiling = (await secondFiled.json()).filing;
+		const rejected = await app.request(
+			`/admin/airside/routing-filings/${secondFiling.id}/reject`,
+			json(cookie, { reviewNote: "Too aggressive" }),
+		);
+		expect(rejected.status).toBe(200);
+		const afterReject = await db.query.providerRoutingSettings.findFirst({
+			where: { providerId: { eq: "mistral" } },
+		});
+		expect(Number(afterReject!.marginPercent)).toBeCloseTo(0.3);
+
+		// The carrier's filing history carries the outcome and the note.
+		const history = await app.request(
+			`/airside/filings?providerCompanyId=${company.id}`,
+			{ headers: { Cookie: cookie } },
+		);
+		const { routingFilings } = await history.json();
+		expect(routingFilings).toHaveLength(2);
+		expect(routingFilings[0]).toMatchObject({
+			id: secondFiling.id,
+			status: "rejected",
+			reviewNote: "Too aggressive",
+		});
+
+		// Out-of-bounds margins are rejected outright.
 		const outOfBounds = await app.request(
 			"/airside/routing-settings/mistral",
 			json(
@@ -900,18 +1044,7 @@ describe("airside provider portal", () => {
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
 		await activateClaim();
-		await app.request(
-			"/airside/routing-settings/mistral",
-			json(
-				cookie,
-				{
-					providerCompanyId: company.id,
-					discountPercent: 0.1,
-					marginPercent: 0.3,
-				},
-				"PUT",
-			),
-		);
+		await setRoutingSettings(company.id, "mistral", 0.1, 0.3);
 
 		// Accrued margin comes from the daily global rollups: one day inside the
 		// 30-day window, one outside.
@@ -1381,5 +1514,222 @@ describe("airside provider portal", () => {
 			where: { id: { eq: "acme-sky" } },
 		});
 		expect(goneRow).toBeFalsy();
+	});
+
+	it("waives the listing fee with an admin-minted invite code", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		process.env.AIRSIDE_LISTING_PRICE_ID = "price_test_airside";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+
+		// Admin mints a single-use code.
+		const minted = await app.request(
+			"/admin/airside/invite-codes",
+			json(cookie, { note: "Mistral partnership", maxUses: 1 }),
+		);
+		expect(minted.status).toBe(201);
+		const { code } = await minted.json();
+		expect(code.code).toMatch(/^AIR-[2-9A-HJKMNP-Z]{4}-[2-9A-HJKMNP-Z]{4}$/);
+		expect(code.maxUses).toBe(1);
+
+		// Claims stay gated while the fee is unpaid.
+		const gated = await app.request(
+			"/airside/claims",
+			json(cookie, { providerCompanyId: company.id, providerId: "mistral" }),
+		);
+		expect(gated.status).toBe(402);
+
+		// A wrong code is rejected; the right one clears the fee.
+		const wrong = await app.request(
+			`/airside/companies/${company.id}/invite-code`,
+			json(cookie, { code: "AIR-NOPE-NOPE" }),
+		);
+		expect(wrong.status).toBe(400);
+		const redeemed = await app.request(
+			`/airside/companies/${company.id}/invite-code`,
+			json(cookie, { code: code.code.toLowerCase() }),
+		);
+		expect(redeemed.status).toBe(200);
+
+		const companies = await app.request("/airside/companies", {
+			headers: { Cookie: cookie },
+		});
+		expect((await companies.json()).companies[0]).toMatchObject({
+			paymentStatus: "paid",
+			listingInviteCodeUsed: true,
+			listingFeeAmount: null,
+		});
+		const claimed = await app.request(
+			"/airside/claims",
+			json(cookie, { providerCompanyId: company.id, providerId: "mistral" }),
+		);
+		expect(claimed.status).toBe(201);
+
+		// Re-redeeming on a settled company conflicts.
+		const again = await app.request(
+			`/airside/companies/${company.id}/invite-code`,
+			json(cookie, { code: code.code }),
+		);
+		expect(again.status).toBe(409);
+
+		// The single use is spent — a second company cannot redeem it.
+		const second = await createCompany(cookie, "Mistral EU");
+		const exhausted = await app.request(
+			`/airside/companies/${second.id}/invite-code`,
+			json(cookie, { code: code.code }),
+		);
+		expect(exhausted.status).toBe(400);
+
+		// The admin listing shows usage and the redeeming company.
+		const listed = await app.request("/admin/airside/invite-codes", {
+			headers: { Cookie: cookie },
+		});
+		const listedBody = await listed.json();
+		expect(listedBody.codes[0]).toMatchObject({
+			code: code.code,
+			usedCount: 1,
+			redeemedBy: [expect.objectContaining({ name: "Mistral Ops" })],
+		});
+
+		// A revoked code stops redeeming even with uses left.
+		const minted2 = await app.request(
+			"/admin/airside/invite-codes",
+			json(cookie, { maxUses: 5 }),
+		);
+		const code2 = (await minted2.json()).code;
+		const revoked = await app.request(
+			`/admin/airside/invite-codes/${code2.id}/revoke`,
+			json(cookie),
+		);
+		expect(revoked.status).toBe(200);
+		const afterRevoke = await app.request(
+			`/airside/companies/${second.id}/invite-code`,
+			json(cookie, { code: code2.code }),
+		);
+		expect(afterRevoke.status).toBe(400);
+	});
+
+	it("manages the crew: invites, cap, domain rule, removal", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+
+		// A teammate with an existing account attaches immediately.
+		const teammateCookie = await createSecondUser("pilot@mistral.ai");
+		const direct = await app.request(
+			`/airside/companies/${company.id}/members`,
+			json(cookie, { email: "Pilot@mistral.ai" }),
+		);
+		expect(direct.status).toBe(201);
+		const directBody = await direct.json();
+		expect(directBody.member).toMatchObject({
+			email: "pilot@mistral.ai",
+			role: "member",
+		});
+		expect(directBody.invite).toBeNull();
+
+		// The teammate sees the company; a stranger's crew endpoints 404.
+		const theirCompanies = await app.request("/airside/companies", {
+			headers: { Cookie: teammateCookie },
+		});
+		expect((await theirCompanies.json()).companies).toHaveLength(1);
+
+		// Members cannot invite — owners only.
+		const memberInvite = await app.request(
+			`/airside/companies/${company.id}/members`,
+			json(teammateCookie, { email: "third@mistral.ai" }),
+		);
+		expect(memberInvite.status).toBe(403);
+
+		// Off-domain invites are refused.
+		const offDomain = await app.request(
+			`/airside/companies/${company.id}/members`,
+			json(cookie, { email: "friend@gmail.com" }),
+		);
+		expect(offDomain.status).toBe(400);
+
+		// An unknown email becomes a pending invite…
+		const invited = await app.request(
+			`/airside/companies/${company.id}/members`,
+			json(cookie, { email: "copilot@mistral.ai" }),
+		);
+		expect(invited.status).toBe(201);
+		const invitedBody = await invited.json();
+		expect(invitedBody.member).toBeNull();
+		expect(invitedBody.invite).toMatchObject({ email: "copilot@mistral.ai" });
+		// …and inviting the same address twice conflicts.
+		expect(
+			(
+				await app.request(
+					`/airside/companies/${company.id}/members`,
+					json(cookie, { email: "copilot@mistral.ai" }),
+				)
+			).status,
+		).toBe(409);
+
+		// The invitee signs up later and is attached on their first listing.
+		const copilotCookie = await createSecondUser("copilot@mistral.ai");
+		const attached = await app.request("/airside/companies", {
+			headers: { Cookie: copilotCookie },
+		});
+		expect((await attached.json()).companies).toHaveLength(1);
+
+		const crew = await app.request(`/airside/companies/${company.id}/members`, {
+			headers: { Cookie: cookie },
+		});
+		const crewBody = await crew.json();
+		expect(crewBody.viewerRole).toBe("owner");
+		expect(crewBody.limit).toBe(10);
+		expect(crewBody.members).toHaveLength(3);
+		expect(crewBody.invites).toHaveLength(0);
+
+		// The cap counts members plus pending invites.
+		for (let i = 0; i < 7; i++) {
+			const fill = await app.request(
+				`/airside/companies/${company.id}/members`,
+				json(cookie, { email: `crew${i}@mistral.ai` }),
+			);
+			expect(fill.status).toBe(201);
+		}
+		const overflow = await app.request(
+			`/airside/companies/${company.id}/members`,
+			json(cookie, { email: "one-too-many@mistral.ai" }),
+		);
+		expect(overflow.status).toBe(400);
+
+		// Owners can revoke pending invites and remove members — not owners.
+		const crewNow = await app.request(
+			`/airside/companies/${company.id}/members`,
+			{ headers: { Cookie: cookie } },
+		);
+		const crewNowBody = await crewNow.json();
+		const pendingInvite = crewNowBody.invites[0];
+		const revoked = await app.request(
+			`/airside/companies/${company.id}/invites/${pendingInvite.id}`,
+			{ method: "DELETE", headers: { Cookie: cookie } },
+		);
+		expect(revoked.status).toBe(200);
+		const pilot = crewNowBody.members.find(
+			(m: { email: string }) => m.email === "pilot@mistral.ai",
+		);
+		const removed = await app.request(
+			`/airside/companies/${company.id}/members/${pilot.id}`,
+			{ method: "DELETE", headers: { Cookie: cookie } },
+		);
+		expect(removed.status).toBe(200);
+		const owner = crewNowBody.members.find(
+			(m: { role: string }) => m.role === "owner",
+		);
+		const ownerRemoval = await app.request(
+			`/airside/companies/${company.id}/members/${owner.id}`,
+			{ method: "DELETE", headers: { Cookie: cookie } },
+		);
+		expect(ownerRemoval.status).toBe(400);
+
+		// The removed teammate no longer sees the company.
+		const afterRemoval = await app.request("/airside/companies", {
+			headers: { Cookie: teammateCookie },
+		});
+		expect((await afterRemoval.json()).companies).toHaveLength(0);
 	});
 });

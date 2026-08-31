@@ -49,7 +49,7 @@ const STEPS = [
 	{
 		icon: Radar,
 		title: "Win traffic",
-		body: "Watch your routes fill. Slide your landing fee and discount, and dispatch starts routing more passengers through your gates.",
+		body: "Watch your routes fill. File a landing fee or discount change, and once cleared, dispatch routes more passengers through your gates.",
 	},
 ];
 
@@ -313,7 +313,7 @@ export default function LandingPage() {
 								{
 									icon: SlidersHorizontal,
 									title: "You set the economics",
-									body: "Slide your discount and the landing fee you accept; the routing boost applies immediately.",
+									body: "Slide your discount and the landing fee you accept; fare changes clear our approval queue, then move routing.",
 								},
 								{
 									icon: Gauge,

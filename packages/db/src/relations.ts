@@ -739,6 +739,20 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.providerCompany.id,
 			to: r.providerRoutingSettings.providerCompanyId,
 		}),
+		invites: r.many.providerCompanyInvite({
+			from: r.providerCompany.id,
+			to: r.providerCompanyInvite.providerCompanyId,
+		}),
+		routingFilings: r.many.providerRoutingFiling({
+			from: r.providerCompany.id,
+			to: r.providerRoutingFiling.providerCompanyId,
+		}),
+	},
+	providerCompanyInvite: {
+		providerCompany: r.one.providerCompany({
+			from: r.providerCompanyInvite.providerCompanyId,
+			to: r.providerCompany.id,
+		}),
 	},
 	providerCompanyMember: {
 		providerCompany: r.one.providerCompany({
@@ -779,6 +793,12 @@ export const relations = defineRelations(schema, (r) => ({
 	providerRoutingSettings: {
 		providerCompany: r.one.providerCompany({
 			from: r.providerRoutingSettings.providerCompanyId,
+			to: r.providerCompany.id,
+		}),
+	},
+	providerRoutingFiling: {
+		providerCompany: r.one.providerCompany({
+			from: r.providerRoutingFiling.providerCompanyId,
 			to: r.providerCompany.id,
 		}),
 	},

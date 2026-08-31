@@ -63,6 +63,7 @@ export default function FilingsPage() {
 	}
 
 	const filings = filingsQuery.data?.filings ?? [];
+	const routingFilings = filingsQuery.data?.routingFilings ?? [];
 
 	return (
 		<div className="space-y-6" data-testid="filings-page">
@@ -71,7 +72,7 @@ export default function FilingsPage() {
 					Tariff office
 				</p>
 				<h1 className="font-display text-3xl font-black tracking-tight">
-					Price filings
+					Filings
 				</h1>
 			</div>
 
@@ -130,6 +131,65 @@ export default function FilingsPage() {
 										</TableCell>
 										<TableCell className="text-muted-foreground max-w-56 truncate text-xs">
 											{filing.reviewNote ?? filing.note ?? "—"}
+										</TableCell>
+									</TableRow>
+								))}
+							</TableBody>
+						</Table>
+					)}
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle className="font-display">Fare-change filings</CardTitle>
+					<CardDescription>
+						Requested changes to your routing discount and landing fee — each
+						one needs the regulator's approval before it reaches dispatch.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					{routingFilings.length === 0 ? (
+						<p className="text-muted-foreground text-sm">
+							No fare changes filed yet. File one from the Fares page.
+						</p>
+					) : (
+						<Table data-testid="routing-filings-table">
+							<TableHeader>
+								<TableRow>
+									<TableHead>Carrier</TableHead>
+									<TableHead className="text-right">Discount</TableHead>
+									<TableHead className="text-right">Landing fee</TableHead>
+									<TableHead>Status</TableHead>
+									<TableHead>Filed</TableHead>
+									<TableHead>Note</TableHead>
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{routingFilings.map((filing) => (
+									<TableRow key={filing.id}>
+										<TableCell className="font-mono">
+											{filing.providerId}
+										</TableCell>
+										<TableCell className="text-right font-mono">
+											{Math.round(filing.discountPercent * 100)}%
+										</TableCell>
+										<TableCell className="text-right font-mono">
+											{Math.round(filing.marginPercent * 100)}%
+										</TableCell>
+										<TableCell>
+											<Badge variant={STATUS_VARIANT[filing.status]}>
+												{filing.status}
+											</Badge>
+										</TableCell>
+										<TableCell className="text-muted-foreground font-mono text-xs">
+											{new Date(filing.createdAt).toLocaleDateString("en-US", {
+												month: "short",
+												day: "numeric",
+											})}
+										</TableCell>
+										<TableCell className="text-muted-foreground max-w-56 truncate text-xs">
+											{filing.reviewNote ?? "—"}
 										</TableCell>
 									</TableRow>
 								))}

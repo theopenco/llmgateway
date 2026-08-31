@@ -65,6 +65,26 @@ export function airsideListingFeeRequired(): boolean {
 	return Boolean(process.env.AIRSIDE_LISTING_PRICE_ID);
 }
 
+// The advertised fee comes straight from the configured Stripe price, so the
+// portal can never display a number Stripe would not actually charge.
+async function getListingFeeAmount(): Promise<number | null> {
+	const priceId = process.env.AIRSIDE_LISTING_PRICE_ID;
+	if (!priceId) {
+		return null;
+	}
+	try {
+		const price = await getStripe().prices.retrieve(priceId);
+		return price.unit_amount !== null ? price.unit_amount / 100 : null;
+	} catch {
+		// An unconfigured or unreachable Stripe degrades to "amount unknown"
+		// instead of breaking onboarding — checkout still enforces the price.
+		return null;
+	}
+}
+
+// Crew size cap: the owner plus invited teammates, pending invites included.
+export const AIRSIDE_CREW_MAX = 10;
+
 // Uploaded branding is stored inline as data URLs; keep them small. SVG only:
 // vector marks scale cleanly everywhere the branding renders (cards, hero,
 // OG images), and one accepted format keeps review simple.
@@ -142,8 +162,27 @@ const companySchema = z.object({
 	paymentStatus: z.enum(["unpaid", "paid"]),
 	// Whether this deployment enforces the listing fee at all.
 	paymentRequired: z.boolean(),
+	// The fee in USD, read from the Stripe price. Null when no fee is
+	// configured, when it is already settled, or when Stripe is unreachable.
+	listingFeeAmount: z.number().nullable(),
+	// True when the fee was waived with an invite code rather than paid.
+	listingInviteCodeUsed: z.boolean(),
 	createdAt: z.string(),
 	claims: z.array(claimSchema),
+});
+
+const crewMemberSchema = z.object({
+	id: z.string(),
+	role: z.enum(["owner", "member"]),
+	email: z.string(),
+	name: z.string().nullable(),
+	createdAt: z.string(),
+});
+
+const crewInviteSchema = z.object({
+	id: z.string(),
+	email: z.string(),
+	createdAt: z.string(),
 });
 
 const filingSchema = z.object({
@@ -192,6 +231,19 @@ const modelSchema = z.object({
 	pendingFiling: filingSchema.nullable(),
 });
 
+const routingFilingSchema = z.object({
+	id: z.string(),
+	providerCompanyId: z.string(),
+	providerId: z.string(),
+	discountPercent: z.number(),
+	marginPercent: z.number(),
+	routingAdjustment: z.number(),
+	status: z.enum(["pending", "approved", "rejected"]),
+	reviewNote: z.string().nullable(),
+	reviewedAt: z.string().nullable(),
+	createdAt: z.string(),
+});
+
 const routingSettingsSchema = z.object({
 	providerId: z.string(),
 	providerCompanyId: z.string(),
@@ -202,7 +254,28 @@ const routingSettingsSchema = z.object({
 	// directly; admin provider prioritization is a separate internal knob.
 	routingAdjustment: z.number(),
 	updatedAt: z.string().nullable(),
+	// The fare change awaiting admin approval, if any.
+	pendingFiling: routingFilingSchema.nullable(),
 });
+
+type RoutingFilingRow = typeof tables.providerRoutingFiling.$inferSelect;
+
+function serializeRoutingFiling(row: RoutingFilingRow) {
+	const discountPercent = Number(row.discountPercent);
+	const marginPercent = Number(row.marginPercent);
+	return {
+		id: row.id,
+		providerCompanyId: row.providerCompanyId,
+		providerId: row.providerId,
+		discountPercent,
+		marginPercent,
+		routingAdjustment: computeAirsideAdjustment(discountPercent, marginPercent),
+		status: row.status,
+		reviewNote: row.reviewNote,
+		reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
+		createdAt: row.createdAt.toISOString(),
+	};
+}
 
 type ProviderClaimRow = typeof tables.providerClaim.$inferSelect;
 type PriceFilingRow = typeof tables.providerPriceFiling.$inferSelect;
@@ -426,8 +499,55 @@ const listCompanies = createRoute({
 	},
 });
 
+/**
+ * Attach crew invites addressed to this verified email: the invitee just
+ * signs up and opens the portal — no invite-email round trip. Safe to run on
+ * every listing; the pending status and unique member index make it a no-op
+ * after the first time.
+ */
+async function attachPendingCrewInvites(user: {
+	id: string;
+	email: string;
+	emailVerified: boolean;
+}) {
+	if (!user.emailVerified) {
+		return;
+	}
+	const invites = await db.query.providerCompanyInvite.findMany({
+		where: {
+			email: { eq: user.email.toLowerCase() },
+			status: { eq: "pending" },
+		},
+	});
+	for (const invite of invites) {
+		try {
+			await db.transaction(async (tx) => {
+				await tx.insert(tables.providerCompanyMember).values({
+					providerCompanyId: invite.providerCompanyId,
+					userId: user.id,
+					role: "member",
+				});
+				await tx
+					.update(tables.providerCompanyInvite)
+					.set({ status: "accepted", acceptedAt: new Date() })
+					.where(eq(tables.providerCompanyInvite.id, invite.id));
+			});
+		} catch (err) {
+			if (!isUniqueViolation(err)) {
+				throw err;
+			}
+			// Already a member — settle the invite anyway.
+			await db
+				.update(tables.providerCompanyInvite)
+				.set({ status: "accepted", acceptedAt: new Date() })
+				.where(eq(tables.providerCompanyInvite.id, invite.id));
+		}
+	}
+}
+
 airside.openapi(listCompanies, async (c) => {
 	const user = requireUser(c.get("user"));
+	await attachPendingCrewInvites(user);
 	const memberships = await db.query.providerCompanyMember.findMany({
 		where: { userId: { eq: user.id } },
 		with: { providerCompany: { with: { claims: true } } },
@@ -441,6 +561,13 @@ airside.openapi(listCompanies, async (c) => {
 			),
 		),
 	]);
+	// Only fetch the Stripe amount while someone still has the fee ahead of
+	// them — the paid state never renders it.
+	const feeAmount =
+		airsideListingFeeRequired() &&
+		memberships.some((m) => m.providerCompany?.paymentStatus === "unpaid")
+			? await getListingFeeAmount()
+			: null;
 	return c.json({
 		companies: memberships.flatMap((m) => {
 			const company = m.providerCompany;
@@ -460,6 +587,9 @@ airside.openapi(listCompanies, async (c) => {
 					role: m.role,
 					paymentStatus: company.paymentStatus,
 					paymentRequired: airsideListingFeeRequired(),
+					listingFeeAmount:
+						company.paymentStatus === "unpaid" ? feeAmount : null,
+					listingInviteCodeUsed: Boolean(company.listingInviteCode),
 					createdAt: company.createdAt.toISOString(),
 					claims: company.claims
 						// Rejected claims stay visible so the carrier sees the
@@ -525,6 +655,10 @@ airside.openapi(createCompany, async (c) => {
 				role: "owner" as const,
 				paymentStatus: company.paymentStatus,
 				paymentRequired: airsideListingFeeRequired(),
+				listingFeeAmount: airsideListingFeeRequired()
+					? await getListingFeeAmount()
+					: null,
+				listingInviteCodeUsed: false,
 				createdAt: company.createdAt.toISOString(),
 				claims: [],
 			},
@@ -812,6 +946,397 @@ airside.openapi(createListingCheckout, async (c) => {
 			),
 		);
 	return c.json({ checkoutUrl: session.url });
+});
+
+const redeemInviteCode = createRoute({
+	method: "post",
+	path: "/companies/{id}/invite-code",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ code: z.string().min(1).max(100) }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ paymentStatus: z.literal("paid") }),
+				},
+			},
+			description: "The listing fee was waived with a valid invite code.",
+		},
+	},
+});
+
+airside.openapi(redeemInviteCode, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const { code } = c.req.valid("json");
+	await requireCompanyMembership(user.id, id);
+	const company = await db.query.providerCompany.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!company) {
+		throw new HTTPException(404, { message: "Provider company not found" });
+	}
+	if (!airsideListingFeeRequired()) {
+		throw new HTTPException(400, {
+			message: "There is no listing fee on this deployment.",
+		});
+	}
+	if (company.paymentStatus === "paid") {
+		throw new HTTPException(409, {
+			message: "The listing fee has already been settled.",
+		});
+	}
+	// Codes are minted uppercase in the admin dashboard; accept any casing.
+	const normalized = code.trim().toUpperCase();
+	// One transaction: consuming a use and clearing the fee either both land
+	// or neither does, and the guarded UPDATEs make concurrent redeems (or a
+	// racing Stripe webhook) lose cleanly instead of double-spending.
+	await db.transaction(async (tx) => {
+		const consumed = await tx
+			.update(tables.airsideInviteCode)
+			.set({
+				usedCount: sql`${tables.airsideInviteCode.usedCount} + 1`,
+			})
+			.where(
+				and(
+					eq(tables.airsideInviteCode.code, normalized),
+					sql`${tables.airsideInviteCode.revokedAt} IS NULL`,
+					sql`${tables.airsideInviteCode.usedCount} < ${tables.airsideInviteCode.maxUses}`,
+				),
+			)
+			.returning({ id: tables.airsideInviteCode.id });
+		if (consumed.length === 0) {
+			throw new HTTPException(400, {
+				message: "That invite code isn't valid.",
+			});
+		}
+		const updated = await tx
+			.update(tables.providerCompany)
+			.set({
+				paymentStatus: "paid",
+				paidAt: new Date(),
+				listingInviteCode: normalized,
+			})
+			.where(
+				and(
+					eq(tables.providerCompany.id, id),
+					eq(tables.providerCompany.paymentStatus, "unpaid"),
+				),
+			)
+			.returning({ id: tables.providerCompany.id });
+		if (updated.length === 0) {
+			throw new HTTPException(409, {
+				message: "The listing fee has already been settled.",
+			});
+		}
+	});
+	return c.json({ paymentStatus: "paid" as const });
+});
+
+// ---------------------------------------------------------------------------
+// Crew (company members)
+// ---------------------------------------------------------------------------
+
+async function requireCompanyOwnership(userId: string, companyId: string) {
+	const membership = await requireCompanyMembership(userId, companyId);
+	if (membership.role !== "owner") {
+		throw new HTTPException(403, {
+			message: "Only company owners can manage the crew.",
+		});
+	}
+	return membership;
+}
+
+const listCrew = createRoute({
+	method: "get",
+	path: "/companies/{id}/members",
+	request: {
+		params: z.object({ id: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						members: z.array(crewMemberSchema),
+						invites: z.array(crewInviteSchema),
+						viewerRole: z.enum(["owner", "member"]),
+						limit: z.number(),
+					}),
+				},
+			},
+			description: "Crew members and pending invites for the company.",
+		},
+	},
+});
+
+airside.openapi(listCrew, async (c) => {
+	const user = requireUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const membership = await requireCompanyMembership(user.id, id);
+	const [members, invites] = await Promise.all([
+		db.query.providerCompanyMember.findMany({
+			where: { providerCompanyId: { eq: id } },
+			with: { user: true },
+			orderBy: { createdAt: "asc" },
+		}),
+		db.query.providerCompanyInvite.findMany({
+			where: { providerCompanyId: { eq: id }, status: { eq: "pending" } },
+			orderBy: { createdAt: "asc" },
+		}),
+	]);
+	return c.json({
+		members: members.map((member) => ({
+			id: member.id,
+			role: member.role,
+			email: member.user?.email ?? "",
+			name: member.user?.name ?? null,
+			createdAt: member.createdAt.toISOString(),
+		})),
+		invites: invites.map((invite) => ({
+			id: invite.id,
+			email: invite.email,
+			createdAt: invite.createdAt.toISOString(),
+		})),
+		viewerRole: membership.role,
+		limit: AIRSIDE_CREW_MAX,
+	});
+});
+
+const inviteCrewMember = createRoute({
+	method: "post",
+	path: "/companies/{id}/members",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ email: z.string().email().max(320) }),
+				},
+			},
+		},
+	},
+	responses: {
+		201: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						// Exactly one is set: `member` when an account with that
+						// email already exists, `invite` when it has to wait.
+						member: crewMemberSchema.nullable(),
+						invite: crewInviteSchema.nullable(),
+					}),
+				},
+			},
+			description: "The attached member, or the pending invite.",
+		},
+	},
+});
+
+airside.openapi(inviteCrewMember, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const body = c.req.valid("json");
+	await requireCompanyOwnership(user.id, id);
+	const company = await db.query.providerCompany.findFirst({
+		where: { id: { eq: id } },
+		with: { claims: true },
+	});
+	if (!company) {
+		throw new HTTPException(404, { message: "Provider company not found" });
+	}
+	const email = body.email.trim().toLowerCase();
+	// Crew stays on the team's own domains — the same domains that prove the
+	// company's carrier claims. Anything else would let a claim verified on
+	// one domain be operated from an unrelated mailbox.
+	const emailDomain = emailRegistrableDomain(email);
+	const allowedDomains = new Set<string>();
+	const inviterDomain = emailRegistrableDomain(user.email);
+	if (inviterDomain && !isFreemailDomain(inviterDomain)) {
+		allowedDomains.add(inviterDomain);
+	}
+	const verified = verifiedWebsiteDomain(company);
+	if (verified) {
+		allowedDomains.add(verified);
+	}
+	for (const claim of company.claims) {
+		if (claim.status !== "revoked") {
+			allowedDomains.add(claim.matchedDomain);
+		}
+	}
+	if (!emailDomain || !allowedDomains.has(emailDomain)) {
+		throw new HTTPException(400, {
+			message: `Crew invites are limited to your team's domains (${[...allowedDomains].sort().join(", ") || "none available"}).`,
+		});
+	}
+	const [members, invites] = await Promise.all([
+		db.query.providerCompanyMember.findMany({
+			where: { providerCompanyId: { eq: id } },
+			with: { user: true },
+		}),
+		db.query.providerCompanyInvite.findMany({
+			where: { providerCompanyId: { eq: id }, status: { eq: "pending" } },
+		}),
+	]);
+	if (members.length + invites.length >= AIRSIDE_CREW_MAX) {
+		throw new HTTPException(400, {
+			message: `A carrier crew is limited to ${AIRSIDE_CREW_MAX} members, pending invites included.`,
+		});
+	}
+	if (members.some((m) => m.user?.email.toLowerCase() === email)) {
+		throw new HTTPException(409, {
+			message: "That person is already a crew member.",
+		});
+	}
+	if (invites.some((invite) => invite.email === email)) {
+		throw new HTTPException(409, {
+			message: "That email has already been invited.",
+		});
+	}
+	const existingUser = await db.query.user.findFirst({
+		where: { email: { eq: email } },
+	});
+	if (existingUser) {
+		try {
+			const [member] = await db
+				.insert(tables.providerCompanyMember)
+				.values({
+					providerCompanyId: id,
+					userId: existingUser.id,
+					role: "member",
+				})
+				.returning();
+			return c.json(
+				{
+					member: {
+						id: member.id,
+						role: member.role,
+						email: existingUser.email,
+						name: existingUser.name ?? null,
+						createdAt: member.createdAt.toISOString(),
+					},
+					invite: null,
+				},
+				201,
+			);
+		} catch (err) {
+			if (isUniqueViolation(err)) {
+				throw new HTTPException(409, {
+					message: "That person is already a crew member.",
+				});
+			}
+			throw err;
+		}
+	}
+	try {
+		const [invite] = await db
+			.insert(tables.providerCompanyInvite)
+			.values({ providerCompanyId: id, email, invitedBy: user.id })
+			.returning();
+		return c.json(
+			{
+				member: null,
+				invite: {
+					id: invite.id,
+					email: invite.email,
+					createdAt: invite.createdAt.toISOString(),
+				},
+			},
+			201,
+		);
+	} catch (err) {
+		if (isUniqueViolation(err)) {
+			throw new HTTPException(409, {
+				message: "That email has already been invited.",
+			});
+		}
+		throw err;
+	}
+});
+
+const removeCrewMember = createRoute({
+	method: "delete",
+	path: "/companies/{id}/members/{memberId}",
+	request: {
+		params: z.object({ id: z.string(), memberId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ removed: z.literal(true) }),
+				},
+			},
+			description: "The member was removed from the crew.",
+		},
+	},
+});
+
+airside.openapi(removeCrewMember, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id, memberId } = c.req.valid("param");
+	await requireCompanyOwnership(user.id, id);
+	const member = await db.query.providerCompanyMember.findFirst({
+		where: { id: { eq: memberId }, providerCompanyId: { eq: id } },
+	});
+	if (!member) {
+		throw new HTTPException(404, { message: "Crew member not found" });
+	}
+	if (member.role === "owner") {
+		throw new HTTPException(400, {
+			message: "Owners cannot be removed from the crew.",
+		});
+	}
+	await db
+		.delete(tables.providerCompanyMember)
+		.where(eq(tables.providerCompanyMember.id, memberId));
+	return c.json({ removed: true as const });
+});
+
+const revokeCrewInvite = createRoute({
+	method: "delete",
+	path: "/companies/{id}/invites/{inviteId}",
+	request: {
+		params: z.object({ id: z.string(), inviteId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ revoked: z.literal(true) }),
+				},
+			},
+			description: "The pending invite was revoked.",
+		},
+	},
+});
+
+airside.openapi(revokeCrewInvite, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id, inviteId } = c.req.valid("param");
+	await requireCompanyOwnership(user.id, id);
+	const deleted = await db
+		.delete(tables.providerCompanyInvite)
+		.where(
+			and(
+				eq(tables.providerCompanyInvite.id, inviteId),
+				eq(tables.providerCompanyInvite.providerCompanyId, id),
+				eq(tables.providerCompanyInvite.status, "pending"),
+			),
+		)
+		.returning({ id: tables.providerCompanyInvite.id });
+	if (deleted.length === 0) {
+		throw new HTTPException(404, { message: "Pending invite not found" });
+	}
+	return c.json({ revoked: true as const });
 });
 
 // ---------------------------------------------------------------------------
@@ -1836,10 +2361,12 @@ const listFilings = createRoute({
 								providerId: z.string(),
 							}),
 						),
+						routingFilings: z.array(routingFilingSchema),
 					}),
 				},
 			},
-			description: "Price filings for the company, newest first.",
+			description:
+				"Price and fare-change filings for the company, newest first.",
 		},
 	},
 });
@@ -1848,15 +2375,25 @@ airside.openapi(listFilings, async (c) => {
 	const user = requireUser(c.get("user"));
 	const { providerCompanyId, status } = c.req.valid("query");
 	await requireCompanyMembership(user.id, providerCompanyId);
-	const rows = await db.query.providerPriceFiling.findMany({
-		where: {
-			providerCompanyId: { eq: providerCompanyId },
-			...(status ? { status: { eq: status } } : {}),
-		},
-		with: { draftModel: true },
-		orderBy: { createdAt: "desc" },
-		limit: 100,
-	});
+	const [rows, routingRows] = await Promise.all([
+		db.query.providerPriceFiling.findMany({
+			where: {
+				providerCompanyId: { eq: providerCompanyId },
+				...(status ? { status: { eq: status } } : {}),
+			},
+			with: { draftModel: true },
+			orderBy: { createdAt: "desc" },
+			limit: 100,
+		}),
+		db.query.providerRoutingFiling.findMany({
+			where: {
+				providerCompanyId: { eq: providerCompanyId },
+				...(status ? { status: { eq: status } } : {}),
+			},
+			orderBy: { createdAt: "desc" },
+			limit: 100,
+		}),
+	]);
 	return c.json({
 		filings: rows.flatMap((row) =>
 			row.draftModel
@@ -1869,6 +2406,7 @@ airside.openapi(listFilings, async (c) => {
 					]
 				: [],
 		),
+		routingFilings: routingRows.map(serializeRoutingFiling),
 	});
 });
 
@@ -2070,16 +2608,28 @@ airside.openapi(listRoutingSettings, async (c) => {
 	const { providerCompanyId } = c.req.valid("query");
 	await requireCompanyMembership(user.id, providerCompanyId);
 	const providerIds = await getActiveClaimedProviderIds(providerCompanyId);
-	const rows = providerIds.length
-		? await db.query.providerRoutingSettings.findMany({
-				where: { providerId: { in: providerIds } },
-			})
-		: [];
+	const [rows, pendingFilings] = providerIds.length
+		? await Promise.all([
+				db.query.providerRoutingSettings.findMany({
+					where: { providerId: { in: providerIds } },
+				}),
+				db.query.providerRoutingFiling.findMany({
+					where: {
+						providerId: { in: providerIds },
+						status: { eq: "pending" },
+					},
+				}),
+			])
+		: [[], []];
 	const rowByProvider = new Map(rows.map((row) => [row.providerId, row]));
+	const pendingByProvider = new Map(
+		pendingFilings.map((filing) => [filing.providerId, filing]),
+	);
 	return c.json({
 		baselineMargin: AIRSIDE_BASELINE_MARGIN,
 		settings: providerIds.map((providerId) => {
 			const row = rowByProvider.get(providerId);
+			const pending = pendingByProvider.get(providerId);
 			const discountPercent = row ? Number(row.discountPercent) : 0;
 			const marginPercent = row
 				? Number(row.marginPercent)
@@ -2094,6 +2644,7 @@ airside.openapi(listRoutingSettings, async (c) => {
 					marginPercent,
 				),
 				updatedAt: row ? row.updatedAt.toISOString() : null,
+				pendingFiling: pending ? serializeRoutingFiling(pending) : null,
 			};
 		}),
 	});
@@ -2120,13 +2671,14 @@ const updateRoutingSettings = createRoute({
 		},
 	},
 	responses: {
-		200: {
+		201: {
 			content: {
 				"application/json": {
-					schema: z.object({ settings: routingSettingsSchema }),
+					schema: z.object({ filing: routingFilingSchema }),
 				},
 			},
-			description: "The updated routing settings.",
+			description:
+				"The fare-change filing. Routing settings only change once an admin approves it.",
 		},
 	},
 });
@@ -2153,36 +2705,38 @@ airside.openapi(updateRoutingSettings, async (c) => {
 	const existing = await db.query.providerRoutingSettings.findFirst({
 		where: { providerId: { eq: providerId } },
 	});
-	const values = {
-		// Keep ownership current: the row is unique per provider and can
-		// predate a change of hands.
-		providerCompanyId: body.providerCompanyId,
-		discountPercent: String(body.discountPercent),
-		marginPercent: String(body.marginPercent),
-	};
-	// cdb: the gateway prices the routing election from this table directly.
-	const [row] = existing
-		? await cdb
-				.update(tables.providerRoutingSettings)
-				.set(values)
-				.where(eq(tables.providerRoutingSettings.id, existing.id))
-				.returning()
-		: await cdb
-				.insert(tables.providerRoutingSettings)
-				.values({ providerId, ...values })
-				.returning();
-
-	return c.json({
-		settings: {
-			providerId,
-			providerCompanyId: body.providerCompanyId,
-			discountPercent: Number(row.discountPercent),
-			marginPercent: Number(row.marginPercent),
-			routingAdjustment: computeAirsideAdjustment(
-				Number(row.discountPercent),
-				Number(row.marginPercent),
-			),
-			updatedAt: row.updatedAt.toISOString(),
-		},
-	});
+	const currentDiscount = existing ? Number(existing.discountPercent) : 0;
+	const currentMargin = existing
+		? Number(existing.marginPercent)
+		: AIRSIDE_BASELINE_MARGIN;
+	if (
+		body.discountPercent === currentDiscount &&
+		body.marginPercent === currentMargin
+	) {
+		throw new HTTPException(400, {
+			message: "These are already your live fares.",
+		});
+	}
+	// Fare changes are filings: nothing reaches the routing election until an
+	// admin approves them, so a carrier cannot move its knobs invisibly.
+	try {
+		const [filing] = await db
+			.insert(tables.providerRoutingFiling)
+			.values({
+				providerCompanyId: body.providerCompanyId,
+				providerId,
+				discountPercent: String(body.discountPercent),
+				marginPercent: String(body.marginPercent),
+				requestedBy: user.id,
+			})
+			.returning();
+		return c.json({ filing: serializeRoutingFiling(filing) }, 201);
+	} catch (err) {
+		if (isUniqueViolation(err)) {
+			throw new HTTPException(409, {
+				message: "A fare change for this carrier is already awaiting approval.",
+			});
+		}
+		throw err;
+	}
 });

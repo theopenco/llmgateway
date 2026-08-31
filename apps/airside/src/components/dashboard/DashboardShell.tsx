@@ -28,6 +28,7 @@ const NAV = [
 	{ href: "/dashboard/traffic", label: "Traffic", exact: false },
 	{ href: "/dashboard/fares", label: "Fares", exact: false },
 	{ href: "/dashboard/filings", label: "Filings", exact: false },
+	{ href: "/dashboard/crew", label: "Crew", exact: false },
 ];
 
 export function DashboardShell({ children }: { children: ReactNode }) {

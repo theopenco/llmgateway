@@ -378,6 +378,25 @@ function OnboardingContent() {
 		},
 	);
 
+	const [inviteCode, setInviteCode] = useState("");
+	const redeemInviteCode = api.useMutation(
+		"post",
+		"/airside/companies/{id}/invite-code",
+		{
+			onSuccess: async () => {
+				await queryClient.invalidateQueries({
+					queryKey: api.queryOptions("get", "/airside/companies", {}).queryKey,
+				});
+				toast.success("Code accepted — the listing fee is waived.");
+			},
+			onError: (error) => {
+				toast.error(
+					(error as { message?: string })?.message ?? "Invalid invite code",
+				);
+			},
+		},
+	);
+
 	// Returning from Stripe: the webhook can lag the redirect by a moment, so
 	// poll the companies query briefly until the paid flag lands.
 	const searchParams = useSearchParams();
@@ -579,29 +598,82 @@ function OnboardingContent() {
 										2 · Pay the listing fee
 									</h2>
 									<p className="text-muted-foreground text-sm">
-										A one-time fee unlocks carrier claims for your company.
+										A one-time fee
+										{company.listingFeeAmount !== null ? (
+											<>
+												{" "}
+												of{" "}
+												<span
+													className="text-foreground font-mono font-semibold"
+													data-testid="listing-fee-amount"
+												>
+													${company.listingFeeAmount.toLocaleString("en-US")}
+												</span>
+											</>
+										) : null}{" "}
+										unlocks carrier claims for your company.
 									</p>
 								</div>
 							</div>
 							{company.paymentStatus === "paid" ? (
 								<Badge variant="success" data-testid="payment-paid-badge">
-									<BadgeCheck className="size-3" /> Paid
+									<BadgeCheck className="size-3" />{" "}
+									{company.listingInviteCodeUsed ? "Fee waived" : "Paid"}
 								</Badge>
 							) : (
-								<Button
-									className="font-semibold"
-									disabled={startCheckout.isPending}
-									data-testid="pay-listing-fee"
-									onClick={() =>
-										startCheckout.mutate({
-											params: { path: { id: company.id } },
-										})
-									}
-								>
-									{startCheckout.isPending
-										? "Opening checkout…"
-										: "Pay the listing fee"}
-								</Button>
+								<div className="space-y-4">
+									<Button
+										className="font-semibold"
+										disabled={startCheckout.isPending}
+										data-testid="pay-listing-fee"
+										onClick={() =>
+											startCheckout.mutate({
+												params: { path: { id: company.id } },
+											})
+										}
+									>
+										{startCheckout.isPending
+											? "Opening checkout…"
+											: "Pay the listing fee"}
+									</Button>
+									<div className="border-border border-t pt-4">
+										<p className="text-muted-foreground mb-2 text-xs">
+											Already working with us? Enter your invite code to skip
+											the fee.
+										</p>
+										<form
+											className="flex max-w-sm gap-2"
+											onSubmit={(event) => {
+												event.preventDefault();
+												redeemInviteCode.mutate({
+													params: { path: { id: company.id } },
+													body: { code: inviteCode },
+												});
+											}}
+										>
+											<Input
+												value={inviteCode}
+												onChange={(event) =>
+													setInviteCode(event.target.value.toUpperCase())
+												}
+												placeholder="AIR-XXXX-XXXX"
+												className="font-mono uppercase"
+												data-testid="invite-code-input"
+											/>
+											<Button
+												type="submit"
+												variant="outline"
+												className="font-semibold"
+												disabled={
+													!inviteCode.trim() || redeemInviteCode.isPending
+												}
+												data-testid="apply-invite-code"
+											>
+												{redeemInviteCode.isPending ? "Checking…" : "Apply"}
+											</Button>
+										</form>
+									</div>
+								</div>
 							)}
 						</section>
 					) : null}

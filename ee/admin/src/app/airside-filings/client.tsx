@@ -61,10 +61,12 @@ export function AirsideFilingsClient() {
 	const queryClient = useQueryClient();
 	const [status, setStatus] = useState<FilingStatus | "all">("pending");
 	const [rejecting, setRejecting] = useState<{
-		kind: "filing" | "claim" | "revoke";
+		kind: "filing" | "claim" | "revoke" | "routing";
 		id: string;
 	} | null>(null);
 	const [rejectNote, setRejectNote] = useState("");
+	const [codeNote, setCodeNote] = useState("");
+	const [codeMaxUses, setCodeMaxUses] = useState("1");
 
 	const query = $api.useQuery("get", "/admin/airside/filings", {
 		params: {
@@ -165,10 +167,74 @@ export function AirsideFilingsClient() {
 		},
 	);
 
+	const approveRoutingMutation = $api.useMutation(
+		"post",
+		"/admin/airside/routing-filings/{id}/approve",
+		{
+			onSuccess: () => {
+				toast.success("Fare change approved — routing settings updated.");
+				invalidate();
+			},
+			onError: (error) => {
+				toast.error(apiErrorMessage(error, "The review action failed"));
+			},
+		},
+	);
+
+	const rejectRoutingMutation = $api.useMutation(
+		"post",
+		"/admin/airside/routing-filings/{id}/reject",
+		{
+			onSuccess: () => {
+				toast.success("Fare change rejected.");
+				setRejecting(null);
+				setRejectNote("");
+				invalidate();
+			},
+			onError: (error) => {
+				toast.error(apiErrorMessage(error, "The review action failed"));
+			},
+		},
+	);
+
+	const codesQuery = $api.useQuery("get", "/admin/airside/invite-codes", {});
+
+	const mintCodeMutation = $api.useMutation(
+		"post",
+		"/admin/airside/invite-codes",
+		{
+			onSuccess: (data) => {
+				toast.success(`Minted ${data.code.code}`);
+				setCodeNote("");
+				setCodeMaxUses("1");
+				invalidate();
+			},
+			onError: (error) => {
+				toast.error(apiErrorMessage(error, "Failed to mint the code"));
+			},
+		},
+	);
+
+	const revokeCodeMutation = $api.useMutation(
+		"post",
+		"/admin/airside/invite-codes/{id}/revoke",
+		{
+			onSuccess: () => {
+				toast.success("Invite code revoked.");
+				invalidate();
+			},
+			onError: (error) => {
+				toast.error(apiErrorMessage(error, "Failed to revoke the code"));
+			},
+		},
+	);
+
 	const filings = query.data?.filings ?? [];
+	const routingFilings = query.data?.routingFilings ?? [];
 	const pendingClaims = claimsQuery.data?.claims ?? [];
 	const activeClaims =
 		status === "approved" ? (activeClaimsQuery.data?.claims ?? []) : [];
+	const inviteCodes = codesQuery.data?.codes ?? [];
 
 	return (
 		<div className="space-y-6 p-6">
@@ -472,6 +538,239 @@ export function AirsideFilingsClient() {
 				</CardContent>
 			</Card>
 
+			<Card>
+				<CardHeader>
+					<CardTitle>Fare changes</CardTitle>
+					<CardDescription>
+						Carrier requests to move their routing discount or accepted gateway
+						margin. Approving writes the values into the live routing settings.
+						{query.data ? ` ${query.data.routingPendingCount} pending.` : ""}
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					{routingFilings.length === 0 ? (
+						<p className="text-muted-foreground py-8 text-center text-sm">
+							No {status === "all" ? "" : status} fare changes.
+						</p>
+					) : (
+						<Table data-testid="routing-filings-table">
+							<TableHeader>
+								<TableRow>
+									<TableHead>Company</TableHead>
+									<TableHead>Provider</TableHead>
+									<TableHead>Discount</TableHead>
+									<TableHead>Margin</TableHead>
+									<TableHead>Adjustment</TableHead>
+									<TableHead>Status</TableHead>
+									<TableHead className="text-right">Actions</TableHead>
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{routingFilings.map((filing) => (
+									<TableRow
+										key={filing.id}
+										data-testid={`routing-filing-${filing.id}`}
+									>
+										<TableCell className="font-medium">
+											{filing.company.name}
+										</TableCell>
+										<TableCell className="font-mono text-sm">
+											{filing.providerId}
+										</TableCell>
+										<TableCell className="font-mono text-xs">
+											{Math.round(filing.currentDiscountPercent * 100)}% →{" "}
+											{Math.round(filing.discountPercent * 100)}%
+										</TableCell>
+										<TableCell className="font-mono text-xs">
+											{Math.round(filing.currentMarginPercent * 100)}% →{" "}
+											{Math.round(filing.marginPercent * 100)}%
+										</TableCell>
+										<TableCell className="font-mono text-xs">
+											{filing.routingAdjustment > 0 ? "+" : ""}
+											{Math.round(filing.routingAdjustment * 100)}%
+										</TableCell>
+										<TableCell>
+											<Badge variant={STATUS_BADGE[filing.status]}>
+												{filing.status}
+											</Badge>
+										</TableCell>
+										<TableCell className="text-right">
+											{filing.status === "pending" ? (
+												<div className="flex justify-end gap-1">
+													<Button
+														size="sm"
+														disabled={approveRoutingMutation.isPending}
+														data-testid={`approve-routing-${filing.id}`}
+														onClick={() =>
+															approveRoutingMutation.mutate({
+																params: { path: { id: filing.id } },
+															})
+														}
+													>
+														<Check className="size-3.5" /> Approve
+													</Button>
+													<Button
+														size="sm"
+														variant="destructive"
+														disabled={rejectRoutingMutation.isPending}
+														data-testid={`reject-routing-${filing.id}`}
+														onClick={() =>
+															setRejecting({ kind: "routing", id: filing.id })
+														}
+													>
+														<X className="size-3.5" /> Reject
+													</Button>
+												</div>
+											) : (
+												<span className="text-muted-foreground text-xs">
+													{filing.reviewedAt
+														? new Date(filing.reviewedAt).toLocaleDateString()
+														: ""}
+												</span>
+											)}
+										</TableCell>
+									</TableRow>
+								))}
+							</TableBody>
+						</Table>
+					)}
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Listing invite codes</CardTitle>
+					<CardDescription>
+						Mint a code for a provider we already work with — redeeming it in
+						carrier onboarding waives the listing fee.
+					</CardDescription>
+				</CardHeader>
+				<CardContent className="space-y-4">
+					<form
+						className="flex flex-wrap items-center gap-2"
+						onSubmit={(event) => {
+							event.preventDefault();
+							mintCodeMutation.mutate({
+								body: {
+									...(codeNote.trim() ? { note: codeNote.trim() } : {}),
+									maxUses: Math.max(1, Number(codeMaxUses) || 1),
+								},
+							});
+						}}
+					>
+						<Input
+							value={codeNote}
+							onChange={(e) => setCodeNote(e.target.value)}
+							placeholder="Who is this for? (optional)"
+							className="max-w-64"
+							data-testid="invite-code-note"
+						/>
+						<Input
+							value={codeMaxUses}
+							onChange={(e) => setCodeMaxUses(e.target.value)}
+							type="number"
+							min={1}
+							max={100}
+							className="w-24"
+							aria-label="Max uses"
+							data-testid="invite-code-max-uses"
+						/>
+						<Button
+							type="submit"
+							disabled={mintCodeMutation.isPending}
+							data-testid="mint-invite-code"
+						>
+							{mintCodeMutation.isPending ? "Minting…" : "Mint code"}
+						</Button>
+					</form>
+					{inviteCodes.length === 0 ? (
+						<p className="text-muted-foreground py-4 text-center text-sm">
+							No invite codes minted yet.
+						</p>
+					) : (
+						<Table data-testid="invite-codes-table">
+							<TableHeader>
+								<TableRow>
+									<TableHead>Code</TableHead>
+									<TableHead>Note</TableHead>
+									<TableHead>Uses</TableHead>
+									<TableHead>Redeemed by</TableHead>
+									<TableHead>Status</TableHead>
+									<TableHead className="text-right">Actions</TableHead>
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{inviteCodes.map((code) => {
+									const exhausted = code.usedCount >= code.maxUses;
+									return (
+										<TableRow key={code.id}>
+											<TableCell>
+												<button
+													type="button"
+													className="cursor-pointer font-mono text-sm"
+													title="Copy code"
+													onClick={() => {
+														void navigator.clipboard.writeText(code.code);
+														toast.success("Code copied.");
+													}}
+												>
+													{code.code}
+												</button>
+											</TableCell>
+											<TableCell className="text-muted-foreground max-w-48 truncate text-xs">
+												{code.note ?? "—"}
+											</TableCell>
+											<TableCell className="font-mono text-xs">
+												{code.usedCount} / {code.maxUses}
+											</TableCell>
+											<TableCell className="text-muted-foreground max-w-48 truncate text-xs">
+												{code.redeemedBy.length
+													? code.redeemedBy.map((c) => c.name).join(", ")
+													: "—"}
+											</TableCell>
+											<TableCell>
+												<Badge
+													variant={
+														code.revokedAt
+															? "destructive"
+															: exhausted
+																? "secondary"
+																: "outline"
+													}
+												>
+													{code.revokedAt
+														? "revoked"
+														: exhausted
+															? "used"
+															: "active"}
+												</Badge>
+											</TableCell>
+											<TableCell className="text-right">
+												{!code.revokedAt && !exhausted ? (
+													<Button
+														size="sm"
+														variant="destructive"
+														disabled={revokeCodeMutation.isPending}
+														data-testid={`revoke-code-${code.code}`}
+														onClick={() =>
+															revokeCodeMutation.mutate({
+																params: { path: { id: code.id } },
+															})
+														}
+													>
+														<X className="size-3.5" /> Revoke
+													</Button>
+												) : null}
+											</TableCell>
+										</TableRow>
+									);
+								})}
+							</TableBody>
+						</Table>
+					)}
+				</CardContent>
+			</Card>
+
 			<Dialog
 				open={!!rejecting}
 				onOpenChange={(open) => {
@@ -487,14 +786,18 @@ export function AirsideFilingsClient() {
 								? "Reject claim"
 								: rejecting?.kind === "revoke"
 									? "Revoke carrier"
-									: "Reject filing"}
+									: rejecting?.kind === "routing"
+										? "Reject fare change"
+										: "Reject filing"}
 						</DialogTitle>
 						<DialogDescription>
 							{rejecting?.kind === "claim"
 								? "The provider becomes claimable again; the note is shown to the company."
 								: rejecting?.kind === "revoke"
 									? "The company loses portal control of this provider: its listings are delisted and its routing boost is removed."
-									: "The note is shown to the provider in their filing history."}
+									: rejecting?.kind === "routing"
+										? "The carrier's live routing settings stay as they are; the note is shown in their filing history."
+										: "The note is shown to the provider in their filing history."}
 						</DialogDescription>
 					</DialogHeader>
 					<Input
@@ -508,7 +811,8 @@ export function AirsideFilingsClient() {
 							disabled={
 								rejectMutation.isPending ||
 								rejectClaimMutation.isPending ||
-								revokeClaimMutation.isPending
+								revokeClaimMutation.isPending ||
+								rejectRoutingMutation.isPending
 							}
 							onClick={() => {
 								if (!rejecting) {
@@ -522,6 +826,8 @@ export function AirsideFilingsClient() {
 									rejectClaimMutation.mutate(args);
 								} else if (rejecting.kind === "revoke") {
 									revokeClaimMutation.mutate(args);
+								} else if (rejecting.kind === "routing") {
+									rejectRoutingMutation.mutate(args);
 								} else {
 									rejectMutation.mutate(args);
 								}
@@ -529,13 +835,16 @@ export function AirsideFilingsClient() {
 						>
 							{rejectMutation.isPending ||
 							rejectClaimMutation.isPending ||
-							revokeClaimMutation.isPending
+							revokeClaimMutation.isPending ||
+							rejectRoutingMutation.isPending
 								? "Working…"
 								: rejecting?.kind === "claim"
 									? "Reject claim"
 									: rejecting?.kind === "revoke"
 										? "Revoke carrier"
-										: "Reject filing"}
+										: rejecting?.kind === "routing"
+											? "Reject fare change"
+											: "Reject filing"}
 						</Button>
 					</DialogFooter>
 				</DialogContent>

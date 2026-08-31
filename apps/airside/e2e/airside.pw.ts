@@ -98,28 +98,40 @@ test("registering a model drafts it with an initial fare filing", async ({
 	});
 });
 
-test("fares page tunes discount and margin sliders", async ({ page }) => {
+test("fares page files a fare change for approval", async ({ page }) => {
 	await login(page);
 	await page.goto("/dashboard/fares");
 	const card = page.getByTestId("fare-card-mistral");
 	await expect(card).toBeVisible({ timeout: 20_000 });
 
-	// Radix slider thumbs are keyboard-adjustable. Nudge away from the nearer
-	// bound so repeated runs against the same seed can't ratchet the value to
-	// the cap and turn the keypresses into no-ops.
-	const discountThumb = card.getByTestId("discount-slider").getByRole("slider");
-	await discountThumb.focus();
-	const current = Number(
-		(await discountThumb.getAttribute("aria-valuenow")) ?? "0",
-	);
-	const key = current >= 48 ? "ArrowLeft" : "ArrowRight";
-	await page.keyboard.press(key);
-	await page.keyboard.press(key);
+	// A previous run's filing may still be pending against the same seed —
+	// that locked state is itself the feature under test.
+	const pendingBox = page.getByTestId("pending-fare-filing-mistral");
+	if (await pendingBox.isVisible()) {
+		await expect(card.getByTestId("save-fares-mistral")).toBeDisabled();
+	} else {
+		// Radix slider thumbs are keyboard-adjustable. Nudge away from the
+		// nearer bound so repeated runs against the same seed can't ratchet the
+		// value to the cap and turn the keypresses into no-ops.
+		const discountThumb = card
+			.getByTestId("discount-slider")
+			.getByRole("slider");
+		await discountThumb.focus();
+		const current = Number(
+			(await discountThumb.getAttribute("aria-valuenow")) ?? "0",
+		);
+		const key = current >= 48 ? "ArrowLeft" : "ArrowRight";
+		await page.keyboard.press(key);
+		await page.keyboard.press(key);
 
-	const saveButton = card.getByTestId("save-fares-mistral");
-	await expect(saveButton).toBeEnabled();
-	await saveButton.click();
-	await expect(page.getByText(/Saved —/)).toBeVisible({ timeout: 15_000 });
+		const saveButton = card.getByTestId("save-fares-mistral");
+		await expect(saveButton).toBeEnabled();
+		await saveButton.click();
+		await expect(page.getByText(/Fare change filed/)).toBeVisible({
+			timeout: 15_000,
+		});
+		await expect(pendingBox).toBeVisible();
+	}
 
 	// The dispatch explainer names the routing inputs.
 	await expect(page.getByTestId("fares-page")).toContainText(

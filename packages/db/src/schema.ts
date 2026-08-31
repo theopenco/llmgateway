@@ -4562,6 +4562,10 @@ export const providerCompany = pgTable("provider_company", {
 		.default("unpaid"),
 	stripeCheckoutSessionId: text(),
 	paidAt: timestamp(),
+	// Set when the fee was waived with a listing invite code instead of paid
+	// through Stripe — `paymentStatus` still flips to "paid" so every gate
+	// keeps working, and this records which code cleared it.
+	listingInviteCode: text(),
 });
 
 export const providerCompanyMember = pgTable(
@@ -4589,6 +4593,60 @@ export const providerCompanyMember = pgTable(
 			table.userId,
 		),
 		index("provider_company_member_user_idx").on(table.userId),
+	],
+);
+
+// Listing invite codes waive the Airside listing fee for providers we already
+// work with. Admins generate them in the admin dashboard; a company redeems
+// one instead of paying through Stripe.
+export const airsideInviteCode = pgTable(
+	"airside_invite_code",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		// Canonical uppercase form (AIR-XXXX-XXXX); redemption normalizes input.
+		code: text().notNull(),
+		// Who the code was minted for — free-form, shown only to admins.
+		note: text(),
+		maxUses: integer().notNull().default(1),
+		usedCount: integer().notNull().default(0),
+		createdBy: text().references(() => user.id, { onDelete: "set null" }),
+		revokedAt: timestamp(),
+	},
+	(table) => [uniqueIndex("airside_invite_code_code_uidx").on(table.code)],
+);
+
+// A crew invite: an owner invites a teammate by email. If no account with
+// that email exists yet, the row waits; the invitee is attached as a member
+// the first time they open the portal with that (verified) email.
+export const providerCompanyInvite = pgTable(
+	"provider_company_invite",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		email: text().notNull(),
+		invitedBy: text().references(() => user.id, { onDelete: "set null" }),
+		status: text({ enum: ["pending", "accepted"] })
+			.notNull()
+			.default("pending"),
+		acceptedAt: timestamp(),
+	},
+	(table) => [
+		uniqueIndex("provider_company_invite_pending_uidx")
+			.on(table.providerCompanyId, table.email)
+			.where(sql`status = 'pending'`),
+		index("provider_company_invite_email_idx").on(table.email),
 	],
 );
 
@@ -4779,6 +4837,42 @@ export const providerRoutingSettings = pgTable(
 	(table) => [
 		uniqueIndex("provider_routing_settings_provider_uidx").on(table.providerId),
 		index("provider_routing_settings_company_idx").on(table.providerCompanyId),
+	],
+);
+
+// A carrier's requested change to its routing knobs ("fare change"). Like
+// price filings, routing changes only take effect once an admin approves the
+// filing — approval writes the values into `provider_routing_settings`.
+export const providerRoutingFiling = pgTable(
+	"provider_routing_filing",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		providerId: text().notNull(),
+		discountPercent: decimal().notNull(),
+		marginPercent: decimal().notNull(),
+		status: text({ enum: ["pending", "approved", "rejected"] })
+			.notNull()
+			.default("pending"),
+		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
+		reviewedBy: text(),
+		reviewNote: text(),
+		reviewedAt: timestamp(),
+	},
+	(table) => [
+		// One routing change can be in flight per provider at a time.
+		uniqueIndex("provider_routing_filing_pending_provider_uidx")
+			.on(table.providerId)
+			.where(sql`status = 'pending'`),
+		index("provider_routing_filing_company_idx").on(table.providerCompanyId),
+		index("provider_routing_filing_status_idx").on(table.status),
 	],
 );
 

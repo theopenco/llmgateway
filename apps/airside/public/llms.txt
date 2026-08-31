@@ -13,9 +13,10 @@
 
 ## Economics
 
-- Claiming is free where no listing fee is configured; where one is, it is a one-time, non-refundable fee per provider company, charged via Stripe before a claim is approved.
+- Listing on llmgateway.io costs a one-time, non-refundable $2,500 fee per provider company, charged via Stripe before a claim is approved. Providers we already work with can skip it with an invite code entered during onboarding. Self-hosted deployments without a configured fee list for free.
 - There is no recurring platform fee and no minimum volume. You share margin only on traffic you actually win.
-- You set the gateway margin you accept and an optional routing discount; both take effect immediately and change how your models are scored.
+- A listing covers your team: owners can invite up to 10 crew members to the console.
+- You set the gateway margin you accept and an optional routing discount; changes are filed for review and change how your models are scored once approved.
 - You keep your billed traffic less the gateway margin you accept. The console reports traffic, not amounts owed; settlement is governed by a separate written agreement.
 - Machine-readable summary: https://airside.llmgateway.io/pricing.md
 

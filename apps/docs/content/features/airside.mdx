@@ -16,6 +16,12 @@ Sign up at [airside.llmgateway.io](https://airside.llmgateway.io) with your **co
 
 Every claim is reviewed by the LLM Gateway team before the carrier goes live; a rejected claim shows the review note so you can follow up. One company can operate several carriers — regional deployments or separate brands all live under one console.
 
+Listing on llmgateway.io carries a one-time **$2,500 listing fee** per provider company, paid during onboarding. Providers we already work with receive an **invite code** that waives it — entered in the same onboarding step instead of paying. See the [pricing summary](https://airside.llmgateway.io/pricing.md) for the full economics.
+
+## Crew
+
+A listing covers your whole team. Under **Crew**, company owners invite teammates by email — up to **10 members** per company, pending invites included. Invites are limited to your team's domains (the ones that prove your claims); a teammate with an existing account joins instantly, anyone else joins the first time they sign in with the invited address.
+
 ## Registering a new carrier
 
 Not in the [provider catalogue](https://llmgateway.io/providers) yet? Register your provider as a **new carrier** from the onboarding page: pick a carrier id, display name, and the base URL of your **OpenAI-compatible API** (the gateway calls `<base URL>/v1/chat/completions`). The endpoint must live on your verified email's domain — the same anti-squatting rule as claiming — and registrations go through the same review. Once approved, your carrier appears on the public providers and models pages and its listings route like any other provider's.
@@ -50,7 +56,7 @@ Under **Fares** each claimed provider has two knobs:
 - **Traffic discount** (0–50%) — a discount you offer on routed traffic.
 - **Landing fee** (5–50%) — the gateway margin you accept; the baseline is **20%**.
 
-Accepting more than the baseline margin or offering a discount makes your traffic effectively cheaper, which boosts you in the [smart routing election](/features/routing); accepting less prices you up. The election scores every candidate provider on weighted factors — price after your discount and margin (`0.6`), availability/uptime (`0.5`), prompt-cache support (`0.2`), throughput (`0.05`), and latency (`0.025`) — and the lowest score wins.
+Accepting more than the baseline margin or offering a discount makes your traffic effectively cheaper, which boosts you in the [smart routing election](/features/routing); accepting less prices you up. Like price changes, fare changes are filed for review and only reach routing once the LLM Gateway team approves them. The election scores every candidate provider on weighted factors — price after your discount and margin (`0.6`), availability/uptime (`0.5`), prompt-cache support (`0.2`), throughput (`0.05`), and latency (`0.025`) — and the lowest score wins.
 
 <Callout type="info">
 	Routing reacts to live metrics: reliability and speed still matter. A cheap
