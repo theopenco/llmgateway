@@ -71,7 +71,7 @@ describe("e2e params", getConcurrentTestOptions(), () => {
 		expect(true).toBe(true);
 	});
 
-	if (process.env.RUN_PARAM_TESTS === "true") {
+	describe("supported parameters", () => {
 		// Test all parameter combinations with all models
 		test.each(paramModelTestCases)(
 			"$paramName $model",
@@ -114,5 +114,5 @@ describe("e2e params", getConcurrentTestOptions(), () => {
 				await validateLogByRequestId(requestId);
 			},
 		);
-	}
+	});
 });
