@@ -13,6 +13,7 @@ import {
 
 function formatDate(date: Date): string {
 	return date.toLocaleDateString("en-US", {
+		timeZone: "UTC",
 		month: "long",
 		day: "numeric",
 		year: "numeric",
@@ -24,16 +25,16 @@ export function EnterpriseLicenseBanner() {
 	const { selectedOrganization } = useDashboardContext();
 	const license = data?.enterpriseLicense;
 
-	if (
-		selectedOrganization?.plan !== "enterprise" ||
-		!license ||
-		license.kind !== "enterprise" ||
-		license.organizationId !== selectedOrganization.id
-	) {
+	if (selectedOrganization?.plan !== "enterprise" || !license) {
 		return null;
 	}
 
-	const term = getEnterpriseLicenseTerm(license.expiresAt);
+	const isLicensedOrganization =
+		license.kind === "enterprise" &&
+		license.organizationId === selectedOrganization.id;
+	const term = isLicensedOrganization
+		? getEnterpriseLicenseTerm(license.expiresAt)
+		: null;
 
 	if (
 		license.status === "active" &&
@@ -61,6 +62,7 @@ export function EnterpriseLicenseBanner() {
 	}
 
 	if (
+		isLicensedOrganization &&
 		selectedOrganization.enterpriseAccess === true &&
 		license.status === "grace"
 	) {
