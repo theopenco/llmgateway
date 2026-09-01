@@ -2148,9 +2148,24 @@ devPlans.openapi(updateSettings, async (c) => {
 	}
 
 	if (blockApiTraining !== undefined) {
-		updateData.providerCompliancePolicy = blockApiTraining
-			? { enabled: true, blockApiTraining: true }
-			: null;
+		// This toggle only owns the blockApiTraining requirement. The API never
+		// writes fuller policies to devpass orgs, but one reaching the org
+		// out-of-band must not have its other settings wiped by a toggle flip.
+		const existingPolicy = personalOrg.providerCompliancePolicy;
+		const hasOtherSettings = existingPolicy
+			? Object.entries(existingPolicy).some(
+					([key, value]) =>
+						key !== "enabled" &&
+						key !== "blockApiTraining" &&
+						(Array.isArray(value) ? value.length > 0 : Boolean(value)),
+				)
+			: false;
+		updateData.providerCompliancePolicy =
+			hasOtherSettings && existingPolicy
+				? { ...existingPolicy, enabled: true, blockApiTraining }
+				: blockApiTraining
+					? { enabled: true, blockApiTraining: true }
+					: null;
 	}
 
 	if (devPlanPaygEnabled !== undefined) {

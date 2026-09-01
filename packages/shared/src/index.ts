@@ -183,11 +183,14 @@ export {
 
 export {
 	addCalendarDays,
+	ENTERPRISE_LICENSE_CRITICAL_DAYS,
+	ENTERPRISE_LICENSE_EXPIRING_DAYS,
 	ENTERPRISE_TRIAL_DAY_PRESETS,
 	ENTERPRISE_TRIAL_DAYS,
 	extendTrialEnd,
 	formatPlanTermBadge,
 	formatPlanTermLabel,
+	getEnterpriseLicenseTerm,
 	getOrganizationTerm,
 	getPlanTerm,
 	PLAN_TERM_CRITICAL_DAYS,
