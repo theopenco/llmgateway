@@ -170,7 +170,7 @@ const REQUIREMENTS: {
 		key: "zeroDataRetention",
 		name: "Zero data retention (ZDR)",
 		description:
-			"Only use providers that do not log prompts. Requires Metadata Only retention, disables project response caching, and requires Responses API requests to set store to false.",
+			"Only use providers that do not log prompts. This can exclude common providers that temporarily retain data for legal or safety purposes without training on it. Requires Metadata Only retention, disables project response caching, and requires Responses API requests to set store to false.",
 	},
 	{
 		key: "blockApiTraining",
@@ -396,6 +396,10 @@ export function ComplianceClient() {
 		zdrEnableBlocked &&
 		policy.enabled === true &&
 		policy.zeroDataRetention === true;
+	const savedLegacyPromptLoggingEnabled =
+		selectedOrganization?.providerCompliancePolicy?.blockPromptLogging === true;
+	const showLegacyPromptLoggingReset =
+		savedLegacyPromptLoggingEnabled || policy.blockPromptLogging === true;
 
 	const toggleCountry = (code: string) => {
 		setPolicy((p) => {
@@ -566,16 +570,37 @@ export function ComplianceClient() {
 								</p>
 							</div>
 						) : null}
-						{policy.blockPromptLogging === true ? (
-							<div
-								role="status"
-								className="mt-4 rounded-lg border bg-muted/50 p-4 text-sm"
-							>
-								<div className="font-medium">Legacy no prompt logging rule</div>
-								<p className="mt-1 text-muted-foreground">
-									This deprecated rule remains enforced while the policy is
-									enabled. It is read-only and does not activate ZDR controls.
-								</p>
+						{showLegacyPromptLoggingReset ? (
+							<div className="mt-4 rounded-lg border bg-muted/50 p-4 text-sm">
+								<div className="flex items-start justify-between gap-4">
+									<div className="min-w-0">
+										<Label htmlFor="legacy-prompt-logging" className="block">
+											Legacy no prompt logging rule
+										</Label>
+										<p
+											id="legacy-prompt-logging-description"
+											className="mt-1 text-muted-foreground"
+										>
+											{policy.blockPromptLogging === true
+												? "This deprecated rule still affects provider routing. You can turn it off, but it cannot be enabled again from the dashboard."
+												: "This rule will be disabled when you save. It cannot be enabled again from the dashboard."}
+										</p>
+									</div>
+									<Switch
+										id="legacy-prompt-logging"
+										checked={policy.blockPromptLogging === true}
+										disabled={policy.blockPromptLogging !== true}
+										aria-describedby="legacy-prompt-logging-description"
+										onCheckedChange={(checked) => {
+											if (!checked) {
+												setPolicy((p) => ({
+													...p,
+													blockPromptLogging: false,
+												}));
+											}
+										}}
+									/>
+								</div>
 							</div>
 						) : null}
 					</CardHeader>
