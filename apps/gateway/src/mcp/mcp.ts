@@ -13,7 +13,12 @@ import {
 	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
-import { findApiKeyByToken, findProjectById } from "@/lib/cached-queries.js";
+import {
+	findApiKeyByToken,
+	findOrganizationById,
+	findProjectById,
+} from "@/lib/cached-queries.js";
+import { getEffectiveRetentionLevel } from "@/lib/compliance.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 
 import { parseDataUrl } from "@llmgateway/actions";
@@ -141,7 +146,10 @@ type GenerateNanoBananaInput = z.infer<typeof generateNanoBananaInputSchema>;
 /**
  * Creates an MCP server instance with tools for LLM Gateway
  */
-function createMcpServer(apiKey: string): McpServer {
+function createMcpServer(
+	apiKey: string,
+	retentionLevel: "retain" | "none",
+): McpServer {
 	const server = new McpServer({
 		name: "llmgateway",
 		version: "1.0.0",
@@ -557,7 +565,7 @@ function createMcpServer(apiKey: string): McpServer {
 	// Register the generate-nano-banana tool
 	server.tool(
 		"generate-nano-banana",
-		`Generate an image using Gemini 3 Pro Image (Nano Banana Pro). Tailored for AI coding agents - always returns an inline image preview.${process.env.UPLOAD_DIR ? " Also saves images to disk and returns file paths." : " Set UPLOAD_DIR to enable saving images to disk."}`,
+		`Generate an image using Gemini 3 Pro Image (Nano Banana Pro). Tailored for AI coding agents - always returns an inline image preview.${process.env.UPLOAD_DIR && retentionLevel === "retain" ? " Also saves images to disk and returns file paths." : ""}`,
 		generateNanoBananaInputSchema.shape,
 		async (input: GenerateNanoBananaInput) => {
 			try {
@@ -628,7 +636,8 @@ function createMcpServer(apiKey: string): McpServer {
 					};
 				}
 
-				const uploadDir = process.env.UPLOAD_DIR;
+				const uploadDir =
+					retentionLevel === "retain" ? process.env.UPLOAD_DIR : undefined;
 				const contentBlocks: Array<
 					| { type: "text"; text: string }
 					| { type: "image"; data: string; mimeType: string }
@@ -1164,6 +1173,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 		);
 	}
 
+	let retentionLevel: "retain" | "none" = "none";
 	try {
 		// User-level limits take priority: enforce the per-member budget (set on
 		// the Teams page; fails open on read errors) before the per-key usage
@@ -1171,6 +1181,10 @@ export async function mcpHandler(c: Context): Promise<Response> {
 		// is within limits. Resolve the project so the org is known for the lookup.
 		const mcpProject = await findProjectById(apiKeyRecord.projectId);
 		if (mcpProject) {
+			const mcpOrganization = await findOrganizationById(
+				mcpProject.organizationId,
+			);
+			retentionLevel = getEffectiveRetentionLevel(mcpOrganization);
 			await assertMemberProjectAccess(apiKeyRecord, mcpProject.organizationId);
 			await assertMemberWithinBudget(
 				apiKeyRecord.createdBy,
@@ -1267,7 +1281,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	}
 
 	if (method === "POST") {
-		const server = createMcpServer(apiKey);
+		const server = createMcpServer(apiKey, retentionLevel);
 		try {
 			const rawBody = await c.req.json();
 

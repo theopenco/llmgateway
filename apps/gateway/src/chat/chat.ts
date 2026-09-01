@@ -8759,7 +8759,9 @@ chat.openapi(completions, async (c) => {
 						) {
 							logger.warn("Provider error", {
 								status: res.status,
-								errorText: errorResponseText,
+								...(retentionLevel === "retain" && {
+									errorText: errorResponseText,
+								}),
 								usedProvider,
 								requestedProvider,
 								usedInternalModel,
@@ -9142,7 +9144,9 @@ chat.openapi(completions, async (c) => {
 
 						logger.warn("Immediate streaming provider error", {
 							status: inferredStatusCode,
-							errorText: errorResponseText,
+							...(retentionLevel === "retain" && {
+								errorText: errorResponseText,
+							}),
 							usedProvider,
 							requestedProvider,
 							usedInternalModel,
@@ -9927,9 +9931,11 @@ chat.openapi(completions, async (c) => {
 								(eventData.includes("event:") || eventData.includes("id:"))
 							) {
 								logger.warn("Event data contains SSE field", {
-									eventData:
-										eventData.substring(0, 200) +
-										(eventData.length > 200 ? "..." : ""),
+									...(retentionLevel === "retain" && {
+										eventData:
+											eventData.substring(0, 200) +
+											(eventData.length > 200 ? "..." : ""),
+									}),
 									dataIndex,
 									eventEnd,
 									bufferLength: bufferCopy.length,
@@ -10189,12 +10195,19 @@ chat.openapi(completions, async (c) => {
 									// Since we already validated JSON completeness above, this is likely a format issue
 									// Create structured error for logging
 									streamingError = {
-										message: e instanceof Error ? e.message : String(e),
+										message:
+											retentionLevel === "retain"
+												? e instanceof Error
+													? e.message
+													: String(e)
+												: "Failed to parse streaming JSON",
 										type: "json_parse_error",
 										code: "json_parse_error",
 										details: {
 											name: e instanceof Error ? e.name : "ParseError",
-											eventData: eventData.substring(0, 5000),
+											...(retentionLevel === "retain" && {
+												eventData: eventData.substring(0, 5000),
+											}),
 											provider: usedProvider,
 											model: usedInternalModel,
 											eventLength: eventData.length,
@@ -10204,10 +10217,13 @@ chat.openapi(completions, async (c) => {
 										},
 									};
 									logger.warn("Failed to parse streaming JSON", {
-										error: e instanceof Error ? e.message : String(e),
-										eventData:
-											eventData.substring(0, 200) +
-											(eventData.length > 200 ? "..." : ""),
+										errorName: e instanceof Error ? e.name : "ParseError",
+										...(retentionLevel === "retain" && {
+											error: e instanceof Error ? e.message : String(e),
+											eventData:
+												eventData.substring(0, 200) +
+												(eventData.length > 200 ? "..." : ""),
+										}),
 										provider: usedProvider,
 										eventLength: eventData.length,
 										bufferEnd: eventEnd,
@@ -13074,7 +13090,9 @@ chat.openapi(completions, async (c) => {
 			) {
 				logger.warn("Provider error", {
 					status: res.status,
-					errorText: errorResponseText,
+					...(retentionLevel === "retain" && {
+						errorText: errorResponseText,
+					}),
 					usedProvider,
 					requestedProvider,
 					usedInternalModel,
