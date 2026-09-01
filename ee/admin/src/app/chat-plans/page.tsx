@@ -20,6 +20,7 @@ import { Suspense } from "react";
 import { ChatPlansTimeseriesChart } from "@/components/chat-plans-timeseries-chart";
 import { ChatPlansUsage } from "@/components/chat-plans-usage";
 import { DateRangePicker } from "@/components/date-range-picker";
+import { RenewalCell } from "@/components/renewal-cell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,6 +37,7 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { resolveDateRange } from "@/lib/date-range";
+import { formatSubscriberStatus } from "@/lib/renewal-state";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
@@ -144,23 +146,6 @@ function getStatusBadgeVariant(
 		default:
 			return "outline";
 	}
-}
-
-function formatStatus(
-	status: string,
-	hasPaymentIssue: boolean,
-	cancelled: boolean,
-) {
-	if (hasPaymentIssue) {
-		return "past due";
-	}
-	if (status === "expired" && !cancelled) {
-		return "renewal processing";
-	}
-	if (status === "cancelled_pending") {
-		return "cancel pending";
-	}
-	return status;
 }
 
 function SortableHeader({
@@ -954,14 +939,14 @@ export default async function ChatPlansPage({
 									<TableCell>
 										<Badge
 											variant={getStatusBadgeVariant(
-												formatStatus(
+												formatSubscriberStatus(
 													sub.status,
 													sub.hasPaymentIssue,
 													sub.cancelled,
 												),
 											)}
 										>
-											{formatStatus(
+											{formatSubscriberStatus(
 												sub.status,
 												sub.hasPaymentIssue,
 												sub.cancelled,
@@ -979,28 +964,7 @@ export default async function ChatPlansPage({
 										{sub.cycleDaysIn !== null ? `Day ${sub.cycleDaysIn}` : "—"}
 									</TableCell>
 									<TableCell className="text-muted-foreground text-xs">
-										{sub.hasPaymentIssue ? (
-											<>
-												<span className="font-medium text-destructive">
-													Payment failed
-												</span>
-												{sub.expiresAt && (
-													<p>Due {formatDate(sub.expiresAt)}</p>
-												)}
-											</>
-										) : sub.expiresAt &&
-										  new Date(sub.expiresAt) <= new Date() ? (
-											<>
-												<span className="font-medium text-amber-600 dark:text-amber-400">
-													Processing
-												</span>
-												<p>Due {formatDate(sub.expiresAt)}</p>
-											</>
-										) : sub.expiresAt ? (
-											formatDate(sub.expiresAt)
-										) : (
-											"—"
-										)}
+										<RenewalCell sub={sub} formatDate={formatDate} />
 									</TableCell>
 									<TableCell className="tabular-nums">
 										{currencyFormatter.format(sub.mrr)}

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { RenewalCell } from "@/components/renewal-cell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +22,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { useApi } from "@/lib/fetch-client";
+import { formatSubscriberStatus } from "@/lib/renewal-state";
 import { cn } from "@/lib/utils";
 
 import type { paths } from "@/lib/api/v1";
@@ -83,23 +85,6 @@ function getStatusBadgeVariant(
 		default:
 			return "outline";
 	}
-}
-
-function formatStatus(
-	status: string,
-	hasPaymentIssue: boolean,
-	cancelled: boolean,
-) {
-	if (hasPaymentIssue) {
-		return "past due";
-	}
-	if (status === "expired" && !cancelled) {
-		return "renewal processing";
-	}
-	if (status === "cancelled_pending") {
-		return "cancel pending";
-	}
-	return status;
 }
 
 function SortableHeader({
@@ -455,14 +440,14 @@ export function DevpassSubscribersTable({
 									<TableCell>
 										<Badge
 											variant={getStatusBadgeVariant(
-												formatStatus(
+												formatSubscriberStatus(
 													sub.status,
 													sub.hasPaymentIssue,
 													sub.cancelled,
 												),
 											)}
 										>
-											{formatStatus(
+											{formatSubscriberStatus(
 												sub.status,
 												sub.hasPaymentIssue,
 												sub.cancelled,
@@ -480,28 +465,7 @@ export function DevpassSubscribersTable({
 										{sub.cycleDaysIn !== null ? `Day ${sub.cycleDaysIn}` : "—"}
 									</TableCell>
 									<TableCell className="text-muted-foreground text-xs">
-										{sub.hasPaymentIssue ? (
-											<>
-												<span className="font-medium text-destructive">
-													Payment failed
-												</span>
-												{sub.expiresAt && (
-													<p>Due {formatDate(sub.expiresAt)}</p>
-												)}
-											</>
-										) : sub.expiresAt &&
-										  new Date(sub.expiresAt) <= new Date() ? (
-											<>
-												<span className="font-medium text-amber-600 dark:text-amber-400">
-													Processing
-												</span>
-												<p>Due {formatDate(sub.expiresAt)}</p>
-											</>
-										) : sub.expiresAt ? (
-											formatDate(sub.expiresAt)
-										) : (
-											"—"
-										)}
+										<RenewalCell sub={sub} formatDate={formatDate} />
 									</TableCell>
 									<TableCell className="tabular-nums">
 										{currencyFormatter.format(sub.mrr)}

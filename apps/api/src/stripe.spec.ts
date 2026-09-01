@@ -814,6 +814,48 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		});
 		expect(txns).toHaveLength(1);
 	});
+
+	test("clears a stale credit freeze when the plan activates", async () => {
+		// An abandoned earlier checkout leaves an `incomplete` subscription that
+		// Stripe later expires. That event freezes the org while it still has no
+		// devPlanStripeSubscriptionId, so the stale-subscription guard can't catch
+		// it — and nothing else clears the flag before the first renewal, which
+		// would block self-refunds and make a later real dunning freeze no-op.
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			metadata: {
+				organizationId: ORG_ID,
+				subscriptionType: "dev_plan",
+				devPlan: "pro",
+			},
+		});
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "none",
+			devPlanCreditsLimit: "0",
+			devPlanCreditsUsed: "0",
+			devPlanCreditsFrozen: true,
+			devPlanCreditsLimitBeforeFreeze: "0",
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_create",
+				amountPaid: 7900,
+				invoiceId: "in_devpass_initial",
+				periodEnd: Math.floor(Date.now() / 1000) + SECONDS_IN_TWO_WEEKS,
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.devPlan).toBe("pro");
+		expect(org?.devPlanStripeSubscriptionId).toBe(SUB_ID);
+		expect(org?.devPlanCreditsFrozen).toBe(false);
+		expect(org?.devPlanCreditsLimitBeforeFreeze).toBeNull();
+	});
 });
 
 describe("handleInvoicePaymentSucceeded — chat plan upgrade invoice", () => {

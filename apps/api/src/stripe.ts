@@ -1081,6 +1081,10 @@ export async function finalizeDevPlanSetupSession(
 			devPlanCreditsLimit: creditsLimit.toString(),
 			devPlanCreditsUsed: "0",
 			devPlanIncludedResetPassesUsed: 0,
+			// Clear any freeze an abandoned earlier attempt left behind — see the
+			// activation in handleInvoicePaymentSucceeded for why it can be set here.
+			devPlanCreditsFrozen: false,
+			devPlanCreditsLimitBeforeFreeze: null,
 			devPlanBillingCycleStart: new Date(),
 			devPlanExpiresAt: getSubscriptionPeriodEnd(subscription),
 			devPlanStripeSubscriptionId: subscription.id,
@@ -1480,6 +1484,10 @@ async function handleCheckoutSessionCompleted(
 					devPlanPremiumCreditsUsed: "0",
 					devPlanPremiumWeekStart: new Date(),
 					devPlanIncludedResetPassesUsed: 0,
+					// Clear any freeze an abandoned earlier attempt left behind — see
+					// the activation in handleInvoicePaymentSucceeded for why.
+					devPlanCreditsFrozen: false,
+					devPlanCreditsLimitBeforeFreeze: null,
 					devPlanBillingCycleStart: new Date(),
 					devPlanStripeSubscriptionId: subscriptionId,
 					devPlanCancelled: false,
@@ -3830,10 +3838,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 
 		// First invoice line covers the initial period, so its end is the real
 		// `current_period_end` (= first renewal date).
-		const initialPeriodEnd = invoice.lines.data.reduce(
-			(max, line) => Math.max(max, line.period?.end ?? 0),
-			0,
-		);
+		const initialPeriodEnd = getInvoicePeriodEnd(invoice);
 
 		const claimed = await db
 			.update(tables.organization)
@@ -3842,10 +3847,16 @@ export async function handleInvoicePaymentSucceeded(event: {
 				devPlanCreditsLimit: creditsLimit.toString(),
 				devPlanCreditsUsed: "0",
 				devPlanIncludedResetPassesUsed: 0,
+				// An abandoned earlier checkout leaves an `incomplete` subscription
+				// that Stripe later expires; that event freezes the org while it
+				// still has no `devPlanStripeSubscriptionId`, so the stale-event
+				// guard can't catch it. Nothing clears the flag until a renewal, and
+				// while it is set the org can't self-refund and a later real dunning
+				// freeze silently no-ops — so activation clears it.
+				devPlanCreditsFrozen: false,
+				devPlanCreditsLimitBeforeFreeze: null,
 				devPlanBillingCycleStart: new Date(),
-				devPlanExpiresAt: initialPeriodEnd
-					? new Date(initialPeriodEnd * 1000)
-					: undefined,
+				devPlanExpiresAt: initialPeriodEnd ?? undefined,
 				devPlanStripeSubscriptionId: subscriptionId,
 				devPlanCancelled: false,
 				devPlanCycle: initialDevPlanCycle,
@@ -3952,14 +3963,11 @@ export async function handleInvoicePaymentSucceeded(event: {
 		// invoice charged after an immediate upgrade re-anchored the billing
 		// cycle bills a period that no longer exists — record the payment but
 		// don't grant a fresh allowance for the superseded cycle.
-		const renewedPeriodEnd = invoice.lines.data.reduce(
-			(max, line) => Math.max(max, line.period?.end ?? 0),
-			0,
-		);
+		const renewedPeriodEnd = getInvoicePeriodEnd(invoice);
 		if (
-			renewedPeriodEnd > 0 &&
+			renewedPeriodEnd &&
 			organization.chatPlanExpiresAt &&
-			renewedPeriodEnd * 1000 <
+			renewedPeriodEnd.getTime() <
 				organization.chatPlanExpiresAt.getTime() - STALE_RENEWAL_TOLERANCE_MS
 		) {
 			await db.insert(tables.transaction).values({
@@ -3973,7 +3981,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				description: `Lounge ${organization.chatPlan?.toUpperCase()} membership renewal charge for a superseded cycle (credits not reset)`,
 			});
 			logger.warn(
-				`Skipped stale chat plan renewal invoice ${invoice.id} for organization ${organizationId}: invoice period ends ${new Date(renewedPeriodEnd * 1000).toISOString()} but the current cycle ends ${organization.chatPlanExpiresAt.toISOString()} — the customer was charged for a cycle replaced by a mid-cycle upgrade; consider a refund`,
+				`Skipped stale chat plan renewal invoice ${invoice.id} for organization ${organizationId}: invoice period ends ${renewedPeriodEnd.toISOString()} but the current cycle ends ${organization.chatPlanExpiresAt.toISOString()} — the customer was charged for a cycle replaced by a mid-cycle upgrade; consider a refund`,
 			);
 			return;
 		}
@@ -4003,7 +4011,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				chatPlanCreditsLimit: creditsLimit.toString(),
 				chatPlanCreditsUsed: "0",
 				chatPlanBillingCycleStart: new Date(),
-				chatPlanExpiresAt: getInvoicePeriodEnd(invoice) ?? undefined,
+				chatPlanExpiresAt: renewedPeriodEnd ?? undefined,
 				chatPlanCancelled: false,
 				subscriptionPaymentStatus: "current",
 			})
@@ -4064,10 +4072,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 		// The renewal invoice's line items cover the upcoming period, so the
 		// latest line period end is the new `current_period_end` (= next renewal
 		// date).
-		const renewedPeriodEnd = invoice.lines.data.reduce(
-			(max, line) => Math.max(max, line.period?.end ?? 0),
-			0,
-		);
+		const renewedPeriodEnd = getInvoicePeriodEnd(invoice);
 
 		// Staleness guard: Stripe drafts the cycle-renewal invoice at the period
 		// boundary but only finalizes and charges it about an hour later. An
@@ -4080,9 +4085,9 @@ export async function handleInvoicePaymentSucceeded(event: {
 		// state untouched. The upgrade path voids pending cycle invoices before
 		// re-anchoring; this is the backstop for a charge that slipped through.
 		if (
-			renewedPeriodEnd > 0 &&
+			renewedPeriodEnd &&
 			organization.devPlanExpiresAt &&
-			renewedPeriodEnd * 1000 <
+			renewedPeriodEnd.getTime() <
 				organization.devPlanExpiresAt.getTime() - STALE_RENEWAL_TOLERANCE_MS
 		) {
 			await db.insert(tables.transaction).values({
@@ -4096,7 +4101,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				description: `Dev Plan ${organization.devPlan?.toUpperCase()} renewal charge for a superseded cycle (credits not reset)`,
 			});
 			logger.warn(
-				`Skipped stale dev plan renewal invoice ${invoice.id} for organization ${organizationId}: invoice period ends ${new Date(renewedPeriodEnd * 1000).toISOString()} but the current cycle ends ${organization.devPlanExpiresAt.toISOString()} — the customer was charged for a cycle replaced by a mid-cycle upgrade; consider a refund`,
+				`Skipped stale dev plan renewal invoice ${invoice.id} for organization ${organizationId}: invoice period ends ${renewedPeriodEnd.toISOString()} but the current cycle ends ${organization.devPlanExpiresAt.toISOString()} — the customer was charged for a cycle replaced by a mid-cycle upgrade; consider a refund`,
 			);
 			return;
 		}
@@ -4187,9 +4192,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 				devPlanCreditsFrozen: false,
 				devPlanCreditsLimitBeforeFreeze: null,
 				devPlanBillingCycleStart: new Date(),
-				devPlanExpiresAt: renewedPeriodEnd
-					? new Date(renewedPeriodEnd * 1000)
-					: undefined,
+				devPlanExpiresAt: renewedPeriodEnd ?? undefined,
 				devPlanCancelled: false,
 				subscriptionPaymentStatus: "current",
 			})
@@ -4245,10 +4248,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 
 		// The invoice lines cover the new period, so the latest line end is the new
 		// current_period_end (= next renewal date).
-		const newPeriodEnd = invoice.lines.data.reduce(
-			(max, line) => Math.max(max, line.period?.end ?? 0),
-			0,
-		);
+		const newPeriodEnd = getInvoicePeriodEnd(invoice);
 
 		const upgradeResult = await db.transaction(async (tx) => {
 			// Recompute the rollover from a fresh row read inside the transaction:
@@ -4299,9 +4299,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 						devPlanCreditsFrozen: false,
 						devPlanCreditsLimitBeforeFreeze: null,
 						devPlanBillingCycleStart: new Date(),
-						devPlanExpiresAt: newPeriodEnd
-							? new Date(newPeriodEnd * 1000)
-							: undefined,
+						devPlanExpiresAt: newPeriodEnd ?? undefined,
 						devPlanPendingTier: null,
 						subscriptionPaymentStatus: "current",
 					})
