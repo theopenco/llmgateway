@@ -86,6 +86,9 @@ const customModelRefRegex = new RegExp(
 	`^${CUSTOM_PROVIDER_NAME_REGEX.source.slice(1, -1)}/.+$`,
 );
 
+const zdrRetentionConflictMessage =
+	"Zero data retention requires Metadata Only. Disable payload retention before enabling ZDR, or disable ZDR before enabling payload retention.";
+
 const complianceProviderRefSchema = z
 	.string()
 	.max(256)
@@ -774,8 +777,7 @@ organization.openapi(updateOrganization, async (c) => {
 		nextRetentionLevel === "retain"
 	) {
 		throw new HTTPException(400, {
-			message:
-				"Zero data retention requires Metadata Only. Disable payload retention before enabling ZDR, or disable ZDR before enabling payload retention.",
+			message: zdrRetentionConflictMessage,
 		});
 	}
 
@@ -867,12 +869,35 @@ organization.openapi(updateOrganization, async (c) => {
 	if (Object.keys(updateData).length === 0) {
 		updatedOrganization = userOrganization.organization!;
 	} else {
+		let retentionCompatibilityCondition;
+		if (retentionLevel === "retain" && providerCompliancePolicy === undefined) {
+			retentionCompatibilityCondition = sql<boolean>`not coalesce(${tables.organization.providerCompliancePolicy}::jsonb @> ${JSON.stringify({ enabled: true, blockPromptLogging: true })}::jsonb, false)`;
+		} else if (
+			retentionLevel === undefined &&
+			providerCompliancePolicy !== undefined &&
+			zeroDataRetentionEnabled
+		) {
+			retentionCompatibilityCondition = sql<boolean>`${tables.organization.retentionLevel} <> 'retain'`;
+		}
+
 		try {
 			[updatedOrganization] = await db
 				.update(tables.organization)
 				.set(updateData)
-				.where(eq(tables.organization.id, id))
+				.where(
+					retentionCompatibilityCondition
+						? and(
+								eq(tables.organization.id, id),
+								retentionCompatibilityCondition,
+							)
+						: eq(tables.organization.id, id),
+				)
 				.returning();
+			if (!updatedOrganization && retentionCompatibilityCondition) {
+				throw new HTTPException(400, {
+					message: zdrRetentionConflictMessage,
+				});
+			}
 		} catch (err) {
 			const code =
 				(err as { code?: string; cause?: { code?: string } })?.code ??

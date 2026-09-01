@@ -79,8 +79,9 @@ Data is retained for 30 days for all users. Enterprise plans can have custom ret
 	input and output items are therefore held for up to 30 days. Send `store:
 	false` with the request to opt out. When an Enterprise organization's
 	[zero-data-retention policy](/features/compliance) is active, the gateway
-	forces `store: false` for every Responses API request and prevents payload
-	retention from being enabled until ZDR is disabled.
+	forces `store: false` for every Responses API request, including compaction,
+	bypasses the gateway response cache, and prevents payload retention from being
+	enabled until ZDR is disabled.
 </Callout>
 
 ## Accessing Stored Data

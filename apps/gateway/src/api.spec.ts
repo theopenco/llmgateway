@@ -2632,6 +2632,83 @@ describe("api", () => {
 		expect((logRow?.content ?? "").length).toBeGreaterThan(0);
 	});
 
+	test("/v1/chat/completions bypasses payload storage and caching under ZDR", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				retentionLevel: "retain",
+				providerCompliancePolicy: {
+					enabled: true,
+					blockPromptLogging: true,
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+		await db
+			.update(tables.project)
+			.set({ cachingEnabled: true })
+			.where(eq(tables.project.id, "project-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-zdr-retention",
+			...hashApiKeyForStorage("real-token-zdr-retention"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-zdr-retention",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-zdr-retention",
+				"org-id",
+			),
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const requestId = `zdr-retention-${randomUUID()}`;
+		const body = JSON.stringify({
+			model: "llmgateway/custom",
+			messages: [{ role: "user", content: "Sensitive ZDR payload" }],
+		});
+		const makeRequest = () =>
+			app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-zdr-retention",
+					"x-request-id": requestId,
+				},
+				body,
+			});
+
+		const originalNodeEnv = process.env.NODE_ENV;
+		let firstResponse: Response;
+		try {
+			process.env.NODE_ENV = "development";
+			firstResponse = await makeRequest();
+		} finally {
+			process.env.NODE_ENV = originalNodeEnv;
+		}
+		const secondResponse = await makeRequest();
+
+		expect(firstResponse.status).toBe(200);
+		expect(secondResponse.status).toBe(200);
+		expect(firstResponse.headers.get("x-llmgateway-cache")).toBeNull();
+		expect(secondResponse.headers.get("x-llmgateway-cache")).toBeNull();
+
+		const logs = await waitForLogs(2);
+		expect(logs).toHaveLength(2);
+		for (const log of logs) {
+			expect(log.cached).toBe(false);
+			expect(log.messages).toBeNull();
+			expect(log.content).toBeNull();
+			expect(log.reasoningContent).toBeNull();
+		}
+	});
+
 	test("/v1/responses works when retention is disabled and keeps state out of the log", async () => {
 		// Responses API state lives in the dedicated responses storage (30d
 		// TTL), not the log table, so a non-retaining org can use the full

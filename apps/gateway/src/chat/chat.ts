@@ -2351,9 +2351,13 @@ chat.openapi(completions, async (c) => {
 	// would push the zero-credit org we just waived the charge for into negative
 	// credits. Forcing it here rather than zeroing at each cost site keeps the
 	// two in step: no stored payloads, therefore no storage to charge for.
-	const retentionLevel = sponsoredOnboarding
-		? "none"
-		: (organization.retentionLevel ?? "none");
+	const zeroDataRetentionEnabled =
+		organization.providerCompliancePolicy?.enabled === true &&
+		organization.providerCompliancePolicy.blockPromptLogging === true;
+	const retentionLevel =
+		sponsoredOnboarding || zeroDataRetentionEnabled
+			? "none"
+			: (organization.retentionLevel ?? "none");
 
 	// Note: the end-user-wallet credits substitution (withWalletCredits) happens
 	// further below — orgs backing end-user wallets are always regular
@@ -6028,11 +6032,7 @@ chat.openapi(completions, async (c) => {
 	// A sponsored onboarding call is exempt: its storage cost is zeroed below, so
 	// there is nothing to fund. Without this, a new account that turned retention
 	// on before finishing the wizard hits the very 402 this path exists to avoid.
-	if (
-		organization &&
-		organization.retentionLevel === "retain" &&
-		!sponsoredOnboarding
-	) {
+	if (organization && retentionLevel === "retain" && !sponsoredOnboarding) {
 		const { totalAvailableCredits } = getAvailableCredits(organization);
 
 		if (totalAvailableCredits <= 0) {
@@ -6380,7 +6380,9 @@ chat.openapi(completions, async (c) => {
 	// the project setting off.
 	const noCache = c.req.header("x-no-cache") === "true";
 	const cachingEnabled =
-		organization.devPlan !== "none" || noCache ? false : projectCachingEnabled;
+		organization.devPlan !== "none" || noCache || zeroDataRetentionEnabled
+			? false
+			: projectCachingEnabled;
 
 	let cacheKey: string | null = null;
 	let streamingCacheKey: string | null = null;

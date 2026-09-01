@@ -1,7 +1,7 @@
 "use client";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Alert, AlertDescription } from "@/lib/components/alert";
 import { Button } from "@/lib/components/button";
@@ -27,6 +27,10 @@ export function OrganizationRetentionSettings() {
 	const [retentionLevel, setRetentionLevel] = useState<"retain" | "none">(
 		selectedOrganization?.retentionLevel ?? "retain",
 	);
+	useEffect(() => {
+		setRetentionLevel(selectedOrganization?.retentionLevel ?? "retain");
+	}, [selectedOrganization?.id, selectedOrganization?.retentionLevel]);
+
 	const zeroDataRetentionEnabled =
 		selectedOrganization?.providerCompliancePolicy?.enabled === true &&
 		selectedOrganization.providerCompliancePolicy.blockPromptLogging === true;

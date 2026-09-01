@@ -137,4 +137,53 @@ describe("responses streaming lifecycle", () => {
 		expect(await response.json()).toMatchObject({ store: false });
 		expect(mocks.storeResponse).not.toHaveBeenCalled();
 	});
+
+	it("does not store compacted Responses state while ZDR is active", async () => {
+		mocks.findOrganizationById.mockResolvedValue({
+			id: "org_test",
+			status: "active",
+			providerCompliancePolicy: {
+				enabled: true,
+				blockPromptLogging: true,
+			},
+		});
+		mocks.appRequest.mockResolvedValue(
+			Response.json({
+				id: "chatcmpl_test",
+				object: "chat.completion",
+				created: 1,
+				model: "openai/gpt-4o-mini",
+				choices: [
+					{
+						index: 0,
+						message: { role: "assistant", content: "Summary" },
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 1,
+					completion_tokens: 1,
+					total_tokens: 2,
+				},
+			}),
+		);
+
+		const response = await responses.request("/compact", {
+			method: "POST",
+			headers: {
+				authorization: "Bearer test-token",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				input: "Compact this conversation",
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			object: "response.compaction",
+		});
+		expect(mocks.storeResponse).not.toHaveBeenCalled();
+	});
 });

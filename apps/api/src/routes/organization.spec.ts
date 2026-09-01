@@ -7,7 +7,7 @@ import {
 	deleteAll,
 } from "@/testing.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, sql, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { randomInt } from "@llmgateway/shared/random";
 
@@ -335,6 +335,86 @@ describe("organization route", () => {
 				})
 			)?.retentionLevel,
 		).toBe("none");
+	});
+
+	test("concurrent ZDR and payload retention updates cannot conflict", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				retentionLevel: "none",
+				providerCompliancePolicy: null,
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		let signalLockAcquired!: () => void;
+		const lockAcquired = new Promise<void>((resolve) => {
+			signalLockAcquired = resolve;
+		});
+		let releaseLock!: () => void;
+		const holdLock = new Promise<void>((resolve) => {
+			releaseLock = resolve;
+		});
+		const lockTransaction = db.transaction(async (tx) => {
+			await tx.execute(
+				sql`select 1 from ${tables.organization} where ${tables.organization.id} = ${"test-org-id"} for update`,
+			);
+			signalLockAcquired();
+			await holdLock;
+		});
+
+		await lockAcquired;
+		const enableZdr = app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockPromptLogging: true,
+				},
+			}),
+		});
+		const enableRetention = app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ retentionLevel: "retain" }),
+		});
+
+		try {
+			await expect
+				.poll(async () => {
+					const blockedUpdates = await db.execute<{ count: string }>(sql`
+						select count(*) as count
+						from pg_stat_activity
+						where datname = current_database()
+							and wait_event_type = 'Lock'
+							and query like 'update "organization" set%'
+					`);
+					return Number(blockedUpdates.rows[0]?.count ?? 0);
+				})
+				.toBe(2);
+		} finally {
+			releaseLock();
+		}
+		const responses = await Promise.all([enableZdr, enableRetention]);
+		await lockTransaction;
+
+		expect(responses.map((response) => response.status).sort()).toEqual([
+			200, 400,
+		]);
+		const organization = await db.query.organization.findFirst({
+			where: { id: { eq: "test-org-id" } },
+		});
+		const activeZdr =
+			organization?.providerCompliancePolicy?.enabled === true &&
+			organization.providerCompliancePolicy.blockPromptLogging === true;
+		expect(activeZdr && organization?.retentionLevel === "retain").toBe(false);
 	});
 
 	test("PATCH /orgs/{id} logs top-up setting changes separately from organization updates", async () => {

@@ -781,7 +781,10 @@ responses.post("/compact", async (c) => {
 		);
 	}
 
-	const { project } = authResult;
+	const { project, organization } = authResult;
+	const zeroDataRetentionEnabled =
+		organization.providerCompliancePolicy?.enabled === true &&
+		organization.providerCompliancePolicy.blockPromptLogging === true;
 
 	let inputItems: unknown[] = [];
 	if (typeof req.input === "string") {
@@ -930,20 +933,22 @@ responses.post("/compact", async (c) => {
 			? chatJson.model
 			: req.model;
 
-	await storeResponse(
-		compactionId,
-		{
-			id: compactionId,
-			input: inputItems,
-			output: compactionResponse.output,
-			instructions: req.instructions,
-			model: responseModel,
-			status: "completed",
-			usage: compactionResponse.usage as unknown as Record<string, unknown>,
-			created_at: createdAt,
-		},
-		project.id,
-	);
+	if (!zeroDataRetentionEnabled) {
+		await storeResponse(
+			compactionId,
+			{
+				id: compactionId,
+				input: inputItems,
+				output: compactionResponse.output,
+				instructions: req.instructions,
+				model: responseModel,
+				status: "completed",
+				usage: compactionResponse.usage as unknown as Record<string, unknown>,
+				created_at: createdAt,
+			},
+			project.id,
+		);
+	}
 
 	return c.json(compactionResponse);
 });
