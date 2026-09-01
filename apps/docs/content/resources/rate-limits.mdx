@@ -175,7 +175,7 @@ For organizations that have **purchased at least some credits**:
 
 ## Provider Limits
 
-LLMGateway can enforce per-provider/model request caps (per-minute and per-day windows) on top of the per-endpoint limits. When such a cap is configured, chat responses carry provider-scoped headers (`X-RateLimit-Limit-Provider`, `X-RateLimit-Remaining-Provider`, plus per-window `…-Provider-RPM` / `…-Provider-RPD` variants) on **every** response, not just on 429s. A capped provider is normally just deprioritized — [routing](/features/routing) picks a provider with remaining budget instead; a `429` is returned only when the request pins the capped provider explicitly with `X-No-Fallback`.
+LLMGateway can enforce per-provider/model request caps (per-minute and per-day windows) on top of the per-endpoint limits. When such a cap is configured, chat responses that go through provider rate-limit accounting carry provider-scoped headers (`X-RateLimit-Limit-Provider`, `X-RateLimit-Remaining-Provider`, plus per-window `…-Provider-RPM` / `…-Provider-RPD` variants) — on successful responses too, not just on 429s. A request rejected early (a pinned provider with `X-No-Fallback` whose cap is already exhausted) may return the `429` without these headers. A capped provider is normally just deprioritized — [routing](/features/routing) picks a provider with remaining budget instead; a `429` is returned only when the request pins the capped provider explicitly with `X-No-Fallback`.
 
 ## Rate Limit Headers
 
