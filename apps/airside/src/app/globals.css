@@ -145,6 +145,98 @@
 	animation: beacon 3.2s ease-in-out infinite;
 }
 
+/* Hero flight scene */
+@keyframes radar-sweep-rotate {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@utility animate-radar-sweep {
+	animation: radar-sweep-rotate 6s linear infinite;
+}
+
+/* Trailing wedge whose leading edge is the sweep line */
+@utility radar-sweep-cone {
+	background: conic-gradient(
+		from 0deg,
+		transparent 0deg 320deg,
+		color-mix(in oklch, var(--primary) 12%, transparent) 356deg,
+		color-mix(in oklch, var(--primary) 38%, transparent) 360deg
+	);
+}
+
+/* Radar contact: lights up as the sweep passes, then fades */
+@keyframes blip {
+	0%,
+	4% {
+		opacity: 0;
+		transform: scale(0.5);
+	}
+	8% {
+		opacity: 0.9;
+		transform: scale(1);
+	}
+	45%,
+	100% {
+		opacity: 0;
+		transform: scale(0.6);
+	}
+}
+
+@utility animate-blip {
+	animation: blip 6s linear infinite both;
+}
+
+/* Dashes crawl along the flight path in the direction of travel */
+@keyframes flight-dashes {
+	to {
+		stroke-dashoffset: -18;
+	}
+}
+
+@utility animate-flight-dashes {
+	animation: flight-dashes 1.2s linear infinite;
+}
+
+@keyframes cloud-drift {
+	from {
+		transform: translateX(-1.5rem);
+	}
+	to {
+		transform: translateX(1.5rem);
+	}
+}
+
+@utility animate-cloud-drift {
+	animation: cloud-drift 38s ease-in-out infinite alternate;
+}
+
+/* Approach-light chase ("the rabbit") */
+@keyframes strobe {
+	0% {
+		opacity: 0.2;
+	}
+	4% {
+		opacity: 1;
+	}
+	12%,
+	100% {
+		opacity: 0.2;
+	}
+}
+
+@utility animate-strobe {
+	animation: strobe 2.6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.animate-flap,
+	.animate-beacon {
+		animation: none;
+	}
+}
+
 /* Dashed runway centerline separator */
 @utility runway-line {
 	background-image: linear-gradient(

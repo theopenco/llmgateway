@@ -13,6 +13,7 @@ import Link from "next/link";
 import { DepartureBoard } from "@/components/DepartureBoard";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
+import { HeroScene } from "@/components/HeroScene";
 import { Button } from "@/components/ui/button";
 
 import type { Metadata } from "next";
@@ -153,6 +154,7 @@ export default function LandingPage() {
 				{/* Hero */}
 				<section className="radar-grid relative overflow-hidden">
 					<div className="from-background via-background/60 to-background pointer-events-none absolute inset-0 bg-gradient-to-b" />
+					<HeroScene />
 					<div className="relative mx-auto grid max-w-6xl gap-12 px-4 pt-20 pb-16 sm:px-6 lg:grid-cols-[1.05fr_1fr] lg:items-center lg:pt-28 lg:pb-24">
 						<div>
 							<p className="text-primary mb-4 font-mono text-xs tracking-[0.3em] uppercase">
