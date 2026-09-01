@@ -121,8 +121,8 @@ export async function POST() {
 		ttlSeconds: 900, // optional, default 15 min
 	});
 	return Response.json(session); // { sessionToken, walletId, endCustomerId, expiresAt, publishableKey }
-	// publishableKey is reserved for future use and currently always null —
-	// the browser authenticates with the sessionToken (es_…) alone.
+	// publishableKey is null unless the project has an active publishable
+	// browser key — the browser authenticates with the sessionToken (es_…).
 }
 ```
 

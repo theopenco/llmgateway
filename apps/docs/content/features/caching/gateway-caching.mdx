@@ -80,6 +80,7 @@ The cache key is scoped to your **project** and includes the **resolved provider
 - Reasoning effort and reasoning max tokens
 - `prompt_cache_key`, `prompt_cache_retention`, `prompt_cache_options`
 - `n` and `service_tier`
+- The response mode — streaming and non-streaming entries are kept separate, so an otherwise identical `stream: true` request never shares an entry with a non-streaming one
 
 <Callout type="info">
 	Requests with different values for any of these parameters, even slight
