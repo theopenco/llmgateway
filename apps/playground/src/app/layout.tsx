@@ -69,7 +69,6 @@ export const metadata: Metadata = {
 		title: `${BRAND.name} — Chat with 200+ AI Models (GPT, Claude, Gemini)`,
 		description:
 			"The members' lounge for AI. Chat, generate images and videos, and run multi-model group chats — every frontier model, one membership.",
-		images: ["/opengraph.png?v=3"],
 		creator: "@llmgateway",
 	},
 };

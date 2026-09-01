@@ -11,10 +11,17 @@ import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Group Chat - Compare AI Models Side by Side",
+	title: "Group Chat — Compare AI Models Side by Side",
 	description:
-		"Send one prompt to multiple AI models simultaneously. Compare responses from GPT-4, Claude, Gemini, and more in real-time.",
+		"Send one prompt to multiple AI models simultaneously. Compare responses from GPT-5, Claude, Gemini, and more in real time.",
 	alternates: { canonical: "/group" },
+	openGraph: {
+		title: "Group Chat — Compare AI Models Side by Side | Lounge",
+		description:
+			"Send one prompt to multiple AI models simultaneously. Compare responses from GPT-5, Claude, Gemini, and more in real time.",
+		type: "website",
+		url: "https://lounge.llmgateway.io/group",
+	},
 };
 
 export interface GatewayModel {
