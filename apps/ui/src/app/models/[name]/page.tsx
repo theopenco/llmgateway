@@ -55,7 +55,11 @@ import {
 	type StabilityLevel,
 	type ModelDefinition,
 } from "@llmgateway/models";
-import { isMappingDeactivated } from "@llmgateway/shared/components";
+import {
+	formatPerUnitPrice,
+	getMinPerSecondPrice,
+	isMappingDeactivated,
+} from "@llmgateway/shared/components";
 
 import type { Metadata } from "next";
 
@@ -438,24 +442,11 @@ export default async function ModelPage({ params }: PageProps) {
 								<div>
 									Starting at{" "}
 									{(() => {
-										let minPrice: number | undefined;
-										for (const p of visibleProviders) {
-											if (!p.perSecondPrice) {
-												continue;
-											}
-											for (const v of Object.values(p.perSecondPrice)) {
-												const n =
-													typeof v === "number" ? v : parseFloat(String(v));
-												if (
-													Number.isFinite(n) &&
-													(minPrice === undefined || n < minPrice)
-												) {
-													minPrice = n;
-												}
-											}
-										}
-										return minPrice !== undefined
-											? `$${minPrice}/sec`
+										const prices = visibleProviders
+											.map((p) => getMinPerSecondPrice(p))
+											.filter((v): v is number => v !== null);
+										return prices.length > 0
+											? `${formatPerUnitPrice(Math.min(...prices))}/sec`
 											: "Unknown";
 									})()}{" "}
 									video generation
