@@ -189,9 +189,16 @@ When a response is healed, the healing method is logged for debugging. The follo
 ## Limitations
 
 <Callout type="warning">
-	Response Healing is only available for non-streaming requests. Streaming
-	responses are returned as-is without healing.
+	Response Healing works for streaming requests too, but it changes how the
+	stream is delivered: the gateway buffers the whole content stream, repairs it,
+	and replays the healed content as a single chunk — so token-by-token streaming
+	is lost for that request. Healing is disabled for multi-choice streams (`n`
+	greater than 1).
 </Callout>
+
+Healing also runs automatically — without the `plugins` entry — for a few
+providers and models whose native JSON mode is known to emit malformed output;
+in those cases the gateway repairs `response_format` JSON responses on its own.
 
 Response Healing works best for:
 

@@ -8,7 +8,7 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 # Dynamic Routes
 
-Dynamic routes let you move routing logic out of your application code and into the gateway. Instead of hardcoding a model, you define a named decision graph — conditions on the request, percentage-based traffic splits, and model targets — and invoke it by putting `dynamic/<name>` in the `model` field of any OpenAI-compatible request:
+Dynamic routes let you move routing logic out of your application code and into the gateway. Instead of hardcoding a model, you define a named decision graph — conditions on the request, percentage-based traffic splits, and model targets — and invoke it by putting `dynamic/<name>` in the `model` field of a chat request. Dynamic routes are resolved on `/v1/chat/completions` and the endpoints that proxy through it (`/v1/responses` and `/v1/messages`) — not on embeddings, images, audio, video, rerank, OCR, or moderations:
 
 ```bash
 curl https://api.llmgateway.io/v1/chat/completions \
@@ -105,6 +105,8 @@ Weights are relative — `{ 80, 20 }` and `{ 4, 1 }` produce the same split.
 ### `model`
 
 Terminates evaluation and routes the request to a catalog model (see the [models page](https://llmgateway.io/models) for available ids). Optional `providers` restricts routing to those providers and doubles as the ordered fallback preference; when omitted, every provider serving the model is a candidate and weighted smart routing picks the best one.
+
+A `model` node can also target one of your organization's [custom catalog models](/features/custom-providers#custom-model-catalog) as `<customProviderName>/<modelName>`. Such a node must not set `providers` (the custom model already fixes its provider), and the referenced custom model must be active in your organization when the route is saved or published.
 
 ### `end`
 

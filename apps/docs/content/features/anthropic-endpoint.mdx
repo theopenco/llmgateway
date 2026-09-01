@@ -175,12 +175,11 @@ For Claude models, `cache_control` markers on `system` and message content block
 Cache usage comes back in Anthropic's native fields: `usage.cache_creation_input_tokens` (tokens written to the cache this request, billed at the write premium), `usage.cache_read_input_tokens` (tokens served from cache at the discounted rate), and `usage.cache_creation` (the per-TTL write breakdown).
 
 <Callout type="warning">
-	Each Claude model has a minimum cacheable prompt length (4,096 tokens on
-	current-generation models such as Opus 4.5+, Sonnet 5, and Haiku 4.5). A
+	Each Claude model has a minimum cacheable prompt length (1,024–4,096 tokens
+	depending on the model, exposed as `min_cacheable_tokens` on `/v1/models`). A
 	`cache_control` marker on a shorter prompt is accepted but silently not cached
 	— both cache usage fields stay `0`. See [Provider Cache
-	Control](/features/caching/provider-cache-control) for the per-model
-	thresholds and details.
+	Control](/features/caching/provider-cache-control) for details.
 </Callout>
 
 ### Web Search
@@ -236,4 +235,4 @@ Send every tool definition on every request, including the deferred ones — Ant
 
 ### Gateway Response Cache
 
-If [gateway caching](/features/caching/gateway-caching) is enabled on the project, a byte-identical request is replayed from cache instead of being sent upstream. Because the replayed body is identical (same `id`, same `usage`), the `x-llmgateway-cache: HIT` response header is the marker to check. Send `x-no-cache: true` to bypass the cache for a single request.
+If [gateway caching](/features/caching/gateway-caching) is enabled on the project, a byte-identical request is replayed from cache instead of being sent upstream. Because the replayed body carries the same `id`, content, and token counts as the original (only gateway cost fields are zeroed), the `x-llmgateway-cache: HIT` response header is the marker to check. Send `x-no-cache: true` to bypass the cache for a single request.

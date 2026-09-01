@@ -140,7 +140,7 @@ Response (200): the updated project. It carries both `providerCacheControlMode` 
 
 `DELETE /v1/master/projects/{id}`
 
-Soft-deletes a project (sets `status` to `"deleted"`). Cascades to its API keys.
+Soft-deletes a project (sets `status` to `"deleted"`). Cascades to its API keys. Mirroring the dashboard's owner-only project deletion, this endpoint returns a `403` unless the user who created the master key is currently an **owner** of the organization.
 
 ```bash
 curl -X DELETE https://internal.llmgateway.io/v1/master/projects/proj_... \
@@ -705,7 +705,7 @@ Response (200):
 
 ## Custom providers
 
-Custom providers are your own OpenAI-compatible endpoints, registered as BYOK provider keys with `provider: "custom"`. The gateway routes to them with the model string `custom/<name>/<model>`. See [Custom Providers](/features/custom-providers) for the dashboard flow and routing semantics.
+Custom providers are your own OpenAI-compatible endpoints, registered as BYOK provider keys with `provider: "custom"`. The gateway routes to them with the model string `<name>/<model>` (e.g. `acme/acme-large`). See [Custom Providers](/features/custom-providers) for the dashboard flow and routing semantics.
 
 Only custom providers are exposed through the master API — catalog providers (OpenAI, Anthropic, …) require an interactive upstream credential check and must be added from the dashboard.
 
@@ -734,7 +734,7 @@ Response (200):
 			"id": "pk_...",
 			"provider": "custom",
 			"name": "acme",
-			"baseUrl": "https://llm.acme.example.com/v1",
+			"baseUrl": "https://llm.acme.example.com",
 			"maskedToken": "sk-a...cret",
 			"status": "active",
 			"customModelsOnly": true,
@@ -763,7 +763,7 @@ curl -X POST https://internal.llmgateway.io/v1/master/custom-providers \
   -H "Content-Type: application/json" \
   -d '{
     "name": "acme",
-    "baseUrl": "https://llm.acme.example.com/v1",
+    "baseUrl": "https://llm.acme.example.com",
     "token": "sk-acme-...",
     "customModelsOnly": true
   }'
@@ -792,7 +792,7 @@ curl -X PATCH https://internal.llmgateway.io/v1/master/custom-providers/pk_... \
   -H "Authorization: Bearer $MASTER_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "baseUrl": "https://llm2.acme.example.com/v1",
+    "baseUrl": "https://llm2.acme.example.com",
     "token": "sk-acme-rotated-..."
   }'
 ```
