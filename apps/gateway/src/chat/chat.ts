@@ -14013,7 +14013,7 @@ chat.openapi(completions, async (c) => {
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);
 	}
-	if (process.env.NODE_ENV !== "production") {
+	if (process.env.NODE_ENV !== "production" && retentionLevel === "retain") {
 		logger.debug("API response", { response: json });
 	}
 	// Track response size - prefer Content-Length header to avoid expensive stringify on large responses
@@ -14143,13 +14143,20 @@ chat.openapi(completions, async (c) => {
 			reasoningTokens,
 			hasToolResults: !!toolResults,
 			toolResultsCount: toolResults?.length ?? 0,
-			rawCandidates: json.candidates,
+			...(retentionLevel === "retain" && {
+				rawCandidates: json.candidates,
+			}),
 			rawUsageMetadata: json.usageMetadata,
 		});
 	}
 
 	// Debug: Log images found in response
-	logger.debug("Gateway - parseProviderResponse extracted images", { images });
+	logger.debug(
+		"Gateway - parseProviderResponse extracted images",
+		retentionLevel === "retain"
+			? { images }
+			: { imageCount: images?.length ?? 0 },
+	);
 	logger.debug("Gateway - Used provider", { usedProvider });
 	logger.debug("Gateway - Used model", { usedInternalModel });
 
