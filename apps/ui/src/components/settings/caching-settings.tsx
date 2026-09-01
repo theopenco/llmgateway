@@ -79,7 +79,7 @@ export function CachingSettings({
 	const { buildOrgUrl, selectedOrganization } = useDashboardNavigation();
 	const zeroDataRetentionEnabled =
 		selectedOrganization?.providerCompliancePolicy?.enabled === true &&
-		selectedOrganization.providerCompliancePolicy.blockPromptLogging === true;
+		selectedOrganization.providerCompliancePolicy.zeroDataRetention === true;
 
 	const form = useForm<CachingFormData>({
 		resolver: zodResolver(cachingFormSchema),

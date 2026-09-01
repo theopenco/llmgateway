@@ -98,7 +98,7 @@ describe("responses streaming lifecycle", () => {
 			status: "active",
 			providerCompliancePolicy: {
 				enabled: true,
-				blockPromptLogging: true,
+				zeroDataRetention: true,
 			},
 		});
 		const response = await responses.request("/", {
@@ -132,7 +132,7 @@ describe("responses streaming lifecycle", () => {
 			status: "active",
 			providerCompliancePolicy: {
 				enabled: true,
-				blockPromptLogging: true,
+				zeroDataRetention: true,
 			},
 		});
 		mocks.appRequest.mockResolvedValue(

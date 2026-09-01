@@ -398,7 +398,7 @@ describe("v1/master cache invalidation", () => {
 			.set({
 				providerCompliancePolicy: {
 					enabled: true,
-					blockPromptLogging: true,
+					zeroDataRetention: true,
 				},
 			})
 			.where(eq(tables.organization.id, "test-org-id"));
@@ -428,7 +428,7 @@ describe("v1/master cache invalidation", () => {
 			.set({
 				providerCompliancePolicy: {
 					enabled: true,
-					blockPromptLogging: true,
+					zeroDataRetention: true,
 				},
 			})
 			.where(eq(tables.organization.id, "test-org-id"));
@@ -454,7 +454,7 @@ describe("v1/master cache invalidation", () => {
 			.set({
 				providerCompliancePolicy: {
 					enabled: true,
-					blockPromptLogging: true,
+					zeroDataRetention: true,
 				},
 			})
 			.where(eq(tables.organization.id, "test-org-id"));

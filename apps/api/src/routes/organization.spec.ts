@@ -255,7 +255,7 @@ describe("organization route", () => {
 			body: JSON.stringify({
 				providerCompliancePolicy: {
 					enabled: true,
-					blockPromptLogging: true,
+					zeroDataRetention: true,
 				},
 			}),
 		});
@@ -286,7 +286,7 @@ describe("organization route", () => {
 			body: JSON.stringify({
 				providerCompliancePolicy: {
 					enabled: true,
-					blockPromptLogging: true,
+					zeroDataRetention: true,
 				},
 			}),
 		});
@@ -298,8 +298,52 @@ describe("organization route", () => {
 		expect(organization?.retentionLevel).toBe("none");
 		expect(organization?.providerCompliancePolicy).toEqual({
 			enabled: true,
+			zeroDataRetention: true,
+		});
+	});
+
+	test("legacy no prompt logging remains compatible with payload retention", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise", retentionLevel: "retain" })
+			.where(eq(tables.organization.id, "test-org-id"));
+		await db.insert(tables.project).values({
+			id: "test-project-id",
+			name: "Cached Project",
+			organizationId: "test-org-id",
+			cachingEnabled: true,
+		});
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockPromptLogging: true,
+				},
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		const organization = await db.query.organization.findFirst({
+			where: { id: { eq: "test-org-id" } },
+		});
+		expect(organization?.retentionLevel).toBe("retain");
+		expect(organization?.providerCompliancePolicy).toEqual({
+			enabled: true,
 			blockPromptLogging: true,
 		});
+		expect(
+			(
+				await db.query.project.findFirst({
+					where: { id: { eq: "test-project-id" } },
+				})
+			)?.cachingEnabled,
+		).toBe(true);
 	});
 
 	test("ZDR cannot be enabled while a project cache is active", async () => {
@@ -323,7 +367,7 @@ describe("organization route", () => {
 			body: JSON.stringify({
 				providerCompliancePolicy: {
 					enabled: true,
-					blockPromptLogging: true,
+					zeroDataRetention: true,
 				},
 			}),
 		});
@@ -349,7 +393,7 @@ describe("organization route", () => {
 				retentionLevel: "none",
 				providerCompliancePolicy: {
 					enabled: true,
-					blockPromptLogging: true,
+					zeroDataRetention: true,
 				},
 			})
 			.where(eq(tables.organization.id, "test-org-id"));

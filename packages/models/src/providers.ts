@@ -136,8 +136,14 @@ export interface ProviderCompliancePolicy {
 	requireGdpr?: boolean;
 	/** Require the provider to NOT train on API prompts (apiTraining === false). */
 	blockApiTraining?: boolean;
-	/** Require the provider to NOT log prompts (promptLogging === false). */
+	/**
+	 * Require the provider to NOT log prompts (promptLogging === false).
+	 * @deprecated Existing policies remain supported, but new policies should use
+	 * {@link ProviderCompliancePolicy.zeroDataRetention}.
+	 */
 	blockPromptLogging?: boolean;
+	/** Enforce zero data retention across providers and LLM Gateway. */
+	zeroDataRetention?: boolean;
 	/**
 	 * Block stealth providers (see {@link isStealthProvider}) — undisclosed
 	 * platforms whose data policy and headquarters are unknown. They already
@@ -2179,6 +2185,7 @@ export type ComplianceFailureReason =
 	| "requireGdpr"
 	| "blockApiTraining"
 	| "blockPromptLogging"
+	| "zeroDataRetention"
 	| "blockStealthProviders"
 	| "allowedCountries"
 	| "blockedProviders"
@@ -2222,6 +2229,9 @@ export function getDataPolicyComplianceFailures(
 	}
 	if (policy.blockPromptLogging && dataPolicy?.promptLogging !== false) {
 		failures.push("blockPromptLogging");
+	}
+	if (policy.zeroDataRetention && dataPolicy?.promptLogging !== false) {
+		failures.push("zeroDataRetention");
 	}
 	if (
 		policy.allowedCountries &&

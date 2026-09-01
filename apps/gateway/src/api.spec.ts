@@ -2640,7 +2640,7 @@ describe("api", () => {
 				retentionLevel: "retain",
 				providerCompliancePolicy: {
 					enabled: true,
-					blockPromptLogging: true,
+					zeroDataRetention: true,
 				},
 			})
 			.where(eq(tables.organization.id, "org-id"));

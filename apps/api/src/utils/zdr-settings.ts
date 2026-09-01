@@ -1,6 +1,6 @@
 export interface ZdrCompliancePolicy {
 	enabled?: boolean;
-	blockPromptLogging?: boolean;
+	zeroDataRetention?: boolean;
 }
 
 export const zdrCachingConflictMessage =
@@ -12,5 +12,5 @@ export const zdrProviderCachingConflictMessage =
 export function isZeroDataRetentionEnabled(
 	policy: ZdrCompliancePolicy | null | undefined,
 ) {
-	return policy?.enabled === true && policy.blockPromptLogging === true;
+	return policy?.enabled === true && policy.zeroDataRetention === true;
 }

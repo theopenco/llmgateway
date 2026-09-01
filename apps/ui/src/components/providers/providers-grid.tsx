@@ -78,14 +78,14 @@ type ComplianceFilterKey =
 	| "requireIso27001"
 	| "requireGdpr"
 	| "blockApiTraining"
-	| "blockPromptLogging";
+	| "zeroDataRetention";
 
 const COMPLIANCE_FILTERS: { key: ComplianceFilterKey; label: string }[] = [
 	{ key: "requireSoc2", label: "SOC 2" },
 	{ key: "requireIso27001", label: "ISO 27001" },
 	{ key: "requireGdpr", label: "GDPR" },
 	{ key: "blockApiTraining", label: "No training" },
-	{ key: "blockPromptLogging", label: "No logging" },
+	{ key: "zeroDataRetention", label: "ZDR" },
 ];
 
 function formatTtft(ms: number | null | undefined): string {

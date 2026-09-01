@@ -559,6 +559,27 @@ describe("isAttestationCompliant", () => {
 		).toBe(false);
 	});
 
+	it("zeroDataRetention requires promptLogging === false", () => {
+		expect(
+			isAttestationCompliant(
+				{ promptLogging: false },
+				{ enabled: true, zeroDataRetention: true },
+			),
+		).toBe(true);
+		expect(
+			isAttestationCompliant(
+				{ promptLogging: null },
+				{ enabled: true, zeroDataRetention: true },
+			),
+		).toBe(false);
+		expect(
+			getAttestationComplianceFailures(
+				{ promptLogging: true },
+				{ enabled: true, zeroDataRetention: true },
+			),
+		).toEqual(["zeroDataRetention"]);
+	});
+
 	it("allowedCountries checks the attested headquarters, failing closed when absent", () => {
 		const policy: ProviderCompliancePolicy = {
 			enabled: true,

@@ -85,7 +85,7 @@ describe("projects route", () => {
 			.set({
 				providerCompliancePolicy: {
 					enabled: true,
-					blockPromptLogging: true,
+					zeroDataRetention: true,
 				},
 			})
 			.where(eq(tables.organization.id, "test-org-id"));
@@ -157,7 +157,7 @@ describe("projects route", () => {
 			.set({
 				providerCompliancePolicy: {
 					enabled: true,
-					blockPromptLogging: true,
+					zeroDataRetention: true,
 				},
 			})
 			.where(eq(tables.organization.id, "test-org-id"));
@@ -190,7 +190,7 @@ describe("projects route", () => {
 			.set({
 				providerCompliancePolicy: {
 					enabled: true,
-					blockPromptLogging: true,
+					zeroDataRetention: true,
 				},
 			})
 			.where(eq(tables.organization.id, "test-org-id"));
@@ -224,7 +224,7 @@ describe("projects route", () => {
 			.set({
 				providerCompliancePolicy: {
 					enabled: true,
-					blockPromptLogging: true,
+					zeroDataRetention: true,
 				},
 			})
 			.where(eq(tables.organization.id, "test-org-id"));

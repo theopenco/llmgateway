@@ -158,7 +158,7 @@ type RequirementKey =
 	| "requireSoc2OrIso27001"
 	| "requireGdpr"
 	| "blockApiTraining"
-	| "blockPromptLogging"
+	| "zeroDataRetention"
 	| "blockStealthProviders";
 
 const REQUIREMENTS: {
@@ -167,7 +167,7 @@ const REQUIREMENTS: {
 	description: string;
 }[] = [
 	{
-		key: "blockPromptLogging",
+		key: "zeroDataRetention",
 		name: "Zero data retention (ZDR)",
 		description:
 			"Only use providers that do not log prompts. Requires Metadata Only retention, disables project response caching, and requires Responses API requests to set store to false.",
@@ -391,11 +391,11 @@ export function ComplianceClient() {
 	const retentionBlocksPolicyEnable =
 		zdrEnableBlocked &&
 		policy.enabled !== true &&
-		policy.blockPromptLogging === true;
+		policy.zeroDataRetention === true;
 	const zdrConflictsWithSettings =
 		zdrEnableBlocked &&
 		policy.enabled === true &&
-		policy.blockPromptLogging === true;
+		policy.zeroDataRetention === true;
 
 	const toggleCountry = (code: string) => {
 		setPolicy((p) => {
@@ -541,7 +541,7 @@ export function ComplianceClient() {
 									) : null}
 								</div>
 							</div>
-						) : policy.enabled && policy.blockPromptLogging === true ? (
+						) : policy.enabled && policy.zeroDataRetention === true ? (
 							<div
 								role="status"
 								className="mt-4 rounded-lg border bg-muted/50 p-4 text-sm"
@@ -566,6 +566,18 @@ export function ComplianceClient() {
 								</p>
 							</div>
 						) : null}
+						{policy.blockPromptLogging === true ? (
+							<div
+								role="status"
+								className="mt-4 rounded-lg border bg-muted/50 p-4 text-sm"
+							>
+								<div className="font-medium">Legacy no prompt logging rule</div>
+								<p className="mt-1 text-muted-foreground">
+									This deprecated rule remains enforced while the policy is
+									enabled. It is read-only and does not activate ZDR controls.
+								</p>
+							</div>
+						) : null}
 					</CardHeader>
 					<CardContent
 						className={
@@ -584,9 +596,9 @@ export function ComplianceClient() {
 										checked={policy[requirement.key] ?? false}
 										disabled={
 											!policy.enabled ||
-											(requirement.key === "blockPromptLogging" &&
+											(requirement.key === "zeroDataRetention" &&
 												zdrEnableBlocked &&
-												policy.blockPromptLogging !== true)
+												policy.zeroDataRetention !== true)
 										}
 										onCheckedChange={(value) =>
 											setPolicy((p) => ({ ...p, [requirement.key]: value }))

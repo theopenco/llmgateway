@@ -33,7 +33,7 @@ export function OrganizationRetentionSettings() {
 
 	const zeroDataRetentionEnabled =
 		selectedOrganization?.providerCompliancePolicy?.enabled === true &&
-		selectedOrganization.providerCompliancePolicy.blockPromptLogging === true;
+		selectedOrganization.providerCompliancePolicy.zeroDataRetention === true;
 	const effectiveRetentionLevel = zeroDataRetentionEnabled
 		? "none"
 		: retentionLevel;

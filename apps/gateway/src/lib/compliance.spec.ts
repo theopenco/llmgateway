@@ -24,12 +24,27 @@ describe("zero data retention", () => {
 			retentionLevel: "retain" as const,
 			providerCompliancePolicy: {
 				enabled: true,
-				blockPromptLogging: true,
+				zeroDataRetention: true,
 			},
 		};
 
 		expect(isZeroDataRetentionEnabled(organization)).toBe(true);
 		expect(getEffectiveRetentionLevel(organization)).toBe("none");
+	});
+
+	it("does not treat legacy no-prompt-logging policies as ZDR", () => {
+		const organization = {
+			id: "org-test",
+			plan: "enterprise",
+			retentionLevel: "retain" as const,
+			providerCompliancePolicy: {
+				enabled: true,
+				blockPromptLogging: true,
+			},
+		};
+
+		expect(isZeroDataRetentionEnabled(organization)).toBe(false);
+		expect(getEffectiveRetentionLevel(organization)).toBe("retain");
 	});
 
 	it("uses the configured retention level without ZDR", () => {
@@ -50,7 +65,7 @@ describe("zero data retention", () => {
 			retentionLevel: "retain" as const,
 			providerCompliancePolicy: {
 				enabled: true,
-				blockPromptLogging: true,
+				zeroDataRetention: true,
 			},
 		};
 

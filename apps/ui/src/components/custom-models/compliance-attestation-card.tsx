@@ -314,7 +314,7 @@ export function ComplianceAttestationCard({
 
 				<p className="text-xs text-muted-foreground">
 					Only an explicit &quot;No&quot; satisfies requirements like &quot;No
-					training on prompts&quot; or &quot;No prompt logging&quot; —
+					training on prompts&quot; or &quot;Zero data retention&quot; —
 					&quot;Unknown&quot; never does.
 				</p>
 

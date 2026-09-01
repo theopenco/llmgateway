@@ -29,7 +29,7 @@ export function isZeroDataRetentionEnabled(
 	organization: OrganizationLike | null | undefined,
 ): boolean {
 	return organization
-		? getActiveCompliancePolicy(organization)?.blockPromptLogging === true
+		? getActiveCompliancePolicy(organization)?.zeroDataRetention === true
 		: false;
 }
 
