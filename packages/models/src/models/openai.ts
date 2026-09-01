@@ -1939,6 +1939,7 @@ export const openaiModels = [
 				jsonOutputSchema: true,
 				supportedParameters: [
 					"temperature",
+					"max_tokens",
 					"top_p",
 					"frequency_penalty",
 					"presence_penalty",
