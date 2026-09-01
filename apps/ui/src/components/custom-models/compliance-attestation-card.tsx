@@ -313,7 +313,7 @@ export function ComplianceAttestationCard({
 				</div>
 
 				<p className="text-xs text-muted-foreground">
-					No training requires &quot;Uses API data for training&quot; to be
+					No training requires &quot;Trains on API prompts&quot; to be
 					&quot;No&quot;. Zero data retention requires &quot;Logs prompts&quot;
 					to be &quot;No&quot; and the retention period to be exactly &quot;0
 					days&quot;. &quot;Unknown&quot; never satisfies a requirement.
