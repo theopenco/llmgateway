@@ -19,6 +19,8 @@ async function login(page: Page, email = "ops@mistral.ai") {
 test("landing page shows the departure board and CTA", async ({ page }) => {
 	await page.goto("/");
 	await expect(page.getByText("Departures — model traffic")).toBeVisible();
+	await expect(page.getByLabel("GPT-5.6-SOL")).toBeVisible();
+	await expect(page.getByLabel("KIMI-K3")).toBeVisible({ timeout: 10_000 });
 	await expect(
 		page.getByRole("heading", {
 			name: "Put your models on the departure board.",

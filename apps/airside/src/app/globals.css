@@ -230,6 +230,13 @@
 	animation: strobe 2.6s linear infinite;
 }
 
+@media (prefers-reduced-motion: reduce) {
+	.animate-flap,
+	.animate-beacon {
+		animation: none;
+	}
+}
+
 /* Dashed runway centerline separator */
 @utility runway-line {
 	background-image: linear-gradient(
