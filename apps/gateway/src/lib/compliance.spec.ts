@@ -122,9 +122,9 @@ describe("getActiveCompliancePolicy for DevPass", () => {
 
 	it("enforces stored policies as-is, without narrowing by kind", () => {
 		// The DevPass write paths can only store {enabled, blockApiTraining}, so
-		// a fuller policy on a devpass-kind org means the org holds enterprise
-		// access (e.g. a devpass-kind org on an enterprise plan). Narrowing here
-		// silently dropped that org's allow lists — enforce what is stored.
+		// narrowing by kind is a no-op for well-formed devpass policies — and a
+		// fuller policy reaching a devpass org out-of-band must fail closed, not
+		// have its allow lists silently dropped. Enforce what is stored.
 		const fullPolicy: ProviderCompliancePolicy = {
 			enabled: true,
 			blockApiTraining: true,

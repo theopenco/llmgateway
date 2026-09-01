@@ -316,7 +316,9 @@ describe("organization route", () => {
 		).toBeNull();
 	});
 
-	test("devpass-kind orgs with enterprise access keep the full policy surface", async () => {
+	test("DevPass organizations reject other compliance settings even on an enterprise plan", async () => {
+		// devpass orgs are limited to blockApiTraining at write time regardless
+		// of plan; fuller policies never enter through this route.
 		await db
 			.update(tables.organization)
 			.set({ kind: "devpass", plan: "enterprise" })
@@ -337,17 +339,10 @@ describe("organization route", () => {
 			}),
 		});
 
-		expect(response.status).toBe(200);
-		expect(
-			(
-				await db.query.organization.findFirst({
-					where: { id: { eq: "test-org-id" } },
-				})
-			)?.providerCompliancePolicy,
-		).toEqual({
-			enabled: true,
-			blockApiTraining: true,
-			allowedProviders: ["openai"],
+		expect(response.status).toBe(403);
+		expect(await response.json()).toMatchObject({
+			error: true,
+			message: expect.stringContaining("allowedProviders"),
 		});
 	});
 

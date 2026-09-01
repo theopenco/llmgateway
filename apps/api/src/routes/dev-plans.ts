@@ -2142,9 +2142,9 @@ devPlans.openapi(updateSettings, async (c) => {
 	}
 
 	if (blockApiTraining !== undefined) {
-		// This toggle only owns the blockApiTraining requirement. A devpass-kind
-		// org with enterprise access may hold a full compliance policy; replacing
-		// the whole JSON here would silently wipe its allow lists.
+		// This toggle only owns the blockApiTraining requirement. The API never
+		// writes fuller policies to devpass orgs, but one reaching the org
+		// out-of-band must not have its other settings wiped by a toggle flip.
 		const existingPolicy = personalOrg.providerCompliancePolicy;
 		const hasOtherSettings = existingPolicy
 			? Object.entries(existingPolicy).some(

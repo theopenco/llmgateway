@@ -1669,9 +1669,10 @@ describe("api", () => {
 
 	test("/v1/chat/completions enforces the full policy on devpass-kind enterprise orgs", async () => {
 		// Regression: the devpass narrowing kept only blockApiTraining, so a
-		// devpass-kind org holding an enterprise plan and a full policy had its
-		// provider allow list silently dropped — requests were routed to
-		// non-allow-listed providers that merely don't train on prompts.
+		// devpass-kind org carrying a fuller policy (only reachable out-of-band;
+		// the API limits devpass orgs to blockApiTraining) had its provider
+		// allow list silently dropped — requests were routed to non-allow-listed
+		// providers that merely don't train on prompts.
 		await harness.setDevPlan({ devPlan: "pro" });
 		await harness.setProjectMode("api-keys");
 		await db
