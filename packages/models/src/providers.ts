@@ -1953,7 +1953,7 @@ export const providers: ProviderDefinition[] = [
 		privacyPolicyUrl: "https://gonka24.com/privacy",
 		usagePolicyUrl: "https://gonka24.com/terms",
 		legalEntity: "Investment company Temir LLC",
-		headquarters: null,
+		headquarters: "KZ",
 		dataPolicy: null,
 	},
 	{
@@ -2456,6 +2456,7 @@ export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
 	NL: "Netherlands",
 	FR: "France",
 	JP: "Japan",
+	KZ: "Kazakhstan",
 	AU: "Australia",
 	GB: "United Kingdom",
 };
