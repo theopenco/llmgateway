@@ -83,6 +83,7 @@ describe("projects route", () => {
 		await db
 			.update(tables.organization)
 			.set({
+				plan: "enterprise",
 				providerCompliancePolicy: {
 					enabled: true,
 					zeroDataRetention: true,
@@ -155,6 +156,7 @@ describe("projects route", () => {
 		await db
 			.update(tables.organization)
 			.set({
+				plan: "enterprise",
 				providerCompliancePolicy: {
 					enabled: true,
 					zeroDataRetention: true,
@@ -188,6 +190,7 @@ describe("projects route", () => {
 		await db
 			.update(tables.organization)
 			.set({
+				plan: "enterprise",
 				providerCompliancePolicy: {
 					enabled: true,
 					zeroDataRetention: true,
@@ -222,6 +225,7 @@ describe("projects route", () => {
 		await db
 			.update(tables.organization)
 			.set({
+				plan: "enterprise",
 				providerCompliancePolicy: {
 					enabled: true,
 					zeroDataRetention: true,

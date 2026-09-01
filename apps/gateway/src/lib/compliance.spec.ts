@@ -58,7 +58,7 @@ describe("zero data retention", () => {
 		).toBe("retain");
 	});
 
-	it("ignores ZDR without enterprise access", () => {
+	it("enforces stored ZDR without enterprise access", () => {
 		const organization = {
 			id: "org-test",
 			plan: "pro",
@@ -69,8 +69,8 @@ describe("zero data retention", () => {
 			},
 		};
 
-		expect(isZeroDataRetentionEnabled(organization)).toBe(false);
-		expect(getEffectiveRetentionLevel(organization)).toBe("retain");
+		expect(isZeroDataRetentionEnabled(organization)).toBe(true);
+		expect(getEffectiveRetentionLevel(organization)).toBe("none");
 	});
 });
 
