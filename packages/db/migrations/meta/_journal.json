@@ -1730,6 +1730,13 @@
       "when": 1788269562203,
       "tag": "1788269562_careless_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 247,
+      "version": "8",
+      "when": 1788273315495,
+      "tag": "1788273315_dark_bushwacker",
+      "breakpoints": true
     }
   ]
 }
