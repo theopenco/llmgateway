@@ -897,13 +897,31 @@ organization.openapi(updateOrganization, async (c) => {
 	if (Object.keys(updateData).length === 0) {
 		updatedOrganization = userOrganization.organization!;
 	} else {
+		const updateConditions = [eq(tables.organization.id, id)];
+		if (retentionLevel === "retain" && providerCompliancePolicy === undefined) {
+			const storedPolicy =
+				userOrganization.organization!.providerCompliancePolicy;
+			updateConditions.push(
+				storedPolicy === null
+					? isNull(tables.organization.providerCompliancePolicy)
+					: eq(tables.organization.providerCompliancePolicy, storedPolicy),
+			);
+		}
+		if (
+			providerCompliancePolicy !== undefined &&
+			zeroDataRetentionEnabled &&
+			retentionLevel === undefined
+		) {
+			updateConditions.push(eq(tables.organization.retentionLevel, "none"));
+		}
+
 		try {
 			// Cached client so gateway policy gates see compliance changes
 			// immediately instead of serving the previous organization row.
 			[updatedOrganization] = await cdb
 				.update(tables.organization)
 				.set(updateData)
-				.where(eq(tables.organization.id, id))
+				.where(and(...updateConditions))
 				.returning();
 		} catch (err) {
 			const code =
@@ -915,6 +933,11 @@ organization.openapi(updateOrganization, async (c) => {
 				});
 			}
 			throw err;
+		}
+		if (!updatedOrganization) {
+			throw new HTTPException(400, {
+				message: zdrRetentionConflictMessage,
+			});
 		}
 	}
 

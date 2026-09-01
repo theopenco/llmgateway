@@ -786,6 +786,117 @@ describe("api", () => {
 		expect(thinkingIndex).toBeLessThan(textIndex);
 	});
 
+	test("/v1/messages redacts malformed tool arguments under ZDR", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+		await db
+			.update(tables.organization)
+			.set({
+				retentionLevel: "none",
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		const secretArguments = '{"secret":"retained-provider-payload"';
+		const originalFetch = globalThis.fetch;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+				if (
+					url.startsWith(mockServerUrl) &&
+					url.endsWith("/v1/chat/completions")
+				) {
+					return new Response(
+						JSON.stringify({
+							id: "chatcmpl-zdr-tool",
+							object: "chat.completion",
+							created: 1,
+							model: "custom",
+							choices: [
+								{
+									index: 0,
+									message: {
+										role: "assistant",
+										content: null,
+										tool_calls: [
+											{
+												id: "call-zdr",
+												type: "function",
+												function: {
+													name: "lookup",
+													arguments: secretArguments,
+												},
+											},
+										],
+									},
+									finish_reason: "tool_calls",
+								},
+							],
+							usage: {
+								prompt_tokens: 10,
+								completion_tokens: 5,
+								total_tokens: 15,
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+
+		try {
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					max_tokens: 128,
+					messages: [{ role: "user", content: "Use the lookup tool" }],
+				}),
+			});
+
+			expect(res.status).toBe(500);
+			const parseLog = errorSpy.mock.calls.find(
+				([message]) =>
+					message === "Failed to parse anthropic tool call arguments",
+			);
+			expect(parseLog?.[1]).toEqual({ errorName: "SyntaxError" });
+			expect(JSON.stringify(parseLog)).not.toContain(secretArguments);
+		} finally {
+			errorSpy.mockRestore();
+			fetchSpy.mockRestore();
+		}
+	});
+
 	// The gateway emits server_tool_use + web_search_tool_result blocks for
 	// native web search, so SDK clients replay them on the following turn. They
 	// have no OpenAI-format equivalent and must be dropped, not rejected and not
