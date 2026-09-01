@@ -45,12 +45,17 @@ import {
 import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
-import { formatContextSize, formatDeprecationDate } from "./format";
+import {
+	formatContextSize,
+	formatDeprecationDate,
+	formatPerSecondPriceLabel,
+	formatPerUnitPrice,
+} from "./format";
 import { ModelCodeExampleDialog } from "./model-code-example-dialog";
 import { ModelStatusBadge } from "./model-status-badge";
 import {
+	effectiveUnitPrice,
 	formatPeakPricingSchedule,
-	parseStrictPrice,
 } from "./pricing-schedule";
 import { XIcon } from "./x-icon";
 
@@ -1063,55 +1068,30 @@ export function ProviderSection({
 						<div className="space-y-1">
 							{(() => {
 								const prices = activeMapping.perSecondPrice!;
-								const d = discountFraction(activeMapping.discount);
-								const fmt = (v: string) => {
-									const n = parseStrictPrice(v);
-									if (n === null) {
-										return null;
-									}
-									const eff =
-										d > 0
-											? n * (1 - d) * serviceTierMultiplier
-											: n * serviceTierMultiplier;
-									if (!Number.isFinite(eff) || eff < 0) {
-										return null;
-									}
-									return parseFloat(eff.toFixed(5)).toString();
-								};
-								const defaultVideo = prices["default_video"];
-								const defaultAudio = prices["default_audio"];
-								const fv = defaultVideo ? fmt(defaultVideo) : null;
-								const fa = defaultAudio ? fmt(defaultAudio) : null;
-								const origFmt = (v: string) => {
-									const n = parseStrictPrice(v);
-									if (n === null) {
-										return null;
-									}
-									const eff = n * serviceTierMultiplier;
-									return parseFloat(eff.toFixed(5)).toString();
-								};
-								const ov = defaultVideo ? origFmt(defaultVideo) : null;
-								const oa = defaultAudio ? origFmt(defaultAudio) : null;
-								if (fv && fa) {
+								const discounted = discountFraction(activeMapping.discount) > 0;
+								const label = formatPerSecondPriceLabel(
+									prices,
+									activeMapping.discount,
+									serviceTierMultiplier,
+								);
+								if (label) {
 									return (
 										<div className="flex justify-between text-sm">
 											<span className="text-muted-foreground">
-												Video / Audio
+												{label.tiers.length > 1 ? "Video / Audio" : "Default"}
 											</span>
 											<span className="font-semibold tabular-nums">
-												{d > 0 && ov && oa ? (
+												{discounted ? (
 													<>
 														<span className="line-through text-muted-foreground mr-1 text-xs">
-															${ov} – ${oa}
+															{label.original}
 														</span>
 														<span className="text-green-600">
-															${fv} – ${fa}
+															{label.value}
 														</span>
 													</>
 												) : (
-													<>
-														${fv} – ${fa}
-													</>
+													label.value
 												)}
 												<span className="text-muted-foreground text-xs ml-0.5">
 													/sec
@@ -1120,42 +1100,20 @@ export function ProviderSection({
 										</div>
 									);
 								}
-								const defaultPrice = prices["default"];
-								const fp = defaultPrice ? fmt(defaultPrice) : null;
-								const op = defaultPrice ? origFmt(defaultPrice) : null;
-								if (fp) {
-									return (
-										<div className="flex justify-between text-sm">
-											<span className="text-muted-foreground">Default</span>
-											<span className="font-semibold tabular-nums">
-												{d > 0 && op ? (
-													<>
-														<span className="line-through text-muted-foreground mr-1 text-xs">
-															${op}
-														</span>
-														<span className="text-green-600">${fp}</span>
-													</>
-												) : (
-													<>${fp}</>
-												)}
-												<span className="text-muted-foreground text-xs ml-0.5">
-													/sec
-												</span>
+								return Object.entries(prices).map(([key, value]) => {
+									const price = effectiveUnitPrice(
+										value,
+										activeMapping.discount,
+									);
+									return price === null ? null : (
+										<div key={key} className="flex justify-between text-xs">
+											<span className="text-muted-foreground">{key}</span>
+											<span className="font-mono tabular-nums">
+												{formatPerUnitPrice(price * serviceTierMultiplier)}/sec
 											</span>
 										</div>
 									);
-								}
-								return Object.entries(prices)
-									.map(([key, value]) => {
-										const f = fmt(value);
-										return f ? (
-											<div key={key} className="flex justify-between text-xs">
-												<span className="text-muted-foreground">{key}</span>
-												<span className="font-mono tabular-nums">${f}/sec</span>
-											</div>
-										) : null;
-									})
-									.filter(Boolean);
+								});
 							})()}
 						</div>
 					</div>

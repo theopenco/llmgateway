@@ -50,7 +50,12 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+	effectiveUnitPrice,
 	formatPerImagePriceRange,
+	formatPerSecondPriceLabel,
+	formatPerUnitPrice,
+	getMaxPerSecondPrice,
+	getMinPerSecondPrice,
 	getProviderIcon,
 	providerLogoUrls,
 } from "@llmgateway/shared/components";
@@ -441,31 +446,12 @@ function formatPerSecondPrice(
 	perSecondPrice: Record<string, string>,
 	discount?: string | null,
 ): string {
-	const d = discount ? Number(discount) : 0;
-	const validDiscount = Number.isFinite(d) && d > 0 && d <= 1 ? d : 0;
-	const fmt = (v: string) => {
-		const n = Number(v);
-		if (!Number.isFinite(n) || n < 0) {
-			return null;
-		}
-		const eff = validDiscount > 0 ? n * (1 - validDiscount) : n;
-		return parseFloat(eff.toFixed(5)).toString();
-	};
-	const defaultAudio = perSecondPrice["default_audio"];
-	const defaultVideo = perSecondPrice["default_video"];
-	const fv = defaultVideo ? fmt(defaultVideo) : null;
-	const fa = defaultAudio ? fmt(defaultAudio) : null;
-	if (fv && fa) {
-		return `$${fv} – $${fa}/sec`;
+	const label = formatPerSecondPriceLabel(perSecondPrice, discount);
+	if (label) {
+		return `${label.value}/sec`;
 	}
-	const defaultPrice = perSecondPrice["default"];
-	const fp = defaultPrice ? fmt(defaultPrice) : null;
-	if (fp) {
-		return `$${fp}/sec`;
-	}
-	const firstValue = Object.values(perSecondPrice)[0];
-	const ff = firstValue ? fmt(firstValue) : null;
-	return ff ? `$${ff}/sec` : "Unknown";
+	const first = effectiveUnitPrice(Object.values(perSecondPrice)[0], discount);
+	return first !== null ? `${formatPerUnitPrice(first)}/sec` : "Unknown";
 }
 
 // Estimate cost for generating one typical 1K/1024x1024 image based on
@@ -576,40 +562,15 @@ function ImageEstimateCard({
 	);
 }
 
-function getMinPerSecondPrice(
+function perSecondPriceLabel(
 	mappings: ApiModelProviderMapping[],
+	pick: (mapping: ApiModelProviderMapping) => number | null,
+	reduce: (...values: number[]) => number,
 ): string | null {
-	let min: number | null = null;
-	for (const m of mappings) {
-		if (!m.perSecondPrice) {
-			continue;
-		}
-		for (const v of Object.values(m.perSecondPrice)) {
-			const n = parseFloat(v);
-			if (Number.isFinite(n) && (min === null || n < min)) {
-				min = n;
-			}
-		}
-	}
-	return min !== null ? `$${min}/sec` : null;
-}
-
-function getMaxPerSecondPrice(
-	mappings: ApiModelProviderMapping[],
-): string | null {
-	let max: number | null = null;
-	for (const m of mappings) {
-		if (!m.perSecondPrice) {
-			continue;
-		}
-		for (const v of Object.values(m.perSecondPrice)) {
-			const n = parseFloat(v);
-			if (Number.isFinite(n) && (max === null || n > max)) {
-				max = n;
-			}
-		}
-	}
-	return max !== null ? `$${max}/sec` : null;
+	const values = mappings.map(pick).filter((v): v is number => v !== null);
+	return values.length > 0
+		? `${formatPerUnitPrice(reduce(...values))}/sec`
+		: null;
 }
 
 interface ModelEntry {
@@ -1832,10 +1793,18 @@ export function ModelSelector({
 														mode === "video" ||
 														!!previewEntry.model.output?.includes("video");
 													const minPerSec = isVideo
-														? getMinPerSecondPrice(previewEntry.model.mappings)
+														? perSecondPriceLabel(
+																previewEntry.model.mappings,
+																getMinPerSecondPrice,
+																Math.min,
+															)
 														: null;
 													const maxPerSec = isVideo
-														? getMaxPerSecondPrice(previewEntry.model.mappings)
+														? perSecondPriceLabel(
+																previewEntry.model.mappings,
+																getMaxPerSecondPrice,
+																Math.max,
+															)
 														: null;
 
 													const hasPricingOrLimits = isVideo

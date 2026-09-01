@@ -592,8 +592,6 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 							Object.entries(perSecondPrice)
 								.slice(0, 2)
 								.map(([key, price]) => {
-									const eff =
-										discountNum > 0 ? price * (1 - discountNum) : price;
 									return (
 										<div
 											key={key}
@@ -620,9 +618,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 													? "Per Second"
 													: key.replace(/_/g, " ")}
 											</span>
-											<span style={{ fontWeight: 700, fontSize: 56 }}>
-												${eff.toFixed(4)}
-											</span>
+											{formatUnitPrice(price, "/sec")}
 										</div>
 									);
 								})}

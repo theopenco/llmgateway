@@ -1,13 +1,14 @@
 import { describe, expect, it, test } from "vitest";
 
 import {
-	compareNullBottom,
 	compareSortValues,
 	effectiveTokenPrice,
 	formatPeakPricingSchedule,
-	getMinInputCharacterPrice,
+	getInputCharacterPricePer1K,
+	getMaxPerSecondPrice,
 	getMinPerImagePrice,
 	getMinPerSecondPrice,
+	hasPaidTier,
 } from "./pricing-schedule";
 
 import type { ApiModelProviderMapping } from "./api-types";
@@ -71,159 +72,114 @@ describe("effectiveTokenPrice", () => {
 	});
 });
 
-describe("compareNullBottom", () => {
+describe("compareSortValues", () => {
 	test("null always last", () => {
-		expect(compareNullBottom(null, 1, "asc")).toBe(1);
-		expect(compareNullBottom(1, null, "asc")).toBe(-1);
-		expect(compareNullBottom(null, 1, "desc")).toBe(1);
-		expect(compareNullBottom(1, null, "desc")).toBe(-1);
-	});
-	test("null-null 0", () => {
-		expect(compareNullBottom(null, null, "asc")).toBe(0);
-	});
-	test("numbers asc/desc", () => {
-		expect(compareNullBottom(1, 2, "asc")).toBeLessThan(0);
-		expect(compareNullBottom(2, 1, "asc")).toBeGreaterThan(0);
-		expect(compareNullBottom(1, 2, "desc")).toBeGreaterThan(0);
+		expect(compareSortValues(null, 1, "asc")).toBe(1);
+		expect(compareSortValues(1, null, "asc")).toBe(-1);
+		expect(compareSortValues(null, 1, "desc")).toBe(1);
+		expect(compareSortValues(1, null, "desc")).toBe(-1);
+		expect(compareSortValues(null, null, "asc")).toBe(0);
 	});
 	test("free 0 sorts before priced", () => {
-		expect(compareNullBottom(0, 1e-6, "asc")).toBeLessThan(0);
-		expect(compareNullBottom(0, 1e-6, "desc")).toBeGreaterThan(0);
+		expect(compareSortValues(0, 1e-6, "asc")).toBeLessThan(0);
+		expect(compareSortValues(0, 1e-6, "desc")).toBeGreaterThan(0);
 	});
 	test("Array.sort null bottom both dirs", () => {
 		const nums = [5, null as number | null, 0, 3];
-		expect([...nums].sort((a, b) => compareNullBottom(a, b, "asc"))).toEqual([
+		expect([...nums].sort((a, b) => compareSortValues(a, b, "asc"))).toEqual([
 			0,
 			3,
 			5,
 			null,
 		]);
-		expect([...nums].sort((a, b) => compareNullBottom(a, b, "desc"))).toEqual([
+		expect([...nums].sort((a, b) => compareSortValues(a, b, "desc"))).toEqual([
 			5,
 			3,
 			0,
 			null,
 		]);
 	});
-});
-
-describe("compareSortValues", () => {
-	test("null bottom, strings locale", () => {
+	test("strings", () => {
 		expect(compareSortValues(null, "a", "asc")).toBe(1);
 		expect(compareSortValues("b", "a", "asc")).toBeGreaterThan(0);
 		expect(compareSortValues("a", "b", "asc")).toBeLessThan(0);
 	});
 });
 
-function mapping(
-	overrides: Partial<ApiModelProviderMapping>,
-): ApiModelProviderMapping {
-	return {
-		id: "m1",
-		createdAt: new Date().toISOString(),
-		modelId: "m1",
-		providerId: "p1",
-		externalId: "e1",
-		region: null,
-		inputPrice: null,
-		outputPrice: null,
-		cachedInputPrice: null,
-		cacheWriteInputPrice: null,
-		cacheWriteInputPrice1h: null,
-		imageInputPrice: null,
-		imageOutputPrice: null,
-		imageInputTokensByResolution: null,
-		imageOutputTokensByResolution: null,
-		inputCharacterPrice: null,
-		outputAudioPrice: null,
-		requestPrice: null,
-		contextSize: null,
-		maxOutput: null,
-		quantization: null,
-		streaming: true,
-		vision: null,
-		reasoning: null,
-		reasoningOutput: null,
-		reasoningMaxTokens: null,
-		rerank: null,
-		tools: null,
-		jsonOutput: null,
-		jsonOutputSchema: null,
-		webSearch: null,
-		webSearchPrice: null,
-		supportedVideoSizes: null,
-		supportedVideoDurationsSeconds: null,
-		supportsVideoAudio: null,
-		supportsVideoWithoutAudio: null,
-		perSecondPrice: null,
-		perImagePrice: null,
-		pricingTiers: null,
-		peakPricing: null,
-		serviceTiers: null,
-		discount: null,
-		stability: null,
-		supportedParameters: null,
-		deprecatedAt: null,
-		deactivatedAt: null,
-		status: "active",
-		...overrides,
-	} as ApiModelProviderMapping;
-}
-
 describe("getMinPerImagePrice", () => {
 	test("keeps 0 tier discounted", () => {
 		expect(
-			getMinPerImagePrice(
-				mapping({ perImagePrice: { "512": "0", "1024": "0.075" } }),
-			),
+			getMinPerImagePrice({ perImagePrice: { "512": "0", "1024": "0.075" } }),
 		).toBe(0);
 	});
 	test("discount halves min", () => {
 		expect(
-			getMinPerImagePrice(
-				mapping({
-					perImagePrice: { "1K": "0.04", "2K": "0.075" },
-					discount: "0.5",
-				}),
-			),
+			getMinPerImagePrice({
+				perImagePrice: { "1K": "0.04", "2K": "0.075" },
+				discount: "0.5",
+			}),
 		).toBe(0.02);
 	});
 	test("bad discount ignored", () => {
 		expect(
-			getMinPerImagePrice(
-				mapping({
-					perImagePrice: { "1024": "0.075" },
-					discount: "1.5",
-				}),
-			),
+			getMinPerImagePrice({
+				perImagePrice: { "1024": "0.075" },
+				discount: "1.5",
+			}),
 		).toBe(0.075);
 	});
-});
-
-describe("getMinPerSecondPrice", () => {
-	test("discounted min", () => {
-		expect(
-			getMinPerSecondPrice(
-				mapping({
-					perSecondPrice: { a: "0.2", b: "0.4" },
-					discount: "0.5",
-				}),
-			),
-		).toBe(0.1);
+	test("token-priced image models have no per-image price", () => {
+		const tokenPriced: Pick<
+			ApiModelProviderMapping,
+			"perImagePrice" | "imageOutputPrice" | "imageOutputTokensByResolution"
+		> = {
+			perImagePrice: null,
+			imageOutputPrice: "30e-6",
+			imageOutputTokensByResolution: { "1K": 1120 },
+		};
+		expect(getMinPerImagePrice(tokenPriced)).toBeNull();
 	});
 });
 
-describe("getMinInputCharacterPrice", () => {
-	test("discount applied", () => {
+describe("getMinPerSecondPrice / getMaxPerSecondPrice", () => {
+	test("discounted min and max", () => {
+		const mapping = { perSecondPrice: { a: "0.2", b: "0.4" }, discount: "0.5" };
+		expect(getMinPerSecondPrice(mapping)).toBe(0.1);
+		expect(getMaxPerSecondPrice(mapping)).toBe(0.2);
+	});
+	test("rounds float noise to display precision", () => {
 		expect(
-			getMinInputCharacterPrice(
-				mapping({ inputCharacterPrice: "110e-6", discount: "0.6" }),
-			),
-		).toBeCloseTo(44e-6);
+			getMinPerSecondPrice({
+				perSecondPrice: { a: "0.0467" },
+				discount: "0.5",
+			}),
+		).toBe(0.02335);
+	});
+});
+
+describe("getInputCharacterPricePer1K", () => {
+	test("discount applied, per 1K chars", () => {
+		expect(
+			getInputCharacterPricePer1K({
+				inputCharacterPrice: "110e-6",
+				discount: "0.6",
+			}),
+		).toBe(0.044);
+	});
+	test("matches the displayed value exactly", () => {
+		expect(getInputCharacterPricePer1K({ inputCharacterPrice: "15e-6" })).toBe(
+			0.015,
+		);
 	});
 	test("free 0", () => {
-		expect(
-			getMinInputCharacterPrice(mapping({ inputCharacterPrice: "0" })),
-		).toBe(0);
+		expect(getInputCharacterPricePer1K({ inputCharacterPrice: "0" })).toBe(0);
+	});
+});
+
+describe("hasPaidTier", () => {
+	test("any priced tier counts, before discount", () => {
+		expect(hasPaidTier({ "512": "0", "1024": "0.075" })).toBe(true);
+		expect(hasPaidTier({ default: "0" })).toBe(false);
+		expect(hasPaidTier(null)).toBe(false);
 	});
 });

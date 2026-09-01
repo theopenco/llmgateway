@@ -54,7 +54,11 @@ import {
 	type StabilityLevel,
 	type ModelDefinition,
 } from "@llmgateway/models";
-import { isMappingDeactivated } from "@llmgateway/shared/components";
+import {
+	formatPerUnitPrice,
+	getMinPerSecondPrice,
+	isMappingDeactivated,
+} from "@llmgateway/shared/components";
 
 import type { Metadata } from "next";
 
@@ -422,33 +426,11 @@ export default async function ModelPage({ params }: PageProps) {
 								<div>
 									Starting at{" "}
 									{(() => {
-										let minPrice: number | undefined;
-										for (const p of visibleProviders) {
-											if (!p.perSecondPrice) {
-												continue;
-											}
-											const d =
-												typeof p.discount === "string" ? Number(p.discount) : 0;
-											const validDiscount =
-												Number.isFinite(d) && d > 0 && d <= 1 ? d : 0;
-											for (const v of Object.values(p.perSecondPrice)) {
-												const n =
-													typeof v === "number" ? v : Number(String(v).trim());
-												if (!Number.isFinite(n) || n < 0) {
-													continue;
-												}
-												const eff =
-													validDiscount > 0 ? n * (1 - validDiscount) : n;
-												if (
-													Number.isFinite(eff) &&
-													(minPrice === undefined || eff < minPrice)
-												) {
-													minPrice = eff;
-												}
-											}
-										}
-										return minPrice !== undefined
-											? `$${parseFloat(minPrice.toFixed(5))}/sec`
+										const prices = visibleProviders
+											.map((p) => getMinPerSecondPrice(p))
+											.filter((v): v is number => v !== null);
+										return prices.length > 0
+											? `${formatPerUnitPrice(Math.min(...prices))}/sec`
 											: "Unknown";
 									})()}{" "}
 									video generation

@@ -4,6 +4,33 @@ import type { ApiModelProviderMapping } from "./api-types";
 
 type PeakPricing = NonNullable<ApiModelProviderMapping["peakPricing"]>;
 
+type PriceRecord = Record<string, string | number>;
+
+/** Per-unit pricing fields shared by API mappings and catalogue definitions. */
+export interface PerUnitPricing {
+	perImagePrice?: PriceRecord | null;
+	perSecondPrice?: PriceRecord | null;
+	inputCharacterPrice?: string | number | null;
+	discount?: string | null;
+}
+
+export const PRICE_UNIT_FIELDS = [
+	"perImagePrice",
+	"perSecondPrice",
+	"inputCharacterPrice",
+] as const;
+export type PriceUnitField = (typeof PRICE_UNIT_FIELDS)[number];
+
+export function isPriceUnitField(
+	value: string | null | undefined,
+): value is PriceUnitField {
+	return (
+		value !== null &&
+		value !== undefined &&
+		(PRICE_UNIT_FIELDS as readonly string[]).includes(value)
+	);
+}
+
 export function parseStrictPrice(
 	value: string | number | null | undefined,
 ): number | null {
@@ -24,44 +51,31 @@ export function parseStrictPrice(
 	return n;
 }
 
-export function effectiveTokenPrice(
-	price: string | null | undefined,
+/** Discounted price in the field's own unit; null when missing or invalid. */
+export function effectiveUnitPrice(
+	price: string | number | null | undefined,
 	discount?: string | null,
 ): number | null {
 	const raw = parseStrictPrice(price);
 	if (raw === null) {
 		return null;
 	}
-	if (raw === 0) {
-		return 0;
-	}
 	const d = discountFraction(discount);
-	const eff = d > 0 ? raw * (1 - d) : raw;
-	if (!Number.isFinite(eff) || eff < 0) {
-		return null;
-	}
-	if (eff === 0) {
-		return 0;
-	}
-	const scaled = eff * 1e6;
-	return Number.isFinite(scaled) ? scaled : null;
+	return d > 0 ? raw * (1 - d) : raw;
 }
 
-export function compareNullBottom(
-	a: number | null,
-	b: number | null,
-	dir: "asc" | "desc",
-): number {
-	if (a === null && b === null) {
-		return 0;
-	}
-	if (a === null) {
-		return 1;
-	}
-	if (b === null) {
-		return -1;
-	}
-	return dir === "asc" ? a - b : b - a;
+/** Discounted token price in $/M tokens. */
+export function effectiveTokenPrice(
+	price: string | null | undefined,
+	discount?: string | null,
+): number | null {
+	const eff = effectiveUnitPrice(price, discount);
+	return eff === null ? null : eff * 1e6;
+}
+
+/** Per-unit prices render with 5 decimals; round once so filter, sort and display agree. */
+export function roundPerUnit(value: number): number {
+	return Number(value.toFixed(5));
 }
 
 export function compareSortValues(
@@ -87,125 +101,113 @@ export function compareSortValues(
 	return 0;
 }
 
-function discountedRecordValues(
-	record: Record<string, string | number>,
+export function discountedPriceValues(
+	record: PriceRecord,
 	discount?: string | null,
 ): number[] {
-	const d = discountFraction(discount);
 	return Object.values(record)
-		.map((v) => parseStrictPrice(v))
+		.map((v) => effectiveUnitPrice(v, discount))
 		.filter((v): v is number => v !== null)
-		.map((v) => (d > 0 ? v * (1 - d) : v))
-		.filter((v): v is number => Number.isFinite(v) && v >= 0);
+		.map(roundPerUnit);
 }
 
-export function getMinPerImagePrice(
-	mapping: ApiModelProviderMapping,
-): number | null {
-	if (mapping.perImagePrice) {
-		const values = discountedRecordValues(
-			mapping.perImagePrice,
-			mapping.discount,
-		);
-		if (values.length > 0) {
-			return Math.min(...values);
-		}
-	}
-	if (mapping.imageOutputPrice && mapping.imageOutputTokensByResolution) {
-		const price = parseStrictPrice(mapping.imageOutputPrice);
-		if (price !== null) {
-			const tokens = Object.values(mapping.imageOutputTokensByResolution)
-				.map((v) => Number(v))
-				.filter((v) => Number.isFinite(v) && v > 0);
-			if (tokens.length > 0) {
-				const d = discountFraction(mapping.discount);
-				const perImage = tokens
-					.map((t) => t * price * (d > 0 ? 1 - d : 1))
-					.filter((v) => Number.isFinite(v));
-				if (perImage.length === 0) {
-					return null;
-				}
-				return Math.min(...perImage);
-			}
-		}
-	}
-	return null;
-}
-
-export function getMaxPerImagePrice(
-	mapping: ApiModelProviderMapping,
-): number | null {
-	if (!mapping.perImagePrice) {
-		return null;
-	}
-	const values = discountedRecordValues(
-		mapping.perImagePrice,
-		mapping.discount,
-	);
-	return values.length > 0 ? Math.max(...values) : null;
-}
-
-export function getMinPerSecondPrice(
-	mapping: ApiModelProviderMapping,
-): number | null {
-	if (!mapping.perSecondPrice) {
-		return null;
-	}
-	const values = discountedRecordValues(
-		mapping.perSecondPrice,
-		mapping.discount,
-	);
+function minOf(values: number[]): number | null {
 	return values.length > 0 ? Math.min(...values) : null;
 }
 
-export function getMaxPerSecondPrice(
-	mapping: ApiModelProviderMapping,
-): number | null {
-	if (!mapping.perSecondPrice) {
-		return null;
-	}
-	const values = discountedRecordValues(
-		mapping.perSecondPrice,
-		mapping.discount,
-	);
+function maxOf(values: number[]): number | null {
 	return values.length > 0 ? Math.max(...values) : null;
 }
 
-export function getMinInputCharacterPrice(
-	mapping: ApiModelProviderMapping,
+/** True when any tier of the record is priced above zero before discounts. */
+export function hasPaidTier(record: PriceRecord | null | undefined): boolean {
+	return (
+		!!record &&
+		Object.values(record).some((v) => (parseStrictPrice(v) ?? 0) > 0)
+	);
+}
+
+export function getMinPerImagePrice(mapping: PerUnitPricing): number | null {
+	return mapping.perImagePrice
+		? minOf(discountedPriceValues(mapping.perImagePrice, mapping.discount))
+		: null;
+}
+
+export function getMaxPerImagePrice(mapping: PerUnitPricing): number | null {
+	return mapping.perImagePrice
+		? maxOf(discountedPriceValues(mapping.perImagePrice, mapping.discount))
+		: null;
+}
+
+export function getMinPerSecondPrice(mapping: PerUnitPricing): number | null {
+	return mapping.perSecondPrice
+		? minOf(discountedPriceValues(mapping.perSecondPrice, mapping.discount))
+		: null;
+}
+
+export function getMaxPerSecondPrice(mapping: PerUnitPricing): number | null {
+	return mapping.perSecondPrice
+		? maxOf(discountedPriceValues(mapping.perSecondPrice, mapping.discount))
+		: null;
+}
+
+/** Discounted speech price in $/1K characters. */
+export function getInputCharacterPricePer1K(
+	mapping: PerUnitPricing,
 ): number | null {
-	const raw = parseStrictPrice(mapping.inputCharacterPrice);
-	if (raw === null) {
-		return null;
-	}
-	if (raw === 0) {
-		return 0;
-	}
-	const d = discountFraction(mapping.discount);
-	const eff = d > 0 ? raw * (1 - d) : raw;
-	if (!Number.isFinite(eff) || eff < 0) {
-		return null;
-	}
-	return eff;
+	const eff = effectiveUnitPrice(mapping.inputCharacterPrice, mapping.discount);
+	return eff === null ? null : roundPerUnit(eff * 1000);
 }
 
-/**
- * perImagePriceValues is used by formatPerImagePriceRange and table badges;
- * keep it exported for shared discounted value logic.
- */
-export function perImagePriceValues(
-	perImagePrice: Record<string, string | number>,
-	discount?: string | null,
-): number[] {
-	return discountedRecordValues(perImagePrice, discount);
+/** Cheapest price of a mapping in the given unit; null when it has none. */
+export function minUnitPrice(
+	mapping: PerUnitPricing,
+	unit: PriceUnitField,
+): number | null {
+	switch (unit) {
+		case "perImagePrice":
+			return getMinPerImagePrice(mapping);
+		case "perSecondPrice":
+			return getMinPerSecondPrice(mapping);
+		case "inputCharacterPrice":
+			return getInputCharacterPricePer1K(mapping);
+	}
 }
 
-/**
- * effectiveTokenPrice returns $/M (scaled 1e6), getMin* return raw per-unit
- * (per image / per second / per 1K chars) — not comparable across families;
- * callers select via filters.priceUnit and must not compare $/M vs per-unit.
- */
-export const _unitNote = undefined;
+/** Most expensive price of a mapping in the given unit; null when it has none. */
+export function maxUnitPrice(
+	mapping: PerUnitPricing,
+	unit: PriceUnitField,
+): number | null {
+	switch (unit) {
+		case "perImagePrice":
+			return getMaxPerImagePrice(mapping);
+		case "perSecondPrice":
+			return getMaxPerSecondPrice(mapping);
+		case "inputCharacterPrice":
+			return getInputCharacterPricePer1K(mapping);
+	}
+}
+
+/** Input price used for the Input column: cheapest tier in `unit`, else $/M tokens. */
+export function inputPriceInUnit(
+	mapping: ApiModelProviderMapping,
+	unit: PriceUnitField | null,
+): number | null {
+	return unit
+		? minUnitPrice(mapping, unit)
+		: effectiveTokenPrice(mapping.inputPrice, mapping.discount);
+}
+
+/** Output price used for the Output column: priciest tier in `unit`, else $/M tokens. */
+export function outputPriceInUnit(
+	mapping: ApiModelProviderMapping,
+	unit: PriceUnitField | null,
+): number | null {
+	return unit
+		? maxUnitPrice(mapping, unit)
+		: effectiveTokenPrice(mapping.outputPrice, mapping.discount);
+}
 
 const orderedDays = [1, 2, 3, 4, 5, 6, 0] as const;
 const dayNames = [
