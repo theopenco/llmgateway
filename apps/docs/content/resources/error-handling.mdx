@@ -32,7 +32,7 @@ Errors on the OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/embeddin
 | `error.param`   | The request parameter that caused the error, or `null` when not parameter-specific. |
 | `error.code`    | A more specific machine-readable code, or `null` when no specific code applies.     |
 
-The HTTP status code on the response always matches the error and is the authoritative signal — read it from the response status line rather than the body.
+For normal JSON responses, the HTTP status code matches the error and is the authoritative signal — read it from the response status line rather than the body. The exception is an error arriving mid-stream, where the status is already `200` and the error must be read from the SSE event payload (see [Streaming Errors](#streaming-errors)).
 
 ## Status Codes
 

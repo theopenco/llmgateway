@@ -1,6 +1,6 @@
 ---
 title: Gateway Caching
-description: Serve byte-identical requests entirely from LLM Gateway at $0 cost.
+description: Serve repeated identical requests entirely from LLM Gateway at $0 cost.
 icon: Zap
 ---
 
@@ -8,15 +8,15 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 # Gateway Caching
 
-Gateway caching serves a previously-seen, byte-identical request entirely from LLM Gateway without forwarding it to the upstream provider. Repeated identical calls cost **$0** — there is no inference and no provider charge. It is most useful for API workloads with deterministic inputs (classification, batch jobs, FAQ lookups, retries) rather than free-form chat.
+Gateway caching serves a previously-seen, identical request (matched on the parsed request fields, so formatting differences like whitespace don't matter) entirely from LLM Gateway without forwarding it to the upstream provider. Repeated identical calls cost **$0** — there is no inference and no provider charge. It is most useful for API workloads with deterministic inputs (classification, batch jobs, FAQ lookups, retries) rather than free-form chat.
 
 <Callout type="info">
 	If you want to reduce the cost of long, partially-shared prompts in chat apps
 	or coding tools, you want [Provider Cache
 	Control](/features/caching/provider-cache-control) instead. That discounts the
-	cached portion of your prompt on every call — it does not require
-	byte-identical requests. See the [Caching Overview](/features/caching) for a
-	side-by-side comparison.
+	cached portion of your prompt on every call — it does not require identical
+	requests. See the [Caching Overview](/features/caching) for a side-by-side
+	comparison.
 </Callout>
 
 ## How It Works
@@ -230,7 +230,7 @@ Caching may not be suitable for:
 - Highly personalized responses
 - Time-sensitive information
 - Creative tasks requiring variety
-- Chat or coding tools where prompts overlap but are not byte-identical — use [Provider Cache Control](/features/caching/provider-cache-control) instead
+- Chat or coding tools where prompts overlap but are not identical — use [Provider Cache Control](/features/caching/provider-cache-control) instead
 
 ## Pricing
 
