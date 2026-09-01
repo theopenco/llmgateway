@@ -86,8 +86,10 @@ const complianceOptions = [
 
 export function AddProviderForm({
 	initialPayment,
+	airsideUrl,
 }: {
 	initialPayment?: "success" | "canceled" | null;
+	airsideUrl: string;
 }) {
 	const api = useApi();
 	const posthog = usePostHog();
@@ -205,10 +207,60 @@ export function AddProviderForm({
 							Add a Provider
 						</h1>
 						<p className="text-lg text-muted-foreground text-balance leading-relaxed">
-							Want your models listed on LLMGateway? Tell us about your provider
-							and our team will get in touch.
+							Want your models listed on LLMGateway? List them yourself on
+							Airside, our self-serve carrier console — or hand it to our team
+							below.
 						</p>
 					</div>
+
+					{initialPayment !== "success" && (
+						<div className="relative mb-10 overflow-hidden rounded-2xl border border-primary/30 bg-card shadow-lg">
+							<div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent" />
+							<div className="p-6 sm:p-8">
+								<p className="mb-3 font-mono text-[0.65rem] uppercase tracking-[0.3em] text-primary">
+									Airside · self-serve console
+								</p>
+								<h2 className="text-xl font-semibold tracking-tight">
+									The fastest way onto the departure board
+								</h2>
+								<p className="mt-2 text-sm text-muted-foreground">
+									Verify your company domain, claim your carrier, register your
+									models and file your own prices — then tune the margin and
+									discounts that win you routed traffic. Listings go live once
+									we approve your claim.
+								</p>
+								<div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+									<Button asChild size="lg" className="w-full sm:w-auto">
+										<a href={airsideUrl}>
+											Claim your carrier on Airside
+											<span
+												aria-hidden="true"
+												className="h-5 w-px border-l border-dashed border-primary-foreground/40"
+											/>
+											<span className="font-mono text-xs font-normal tracking-widest">
+												$2,500
+											</span>
+										</a>
+									</Button>
+									<p className="text-xs text-muted-foreground">
+										One-time $2,500 listing fee, due before your claim is
+										approved.
+									</p>
+								</div>
+							</div>
+						</div>
+					)}
+
+					{initialPayment !== "success" && (
+						<div className="relative mb-8 text-center">
+							<div className="absolute inset-0 flex items-center">
+								<div className="w-full border-t border-dashed border-border" />
+							</div>
+							<span className="relative bg-white px-4 font-mono text-[0.65rem] uppercase tracking-[0.25em] text-muted-foreground dark:bg-black">
+								or — concierge listing
+							</span>
+						</div>
+					)}
 
 					{initialPayment !== "success" && (
 						<div className="mb-8 space-y-3">

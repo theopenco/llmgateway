@@ -10,6 +10,7 @@ export interface AppConfig {
 	docsUrl: string;
 	playgroundUrl: string;
 	adminUrl: string;
+	airsideUrl: string;
 	posthogKey?: string;
 	posthogHost?: string;
 	githubAuth: boolean;
@@ -32,6 +33,7 @@ export function getConfig(): AppConfig {
 		docsUrl: process.env.DOCS_URL ?? "http://localhost:3005",
 		playgroundUrl: process.env.PLAYGROUND_URL ?? "http://localhost:3003",
 		adminUrl: process.env.ADMIN_URL ?? "http://localhost:3006",
+		airsideUrl: process.env.AIRSIDE_URL ?? "http://localhost:3007",
 		posthogKey: process.env.POSTHOG_KEY,
 		posthogHost: process.env.POSTHOG_HOST,
 		githubAuth: !!process.env.GITHUB_CLIENT_ID,
