@@ -2646,7 +2646,10 @@ describe("api", () => {
 			.where(eq(tables.organization.id, "org-id"));
 		await db
 			.update(tables.project)
-			.set({ cachingEnabled: true })
+			.set({
+				cachingEnabled: true,
+				providerCacheControlMode: "passthrough",
+			})
 			.where(eq(tables.project.id, "project-id"));
 
 		await db.insert(tables.apiKey).values({
@@ -2671,7 +2674,18 @@ describe("api", () => {
 		const requestId = `zdr-retention-${randomUUID()}`;
 		const body = JSON.stringify({
 			model: "llmgateway/custom",
-			messages: [{ role: "user", content: "Sensitive ZDR payload" }],
+			messages: [
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "Sensitive ZDR payload",
+							cache_control: { type: "ephemeral" },
+						},
+					],
+				},
+			],
 		});
 		const makeRequest = () =>
 			app.request("/v1/chat/completions", {
@@ -2685,19 +2699,48 @@ describe("api", () => {
 			});
 
 		const originalNodeEnv = process.env.NODE_ENV;
+		const originalFetch = globalThis.fetch;
+		const upstreamBodies: unknown[] = [];
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+				if (url === `${mockServerUrl}/v1/chat/completions`) {
+					const requestBody =
+						input instanceof Request ? await input.clone().text() : init?.body;
+					if (typeof requestBody === "string") {
+						upstreamBodies.push(JSON.parse(requestBody));
+					}
+				}
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
 		let firstResponse: Response;
+		let secondResponse: Response;
 		try {
-			process.env.NODE_ENV = "development";
-			firstResponse = await makeRequest();
+			try {
+				process.env.NODE_ENV = "development";
+				firstResponse = await makeRequest();
+			} finally {
+				process.env.NODE_ENV = originalNodeEnv;
+			}
+			secondResponse = await makeRequest();
 		} finally {
-			process.env.NODE_ENV = originalNodeEnv;
+			fetchSpy.mockRestore();
 		}
-		const secondResponse = await makeRequest();
 
 		expect(firstResponse.status).toBe(200);
 		expect(secondResponse.status).toBe(200);
 		expect(firstResponse.headers.get("x-llmgateway-cache")).toBeNull();
 		expect(secondResponse.headers.get("x-llmgateway-cache")).toBeNull();
+		expect(upstreamBodies).toHaveLength(2);
+		for (const upstreamBody of upstreamBodies) {
+			expect(JSON.stringify(upstreamBody)).not.toContain("cache_control");
+		}
 
 		const logs = await waitForLogs(2);
 		expect(logs).toHaveLength(2);

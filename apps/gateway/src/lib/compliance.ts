@@ -21,7 +21,27 @@ interface OrganizationLike {
 	id: string;
 	plan: string;
 	kind?: string | null;
+	retentionLevel?: "retain" | "none" | null;
 	providerCompliancePolicy?: ProviderCompliancePolicy | null;
+}
+
+export function isZeroDataRetentionEnabled(
+	organization:
+		Pick<OrganizationLike, "providerCompliancePolicy"> | null | undefined,
+): boolean {
+	const policy = organization?.providerCompliancePolicy;
+	return policy?.enabled === true && policy.blockPromptLogging === true;
+}
+
+export function getEffectiveRetentionLevel(
+	organization:
+		| Pick<OrganizationLike, "providerCompliancePolicy" | "retentionLevel">
+		| null
+		| undefined,
+): "retain" | "none" {
+	return isZeroDataRetentionEnabled(organization)
+		? "none"
+		: (organization?.retentionLevel ?? "none");
 }
 
 /**

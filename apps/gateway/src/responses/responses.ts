@@ -17,6 +17,7 @@ import {
 	findOrganizationById,
 } from "@/lib/cached-queries.js";
 import { logGatewayClientError } from "@/lib/client-error-log.js";
+import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 import { streamSSE } from "@/lib/pending-work.js";
 import {
@@ -231,9 +232,7 @@ responses.post("/", async (c) => {
 
 	const { project, organization } = authResult;
 
-	const zeroDataRetentionEnabled =
-		organization.providerCompliancePolicy?.enabled === true &&
-		organization.providerCompliancePolicy.blockPromptLogging === true;
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(organization);
 	if (zeroDataRetentionEnabled) {
 		req.store = false;
 	}
@@ -782,9 +781,7 @@ responses.post("/compact", async (c) => {
 	}
 
 	const { project, organization } = authResult;
-	const zeroDataRetentionEnabled =
-		organization.providerCompliancePolicy?.enabled === true &&
-		organization.providerCompliancePolicy.blockPromptLogging === true;
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(organization);
 
 	let inputItems: unknown[] = [];
 	if (typeof req.input === "string") {

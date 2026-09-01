@@ -44,8 +44,10 @@ import {
 import {
 	complianceBlockMessage,
 	getActiveCompliancePolicy,
+	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
+	isZeroDataRetentionEnabled,
 	logComplianceBlock,
 	type ComplianceCheckContext,
 } from "@/lib/compliance.js";
@@ -2351,13 +2353,11 @@ chat.openapi(completions, async (c) => {
 	// would push the zero-credit org we just waived the charge for into negative
 	// credits. Forcing it here rather than zeroing at each cost site keeps the
 	// two in step: no stored payloads, therefore no storage to charge for.
-	const zeroDataRetentionEnabled =
-		organization.providerCompliancePolicy?.enabled === true &&
-		organization.providerCompliancePolicy.blockPromptLogging === true;
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(organization);
 	const retentionLevel =
 		sponsoredOnboarding || zeroDataRetentionEnabled
 			? "none"
-			: (organization.retentionLevel ?? "none");
+			: getEffectiveRetentionLevel(organization);
 
 	// Note: the end-user-wallet credits substitution (withWalletCredits) happens
 	// further below — orgs backing end-user wallets are always regular
@@ -6372,8 +6372,11 @@ chat.openapi(completions, async (c) => {
 	const {
 		enabled: projectCachingEnabled,
 		duration: cacheDuration,
-		providerCacheControlMode,
+		providerCacheControlMode: configuredProviderCacheControlMode,
 	} = await isCachingEnabled(project.id);
+	const providerCacheControlMode = zeroDataRetentionEnabled
+		? "off"
+		: configuredProviderCacheControlMode;
 	// Per-request opt-out, mirroring X-No-Fallback. Agent workloads that retry a
 	// byte-identical request expect a fresh sample rather than a replay, so let
 	// a caller bypass the response cache (both read and write) without turning

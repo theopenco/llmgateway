@@ -35,7 +35,7 @@ In DevPass, enable **No AI training** directly under **Settings**. It uses the s
 
 Every requirement is **fail-closed**: a provider passes only if its published data policy explicitly satisfies the requirement. If an attribute is unknown for a provider, that provider is treated as non-compliant.
 
-Before enabling **Zero data retention (ZDR)**, set the organization's data retention to **Metadata Only**. While ZDR is active, **Retain All Data** is unavailable, the gateway response cache is bypassed, and Responses API requests are forced to `store: false`. Disable ZDR before turning payload retention back on.
+Before enabling **Zero data retention (ZDR)**, set the organization's data retention to **Metadata Only** and disable response caching in every project. While ZDR is active, **Retain All Data** and project response caching are unavailable, gateway response caching is bypassed, provider prompt-cache markers are stripped, and Responses API requests are forced to `store: false`. Disable ZDR before turning payload retention or caching back on.
 
 Stealth providers are undisclosed platforms that LLM Gateway routes to without naming the operator, so their data policy and headquarters are unknown. That already makes them fail every certification and data-policy requirement above, but **No stealth providers** excludes them explicitly — useful when you want them gone without turning on any other requirement.
 

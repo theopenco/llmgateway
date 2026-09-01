@@ -34,6 +34,7 @@ import {
 	complianceBlockMessage,
 	filterCompliantProviders,
 	getActiveCompliancePolicy,
+	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
 	logComplianceBlock,
@@ -4306,7 +4307,7 @@ async function insertVideoClientErrorLog(options: {
 		cachedTokens: null,
 		cacheWriteTokens: null,
 		messages:
-			options.organization.retentionLevel === "retain"
+			getEffectiveRetentionLevel(options.organization) === "retain"
 				? [
 						{
 							role: "user",
@@ -4602,7 +4603,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		if (
 			isGoogleVertexVideoProvider(selectedProviderContext.providerId) &&
 			!getGoogleVertexVideoOutputBucket() &&
-			organization.retentionLevel === "none"
+			getEffectiveRetentionLevel(organization) === "none"
 		) {
 			const statusCode = 400;
 			routingAttempts.push({

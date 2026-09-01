@@ -302,6 +302,45 @@ describe("organization route", () => {
 		});
 	});
 
+	test("ZDR cannot be enabled while a project cache is active", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise", retentionLevel: "none" })
+			.where(eq(tables.organization.id, "test-org-id"));
+		await db.insert(tables.project).values({
+			id: "cached-project-id",
+			name: "Cached Project",
+			organizationId: "test-org-id",
+			cachingEnabled: true,
+		});
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockPromptLogging: true,
+				},
+			}),
+		});
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			message: expect.stringContaining("response caching"),
+		});
+		expect(
+			(
+				await db.query.organization.findFirst({
+					where: { id: { eq: "test-org-id" } },
+				})
+			)?.providerCompliancePolicy?.enabled,
+		).not.toBe(true);
+	});
+
 	test("payload retention cannot be enabled while ZDR is active", async () => {
 		await db
 			.update(tables.organization)
@@ -394,7 +433,7 @@ describe("organization route", () => {
 						from pg_stat_activity
 						where datname = current_database()
 							and wait_event_type = 'Lock'
-							and query like 'update "organization" set%'
+							and query not like '%pg_stat_activity%'
 					`);
 					return Number(blockedUpdates.rows[0]?.count ?? 0);
 				})
@@ -415,6 +454,95 @@ describe("organization route", () => {
 			organization?.providerCompliancePolicy?.enabled === true &&
 			organization.providerCompliancePolicy.blockPromptLogging === true;
 		expect(activeZdr && organization?.retentionLevel === "retain").toBe(false);
+	});
+
+	test("concurrent ZDR and project cache updates cannot conflict", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				retentionLevel: "none",
+				providerCompliancePolicy: null,
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+		await db.insert(tables.project).values({
+			id: "test-project-id",
+			name: "Test Project",
+			organizationId: "test-org-id",
+			cachingEnabled: false,
+		});
+
+		let signalLockAcquired!: () => void;
+		const lockAcquired = new Promise<void>((resolve) => {
+			signalLockAcquired = resolve;
+		});
+		let releaseLock!: () => void;
+		const holdLock = new Promise<void>((resolve) => {
+			releaseLock = resolve;
+		});
+		const lockTransaction = db.transaction(async (tx) => {
+			await tx.execute(
+				sql`select pg_advisory_xact_lock(hashtextextended(${"test-org-id"}, 0))`,
+			);
+			signalLockAcquired();
+			await holdLock;
+		});
+
+		await lockAcquired;
+		const enableZdr = app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockPromptLogging: true,
+				},
+			}),
+		});
+		const enableCaching = app.request("/projects/test-project-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ cachingEnabled: true }),
+		});
+
+		try {
+			await expect
+				.poll(async () => {
+					const blockedUpdates = await db.execute<{ count: string }>(sql`
+						select count(*) as count
+						from pg_stat_activity
+						where datname = current_database()
+							and wait_event_type = 'Lock'
+							and query not like '%pg_stat_activity%'
+					`);
+					return Number(blockedUpdates.rows[0]?.count ?? 0);
+				})
+				.toBe(2);
+		} finally {
+			releaseLock();
+		}
+		const responses = await Promise.all([enableZdr, enableCaching]);
+		await lockTransaction;
+
+		expect(responses.map((response) => response.status).sort()).toEqual([
+			200, 400,
+		]);
+		const organization = await db.query.organization.findFirst({
+			where: { id: { eq: "test-org-id" } },
+		});
+		const project = await db.query.project.findFirst({
+			where: { id: { eq: "test-project-id" } },
+		});
+		const activeZdr =
+			organization?.providerCompliancePolicy?.enabled === true &&
+			organization.providerCompliancePolicy.blockPromptLogging === true;
+		expect(activeZdr && project?.cachingEnabled === true).toBe(false);
 	});
 
 	test("PATCH /orgs/{id} logs top-up setting changes separately from organization updates", async () => {

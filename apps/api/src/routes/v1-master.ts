@@ -62,6 +62,12 @@ import {
 	withLegacyProviderCacheControl,
 } from "@/utils/provider-cache-control.js";
 import { timezoneQueryField } from "@/utils/timezone.js";
+import {
+	isZeroDataRetentionEnabled,
+	type ZdrCompliancePolicy,
+	zdrCachingConflictMessage,
+	zdrProviderCachingConflictMessage,
+} from "@/utils/zdr-settings.js";
 
 import { encryptProviderKey, readProviderKey } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
@@ -71,6 +77,7 @@ import {
 	eq,
 	getApiKeyCurrentPeriodState,
 	shortid,
+	sql,
 	tables,
 } from "@llmgateway/db";
 import {
@@ -510,11 +517,54 @@ v1Master.openapi(updateProject, async (c) => {
 		});
 	}
 
-	const [updated] = await cdb
-		.update(tables.project)
-		.set(updates)
-		.where(eq(tables.project.id, id))
-		.returning();
+	let updated;
+	const providerCachingChanged =
+		providerCacheControlMode !== undefined &&
+		providerCacheControlMode !== existing.providerCacheControlMode;
+	if (updates.cachingEnabled !== undefined || providerCachingChanged) {
+		updated = await cdb.transaction(async (tx) => {
+			await tx.execute(
+				sql`select pg_advisory_xact_lock(hashtextextended(${existing.organizationId}, 0))`,
+			);
+			if (
+				updates.cachingEnabled ||
+				(providerCachingChanged && providerCacheControlMode !== "off")
+			) {
+				const organizationResult = await tx.execute<{
+					providerCompliancePolicy: ZdrCompliancePolicy | null;
+				}>(sql`
+					select ${tables.organization.providerCompliancePolicy} as "providerCompliancePolicy"
+					from ${tables.organization}
+					where ${tables.organization.id} = ${existing.organizationId}
+					limit 1
+				`);
+				if (
+					isZeroDataRetentionEnabled(
+						organizationResult.rows[0]?.providerCompliancePolicy,
+					)
+				) {
+					throw new HTTPException(400, {
+						message: updates.cachingEnabled
+							? zdrCachingConflictMessage
+							: zdrProviderCachingConflictMessage,
+					});
+				}
+			}
+
+			const [projectRow] = await tx
+				.update(tables.project)
+				.set(updates)
+				.where(eq(tables.project.id, id))
+				.returning();
+			return projectRow;
+		});
+	} else {
+		[updated] = await cdb
+			.update(tables.project)
+			.set(updates)
+			.where(eq(tables.project.id, id))
+			.returning();
+	}
 
 	const changes: Record<string, { old: unknown; new: unknown }> = {};
 	for (const [key, value] of Object.entries(updates)) {

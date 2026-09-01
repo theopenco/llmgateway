@@ -79,6 +79,36 @@ describe("projects route", () => {
 		expect(response.status).toBe(201);
 	});
 
+	test("POST /projects rejects caching while ZDR is active", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockPromptLogging: true,
+				},
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await app.request("/projects", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				name: "Cached Project",
+				organizationId: "test-org-id",
+				cachingEnabled: true,
+			}),
+		});
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			message: expect.stringContaining("response caching"),
+		});
+	});
+
 	test("PATCH /projects/{id} with an empty body is a no-op", async () => {
 		const response = await app.request("/projects/test-project-id", {
 			method: "PATCH",
@@ -119,5 +149,102 @@ describe("projects route", () => {
 			},
 		});
 		expect(project?.name).toBe("Renamed Project");
+	});
+
+	test("PATCH /projects/{id} rejects caching while ZDR is active", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockPromptLogging: true,
+				},
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await app.request("/projects/test-project-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ cachingEnabled: true }),
+		});
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			message: expect.stringContaining("response caching"),
+		});
+		expect(
+			(
+				await db.query.project.findFirst({
+					where: { id: { eq: "test-project-id" } },
+				})
+			)?.cachingEnabled,
+		).toBe(false);
+	});
+
+	test("PATCH /projects/{id} can disable caching while ZDR is active", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockPromptLogging: true,
+				},
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+		await db
+			.update(tables.project)
+			.set({ cachingEnabled: true })
+			.where(eq(tables.project.id, "test-project-id"));
+
+		const response = await app.request("/projects/test-project-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ cachingEnabled: false }),
+		});
+
+		expect(response.status).toBe(200);
+		expect(
+			(
+				await db.query.project.findFirst({
+					where: { id: { eq: "test-project-id" } },
+				})
+			)?.cachingEnabled,
+		).toBe(false);
+	});
+
+	test("PATCH /projects/{id} rejects provider caching while ZDR is active", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockPromptLogging: true,
+				},
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+		await db
+			.update(tables.project)
+			.set({ providerCacheControlMode: "off" })
+			.where(eq(tables.project.id, "test-project-id"));
+
+		const response = await app.request("/projects/test-project-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ providerCacheControlMode: "auto" }),
+		});
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			message: expect.stringContaining("Provider prompt caching"),
+		});
 	});
 });

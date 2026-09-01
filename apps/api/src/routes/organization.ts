@@ -22,6 +22,10 @@ import {
 } from "@/utils/invoice.js";
 import { providerCacheControlModeSchema } from "@/utils/provider-cache-control.js";
 import { isConfigurableDomain, normalizeDomain } from "@/utils/sso-domain.js";
+import {
+	isZeroDataRetentionEnabled,
+	zdrCachingConflictMessage,
+} from "@/utils/zdr-settings.js";
 
 import {
 	getOrgTierQualifyingSpendUsd,
@@ -36,6 +40,7 @@ import {
 	eq,
 	gte,
 	isNull,
+	invalidateOrganizationsCache,
 	or,
 	sql,
 	tables,
@@ -765,9 +770,9 @@ organization.openapi(updateOrganization, async (c) => {
 		providerCompliancePolicy === undefined
 			? userOrganization.organization!.providerCompliancePolicy
 			: providerCompliancePolicy;
-	const zeroDataRetentionEnabled =
-		effectiveCompliancePolicy?.enabled === true &&
-		effectiveCompliancePolicy.blockPromptLogging === true;
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(
+		effectiveCompliancePolicy,
+	);
 	const nextRetentionLevel =
 		retentionLevel ?? userOrganization.organization!.retentionLevel;
 
@@ -869,34 +874,79 @@ organization.openapi(updateOrganization, async (c) => {
 	if (Object.keys(updateData).length === 0) {
 		updatedOrganization = userOrganization.organization!;
 	} else {
-		let retentionCompatibilityCondition;
-		if (retentionLevel === "retain" && providerCompliancePolicy === undefined) {
-			retentionCompatibilityCondition = sql<boolean>`not coalesce(${tables.organization.providerCompliancePolicy}::jsonb @> ${JSON.stringify({ enabled: true, blockPromptLogging: true })}::jsonb, false)`;
-		} else if (
-			retentionLevel === undefined &&
-			providerCompliancePolicy !== undefined &&
-			zeroDataRetentionEnabled
-		) {
-			retentionCompatibilityCondition = sql<boolean>`${tables.organization.retentionLevel} <> 'retain'`;
-		}
-
 		try {
-			[updatedOrganization] = await db
-				.update(tables.organization)
-				.set(updateData)
-				.where(
-					retentionCompatibilityCondition
-						? and(
-								eq(tables.organization.id, id),
-								retentionCompatibilityCondition,
+			if (
+				retentionLevel !== undefined ||
+				providerCompliancePolicy !== undefined
+			) {
+				updatedOrganization = await db.transaction(async (tx) => {
+					// Serialize org-level retention/ZDR changes with project cache
+					// changes so concurrent requests cannot create an invalid state.
+					await tx.execute(
+						sql`select pg_advisory_xact_lock(hashtextextended(${id}, 0))`,
+					);
+
+					const [currentOrganization] = await tx
+						.select({
+							retentionLevel: tables.organization.retentionLevel,
+							providerCompliancePolicy:
+								tables.organization.providerCompliancePolicy,
+						})
+						.from(tables.organization)
+						.where(eq(tables.organization.id, id))
+						.limit(1);
+					if (!currentOrganization) {
+						throw new HTTPException(404, {
+							message: "Organization not found",
+						});
+					}
+
+					const currentPolicy =
+						providerCompliancePolicy === undefined
+							? currentOrganization.providerCompliancePolicy
+							: providerCompliancePolicy;
+					const currentZdrEnabled = isZeroDataRetentionEnabled(currentPolicy);
+					const currentRetentionLevel =
+						retentionLevel ?? currentOrganization.retentionLevel;
+
+					if (currentZdrEnabled && currentRetentionLevel === "retain") {
+						throw new HTTPException(400, {
+							message: zdrRetentionConflictMessage,
+						});
+					}
+
+					if (currentZdrEnabled) {
+						const [cachedProject] = await tx
+							.select({ id: tables.project.id })
+							.from(tables.project)
+							.where(
+								and(
+									eq(tables.project.organizationId, id),
+									eq(tables.project.cachingEnabled, true),
+									sql`${tables.project.status} is distinct from 'deleted'`,
+								),
 							)
-						: eq(tables.organization.id, id),
-				)
-				.returning();
-			if (!updatedOrganization && retentionCompatibilityCondition) {
-				throw new HTTPException(400, {
-					message: zdrRetentionConflictMessage,
+							.limit(1);
+						if (cachedProject) {
+							throw new HTTPException(400, {
+								message: zdrCachingConflictMessage,
+							});
+						}
+					}
+
+					const [organizationRow] = await tx
+						.update(tables.organization)
+						.set(updateData)
+						.where(eq(tables.organization.id, id))
+						.returning();
+					return organizationRow;
 				});
+			} else {
+				[updatedOrganization] = await db
+					.update(tables.organization)
+					.set(updateData)
+					.where(eq(tables.organization.id, id))
+					.returning();
 			}
 		} catch (err) {
 			const code =
@@ -909,6 +959,8 @@ organization.openapi(updateOrganization, async (c) => {
 			}
 			throw err;
 		}
+
+		await invalidateOrganizationsCache([id]);
 	}
 
 	// Build changes metadata for audit log

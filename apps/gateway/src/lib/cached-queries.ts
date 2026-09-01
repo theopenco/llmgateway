@@ -33,6 +33,7 @@ import {
 	getEffectiveRateLimit,
 	addApiKeyPeriodDuration,
 	organizationCacheTag,
+	organizationFreshCacheTag,
 	organizationTeam as organizationTeamTable,
 	organizationTeamIamRule as organizationTeamIamRuleTable,
 	organizationTeamProject as organizationTeamProjectTable,
@@ -331,7 +332,7 @@ export async function findOrganizationByIdFresh(
 			.where(eq(organizationTable.id, id))
 			.limit(1)
 			.$withCache({
-				tag: `org-fresh:${id}`,
+				tag: organizationFreshCacheTag(id),
 				autoInvalidate: false,
 				config: { ex: FRESH_TTL_SECONDS },
 			});

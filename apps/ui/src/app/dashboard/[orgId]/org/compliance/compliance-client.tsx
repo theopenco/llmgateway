@@ -203,7 +203,7 @@ const REQUIREMENTS: {
 		key: "blockPromptLogging",
 		name: "Zero data retention (ZDR)",
 		description:
-			"Only use providers that do not log prompts. Requires Metadata Only retention and disables Responses API storage.",
+			"Only use providers that do not log prompts. Requires Metadata Only retention, disables project response caching, and disables Responses API storage.",
 	},
 	{
 		key: "blockStealthProviders",
@@ -229,7 +229,8 @@ type RestrictionListKey =
 export function ComplianceClient() {
 	const params = useParams();
 	const organizationId = params.orgId as string;
-	const { selectedOrganization, buildOrgUrl } = useDashboardNavigation();
+	const { projects, selectedOrganization, buildOrgUrl } =
+		useDashboardNavigation();
 	const { user } = useUser();
 	const { data: teamData, isLoading: isLoadingTeam } =
 		useTeamMembers(organizationId);
@@ -382,12 +383,17 @@ export function ComplianceClient() {
 		(currentUserRole === "owner" || currentUserRole === "admin");
 	const payloadRetentionEnabled =
 		selectedOrganization?.retentionLevel === "retain";
+	const cachedProjects = projects.filter(
+		(project) => project.cachingEnabled && project.status !== "deleted",
+	);
+	const projectCachingEnabled = cachedProjects.length > 0;
+	const zdrEnableBlocked = payloadRetentionEnabled || projectCachingEnabled;
 	const retentionBlocksPolicyEnable =
-		payloadRetentionEnabled &&
+		zdrEnableBlocked &&
 		policy.enabled !== true &&
 		policy.blockPromptLogging === true;
-	const zdrConflictsWithRetention =
-		payloadRetentionEnabled &&
+	const zdrConflictsWithSettings =
+		zdrEnableBlocked &&
 		policy.enabled === true &&
 		policy.blockPromptLogging === true;
 
@@ -484,7 +490,7 @@ export function ComplianceClient() {
 								<Button
 									onClick={handleSave}
 									disabled={
-										updateOrganization.isPending || zdrConflictsWithRetention
+										updateOrganization.isPending || zdrConflictsWithSettings
 									}
 								>
 									<Save className="h-4 w-4 mr-2" />
@@ -492,26 +498,48 @@ export function ComplianceClient() {
 								</Button>
 							</div>
 						</div>
-						{payloadRetentionEnabled ? (
+						{zdrEnableBlocked ? (
 							<div
 								role="status"
 								className="mt-4 rounded-lg border bg-muted/50 p-4 text-sm"
 							>
-								<div className="font-medium">Payload retention blocks ZDR</div>
-								<p className="mt-1 text-muted-foreground">
-									Set data retention to Metadata Only{` `}
-									<span className="whitespace-nowrap">
-										in{` `}
-										<Link
-											href={buildOrgUrl("org/policies")}
-											className="font-medium text-foreground underline underline-offset-4"
-										>
-											Organization policies
-										</Link>
-									</span>
-									{` `}
-									before enabling ZDR.
-								</p>
+								<div className="font-medium">Current settings block ZDR</div>
+								<div className="mt-1 space-y-2 text-muted-foreground">
+									{payloadRetentionEnabled ? (
+										<p>
+											Set data retention to Metadata Only{` `}
+											<span className="whitespace-nowrap">
+												in{` `}
+												<Link
+													href={buildOrgUrl("org/policies")}
+													className="font-medium text-foreground underline underline-offset-4"
+												>
+													Organization policies
+												</Link>
+											</span>
+											.
+										</p>
+									) : null}
+									{projectCachingEnabled ? (
+										<div>
+											<p>
+												Disable response caching for every project listed below.
+											</p>
+											<ul className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+												{cachedProjects.map((project) => (
+													<li key={project.id}>
+														<Link
+															href={`/dashboard/${organizationId}/${project.id}/settings/preferences`}
+															className="whitespace-nowrap font-medium text-foreground underline underline-offset-4"
+														>
+															{project.name}
+														</Link>
+													</li>
+												))}
+											</ul>
+										</div>
+									) : null}
+								</div>
 							</div>
 						) : policy.enabled && policy.blockPromptLogging === true ? (
 							<div
@@ -520,9 +548,10 @@ export function ComplianceClient() {
 							>
 								<div className="font-medium">ZDR is active</div>
 								<p className="mt-1 text-muted-foreground">
-									Data retention must remain Metadata Only, and Responses API
-									requests are forced to <code>store: false</code>. To retain
-									prompts again, disable ZDR first. Review the current setting
+									Data retention must remain Metadata Only, project response
+									caching cannot be enabled, and Responses API requests are
+									forced to <code>store: false</code>. To retain prompts again,
+									disable ZDR first. Review the current setting
 									{` `}
 									<span className="whitespace-nowrap">
 										in{` `}
@@ -556,7 +585,7 @@ export function ComplianceClient() {
 										disabled={
 											!policy.enabled ||
 											(requirement.key === "blockPromptLogging" &&
-												payloadRetentionEnabled &&
+												zdrEnableBlocked &&
 												policy.blockPromptLogging !== true)
 										}
 										onCheckedChange={(value) =>
@@ -826,7 +855,7 @@ export function ComplianceClient() {
 												.map((provider) => (
 													<span key={provider.id} className="block">
 														No attestation on file — requests through{" "}
-														<span className="font-mono">{provider.name}/*</span>{" "}
+														<span className="font-mono">{`${provider.name}/*`}</span>{" "}
 														will be blocked.{" "}
 														<Link
 															href={`${buildOrgUrl("org/models")}?providerKey=${provider.id}`}
