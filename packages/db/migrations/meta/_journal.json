@@ -1723,27 +1723,6 @@
       "when": 1787935543651,
       "tag": "1787935543_melted_nicolaos",
       "breakpoints": true
-    },
-    {
-      "idx": 246,
-      "version": "8",
-      "when": 1788040472483,
-      "tag": "1788040472_clean_caretaker",
-      "breakpoints": true
-    },
-    {
-      "idx": 247,
-      "version": "8",
-      "when": 1788086567599,
-      "tag": "1788086567_cute_payback",
-      "breakpoints": true
-    },
-    {
-      "idx": 248,
-      "version": "8",
-      "when": 1788198914153,
-      "tag": "1788198914_groovy_slyde",
-      "breakpoints": true
     }
   ]
 }
