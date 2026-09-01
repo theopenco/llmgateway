@@ -3353,6 +3353,60 @@ describe("api", () => {
 		expect(logs[0].usedServiceTier).toBe("priority");
 	});
 
+	test.each([
+		"openai/gpt-5.6-sol",
+		"openai/gpt-5.6-terra",
+		"openai/gpt-5.6-luna",
+	])("/v1/responses forwards max_output_tokens to %s", async (model) => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-responses-max-output-tokens",
+			...hashApiKeyForStorage("real-token-responses-max-output-tokens"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-responses-max-output-tokens",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-responses-max-output-tokens",
+				"org-id",
+			),
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/responses", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-responses-max-output-tokens",
+				"x-debug": "true",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model,
+				service_tier: "flex",
+				reasoning: { effort: "max" },
+				max_output_tokens: 64,
+				input: "Hello!",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		expect(logs).toHaveLength(1);
+		expect(logs[0].routingMetadata?.strippedParameters ?? []).not.toContain(
+			"max_tokens",
+		);
+		expect(logs[0].upstreamRequest).toMatchObject({
+			max_output_tokens: 64,
+		});
+	});
+
 	test("/v1/responses rejects unsupported service tiers", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-responses-bad-service-tier",
