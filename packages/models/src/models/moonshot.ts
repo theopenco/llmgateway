@@ -362,6 +362,7 @@ export const moonshotModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "moonshotai/Kimi-K2.5",
+				deactivatedAt: new Date("2026-09-07"),
 				inputPrice: "0.45e-6",
 				cachedInputPrice: "0.07e-6",
 				outputPrice: "2.25e-6",
