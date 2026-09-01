@@ -35,10 +35,13 @@ export function PlanManagement() {
 	const queryClient = useQueryClient();
 	const api = useApi();
 	const posthog = usePostHog();
+	const organizationId = selectedOrganization?.id ?? "";
 
 	const { data: subscriptionStatus } = api.useQuery(
 		"get",
 		"/subscriptions/status",
+		{ params: { query: { organizationId } } },
+		{ enabled: organizationId !== "" },
 	);
 
 	// Keep cancel/resume mutations for existing Pro subscribers (backward compatibility)
@@ -63,9 +66,13 @@ export function PlanManagement() {
 
 		posthog.capture("subscription_cancel_initiated");
 
-		await cancelSubscriptionMutation.mutateAsync({});
+		await cancelSubscriptionMutation.mutateAsync({
+			params: { query: { organizationId } },
+		});
 		await queryClient.invalidateQueries({
-			queryKey: api.queryOptions("get", "/subscriptions/status").queryKey,
+			queryKey: api.queryOptions("get", "/subscriptions/status", {
+				params: { query: { organizationId } },
+			}).queryKey,
 		});
 		toast({
 			title: "Subscription Canceled",
@@ -85,9 +92,13 @@ export function PlanManagement() {
 
 		posthog.capture("subscription_resume_initiated");
 
-		await resumeSubscriptionMutation.mutateAsync({});
+		await resumeSubscriptionMutation.mutateAsync({
+			params: { query: { organizationId } },
+		});
 		await queryClient.invalidateQueries({
-			queryKey: api.queryOptions("get", "/subscriptions/status").queryKey,
+			queryKey: api.queryOptions("get", "/subscriptions/status", {
+				params: { query: { organizationId } },
+			}).queryKey,
 		});
 		toast({
 			title: "Subscription Resumed",

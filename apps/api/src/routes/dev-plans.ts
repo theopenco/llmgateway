@@ -374,12 +374,11 @@ async function resetEndedDevPlan(organizationId: string): Promise<void> {
 			// with the plan; purchased passes were paid for and survive to a
 			// future resubscribe.
 			devPlanIncludedResetPassesUsed: 0,
-			devPlanCreditsFrozen: false,
-			devPlanCreditsLimitBeforeFreeze: null,
 			devPlanStripeSubscriptionId: null,
 			devPlanExpiresAt: null,
 			devPlanCancelled: false,
 			devPlanBillingCycleStart: null,
+			subscriptionPaymentStatus: "current",
 		})
 		.where(eq(tables.organization.id, organizationId));
 }
@@ -1439,7 +1438,7 @@ devPlans.openapi(changeTier, async (c) => {
 					// Fresh billing cycle: set the limit to the new tier's full
 					// allowance plus the rollover, zero out usage (including the
 					// premium weekly window), advance the cycle start, clear any
-					// pending change and dunning freeze state, and persist the new
+					// pending change and persist the new
 					// period end as the renewal date.
 					await tx
 						.update(tables.organization)
@@ -1450,8 +1449,6 @@ devPlans.openapi(changeTier, async (c) => {
 							devPlanPremiumCreditsUsed: "0",
 							devPlanPremiumWeekStart: new Date(),
 							devPlanIncludedResetPassesUsed: 0,
-							devPlanCreditsFrozen: false,
-							devPlanCreditsLimitBeforeFreeze: null,
 							devPlanBillingCycleStart: new Date(),
 							devPlanExpiresAt: newExpiresAt,
 							devPlanPendingTier: null,
@@ -2575,7 +2572,6 @@ const getInvoices = createRoute({
 												"not_owner",
 												"not_latest_purchase",
 												"plan_inactive",
-												"credits_frozen",
 												"usage_exceeded",
 												"pass_already_used",
 											])

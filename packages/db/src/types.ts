@@ -204,8 +204,6 @@ export type SerializedOrganization = Omit<
 	| "devPlanExpiresAt"
 	| "devPlanPendingTier"
 	| "devPlanCardFingerprint"
-	| "devPlanCreditsFrozen"
-	| "devPlanCreditsLimitBeforeFreeze"
 	| "devPlanTierChangeClaimedAt"
 	| "chatPlanBillingCycleStart"
 	| "chatPlanStripeSubscriptionId"

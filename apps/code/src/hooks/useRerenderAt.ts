@@ -2,11 +2,13 @@
 
 import { useEffect, useReducer } from "react";
 
-// setTimeout stores its delay in a signed 32-bit int, so anything past ~24.8
-// days wraps and fires immediately — which would spin a render loop on an
-// annual plan. A day is well beyond how long a dashboard tab stays open, so
-// anything further out is left to the next mount.
+// Wake at most daily so long-lived tabs eventually schedule distant boundaries
+// without overflowing setTimeout's signed 32-bit delay.
 const MAX_DELAY_MS = 24 * 60 * 60 * 1000;
+
+export function getRerenderDelay(time: number, now = Date.now()): number {
+	return Math.min(Math.max(time - now + 1000, 0), MAX_DELAY_MS);
+}
 
 /**
  * Re-render once when the clock crosses `at`.
@@ -24,13 +26,18 @@ export function useRerenderAt(at: Date | null) {
 		if (time === null) {
 			return;
 		}
-		// A second past the boundary, so the re-render reads a clock that has
-		// definitely crossed it rather than landing exactly on it.
-		const delay = time - Date.now() + 1000;
-		if (delay <= 0 || delay > MAX_DELAY_MS) {
-			return;
-		}
-		const timer = setTimeout(rerender, delay);
+		let timer: ReturnType<typeof setTimeout>;
+		const schedule = () => {
+			// A second past the boundary, so the re-render reads a clock that has
+			// definitely crossed it rather than landing exactly on it.
+			const delay = getRerenderDelay(time);
+			if (delay === 0) {
+				timer = setTimeout(rerender, 0);
+				return;
+			}
+			timer = setTimeout(schedule, Math.min(delay, MAX_DELAY_MS));
+		};
+		schedule();
 		return () => clearTimeout(timer);
 	}, [time]);
 }

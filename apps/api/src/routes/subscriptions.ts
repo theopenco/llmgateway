@@ -180,7 +180,9 @@ subscriptions.openapi(createProSubscription, async (c) => {
 const cancelProSubscription = createRoute({
 	method: "post",
 	path: "/cancel-pro-subscription",
-	request: {},
+	request: {
+		query: z.object({ organizationId: z.string() }),
+	},
 	responses: {
 		200: {
 			content: {
@@ -197,6 +199,7 @@ const cancelProSubscription = createRoute({
 
 subscriptions.openapi(cancelProSubscription, async (c) => {
 	const user = c.get("user");
+	const { organizationId } = c.req.valid("query");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -207,6 +210,7 @@ subscriptions.openapi(cancelProSubscription, async (c) => {
 	const userOrganization = await db.query.userOrganization.findFirst({
 		where: {
 			userId: user.id,
+			organizationId,
 		},
 		with: {
 			organization: true,
@@ -270,7 +274,9 @@ subscriptions.openapi(cancelProSubscription, async (c) => {
 const resumeProSubscription = createRoute({
 	method: "post",
 	path: "/resume-pro-subscription",
-	request: {},
+	request: {
+		query: z.object({ organizationId: z.string() }),
+	},
 	responses: {
 		200: {
 			content: {
@@ -287,6 +293,7 @@ const resumeProSubscription = createRoute({
 
 subscriptions.openapi(resumeProSubscription, async (c) => {
 	const user = c.get("user");
+	const { organizationId } = c.req.valid("query");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -297,6 +304,7 @@ subscriptions.openapi(resumeProSubscription, async (c) => {
 	const userOrganization = await db.query.userOrganization.findFirst({
 		where: {
 			userId: user.id,
+			organizationId,
 		},
 		with: {
 			organization: true,
@@ -486,7 +494,9 @@ subscriptions.openapi(upgradeToYearlyPlan, async (c) => {
 const getSubscriptionStatus = createRoute({
 	method: "get",
 	path: "/status",
-	request: {},
+	request: {
+		query: z.object({ organizationId: z.string() }),
+	},
 	responses: {
 		200: {
 			content: {
@@ -508,6 +518,7 @@ const getSubscriptionStatus = createRoute({
 
 subscriptions.openapi(getSubscriptionStatus, async (c) => {
 	const user = c.get("user");
+	const { organizationId } = c.req.valid("query");
 
 	if (!user) {
 		throw new HTTPException(401, {
@@ -518,6 +529,7 @@ subscriptions.openapi(getSubscriptionStatus, async (c) => {
 	const userOrganization = await db.query.userOrganization.findFirst({
 		where: {
 			userId: user.id,
+			organizationId,
 		},
 		with: {
 			organization: true,

@@ -634,8 +634,6 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		await db
 			.update(tables.organization)
 			.set({
-				devPlanCreditsFrozen: true,
-				devPlanCreditsLimitBeforeFreeze: "237",
 				subscriptionPaymentStatus: "past_due",
 			})
 			.where(eq(tables.organization.id, ORG_ID));
@@ -655,7 +653,6 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		});
 		expect(org?.devPlanExpiresAt?.getTime()).toBe(periodEnd * 1000);
 		expect(org?.subscriptionPaymentStatus).toBe("current");
-		expect(org?.devPlanCreditsFrozen).toBe(false);
 	});
 
 	test("resets to a fresh new-tier cycle on a tier-change invoice (webhook fallback)", async () => {
@@ -817,48 +814,6 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 			where: { organizationId: { eq: ORG_ID } },
 		});
 		expect(txns).toHaveLength(1);
-	});
-
-	test("clears a stale credit freeze when the plan activates", async () => {
-		// An abandoned earlier checkout leaves an `incomplete` subscription that
-		// Stripe later expires. That event freezes the org while it still has no
-		// devPlanStripeSubscriptionId, so the stale-subscription guard can't catch
-		// it — and nothing else clears the flag before the first renewal, which
-		// would block self-refunds and make a later real dunning freeze no-op.
-		stripeMock.subscriptions.retrieve.mockResolvedValue({
-			metadata: {
-				organizationId: ORG_ID,
-				subscriptionType: "dev_plan",
-				devPlan: "pro",
-			},
-		});
-		await db.insert(tables.organization).values({
-			id: ORG_ID,
-			name: "Acme Co",
-			billingEmail: "billing@acme.test",
-			devPlan: "none",
-			devPlanCreditsLimit: "0",
-			devPlanCreditsUsed: "0",
-			devPlanCreditsFrozen: true,
-			devPlanCreditsLimitBeforeFreeze: "0",
-		});
-
-		await handleInvoicePaymentSucceeded(
-			makeInvoiceEvent({
-				billingReason: "subscription_create",
-				amountPaid: 7900,
-				invoiceId: "in_devpass_initial",
-				periodEnd: Math.floor(Date.now() / 1000) + SECONDS_IN_TWO_WEEKS,
-			}),
-		);
-
-		const org = await db.query.organization.findFirst({
-			where: { id: { eq: ORG_ID } },
-		});
-		expect(org?.devPlan).toBe("pro");
-		expect(org?.devPlanStripeSubscriptionId).toBe(SUB_ID);
-		expect(org?.devPlanCreditsFrozen).toBe(false);
-		expect(org?.devPlanCreditsLimitBeforeFreeze).toBeNull();
 	});
 });
 
@@ -1277,7 +1232,7 @@ describe("handleInvoicePaymentSucceeded — superseded Pro subscription", () => 
 	});
 });
 
-describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
+describe("handleSubscriptionUpdated — dev plan payment state", () => {
 	beforeEach(async () => {
 		await deleteAll();
 		sendEmailMock.mockClear();
@@ -1291,7 +1246,7 @@ describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
 
 	test("does NOT raise a prorated limit on a routine active update (tier change)", async () => {
 		// Mirrors the subscription.updated event Stripe emits right after a
-		// mid-cycle upgrade: the org is active and not frozen, with a prorated
+		// mid-cycle upgrade: the org is active with a prorated
 		// limit below the tier cap. The limit must stay put.
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
@@ -1300,7 +1255,6 @@ describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
 			devPlan: "max",
 			devPlanCreditsLimit: "312",
 			devPlanCreditsUsed: "0",
-			devPlanCreditsFrozen: false,
 			devPlanStripeSubscriptionId: SUB_ID,
 			devPlanCancelled: false,
 		});
@@ -1313,36 +1267,9 @@ describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlanCreditsLimit).toBe("312");
-		expect(org?.devPlanCreditsFrozen).toBe(false);
 	});
 
-	test("keeps a frozen limit until a renewal invoice is paid", async () => {
-		await db.insert(tables.organization).values({
-			id: ORG_ID,
-			name: "Acme Co",
-			billingEmail: "billing@acme.test",
-			devPlan: "max",
-			devPlanCreditsLimit: "150",
-			devPlanCreditsUsed: "150",
-			devPlanCreditsFrozen: true,
-			devPlanCreditsLimitBeforeFreeze: "312",
-			devPlanStripeSubscriptionId: SUB_ID,
-			devPlanCancelled: false,
-		});
-
-		await handleSubscriptionUpdated(
-			makeUpdatedEvent({ cancelAtPeriodEnd: false, status: "active" }),
-		);
-
-		const org = await db.query.organization.findFirst({
-			where: { id: { eq: ORG_ID } },
-		});
-		expect(org?.devPlanCreditsLimit).toBe("150");
-		expect(org?.devPlanCreditsFrozen).toBe(true);
-		expect(org?.devPlanCreditsLimitBeforeFreeze).toBe("312");
-	});
-
-	test("freezes credits and preserves the pre-freeze limit on a past_due update", async () => {
+	test("marks a past-due update without changing paid credits", async () => {
 		stripeMock.subscriptions.retrieve.mockResolvedValue({ status: "past_due" });
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
@@ -1351,7 +1278,6 @@ describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
 			devPlan: "max",
 			devPlanCreditsLimit: "312",
 			devPlanCreditsUsed: "90",
-			devPlanCreditsFrozen: false,
 			devPlanStripeSubscriptionId: SUB_ID,
 			devPlanCancelled: false,
 		});
@@ -1363,9 +1289,7 @@ describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
 		const org = await db.query.organization.findFirst({
 			where: { id: { eq: ORG_ID } },
 		});
-		expect(org?.devPlanCreditsLimit).toBe("90");
-		expect(org?.devPlanCreditsFrozen).toBe(true);
-		expect(org?.devPlanCreditsLimitBeforeFreeze).toBe("312");
+		expect(org?.devPlanCreditsLimit).toBe("312");
 		expect(org?.subscriptionPaymentStatus).toBe("past_due");
 	});
 
@@ -1420,14 +1344,13 @@ describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.subscriptionPaymentStatus).toBe("current");
-		expect(org?.devPlanCreditsFrozen).toBe(false);
 	});
 
-	test("does NOT freeze when a superseded (stale) subscription expires", async () => {
+	test("does not mutate state when a superseded subscription expires", async () => {
 		// Repro of the production incident: the customer's first DevPass checkout
 		// attempt failed and its incomplete subscription later flipped to
 		// `incomplete_expired`. Their *active* subscription is a different id. The
-		// stale expiry event must not freeze the healthy plan.
+		// stale expiry event must not mutate the healthy plan.
 		await db.insert(tables.organization).values({
 			id: ORG_ID,
 			name: "Acme Co",
@@ -1435,7 +1358,6 @@ describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
 			devPlan: "pro",
 			devPlanCreditsLimit: "237",
 			devPlanCreditsUsed: "19.67",
-			devPlanCreditsFrozen: false,
 			devPlanStripeSubscriptionId: SUB_ID,
 			devPlanCancelled: false,
 		});
@@ -1456,7 +1378,6 @@ describe("handleSubscriptionUpdated — dev plan credit freeze/restore", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlanCreditsLimit).toBe("237");
-		expect(org?.devPlanCreditsFrozen).toBe(false);
 		// The stale event must not touch the active subscription's expiry/cancel
 		// flags either.
 		expect(org?.devPlanCancelled).toBe(false);

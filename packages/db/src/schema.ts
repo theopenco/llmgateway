@@ -366,11 +366,6 @@ export const organization = pgTable(
 		// counter clears on subscribe/upgrade/renewal (included passes don't
 		// roll over).
 		devPlanIncludedResetPassesUsed: integer().notNull().default(0),
-		// Set when dunning freezes dev-plan spend (limit capped to used). The
-		// pre-freeze limit is preserved so recovery restores the exact value
-		// (which may be a prorated mid-cycle amount), not a full tier cap.
-		devPlanCreditsFrozen: boolean().notNull().default(false),
-		devPlanCreditsLimitBeforeFreeze: decimal(),
 		devPlanBillingCycleStart: timestamp(),
 		// Lease held while a dev plan upgrade request is in flight, guarding
 		// against a double charge from racing requests (e.g. a double-clicked
