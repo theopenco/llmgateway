@@ -765,20 +765,19 @@ organization.openapi(updateOrganization, async (c) => {
 	const zeroDataRetentionEnabled =
 		effectiveCompliancePolicy?.enabled === true &&
 		effectiveCompliancePolicy.blockPromptLogging === true;
+	const nextRetentionLevel =
+		retentionLevel ?? userOrganization.organization!.retentionLevel;
 
-	if (retentionLevel === "retain" && zeroDataRetentionEnabled) {
+	if (
+		(retentionLevel !== undefined || providerCompliancePolicy !== undefined) &&
+		zeroDataRetentionEnabled &&
+		nextRetentionLevel === "retain"
+	) {
 		throw new HTTPException(400, {
 			message:
-				"Data retention cannot be enabled while zero data retention is active. Disable zero data retention in compliance settings first.",
+				"Zero data retention requires Metadata Only. Disable payload retention before enabling ZDR, or disable ZDR before enabling payload retention.",
 		});
 	}
-
-	// Enabling ZDR also disables LLM Gateway payload retention. Keep this
-	// server-side so every client gets the same atomic policy transition.
-	const effectiveRetentionLevel =
-		providerCompliancePolicy !== undefined && zeroDataRetentionEnabled
-			? "none"
-			: retentionLevel;
 
 	// Google SSO domain auto-join is an enterprise feature managed by owners and
 	// admins. The value is normalized and validated before storage.
@@ -838,8 +837,8 @@ organization.openapi(updateOrganization, async (c) => {
 	if (billingNotes !== undefined) {
 		updateData.billingNotes = billingNotes;
 	}
-	if (effectiveRetentionLevel !== undefined) {
-		updateData.retentionLevel = effectiveRetentionLevel;
+	if (retentionLevel !== undefined) {
+		updateData.retentionLevel = retentionLevel;
 	}
 	if (providerCompliancePolicy !== undefined) {
 		updateData.providerCompliancePolicy = providerCompliancePolicy;
@@ -929,12 +928,12 @@ organization.openapi(updateOrganization, async (c) => {
 		changes.billingNotes = { old: oldOrg.billingNotes, new: billingNotes };
 	}
 	if (
-		effectiveRetentionLevel !== undefined &&
-		effectiveRetentionLevel !== oldOrg.retentionLevel
+		retentionLevel !== undefined &&
+		retentionLevel !== oldOrg.retentionLevel
 	) {
 		changes.retentionLevel = {
 			old: oldOrg.retentionLevel,
-			new: effectiveRetentionLevel,
+			new: retentionLevel,
 		};
 	}
 	if (

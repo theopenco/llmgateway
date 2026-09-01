@@ -86,15 +86,17 @@ export function OrganizationRetentionSettings() {
 					<Alert>
 						<AlertDescription>
 							<strong>Zero data retention is active.</strong> Prompt payloads
-							and Responses API state are not stored. Disable ZDR under{` `}
-							<Link
-								href={`/dashboard/${selectedOrganization.id}/org/compliance`}
-								className="font-semibold underline hover:no-underline"
-							>
-								Compliance
-							</Link>
-							{` `}
-							before enabling data retention.
+							and Responses API state are not stored.{` `}
+							<span className="sm:whitespace-nowrap">
+								Disable ZDR in{` `}
+								<Link
+									href={`/dashboard/${selectedOrganization.id}/org/compliance`}
+									className="font-semibold underline hover:no-underline"
+								>
+									Compliance settings
+								</Link>
+								{` `}to enable retention.
+							</span>
 						</AlertDescription>
 					</Alert>
 				) : null}

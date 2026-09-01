@@ -203,7 +203,7 @@ const REQUIREMENTS: {
 		key: "blockPromptLogging",
 		name: "Zero data retention (ZDR)",
 		description:
-			"Only use providers that do not log prompts. LLM Gateway payload retention and Responses API storage are also disabled.",
+			"Only use providers that do not log prompts. Requires Metadata Only retention and disables Responses API storage.",
 	},
 	{
 		key: "blockStealthProviders",
@@ -380,6 +380,16 @@ export function ComplianceClient() {
 	const canManage =
 		selectedOrganization?.enterpriseAccess === true &&
 		(currentUserRole === "owner" || currentUserRole === "admin");
+	const payloadRetentionEnabled =
+		selectedOrganization?.retentionLevel === "retain";
+	const retentionBlocksPolicyEnable =
+		payloadRetentionEnabled &&
+		policy.enabled !== true &&
+		policy.blockPromptLogging === true;
+	const zdrConflictsWithRetention =
+		payloadRetentionEnabled &&
+		policy.enabled === true &&
+		policy.blockPromptLogging === true;
 
 	const toggleCountry = (code: string) => {
 		setPolicy((p) => {
@@ -392,10 +402,6 @@ export function ComplianceClient() {
 	};
 
 	const handleSave = async () => {
-		const disablesGatewayRetention =
-			policy.enabled &&
-			policy.blockPromptLogging === true &&
-			selectedOrganization?.retentionLevel === "retain";
 		try {
 			await updateOrganization.mutateAsync({
 				params: { path: { id: organizationId } },
@@ -403,9 +409,7 @@ export function ComplianceClient() {
 			});
 			toast({
 				title: "Settings saved",
-				description: disablesGatewayRetention
-					? "ZDR is enabled and data retention is now Metadata Only. Responses API requests will not be stored."
-					: "Your provider compliance policy has been updated.",
+				description: "Your provider compliance policy has been updated.",
 			});
 		} catch {
 			toast({
@@ -470,6 +474,7 @@ export function ComplianceClient() {
 								<div className="flex items-center gap-2">
 									<Switch
 										checked={policy.enabled}
+										disabled={retentionBlocksPolicyEnable}
 										onCheckedChange={(enabled) =>
 											setPolicy((p) => ({ ...p, enabled }))
 										}
@@ -478,13 +483,60 @@ export function ComplianceClient() {
 								</div>
 								<Button
 									onClick={handleSave}
-									disabled={updateOrganization.isPending}
+									disabled={
+										updateOrganization.isPending || zdrConflictsWithRetention
+									}
 								>
 									<Save className="h-4 w-4 mr-2" />
 									{updateOrganization.isPending ? "Saving..." : "Save Changes"}
 								</Button>
 							</div>
 						</div>
+						{payloadRetentionEnabled ? (
+							<div
+								role="status"
+								className="mt-4 rounded-lg border bg-muted/50 p-4 text-sm"
+							>
+								<div className="font-medium">Payload retention blocks ZDR</div>
+								<p className="mt-1 text-muted-foreground">
+									Set data retention to Metadata Only{` `}
+									<span className="whitespace-nowrap">
+										in{` `}
+										<Link
+											href={buildOrgUrl("org/policies")}
+											className="font-medium text-foreground underline underline-offset-4"
+										>
+											Organization policies
+										</Link>
+									</span>
+									{` `}
+									before enabling ZDR.
+								</p>
+							</div>
+						) : policy.enabled && policy.blockPromptLogging === true ? (
+							<div
+								role="status"
+								className="mt-4 rounded-lg border bg-muted/50 p-4 text-sm"
+							>
+								<div className="font-medium">ZDR is active</div>
+								<p className="mt-1 text-muted-foreground">
+									Data retention must remain Metadata Only, and Responses API
+									requests are forced to <code>store: false</code>. To retain
+									prompts again, disable ZDR first. Review the current setting
+									{` `}
+									<span className="whitespace-nowrap">
+										in{` `}
+										<Link
+											href={buildOrgUrl("org/policies")}
+											className="font-medium text-foreground underline underline-offset-4"
+										>
+											Organization policies
+										</Link>
+										.
+									</span>
+								</p>
+							</div>
+						) : null}
 					</CardHeader>
 					<CardContent
 						className={
@@ -493,27 +545,6 @@ export function ComplianceClient() {
 								: "space-y-4 opacity-60 pointer-events-none select-none"
 						}
 					>
-						{policy.enabled && policy.blockPromptLogging === true ? (
-							<div
-								role="status"
-								className="rounded-lg border bg-muted/50 p-4 text-sm"
-							>
-								<div className="font-medium">ZDR disables prompt storage</div>
-								<p className="mt-1 text-muted-foreground">
-									Saving this policy sets organization data retention to
-									Metadata Only and forces <code>store: false</code> for
-									Responses API requests. To retain prompts again, disable ZDR
-									first. Review the current setting under{` `}
-									<Link
-										href={buildOrgUrl("org/policies")}
-										className="font-medium text-foreground underline underline-offset-4"
-									>
-										Organization policies
-									</Link>
-									.
-								</p>
-							</div>
-						) : null}
 						{REQUIREMENTS.map((requirement) => (
 							<div
 								key={requirement.key}
@@ -522,7 +553,12 @@ export function ComplianceClient() {
 								<div className="flex items-center gap-4">
 									<Switch
 										checked={policy[requirement.key] ?? false}
-										disabled={!policy.enabled}
+										disabled={
+											!policy.enabled ||
+											(requirement.key === "blockPromptLogging" &&
+												payloadRetentionEnabled &&
+												policy.blockPromptLogging !== true)
+										}
 										onCheckedChange={(value) =>
 											setPolicy((p) => ({ ...p, [requirement.key]: value }))
 										}

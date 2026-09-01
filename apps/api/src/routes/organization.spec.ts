@@ -240,10 +240,41 @@ describe("organization route", () => {
 		});
 	});
 
-	test("enabling ZDR also disables payload retention", async () => {
+	test("ZDR cannot be enabled while payload retention is active", async () => {
 		await db
 			.update(tables.organization)
 			.set({ plan: "enterprise", retentionLevel: "retain" })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockPromptLogging: true,
+				},
+			}),
+		});
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			message: expect.stringContaining("requires Metadata Only"),
+		});
+		const organization = await db.query.organization.findFirst({
+			where: { id: { eq: "test-org-id" } },
+		});
+		expect(organization?.retentionLevel).toBe("retain");
+		expect(organization?.providerCompliancePolicy?.enabled).not.toBe(true);
+	});
+
+	test("ZDR can be enabled when payload retention is disabled", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise", retentionLevel: "none" })
 			.where(eq(tables.organization.id, "test-org-id"));
 
 		const response = await app.request("/orgs/test-org-id", {
@@ -268,18 +299,6 @@ describe("organization route", () => {
 		expect(organization?.providerCompliancePolicy).toEqual({
 			enabled: true,
 			blockPromptLogging: true,
-		});
-
-		const auditLog = await db.query.auditLog.findFirst({
-			where: {
-				organizationId: { eq: "test-org-id" },
-				action: { eq: "organization.update" },
-			},
-		});
-		expect(auditLog?.metadata).toMatchObject({
-			changes: {
-				retentionLevel: { old: "retain", new: "none" },
-			},
 		});
 	});
 
@@ -307,7 +326,7 @@ describe("organization route", () => {
 
 		expect(response.status).toBe(400);
 		expect(await response.json()).toMatchObject({
-			message: expect.stringContaining("zero data retention"),
+			message: expect.stringContaining("Zero data retention"),
 		});
 		expect(
 			(
