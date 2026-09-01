@@ -10,13 +10,12 @@ import {
 } from "@/utils/provider-cache-control.js";
 import {
 	isZeroDataRetentionEnabled,
-	type ZdrCompliancePolicy,
 	zdrCachingConflictMessage,
 	zdrProviderCachingConflictMessage,
 } from "@/utils/zdr-settings.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { cdb, db, eq, sql, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderCacheControlMode } from "@llmgateway/models";
@@ -389,57 +388,28 @@ projects.openapi(updateProject, async (c) => {
 	// cached project lookups (Drizzle cache + SWR mirror) for the project table.
 	// Otherwise settings like defaultRoutingStrategy/mode/caching would keep
 	// using the previous value until the cache expires (up to the SWR TTL).
-	let updatedProject;
 	const providerCachingChanged =
 		providerCacheControlMode !== undefined &&
 		providerCacheControlMode !== project.providerCacheControlMode;
-	if (cachingEnabled !== undefined || providerCachingChanged) {
-		updatedProject = await cdb.transaction(async (tx) => {
-			// Share the org-scoped lock with ZDR updates so enabling both in
-			// concurrent requests cannot create an invalid state.
-			await tx.execute(
-				sql`select pg_advisory_xact_lock(hashtextextended(${project.organizationId}, 0))`,
-			);
-
-			if (
-				cachingEnabled ||
-				(providerCachingChanged && providerCacheControlMode !== "off")
-			) {
-				const organizationResult = await tx.execute<{
-					providerCompliancePolicy: ZdrCompliancePolicy | null;
-				}>(sql`
-					select ${tables.organization.providerCompliancePolicy} as "providerCompliancePolicy"
-					from ${tables.organization}
-					where ${tables.organization.id} = ${project.organizationId}
-					limit 1
-				`);
-				if (
-					isZeroDataRetentionEnabled(
-						organizationResult.rows[0]?.providerCompliancePolicy,
-					)
-				) {
-					throw new HTTPException(400, {
-						message: cachingEnabled
-							? zdrCachingConflictMessage
-							: zdrProviderCachingConflictMessage,
-					});
-				}
-			}
-
-			const [projectRow] = await tx
-				.update(tables.project)
-				.set(updateData)
-				.where(eq(tables.project.id, id))
-				.returning();
-			return projectRow;
+	if (
+		(cachingEnabled ||
+			(providerCachingChanged && providerCacheControlMode !== "off")) &&
+		isZeroDataRetentionEnabled(
+			projectUserOrg?.organization?.providerCompliancePolicy,
+		)
+	) {
+		throw new HTTPException(400, {
+			message: cachingEnabled
+				? zdrCachingConflictMessage
+				: zdrProviderCachingConflictMessage,
 		});
-	} else {
-		[updatedProject] = await cdb
-			.update(tables.project)
-			.set(updateData)
-			.where(eq(tables.project.id, id))
-			.returning();
 	}
+
+	const [updatedProject] = await cdb
+		.update(tables.project)
+		.set(updateData)
+		.where(eq(tables.project.id, id))
+		.returning();
 
 	// Build changes metadata for audit log
 	const changes: Record<string, { old: unknown; new: unknown }> = {};
@@ -674,49 +644,28 @@ export async function createProjectForOrg(
 		});
 	}
 
-	const createProjectRow = async (executor: Pick<typeof db, "insert">) => {
-		const [projectRow] = await executor
-			.insert(tables.project)
-			.values({
-				name,
-				organizationId,
-				cachingEnabled,
-				cacheDurationSeconds,
-				providerCacheControlMode,
-				mode,
-			})
-			.returning();
-		return projectRow;
-	};
+	if (
+		(cachingEnabled || providerCachingExplicitlyEnabled) &&
+		isZeroDataRetentionEnabled(organizationRow.providerCompliancePolicy)
+	) {
+		throw new HTTPException(400, {
+			message: cachingEnabled
+				? zdrCachingConflictMessage
+				: zdrProviderCachingConflictMessage,
+		});
+	}
 
-	const newProject =
-		cachingEnabled || providerCachingExplicitlyEnabled
-			? await db.transaction(async (tx) => {
-					await tx.execute(
-						sql`select pg_advisory_xact_lock(hashtextextended(${organizationId}, 0))`,
-					);
-					const organizationResult = await tx.execute<{
-						providerCompliancePolicy: ZdrCompliancePolicy | null;
-					}>(sql`
-					select ${tables.organization.providerCompliancePolicy} as "providerCompliancePolicy"
-					from ${tables.organization}
-					where ${tables.organization.id} = ${organizationId}
-					limit 1
-				`);
-					if (
-						isZeroDataRetentionEnabled(
-							organizationResult.rows[0]?.providerCompliancePolicy,
-						)
-					) {
-						throw new HTTPException(400, {
-							message: cachingEnabled
-								? zdrCachingConflictMessage
-								: zdrProviderCachingConflictMessage,
-						});
-					}
-					return await createProjectRow(tx);
-				})
-			: await createProjectRow(db);
+	const [newProject] = await db
+		.insert(tables.project)
+		.values({
+			name,
+			organizationId,
+			cachingEnabled,
+			cacheDurationSeconds,
+			providerCacheControlMode,
+			mode,
+		})
+		.returning();
 
 	await logAuditEvent({
 		organizationId,

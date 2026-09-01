@@ -167,6 +167,28 @@ const REQUIREMENTS: {
 	description: string;
 }[] = [
 	{
+		key: "blockPromptLogging",
+		name: "Zero data retention (ZDR)",
+		description:
+			"Only use providers that do not log prompts. Requires Metadata Only retention, disables project response caching, and requires Responses API requests to set store to false.",
+	},
+	{
+		key: "blockApiTraining",
+		name: "No training on prompts",
+		description: "Block providers that train on API prompts.",
+	},
+	{
+		key: "blockStealthProviders",
+		name: "No stealth providers",
+		description:
+			"Block stealth providers — undisclosed platforms whose data policy and headquarters are unknown.",
+	},
+	{
+		key: "requireGdpr",
+		name: "GDPR compliant",
+		description: "Only allow providers that are GDPR compliant.",
+	},
+	{
 		key: "requireSoc2",
 		name: "SOC 2 (Type 1 or 2)",
 		description:
@@ -188,28 +210,6 @@ const REQUIREMENTS: {
 		name: "SOC 2 Type 2 or ISO 27001",
 		description:
 			"Allow providers that hold either a SOC 2 Type 2 report or an ISO 27001 certification.",
-	},
-	{
-		key: "requireGdpr",
-		name: "GDPR compliant",
-		description: "Only allow providers that are GDPR compliant.",
-	},
-	{
-		key: "blockApiTraining",
-		name: "No training on prompts",
-		description: "Block providers that train on API prompts.",
-	},
-	{
-		key: "blockPromptLogging",
-		name: "Zero data retention (ZDR)",
-		description:
-			"Only use providers that do not log prompts. Requires Metadata Only retention, disables project response caching, and disables Responses API storage.",
-	},
-	{
-		key: "blockStealthProviders",
-		name: "No stealth providers",
-		description:
-			"Block stealth providers — undisclosed platforms whose data policy and headquarters are unknown.",
 	},
 ];
 
@@ -549,9 +549,9 @@ export function ComplianceClient() {
 								<div className="font-medium">ZDR is active</div>
 								<p className="mt-1 text-muted-foreground">
 									Data retention must remain Metadata Only, project response
-									caching cannot be enabled, and Responses API requests are
-									forced to <code>store: false</code>. To retain prompts again,
-									disable ZDR first. Review the current setting
+									caching cannot be enabled, and Responses API requests must set
+									<code>store: false</code>. To retain prompts again, disable
+									ZDR first. Review the current setting
 									{` `}
 									<span className="whitespace-nowrap">
 										in{` `}

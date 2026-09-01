@@ -90,7 +90,7 @@ describe("responses streaming lifecycle", () => {
 		expect(eventTypes).toEqual(["response.created", "response.failed"]);
 	});
 
-	it("forces Responses API storage off while ZDR is active", async () => {
+	it("rejects Responses API storage while ZDR is active", async () => {
 		mocks.findOrganizationById.mockResolvedValue({
 			id: "org_test",
 			status: "active",
@@ -99,27 +99,6 @@ describe("responses streaming lifecycle", () => {
 				blockPromptLogging: true,
 			},
 		});
-		mocks.appRequest.mockResolvedValue(
-			Response.json({
-				id: "chatcmpl_test",
-				object: "chat.completion",
-				created: 1,
-				model: "openai/gpt-4o-mini",
-				choices: [
-					{
-						index: 0,
-						message: { role: "assistant", content: "Hello" },
-						finish_reason: "stop",
-					},
-				],
-				usage: {
-					prompt_tokens: 1,
-					completion_tokens: 1,
-					total_tokens: 2,
-				},
-			}),
-		);
-
 		const response = await responses.request("/", {
 			method: "POST",
 			headers: {
@@ -133,8 +112,14 @@ describe("responses streaming lifecycle", () => {
 			}),
 		});
 
-		expect(response.status).toBe(200);
-		expect(await response.json()).toMatchObject({ store: false });
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			error: {
+				code: "zdr_storage_conflict",
+				message: expect.stringContaining("Set store to false"),
+			},
+		});
+		expect(mocks.appRequest).not.toHaveBeenCalled();
 		expect(mocks.storeResponse).not.toHaveBeenCalled();
 	});
 

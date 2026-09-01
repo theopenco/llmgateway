@@ -25,10 +25,6 @@ export function organizationCacheTag(organizationId: string): string {
 	return `org:${organizationId}`;
 }
 
-export function organizationFreshCacheTag(organizationId: string): string {
-	return `org-fresh:${organizationId}`;
-}
-
 /**
  * Evict the tagged org-row cache entries for the given organizations.
  * Best-effort: a failure only delays freshness until the TTL, so it must
@@ -42,10 +38,7 @@ export async function invalidateOrganizationsCache(
 	}
 	try {
 		await drizzleCache.onMutate({
-			tags: organizationIds.flatMap((organizationId) => [
-				organizationCacheTag(organizationId),
-				organizationFreshCacheTag(organizationId),
-			]),
+			tags: organizationIds.map(organizationCacheTag),
 		});
 	} catch (error) {
 		logger.error(

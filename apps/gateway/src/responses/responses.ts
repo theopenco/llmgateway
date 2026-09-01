@@ -233,8 +233,18 @@ responses.post("/", async (c) => {
 	const { project, organization } = authResult;
 
 	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(organization);
-	if (zeroDataRetentionEnabled) {
-		req.store = false;
+	if (zeroDataRetentionEnabled && req.store !== false) {
+		return c.json(
+			{
+				error: {
+					message:
+						"Responses API storage is unavailable while zero data retention is active. Set store to false.",
+					type: "invalid_request_error",
+					code: "zdr_storage_conflict",
+				},
+			},
+			400,
+		);
 	}
 	const shouldStore = req.store !== false;
 	const includeEncryptedReasoning =

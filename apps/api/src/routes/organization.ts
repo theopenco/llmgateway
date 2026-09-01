@@ -40,7 +40,6 @@ import {
 	eq,
 	gte,
 	isNull,
-	invalidateOrganizationsCache,
 	or,
 	sql,
 	tables,
@@ -786,6 +785,22 @@ organization.openapi(updateOrganization, async (c) => {
 		});
 	}
 
+	if (providerCompliancePolicy !== undefined && zeroDataRetentionEnabled) {
+		const cachedProject = await db.query.project.findFirst({
+			columns: { id: true },
+			where: {
+				organizationId: { eq: id },
+				cachingEnabled: { eq: true },
+				status: { ne: "deleted" },
+			},
+		});
+		if (cachedProject) {
+			throw new HTTPException(400, {
+				message: zdrCachingConflictMessage,
+			});
+		}
+	}
+
 	// Google SSO domain auto-join is an enterprise feature managed by owners and
 	// admins. The value is normalized and validated before storage.
 	let normalizedSsoDomain: string | null | undefined;
@@ -875,79 +890,11 @@ organization.openapi(updateOrganization, async (c) => {
 		updatedOrganization = userOrganization.organization!;
 	} else {
 		try {
-			if (
-				retentionLevel !== undefined ||
-				providerCompliancePolicy !== undefined
-			) {
-				updatedOrganization = await db.transaction(async (tx) => {
-					// Serialize org-level retention/ZDR changes with project cache
-					// changes so concurrent requests cannot create an invalid state.
-					await tx.execute(
-						sql`select pg_advisory_xact_lock(hashtextextended(${id}, 0))`,
-					);
-
-					const [currentOrganization] = await tx
-						.select({
-							retentionLevel: tables.organization.retentionLevel,
-							providerCompliancePolicy:
-								tables.organization.providerCompliancePolicy,
-						})
-						.from(tables.organization)
-						.where(eq(tables.organization.id, id))
-						.limit(1);
-					if (!currentOrganization) {
-						throw new HTTPException(404, {
-							message: "Organization not found",
-						});
-					}
-
-					const currentPolicy =
-						providerCompliancePolicy === undefined
-							? currentOrganization.providerCompliancePolicy
-							: providerCompliancePolicy;
-					const currentZdrEnabled = isZeroDataRetentionEnabled(currentPolicy);
-					const currentRetentionLevel =
-						retentionLevel ?? currentOrganization.retentionLevel;
-
-					if (currentZdrEnabled && currentRetentionLevel === "retain") {
-						throw new HTTPException(400, {
-							message: zdrRetentionConflictMessage,
-						});
-					}
-
-					if (currentZdrEnabled) {
-						const [cachedProject] = await tx
-							.select({ id: tables.project.id })
-							.from(tables.project)
-							.where(
-								and(
-									eq(tables.project.organizationId, id),
-									eq(tables.project.cachingEnabled, true),
-									sql`${tables.project.status} is distinct from 'deleted'`,
-								),
-							)
-							.limit(1);
-						if (cachedProject) {
-							throw new HTTPException(400, {
-								message: zdrCachingConflictMessage,
-							});
-						}
-					}
-
-					const [organizationRow] = await tx
-						.update(tables.organization)
-						.set(updateData)
-						.where(eq(tables.organization.id, id))
-						.returning();
-					return organizationRow;
-				});
-			} else {
-				[updatedOrganization] = await db
-					.update(tables.organization)
-					.set(updateData)
-					.where(eq(tables.organization.id, id))
-					.returning();
-			}
+			[updatedOrganization] = await db
+				.update(tables.organization)
+				.set(updateData)
+				.where(eq(tables.organization.id, id))
+				.returning();
 		} catch (err) {
 			const code =
 				(err as { code?: string; cause?: { code?: string } })?.code ??
@@ -959,8 +906,6 @@ organization.openapi(updateOrganization, async (c) => {
 			}
 			throw err;
 		}
-
-		await invalidateOrganizationsCache([id]);
 	}
 
 	// Build changes metadata for audit log
