@@ -51,10 +51,7 @@ export async function platformSecretAuth(c: Context, next: Next) {
 
 	const row = await db.query.apiKey.findFirst({
 		where: {
-			OR: [
-				{ token: { eq: token } },
-				{ tokenHash: { in: getApiKeyFingerprints(token) } },
-			],
+			tokenHash: { in: getApiKeyFingerprints(token) },
 			keyType: { eq: "platform_secret" },
 			status: { eq: "active" },
 		},

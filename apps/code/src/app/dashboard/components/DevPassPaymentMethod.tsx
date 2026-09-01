@@ -7,11 +7,22 @@ import {
 	useStripe as useStripeElements,
 } from "@stripe/react-stripe-js";
 import { useQueryClient } from "@tanstack/react-query";
-import { CreditCard, Loader2 } from "lucide-react";
+import { CreditCard, Loader2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useApi } from "@/lib/fetch-client";
 import { useStripe } from "@/lib/stripe";
@@ -24,11 +35,19 @@ type PaymentMethod =
 
 export default function DevPassPaymentMethod({
 	initialData,
+	allowAdd = true,
 }: {
 	initialData?: PaymentMethod | null;
+	allowAdd?: boolean;
 }) {
 	const api = useApi();
+	const queryClient = useQueryClient();
 	const [editing, setEditing] = useState(false);
+	const removeMutation = api.useMutation("delete", "/dev-plans/payment-method");
+	const paymentMethodQueryKey = api.queryOptions(
+		"get",
+		"/dev-plans/payment-method",
+	).queryKey;
 
 	const { data, isLoading } = api.useQuery(
 		"get",
@@ -37,6 +56,30 @@ export default function DevPassPaymentMethod({
 		{ initialData: initialData ?? undefined },
 	);
 	const card = data?.card ?? null;
+	const canRemove = data?.canRemove ?? false;
+
+	const handleRemove = async () => {
+		try {
+			await removeMutation.mutateAsync({});
+			await queryClient.invalidateQueries({ queryKey: paymentMethodQueryKey });
+			toast.success("Payment method removed", {
+				description: "Your card details were removed from Stripe.",
+			});
+		} catch (error) {
+			const description =
+				typeof error === "object" &&
+				error !== null &&
+				"message" in error &&
+				typeof (error as { message?: unknown }).message === "string"
+					? (error as { message: string }).message
+					: "Try again or contact support if the problem continues.";
+			toast.error("Could not remove payment method", { description });
+		}
+	};
+
+	if (!isLoading && !card && !allowAdd) {
+		return null;
+	}
 
 	return (
 		<div className="rounded-xl border bg-card p-6">
@@ -47,11 +90,60 @@ export default function DevPassPaymentMethod({
 						The card used for your DevPass subscription.
 					</p>
 				</div>
-				{!editing && (
-					<Button variant="outline" size="sm" onClick={() => setEditing(true)}>
-						{card ? "Update card" : "Add card"}
-					</Button>
-				)}
+				{!editing ? (
+					<div className="flex flex-wrap items-center gap-2">
+						{card && canRemove ? (
+							<AlertDialog>
+								<AlertDialogTrigger asChild>
+									<Button
+										variant="ghost"
+										size="sm"
+										className="text-destructive hover:text-destructive"
+										disabled={removeMutation.isPending}
+									>
+										{removeMutation.isPending ? (
+											<Loader2 className="animate-spin" />
+										) : (
+											<Trash2 />
+										)}
+										Remove card
+									</Button>
+								</AlertDialogTrigger>
+								<AlertDialogContent>
+									<AlertDialogHeader>
+										<AlertDialogTitle>Remove payment method?</AlertDialogTitle>
+										<AlertDialogDescription>
+											The card details will be removed from Stripe. Your plan
+											stays available until its scheduled end, but it cannot
+											renew and card-funded purchases will be unavailable. The
+											card fingerprint stays linked to this account to prevent
+											duplicate DevPass claims.
+										</AlertDialogDescription>
+									</AlertDialogHeader>
+									<AlertDialogFooter>
+										<AlertDialogCancel>Keep card</AlertDialogCancel>
+										<AlertDialogAction
+											onClick={handleRemove}
+											className={buttonVariants({ variant: "destructive" })}
+										>
+											Remove card
+										</AlertDialogAction>
+									</AlertDialogFooter>
+								</AlertDialogContent>
+							</AlertDialog>
+						) : null}
+						{allowAdd ? (
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() => setEditing(true)}
+								disabled={removeMutation.isPending}
+							>
+								{card ? "Update card" : "Add card"}
+							</Button>
+						) : null}
+					</div>
+				) : null}
 			</div>
 
 			<div className="mt-5">

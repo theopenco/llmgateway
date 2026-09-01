@@ -792,14 +792,11 @@ export const deepseekModels = [
 				// The undated `deepseek-v4-flash` alias still resolves to the launch
 				// snapshot; `-0731` is the current deployment.
 				externalId: "accounts/fireworks/models/deepseek-v4-flash-0731",
-				inputPrice: "0.14e-6",
-				cachedInputPrice: "0.028e-6",
-				outputPrice: "0.28e-6",
+				inputPrice: "0.22e-6",
+				cachedInputPrice: "0.007e-6",
+				outputPrice: "0.66e-6",
 				requestPrice: "0",
-				// Fireworks prices DeepSeek's Priority tier at 1.5x standard rather
-				// than the 1.25x that applies to the rest of its catalogue.
 				serviceTiers: ["priority"],
-				serviceTierMultipliers: { priority: 1.5 },
 				contextSize: 1048576,
 				maxOutput: 393216,
 				streaming: true,
@@ -842,8 +839,7 @@ export const deepseekModels = [
 				// Reasoning arrives as `reasoning_content` (streamed as deltas) only
 				// when `reasoning_effort` is passed explicitly — a request without it
 				// returns no reasoning at all, and "none" suppresses it.
-				// `reasoning_tokens` is reported inside completion_tokens, so costs.ts
-				// lists this provider in completionIncludesReasoning.
+				// `reasoning_tokens` is reported inside completion_tokens.
 				//
 				// All four tool_choice modes are honoured, so none are declared here.
 				// The endpoint silently ignores n > 1 and returns one choice, so this
@@ -1006,7 +1002,7 @@ export const deepseekModels = [
 		description:
 			"Experimental multimodal DeepSeek V4 Flash model with vision, extended context, and reasoning.",
 		family: "deepseek",
-		stability: "experimental",
+		stability: "beta",
 		releasedAt: new Date("2026-08-21"),
 		providers: [
 			{

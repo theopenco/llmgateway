@@ -8,6 +8,7 @@ import {
 import { revokeMemberApiKeys } from "@/lib/revoke-member-api-keys.js";
 import { resolveDefaultProjectIds } from "@/lib/sso-default-projects.js";
 import { recomputeUserRole as applyUserRole } from "@/lib/sso-roles.js";
+import { recomputeUserTeam as applyUserTeam } from "@/lib/sso-teams.js";
 import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -542,7 +543,7 @@ scim.post("/Users", async (c) => {
 		});
 
 		// Apply any role mapping in case the user is already referenced by a group.
-		await recomputeUserRole(c, user.id, orgId);
+		await recomputeUserAccess(c, user.id, orgId);
 	}
 
 	// A SCIM-created user may never go through a signup flow, so honor any
@@ -656,16 +657,31 @@ async function ensureMembership(
 	return false;
 }
 
-// Recompute an org member's role from their SCIM group→role mappings (shared
-// with the SSO management routes) and, when it actually changes the role, log
-// the transition against the SCIM request context.
-async function recomputeUserRole(
+// Recompute role and team together so group changes cannot leave a privileged
+// member in a team. Log each effective transition against the SCIM request.
+async function recomputeUserAccess(
 	c: Context<ScimVars>,
 	userId: string,
 	organizationId: string,
 ) {
-	const change = await applyUserRole(userId, organizationId);
-	if (!change) {
+	const before = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: userId },
+			organizationId: { eq: organizationId },
+		},
+		columns: { teamId: true },
+	});
+	const roleChange = await applyUserRole(userId, organizationId);
+	await applyUserTeam(userId, organizationId);
+	const after = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: userId },
+			organizationId: { eq: organizationId },
+		},
+		columns: { teamId: true },
+	});
+	const teamChanged = before?.teamId !== after?.teamId;
+	if (!roleChange && !teamChanged) {
 		return;
 	}
 
@@ -673,15 +689,30 @@ async function recomputeUserRole(
 		where: { id: { eq: userId } },
 		columns: { id: true, email: true },
 	});
-	await logScimAudit(c, {
-		action: "scim.user.role_change",
-		resourceType: "scim_user",
-		resourceId: userId,
-		targetUser: target ?? { id: userId },
-		metadata: {
-			changes: { role: { old: change.old, new: change.new } },
-		},
-	});
+	if (roleChange) {
+		await logScimAudit(c, {
+			action: "scim.user.role_change",
+			resourceType: "scim_user",
+			resourceId: userId,
+			targetUser: target ?? { id: userId },
+			metadata: {
+				changes: { role: { old: roleChange.old, new: roleChange.new } },
+			},
+		});
+	}
+	if (teamChanged) {
+		await logScimAudit(c, {
+			action: "scim.user.team_change",
+			resourceType: "scim_user",
+			resourceId: userId,
+			targetUser: target ?? { id: userId },
+			metadata: {
+				changes: {
+					teamId: { old: before?.teamId ?? null, new: after?.teamId ?? null },
+				},
+			},
+		});
+	}
 }
 
 scim.put("/Users/:id", async (c) => {
@@ -768,7 +799,7 @@ scim.put("/Users/:id", async (c) => {
 
 	// Reactivation via ensureMembership creates a fresh `developer` membership;
 	// re-apply group mappings so a user in an admin/owner group isn't downgraded.
-	await recomputeUserRole(c, user.id, orgId);
+	await recomputeUserAccess(c, user.id, orgId);
 
 	const membership = await getMembership(user.id, orgId);
 	return scimJson(toScimUser(user, true, membership?.scimExternalId));
@@ -852,7 +883,7 @@ scim.patch("/Users/:id", async (c) => {
 			});
 		}
 		// New/reactivated membership defaults to `developer`; re-apply mappings.
-		await recomputeUserRole(c, user.id, orgId);
+		await recomputeUserAccess(c, user.id, orgId);
 	} else if (wasMember) {
 		if (await removeMembership(user.id, orgId)) {
 			await logScimAudit(c, {
@@ -897,8 +928,8 @@ scim.delete("/Users/:id", async (c) => {
 });
 
 // --- Groups ----------------------------------------------------------------
-// The IdP pushes groups + membership here. Membership drives each user's org role
-// through the admin-defined `ssoRoleMapping` (see recomputeUserRole).
+// The IdP pushes groups + membership here. Membership drives each user's role
+// and team through the mappings configured by organization admins.
 
 interface ScimGroupRow {
 	id: string;
@@ -962,7 +993,7 @@ async function addGroupMembers(
 				.insert(tables.scimGroupMember)
 				.values({ scimGroupId: groupId, userId });
 		}
-		await recomputeUserRole(c, userId, orgId);
+		await recomputeUserAccess(c, userId, orgId);
 	}
 }
 
@@ -974,7 +1005,7 @@ async function recomputeGroupMembers(
 	orgId: string,
 ) {
 	for (const userId of await groupMemberUserIds(groupId)) {
-		await recomputeUserRole(c, userId, orgId);
+		await recomputeUserAccess(c, userId, orgId);
 	}
 }
 
@@ -1011,7 +1042,7 @@ async function removeGroupMembers(
 					eq(tables.scimGroupMember.userId, userId),
 				),
 			);
-		await recomputeUserRole(c, userId, orgId);
+		await recomputeUserAccess(c, userId, orgId);
 	}
 }
 
@@ -1329,7 +1360,7 @@ scim.delete("/Groups/:id", async (c) => {
 
 	// Cascade removed the membership rows; recompute the former members' roles.
 	for (const userId of formerMembers) {
-		await recomputeUserRole(c, userId, orgId);
+		await recomputeUserAccess(c, userId, orgId);
 	}
 
 	return new Response(null, { status: 204 });

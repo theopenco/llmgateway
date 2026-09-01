@@ -175,6 +175,7 @@ describe("admin organization payment methods", () => {
 					},
 				},
 			],
+			devPlanCardFingerprints: [],
 		});
 		expect(stripeMock.paymentMethods.list).toHaveBeenCalledWith({
 			customer: STRIPE_CUSTOMER_ID,
@@ -213,6 +214,85 @@ describe("admin organization payment methods", () => {
 		});
 	});
 
+	it("lists retained DevPass fingerprints without a Stripe customer", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				stripeCustomerId: null,
+				devPlanCardFingerprint: "retained_fingerprint",
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+		await db.insert(tables.devPlanCardFingerprintHistory).values({
+			id: "retained-fingerprint-id",
+			createdAt: new Date("2030-01-01T00:00:00.000Z"),
+			organizationId: ORG_ID,
+			fingerprint: "retained_fingerprint",
+		});
+
+		const response = await request("", { headers: { Cookie: cookie } });
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			paymentMethods: [],
+			devPlanCardFingerprints: [
+				{
+					id: "retained-fingerprint-id",
+					createdAt: "2030-01-01T00:00:00.000Z",
+					fingerprint: "retained_fingerprint",
+					isCurrent: true,
+					canRelease: true,
+				},
+			],
+		});
+	});
+
+	it("lets an admin release an inactive account fingerprint", async () => {
+		await db
+			.update(tables.organization)
+			.set({ devPlanCardFingerprint: "retained_fingerprint" })
+			.where(eq(tables.organization.id, ORG_ID));
+		await db.insert(tables.devPlanCardFingerprintHistory).values({
+			id: "retained-fingerprint-id",
+			organizationId: ORG_ID,
+			fingerprint: "retained_fingerprint",
+		});
+
+		const response = await app.request(
+			`/admin/organizations/${ORG_ID}/dev-plan-card-fingerprints/retained-fingerprint-id`,
+			{ method: "DELETE", headers: { Cookie: cookie } },
+		);
+
+		expect(response.status).toBe(200);
+		expect(
+			await db.query.devPlanCardFingerprintHistory.findMany(),
+		).toHaveLength(0);
+		expect(
+			await db.query.organization.findFirst({ where: { id: ORG_ID } }),
+		).toMatchObject({ devPlanCardFingerprint: null });
+	});
+
+	it("keeps fingerprints while a DevPass subscription exists", async () => {
+		await db
+			.update(tables.organization)
+			.set({ devPlanStripeSubscriptionId: SUBSCRIPTION_ID })
+			.where(eq(tables.organization.id, ORG_ID));
+		await db.insert(tables.devPlanCardFingerprintHistory).values({
+			id: "retained-fingerprint-id",
+			organizationId: ORG_ID,
+			fingerprint: "retained_fingerprint",
+		});
+
+		const response = await app.request(
+			`/admin/organizations/${ORG_ID}/dev-plan-card-fingerprints/retained-fingerprint-id`,
+			{ method: "DELETE", headers: { Cookie: cookie } },
+		);
+
+		expect(response.status).toBe(409);
+		expect(
+			await db.query.devPlanCardFingerprintHistory.findMany(),
+		).toHaveLength(1);
+	});
+
 	it("returns an empty list when the organization has no Stripe customer", async () => {
 		await db
 			.update(tables.organization)
@@ -222,7 +302,10 @@ describe("admin organization payment methods", () => {
 		const response = await request("", { headers: { Cookie: cookie } });
 
 		expect(response.status).toBe(200);
-		expect(await response.json()).toEqual({ paymentMethods: [] });
+		expect(await response.json()).toEqual({
+			paymentMethods: [],
+			devPlanCardFingerprints: [],
+		});
 		expect(stripeMock.paymentMethods.list).not.toHaveBeenCalled();
 	});
 
@@ -349,6 +432,10 @@ describe("admin organization payment methods", () => {
 			.update(tables.organization)
 			.set({ devPlanCardFingerprint: "retained_fingerprint" })
 			.where(eq(tables.organization.id, ORG_ID));
+		await db.insert(tables.devPlanCardFingerprintHistory).values({
+			organizationId: ORG_ID,
+			fingerprint: "retained_fingerprint",
+		});
 		stripeMock.paymentMethods.retrieve.mockResolvedValue({
 			id: STRIPE_PAYMENT_METHOD_ID,
 			customer: STRIPE_CUSTOMER_ID,
@@ -372,6 +459,9 @@ describe("admin organization payment methods", () => {
 				where: { id: { eq: ORG_ID } },
 			}),
 		).toMatchObject({ devPlanCardFingerprint: null });
+		expect(
+			await db.query.devPlanCardFingerprintHistory.findMany(),
+		).toHaveLength(0);
 
 		const auditLog = await db.query.auditLog.findFirst({
 			where: {

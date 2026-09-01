@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
 
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
@@ -174,7 +175,11 @@ describe("dynamic routes API", () => {
 	test("creates and publishes routes with organization custom models", async () => {
 		await db.insert(tables.providerKey).values({
 			id: "custom-provider-key",
-			token: "custom-provider-token",
+			...encryptProviderKeyForStorage(
+				"custom-provider-token",
+				"custom-provider-key",
+				"test-org-id",
+			),
 			provider: "custom",
 			name: "private-provider",
 			baseUrl: "https://example.com/v1",

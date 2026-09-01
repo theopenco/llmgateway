@@ -107,7 +107,8 @@ describe("Log Processing", () => {
 			.values({
 				id: currentTestIds.apiKeyId,
 				projectId: testProject.id,
-				token: currentTestIds.token,
+				tokenHash: currentTestIds.token,
+				tokenMasked: currentTestIds.token,
 				description: "Test Key",
 				usage: "0.00",
 				createdBy: testUser.id,
@@ -1029,11 +1030,14 @@ describe("Log Processing", () => {
 			usage?: string;
 			status?: "active" | "inactive";
 		}) => {
+			const tokenId = randomUUID();
 			const [key] = await db
 				.insert(tables.providerKey)
 				.values({
 					id: `pk-spend-${randomUUID()}`,
-					token: `sk-test-${randomUUID()}`,
+					tokenCiphertext: `encrypted-${tokenId}`,
+					tokenHash: `hash-${tokenId}`,
+					tokenMasked: `sk-test-${tokenId}`,
 					provider: "openai",
 					organizationId: testOrg.id,
 					usageLimit: overrides?.usageLimit ?? null,
@@ -1125,11 +1129,14 @@ describe("Log Processing", () => {
 		});
 
 		test("accumulates and deactivates managed credentials (no organization)", async () => {
+			const tokenId = randomUUID();
 			const [managedKey] = await db
 				.insert(tables.providerKey)
 				.values({
 					id: `pk-spend-managed-${randomUUID()}`,
-					token: `sk-managed-${randomUUID()}`,
+					tokenCiphertext: `encrypted-${tokenId}`,
+					tokenHash: `hash-${tokenId}`,
+					tokenMasked: `sk-managed-${tokenId}`,
 					provider: "openai",
 					managed: true,
 					organizationId: null,

@@ -150,11 +150,7 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 		return false;
 	}
 
-	return (
-		providerId === undefined ||
-		providerId === "google-vertex" ||
-		providerId === "avalanche"
-	);
+	return providerId === undefined || providerId === "google-vertex";
 }
 
 function isSeedance2ReferenceModel(canonicalModelId: string): boolean {
@@ -192,13 +188,8 @@ export function supportsVideoReferenceInput(modelId: string): boolean {
 		return canonicalModelId === "veo-3.1-generate-preview";
 	}
 
-	if (providerId === "avalanche") {
-		return canonicalModelId === "veo-3.1-fast-generate-preview";
-	}
-
 	return (
 		canonicalModelId === "veo-3.1-generate-preview" ||
-		canonicalModelId === "veo-3.1-fast-generate-preview" ||
 		isSeedance2ReferenceModel(canonicalModelId)
 	);
 }
@@ -282,7 +273,6 @@ function mappingSupportsVideoRequest(
 
 		if (
 			mapping.providerId !== "google-vertex" &&
-			mapping.providerId !== "avalanche" &&
 			mapping.providerId !== "minimax" &&
 			mapping.providerId !== "xai" &&
 			mapping.providerId !== "atlascloud"
@@ -301,10 +291,7 @@ function mappingSupportsVideoRequest(
 		if (mapping.modelId !== "veo-3.1-generate-preview") {
 			return false;
 		}
-		if (
-			mapping.providerId !== "google-vertex" &&
-			mapping.providerId !== "avalanche"
-		) {
+		if (mapping.providerId !== "google-vertex") {
 			return false;
 		}
 

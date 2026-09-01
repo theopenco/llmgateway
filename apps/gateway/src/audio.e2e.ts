@@ -14,6 +14,7 @@ import {
 } from "@/chat-helpers.e2e.js";
 
 import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 
@@ -58,7 +59,7 @@ async function audioBeforeAllHook() {
 		.insert(tables.apiKey)
 		.values({
 			id: AUDIO_API_KEY_ID,
-			token: AUDIO_API_KEY_TOKEN,
+			...hashApiKeyForStorage(AUDIO_API_KEY_TOKEN),
 			projectId: AUDIO_PROJECT_ID,
 			description: "Audio E2E API Key",
 			createdBy: "user-id",

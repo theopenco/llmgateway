@@ -468,6 +468,64 @@ export const organization = pgTable(
 	],
 );
 
+// Stable Stripe card identifiers retained after the card itself is detached.
+// This preserves the one-card-per-DevPass-account rule without storing card
+// details locally.
+export const devPlanCardFingerprintHistory = pgTable(
+	"dev_plan_card_fingerprint_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		fingerprint: text().notNull().unique(),
+	},
+	(table) => [
+		index("dev_plan_card_fingerprint_history_organization_id_idx").on(
+			table.organizationId,
+		),
+	],
+);
+
+// Enterprise developer teams. Team policies are evaluated dynamically so
+// membership changes take effect without copying settings onto each member.
+export const organizationTeam = pgTable(
+	"organization_team",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		// The org's fallback team: developers joining without an explicit or
+		// SCIM-mapped team are assigned here (see lib/sso-teams.ts).
+		isDefault: boolean().notNull().default(false),
+		maxApiKeys: integer(),
+		usageLimit: decimal(),
+		periodUsageLimit: decimal(),
+		periodUsageDurationValue: integer(),
+		periodUsageDurationUnit: text({
+			enum: ["hour", "day", "week", "month"],
+		}),
+	},
+	(table) => [
+		index("organization_team_organization_id_idx").on(table.organizationId),
+		uniqueIndex("organization_team_org_name_uidx").on(
+			table.organizationId,
+			sql`lower(${table.name})`,
+		),
+		uniqueIndex("organization_team_org_default_uidx")
+			.on(table.organizationId)
+			.where(sql`${table.isDefault}`),
+	],
+);
+
 export const referral = pgTable(
 	"referral",
 	{
@@ -989,6 +1047,16 @@ export const userOrganization = pgTable(
 		organizationId: text()
 			.notNull()
 			.references(() => organization.id, { onDelete: "cascade" }),
+		teamId: text().references(() => organizationTeam.id, {
+			onDelete: "restrict",
+		}),
+		// "default" marks an assignment inherited from the org's default team;
+		// like "sso" it is recomputed on sync, while "manual" assignments stick.
+		teamAssignmentSource: text({
+			enum: ["manual", "sso", "default"],
+		})
+			.notNull()
+			.default("manual"),
 		role: text({
 			enum: ["owner", "admin", "developer"],
 		})
@@ -1012,6 +1080,11 @@ export const userOrganization = pgTable(
 	(table) => [
 		index("user_organization_user_id_idx").on(table.userId),
 		index("user_organization_organization_id_idx").on(table.organizationId),
+		index("user_organization_team_id_idx").on(table.teamId),
+		check(
+			"user_organization_team_developer_check",
+			sql`${table.teamId} IS NULL OR ${table.role} = 'developer'`,
+		),
 		index("user_organization_scim_external_id_idx").on(
 			table.organizationId,
 			table.scimExternalId,
@@ -1161,6 +1234,28 @@ export const project = pgTable(
 		allowedOrigins: json().$type<string[]>(),
 	},
 	(table) => [index("project_organization_id_idx").on(table.organizationId)],
+);
+
+export const organizationTeamProject = pgTable(
+	"organization_team_project",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		teamId: text()
+			.notNull()
+			.references(() => organizationTeam.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		uniqueIndex("organization_team_project_team_project_uidx").on(
+			table.teamId,
+			table.projectId,
+		),
+		index("organization_team_project_team_id_idx").on(table.teamId),
+		index("organization_team_project_project_id_idx").on(table.projectId),
+	],
 );
 
 // The developer's own end-users (the "customers" in the embeddable SDK). Scoped
@@ -1617,6 +1712,53 @@ export const userIamRule = pgTable(
 		),
 		index("user_iam_rule_user_organization_id_status_idx").on(
 			table.userOrganizationId,
+			table.status,
+		),
+	],
+);
+
+export const organizationTeamIamRule = pgTable(
+	"organization_team_iam_rule",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		teamId: text()
+			.notNull()
+			.references(() => organizationTeam.id, { onDelete: "cascade" }),
+		ruleType: text({
+			enum: [
+				"allow_models",
+				"deny_models",
+				"allow_pricing",
+				"deny_pricing",
+				"allow_providers",
+				"deny_providers",
+				"allow_ip_cidrs",
+				"deny_ip_cidrs",
+			],
+		}).notNull(),
+		ruleValue: json()
+			.$type<{
+				models?: string[];
+				providers?: string[];
+				pricingType?: "free" | "paid";
+				maxInputPrice?: number;
+				maxOutputPrice?: number;
+				ipCidrs?: string[];
+			}>()
+			.notNull(),
+		status: text({ enum: ["active", "inactive"] })
+			.notNull()
+			.default("active"),
+	},
+	(table) => [
+		index("organization_team_iam_rule_team_id_idx").on(table.teamId),
+		index("organization_team_iam_rule_team_id_status_idx").on(
+			table.teamId,
 			table.status,
 		),
 	],
@@ -2687,6 +2829,35 @@ export const ssoRoleMapping = pgTable(
 	],
 );
 
+// Admin-defined mapping from a SCIM/IdP group name to an organization team.
+// One developer can inherit one team; when several mapped groups apply, the
+// alphabetically first group name wins (see lib/sso-teams.ts).
+export const ssoTeamMapping = pgTable(
+	"sso_team_mapping",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		groupName: text().notNull(),
+		teamId: text()
+			.notNull()
+			.references(() => organizationTeam.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		uniqueIndex("sso_team_mapping_org_group_unique").on(
+			table.organizationId,
+			table.groupName,
+		),
+		index("sso_team_mapping_team_id_idx").on(table.teamId),
+	],
+);
+
 // Default project grants for `developer` members provisioned via SSO/SCIM.
 // Owners/admins already have implicit access to every project, so this only
 // affects developer provisioning: when a new SSO/SCIM member is created they
@@ -3733,6 +3904,16 @@ export const auditLogActions = [
 	"team_member.iam_rule.create",
 	"team_member.iam_rule.update",
 	"team_member.iam_rule.delete",
+	"organization_team.create",
+	"organization_team.update",
+	"organization_team.delete",
+	"organization_team.member_assign",
+	"organization_team.member_unassign",
+	"organization_team.projects_update",
+	"organization_team.budget_update",
+	"organization_team.iam_rule.create",
+	"organization_team.iam_rule.update",
+	"organization_team.iam_rule.delete",
 	// API Key
 	"api_key.create",
 	"api_key.roll",
@@ -3788,6 +3969,8 @@ export const auditLogActions = [
 	"dev_plan.update_billing_details",
 	"dev_plan.rotate_api_key",
 	"dev_plan.update_payment_method",
+	"dev_plan.remove_payment_method",
+	"dev_plan.release_card_fingerprint",
 	"dev_plan.reset_pass_purchase",
 	"dev_plan.reset_pass_redeem",
 	// Free Reset Pass granted for a quarterly model-survey response.
@@ -3806,6 +3989,9 @@ export const auditLogActions = [
 	"sso_provider.delete",
 	"sso_role_mapping.create",
 	"sso_role_mapping.delete",
+	"sso_team_mapping.create",
+	"sso_team_mapping.update",
+	"sso_team_mapping.delete",
 	"sso_default_projects.update",
 	"sso.sign_in",
 	// SCIM
@@ -3818,6 +4004,7 @@ export const auditLogActions = [
 	"scim.user.deactivate",
 	"scim.user.deprovision",
 	"scim.user.role_change",
+	"scim.user.team_change",
 	"scim.group.create",
 	"scim.group.update",
 	"scim.group.delete",
@@ -3828,6 +4015,7 @@ export const auditLogResourceTypes = [
 	"project",
 	"team_member",
 	"team_invite",
+	"organization_team",
 	"api_key",
 	"master_key",
 	"iam_rule",
@@ -3841,6 +4029,7 @@ export const auditLogResourceTypes = [
 	"chat_plan",
 	"sso_provider",
 	"sso_role_mapping",
+	"sso_team_mapping",
 	"sso_default_project",
 	"sso_session",
 	"scim_token",

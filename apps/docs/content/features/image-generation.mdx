@@ -29,7 +29,7 @@ The `/v1/images/generations` endpoint provides a drop-in replacement for OpenAI'
 | Parameter         | Type    | Default      | Description                                                                                                      |
 | ----------------- | ------- | ------------ | ---------------------------------------------------------------------------------------------------------------- |
 | `prompt`          | string  | required     | A text description of the desired image(s)                                                                       |
-| `model`           | string  | `"auto"`     | The model to use. `auto` resolves to `gemini-3-pro-image-preview`                                                |
+| `model`           | string  | `"auto"`     | The model to use. `auto` resolves to `gemini-3-pro-image`                                                        |
 | `n`               | integer | `1`          | Number of images to generate (1-10)                                                                              |
 | `size`            | string  | —            | Image dimensions. Supported sizes depend on the model/provider — see [Image Configuration](#image-configuration) |
 | `quality`         | string  | —            | Image quality. Supported values depend on the model/provider — see [Image Configuration](#image-configuration)   |
@@ -43,7 +43,7 @@ curl -X POST "https://api.llmgateway.io/v1/images/generations" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini-3-pro-image-preview",
+    "model": "gemini-3-pro-image",
     "prompt": "A cute cat wearing a tiny top hat",
     "n": 1,
     "size": "1024x1024"
@@ -64,7 +64,7 @@ const client = new OpenAI({
 });
 
 const response = await client.images.generate({
-	model: "gemini-3-pro-image-preview",
+	model: "gemini-3-pro-image",
 	prompt: "A futuristic city skyline at sunset with flying cars",
 	n: 1,
 	size: "1024x1024",
@@ -92,7 +92,7 @@ const llmgateway = createLLMGateway({
 });
 
 const result = await generateImage({
-	model: llmgateway.image("gemini-3-pro-image-preview"),
+	model: llmgateway.image("gemini-3-pro-image"),
 	prompt:
 		"A cozy cabin in a snowy mountain landscape at night with aurora borealis",
 	size: "1024x1024",
@@ -151,7 +151,7 @@ curl -X POST "https://api.llmgateway.io/v1/images/edits" \
       }
     ],
     "prompt": "Add a watercolor effect to this image",
-    "model": "gemini-3-pro-image-preview",
+    "model": "gemini-3-pro-image",
     "aspect_ratio": "16:9",
     "quality": "high",
     "size": "4K"
@@ -187,7 +187,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini-3-pro-image-preview",
+    "model": "gemini-3-pro-image",
     "messages": [
       {
         "role": "user",
@@ -206,7 +206,7 @@ Image generation models return responses in the standard chat completions format
 	"id": "chatcmpl-1756234109285",
 	"object": "chat.completion",
 	"created": 1756234109,
-	"model": "gemini-3-pro-image-preview",
+	"model": "gemini-3-pro-image",
 	"choices": [
 		{
 			"index": 0,
@@ -276,7 +276,7 @@ export async function POST(req: Request) {
 
 	try {
 		const result = streamText({
-			model: llmgateway.chat("gemini-3-pro-image-preview"),
+			model: llmgateway.chat("gemini-3-pro-image"),
 			messages: convertToModelMessages(messages),
 		});
 
@@ -579,17 +579,17 @@ Available Google models:
 
 | Model                            | Description                                                                         |
 | -------------------------------- | ----------------------------------------------------------------------------------- |
-| `gemini-3-pro-image-preview`     | Gemini 3 Pro with native image generation. Supports aspect ratios and 1K–4K sizes.  |
+| `gemini-3-pro-image`             | Gemini 3 Pro with native image generation. Supports aspect ratios and 1K–4K sizes.  |
 | `gemini-3.1-flash-image-preview` | Gemini 3.1 Flash with native image generation. Supports 0.5K–4K sizes (default 1K). |
 
-#### gemini-3-pro-image-preview
+#### gemini-3-pro-image
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini-3-pro-image-preview",
+    "model": "gemini-3-pro-image",
     "messages": [
       {
         "role": "user",
@@ -815,10 +815,11 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 Available ByteDance models (see the [models page](https://llmgateway.io/models?filters=1&imageGeneration=true) for current pricing):
 
-| Model                    | Description                                                     |
-| ------------------------ | --------------------------------------------------------------- |
-| `bytedance/seedream-4-0` | High-quality text-to-image generation with 2K default output    |
-| `bytedance/seedream-4-5` | Enhanced quality and consistency with improved prompt adherence |
+| Model                        | Description                                                     |
+| ---------------------------- | --------------------------------------------------------------- |
+| `bytedance/seedream-4-0`     | High-quality text-to-image generation with 2K default output    |
+| `bytedance/seedream-4-5`     | Enhanced quality and consistency with improved prompt adherence |
+| `bytedance/seedream-5-0-pro` | Precise generation and reference-image editing at 1K or 2K      |
 
 <Callout type="info">
 	Seedream models support up to 2-10 reference images for multi-image fusion and

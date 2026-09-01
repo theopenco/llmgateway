@@ -36,9 +36,9 @@ We do not engage sub-processors for advertising, profiling, or the sale or shari
 
 When you route a request, its content is transmitted to the AI provider serving the model you selected, so that provider can generate a response. Those providers act as sub-processors for that request.
 
-Because the provider catalogue changes continuously as models are added, deprecated and repriced, we do not reproduce it here — a copy in this document would be out of date within days. The **live, authoritative list is published on our [Provider Information page](/legal/providers)**, which shows, for every provider we route to:
+Because the provider catalogue changes continuously as models are added, deprecated and repriced, we do not reproduce it here — a copy in this document would be out of date within days. The **live, authoritative list is published on our [Provider Information page](/legal/providers)**, which shows, for every publicly identified provider we route to:
 
-- the provider's legal terms and privacy policy,
+- its contracting entity, legal terms, privacy policy and usage policy,
 - its headquarters and available processing regions,
 - its data-retention window,
 - whether it uses API inputs for model training,
@@ -47,7 +47,7 @@ Because the provider catalogue changes continuously as models are added, depreca
 **You choose which of these sub-processors process your data.** No AI provider receives your request unless you select a model it serves, or enable automatic routing. Two controls let you constrain this:
 
 - **Provider pinning** — address a model as `provider/model` to send it to exactly one provider, and send the `x-no-fallback: true` header to prevent failover to any other.
-- **Compliance policies** — Enterprise customers can restrict routing by the provider's published compliance and data-handling posture. Requests that cannot be served by a compliant provider are rejected rather than silently routed elsewhere. Configure this under **Compliance** in your organization dashboard.
+- **Compliance policies** — Enterprise customers can restrict routing by the provider's published compliance and data-handling posture. DevPass customers can enable **No AI training**, which requires an explicit provider policy that API inputs are not used for training. Requests that cannot be served by an eligible provider are rejected rather than silently routed elsewhere.
 
 ### Undisclosed ("stealth") providers
 

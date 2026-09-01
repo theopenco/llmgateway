@@ -158,11 +158,6 @@ them. Authentication checks every retained entry, while new hashes use the
 first entry. Removing an old entry makes its provider credentials undecryptable
 and its remaining hashes unusable.
 
-When upgrading from a release that stored gateway API keys as plaintext, update
-the gateway first and wait for it to become healthy before updating the API.
-The compatible gateway accepts both legacy plaintext keys and new hash-only
-keys; reversing that order can briefly reject keys created during the rollout.
-
 ## Multiple API keys and load balancing
 
 LLM Gateway supports multiple API keys per provider for load balancing and increased availability. Provide comma-separated values:

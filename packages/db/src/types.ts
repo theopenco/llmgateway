@@ -83,7 +83,7 @@ type UserBase = InferSelectModel<typeof tables.user>;
 type ApiKeyIamRuleBase = InferSelectModel<typeof tables.apiKeyIamRule>;
 type UserIamRuleBase = InferSelectModel<typeof tables.userIamRule>;
 
-export type ApiKey = Omit<ApiKeyBase, "status" | "keyType"> & {
+export type ApiKey = Omit<ApiKeyBase, "status" | "keyType" | "token"> & {
 	status: "active" | "inactive" | "deleted" | null;
 	keyType:
 		"user" | "platform_secret" | "platform_publishable" | "end_user_customer";

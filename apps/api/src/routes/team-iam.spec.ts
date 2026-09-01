@@ -176,6 +176,21 @@ describe("team member IAM rules", () => {
 	test("any member can read their own rules via /members/me/iam", async () => {
 		const createRes = await createRule(MEMBER_UO_ID, ownerToken);
 		expect(createRes.status).toBe(200);
+		await db.insert(tables.organizationTeam).values({
+			id: "iam-team-id",
+			organizationId: ORG_ID,
+			name: "IAM Team",
+		});
+		await db.insert(tables.organizationTeamIamRule).values({
+			id: "iam-team-rule-id",
+			teamId: "iam-team-id",
+			ruleType: "deny_providers",
+			ruleValue: { providers: ["anthropic"] },
+		});
+		await db
+			.update(tables.userOrganization)
+			.set({ teamId: "iam-team-id" })
+			.where(eq(tables.userOrganization.id, MEMBER_UO_ID));
 
 		const memberToken = await signInAs(MEMBER_EMAIL);
 		const res = await app.request(`/team/${ORG_ID}/members/me/iam`, {
@@ -188,6 +203,12 @@ describe("team member IAM rules", () => {
 			ruleType: "allow_providers",
 			userOrganizationId: MEMBER_UO_ID,
 		});
+		expect(body.teamRules).toEqual([
+			expect.objectContaining({
+				id: "iam-team-rule-id",
+				ruleType: "deny_providers",
+			}),
+		]);
 	});
 
 	test("admin cannot modify an owner's IAM rules", async () => {

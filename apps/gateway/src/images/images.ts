@@ -331,7 +331,7 @@ async function extractImagesFromChatResponse(
 		});
 		throw new HTTPException(500, {
 			message:
-				"The model did not generate any images. Try a different model with image generation capabilities (e.g., gemini-3.1-flash-image-preview, gemini-3-pro-image-preview).",
+				"The model did not generate any images. Try a different model with image generation capabilities (e.g., gemini-3.1-flash-image-preview, gemini-3-pro-image).",
 		});
 	}
 
@@ -358,7 +358,7 @@ function forwardHeaders(c: Context): Record<string, string> {
 }
 
 function resolveImageRequestModel(model: string | undefined): string {
-	return !model || model === "auto" ? "gemini-3-pro-image-preview" : model;
+	return !model || model === "auto" ? "gemini-3-pro-image" : model;
 }
 
 function getStringProperty(
@@ -708,8 +708,7 @@ images.openapi(generations, async (c): Promise<any> => {
 	const request = validationResult.data;
 
 	// Resolve "auto" model to a default image generation model
-	const model =
-		request.model === "auto" ? "gemini-3-pro-image-preview" : request.model;
+	const model = request.model === "auto" ? "gemini-3-pro-image" : request.model;
 
 	assertImageModel(model);
 
@@ -804,7 +803,7 @@ const imageEditsRequestSchema = z.object({
 	}),
 	model: z.string().optional().openapi({
 		description: "The model to use for image editing.",
-		example: "gemini-3-pro-image-preview",
+		example: "gemini-3-pro-image",
 	}),
 	n: z.number().int().min(1).max(10).optional().openapi({
 		description: "The number of edited images to generate.",
@@ -1124,7 +1123,7 @@ async function processImageEdit(
 
 	const model =
 		request.model === "auto" || !request.model
-			? "gemini-3-pro-image-preview"
+			? "gemini-3-pro-image"
 			: request.model;
 
 	assertImageModel(model);

@@ -118,7 +118,6 @@ import {
 	fromEmail,
 	replyToEmail,
 } from "@llmgateway/shared/email";
-import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -587,30 +586,37 @@ const projectsListSchema = z.object({
 	total: z.number(),
 });
 
-const iamRuleAdminSchema = z.object({
+const iamRuleTypeAdminSchema = z.enum([
+	"allow_models",
+	"deny_models",
+	"allow_pricing",
+	"deny_pricing",
+	"allow_providers",
+	"deny_providers",
+	"allow_ip_cidrs",
+	"deny_ip_cidrs",
+]);
+
+const iamRuleValueAdminSchema = z.object({
+	models: z.array(z.string()).optional(),
+	providers: z.array(z.string()).optional(),
+	pricingType: z.enum(["free", "paid"]).optional(),
+	maxInputPrice: z.number().optional(),
+	maxOutputPrice: z.number().optional(),
+	ipCidrs: z.array(z.string()).optional(),
+});
+
+const scopedIamRuleAdminSchema = z.object({
 	id: z.string(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
-	apiKeyId: z.string(),
-	ruleType: z.enum([
-		"allow_models",
-		"deny_models",
-		"allow_pricing",
-		"deny_pricing",
-		"allow_providers",
-		"deny_providers",
-		"allow_ip_cidrs",
-		"deny_ip_cidrs",
-	]),
-	ruleValue: z.object({
-		models: z.array(z.string()).optional(),
-		providers: z.array(z.string()).optional(),
-		pricingType: z.enum(["free", "paid"]).optional(),
-		maxInputPrice: z.number().optional(),
-		maxOutputPrice: z.number().optional(),
-		ipCidrs: z.array(z.string()).optional(),
-	}),
+	ruleType: iamRuleTypeAdminSchema,
+	ruleValue: iamRuleValueAdminSchema,
 	status: z.enum(["active", "inactive"]),
+});
+
+const iamRuleAdminSchema = scopedIamRuleAdminSchema.extend({
+	apiKeyId: z.string(),
 });
 
 const apiKeySchema = z.object({
@@ -717,8 +723,17 @@ const providerKeysListSchema = z.object({
 const memberSchema = z.object({
 	id: z.string(),
 	userId: z.string(),
-	role: z.string(),
+	role: z.enum(["owner", "admin", "developer"]),
 	createdAt: z.string(),
+	teamAssignmentSource: z.enum(["manual", "sso", "default"]),
+	team: z
+		.object({
+			id: z.string(),
+			name: z.string(),
+			isDefault: z.boolean(),
+		})
+		.nullable(),
+	iamRules: z.array(scopedIamRuleAdminSchema),
 	user: z.object({
 		id: z.string(),
 		email: z.string(),
@@ -727,9 +742,43 @@ const memberSchema = z.object({
 	}),
 });
 
+const organizationTeamAdminSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	isDefault: z.boolean(),
+	createdAt: z.string(),
+	updatedAt: z.string(),
+	budget: z.object({
+		maxApiKeys: z.number().nullable(),
+		usageLimit: z.string().nullable(),
+		periodUsageLimit: z.string().nullable(),
+		periodUsageDurationValue: z.number().nullable(),
+		periodUsageDurationUnit: z
+			.enum(["hour", "day", "week", "month"])
+			.nullable(),
+	}),
+	members: z.array(
+		z.object({
+			id: z.string(),
+			userId: z.string(),
+			name: z.string().nullable(),
+			email: z.string(),
+		}),
+	),
+	projects: z.array(
+		z.object({
+			id: z.string(),
+			name: z.string(),
+		}),
+	),
+	iamRules: z.array(scopedIamRuleAdminSchema),
+});
+
 const membersListSchema = z.object({
 	members: z.array(memberSchema),
 	total: z.number(),
+	teams: z.array(organizationTeamAdminSchema),
+	teamTotal: z.number(),
 });
 
 const getMetrics = createRoute({
@@ -3406,7 +3455,6 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 	const apiKeys = await db
 		.select({
 			id: tables.apiKey.id,
-			legacyToken: tables.apiKey.token,
 			tokenMasked: tables.apiKey.tokenMasked,
 			description: tables.apiKey.description,
 			status: tables.apiKey.status,
@@ -3447,8 +3495,7 @@ admin.openapi(getOrganizationApiKeys, async (c) => {
 	return c.json({
 		apiKeys: apiKeys.map((k) => ({
 			...k,
-			token: k.tokenMasked ?? maskToken(k.legacyToken ?? ""),
-			legacyToken: undefined,
+			token: k.tokenMasked,
 			tokenMasked: undefined,
 			usage: String(k.usage),
 			usageLimit: k.usageLimit ? String(k.usageLimit) : null,
@@ -3501,9 +3548,6 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 	const providerKeys = await db
 		.select({
 			id: tables.providerKey.id,
-			// Legacy pre-encryption rows still carry plaintext here; it is selected
-			// only to compute the mask below and must never reach the response.
-			legacyToken: tables.providerKey.token,
 			tokenMasked: tables.providerKey.tokenMasked,
 			tokenHash: tables.providerKey.tokenHash,
 			provider: tables.providerKey.provider,
@@ -3531,7 +3575,7 @@ admin.openapi(getOrganizationProviderKeys, async (c) => {
 		// its `tokenHash` (which matches `log.usedApiKeyHash`).
 		providerKeys: providerKeys.map((k) => ({
 			id: k.id,
-			token: k.tokenMasked ?? maskToken(k.legacyToken ?? "", 6),
+			token: k.tokenMasked,
 			tokenHash: k.tokenHash,
 			provider: k.provider,
 			name: k.name,
@@ -3563,20 +3607,39 @@ admin.openapi(getOrganizationMembers, async (c) => {
 		});
 	}
 
-	const members = await db
-		.select({
-			id: tables.userOrganization.id,
-			userId: tables.userOrganization.userId,
-			role: tables.userOrganization.role,
-			createdAt: tables.userOrganization.createdAt,
-			userName: tables.user.name,
-			userEmail: tables.user.email,
-			userEmailVerified: tables.user.emailVerified,
-		})
-		.from(tables.userOrganization)
-		.innerJoin(tables.user, eq(tables.userOrganization.userId, tables.user.id))
-		.where(eq(tables.userOrganization.organizationId, orgId))
-		.orderBy(desc(tables.userOrganization.createdAt));
+	const [members, teams] = await Promise.all([
+		db.query.userOrganization.findMany({
+			where: { organizationId: { eq: orgId } },
+			with: {
+				user: {
+					columns: { id: true, email: true, name: true, emailVerified: true },
+				},
+				team: { columns: { id: true, name: true, isDefault: true } },
+				iamRules: true,
+			},
+			orderBy: { createdAt: "desc" },
+		}),
+		db.query.organizationTeam.findMany({
+			where: { organizationId: { eq: orgId } },
+			with: {
+				members: {
+					columns: { id: true, userId: true },
+					with: {
+						user: { columns: { name: true, email: true } },
+					},
+				},
+				projects: {
+					with: {
+						project: {
+							columns: { id: true, name: true, status: true },
+						},
+					},
+				},
+				iamRules: true,
+			},
+			orderBy: { name: "asc" },
+		}),
+	]);
 
 	return c.json({
 		members: members.map((m) => ({
@@ -3584,14 +3647,59 @@ admin.openapi(getOrganizationMembers, async (c) => {
 			userId: m.userId,
 			role: m.role,
 			createdAt: m.createdAt.toISOString(),
+			teamAssignmentSource: m.teamAssignmentSource,
+			team: m.team,
+			iamRules: m.iamRules.map((rule) => ({
+				id: rule.id,
+				createdAt: rule.createdAt.toISOString(),
+				updatedAt: rule.updatedAt.toISOString(),
+				ruleType: rule.ruleType,
+				ruleValue: rule.ruleValue,
+				status: rule.status,
+			})),
 			user: {
-				id: m.userId,
-				email: m.userEmail,
-				name: m.userName,
-				emailVerified: m.userEmailVerified,
+				id: m.user!.id,
+				email: m.user!.email,
+				name: m.user!.name,
+				emailVerified: m.user!.emailVerified,
 			},
 		})),
 		total: members.length,
+		teams: teams.map((team) => ({
+			id: team.id,
+			name: team.name,
+			isDefault: team.isDefault,
+			createdAt: team.createdAt.toISOString(),
+			updatedAt: team.updatedAt.toISOString(),
+			budget: {
+				maxApiKeys: team.maxApiKeys,
+				usageLimit: team.usageLimit,
+				periodUsageLimit: team.periodUsageLimit,
+				periodUsageDurationValue: team.periodUsageDurationValue,
+				periodUsageDurationUnit: team.periodUsageDurationUnit,
+			},
+			members: team.members.map((member) => ({
+				id: member.id,
+				userId: member.userId,
+				name: member.user?.name ?? null,
+				email: member.user!.email,
+			})),
+			projects: team.projects
+				.filter((entry) => entry.project && entry.project.status !== "deleted")
+				.map((entry) => ({
+					id: entry.project!.id,
+					name: entry.project!.name,
+				})),
+			iamRules: team.iamRules.map((rule) => ({
+				id: rule.id,
+				createdAt: rule.createdAt.toISOString(),
+				updatedAt: rule.updatedAt.toISOString(),
+				ruleType: rule.ruleType,
+				ruleValue: rule.ruleValue,
+				status: rule.status,
+			})),
+		})),
+		teamTotal: teams.length,
 	});
 });
 
@@ -11667,10 +11775,6 @@ admin.openapi(getUnstableMappings, async (c) => {
 						comment: tables.providerKey.comment,
 						description: tables.providerKey.description,
 						tokenMasked: tables.providerKey.tokenMasked,
-						// Legacy pre-encryption rows still carry plaintext here; it is
-						// selected only to compute the mask below and must never reach
-						// the response.
-						legacyToken: tables.providerKey.token,
 						managed: tables.providerKey.managed,
 					})
 					.from(tables.providerKey)
@@ -11696,13 +11800,10 @@ admin.openapi(getUnstableMappings, async (c) => {
 				providerKeyId: r.provider_key_id,
 				providerKeyLabel: keyRow
 					? keyRow.managed
-						? keyRow.comment?.trim() ||
-							(keyRow.tokenMasked ?? maskToken(keyRow.legacyToken ?? "", 6))
+						? keyRow.comment?.trim() || keyRow.tokenMasked
 						: keyRow.description?.trim() || "Bring your own key"
 					: null,
-				providerKeyMaskedToken: keyRow
-					? (keyRow.tokenMasked ?? maskToken(keyRow.legacyToken ?? "", 6))
-					: null,
+				providerKeyMaskedToken: keyRow ? keyRow.tokenMasked : null,
 				providerKeyManaged: keyRow ? keyRow.managed : null,
 				logsCount: Number(r.logs_count),
 				errorsCount: Number(r.errors_count),

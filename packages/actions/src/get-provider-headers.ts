@@ -99,11 +99,6 @@ export function getProviderHeaders(
 				...requestIdHeader,
 				Authorization: `Bearer ${token}`,
 			};
-		case "avalanche":
-			return {
-				...requestIdHeader,
-				Authorization: `Bearer ${token}`,
-			};
 		case "aws-bedrock":
 		case "aws-mantle":
 			return {
@@ -131,11 +126,12 @@ export function getProviderHeaders(
 				"xi-api-key": token,
 			};
 		case "ranoai":
+		case "runware":
 			return {
 				...requestIdHeader,
 				Authorization: `Bearer ${token}`,
-				// RanoAI serves Brotli responses that Node leaves compressed when the
-				// gateway's production upstream dispatcher is installed.
+				// These providers serve compressed responses that Node can receive as raw
+				// bytes, so request an uncompressed body for reliable JSON/SSE parsing.
 				"Accept-Encoding": "identity",
 			};
 		case "openai":
@@ -156,7 +152,6 @@ export function getProviderHeaders(
 		case "consensusprotocol":
 		case "deepinfra":
 		case "custom":
-		case "runware":
 		default:
 			return {
 				...requestIdHeader,

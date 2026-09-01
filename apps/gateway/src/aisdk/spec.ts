@@ -84,7 +84,7 @@ export function buildUsage(
 		outputTokens: {
 			total: tokens.outputTokens,
 			// The reasoning token count is already part of the output total for
-			// every provider we bill (see costs.ts); `text` is the remainder.
+			// every provider after usage normalization; `text` is the remainder.
 			text:
 				tokens.outputTokens === undefined
 					? undefined

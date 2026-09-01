@@ -204,10 +204,7 @@ describe(
 				});
 				expect(providerKey).not.toBeNull();
 				expect(providerKey?.provider).toBe(providerId);
-				// Stored encrypted at rest: the legacy plaintext column stays NULL
-				// and the ciphertext decrypts back to the submitted key.
-				// eslint-disable-next-line no-restricted-syntax
-				expect(providerKey?.token).toBeNull();
+				// Stored encrypted at rest; the ciphertext decrypts to the submitted key.
 				expect(providerKey?.tokenCiphertext).toMatch(/^llmgw:v2:/);
 				expect(readProviderKey(providerKey!)).toBe(envVarValue);
 			},

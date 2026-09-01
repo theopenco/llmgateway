@@ -40,6 +40,7 @@ import {
 	deleteOrganizationPaymentMethod,
 	giftCreditsToOrganization,
 	manageOrganization,
+	releaseDevPlanCardFingerprint,
 	updateEnterpriseDeal,
 	updateReferralBonus,
 } from "@/lib/admin-organizations";
@@ -53,6 +54,7 @@ import { ApiKeysTable } from "./api-keys-table";
 import { AuditLogsTab } from "./audit-logs-tab";
 import { GuardrailsTab } from "./guardrails-tab";
 import { ManageOrgDialog } from "./manage-org-dialog";
+import { MemberAccessTab } from "./member-access-tab";
 import { OrgCostByModel } from "./org-cost-by-model";
 import { OrgCostByModelTimeseries } from "./org-cost-by-model-timeseries";
 import { OrgMetricsSection } from "./org-metrics";
@@ -60,7 +62,6 @@ import { OrgSettingsTab } from "./org-settings-tab";
 import { OrganizationTabs } from "./organization-tabs";
 import { ProviderKeysTable } from "./provider-keys-table";
 import { ReferralBonusDialog } from "./referral-bonus-dialog";
-import { SendEmailDialog } from "./send-email-dialog";
 import { SsoTab } from "./sso-tab";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -314,7 +315,6 @@ export default async function OrganizationPage({
 	const akTotalPages = Math.ceil(akTotal / akLimit);
 	const providerKeys = providerKeysData?.providerKeys ?? [];
 	const pkCounts = providerKeysData?.counts ?? emptyKeyCounts;
-	const members = membersData?.members ?? [];
 	const membersTotal = membersData?.total ?? 0;
 
 	return (
@@ -791,82 +791,17 @@ export default async function OrganizationPage({
 				</TabsContent>
 
 				<TabsContent value="members">
-					<div className="space-y-4">
-						<div className="overflow-x-auto rounded-lg border border-border/60 bg-card">
-							<Table>
-								<TableHeader>
-									<TableRow>
-										<TableHead>Name</TableHead>
-										<TableHead>Email</TableHead>
-										<TableHead>Verified</TableHead>
-										<TableHead>Role</TableHead>
-										<TableHead>Joined</TableHead>
-										<TableHead className="w-10">
-											<span className="sr-only">Actions</span>
-										</TableHead>
-									</TableRow>
-								</TableHeader>
-								<TableBody>
-									{members.length === 0 ? (
-										<TableRow>
-											<TableCell
-												colSpan={6}
-												className="h-24 text-center text-muted-foreground"
-											>
-												No members found
-											</TableCell>
-										</TableRow>
-									) : (
-										members.map((member) => (
-											<TableRow key={member.id}>
-												<TableCell className="font-medium">
-													{member.user.name ?? "—"}
-												</TableCell>
-												<TableCell>{member.user.email}</TableCell>
-												<TableCell>
-													<Badge
-														variant={
-															member.user.emailVerified
-																? "secondary"
-																: "outline"
-														}
-													>
-														{member.user.emailVerified
-															? "verified"
-															: "unverified"}
-													</Badge>
-												</TableCell>
-												<TableCell>
-													<Badge
-														variant={
-															member.role === "owner"
-																? "default"
-																: member.role === "admin"
-																	? "secondary"
-																	: "outline"
-														}
-													>
-														{member.role}
-													</Badge>
-												</TableCell>
-												<TableCell className="text-muted-foreground">
-													{formatDate(member.createdAt)}
-												</TableCell>
-												<TableCell>
-													<SendEmailDialog
-														userName={member.user.name ?? ""}
-														userEmail={member.user.email}
-														orgName={org.name}
-														plan={org.plan}
-													/>
-												</TableCell>
-											</TableRow>
-										))
-									)}
-								</TableBody>
-							</Table>
-						</div>
-					</div>
+					{membersData ? (
+						<MemberAccessTab
+							data={membersData}
+							organizationName={org.name}
+							plan={org.plan}
+						/>
+					) : (
+						<p className="py-8 text-center text-sm text-muted-foreground">
+							Failed to load members and teams
+						</p>
+					)}
 				</TabsContent>
 
 				<TabsContent value="audit-logs">
@@ -891,6 +826,9 @@ export default async function OrganizationPage({
 						<OrgSettingsTab
 							settings={settingsData}
 							paymentMethods={paymentMethodsData?.paymentMethods ?? null}
+							devPlanCardFingerprints={
+								paymentMethodsData?.devPlanCardFingerprints ?? []
+							}
 							paymentMethodsLoadError={!paymentMethodsData}
 							onDeletePaymentMethod={async (
 								paymentMethodId,
@@ -903,6 +841,13 @@ export default async function OrganizationPage({
 									paymentMethodId,
 									replacementPaymentMethodId,
 									releaseDevPlanCardFingerprint,
+								);
+							}}
+							onReleaseDevPlanCardFingerprint={async (fingerprintId) => {
+								"use server";
+								return await releaseDevPlanCardFingerprint(
+									orgId,
+									fingerprintId,
 								);
 							}}
 						/>

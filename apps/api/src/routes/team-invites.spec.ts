@@ -4,6 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const ORG_ID = "invite-test-org";
 const INVITED_EMAIL = "invited@example.com";
@@ -165,14 +166,14 @@ describe("team invites", () => {
 		await db.insert(tables.apiKey).values([
 			{
 				id: "developer-key",
-				token: "developer-token",
+				...hashApiKeyForStorage("developer-token"),
 				projectId: "invite-test-project",
 				description: "Developer key",
 				createdBy: "test-user-id",
 			},
 			{
 				id: "playground-session-key",
-				token: "playground-session-token",
+				...hashApiKeyForStorage("playground-session-token"),
 				projectId: "invite-test-project",
 				description: "Session key",
 				kind: "playground",
@@ -250,6 +251,42 @@ describe("team invites", () => {
 		});
 		expect(grants).toHaveLength(1);
 		expect(grants[0]?.projectId).toBe("invite-test-project");
+	});
+
+	test("accepted developer invite joins the default team", async () => {
+		await db.insert(tables.organizationTeam).values({
+			id: "invite-default-team",
+			organizationId: ORG_ID,
+			name: "Standard",
+			isDefault: true,
+		});
+		await db.insert(tables.project).values({
+			id: "invite-default-project",
+			name: "Invite Default Project",
+			organizationId: ORG_ID,
+		});
+
+		await addMember({
+			email: INVITED_EMAIL,
+			role: "developer",
+			projectIds: ["invite-default-project"],
+		});
+		await createAccountFor("invited-user-id", INVITED_EMAIL);
+		const signIn = await signInAs(INVITED_EMAIL);
+		expect(signIn.status).toBe(200);
+
+		const membership = await db.query.userOrganization.findFirst({
+			where: {
+				userId: { eq: "invited-user-id" },
+				organizationId: { eq: ORG_ID },
+			},
+			columns: { role: true, teamId: true, teamAssignmentSource: true },
+		});
+		expect(membership).toEqual({
+			role: "developer",
+			teamId: "invite-default-team",
+			teamAssignmentSource: "default",
+		});
 	});
 
 	test("revoked invite is not accepted on sign-in", async () => {
