@@ -19,6 +19,8 @@ const POLICY: ProviderCompliancePolicy = {
 describe("zero data retention", () => {
 	it("overrides stored payload retention", () => {
 		const organization = {
+			id: "org-test",
+			plan: "enterprise",
 			retentionLevel: "retain" as const,
 			providerCompliancePolicy: {
 				enabled: true,
@@ -33,10 +35,27 @@ describe("zero data retention", () => {
 	it("uses the configured retention level without ZDR", () => {
 		expect(
 			getEffectiveRetentionLevel({
+				id: "org-test",
+				plan: "enterprise",
 				retentionLevel: "retain",
 				providerCompliancePolicy: { enabled: false },
 			}),
 		).toBe("retain");
+	});
+
+	it("ignores ZDR without enterprise access", () => {
+		const organization = {
+			id: "org-test",
+			plan: "pro",
+			retentionLevel: "retain" as const,
+			providerCompliancePolicy: {
+				enabled: true,
+				blockPromptLogging: true,
+			},
+		};
+
+		expect(isZeroDataRetentionEnabled(organization)).toBe(false);
+		expect(getEffectiveRetentionLevel(organization)).toBe("retain");
 	});
 });
 

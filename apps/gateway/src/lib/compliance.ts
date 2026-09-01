@@ -26,18 +26,15 @@ interface OrganizationLike {
 }
 
 export function isZeroDataRetentionEnabled(
-	organization:
-		Pick<OrganizationLike, "providerCompliancePolicy"> | null | undefined,
+	organization: OrganizationLike | null | undefined,
 ): boolean {
-	const policy = organization?.providerCompliancePolicy;
-	return policy?.enabled === true && policy.blockPromptLogging === true;
+	return organization
+		? getActiveCompliancePolicy(organization)?.blockPromptLogging === true
+		: false;
 }
 
 export function getEffectiveRetentionLevel(
-	organization:
-		| Pick<OrganizationLike, "providerCompliancePolicy" | "retentionLevel">
-		| null
-		| undefined,
+	organization: OrganizationLike | null | undefined,
 ): "retain" | "none" {
 	return isZeroDataRetentionEnabled(organization)
 		? "none"

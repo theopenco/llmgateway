@@ -52,6 +52,7 @@ describe("responses streaming lifecycle", () => {
 		vi.clearAllMocks();
 		mocks.findOrganizationById.mockResolvedValue({
 			id: "org_test",
+			plan: "enterprise",
 			status: "active",
 		});
 	});
@@ -93,6 +94,7 @@ describe("responses streaming lifecycle", () => {
 	it("rejects Responses API storage while ZDR is active", async () => {
 		mocks.findOrganizationById.mockResolvedValue({
 			id: "org_test",
+			plan: "enterprise",
 			status: "active",
 			providerCompliancePolicy: {
 				enabled: true,
@@ -126,6 +128,7 @@ describe("responses streaming lifecycle", () => {
 	it("does not store compacted Responses state while ZDR is active", async () => {
 		mocks.findOrganizationById.mockResolvedValue({
 			id: "org_test",
+			plan: "enterprise",
 			status: "active",
 			providerCompliancePolicy: {
 				enabled: true,
