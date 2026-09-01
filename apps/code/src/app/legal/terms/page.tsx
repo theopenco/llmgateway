@@ -5,10 +5,17 @@ import { LegalSummary } from "@/components/LegalSummary";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Terms of Use — DevPass",
+	title: "Terms of Use",
 	description:
-		"Supplemental DevPass Terms of Use. These build on the LLM Gateway Terms of Use and cover the DevPass flat-rate subscription: fair-use limits, one account per developer, personal (non-team) use, approved coding tools, and AI provider policies.",
+		"Supplemental DevPass Terms of Use for the flat-rate subscription: fair-use limits, one account per developer, approved coding tools, and AI provider policies.",
 	alternates: { canonical: "/legal/terms" },
+	openGraph: {
+		title: "DevPass Supplemental Terms of Use",
+		description:
+			"The terms that govern the DevPass flat-rate subscription, on top of the LLM Gateway Terms of Use.",
+		type: "article",
+		url: "https://devpass.llmgateway.io/legal/terms",
+	},
 };
 
 export default function TermsPage() {

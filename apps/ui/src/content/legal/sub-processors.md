@@ -36,9 +36,9 @@ We do not engage sub-processors for advertising, profiling, or the sale or shari
 
 When you route a request, its content is transmitted to the AI provider serving the model you selected, so that provider can generate a response. Those providers act as sub-processors for that request.
 
-Because the provider catalogue changes continuously as models are added, deprecated and repriced, we do not reproduce it here — a copy in this document would be out of date within days. The **live, authoritative list is published on our [Provider Information page](/legal/providers)**, which shows, for every provider we route to:
+Because the provider catalogue changes continuously as models are added, deprecated and repriced, we do not reproduce it here — a copy in this document would be out of date within days. The **live, authoritative list is published on our [Provider Information page](/legal/providers)**, which shows, for every publicly identified provider we route to:
 
-- the provider's legal terms and privacy policy,
+- its contracting entity, legal terms, privacy policy and usage policy,
 - its headquarters and available processing regions,
 - its data-retention window,
 - whether it uses API inputs for model training,

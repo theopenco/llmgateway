@@ -5,6 +5,7 @@ import {
 	extendTrialEnd,
 	formatPlanTermBadge,
 	formatPlanTermLabel,
+	getEnterpriseLicenseTerm,
 	getOrganizationTerm,
 	getPlanTerm,
 } from "./plan-term.js";
@@ -71,6 +72,23 @@ describe("getPlanTerm", () => {
 				now,
 			})?.elapsedFraction,
 		).toBeNull();
+	});
+});
+
+describe("getEnterpriseLicenseTerm", () => {
+	test("uses 90-day warning and 30-day critical thresholds", () => {
+		expect(getEnterpriseLicenseTerm("2026-11-06T00:00:00Z", now)?.status).toBe(
+			"active",
+		); // 91 days
+		expect(getEnterpriseLicenseTerm("2026-11-05T00:00:00Z", now)?.status).toBe(
+			"expiring",
+		); // 90 days
+		expect(getEnterpriseLicenseTerm("2026-09-07T00:00:00Z", now)?.status).toBe(
+			"expiring",
+		); // 31 days
+		expect(getEnterpriseLicenseTerm("2026-09-06T00:00:00Z", now)?.status).toBe(
+			"critical",
+		); // 30 days
 	});
 });
 

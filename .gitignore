@@ -20,6 +20,7 @@ llmgateway_data
 *.txt
 !apps/ui/public/llms.txt
 !apps/code/public/llms.txt
+!apps/airside/public/llms.txt
 !apps/playground/public/llms.txt
 !apps/docs/app/llms.txt
 !apps/docs/app/llms-full.txt
@@ -46,3 +47,8 @@ scripts/*.jpg
 scripts/*.png
 .soulforge
 .empryo
+
+# Local demo recordings and PR screenshots (PR images live on assets/* orphan branches)
+/demo-videos/
+/pr-shots/
+/pg-*.png

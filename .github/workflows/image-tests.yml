@@ -84,7 +84,7 @@ jobs:
 
       - name: Build all split Docker images for testing
         run: |
-          for app in api gateway playground ui docs worker admin code; do
+          for app in api gateway playground ui docs worker admin code airside; do
             echo "Building $app image..."
             docker build \
               -f infra/split.dockerfile \

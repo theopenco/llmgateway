@@ -88,6 +88,7 @@ const corsAllowList = process.env.ORIGIN_URLS?.split(",") ?? [
 	"http://localhost:3004",
 	"http://localhost:3005",
 	"http://localhost:3006",
+	"http://localhost:3007",
 ];
 
 // LLM SDK endpoints are called cross-origin from arbitrary developer

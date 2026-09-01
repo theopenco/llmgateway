@@ -1,7 +1,5 @@
 import { HTTPException } from "hono/http-exception";
 
-import { hasOrganizationEnterpriseAccess } from "@/lib/enterprise.js";
-
 import { logViolation } from "@llmgateway/guardrails";
 import { logger, toError } from "@llmgateway/logger";
 import {
@@ -12,7 +10,6 @@ import {
 	isModelAllowedByPolicy,
 	isProviderCompliant,
 	isProviderRefAllowedByPolicy,
-	narrowPolicyToDevPass,
 	type ProviderComplianceAttestation,
 	type ProviderCompliancePolicy,
 } from "@llmgateway/models";
@@ -26,22 +23,20 @@ interface OrganizationLike {
 
 /**
  * The active provider compliance policy for an organization, or `undefined`
- * when none should be enforced. Enterprise organizations get their complete
- * policy, while DevPass organizations get only the no-training requirement.
+ * when none is enabled. Enforcement deliberately checks neither enterprise
+ * access nor the organization kind: what a policy may contain is restricted at
+ * configuration time in the API (full policies need enterprise access, DevPass
+ * settings can only write the no-training requirement), but an enabled stored
+ * policy must fail closed. Gating enforcement on plan/license silently dropped
+ * all restrictions when the gate misfired, and narrowing by kind stripped the
+ * full policy of a devpass-kind org that holds an enterprise plan down to the
+ * no-training requirement — both are compliance breaches, not downgrades.
  */
 export function getActiveCompliancePolicy(
 	organization: OrganizationLike,
 ): ProviderCompliancePolicy | undefined {
 	const policy = organization.providerCompliancePolicy;
-	if (!policy?.enabled) {
-		return undefined;
-	}
-	if (organization.kind === "devpass") {
-		return narrowPolicyToDevPass(policy);
-	}
-	return hasOrganizationEnterpriseAccess(organization.id, organization.plan)
-		? policy
-		: undefined;
+	return policy?.enabled ? policy : undefined;
 }
 
 /** Request-scoped facts the policy needs beyond the catalogue. */

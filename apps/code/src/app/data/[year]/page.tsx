@@ -47,10 +47,10 @@ export async function generateMetadata({
 	if (!year) {
 		return {};
 	}
-	const title = `The ${year} DevPass Model Census — coding models rated by the developers who pay for them`;
-	const description = `Value, quality, and speed scores for coding models, rated only by DevPass developers with verified real-world usage. No benchmarks, no vibes — shipped-code verdicts.`;
+	const title = `The ${year} DevPass Model Census — Coding Models Rated by Developers`;
+	const description = `Value, quality, and speed scores for coding models, rated only by DevPass developers with verified real-world usage. No benchmarks — shipped-code verdicts.`;
 	return {
-		title,
+		title: { absolute: title },
 		description,
 		alternates: { canonical: `/data/${year}` },
 		openGraph: {

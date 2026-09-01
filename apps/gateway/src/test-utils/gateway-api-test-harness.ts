@@ -29,6 +29,13 @@ async function resetGatewayTestData() {
 	await db.delete(tables.videoJob);
 	await db.delete(tables.apiKey);
 	await db.delete(tables.providerKey);
+	await db.delete(tables.providerPriceFiling);
+	await db.delete(tables.providerDraftModel);
+	await db.delete(tables.providerClaim);
+	await db.delete(tables.providerCompanyMember);
+	await db.delete(tables.providerRoutingSettings);
+	await db.delete(tables.providerCompany);
+	await db.delete(tables.routingScoreMultiplier);
 	await db.delete(tables.userOrganization);
 	await db.delete(tables.project);
 	await db.delete(tables.organization);

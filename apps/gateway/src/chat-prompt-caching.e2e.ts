@@ -82,15 +82,6 @@ const promptCachingModels = filteredModels
 		return testCases;
 	});
 
-// Only run prompt caching tests when TEST_CACHE_MODE=true
-const testCacheMode = process.env.TEST_CACHE_MODE === "true";
-
-if (testCacheMode) {
-	console.log(
-		`Testing ${promptCachingModels.length} models with prompt caching support`,
-	);
-}
-
 describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);
 
@@ -100,7 +91,7 @@ describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 		expect(true).toBe(true);
 	});
 
-	if (testCacheMode) {
+	describe("cacheable models", () => {
 		test.each(promptCachingModels)(
 			"prompt caching works for $model",
 			getTestOptions(),
@@ -344,5 +335,5 @@ describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 				}
 			},
 		);
-	}
+	});
 });

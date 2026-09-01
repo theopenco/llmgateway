@@ -31,6 +31,7 @@ import { logAuditEvent } from "@llmgateway/audit";
 import { redisClient } from "@llmgateway/cache";
 import {
 	and,
+	cdb,
 	db,
 	desc,
 	eq,
@@ -717,8 +718,8 @@ organization.openapi(updateOrganization, async (c) => {
 		});
 	}
 
-	// DevPass accepts only the no-API-training requirement. Other organizations
-	// retain the existing enterprise policy gate.
+	// DevPass accepts only the no-API-training requirement, regardless of plan.
+	// Other organizations retain the enterprise gate for enabling a policy.
 	if (providerCompliancePolicy !== undefined) {
 		if (
 			userOrganization.role !== "owner" &&
@@ -747,6 +748,11 @@ organization.openapi(updateOrganization, async (c) => {
 				});
 			}
 		} else if (
+			// Clearing or disabling a policy stays allowed without enterprise
+			// access: the gateway enforces any enabled stored policy fail-closed,
+			// so a downgraded org must be able to turn a leftover policy off.
+			providerCompliancePolicy !== null &&
+			providerCompliancePolicy.enabled &&
 			!hasOrganizationEnterpriseAccess(
 				userOrganization.organization?.id,
 				userOrganization.organization?.plan,
@@ -847,7 +853,9 @@ organization.openapi(updateOrganization, async (c) => {
 		updatedOrganization = userOrganization.organization!;
 	} else {
 		try {
-			[updatedOrganization] = await db
+			// Cached client so gateway policy gates see compliance changes
+			// immediately instead of serving the previous organization row.
+			[updatedOrganization] = await cdb
 				.update(tables.organization)
 				.set(updateData)
 				.where(eq(tables.organization.id, id))

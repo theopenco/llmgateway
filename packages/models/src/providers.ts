@@ -243,6 +243,9 @@ export interface ProviderDefinition {
 	serviceTiers?: ServiceTier[];
 	termsUrl?: string | null;
 	privacyPolicyUrl?: string | null;
+	usagePolicyUrl?: string | null;
+	/** Contracting entity named in the terms applicable to LLM Gateway's account */
+	legalEntity: string | null;
 	/** ISO 3166-1 alpha-2 country code for provider headquarters */
 	headquarters?: string | null;
 	/** Data usage and privacy policy details */
@@ -271,6 +274,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://llmgateway.io/terms",
 		privacyPolicyUrl: "https://llmgateway.io/privacy",
+		usagePolicyUrl: "https://llmgateway.io/legal/terms",
+		legalEntity: "Polar Lights LLC",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -301,8 +306,10 @@ export const providers: ProviderDefinition[] = [
 		website: "https://openai.com",
 		statusPageUrl: "https://status.openai.com",
 		announcement: null,
-		termsUrl: "https://openai.com/policies/terms-of-use",
+		termsUrl: "https://openai.com/policies/services-agreement/",
 		privacyPolicyUrl: "https://openai.com/policies/privacy-policy",
+		usagePolicyUrl: "https://openai.com/policies/usage-policies/",
+		legalEntity: "OpenAI OpCo, LLC",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -351,8 +358,10 @@ export const providers: ProviderDefinition[] = [
 		website: "https://anthropic.com",
 		statusPageUrl: "https://status.claude.com",
 		announcement: null,
-		termsUrl: "https://www.anthropic.com/terms",
+		termsUrl: "https://www.anthropic.com/legal/commercial-terms",
 		privacyPolicyUrl: "https://www.anthropic.com/privacy",
+		usagePolicyUrl: "https://www.anthropic.com/legal/aup",
+		legalEntity: "Anthropic, PBC",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -402,6 +411,9 @@ export const providers: ProviderDefinition[] = [
 		],
 		termsUrl: "https://ai.google.dev/gemini-api/terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		usagePolicyUrl:
+			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
+		legalEntity: "Google LLC",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -432,6 +444,7 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: null,
 		privacyPolicyUrl: null,
+		legalEntity: null,
 		headquarters: null,
 		dataPolicy: null,
 		priority: 1.2,
@@ -456,6 +469,7 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: null,
 		privacyPolicyUrl: null,
+		legalEntity: null,
 		headquarters: null,
 		dataPolicy: null,
 		priority: 1.2,
@@ -480,6 +494,7 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: null,
 		privacyPolicyUrl: null,
+		legalEntity: null,
 		headquarters: null,
 		dataPolicy: null,
 		priority: 1.5,
@@ -525,6 +540,9 @@ export const providers: ProviderDefinition[] = [
 		],
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://policies.google.com/privacy",
+		usagePolicyUrl:
+			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
+		legalEntity: "Google LLC",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -568,6 +586,9 @@ export const providers: ProviderDefinition[] = [
 		},
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		usagePolicyUrl:
+			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
+		legalEntity: "Google LLC",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -610,6 +631,9 @@ export const providers: ProviderDefinition[] = [
 		priority: 0.2,
 		termsUrl: "https://cloud.google.com/terms/service-terms",
 		privacyPolicyUrl: "https://cloud.google.com/terms/data-processing-addendum",
+		usagePolicyUrl:
+			"https://policies.google.com/terms?utm_source=ai.google&utm_medium=referral#toc-what-we-expect",
+		legalEntity: "Google LLC",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -645,6 +669,7 @@ export const providers: ProviderDefinition[] = [
 		priority: 0.9,
 		termsUrl: null,
 		privacyPolicyUrl: null,
+		legalEntity: null,
 		headquarters: null,
 		dataPolicy: null,
 	},
@@ -666,6 +691,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://groq.com/terms-of-use",
 		privacyPolicyUrl: "https://groq.com/privacy-policy",
+		usagePolicyUrl: "https://groq.com/terms-of-use",
+		legalEntity: "Groq LLC",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -694,6 +721,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://cerebras.ai/terms-of-service",
 		privacyPolicyUrl: "https://cerebras.ai/privacy-policy",
+		usagePolicyUrl: "https://www.cerebras.ai/terms-of-service",
+		legalEntity: "Cerebras Systems Inc.",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -721,6 +750,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://x.ai/legal/terms-of-service",
 		privacyPolicyUrl: "https://x.ai/legal/privacy-policy",
+		usagePolicyUrl: "https://x.ai/legal/acceptable-use-policy",
+		legalEntity: "SpaceXAI LLC",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -751,6 +782,9 @@ export const providers: ProviderDefinition[] = [
 			"https://cdn.deepseek.com/policies/en-US/deepseek-terms-of-use.html",
 		privacyPolicyUrl:
 			"https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html",
+		usagePolicyUrl:
+			"https://cdn.deepseek.com/policies/en-US/deepseek-terms-of-use.html",
+		legalEntity: "Hangzhou DeepSeek Artificial Intelligence Co., Ltd.",
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: true,
@@ -815,6 +849,9 @@ export const providers: ProviderDefinition[] = [
 			"https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-product-terms-of-service-v-3-8-0",
 		privacyPolicyUrl:
 			"https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-privacy-policy",
+		usagePolicyUrl:
+			"https://www.alibabacloud.com/help/en/legal/latest/alibaba-cloud-international-website-membership-agreement",
+		legalEntity: "Alibaba Cloud US LLC",
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
@@ -841,6 +878,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://novita.ai/legal/terms-of-service",
 		privacyPolicyUrl: "https://novita.ai/legal/privacy-policy",
+		usagePolicyUrl: "https://novita.ai/legal/acceptable-use-policy",
+		legalEntity: "Novita Inc.",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -870,6 +909,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://atlascloud.ai/privacy",
 		privacyPolicyUrl: "https://www.atlascloud.ai/privacy",
+		usagePolicyUrl: "https://www.atlascloud.ai/acceptable-use",
+		legalEntity: "ATLAS CLOUD AI INC.",
 		headquarters: null,
 		dataPolicy: {
 			apiTraining: null,
@@ -984,6 +1025,8 @@ export const providers: ProviderDefinition[] = [
 		},
 		termsUrl: "https://aws.amazon.com/service-terms",
 		privacyPolicyUrl: "https://aws.amazon.com/privacy",
+		usagePolicyUrl: "https://aws.amazon.com/aup/",
+		legalEntity: "Amazon Web Services, Inc.",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -1043,6 +1086,8 @@ export const providers: ProviderDefinition[] = [
 			"Use AWS Bedrock Long-Term API Keys (not IAM service account or private keys)",
 		termsUrl: "https://aws.amazon.com/service-terms",
 		privacyPolicyUrl: "https://aws.amazon.com/privacy",
+		usagePolicyUrl: "https://aws.amazon.com/aup/",
+		legalEntity: "Amazon Web Services, Inc.",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -1096,6 +1141,8 @@ export const providers: ProviderDefinition[] = [
 		priority: 2,
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
+		usagePolicyUrl: "https://www.microsoft.com/en-us/legal/terms-of-use",
+		legalEntity: "Microsoft Corporation",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -1133,6 +1180,8 @@ export const providers: ProviderDefinition[] = [
 		priority: 1.5,
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
+		usagePolicyUrl: "https://www.microsoft.com/en-us/legal/terms-of-use",
+		legalEntity: "Microsoft Corporation",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -1167,6 +1216,8 @@ export const providers: ProviderDefinition[] = [
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
+		usagePolicyUrl: "https://www.microsoft.com/en-us/legal/terms-of-use",
+		legalEntity: "Microsoft Corporation",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -1198,6 +1249,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://docs.z.ai/legal-agreement/terms-of-use",
 		privacyPolicyUrl: "https://docs.z.ai/legal-agreement/privacy-policy",
+		usagePolicyUrl: "https://chat.z.ai/legal-agreement/terms-of-service",
+		legalEntity: "JINGSHENG HENGXING TECHNOLOGY PTE. LTD.",
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
@@ -1225,6 +1278,8 @@ export const providers: ProviderDefinition[] = [
 		termsUrl: "https://www.kimi.com/user/agreement/modelUse?version=v2",
 		privacyPolicyUrl:
 			"https://www.kimi.com/user/agreement/userPrivacy?version=v2",
+		usagePolicyUrl: "https://www.kimi.ai/user/agreement/modelUse?version=v2",
+		legalEntity: "NOVASCENT PRIVATE LIMITED",
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
@@ -1254,6 +1309,9 @@ export const providers: ProviderDefinition[] = [
 			"https://intl.cloud.baidu.com/en/doc/Agreements/s/bmesahnjh-intl-en",
 		privacyPolicyUrl:
 			"https://intl.cloud.baidu.com/en/doc/Agreements/s/Plr0fi68q-intl-en",
+		usagePolicyUrl:
+			"https://intl.cloud.baidu.com/en/doc/Agreements/s/yjwvy1x03-intl-en",
+		legalEntity: "Baidu Holdings Limited",
 		headquarters: "CN",
 		// Qianfan publishes no API training / prompt logging commitment we can
 		// point at, so every attribute stays unknown and fails closed under a
@@ -1283,6 +1341,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://www.perplexity.ai/hub/legal/terms-of-service",
 		privacyPolicyUrl: "https://www.perplexity.ai/hub/legal/privacy-policy",
+		usagePolicyUrl: "https://www.perplexity.ai/hub/legal/aup",
+		legalEntity: "Perplexity AI, Inc.",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -1311,6 +1371,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://docs.nebius.com/legal/terms-of-use",
 		privacyPolicyUrl: "https://docs.nebius.com/legal/privacy",
+		usagePolicyUrl: "https://docs.nebius.com/legal/aup",
+		legalEntity: "Nebius Group N.V.",
 		headquarters: "NL",
 		dataPolicy: {
 			apiTraining: false,
@@ -1338,6 +1400,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://legal.mistral.ai/terms/commercial-terms-of-service",
 		privacyPolicyUrl: "https://mistral.ai/terms/#privacy-policy",
+		usagePolicyUrl: "https://legal.mistral.ai/terms/usage-policy",
+		legalEntity: "Mistral AI",
 		headquarters: "FR",
 		dataPolicy: {
 			apiTraining: false,
@@ -1365,8 +1429,10 @@ export const providers: ProviderDefinition[] = [
 		website: "https://canopywave.com",
 		statusPageUrl: null,
 		announcement: null,
-		termsUrl: "https://canopywave.com/terms",
+		termsUrl: "https://canopywave.com/serviceagreement",
 		privacyPolicyUrl: "https://canopywave.com/privacy",
+		usagePolicyUrl: "https://canopywave.com/terms",
+		legalEntity: "Canopy Wave Inc.",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -1396,6 +1462,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://inference.net/terms-of-service",
 		privacyPolicyUrl: "https://inference.net/privacy-policy",
+		usagePolicyUrl: "https://inference.net/terms-of-service/",
+		legalEntity: "Inference R&D, Inc.",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: null,
@@ -1423,6 +1491,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://www.together.ai/terms-of-service",
 		privacyPolicyUrl: "https://www.together.ai/privacy",
+		usagePolicyUrl: "https://www.together.ai/terms-of-service",
+		legalEntity: "Together Computer, Inc.",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -1451,6 +1521,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://scx.ai/terms",
 		privacyPolicyUrl: "https://scx.ai/privacy",
+		usagePolicyUrl: "https://scx.ai/terms",
+		legalEntity: "SCX.ai Holdings Limited",
 		headquarters: "AU",
 		dataPolicy: {
 			apiTraining: false,
@@ -1479,6 +1551,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://scx.ai/terms",
 		privacyPolicyUrl: "https://scx.ai/privacy",
+		usagePolicyUrl: "https://scx.ai/terms",
+		legalEntity: "SCX.ai Holdings Limited",
 		headquarters: "AU",
 		dataPolicy: {
 			apiTraining: false,
@@ -1504,6 +1578,7 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: null,
 		privacyPolicyUrl: null,
+		legalEntity: null,
 		headquarters: null,
 		dataPolicy: null,
 	},
@@ -1525,6 +1600,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://nano-gpt.com/legal/terms-of-service",
 		privacyPolicyUrl: "https://nano-gpt.com/legal/privacy-policy",
+		usagePolicyUrl: "https://nano-gpt.com/legal/terms-of-service",
+		legalEntity: "NanoGPT LLC",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -1552,6 +1629,9 @@ export const providers: ProviderDefinition[] = [
 		termsUrl: "https://docs.byteplus.com/en/docs/legal/docs-terms-of-service",
 		privacyPolicyUrl:
 			"https://docs.byteplus.com/en/docs/legal/docs-privacy-policy",
+		usagePolicyUrl:
+			"https://docs.byteplus.com/en/docs/legal/docs-acceptable-use-policy",
+		legalEntity: "BytePlus Pte. Ltd.",
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
@@ -1585,6 +1665,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://intl.minimaxi.com/protocol/terms-of-service",
 		privacyPolicyUrl: "https://intl.minimaxi.com/protocol/privacy-policy",
+		usagePolicyUrl: "https://www.minimax.io/audio/doc/terms-of-service.html",
+		legalEntity: "Nanonoble Pte. Ltd.",
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
@@ -1612,6 +1694,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://www.embercloud.ai/terms",
 		privacyPolicyUrl: "https://www.embercloud.ai/privacy",
+		usagePolicyUrl: "https://www.embercloud.ai/terms",
+		legalEntity: "EmberCloud Systems",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -1641,6 +1725,8 @@ export const providers: ProviderDefinition[] = [
 		learnMore: "https://dev.meta.ai/docs/getting-started/authentication",
 		termsUrl: "https://dev.meta.ai/legal/terms-of-service",
 		privacyPolicyUrl: "https://www.facebook.com/privacy/policy/",
+		usagePolicyUrl: "https://dev.meta.ai/legal/acceptable-use-policy",
+		legalEntity: "Meta Platforms, Inc.",
 		headquarters: "US",
 		dataPolicy: {
 			// Paid (pay-as-you-go) services are never trained on; only the free
@@ -1682,6 +1768,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://console.sakana.ai/terms-of-service",
 		privacyPolicyUrl: "https://console.sakana.ai/privacy-policy",
+		usagePolicyUrl: "https://console.sakana.ai/usage-policy",
+		legalEntity: "Sakana AI Co., Ltd.",
 		headquarters: "JP",
 		dataPolicy: null,
 	},
@@ -1708,6 +1796,9 @@ export const providers: ProviderDefinition[] = [
 		termsUrl: "https://platform.xiaomimimo.com/docs/terms/user-agreement",
 		privacyPolicyUrl:
 			"https://platform.xiaomimimo.com/docs/terms/privacy-policy",
+		usagePolicyUrl:
+			"https://static.account.xiaomi.com/html/agreement/user/en_US.html",
+		legalEntity: "Xiaomi Technologies Singapore Pte. Ltd.",
 		headquarters: "CN",
 		dataPolicy: {
 			apiTraining: false,
@@ -1737,6 +1828,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://deepinfra.com/terms",
 		privacyPolicyUrl: "https://deepinfra.com/privacy",
+		usagePolicyUrl: "https://deepinfra.com/terms",
+		legalEntity: "Deep Infra Inc.",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -1768,6 +1861,9 @@ export const providers: ProviderDefinition[] = [
 			"https://help.reve.com/hc/en-us/articles/46731550696468-Terms-of-service",
 		privacyPolicyUrl:
 			"https://help.reve.com/hc/en-us/articles/46731763484692-Privacy-policy",
+		usagePolicyUrl:
+			"https://help.reve.com/hc/en-us/articles/46731490142484-Usage-policy",
+		legalEntity: "Reve AI, Inc.",
 		headquarters: "US",
 		dataPolicy: null,
 	},
@@ -1793,6 +1889,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://elevenlabs.io/terms-of-use",
 		privacyPolicyUrl: "https://elevenlabs.io/privacy-policy",
+		usagePolicyUrl: "https://elevenlabs.io/use-policy",
+		legalEntity: "Eleven Labs Inc.",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -1825,6 +1923,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: "Launch offer: 30% off all Runware models until September 9",
 		termsUrl: "https://runware.ai/terms",
 		privacyPolicyUrl: "https://runware.ai/privacy",
+		usagePolicyUrl: "https://runware.ai/terms",
+		legalEntity: "Runware Ltd",
 		headquarters: "GB",
 		dataPolicy: {
 			apiTraining: false,
@@ -1849,9 +1949,11 @@ export const providers: ProviderDefinition[] = [
 		website: "https://gonka24.com",
 		statusPageUrl: null,
 		announcement: null,
-		termsUrl: null,
-		privacyPolicyUrl: null,
-		headquarters: null,
+		termsUrl: "https://gonka24.com/terms",
+		privacyPolicyUrl: "https://gonka24.com/privacy",
+		usagePolicyUrl: "https://gonka24.com/terms",
+		legalEntity: "Investment company Temir LLC",
+		headquarters: "KZ",
 		dataPolicy: null,
 	},
 	{
@@ -1885,6 +1987,9 @@ export const providers: ProviderDefinition[] = [
 		],
 		termsUrl: "https://fireworks.ai/terms-of-service",
 		privacyPolicyUrl: "https://fireworks.ai/privacy-policy",
+		usagePolicyUrl:
+			"https://cdn.sanity.io/files/pv37i0yn/production/60909f1a2f0cae74deb6ba7fc0f6eda8ab3bac4b.pdf",
+		legalEntity: "Fireworks AI, Inc.",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -1914,6 +2019,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://ranoai.com/terms",
 		privacyPolicyUrl: "https://ranoai.com/privacy",
+		usagePolicyUrl: "https://ranoai.com/terms",
+		legalEntity: "Always With You, LLC",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -1940,6 +2047,8 @@ export const providers: ProviderDefinition[] = [
 		announcement: null,
 		termsUrl: "https://consensusprotocol.org/terms",
 		privacyPolicyUrl: "https://consensusprotocol.org/privacy",
+		usagePolicyUrl: "https://consensusprotocol.org/terms",
+		legalEntity: "Consensus Protocol LLC",
 		headquarters: "US",
 		dataPolicy: {
 			apiTraining: false,
@@ -2347,6 +2456,7 @@ export const PROVIDER_COUNTRY_NAMES: Record<string, string> = {
 	NL: "Netherlands",
 	FR: "France",
 	JP: "Japan",
+	KZ: "Kazakhstan",
 	AU: "Australia",
 	GB: "United Kingdom",
 };

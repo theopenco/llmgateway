@@ -225,8 +225,9 @@ export default function BillingClient({
 				posthog.capture("dev_plan_cancelled");
 			}
 			toast.success("Subscription cancelled", {
-				description:
-					"Your plan will remain active until the end of your billing period.",
+				description: renewWhen
+					? `Your plan will remain active until ${renewWhen}.`
+					: "Your plan will remain active until the end of your billing period.",
 			});
 		} catch {
 			toast.error("Failed to cancel subscription");
@@ -341,7 +342,7 @@ export default function BillingClient({
 				})()
 			: null;
 	const renewWhen = renewAt
-		? formatDateTime(renewAt, displayTimeZone, "monthDayYear")
+		? formatDateTime(renewAt, displayTimeZone, "monthDayYearHourMinuteZone")
 		: null;
 
 	const renewalHint = !renewAt
@@ -445,9 +446,9 @@ export default function BillingClient({
 								<AlertDialogHeader>
 									<AlertDialogTitle>Cancel your Dev Plan?</AlertDialogTitle>
 									<AlertDialogDescription>
-										Your plan stays active until the end of the current billing
-										period. You won&apos;t be charged again, and you can resume
-										any time before then.
+										{renewWhen
+											? `Your plan stays active until ${renewWhen}. You won't be charged again, and you can resume any time before then.`
+											: "Your plan stays active until the end of the current billing period. You won't be charged again, and you can resume any time before then."}
 									</AlertDialogDescription>
 								</AlertDialogHeader>
 								<AlertDialogFooter>
