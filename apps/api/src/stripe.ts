@@ -3697,6 +3697,15 @@ async function handleSetupIntentSucceeded(
 // leaves between drafting and charging renewal invoices.
 const STALE_RENEWAL_TOLERANCE_MS = 60_000;
 
+// Subscription statuses that mean Stripe has not collected the invoice. Kept in
+// one place so every handler that decides `subscriptionPaymentStatus` agrees.
+const PAYMENT_FAILURE_STATUSES: Stripe.Subscription.Status[] = [
+	"past_due",
+	"unpaid",
+	"incomplete",
+	"incomplete_expired",
+];
+
 export async function handleInvoicePaymentSucceeded(event: {
 	data: { object: Stripe.Invoice };
 }) {
@@ -3990,32 +3999,38 @@ export async function handleInvoicePaymentSucceeded(event: {
 			organization.chatPlan as ChatPlanTier,
 		);
 
-		const [renewalTransaction] = await db
-			.insert(tables.transaction)
-			.values({
-				organizationId,
-				type: "chat_plan_renewal",
-				amount: (invoice.amount_paid / 100).toString(),
-				creditAmount: creditsLimit.toString(),
-				currency: invoice.currency.toUpperCase(),
-				status: "completed",
-				stripePaymentIntentId: (invoice as any).payment_intent,
-				stripeInvoiceId: invoice.id,
-				description: `Lounge ${organization.chatPlan?.toUpperCase()} membership renewed`,
-			})
-			.returning();
+		// Marker and state applied together — see the dev plan renewal above for
+		// why a committed marker without the state update is unrecoverable.
+		const renewalTransaction = await db.transaction(async (tx) => {
+			const [created] = await tx
+				.insert(tables.transaction)
+				.values({
+					organizationId,
+					type: "chat_plan_renewal",
+					amount: (invoice.amount_paid / 100).toString(),
+					creditAmount: creditsLimit.toString(),
+					currency: invoice.currency.toUpperCase(),
+					status: "completed",
+					stripePaymentIntentId: (invoice as any).payment_intent,
+					stripeInvoiceId: invoice.id,
+					description: `Lounge ${organization.chatPlan?.toUpperCase()} membership renewed`,
+				})
+				.returning();
 
-		await db
-			.update(tables.organization)
-			.set({
-				chatPlanCreditsLimit: creditsLimit.toString(),
-				chatPlanCreditsUsed: "0",
-				chatPlanBillingCycleStart: new Date(),
-				chatPlanExpiresAt: renewedPeriodEnd ?? undefined,
-				chatPlanCancelled: false,
-				subscriptionPaymentStatus: "current",
-			})
-			.where(eq(tables.organization.id, organizationId));
+			await tx
+				.update(tables.organization)
+				.set({
+					chatPlanCreditsLimit: creditsLimit.toString(),
+					chatPlanCreditsUsed: "0",
+					chatPlanBillingCycleStart: new Date(),
+					chatPlanExpiresAt: renewedPeriodEnd ?? undefined,
+					chatPlanCancelled: false,
+					subscriptionPaymentStatus: "current",
+				})
+				.where(eq(tables.organization.id, organizationId));
+
+			return created;
+		});
 
 		logger.info(
 			`Chat plan ${organization.chatPlan} renewed for organization ${organizationId}, credits reset to 0/${creditsLimit}`,
@@ -4133,21 +4148,59 @@ export async function handleInvoicePaymentSucceeded(event: {
 		}
 		const creditsLimit = getDevPlanCreditsLimit(effectiveTier);
 
-		// Create transaction record for dev plan renewal
-		const [renewalTransaction] = await db
-			.insert(tables.transaction)
-			.values({
-				organizationId,
-				type: "dev_plan_renewal",
-				amount: (invoice.amount_paid / 100).toString(),
-				creditAmount: creditsLimit.toString(),
-				currency: invoice.currency.toUpperCase(),
-				status: "completed",
-				stripePaymentIntentId: (invoice as any).payment_intent,
-				stripeInvoiceId: invoice.id,
-				description: `Dev Plan ${effectiveTier.toUpperCase()} renewed`,
-			})
-			.returning();
+		// Record the renewal and apply it in one transaction. The invoice-id marker
+		// makes `handleInvoicePaymentSucceeded` return early on a Stripe retry, so
+		// committing the marker without the state update would strand the org
+		// `past_due` with frozen credits and a stale expiry, permanently — the
+		// `subscription.updated` recovery that used to unstick it is gone.
+		const renewalTransaction = await db.transaction(async (tx) => {
+			const [created] = await tx
+				.insert(tables.transaction)
+				.values({
+					organizationId,
+					type: "dev_plan_renewal",
+					amount: (invoice.amount_paid / 100).toString(),
+					creditAmount: creditsLimit.toString(),
+					currency: invoice.currency.toUpperCase(),
+					status: "completed",
+					stripePaymentIntentId: (invoice as any).payment_intent,
+					stripeInvoiceId: invoice.id,
+					description: `Dev Plan ${effectiveTier.toUpperCase()} renewed`,
+				})
+				.returning();
+
+			// Reset credits used and update billing cycle start. Also reset the
+			// limit to the full tier allotment: mid-cycle upgrades leave the limit
+			// above it (unused-credit rollover), and that rollover only lasts until
+			// this renewal. Persist the effective tier; a pending change is cleared
+			// when this renewal applied it, and kept when the invoice billed the old
+			// tier (it applies at the next renewal instead). Clear any dunning
+			// freeze state since the limit is now authoritative again.
+			await tx
+				.update(tables.organization)
+				.set({
+					devPlan: effectiveTier,
+					devPlanPendingTier: remainingPendingTier,
+					devPlanCreditsLimit: creditsLimit.toString(),
+					devPlanCreditsUsed: "0",
+					devPlanPremiumCreditsUsed: "0",
+					devPlanPremiumWeekStart: new Date(),
+					devPlanIncludedResetPassesUsed: 0,
+					devPlanCreditsFrozen: false,
+					devPlanCreditsLimitBeforeFreeze: null,
+					devPlanBillingCycleStart: new Date(),
+					devPlanExpiresAt: renewedPeriodEnd ?? undefined,
+					devPlanCancelled: false,
+					subscriptionPaymentStatus: "current",
+				})
+				.where(eq(tables.organization.id, organizationId));
+
+			return created;
+		});
+
+		logger.info(
+			`Dev plan ${effectiveTier} renewed for organization ${organizationId}, credits reset to 0/${creditsLimit}`,
+		);
 
 		try {
 			const billingDetails = await resolveDevPassBillingDetails(organization);
@@ -4171,36 +4224,6 @@ export async function handleInvoicePaymentSucceeded(event: {
 				e as Error,
 			);
 		}
-
-		// Reset credits used and update billing cycle start. Also reset the
-		// limit to the full tier allotment: mid-cycle upgrades leave the limit
-		// above it (unused-credit rollover), and that rollover only lasts until
-		// this renewal. Persist the effective tier; a pending change is cleared
-		// when this renewal applied it, and kept when the invoice billed the old
-		// tier (it applies at the next renewal instead). Clear any dunning freeze
-		// state since the limit is now authoritative again.
-		await db
-			.update(tables.organization)
-			.set({
-				devPlan: effectiveTier,
-				devPlanPendingTier: remainingPendingTier,
-				devPlanCreditsLimit: creditsLimit.toString(),
-				devPlanCreditsUsed: "0",
-				devPlanPremiumCreditsUsed: "0",
-				devPlanPremiumWeekStart: new Date(),
-				devPlanIncludedResetPassesUsed: 0,
-				devPlanCreditsFrozen: false,
-				devPlanCreditsLimitBeforeFreeze: null,
-				devPlanBillingCycleStart: new Date(),
-				devPlanExpiresAt: renewedPeriodEnd ?? undefined,
-				devPlanCancelled: false,
-				subscriptionPaymentStatus: "current",
-			})
-			.where(eq(tables.organization.id, organizationId));
-
-		logger.info(
-			`Dev plan ${effectiveTier} renewed for organization ${organizationId}, credits reset to 0/${creditsLimit}`,
-		);
 
 		// Track dev plan renewal in PostHog
 		posthog.capture({
@@ -4464,6 +4487,20 @@ export async function handleInvoicePaymentSucceeded(event: {
 		logger.warn(
 			`Skipping plan: "pro" for ${organization.kind} org ${organizationId} (invoice ${invoice.id}) - non-default orgs use product-specific plan fields`,
 		);
+	} else if (
+		organization.stripeSubscriptionId &&
+		organization.stripeSubscriptionId !== subscriptionId
+	) {
+		// A superseded Pro subscription can still deliver a paid invoice, and org
+		// resolution finds the org by customer/metadata regardless. Writing here
+		// would move the active subscription's paid-through date back to the stale
+		// invoice's period and mark it current. Mirrors the id checks the dev and
+		// chat branches already apply. A *new* subscription whose first invoice
+		// beats its `checkout.session.completed` still passes: the id is null then,
+		// and the checkout handler owns that first invoice either way.
+		logger.warn(
+			`Skipping stale Pro subscription invoice ${invoice.id} for organization ${organizationId}: invoice subscription ${subscriptionId} is not the active subscription ${organization.stripeSubscriptionId}`,
+		);
 	} else {
 		// Handle regular pro subscription
 		// Create transaction record for subscription start
@@ -4690,13 +4727,7 @@ async function handleInvoicePaymentFailed(
 		return;
 	}
 
-	const failureStatuses: Stripe.Subscription.Status[] = [
-		"past_due",
-		"unpaid",
-		"incomplete",
-		"incomplete_expired",
-	];
-	if (!failureStatuses.includes(liveSubscription.status)) {
+	if (!PAYMENT_FAILURE_STATUSES.includes(liveSubscription.status)) {
 		logger.info(
 			`Skipping freeze for organization ${organizationId}: subscription ${subscriptionId} is ${liveSubscription.status} (invoice ${invoice.id})`,
 		);
@@ -4796,19 +4827,13 @@ export async function handleSubscriptionUpdated(
 
 	// Check if subscription is active and organization was previously cancelled
 	const isSubscriptionActive = !cancelAtPeriodEnd;
-	const paymentFailedStatuses: Stripe.Subscription.Status[] = [
-		"past_due",
-		"unpaid",
-		"incomplete",
-		"incomplete_expired",
-	];
 	let confirmedPaymentFailure = false;
-	if (paymentFailedStatuses.includes(subscription.status)) {
+	if (PAYMENT_FAILURE_STATUSES.includes(subscription.status)) {
 		try {
 			const liveSubscription = await getStripe().subscriptions.retrieve(
 				subscription.id,
 			);
-			confirmedPaymentFailure = paymentFailedStatuses.includes(
+			confirmedPaymentFailure = PAYMENT_FAILURE_STATUSES.includes(
 				liveSubscription.status,
 			);
 		} catch (error) {
@@ -5328,7 +5353,7 @@ export async function handleSubscriptionDeleted(
 	}
 }
 
-async function handleSubscriptionCreated(
+export async function handleSubscriptionCreated(
 	event: Stripe.CustomerSubscriptionCreatedEvent,
 ) {
 	const subscription = event.data.object;
@@ -5378,7 +5403,17 @@ async function handleSubscriptionCreated(
 				plan: "pro",
 				stripeSubscriptionId: subscription.id,
 				subscriptionCancelled: false,
-				subscriptionPaymentStatus: "current",
+				// Derive rather than assume "current": a subscription can be created
+				// `incomplete`/`past_due`, and an `invoice.payment_failed` that raced
+				// ahead of this handler was skipped by its active-subscription guard
+				// (stripeSubscriptionId was not set yet), so nothing else would mark
+				// it. Clearing unconditionally would show a failed Pro subscription as
+				// healthy indefinitely.
+				subscriptionPaymentStatus: PAYMENT_FAILURE_STATUSES.includes(
+					subscription.status,
+				)
+					? "past_due"
+					: "current",
 			})
 			.where(eq(tables.organization.id, organizationId))
 			.returning();

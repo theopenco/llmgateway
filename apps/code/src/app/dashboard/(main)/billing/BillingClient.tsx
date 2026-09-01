@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useRerenderAt } from "@/hooks/useRerenderAt";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 import { useStripe } from "@/lib/stripe";
@@ -60,6 +61,32 @@ interface BillingClientProps {
 	initialPaymentMethod?: PaymentMethod | null;
 }
 
+/**
+ * The plan's next renewal instant. Prefers Stripe's real `current_period_end`;
+ * only falls back to projecting a cycle from `billingCycleStart` for legacy
+ * rows missing the recorded end. The projection diverges from the actual
+ * billing schedule after a mid-cycle proration upgrade (the anchor is
+ * preserved, the cycle start is not).
+ */
+function resolveRenewAt(status: DevPlanStatus | null | undefined): Date | null {
+	if (!status) {
+		return null;
+	}
+	if (status.devPlanExpiresAt) {
+		return new Date(status.devPlanExpiresAt);
+	}
+	if (!status.devPlanBillingCycleStart) {
+		return null;
+	}
+	const projected = new Date(status.devPlanBillingCycleStart);
+	if ((status.devPlanCycle ?? "monthly") === "annual") {
+		projected.setFullYear(projected.getFullYear() + 1);
+	} else {
+		projected.setMonth(projected.getMonth() + 1);
+	}
+	return projected;
+}
+
 export default function BillingClient({
 	initialDevPlanStatus,
 	initialPaymentMethod,
@@ -73,6 +100,13 @@ export default function BillingClient({
 	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 
 	const { data: devPlanStatus } = useDevPlanStatus(initialDevPlanStatus);
+
+	// Resolved up here, above the early returns below, so the boundary timer is
+	// an unconditional hook call. `renewalProcessing` is clock-derived and the
+	// status poll keeps returning the same row until the paid invoice advances
+	// it, so nothing else would re-render the hint when the moment passes.
+	const renewAt = resolveRenewAt(devPlanStatus);
+	useRerenderAt(renewAt);
 
 	const invalidateInvoices = () =>
 		queryClient.invalidateQueries({
@@ -321,27 +355,8 @@ export default function BillingClient({
 	const showPendingChange = pendingTier !== null && !cancelled;
 	const pendingIsUpgrade =
 		(pendingPlanData?.price ?? 0) > (currentPlanData?.price ?? 0);
-	const billingCycleStart = devPlanStatus.devPlanBillingCycleStart ?? null;
-	const currentPeriodEnd = devPlanStatus.devPlanExpiresAt ?? null;
 	const paymentPastDue = devPlanStatus.subscriptionPaymentStatus === "past_due";
 
-	// Prefer Stripe's real `current_period_end`; only fall back to projecting a
-	// cycle from `billingCycleStart` for legacy rows missing the recorded end.
-	// The projection diverges from the actual schedule after a mid-cycle
-	// proration upgrade (the anchor is preserved, the cycle start is not).
-	const renewAt = currentPeriodEnd
-		? new Date(currentPeriodEnd)
-		: billingCycleStart
-			? (() => {
-					const d = new Date(billingCycleStart);
-					if (cycle === "annual") {
-						d.setFullYear(d.getFullYear() + 1);
-					} else {
-						d.setMonth(d.getMonth() + 1);
-					}
-					return d;
-				})()
-			: null;
 	// Plan lifecycle moments are rendered to the minute with the zone name:
 	// "when exactly does my plan stop working" is a support question a bare
 	// date can't answer, and the zone suffix makes clear whose clock it is.

@@ -8,6 +8,7 @@ import {
 	handleChargeRefunded,
 	handleInvoicePaymentSucceeded,
 	handlePaymentIntentFailed,
+	handleSubscriptionCreated,
 	handleSubscriptionDeleted,
 	handleSubscriptionUpdated,
 	stripeRoutes,
@@ -1120,6 +1121,156 @@ describe("handleInvoicePaymentSucceeded — initial chat plan invoice", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.plan).toBe("free");
+	});
+});
+
+function makeCreatedEvent(
+	status: Stripe.Subscription.Status,
+): Stripe.CustomerSubscriptionCreatedEvent {
+	return {
+		id: "evt_test_created",
+		type: "customer.subscription.created",
+		data: {
+			object: {
+				id: SUB_ID,
+				customer: "cus_test_created",
+				status,
+				metadata: { organizationId: ORG_ID },
+				items: { data: [] },
+			},
+		},
+	} as unknown as Stripe.CustomerSubscriptionCreatedEvent;
+}
+
+describe("handleSubscriptionCreated — Pro payment state", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		sendEmailMock.mockClear();
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	async function seedFreeOrg() {
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			plan: "free",
+		});
+	}
+
+	test("records an incomplete subscription as past due", async () => {
+		// An invoice.payment_failed that raced ahead of this handler was skipped
+		// by its active-subscription guard, so clearing unconditionally here would
+		// leave a failed subscription showing as healthy indefinitely.
+		await seedFreeOrg();
+
+		await handleSubscriptionCreated(makeCreatedEvent("incomplete"));
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.plan).toBe("pro");
+		expect(org?.subscriptionPaymentStatus).toBe("past_due");
+	});
+
+	test("records an active subscription as current", async () => {
+		await seedFreeOrg();
+
+		await handleSubscriptionCreated(makeCreatedEvent("active"));
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.plan).toBe("pro");
+		expect(org?.subscriptionPaymentStatus).toBe("current");
+	});
+});
+
+describe("handleInvoicePaymentSucceeded — superseded Pro subscription", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		sendEmailMock.mockClear();
+		stripeMock.subscriptions.retrieve.mockReset();
+	});
+
+	afterEach(async () => {
+		await db.delete(tables.transaction);
+		await deleteAll();
+	});
+
+	test("ignores a paid invoice from a superseded Pro subscription", async () => {
+		// Org resolution finds the org by customer/metadata regardless of which
+		// subscription billed, so without an id check a stale invoice would drag
+		// the active subscription's paid-through date backwards.
+		const activeThrough = new Date(Date.now() + SECONDS_IN_TWO_WEEKS * 1000);
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUB_ID,
+			metadata: {},
+		});
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			plan: "pro",
+			stripeSubscriptionId: "sub_active_pro",
+			planExpiresAt: activeThrough,
+			subscriptionPaymentStatus: "past_due",
+		});
+
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 5000,
+				invoiceId: "in_stale_pro",
+				periodEnd: Math.floor(Date.now() / 1000) - SECONDS_IN_TWO_WEEKS,
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.planExpiresAt?.getTime()).toBe(activeThrough.getTime());
+		expect(org?.subscriptionPaymentStatus).toBe("past_due");
+
+		const txns = await db.query.transaction.findMany({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(txns).toHaveLength(0);
+	});
+
+	test("still applies an invoice for the active Pro subscription", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			id: SUB_ID,
+			metadata: {},
+		});
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			plan: "pro",
+			stripeSubscriptionId: SUB_ID,
+			subscriptionPaymentStatus: "past_due",
+		});
+
+		const periodEnd = Math.floor(Date.now() / 1000) + SECONDS_IN_TWO_WEEKS;
+		await handleInvoicePaymentSucceeded(
+			makeInvoiceEvent({
+				billingReason: "subscription_cycle",
+				amountPaid: 5000,
+				invoiceId: "in_active_pro",
+				periodEnd,
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.planExpiresAt?.getTime()).toBe(periodEnd * 1000);
+		expect(org?.subscriptionPaymentStatus).toBe("current");
 	});
 });
 

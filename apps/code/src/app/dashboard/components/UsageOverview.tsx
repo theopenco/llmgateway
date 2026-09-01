@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
+import { useRerenderAt } from "@/hooks/useRerenderAt";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
@@ -331,6 +332,9 @@ export default function UsageOverview({
 				})()
 			: null;
 
+	// Clock-derived, so flip it on a timer — see the billing page for why the
+	// status poll alone doesn't re-render this.
+	useRerenderAt(renewAt);
 	const renewalProcessing =
 		!cancelledAtPeriodEnd && renewAt !== null && renewAt <= new Date();
 	// Same wording and precision as the billing page's renewal hint, so the two
