@@ -1730,6 +1730,13 @@
       "when": 1788269562203,
       "tag": "1788269562_careless_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 247,
+      "version": "8",
+      "when": 1788283666207,
+      "tag": "1788283666_minor_bruce_banner",
+      "breakpoints": true
     }
   ]
 }
