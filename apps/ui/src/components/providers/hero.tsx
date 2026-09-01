@@ -21,12 +21,22 @@ import {
 	type ProviderId,
 } from "@llmgateway/models";
 import {
+	CarrierMark,
 	providerLogoUrls,
 	RunwareWordmarkIcon,
 } from "@llmgateway/shared/components";
 
 interface HeroProps {
+	/** Carrier-uploaded logo (Airside claim); wins over the built-in mark. */
+	uploadedLogo?: string;
 	providerId: ProviderId;
+	/** DB-only providers (custom Airside carriers): the static catalogue has
+	 *  no entry, so the page supplies the display fields itself. */
+	dynamicProvider?: {
+		name: string;
+		description: string | null;
+		website?: string | null;
+	};
 }
 
 function DataPolicyBadge({
@@ -65,9 +75,23 @@ function DataPolicyBadge({
 	);
 }
 
-export function Hero({ providerId }: HeroProps) {
+export function Hero({ providerId, uploadedLogo, dynamicProvider }: HeroProps) {
 	const config = getConfig();
-	const provider = providerDefinitions.find((p) => p.id === providerId)!;
+	const staticProvider = providerDefinitions.find((p) => p.id === providerId);
+	const provider = staticProvider ?? {
+		id: providerId,
+		name: dynamicProvider?.name ?? providerId,
+		description: dynamicProvider?.description ?? "",
+		website: dynamicProvider?.website ?? null,
+		announcement: null,
+		statusPageUrl: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		headquarters: undefined,
+		forwardsSafetyIdentifier: false,
+		dataPolicy: undefined,
+		additionalLinks: undefined,
+	};
 	const referenceLinks = [
 		provider.statusPageUrl
 			? { label: "Status Page", href: provider.statusPageUrl }
@@ -81,6 +105,16 @@ export function Hero({ providerId }: HeroProps) {
 	].filter((link): link is { label: string; href: string } => link !== null);
 
 	const getProviderIcon = (providerId: ProviderId) => {
+		if (uploadedLogo) {
+			// Wide wordmarks keep their aspect ratio; monochrome marks follow
+			// currentColor so they work in both themes.
+			return (
+				<CarrierMark
+					src={uploadedLogo}
+					className="h-24 w-full object-contain"
+				/>
+			);
+		}
 		// Runware's brand asset is a wide wordmark, so give it the full slot
 		// width instead of the square icon treatment.
 		if (providerId === "runware") {
@@ -134,14 +168,16 @@ export function Hero({ providerId }: HeroProps) {
 								Try in Lounge
 							</a>
 						</Button>
-						<Button variant="ghost" asChild>
-							<a
-								href={`${provider.website}?utm_source=llmgateway-models`}
-								target="_blank"
-							>
-								Visit company
-							</a>
-						</Button>
+						{provider.website ? (
+							<Button variant="ghost" asChild>
+								<a
+									href={`${provider.website}?utm_source=llmgateway-models`}
+									target="_blank"
+								>
+									Visit company
+								</a>
+							</Button>
+						) : null}
 					</div>
 
 					<div className="mt-8 rounded-lg border bg-card p-4">
@@ -293,7 +329,9 @@ export function Hero({ providerId }: HeroProps) {
 					<div
 						className={cn(
 							"relative top-10",
-							providerId === "runware"
+							// Wide wordmarks (Runware's asset, carrier uploads) get the
+							// full slot width instead of the square icon treatment.
+							providerId === "runware" || uploadedLogo
 								? "flex h-24 w-56 items-center sm:w-64"
 								: "h-24 w-24",
 						)}

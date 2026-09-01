@@ -621,6 +621,47 @@ export async function notifyProviderContact(args: {
 	);
 }
 
+/**
+ * A carrier asking to be added to its shared channel with our crew. Lands in
+ * the provider-request channel so whoever handles listings can send the
+ * invite to the address the carrier verified.
+ */
+export async function notifyAirsideCrewInvite(args: {
+	companyName: string;
+	email: string;
+	website?: string | null;
+	carriers: string[];
+}): Promise<void> {
+	const { companyName, email, website, carriers } = args;
+
+	await sendDiscordNotification(
+		{
+			content: "\u{1F6E9}\uFE0F Airside carrier wants a crew channel invite.",
+			embeds: [
+				{
+					title: "Airside Crew Invite Request",
+					color: 0xf5a623, // Airside amber
+					fields: [
+						{ name: "Company", value: companyName, inline: true },
+						{ name: "Invite", value: email, inline: true },
+						...(website
+							? [{ name: "Website", value: website, inline: false }]
+							: []),
+						{
+							name: "Carriers",
+							value: carriers.length > 0 ? carriers.join("\n") : "None yet",
+							inline: false,
+						},
+					],
+					timestamp: new Date().toISOString(),
+				},
+			],
+		},
+		process.env.DISCORD_ENTERPRISE_NOTIFICATION_URL ??
+			process.env.DISCORD_NOTIFICATION_URL,
+	);
+}
+
 export async function notifyDevPlanRenewed(
 	email: string,
 	name: string | null | undefined,

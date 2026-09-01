@@ -89,8 +89,11 @@ const API_URL =
 
 export const fetchModels = cache(async (): Promise<ApiModel[]> => {
 	try {
+		// The models payload exceeds Next's 2MB fetch-cache entry limit, so a
+		// revalidate cache can never refresh — a stale disk entry would be
+		// served forever. Fetch fresh; React cache() still dedupes per render.
 		const response = await fetch(`${API_URL}/internal/models`, {
-			next: { revalidate: 60 },
+			cache: "no-store",
 		});
 		if (!response.ok) {
 			console.error("Failed to fetch models:", response.statusText);
@@ -107,7 +110,7 @@ export const fetchModels = cache(async (): Promise<ApiModel[]> => {
 export const fetchProviders = cache(async (): Promise<ApiProvider[]> => {
 	try {
 		const response = await fetch(`${API_URL}/internal/providers`, {
-			next: { revalidate: 60 },
+			cache: "no-store",
 		});
 		if (!response.ok) {
 			console.error("Failed to fetch providers:", response.statusText);

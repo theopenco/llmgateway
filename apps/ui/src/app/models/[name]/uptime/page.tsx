@@ -12,6 +12,7 @@ import { notFound } from "next/navigation";
 
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
+import { findDynamicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
 import {
 	Card,
@@ -46,9 +47,11 @@ export default async function ModelUptimePage({ params }: PageProps) {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
 
-	const modelDef = modelDefinitions.find(
-		(m) => m.id === decodedName,
-	) as ModelDefinition;
+	// Static catalogue first; Airside listings resolve via the API fallback.
+	const modelDef =
+		(modelDefinitions.find((m) => m.id === decodedName) as
+			ModelDefinition | undefined) ??
+		(await findDynamicModelDefinition(decodedName));
 
 	if (!modelDef) {
 		notFound();
@@ -371,8 +374,10 @@ export async function generateMetadata({
 }: PageProps): Promise<Metadata> {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
-	const model = modelDefinitions.find((m) => m.id === decodedName) as
-		ModelDefinition | undefined;
+	const model =
+		(modelDefinitions.find((m) => m.id === decodedName) as
+			ModelDefinition | undefined) ??
+		(await findDynamicModelDefinition(decodedName));
 
 	if (!model) {
 		return {};

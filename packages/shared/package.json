@@ -35,6 +35,11 @@
 			"import": "./dist/components/index.js",
 			"default": "./dist/components/index.js"
 		},
+		"./carrier-mark": {
+			"types": "./dist/components/carrier-mark.d.ts",
+			"import": "./dist/components/carrier-mark.js",
+			"default": "./dist/components/carrier-mark.js"
+		},
 		"./email": {
 			"types": "./dist/email.d.ts",
 			"import": "./dist/email.js",

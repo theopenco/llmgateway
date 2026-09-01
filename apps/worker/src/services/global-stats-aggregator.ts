@@ -18,6 +18,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	formatUTCTimestamp,
 	getBaseAggregationFields,
+	providerMarginAmountField,
 } from "./project-stats-aggregator.js";
 
 export const GLOBAL_STATS_INTERVAL_SECONDS =
@@ -109,13 +110,13 @@ function toSnakeCase(s: string): string {
 // Build the SET clause for an ADD-style upsert: each metric column becomes
 // `col = "table"."col" + excluded.col`, so each hour's aggregated values
 // accumulate into the daily totals.
-function buildAddUpsertSet(table: AnyTable) {
+function buildAddUpsertSet(table: AnyTable, extraKeys: string[] = []) {
 	const cols = getTableColumns(table) as Record<
 		string,
 		{ name: string } & object
 	>;
 	const set: Record<string, ReturnType<typeof sql>> = {};
-	for (const key of AGGREGATE_KEYS) {
+	for (const key of [...AGGREGATE_KEYS, ...extraKeys]) {
 		const col = cols[key];
 		const snakeName = toSnakeCase(key);
 		set[key] = sql`${col} + excluded.${sql.identifier(snakeName)}`;
@@ -123,7 +124,10 @@ function buildAddUpsertSet(table: AnyTable) {
 	return set;
 }
 
-const MODEL_ADD_SET = buildAddUpsertSet(globalModelStats);
+// Only the model table carries the provider-keyed margin column.
+const MODEL_ADD_SET = buildAddUpsertSet(globalModelStats, [
+	"providerMarginAmount",
+]);
 const SOURCE_ADD_SET = buildAddUpsertSet(globalSourceStats);
 
 // Snap to the nearest bucket boundary at or below `d`. Works in UTC because
@@ -170,6 +174,7 @@ export async function aggregateWindowIntoStats(
 			usedMode: log.usedMode,
 			orgKind: ORG_KIND_EXPR,
 			...getBaseAggregationFields(),
+			providerMarginAmount: providerMarginAmountField(),
 		})
 		.from(log)
 		// LEFT, not INNER: log.organizationId has no foreign key, so an inner

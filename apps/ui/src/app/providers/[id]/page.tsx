@@ -7,7 +7,7 @@ import { Hero } from "@/components/providers/hero";
 import { ProviderModelsGrid } from "@/components/providers/provider-models-grid";
 import { ProviderStatsRow } from "@/components/providers/provider-stats-row";
 import { JsonLd } from "@/components/seo/json-ld";
-import { fetchModels } from "@/lib/fetch-models";
+import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 
 import {
 	models as modelDefinitions,
@@ -36,14 +36,76 @@ interface ProviderPageProps {
 	params: Promise<{ id: string }>;
 }
 
+/**
+ * Fallback for providers that exist only in the DB catalogue (custom Airside
+ * carriers): the static definitions know nothing about them, so the page is
+ * built from the API's provider + model data instead of 404ing.
+ */
+async function renderDynamicProviderPage(id: string) {
+	const [apiProviders, apiModels] = await Promise.all([
+		fetchProviders().catch(() => []),
+		fetchModels().catch(() => []),
+	]);
+	const apiProvider = apiProviders.find((p) => p.id === id);
+	if (!apiProvider) {
+		return null;
+	}
+	const providerModels: ModelWithProviders[] = apiModels
+		.filter((model) =>
+			model.mappings.some(
+				(mapping) => mapping.providerId === id && mapping.status === "active",
+			),
+		)
+		.map((model) => ({
+			...model,
+			providerDetails: model.mappings
+				.filter((mapping) => mapping.providerId === id)
+				.map((mapping) => ({ provider: mapping, providerInfo: apiProvider })),
+		}));
+	const uploadedLogo = apiProvider.airsideLogoUrl ?? undefined;
+	const description =
+		apiProvider.description && apiProvider.description !== "(empty)"
+			? apiProvider.description
+			: null;
+
+	return (
+		<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white">
+			<main>
+				<Navbar />
+				<Hero
+					providerId={id as (typeof providerDefinitions)[number]["id"]}
+					uploadedLogo={uploadedLogo}
+					dynamicProvider={{ name: apiProvider.name ?? id, description }}
+				/>
+				<ProviderStatsRow providerId={id} />
+				<section className="py-12 bg-background">
+					<div className="container mx-auto px-4">
+						<h2 className="text-3xl font-bold mb-8">Available Models</h2>
+						<ProviderModelsGrid models={providerModels} />
+					</div>
+				</section>
+			</main>
+			<Footer />
+		</div>
+	);
+}
+
 export default async function ProviderPage({ params }: ProviderPageProps) {
 	const { id } = await params;
 
 	const provider = providerDefinitions.find((p) => p.id === id);
 
 	if (!provider || provider.name === "LLM Gateway") {
+		const dynamicPage = await renderDynamicProviderPage(id);
+		if (dynamicPage) {
+			return dynamicPage;
+		}
 		notFound();
 	}
+
+	const apiProviders = await fetchProviders().catch(() => []);
+	const uploadedLogo =
+		apiProviders.find((p) => p.id === id)?.airsideLogoUrl ?? undefined;
 
 	const apiModels = await fetchModels();
 	const discountByModelId = new Map<string, string>();
@@ -190,7 +252,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 			<JsonLd data={[organizationSchema, itemListSchema, breadcrumbSchema]} />
 			<main>
 				<Navbar />
-				<Hero providerId={provider.id} />
+				<Hero providerId={provider.id} uploadedLogo={uploadedLogo} />
 
 				<ProviderStatsRow providerId={provider.id} />
 
@@ -222,7 +284,19 @@ export async function generateMetadata({
 	const provider = providerDefinitions.find((p) => p.id === id);
 
 	if (!provider || provider.name === "LLM Gateway") {
-		return {};
+		const apiProvider = (await fetchProviders().catch(() => [])).find(
+			(p) => p.id === id,
+		);
+		if (!apiProvider) {
+			return {};
+		}
+		return {
+			title: `${apiProvider.name} API — Models & Pricing`,
+			alternates: { canonical: `/providers/${id}` },
+			// The segment's OG card only prerenders static providers
+			// (dynamicParams=false); advertise the site card instead of a 404.
+			openGraph: { images: ["/opengraph.png"] },
+		};
 	}
 
 	const modelCount = (modelDefinitions as readonly ModelDefinition[]).filter(

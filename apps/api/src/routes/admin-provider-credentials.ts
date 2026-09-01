@@ -243,9 +243,22 @@ async function validateConfig(
 	// reason. Allowing it here would advertise `custom` as credits-routable off
 	// a row that can never serve a request.
 	if (provider === "custom" || !providers.some((p) => p.id === provider)) {
-		throw new HTTPException(400, {
-			message: `Unknown provider: ${provider}`,
-		});
+		const carrier =
+			provider === "custom" ? null : await findActiveCustomCarrier(provider);
+		if (!carrier) {
+			throw new HTTPException(400, {
+				message: `Unknown provider: ${provider}`,
+			});
+		}
+		// A custom Airside carrier's endpoint is fixed at registration (the
+		// claim's base URL); its managed credential is only the API key we
+		// hold for it, so it takes no settings.
+		if (Object.keys(config).length > 0) {
+			throw new HTTPException(400, {
+				message: `Custom carrier credentials take no settings — the endpoint comes from the carrier registration.`,
+			});
+		}
+		return;
 	}
 
 	const unknown = getUnknownManagedCredentialKeys(provider, config);
@@ -317,6 +330,18 @@ function isCredentialTestEnv(): boolean {
 	return process.env.NODE_ENV === "test" && process.env.E2E_TEST !== "true";
 }
 
+/** The active custom-carrier registration for a non-catalogue provider id,
+ *  if any — these accept managed credentials like catalogue providers do. */
+async function findActiveCustomCarrier(providerId: string) {
+	return await db.query.providerClaim.findFirst({
+		where: {
+			providerId: { eq: providerId },
+			kind: { eq: "custom" },
+			status: { eq: "active" },
+		},
+	});
+}
+
 /**
  * Confirms the credential actually works upstream by sending one minimal
  * completion through it, using exactly the settings the gateway will send with
@@ -346,6 +371,12 @@ async function validateCredentialToken(
 	// Provider keys in unit tests are fixtures, not live credentials; e2e runs
 	// opt back in so the real upstream path stays covered.
 	if (isCredentialTestEnv()) {
+		return;
+	}
+
+	// Custom carriers have no catalogue validation model to probe (and
+	// validateProviderKey short-circuits for them) — store without a live check.
+	if (!providers.some((p) => p.id === provider)) {
 		return;
 	}
 
@@ -476,8 +507,39 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 			};
 		});
 
+	// Active custom Airside carriers accept managed credentials too: no env
+	// vars, no settings (their endpoint lives on the carrier registration),
+	// and their model list comes from their approved listings.
+	const customCarriers = await db.query.providerClaim.findMany({
+		where: { kind: { eq: "custom" }, status: { eq: "active" } },
+	});
+	const customListings = customCarriers.length
+		? await db.query.providerDraftModel.findMany({
+				where: {
+					providerId: { in: customCarriers.map((cl) => cl.providerId) },
+					status: { eq: "active" },
+				},
+				columns: { providerId: true, modelName: true },
+			})
+		: [];
+	const carrierEntries = customCarriers.map((cl) => ({
+		id: cl.providerId,
+		name: cl.customName ?? cl.providerId,
+		apiKeyEnvVar: null,
+		apiKeyEnvConfigured: false,
+		regions: [],
+		defaultRegion: null,
+		apiKeyEnvCounts: countEnvCredentialsByVariant([]),
+		envCredentials: [],
+		configKeys: [],
+		exclusiveConfigGroups: [],
+		models: customListings
+			.filter((m) => m.providerId === cl.providerId)
+			.map((m) => m.modelName),
+	}));
+
 	return c.json({
-		providers: entries,
+		providers: [...entries, ...carrierEntries],
 		envSource: inventory ? ("gateway" as const) : ("api" as const),
 		envPublishedAt: inventory?.publishedAt ?? null,
 	});

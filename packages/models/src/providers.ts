@@ -1952,7 +1952,7 @@ export const providers: ProviderDefinition[] = [
 		termsUrl: "https://gonka24.com/terms",
 		privacyPolicyUrl: "https://gonka24.com/privacy",
 		usagePolicyUrl: "https://gonka24.com/terms",
-		legalEntity: "Gonka24",
+		legalEntity: "Investment company Temir LLC",
 		headquarters: null,
 		dataPolicy: null,
 	},

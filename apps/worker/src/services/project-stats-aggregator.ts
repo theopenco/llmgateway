@@ -62,6 +62,19 @@ function sumLogMoney(column: AnyColumn, alias: string) {
 }
 
 /**
+ * Gateway margin earned on Airside-carrier traffic: SUM(cost * the margin
+ * percent snapshotted onto the log row at request time). Rows without a
+ * snapshot (provider has no routing settings) contribute nothing. Only the
+ * provider-keyed stats tables carry this column, so it is not part of
+ * getBaseAggregationFields().
+ */
+export function providerMarginAmountField() {
+	return sql<number>`coalesce(sum(cast(${log.cost} as double precision) * ${log.providerMarginPercent}), 0)`.as(
+		"providerMarginAmount",
+	);
+}
+
+/**
  * Aggregation select fields shared by every stats table, excluding the
  * denormalized per-mode pairs. The global stats tables key on `used_mode`
  * directly (see globalModelStats) and so only need these.
@@ -272,6 +285,7 @@ async function recalculateProjectHourlyModelStats(
 			usedModel: log.usedModel,
 			usedProvider: log.usedProvider,
 			...getCommonAggregationFields(),
+			providerMarginAmount: providerMarginAmountField(),
 		})
 		.from(log)
 		.where(

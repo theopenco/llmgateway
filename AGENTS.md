@@ -15,7 +15,7 @@ This file provides guidance to AI agents when working with code in this reposito
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
-- `pnpm dev` - Start all development servers (UI on :3002, Playground on :3003, Code on :3004, API on :4002, Gateway on :4001, Docs on :3005, Admin on :3006). Every one of these ports, plus Postgres/Redis, is overridable per worktree — see "Running an isolated stack per worktree".
+- `pnpm dev` - Start all development servers (UI on :3002, Playground on :3003, Code on :3004, API on :4002, Gateway on :4001, Docs on :3005, Admin on :3006, Airside on :3007). Every one of these ports, plus Postgres/Redis, is overridable per worktree — see "Running an isolated stack per worktree".
 - `pnpm build` - Build all applications for production. ALWAYS run this after finishing work on a feature. ALWAYS run a full build to make sure things fork.
 - `pnpm clean` - Clean build artifacts and cache directories
 
@@ -112,6 +112,7 @@ Pick a **slot** number per worktree (1, 2, 3 …) and offset every port by it:
 | Code                 | `CODE_PORT`          | 3004    | 3004 + N × 100  | 3104   |
 | Docs                 | `DOCS_PORT`          | 3005    | 3005 + N × 100  | 3105   |
 | Admin                | `ADMIN_PORT`         | 3006    | 3006 + N × 100  | 3106   |
+| Airside              | `AIRSIDE_PORT`       | 3007    | 3007 + N × 100  | 3107   |
 
 The Redis pair uses a ×1000 offset on purpose: with ×100, slot 1's Redis would land on 6479, which is the _default_ storage-Redis port of another worktree.
 
@@ -135,6 +136,7 @@ export PLAYGROUND_PORT=3103
 export CODE_PORT=3104
 export DOCS_PORT=3105
 export ADMIN_PORT=3106
+export AIRSIDE_PORT=3107
 
 # URLs the services hand to each other / render into pages
 export API_URL=http://localhost:4102
@@ -144,7 +146,8 @@ export GATEWAY_URL=http://localhost:4101
 export PLAYGROUND_URL=http://localhost:3103
 export DOCS_URL=http://localhost:3105
 export ADMIN_URL=http://localhost:3106
-export ORIGIN_URLS=http://localhost:3102,http://localhost:3103,http://localhost:3104,http://localhost:3105,http://localhost:3106,http://localhost:4102
+export AIRSIDE_URL=http://localhost:3107
+export ORIGIN_URLS=http://localhost:3102,http://localhost:3103,http://localhost:3104,http://localhost:3105,http://localhost:3106,http://localhost:3107,http://localhost:4102
 ```
 
 Then the normal commands just work, scoped to this worktree:
@@ -242,6 +245,7 @@ Production domain mapping (counterintuitive — do not mix these up): `api.llmga
 - **UI** (`apps/ui`) - Frontend dashboard (Next.js App Router)
 - **Playground** (`apps/playground`) - Interactive LLM testing environment (Next.js App Router)
 - **Code** (`apps/code`) - Dev plans + coding tools landing & dashboard (Next.js App Router)
+- **Airside** (`apps/airside`) - Self-serve provider portal (Next.js App Router)
 - **Docs** (`apps/docs`) - Documentation site (Next.js + Fumadocs)
 
 ### Shared Packages
@@ -365,6 +369,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Gateway: http://localhost:4001
 - Docs: http://localhost:3005
 - Admin: http://localhost:3006
+- Airside: http://localhost:3007
 - PostgreSQL: localhost:5432
 - Redis: localhost:6379
 - Storage Redis: localhost:6479 (only used when a `STORAGE_REDIS_*` var is set; otherwise the main Redis connection is reused)
@@ -374,6 +379,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - `apps/ui`: Next.js frontend
 - `apps/playground`: Interactive LLM testing environment
 - `apps/code`: Dev plans + coding tools landing & dashboard
+- `apps/airside`: Self-serve provider portal
 - `apps/api`: Hono backend
 - `apps/gateway`: API gateway for routing LLM requests
 - `apps/docs`: Documentation site
