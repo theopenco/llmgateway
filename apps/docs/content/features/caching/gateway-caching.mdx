@@ -8,7 +8,7 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 # Gateway Caching
 
-Gateway caching serves a previously-seen, identical request (matched on the parsed request fields, so formatting differences like whitespace don't matter) entirely from LLM Gateway without forwarding it to the upstream provider. Repeated identical calls cost **$0** — there is no inference and no provider charge. It is most useful for API workloads with deterministic inputs (classification, batch jobs, FAQ lookups, retries) rather than free-form chat.
+Gateway caching serves a previously-seen request entirely from LLM Gateway without forwarding it to the upstream provider. Requests are matched on the parsed [cache-key fields](#cache-key-generation) — formatting differences like whitespace, and parameters outside the cache key, do not create a separate entry. Repeated identical calls cost **$0** — there is no inference and no provider charge. It is most useful for API workloads with deterministic inputs (classification, batch jobs, FAQ lookups, retries) rather than free-form chat.
 
 <Callout type="info">
 	If you want to reduce the cost of long, partially-shared prompts in chat apps
