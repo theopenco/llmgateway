@@ -4445,6 +4445,8 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 	// Enterprise provider compliance policy: restrict video routing to providers
 	// that meet the org's policy, and block before dispatch if none qualify.
 	const videoCompliancePolicy = getActiveCompliancePolicy(organization);
+	const retainVideoPayloads =
+		getEffectiveRetentionLevel(organization) === "retain";
 	let complianceModelInfo: ModelDefinition = modelInfo;
 	if (videoCompliancePolicy) {
 		// A pinned provider is dispatched directly, so block it explicitly even
@@ -4850,7 +4852,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				selectedProviderContext.managedProviderKeyId ?? null,
 			providerKeyId: selectedProviderContext.providerKeyId ?? null,
 			upstreamId,
-			prompt: request.prompt,
+			prompt: retainVideoPayloads ? request.prompt : "",
 			status: initialStatus,
 			progress: extractProgress(upstreamResponse),
 			error: extractError(upstreamResponse),
@@ -4880,7 +4882,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				llmgateway_requested_duration_seconds: videoDurationSeconds,
 				llmgateway_input_image_count: inputImageCount,
 				llmgateway_reserved_spend_usd: reservedSpendUsd,
-				...(debugMode
+				...(debugMode && retainVideoPayloads
 					? {
 							llmgateway_raw_request: rawBody,
 							llmgateway_upstream_request: upstreamRequest,

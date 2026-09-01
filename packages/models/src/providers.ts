@@ -142,7 +142,7 @@ export interface ProviderCompliancePolicy {
 	 * {@link ProviderCompliancePolicy.zeroDataRetention}.
 	 */
 	blockPromptLogging?: boolean;
-	/** Enforce zero data retention across providers and LLM Gateway. */
+	/** Require promptLogging === false and retentionPeriod === "0 days". */
 	zeroDataRetention?: boolean;
 	/**
 	 * Block stealth providers (see {@link isStealthProvider}) — undisclosed
@@ -2230,7 +2230,11 @@ export function getDataPolicyComplianceFailures(
 	if (policy.blockPromptLogging && dataPolicy?.promptLogging !== false) {
 		failures.push("blockPromptLogging");
 	}
-	if (policy.zeroDataRetention && dataPolicy?.promptLogging !== false) {
+	if (
+		policy.zeroDataRetention &&
+		(dataPolicy?.promptLogging !== false ||
+			dataPolicy.retentionPeriod !== "0 days")
+	) {
 		failures.push("zeroDataRetention");
 	}
 	if (

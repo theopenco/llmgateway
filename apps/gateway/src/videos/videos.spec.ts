@@ -287,6 +287,63 @@ describe("videos", () => {
 		});
 	});
 
+	test("/v1/videos does not persist prompts when retention is off", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				retentionLevel: "none",
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-zdr-video",
+			...hashApiKeyForStorage("real-token-zdr-video"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud-zdr",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud-zdr",
+				"org-id",
+			),
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-zdr-video",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/kling-v3-0",
+				prompt: "Do not persist this video prompt",
+				size: "1280x720",
+				seconds: 5,
+				audio: false,
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob?.prompt).toBe("");
+		expect(videoJob?.upstreamCreateResponse).not.toHaveProperty(
+			"llmgateway_raw_request",
+		);
+		expect(videoJob?.upstreamCreateResponse).not.toHaveProperty(
+			"llmgateway_upstream_request",
+		);
+	});
+
 	test("/v1/videos uploads AtlasCloud image-to-video frame inputs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
