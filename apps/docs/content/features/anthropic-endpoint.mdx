@@ -235,4 +235,4 @@ Send every tool definition on every request, including the deferred ones — Ant
 
 ### Gateway Response Cache
 
-If [gateway caching](/features/caching/gateway-caching) is enabled on the project, a byte-identical request is replayed from cache instead of being sent upstream. Because the replayed body carries the same `id`, content, and token counts as the original (only gateway cost fields are zeroed), the `x-llmgateway-cache: HIT` response header is the marker to check. Send `x-no-cache: true` to bypass the cache for a single request.
+If [gateway caching](/features/caching/gateway-caching) is enabled on the project, a repeated identical request (same model, messages, and parameters — the cache key is built from the parsed fields, so formatting differences like whitespace don't matter) is replayed from cache instead of being sent upstream. Because the replayed body carries the same `id`, content, and token counts as the original (only gateway cost fields are zeroed), the `x-llmgateway-cache: HIT` response header is the marker to check. Send `x-no-cache: true` to bypass the cache for a single request.
