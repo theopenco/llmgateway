@@ -435,6 +435,47 @@ describe("transformResponseToOpenai", () => {
 			expect.anything(),
 			expect.anything(),
 		);
+
+		setexMock.mockClear();
+		const nonRetainingResponse = transformResponseToOpenai(
+			"google-ai-studio",
+			"gemini-2.5-flash",
+			json,
+			null,
+			null,
+			"STOP",
+			10,
+			20,
+			30,
+			null,
+			null,
+			parsedToolCalls,
+			[],
+			"gemini-2.5-flash",
+			null,
+			"gemini-2.5-flash",
+			null,
+			false,
+			null,
+			null,
+			"req_google_n_tools_no_cache",
+			undefined,
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			undefined,
+			{ cacheThoughtSignatures: false },
+		);
+
+		expect(
+			nonRetainingResponse.choices[1].message.tool_calls[0].extra_content,
+		).toEqual({
+			google: { thought_signature: "sig-candidate-1" },
+		});
+		expect(setexMock).not.toHaveBeenCalled();
 	});
 
 	test("does not overwrite choice 0 content on multi-choice OpenAI responses", () => {
