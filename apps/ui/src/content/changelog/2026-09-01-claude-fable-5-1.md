@@ -1,12 +1,12 @@
 ---
 id: "88"
-slug: "claude-fable-5-1-mythos-5-1"
+slug: "claude-fable-5-1"
 date: "2026-09-01"
-title: "Claude Fable 5.1 & Mythos 5.1"
-summary: "Anthropic's Claude Fable 5.1 is live on the gateway with a 1M context window, always-on adaptive thinking, and cache reads at a quarter of Fable 5's price. Claude Mythos 5.1, the same model for Project Glasswing participants, is listed for invite holders who bring their own key."
+title: "Claude Fable 5.1"
+summary: "Anthropic's Claude Fable 5.1 is live on the gateway with a 1M context window, always-on adaptive thinking, stronger long-horizon agentic work, and cache reads at a quarter of Fable 5's price."
 image:
-  src: "/changelog/claude-fable-5-1-mythos-5-1.png"
-  alt: "Anthropic's logo on a glowing chip surrounded by a storybook, a crystal, and a sealed invitation on a circuit board"
+  src: "/changelog/claude-fable-5-1.png"
+  alt: "Anthropic's logo on a glowing chip surrounded by a storybook, a crystal, a brain, and a sealed envelope on a circuit board"
   width: 1536
   height: 1024
 ---
@@ -18,8 +18,6 @@ Long agentic sessions re-read the same prefix hundreds of times, and on a $10-pe
 ```bash
 anthropic/claude-fable-5-1
 ```
-
-It also routes through AWS Bedrock as `aws-bedrock/claude-fable-5-1` (global and US regions) and Microsoft Foundry as `azure-anthropic/claude-fable-5-1`, all at the same price.
 
 | Spec           | Value                                                                  |
 | -------------- | ---------------------------------------------------------------------- |
@@ -49,15 +47,7 @@ curl https://api.llmgateway.io/v1/chat/completions \
 	}'
 ```
 
-## Claude Mythos 5.1
-
-Anthropic offers the same model as **Claude Mythos 5.1** to Project Glasswing participants, by invitation only. It is listed on the gateway with identical specifications and pricing:
-
-```bash
-anthropic/claude-mythos-5-1
-```
-
-The gateway's own credentials are not enrolled in the program, so requests only succeed with a provider key that Anthropic, AWS, or Google Cloud has approved for Glasswing. Add that key as a [provider key](https://docs.llmgateway.io/learn/provider-keys) on your project and pin the model — Bedrock (`aws-bedrock/claude-mythos-5-1`) and Foundry (`azure-anthropic/claude-mythos-5-1`) mappings are available too.
+The model routes through Anthropic directly for now. Bedrock and Microsoft Foundry mappings follow once we have verified them end to end, and Claude Mythos 5.1 — the same model, offered by Anthropic to Project Glasswing participants by invitation only — is not listed until the gateway is enrolled.
 
 ---
 

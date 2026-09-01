@@ -8,13 +8,8 @@ const CACHE_READ_MULTIPLIER = 0.1;
 const RATIO_TOLERANCE = 1e-9;
 
 const LEGACY_RATIO_EXCEPTIONS = new Set(["claude-3-haiku-20240307"]);
-// Fable 5.1 and Mythos 5.1 price cache reads at $0.25/MTok on a $10 base.
-const QUARTER_CACHE_READ_IDS = new Set([
-	"claude-fable-5-1",
-	"claude-mythos-5-1",
-	"anthropic.claude-fable-5-1",
-	"anthropic.claude-mythos-5-1",
-]);
+// Fable 5.1 prices cache reads at $0.25/MTok on a $10 base.
+const QUARTER_CACHE_READ_IDS = new Set(["claude-fable-5-1"]);
 const cacheReadMultiplierFor = (externalId: string) =>
 	QUARTER_CACHE_READ_IDS.has(externalId) ? 0.025 : CACHE_READ_MULTIPLIER;
 
@@ -179,7 +174,6 @@ describe("AWS Bedrock Anthropic model pricing", () => {
 
 	const ONE_HOUR_BEDROCK_PREFIXES = [
 		"anthropic.claude-fable-5",
-		"anthropic.claude-mythos-5-1",
 		"anthropic.claude-opus-4-5",
 		"anthropic.claude-opus-4-6",
 		"anthropic.claude-opus-4-7",
@@ -234,7 +228,7 @@ describe("AWS Bedrock Anthropic model pricing", () => {
 					provider.externalId,
 					"cachedInputPrice",
 					provider.cachedInputPrice,
-					base * cacheReadMultiplierFor(provider.externalId),
+					base * CACHE_READ_MULTIPLIER,
 				);
 			}
 		},
