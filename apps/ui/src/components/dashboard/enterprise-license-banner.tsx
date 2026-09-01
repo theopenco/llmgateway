@@ -6,13 +6,58 @@ import { useUser } from "@/hooks/useUser";
 import { Alert, AlertDescription, AlertTitle } from "@/lib/components/alert";
 import { useDashboardContext } from "@/lib/dashboard-context";
 
+import {
+	formatPlanTermLabel,
+	getEnterpriseLicenseTerm,
+} from "@llmgateway/shared";
+
+function formatDate(date: Date): string {
+	return date.toLocaleDateString("en-US", {
+		month: "long",
+		day: "numeric",
+		year: "numeric",
+	});
+}
+
 export function EnterpriseLicenseBanner() {
 	const { data } = useUser();
 	const { selectedOrganization } = useDashboardContext();
 	const license = data?.enterpriseLicense;
 
-	if (selectedOrganization?.plan !== "enterprise" || !license) {
+	if (
+		selectedOrganization?.plan !== "enterprise" ||
+		!license ||
+		license.kind !== "enterprise" ||
+		license.organizationId !== selectedOrganization.id
+	) {
 		return null;
+	}
+
+	const term = getEnterpriseLicenseTerm(license.expiresAt);
+
+	if (
+		license.status === "active" &&
+		term &&
+		(term.status === "expiring" || term.status === "critical")
+	) {
+		const critical = term.status === "critical";
+
+		return (
+			<Alert
+				className={
+					critical
+						? "rounded-none border-x-0 border-t-0 border-red-500/40 bg-red-500/10 px-6 text-red-950 dark:text-red-100"
+						: "rounded-none border-x-0 border-t-0 border-orange-500/40 bg-orange-500/10 px-6 text-orange-950 dark:text-orange-100"
+				}
+			>
+				<AlertTriangle />
+				<AlertTitle>Enterprise license expires soon</AlertTitle>
+				<AlertDescription className="text-current/90">
+					Install a renewed license before {formatDate(term.expiresAt)} (
+					{formatPlanTermLabel(term).toLowerCase()}) to keep Enterprise access.
+				</AlertDescription>
+			</Alert>
+		);
 	}
 
 	if (
@@ -20,12 +65,15 @@ export function EnterpriseLicenseBanner() {
 		license.status === "grace"
 	) {
 		return (
-			<Alert className="rounded-none border-x-0 border-t-0 border-amber-500/40 bg-amber-500/10 px-6 text-amber-950 dark:text-amber-100">
+			<Alert className="rounded-none border-x-0 border-t-0 border-red-500/40 bg-red-500/10 px-6 text-red-950 dark:text-red-100">
 				<AlertTriangle />
 				<AlertTitle>Enterprise license expired</AlertTitle>
-				<AlertDescription>
+				<AlertDescription className="text-current/90">
 					Enterprise access remains available during the seven-day grace period.
-					Install a renewed license before {license.graceEndsAt ?? "grace ends"}
+					Install a renewed license
+					{license.graceEndsAt
+						? ` before ${formatDate(new Date(license.graceEndsAt))}`
+						: " before grace ends"}
 					.
 				</AlertDescription>
 			</Alert>
