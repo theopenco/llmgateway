@@ -56,20 +56,6 @@ const ROWS: BoardRow[] = [
 		tone: "ok",
 	},
 	{
-		flight: "DEEPSEEK-V4-PRO",
-		carrier: "DEEPSEEK",
-		gate: "D01",
-		status: "BOARDING",
-		tone: "ok",
-	},
-	{
-		flight: "DEEPSEEK-V4-FLASH",
-		carrier: "DEEPSEEK",
-		gate: "D02",
-		status: "ON TIME",
-		tone: "ok",
-	},
-	{
 		flight: "MIMO-V2.5",
 		carrier: "XIAOMI",
 		gate: "E01",
@@ -198,11 +184,13 @@ export function DepartureBoard() {
 				<span className="text-primary animate-beacon">● LIVE</span>
 			</div>
 			<div className="overflow-x-auto">
-				<table className="w-full font-mono text-xs sm:text-sm">
+				<table className="w-full font-mono text-xs">
 					<thead>
 						<tr className="text-muted-foreground text-left text-[0.65rem] tracking-[0.2em] uppercase">
 							<th className="px-4 py-2 font-normal">Model</th>
-							<th className="px-4 py-2 font-normal">Carrier</th>
+							<th className="hidden px-4 py-2 font-normal sm:table-cell">
+								Carrier
+							</th>
 							<th className="hidden px-4 py-2 font-normal sm:table-cell">
 								Gate
 							</th>
@@ -220,7 +208,7 @@ export function DepartureBoard() {
 									<td className="px-4 py-2.5">
 										<FlapText text={row.flight} delay={rowDelay} />
 									</td>
-									<td className="text-muted-foreground px-4 py-2.5">
+									<td className="text-muted-foreground hidden px-4 py-2.5 sm:table-cell">
 										<FlapText text={row.carrier} delay={rowDelay + 60} />
 									</td>
 									<td className="text-muted-foreground hidden px-4 py-2.5 sm:table-cell">
