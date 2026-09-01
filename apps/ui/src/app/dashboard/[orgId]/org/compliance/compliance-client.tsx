@@ -378,9 +378,10 @@ export function ComplianceClient() {
 		}));
 	};
 
+	const canManageStoredPolicy =
+		currentUserRole === "owner" || currentUserRole === "admin";
 	const canManage =
-		selectedOrganization?.enterpriseAccess === true &&
-		(currentUserRole === "owner" || currentUserRole === "admin");
+		selectedOrganization?.enterpriseAccess === true && canManageStoredPolicy;
 	const payloadRetentionEnabled =
 		selectedOrganization?.retentionLevel === "retain";
 	const cachedProjects = projects.filter(
@@ -411,12 +412,13 @@ export function ComplianceClient() {
 		});
 	};
 
-	const handleSave = async () => {
+	const savePolicy = async (nextPolicy: ProviderCompliancePolicy) => {
 		try {
 			await updateOrganization.mutateAsync({
 				params: { path: { id: organizationId } },
-				body: { providerCompliancePolicy: policy },
+				body: { providerCompliancePolicy: nextPolicy },
 			});
+			setPolicy(nextPolicy);
 			toast({
 				title: "Settings saved",
 				description: "Your provider compliance policy has been updated.",
@@ -430,9 +432,7 @@ export function ComplianceClient() {
 		}
 	};
 
-	if (selectedOrganization?.enterpriseAccess !== true) {
-		return <ContactSalesCard />;
-	}
+	const handleSave = async () => await savePolicy(policy);
 
 	if (isLoadingTeam) {
 		return (
@@ -440,6 +440,44 @@ export function ComplianceClient() {
 				<div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
 			</div>
 		);
+	}
+
+	if (selectedOrganization?.enterpriseAccess !== true) {
+		if (policy.enabled && canManageStoredPolicy) {
+			return (
+				<div className="flex flex-col">
+					<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
+						<h2 className="text-2xl md:text-3xl font-bold tracking-tight">
+							Compliance
+						</h2>
+						<Card className="max-w-2xl">
+							<CardHeader>
+								<CardTitle>Saved compliance policy is active</CardTitle>
+								<CardDescription>
+									The policy remains enforced after Enterprise access ends.
+								</CardDescription>
+							</CardHeader>
+							<CardContent className="space-y-4">
+								<p className="text-sm text-muted-foreground">
+									Disable the saved policy to remove its restrictions. It cannot
+									be enabled again without Enterprise access.
+								</p>
+								<Button
+									variant="destructive"
+									disabled={updateOrganization.isPending}
+									onClick={() => savePolicy({ ...policy, enabled: false })}
+								>
+									{updateOrganization.isPending
+										? "Disabling..."
+										: "Disable policy"}
+								</Button>
+							</CardContent>
+						</Card>
+					</div>
+				</div>
+			);
+		}
+		return <ContactSalesCard />;
 	}
 
 	if (!canManage) {

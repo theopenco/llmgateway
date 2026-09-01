@@ -1,13 +1,9 @@
-import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
-
 export interface ZdrCompliancePolicy {
 	enabled?: boolean;
 	zeroDataRetention?: boolean;
 }
 
 interface ZdrOrganization {
-	id: string;
-	plan: string;
 	providerCompliancePolicy?: ZdrCompliancePolicy | null;
 }
 
@@ -24,9 +20,5 @@ export function isZeroDataRetentionEnabled(
 		return false;
 	}
 	const policy = organization.providerCompliancePolicy;
-	return (
-		policy?.enabled === true &&
-		policy.zeroDataRetention === true &&
-		hasOrganizationEnterpriseAccess(organization.id, organization.plan)
-	);
+	return policy?.enabled === true && policy.zeroDataRetention === true;
 }

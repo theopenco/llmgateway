@@ -518,11 +518,11 @@ describe("organization route", () => {
 		).not.toBe(true);
 	});
 
-	test("payload retention cannot be enabled while ZDR is active", async () => {
+	test("payload retention stays blocked by stored ZDR after downgrade", async () => {
 		await db
 			.update(tables.organization)
 			.set({
-				plan: "enterprise",
+				plan: "free",
 				retentionLevel: "none",
 				providerCompliancePolicy: {
 					enabled: true,
