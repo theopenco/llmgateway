@@ -758,6 +758,28 @@ organization.openapi(updateOrganization, async (c) => {
 		}
 	}
 
+	const effectiveCompliancePolicy =
+		providerCompliancePolicy === undefined
+			? userOrganization.organization!.providerCompliancePolicy
+			: providerCompliancePolicy;
+	const zeroDataRetentionEnabled =
+		effectiveCompliancePolicy?.enabled === true &&
+		effectiveCompliancePolicy.blockPromptLogging === true;
+
+	if (retentionLevel === "retain" && zeroDataRetentionEnabled) {
+		throw new HTTPException(400, {
+			message:
+				"Data retention cannot be enabled while zero data retention is active. Disable zero data retention in compliance settings first.",
+		});
+	}
+
+	// Enabling ZDR also disables LLM Gateway payload retention. Keep this
+	// server-side so every client gets the same atomic policy transition.
+	const effectiveRetentionLevel =
+		providerCompliancePolicy !== undefined && zeroDataRetentionEnabled
+			? "none"
+			: retentionLevel;
+
 	// Google SSO domain auto-join is an enterprise feature managed by owners and
 	// admins. The value is normalized and validated before storage.
 	let normalizedSsoDomain: string | null | undefined;
@@ -816,8 +838,8 @@ organization.openapi(updateOrganization, async (c) => {
 	if (billingNotes !== undefined) {
 		updateData.billingNotes = billingNotes;
 	}
-	if (retentionLevel !== undefined) {
-		updateData.retentionLevel = retentionLevel;
+	if (effectiveRetentionLevel !== undefined) {
+		updateData.retentionLevel = effectiveRetentionLevel;
 	}
 	if (providerCompliancePolicy !== undefined) {
 		updateData.providerCompliancePolicy = providerCompliancePolicy;
@@ -907,12 +929,12 @@ organization.openapi(updateOrganization, async (c) => {
 		changes.billingNotes = { old: oldOrg.billingNotes, new: billingNotes };
 	}
 	if (
-		retentionLevel !== undefined &&
-		retentionLevel !== oldOrg.retentionLevel
+		effectiveRetentionLevel !== undefined &&
+		effectiveRetentionLevel !== oldOrg.retentionLevel
 	) {
 		changes.retentionLevel = {
 			old: oldOrg.retentionLevel,
-			new: retentionLevel,
+			new: effectiveRetentionLevel,
 		};
 	}
 	if (

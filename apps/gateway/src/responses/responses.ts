@@ -229,8 +229,14 @@ responses.post("/", async (c) => {
 		);
 	}
 
-	const { project } = authResult;
+	const { project, organization } = authResult;
 
+	const zeroDataRetentionEnabled =
+		organization.providerCompliancePolicy?.enabled === true &&
+		organization.providerCompliancePolicy.blockPromptLogging === true;
+	if (zeroDataRetentionEnabled) {
+		req.store = false;
+	}
 	const shouldStore = req.store !== false;
 	const includeEncryptedReasoning =
 		req.include?.includes("reasoning.encrypted_content") ?? false;

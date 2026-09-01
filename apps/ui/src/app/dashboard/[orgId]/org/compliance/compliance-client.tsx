@@ -201,8 +201,9 @@ const REQUIREMENTS: {
 	},
 	{
 		key: "blockPromptLogging",
-		name: "No prompt logging",
-		description: "Block providers that log prompts.",
+		name: "Zero data retention (ZDR)",
+		description:
+			"Only use providers that do not log prompts. LLM Gateway payload retention and Responses API storage are also disabled.",
 	},
 	{
 		key: "blockStealthProviders",
@@ -391,6 +392,10 @@ export function ComplianceClient() {
 	};
 
 	const handleSave = async () => {
+		const disablesGatewayRetention =
+			policy.enabled &&
+			policy.blockPromptLogging === true &&
+			selectedOrganization?.retentionLevel === "retain";
 		try {
 			await updateOrganization.mutateAsync({
 				params: { path: { id: organizationId } },
@@ -398,7 +403,9 @@ export function ComplianceClient() {
 			});
 			toast({
 				title: "Settings saved",
-				description: "Your provider compliance policy has been updated.",
+				description: disablesGatewayRetention
+					? "ZDR is enabled and data retention is now Metadata Only. Responses API requests will not be stored."
+					: "Your provider compliance policy has been updated.",
 			});
 		} catch {
 			toast({
@@ -486,6 +493,27 @@ export function ComplianceClient() {
 								: "space-y-4 opacity-60 pointer-events-none select-none"
 						}
 					>
+						{policy.enabled && policy.blockPromptLogging === true ? (
+							<div
+								role="status"
+								className="rounded-lg border bg-muted/50 p-4 text-sm"
+							>
+								<div className="font-medium">ZDR disables prompt storage</div>
+								<p className="mt-1 text-muted-foreground">
+									Saving this policy sets organization data retention to
+									Metadata Only and forces <code>store: false</code> for
+									Responses API requests. To retain prompts again, disable ZDR
+									first. Review the current setting under{` `}
+									<Link
+										href={buildOrgUrl("org/policies")}
+										className="font-medium text-foreground underline underline-offset-4"
+									>
+										Organization policies
+									</Link>
+									.
+								</p>
+							</div>
+						) : null}
 						{REQUIREMENTS.map((requirement) => (
 							<div
 								key={requirement.key}

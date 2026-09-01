@@ -27,6 +27,12 @@ export function OrganizationRetentionSettings() {
 	const [retentionLevel, setRetentionLevel] = useState<"retain" | "none">(
 		selectedOrganization?.retentionLevel ?? "retain",
 	);
+	const zeroDataRetentionEnabled =
+		selectedOrganization?.providerCompliancePolicy?.enabled === true &&
+		selectedOrganization.providerCompliancePolicy.blockPromptLogging === true;
+	const effectiveRetentionLevel = zeroDataRetentionEnabled
+		? "none"
+		: retentionLevel;
 
 	if (!selectedOrganization) {
 		return (
@@ -43,7 +49,7 @@ export function OrganizationRetentionSettings() {
 		try {
 			await updateOrganization.mutateAsync({
 				params: { path: { id: selectedOrganization.id } },
-				body: { retentionLevel },
+				body: { retentionLevel: effectiveRetentionLevel },
 			});
 
 			toast({
@@ -76,8 +82,24 @@ export function OrganizationRetentionSettings() {
 			<Separator />
 
 			<div className="space-y-4">
+				{zeroDataRetentionEnabled ? (
+					<Alert>
+						<AlertDescription>
+							<strong>Zero data retention is active.</strong> Prompt payloads
+							and Responses API state are not stored. Disable ZDR under{` `}
+							<Link
+								href={`/dashboard/${selectedOrganization.id}/org/compliance`}
+								className="font-semibold underline hover:no-underline"
+							>
+								Compliance
+							</Link>
+							{` `}
+							before enabling data retention.
+						</AlertDescription>
+					</Alert>
+				) : null}
 				<RadioGroup
-					value={retentionLevel}
+					value={effectiveRetentionLevel}
 					onValueChange={(value: "retain" | "none") => setRetentionLevel(value)}
 					className="space-y-2"
 				>
@@ -94,7 +116,11 @@ export function OrganizationRetentionSettings() {
 						},
 					].map(({ id, label, desc }) => (
 						<div key={id} className="flex items-start space-x-2">
-							<RadioGroupItem value={id} id={id} />
+							<RadioGroupItem
+								value={id}
+								id={id}
+								disabled={zeroDataRetentionEnabled && id === "retain"}
+							/>
 							<div className="space-y-1 flex-1">
 								<Label htmlFor={id} className="font-medium">
 									{label}
@@ -105,7 +131,7 @@ export function OrganizationRetentionSettings() {
 					))}
 				</RadioGroup>
 
-				{retentionLevel === "retain" && (
+				{effectiveRetentionLevel === "retain" && (
 					<>
 						<Alert>
 							<AlertDescription>

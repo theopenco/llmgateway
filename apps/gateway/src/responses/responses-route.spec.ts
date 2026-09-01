@@ -1,9 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { responses } from "./responses.js";
 
 const mocks = vi.hoisted(() => ({
 	appRequest: vi.fn(),
+	findOrganizationById: vi.fn(),
+	storeResponse: vi.fn(),
 }));
 
 vi.mock("@/app.js", () => ({
@@ -27,10 +29,7 @@ vi.mock("@/lib/cached-queries.js", () => ({
 		id: "project_test",
 		organizationId: "org_test",
 	}),
-	findOrganizationById: vi.fn().mockResolvedValue({
-		id: "org_test",
-		status: "active",
-	}),
+	findOrganizationById: mocks.findOrganizationById,
 }));
 
 vi.mock("@/lib/organization-access.js", () => ({
@@ -45,10 +44,18 @@ vi.mock("@/lib/responses-context.js", () => ({
 vi.mock("./tools/response-state.js", () => ({
 	getStoredResponse: vi.fn(),
 	resolveItemReferences: vi.fn(async (items) => items),
-	storeResponse: vi.fn(),
+	storeResponse: mocks.storeResponse,
 }));
 
 describe("responses streaming lifecycle", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.findOrganizationById.mockResolvedValue({
+			id: "org_test",
+			status: "active",
+		});
+	});
+
 	it("emits response.created before an early response.failed", async () => {
 		mocks.appRequest.mockResolvedValue(
 			new Response(
@@ -81,5 +88,53 @@ describe("responses streaming lifecycle", () => {
 			.filter((line) => line.startsWith("event: "))
 			.map((line) => line.slice(7));
 		expect(eventTypes).toEqual(["response.created", "response.failed"]);
+	});
+
+	it("forces Responses API storage off while ZDR is active", async () => {
+		mocks.findOrganizationById.mockResolvedValue({
+			id: "org_test",
+			status: "active",
+			providerCompliancePolicy: {
+				enabled: true,
+				blockPromptLogging: true,
+			},
+		});
+		mocks.appRequest.mockResolvedValue(
+			Response.json({
+				id: "chatcmpl_test",
+				object: "chat.completion",
+				created: 1,
+				model: "openai/gpt-4o-mini",
+				choices: [
+					{
+						index: 0,
+						message: { role: "assistant", content: "Hello" },
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 1,
+					completion_tokens: 1,
+					total_tokens: 2,
+				},
+			}),
+		);
+
+		const response = await responses.request("/", {
+			method: "POST",
+			headers: {
+				authorization: "Bearer test-token",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				input: "hello",
+				store: true,
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({ store: false });
+		expect(mocks.storeResponse).not.toHaveBeenCalled();
 	});
 });

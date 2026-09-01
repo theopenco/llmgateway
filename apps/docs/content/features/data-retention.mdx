@@ -77,7 +77,9 @@ Data is retained for 30 days for all users. Enterprise plans can have custom ret
 	storage. Because this is independent of the retention level, it applies to
 	metadata-only organizations, including DevPass and chat, whose Responses API
 	input and output items are therefore held for up to 30 days. Send `store:
-	false` with the request to opt out.
+	false` with the request to opt out. When an Enterprise organization's
+	[zero-data-retention policy](/features/compliance) is active, the gateway
+	forces `store: false` for every Responses API request.
 </Callout>
 
 ## Accessing Stored Data
