@@ -89,6 +89,13 @@ record of a contract. So:
   provider supplies a DPA or SCCs, set it and remove the provider from the
   baseline in `packages/models/src/data-protection-baseline.spec.ts`. Both are
   code-reviewed, so the change is dated and attributable through git history.
+- **Source of truth for the executed agreement:** the per-provider DPA record in
+  the admin dashboard (**Provider DPAs** → `provider.dpaSignedAt` /
+  `dpaSignedBy` / `dpaNote`), confirmed one provider at a time as agreements are
+  evidenced. When the `REQUIRE_PROVIDER_DPA_FOR_GDPR` environment flag is on,
+  the gateway's `requireGdpr` compliance control only routes to providers with
+  this record — so the record is enforcement state, not just bookkeeping. Only
+  mark a provider signed once the artifact is filed in the compliance folder.
 - **Evidence:** the provider's DPA/SCCs filed in the compliance folder under the
   provider id. Setting `gdpr: true` without a filed agreement is not acceptable —
   the flag drives routing decisions customers rely on.

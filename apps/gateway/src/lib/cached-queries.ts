@@ -18,6 +18,7 @@ import {
 	getTableName,
 	gte,
 	inArray,
+	isNotNull,
 	isNull,
 	ne,
 	or,
@@ -36,6 +37,7 @@ import {
 	providerKeyAllowsModel,
 	organization as organizationTable,
 	project as projectTable,
+	provider as providerTable,
 	providerKey as providerKeyTable,
 	routingScoreMultiplier as routingScoreMultiplierTable,
 	user as userTable,
@@ -349,6 +351,35 @@ export async function findOrganizationCachedById(
 			.$withCache({ tag: organizationCacheTag(id), autoInvalidate: true });
 		return results[0];
 	});
+}
+
+// DPA records change rarely (an admin confirming an agreement) but are written
+// through the API's uncached client, which cannot evict this entry — so a
+// short TTL, not tag eviction, is what bounds staleness after a change.
+const DPA_TTL_SECONDS = 60;
+
+/**
+ * Ids of providers with a signed GDPR data-processing agreement on record
+ * (`provider.dpaSignedAt` set, maintained in the admin dashboard). Consulted
+ * by the compliance layer when `REQUIRE_PROVIDER_DPA_FOR_GDPR` is enabled.
+ */
+export async function findDpaSignedProviderIds(): Promise<string[]> {
+	return await swrWrap(
+		"provider-dpa-signed",
+		[getTableName(providerTable)],
+		async () => {
+			const rows = await db
+				.select({ id: providerTable.id })
+				.from(providerTable)
+				.where(isNotNull(providerTable.dpaSignedAt))
+				.$withCache({
+					tag: "provider-dpa-signed",
+					autoInvalidate: false,
+					config: { ex: DPA_TTL_SECONDS },
+				});
+			return rows.map((row) => row.id);
+		},
+	);
 }
 
 /**

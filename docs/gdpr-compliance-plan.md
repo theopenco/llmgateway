@@ -181,13 +181,23 @@ Current mitigations, in order of strength:
    defensible, so the data-protection subset is honoured on every plan.
    Certification requirements and the fine-grained allow/block lists remain
    Enterprise: those are governance tooling, not a lawful-basis mechanism.
-2. **Provider pinning** — `provider/model` plus `x-no-fallback: true` sends a
+2. **Signed-DPA gate on `requireGdpr`** — each provider's DPA status is
+   recorded on the `provider` table (`dpaSignedAt` / `dpaSignedBy` /
+   `dpaNote`), confirmed one provider at a time in the admin dashboard
+   (**Provider DPAs**). When the `REQUIRE_PROVIDER_DPA_FOR_GDPR` environment
+   flag is enabled, a compliance policy's `requireGdpr` control only accepts
+   providers with a signed DPA on record — a catalogue `gdpr: true` flag alone
+   no longer suffices. The flag ships **off** so recording DPAs does not
+   change existing routing; infra flips it once the records are filled in.
+   Mark a provider signed only when the agreement is evidenced per
+   `legal/SUBPROCESSOR_DPAS.md` (filed artifact, not a vendor page).
+3. **Provider pinning** — `provider/model` plus `x-no-fallback: true` sends a
    request to exactly one provider and fails rather than falling back.
-3. **Disclosure** — the Privacy Policy §11 and the Sub-processor page §4 both
+4. **Disclosure** — the Privacy Policy §11 and the Sub-processor page §4 both
    state plainly that not every provider is covered by an adequacy decision or by
    SCCs executed with us, and tell customers to check before routing.
 
-Mitigations 1 and 2 place the transfer decision with the customer, who is the
+Mitigations 1 and 3 place the transfer decision with the customer, who is the
 controller for Customer Data, and — since the data-protection controls were
 ungated — every customer can now actually exercise it. That is a defensible
 allocation of responsibility for a routing service, but it is **not a

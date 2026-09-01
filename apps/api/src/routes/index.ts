@@ -7,6 +7,7 @@ import { adminLicense } from "./admin-license.js";
 import { adminLimitHits } from "./admin-limit-hits.js";
 import { adminOrgDetails } from "./admin-org-details.js";
 import adminProviderCredentials from "./admin-provider-credentials.js";
+import { adminProviderDpas } from "./admin-provider-dpas.js";
 import { adminRoutingAnalytics } from "./admin-routing-analytics.js";
 import admin from "./admin.js";
 import { analytics } from "./analytics.js";
@@ -70,6 +71,7 @@ routes.route("/admin", adminProviderCredentials);
 routes.route("/admin", adminOrgDetails);
 routes.route("/admin", adminRoutingAnalytics);
 routes.route("/admin", adminLimitHits);
+routes.route("/admin", adminProviderDpas);
 
 routes.route("/analytics", analytics);
 

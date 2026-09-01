@@ -3108,6 +3108,15 @@ export const provider = pgTable(
 		avgTimeToFirstToken: real(),
 		avgTimeToFirstReasoningToken: real(),
 		statsUpdatedAt: timestamp(),
+		// GDPR sub-processor DPA record, maintained one provider at a time in
+		// the admin dashboard. Null `dpaSignedAt` means no agreement is on
+		// record. When REQUIRE_PROVIDER_DPA_FOR_GDPR is set, the gateway blocks
+		// providers without a record for organizations whose compliance policy
+		// sets `requireGdpr` — so flipping these fields changes live routing
+		// for those organizations once the flag is on.
+		dpaSignedAt: timestamp(),
+		dpaSignedBy: text(),
+		dpaNote: text(),
 	},
 	(table) => [index("provider_status_idx").on(table.status)],
 );
