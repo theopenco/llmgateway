@@ -1,6 +1,6 @@
 ---
 title: Compliance
-description: Restrict routing to providers that meet your compliance requirements (SOC 2, ISO 27001, GDPR, no prompt training, no prompt logging)
+description: Restrict routing to providers that meet your compliance requirements (ZDR, SOC 2, ISO 27001, GDPR, no prompt training)
 icon: BadgeCheck
 ---
 
@@ -22,20 +22,20 @@ Enable a policy under **Settings → Compliance** in the dashboard and toggle th
 
 In DevPass, enable **No AI training** directly under **Settings**. It uses the same fail-closed provider policy described below, but the other requirements are not available on DevPass.
 
-| Requirement                   | A provider is allowed when…                        |
-| ----------------------------- | -------------------------------------------------- |
-| **Zero data retention (ZDR)** | it does not log prompts                            |
-| **No training on prompts**    | it does not train on API prompts                   |
-| **No stealth providers**      | it is not a stealth provider                       |
-| **GDPR compliant**            | it is GDPR compliant                               |
-| **SOC 2 (Type 1 or 2)**       | it holds a SOC 2 report of any type                |
-| **SOC 2 Type 2**              | it holds a SOC 2 Type 2 report specifically        |
-| **ISO 27001**                 | it holds an ISO 27001 certification                |
-| **SOC 2 Type 2 or ISO 27001** | it holds either a SOC 2 Type 2 report or ISO 27001 |
+| Requirement                   | A provider is allowed when…                                      |
+| ----------------------------- | ---------------------------------------------------------------- |
+| **Zero data retention (ZDR)** | it does not log prompts and declares a zero-day retention period |
+| **No training on prompts**    | it does not train on API prompts                                 |
+| **No stealth providers**      | it is not a stealth provider                                     |
+| **GDPR compliant**            | it is GDPR compliant                                             |
+| **SOC 2 (Type 1 or 2)**       | it holds a SOC 2 report of any type                              |
+| **SOC 2 Type 2**              | it holds a SOC 2 Type 2 report specifically                      |
+| **ISO 27001**                 | it holds an ISO 27001 certification                              |
+| **SOC 2 Type 2 or ISO 27001** | it holds either a SOC 2 Type 2 report or ISO 27001               |
 
 Every requirement is **fail-closed**: a provider passes only if its published data policy explicitly satisfies the requirement. If an attribute is unknown for a provider, that provider is treated as non-compliant.
 
-Before enabling **Zero data retention (ZDR)**, set the organization's data retention to **Metadata Only** and disable response caching in every project. While ZDR is active, **Retain All Data** and project response caching are unavailable, gateway response caching is bypassed, provider prompt-cache markers are stripped, and Responses API requests must set `store: false`. Disable ZDR before turning payload retention or caching back on.
+Before enabling **Zero data retention (ZDR)**, set the organization's data retention to **Metadata Only** and disable response caching in every project. While ZDR is active, **Retain All Data** and project response caching are unavailable, gateway response caching is bypassed, provider prompt-cache markers are stripped, Responses API requests must set `store: false`, and asynchronous video generation is unavailable because video jobs require temporary output storage. Disable ZDR before turning payload retention or caching back on.
 
 Existing policies that use the deprecated **No prompt logging** rule continue to enforce their original provider-routing behavior. The legacy rule is no longer available for new configuration and does not enable the gateway-level ZDR controls described above.
 

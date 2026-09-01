@@ -37,6 +37,16 @@ function baseLogData(overrides: Partial<LogInsertData> = {}): LogInsertData {
 		rawResponse: { choices: [{ message: { content: "secret completion" } }] },
 		upstreamRequest: { input: [{ type: "reasoning", encrypted_content: "s" }] },
 		upstreamResponse: { output: [{ type: "message" }] },
+		errorDetails: {
+			statusCode: 400,
+			statusText: "Bad Request",
+			responseText: "secret echoed prompt",
+		},
+		internalErrorDetails: {
+			statusCode: 400,
+			statusText: "Bad Request",
+			responseText: "secret provider error",
+		},
 		...overrides,
 	} as LogInsertData;
 }
@@ -56,6 +66,8 @@ describe("stripRetentionSensitiveLogFields", () => {
 		expect(stripped.rawResponse).toBeNull();
 		expect(stripped.upstreamRequest).toBeNull();
 		expect(stripped.upstreamResponse).toBeNull();
+		expect(stripped.errorDetails).toBeNull();
+		expect(stripped.internalErrorDetails).toBeNull();
 	});
 
 	it("nulls exactly the documented field list and nothing else", () => {

@@ -38,6 +38,7 @@ import {
 	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
+	isZeroDataRetentionEnabled,
 	logComplianceBlock,
 } from "@/lib/compliance.js";
 import {
@@ -4378,6 +4379,12 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		throw new HTTPException(403, {
 			message:
 				"Video generation is not available for coding plans. Coding plans only include text-based inference.",
+		});
+	}
+	if (isZeroDataRetentionEnabled(organization)) {
+		throw new HTTPException(400, {
+			message:
+				"Video generation is unavailable while zero data retention is active because video jobs require temporary output storage.",
 		});
 	}
 

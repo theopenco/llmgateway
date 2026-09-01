@@ -80,6 +80,47 @@ describe("videos", () => {
 		expect(statusRes.status).toBe(404);
 	});
 
+	test("/v1/videos rejects jobs while ZDR is active", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-zdr-video-block",
+			...hashApiKeyForStorage("real-token-zdr-video-block"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const response = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-zdr-video-block",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/kling-v3-0",
+				prompt: "Do not retain this video",
+				size: "1280x720",
+				seconds: 5,
+			}),
+		});
+
+		expect(response.status).toBe(400);
+		expect(await response.text()).toContain(
+			"video jobs require temporary output storage",
+		);
+		expect(await db.query.videoJob.findMany()).toHaveLength(0);
+	});
+
 	test("/v1/videos rejects non-https reference videos", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",

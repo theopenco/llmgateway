@@ -3,10 +3,9 @@ import type { LogInsertData } from "./types.js";
 /**
  * Log columns that hold request/response payload data (the actual prompt,
  * completion, reasoning, tool definitions/results and Responses API payload),
- * plus the debug payloads captured under `x-debug`, which hold the full
- * request/response bodies exchanged with the provider. Organizations with
- * `retentionLevel` "none" do not retain any of this, so it is cleared before
- * the row is persisted.
+ * plus debug payloads and provider error bodies, which can echo submitted
+ * content. Organizations with `retentionLevel` "none" do not retain any of
+ * this, so it is cleared before the row is persisted.
  */
 export const RETENTION_SENSITIVE_LOG_FIELDS = [
 	"messages",
@@ -20,6 +19,8 @@ export const RETENTION_SENSITIVE_LOG_FIELDS = [
 	"rawResponse",
 	"upstreamRequest",
 	"upstreamResponse",
+	"errorDetails",
+	"internalErrorDetails",
 ] as const;
 
 /**
@@ -44,5 +45,7 @@ export function stripRetentionSensitiveLogFields<T extends LogInsertData>(
 		rawResponse: null,
 		upstreamRequest: null,
 		upstreamResponse: null,
+		errorDetails: null,
+		internalErrorDetails: null,
 	};
 }
