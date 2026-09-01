@@ -382,7 +382,7 @@ When using model ID routing (without a provider prefix), LLMGateway automaticall
 ### How Retry Works
 
 1. Your request is routed to the best available provider using the smart routing algorithm
-2. If that provider returns a server error (5xx), times out, or has a connection failure, the gateway marks the provider as failed
+2. If that provider fails with a retryable error (see [What Triggers a Retry](#what-triggers-a-retry) below), the gateway marks the provider as failed
 3. The next best available provider is selected and the request is retried
 4. Up to **2 retries** are attempted before returning an error to the client
 

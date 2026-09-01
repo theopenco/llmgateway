@@ -65,7 +65,7 @@ For **gateway-raised** errors (authentication failures, usage limits, validation
 
 Errors from the upstream provider follow different rules on the chat completions path:
 
-- **Upstream 4xx client errors** (a genuinely invalid request) are passed through with their **original status code**. An already OpenAI-shaped error body is forwarded unchanged; bare provider shapes are wrapped in the OpenAI envelope with `type` and `code` set to `client_error` (or the provider's own error type). These responses also carry extra diagnostic fields inside `error`: `requestedProvider`, `usedProvider`, `requestedModel`, `usedInternalModel`, and `responseText`.
+- **Upstream 4xx client errors** (a genuinely invalid request) are passed through with their **original status code**. An already OpenAI-shaped error body is forwarded unchanged; bare provider shapes are wrapped in the OpenAI envelope with `type` and `code` set to `client_error` (or the provider's own error type), and only these wrapped bodies carry extra diagnostic fields inside `error`: `requestedProvider`, `usedProvider`, `requestedModel`, `usedInternalModel`, and `responseText`.
 - **Upstream provider/gateway-side failures** (5xx, upstream rate limits, provider credential or funding problems) first go through [automatic retry and fallback](/features/routing#automatic-retry--fallback). If no provider succeeds, the gateway returns **HTTP 500** with `type`/`code` of `upstream_error` or `gateway_error` and the same diagnostic fields — the upstream status code is not passed through (it is recorded in the request log's error details).
 
 ## Streaming Errors
