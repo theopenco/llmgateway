@@ -604,40 +604,47 @@ export function ComplianceClient() {
 							</div>
 						) : null}
 					</CardHeader>
-					<CardContent
-						className={
-							policy.enabled
-								? "space-y-4"
-								: "space-y-4 opacity-60 pointer-events-none select-none"
-						}
-					>
-						{REQUIREMENTS.map((requirement) => (
-							<div
-								key={requirement.key}
-								className="flex items-center justify-between p-4 border rounded-lg"
-							>
-								<div className="flex items-center gap-4">
-									<Switch
-										checked={policy[requirement.key] ?? false}
-										disabled={
-											!policy.enabled ||
-											(requirement.key === "zeroDataRetention" &&
-												zdrEnableBlocked &&
-												policy.zeroDataRetention !== true)
-										}
-										onCheckedChange={(value) =>
-											setPolicy((p) => ({ ...p, [requirement.key]: value }))
-										}
-									/>
-									<div>
-										<div className="font-medium">{requirement.name}</div>
-										<div className="text-sm text-muted-foreground">
-											{requirement.description}
+					<CardContent className="space-y-4">
+						{REQUIREMENTS.map((requirement) => {
+							const canClearInactiveZdr =
+								!policy.enabled &&
+								requirement.key === "zeroDataRetention" &&
+								policy.zeroDataRetention === true;
+							const requirementDisabled =
+								(!policy.enabled && !canClearInactiveZdr) ||
+								(requirement.key === "zeroDataRetention" &&
+									zdrEnableBlocked &&
+									policy.zeroDataRetention !== true);
+
+							return (
+								<div
+									key={requirement.key}
+									className={cn(
+										"flex items-center justify-between p-4 border rounded-lg",
+										requirementDisabled && "opacity-60 select-none",
+									)}
+								>
+									<div className="flex items-center gap-4">
+										<Switch
+											checked={policy[requirement.key] ?? false}
+											disabled={requirementDisabled}
+											onCheckedChange={(value) =>
+												setPolicy((p) => ({
+													...p,
+													[requirement.key]: value,
+												}))
+											}
+										/>
+										<div>
+											<div className="font-medium">{requirement.name}</div>
+											<div className="text-sm text-muted-foreground">
+												{requirement.description}
+											</div>
 										</div>
 									</div>
 								</div>
-							</div>
-						))}
+							);
+						})}
 					</CardContent>
 				</Card>
 
