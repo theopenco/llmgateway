@@ -197,7 +197,7 @@ X-RateLimit-Reset: 1640995200
 - `RateLimit-Reset`: Seconds until the rate limit window resets
 - `X-RateLimit-Reset`: Unix timestamp when the rate limit window resets
 
-Successful responses on rate-limited endpoints also carry `RateLimit-Limit` and `RateLimit-Remaining` (without the `X-` prefix), so clients can self-throttle before ever hitting a `429`.
+When rate limiting is enforced, successful responses on rate-limited endpoints also carry `RateLimit-Limit` and `RateLimit-Remaining` (without the `X-` prefix), so clients can self-throttle before ever hitting a `429`.
 
 ## Rate Limit Exceeded
 
@@ -270,5 +270,5 @@ How `529` differs from `429`:
 <Callout type="success">
 	Adding even a small amount of credits to your account (e.g., $10) will
 	immediately upgrade your free model rate limits from 5 requests per 10 minutes
-	to 20 requests per minute.
+	to 20 requests per minute (free-model use still requires a verified email).
 </Callout>

@@ -156,5 +156,5 @@ Self-hosted deployments have full control over data retention:
 
 - All stored data is encrypted at rest
 - Access is restricted to organization members with appropriate permissions
-- Data is automatically deleted after the retention period
+- Data is automatically deleted after the retention period (on self-hosted deployments, only when the cleanup job is enabled via `ENABLE_DATA_RETENTION_CLEANUP=true`)
 - You can request immediate deletion of specific records through support
