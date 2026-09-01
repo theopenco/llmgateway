@@ -1232,7 +1232,7 @@ describe("handleInvoicePaymentSucceeded — superseded Pro subscription", () => 
 	});
 });
 
-describe("handleSubscriptionUpdated — dev plan payment state", () => {
+describe("handleSubscriptionUpdated — payment state", () => {
 	beforeEach(async () => {
 		await deleteAll();
 		sendEmailMock.mockClear();
@@ -1381,6 +1381,38 @@ describe("handleSubscriptionUpdated — dev plan payment state", () => {
 		// The stale event must not touch the active subscription's expiry/cancel
 		// flags either.
 		expect(org?.devPlanCancelled).toBe(false);
+	});
+
+	test("ignores a failed update from a superseded Pro subscription", async () => {
+		const paidThroughMs = SECONDS_IN_TWO_WEEKS * 1000;
+		const paidThrough = new Date(Date.now() + paidThroughMs);
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Pro Co",
+			billingEmail: "billing@proco.test",
+			plan: "pro",
+			stripeSubscriptionId: SUB_ID,
+			planExpiresAt: paidThrough,
+			subscriptionCancelled: false,
+			subscriptionPaymentStatus: "current",
+		});
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({
+				cancelAtPeriodEnd: false,
+				status: "past_due",
+				subscriptionId: "sub_superseded_pro",
+				metadata: { organizationId: ORG_ID },
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.subscriptionPaymentStatus).toBe("current");
+		expect(org?.subscriptionCancelled).toBe(false);
+		expect(org?.planExpiresAt?.getTime()).toBe(paidThrough.getTime());
+		expect(stripeMock.subscriptions.retrieve).not.toHaveBeenCalled();
 	});
 });
 

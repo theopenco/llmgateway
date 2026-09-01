@@ -4779,6 +4779,17 @@ export async function handleSubscriptionUpdated(
 		);
 		return;
 	}
+	if (
+		!isDevPlan &&
+		!isChatPlan &&
+		organization.stripeSubscriptionId &&
+		organization.stripeSubscriptionId !== subscription.id
+	) {
+		logger.info(
+			`Ignoring stale Pro subscription.updated ${subscription.id} for org ${organizationId} (active sub: ${organization.stripeSubscriptionId}, status: ${subscription.status})`,
+		);
+		return;
+	}
 
 	// Update plan expiration date
 	const expiresAt = currentPeriodEnd
