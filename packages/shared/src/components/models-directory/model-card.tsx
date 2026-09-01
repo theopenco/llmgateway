@@ -20,6 +20,7 @@ import {
 import Link from "next/link.js";
 import { useMemo, useState } from "react";
 
+import { CarrierMark } from "@/components/carrier-mark";
 import { getProviderIcon } from "@/components/provider-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -677,6 +678,24 @@ export function ProviderSection({
 	const pricingSchedule = activeMapping.peakPricing
 		? formatPeakPricingSchedule(activeMapping.peakPricing)
 		: null;
+	const providerBrandUrl =
+		providerInfo.airsideIconUrl ?? providerInfo.airsideLogoUrl;
+	const providerMark = (
+		<div className="w-5 h-5 rounded flex items-center justify-center shrink-0">
+			{providerBrandUrl ? (
+				<CarrierMark
+					src={providerBrandUrl}
+					className="h-4 w-4 object-contain"
+				/>
+			) : ProviderIcon ? (
+				<ProviderIcon className="h-4 w-4" />
+			) : (
+				<span className="text-[10px] font-bold text-muted-foreground">
+					{(providerInfo.name ?? providerId).charAt(0).toUpperCase()}
+				</span>
+			)}
+		</div>
+	);
 
 	return (
 		<div className="flex flex-1 flex-col rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
@@ -690,15 +709,7 @@ export function ProviderSection({
 							className="group/provider flex items-center gap-2 min-w-0"
 							title={`About ${providerInfo?.name ?? providerId}`}
 						>
-							<div className="w-5 h-5 rounded flex items-center justify-center shrink-0">
-								{ProviderIcon ? (
-									<ProviderIcon className="h-4 w-4" />
-								) : (
-									<span className="text-[10px] font-bold text-muted-foreground">
-										{(providerInfo?.name ?? providerId).charAt(0).toUpperCase()}
-									</span>
-								)}
-							</div>
+							{providerMark}
 							<span className="text-sm font-semibold text-foreground truncate underline-offset-4 decoration-border group-hover/provider:underline">
 								{providerInfo?.name ?? providerId}
 							</span>
@@ -706,15 +717,7 @@ export function ProviderSection({
 						</Link>
 					) : (
 						<>
-							<div className="w-5 h-5 rounded flex items-center justify-center shrink-0">
-								{ProviderIcon ? (
-									<ProviderIcon className="h-4 w-4" />
-								) : (
-									<span className="text-[10px] font-bold text-muted-foreground">
-										{(providerInfo?.name ?? providerId).charAt(0).toUpperCase()}
-									</span>
-								)}
-							</div>
+							{providerMark}
 							<span className="text-sm font-semibold text-foreground truncate">
 								{providerInfo?.name ?? providerId}
 							</span>

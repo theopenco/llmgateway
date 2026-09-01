@@ -28,6 +28,7 @@ import { ModelCtaButton } from "@/components/models/model-cta-button";
 import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
+import { findDynamicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
 import { findEffectiveProviderDiscount } from "@/lib/discount";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
@@ -53,9 +54,12 @@ export default async function ModelProviderPage({ params }: PageProps) {
 	const decodedName = decodeURIComponent(name);
 	const decodedProvider = decodeURIComponent(provider);
 
-	const modelDef = modelDefinitions.find(
-		(m) => m.id === decodedName,
-	) as ModelDefinition;
+	// Static catalogue first; Airside listings (materialized into the DB
+	// catalogue only) resolve through the API-backed fallback.
+	const modelDef =
+		(modelDefinitions.find((m) => m.id === decodedName) as
+			ModelDefinition | undefined) ??
+		(await findDynamicModelDefinition(decodedName));
 
 	if (!modelDef) {
 		notFound();
@@ -488,8 +492,10 @@ export async function generateMetadata({
 	const decodedName = decodeURIComponent(name);
 	const decodedProvider = decodeURIComponent(provider);
 
-	const model = modelDefinitions.find((m) => m.id === decodedName) as
-		ModelDefinition | undefined;
+	const model =
+		(modelDefinitions.find((m) => m.id === decodedName) as
+			ModelDefinition | undefined) ??
+		(await findDynamicModelDefinition(decodedName));
 
 	if (!model) {
 		return {};
@@ -503,7 +509,11 @@ export async function generateMetadata({
 	const title = `${model.name ?? model.id} on ${providerName}`;
 	const description = `Pricing, latency, and capabilities for ${model.name ?? model.id} via ${providerName} on LLM Gateway.`;
 	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
-	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}/opengraph-image`;
+	// The OG card route only prerenders static-catalogue pairs
+	// (dynamicParams=false); DB-only pages advertise the site card instead.
+	const ogImageUrl = modelDefinitions.some((m) => m.id === decodedName)
+		? `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}/opengraph-image`
+		: "/opengraph.png";
 
 	return {
 		title,
