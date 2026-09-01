@@ -1,6 +1,14 @@
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+
 export interface ZdrCompliancePolicy {
 	enabled?: boolean;
 	zeroDataRetention?: boolean;
+}
+
+interface ZdrOrganization {
+	id: string;
+	plan: string;
+	providerCompliancePolicy?: ZdrCompliancePolicy | null;
 }
 
 export const zdrCachingConflictMessage =
@@ -10,7 +18,15 @@ export const zdrProviderCachingConflictMessage =
 	"Provider prompt caching cannot be enabled while zero data retention is active. Disable ZDR before changing this setting.";
 
 export function isZeroDataRetentionEnabled(
-	policy: ZdrCompliancePolicy | null | undefined,
+	organization: ZdrOrganization | null | undefined,
 ) {
-	return policy?.enabled === true && policy.zeroDataRetention === true;
+	if (!organization) {
+		return false;
+	}
+	const policy = organization.providerCompliancePolicy;
+	return (
+		policy?.enabled === true &&
+		policy.zeroDataRetention === true &&
+		hasOrganizationEnterpriseAccess(organization.id, organization.plan)
+	);
 }

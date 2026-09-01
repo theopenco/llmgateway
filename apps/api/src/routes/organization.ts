@@ -770,9 +770,10 @@ organization.openapi(updateOrganization, async (c) => {
 		providerCompliancePolicy === undefined
 			? userOrganization.organization!.providerCompliancePolicy
 			: providerCompliancePolicy;
-	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(
-		effectiveCompliancePolicy,
-	);
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled({
+		...userOrganization.organization!,
+		providerCompliancePolicy: effectiveCompliancePolicy,
+	});
 	const nextRetentionLevel =
 		retentionLevel ?? userOrganization.organization!.retentionLevel;
 

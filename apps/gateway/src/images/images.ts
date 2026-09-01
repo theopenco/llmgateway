@@ -745,7 +745,6 @@ images.openapi(generations, async (c): Promise<any> => {
 
 	logger.debug("Images API - forwarding to chat completions", {
 		model: request.model,
-		prompt: request.prompt.slice(0, 200),
 		size: request.size,
 		quality: normalizedQuality,
 		n: request.n,
@@ -1163,7 +1162,6 @@ async function processImageEdit(
 
 	logger.debug("Images Edit API - forwarding to chat completions", {
 		model,
-		prompt: request.prompt.slice(0, 200),
 		imageCount,
 		n: request.n,
 		size: request.size,

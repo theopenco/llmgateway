@@ -523,10 +523,10 @@ v1Master.openapi(updateProject, async (c) => {
 		(providerCachingChanged && providerCacheControlMode !== "off")
 	) {
 		const organization = await db.query.organization.findFirst({
-			columns: { providerCompliancePolicy: true },
+			columns: { id: true, plan: true, providerCompliancePolicy: true },
 			where: { id: { eq: existing.organizationId } },
 		});
-		if (isZeroDataRetentionEnabled(organization?.providerCompliancePolicy)) {
+		if (isZeroDataRetentionEnabled(organization)) {
 			throw new HTTPException(400, {
 				message: updates.cachingEnabled
 					? zdrCachingConflictMessage

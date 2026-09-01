@@ -394,9 +394,7 @@ projects.openapi(updateProject, async (c) => {
 	if (
 		(cachingEnabled ||
 			(providerCachingChanged && providerCacheControlMode !== "off")) &&
-		isZeroDataRetentionEnabled(
-			projectUserOrg?.organization?.providerCompliancePolicy,
-		)
+		isZeroDataRetentionEnabled(projectUserOrg?.organization)
 	) {
 		throw new HTTPException(400, {
 			message: cachingEnabled
@@ -646,7 +644,7 @@ export async function createProjectForOrg(
 
 	if (
 		(cachingEnabled || providerCachingExplicitlyEnabled) &&
-		isZeroDataRetentionEnabled(organizationRow.providerCompliancePolicy)
+		isZeroDataRetentionEnabled(organizationRow)
 	) {
 		throw new HTTPException(400, {
 			message: cachingEnabled
