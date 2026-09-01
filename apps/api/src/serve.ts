@@ -66,8 +66,12 @@ async function startServer() {
 	startDailyBeacon();
 
 	const enterpriseLicense = getEnterpriseLicenseStatus();
+	// kind + organizationId matter as much as status: an org-bound "enterprise"
+	// license reads "active" yet denies enterprise access to every other org.
 	logger.info("Enterprise license status", {
 		status: enterpriseLicense.status,
+		kind: enterpriseLicense.kind,
+		organizationId: enterpriseLicense.organizationId,
 		licenseId: enterpriseLicense.licenseId,
 		keyId: enterpriseLicense.keyId,
 		expiresAt: enterpriseLicense.expiresAt,
