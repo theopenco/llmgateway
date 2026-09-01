@@ -27,7 +27,7 @@ import {
 	type WebSearchTool,
 } from "@llmgateway/models";
 import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
-import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
+import { fetchSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import {
 	isToolSearchTool,
@@ -233,10 +233,11 @@ async function fetchImageAsBlob(
 		};
 	}
 
-	// SSRF: the URL comes from the request body, so validate it does not resolve
-	// to an internal host and refuse redirects before fetching.
-	await assertSafeUserContentUrl(url);
-	const response = await fetch(url, { redirect: "error" });
+	// SSRF: the URL comes from the request body. fetchSafeUserContentUrl
+	// validates it does not resolve to an internal host, pins DNS resolution to
+	// the validated address so it can't rebind before connecting, and refuses
+	// redirects.
+	const response = await fetchSafeUserContentUrl(url);
 	if (!response.ok) {
 		throw new Error(
 			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,

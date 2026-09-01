@@ -1,5 +1,5 @@
 import { logger } from "@llmgateway/logger";
-import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
+import { fetchSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import { parseDataUrl } from "./parse-data-url.js";
 import { RequestError } from "./request-error.js";
@@ -185,12 +185,12 @@ export async function processImageUrl(
 		throw new RequestError("Image URLs must use HTTPS protocol in production");
 	}
 
-	// SSRF: remote content must not resolve to an internal host. This also
-	// enforces HTTPS unless explicitly disabled for a self-hosted deployment.
-	await assertSafeUserContentUrl(url);
-
 	try {
-		const response = await fetch(url, { redirect: "error" });
+		// SSRF: remote content must not resolve to an internal host, and the
+		// validated address is the one actually connected to (see
+		// fetchSafeUserContentUrl). Also enforces HTTPS unless explicitly
+		// disabled for a self-hosted deployment.
+		const response = await fetchSafeUserContentUrl(url);
 
 		if (!response.ok) {
 			logger.warn(`Failed to fetch image from URL (${response.status})`, {

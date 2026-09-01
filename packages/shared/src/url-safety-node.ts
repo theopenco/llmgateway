@@ -138,6 +138,37 @@ export async function fetchSafeUserUrl(
 }
 
 /**
+ * Validate and fetch a user-supplied content URL (image/video/document URL in a
+ * chat, image, or video request) in one step. Callers must handle `data:` URLs
+ * themselves before calling this — it always performs a network fetch.
+ *
+ * Unlike a separate `assertSafeUserContentUrl()` + `fetch()`, the DNS lookup
+ * used to validate the host is the same one pinned to the actual connection
+ * (via the custom-lookup dispatcher), so a DNS record that changes between
+ * validation and connect can't rebind the request onto a private/reserved
+ * address. Redirects are refused. No-op passthrough to a plain fetch when the
+ * guard is disabled via `ALLOW_INSECURE_PROVIDER_URLS` (see
+ * `isProviderUrlGuardEnabled`), matching `assertSafeUserContentUrl`.
+ */
+export async function fetchSafeUserContentUrl(
+	input: string,
+	init?: RequestInit,
+): Promise<Response> {
+	const requestInit = { ...init, redirect: "error" as const };
+
+	if (!isProviderUrlGuardEnabled()) {
+		return await fetch(input, requestInit);
+	}
+
+	const url = assertSafeContentUrl(input);
+
+	return (await undiciFetch(url, {
+		...requestInit,
+		dispatcher: getSafeUserUrlAgent(),
+	} as Parameters<typeof undiciFetch>[1])) as unknown as Response;
+}
+
+/**
  * Validate a user-supplied content URL (image/video/document URL in a chat,
  * image, or video request) before the gateway fetches it server-side: https, not
  * an internal host/IP literal, and whose hostname does not resolve to a
