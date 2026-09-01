@@ -37,9 +37,10 @@ const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
 const uiUrl = process.env.UI_URL ?? "http://localhost:3002";
 const codeUrl = process.env.CODE_URL ?? "http://localhost:3004";
 const adminUrl = process.env.ADMIN_URL ?? "http://localhost:3006";
+const airsideUrl = process.env.AIRSIDE_URL ?? "http://localhost:3007";
 const originUrls =
 	process.env.ORIGIN_URLS ??
-	"http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:4002,http://localhost:3006";
+	"http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:4002,http://localhost:3006,http://localhost:3007";
 const isHosted = process.env.HOSTED === "true";
 
 // SSO-only enforcement: returns true when the email's domain has an SSO
@@ -104,21 +105,34 @@ function ssoRequiredResponse(): Response {
 	);
 }
 
-function isCodeAppOrigin(url: string | null | undefined): boolean {
+function matchesOrigin(
+	url: string | null | undefined,
+	appUrl: string,
+): boolean {
 	if (!url) {
 		return false;
 	}
 	try {
-		return new URL(url).origin === new URL(codeUrl).origin;
+		return new URL(url).origin === new URL(appUrl).origin;
 	} catch {
 		return false;
 	}
 }
 
+function isCodeAppOrigin(url: string | null | undefined): boolean {
+	return matchesOrigin(url, codeUrl);
+}
+
 function resolveCallbackBaseUrl(request?: Request): string {
 	const originHeader =
 		request?.headers.get("origin") ?? request?.headers.get("referer");
-	return isCodeAppOrigin(originHeader) ? codeUrl : uiUrl;
+	if (isCodeAppOrigin(originHeader)) {
+		return codeUrl;
+	}
+	if (matchesOrigin(originHeader, airsideUrl)) {
+		return airsideUrl;
+	}
+	return uiUrl;
 }
 
 export const redisClient = new Redis({
@@ -682,10 +696,11 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 					rpID: process.env.PASSKEY_RP_ID ?? "localhost",
 					rpName: process.env.PASSKEY_RP_NAME ?? "LLMGateway",
 					// Accept passkey ceremonies from the main dashboard, the DevPass
-					// (code) app and the admin dashboard, which all share the same
-					// registrable rpID. Passkeys are registered on the main dashboard;
-					// listing the admin origin lets admins reuse them to sign in there.
-					origin: [uiUrl, codeUrl, adminUrl],
+					// (code) app, the admin dashboard and the Airside provider portal,
+					// which all share the same registrable rpID. Passkeys are
+					// registered on the main dashboard; listing the other origins lets
+					// users reuse them to sign in there.
+					origin: [uiUrl, codeUrl, adminUrl, airsideUrl],
 				}),
 				sso({
 					// This app uses a custom organization model (userOrganization),

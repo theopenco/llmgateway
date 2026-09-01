@@ -41,6 +41,9 @@ const providerSchema = z.object({
 	website: z.string().nullable(),
 	announcement: z.string().nullable(),
 	modelCardBadge: z.string().nullable(),
+	// Branding uploaded by the Airside carrier that claimed this provider.
+	airsideLogoUrl: z.string().nullable(),
+	airsideIconUrl: z.string().nullable(),
 	status: z.enum(["active", "inactive"]),
 });
 
@@ -277,7 +280,13 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				...mapping,
 				discount: getGlobalDiscount(mapping.providerId, model.id),
 				quantization: sharedMapping?.quantization ?? null,
-				reasoningEfforts: sharedMapping?.reasoningEfforts ?? null,
+				// Airside-materialized mappings carry their own efforts in the DB
+				// row; static rows are served from the shared definition.
+				reasoningEfforts:
+					sharedMapping?.reasoningEfforts ??
+					(mapping.reasoningEfforts as
+						NonNullable<typeof sharedMapping>["reasoningEfforts"] | null) ??
+					null,
 				reasoningMaxTokens: sharedMapping?.reasoningMaxTokens ?? null,
 				rerank: sharedMapping?.rerank ?? null,
 				audio: sharedMapping?.audio ?? null,
@@ -459,6 +468,13 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 			createdAt: "desc",
 		},
 	});
+	const activeClaims = await db.query.providerClaim.findMany({
+		where: { status: { eq: "active" } },
+		columns: { providerId: true, logoUrl: true, iconUrl: true },
+	});
+	const brandingByProvider = new Map(
+		activeClaims.map((claim) => [claim.providerId, claim]),
+	);
 
 	// modelCardBadge only exists in the catalogue, not the provider table
 	return c.json({
@@ -467,6 +483,8 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 			modelCardBadge:
 				providerDefinitions.find((p) => p.id === provider.id)?.modelCardBadge ??
 				null,
+			airsideLogoUrl: brandingByProvider.get(provider.id)?.logoUrl ?? null,
+			airsideIconUrl: brandingByProvider.get(provider.id)?.iconUrl ?? null,
 		})),
 	});
 });

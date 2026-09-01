@@ -17,6 +17,8 @@ import {
 	MessageCircle,
 	MessageSquare,
 	Percent,
+	PlaneLanding,
+	PlaneTakeoff,
 	Route,
 	Server,
 	Settings,
@@ -127,6 +129,18 @@ const navItems: NavItem[] = [
 		href: "/provider-listing-requests",
 		label: "Provider Requests",
 		icon: Building2,
+		match: "prefix",
+	},
+	{
+		href: "/airside-filings",
+		label: "Airside Filings",
+		icon: PlaneTakeoff,
+		match: "prefix",
+	},
+	{
+		href: "/airside-carriers",
+		label: "Airside Carriers",
+		icon: PlaneLanding,
 		match: "prefix",
 	},
 	{

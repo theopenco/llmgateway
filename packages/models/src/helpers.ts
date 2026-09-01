@@ -240,3 +240,38 @@ export function resolveTimeBasedPricing(
 		cachedInputPrice: tier.cachedInputPrice,
 	};
 }
+
+/**
+ * Whether the static catalogue maps `modelName` (by id or alias) for
+ * `providerId`. With `activeOnly`, deactivated mappings do not count — that
+ * variant is the routing/listing rule for Airside carrier listings:
+ * deactivating a static mapping hands the model over to the carrier's listing.
+ */
+export function staticCatalogueMapsModel(
+	providerId: string,
+	modelName: string,
+	options: { activeOnly?: boolean } = {},
+): boolean {
+	const now = new Date();
+	return models.some(
+		(model) =>
+			(model.id === modelName ||
+				("aliases" in model &&
+					(model.aliases as readonly string[] | undefined)?.includes(
+						modelName,
+					))) &&
+			model.providers.some((mapping) => {
+				if (mapping.providerId !== providerId) {
+					return false;
+				}
+				if (!options.activeOnly) {
+					return true;
+				}
+				const deactivatedAt =
+					"deactivatedAt" in mapping
+						? (mapping.deactivatedAt as Date | string | undefined)
+						: undefined;
+				return !(deactivatedAt && new Date(deactivatedAt) <= now);
+			}),
+	);
+}
