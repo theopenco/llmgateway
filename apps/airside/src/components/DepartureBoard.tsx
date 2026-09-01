@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -9,46 +9,105 @@ interface BoardRow {
 	carrier: string;
 	gate: string;
 	status: string;
-	tone: "ok" | "new" | "hold";
+	tone: "ok" | "new";
 }
 
 const ROWS: BoardRow[] = [
 	{
-		flight: "GLM-5.2",
-		carrier: "EMBERCLOUD",
-		gate: "A12",
+		flight: "GPT-5.6-SOL",
+		carrier: "OPENAI",
+		gate: "A01",
 		status: "BOARDING",
 		tone: "ok",
 	},
 	{
-		flight: "LARGE-4",
-		carrier: "MISTRAL",
-		gate: "B03",
-		status: "FARE FILED",
-		tone: "new",
-	},
-	{
-		flight: "K3-TURBO",
-		carrier: "MOONSHOT",
-		gate: "C07",
+		flight: "GPT-5.6-TERRA",
+		carrier: "OPENAI",
+		gate: "A02",
 		status: "ON TIME",
 		tone: "ok",
 	},
 	{
-		flight: "CODESTRAL-3",
-		carrier: "MISTRAL",
-		gate: "B04",
+		flight: "GPT-5.6-LUNA",
+		carrier: "OPENAI",
+		gate: "A03",
+		status: "ON TIME",
+		tone: "ok",
+	},
+	{
+		flight: "OPUS-5",
+		carrier: "ANTHROPIC",
+		gate: "B01",
+		status: "BOARDING",
+		tone: "ok",
+	},
+	{
+		flight: "FABLE-5",
+		carrier: "ANTHROPIC",
+		gate: "B02",
+		status: "NEW ROUTE",
+		tone: "new",
+	},
+	{
+		flight: "KIMI-K3",
+		carrier: "MOONSHOT",
+		gate: "C01",
+		status: "ON TIME",
+		tone: "ok",
+	},
+	{
+		flight: "DEEPSEEK-V4-PRO",
+		carrier: "DEEPSEEK",
+		gate: "D01",
+		status: "BOARDING",
+		tone: "ok",
+	},
+	{
+		flight: "DEEPSEEK-V4-FLASH",
+		carrier: "DEEPSEEK",
+		gate: "D02",
+		status: "ON TIME",
+		tone: "ok",
+	},
+	{
+		flight: "MIMO-V2.5",
+		carrier: "XIAOMI",
+		gate: "E01",
 		status: "CLEARED",
 		tone: "ok",
 	},
 	{
-		flight: "V3.4-EXP",
-		carrier: "DEEPSEEK",
-		gate: "D01",
-		status: "REVIEW",
-		tone: "hold",
+		flight: "GLM-5.3",
+		carrier: "Z.AI",
+		gate: "F01",
+		status: "ON TIME",
+		tone: "ok",
+	},
+	{
+		flight: "MINIMAX-M3",
+		carrier: "MINIMAX",
+		gate: "G01",
+		status: "BOARDING",
+		tone: "ok",
+	},
+	{
+		flight: "QWEN3.8-MAX",
+		carrier: "ALIBABA",
+		gate: "H01",
+		status: "ON TIME",
+		tone: "ok",
+	},
+	{
+		flight: "MUSE-SPARK-1.2",
+		carrier: "META",
+		gate: "J01",
+		status: "NEW ROUTE",
+		tone: "new",
 	},
 ];
+
+const VISIBLE_ROW_COUNT = 5;
+const CYCLE_INTERVAL_MS = 8_000;
 
 function FlapText({ text, delay }: { text: string; delay: number }) {
 	return (
@@ -58,6 +117,7 @@ function FlapText({ text, delay }: { text: string; delay: number }) {
 				return (
 					<span
 						key={`${text}-${i}`}
+						aria-hidden="true"
 						className={cn(
 							"animate-flap bg-foreground/5 inline-block min-w-[1ch] rounded-[2px] px-px text-center",
 							char === " " && "bg-transparent",
@@ -75,23 +135,64 @@ function FlapText({ text, delay }: { text: string; delay: number }) {
 const toneClass = {
 	ok: "text-signal",
 	new: "text-primary",
-	hold: "text-muted-foreground",
 } as const;
 
 /** Split-flap departure board listing model "flights". */
 export function DepartureBoard() {
-	// Re-key rows periodically so the flaps re-run — quiet, ambient motion.
 	const [cycle, setCycle] = useState(0);
+	const [isActive, setIsActive] = useState(false);
+	const boardRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
-		const timer = setInterval(() => {
-			setCycle((c) => c + 1);
-		}, 9000);
-		return () => clearInterval(timer);
+		const board = boardRef.current;
+		if (!board) {
+			return;
+		}
+
+		const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+		let isIntersecting = false;
+
+		const updateActivity = () => {
+			setIsActive(isIntersecting && !document.hidden && !reducedMotion.matches);
+		};
+		const observer = new IntersectionObserver(([entry]) => {
+			isIntersecting = entry.isIntersecting;
+			updateActivity();
+		});
+
+		observer.observe(board);
+		document.addEventListener("visibilitychange", updateActivity);
+		reducedMotion.addEventListener("change", updateActivity);
+
+		return () => {
+			observer.disconnect();
+			document.removeEventListener("visibilitychange", updateActivity);
+			reducedMotion.removeEventListener("change", updateActivity);
+		};
 	}, []);
 
+	useEffect(() => {
+		if (!isActive) {
+			return;
+		}
+
+		const timer = setInterval(() => {
+			setCycle((c) => c + 1);
+		}, CYCLE_INTERVAL_MS);
+		return () => clearInterval(timer);
+	}, [isActive]);
+
+	const visibleRows = Array.from({ length: VISIBLE_ROW_COUNT }, (_, index) => {
+		const batchStart = cycle * VISIBLE_ROW_COUNT;
+		const rowIndex = (batchStart + index) % ROWS.length;
+		return ROWS[rowIndex];
+	});
+
 	return (
-		<div className="border-border bg-card overflow-hidden rounded-xl border shadow-2xl">
+		<div
+			ref={boardRef}
+			className="border-border bg-card overflow-hidden rounded-xl border shadow-2xl"
+		>
 			<div className="border-border text-muted-foreground flex items-center justify-between border-b px-4 py-2.5 font-mono text-[0.65rem] tracking-[0.25em] uppercase">
 				<span>Departures — model traffic</span>
 				<span className="text-primary animate-beacon">● LIVE</span>
@@ -109,7 +210,7 @@ export function DepartureBoard() {
 						</tr>
 					</thead>
 					<tbody key={cycle}>
-						{ROWS.map((row, i) => {
+						{visibleRows.map((row, i) => {
 							const rowDelay = i * 120;
 							return (
 								<tr
