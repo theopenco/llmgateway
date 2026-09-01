@@ -89,7 +89,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		// expect(log.cost).not.toBeNull();
 	});
 
-	if (process.env.EXPERIMENTAL) {
+	describe("extended coverage", () => {
 		test.each(providerModels)(
 			"complex $model",
 			getTestOptions(),
@@ -219,5 +219,5 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				expect(json.usage.total_tokens).toBeGreaterThan(0);
 			},
 		);
-	}
+	});
 });
