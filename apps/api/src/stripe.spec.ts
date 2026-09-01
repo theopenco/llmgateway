@@ -58,6 +58,9 @@ const ORG_ID = "test-org-feedback";
 const SUB_ID = "sub_test_feedback_001";
 
 const SECONDS_IN_TWO_WEEKS = 1209600;
+// Named so the call sites below don't mix `+` and `*` in one expression,
+// which prettier and the no-mixed-operators rule disagree about.
+const MS_IN_TWO_WEEKS = SECONDS_IN_TWO_WEEKS * 1000;
 
 function makeUpdatedEvent(overrides: {
 	cancelAtPeriodEnd: boolean;
@@ -1206,7 +1209,7 @@ describe("handleInvoicePaymentSucceeded — superseded Pro subscription", () => 
 		// Org resolution finds the org by customer/metadata regardless of which
 		// subscription billed, so without an id check a stale invoice would drag
 		// the active subscription's paid-through date backwards.
-		const activeThrough = new Date(Date.now() + SECONDS_IN_TWO_WEEKS * 1000);
+		const activeThrough = new Date(Date.now() + MS_IN_TWO_WEEKS);
 		stripeMock.subscriptions.retrieve.mockResolvedValue({
 			id: SUB_ID,
 			metadata: {},
