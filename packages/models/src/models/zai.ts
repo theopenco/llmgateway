@@ -56,6 +56,7 @@ export const zaiModels = [
 				requestPrice: "0",
 				contextSize: 1000000,
 				maxOutput: 131072,
+				maxTemperature: 1,
 				streaming: true,
 				reasoning: true,
 				reasoningEfforts: [
