@@ -128,7 +128,7 @@ function WeeklyAllowanceMeter({
 					</div>
 					<div className="mt-0.5 text-xs text-muted-foreground">
 						{resetsAt
-							? `Resets ${formatDateTime(resetsAt, displayTimeZone, "monthDay")}`
+							? `Resets ${formatDateTime(resetsAt, displayTimeZone, "monthDayHourMinuteZone")}`
 							: "Window starts with your first premium request"}
 					</div>
 				</div>
@@ -333,17 +333,22 @@ export default function UsageOverview({
 
 	const renewalProcessing =
 		!cancelledAtPeriodEnd && renewAt !== null && renewAt <= new Date();
+	// Same wording and precision as the billing page's renewal hint, so the two
+	// screens can't disagree about when the plan turns over.
+	const renewWhen = renewAt
+		? formatDateTime(renewAt, displayTimeZone, "monthDayYearHourMinuteZone")
+		: null;
 	const cycleEndsHint =
 		subscriptionPaymentStatus === "past_due"
 			? "Renewal payment failed — update it in Billing"
 			: renewalProcessing
 				? "Renewal payment processing"
 				: cancelledAtPeriodEnd
-					? renewAt
-						? `Cancels ${formatDateTime(renewAt, displayTimeZone, "monthDayYear")}`
+					? renewWhen
+						? `Cancels ${renewWhen}`
 						: "Cancels at period end"
 					: renewAt
-						? `Renews in ${formatDistanceToNowStrict(renewAt)}`
+						? `Renews ${renewWhen} (in ${formatDistanceToNowStrict(renewAt)})`
 						: "—";
 
 	return (

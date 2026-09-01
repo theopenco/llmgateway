@@ -336,7 +336,7 @@ function formatRenewalDate(iso: string, timeZone: string): string | null {
 	const date = new Date(iso);
 	return Number.isNaN(date.getTime())
 		? null
-		: formatDateTime(date, timeZone, "monthDayYear");
+		: formatDateTime(date, timeZone, "monthDayYearHourMinuteZone");
 }
 
 // Shared between the timing chooser and the fallback preview copy so the
