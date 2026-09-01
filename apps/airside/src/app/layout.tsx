@@ -35,6 +35,18 @@ export const metadata: Metadata = {
 	description:
 		"The self-serve console for LLM providers. Claim your carrier, register your fleet, file your fares, and watch dispatch route traffic to your models.",
 	applicationName: "Airside",
+	alternates: { canonical: "./" },
+	robots: {
+		index: true,
+		follow: true,
+		googleBot: {
+			index: true,
+			follow: true,
+			"max-video-preview": -1,
+			"max-image-preview": "large",
+			"max-snippet": -1,
+		},
+	},
 	openGraph: {
 		title: "Airside by LLM Gateway",
 		description:

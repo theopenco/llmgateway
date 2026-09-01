@@ -416,9 +416,9 @@ export default function GroupChatClient({
 						<div className="flex items-center gap-3 min-w-0 flex-1">
 							<SidebarTrigger />
 							<div className="flex items-center gap-2 flex-1 min-w-0">
-								<h1 className="text-lg font-semibold whitespace-nowrap">
+								<h2 className="text-lg font-semibold whitespace-nowrap">
 									Group Chat
-								</h1>
+								</h2>
 							</div>
 						</div>
 					</header>

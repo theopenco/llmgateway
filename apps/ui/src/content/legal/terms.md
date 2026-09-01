@@ -3,7 +3,7 @@ id: "1"
 slug: "terms"
 date: "2026-08-18"
 title: "Terms Of Use"
-description: "Review the Terms of Use for LLM Gateway. Learn about account eligibility, billing, credits, AI outputs, acceptable use, warranties, liability, and dispute resolution when using our multi-provider AI gateway platform."
+description: "Terms of Use for LLM Gateway: account eligibility, billing and credits, AI outputs, acceptable use, warranties, liability, and dispute resolution."
 ---
 
 # Terms of Use

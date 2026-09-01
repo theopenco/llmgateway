@@ -15,10 +15,17 @@ import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "AI Audio Generator — Text to Speech with ElevenLabs, OpenAI & Gemini",
+	title: "AI Text to Speech — ElevenLabs, OpenAI & Gemini",
 	description:
 		"Generate speech from text with ElevenLabs, OpenAI, and Gemini TTS models. Pick voices, compare providers, and download the audio in one playground.",
 	alternates: { canonical: "/audio" },
+	openGraph: {
+		title: "AI Text to Speech — ElevenLabs, OpenAI & Gemini | Lounge",
+		description:
+			"Generate speech from text with ElevenLabs, OpenAI, and Gemini TTS models. Pick voices, compare providers, and download the audio.",
+		type: "website",
+		url: "https://lounge.llmgateway.io/audio",
+	},
 };
 
 export default async function AudioPage({

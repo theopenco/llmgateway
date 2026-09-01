@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import RealtimePageClient from "@/components/playground/realtime-page-client";
+import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import {
 	decodeModelPreference,
@@ -14,10 +15,17 @@ import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "AI Voice Calls — Realtime Speech-to-Speech Playground",
+	title: "AI Voice Calls — Realtime Speech to Speech",
 	description:
 		"Have live voice conversations with realtime speech-to-speech models. Pick a model and voice, talk naturally, interrupt mid-sentence, and read both transcripts.",
 	alternates: { canonical: "/realtime" },
+	openGraph: {
+		title: "AI Voice Calls — Realtime Speech to Speech | Lounge",
+		description:
+			"Live voice conversations with realtime speech-to-speech models. Pick a model and voice, interrupt mid-sentence, and read both transcripts.",
+		type: "website",
+		url: "https://lounge.llmgateway.io/realtime",
+	},
 };
 
 export default async function RealtimePage({
@@ -117,6 +125,7 @@ export default async function RealtimePage({
 					projectId={selectedProject.id}
 				/>
 			) : null}
+			<PlaygroundSeoSection variant="realtime" />
 			<RealtimePageClient
 				models={models}
 				providers={providers}

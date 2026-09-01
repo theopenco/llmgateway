@@ -15,6 +15,13 @@ export const metadata: Metadata = {
 	description:
 		"High-performance AI models optimized for coding tasks with tool support, JSON output, streaming, and prompt caching.",
 	alternates: { canonical: "/coding-models" },
+	openGraph: {
+		title: "AI Models for Coding | DevPass",
+		description:
+			"High-performance AI models optimized for coding tasks with tool support, JSON output, streaming, and prompt caching.",
+		type: "website",
+		url: "https://devpass.llmgateway.io/coding-models",
+	},
 };
 
 export default function CodingModelsPage() {
