@@ -3237,7 +3237,11 @@ describe("api", () => {
 		expect(logs[0].usedServiceTier).toBe("priority");
 	});
 
-	test("/v1/responses forwards max_output_tokens to GPT-5.6 Sol", async () => {
+	test.each([
+		"openai/gpt-5.6-sol",
+		"openai/gpt-5.6-terra",
+		"openai/gpt-5.6-luna",
+	])("/v1/responses forwards max_output_tokens to %s", async (model) => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-responses-max-output-tokens",
 			...hashApiKeyForStorage("real-token-responses-max-output-tokens"),
@@ -3267,7 +3271,7 @@ describe("api", () => {
 				"x-no-fallback": "true",
 			},
 			body: JSON.stringify({
-				model: "openai/gpt-5.6-sol",
+				model,
 				service_tier: "flex",
 				reasoning: { effort: "max" },
 				max_output_tokens: 64,
