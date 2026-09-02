@@ -20,10 +20,9 @@ interface CapturedRequest {
 }
 
 /**
- * Airside carrier listings: an active provider_draft_model with an approved
- * price filing is routable as "<provider>/<modelName>" even though it has no
- * static catalogue entry, and is billed at the filed prices. These tests
- * stand up a mock OpenAI-compatible upstream and point the carrier's
+ * Airside carrier listings are routable from their canonical
+ * model_provider_mapping rows and billed at the materialized prices. These
+ * tests stand up a mock OpenAI-compatible upstream and point the carrier's
  * provider key at it.
  */
 describe("airside-listed models", () => {
@@ -82,13 +81,74 @@ describe("airside-listed models", () => {
 		});
 	});
 
+	async function materializeTestMapping(options: {
+		providerId: string;
+		modelId: string;
+		inputPrice: string;
+		outputPrice: string;
+		providerName?: string;
+		modelName?: string;
+		contextSize?: number;
+		tools?: boolean;
+	}) {
+		await db
+			.insert(tables.provider)
+			.values({
+				id: options.providerId,
+				name: options.providerName ?? options.providerId,
+				description: "",
+			})
+			.onConflictDoNothing();
+		await db
+			.insert(tables.model)
+			.values({
+				id: options.modelId,
+				name: options.modelName ?? options.modelId,
+				family: "airside",
+			})
+			.onConflictDoNothing();
+		const mappingValues = {
+			externalId: options.modelId,
+			source: "airside" as const,
+			inputPrice: options.inputPrice,
+			outputPrice: options.outputPrice,
+			contextSize: options.contextSize ?? null,
+			streaming: true,
+			tools: options.tools ?? false,
+			status: "active" as const,
+			deactivatedAt: null,
+		};
+		const existing = await db.query.modelProviderMapping.findFirst({
+			where: {
+				modelId: { eq: options.modelId },
+				providerId: { eq: options.providerId },
+				region: { isNull: true },
+			},
+		});
+		if (existing) {
+			await db
+				.update(tables.modelProviderMapping)
+				.set(mappingValues)
+				.where(eq(tables.modelProviderMapping.id, existing.id));
+		} else {
+			await db.insert(tables.modelProviderMapping).values({
+				modelId: options.modelId,
+				providerId: options.providerId,
+				...mappingValues,
+			});
+		}
+		await clearCache();
+	}
+
 	async function setup(
 		token: string,
 		options: {
 			modelStatus?: "active" | "draft" | "delisted";
 			filingStatus?: "approved" | "pending";
+			modelName?: string;
 		} = {},
 	) {
+		const modelName = options.modelName ?? "gpt-5.6-luna";
 		captured = [];
 		await clearCache();
 		await db.insert(tables.apiKey).values({
@@ -117,7 +177,7 @@ describe("airside-listed models", () => {
 			id: `${token}-model`,
 			providerCompanyId: `${token}-company`,
 			providerId: "mistral",
-			modelName: "gpt-5.6-luna",
+			modelName,
 			displayName: "GPT 5.6 Luna",
 			contextSize: 128000,
 			streaming: true,
@@ -133,6 +193,38 @@ describe("airside-listed models", () => {
 			outputPrice: "1e-5",
 			status: options.filingStatus ?? "approved",
 		});
+		if (
+			(options.modelStatus ?? "active") === "active" &&
+			(options.filingStatus ?? "approved") === "approved"
+		) {
+			await materializeTestMapping({
+				providerId: "mistral",
+				modelId: modelName,
+				inputPrice: "2e-6",
+				outputPrice: "1e-5",
+				providerName: "Mistral AI",
+				modelName: "GPT 5.6 Luna",
+				contextSize: 128000,
+				tools: true,
+			});
+		} else {
+			const materializedMapping = await db.query.modelProviderMapping.findFirst(
+				{
+					where: {
+						modelId: { eq: modelName },
+						providerId: { eq: "mistral" },
+						region: { isNull: true },
+						source: { eq: "airside" },
+					},
+				},
+			);
+			if (materializedMapping) {
+				await db
+					.delete(tables.modelProviderMapping)
+					.where(eq(tables.modelProviderMapping.id, materializedMapping.id));
+			}
+			await clearCache();
+		}
 	}
 
 	test("routes an approved listing and bills the filed prices", async () => {
@@ -233,11 +325,7 @@ describe("airside-listed models", () => {
 		// serves and prices the pair, so the mapping can be retired later
 		// without a routing gap.
 		const token = "airside-override-token";
-		await setup(token);
-		await db
-			.update(tables.providerDraftModel)
-			.set({ modelName: "mistral-small-2506" })
-			.where(eq(tables.providerDraftModel.id, `${token}-model`));
+		await setup(token, { modelName: "mistral-small-2506" });
 		await clearCache();
 
 		const requestId = "airside-override-req-1";
@@ -318,6 +406,15 @@ describe("airside-listed models", () => {
 			inputPrice: "3e-6",
 			outputPrice: "9e-6",
 			status: "approved",
+		});
+		await materializeTestMapping({
+			providerId: "acme-sky",
+			modelId: "sky-large",
+			inputPrice: "3e-6",
+			outputPrice: "9e-6",
+			providerName: "Acme Sky",
+			modelName: "Sky Large",
+			contextSize: 64000,
 		});
 		if (options.managedCredential !== false) {
 			await db.insert(tables.providerKey).values({
@@ -457,6 +554,13 @@ describe("airside-listed models", () => {
 			outputPrice: "4e-6",
 			status: "approved",
 		});
+		await materializeTestMapping({
+			providerId: "nebius",
+			modelId: "llama-3.1-8b-instruct",
+			inputPrice: "1e-6",
+			outputPrice: "4e-6",
+			providerName: "Nebius",
+		});
 
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
@@ -490,9 +594,8 @@ describe("airside-listed models", () => {
 			id: "merge-company",
 			name: "Merge Co",
 		});
-		// An imported listing shadowed by an ACTIVE static mapping must not
-		// duplicate the model entry; a listing for a retired static mapping
-		// (nebius) joins the existing entry as an extra provider.
+		// Airside-owned rows replace their provider mapping without duplicating
+		// the static model entry.
 		await db.insert(tables.providerDraftModel).values([
 			{
 				id: "merge-static-model",
@@ -531,6 +634,17 @@ describe("airside-listed models", () => {
 				status: "approved",
 			},
 		]);
+		for (const [modelId, providerId, inputPrice, outputPrice] of [
+			["mistral-large-latest", "mistral", "2e-6", "6e-6"],
+			["llama-3.1-8b-instruct", "nebius", "1e-6", "4e-6"],
+		] as const) {
+			await materializeTestMapping({
+				providerId,
+				modelId,
+				inputPrice,
+				outputPrice,
+			});
+		}
 
 		const res = await app.request("/v1/models?include_deactivated=true");
 		expect(res.status).toBe(200);

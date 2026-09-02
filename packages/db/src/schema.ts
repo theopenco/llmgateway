@@ -3348,6 +3348,9 @@ export const modelProviderMapping = pgTable(
 			.references(() => provider.id, { onDelete: "cascade" }),
 		externalId: text().notNull(),
 		region: text(),
+		source: text({ enum: ["catalogue", "airside"] })
+			.notNull()
+			.default("catalogue"),
 		inputPrice: decimal(),
 		outputPrice: decimal(),
 		cachedInputPrice: decimal(),
@@ -3359,6 +3362,7 @@ export const modelProviderMapping = pgTable(
 		maxOutput: integer(),
 		streaming: boolean().notNull().default(false),
 		vision: boolean(),
+		audio: boolean(),
 		reasoning: boolean(),
 		reasoningMaxTokens: boolean().notNull().default(false),
 		reasoningOutput: text(),
@@ -3401,6 +3405,10 @@ export const modelProviderMapping = pgTable(
 		index("model_provider_mapping_status_model_id_idx").on(
 			table.status,
 			table.modelId,
+		),
+		index("model_provider_mapping_source_status_idx").on(
+			table.source,
+			table.status,
 		),
 	],
 );

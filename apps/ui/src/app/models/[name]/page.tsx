@@ -115,7 +115,7 @@ export default async function ModelPage({ params }: PageProps) {
 	]);
 	// Carrier-uploaded branding (Airside claims) overlays the static provider
 	// info, and is the only provider info a DB-only carrier has.
-	const apiProviders = await fetchProviders().catch(() => []);
+	const apiProviders = await fetchProviders();
 	const expandedProviders = expandAllProviderRegions(modelDef.providers);
 	const modelProviders = expandedProviders.map((provider) => {
 		const providerInfo = providerDefinitions.find(

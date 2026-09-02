@@ -76,7 +76,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 
 	const providerInfo =
 		providerDefinitions.find((p) => p.id === decodedProvider) ??
-		((await fetchProviders().catch(() => [])).find(
+		((await fetchProviders()).find(
 			(provider) => provider.id === decodedProvider,
 		) as unknown as (typeof providerDefinitions)[number] | undefined);
 
@@ -497,7 +497,7 @@ export async function generateMetadata({
 
 	const providerInfo =
 		providerDefinitions.find((p) => p.id === decodedProvider) ??
-		((await fetchProviders().catch(() => [])).find(
+		((await fetchProviders()).find(
 			(candidate) => candidate.id === decodedProvider,
 		) as unknown as (typeof providerDefinitions)[number] | undefined);
 	const providerName = providerInfo?.name ?? decodedProvider;

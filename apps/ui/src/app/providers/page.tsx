@@ -65,8 +65,8 @@ const breadcrumbSchema = {
 export default async function ProvidersPage() {
 	// Carrier-uploaded branding (Airside claims) overlays the built-in marks.
 	const [apiProviders, apiModels] = await Promise.all([
-		fetchProviders().catch(() => []),
-		fetchModels().catch(() => []),
+		fetchProviders(),
+		fetchModels(),
 	]);
 	const uploadedLogos = Object.fromEntries(
 		apiProviders

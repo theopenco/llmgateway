@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import {
 	dematerializeAirsideModel,
+	materializeAirsideModel,
 	staticCatalogueHasActiveMapping,
 	syncAirsideModelMetadata,
 } from "@/lib/airside-catalogue.js";
@@ -1939,10 +1940,9 @@ airside.openapi(createModel, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// Catalogue → DB migration: a claimed carrier imports its static-catalogue
-// models as Airside listings (active, with the current prices as an approved
-// filing). Routing still prefers the static mapping; once we deactivate it in
-// packages/models, the imported listing takes over — that is the migration.
+// Catalogue → Airside ownership: a claimed carrier imports its static models
+// as active listings with the current prices as an approved filing. The
+// materialized mapping becomes the canonical row for every consumer.
 // ---------------------------------------------------------------------------
 
 const importCatalogueModels = createRoute({
@@ -2044,7 +2044,7 @@ airside.openapi(importCatalogueModels, async (c) => {
 			continue;
 		}
 		// cdb: the gateway caches these tables for listing resolution.
-		await cdb.transaction(async (tx) => {
+		const importedListing = await cdb.transaction(async (tx) => {
 			const [row] = await tx
 				.insert(tables.providerDraftModel)
 				.values({
@@ -2067,24 +2067,29 @@ airside.openapi(importCatalogueModels, async (c) => {
 					createdBy: user.id,
 				})
 				.returning();
-			await tx.insert(tables.providerPriceFiling).values({
-				draftModelId: row.id,
-				providerCompanyId: body.providerCompanyId,
-				kind: "initial",
-				inputPrice: String(mapping.inputPrice),
-				outputPrice: String(mapping.outputPrice),
-				cachedInputPrice: mapping.cachedInputPrice
-					? String(mapping.cachedInputPrice)
-					: null,
-				requestPrice: mapping.requestPrice
-					? String(mapping.requestPrice)
-					: null,
-				requestedBy: user.id,
-				status: "approved",
-				reviewNote: "Imported from the catalogue",
-				reviewedAt: new Date(),
-			});
+			const [filing] = await tx
+				.insert(tables.providerPriceFiling)
+				.values({
+					draftModelId: row.id,
+					providerCompanyId: body.providerCompanyId,
+					kind: "initial",
+					inputPrice: String(mapping.inputPrice),
+					outputPrice: String(mapping.outputPrice),
+					cachedInputPrice: mapping.cachedInputPrice
+						? String(mapping.cachedInputPrice)
+						: null,
+					requestPrice: mapping.requestPrice
+						? String(mapping.requestPrice)
+						: null,
+					requestedBy: user.id,
+					status: "approved",
+					reviewNote: "Imported from the catalogue",
+					reviewedAt: new Date(),
+				})
+				.returning();
+			return { row, filing };
 		});
+		await materializeAirsideModel(importedListing.row, importedListing.filing);
 		imported.push(model.id);
 	}
 

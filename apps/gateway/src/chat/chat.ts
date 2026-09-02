@@ -3491,8 +3491,14 @@ chat.openapi(completions, async (c) => {
 	// custom model catalog entry. Threaded into every calculateCosts call below
 	// so the request is billed at the catalog rates; undefined otherwise (those
 	// requests stay unbilled, as before).
+	const findAirsidePricingMapping = () =>
+		airsideResolution?.pricingMappings.find(
+			(mapping) =>
+				mapping.providerId === usedProvider &&
+				(mapping.region ?? null) === (usedRegion ?? null),
+		);
 	let customPricingMapping: ProviderModelMapping | undefined =
-		airsideResolution?.pricingMapping;
+		findAirsidePricingMapping();
 	const applySelectedCustomProvider = (provider: ProviderModelMapping) => {
 		if (!isCustomAutoRoutingMapping(provider)) {
 			return;
@@ -5517,6 +5523,9 @@ chat.openapi(completions, async (c) => {
 		finalModelInfo?.providers.find(
 			(p) => p.providerId === usedProvider && p.region === undefined,
 		);
+	if (airsideResolution) {
+		customPricingMapping = findAirsidePricingMapping();
+	}
 	const imageGenProviderMapping = getUsedProviderMapping();
 	let isImageGeneration = imageGenProviderMapping?.imageGenerations === true;
 	const usesAwsBedrockConverse = () =>
@@ -7486,9 +7495,9 @@ chat.openapi(completions, async (c) => {
 		if (usedProvider !== "custom") {
 			customProviderName = undefined;
 			customProviderKey = undefined;
-			// Airside listings keep their filed prices across provider context
-			// changes; everything else resets to catalogue pricing.
-			customPricingMapping = airsideResolution?.pricingMapping;
+			// Airside-owned canonical pricing follows the selected provider;
+			// everything else resets to static catalogue pricing.
+			customPricingMapping = findAirsidePricingMapping();
 		}
 		usedInternalModel = ctx.usedInternalModel;
 		usedExternalId = ctx.usedExternalId;

@@ -688,6 +688,7 @@ describe("airside provider portal", () => {
 		expect(mapping).toMatchObject({
 			providerId: "mistral",
 			externalId: "mistral-large-3",
+			source: "airside",
 			status: "active",
 		});
 		expect(Number(mapping!.inputPrice)).toBeCloseTo(2e-6);
@@ -705,11 +706,12 @@ describe("airside provider portal", () => {
 			mappings: [
 				expect.objectContaining({
 					providerId: "mistral",
-					inputPrice: "2e-6",
+					audio: false,
 					tools: true,
 				}),
 			],
 		});
+		expect(Number(published.mappings[0].inputPrice)).toBeCloseTo(2e-6);
 
 		// Provider-managed metadata updates are public immediately.
 		await app.request(
@@ -743,7 +745,7 @@ describe("airside provider portal", () => {
 		const updatedPrice = (await afterPriceUpdate.json()).models.find(
 			(entry: { id: string }) => entry.id === "mistral-large-3",
 		);
-		expect(updatedPrice.mappings[0].inputPrice).toBe("4e-6");
+		expect(Number(updatedPrice.mappings[0].inputPrice)).toBeCloseTo(4e-6);
 
 		// Delisting removes the materialized rows again.
 		await app.request(`/airside/models/${model.id}`, {
@@ -800,13 +802,14 @@ describe("airside provider portal", () => {
 		const published = (await publicModels.json()).models.find(
 			(entry: { id: string }) => entry.id === existingModel!.id,
 		);
-		expect(published.mappings).toContainEqual(
-			expect.objectContaining({
-				providerId: "mistral",
-				externalId: existingModel!.id,
-				inputPrice: "2e-6",
-			}),
+		const publishedMapping = published.mappings.find(
+			(mapping: { providerId: string }) => mapping.providerId === "mistral",
 		);
+		expect(publishedMapping).toMatchObject({
+			providerId: "mistral",
+			externalId: existingModel!.id,
+		});
+		expect(Number(publishedMapping.inputPrice)).toBeCloseTo(2e-6);
 	});
 
 	it("rejects malformed price strings", async () => {
@@ -1313,6 +1316,14 @@ describe("airside provider portal", () => {
 			(f: { status: string }) => f.status === "approved",
 		);
 		expect(approved?.reviewNote).toBe("Imported from the catalogue");
+		const canonicalMapping = await db.query.modelProviderMapping.findFirst({
+			where: {
+				modelId: { eq: "mistral-large-latest" },
+				providerId: { eq: "mistral" },
+				region: { isNull: true },
+			},
+		});
+		expect(canonicalMapping?.source).toBe("airside");
 
 		// Re-importing skips everything already listed.
 		const again = await app.request(
@@ -1322,6 +1333,22 @@ describe("airside provider portal", () => {
 		const secondBody = await again.json();
 		expect(secondBody.imported).toEqual([]);
 		expect(secondBody.skipped).toContain("mistral-large-latest");
+
+		await app.request(`/airside/models/${row!.id}`, {
+			method: "DELETE",
+			headers: { Cookie: cookie },
+		});
+		const restored = await db.query.modelProviderMapping.findFirst({
+			where: {
+				modelId: { eq: "mistral-large-latest" },
+				providerId: { eq: "mistral" },
+				region: { isNull: true },
+			},
+		});
+		expect(restored).toMatchObject({
+			source: "catalogue",
+			externalId: "mistral-large-latest",
+		});
 	});
 
 	it("skips catalogue mappings a flat listing cannot represent", async () => {

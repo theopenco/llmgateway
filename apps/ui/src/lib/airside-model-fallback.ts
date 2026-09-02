@@ -179,7 +179,7 @@ export const findPublicModelDefinition = cache(
 		const staticModel = modelDefinitions.find(
 			(model) => model.id === modelId,
 		) as ModelDefinition | undefined;
-		const apiModels = await fetchModels().catch(() => []);
+		const apiModels = await fetchModels();
 		const apiModel = apiModels.find((model) => model.id === modelId);
 		if (apiModel) {
 			return mergeApiModelDefinition(apiModel, staticModel);

@@ -13,7 +13,7 @@ import {
 import { DEV_PLAN_PRICES, getDevPlanCreditsLimit } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
-import { closeDatabase, db, tables } from "./index.js";
+import { and, closeDatabase, db, eq, isNull, tables } from "./index.js";
 import { logs } from "./logs.js";
 
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
@@ -2950,6 +2950,63 @@ async function seed() {
 // initial approval, and an active model with a pending price-update filing,
 // so both the portal and the admin approval queue have content.
 // Login: ops@mistral.ai / ops@mistral.ai (password == email).
+async function materializeSeedAirsideModel(options: {
+	modelName: string;
+	displayName: string;
+	description: string;
+	contextSize: number;
+	maxOutput: number;
+	inputPrice: string;
+	outputPrice: string;
+	reasoning?: boolean;
+}) {
+	await upsert(tables.model, {
+		id: options.modelName,
+		name: options.displayName,
+		description: options.description,
+		family: "mistral",
+		status: "active" as const,
+	});
+	const values = {
+		externalId: options.modelName,
+		source: "airside" as const,
+		inputPrice: options.inputPrice,
+		outputPrice: options.outputPrice,
+		contextSize: options.contextSize,
+		maxOutput: options.maxOutput,
+		streaming: true,
+		tools: true,
+		jsonOutput: true,
+		reasoning: options.reasoning ?? false,
+		status: "active" as const,
+		deactivatedAt: null,
+	};
+	const existing = await db
+		.select({ id: tables.modelProviderMapping.id })
+		.from(tables.modelProviderMapping)
+		.where(
+			and(
+				eq(tables.modelProviderMapping.modelId, options.modelName),
+				eq(tables.modelProviderMapping.providerId, "mistral"),
+				isNull(tables.modelProviderMapping.region),
+			),
+		)
+		.limit(1);
+	if (existing.length > 0) {
+		await db
+			.update(tables.modelProviderMapping)
+			.set(values)
+			.where(eq(tables.modelProviderMapping.id, existing[0].id));
+		return;
+	}
+	await db.insert(tables.modelProviderMapping).values({
+		id: `airside-mapping-${options.modelName}`,
+		modelId: options.modelName,
+		providerId: "mistral",
+		...values,
+	});
+}
+
 async function seedAirside() {
 	await upsert(tables.user, {
 		id: "airside-user-mistral",
@@ -3072,6 +3129,15 @@ async function seedAirside() {
 		reviewedBy: "test-user-id",
 		reviewedAt: daysAgo(12),
 	});
+	await materializeSeedAirsideModel({
+		modelName: "mistral-medium-4",
+		displayName: "Mistral Medium 4",
+		description: "Balanced flagship for everyday workloads.",
+		contextSize: 128000,
+		maxOutput: 16384,
+		inputPrice: "4e-7",
+		outputPrice: "2e-6",
+	});
 
 	await upsert(tables.providerDraftModel, {
 		id: "airside-model-codestral",
@@ -3102,6 +3168,16 @@ async function seedAirside() {
 		requestedBy: "airside-user-mistral",
 		reviewedBy: "test-user-id",
 		reviewedAt: daysAgo(9),
+	});
+	await materializeSeedAirsideModel({
+		modelName: "codestral-3",
+		displayName: "Codestral 3",
+		description: "Code-specialized model tuned for agentic editing.",
+		contextSize: 256000,
+		maxOutput: 32768,
+		inputPrice: "9e-7",
+		outputPrice: "3e-6",
+		reasoning: true,
 	});
 
 	// A pending price update for the admin queue's diff view.

@@ -54,7 +54,7 @@ export default async function ModelUptimePage({ params }: PageProps) {
 	}
 
 	const expandedProviders = expandAllProviderRegions(modelDef.providers);
-	const apiProviders = await fetchProviders().catch(() => []);
+	const apiProviders = await fetchProviders();
 	const providerNames = Array.from(
 		new Set(
 			expandedProviders.map((p) => {

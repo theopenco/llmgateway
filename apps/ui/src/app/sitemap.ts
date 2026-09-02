@@ -466,16 +466,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 	}
 
 	// DB-only catalogue entries (Airside carriers and their listings) are not
-	// in the static definitions, so pull them from the API. A fetch failure
-	// falls back to the static-only sitemap rather than failing the render.
+	// in the static definitions, so pull them from the API.
 	const { fetchModels, fetchProviders } = await import("@/lib/fetch-models");
 	const staticModelIds = new Set(modelDefinitions.map((m) => m.id as string));
 	const staticProviderIds = new Set(
 		providerDefinitions.map((p) => p.id as string),
 	);
 	const [apiModels, apiProviders] = await Promise.all([
-		fetchModels().catch(() => []),
-		fetchProviders().catch(() => []),
+		fetchModels(),
+		fetchProviders(),
 	]);
 	for (const model of apiModels) {
 		if (

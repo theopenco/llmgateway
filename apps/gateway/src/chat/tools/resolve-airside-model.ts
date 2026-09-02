@@ -19,8 +19,8 @@ export interface AirsideResolution {
 	parseResult: ParseModelInputResult;
 	modelInfoResult: ResolveModelInfoResult;
 	/** The synthesized mapping carrying the approved filing's prices — thread
-	 *  it into calculateCosts so the request is billed at the filed rates. */
-	pricingMapping: ProviderModelMapping;
+	 *  it into calculateCosts so the request is billed at the canonical rates. */
+	pricingMappings: ProviderModelMapping[];
 	/** Set for custom carriers (providers that exist only as an approved
 	 *  Airside registration): the OpenAI-compatible endpoint to route to.
 	 *  Undefined for listings on catalogue providers, which use the
@@ -52,14 +52,53 @@ export async function resolveAirsideModel(
 		if (modelInput.includes(":")) {
 			return null;
 		}
-		const staticModelExists = models.some(
+		const staticModel = models.find(
 			(m) =>
 				m.id === modelInput ||
 				("aliases" in m &&
 					(m.aliases as readonly string[] | undefined)?.includes(modelInput)),
 		);
-		if (staticModelExists) {
-			return null;
+		if (staticModel) {
+			const listings = (
+				await findAirsideModelsByBareName(staticModel.id)
+			).filter((listed) =>
+				providers.some((provider) => provider.id === listed.mapping.providerId),
+			);
+			if (listings.length === 0) {
+				return null;
+			}
+			const pricingMappings = listings.map(
+				(listed) => airsideListingToModelDefinition(listed).mapping,
+			);
+			const ownedProviderIds = new Set(
+				pricingMappings.map((mapping) => mapping.providerId),
+			);
+			const allModelProviders = [
+				...staticModel.providers.filter(
+					(mapping) => !ownedProviderIds.has(mapping.providerId),
+				),
+				...pricingMappings,
+			];
+			const now = new Date();
+			const activeProviders = allModelProviders.filter((mapping) => {
+				const deactivatedAt = (mapping as ProviderModelMapping).deactivatedAt;
+				return !deactivatedAt || deactivatedAt > now;
+			});
+			return {
+				parseResult: {
+					requestedModel: staticModel.id as Model,
+					requestedProvider: undefined,
+					customProviderName: undefined,
+					requestedRegion: undefined,
+				},
+				modelInfoResult: {
+					modelInfo: { ...staticModel, providers: activeProviders },
+					activeProviders,
+					allModelProviders,
+					requestedProvider: undefined,
+				},
+				pricingMappings,
+			};
 		}
 		const listings = await findAirsideModelsByBareName(modelInput);
 		if (listings.length !== 1) {
@@ -111,11 +150,11 @@ export async function resolveAirsideModel(
 /** The synthesized parse/model-info results for one resolved listing. */
 async function buildResolution(
 	listed: Parameters<typeof airsideListingToModelDefinition>[0] & {
-		model: { providerId: string };
+		mapping: { providerId: string };
 	},
 	knownCustomBaseUrl?: string,
 ): Promise<AirsideResolution> {
-	const providerId = listed.model.providerId;
+	const providerId = listed.mapping.providerId;
 	let customBaseUrl = knownCustomBaseUrl;
 	if (
 		customBaseUrl === undefined &&
@@ -128,7 +167,7 @@ async function buildResolution(
 
 	return {
 		parseResult: {
-			requestedModel: listed.model.modelName as Model,
+			requestedModel: listed.model.id as Model,
 			requestedProvider: providerId as Provider,
 			customProviderName: undefined,
 			requestedRegion: undefined,
@@ -139,7 +178,7 @@ async function buildResolution(
 			allModelProviders: [mapping],
 			requestedProvider: providerId as Provider,
 		},
-		pricingMapping: mapping,
+		pricingMappings: [mapping],
 		customBaseUrl,
 	};
 }
@@ -148,48 +187,50 @@ async function buildResolution(
  *  chat resolver and the /v1/models catalogue. */
 export function airsideListingToModelDefinition(listed: {
 	model: {
+		id: string;
+		name: string | null;
+		family: string;
+	};
+	mapping: {
 		providerId: string;
-		modelName: string;
-		displayName: string | null;
+		externalId: string;
+		inputPrice: string | null;
+		outputPrice: string | null;
+		cachedInputPrice: string | null;
+		requestPrice: string | null;
 		contextSize: number | null;
 		maxOutput: number | null;
 		streaming: boolean;
-		vision: boolean;
-		audio: boolean;
-		tools: boolean;
+		vision: boolean | null;
+		audio: boolean | null;
+		tools: boolean | null;
 		jsonOutput: boolean;
-		reasoning: boolean;
+		reasoning: boolean | null;
 		reasoningEfforts: string[] | null;
-	};
-	pricing: {
-		inputPrice: string;
-		outputPrice: string;
-		cachedInputPrice: string | null;
-		requestPrice: string | null;
 	};
 }): { mapping: ProviderModelMapping; modelInfo: ModelDefinition } {
 	const mapping: ProviderModelMapping = {
-		providerId: listed.model.providerId as Provider,
-		externalId: listed.model.modelName,
-		inputPrice: listed.pricing.inputPrice,
-		outputPrice: listed.pricing.outputPrice,
-		cachedInputPrice: listed.pricing.cachedInputPrice ?? undefined,
-		requestPrice: listed.pricing.requestPrice ?? undefined,
-		contextSize: listed.model.contextSize ?? undefined,
-		maxOutput: listed.model.maxOutput ?? undefined,
-		streaming: listed.model.streaming,
-		vision: listed.model.vision,
-		audio: listed.model.audio,
-		tools: listed.model.tools,
-		jsonOutput: listed.model.jsonOutput,
-		reasoning: listed.model.reasoning,
-		reasoningEfforts: (listed.model.reasoningEfforts ??
+		providerId: listed.mapping.providerId as Provider,
+		externalId: listed.mapping.externalId,
+		inputPrice: listed.mapping.inputPrice ?? undefined,
+		outputPrice: listed.mapping.outputPrice ?? undefined,
+		cachedInputPrice: listed.mapping.cachedInputPrice ?? undefined,
+		requestPrice: listed.mapping.requestPrice ?? undefined,
+		contextSize: listed.mapping.contextSize ?? undefined,
+		maxOutput: listed.mapping.maxOutput ?? undefined,
+		streaming: listed.mapping.streaming,
+		vision: listed.mapping.vision ?? undefined,
+		audio: listed.mapping.audio ?? undefined,
+		tools: listed.mapping.tools ?? undefined,
+		jsonOutput: listed.mapping.jsonOutput,
+		reasoning: listed.mapping.reasoning ?? undefined,
+		reasoningEfforts: (listed.mapping.reasoningEfforts ??
 			undefined) as ProviderModelMapping["reasoningEfforts"],
 	};
 	const modelInfo: ModelDefinition = {
-		id: listed.model.modelName as Model,
-		name: listed.model.displayName ?? listed.model.modelName,
-		family: "airside",
+		id: listed.model.id as Model,
+		name: listed.model.name ?? listed.model.id,
+		family: listed.model.family,
 		providers: [mapping],
 	};
 	return { mapping, modelInfo };

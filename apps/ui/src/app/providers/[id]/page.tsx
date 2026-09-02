@@ -43,8 +43,8 @@ interface ProviderPageProps {
  */
 async function renderDynamicProviderPage(id: string) {
 	const [apiProviders, apiModels] = await Promise.all([
-		fetchProviders().catch(() => []),
-		fetchModels().catch(() => []),
+		fetchProviders(),
+		fetchModels(),
 	]);
 	const apiProvider = apiProviders.find((p) => p.id === id);
 	if (!apiProvider) {
@@ -103,7 +103,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 		notFound();
 	}
 
-	const apiProviders = await fetchProviders().catch(() => []);
+	const apiProviders = await fetchProviders();
 	const apiProvider = apiProviders.find((p) => p.id === id);
 	const uploadedLogo = apiProvider?.airsideLogoUrl ?? undefined;
 
@@ -330,9 +330,7 @@ export async function generateMetadata({
 	const provider = providerDefinitions.find((p) => p.id === id);
 
 	if (!provider || provider.name === "LLM Gateway") {
-		const apiProvider = (await fetchProviders().catch(() => [])).find(
-			(p) => p.id === id,
-		);
+		const apiProvider = (await fetchProviders()).find((p) => p.id === id);
 		if (!apiProvider) {
 			return {};
 		}
@@ -345,7 +343,7 @@ export async function generateMetadata({
 		};
 	}
 
-	const apiModels = await fetchModels().catch(() => []);
+	const apiModels = await fetchModels();
 	const apiModelCount = apiModels.filter((model) =>
 		model.mappings.some(
 			(mapping) =>

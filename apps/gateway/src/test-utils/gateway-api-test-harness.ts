@@ -29,6 +29,9 @@ async function resetGatewayTestData() {
 	await db.delete(tables.videoJob);
 	await db.delete(tables.apiKey);
 	await db.delete(tables.providerKey);
+	await db
+		.delete(tables.modelProviderMapping)
+		.where(eq(tables.modelProviderMapping.source, "airside"));
 	await db.delete(tables.providerPriceFiling);
 	await db.delete(tables.providerDraftModel);
 	await db.delete(tables.providerClaim);
