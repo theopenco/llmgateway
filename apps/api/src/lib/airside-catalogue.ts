@@ -8,6 +8,9 @@ import {
 import type { ProviderModelMapping } from "@llmgateway/models";
 
 type DraftModelRow = typeof tables.providerDraftModel.$inferSelect;
+type CatalogueTransaction = Parameters<
+	Parameters<typeof cdb.transaction>[0]
+>[0];
 
 interface FilingPrices {
 	inputPrice: string;
@@ -37,8 +40,9 @@ export function staticCatalogueHasActiveMapping(
 export async function materializeAirsideModel(
 	model: DraftModelRow,
 	filing: FilingPrices,
+	transaction?: CatalogueTransaction,
 ): Promise<void> {
-	await cdb.transaction(async (tx) => {
+	const upsert = async (tx: CatalogueTransaction) => {
 		// The worker sync normally creates provider rows at boot; make the
 		// materialization self-sufficient for fresh installs and tests.
 		await tx
@@ -105,7 +109,12 @@ export async function materializeAirsideModel(
 				...mappingValues,
 			});
 		}
-	});
+	};
+	if (transaction) {
+		await upsert(transaction);
+		return;
+	}
+	await cdb.transaction(upsert);
 }
 
 /**
@@ -156,27 +165,13 @@ export async function syncAirsideModelMetadata(
 	});
 }
 
-/** Apply an approved price-update filing to the materialized mapping. */
+/** Upsert an approved price update into the materialized catalogue. */
 export async function updateAirsideMappingPrices(
 	model: DraftModelRow,
 	filing: FilingPrices,
+	transaction?: CatalogueTransaction,
 ): Promise<void> {
-	await cdb
-		.update(tables.modelProviderMapping)
-		.set({
-			inputPrice: filing.inputPrice,
-			outputPrice: filing.outputPrice,
-			cachedInputPrice: filing.cachedInputPrice,
-			requestPrice: filing.requestPrice,
-		})
-		.where(
-			and(
-				eq(tables.modelProviderMapping.modelId, model.modelName),
-				eq(tables.modelProviderMapping.providerId, model.providerId),
-				isNull(tables.modelProviderMapping.region),
-				eq(tables.modelProviderMapping.source, "airside"),
-			),
-		);
+	await materializeAirsideModel(model, filing, transaction);
 }
 
 function findStaticMapping(providerId: string, modelName: string) {

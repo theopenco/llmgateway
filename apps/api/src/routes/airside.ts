@@ -2044,7 +2044,7 @@ airside.openapi(importCatalogueModels, async (c) => {
 			continue;
 		}
 		// cdb: the gateway caches these tables for listing resolution.
-		const importedListing = await cdb.transaction(async (tx) => {
+		await cdb.transaction(async (tx) => {
 			const [row] = await tx
 				.insert(tables.providerDraftModel)
 				.values({
@@ -2087,9 +2087,8 @@ airside.openapi(importCatalogueModels, async (c) => {
 					reviewedAt: new Date(),
 				})
 				.returning();
-			return { row, filing };
+			await materializeAirsideModel(row, filing, tx);
 		});
-		await materializeAirsideModel(importedListing.row, importedListing.filing);
 		imported.push(model.id);
 	}
 

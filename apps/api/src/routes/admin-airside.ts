@@ -341,15 +341,11 @@ adminAirside.openapi(approveFiling, async (c) => {
 				.update(tables.providerDraftModel)
 				.set({ status: "active" })
 				.where(eq(tables.providerDraftModel.id, filing.draftModelId));
+			await materializeAirsideModel(filing.draftModel, filing, tx);
+		} else {
+			await updateAirsideMappingPrices(filing.draftModel, filing, tx);
 		}
 	});
-	// Approved listings join the DB catalogue: /internal/models (models
-	// directory, playground selector) and /v1/models pick them up from there.
-	if (filing.kind === "initial") {
-		await materializeAirsideModel(filing.draftModel, filing);
-	} else {
-		await updateAirsideMappingPrices(filing.draftModel, filing);
-	}
 	const updated = await db.query.providerPriceFiling.findFirst({
 		where: { id: { eq: id } },
 		with: {

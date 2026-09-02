@@ -727,12 +727,15 @@ describe("airside provider portal", () => {
 			tools: false,
 		});
 
-		// A price-update approval rewrites the mapping's prices.
+		// A price-update approval upserts the mapping and its prices.
 		const update = await app.request(
 			`/airside/models/${model.id}/price-filings`,
 			json(cookie, { inputPrice: "4e-6", outputPrice: "9e-6" }),
 		);
 		const updateFiling = (await update.json()).filing;
+		await db
+			.delete(tables.modelProviderMapping)
+			.where(eq(tables.modelProviderMapping.id, mapping!.id));
 		await app.request(
 			`/admin/airside/filings/${updateFiling.id}/approve`,
 			json(cookie),
