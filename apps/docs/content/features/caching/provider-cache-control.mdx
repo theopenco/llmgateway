@@ -126,7 +126,7 @@ The same `cache_control` markers work on the native [`/v1/messages` endpoint](/f
 
 Every Claude model has a **minimum prompt length below which nothing is cached**. A `cache_control` marker on a shorter prompt is accepted without error, but the provider silently skips the cache write — the response reports `cache_creation_input_tokens: 0` and `cache_read_input_tokens: 0` on every call, no matter how often you repeat the request. This is Anthropic's documented behavior, not a dropped breakpoint; you would see exactly the same result calling Anthropic directly.
 
-The threshold counts **all tokens up to and including the marked block** (tools, system, and preceding messages), and it varies by model — from 1,024 to 4,096 tokens depending on the model generation.
+The threshold counts **all tokens up to and including the marked block** (tools, system, and preceding messages), and it varies by model.
 
 The models endpoint (`GET https://api.llmgateway.io/v1/models`) exposes each model's exact threshold as `min_cacheable_tokens` on its provider entry, so clients can check it programmatically. LLM Gateway's automatic marker injection uses the same threshold, which is why short system prompts never trigger automatic cache writes either.
 

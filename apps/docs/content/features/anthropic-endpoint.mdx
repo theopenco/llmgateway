@@ -175,10 +175,10 @@ For Claude models, `cache_control` markers on `system` and message content block
 Cache usage comes back in Anthropic's native fields: `usage.cache_creation_input_tokens` (tokens written to the cache this request, billed at the write premium), `usage.cache_read_input_tokens` (tokens served from cache at the discounted rate), and `usage.cache_creation` (the per-TTL write breakdown).
 
 <Callout type="warning">
-	Each Claude model has a minimum cacheable prompt length (1,024–4,096 tokens
-	depending on the model, exposed as `min_cacheable_tokens` on `/v1/models`). A
-	`cache_control` marker on a shorter prompt is accepted but silently not cached
-	— both cache usage fields stay `0`. See [Provider Cache
+	Each Claude model has a minimum cacheable prompt length (it varies by model
+	and is exposed as `min_cacheable_tokens` on `/v1/models`). A `cache_control`
+	marker on a shorter prompt is accepted but silently not cached — both cache
+	usage fields stay `0`. See [Provider Cache
 	Control](/features/caching/provider-cache-control) for details.
 </Callout>
 
