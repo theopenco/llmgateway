@@ -11119,6 +11119,82 @@ describe("api", () => {
 			expect(json.error?.message).toContain("blocked_domains");
 		});
 
+		test("rejects a conflicting duplicate web_search tool entry", async () => {
+			// Only the first web_search entry is extracted; a later conflicting
+			// duplicate must still be rejected, not silently discarded.
+			await db.insert(tables.apiKey).values({
+				id: "token-id-ws-domains-dup",
+				...hashApiKeyForStorage("real-token-ws-domains-dup"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-ws-domains-dup",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o",
+					messages: [{ role: "user", content: "Hello!" }],
+					tools: [
+						{
+							type: "web_search",
+							allowed_domains: ["anthropic.com"],
+						},
+						{
+							type: "web_search",
+							allowed_domains: ["anthropic.com"],
+							blocked_domains: ["example.com"],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.error?.code).toBe("unsupported_parameter_combination");
+			expect(json.error?.param).toBe("tools");
+		});
+
+		test("rejects /v1/responses web_search tool with both domain filters", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-ws-domains-resp",
+				...hashApiKeyForStorage("real-token-ws-domains-resp"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/responses", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-ws-domains-resp",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o",
+					input: [{ role: "user", content: "Hello!" }],
+					tools: [
+						{
+							type: "web_search",
+							allowed_domains: ["anthropic.com"],
+							blocked_domains: ["example.com"],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.error?.code).toBe("unsupported_parameter_combination");
+			expect(json.error?.param).toBe("tools");
+			expect(json.error?.message).toContain("allowed_domains");
+			expect(json.error?.message).toContain("blocked_domains");
+		});
+
 		test("rejects /v1/messages web_search server tool with both domain filters", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-ws-domains-msgs",
@@ -11150,9 +11226,13 @@ describe("api", () => {
 			});
 
 			expect(res.status).toBe(400);
-			const body = await res.text();
-			expect(body).toContain("allowed_domains");
-			expect(body).toContain("blocked_domains");
+			// The messages route wraps the inner chat error in Anthropic's
+			// envelope, which carries only type + message (no code/param).
+			const json = await res.json();
+			expect(json.type).toBe("error");
+			expect(json.error?.type).toBe("invalid_request_error");
+			expect(json.error?.message).toContain("allowed_domains");
+			expect(json.error?.message).toContain("blocked_domains");
 		});
 	});
 
