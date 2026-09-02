@@ -317,11 +317,8 @@ import {
 } from "./tools/tokenizer.js";
 import {
 	applyExtendedUsageFields,
-	stripRequestScopedMetadataFromOpenAiResponse,
 	toResponseMetadataExtras,
 	transformResponseToOpenai,
-	withCurrentRequestMetadataOnOpenAiResponse,
-	zeroCostsOnCachedResponseUsage,
 } from "./tools/transform-response-to-openai.js";
 import {
 	type AnthropicToolSearchState,
@@ -1503,10 +1500,6 @@ const completions = createRoute({
 							organization_id: z.string().optional(),
 							project_id: z.string().optional(),
 							discount: z.number().nullable().optional(),
-							cached: z.boolean().optional().openapi({
-								description:
-									"True when the response was replayed from the gateway response cache instead of being generated upstream. Omitted otherwise.",
-							}),
 							routing: z
 								.array(
 									z.object({
@@ -6405,6 +6398,7 @@ chat.openapi(completions, async (c) => {
 
 	if (cachingEnabled) {
 		const cachePayload = {
+			apiOrigin,
 			provider: usedProvider,
 			model: usedInternalModel,
 			messages,
@@ -6431,6 +6425,12 @@ chat.openapi(completions, async (c) => {
 			const cachedStreamingResponse =
 				await getStreamingCache(streamingCacheKey);
 			if (cachedStreamingResponse?.metadata.completed) {
+				if (logIdOverride && cachedStreamingResponse.metadata.responseId) {
+					c.header(
+						"x-llmgateway-cache-response-id",
+						cachedStreamingResponse.metadata.responseId,
+					);
+				}
 				// Extract final content and metadata from cached chunks
 				let fullContent = "";
 				let fullReasoningContent = "";
@@ -6656,42 +6656,7 @@ chat.openapi(completions, async (c) => {
 							?.toolResults ?? null,
 				});
 
-				const cachedResponseMetadata = {
-					...buildFinalResponseMetadata(costs.discount ?? null),
-					cached: true,
-				};
 				c.header("x-llmgateway-cache", "HIT");
-				let hasMetadataChunk = false;
-				for (
-					let chunkIndex = cachedStreamingResponse.chunks.length - 1;
-					chunkIndex >= 0;
-					chunkIndex--
-				) {
-					const chunk = cachedStreamingResponse.chunks[chunkIndex];
-					if (!chunk) {
-						continue;
-					}
-					const isMetadataChunk = (() => {
-						if (chunk.data === "[DONE]") {
-							return false;
-						}
-						try {
-							const parsed: unknown = JSON.parse(chunk.data);
-							return (
-								typeof parsed === "object" &&
-								parsed !== null &&
-								!Array.isArray(parsed) &&
-								("usage" in parsed || "metadata" in parsed)
-							);
-						} catch {
-							return false;
-						}
-					})();
-					if (isMetadataChunk) {
-						hasMetadataChunk = true;
-						break;
-					}
-				}
 
 				// Return cached streaming response by replaying chunks with original timing
 				return streamSSE(
@@ -6711,58 +6676,8 @@ chat.openapi(completions, async (c) => {
 								});
 							}
 
-							let data = chunk.data;
-							if (hasMetadataChunk && chunk.data !== "[DONE]") {
-								let parsed: Record<string, unknown> | undefined;
-								try {
-									const parsedValue: unknown = JSON.parse(chunk.data);
-									if (
-										typeof parsedValue === "object" &&
-										parsedValue !== null &&
-										!Array.isArray(parsedValue) &&
-										("usage" in parsedValue || "metadata" in parsedValue)
-									) {
-										parsed = parsedValue;
-									}
-								} catch {
-									parsed = undefined;
-								}
-								if (parsed) {
-									const metadata =
-										typeof parsed.metadata === "object" &&
-										parsed.metadata !== null &&
-										!Array.isArray(parsed.metadata)
-											? parsed.metadata
-											: {};
-									data = JSON.stringify({
-										...parsed,
-										// The replay is free; the stored chunk still carries the
-										// original call's cost.
-										...(parsed.usage
-											? {
-													usage: zeroCostsOnCachedResponseUsage(
-														parsed.usage as Record<string, unknown>,
-													),
-												}
-											: {}),
-										metadata: {
-											...metadata,
-											...cachedResponseMetadata,
-										},
-									});
-								}
-							} else if (!hasMetadataChunk && chunk.data === "[DONE]") {
-								// No usage/metadata chunk in the cached stream — emit a
-								// synthetic metadata chunk before [DONE] so consumers always
-								// receive logId, organizationId, projectId, and discount.
-								await stream.writeSSE({
-									data: JSON.stringify({ metadata: cachedResponseMetadata }),
-									id: `${chunk.eventId}-metadata`,
-								});
-							}
-
 							await stream.writeSSE({
-								data,
+								data: chunk.data,
 								id: String(chunk.eventId),
 								event: chunk.event,
 							});
@@ -6785,6 +6700,10 @@ chat.openapi(completions, async (c) => {
 			cacheKey = generateCacheKey(project.id, cachePayload);
 			const cachedResponse = cacheKey ? await getCache(cacheKey) : null;
 			if (cachedResponse) {
+				const cachedResponseId = cachedResponse.metadata?.log_id;
+				if (logIdOverride && typeof cachedResponseId === "string") {
+					c.header("x-llmgateway-cache-response-id", cachedResponseId);
+				}
 				// Log the cached request
 				const duration = 0; // No processing time needed
 
@@ -6822,26 +6741,9 @@ chat.openapi(completions, async (c) => {
 					},
 				);
 
-				// A replay is served from Redis with no upstream call, so it is free
-				// and must not report the original call's cost. Mark it explicitly
-				// too — byte-identical bodies are otherwise indistinguishable from a
-				// fresh sample, and the replayed usage (e.g. a prompt-cache write)
-				// describes the original request, not this one.
-				const responseForCurrentRequest =
-					withCurrentRequestMetadataOnOpenAiResponse(
-						{
-							...cachedResponse,
-							usage: zeroCostsOnCachedResponseUsage(cachedResponse.usage),
-						},
-						requestId,
-						{
-							logId: finalLogId,
-							organizationId: project.organizationId,
-							projectId: apiKey.projectId,
-							discount: cachedCosts.discount ?? null,
-							cached: true,
-						},
-					);
+				// The body is the cached response verbatim. The response header marks
+				// the hit, while the new log row below records this request as free.
+				const responseForCurrentRequest = cachedResponse;
 				c.header("x-llmgateway-cache", "HIT");
 
 				// Extract plugin IDs for logging (cached non-streaming)
@@ -12194,6 +12096,7 @@ chat.openapi(completions, async (c) => {
 								metadata: {
 									model: usedInternalModel,
 									provider: usedProvider,
+									responseId: finalLogId,
 									finishReason: finishReason,
 									totalChunks: streamingChunks.length,
 									duration: duration,
@@ -14568,11 +14471,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	if (cachingEnabled && cacheKey && !stream && !hasEmptyNonStreamingResponse) {
-		await setCache(
-			cacheKey,
-			stripRequestScopedMetadataFromOpenAiResponse(transformedResponse),
-			cacheDuration,
-		);
+		await setCache(cacheKey, transformedResponse, cacheDuration);
 	}
 
 	// For image generation models with streaming requested, convert to SSE format

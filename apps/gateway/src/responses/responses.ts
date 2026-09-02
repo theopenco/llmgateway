@@ -411,7 +411,6 @@ responses.post("/", async (c) => {
 	// Generate log ID with resp_ prefix — this is both the log entry's primary key
 	// and the Responses API response ID
 	const logId = `resp_${shortid(24)}`;
-	const state = createStreamingState(req.model, logId, req, toolRegistry);
 
 	// Make internal request to the existing chat completions endpoint
 	const internalHeaders: Record<string, string> = {
@@ -424,6 +423,9 @@ responses.post("/", async (c) => {
 		"x-debug": c.req.header("x-debug") ?? "",
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 		...internalApiOriginHeaders("responses"),
+		...(c.req.header("x-no-cache") !== undefined
+			? { "x-no-cache": c.req.header("x-no-cache")! }
+			: {}),
 	};
 
 	// Pass Responses API context via in-memory Map (not headers) so the chat
@@ -468,8 +470,21 @@ responses.post("/", async (c) => {
 		}
 	}
 
+	const cacheStatus = response.headers.get("x-llmgateway-cache");
+	if (cacheStatus) {
+		c.header("x-llmgateway-cache", cacheStatus);
+	}
+	const responseId =
+		response.headers.get("x-llmgateway-cache-response-id") ?? logId;
+
 	// Handle streaming response
 	if (req.stream) {
+		const state = createStreamingState(
+			req.model,
+			responseId,
+			req,
+			toolRegistry,
+		);
 		if (!response.body) {
 			return c.json(
 				{
@@ -496,6 +511,9 @@ responses.post("/", async (c) => {
 				}
 				if (typeof chunk?.model === "string" && chunk.model) {
 					state.model = chunk.model;
+				}
+				if (typeof chunk?.created === "number") {
+					state.createdAt = chunk.created;
 				}
 				const createdEvent = createResponseCreatedEvent(state);
 				await stream.writeSSE({
@@ -549,9 +567,9 @@ responses.post("/", async (c) => {
 						);
 						const completedResponse = completedData.response;
 						await storeResponse(
-							logId,
+							responseId,
 							{
-								id: logId,
+								id: responseId,
 								input: inputItems,
 								output: buildFinalOutputItems(state),
 								instructions: req.instructions,
@@ -653,7 +671,7 @@ responses.post("/", async (c) => {
 	const responsesResponse = convertChatResponseToResponses(
 		chatJson,
 		req.model,
-		logId,
+		responseId,
 		req,
 		toolRegistry,
 	);
@@ -663,9 +681,9 @@ responses.post("/", async (c) => {
 	// them) so chaining preserves reasoning like OpenAI's stored responses do.
 	if (shouldStore) {
 		await storeResponse(
-			logId,
+			responseId,
 			{
-				id: logId,
+				id: responseId,
 				input: inputItems,
 				output: responsesResponse.output,
 				instructions: req.instructions,

@@ -6,6 +6,7 @@ import {
 	resolveReasoningContext,
 	stripEncryptedReasoningContent,
 } from "./convert-chat-to-responses.js";
+import { responseItemId } from "./response-item-id.js";
 import { toResponsesToolCallItem } from "./tool-registry.js";
 
 import type { ResponsesEchoRequest } from "./convert-chat-to-responses.js";
@@ -102,14 +103,15 @@ export function createStreamingState(
 	request?: ResponsesEchoRequest,
 	toolRegistry?: ToolRegistry,
 ): StreamingState {
+	const resolvedResponseId = responseId ?? `resp_${shortid(24)}`;
 	return {
-		responseId: responseId ?? `resp_${shortid(24)}`,
+		responseId: resolvedResponseId,
 		model,
 		createdAt: Math.floor(Date.now() / 1000),
 		outputItemIndex: 0,
 		messageItems: [],
-		messageId: `msg_${shortid(24)}`,
-		reasoningId: `rs_${shortid(24)}`,
+		messageId: responseItemId("msg", resolvedResponseId, 0),
+		reasoningId: responseItemId("rs", resolvedResponseId, 0),
 		fullReasoning: [],
 		reasoningItems: [],
 		reasoningStarted: false,
@@ -392,7 +394,11 @@ export function processStreamChunk(
 						? detail.id
 						: state.reasoningItems.length === 0
 							? state.reasoningId
-							: `rs_${shortid(24)}`;
+							: responseItemId(
+									"rs",
+									state.responseId,
+									state.reasoningItems.length,
+								);
 				const outputIndex = state.outputItemIndex++;
 				state.reasoningItems.push({
 					id,
@@ -423,10 +429,11 @@ export function processStreamChunk(
 		for (const tc of delta.tool_calls) {
 			const existing = state.toolCalls.get(tc.index);
 			if (!existing) {
-				const callId = tc.id ?? `call_${shortid(24)}`;
 				const name = tc.function?.name ?? "";
-				const fcId = `fc_${shortid(24)}`;
 				const tcOutputIndex = state.outputItemIndex++;
+				const callId =
+					tc.id ?? responseItemId("call", state.responseId, tcOutputIndex);
+				const fcId = responseItemId("fc", state.responseId, tcOutputIndex);
 				state.toolCalls.set(tc.index, {
 					id: fcId,
 					callId,
@@ -483,7 +490,11 @@ export function processStreamChunk(
 				id:
 					state.messageItems.length === 0
 						? state.messageId
-						: `msg_${shortid(24)}`,
+						: responseItemId(
+								"msg",
+								state.responseId,
+								state.messageItems.length,
+							),
 				// Reserve this item's output index so later items (e.g. tool calls
 				// following pre-tool commentary) don't claim the same index.
 				outputIndex: state.outputItemIndex++,

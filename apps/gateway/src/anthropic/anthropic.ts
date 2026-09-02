@@ -1157,9 +1157,8 @@ anthropic.openapi(messages, async (c) => {
 	}
 
 	// Surface gateway response-cache replays to native Anthropic clients. The
-	// Anthropic response body has no metadata envelope to carry the marker the
-	// inner /v1/chat/completions puts on `metadata.cached`, so forward the
-	// header instead — without it a replayed body (same id, same usage) is
+	// Anthropic response body has no metadata envelope for a replay marker, so
+	// forward the header — without it a replayed body (same id, same usage) is
 	// indistinguishable from a fresh sample.
 	const innerCacheStatus = response.headers.get("x-llmgateway-cache");
 	if (innerCacheStatus) {

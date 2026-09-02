@@ -43,11 +43,6 @@ export interface ResponseMetadataExtras {
 	 * an org-level default (e.g. the DevPass flex setting) stays visible.
 	 */
 	usedServiceTier?: "flex" | "priority" | null;
-	/**
-	 * True when the body is a gateway response-cache replay rather than a fresh
-	 * upstream call. Only emitted on hits, so a missing key means "not cached".
-	 */
-	cached?: boolean;
 }
 
 export function toResponseMetadataExtras(
@@ -70,39 +65,7 @@ export function toResponseMetadataExtras(
 		...(extras.requestedServiceTier || extras.usedServiceTier
 			? { used_service_tier: extras.usedServiceTier ?? null }
 			: {}),
-		...(extras.cached ? { cached: true } : {}),
 	};
-}
-
-/**
- * Zero the cost fields of a gateway response-cache replay.
- *
- * A cache hit never reaches a provider, so it is free — but the stored body
- * still carries the cost of the original (uncached) call, which made replays
- * report a full charge to the caller. Token counts are left untouched: they
- * still describe the completion being returned and are what the log row keeps
- * for analytics.
- */
-export function zeroCostsOnCachedResponseUsage(
-	usage: Record<string, unknown> | undefined | null,
-): Record<string, unknown> | undefined | null {
-	if (!usage || typeof usage !== "object") {
-		return usage;
-	}
-
-	const next: Record<string, unknown> = { ...usage };
-	if (typeof next.cost === "number") {
-		next.cost = 0;
-	}
-	const costDetails = next.cost_details;
-	if (costDetails && typeof costDetails === "object") {
-		next.cost_details = Object.fromEntries(
-			Object.entries(costDetails as Record<string, unknown>).map(
-				([key, value]) => [key, typeof value === "number" ? 0 : value],
-			),
-		);
-	}
-	return next;
 }
 
 export function applyExtendedUsageFields(
@@ -269,72 +232,6 @@ function buildMetadata(
 		...(usedRegion && { used_region: usedRegion }),
 		underlying_used_model: usedModel,
 		...(routing && { routing }),
-	};
-}
-
-function sanitizeRoutingAttempts(
-	routing: RoutingAttempt[] | null | undefined,
-): RoutingAttempt[] | undefined {
-	if (!routing) {
-		return undefined;
-	}
-
-	return routing.map(
-		({ apiKeyHash: _apiKeyHash, logId: _logId, ...attempt }) => ({
-			...attempt,
-		}),
-	);
-}
-
-export function stripRequestScopedMetadataFromOpenAiResponse<
-	T extends {
-		metadata?: Record<string, unknown> | null;
-	},
->(response: T): T {
-	const metadata = response.metadata;
-	if (!metadata || typeof metadata !== "object") {
-		return response;
-	}
-
-	const nextMetadata = { ...metadata };
-	delete nextMetadata.request_id;
-	delete nextMetadata.log_id;
-	delete nextMetadata.organization_id;
-	delete nextMetadata.project_id;
-	delete nextMetadata.discount;
-
-	if (Array.isArray(metadata.routing)) {
-		nextMetadata.routing = sanitizeRoutingAttempts(
-			metadata.routing as RoutingAttempt[],
-		);
-	}
-
-	return {
-		...response,
-		metadata: nextMetadata,
-	};
-}
-
-export function withCurrentRequestMetadataOnOpenAiResponse<
-	T extends {
-		metadata?: Record<string, unknown> | null;
-	},
->(response: T, requestId: string, extras?: ResponseMetadataExtras): T {
-	const sanitizedResponse =
-		stripRequestScopedMetadataFromOpenAiResponse(response);
-	const metadata = sanitizedResponse.metadata;
-
-	if (!metadata || typeof metadata !== "object") {
-		return sanitizedResponse;
-	}
-
-	return {
-		...sanitizedResponse,
-		metadata: {
-			...metadata,
-			request_id: requestId,
-			...toResponseMetadataExtras(extras),
-		},
 	};
 }
 

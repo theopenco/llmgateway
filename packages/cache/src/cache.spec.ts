@@ -15,7 +15,7 @@ describe("generateCacheKey", () => {
 
 	it("prefixes the key with the tenant scope", () => {
 		expect(generateCacheKey("project-a", payload)).toMatch(
-			/^project-a:[0-9a-f]{64}$/,
+			/^project-a:v2:[0-9a-f]{64}$/,
 		);
 	});
 

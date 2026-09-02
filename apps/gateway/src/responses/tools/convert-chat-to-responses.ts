@@ -1,5 +1,6 @@
 import { shortid } from "@llmgateway/db";
 
+import { responseItemId } from "./response-item-id.js";
 import { toResponsesToolCallItem } from "./tool-registry.js";
 
 import type { ToolRegistry } from "./tool-registry.js";
@@ -308,6 +309,7 @@ export function convertChatResponseToResponses(
 	request?: ResponsesEchoRequest,
 	toolRegistry?: ToolRegistry,
 ): ResponsesApiResponse {
+	const resolvedResponseId = responseId ?? `resp_${shortid(24)}`;
 	const choice = chatResponse.choices?.[0];
 	const message = choice?.message;
 	const output: ResponsesApiOutput[] = [];
@@ -334,7 +336,7 @@ export function convertChatResponseToResponses(
 				id:
 					typeof detail.id === "string" && detail.id
 						? detail.id
-						: `rs_${shortid(24)}`,
+						: responseItemId("rs", resolvedResponseId, index),
 				summary:
 					index === 0 && message?.reasoning
 						? [{ type: "summary_text", text: message.reasoning }]
@@ -345,7 +347,7 @@ export function convertChatResponseToResponses(
 	} else if (message?.reasoning) {
 		output.push({
 			type: "reasoning",
-			id: `rs_${shortid(24)}`,
+			id: responseItemId("rs", resolvedResponseId, output.length),
 			summary: [{ type: "summary_text", text: message.reasoning }],
 		});
 	}
@@ -392,9 +394,10 @@ export function convertChatResponseToResponses(
 	const buildMessageItem = (
 		item: { text: string; phase?: string },
 		isLast: boolean,
+		outputIndex: number,
 	): ResponsesApiOutput => ({
 		type: "message",
-		id: `msg_${shortid(24)}`,
+		id: responseItemId("msg", resolvedResponseId, outputIndex),
 		role: "assistant",
 		content: [
 			{
@@ -422,6 +425,7 @@ export function convertChatResponseToResponses(
 				buildMessageItem(
 					messageItems[nextMessage]!,
 					nextMessage === messageItems.length - 1,
+					output.length,
 				),
 			);
 			nextMessage++;
@@ -432,7 +436,7 @@ export function convertChatResponseToResponses(
 		emitMessagesUpTo(callIndex);
 		output.push(
 			toResponsesToolCallItem(toolRegistry, {
-				id: `fc_${shortid(24)}`,
+				id: responseItemId("fc", resolvedResponseId, output.length),
 				callId: toolCall.id,
 				name: toolCall.function.name,
 				arguments: toolCall.function.arguments,
@@ -453,7 +457,7 @@ export function convertChatResponseToResponses(
 		}
 		output.push({
 			type: "image_generation_call",
-			id: `ig_${shortid(24)}`,
+			id: responseItemId("ig", resolvedResponseId, output.length),
 			status: "completed",
 			result: match[1],
 		});
@@ -499,7 +503,7 @@ export function convertChatResponseToResponses(
 	const created = chatResponse.created ?? Math.floor(Date.now() / 1000);
 
 	return {
-		id: responseId ?? `resp_${shortid(24)}`,
+		id: resolvedResponseId,
 		object: "response",
 		created_at: created,
 		completed_at: status === "completed" ? created : null,

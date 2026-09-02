@@ -20,7 +20,9 @@ export function generateCacheKey(
 		.createHash("sha256")
 		.update(JSON.stringify(payload))
 		.digest("hex");
-	return `${scope}:${hash}`;
+	// Version the wire-response cache so entries written before replay became
+	// byte-identical cannot be returned in the old, request-rewritten shape.
+	return `${scope}:v2:${hash}`;
 }
 
 export async function setCache(
@@ -71,6 +73,7 @@ interface StreamingCacheData {
 	metadata: {
 		model: string;
 		provider: string;
+		responseId?: string;
 		finishReason: string | null;
 		totalChunks: number;
 		duration: number;

@@ -6971,8 +6971,9 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 	});
 
-	// gateway response cache hits make no upstream call, so they must be free
-	test("/v1/chat/completions cached responses are free", async () => {
+	// Gateway response cache hits make no upstream call, so their log rows are
+	// free even though the original response body is replayed byte-for-byte.
+	test("/v1/chat/completions replays cached responses verbatim", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-cache",
 			...hashApiKeyForStorage("real-token-cache"),
@@ -7029,7 +7030,8 @@ describe("api", () => {
 			process.env.NODE_ENV = originalNodeEnv;
 		}
 		expect(firstRes.status).toBe(200);
-		const firstJson = await firstRes.json();
+		const firstBody = await firstRes.text();
+		const firstJson = JSON.parse(firstBody);
 		expect(firstRes.headers.get("x-llmgateway-cache")).toBeNull();
 		expect(firstJson.metadata.cached).toBeUndefined();
 		expect(firstJson.usage.cost).toBeGreaterThan(0);
@@ -7044,19 +7046,11 @@ describe("api", () => {
 		const secondRes = await makeRequest();
 		expect(secondRes.status).toBe(200);
 
-		// A replay must be distinguishable from a fresh sample: same body, same
-		// id, so the marker is the only signal a caller has.
+		// The header is the only replay marker because the stored response body is
+		// returned unchanged.
 		expect(secondRes.headers.get("x-llmgateway-cache")).toBe("HIT");
-		const secondJson = await secondRes.json();
-		expect(secondJson.metadata.cached).toBe(true);
-		// ...and it must not report the original call's cost, which the caller
-		// was not charged for.
-		expect(secondJson.usage.cost).toBe(0);
-		expect(secondJson.usage.cost_details.total_cost).toBe(0);
-		expect(secondJson.usage.cost_details.input_cost).toBe(0);
-		expect(secondJson.usage.cost_details.output_cost).toBe(0);
-		// Token counts still describe the returned completion.
-		expect(secondJson.usage.prompt_tokens).toBeGreaterThan(0);
+		const secondBody = await secondRes.text();
+		expect(secondBody).toBe(firstBody);
 
 		const afterSecond = await waitForLogs(2);
 		expect(afterSecond.length).toBe(2);
@@ -7084,6 +7078,75 @@ describe("api", () => {
 
 		const afterBypass = await waitForLogs(3);
 		expect(afterBypass.filter((log) => log.cached).length).toBe(1);
+	});
+
+	test("/v1/responses forwards cache controls", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-responses-cache",
+			...hashApiKeyForStorage("real-token-responses-cache"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-responses-cache",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-responses-cache",
+				"org-id",
+			),
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await db
+			.update(tables.project)
+			.set({ cachingEnabled: true })
+			.where(eq(tables.project.id, "project-id"));
+
+		const body = JSON.stringify({
+			model: "openai/gpt-4o-mini",
+			input: `Cache this response! ${randomUUID()}`,
+		});
+		const makeRequest = (headers: Record<string, string> = {}) =>
+			app.request("/v1/responses", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-responses-cache",
+					...headers,
+				},
+				body,
+			});
+
+		const originalNodeEnv = process.env.NODE_ENV;
+		let firstRes: Response;
+		try {
+			process.env.NODE_ENV = "development";
+			firstRes = await makeRequest();
+		} finally {
+			process.env.NODE_ENV = originalNodeEnv;
+		}
+		expect(firstRes.status).toBe(200);
+		expect(firstRes.headers.get("x-llmgateway-cache")).toBeNull();
+		const firstBody = await firstRes.text();
+		await waitForLogs(1);
+
+		const replayRes = await makeRequest();
+		expect(replayRes.status).toBe(200);
+		expect(replayRes.headers.get("x-llmgateway-cache")).toBe("HIT");
+		expect(await replayRes.text()).toBe(firstBody);
+		const afterReplay = await waitForLogs(2);
+		expect(afterReplay.filter((log) => log.cached)).toHaveLength(1);
+
+		const bypassRes = await makeRequest({ "x-no-cache": "true" });
+		expect(bypassRes.status).toBe(200);
+		expect(bypassRes.headers.get("x-llmgateway-cache")).toBeNull();
+		await bypassRes.text();
+		const afterBypass = await waitForLogs(3);
+		expect(afterBypass.filter((log) => log.cached)).toHaveLength(1);
 	});
 
 	// GHSA-h9ww-f95j-h54c: cache keys are project-scoped, so a byte-identical
@@ -7197,7 +7260,7 @@ describe("api", () => {
 		expect(attackerJson.metadata.cached).toBeUndefined();
 	});
 
-	test("/v1/chat/completions streaming cache hits are marked and free", async () => {
+	test("/v1/chat/completions replays cached streams verbatim", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-cache-stream",
 			...hashApiKeyForStorage("real-token-cache-stream"),
@@ -7245,11 +7308,13 @@ describe("api", () => {
 			chunks.find((chunk) => chunk?.usage?.cost !== undefined);
 
 		const originalNodeEnv = process.env.NODE_ENV;
+		let firstBody = "";
 		try {
 			process.env.NODE_ENV = "development";
 			const firstRes = await makeRequest();
 			expect(firstRes.status).toBe(200);
 			const first = await readAll(firstRes.body);
+			firstBody = first.fullContent ?? "";
 			expect(firstRes.headers.get("x-llmgateway-cache")).toBeNull();
 			expect(findCostChunk(first.chunks).usage.cost).toBeGreaterThan(0);
 		} finally {
@@ -7262,15 +7327,12 @@ describe("api", () => {
 		expect(secondRes.headers.get("x-llmgateway-cache")).toBe("HIT");
 
 		const replay = await readAll(secondRes.body);
-		const metadataChunk = replay.chunks.find(
-			(chunk: any) => chunk?.metadata !== undefined,
-		);
-		expect(metadataChunk.metadata.cached).toBe(true);
+		expect(replay.fullContent).toBe(firstBody);
 
-		// The stored chunks carry the original call's cost; the replay must not.
+		// The wire usage remains unchanged; billing uses the zero-cost cache-hit
+		// log row below.
 		const replayCostChunk = findCostChunk(replay.chunks);
-		expect(replayCostChunk.usage.cost).toBe(0);
-		expect(replayCostChunk.usage.cost_details.total_cost).toBe(0);
+		expect(replayCostChunk.usage.cost).toBeGreaterThan(0);
 		expect(replayCostChunk.usage.prompt_tokens).toBeGreaterThan(0);
 
 		const logs = await waitForLogs(2);

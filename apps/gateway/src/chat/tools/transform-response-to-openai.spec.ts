@@ -3,8 +3,6 @@ import { describe, expect, test, vi } from "vitest";
 import {
 	applyExtendedUsageFields,
 	transformResponseToOpenai,
-	stripRequestScopedMetadataFromOpenAiResponse,
-	withCurrentRequestMetadataOnOpenAiResponse,
 } from "./transform-response-to-openai.js";
 
 import type { Provider } from "@llmgateway/models";
@@ -608,41 +606,6 @@ describe("transformResponseToOpenai", () => {
 		},
 	);
 
-	test("strips request-scoped metadata before caching", () => {
-		const response = stripRequestScopedMetadataFromOpenAiResponse({
-			metadata: {
-				request_id: "req_old",
-				log_id: "log-old",
-				organization_id: "org-old",
-				project_id: "project-old",
-				discount: 0.2,
-				routing: [
-					{
-						provider: "openai",
-						model: "gpt-4o-mini",
-						status_code: 500,
-						error_type: "upstream_error",
-						succeeded: false,
-						apiKeyHash: "hash-a",
-						logId: "log-a",
-					},
-				],
-			},
-		});
-
-		expect(response.metadata).toEqual({
-			routing: [
-				{
-					provider: "openai",
-					model: "gpt-4o-mini",
-					status_code: 500,
-					error_type: "upstream_error",
-					succeeded: false,
-				},
-			],
-		});
-	});
-
 	test("emits extended usage fields", () => {
 		const response = transformResponseToOpenai(
 			"openai",
@@ -942,54 +905,5 @@ describe("transformResponseToOpenai", () => {
 		});
 		expect(usage.cost).toBeUndefined();
 		expect(usage.cost_details).toBeUndefined();
-	});
-
-	test("applies the current request id to cached responses", () => {
-		const response = withCurrentRequestMetadataOnOpenAiResponse(
-			{
-				metadata: {
-					request_id: "req_old",
-					log_id: "log-old",
-					organization_id: "org-old",
-					project_id: "project-old",
-					discount: 0.2,
-					routing: [
-						{
-							provider: "openai",
-							model: "gpt-4o-mini",
-							status_code: 500,
-							error_type: "upstream_error",
-							succeeded: false,
-							apiKeyHash: "hash-a",
-							logId: "log-a",
-						},
-					],
-				},
-			},
-			"req_new",
-			{
-				logId: "log-new",
-				organizationId: "org-new",
-				projectId: "project-new",
-				discount: 0.1,
-			},
-		);
-
-		expect(response.metadata).toEqual({
-			request_id: "req_new",
-			log_id: "log-new",
-			organization_id: "org-new",
-			project_id: "project-new",
-			discount: 0.1,
-			routing: [
-				{
-					provider: "openai",
-					model: "gpt-4o-mini",
-					status_code: 500,
-					error_type: "upstream_error",
-					succeeded: false,
-				},
-			],
-		});
 	});
 });
