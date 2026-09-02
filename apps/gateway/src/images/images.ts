@@ -607,18 +607,11 @@ function assertImageModel(model: string): void {
 		});
 	}
 	const slashIdx = model.indexOf("/");
-	const modelKey = slashIdx > 0 ? model.slice(slashIdx + 1) : model;
-	if (modelKey === "auto" || modelKey === "custom") {
-		return;
-	}
-	const modelInfo = models.find((m) => m.id === model || m.id === modelKey);
-	if (modelInfo) {
-		validateModelOutput(modelInfo, modelKey, ["image"]);
-		return;
-	}
 	// A prefix that is not a known catalogue provider would be classified as a
 	// custom provider by the chat handler (see parseModelInput); custom
-	// providers are not supported for image generation.
+	// providers are not supported for image generation. Checked before the
+	// catalogue lookup so a custom provider reusing a catalogue model name
+	// (e.g. "myproxy/gemini-3-pro-image") is still rejected.
 	if (slashIdx > 0) {
 		const providerCandidate = model.slice(0, slashIdx);
 		if (!providers.some((p) => p.id === providerCandidate)) {
@@ -627,6 +620,21 @@ function assertImageModel(model: string): void {
 			});
 		}
 	}
+	let modelKey = slashIdx > 0 ? model.slice(slashIdx + 1) : model;
+	if (modelKey === "auto" || modelKey === "custom") {
+		return;
+	}
+	// Provider-prefixed models may carry a ":region" suffix (see
+	// parseModelInput); strip it so the catalogue lookup still matches.
+	if (slashIdx > 0 && modelKey.includes(":")) {
+		modelKey = modelKey.slice(0, modelKey.lastIndexOf(":"));
+	}
+	const modelInfo = models.find((m) => m.id === modelKey);
+	if (modelInfo) {
+		validateModelOutput(modelInfo, modelKey, ["image"]);
+	}
+	// Unknown catalogue models fall through so the chat handler rejects them
+	// with its canonical "model not found" error.
 }
 
 async function forwardToChatCompletions(

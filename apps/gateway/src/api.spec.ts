@@ -226,6 +226,89 @@ describe("api", () => {
 		);
 	});
 
+	test("/v1/images/generations rejects catalogue model ids behind custom provider prefixes", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/generations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "my-custom-provider/gemini-3-pro-image",
+				prompt: "A watercolor of a city skyline",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Custom providers are not supported for image generation",
+		);
+	});
+
+	test("/v1/images/generations rejects region-suffixed text models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/generations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "openai/gpt-4o-mini:us-east",
+				prompt: "A watercolor of a city skyline",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain("is a chat model");
+	});
+
+	test("/v1/images/edits rejects custom provider model strings", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "my-custom-provider/some-model",
+				prompt: "Make it cinematic",
+				images: [{ image_url: "data:image/png;base64,aGVsbG8=" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Custom providers are not supported for image generation",
+		);
+	});
+
 	test("/v1/images/edits rejects dynamic route models", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
