@@ -145,6 +145,7 @@ async function createModel(
 			providerId: "mistral",
 			modelName: "mistral-large-3",
 			displayName: "Mistral Large 3",
+			family: "mistral",
 			contextSize: 256000,
 			streaming: true,
 			tools: true,
@@ -173,19 +174,28 @@ describe("airside provider portal", () => {
 		} else {
 			process.env.AIRSIDE_LISTING_PRICE_ID = originalListingPriceId;
 		}
-		// Only remove catalogue rows this spec materialized (family "airside"
-		// models, plus the provider rows its lifecycles create) — a blanket
-		// delete could race another spec sharing the database.
-		const airsideModels = await db.query.model.findMany({
-			where: { family: { eq: "airside" } },
-			columns: { id: true },
+		// Only remove catalogue rows this spec materialized. Mapping source is
+		// the ownership marker; family remains the model's real taxonomy.
+		const airsideMappings = await db.query.modelProviderMapping.findMany({
+			where: { source: { eq: "airside" } },
+			columns: { modelId: true },
 		});
-		if (airsideModels.length > 0) {
-			const ids = airsideModels.map((m) => m.id);
+		if (airsideMappings.length > 0) {
+			const ids = [
+				...new Set(airsideMappings.map((mapping) => mapping.modelId)),
+			];
 			await db
 				.delete(tables.modelProviderMapping)
-				.where(inArray(tables.modelProviderMapping.modelId, ids));
-			await db.delete(tables.model).where(inArray(tables.model.id, ids));
+				.where(eq(tables.modelProviderMapping.source, "airside"));
+			for (const id of ids) {
+				const remaining = await db.query.modelProviderMapping.findFirst({
+					where: { modelId: { eq: id } },
+					columns: { id: true },
+				});
+				if (!remaining) {
+					await db.delete(tables.model).where(eq(tables.model.id, id));
+				}
+			}
 		}
 		await db
 			.delete(tables.provider)
@@ -695,7 +705,7 @@ describe("airside provider portal", () => {
 		const catalogueModel = await db.query.model.findFirst({
 			where: { id: { eq: "mistral-large-3" } },
 		});
-		expect(catalogueModel).toMatchObject({ family: "airside" });
+		expect(catalogueModel).toMatchObject({ family: "mistral" });
 		const publicModels = await app.request("/internal/models");
 		expect(publicModels.status).toBe(200);
 		const published = (await publicModels.json()).models.find(
@@ -1352,6 +1362,55 @@ describe("airside provider portal", () => {
 			source: "catalogue",
 			externalId: "mistral-large-latest",
 		});
+	});
+
+	it("preserves catalogue upstream IDs during import", async () => {
+		process.env.ADMIN_EMAILS = "ops@groq.com";
+		await setUserEmail("ops@groq.com");
+		const company = await createCompany(cookie, "Groq Ops");
+		await claimProvider(cookie, company.id, "groq");
+		await activateClaim("groq");
+
+		const res = await app.request(
+			"/airside/models/import",
+			json(cookie, { providerCompanyId: company.id, providerId: "groq" }),
+		);
+		expect(res.status).toBe(200);
+		expect((await res.json()).imported).toContain("gpt-oss-120b");
+
+		const mapping = await db.query.modelProviderMapping.findFirst({
+			where: {
+				modelId: { eq: "gpt-oss-120b" },
+				providerId: { eq: "groq" },
+				region: { isNull: true },
+			},
+		});
+		expect(mapping).toMatchObject({
+			externalId: "openai/gpt-oss-120b",
+			source: "airside",
+		});
+
+		const listing = await db.query.providerDraftModel.findFirst({
+			where: {
+				modelName: { eq: "gpt-oss-120b" },
+				providerId: { eq: "groq" },
+			},
+		});
+		const filed = await app.request(
+			`/airside/models/${listing!.id}/price-filings`,
+			json(cookie, { inputPrice: "0.2e-6", outputPrice: "0.8e-6" }),
+		);
+		const filing = (await filed.json()).filing;
+		const approved = await app.request(
+			`/admin/airside/filings/${filing.id}/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+		const repriced = await db.query.modelProviderMapping.findFirst({
+			where: { id: { eq: mapping!.id } },
+		});
+		expect(repriced?.externalId).toBe("openai/gpt-oss-120b");
+		expect(Number(repriced?.inputPrice)).toBeCloseTo(0.2e-6);
 	});
 
 	it("skips catalogue mappings a flat listing cannot represent", async () => {

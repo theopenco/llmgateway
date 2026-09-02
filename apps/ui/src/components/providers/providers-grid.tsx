@@ -38,7 +38,10 @@ import {
 	MIN_REQUESTS_FOR_STATS,
 	type ProviderWindowStats,
 } from "@/lib/provider-stats";
-import { activeModelCounts, listedProviders } from "@/lib/providers-catalog";
+import {
+	activeModelCounts,
+	publicProviderDefinitions,
+} from "@/lib/providers-catalog";
 
 import {
 	countryCodeToFlag,
@@ -131,7 +134,8 @@ interface ProvidersGridProps {
 	modelCounts?: Record<string, number>;
 }
 
-type GridProvider = (typeof listedProviders)[number] | ExtraGridProvider;
+type GridProvider =
+	(typeof publicProviderDefinitions)[number] | ExtraGridProvider;
 
 function modelsCountOf(
 	p: GridProvider,
@@ -171,6 +175,9 @@ export function ProvidersGrid({
 	};
 
 	const visibleProviders = useMemo<GridProvider[]>(() => {
+		const listedProviders = publicProviderDefinitions.filter(
+			(provider) => modelsCountOf(provider, modelCounts) > 0,
+		);
 		// Country pages only list catalogue providers — custom carriers carry
 		// no headquarters metadata.
 		if (countryCode) {

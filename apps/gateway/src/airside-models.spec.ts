@@ -7,6 +7,8 @@ import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
+import { airsideListingToModelDefinition } from "./chat/tools/resolve-airside-model.js";
+import { findAirsideModel } from "./lib/cached-queries.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
 import {
 	clearCache,
@@ -86,6 +88,7 @@ describe("airside-listed models", () => {
 		modelId: string;
 		inputPrice: string;
 		outputPrice: string;
+		externalId?: string;
 		providerName?: string;
 		modelName?: string;
 		contextSize?: number;
@@ -104,11 +107,11 @@ describe("airside-listed models", () => {
 			.values({
 				id: options.modelId,
 				name: options.modelName ?? options.modelId,
-				family: "airside",
+				family: options.providerId,
 			})
 			.onConflictDoNothing();
 		const mappingValues = {
-			externalId: options.modelId,
+			externalId: options.externalId ?? options.modelId,
 			source: "airside" as const,
 			inputPrice: options.inputPrice,
 			outputPrice: options.outputPrice,
@@ -139,6 +142,27 @@ describe("airside-listed models", () => {
 		}
 		await clearCache();
 	}
+
+	test("retains static-only metadata on imported mappings", async () => {
+		await materializeTestMapping({
+			providerId: "anthropic",
+			modelId: "claude-fable-5-1",
+			externalId: "claude-fable-5-1",
+			inputPrice: "10e-6",
+			outputPrice: "50e-6",
+		});
+		const listed = await findAirsideModel("anthropic", "claude-fable-5-1");
+		expect(listed).toBeTruthy();
+
+		const { mapping } = airsideListingToModelDefinition(listed!);
+		expect(mapping).toMatchObject({
+			cacheWriteInputPrice: "12.5e-6",
+			cacheWriteInputPrice1h: "20.0e-6",
+			minCacheableTokens: 512,
+			reasoningMode: "adaptive",
+			supportedParameters: ["max_tokens", "effort"],
+		});
+	});
 
 	async function setup(
 		token: string,

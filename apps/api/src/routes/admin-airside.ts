@@ -742,7 +742,6 @@ adminAirside.openapi(revokeClaim, async (c) => {
 		});
 	}
 	// cdb so the gateway's cached multiplier reads are invalidated.
-	let revokedModelNames: string[] = [];
 	await cdb.transaction(async (tx) => {
 		const updated = await tx
 			.update(tables.providerClaim)
@@ -826,25 +825,25 @@ adminAirside.openapi(revokeClaim, async (c) => {
 				.update(tables.providerDraftModel)
 				.set({ status: "delisted", delistedAt: new Date() })
 				.where(inArray(tables.providerDraftModel.id, modelIds));
-			revokedModelNames = companyModels.map((m) => m.modelName);
+			for (const model of companyModels) {
+				await dematerializeAirsideModel(claim.providerId, model.modelName, tx);
+			}
+		}
+		if (claim.kind === "custom") {
+			// The provider row only existed for this registration; drop it once no
+			// catalogue mapping references it any more.
+			const remaining = await tx
+				.select({ id: tables.modelProviderMapping.id })
+				.from(tables.modelProviderMapping)
+				.where(eq(tables.modelProviderMapping.providerId, claim.providerId))
+				.limit(1);
+			if (remaining.length === 0) {
+				await tx
+					.delete(tables.provider)
+					.where(eq(tables.provider.id, claim.providerId));
+			}
 		}
 	});
-	for (const modelName of revokedModelNames) {
-		await dematerializeAirsideModel(claim.providerId, modelName);
-	}
-	if (claim.kind === "custom") {
-		// The provider row only existed for this registration; drop it once no
-		// catalogue mapping references it any more.
-		const remaining = await db.query.modelProviderMapping.findFirst({
-			where: { providerId: { eq: claim.providerId } },
-			columns: { id: true },
-		});
-		if (!remaining) {
-			await cdb
-				.delete(tables.provider)
-				.where(eq(tables.provider.id, claim.providerId));
-		}
-	}
 	const updated = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },
 		with: { providerCompany: true },

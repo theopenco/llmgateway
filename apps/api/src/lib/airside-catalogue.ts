@@ -24,9 +24,8 @@ interface FilingPrices {
  * (`model` + `model_provider_mapping`). Those tables back /internal/models
  * and /internal/providers, which feed the public models directory and the
  * playground selector — so an approved listing shows up everywhere the
- * synced catalogue does. The worker's sync only upserts rows for the static
- * catalogue and never reconciles, so airside rows (marked family "airside")
- * are safe from being swept.
+ * synced catalogue does. The mapping source records Airside ownership so the
+ * worker's static catalogue sync does not overwrite carrier-managed rows.
  */
 
 /** Active static mappings must be imported before a carrier can manage them. */
@@ -61,14 +60,32 @@ export async function materializeAirsideModel(
 		if (existingModel.length === 0) {
 			await tx.insert(tables.model).values({
 				id: model.modelName,
-				family: "airside",
+				family: model.family ?? model.providerId,
 				name: model.displayName ?? model.modelName,
 				description: model.description ?? undefined,
 				status: "active",
 			});
 		}
+		const existingMapping = await tx
+			.select({
+				id: tables.modelProviderMapping.id,
+				externalId: tables.modelProviderMapping.externalId,
+			})
+			.from(tables.modelProviderMapping)
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, model.modelName),
+					eq(tables.modelProviderMapping.providerId, model.providerId),
+					isNull(tables.modelProviderMapping.region),
+				),
+			)
+			.limit(1);
+		const staticEntry = findStaticMapping(model.providerId, model.modelName);
 		const mappingValues = {
-			externalId: model.modelName,
+			externalId:
+				existingMapping[0]?.externalId ??
+				staticEntry?.mapping.externalId ??
+				model.modelName,
 			source: "airside" as const,
 			inputPrice: filing.inputPrice,
 			outputPrice: filing.outputPrice,
@@ -86,17 +103,6 @@ export async function materializeAirsideModel(
 			status: "active" as const,
 			deactivatedAt: null,
 		};
-		const existingMapping = await tx
-			.select({ id: tables.modelProviderMapping.id })
-			.from(tables.modelProviderMapping)
-			.where(
-				and(
-					eq(tables.modelProviderMapping.modelId, model.modelName),
-					eq(tables.modelProviderMapping.providerId, model.providerId),
-					isNull(tables.modelProviderMapping.region),
-				),
-			)
-			.limit(1);
 		if (existingMapping.length > 0) {
 			await tx
 				.update(tables.modelProviderMapping)
@@ -124,23 +130,25 @@ export async function materializeAirsideModel(
  */
 export async function syncAirsideModelMetadata(
 	model: DraftModelRow,
+	transaction?: CatalogueTransaction,
 ): Promise<void> {
 	if (model.status !== "active") {
 		return;
 	}
-	await cdb.transaction(async (tx) => {
-		await tx
-			.update(tables.model)
-			.set({
-				name: model.displayName ?? model.modelName,
-				description: model.description ?? "",
-			})
-			.where(
-				and(
-					eq(tables.model.id, model.modelName),
-					eq(tables.model.family, "airside"),
-				),
-			);
+	const sync = async (tx: CatalogueTransaction) => {
+		const isStaticModel = catalogueModels.some(
+			(definition) => definition.id === model.modelName,
+		);
+		if (!isStaticModel) {
+			await tx
+				.update(tables.model)
+				.set({
+					name: model.displayName ?? model.modelName,
+					description: model.description ?? "",
+					family: model.family ?? model.providerId,
+				})
+				.where(eq(tables.model.id, model.modelName));
+		}
 		await tx
 			.update(tables.modelProviderMapping)
 			.set({
@@ -162,7 +170,12 @@ export async function syncAirsideModelMetadata(
 					eq(tables.modelProviderMapping.source, "airside"),
 				),
 			);
-	});
+	};
+	if (transaction) {
+		await sync(transaction);
+		return;
+	}
+	await cdb.transaction(sync);
 }
 
 /** Upsert an approved price update into the materialized catalogue. */
@@ -230,9 +243,10 @@ function staticMappingValues(mapping: ProviderModelMapping) {
 export async function dematerializeAirsideModel(
 	providerId: string,
 	modelName: string,
+	transaction?: CatalogueTransaction,
 ): Promise<void> {
 	const staticEntry = findStaticMapping(providerId, modelName);
-	await cdb.transaction(async (tx) => {
+	const remove = async (tx: CatalogueTransaction) => {
 		const mappingWhere = and(
 			eq(tables.modelProviderMapping.modelId, modelName),
 			eq(tables.modelProviderMapping.providerId, providerId),
@@ -247,15 +261,7 @@ export async function dematerializeAirsideModel(
 		} else {
 			await tx.delete(tables.modelProviderMapping).where(mappingWhere);
 		}
-		// Drop the model row only when it was ours and nothing else maps it.
-		const modelRow = await tx
-			.select({ id: tables.model.id, family: tables.model.family })
-			.from(tables.model)
-			.where(eq(tables.model.id, modelName))
-			.limit(1);
-		if (modelRow.length === 0 || modelRow[0].family !== "airside") {
-			return;
-		}
+		// A model row without any mappings has no catalogue representation.
 		const remaining = await tx
 			.select({ id: tables.modelProviderMapping.id })
 			.from(tables.modelProviderMapping)
@@ -264,5 +270,10 @@ export async function dematerializeAirsideModel(
 		if (remaining.length === 0) {
 			await tx.delete(tables.model).where(eq(tables.model.id, modelName));
 		}
-	});
+	};
+	if (transaction) {
+		await remove(transaction);
+		return;
+	}
+	await cdb.transaction(remove);
 }

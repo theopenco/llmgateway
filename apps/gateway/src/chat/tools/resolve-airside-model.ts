@@ -4,10 +4,15 @@ import {
 	findAirsideModelsByBareName,
 } from "@/lib/cached-queries.js";
 
-import { models, providers } from "@llmgateway/models";
+import {
+	expandAllProviderRegions,
+	models,
+	providers,
+} from "@llmgateway/models";
 
 import type { ParseModelInputResult } from "./parse-model-input.js";
 import type { ResolveModelInfoResult } from "./resolve-model-info.js";
+import type { AirsideListedModel } from "@/lib/cached-queries.js";
 import type {
 	Model,
 	ModelDefinition,
@@ -149,9 +154,7 @@ export async function resolveAirsideModel(
 
 /** The synthesized parse/model-info results for one resolved listing. */
 async function buildResolution(
-	listed: Parameters<typeof airsideListingToModelDefinition>[0] & {
-		mapping: { providerId: string };
-	},
+	listed: AirsideListedModel,
 	knownCustomBaseUrl?: string,
 ): Promise<AirsideResolution> {
 	const providerId = listed.mapping.providerId;
@@ -185,31 +188,27 @@ async function buildResolution(
 
 /** Build the synthetic catalogue entry a listing represents — shared by the
  *  chat resolver and the /v1/models catalogue. */
-export function airsideListingToModelDefinition(listed: {
-	model: {
-		id: string;
-		name: string | null;
-		family: string;
-	};
-	mapping: {
-		providerId: string;
-		externalId: string;
-		inputPrice: string | null;
-		outputPrice: string | null;
-		cachedInputPrice: string | null;
-		requestPrice: string | null;
-		contextSize: number | null;
-		maxOutput: number | null;
-		streaming: boolean;
-		vision: boolean | null;
-		audio: boolean | null;
-		tools: boolean | null;
-		jsonOutput: boolean;
-		reasoning: boolean | null;
-		reasoningEfforts: string[] | null;
-	};
-}): { mapping: ProviderModelMapping; modelInfo: ModelDefinition } {
+export function airsideListingToModelDefinition(listed: AirsideListedModel): {
+	mapping: ProviderModelMapping;
+	modelInfo: ModelDefinition;
+} {
+	const staticModel = models.find(
+		(model) =>
+			model.id === listed.model.id ||
+			("aliases" in model &&
+				(model.aliases as readonly string[] | undefined)?.includes(
+					listed.model.id,
+				)),
+	) as ModelDefinition | undefined;
+	const staticMapping = staticModel
+		? expandAllProviderRegions(staticModel.providers).find(
+				(candidate) =>
+					candidate.providerId === listed.mapping.providerId &&
+					candidate.region === undefined,
+			)
+		: undefined;
 	const mapping: ProviderModelMapping = {
+		...staticMapping,
 		providerId: listed.mapping.providerId as Provider,
 		externalId: listed.mapping.externalId,
 		inputPrice: listed.mapping.inputPrice ?? undefined,
@@ -226,11 +225,20 @@ export function airsideListingToModelDefinition(listed: {
 		reasoning: listed.mapping.reasoning ?? undefined,
 		reasoningEfforts: (listed.mapping.reasoningEfforts ??
 			undefined) as ProviderModelMapping["reasoningEfforts"],
+		deactivatedAt: listed.mapping.deactivatedAt ?? undefined,
 	};
 	const modelInfo: ModelDefinition = {
+		...staticModel,
 		id: listed.model.id as Model,
-		name: listed.model.name ?? listed.model.id,
+		name: listed.model.name,
+		aliases: listed.model.aliases,
+		description: listed.model.description,
 		family: listed.model.family,
+		releasedAt: listed.model.releasedAt,
+		free: listed.model.free,
+		output: listed.model.output as ModelDefinition["output"],
+		imageInputRequired: listed.model.imageInputRequired,
+		stability: listed.model.stability,
 		providers: [mapping],
 	};
 	return { mapping, modelInfo };

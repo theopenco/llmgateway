@@ -1805,7 +1805,7 @@ const createModel = createRoute({
 						modelName: z.string().min(1).max(200),
 						displayName: z.string().max(200).optional(),
 						description: z.string().max(2000).optional(),
-						family: z.string().max(100).optional(),
+						family: z.string().min(1).max(100),
 						contextSize: z.number().int().positive().optional(),
 						maxOutput: z.number().int().positive().optional(),
 						streaming: z.boolean().optional(),
@@ -1893,7 +1893,7 @@ airside.openapi(createModel, async (c) => {
 					modelName: body.modelName,
 					displayName: body.displayName ?? null,
 					description: body.description ?? null,
-					family: body.family ?? null,
+					family: body.family,
 					contextSize: body.contextSize ?? null,
 					maxOutput: body.maxOutput ?? null,
 					streaming: body.streaming ?? true,
@@ -2106,7 +2106,7 @@ const updateModel = createRoute({
 					schema: z.object({
 						displayName: z.string().max(200).nullish(),
 						description: z.string().max(2000).nullish(),
-						family: z.string().max(100).nullish(),
+						family: z.string().min(1).max(100).optional(),
 						contextSize: z.number().int().positive().nullish(),
 						maxOutput: z.number().int().positive().nullish(),
 						streaming: z.boolean().optional(),
@@ -2189,16 +2189,19 @@ airside.openapi(updateModel, async (c) => {
 			model: serializeModel({ ...model, priceFilings: unchangedFilings }),
 		});
 	}
-	const [updated] = await cdb
-		.update(tables.providerDraftModel)
-		.set(updates)
-		.where(eq(tables.providerDraftModel.id, id))
-		.returning();
-	if (!updated) {
-		throw new HTTPException(404, { message: "Model not found" });
-	}
-	// Active listings mirror non-pricing edits straight into the catalogue.
-	await syncAirsideModelMetadata(updated);
+	const updated = await cdb.transaction(async (tx) => {
+		const [row] = await tx
+			.update(tables.providerDraftModel)
+			.set(updates)
+			.where(eq(tables.providerDraftModel.id, id))
+			.returning();
+		if (!row) {
+			throw new HTTPException(404, { message: "Model not found" });
+		}
+		// Active listings mirror non-pricing edits straight into the catalogue.
+		await syncAirsideModelMetadata(row, tx);
+		return row;
+	});
 	const filings = await db.query.providerPriceFiling.findMany({
 		where: { draftModelId: { eq: id } },
 	});
@@ -2244,26 +2247,28 @@ airside.openapi(deleteModel, async (c) => {
 			.where(eq(tables.providerDraftModel.id, id));
 		return c.json({ status: "deleted" as const });
 	}
-	await cdb
-		.update(tables.providerDraftModel)
-		.set({ status: "delisted", delistedAt: new Date() })
-		.where(eq(tables.providerDraftModel.id, id));
-	// A delisted model's pending filing would otherwise linger in the admin
-	// queue and approve as a silent no-op.
-	await db
-		.update(tables.providerPriceFiling)
-		.set({
-			status: "rejected",
-			reviewNote: "Model delisted",
-			reviewedAt: new Date(),
-		})
-		.where(
-			and(
-				eq(tables.providerPriceFiling.draftModelId, id),
-				eq(tables.providerPriceFiling.status, "pending"),
-			),
-		);
-	await dematerializeAirsideModel(model.providerId, model.modelName);
+	await cdb.transaction(async (tx) => {
+		await tx
+			.update(tables.providerDraftModel)
+			.set({ status: "delisted", delistedAt: new Date() })
+			.where(eq(tables.providerDraftModel.id, id));
+		// A delisted model's pending filing would otherwise linger in the admin
+		// queue and approve as a silent no-op.
+		await tx
+			.update(tables.providerPriceFiling)
+			.set({
+				status: "rejected",
+				reviewNote: "Model delisted",
+				reviewedAt: new Date(),
+			})
+			.where(
+				and(
+					eq(tables.providerPriceFiling.draftModelId, id),
+					eq(tables.providerPriceFiling.status, "pending"),
+				),
+			);
+		await dematerializeAirsideModel(model.providerId, model.modelName, tx);
+	});
 	return c.json({ status: "delisted" as const });
 });
 

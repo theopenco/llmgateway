@@ -102,6 +102,7 @@ describe("mergeApiModelDefinition", () => {
 					id: "airside-mapping",
 					providerId: "mistral",
 					inputPrice: "4e-6",
+					ocrPagePrice: "0.01",
 				}),
 			]),
 			staticModel,
@@ -116,7 +117,30 @@ describe("mergeApiModelDefinition", () => {
 		expect(merged.providers[1]).toMatchObject({
 			providerId: "mistral",
 			inputPrice: "4e-6",
+			ocrPagePrice: "0.01",
 		});
+	});
+
+	it("replaces static regions with a global API mapping", () => {
+		const staticModel = {
+			id: "catalogue-model",
+			name: "Catalogue Model",
+			family: "catalogue",
+			providers: [
+				{
+					providerId: "openai",
+					externalId: "catalogue-model",
+					inputPrice: "1e-6",
+					outputPrice: "3e-6",
+					streaming: true,
+					regions: [{ id: "regional" }],
+				},
+			],
+		} satisfies ModelDefinition;
+		const merged = mergeApiModelDefinition(apiModel([mapping()]), staticModel);
+
+		expect(merged.providers).toHaveLength(1);
+		expect(merged.providers[0]?.region).toBeUndefined();
 	});
 
 	it("reactivates a provider when an Airside listing takes it over", () => {

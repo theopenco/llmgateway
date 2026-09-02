@@ -22,7 +22,7 @@ SELECT DISTINCT ON ("draft"."model_name")
 	"draft"."model_name",
 	COALESCE("draft"."display_name", "draft"."model_name"),
 	COALESCE("draft"."description", ''),
-	COALESCE("draft"."family", 'airside'),
+	COALESCE("draft"."family", "draft"."provider_id"),
 	'active'
 FROM "provider_draft_model" AS "draft"
 WHERE "draft"."status" = 'active'
@@ -54,7 +54,6 @@ WITH "approved_listing" AS (
 UPDATE "model_provider_mapping" AS "mapping"
 SET
 	"source" = 'airside',
-	"external_id" = "listing"."model_name",
 	"input_price" = "listing"."filing_input_price"::numeric,
 	"output_price" = "listing"."filing_output_price"::numeric,
 	"cached_input_price" = "listing"."filing_cached_input_price"::numeric,

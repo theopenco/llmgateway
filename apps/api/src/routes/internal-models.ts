@@ -198,6 +198,9 @@ internalModels.openapi(getModelsRoute, async (c) => {
 			where: {
 				status: { eq: "active" },
 			},
+			orderBy: {
+				createdAt: "desc",
+			},
 		}),
 		db
 			.select({

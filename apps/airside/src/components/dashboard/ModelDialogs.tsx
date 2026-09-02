@@ -208,7 +208,7 @@ export function RegisterModelDialog({
 								modelName,
 								displayName: displayName || undefined,
 								description: description || undefined,
-								family: family || undefined,
+								family,
 								contextSize: Number(contextSize) || undefined,
 								maxOutput: Number(maxOutput) || undefined,
 								...capabilities,
@@ -300,6 +300,7 @@ export function RegisterModelDialog({
 								value={family}
 								onChange={(e) => setFamily(e.target.value)}
 								placeholder="e.g. acme (groups related models)"
+								required
 							/>
 						</div>
 					</div>
@@ -589,7 +590,7 @@ export function EditModelDialog({
 							body: {
 								displayName: displayName || null,
 								description: description || null,
-								family: family || null,
+								family,
 								contextSize: contextSize ? Number(contextSize) : null,
 								maxOutput: maxOutput ? Number(maxOutput) : null,
 								...capabilities,
@@ -640,6 +641,7 @@ export function EditModelDialog({
 								id="edit-family"
 								value={family}
 								onChange={(e) => setFamily(e.target.value)}
+								required
 							/>
 						</div>
 					</div>

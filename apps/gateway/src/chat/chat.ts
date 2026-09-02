@@ -5523,7 +5523,7 @@ chat.openapi(completions, async (c) => {
 		finalModelInfo?.providers.find(
 			(p) => p.providerId === usedProvider && p.region === undefined,
 		);
-	if (airsideResolution) {
+	if (airsideResolution && usedProvider !== "custom") {
 		customPricingMapping = findAirsidePricingMapping();
 	}
 	const imageGenProviderMapping = getUsedProviderMapping();
@@ -7492,6 +7492,7 @@ chat.openapi(completions, async (c) => {
 		ctx: Awaited<ReturnType<typeof resolveProviderContext>>,
 	): void {
 		usedProvider = ctx.usedProvider;
+		usedRegion = ctx.usedRegion;
 		if (usedProvider !== "custom") {
 			customProviderName = undefined;
 			customProviderKey = undefined;
@@ -7557,7 +7558,6 @@ chat.openapi(completions, async (c) => {
 		top_p = ctx.top_p;
 		frequency_penalty = ctx.frequency_penalty;
 		presence_penalty = ctx.presence_penalty;
-		usedRegion = ctx.usedRegion;
 		routingMetadata = withUsedCredential(
 			routingMetadata,
 			usedApiKeyHash,

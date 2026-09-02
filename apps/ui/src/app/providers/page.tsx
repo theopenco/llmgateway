@@ -6,6 +6,7 @@ import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { listedProviders } from "@/lib/providers-catalog";
 
 import { providers as providerDefinitions } from "@llmgateway/models";
+import { isMappingDeactivated } from "@llmgateway/shared/components";
 
 import type { ExtraGridProvider } from "@/components/providers/providers-grid";
 import type { Metadata } from "next";
@@ -77,7 +78,10 @@ export default async function ProvidersPage() {
 	for (const model of apiModels) {
 		const providerIds = new Set(
 			model.mappings
-				.filter((mapping) => mapping.status === "active")
+				.filter(
+					(mapping) =>
+						mapping.status === "active" && !isMappingDeactivated(mapping),
+				)
 				.map((mapping) => mapping.providerId),
 		);
 		for (const providerId of Array.from(providerIds)) {
@@ -98,7 +102,9 @@ export default async function ProvidersPage() {
 			modelsCount: apiModels.filter((model) =>
 				model.mappings.some(
 					(mapping) =>
-						mapping.providerId === p.id && mapping.status === "active",
+						mapping.providerId === p.id &&
+						mapping.status === "active" &&
+						!isMappingDeactivated(mapping),
 				),
 			).length,
 		}))

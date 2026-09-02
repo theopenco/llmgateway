@@ -52,6 +52,7 @@ function apiMappingToDefinition(
 		cachedInputAudioPrice: optional(mapping.cachedInputAudioPrice),
 		outputAudioPrice: optional(mapping.outputAudioPrice),
 		requestPrice: optional(mapping.requestPrice),
+		ocrPagePrice: optional(mapping.ocrPagePrice),
 		inputAudioHourPrice: optional(mapping.inputAudioHourPrice),
 		contextSize: optional(mapping.contextSize),
 		maxOutput: optional(mapping.maxOutput),
@@ -145,13 +146,22 @@ export function mergeApiModelDefinition(
 		staticMappings.map((mapping) => [mappingKey(mapping), mapping]),
 	);
 	const apiKeys = new Set(apiModel.mappings.map(mappingKey));
+	const globalApiProviderIds = new Set(
+		apiModel.mappings
+			.filter((mapping) => (mapping.region ?? null) === null)
+			.map((mapping) => mapping.providerId),
+	);
 	const providers = [
 		...apiModel.mappings
 			.filter((mapping) => mapping.status === "active")
 			.map((mapping) =>
 				apiMappingToDefinition(mapping, staticByKey.get(mappingKey(mapping))),
 			),
-		...staticMappings.filter((mapping) => !apiKeys.has(mappingKey(mapping))),
+		...staticMappings.filter(
+			(mapping) =>
+				!apiKeys.has(mappingKey(mapping)) &&
+				!globalApiProviderIds.has(mapping.providerId),
+		),
 	];
 
 	if (staticModel) {
