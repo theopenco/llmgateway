@@ -1,6 +1,8 @@
 ALTER TABLE "model_provider_mapping" ADD COLUMN "source" text DEFAULT 'catalogue' NOT NULL;--> statement-breakpoint
 ALTER TABLE "model_provider_mapping" ADD COLUMN "audio" boolean;--> statement-breakpoint
+ALTER TABLE "provider_claim" ADD COLUMN "pending_branding" jsonb;--> statement-breakpoint
 ALTER TABLE "provider_draft_model" ADD COLUMN "external_id" text;--> statement-breakpoint
+ALTER TABLE "provider_price_filing" ADD COLUMN "metadata" jsonb;--> statement-breakpoint
 CREATE INDEX "model_provider_mapping_source_status_idx" ON "model_provider_mapping" ("source","status");--> statement-breakpoint
 -- Imported listings copied the catalogue mapping, whose upstream id may differ
 -- from the model id; carrier-registered listings were keyed by the upstream id.

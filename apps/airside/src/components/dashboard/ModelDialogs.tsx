@@ -563,7 +563,11 @@ export function EditModelDialog({
 	const updateModel = api.useMutation("patch", "/airside/models/{id}", {
 		onSuccess: async () => {
 			await invalidate();
-			toast.success("Model updated.");
+			toast.success(
+				model.status === "active"
+					? "Change filed for review."
+					: "Model updated.",
+			);
 			setOpen(false);
 		},
 		onError: (error) => {
@@ -592,8 +596,9 @@ export function EditModelDialog({
 						Edit {model.modelName}
 					</DialogTitle>
 					<DialogDescription>
-						Everything here applies immediately. Pricing is the exception — it
-						only changes through an approved fare filing.
+						{model.status === "active"
+							? "Changes to a live listing are filed for review and apply once we approve them. Pricing goes through a separate fare filing."
+							: "Everything here applies to the draft immediately; the initial fare filing covers it. Pricing only changes through a fare filing."}
 					</DialogDescription>
 				</DialogHeader>
 				<form

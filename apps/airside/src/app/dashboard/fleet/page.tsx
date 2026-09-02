@@ -331,7 +331,9 @@ export default function FleetPage() {
 													<Stamp className="size-3" />
 													{model.pendingFiling.kind === "initial"
 														? "Awaiting clearance"
-														: "Fare filed"}
+														: model.pendingFiling.kind === "metadata"
+															? "Change filed"
+															: "Fare filed"}
 												</Badge>
 											) : null}
 										</div>

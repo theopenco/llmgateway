@@ -7,9 +7,15 @@ import { z } from "zod";
 import {
 	dematerializeAirsideModel,
 	materializeAirsideModel,
+	syncAirsideModelMetadata,
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
 import { verifiedWebsiteDomain } from "@/lib/airside-domains.js";
+import {
+	airsideModelMetadataSchema,
+	type AirsideModelMetadataInput,
+	currentMetadataFor,
+} from "@/lib/airside-metadata.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 
 import {
@@ -41,12 +47,16 @@ adminAirside.use("/*", adminMiddleware);
 
 const adminFilingSchema = z.object({
 	id: z.string(),
-	kind: z.enum(["initial", "update"]),
+	kind: z.enum(["initial", "update", "metadata"]),
 	status: z.enum(["pending", "approved", "rejected"]),
 	inputPrice: z.string(),
 	outputPrice: z.string(),
 	cachedInputPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
+	// "metadata" filings: the proposed changes and the listing's current
+	// values for the same keys, for diffing.
+	metadata: airsideModelMetadataSchema.nullable(),
+	currentMetadata: airsideModelMetadataSchema.nullable(),
 	note: z.string().nullable(),
 	reviewNote: z.string().nullable(),
 	reviewedAt: z.string().nullable(),
@@ -166,6 +176,13 @@ function serializeAdminFiling(row: FilingWithRelations) {
 		outputPrice: row.outputPrice,
 		cachedInputPrice: row.cachedInputPrice,
 		requestPrice: row.requestPrice,
+		metadata: (row.metadata ?? null) as AirsideModelMetadataInput | null,
+		currentMetadata: row.metadata
+			? (currentMetadataFor(
+					row.draftModel,
+					row.metadata,
+				) as AirsideModelMetadataInput)
+			: null,
 		note: row.note,
 		reviewNote: row.reviewNote,
 		reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
@@ -344,6 +361,13 @@ adminAirside.openapi(approveFiling, async (c) => {
 				.set({ status: "active" })
 				.where(eq(tables.providerDraftModel.id, filing.draftModelId));
 			await materializeAirsideModel(filing.draftModel, filing, tx);
+		} else if (filing.kind === "metadata") {
+			const [row] = await tx
+				.update(tables.providerDraftModel)
+				.set(filing.metadata ?? {})
+				.where(eq(tables.providerDraftModel.id, filing.draftModelId))
+				.returning();
+			await syncAirsideModelMetadata(row, tx);
 		} else {
 			await updateAirsideMappingPrices(filing.draftModel, filing, tx);
 		}
@@ -449,6 +473,15 @@ const adminClaimSchema = z.object({
 	reviewNote: z.string().nullable(),
 	reviewedAt: z.string().nullable(),
 	createdAt: z.string(),
+	logoUrl: z.string().nullable(),
+	iconUrl: z.string().nullable(),
+	// Branding edits on an active claim awaiting approval; null inside clears.
+	pendingBranding: z
+		.object({
+			logoUrl: z.string().nullable().optional(),
+			iconUrl: z.string().nullable().optional(),
+		})
+		.nullable(),
 	company: z.object({
 		id: z.string(),
 		name: z.string(),
@@ -483,6 +516,9 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 		reviewNote: row.reviewNote,
 		reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
 		createdAt: row.createdAt.toISOString(),
+		logoUrl: row.logoUrl,
+		iconUrl: row.iconUrl,
+		pendingBranding: row.pendingBranding ?? null,
 		company: {
 			id: row.providerCompany.id,
 			name: row.providerCompany.name,
@@ -498,6 +534,8 @@ const listClaims = createRoute({
 	request: {
 		query: z.object({
 			status: z.enum(["pending", "active", "rejected", "revoked"]).optional(),
+			// Only claims with a branding change awaiting review.
+			pendingBranding: z.coerce.boolean().optional(),
 		}),
 	},
 	responses: {
@@ -518,7 +556,12 @@ const listClaims = createRoute({
 adminAirside.openapi(listClaims, async (c) => {
 	const query = c.req.valid("query");
 	const rows = await db.query.providerClaim.findMany({
-		where: query.status ? { status: { eq: query.status } } : undefined,
+		where: {
+			...(query.status ? { status: { eq: query.status } } : {}),
+			...(query.pendingBranding
+				? { pendingBranding: { isNotNull: true } }
+				: {}),
+		},
 		with: { providerCompany: true },
 		orderBy: { createdAt: "asc" },
 		limit: 100,
@@ -549,6 +592,88 @@ async function getPendingClaim(id: string) {
 	}
 	return claim as ClaimWithRelations;
 }
+
+async function getClaimWithPendingBranding(id: string) {
+	const claim = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	if (!claim) {
+		throw new HTTPException(404, { message: "Claim not found" });
+	}
+	if (!claim.pendingBranding) {
+		throw new HTTPException(409, {
+			message: "This claim has no branding change awaiting review.",
+		});
+	}
+	return claim as ClaimWithRelations;
+}
+
+const approveBranding = createRoute({
+	method: "post",
+	path: "/airside/claims/{id}/branding/approve",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ claim: adminClaimSchema }) },
+			},
+			description: "The claim with the pending branding applied.",
+		},
+	},
+});
+
+adminAirside.openapi(approveBranding, async (c) => {
+	const { id } = c.req.valid("param");
+	const claim = await getClaimWithPendingBranding(id);
+	const pending = claim.pendingBranding!;
+	// cdb: /internal/providers reads branding off cached claim rows.
+	const [updated] = await cdb
+		.update(tables.providerClaim)
+		.set({
+			...(pending.logoUrl !== undefined ? { logoUrl: pending.logoUrl } : {}),
+			...(pending.iconUrl !== undefined ? { iconUrl: pending.iconUrl } : {}),
+			pendingBranding: null,
+		})
+		.where(eq(tables.providerClaim.id, id))
+		.returning();
+	return c.json({
+		claim: await serializeAdminClaim({
+			...updated,
+			providerCompany: claim.providerCompany,
+		}),
+	});
+});
+
+const rejectBranding = createRoute({
+	method: "post",
+	path: "/airside/claims/{id}/branding/reject",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ claim: adminClaimSchema }) },
+			},
+			description: "The claim with the pending branding discarded.",
+		},
+	},
+});
+
+adminAirside.openapi(rejectBranding, async (c) => {
+	const { id } = c.req.valid("param");
+	const claim = await getClaimWithPendingBranding(id);
+	const [updated] = await cdb
+		.update(tables.providerClaim)
+		.set({ pendingBranding: null })
+		.where(eq(tables.providerClaim.id, id))
+		.returning();
+	return c.json({
+		claim: await serializeAdminClaim({
+			...updated,
+			providerCompany: claim.providerCompany,
+		}),
+	});
+});
 
 const approveClaim = createRoute({
 	method: "post",

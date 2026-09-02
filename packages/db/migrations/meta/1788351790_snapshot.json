@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "d6d3fb20-3532-41b3-83d5-31b13d975710",
+  "id": "e2a6bd5c-6a77-45a7-b980-d70fe9467d14",
   "prevId": "5079345e-d562-4d09-80ac-9c5c974bb349",
   "ddl": [
     {
@@ -19005,6 +19005,19 @@
       "table": "provider_claim"
     },
     {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "pending_branding",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_claim"
+    },
+    {
       "type": "text",
       "typeSchema": null,
       "notNull": false,
@@ -20844,6 +20857,19 @@
       "generated": null,
       "identity": null,
       "name": "request_price",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_price_filing"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "metadata",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_price_filing"

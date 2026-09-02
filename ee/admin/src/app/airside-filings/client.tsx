@@ -36,6 +36,13 @@ import { useApi } from "@/lib/fetch-client";
 
 type FilingStatus = "pending" | "approved" | "rejected";
 
+function formatMetadataValue(value: unknown): string {
+	if (value === null || value === undefined) {
+		return "—";
+	}
+	return Array.isArray(value) ? value.join(", ") : String(value);
+}
+
 function formatPerMillion(price: string | null | undefined): string {
 	if (!price) {
 		return "—";
@@ -127,6 +134,36 @@ export function AirsideFilingsClient() {
 		{
 			onSuccess: () => {
 				toast.success("Carrier claim approved.");
+				invalidate();
+			},
+			onError: (error) => {
+				toast.error(apiErrorMessage(error, "The review action failed"));
+			},
+		},
+	);
+
+	const brandingQuery = $api.useQuery("get", "/admin/airside/claims", {
+		params: { query: { pendingBranding: true } },
+	});
+	const approveBrandingMutation = $api.useMutation(
+		"post",
+		"/admin/airside/claims/{id}/branding/approve",
+		{
+			onSuccess: () => {
+				toast.success("Branding change approved.");
+				invalidate();
+			},
+			onError: (error) => {
+				toast.error(apiErrorMessage(error, "The review action failed"));
+			},
+		},
+	);
+	const rejectBrandingMutation = $api.useMutation(
+		"post",
+		"/admin/airside/claims/{id}/branding/reject",
+		{
+			onSuccess: () => {
+				toast.success("Branding change rejected.");
 				invalidate();
 			},
 			onError: (error) => {
@@ -403,6 +440,107 @@ export function AirsideFilingsClient() {
 				</CardContent>
 			</Card>
 
+			{(brandingQuery.data?.claims.length ?? 0) > 0 ? (
+				<Card>
+					<CardHeader>
+						<CardTitle>Branding changes</CardTitle>
+						<CardDescription>
+							Logo or icon edits on live carriers. Approving publishes them on
+							the providers and models pages.
+						</CardDescription>
+					</CardHeader>
+					<CardContent>
+						<Table>
+							<TableHeader>
+								<TableRow>
+									<TableHead>Company</TableHead>
+									<TableHead>Provider</TableHead>
+									<TableHead>Logo</TableHead>
+									<TableHead>Icon</TableHead>
+									<TableHead className="text-right">Actions</TableHead>
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{(brandingQuery.data?.claims ?? []).map((claim) => (
+									<TableRow key={claim.id} data-testid={`branding-${claim.id}`}>
+										<TableCell className="font-medium">
+											{claim.company.name}
+										</TableCell>
+										<TableCell className="font-mono text-sm">
+											{claim.providerId}
+										</TableCell>
+										{(["logoUrl", "iconUrl"] as const).map((field) => (
+											<TableCell key={field}>
+												{claim.pendingBranding?.[field] === undefined ? (
+													<span className="text-muted-foreground text-xs">
+														unchanged
+													</span>
+												) : (
+													<div className="flex items-center gap-2">
+														{claim[field] ? (
+															<img
+																src={claim[field] ?? undefined}
+																alt=""
+																className="size-8 rounded bg-white object-contain"
+															/>
+														) : (
+															<span className="text-muted-foreground text-xs">
+																none
+															</span>
+														)}
+														<span>→</span>
+														{claim.pendingBranding?.[field] ? (
+															<img
+																src={claim.pendingBranding[field] ?? undefined}
+																alt=""
+																className="size-8 rounded bg-white object-contain"
+															/>
+														) : (
+															<span className="text-muted-foreground text-xs">
+																cleared
+															</span>
+														)}
+													</div>
+												)}
+											</TableCell>
+										))}
+										<TableCell className="text-right">
+											<div className="flex justify-end gap-1">
+												<Button
+													size="sm"
+													disabled={approveBrandingMutation.isPending}
+													data-testid={`approve-branding-${claim.providerId}`}
+													onClick={() =>
+														approveBrandingMutation.mutate({
+															params: { path: { id: claim.id } },
+														})
+													}
+												>
+													<Check className="size-3.5" /> Approve
+												</Button>
+												<Button
+													size="sm"
+													variant="destructive"
+													disabled={rejectBrandingMutation.isPending}
+													data-testid={`reject-branding-${claim.providerId}`}
+													onClick={() =>
+														rejectBrandingMutation.mutate({
+															params: { path: { id: claim.id } },
+														})
+													}
+												>
+													<X className="size-3.5" /> Reject
+												</Button>
+											</div>
+										</TableCell>
+									</TableRow>
+								))}
+							</TableBody>
+						</Table>
+					</CardContent>
+				</Card>
+			) : null}
+
 			<Card>
 				<CardHeader>
 					<CardTitle>Filings</CardTitle>
@@ -476,24 +614,42 @@ export function AirsideFilingsClient() {
 											<Badge variant="outline">
 												{filing.kind === "initial"
 													? "New listing"
-													: "Price change"}
+													: filing.kind === "metadata"
+														? "Metadata change"
+														: "Price change"}
 											</Badge>
 										</TableCell>
 										<TableCell className="font-mono text-xs">
-											<div>
-												in:{" "}
-												{filing.currentPricing
-													? `${formatPerMillion(filing.currentPricing.inputPrice)} → `
-													: ""}
-												{formatPerMillion(filing.inputPrice)}
-											</div>
-											<div>
-												out:{" "}
-												{filing.currentPricing
-													? `${formatPerMillion(filing.currentPricing.outputPrice)} → `
-													: ""}
-												{formatPerMillion(filing.outputPrice)}
-											</div>
+											{filing.kind === "metadata" && filing.metadata ? (
+												Object.entries(filing.metadata).map(([key, next]) => (
+													<div key={key}>
+														{key}:{" "}
+														{formatMetadataValue(
+															filing.currentMetadata?.[
+																key as keyof typeof filing.currentMetadata
+															],
+														)}{" "}
+														→ {formatMetadataValue(next)}
+													</div>
+												))
+											) : (
+												<>
+													<div>
+														in:{" "}
+														{filing.currentPricing
+															? `${formatPerMillion(filing.currentPricing.inputPrice)} → `
+															: ""}
+														{formatPerMillion(filing.inputPrice)}
+													</div>
+													<div>
+														out:{" "}
+														{filing.currentPricing
+															? `${formatPerMillion(filing.currentPricing.outputPrice)} → `
+															: ""}
+														{formatPerMillion(filing.outputPrice)}
+													</div>
+												</>
+											)}
 										</TableCell>
 										<TableCell className="text-muted-foreground max-w-48 truncate text-xs">
 											{filing.note ?? "—"}

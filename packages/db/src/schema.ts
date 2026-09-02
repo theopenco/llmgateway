@@ -4693,6 +4693,9 @@ export const providerClaim = pgTable(
 		// surfaced on the public catalogue pages.
 		logoUrl: text(),
 		iconUrl: text(),
+		// Branding edits on an active claim wait here for admin approval.
+		// null = nothing pending; a null value inside clears that image.
+		pendingBranding: jsonb().$type<AirsidePendingBranding>(),
 		claimedBy: text().references(() => user.id, { onDelete: "set null" }),
 		status: text({ enum: ["pending", "active", "rejected", "revoked"] })
 			.notNull()
@@ -4718,6 +4721,29 @@ export const providerClaim = pgTable(
 // `provider_price_filing` rows and only ever changes through an approved
 // filing. A newly added model stays `draft` until its initial filing is
 // approved. Prices are text to preserve exponent notation (see customModel).
+export interface AirsideModelMetadataChanges {
+	displayName?: string | null;
+	description?: string | null;
+	family?: string;
+	contextSize?: number | null;
+	maxOutput?: number | null;
+	streaming?: boolean;
+	vision?: boolean;
+	audio?: boolean;
+	tools?: boolean;
+	jsonOutput?: boolean;
+	reasoning?: boolean;
+	reasoningEfforts?: string[] | null;
+	maxRpm?: number | null;
+	maxRpd?: number | null;
+	rateLimitScope?: "global" | "per_org";
+}
+
+export interface AirsidePendingBranding {
+	logoUrl?: string | null;
+	iconUrl?: string | null;
+}
+
 export const providerDraftModel = pgTable(
 	"provider_draft_model",
 	{
@@ -4798,13 +4824,16 @@ export const providerPriceFiling = pgTable(
 		providerCompanyId: text()
 			.notNull()
 			.references(() => providerCompany.id, { onDelete: "cascade" }),
-		kind: text({ enum: ["initial", "update"] })
+		// "metadata" filings carry the proposed non-price changes in `metadata`
+		// and copy the current prices so the row stays self-describing.
+		kind: text({ enum: ["initial", "update", "metadata"] })
 			.notNull()
 			.default("update"),
 		inputPrice: text().notNull(),
 		outputPrice: text().notNull(),
 		cachedInputPrice: text(),
 		requestPrice: text(),
+		metadata: jsonb().$type<AirsideModelMetadataChanges>(),
 		status: text({ enum: ["pending", "approved", "rejected"] })
 			.notNull()
 			.default("pending"),

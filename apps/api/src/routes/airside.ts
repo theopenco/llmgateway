@@ -21,6 +21,12 @@ import {
 	WEBSITE_VERIFICATION_TXT_NAME,
 	websiteVerificationRecord,
 } from "@/lib/airside-domains.js";
+import {
+	airsideModelMetadataSchema,
+	type AirsideModelMetadataInput,
+	pickMetadataChanges,
+	REASONING_EFFORT_VALUES,
+} from "@/lib/airside-metadata.js";
 import { notifyAirsideCrewInvite } from "@/utils/discord.js";
 
 import {
@@ -112,16 +118,12 @@ const priceValue = z
 		message: "Price must be a non-negative decimal number string",
 	});
 
-const REASONING_EFFORT_VALUES = [
-	"none",
-	"minimal",
-	"low",
-	"medium",
-	"high",
-	"xhigh",
-	"max",
-] as const;
 const reasoningEffortsValue = z.array(z.enum(REASONING_EFFORT_VALUES)).max(7);
+
+const pendingBrandingSchema = z.object({
+	logoUrl: z.string().nullable().optional(),
+	iconUrl: z.string().nullable().optional(),
+});
 
 const pricingSchema = z.object({
 	inputPrice: priceValue,
@@ -144,6 +146,8 @@ const claimSchema = z.object({
 	reviewNote: z.string().nullable(),
 	logoUrl: z.string().nullable(),
 	iconUrl: z.string().nullable(),
+	// Branding edits on an active claim awaiting admin approval.
+	pendingBranding: pendingBrandingSchema.nullable(),
 	// Whether we hold a platform credential for this carrier. Without one the
 	// gateway has nothing to authenticate with, so an approved listing still
 	// serves no traffic — the portal says so instead of looking healthy.
@@ -190,11 +194,13 @@ const filingSchema = z.object({
 	id: z.string(),
 	draftModelId: z.string(),
 	providerCompanyId: z.string(),
-	kind: z.enum(["initial", "update"]),
+	kind: z.enum(["initial", "update", "metadata"]),
 	inputPrice: z.string(),
 	outputPrice: z.string(),
 	cachedInputPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
+	// Proposed non-price changes; set on "metadata" filings only.
+	metadata: airsideModelMetadataSchema.nullable(),
 	status: z.enum(["pending", "approved", "rejected"]),
 	note: z.string().nullable(),
 	reviewNote: z.string().nullable(),
@@ -304,6 +310,7 @@ function serializeClaim(
 		reviewNote: row.reviewNote,
 		logoUrl: row.logoUrl,
 		iconUrl: row.iconUrl,
+		pendingBranding: row.pendingBranding ?? null,
 		// Unknown on the single-claim responses (nothing renders the warning
 		// off those); the companies listing the portal polls resolves it.
 		hasManagedCredential: credentialedProviders?.has(row.providerId) ?? true,
@@ -349,6 +356,7 @@ function serializeFiling(row: PriceFilingRow) {
 		outputPrice: row.outputPrice,
 		cachedInputPrice: row.cachedInputPrice,
 		requestPrice: row.requestPrice,
+		metadata: (row.metadata ?? null) as AirsideModelMetadataInput | null,
 		status: row.status,
 		note: row.note,
 		reviewNote: row.reviewNote,
@@ -1747,10 +1755,21 @@ airside.openapi(updateClaimBranding, async (c) => {
 	if (Object.keys(brandingUpdates).length === 0) {
 		return c.json({ claim: serializeClaim(claim, providerNamesById) });
 	}
+	// A pending claim is still under review, so its branding is part of what
+	// gets approved. Once live, the public pages only change after we approve.
+	const changes =
+		claim.status === "active"
+			? {
+					pendingBranding: {
+						...(claim.pendingBranding ?? {}),
+						...brandingUpdates,
+					},
+				}
+			: brandingUpdates;
 	// cdb: claim rows feed the gateway's custom-carrier resolution cache.
 	const [updated] = await cdb
 		.update(tables.providerClaim)
-		.set(brandingUpdates)
+		.set(changes)
 		.where(eq(tables.providerClaim.id, id))
 		.returning();
 	if (!updated) {
@@ -2110,23 +2129,7 @@ const updateModel = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						displayName: z.string().max(200).nullish(),
-						description: z.string().max(2000).nullish(),
-						family: z.string().min(1).max(100).optional(),
-						contextSize: z.number().int().positive().nullish(),
-						maxOutput: z.number().int().positive().nullish(),
-						streaming: z.boolean().optional(),
-						vision: z.boolean().optional(),
-						audio: z.boolean().optional(),
-						tools: z.boolean().optional(),
-						jsonOutput: z.boolean().optional(),
-						reasoning: z.boolean().optional(),
-						reasoningEfforts: reasoningEffortsValue.nullish(),
-						maxRpm: z.number().int().positive().nullish(),
-						maxRpd: z.number().int().positive().nullish(),
-						rateLimitScope: z.enum(["global", "per_org"]).optional(),
-					}),
+					schema: airsideModelMetadataSchema,
 				},
 			},
 		},
@@ -2139,7 +2142,7 @@ const updateModel = createRoute({
 				},
 			},
 			description:
-				"The updated model. Pricing is not editable here — file a price change instead.",
+				"The model. Drafts are edited in place; on an active listing the change is filed for admin approval and surfaces as `pendingFiling`. Pricing is not editable here — file a price change instead.",
 		},
 	},
 });
@@ -2160,33 +2163,7 @@ airside.openapi(updateModel, async (c) => {
 			message: "Delisted models cannot be edited.",
 		});
 	}
-	const updates = {
-		...(body.displayName !== undefined
-			? { displayName: body.displayName }
-			: {}),
-		...(body.description !== undefined
-			? { description: body.description }
-			: {}),
-		...(body.family !== undefined ? { family: body.family } : {}),
-		...(body.contextSize !== undefined
-			? { contextSize: body.contextSize }
-			: {}),
-		...(body.maxOutput !== undefined ? { maxOutput: body.maxOutput } : {}),
-		...(body.streaming !== undefined ? { streaming: body.streaming } : {}),
-		...(body.vision !== undefined ? { vision: body.vision } : {}),
-		...(body.audio !== undefined ? { audio: body.audio } : {}),
-		...(body.tools !== undefined ? { tools: body.tools } : {}),
-		...(body.jsonOutput !== undefined ? { jsonOutput: body.jsonOutput } : {}),
-		...(body.reasoning !== undefined ? { reasoning: body.reasoning } : {}),
-		...(body.reasoningEfforts !== undefined
-			? { reasoningEfforts: body.reasoningEfforts }
-			: {}),
-		...(body.maxRpm !== undefined ? { maxRpm: body.maxRpm } : {}),
-		...(body.maxRpd !== undefined ? { maxRpd: body.maxRpd } : {}),
-		...(body.rateLimitScope !== undefined
-			? { rateLimitScope: body.rateLimitScope }
-			: {}),
-	};
+	const updates = pickMetadataChanges(body);
 	// An empty diff is a no-op, not a drizzle "No values to set" 500.
 	if (Object.keys(updates).length === 0) {
 		const unchangedFilings = await db.query.providerPriceFiling.findMany({
@@ -2194,6 +2171,53 @@ airside.openapi(updateModel, async (c) => {
 		});
 		return c.json({
 			model: serializeModel({ ...model, priceFilings: unchangedFilings }),
+		});
+	}
+	if (model.status === "active") {
+		// Live listings only change through review: file the diff alongside
+		// the current prices so the filing row is self-describing.
+		const filings = await db.query.providerPriceFiling.findMany({
+			where: { draftModelId: { eq: id } },
+			orderBy: { createdAt: "desc" },
+		});
+		if (filings.some((f) => f.status === "pending")) {
+			throw new HTTPException(409, {
+				message: "A filing for this model is already pending review.",
+			});
+		}
+		const current = filings.find((f) => f.status === "approved");
+		if (!current) {
+			throw new HTTPException(409, {
+				message: "This listing has no approved pricing to file against.",
+			});
+		}
+		const filing = await db
+			.insert(tables.providerPriceFiling)
+			.values({
+				draftModelId: id,
+				providerCompanyId: model.providerCompanyId,
+				kind: "metadata",
+				inputPrice: current.inputPrice,
+				outputPrice: current.outputPrice,
+				cachedInputPrice: current.cachedInputPrice,
+				requestPrice: current.requestPrice,
+				metadata: updates,
+				requestedBy: user.id,
+			})
+			.returning()
+			.catch((err: unknown) => {
+				if (isUniqueViolation(err)) {
+					throw new HTTPException(409, {
+						message: "A filing for this model is already pending review.",
+					});
+				}
+				throw err;
+			});
+		return c.json({
+			model: serializeModel({
+				...model,
+				priceFilings: [...filings, ...filing],
+			}),
 		});
 	}
 	const updated = await cdb.transaction(async (tx) => {
@@ -2327,7 +2351,7 @@ airside.openapi(createPriceFiling, async (c) => {
 	});
 	if (pending) {
 		throw new HTTPException(409, {
-			message: "A price filing for this model is already pending review.",
+			message: "A filing for this model is already pending review.",
 		});
 	}
 	const kind = model.status === "active" ? "update" : "initial";

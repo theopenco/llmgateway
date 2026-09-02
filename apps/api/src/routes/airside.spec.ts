@@ -723,10 +723,43 @@ describe("airside provider portal", () => {
 		});
 		expect(Number(published.mappings[0].inputPrice)).toBeCloseTo(2e-6);
 
-		// Provider-managed metadata updates are public immediately.
-		await app.request(
+		// Metadata edits on a live listing are filed, not applied.
+		const filed = await app.request(
 			`/airside/models/${model.id}`,
 			json(cookie, { contextSize: 128000, tools: false }, "PATCH"),
+		);
+		expect(filed.status).toBe(200);
+		const metadataFiling = (await filed.json()).model.pendingFiling;
+		expect(metadataFiling).toMatchObject({
+			kind: "metadata",
+			metadata: { contextSize: 128000, tools: false },
+		});
+		const beforeApproval = (
+			await (await app.request("/internal/models")).json()
+		).models.find((entry: { id: string }) => entry.id === "mistral-large-3");
+		expect(beforeApproval.mappings[0]).toMatchObject({
+			contextSize: 256000,
+			tools: true,
+		});
+		// A second edit waits for the first review.
+		const second = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { maxOutput: 4096 }, "PATCH"),
+		);
+		expect(second.status).toBe(409);
+		const queued = await app.request("/admin/airside/filings?status=pending", {
+			headers: { Cookie: cookie },
+		});
+		const queuedFiling = (await queued.json()).filings.find(
+			(entry: { id: string }) => entry.id === metadataFiling.id,
+		);
+		expect(queuedFiling).toMatchObject({
+			kind: "metadata",
+			currentMetadata: { contextSize: 256000, tools: true },
+		});
+		await app.request(
+			`/admin/airside/filings/${metadataFiling.id}/approve`,
+			json(cookie),
 		);
 		const afterMetadataUpdate = await app.request("/internal/models");
 		const updatedMetadata = (await afterMetadataUpdate.json()).models.find(
@@ -1239,7 +1272,8 @@ describe("airside provider portal", () => {
 		expect(mapping?.reasoningEfforts).toEqual(["medium", "max"]);
 	});
 
-	it("edits claim branding but never claim identity", async () => {
+	it("files branding edits on a live claim for review", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		const claim = await claimProvider(cookie, company.id);
@@ -1255,10 +1289,32 @@ describe("airside provider portal", () => {
 			),
 		);
 		expect(res.status).toBe(200);
-		const updated = (await res.json()).claim;
+		const filed = (await res.json()).claim;
+		// Live branding waits for review; identity fields are never editable.
+		expect(filed.logoUrl).toBeNull();
+		expect(filed.pendingBranding).toEqual({ logoUrl: svg });
+		expect(filed.customBaseUrl).toBeNull();
+		const rejected = await app.request(
+			`/airside/claims/${claim.id}/branding/reject`.replace(
+				"/airside/",
+				"/admin/airside/",
+			),
+			json(cookie),
+		);
+		expect(rejected.status).toBe(200);
+		expect((await rejected.json()).claim.pendingBranding).toBeNull();
+		await app.request(
+			`/airside/claims/${claim.id}`,
+			json(cookie, { logoUrl: svg }, "PATCH"),
+		);
+		const approved = await app.request(
+			`/admin/airside/claims/${claim.id}/branding/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+		const updated = (await approved.json()).claim;
 		expect(updated.logoUrl).toBe(svg);
-		// Identity fields are not editable; unknown keys are stripped.
-		expect(updated.customBaseUrl).toBeNull();
+		expect(updated.pendingBranding).toBeNull();
 
 		// Non-SVG branding is rejected; null clears the logo.
 		const png = await app.request(
@@ -1274,7 +1330,20 @@ describe("airside provider portal", () => {
 			`/airside/claims/${claim.id}`,
 			json(cookie, { logoUrl: null }, "PATCH"),
 		);
-		expect((await cleared.json()).claim.logoUrl).toBeNull();
+		expect((await cleared.json()).claim.pendingBranding).toEqual({
+			logoUrl: null,
+		});
+		await app.request(
+			`/admin/airside/claims/${claim.id}/branding/approve`,
+			json(cookie),
+		);
+		const claims = await app.request("/admin/airside/claims?status=active", {
+			headers: { Cookie: cookie },
+		});
+		const live = (await claims.json()).claims.find(
+			(entry: { id: string }) => entry.id === claim.id,
+		);
+		expect(live).toMatchObject({ logoUrl: null, pendingBranding: null });
 	});
 
 	it("carries cache and per-request pricing through filings", async () => {

@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
 
-import { cdb, tables } from "@llmgateway/db";
+import { cdb, eq, tables } from "@llmgateway/db";
 import { models as modelsList, providers } from "@llmgateway/models";
 
 import type { ProviderModelMapping } from "@llmgateway/models";
@@ -15,6 +15,23 @@ describe("Models API", () => {
 		// cleanup must invalidate it too.
 		await cdb.delete(tables.providerPriceFiling);
 		await cdb.delete(tables.providerDraftModel);
+		const airsideModelIds = await cdb
+			.select({ modelId: tables.modelProviderMapping.modelId })
+			.from(tables.modelProviderMapping)
+			.where(eq(tables.modelProviderMapping.source, "airside"));
+		await cdb
+			.delete(tables.modelProviderMapping)
+			.where(eq(tables.modelProviderMapping.source, "airside"));
+		for (const modelId of new Set(airsideModelIds.map((row) => row.modelId))) {
+			const remaining = await cdb
+				.select({ id: tables.modelProviderMapping.id })
+				.from(tables.modelProviderMapping)
+				.where(eq(tables.modelProviderMapping.modelId, modelId))
+				.limit(1);
+			if (remaining.length === 0) {
+				await cdb.delete(tables.model).where(eq(tables.model.id, modelId));
+			}
+		}
 	});
 
 	test("GET /v1/models should return a list of models", async () => {
