@@ -207,13 +207,10 @@ function resolveExternalId(
 	return model.modelName;
 }
 
+/** Exact canonical id only: a listing keyed by an alias has no catalogue row
+ *  to restore, so it is DB-only and removed on delist. */
 function findStaticMapping(providerId: string, modelName: string) {
-	const definition = catalogueModels.find(
-		(model) =>
-			model.id === modelName ||
-			("aliases" in model &&
-				(model.aliases as readonly string[] | undefined)?.includes(modelName)),
-	);
+	const definition = catalogueModels.find((model) => model.id === modelName);
 	if (!definition) {
 		return null;
 	}

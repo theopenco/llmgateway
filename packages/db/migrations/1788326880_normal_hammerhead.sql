@@ -34,12 +34,17 @@ WHERE "draft"."status" = 'active'
 	)
 ORDER BY "draft"."model_name", "draft"."updated_at" DESC
 ON CONFLICT ("id") DO NOTHING;--> statement-breakpoint
+WITH "latest_draft" AS (
+	SELECT DISTINCT ON ("model_name") "model_name", "family", "provider_id"
+	FROM "provider_draft_model"
+	WHERE "status" = 'active'
+	ORDER BY "model_name", "updated_at" DESC, "id" DESC
+)
 UPDATE "model" AS "model"
-SET "family" = COALESCE("draft"."family", "draft"."provider_id")
-FROM "provider_draft_model" AS "draft"
-WHERE "model"."id" = "draft"."model_name"
-	AND "model"."family" = 'airside'
-	AND "draft"."status" = 'active';--> statement-breakpoint
+SET "family" = COALESCE("latest_draft"."family", "latest_draft"."provider_id")
+FROM "latest_draft"
+WHERE "model"."id" = "latest_draft"."model_name"
+	AND "model"."family" = 'airside';--> statement-breakpoint
 WITH "approved_listing" AS (
 	SELECT DISTINCT ON ("draft"."provider_id", "draft"."model_name")
 		"draft".*,
@@ -61,7 +66,7 @@ UPDATE "model_provider_mapping" AS "mapping"
 SET
 	"source" = 'airside',
 	"external_id" = CASE
-		WHEN "mapping"."deactivated_at" IS NOT NULL THEN "listing"."model_name"
+		WHEN "mapping"."deactivated_at" <= NOW() THEN "listing"."model_name"
 		ELSE "mapping"."external_id"
 	END,
 	"input_price" = "listing"."filing_input_price"::numeric,
