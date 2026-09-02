@@ -7805,6 +7805,79 @@ describe("api", () => {
 		}
 	});
 
+	test("/v1/chat/completions pinned no-fallback provider-cap 429 carries rate-limit headers", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			...encryptProviderKeyForStorage(
+				"studio-db-key",
+				"provider-key-id",
+				"org-id",
+			),
+			provider: "google-ai-studio",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await db.insert(tables.rateLimit).values({
+			id: "rate-limit-studio-no-fallback",
+			organizationId: "org-id",
+			provider: "google-ai-studio",
+			model: "gemini-2.5-flash-lite",
+			maxRpm: 1,
+		});
+
+		const makeRequest = (content: string) =>
+			app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "google-ai-studio/gemini-2.5-flash-lite",
+					messages: [{ role: "user", content }],
+				}),
+			});
+
+		const firstRes = await makeRequest("Provider cap slot one");
+		expect(firstRes.status).toBe(200);
+
+		const secondRes = await makeRequest("Provider cap slot two");
+		expect(secondRes.status).toBe(429);
+
+		const retryAfter = Number(secondRes.headers.get("Retry-After"));
+		expect(retryAfter).toBeGreaterThanOrEqual(1);
+		expect(retryAfter).toBeLessThanOrEqual(60);
+		// Draft RateLimit-* fields (Reset is delta-seconds) plus legacy X-
+		// variants (epoch reset), matching the org limiter's header set.
+		expect(secondRes.headers.get("RateLimit-Limit")).toBe("1");
+		expect(secondRes.headers.get("RateLimit-Remaining")).toBe("0");
+		expect(secondRes.headers.get("RateLimit-Reset")).toBe(String(retryAfter));
+		expect(secondRes.headers.get("X-RateLimit-Limit")).toBe("1");
+		expect(secondRes.headers.get("X-RateLimit-Remaining")).toBe("0");
+		expect(Number(secondRes.headers.get("X-RateLimit-Reset"))).toBeGreaterThan(
+			Math.floor(Date.now() / 1000),
+		);
+		expect(secondRes.headers.get("X-RateLimit-Limit-Provider")).toBe("1");
+		expect(secondRes.headers.get("X-RateLimit-Remaining-Provider")).toBe("0");
+		expect(secondRes.headers.get("X-RateLimit-Limit-Provider-RPM")).toBe("1");
+		expect(secondRes.headers.get("X-RateLimit-Remaining-Provider-RPM")).toBe(
+			"0",
+		);
+
+		const json = await secondRes.json();
+		expect(json.error.type).toBe("rate_limit_error");
+	});
+
 	// Non-streaming responses are cached in OpenAI format, so the stored
 	// finish_reason is normalized (e.g. "stop"). The cache-hit log must classify
 	// it using the OpenAI mapping, not the upstream provider's native format —
