@@ -171,6 +171,7 @@ export function RegisterModelDialog({
 			);
 			setOpen(false);
 			setModelName("");
+			setExternalId("");
 			setDisplayName("");
 			setInputPrice("");
 			setOutputPrice("");

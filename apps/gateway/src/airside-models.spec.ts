@@ -7,7 +7,10 @@ import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
-import { airsideListingToModelDefinition } from "./chat/tools/resolve-airside-model.js";
+import {
+	airsideListingToModelDefinition,
+	resolveAirsideModel,
+} from "./chat/tools/resolve-airside-model.js";
 import { findAirsideModel } from "./lib/cached-queries.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
 import {
@@ -96,6 +99,7 @@ describe("airside-listed models", () => {
 		contextSize?: number;
 		maxOutput?: number;
 		tools?: boolean;
+		vision?: boolean;
 	}) {
 		await db
 			.insert(tables.provider)
@@ -122,6 +126,7 @@ describe("airside-listed models", () => {
 			maxOutput: options.maxOutput ?? null,
 			streaming: true,
 			tools: options.tools ?? false,
+			vision: options.vision ?? false,
 			status: "active" as const,
 			deactivatedAt: null,
 		};
@@ -168,6 +173,29 @@ describe("airside-listed models", () => {
 		});
 	});
 
+	test("resolves an Airside listing registered under a static alias", async () => {
+		await materializeTestMapping({
+			providerId: "iceberg",
+			modelId: "nano banana pro",
+			externalId: "gemini-3-pro-image-carrier",
+			inputPrice: "2e-6",
+			outputPrice: "12e-6",
+		});
+
+		const resolution = await resolveAirsideModel("nano banana pro");
+
+		expect(resolution).toBeTruthy();
+		expect(resolution?.parseResult).toMatchObject({
+			requestedModel: "nano banana pro",
+			requestedProvider: "iceberg",
+		});
+		expect(resolution?.pricingMappings).toHaveLength(1);
+		expect(resolution?.pricingMappings[0]).toMatchObject({
+			providerId: "iceberg",
+			externalId: "gemini-3-pro-image-carrier",
+		});
+	});
+
 	async function setup(
 		token: string,
 		options: {
@@ -175,6 +203,7 @@ describe("airside-listed models", () => {
 			filingStatus?: "approved" | "pending";
 			modelName?: string;
 			maxOutput?: number;
+			vision?: boolean;
 		} = {},
 	) {
 		const modelName = options.modelName ?? "gpt-5.6-luna";
@@ -212,6 +241,7 @@ describe("airside-listed models", () => {
 			contextSize: 128000,
 			streaming: true,
 			tools: true,
+			vision: options.vision ?? true,
 			status: options.modelStatus ?? "active",
 		});
 		await db.insert(tables.providerPriceFiling).values({
@@ -237,6 +267,7 @@ describe("airside-listed models", () => {
 				contextSize: 128000,
 				maxOutput: options.maxOutput,
 				tools: true,
+				vision: options.vision ?? true,
 			});
 		} else {
 			const materializedMapping = await db.query.modelProviderMapping.findFirst(
@@ -412,11 +443,7 @@ describe("airside-listed models", () => {
 		expect(captured).toHaveLength(0);
 	});
 
-	test("bills an Airside-owned pair reached through a dynamic route", async () => {
-		// Dynamic routes (like auto and cross-model fallback) pick their target
-		// from the static catalogue; the served pair is still Airside-owned.
-		const token = "airside-dynamic-token";
-		await setup(token, { modelName: "mistral-small-2506" });
+	async function createDynamicRoute(token: string) {
 		await db
 			.update(tables.organization)
 			.set({ plan: "enterprise" })
@@ -450,6 +477,14 @@ describe("airside-listed models", () => {
 			.set({ publishedVersionId: `${token}-route-v1` })
 			.where(eq(tables.dynamicRoute.id, `${token}-route`));
 		await clearCache();
+	}
+
+	test("bills an Airside-owned pair reached through a dynamic route", async () => {
+		// Dynamic routes (like auto and cross-model fallback) pick their target
+		// from the static catalogue; the served pair is still Airside-owned.
+		const token = "airside-dynamic-token";
+		await setup(token, { modelName: "mistral-small-2506" });
+		await createDynamicRoute(token);
 
 		const requestId = "airside-dynamic-req-1";
 		const res = await app.request("/v1/chat/completions", {
@@ -472,6 +507,42 @@ describe("airside-listed models", () => {
 		expect(log).toBeTruthy();
 		expect(Number(log!.inputCost)).toBeCloseTo(0.002, 6);
 		expect(Number(log!.outputCost)).toBeCloseTo(0.005, 6);
+	});
+
+	test("filters dynamic routes by Airside-owned capabilities", async () => {
+		const token = "airside-dynamic-capabilities-token";
+		await setup(token, {
+			modelName: "mistral-small-2506",
+			vision: false,
+		});
+		await createDynamicRoute(token);
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "dynamic/airside-owned",
+				messages: [
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: "Describe this image" },
+							{
+								type: "image_url",
+								image_url: { url: "data:image/png;base64,A" },
+							},
+						],
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		expect(captured).toHaveLength(0);
 	});
 
 	async function setRoutingUptime(

@@ -33,6 +33,7 @@ import {
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
+	listAirsideModels,
 	type CustomModel,
 	type ManagedProviderAvailability,
 } from "@/lib/cached-queries.js";
@@ -284,6 +285,7 @@ import {
 } from "./tools/reasoning-details.js";
 import {
 	airsideListingToModelDefinition,
+	mergeAirsideListingsIntoModel,
 	resolveAirsideModel,
 } from "./tools/resolve-airside-model.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
@@ -3744,6 +3746,22 @@ chat.openapi(completions, async (c) => {
 			matchingModels.push(customModel);
 			activeCustomModelsByName.set(customModel.modelName, matchingModels);
 		}
+		const airsideListingsByModel = new Map<
+			string,
+			Awaited<ReturnType<typeof listAirsideModels>>
+		>();
+		for (const listing of await listAirsideModels()) {
+			if (
+				!providers.some(
+					(provider) => provider.id === listing.mapping.providerId,
+				)
+			) {
+				continue;
+			}
+			const listings = airsideListingsByModel.get(listing.model.id) ?? [];
+			listings.push(listing);
+			airsideListingsByModel.set(listing.model.id, listings);
+		}
 
 		// Find the cheapest model that meets our context size requirements
 		// Only consider hardcoded models for auto selection
@@ -3793,7 +3811,11 @@ chat.openapi(completions, async (c) => {
 		let anyPreComplianceCandidate = false;
 		let anyPostComplianceCandidate = false;
 
-		for (const modelDef of models) {
+		for (const staticModelDef of models) {
+			const listings = airsideListingsByModel.get(staticModelDef.id);
+			const modelDef = listings
+				? mergeAirsideListingsIntoModel(staticModelDef, listings).modelInfo
+				: staticModelDef;
 			if (modelDef.id === "auto" || modelDef.id === "custom") {
 				continue;
 			}

@@ -64,6 +64,15 @@ export async function resolveAirsideModel(
 					(m.aliases as readonly string[] | undefined)?.includes(modelInput)),
 		);
 		if (staticModel) {
+			if (staticModel.id !== modelInput) {
+				const exactListings = await findAirsideModelsByBareName(modelInput);
+				if (exactListings.length === 1) {
+					return await buildResolution(exactListings[0]);
+				}
+				if (exactListings.length > 1) {
+					return null;
+				}
+			}
 			const listings = (
 				await findAirsideModelsByBareName(staticModel.id)
 			).filter((listed) =>
@@ -72,23 +81,8 @@ export async function resolveAirsideModel(
 			if (listings.length === 0) {
 				return null;
 			}
-			const pricingMappings = listings.map(
-				(listed) => airsideListingToModelDefinition(listed).mapping,
-			);
-			const ownedProviderIds = new Set(
-				pricingMappings.map((mapping) => mapping.providerId),
-			);
-			const allModelProviders = [
-				...staticModel.providers.filter(
-					(mapping) => !ownedProviderIds.has(mapping.providerId),
-				),
-				...pricingMappings,
-			];
-			const now = new Date();
-			const activeProviders = allModelProviders.filter((mapping) => {
-				const deactivatedAt = (mapping as ProviderModelMapping).deactivatedAt;
-				return !deactivatedAt || deactivatedAt > now;
-			});
+			const { modelInfo, allModelProviders, pricingMappings } =
+				mergeAirsideListingsIntoModel(staticModel, listings);
 			return {
 				parseResult: {
 					requestedModel: staticModel.id as Model,
@@ -97,8 +91,8 @@ export async function resolveAirsideModel(
 					requestedRegion: undefined,
 				},
 				modelInfoResult: {
-					modelInfo: { ...staticModel, providers: activeProviders },
-					activeProviders,
+					modelInfo,
+					activeProviders: modelInfo.providers,
 					allModelProviders,
 					requestedProvider: undefined,
 				},
@@ -183,6 +177,38 @@ async function buildResolution(
 		},
 		pricingMappings: [mapping],
 		customBaseUrl,
+	};
+}
+
+/** Replace the static mappings owned by approved Airside listings. */
+export function mergeAirsideListingsIntoModel(
+	staticModel: ModelDefinition,
+	listings: AirsideListedModel[],
+): {
+	modelInfo: ModelDefinition;
+	allModelProviders: ProviderModelMapping[];
+	pricingMappings: ProviderModelMapping[];
+} {
+	const pricingMappings = listings.map(
+		(listed) => airsideListingToModelDefinition(listed).mapping,
+	);
+	const ownedProviderIds = new Set(
+		pricingMappings.map((mapping) => mapping.providerId),
+	);
+	const allModelProviders = [
+		...staticModel.providers.filter(
+			(mapping) => !ownedProviderIds.has(mapping.providerId),
+		),
+		...pricingMappings,
+	];
+	const now = new Date();
+	const activeProviders = allModelProviders.filter(
+		(mapping) => !mapping.deactivatedAt || mapping.deactivatedAt > now,
+	);
+	return {
+		modelInfo: { ...staticModel, providers: activeProviders },
+		allModelProviders,
+		pricingMappings,
 	};
 }
 
