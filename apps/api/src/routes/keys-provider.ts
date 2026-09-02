@@ -230,7 +230,7 @@ function assertCustomProviderEnterprise(
 	}
 }
 
-// The custom provider name is the routing segment used in `custom/<name>/<model>`
+// The custom provider name is the routing prefix used in `<name>/<model>`
 // model strings, so it must stay URL-safe and unique within the organization.
 export const customProviderNameSchema = z
 	.string()
