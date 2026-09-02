@@ -1886,6 +1886,27 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
+	// allowed_domains and blocked_domains are mutually exclusive; providers
+	// accept only one, and silently preferring one would drop the caller's
+	// other filter.
+	if (
+		webSearchTool?.allowed_domains?.length &&
+		webSearchTool.blocked_domains?.length
+	) {
+		return c.json(
+			{
+				error: {
+					message:
+						"The web_search tool cannot specify both allowed_domains and blocked_domains. Use one or the other.",
+					type: "invalid_request_error",
+					param: "tools",
+					code: "unsupported_parameter_combination",
+				},
+			},
+			400,
+		);
+	}
+
 	// A tool_choice that only forces web search says nothing about function
 	// tools, so it must not make a request look like it needs function-tool
 	// support — that would filter out providers that can search but not call
