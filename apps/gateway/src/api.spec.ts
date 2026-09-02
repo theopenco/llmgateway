@@ -7878,6 +7878,87 @@ describe("api", () => {
 		expect(json.error.type).toBe("rate_limit_error");
 	});
 
+	// When both RPM and RPD are exhausted, the headers must describe a single
+	// window: the one with the longest wait (RPD), not RPM's limit with RPD's
+	// reset. Both sliding windows are pre-seeded to full because a live request
+	// blocked by RPM never increments RPD.
+	test("/v1/chat/completions provider-cap 429 with both windows blocked describes the slowest window", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			...encryptProviderKeyForStorage(
+				"studio-db-key",
+				"provider-key-id",
+				"org-id",
+			),
+			provider: "google-ai-studio",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await db.insert(tables.rateLimit).values({
+			id: "rate-limit-studio-both-windows",
+			organizationId: "org-id",
+			provider: "google-ai-studio",
+			model: "gemini-2.5-flash-lite",
+			maxRpm: 1,
+			maxRpd: 3,
+		});
+
+		const now = Date.now();
+		const rpmKey =
+			"rate_limit:provider_cap:rpm:org-id:google-ai-studio:gemini-2.5-flash-lite";
+		const rpdKey =
+			"rate_limit:provider_cap:rpd:org-id:google-ai-studio:gemini-2.5-flash-lite";
+		await redisClient.zadd(rpmKey, now, `${now}:rpm-1`);
+		for (let i = 0; i < 3; i++) {
+			await redisClient.zadd(rpdKey, now, `${now}:rpd-${i}`);
+		}
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "google-ai-studio/gemini-2.5-flash-lite",
+				messages: [{ role: "user", content: "Both windows blocked" }],
+			}),
+		});
+		expect(res.status).toBe(429);
+
+		// RPD's wait (~1 day) dominates RPM's (~60s), so every header pair must
+		// come from the RPD window: limit 3, reset ~86400s.
+		const retryAfter = Number(res.headers.get("Retry-After"));
+		expect(retryAfter).toBeGreaterThan(60);
+		expect(retryAfter).toBeLessThanOrEqual(86400);
+		expect(res.headers.get("RateLimit-Limit")).toBe("3");
+		expect(res.headers.get("RateLimit-Reset")).toBe(String(retryAfter));
+		expect(res.headers.get("X-RateLimit-Limit")).toBe("3");
+		expect(Number(res.headers.get("X-RateLimit-Reset"))).toBeGreaterThan(
+			Math.floor(Date.now() / 1000) + 60,
+		);
+		expect(res.headers.get("X-RateLimit-Limit-Provider-RPM")).toBe("1");
+		expect(res.headers.get("X-RateLimit-Remaining-Provider-RPM")).toBe("0");
+		expect(res.headers.get("X-RateLimit-Limit-Provider-RPD")).toBe("3");
+		expect(res.headers.get("X-RateLimit-Remaining-Provider-RPD")).toBe("0");
+
+		const json = await res.json();
+		expect(json.error.type).toBe("rate_limit_error");
+		expect(json.error.message).toContain(
+			"1 requests per minute and 3 requests per day",
+		);
+	});
+
 	// Non-streaming responses are cached in OpenAI format, so the stored
 	// finish_reason is normalized (e.g. "stop"). The cache-hit log must classify
 	// it using the OpenAI mapping, not the upstream provider's native format —

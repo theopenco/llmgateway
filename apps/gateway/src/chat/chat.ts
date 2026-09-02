@@ -392,9 +392,20 @@ function setProviderRateLimitExceededHeaders(
 	c: Context<ServerTypes>,
 	result: ProviderRateLimitResult,
 ): void {
-	const primaryWindow = result.blockedBy[0] ?? "rpm";
+	// When several windows are blocked, describe the one with the longest wait
+	// so limit and reset headers refer to the same policy.
+	const primaryWindow = result.blockedBy.reduce(
+		(slowest, window) =>
+			(result.limits[window].retryAfter ?? 0) >
+			(result.limits[slowest].retryAfter ?? 0)
+				? window
+				: slowest,
+		result.blockedBy[0] ?? "rpm",
+	);
 	const retryAfter =
-		result.retryAfter ?? providerRateLimitWindows[primaryWindow].seconds;
+		result.limits[primaryWindow].retryAfter ??
+		result.retryAfter ??
+		providerRateLimitWindows[primaryWindow].seconds;
 	const limit = result.limits[primaryWindow].limit;
 
 	c.header("Retry-After", String(retryAfter));
