@@ -73,6 +73,17 @@ export default async function ProvidersPage() {
 			.filter((p) => p.airsideLogoUrl)
 			.map((p) => [p.id, p.airsideLogoUrl as string]),
 	);
+	const modelCounts: Record<string, number> = {};
+	for (const model of apiModels) {
+		const providerIds = new Set(
+			model.mappings
+				.filter((mapping) => mapping.status === "active")
+				.map((mapping) => mapping.providerId),
+		);
+		for (const providerId of Array.from(providerIds)) {
+			modelCounts[providerId] = (modelCounts[providerId] ?? 0) + 1;
+		}
+	}
 
 	// DB-only providers (custom Airside carriers) join the static grid; every
 	// static catalogue id — listed or not — stays owned by the static config.
@@ -101,6 +112,7 @@ export default async function ProvidersPage() {
 				<ProvidersGrid
 					uploadedLogos={uploadedLogos}
 					extraProviders={extraProviders}
+					modelCounts={modelCounts}
 				/>
 			</main>
 			<Footer />

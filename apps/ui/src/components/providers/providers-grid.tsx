@@ -127,12 +127,20 @@ interface ProvidersGridProps {
 	/** DB-only providers (custom Airside carriers) to list alongside the
 	 *  static catalogue. */
 	extraProviders?: ExtraGridProvider[];
+	/** API-backed counts, including approved Airside listings. */
+	modelCounts?: Record<string, number>;
 }
 
 type GridProvider = (typeof listedProviders)[number] | ExtraGridProvider;
 
-function modelsCountOf(p: GridProvider): number {
-	return "modelsCount" in p ? p.modelsCount : activeModelCounts[p.id] || 0;
+function modelsCountOf(
+	p: GridProvider,
+	modelCounts?: Record<string, number>,
+): number {
+	return (
+		modelCounts?.[p.id] ??
+		("modelsCount" in p ? p.modelsCount : activeModelCounts[p.id] || 0)
+	);
 }
 
 export function ProvidersGrid({
@@ -141,6 +149,7 @@ export function ProvidersGrid({
 	subheading,
 	uploadedLogos,
 	extraProviders,
+	modelCounts,
 }: ProvidersGridProps = {}) {
 	const router = useRouter();
 	const api = useApi();
@@ -172,7 +181,7 @@ export function ProvidersGrid({
 
 	const totalProviders = visibleProviders.length;
 	const totalModels = visibleProviders.reduce(
-		(sum, p) => sum + modelsCountOf(p),
+		(sum, p) => sum + modelsCountOf(p, modelCounts),
 		0,
 	);
 
@@ -213,7 +222,7 @@ export function ProvidersGrid({
 			return {
 				...provider,
 				stats,
-				modelsCount: modelsCountOf(provider),
+				modelsCount: modelsCountOf(provider, modelCounts),
 			};
 		});
 
@@ -283,6 +292,7 @@ export function ProvidersGrid({
 		statsByProvider,
 		visibleProviders,
 		country,
+		modelCounts,
 		reqs,
 		countryCode,
 	]);

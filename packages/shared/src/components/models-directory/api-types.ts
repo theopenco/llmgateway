@@ -40,6 +40,8 @@ export interface ApiModelProviderMapping {
 	imageInputTokensByResolution: Record<string, number> | null;
 	imageOutputTokensByResolution: Record<string, number> | null;
 	inputCharacterPrice: string | null;
+	inputAudioPrice?: string | null;
+	cachedInputAudioPrice?: string | null;
 	outputAudioPrice: string | null;
 	requestPrice: string | null;
 	ocrPagePrice?: string | null;
@@ -49,6 +51,8 @@ export interface ApiModelProviderMapping {
 	quantization?: string | null;
 	streaming: boolean;
 	vision: boolean | null;
+	audio?: boolean | null;
+	document?: boolean | null;
 	reasoning: boolean | null;
 	reasoningEfforts?:
 		("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max")[] | null;
@@ -60,8 +64,11 @@ export interface ApiModelProviderMapping {
 	jsonOutputSchema: boolean | null;
 	webSearch: boolean | null;
 	webSearchPrice: string | null;
+	realtime?: boolean | null;
+	supportedVoices?: string[] | null;
 	supportedVideoSizes: string[] | null;
 	supportedVideoDurationsSeconds: number[] | null;
+	supportedVideoDurationsSecondsImageToVideo?: number[] | null;
 	supportsVideoAudio: boolean | null;
 	supportsVideoWithoutAudio: boolean | null;
 	perSecondPrice: Record<string, string> | null;
@@ -119,6 +126,7 @@ export interface ApiModel {
 	family: string;
 	free: boolean | null;
 	output: string[] | null;
+	imageInputRequired?: boolean | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	status: "active" | "inactive";
 	mappings: ApiModelProviderMapping[];

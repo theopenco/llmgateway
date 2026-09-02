@@ -159,6 +159,110 @@ const modelSchema = z.object({
 	mappings: z.array(modelProviderMappingSchema),
 });
 
+type InternalModel = z.infer<typeof modelSchema>;
+type InternalModelMapping = z.infer<typeof modelProviderMappingSchema>;
+
+function isActiveStaticMapping(
+	modelId: string,
+	providerId: string,
+	now: Date,
+): boolean {
+	const definition = modelDefinitions.find(
+		(model) =>
+			model.id === modelId ||
+			("aliases" in model &&
+				(model.aliases as readonly string[] | undefined)?.includes(modelId)),
+	);
+	return Boolean(
+		definition?.providers.some((mapping) => {
+			if (mapping.providerId !== providerId) {
+				return false;
+			}
+			const deactivatedAt =
+				"deactivatedAt" in mapping ? mapping.deactivatedAt : undefined;
+			return !deactivatedAt || deactivatedAt > now;
+		}),
+	);
+}
+
+function findCanonicalModelId(modelId: string): string {
+	return (
+		modelDefinitions.find(
+			(model) =>
+				model.id === modelId ||
+				("aliases" in model &&
+					(model.aliases as readonly string[] | undefined)?.includes(modelId)),
+		)?.id ?? modelId
+	);
+}
+
+function buildAirsideMapping(
+	model: typeof tables.providerDraftModel.$inferSelect,
+	filing: typeof tables.providerPriceFiling.$inferSelect,
+	canonicalModelId: string,
+	discount: string | null,
+): InternalModelMapping {
+	return {
+		id: `airside:${model.id}`,
+		createdAt: model.createdAt,
+		modelId: canonicalModelId,
+		providerId: model.providerId,
+		externalId: model.modelName,
+		region: null,
+		inputPrice: filing.inputPrice,
+		outputPrice: filing.outputPrice,
+		cachedInputPrice: filing.cachedInputPrice,
+		cacheWriteInputPrice: null,
+		cacheWriteInputPrice1h: null,
+		imageInputPrice: null,
+		imageOutputPrice: null,
+		imageInputTokensByResolution: null,
+		imageOutputTokensByResolution: null,
+		inputCharacterPrice: null,
+		inputAudioPrice: null,
+		cachedInputAudioPrice: null,
+		outputAudioPrice: null,
+		requestPrice: filing.requestPrice,
+		inputAudioHourPrice: null,
+		contextSize: model.contextSize,
+		maxOutput: model.maxOutput,
+		quantization: null,
+		streaming: model.streaming,
+		vision: model.vision,
+		audio: model.audio,
+		document: null,
+		reasoning: model.reasoning,
+		reasoningEfforts: model.reasoningEfforts as
+			InternalModelMapping["reasoningEfforts"] | null,
+		reasoningOutput: null,
+		reasoningMaxTokens: null,
+		rerank: null,
+		tools: model.tools,
+		jsonOutput: model.jsonOutput,
+		jsonOutputSchema: null,
+		webSearch: null,
+		webSearchPrice: null,
+		realtime: null,
+		supportedVoices: null,
+		discount,
+		stability: "stable",
+		supportedParameters: null,
+		supportedVideoSizes: null,
+		supportedVideoDurationsSeconds: null,
+		supportedVideoDurationsSecondsImageToVideo: null,
+		supportsVideoAudio: null,
+		supportsVideoWithoutAudio: null,
+		perSecondPrice: null,
+		perImagePrice: null,
+		pricingTiers: null,
+		peakPricing: null,
+		serviceTiers: null,
+		deprecatedAt: null,
+		deactivatedAt: null,
+		status: "active",
+	};
+}
+
 // GET /internal/models - Returns models with mappings sorted by createdAt desc
 const getModelsRoute = createRoute({
 	operationId: "internal_get_models",
@@ -185,37 +289,42 @@ const getModelsRoute = createRoute({
 internalModels.openapi(getModelsRoute, async (c) => {
 	const now = new Date();
 
-	const [models, activeMappings, globalDiscounts] = await Promise.all([
-		db.query.model.findMany({
-			where: {
-				status: { eq: "active" },
-			},
-			orderBy: {
-				createdAt: "desc",
-			},
-		}),
-		db.query.modelProviderMapping.findMany({
-			where: {
-				status: { eq: "active" },
-			},
-		}),
-		db
-			.select({
-				provider: tables.discount.provider,
-				model: tables.discount.model,
-				discountPercent: tables.discount.discountPercent,
-			})
-			.from(tables.discount)
-			.where(
-				and(
-					isNull(tables.discount.organizationId),
-					or(
-						isNull(tables.discount.expiresAt),
-						gte(tables.discount.expiresAt, now),
+	const [models, activeMappings, globalDiscounts, airsideModels] =
+		await Promise.all([
+			db.query.model.findMany({
+				where: {
+					status: { eq: "active" },
+				},
+				orderBy: {
+					createdAt: "desc",
+				},
+			}),
+			db.query.modelProviderMapping.findMany({
+				where: {
+					status: { eq: "active" },
+				},
+			}),
+			db
+				.select({
+					provider: tables.discount.provider,
+					model: tables.discount.model,
+					discountPercent: tables.discount.discountPercent,
+				})
+				.from(tables.discount)
+				.where(
+					and(
+						isNull(tables.discount.organizationId),
+						or(
+							isNull(tables.discount.expiresAt),
+							gte(tables.discount.expiresAt, now),
+						),
 					),
 				),
-			),
-	]);
+			db.query.providerDraftModel.findMany({
+				where: { status: { eq: "active" } },
+				with: { priceFilings: true },
+			}),
+		]);
 
 	const mappingsByModelId = new Map<string, typeof activeMappings>();
 	for (const mapping of activeMappings) {
@@ -267,7 +376,7 @@ internalModels.openapi(getModelsRoute, async (c) => {
 	};
 
 	// Transform and apply effective discount
-	const transformedModels = models.map((model) => ({
+	const transformedModels: InternalModel[] = models.map((model) => ({
 		...model,
 		mappings: (mappingsByModelId.get(model.id) ?? []).map((mapping) => {
 			const sharedMapping: ProviderModelMapping | null =
@@ -433,6 +542,58 @@ internalModels.openapi(getModelsRoute, async (c) => {
 			};
 		}),
 	}));
+
+	// Approved Airside listings are a second catalogue source. Mirror the
+	// gateway's precedence here so every public surface sees the same models:
+	// an active static mapping wins; otherwise the carrier listing supplies the
+	// provider mapping, including takeover of a retired static mapping.
+	for (const listedModel of airsideModels) {
+		const approvedFiling = [...listedModel.priceFilings]
+			.filter((filing) => filing.status === "approved")
+			.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+		if (
+			!approvedFiling ||
+			isActiveStaticMapping(listedModel.modelName, listedModel.providerId, now)
+		) {
+			continue;
+		}
+
+		const canonicalModelId = findCanonicalModelId(listedModel.modelName);
+		let publicModel = transformedModels.find(
+			(model) => model.id === canonicalModelId,
+		);
+		if (!publicModel) {
+			publicModel = {
+				id: canonicalModelId,
+				createdAt: listedModel.createdAt,
+				releasedAt: null,
+				name: listedModel.displayName ?? listedModel.modelName,
+				aliases: null,
+				description: listedModel.description,
+				family: listedModel.family ?? "airside",
+				free: false,
+				output: ["text"],
+				imageInputRequired: null,
+				stability: "stable",
+				status: "active",
+				mappings: [],
+			};
+			transformedModels.push(publicModel);
+		}
+
+		const mapping = buildAirsideMapping(
+			listedModel,
+			approvedFiling,
+			canonicalModelId,
+			getGlobalDiscount(listedModel.providerId, canonicalModelId),
+		);
+		publicModel.mappings = publicModel.mappings.filter(
+			(existing) =>
+				existing.providerId !== listedModel.providerId ||
+				existing.region !== null,
+		);
+		publicModel.mappings.push(mapping);
+	}
 
 	return c.json({ models: transformedModels });
 });

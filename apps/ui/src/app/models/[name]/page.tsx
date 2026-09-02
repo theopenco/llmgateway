@@ -35,7 +35,7 @@ import { ModelUsageStats } from "@/components/models/model-usage-stats";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { RelatedModels } from "@/components/models/related-models";
 import { JsonLd } from "@/components/seo/json-ld";
-import { findDynamicModelDefinition } from "@/lib/airside-model-fallback";
+import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
 import {
 	applyDiscount,
@@ -53,7 +53,6 @@ import {
 	providers as providerDefinitions,
 	expandAllProviderRegions,
 	type StabilityLevel,
-	type ModelDefinition,
 } from "@llmgateway/models";
 import {
 	formatPerUnitPrice,
@@ -73,11 +72,7 @@ export default async function ModelPage({ params }: PageProps) {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
 
-	// Static catalogue first; Airside listings are DB-only, so fall back to
-	// the API-backed catalogue before 404ing.
-	const modelDef =
-		(modelDefinitions.find((m) => m.id === decodedName) as ModelDefinition) ??
-		(await findDynamicModelDefinition(decodedName));
+	const modelDef = await findPublicModelDefinition(decodedName);
 
 	if (!modelDef) {
 		notFound();
@@ -737,10 +732,7 @@ export async function generateMetadata({
 }: PageProps): Promise<Metadata> {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
-	const model =
-		modelDefinitions.find((m) => m.id === decodedName) ??
-		((await findDynamicModelDefinition(decodedName)) as
-			ModelDefinition | undefined);
+	const model = await findPublicModelDefinition(decodedName);
 
 	if (!model) {
 		return {};

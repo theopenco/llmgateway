@@ -4,6 +4,10 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, inArray, tables } from "@llmgateway/db";
+import {
+	models as catalogueModels,
+	type ModelDefinition,
+} from "@llmgateway/models";
 
 // Website verification resolves a real TXT record; the zone under test is
 // this map. An unlisted name behaves like NXDOMAIN, which is what an
@@ -691,6 +695,35 @@ describe("airside provider portal", () => {
 			where: { id: { eq: "mistral-large-3" } },
 		});
 		expect(catalogueModel).toMatchObject({ family: "airside" });
+		const publicModels = await app.request("/internal/models");
+		expect(publicModels.status).toBe(200);
+		const published = (await publicModels.json()).models.find(
+			(entry: { id: string }) => entry.id === "mistral-large-3",
+		);
+		expect(published).toMatchObject({
+			name: "Mistral Large 3",
+			mappings: [
+				expect.objectContaining({
+					providerId: "mistral",
+					inputPrice: "2e-6",
+					tools: true,
+				}),
+			],
+		});
+
+		// Provider-managed metadata updates are public immediately.
+		await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { contextSize: 128000, tools: false }, "PATCH"),
+		);
+		const afterMetadataUpdate = await app.request("/internal/models");
+		const updatedMetadata = (await afterMetadataUpdate.json()).models.find(
+			(entry: { id: string }) => entry.id === "mistral-large-3",
+		);
+		expect(updatedMetadata.mappings[0]).toMatchObject({
+			contextSize: 128000,
+			tools: false,
+		});
 
 		// A price-update approval rewrites the mapping's prices.
 		const update = await app.request(
@@ -706,6 +739,11 @@ describe("airside provider portal", () => {
 			where: { modelId: { eq: "mistral-large-3" } },
 		});
 		expect(Number(repriced!.inputPrice)).toBeCloseTo(4e-6);
+		const afterPriceUpdate = await app.request("/internal/models");
+		const updatedPrice = (await afterPriceUpdate.json()).models.find(
+			(entry: { id: string }) => entry.id === "mistral-large-3",
+		);
+		expect(updatedPrice.mappings[0].inputPrice).toBe("4e-6");
 
 		// Delisting removes the materialized rows again.
 		await app.request(`/airside/models/${model.id}`, {
@@ -733,6 +771,42 @@ describe("airside provider portal", () => {
 			modelName: "mistral-large-latest",
 		});
 		expect(res.status).toBe(409);
+	});
+
+	it("publishes a new provider mapping on an existing model", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const existingModel = (catalogueModels as readonly ModelDefinition[]).find(
+			(model) =>
+				!model.providers.some((mapping) => mapping.providerId === "mistral"),
+		);
+		expect(existingModel).toBeTruthy();
+
+		const created = await createModel(cookie, company.id, {
+			modelName: existingModel!.id,
+			displayName: existingModel!.name ?? existingModel!.id,
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+
+		const publicModels = await app.request("/internal/models");
+		const published = (await publicModels.json()).models.find(
+			(entry: { id: string }) => entry.id === existingModel!.id,
+		);
+		expect(published.mappings).toContainEqual(
+			expect.objectContaining({
+				providerId: "mistral",
+				externalId: existingModel!.id,
+				inputPrice: "2e-6",
+			}),
+		);
 	});
 
 	it("rejects malformed price strings", async () => {
