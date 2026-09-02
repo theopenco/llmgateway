@@ -36,7 +36,7 @@ export function Providers({ children, config }: ProvidersProps) {
 		<AppConfigProvider config={config}>
 			<ThemeProvider
 				attribute="class"
-				defaultTheme="dark"
+				defaultTheme="system"
 				enableSystem
 				storageKey="theme"
 			>

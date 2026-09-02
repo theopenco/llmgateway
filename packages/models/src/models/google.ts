@@ -2569,6 +2569,7 @@ export const googleModels = [
 			{
 				providerId: "together-ai",
 				externalId: "google/gemma-4-31b-it",
+				deactivatedAt: new Date("2026-09-15"),
 				inputPrice: "0.39e-6",
 				outputPrice: "0.97e-6",
 				requestPrice: "0",
