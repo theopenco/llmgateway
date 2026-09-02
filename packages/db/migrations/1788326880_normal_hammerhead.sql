@@ -34,6 +34,12 @@ WHERE "draft"."status" = 'active'
 	)
 ORDER BY "draft"."model_name", "draft"."updated_at" DESC
 ON CONFLICT ("id") DO NOTHING;--> statement-breakpoint
+UPDATE "model" AS "model"
+SET "family" = COALESCE("draft"."family", "draft"."provider_id")
+FROM "provider_draft_model" AS "draft"
+WHERE "model"."id" = "draft"."model_name"
+	AND "model"."family" = 'airside'
+	AND "draft"."status" = 'active';--> statement-breakpoint
 WITH "approved_listing" AS (
 	SELECT DISTINCT ON ("draft"."provider_id", "draft"."model_name")
 		"draft".*,

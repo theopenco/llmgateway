@@ -184,7 +184,7 @@ export function ProvidersGrid({
 			return listedProviders.filter((p) => p.headquarters === countryCode);
 		}
 		return [...listedProviders, ...(extraProviders ?? [])];
-	}, [countryCode, extraProviders]);
+	}, [countryCode, extraProviders, modelCounts]);
 
 	const totalProviders = visibleProviders.length;
 	const totalModels = visibleProviders.reduce(

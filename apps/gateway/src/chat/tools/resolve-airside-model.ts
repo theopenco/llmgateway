@@ -209,6 +209,10 @@ export function airsideListingToModelDefinition(listed: AirsideListedModel): {
 		: undefined;
 	const mapping: ProviderModelMapping = {
 		...staticMapping,
+		// A filing carries one flat price pair; inherited context-length tiers
+		// or peak windows would override it in calculateCosts.
+		pricingTiers: undefined,
+		peakPricing: undefined,
 		providerId: listed.mapping.providerId as Provider,
 		externalId: listed.mapping.externalId,
 		inputPrice: listed.mapping.inputPrice ?? undefined,
