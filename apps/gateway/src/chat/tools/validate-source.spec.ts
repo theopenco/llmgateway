@@ -33,6 +33,13 @@ describe("validateSource", () => {
 		);
 	});
 
+	it("treats an empty x-source as absent instead of throwing", () => {
+		expect(validateSource("")).toBeUndefined();
+		expect(validateSource("", "https://www.example.com/page")).toBe(
+			"example.com/page",
+		);
+	});
+
 	it("uses a valid referer when x-source is absent", () => {
 		expect(validateSource(undefined, "https://www.example.com/page")).toBe(
 			"example.com/page",

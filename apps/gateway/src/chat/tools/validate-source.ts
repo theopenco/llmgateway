@@ -20,6 +20,8 @@ export function validateSource(
 	source: string | undefined,
 	referer?: string | undefined,
 ): string | undefined {
+	// An empty x-source carries no attribution intent; treat it as absent
+	// (like on main, which never 400ed on it) so fallbacks still apply.
 	if (source) {
 		const normalized = normalizeSource(source);
 		if (normalized === undefined) {
