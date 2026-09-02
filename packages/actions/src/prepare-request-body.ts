@@ -180,6 +180,7 @@ function getProviderMapping(
 interface OpenAIImageRequest {
 	model: string;
 	prompt: string;
+	user?: string;
 	size?: string;
 	quality?: OpenAIImageQuality;
 	n?: number;
@@ -1455,6 +1456,7 @@ export async function prepareRequestBody(
 		const openaiImageRequest: OpenAIImageRequest = {
 			model: usedExternalId,
 			prompt,
+			...(safety_identifier !== undefined && { user: safety_identifier }),
 			...(openaiSize && { size: openaiSize }),
 			...(openaiQuality && { quality: openaiQuality }),
 			...(image_config?.n && { n: image_config.n }),
@@ -1466,6 +1468,9 @@ export async function prepareRequestBody(
 			const formData = new FormData();
 			formData.append("model", openaiImageRequest.model);
 			formData.append("prompt", openaiImageRequest.prompt);
+			if (openaiImageRequest.user !== undefined) {
+				formData.append("user", openaiImageRequest.user);
+			}
 			if (openaiImageRequest.size) {
 				formData.append("size", openaiImageRequest.size);
 			}
@@ -2450,6 +2455,18 @@ export async function prepareRequestBody(
 				return responsesBody;
 			} else {
 				// Use regular chat completions format
+				if (usedProvider === "openai" || usedProvider === "azure") {
+					if (safety_identifier !== undefined) {
+						if (usedProvider === "openai") {
+							requestBody.safety_identifier = safety_identifier;
+						} else {
+							// Azure's deployment-based APIs predate safety_identifier but
+							// accept `user` for the same abuse-attribution purpose.
+							requestBody.user = safety_identifier;
+						}
+					}
+				}
+
 				if (usedProvider === "openai") {
 					if (supportedServiceTier) {
 						requestBody.service_tier = supportedServiceTier;
@@ -2466,11 +2483,6 @@ export async function prepareRequestBody(
 							: undefined);
 					if (upstreamCacheKey !== undefined) {
 						requestBody.prompt_cache_key = upstreamCacheKey;
-					}
-					// Azure is excluded here for the same reason as the cache key
-					// above; it gets `safety_identifier` on the Responses path only.
-					if (safety_identifier !== undefined) {
-						requestBody.safety_identifier = safety_identifier;
 					}
 					if (
 						prompt_cache_retention !== undefined &&
