@@ -63,9 +63,15 @@ export const corsMiddleware: MiddlewareHandler = async (c, next) => {
 			"Cache-Control",
 			"x-api-key",
 			"mcp-session-id",
+			"x-no-cache",
+			"x-no-fallback",
+			"x-session-id",
+			"x-session-affinity",
+			"session_id",
+			"session-id",
 		],
 		allowMethods: ["POST", "GET", "OPTIONS", "PUT", "PATCH", "DELETE"],
-		exposeHeaders: ["Content-Length", "mcp-session-id"],
+		exposeHeaders: ["Content-Length", "mcp-session-id", "x-llmgateway-cache"],
 		maxAge: 600,
 	})(c, next);
 };
