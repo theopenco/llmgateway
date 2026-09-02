@@ -705,7 +705,7 @@ Response (200):
 
 ## Custom providers
 
-Custom providers are your own OpenAI-compatible endpoints, registered as BYOK provider keys with `provider: "custom"`. The gateway routes to them with the model string `custom/<name>/<model>`. See [Custom Providers](/features/custom-providers) for the dashboard flow and routing semantics.
+Custom providers are your own OpenAI-compatible endpoints, registered as BYOK provider keys with `provider: "custom"`. The gateway routes to them with the model string `<name>/<model>`. See [Custom Providers](/features/custom-providers) for the dashboard flow and routing semantics.
 
 Only custom providers are exposed through the master API — catalog providers (OpenAI, Anthropic, …) require an interactive upstream credential check and must be added from the dashboard.
 

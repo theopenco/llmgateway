@@ -1511,7 +1511,7 @@ v1Master.openapi(deleteMemberIamRule, async (c) => {
 });
 
 // Custom providers are BYOK provider keys with `provider: "custom"`, addressed
-// by the gateway as `custom/<name>/<model>`. Only custom keys are exposed here:
+// by the gateway as `<name>/<model>`. Only custom keys are exposed here:
 // catalog providers require an upstream credential check that isn't meaningful
 // for unattended provisioning.
 async function loadCustomProviderKeyForOrg(id: string, organizationId: string) {
