@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { responses } from "./responses.js";
 
@@ -48,73 +48,7 @@ vi.mock("./tools/response-state.js", () => ({
 	storeResponse: vi.fn(),
 }));
 
-describe("responses route", () => {
-	beforeEach(() => {
-		mocks.appRequest.mockReset();
-	});
-
-	it.each([
-		{
-			stream: false,
-			innerBody: JSON.stringify({
-				id: "chatcmpl_cached",
-				created: 1,
-				model: "gpt-4o-mini",
-				choices: [
-					{
-						message: { role: "assistant", content: "hello" },
-						finish_reason: "stop",
-					},
-				],
-				usage: {
-					prompt_tokens: 1,
-					completion_tokens: 1,
-					total_tokens: 2,
-				},
-			}),
-		},
-		{
-			stream: true,
-			innerBody:
-				'data: {"model":"gpt-4o-mini","choices":[]}\n\ndata: [DONE]\n\n',
-		},
-	])(
-		"forwards and surfaces cache headers for stream=$stream",
-		async ({ stream, innerBody }) => {
-			mocks.appRequest.mockResolvedValue(
-				new Response(innerBody, {
-					status: 200,
-					headers: { "x-llmgateway-cache": "HIT" },
-				}),
-			);
-
-			const response = await responses.request("/", {
-				method: "POST",
-				headers: {
-					authorization: "Bearer test-token",
-					"content-type": "application/json",
-					"x-no-cache": "true",
-				},
-				body: JSON.stringify({
-					model: "gpt-4o-mini",
-					input: "hello",
-					stream,
-					store: false,
-				}),
-			});
-
-			expect(response.status).toBe(200);
-			expect(response.headers.get("x-llmgateway-cache")).toBe("HIT");
-			expect(mocks.appRequest).toHaveBeenCalledWith(
-				"/v1/chat/completions",
-				expect.objectContaining({
-					headers: expect.objectContaining({ "x-no-cache": "true" }),
-				}),
-			);
-			await response.text();
-		},
-	);
-
+describe("responses streaming lifecycle", () => {
 	it("emits response.created before an early response.failed", async () => {
 		mocks.appRequest.mockResolvedValue(
 			new Response(

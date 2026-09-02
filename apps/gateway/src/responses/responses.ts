@@ -424,9 +424,6 @@ responses.post("/", async (c) => {
 		"x-debug": c.req.header("x-debug") ?? "",
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 		...internalApiOriginHeaders("responses"),
-		...(c.req.header("x-no-cache") !== undefined
-			? { "x-no-cache": c.req.header("x-no-cache")! }
-			: {}),
 	};
 
 	// Pass Responses API context via in-memory Map (not headers) so the chat
@@ -469,11 +466,6 @@ responses.post("/", async (c) => {
 				response.status as ContentfulStatusCode,
 			);
 		}
-	}
-
-	const innerCacheStatus = response.headers.get("x-llmgateway-cache");
-	if (innerCacheStatus) {
-		c.header("x-llmgateway-cache", innerCacheStatus);
 	}
 
 	// Handle streaming response
