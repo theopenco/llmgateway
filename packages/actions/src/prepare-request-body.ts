@@ -1356,6 +1356,19 @@ export async function prepareRequestBody(
 		usedProvider,
 		usedRegion,
 	);
+	// `supportedParameters` lists are partial, so their silence never gates
+	// long-standing fields — but stop/seed were never forwarded before this
+	// existed, so when a mapping declares a non-empty list omitting them, keep
+	// the pre-existing omission instead of risking a 4xx from strict upstreams.
+	const stopSeedParams = providerMappingForOptions?.supportedParameters;
+	if (stopSeedParams && stopSeedParams.length > 0) {
+		if (!stopSeedParams.includes("stop")) {
+			stop = undefined;
+		}
+		if (!stopSeedParams.includes("seed")) {
+			seed = undefined;
+		}
+	}
 	const supportedServiceTier =
 		(service_tier === "flex" || service_tier === "priority") &&
 		supportsServiceTier(

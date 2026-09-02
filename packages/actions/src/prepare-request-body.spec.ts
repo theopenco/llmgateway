@@ -8295,6 +8295,24 @@ describe("prepareRequestBody - stop and seed forwarding", () => {
 		expect(body.stop_sequences).toEqual(["END", "STOP"]);
 	});
 
+	test("strips stop and seed when a non-empty supportedParameters omits them", async () => {
+		const body = await buildBody("cerebras", "gpt-oss-120b", {
+			stop: "END",
+			seed: 42,
+		});
+		expect("stop" in body).toBe(false);
+		expect("seed" in body).toBe(false);
+	});
+
+	test("forwards stop and seed when supportedParameters lists them", async () => {
+		const body = await buildBody("embercloud", "kimi-k2.5", {
+			stop: "END",
+			seed: 42,
+		});
+		expect(body.stop).toBe("END");
+		expect(body.seed).toBe(42);
+	});
+
 	test("maps stop and seed into Google generationConfig", async () => {
 		const body = await buildBody("google-ai-studio", "gemini-2.5-flash", {
 			stop: "END",

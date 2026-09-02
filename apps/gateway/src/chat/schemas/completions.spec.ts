@@ -131,6 +131,12 @@ describe("completionsRequestSchema stop and seed", () => {
 		expect(result.data?.stop).toBeUndefined();
 	});
 
+	it("normalizes an empty stop array to undefined", () => {
+		const result = completionsRequestSchema.safeParse({ ...base, stop: [] });
+		expect(result.success).toBe(true);
+		expect(result.data?.stop).toBeUndefined();
+	});
+
 	it("accepts an integer seed", () => {
 		const result = completionsRequestSchema.safeParse({ ...base, seed: 42 });
 		expect(result.success).toBe(true);

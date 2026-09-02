@@ -227,7 +227,11 @@ export const completionsRequestSchema = z.object({
 		.union([z.string(), z.array(z.string()).max(4)])
 		.nullable()
 		.optional()
-		.transform((val) => (val === null ? undefined : val))
+		.transform((val) =>
+			val === null || (Array.isArray(val) && val.length === 0)
+				? undefined
+				: val,
+		)
 		.openapi({
 			description:
 				"Up to 4 sequences where the model stops generating further tokens. Mapped to the provider's native stop-sequence parameter where supported.",

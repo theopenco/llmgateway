@@ -719,12 +719,13 @@ function getSupportedParametersFromModel(model: ModelDefinition): string[] {
 	const isAnthropicModel = model.family === "anthropic";
 
 	// Default common parameters that most models support
-	// Note: frequency_penalty and presence_penalty are NOT supported by Anthropic's Messages API
+	// Note: frequency_penalty, presence_penalty and seed are NOT supported by Anthropic's Messages API
 	const defaultCommonParams = isAnthropicModel
 		? [
 				"temperature",
 				"max_tokens",
 				"top_p",
+				"stop",
 				"response_format",
 				"tools",
 				"tool_choice",
@@ -735,6 +736,8 @@ function getSupportedParametersFromModel(model: ModelDefinition): string[] {
 				"top_p",
 				"frequency_penalty",
 				"presence_penalty",
+				"stop",
+				"seed",
 				"response_format",
 				"tools",
 				"tool_choice",
