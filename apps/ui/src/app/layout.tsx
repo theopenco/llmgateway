@@ -79,7 +79,6 @@ export const metadata: Metadata = {
 		title: "LLM Gateway - Unified API for Multiple LLM Providers",
 		description:
 			"Route, manage, and analyze LLM requests across 40+ providers through one unified API.",
-		images: ["/opengraph.png?v=2"],
 		creator: "@llmgateway",
 	},
 	robots: {

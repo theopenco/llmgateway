@@ -84,9 +84,28 @@ import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
 import { matchesCapability } from "./capability-filters";
-import { formatDeprecationDate, formatPerImagePriceRange } from "./format";
+import {
+	formatDeprecationDate,
+	formatPerImagePriceRange,
+	formatPerSecondPriceLabel,
+	formatPerUnitPrice,
+} from "./format";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
+import {
+	compareSortValues,
+	effectiveTokenPrice,
+	getInputCharacterPricePer1K,
+	getMaxPerSecondPrice,
+	getMinPerSecondPrice,
+	hasPaidTier,
+	inputPriceInUnit,
+	isPriceUnitField,
+	minUnitPrice,
+	outputPriceInUnit,
+	parseStrictPrice,
+	PRICE_UNIT_FIELDS,
+} from "./pricing-schedule";
 import { isVisibleMapping } from "./status-filters";
 import {
 	applyUseCaseFilter,
@@ -103,6 +122,7 @@ import type {
 	ApiProvider,
 } from "./api-types";
 import type { ModelCategoryFilter } from "./model-category-filters";
+import type { PriceUnitField } from "./pricing-schedule";
 import type { StabilityLevel } from "@llmgateway/models";
 
 interface ModelWithProviders extends ApiModel {
@@ -160,6 +180,53 @@ type SortField =
 	| "cachedInputPrice"
 	| "discount";
 type SortDirection = "asc" | "desc";
+
+const PRICE_UNIT_OPTIONS: {
+	field: PriceUnitField;
+	Icon: React.ComponentType<{ className?: string }>;
+	iconClass: string;
+	name: string;
+	unit: string;
+}[] = [
+	{
+		field: "perImagePrice",
+		Icon: ImagePlus,
+		iconClass: "text-pink-500",
+		name: "Image",
+		unit: "$/image",
+	},
+	{
+		field: "perSecondPrice",
+		Icon: Video,
+		iconClass: "text-violet-500",
+		name: "Video",
+		unit: "$/sec",
+	},
+	{
+		field: "inputCharacterPrice",
+		Icon: Volume2,
+		iconClass: "text-rose-500",
+		name: "Speech",
+		unit: "$/1K chars",
+	},
+];
+
+function minAcross<T>(
+	items: T[],
+	value: (item: T) => number | null,
+): number | null {
+	const values = items.map(value).filter((v): v is number => v !== null);
+	return values.length > 0 ? Math.min(...values) : null;
+}
+
+function withinBounds(value: number | null, min: string, max: string) {
+	if (value === null) {
+		return !min && !max;
+	}
+	const minPrice = min ? parseFloat(min) : -Infinity;
+	const maxPrice = max ? parseFloat(max) : Infinity;
+	return value >= minPrice && value <= maxPrice;
+}
 
 // Capability icon type
 interface CapabilityIcon {
@@ -336,6 +403,25 @@ const ModelTableRow = React.memo(
 		const showDeactivationNotice = shouldShowDeactivationNotice(row.provider);
 		const mappingStatus = getMappingStatus(row.provider);
 		const isScheduled = mappingStatus === "scheduled";
+		const inputTokenPrice = effectiveTokenPrice(
+			row.provider.inputPrice,
+			row.provider.discount,
+		);
+		const outputTokenPrice = effectiveTokenPrice(
+			row.provider.outputPrice,
+			row.provider.discount,
+		);
+		const minPerSecond = getMinPerSecondPrice(row.provider);
+		const maxPerSecond = getMaxPerSecondPrice(row.provider);
+		const perThousandChars = getInputCharacterPricePer1K(row.provider);
+		const hasCharacterPricing =
+			(parseStrictPrice(row.provider.inputCharacterPrice) ?? 0) > 0;
+		const perSecondPrices = row.provider.perSecondPrice;
+		const perSecondLabel = perSecondPrices
+			? (formatPerSecondPriceLabel(perSecondPrices, row.provider.discount)
+					?.value ??
+				(minPerSecond !== null ? formatPerUnitPrice(minPerSecond) : null))
+			: null;
 
 		return (
 			<>
@@ -537,41 +623,24 @@ const ModelTableRow = React.memo(
 
 					{/* Input Price Column */}
 					<TableCell className="text-right font-mono text-sm">
-						{row.provider.perSecondPrice && !row.provider.inputPrice ? (
+						{minPerSecond !== null && !inputTokenPrice ? (
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<span className="text-violet-500 cursor-help">
-										{(() => {
-											const prices = row.provider.perSecondPrice;
-											const values = Object.values(prices)
-												.map(Number)
-												.filter(Number.isFinite);
-											if (values.length === 0) {
-												return "—";
-											}
-											const min = Math.min(...values);
-											return `$${min}/sec`;
-										})()}
+										{formatPerUnitPrice(minPerSecond)}/sec
 									</span>
 								</TooltipTrigger>
 								<TooltipContent>
 									<p className="text-xs">Video per-second pricing</p>
 								</TooltipContent>
 							</Tooltip>
-						) : (!row.provider.inputPrice ||
-								parseFloat(row.provider.inputPrice) === 0) &&
-						  row.provider.inputCharacterPrice &&
-						  parseFloat(row.provider.inputCharacterPrice) > 0 ? (
+						) : hasCharacterPricing &&
+						  perThousandChars !== null &&
+						  !inputTokenPrice ? (
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<span className="text-sky-500 cursor-help">
-										$
-										{parseFloat(
-											(
-												parseFloat(row.provider.inputCharacterPrice) * 1000
-											).toFixed(4),
-										)}
-										/1K chars
+										{formatPerUnitPrice(perThousandChars)}/1K chars
 									</span>
 								</TooltipTrigger>
 								<TooltipContent>
@@ -623,21 +692,11 @@ const ModelTableRow = React.memo(
 
 					{/* Output Price Column */}
 					<TableCell className="text-right font-mono text-sm">
-						{row.provider.perSecondPrice && !row.provider.outputPrice ? (
+						{maxPerSecond !== null && !outputTokenPrice ? (
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<span className="text-violet-500 cursor-help">
-										{(() => {
-											const prices = row.provider.perSecondPrice;
-											const values = Object.values(prices)
-												.map(Number)
-												.filter(Number.isFinite);
-											if (values.length === 0) {
-												return "—";
-											}
-											const max = Math.max(...values);
-											return `$${max}/sec`;
-										})()}
+										{formatPerUnitPrice(maxPerSecond)}/sec
 									</span>
 								</TooltipTrigger>
 								<TooltipContent>
@@ -752,30 +811,15 @@ const ModelTableRow = React.memo(
 												{parseFloat(row.provider.requestPrice).toFixed(3)}
 											</Badge>
 										)}
-									{row.provider.perSecondPrice &&
-										Object.keys(row.provider.perSecondPrice).length > 0 && (
-											<Badge
-												variant="outline"
-												className="text-sm px-3 py-1.5 bg-background"
-											>
-												<Video className="h-4 w-4 mr-2 text-violet-500" />
-												Video{" "}
-												{(() => {
-													const prices = row.provider.perSecondPrice!;
-													const defaultVideo = prices["default_video"];
-													const defaultAudio = prices["default_audio"];
-													const defaultPrice = prices["default"];
-													if (defaultVideo && defaultAudio) {
-														return `$${defaultVideo} – $${defaultAudio}/sec`;
-													}
-													if (defaultPrice) {
-														return `$${defaultPrice}/sec`;
-													}
-													const firstValue = Object.values(prices)[0];
-													return firstValue ? `$${firstValue}/sec` : "";
-												})()}
-											</Badge>
-										)}
+									{perSecondLabel !== null && (
+										<Badge
+											variant="outline"
+											className="text-sm px-3 py-1.5 bg-background"
+										>
+											<Video className="h-4 w-4 mr-2 text-violet-500" />
+											Video {perSecondLabel}/sec
+										</Badge>
+									)}
 									{row.provider.perImagePrice &&
 										Object.keys(row.provider.perImagePrice).length > 0 && (
 											<Badge
@@ -932,6 +976,10 @@ export function AllModels({
 				min: searchParams.get("contextSizeMin") ?? "",
 				max: searchParams.get("contextSizeMax") ?? "",
 			},
+			priceUnit: (() => {
+				const v = searchParams.get("priceUnit");
+				return isPriceUnitField(v) ? v : null;
+			})(),
 		};
 	});
 
@@ -947,6 +995,29 @@ export function AllModels({
 				model.mappings.some((mapping) => mapping.blockedReasons?.length),
 			),
 		[models],
+	);
+	// The per-unit toggles only appear when the current category has image,
+	// video or speech pricing; a unit left in the URL is ignored until then.
+	const hasPerUnitData = useMemo(() => {
+		const inScope = (model: ApiModel) =>
+			(!categoryFilter ||
+				applyCategoryFilter(categoryFilter, model, model.mappings)) &&
+			(!filters.category ||
+				filters.category === "all" ||
+				applyUseCaseFilter(filters.category, model, model.mappings));
+		return models.some(
+			(model) =>
+				inScope(model) &&
+				model.mappings.some((mapping) =>
+					PRICE_UNIT_FIELDS.some(
+						(unit) => minUnitPrice(mapping, unit) !== null,
+					),
+				),
+		);
+	}, [models, categoryFilter, filters.category]);
+	const priceUnit = hasPerUnitData ? filters.priceUnit : null;
+	const priceUnitOption = PRICE_UNIT_OPTIONS.find(
+		(option) => option.field === priceUnit,
 	);
 
 	const updateUrlWithFilters = useCallback(
@@ -1246,36 +1317,16 @@ export function AllModels({
 				}
 			}
 
-			// Price filters
-			const hasInputPrice = (min: string, max: string) => {
-				return model.providerDetails.some((p) => {
-					if (
-						p.provider.inputPrice === null ||
-						p.provider.inputPrice === undefined
-					) {
-						return !min && !max;
-					}
-					const price = parseFloat(p.provider.inputPrice) * 1e6; // Convert to per million tokens
-					const minPrice = min ? parseFloat(min) : 0;
-					const maxPrice = max ? parseFloat(max) : Infinity;
-					return price >= minPrice && price <= maxPrice;
-				});
-			};
+			// Price bounds apply to the selected per-unit price, else $/M tokens
+			const hasInputPrice = (min: string, max: string) =>
+				model.providerDetails.some((p) =>
+					withinBounds(inputPriceInUnit(p.provider, priceUnit), min, max),
+				);
 
-			const hasOutputPrice = (min: string, max: string) => {
-				return model.providerDetails.some((p) => {
-					if (
-						p.provider.outputPrice === null ||
-						p.provider.outputPrice === undefined
-					) {
-						return !min && !max;
-					}
-					const price = parseFloat(p.provider.outputPrice) * 1e6; // Convert to per million tokens
-					const minPrice = min ? parseFloat(min) : 0;
-					const maxPrice = max ? parseFloat(max) : Infinity;
-					return price >= minPrice && price <= maxPrice;
-				});
-			};
+			const hasOutputPrice = (min: string, max: string) =>
+				model.providerDetails.some((p) =>
+					withinBounds(outputPriceInUnit(p.provider, priceUnit), min, max),
+				);
 
 			const hasContextSize = (min: string, max: string) => {
 				return model.providerDetails.some((p) => {
@@ -1310,14 +1361,21 @@ export function AllModels({
 			) {
 				return false;
 			}
+			if (
+				priceUnit &&
+				!model.providerDetails.some(
+					(p) => minUnitPrice(p.provider, priceUnit) !== null,
+				)
+			) {
+				return false;
+			}
 
 			return true;
 		});
 
-		// Apply sorting - default to createdAt (falls back to releasedAt) descending (newest first)
-		return [...filteredModels].sort((a, b) => {
-			// Default sorting by createdAt, fallback to releasedAt, when no sort field selected
-			if (!sortField) {
+		// Default to createdAt (falls back to releasedAt) descending (newest first)
+		if (!sortField) {
+			return [...filteredModels].sort((a, b) => {
 				const aDate = a.createdAt
 					? new Date(a.createdAt).getTime()
 					: a.releasedAt
@@ -1328,109 +1386,55 @@ export function AllModels({
 					: b.releasedAt
 						? new Date(b.releasedAt).getTime()
 						: 0;
-				return bDate - aDate; // Descending (newest first)
-			}
+				return bDate - aDate;
+			});
+		}
 
-			let aValue: string | number;
-			let bValue: string | number;
-
+		const sortKey = (model: ModelWithProviders): string | number | null => {
 			switch (sortField) {
 				case "provider":
-					// For grid view, sort by first provider name
-					aValue = (
-						a.providerDetails[0]?.providerInfo?.name ??
-						a.providerDetails[0]?.provider.providerId ??
+					return (
+						model.providerDetails[0]?.providerInfo?.name ??
+						model.providerDetails[0]?.provider.providerId ??
 						""
 					).toLowerCase();
-					bValue = (
-						b.providerDetails[0]?.providerInfo?.name ??
-						b.providerDetails[0]?.provider.providerId ??
-						""
-					).toLowerCase();
-					break;
 				case "name":
-					aValue = (a.name ?? a.id).toLowerCase();
-					bValue = (b.name ?? b.id).toLowerCase();
-					break;
-				case "inputPrice": {
-					// Get the min input price among all providers for this model
-					const aInputPrices = a.providerDetails
-						.map((p) => p.provider.inputPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					const bInputPrices = b.providerDetails
-						.map((p) => p.provider.inputPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					aValue =
-						aInputPrices.length > 0 ? Math.min(...aInputPrices) : Infinity;
-					bValue =
-						bInputPrices.length > 0 ? Math.min(...bInputPrices) : Infinity;
-					break;
-				}
-				case "outputPrice": {
-					// Get the min output price among all providers for this model
-					const aOutputPrices = a.providerDetails
-						.map((p) => p.provider.outputPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					const bOutputPrices = b.providerDetails
-						.map((p) => p.provider.outputPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					aValue =
-						aOutputPrices.length > 0 ? Math.min(...aOutputPrices) : Infinity;
-					bValue =
-						bOutputPrices.length > 0 ? Math.min(...bOutputPrices) : Infinity;
-					break;
-				}
-				case "cachedInputPrice": {
-					// Get the min cached input price among all providers for this model
-					const aCachedInputPrices = a.providerDetails
-						.map((p) => p.provider.cachedInputPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					const bCachedInputPrices = b.providerDetails
-						.map((p) => p.provider.cachedInputPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					aValue =
-						aCachedInputPrices.length > 0
-							? Math.min(...aCachedInputPrices)
-							: Infinity;
-					bValue =
-						bCachedInputPrices.length > 0
-							? Math.min(...bCachedInputPrices)
-							: Infinity;
-					break;
-				}
-				case "discount": {
-					// Highest discount across all providers for this model
-					const aDiscounts = a.providerDetails.map((m) =>
-						discountFraction(m.provider.discount),
+					return (model.name ?? model.id).toLowerCase();
+				case "inputPrice":
+					return minAcross(model.providerDetails, (p) =>
+						inputPriceInUnit(p.provider, priceUnit),
 					);
-					const bDiscounts = b.providerDetails.map((m) =>
-						discountFraction(m.provider.discount),
+				case "outputPrice":
+					return minAcross(model.providerDetails, (p) =>
+						outputPriceInUnit(p.provider, priceUnit),
 					);
-					aValue = aDiscounts.length > 0 ? Math.max(...aDiscounts) : 0;
-					bValue = bDiscounts.length > 0 ? Math.max(...bDiscounts) : 0;
-					break;
-				}
+				case "cachedInputPrice":
+					return minAcross(model.providerDetails, (p) =>
+						effectiveTokenPrice(
+							p.provider.cachedInputPrice,
+							p.provider.discount,
+						),
+					);
+				case "discount":
+					return Math.max(
+						0,
+						...model.providerDetails.map((p) =>
+							discountFraction(p.provider.discount),
+						),
+					);
 				default:
-					return 0;
+					return null;
 			}
+		};
 
-			if (aValue < bValue) {
-				return sortDirection === "asc" ? -1 : 1;
-			}
-			if (aValue > bValue) {
-				return sortDirection === "asc" ? 1 : -1;
-			}
-			return 0;
-		});
+		return filteredModels
+			.map((model) => ({ model, key: sortKey(model) }))
+			.sort((a, b) => compareSortValues(a.key, b.key, sortDirection))
+			.map(({ model }) => model);
 	}, [
 		searchQuery,
 		filters,
+		priceUnit,
 		sortField,
 		sortDirection,
 		models,
@@ -1474,22 +1478,15 @@ export function AllModels({
 				) {
 					continue;
 				}
+				if (priceUnit && minUnitPrice(provider, priceUnit) === null) {
+					continue;
+				}
 
 				const hasAdditionalPricing =
 					provider.webSearch === true ||
-					(provider.requestPrice !== null &&
-						provider.requestPrice !== undefined &&
-						parseFloat(provider.requestPrice) > 0) ||
-					(provider.perSecondPrice !== null &&
-						provider.perSecondPrice !== undefined &&
-						Object.values(provider.perSecondPrice).some(
-							(price) => parseFloat(price) > 0,
-						)) ||
-					(provider.perImagePrice !== null &&
-						provider.perImagePrice !== undefined &&
-						Object.values(provider.perImagePrice).some(
-							(price) => parseFloat(price) > 0,
-						));
+					(parseStrictPrice(provider.requestPrice) ?? 0) > 0 ||
+					hasPaidTier(provider.perSecondPrice) ||
+					hasPaidTier(provider.perImagePrice);
 
 				rows.push({
 					model,
@@ -1503,10 +1500,9 @@ export function AllModels({
 			}
 		}
 
-		// Sort flattened rows
-		return rows.sort((a, b) => {
-			if (!sortField) {
-				// Default: sort by createdAt (falls back to releasedAt) descending (newest first)
+		// Default: sort by createdAt (falls back to releasedAt) descending (newest first)
+		if (!sortField) {
+			return rows.sort((a, b) => {
 				const aDate = a.model.createdAt
 					? new Date(a.model.createdAt).getTime()
 					: a.model.releasedAt
@@ -1518,80 +1514,44 @@ export function AllModels({
 						? new Date(b.model.releasedAt).getTime()
 						: 0;
 				return bDate - aDate;
-			}
+			});
+		}
 
-			let aValue: string | number;
-			let bValue: string | number;
-
+		const sortKey = (row: FlattenedModelRow): string | number | null => {
 			switch (sortField) {
 				case "provider":
-					aValue = (
-						a.providerInfo?.name ?? a.provider.providerId
+					return (
+						row.providerInfo?.name ?? row.provider.providerId
 					).toLowerCase();
-					bValue = (
-						b.providerInfo?.name ?? b.provider.providerId
-					).toLowerCase();
-					break;
 				case "name":
-					aValue = (a.model.name ?? a.model.id).toLowerCase();
-					bValue = (b.model.name ?? b.model.id).toLowerCase();
-					break;
-				case "inputPrice": {
-					const aPrice = a.provider.inputPrice;
-					const bPrice = b.provider.inputPrice;
-					aValue =
-						aPrice !== null && aPrice !== undefined
-							? parseFloat(aPrice)
-							: Infinity;
-					bValue =
-						bPrice !== null && bPrice !== undefined
-							? parseFloat(bPrice)
-							: Infinity;
-					break;
-				}
-				case "outputPrice": {
-					const aPrice = a.provider.outputPrice;
-					const bPrice = b.provider.outputPrice;
-					aValue =
-						aPrice !== null && aPrice !== undefined
-							? parseFloat(aPrice)
-							: Infinity;
-					bValue =
-						bPrice !== null && bPrice !== undefined
-							? parseFloat(bPrice)
-							: Infinity;
-					break;
-				}
-				case "cachedInputPrice": {
-					const aPrice = a.provider.cachedInputPrice;
-					const bPrice = b.provider.cachedInputPrice;
-					aValue =
-						aPrice !== null && aPrice !== undefined
-							? parseFloat(aPrice)
-							: Infinity;
-					bValue =
-						bPrice !== null && bPrice !== undefined
-							? parseFloat(bPrice)
-							: Infinity;
-					break;
-				}
+					return (row.model.name ?? row.model.id).toLowerCase();
+				case "inputPrice":
+					return inputPriceInUnit(row.provider, priceUnit);
+				case "outputPrice":
+					return outputPriceInUnit(row.provider, priceUnit);
+				case "cachedInputPrice":
+					return effectiveTokenPrice(
+						row.provider.cachedInputPrice,
+						row.provider.discount,
+					);
 				case "discount":
-					aValue = discountFraction(a.provider.discount);
-					bValue = discountFraction(b.provider.discount);
-					break;
+					return discountFraction(row.provider.discount);
 				default:
-					return 0;
+					return null;
 			}
+		};
 
-			if (aValue < bValue) {
-				return sortDirection === "asc" ? -1 : 1;
-			}
-			if (aValue > bValue) {
-				return sortDirection === "asc" ? 1 : -1;
-			}
-			return 0;
-		});
-	}, [modelsWithProviders, sortField, sortDirection, filters.selectedProvider]);
+		return rows
+			.map((row) => ({ row, key: sortKey(row) }))
+			.sort((a, b) => compareSortValues(a.key, b.key, sortDirection))
+			.map(({ row }) => row);
+	}, [
+		modelsWithProviders,
+		sortField,
+		sortDirection,
+		filters.selectedProvider,
+		priceUnit,
+	]);
 
 	const hasActiveFilters =
 		categoryFilter ||
@@ -1608,7 +1568,8 @@ export function AllModels({
 		filters.outputPrice.min ||
 		filters.outputPrice.max ||
 		filters.contextSize.min ||
-		filters.contextSize.max;
+		filters.contextSize.max ||
+		priceUnit !== null;
 
 	// Pagination
 	const currentPage = Math.max(
@@ -1728,11 +1689,11 @@ export function AllModels({
 		price: string | null | undefined,
 		discount?: string | null,
 	) => {
-		if (price === null || price === undefined) {
+		const priceNum = parseStrictPrice(price);
+		if (priceNum === null) {
 			return "—";
 		}
-		const priceNum = parseFloat(price);
-		const discountNum = discount ? parseFloat(discount) : 0;
+		const discountNum = discountFraction(discount);
 		const originalPrice = (priceNum * 1e6).toFixed(2);
 		if (discountNum > 0) {
 			const discountedPrice = (priceNum * 1e6 * (1 - discountNum)).toFixed(2);
@@ -1786,6 +1747,7 @@ export function AllModels({
 			inputPrice: { min: "", max: "" },
 			outputPrice: { min: "", max: "" },
 			contextSize: { min: "", max: "" },
+			priceUnit: null,
 		});
 		setSortField(null);
 		setSortDirection("asc");
@@ -1821,6 +1783,7 @@ export function AllModels({
 			outputPriceMax: undefined,
 			contextSizeMin: undefined,
 			contextSizeMax: undefined,
+			priceUnit: undefined,
 			sortField: undefined,
 			sortDir: undefined,
 		});
@@ -2310,7 +2273,9 @@ export function AllModels({
 					</div>
 
 					<div className="space-y-3">
-						<div className="font-medium text-sm">Input Price ($/M tokens)</div>
+						<div className="font-medium text-sm">
+							Input Price ({priceUnitOption?.unit ?? "$/M tokens"})
+						</div>
 						<div className="space-y-2">
 							<Input
 								placeholder="Min price"
@@ -2341,10 +2306,53 @@ export function AllModels({
 								className="h-8"
 							/>
 						</div>
+						{hasPerUnitData && (
+							<div className="space-y-2">
+								<div className="font-medium text-sm">Price per unit</div>
+								<div className="flex w-fit flex-col gap-1.5">
+									{PRICE_UNIT_OPTIONS.map(
+										({ field, Icon, iconClass, name, unit }) => (
+											<Toggle
+												key={field}
+												variant="outline"
+												size="sm"
+												pressed={priceUnit === field}
+												onPressedChange={(pressed) => {
+													// Bounds typed in the previous unit no longer apply
+													const next = pressed ? field : null;
+													setFilters((prev) => ({
+														...prev,
+														priceUnit: next,
+														inputPrice: { min: "", max: "" },
+														outputPrice: { min: "", max: "" },
+													}));
+													updateUrlWithFilters({
+														priceUnit: next ?? undefined,
+														inputPriceMin: undefined,
+														inputPriceMax: undefined,
+														outputPriceMin: undefined,
+														outputPriceMax: undefined,
+														page: undefined,
+													});
+												}}
+												className="gap-1.5 w-fit justify-start"
+											>
+												<Icon className={`h-3.5 w-3.5 ${iconClass}`} />
+												<span className="text-xs">
+													{name} {unit}
+												</span>
+											</Toggle>
+										),
+									)}
+								</div>
+							</div>
+						)}
 					</div>
 
 					<div className="space-y-3">
-						<div className="font-medium text-sm">Output Price ($/M tokens)</div>
+						<div className="font-medium text-sm">
+							Output Price ({priceUnitOption?.unit ?? "$/M tokens"})
+						</div>
 						<div className="space-y-2">
 							<Input
 								placeholder="Min price"
@@ -2475,7 +2483,7 @@ export function AllModels({
 										onClick={() => handleSort("inputPrice")}
 										className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
 									>
-										Input $/M
+										Input {priceUnitOption?.unit ?? "$/M"}
 										{getSortIcon("inputPrice")}
 									</Button>
 								</TableHead>
@@ -2485,7 +2493,7 @@ export function AllModels({
 										onClick={() => handleSort("outputPrice")}
 										className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
 									>
-										Output $/M
+										Output {priceUnitOption?.unit ?? "$/M"}
 										{getSortIcon("outputPrice")}
 									</Button>
 								</TableHead>
@@ -2682,6 +2690,7 @@ export function AllModels({
 														filters.contextSize.min,
 														filters.contextSize.max,
 													].filter(Boolean).length,
+													priceUnit ? 1 : 0,
 												].reduce((a, b) => a + b, 0)}
 											</Badge>
 										)}

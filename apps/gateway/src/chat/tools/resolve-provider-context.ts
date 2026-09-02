@@ -137,6 +137,12 @@ export interface ProviderContextOptions {
 	 * the flaky-provider branch, so it fails intermittently and invisibly.
 	 */
 	sponsoredOnboarding?: boolean;
+	/**
+	 * Custom Airside carriers have no catalogue endpoint definition: retries
+	 * and credential failover route to the OpenAI-compatible base URL on the
+	 * approved registration, exactly like the first attempt in chat.ts.
+	 */
+	airsideCustomBaseUrl?: string;
 	stream: boolean;
 	effectiveStream: boolean;
 	messages: BaseMessage[];
@@ -813,8 +819,8 @@ export async function resolveProviderContext(
 				)
 			: undefined;
 	const url = getProviderEndpoint(
-		usedProvider as Provider,
-		credentialBaseUrl,
+		options.airsideCustomBaseUrl ? "custom" : (usedProvider as Provider),
+		options.airsideCustomBaseUrl ?? credentialBaseUrl,
 		upstreamModelName,
 		usedProvider === "google-ai-studio" ||
 			usedProvider === "glacier" ||
@@ -897,7 +903,11 @@ export async function resolveProviderContext(
 		}
 	}
 
-	temperature = clampTemperature(temperature, usedProvider);
+	temperature = clampTemperature(
+		temperature,
+		usedProvider,
+		providerMappingForSelected?.maxTemperature,
+	);
 
 	// --- max_tokens validation ---
 	if (max_tokens !== undefined && providerMappingForSelected) {

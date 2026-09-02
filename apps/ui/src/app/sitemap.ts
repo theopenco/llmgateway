@@ -465,6 +465,33 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		// to the base model page. Google still discovers both via internal links.
 	}
 
+	// DB-only catalogue entries (Airside carriers and their listings) are not
+	// in the static definitions, so pull them from the API. A fetch failure
+	// falls back to the static-only sitemap rather than failing the render.
+	const { fetchModels, fetchProviders } = await import("@/lib/fetch-models");
+	const staticModelIds = new Set(modelDefinitions.map((m) => m.id as string));
+	const staticProviderIds = new Set(
+		providerDefinitions.map((p) => p.id as string),
+	);
+	const [apiModels, apiProviders] = await Promise.all([
+		fetchModels().catch(() => []),
+		fetchProviders().catch(() => []),
+	]);
+	for (const model of apiModels) {
+		if (
+			staticModelIds.has(model.id) ||
+			!model.mappings.some((mapping) => mapping.status === "active")
+		) {
+			continue;
+		}
+		modelPages.push({
+			url: `${baseUrl}/models/${encodeURIComponent(model.id)}`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		});
+	}
+
 	// Provider pages
 	const providerPages: MetadataRoute.Sitemap = providerDefinitions
 		.filter((provider) => provider.name !== "LLM Gateway")
@@ -474,6 +501,25 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			changeFrequency: "weekly",
 			priority: 0.8,
 		}));
+	for (const provider of apiProviders) {
+		if (
+			staticProviderIds.has(provider.id) ||
+			!apiModels.some((model) =>
+				model.mappings.some(
+					(mapping) =>
+						mapping.providerId === provider.id && mapping.status === "active",
+				),
+			)
+		) {
+			continue;
+		}
+		providerPages.push({
+			url: `${baseUrl}/providers/${provider.id}`,
+			lastModified: buildDate,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		});
+	}
 
 	// Per-country provider pages
 	const providerCountryPages: MetadataRoute.Sitemap =

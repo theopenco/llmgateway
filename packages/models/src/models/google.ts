@@ -1845,6 +1845,7 @@ export const googleModels = [
 				test: "skip",
 				providerId: "iceberg",
 				externalId: "gemini-3-pro-image-preview",
+				deactivatedAt: new Date("2026-09-02"),
 				inputPrice: "2e-6",
 				outputPrice: "12e-6",
 				cachedInputPrice: "0.2e-6",
@@ -1982,6 +1983,7 @@ export const googleModels = [
 				test: "skip",
 				providerId: "iceberg",
 				externalId: "gemini-3-pro-image-preview",
+				deactivatedAt: new Date("2026-09-02"),
 				inputPrice: "2e-6",
 				outputPrice: "12e-6",
 				cachedInputPrice: "0.2e-6",
@@ -2567,6 +2569,7 @@ export const googleModels = [
 			{
 				providerId: "together-ai",
 				externalId: "google/gemma-4-31b-it",
+				deactivatedAt: new Date("2026-09-15"),
 				inputPrice: "0.39e-6",
 				outputPrice: "0.97e-6",
 				requestPrice: "0",

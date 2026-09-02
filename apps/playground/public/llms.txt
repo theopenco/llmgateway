@@ -13,9 +13,20 @@
 ## Key pages
 
 - [Lounge](https://lounge.llmgateway.io): The members' lounge for AI.
+- [Pricing](https://lounge.llmgateway.io/pricing): Starter, Plus, and Pro memberships with included usage.
+- [Pricing (machine-readable)](https://lounge.llmgateway.io/pricing.md): Plain-markdown Lounge pricing for AI agents.
+- [Compare](https://lounge.llmgateway.io/compare): Lounge vs ChatGPT, Claude, Gemini, Poe, T3 Chat, Perplexity, and OpenRouter.
+- [Image studio](https://lounge.llmgateway.io/image): DALL·E, Flux, Stable Diffusion, and Seedream side by side.
+- [Video studio](https://lounge.llmgateway.io/video): Veo, Wan, and other text-to-video models.
+- [Audio studio](https://lounge.llmgateway.io/audio): ElevenLabs, OpenAI, and Gemini text to speech.
+- [Voice calls](https://lounge.llmgateway.io/realtime): Realtime speech-to-speech conversations.
+- [Group chat](https://lounge.llmgateway.io/group): One prompt to many models, compared side by side.
+- [Canvas](https://lounge.llmgateway.io/canvas): Build UIs from JSON specs with live preview.
+- [Sandbox Escape](https://lounge.llmgateway.io/escape): Watch a model try to break out of a sandboxed container, with a public leaderboard.
+- [Leaderboard](https://lounge.llmgateway.io/leaderboard): The most active Lounge members.
 - [Models](https://llmgateway.io/models): Every supported model with pricing and capabilities.
 - [LLM Gateway](https://llmgateway.io): The open-source gateway platform behind Lounge.
-- [Pricing (machine-readable)](https://llmgateway.io/pricing.md): Plain-markdown pricing for the whole platform.
+- [Platform pricing (machine-readable)](https://llmgateway.io/pricing.md): Plain-markdown pricing for the whole platform.
 
 ## Notes
 

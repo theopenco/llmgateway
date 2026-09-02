@@ -15,10 +15,17 @@ import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "AI Image Generator — DALL·E, Flux, Stable Diffusion Side-by-Side",
+	title: "AI Image Generator — DALL·E, Flux, Stable Diffusion",
 	description:
 		"Generate images with DALL-E, Stable Diffusion, Flux, and other AI models. Compare outputs across providers in one playground.",
 	alternates: { canonical: "/image" },
+	openGraph: {
+		title: "AI Image Generator — DALL·E, Flux, Stable Diffusion | Lounge",
+		description:
+			"Generate images with DALL-E, Stable Diffusion, Flux, and other AI models. Compare outputs across providers in one playground.",
+		type: "website",
+		url: "https://lounge.llmgateway.io/image",
+	},
 };
 
 export default async function ImagePage({

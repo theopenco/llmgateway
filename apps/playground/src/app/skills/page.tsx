@@ -2,6 +2,12 @@ import SkillsPageClient from "@/components/playground/skills-page-client";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Organization } from "@/lib/types";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+	title: "Skills",
+	robots: { index: false, follow: false },
+};
 
 export default async function SkillsPage({
 	searchParams,

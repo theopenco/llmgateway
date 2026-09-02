@@ -27,6 +27,7 @@ import {
 	findCustomModel,
 	findActiveCustomModels,
 	findEffectiveDiscount,
+	findAirsideRoutingAdjustment,
 	findEffectiveRoutingScoreMultiplier,
 	findProviderKey,
 	findActiveProviderKeys,
@@ -280,6 +281,7 @@ import {
 	splitTaggedStreamingContentChunk,
 	splitReasoningFromTaggedContent,
 } from "./tools/reasoning-details.js";
+import { resolveAirsideModel } from "./tools/resolve-airside-model.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import { resolvePlatformCredential } from "./tools/resolve-platform-credential.js";
 import {
@@ -546,12 +548,18 @@ function createProviderDiscountResolver(organizationId: string) {
 }
 
 function createProviderRoutingScoreMultiplierResolver() {
+	// Two independent signals: the admin prioritization multiplier and the
+	// carrier's own Airside margin/discount adjustment, applied additively.
 	return async (
 		provider: Pick<ProviderModelMapping, "providerId">,
 		modelId: string,
-	) =>
-		(await findEffectiveRoutingScoreMultiplier(provider.providerId, modelId))
-			.scoreMultiplier;
+	) => {
+		const [multiplier, airsideAdjustment] = await Promise.all([
+			findEffectiveRoutingScoreMultiplier(provider.providerId, modelId),
+			findAirsideRoutingAdjustment(provider.providerId),
+		]);
+		return String(Number(multiplier.scoreMultiplier) + airsideAdjustment);
+	};
 }
 
 async function collapseProvidersToBestRegionPerProvider(
@@ -2011,8 +2019,56 @@ chat.openapi(completions, async (c) => {
 	// Store the original llmgateway model ID for logging purposes
 	const initialRequestedModel = modelInput;
 
+	// === Early API key and organization validation for coding model restriction ===
+	// We need to fetch these early to check coding model restrictions before capability checks
+	const auth = c.req.header("Authorization");
+	const xApiKey = c.req.header("x-api-key");
+
+	let token: string | undefined;
+
+	if (auth) {
+		const split = auth.split("Bearer ");
+		if (split.length === 2 && split[1]) {
+			token = split[1];
+		}
+	}
+
+	if (!token && xApiKey) {
+		token = xApiKey;
+	}
+
+	if (!token) {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: No API key provided. Expected 'Authorization: Bearer your-api-token' header or 'x-api-key: your-api-token' header",
+		});
+	}
+
+	const apiKey = await findApiKeyByToken(token);
+
+	if (!apiKey) {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
+	if (apiKey.status !== "active") {
+		throw new HTTPException(401, {
+			message:
+				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
+		});
+	}
+
+	// Airside carrier listings: a "provider/model" id that misses the static
+	// catalogue may be an approved Airside listing — resolve it from the DB
+	// before the (throwing) static parse. Runs after authentication so
+	// unauthenticated traffic cannot drive these lookups.
+	const airsideResolution = await resolveAirsideModel(modelInput);
+
 	// Parse model input to resolve model, provider, and custom provider name
-	const parseResult = parseModelInput(modelInput);
+	const parseResult =
+		airsideResolution?.parseResult ?? parseModelInput(modelInput);
 	let requestedModel = parseResult.requestedModel;
 	let customProviderName = parseResult.customProviderName;
 	let requestedRegion = parseResult.requestedRegion;
@@ -2027,10 +2083,9 @@ chat.openapi(completions, async (c) => {
 			: 0;
 
 	// Resolve model info and filter deactivated providers
-	const modelInfoResult = resolveModelInfo(
-		requestedModel,
-		parseResult.requestedProvider,
-	);
+	const modelInfoResult =
+		airsideResolution?.modelInfoResult ??
+		resolveModelInfo(requestedModel, parseResult.requestedProvider);
 	const useExpandedRoutingProviders =
 		Boolean(modelInfoResult.requestedProvider) &&
 		modelInfoResult.requestedProvider !== "llmgateway" &&
@@ -2106,47 +2161,6 @@ chat.openapi(completions, async (c) => {
 	) {
 		throw new HTTPException(400, {
 			message: `Model ${requestedModel} requires at least one image input. Please include an image in your request.`,
-		});
-	}
-
-	// === Early API key and organization validation for coding model restriction ===
-	// We need to fetch these early to check coding model restrictions before capability checks
-	const auth = c.req.header("Authorization");
-	const xApiKey = c.req.header("x-api-key");
-
-	let token: string | undefined;
-
-	if (auth) {
-		const split = auth.split("Bearer ");
-		if (split.length === 2 && split[1]) {
-			token = split[1];
-		}
-	}
-
-	if (!token && xApiKey) {
-		token = xApiKey;
-	}
-
-	if (!token) {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: No API key provided. Expected 'Authorization: Bearer your-api-token' header or 'x-api-key: your-api-token' header",
-		});
-	}
-
-	const apiKey = await findApiKeyByToken(token);
-
-	if (!apiKey) {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: Invalid LLMGateway API token. The token could not be found. Go to the LLMGateway 'API Keys' page to generate a new token.",
-		});
-	}
-
-	if (apiKey.status !== "active") {
-		throw new HTTPException(401, {
-			message:
-				"Unauthorized: This LLMGateway API token is not active (it may be disabled or deleted). Go to the LLMGateway 'API Keys' page to generate a new token.",
 		});
 	}
 
@@ -3477,7 +3491,8 @@ chat.openapi(completions, async (c) => {
 	// custom model catalog entry. Threaded into every calculateCosts call below
 	// so the request is billed at the catalog rates; undefined otherwise (those
 	// requests stay unbilled, as before).
-	let customPricingMapping: ProviderModelMapping | undefined;
+	let customPricingMapping: ProviderModelMapping | undefined =
+		airsideResolution?.pricingMapping;
 	const applySelectedCustomProvider = (provider: ProviderModelMapping) => {
 		if (!isCustomAutoRoutingMapping(provider)) {
 			return;
@@ -6309,9 +6324,12 @@ chat.openapi(completions, async (c) => {
 			});
 		}
 
+		// A custom Airside carrier has no catalogue endpoint definition: route
+		// it like a BYOK custom provider, to the OpenAI-compatible base URL
+		// registered on its approved claim.
 		url = getProviderEndpoint(
-			usedProvider,
-			credentialBaseUrl,
+			airsideResolution?.customBaseUrl ? "custom" : usedProvider,
+			airsideResolution?.customBaseUrl ?? credentialBaseUrl,
 			upstreamModelName,
 			usesGoogleQueryToken(usedProvider) ? usedToken : undefined,
 			stream,
@@ -7124,7 +7142,11 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	temperature = clampTemperature(temperature, usedProvider);
+	temperature = clampTemperature(
+		temperature,
+		usedProvider,
+		getUsedProviderMapping()?.maxTemperature,
+	);
 
 	// Check if the request can be canceled
 	let requestCanBeCanceled =
@@ -7419,6 +7441,7 @@ chat.openapi(completions, async (c) => {
 				// credential, so the waiver has to travel with the retry or the
 				// sponsored call 402s the moment the first provider misbehaves.
 				sponsoredOnboarding,
+				airsideCustomBaseUrl: airsideResolution?.customBaseUrl,
 				stream: streamValue,
 				effectiveStream,
 				messages: messages as BaseMessage[],
@@ -7463,7 +7486,9 @@ chat.openapi(completions, async (c) => {
 		if (usedProvider !== "custom") {
 			customProviderName = undefined;
 			customProviderKey = undefined;
-			customPricingMapping = undefined;
+			// Airside listings keep their filed prices across provider context
+			// changes; everything else resets to catalogue pricing.
+			customPricingMapping = airsideResolution?.pricingMapping;
 		}
 		usedInternalModel = ctx.usedInternalModel;
 		usedExternalId = ctx.usedExternalId;

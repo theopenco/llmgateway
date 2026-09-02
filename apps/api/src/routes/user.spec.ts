@@ -201,6 +201,8 @@ describe("user accounts and email editability", () => {
 			status: "development",
 			enterpriseEnabled: true,
 			whiteLabelEnabled: true,
+			kind: "white_label",
+			organizationId: null,
 			expiresAt: null,
 			graceEndsAt: null,
 		});

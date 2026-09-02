@@ -167,11 +167,11 @@ function SignupForm() {
 								DevPass
 							</span>
 						</div>
-						<h1 className="text-4xl font-bold leading-tight tracking-tight text-white xl:text-5xl">
+						<p className="text-4xl font-bold leading-tight tracking-tight text-white xl:text-5xl">
 							Ship faster
 							<br />
 							with AI.
-						</h1>
+						</p>
 						<p className="mt-4 max-w-md text-lg text-zinc-400">
 							Dev plans, coding tools, and AI-powered workflows for individual
 							developers.

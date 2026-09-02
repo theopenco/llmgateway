@@ -1,0 +1,62 @@
+---
+title: Airside Fleet
+description: Manage your carrier's model listings and price filings in the Airside provider console
+icon: PlaneTakeoff
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+import { ThemedImage } from "@/components/themed-image";
+
+The Fleet page is where a claimed carrier manages its model listings on
+[Airside](/features/airside), the self-serve provider console. Each listing is
+a "flight strip" showing its status, its currently approved pricing, and any
+tariff filing still awaiting review.
+
+<ThemedImage alt="Airside Fleet" basePath="/learn/airside-fleet" />
+
+## Listing statuses
+
+| Status                              | Meaning                                                                   |
+| ----------------------------------- | ------------------------------------------------------------------------- |
+| **Filed**                           | Drafted — waiting for the initial price filing to be approved             |
+| **In service**                      | Approved and routable as `<provider>/<model>`; billed at the filed prices |
+| **Rejected**                        | The initial filing was rejected; fix the price and file again             |
+| **Delisted**                        | Retired — kept in history, no longer routable                             |
+| **Awaiting clearance / Fare filed** | A filing (initial or price update) is pending review                      |
+
+## Registering an aircraft
+
+Click **Register aircraft**, pick the carrier (when your company holds more
+than one), and fill in the model id, display name, context size, capabilities,
+and the initial tariff. Prices are per token and accept exponent notation —
+`2e-6` reads as $2 per million tokens.
+
+<ThemedImage
+	alt="Register an aircraft"
+	basePath="/learn/airside-fleet-register"
+/>
+
+<Callout type="info">
+	New listings and every later price change are reviewed by the LLM Gateway team
+	before taking effect. Everything else about a model — display name,
+	description, context size, capability flags — applies immediately.
+</Callout>
+
+## Changing a price
+
+Pricing is never edited in place. **File fare** opens a tariff filing with the
+new input/output prices; the model keeps serving at its current approved
+pricing until the filing is approved. Only one filing per model can be pending
+at a time, and every filing — with its review outcome and notes — is listed in
+the console's filings history.
+
+## Removing a model
+
+Deleting a drafted or rejected listing removes it outright. An in-service
+model is **delisted** instead: it stops routing immediately but stays in your
+history and analytics.
+
+<Callout type="warning">
+	Delisting takes effect within about a minute — in-flight requests finish, but
+	new requests for the model are rejected.
+</Callout>

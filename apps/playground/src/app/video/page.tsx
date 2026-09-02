@@ -15,10 +15,17 @@ import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "AI Video Generator — Compare Veo, Wan & More in One Place",
+	title: "AI Video Generator — Veo, Wan & More",
 	description:
 		"Generate videos with Veo, Wan, and other AI video models. Preview results and compare providers in Lounge.",
 	alternates: { canonical: "/video" },
+	openGraph: {
+		title: "AI Video Generator — Veo, Wan & More | Lounge",
+		description:
+			"Generate videos with Veo, Wan, and other AI video models. Preview results and compare providers in Lounge.",
+		type: "website",
+		url: "https://lounge.llmgateway.io/video",
+	},
 };
 
 export default async function VideoPage({

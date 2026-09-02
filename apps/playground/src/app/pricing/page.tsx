@@ -16,9 +16,16 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Membership Pricing",
 	description:
-		"Every frontier model in one membership — Claude Opus, GPT-5, Gemini and Grok, from $19/mo. Start on fast models from $9/mo. Replaces ChatGPT Plus, Claude Pro and Gemini Advanced — with more usage than you pay for.",
+		"Every frontier model in one membership — Claude Opus, GPT-5, Gemini and Grok from $19/mo, fast models from $9/mo. Replaces ChatGPT Plus, Claude Pro and Gemini Advanced.",
 	alternates: {
 		canonical: "/pricing",
+	},
+	openGraph: {
+		title: "Lounge Membership Pricing — Every Frontier Model, One Plan",
+		description:
+			"Claude Opus, GPT-5, Gemini and Grok from $19/mo, fast models from $9/mo. Replaces ChatGPT Plus, Claude Pro and Gemini Advanced.",
+		type: "website",
+		url: "https://lounge.llmgateway.io/pricing",
 	},
 };
 

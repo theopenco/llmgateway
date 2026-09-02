@@ -7,7 +7,7 @@ import {
 
 import { readProviderKey } from "@llmgateway/actions";
 import { providerKeyAllowsModel } from "@llmgateway/db";
-import { getProviderEnvValue } from "@llmgateway/models";
+import { getProviderEnvValue, providers } from "@llmgateway/models";
 
 import {
 	getProviderEnv,
@@ -130,6 +130,15 @@ export async function resolvePlatformCredential(
 		].join(", ");
 		throw new HTTPException(500, {
 			message: `No managed credential available for provider: ${provider} (${scope})`,
+		});
+	}
+
+	// A provider that exists only in the DB (a custom Airside carrier) has no
+	// LLM_* env vars to fall back to — a managed credential is the only way
+	// the platform can serve it, so say that instead of an env-var error.
+	if (!providers.some((p) => p.id === provider)) {
+		throw new HTTPException(400, {
+			message: `No platform credential is configured for provider: ${provider}. Add a managed credential in the admin dashboard.`,
 		});
 	}
 

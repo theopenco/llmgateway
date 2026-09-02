@@ -20,7 +20,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Sandbox Escape — Can Your LLM Break Out?",
 	description:
-		"Pick a model and watch it try to escape a sandboxed container, one billed API call per move. Five levels, a public leaderboard, and a shareable result. Part of Lounge by LLM Gateway.",
+		"Pick a model and watch it try to escape a sandboxed container, one billed API call per move. Five levels, a public leaderboard, and a shareable result.",
 	alternates: { canonical: "/escape" },
 	openGraph: {
 		title: "Sandbox Escape — Can Your LLM Break Out?",
