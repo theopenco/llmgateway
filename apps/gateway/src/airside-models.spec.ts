@@ -15,6 +15,8 @@ import {
 	waitForLogByRequestId,
 } from "./test-utils/test-helpers.js";
 
+import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
+
 interface CapturedRequest {
 	url: string;
 	headers: Record<string, string | string[] | undefined>;
@@ -92,6 +94,7 @@ describe("airside-listed models", () => {
 		providerName?: string;
 		modelName?: string;
 		contextSize?: number;
+		maxOutput?: number;
 		tools?: boolean;
 	}) {
 		await db
@@ -116,6 +119,7 @@ describe("airside-listed models", () => {
 			inputPrice: options.inputPrice,
 			outputPrice: options.outputPrice,
 			contextSize: options.contextSize ?? null,
+			maxOutput: options.maxOutput ?? null,
 			streaming: true,
 			tools: options.tools ?? false,
 			status: "active" as const,
@@ -170,6 +174,7 @@ describe("airside-listed models", () => {
 			modelStatus?: "active" | "draft" | "delisted";
 			filingStatus?: "approved" | "pending";
 			modelName?: string;
+			maxOutput?: number;
 		} = {},
 	) {
 		const modelName = options.modelName ?? "gpt-5.6-luna";
@@ -230,6 +235,7 @@ describe("airside-listed models", () => {
 				providerName: "Mistral AI",
 				modelName: "GPT 5.6 Luna",
 				contextSize: 128000,
+				maxOutput: options.maxOutput,
 				tools: true,
 			});
 		} else {
@@ -374,6 +380,94 @@ describe("airside-listed models", () => {
 
 		// Billed at the filing ($2/M in, $10/M out), not the catalogue mapping's
 		// $0.1/M and $0.3/M.
+		const log = await waitForLogByRequestId(requestId);
+		expect(log).toBeTruthy();
+		expect(Number(log!.inputCost)).toBeCloseTo(0.002, 6);
+		expect(Number(log!.outputCost)).toBeCloseTo(0.005, 6);
+	});
+
+	test("validates requests against the carrier's canonical mapping", async () => {
+		// The static mapping has no maxOutput; the carrier's row does, and it
+		// is the one /v1/models advertises, so it must be the one enforced.
+		const token = "airside-limits-token";
+		await setup(token, { modelName: "mistral-small-2506", maxOutput: 1000 });
+		await clearCache();
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "mistral-small-2506",
+				max_tokens: 2000,
+				messages: [{ role: "user", content: "Say hi" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		expect((await res.json()).error.message).toContain("(1000)");
+		expect(captured).toHaveLength(0);
+	});
+
+	test("bills an Airside-owned pair reached through a dynamic route", async () => {
+		// Dynamic routes (like auto and cross-model fallback) pick their target
+		// from the static catalogue; the served pair is still Airside-owned.
+		const token = "airside-dynamic-token";
+		await setup(token, { modelName: "mistral-small-2506" });
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise" })
+			.where(eq(tables.organization.id, "org-id"));
+		const graph = {
+			entry: "m",
+			nodes: [
+				{
+					id: "m",
+					type: "model" as const,
+					model: "mistral-small-2506",
+					providers: ["mistral"],
+				},
+			],
+		} as DynamicRouteGraph;
+		await db.insert(tables.dynamicRoute).values({
+			id: `${token}-route`,
+			projectId: "project-id",
+			name: "airside-owned",
+			enabled: true,
+			draftGraph: graph,
+		});
+		await db.insert(tables.dynamicRouteVersion).values({
+			id: `${token}-route-v1`,
+			routeId: `${token}-route`,
+			version: 1,
+			graph,
+		});
+		await db
+			.update(tables.dynamicRoute)
+			.set({ publishedVersionId: `${token}-route-v1` })
+			.where(eq(tables.dynamicRoute.id, `${token}-route`));
+		await clearCache();
+
+		const requestId = "airside-dynamic-req-1";
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+				"x-no-fallback": "true",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "dynamic/airside-owned",
+				messages: [{ role: "user", content: "Say hi" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(captured).toHaveLength(1);
 		const log = await waitForLogByRequestId(requestId);
 		expect(log).toBeTruthy();
 		expect(Number(log!.inputCost)).toBeCloseTo(0.002, 6);

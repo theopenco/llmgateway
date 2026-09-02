@@ -67,6 +67,32 @@ SET "family" = COALESCE("latest_draft"."family", "latest_draft"."provider_id")
 FROM "latest_draft"
 WHERE "model"."id" = "latest_draft"."model_name"
 	AND "model"."family" = 'airside';--> statement-breakpoint
+-- Import filings copied the catalogue prices at import time but stayed
+-- inert while the static mapping was authoritative. Refresh the ones that
+-- were never superseded so the takeover keeps today's catalogue prices.
+UPDATE "provider_price_filing" AS "filing"
+SET
+	"input_price" = "mapping"."input_price"::text,
+	"output_price" = "mapping"."output_price"::text,
+	"cached_input_price" = "mapping"."cached_input_price"::text,
+	"request_price" = "mapping"."request_price"::text
+FROM "provider_draft_model" AS "draft"
+INNER JOIN "model_provider_mapping" AS "mapping"
+	ON "mapping"."model_id" = "draft"."model_name"
+	AND "mapping"."provider_id" = "draft"."provider_id"
+	AND "mapping"."region" IS NULL
+WHERE "filing"."draft_model_id" = "draft"."id"
+	AND "filing"."status" = 'approved'
+	AND "filing"."review_note" = 'Imported from the catalogue'
+	AND "mapping"."input_price" IS NOT NULL
+	AND "mapping"."output_price" IS NOT NULL
+	AND NOT EXISTS (
+		SELECT 1
+		FROM "provider_price_filing" AS "later"
+		WHERE "later"."draft_model_id" = "draft"."id"
+			AND "later"."status" = 'approved'
+			AND "later"."created_at" > "filing"."created_at"
+	);--> statement-breakpoint
 WITH "approved_listing" AS (
 	SELECT DISTINCT ON ("draft"."provider_id", "draft"."model_name")
 		"draft".*,
