@@ -13795,6 +13795,9 @@ chat.openapi(completions, async (c) => {
 		} else {
 			json = await readBodyWithClientAbort(res.json());
 		}
+		if (json === null || typeof json !== "object" || Array.isArray(json)) {
+			throw new TypeError("Provider response body must be a JSON object");
+		}
 	} catch (bodyError) {
 		// Re-throw non-Error values (mirrors the fetch catch above).
 		if (!(bodyError instanceof Error)) {
