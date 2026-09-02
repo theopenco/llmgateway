@@ -1010,6 +1010,7 @@ describe("dev plan tier changes", () => {
 		});
 
 		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ success: true, immediate: true });
 		expect(stripeMock.subscriptions.cancel).toHaveBeenCalledWith(
 			SUBSCRIPTION_ID,
 			{ invoice_now: false, prorate: false },
@@ -1051,6 +1052,7 @@ describe("dev plan tier changes", () => {
 		});
 
 		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ success: true, immediate: true });
 		expect(stripeMock.subscriptions.cancel).toHaveBeenCalledWith(
 			SUBSCRIPTION_ID,
 			{ invoice_now: false, prorate: false },
@@ -1077,12 +1079,62 @@ describe("dev plan tier changes", () => {
 		});
 
 		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ success: true, immediate: false });
 		expect(stripeMock.subscriptions.update).toHaveBeenCalledWith(
 			SUBSCRIPTION_ID,
 			{ cancel_at_period_end: true },
 		);
 		expect(stripeMock.subscriptions.cancel).not.toHaveBeenCalled();
 		expect(stripeMock.invoices.voidInvoice).not.toHaveBeenCalled();
+	});
+
+	it("falls back to immediate cancellation when invoice lookup fails", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.invoices.list.mockRejectedValue(new Error("stripe unavailable"));
+
+		const res = await app.request("/dev-plans/cancel", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ success: true, immediate: true });
+		expect(stripeMock.subscriptions.cancel).toHaveBeenCalledWith(
+			SUBSCRIPTION_ID,
+			{ invoice_now: false, prorate: false },
+		);
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+	});
+
+	it("audits cancellation while self-healing an ended subscription", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription({ status: "canceled" }),
+		);
+
+		const res = await app.request("/dev-plans/cancel", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ success: true, immediate: true });
+		expect(stripeMock.subscriptions.cancel).not.toHaveBeenCalled();
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+
+		const auditLog = await db.query.auditLog.findFirst({
+			where: {
+				organizationId: { eq: ORG_ID },
+				action: { eq: "dev_plan.cancel" },
+			},
+		});
+		expect(auditLog).toMatchObject({
+			resourceType: "dev_plan",
+			resourceId: SUBSCRIPTION_ID,
+		});
 	});
 
 	it("self-heals an ended subscription on resume instead of failing", async () => {

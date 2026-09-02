@@ -691,6 +691,7 @@ const cancel = createRoute({
 				"application/json": {
 					schema: z.object({
 						success: z.boolean(),
+						immediate: z.boolean(),
 					}),
 				},
 			},
@@ -738,46 +739,59 @@ devPlans.openapi(cancel, async (c) => {
 		const stripe = getStripe();
 		const subscriptionId = personalOrg.devPlanStripeSubscriptionId;
 		const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-
-		if (
+		const alreadyEnded =
 			subscription.status === "canceled" ||
-			subscription.status === "incomplete_expired"
-		) {
+			subscription.status === "incomplete_expired";
+		let immediate = alreadyEnded;
+
+		if (alreadyEnded) {
 			await resetEndedDevPlan(personalOrg.id);
-			return c.json({ success: true });
-		}
-
-		const overdueStatuses: Stripe.Subscription.Status[] = [
-			"past_due",
-			"unpaid",
-			"incomplete",
-			"paused",
-		];
-		let pendingRenewalInvoices: Stripe.Invoice[] | undefined;
-		if (!overdueStatuses.includes(subscription.status)) {
-			pendingRenewalInvoices =
-				await getPendingCycleRenewalInvoices(subscriptionId);
-		}
-
-		if (
-			overdueStatuses.includes(subscription.status) ||
-			(pendingRenewalInvoices?.length ?? 0) > 0
-		) {
-			// Stripe advances the period before collecting its renewal invoice. If
-			// that invoice is unpaid, scheduling cancellation at period end grants
-			// an unpaid extra cycle and leaves Smart Retries running until then.
-			await stripe.subscriptions.cancel(subscriptionId, {
-				invoice_now: false,
-				prorate: false,
-			});
-			await voidPendingCycleRenewalInvoices(
-				subscriptionId,
-				pendingRenewalInvoices,
-			);
 		} else {
-			await stripe.subscriptions.update(subscriptionId, {
-				cancel_at_period_end: true,
-			});
+			const overdueStatuses: Stripe.Subscription.Status[] = [
+				"past_due",
+				"unpaid",
+				"incomplete",
+				"paused",
+			];
+			let pendingRenewalInvoices: Stripe.Invoice[] | undefined;
+			let invoiceLookupFailed = false;
+			if (!overdueStatuses.includes(subscription.status)) {
+				try {
+					pendingRenewalInvoices =
+						await getPendingCycleRenewalInvoices(subscriptionId);
+				} catch (error) {
+					invoiceLookupFailed = true;
+					logger.error(
+						`Failed to inspect pending invoices while cancelling subscription ${subscriptionId}`,
+						error instanceof Error ? error : new Error(String(error)),
+					);
+				}
+			}
+
+			immediate =
+				overdueStatuses.includes(subscription.status) ||
+				invoiceLookupFailed ||
+				(pendingRenewalInvoices?.length ?? 0) > 0;
+
+			if (immediate) {
+				// Stripe advances the period before collecting its renewal invoice. If
+				// that invoice is unpaid, scheduling cancellation at period end grants
+				// an unpaid extra cycle and leaves Smart Retries running until then.
+				// A lookup failure also falls back to immediate cancellation so an
+				// ancillary Stripe outage cannot block the user's cancellation.
+				await stripe.subscriptions.cancel(subscriptionId, {
+					invoice_now: false,
+					prorate: false,
+				});
+				await voidPendingCycleRenewalInvoices(
+					subscriptionId,
+					pendingRenewalInvoices,
+				);
+			} else {
+				await stripe.subscriptions.update(subscriptionId, {
+					cancel_at_period_end: true,
+				});
+			}
 		}
 
 		await logAuditEvent({
@@ -791,13 +805,16 @@ devPlans.openapi(cancel, async (c) => {
 			},
 		});
 
-		// Wait for webhook to process
-		await new Promise((resolve) => {
-			setTimeout(resolve, 3000);
-		});
+		if (!alreadyEnded) {
+			// Wait for webhook to process
+			await new Promise((resolve) => {
+				setTimeout(resolve, 3000);
+			});
+		}
 
 		return c.json({
 			success: true,
+			immediate,
 		});
 	} catch (error) {
 		logger.error(
