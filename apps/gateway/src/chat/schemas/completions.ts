@@ -223,6 +223,27 @@ export const completionsRequestSchema = z.object({
 		.openapi({
 			example: 0.0,
 		}),
+	stop: z
+		.union([z.string(), z.array(z.string()).max(4)])
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"Up to 4 sequences where the model stops generating further tokens. Mapped to the provider's native stop-sequence parameter where supported.",
+			example: "\n\n",
+		}),
+	seed: z
+		.number()
+		.int()
+		.nullable()
+		.optional()
+		.transform((val) => (val === null ? undefined : val))
+		.openapi({
+			description:
+				"Best-effort deterministic sampling seed. Forwarded only to providers that document it; determinism is not guaranteed.",
+			example: 42,
+		}),
 	response_format: z
 		.union([
 			z.object({

@@ -407,6 +407,8 @@ export interface OpenAIRequestBody extends BaseRequestBody {
 		"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 	verbosity?: "low" | "medium" | "high";
 	n?: number;
+	stop?: string | string[];
+	seed?: number;
 	extra_body?: Record<string, unknown>;
 }
 
@@ -509,6 +511,7 @@ export interface AnthropicSystemContent {
 export interface AnthropicRequestBody extends BaseRequestBody {
 	messages: AnthropicMessage[];
 	system?: string | AnthropicSystemContent[];
+	stop_sequences?: string[];
 	tools?: AnthropicTool[];
 	tool_choice?: AnthropicToolChoice;
 	thinking?:
@@ -547,6 +550,8 @@ export interface GoogleRequestBody {
 		temperature?: number;
 		maxOutputTokens?: number;
 		topP?: number;
+		stopSequences?: string[];
+		seed?: number;
 		thinkingConfig?: {
 			includeThoughts: boolean;
 		};

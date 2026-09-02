@@ -95,3 +95,56 @@ describe("completionsRequestSchema routing", () => {
 		expect(result.success).toBe(false);
 	});
 });
+
+describe("completionsRequestSchema stop and seed", () => {
+	const base = {
+		model: "gpt-5",
+		messages: [{ role: "user", content: "hi" }],
+	};
+
+	it("accepts a single stop string", () => {
+		const result = completionsRequestSchema.safeParse({ ...base, stop: "\n" });
+		expect(result.success).toBe(true);
+		expect(result.data?.stop).toBe("\n");
+	});
+
+	it("accepts up to 4 stop sequences", () => {
+		const result = completionsRequestSchema.safeParse({
+			...base,
+			stop: ["a", "b", "c", "d"],
+		});
+		expect(result.success).toBe(true);
+		expect(result.data?.stop).toEqual(["a", "b", "c", "d"]);
+	});
+
+	it("rejects more than 4 stop sequences", () => {
+		const result = completionsRequestSchema.safeParse({
+			...base,
+			stop: ["a", "b", "c", "d", "e"],
+		});
+		expect(result.success).toBe(false);
+	});
+
+	it("normalizes null stop to undefined", () => {
+		const result = completionsRequestSchema.safeParse({ ...base, stop: null });
+		expect(result.success).toBe(true);
+		expect(result.data?.stop).toBeUndefined();
+	});
+
+	it("accepts an integer seed", () => {
+		const result = completionsRequestSchema.safeParse({ ...base, seed: 42 });
+		expect(result.success).toBe(true);
+		expect(result.data?.seed).toBe(42);
+	});
+
+	it("rejects a non-integer seed", () => {
+		const result = completionsRequestSchema.safeParse({ ...base, seed: 1.5 });
+		expect(result.success).toBe(false);
+	});
+
+	it("normalizes null seed to undefined", () => {
+		const result = completionsRequestSchema.safeParse({ ...base, seed: null });
+		expect(result.success).toBe(true);
+		expect(result.data?.seed).toBeUndefined();
+	});
+});

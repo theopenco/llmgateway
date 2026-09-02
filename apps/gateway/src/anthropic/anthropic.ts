@@ -326,6 +326,9 @@ const anthropicRequestSchema = z.object({
 		description: "Sampling temperature between 0 and 1",
 		example: 0.7,
 	}),
+	stop_sequences: z.array(z.string()).optional().openapi({
+		description: "Custom text sequences that stop generation",
+	}),
 	tools: z.array(anthropicToolSchema).optional().openapi({
 		description: "Available tools for the model to use",
 	}),
@@ -1028,6 +1031,14 @@ anthropic.openapi(messages, async (c) => {
 
 	if (openaiTools && openaiTools.length > 0) {
 		openaiRequest.tools = openaiTools;
+	}
+
+	// The inner chat completions schema caps `stop` at 4 entries (OpenAI
+	// semantics). Forward the first 4 rather than rejecting: before stop
+	// sequences were threaded through at all, extra entries were silently
+	// dropped, so a 400 here would break previously-working requests.
+	if (anthropicRequest.stop_sequences?.length) {
+		openaiRequest.stop = anthropicRequest.stop_sequences.slice(0, 4);
 	}
 
 	// Translate Anthropic reasoning controls (extended `thinking` and adaptive
