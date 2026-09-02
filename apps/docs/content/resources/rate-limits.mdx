@@ -179,7 +179,7 @@ LLMGateway can enforce per-provider/model request caps (per-minute and per-day w
 
 ## Rate Limit Headers
 
-When a request is rate limited, the `429` response includes both the standard draft `RateLimit-*` headers and the legacy `X-RateLimit-*` variants:
+When a request is rejected by the [per-organization endpoint limits](#per-organization-endpoint-limits) or the [concurrency limit](#concurrent-request-limits), the `429` response includes both the standard draft `RateLimit-*` headers and the legacy `X-RateLimit-*` variants:
 
 ```http
 Retry-After: 12
@@ -198,6 +198,8 @@ X-RateLimit-Reset: 1640995200
 - `X-RateLimit-Reset`: Unix timestamp when the rate limit window resets
 
 When rate limiting is enforced, successful responses on rate-limited endpoints also carry `RateLimit-Limit` and `RateLimit-Remaining` (without the `X-` prefix), so clients can self-throttle before ever hitting a `429`.
+
+Other `429` sources carry their own header subsets: free-model limits set limit/remaining headers on every free-model request (plus retry/reset headers when limited), while a provider-cap rejection under `X-No-Fallback` may arrive without the full set. Always treat `Retry-After` as the primary backoff signal when present.
 
 ## Rate Limit Exceeded
 
