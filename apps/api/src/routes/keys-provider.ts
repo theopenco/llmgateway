@@ -221,6 +221,13 @@ export const customProviderNameSchema = z
 		(name) =>
 			!(RESERVED_CUSTOM_PROVIDER_NAMES as readonly string[]).includes(name),
 		RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
+	)
+	// Catalogue provider ids (e.g. "openai", "custom") always win the
+	// `<name>/<model>` prefix in parseModelInput, so a colliding custom
+	// provider would be unaddressable.
+	.refine(
+		(name) => !providers.some((provider) => provider.id === name),
+		"This name matches a built-in provider id and cannot be used as a custom provider name",
 	);
 
 export async function assertCustomProviderNameAvailable(
