@@ -893,6 +893,7 @@ export const openaiModels = [
 			{
 				providerId: "together-ai",
 				externalId: "openai/gpt-oss-20b",
+				deactivatedAt: new Date("2026-09-15"),
 				inputPrice: "0.05e-6",
 				outputPrice: "0.2e-6",
 				requestPrice: "0",
