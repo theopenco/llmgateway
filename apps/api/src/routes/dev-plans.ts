@@ -5,7 +5,10 @@ import { z } from "zod";
 import { assertOrganizationNotHighRisk } from "@/lib/account-risk.js";
 import { readApiKeyMask } from "@/lib/api-key-mask.js";
 import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
-import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
+import {
+	getPendingCycleRenewalInvoices,
+	voidPendingCycleRenewalInvoices,
+} from "@/lib/pending-renewal.js";
 import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
@@ -732,19 +735,57 @@ devPlans.openapi(cancel, async (c) => {
 	}
 
 	try {
-		await getStripe().subscriptions.update(
-			personalOrg.devPlanStripeSubscriptionId,
-			{
+		const stripe = getStripe();
+		const subscriptionId = personalOrg.devPlanStripeSubscriptionId;
+		const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+
+		if (
+			subscription.status === "canceled" ||
+			subscription.status === "incomplete_expired"
+		) {
+			await resetEndedDevPlan(personalOrg.id);
+			return c.json({ success: true });
+		}
+
+		const overdueStatuses: Stripe.Subscription.Status[] = [
+			"past_due",
+			"unpaid",
+			"incomplete",
+			"paused",
+		];
+		let pendingRenewalInvoices: Stripe.Invoice[] | undefined;
+		if (!overdueStatuses.includes(subscription.status)) {
+			pendingRenewalInvoices =
+				await getPendingCycleRenewalInvoices(subscriptionId);
+		}
+
+		if (
+			overdueStatuses.includes(subscription.status) ||
+			(pendingRenewalInvoices?.length ?? 0) > 0
+		) {
+			// Stripe advances the period before collecting its renewal invoice. If
+			// that invoice is unpaid, scheduling cancellation at period end grants
+			// an unpaid extra cycle and leaves Smart Retries running until then.
+			await stripe.subscriptions.cancel(subscriptionId, {
+				invoice_now: false,
+				prorate: false,
+			});
+			await voidPendingCycleRenewalInvoices(
+				subscriptionId,
+				pendingRenewalInvoices,
+			);
+		} else {
+			await stripe.subscriptions.update(subscriptionId, {
 				cancel_at_period_end: true,
-			},
-		);
+			});
+		}
 
 		await logAuditEvent({
 			organizationId: personalOrg.id,
 			userId: user.id,
 			action: "dev_plan.cancel",
 			resourceType: "dev_plan",
-			resourceId: personalOrg.devPlanStripeSubscriptionId,
+			resourceId: subscriptionId,
 			metadata: {
 				tier: personalOrg.devPlan,
 			},
