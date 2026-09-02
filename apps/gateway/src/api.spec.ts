@@ -7158,6 +7158,19 @@ describe("api", () => {
 		});
 		expect(sensitiveRes.status).toBe(200);
 		expect(sensitiveRes.headers.get("x-llmgateway-cache")).toBeNull();
+
+		// Semantically equivalent inputs must still share the primed entry:
+		// plugins: [] behaves like omitted, and reasoning.context "auto" is
+		// documented as equivalent to omitting the field.
+		const emptyPluginsRes = await makeRequest({ plugins: [] });
+		expect(emptyPluginsRes.status).toBe(200);
+		expect(emptyPluginsRes.headers.get("x-llmgateway-cache")).toBe("HIT");
+
+		const autoContextRes = await makeRequest({
+			reasoning: { context: "auto" },
+		});
+		expect(autoContextRes.status).toBe(200);
+		expect(autoContextRes.headers.get("x-llmgateway-cache")).toBe("HIT");
 	});
 
 	// GHSA-h9ww-f95j-h54c: cache keys are project-scoped, so a byte-identical
