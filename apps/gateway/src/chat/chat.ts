@@ -7424,6 +7424,7 @@ chat.openapi(completions, async (c) => {
 			webSearchTool,
 			reasoning_effort,
 			reasoning_max_tokens,
+			reasoning_context,
 			prompt_cache_key,
 			prompt_cache_retention,
 			prompt_cache_options,
@@ -7432,6 +7433,11 @@ chat.openapi(completions, async (c) => {
 			// A reply cached without safeguard verdicts must not answer a request
 			// that asked for them, or Claude Code falls back to its billed classifier.
 			anthropic_safeguards: anthropicSafeguards,
+			verbosity,
+			effort,
+			image_config,
+			sensitive_word_check,
+			plugins,
 		};
 
 		if (stream) {
