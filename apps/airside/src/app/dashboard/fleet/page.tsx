@@ -340,6 +340,14 @@ export default function FleetPage() {
 												<span>{model.displayName}</span>
 											) : null}
 											<span className="font-mono">{model.providerId}</span>
+											{model.externalId !== model.modelName ? (
+												<span
+													className="font-mono"
+													title="Upstream model ID sent to your API"
+												>
+													↗ {model.externalId}
+												</span>
+											) : null}
 											{model.contextSize ? (
 												<span className="font-mono">
 													{Math.round(model.contextSize / 1000)}k ctx

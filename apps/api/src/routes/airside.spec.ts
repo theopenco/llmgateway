@@ -1413,9 +1413,9 @@ describe("airside provider portal", () => {
 		expect(Number(repriced?.inputPrice)).toBeCloseTo(0.2e-6);
 	});
 
-	it("serves a listing over a retired mapping by its own model name", async () => {
-		// The retired deployment's upstream id must not leak into a listing the
-		// carrier registered under the model name.
+	it("materializes the registered upstream id, not the retired one", async () => {
+		// The carrier states the id its API serves; the retired catalogue
+		// deployment's upstream id must not leak into the new listing.
 		process.env.ADMIN_EMAILS = "ops@groq.com";
 		await setUserEmail("ops@groq.com");
 		const company = await createCompany(cookie, "Groq Ops");
@@ -1440,10 +1440,12 @@ describe("airside provider portal", () => {
 		const created = await createModel(cookie, company.id, {
 			providerId: "groq",
 			modelName: retired!.id,
+			externalId: `${retired!.id}-2026`,
 			displayName: retired!.name ?? retired!.id,
 		});
 		expect(created.status).toBe(201);
 		const { model } = await created.json();
+		expect(model.externalId).toBe(`${retired!.id}-2026`);
 		const approved = await app.request(
 			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
 			json(cookie),
@@ -1459,7 +1461,7 @@ describe("airside provider portal", () => {
 		});
 		expect(mapping).toMatchObject({
 			source: "airside",
-			externalId: retired!.id,
+			externalId: `${retired!.id}-2026`,
 		});
 	});
 

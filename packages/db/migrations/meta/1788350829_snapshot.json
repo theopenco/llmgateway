@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "79fa42fb-b45b-4ee2-867f-2cf903ab041e",
+  "id": "d6d3fb20-3532-41b3-83d5-31b13d975710",
   "prevId": "5079345e-d562-4d09-80ac-9c5c974bb349",
   "ddl": [
     {
@@ -19530,6 +19530,19 @@
       "generated": null,
       "identity": null,
       "name": "model_name",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_draft_model"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "external_id",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_draft_model"

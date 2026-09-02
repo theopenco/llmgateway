@@ -444,6 +444,14 @@ export function AirsideFilingsClient() {
 										</TableCell>
 										<TableCell className="font-mono text-sm">
 											{filing.model.modelName}
+											{filing.model.externalId !== filing.model.modelName ? (
+												<div
+													className="text-muted-foreground text-xs"
+													title="Upstream model ID the gateway sends to the provider"
+												>
+													↗ {filing.model.externalId}
+												</div>
+											) : null}
 											{filing.kind === "initial" ? (
 												filing.model.sharesCatalogueModelName ? (
 													<Badge

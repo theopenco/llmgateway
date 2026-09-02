@@ -67,11 +67,7 @@ export async function materializeAirsideModel(
 			});
 		}
 		const existingMapping = await tx
-			.select({
-				id: tables.modelProviderMapping.id,
-				externalId: tables.modelProviderMapping.externalId,
-				source: tables.modelProviderMapping.source,
-			})
+			.select({ id: tables.modelProviderMapping.id })
 			.from(tables.modelProviderMapping)
 			.where(
 				and(
@@ -81,13 +77,8 @@ export async function materializeAirsideModel(
 				),
 			)
 			.limit(1);
-		const staticEntry = findStaticMapping(model.providerId, model.modelName);
 		const mappingValues = {
-			externalId: resolveExternalId(
-				model,
-				existingMapping[0],
-				staticEntry?.mapping,
-			),
+			externalId: model.externalId,
 			source: "airside" as const,
 			inputPrice: filing.inputPrice,
 			outputPrice: filing.outputPrice,
@@ -187,24 +178,6 @@ export async function updateAirsideMappingPrices(
 	transaction?: CatalogueTransaction,
 ): Promise<void> {
 	await materializeAirsideModel(model, filing, transaction);
-}
-
-/** An import keeps the catalogue's upstream id and a repriced listing keeps
- *  its own; a listing that takes over a retired mapping serves the model name
- *  the carrier registered, not the retired deployment's id. */
-function resolveExternalId(
-	model: DraftModelRow,
-	existing: { externalId: string; source: "catalogue" | "airside" } | undefined,
-	staticMapping: ProviderModelMapping | undefined,
-): string {
-	if (existing?.source === "airside") {
-		return existing.externalId;
-	}
-	const deactivatedAt = staticMapping?.deactivatedAt;
-	if (staticMapping && !(deactivatedAt && deactivatedAt <= new Date())) {
-		return staticMapping.externalId;
-	}
-	return model.modelName;
 }
 
 /** Exact canonical id only: a listing keyed by an alias has no catalogue row

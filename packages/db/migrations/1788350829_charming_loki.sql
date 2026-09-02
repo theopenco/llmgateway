@@ -1,6 +1,26 @@
 ALTER TABLE "model_provider_mapping" ADD COLUMN "source" text DEFAULT 'catalogue' NOT NULL;--> statement-breakpoint
 ALTER TABLE "model_provider_mapping" ADD COLUMN "audio" boolean;--> statement-breakpoint
+ALTER TABLE "provider_draft_model" ADD COLUMN "external_id" text;--> statement-breakpoint
 CREATE INDEX "model_provider_mapping_source_status_idx" ON "model_provider_mapping" ("source","status");--> statement-breakpoint
+-- Imported listings copied the catalogue mapping, whose upstream id may differ
+-- from the model id; carrier-registered listings were keyed by the upstream id.
+UPDATE "provider_draft_model" AS "draft"
+SET "external_id" = COALESCE("mapping"."external_id", "draft"."model_name")
+FROM "model_provider_mapping" AS "mapping"
+WHERE "draft"."external_id" IS NULL
+	AND "mapping"."model_id" = "draft"."model_name"
+	AND "mapping"."provider_id" = "draft"."provider_id"
+	AND "mapping"."region" IS NULL
+	AND EXISTS (
+		SELECT 1
+		FROM "provider_price_filing" AS "filing"
+		WHERE "filing"."draft_model_id" = "draft"."id"
+			AND "filing"."review_note" = 'Imported from the catalogue'
+	);--> statement-breakpoint
+UPDATE "provider_draft_model"
+SET "external_id" = "model_name"
+WHERE "external_id" IS NULL;--> statement-breakpoint
+ALTER TABLE "provider_draft_model" ALTER COLUMN "external_id" SET NOT NULL;--> statement-breakpoint
 INSERT INTO "provider" ("id", "name", "description")
 SELECT DISTINCT
 	"draft"."provider_id",
@@ -65,10 +85,7 @@ WITH "approved_listing" AS (
 UPDATE "model_provider_mapping" AS "mapping"
 SET
 	"source" = 'airside',
-	"external_id" = CASE
-		WHEN "mapping"."deactivated_at" <= NOW() THEN "listing"."model_name"
-		ELSE "mapping"."external_id"
-	END,
+	"external_id" = "listing"."external_id",
 	"input_price" = "listing"."filing_input_price"::numeric,
 	"output_price" = "listing"."filing_output_price"::numeric,
 	"cached_input_price" = "listing"."filing_cached_input_price"::numeric,
@@ -131,7 +148,7 @@ SELECT
 	'airside-backfill-' || MD5("listing"."provider_id" || ':' || "listing"."model_name"),
 	"listing"."model_name",
 	"listing"."provider_id",
-	"listing"."model_name",
+	"listing"."external_id",
 	'airside',
 	"listing"."filing_input_price"::numeric,
 	"listing"."filing_output_price"::numeric,

@@ -55,6 +55,7 @@ const adminFilingSchema = z.object({
 		id: z.string(),
 		providerId: z.string(),
 		modelName: z.string(),
+		externalId: z.string(),
 		displayName: z.string().nullable(),
 		status: z.enum(["draft", "active", "rejected", "delisted"]),
 		// The name matches an existing catalogue model (id or alias): approving
@@ -173,6 +174,7 @@ function serializeAdminFiling(row: FilingWithRelations) {
 			id: row.draftModel.id,
 			providerId: row.draftModel.providerId,
 			modelName: row.draftModel.modelName,
+			externalId: row.draftModel.externalId,
 			displayName: row.draftModel.displayName,
 			status: row.draftModel.status,
 			sharesCatalogueModelName,

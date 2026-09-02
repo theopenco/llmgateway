@@ -129,6 +129,7 @@ export function RegisterModelDialog({
 	const invalidate = useInvalidateModels(providerCompanyId);
 	const [open, setOpen] = useState(false);
 	const [modelName, setModelName] = useState("");
+	const [externalId, setExternalId] = useState("");
 	const [displayName, setDisplayName] = useState("");
 	const [contextSize, setContextSize] = useState("128000");
 	const [description, setDescription] = useState("");
@@ -206,6 +207,7 @@ export function RegisterModelDialog({
 								providerCompanyId,
 								providerId: effectiveProviderId,
 								modelName,
+								externalId: externalId || undefined,
 								displayName: displayName || undefined,
 								description: description || undefined,
 								family,
@@ -262,6 +264,19 @@ export function RegisterModelDialog({
 								placeholder="acme-large-2"
 								required
 							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="model-external-id">Upstream model ID</Label>
+							<Input
+								id="model-external-id"
+								data-testid="model-external-id-input"
+								value={externalId}
+								onChange={(e) => setExternalId(e.target.value)}
+								placeholder={modelName || "same as model ID"}
+							/>
+							<p className="text-muted-foreground text-xs">
+								The id your API expects. Fixed once listed.
+							</p>
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor="model-display">Display name</Label>
@@ -606,6 +621,19 @@ export function EditModelDialog({
 					}}
 				>
 					<div className="grid gap-4 sm:grid-cols-2">
+						<div className="space-y-2">
+							<Label htmlFor="edit-external-id">Upstream model ID</Label>
+							<Input
+								id="edit-external-id"
+								className="font-mono"
+								value={model.externalId}
+								readOnly
+								disabled
+							/>
+							<p className="text-muted-foreground text-xs">
+								The id sent to your API. Delist and re-register to change it.
+							</p>
+						</div>
 						<div className="space-y-2">
 							<Label htmlFor="edit-display">Display name</Label>
 							<Input

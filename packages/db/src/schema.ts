@@ -4731,8 +4731,11 @@ export const providerDraftModel = pgTable(
 			.notNull()
 			.references(() => providerCompany.id, { onDelete: "cascade" }),
 		providerId: text().notNull(),
-		// The model id at the provider (external id, e.g. "glm-5.2-air").
+		// The public catalogue id (e.g. "glm-5.2-air").
 		modelName: text().notNull(),
+		// The id the provider's API expects; set once at registration or
+		// copied from the catalogue on import, never edited afterwards.
+		externalId: text().notNull(),
 		displayName: text(),
 		description: text(),
 		family: text(),
