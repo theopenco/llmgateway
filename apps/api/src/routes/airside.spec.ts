@@ -1413,6 +1413,56 @@ describe("airside provider portal", () => {
 		expect(Number(repriced?.inputPrice)).toBeCloseTo(0.2e-6);
 	});
 
+	it("serves a listing over a retired mapping by its own model name", async () => {
+		// The retired deployment's upstream id must not leak into a listing the
+		// carrier registered under the model name.
+		process.env.ADMIN_EMAILS = "ops@groq.com";
+		await setUserEmail("ops@groq.com");
+		const company = await createCompany(cookie, "Groq Ops");
+		await claimProvider(cookie, company.id, "groq");
+		await activateClaim("groq");
+		const now = new Date();
+		const retired = (catalogueModels as readonly ModelDefinition[]).find(
+			(model) => {
+				const groq = model.providers.filter((p) => p.providerId === "groq");
+				return (
+					groq.length > 0 &&
+					groq.every(
+						(p) =>
+							p.deactivatedAt && p.deactivatedAt <= now && !p.regions?.length,
+					) &&
+					groq[0].externalId !== model.id
+				);
+			},
+		);
+		expect(retired).toBeTruthy();
+
+		const created = await createModel(cookie, company.id, {
+			providerId: "groq",
+			modelName: retired!.id,
+			displayName: retired!.name ?? retired!.id,
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		const approved = await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+
+		const mapping = await db.query.modelProviderMapping.findFirst({
+			where: {
+				modelId: { eq: retired!.id },
+				providerId: { eq: "groq" },
+				region: { isNull: true },
+			},
+		});
+		expect(mapping).toMatchObject({
+			source: "airside",
+			externalId: retired!.id,
+		});
+	});
+
 	it("skips catalogue mappings a flat listing cannot represent", async () => {
 		// A listing carries one price pair. Importing a mapping with
 		// context-length bands or per-region rates would bill everything
