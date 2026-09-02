@@ -18,7 +18,8 @@ import { validateModelOutput } from "@/lib/validate-model-output.js";
 import { parseDataUrl, processImageUrl } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
-import { models } from "@llmgateway/models";
+import { models, providers } from "@llmgateway/models";
+import { parseDynamicRouteModel } from "@llmgateway/shared/dynamic-route";
 
 import type { ServerTypes } from "@/vars.js";
 import type { Context } from "hono";
@@ -86,6 +87,7 @@ interface ImageClientErrorLogRequest {
 interface ImageClientErrorLogContext {
 	apiKey: NonNullable<Awaited<ReturnType<typeof findApiKeyByToken>>>;
 	project: NonNullable<Awaited<ReturnType<typeof findProjectById>>>;
+	organization: Awaited<ReturnType<typeof findOrganizationById>>;
 	requestId: string;
 	retentionLevel: "retain" | "none";
 }
@@ -458,9 +460,28 @@ async function resolveImageClientErrorLogContext(
 	return {
 		apiKey,
 		project,
+		organization,
 		requestId,
 		retentionLevel: organization?.retentionLevel ?? "none",
 	};
+}
+
+// Defense in depth: the chat handler already blocks image-emitting models on
+// dev plans, but the images endpoints should reject dev-plan orgs directly,
+// matching the sibling endpoints (embeddings, speech, videos, ...). Requests
+// whose credentials cannot be resolved fall through so the chat handler
+// produces the canonical auth error.
+async function assertNotDevPlan(
+	getLogContext: () => Promise<ImageClientErrorLogContext | null>,
+): Promise<void> {
+	const logContext = await getLogContext();
+	const organization = logContext?.organization;
+	if (organization?.kind === "devpass" && organization.devPlan !== "none") {
+		throw new HTTPException(403, {
+			message:
+				"Image generation is not available for coding plans. Coding plans only include text-based inference.",
+		});
+	}
 }
 
 async function logImageClientError(
@@ -573,9 +594,18 @@ async function logImageClientError(
 // Reject non-image models up front. Image generation forwards to
 // /v1/chat/completions (which accepts text and image models), so without this
 // guard a text-only model would be forwarded and produce a chat completion the
-// images endpoint can't turn into an image. Unknown models are left to the chat
-// handler to reject as "model not found".
+// images endpoint can't turn into an image. Unknown catalogue models are left
+// to the chat handler to reject as "model not found", but dynamic routes and
+// custom-provider model strings must be rejected here: the chat handler would
+// happily route them, and the images endpoints do not support dynamic routes
+// or custom providers.
 function assertImageModel(model: string): void {
+	if (parseDynamicRouteModel(model) !== undefined) {
+		throw new HTTPException(400, {
+			message:
+				"Dynamic routes are not supported for image generation. Request an image generation model directly.",
+		});
+	}
 	const slashIdx = model.indexOf("/");
 	const modelKey = slashIdx > 0 ? model.slice(slashIdx + 1) : model;
 	if (modelKey === "auto" || modelKey === "custom") {
@@ -584,6 +614,18 @@ function assertImageModel(model: string): void {
 	const modelInfo = models.find((m) => m.id === model || m.id === modelKey);
 	if (modelInfo) {
 		validateModelOutput(modelInfo, modelKey, ["image"]);
+		return;
+	}
+	// A prefix that is not a known catalogue provider would be classified as a
+	// custom provider by the chat handler (see parseModelInput); custom
+	// providers are not supported for image generation.
+	if (slashIdx > 0) {
+		const providerCandidate = model.slice(0, slashIdx);
+		if (!providers.some((p) => p.id === providerCandidate)) {
+			throw new HTTPException(400, {
+				message: `Unknown provider ${providerCandidate}. Custom providers are not supported for image generation.`,
+			});
+		}
 	}
 }
 
@@ -706,6 +748,8 @@ images.openapi(generations, async (c): Promise<any> => {
 	}
 
 	const request = validationResult.data;
+
+	await assertNotDevPlan(getLogContext);
 
 	// Resolve "auto" model to a default image generation model
 	const model = request.model === "auto" ? "gemini-3-pro-image" : request.model;
@@ -1051,6 +1095,9 @@ async function processImageEdit(
 		quality: request.quality,
 		aspect_ratio: request.aspect_ratio,
 	};
+
+	await assertNotDevPlan(getLogContext);
+
 	const { imageResults, imageCount } = await (async () => {
 		try {
 			const imageUrls: string[] = [];

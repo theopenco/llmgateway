@@ -109,7 +109,7 @@ describe("api", () => {
 		expect(JSON.stringify(json)).toContain("/v1/audio/speech");
 	});
 
-	test("/v1/images/generations is blocked for dev-plan orgs via the chat-completions guard", async () => {
+	test("/v1/images/generations is blocked for dev-plan orgs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
 			...hashApiKeyForStorage("real-token"),
@@ -136,6 +136,122 @@ describe("api", () => {
 		const json = await res.json();
 		expect(JSON.stringify(json)).toContain(
 			"Image generation is not available for coding plans",
+		);
+	});
+
+	test("/v1/images/edits is blocked for dev-plan orgs", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await harness.setDevPlan({ devPlan: "pro" });
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "gemini-3-pro-image",
+				prompt: "Make it cinematic",
+				images: [{ image_url: "data:image/png;base64,aGVsbG8=" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Image generation is not available for coding plans",
+		);
+	});
+
+	test("/v1/images/generations rejects dynamic route models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/generations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "dynamic/my-route",
+				prompt: "A watercolor of a city skyline",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Dynamic routes are not supported for image generation",
+		);
+	});
+
+	test("/v1/images/generations rejects custom provider model strings", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/generations", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "my-custom-provider/some-model",
+				prompt: "A watercolor of a city skyline",
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Custom providers are not supported for image generation",
+		);
+	});
+
+	test("/v1/images/edits rejects dynamic route models", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const res = await app.request("/v1/images/edits", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "dynamic/my-route",
+				prompt: "Make it cinematic",
+				images: [{ image_url: "data:image/png;base64,aGVsbG8=" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		const json = await res.json();
+		expect(JSON.stringify(json)).toContain(
+			"Dynamic routes are not supported for image generation",
 		);
 	});
 
