@@ -535,7 +535,10 @@ const listClaims = createRoute({
 		query: z.object({
 			status: z.enum(["pending", "active", "rejected", "revoked"]).optional(),
 			// Only claims with a branding change awaiting review.
-			pendingBranding: z.coerce.boolean().optional(),
+			pendingBranding: z
+				.enum(["true", "false"])
+				.transform((value) => value === "true")
+				.optional(),
 		}),
 	},
 	responses: {

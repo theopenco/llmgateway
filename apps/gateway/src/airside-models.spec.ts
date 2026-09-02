@@ -474,6 +474,97 @@ describe("airside-listed models", () => {
 		expect(Number(log!.outputCost)).toBeCloseTo(0.005, 6);
 	});
 
+	async function setRoutingUptime(
+		modelId: string,
+		providerId: string,
+		uptimePercent: number,
+	) {
+		// Routing reads uptime from recent credits-mode history rows.
+		const totalRequests = 100;
+		const uptimeFraction = uptimePercent / 100;
+		const errorsCount = Math.round(totalRequests * (1 - uptimeFraction));
+		await db.insert(tables.modelProviderMappingHistory).values({
+			modelId,
+			providerId,
+			modelProviderMappingId: `${modelId}::${providerId}`,
+			usedMode: "credits",
+			minuteTimestamp: new Date(Math.floor(Date.now() / 60000) * 60000),
+			logsCount: totalRequests,
+			errorsCount,
+			clientErrorsCount: 0,
+			gatewayErrorsCount: 0,
+			upstreamErrorsCount: errorsCount,
+			cachedCount: 0,
+			totalOutputTokens: 100,
+			totalDuration: 1000,
+			totalTimeToFirstToken: 100 * totalRequests,
+			totalTimeToFirstReasoningToken: 0,
+			timeToFirstTokenCount: totalRequests,
+			timeToFirstReasoningTokenCount: 0,
+		});
+	}
+
+	test("bills an Airside-owned pair reached by cross-provider fallback", async () => {
+		// A provider-pinned request only settles Airside ownership for the
+		// pinned pair. When routing moves it to a sibling provider whose pair
+		// is Airside-owned, the served request is billed at the filed prices.
+		const token = "airside-fallback-token";
+		captured = [];
+		await clearCache();
+		await db.insert(tables.apiKey).values({
+			id: `${token}-id`,
+			...hashApiKeyForStorage(token),
+			projectId: "project-id",
+			description: "Airside fallback test key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values(
+			(["deepinfra", "novita"] as const).map((provider) => ({
+				id: `${token}-${provider}-key`,
+				...encryptProviderKeyForStorage(
+					`mock-${provider}-key`,
+					`${token}-${provider}-key`,
+					"org-id",
+				),
+				provider,
+				organizationId: "org-id",
+				baseUrl: upstreamUrl,
+			})),
+		);
+		await setRoutingUptime("ling-3.0-flash", "deepinfra", 0);
+		await setRoutingUptime("ling-3.0-flash", "novita", 100);
+		await materializeTestMapping({
+			providerId: "novita",
+			modelId: "ling-3.0-flash",
+			inputPrice: "2e-6",
+			outputPrice: "1e-5",
+			contextSize: 128000,
+		});
+
+		const requestId = "airside-fallback-req-1";
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "deepinfra/ling-3.0-flash",
+				messages: [{ role: "user", content: "Say hi" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(captured).toHaveLength(1);
+		const log = await waitForLogByRequestId(requestId);
+		expect(log).toBeTruthy();
+		expect(log!.usedProvider).toBe("novita");
+		expect(log!.routingMetadata?.selectionReason).toBe("low-uptime-fallback");
+		expect(Number(log!.inputCost)).toBeCloseTo(0.002, 6);
+		expect(Number(log!.outputCost)).toBeCloseTo(0.005, 6);
+	});
+
 	async function setupCustomCarrier(
 		token: string,
 		options: { managedCredential?: boolean } = {},

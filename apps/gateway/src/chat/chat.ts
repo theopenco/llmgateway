@@ -2074,8 +2074,10 @@ chat.openapi(completions, async (c) => {
 	const parseResult =
 		airsideResolution?.parseResult ?? parseModelInput(modelInput);
 	let requestedModel = parseResult.requestedModel;
-	// resolveAirsideModel already settled Airside ownership for this id.
+	// resolveAirsideModel settled Airside ownership for this id — for every
+	// provider on a bare-name request, only for the pinned pair otherwise.
 	const airsideCheckedModel = requestedModel;
+	const airsideCheckedProvider = parseResult.requestedProvider;
 	let customProviderName = parseResult.customProviderName;
 	let requestedRegion = parseResult.requestedRegion;
 
@@ -3512,7 +3514,9 @@ chat.openapi(completions, async (c) => {
 		const fromResolution = findAirsidePricingMapping();
 		if (
 			fromResolution ||
-			usedInternalModel === airsideCheckedModel ||
+			(usedInternalModel === airsideCheckedModel &&
+				(airsideCheckedProvider === undefined ||
+					usedProvider === airsideCheckedProvider)) ||
 			usedRegion !== undefined ||
 			!usedProvider ||
 			usedProvider === "custom" ||

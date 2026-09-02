@@ -143,7 +143,7 @@ export function AirsideFilingsClient() {
 	);
 
 	const brandingQuery = $api.useQuery("get", "/admin/airside/claims", {
-		params: { query: { pendingBranding: true } },
+		params: { query: { pendingBranding: "true" } },
 	});
 	const approveBrandingMutation = $api.useMutation(
 		"post",
