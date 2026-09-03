@@ -2154,6 +2154,7 @@ export async function prepareRequestBody(
 		case "azure":
 		case "sakana":
 		case "meta":
+		case "meta-contributor":
 		case "aws-mantle":
 		case "openai": {
 			// Determine whether to use Responses API format.
@@ -2231,7 +2232,7 @@ export async function prepareRequestBody(
 					model: usedExternalId,
 					input: transformedMessages,
 					reasoning:
-						usedProvider === "meta"
+						usedProvider === "meta" || usedProvider === "meta-contributor"
 							? {
 									...(reasoning_effort !== undefined && {
 										effort: reasoning_effort,
@@ -2310,7 +2311,8 @@ export async function prepareRequestBody(
 					usedProvider === "openai" ||
 					usedProvider === "azure" ||
 					usedProvider === "aws-mantle" ||
-					usedProvider === "meta"
+					usedProvider === "meta" ||
+					usedProvider === "meta-contributor"
 				) {
 					const upstreamCacheKey =
 						(prompt_cache_key !== undefined
@@ -2319,7 +2321,7 @@ export async function prepareRequestBody(
 						(session_id !== undefined
 							? hashSessionCacheKey(session_id)
 							: undefined) ??
-						(usedProvider === "meta"
+						(usedProvider === "meta" || usedProvider === "meta-contributor"
 							? deriveConversationCacheKey(processedMessages)
 							: undefined);
 					if (upstreamCacheKey !== undefined) {

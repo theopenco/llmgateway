@@ -922,6 +922,7 @@ export function transformResponseToOpenai(
 		case "novita":
 		case "sakana":
 		case "meta":
+		case "meta-contributor":
 		case "aws-mantle":
 		case "openai": {
 			// Handle OpenAI / Azure image generation responses (e.g. gpt-image-2)
