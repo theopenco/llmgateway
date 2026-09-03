@@ -64,12 +64,13 @@ function sumLogMoney(column: AnyColumn, alias: string) {
 /**
  * Gateway margin earned on platform-paid Airside traffic: SUM(cost * the
  * margin percent snapshotted onto the log row at request time). BYOK requests
- * pay the provider directly, and rows without a snapshot contribute nothing.
+ * pay the provider directly, cache hits incur no second provider charge, and
+ * rows without a snapshot contribute nothing.
  * Only the provider-keyed stats tables carry this column, so it is not part of
  * getBaseAggregationFields().
  */
 export function providerMarginAmountField() {
-	return sql<number>`coalesce(sum(case when ${log.usedMode} = 'credits' then cast(${log.cost} as double precision) * ${log.providerMarginPercent} else 0 end), 0)`.as(
+	return sql<number>`coalesce(sum(case when ${log.usedMode} = 'credits' and ${log.cached} is not true then cast(${log.cost} as double precision) * ${log.providerMarginPercent} else 0 end), 0)`.as(
 		"providerMarginAmount",
 	);
 }

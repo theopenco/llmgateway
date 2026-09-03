@@ -1192,6 +1192,18 @@ describe("airside provider portal", () => {
 				providerMarginAmount: 5,
 			},
 			{
+				dayTimestamp: new Date(now - 2 * dayMs), // eslint-disable-line no-mixed-operators
+				usedModel: "mistral-medium-4",
+				usedProvider: "mistral",
+				usedMode: "api-keys",
+				orgKind: "default",
+				requestCount: 10,
+				cost: 20,
+				// Historical BYOK rows may contain margin from the old aggregation
+				// formula; admin totals must exclude them defensively.
+				providerMarginAmount: 99,
+			},
+			{
 				dayTimestamp: new Date(now - 60 * dayMs), // eslint-disable-line no-mixed-operators
 				usedModel: "mistral-medium-4",
 				usedProvider: "mistral",
