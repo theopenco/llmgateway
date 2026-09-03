@@ -103,7 +103,7 @@ function ComparisonStartPicker({
 		from: start,
 		to: addDays(start, rangeDays),
 	};
-	const latestStart = subDays(currentRange.from, 1);
+	const latestStart = subDays(currentRange.from, rangeDays + 1);
 
 	return (
 		<div className="space-y-3">
@@ -237,6 +237,7 @@ export function UsageComparisonPicker({
 						onBack={() => setStartDateMode(null)}
 						onSelect={(range) => {
 							onChange(startDateMode, range);
+							setStartDateMode(null);
 							setOpen(false);
 						}}
 					/>

@@ -30,21 +30,32 @@ describe("usage comparison ranges", () => {
 		});
 	});
 
-	it("uses a selected start date and preserves the current range length", () => {
-		const selectedStart = new URLSearchParams("compareFrom=2026-06-02");
+	it("accepts the latest non-overlapping named comparison", () => {
+		const selectedStart = new URLSearchParams("compareFrom=2026-08-03");
 
 		expect(
 			resolveUsageComparisonRange("previous-week", current, selectedStart),
 		).toEqual({
-			from: new Date("2026-06-02T00:00:00"),
-			to: new Date("2026-06-08T00:00:00"),
+			from: new Date("2026-08-03T00:00:00"),
+			to: new Date("2026-08-09T00:00:00"),
 		});
 		expect(
 			resolveUsageComparisonRange("previous-month", current, selectedStart),
 		).toEqual({
-			from: new Date("2026-06-02T00:00:00"),
-			to: new Date("2026-06-08T00:00:00"),
+			from: new Date("2026-08-03T00:00:00"),
+			to: new Date("2026-08-09T00:00:00"),
 		});
+	});
+
+	it("rejects named comparisons that overlap the current range", () => {
+		const selectedStart = new URLSearchParams("compareFrom=2026-08-04");
+
+		expect(
+			resolveUsageComparisonRange("previous-week", current, selectedStart),
+		).toBeNull();
+		expect(
+			resolveUsageComparisonRange("previous-month", current, selectedStart),
+		).toBeNull();
 	});
 
 	it("accepts only complete ordered custom day ranges", () => {

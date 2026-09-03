@@ -60,6 +60,9 @@ export function resolveUsageComparisonRange(
 			};
 		}
 		case "previous-week":
+			if (rangeFromStart && rangeFromStart.to >= current.from) {
+				return null;
+			}
 			return (
 				rangeFromStart ?? {
 					from: subDays(current.from, 7),
@@ -67,6 +70,9 @@ export function resolveUsageComparisonRange(
 				}
 			);
 		case "previous-month":
+			if (rangeFromStart && rangeFromStart.to >= current.from) {
+				return null;
+			}
 			return (
 				rangeFromStart ?? {
 					from: subMonths(current.from, 1),
