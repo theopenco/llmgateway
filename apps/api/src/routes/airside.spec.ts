@@ -769,6 +769,13 @@ describe("airside provider portal", () => {
 			contextSize: 128000,
 			tools: false,
 		});
+		// Saving the current values again is a no-op, not another filing.
+		const unchanged = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { contextSize: 128000, tools: false }, "PATCH"),
+		);
+		expect(unchanged.status).toBe(200);
+		expect((await unchanged.json()).model.pendingFiling).toBeNull();
 
 		// A price-update approval upserts the mapping and its prices.
 		const update = await app.request(

@@ -51,6 +51,21 @@ export function pickMetadataChanges(
 	) as AirsideModelMetadataChanges;
 }
 
+/** Only the keys whose value differs from the listing's current row, so an
+ *  unchanged save is a no-op instead of a filing. */
+export function diffMetadataChanges(
+	row: DraftModelRow,
+	changes: AirsideModelMetadataChanges,
+): AirsideModelMetadataChanges {
+	return Object.fromEntries(
+		Object.entries(changes).filter(
+			([key, value]) =>
+				JSON.stringify(value) !==
+				JSON.stringify(row[key as keyof AirsideModelMetadataChanges]),
+		),
+	) as AirsideModelMetadataChanges;
+}
+
 /** The listing's current values for exactly the keys a filing proposes. */
 export function currentMetadataFor(
 	row: DraftModelRow,

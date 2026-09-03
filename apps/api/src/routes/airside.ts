@@ -24,6 +24,7 @@ import {
 import {
 	airsideModelMetadataSchema,
 	type AirsideModelMetadataInput,
+	diffMetadataChanges,
 	pickMetadataChanges,
 	REASONING_EFFORT_VALUES,
 } from "@/lib/airside-metadata.js";
@@ -2163,7 +2164,7 @@ airside.openapi(updateModel, async (c) => {
 			message: "Delisted models cannot be edited.",
 		});
 	}
-	const updates = pickMetadataChanges(body);
+	const updates = diffMetadataChanges(model, pickMetadataChanges(body));
 	// An empty diff is a no-op, not a drizzle "No values to set" 500.
 	if (Object.keys(updates).length === 0) {
 		const unchangedFilings = await db.query.providerPriceFiling.findMany({

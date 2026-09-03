@@ -881,6 +881,9 @@ adminAirside.openapi(revokeClaim, async (c) => {
 				reviewNote: reviewNote ?? null,
 				reviewedAt: new Date(),
 				revokedAt: new Date(),
+				// A branding change filed before revocation must not linger in
+				// the review queue.
+				pendingBranding: null,
 			})
 			.where(
 				and(
