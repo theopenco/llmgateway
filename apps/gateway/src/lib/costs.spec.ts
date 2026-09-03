@@ -1146,8 +1146,8 @@ describe("calculateCosts", () => {
 				null,
 				{ servedServiceTier: "flex" },
 			);
-			expect(result.inputCost).toBeCloseTo(0.00025);
-			expect(result.outputCost).toBeCloseTo(0.00105);
+			expect(result.inputCost).toBeCloseTo(0.0005);
+			expect(result.outputCost).toBeCloseTo(0.0021);
 		});
 
 		it("ignores Google Vertex tiers outside the global endpoint", async () => {
@@ -1435,7 +1435,7 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputTokens).toBe(747); // 1 * 747
 		expect(result.imageOutputCost).toBeCloseTo(747 * (60 / 1e6)); // 747 * $60/1M
 		const textTokens = 800 - 747; // 53 text tokens
-		const expectedTextCost = textTokens * (1.5 / 1e6);
+		const expectedTextCost = textTokens * (3 / 1e6);
 		const expectedImageCost = 747 * (60 / 1e6);
 		expect(result.outputCost).toBeCloseTo(expectedTextCost + expectedImageCost);
 	});
@@ -1459,7 +1459,7 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputTokens).toBe(5040); // 2 * 2520
 		expect(result.imageOutputCost).toBeCloseTo(5040 * (60 / 1e6));
 		const textTokens = Math.max(0, 5100 - 5040); // 60 text tokens
-		const expectedTextCost = textTokens * (1.5 / 1e6);
+		const expectedTextCost = textTokens * (3 / 1e6);
 		const expectedImageCost = 5040 * (60 / 1e6);
 		expect(result.outputCost).toBeCloseTo(expectedTextCost + expectedImageCost);
 	});
