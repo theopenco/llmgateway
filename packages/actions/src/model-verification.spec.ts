@@ -174,6 +174,61 @@ describe("model verification", () => {
 		expect(fetchImplementation).toHaveBeenCalledTimes(2);
 	});
 
+	it.each([
+		{
+			name: "vision",
+			overrides: { vision: true },
+			body: { choices: [{ message: { content: "The image loaded." } }] },
+		},
+		{
+			name: "audio",
+			overrides: { audio: true },
+			body: { choices: [{ message: { content: "The audio loaded." } }] },
+		},
+		{
+			name: "unfinished web search",
+			overrides: { webSearch: true },
+			body: {
+				output: [
+					{ type: "web_search_call", status: "in_progress" },
+					{
+						type: "message",
+						content: [{ type: "output_text", text: "Today." }],
+					},
+				],
+			},
+		},
+	])("rejects generic $name evidence", async ({ overrides, body }) => {
+		const response = (value: unknown) =>
+			new Response(JSON.stringify(value), { status: 200 });
+		const fetchImplementation = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(
+				response({ choices: [{ message: { content: "OK" } }] }),
+			)
+			.mockResolvedValueOnce(response(body));
+		const result = await runProviderModelVerification({
+			target: {
+				...target,
+				streaming: false,
+				vision: false,
+				audio: false,
+				tools: false,
+				jsonOutput: false,
+				jsonOutputSchema: false,
+				reasoning: false,
+				reasoningMaxTokens: false,
+				webSearch: false,
+				...overrides,
+			},
+			token: "provider-key",
+			fetchImplementation,
+		});
+
+		expect(result.passed).toBe(false);
+		expect(result.checks[1]).toMatchObject({ status: "failed" });
+	});
+
 	it("redacts credentials and skips dependent checks after a basic failure", async () => {
 		const result = await runProviderModelVerification({
 			target: { ...target, vision: false },

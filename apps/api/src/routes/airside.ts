@@ -481,7 +481,7 @@ async function verificationCredentialSource(
 		managedKeys.some(
 			(key) =>
 				!key.allowedModels?.length ||
-				key.allowedModels.includes(target.modelName),
+				key.allowedModels.includes(target.externalId),
 		)
 	) {
 		return "managed";
@@ -2042,9 +2042,28 @@ airside.openapi(queueNewModelVerification, async (c) => {
 			message: "A model with this name is already listed for the provider.",
 		});
 	}
+	const target = verificationTarget(body);
+	const activeVerifications = await db.query.providerModelVerification.findMany(
+		{
+			where: {
+				providerCompanyId: { eq: body.providerCompanyId },
+				status: { in: ["queued", "running"] },
+			},
+			columns: { target: true },
+		},
+	);
+	if (
+		activeVerifications.some((verification) =>
+			verificationTargetsMatch(verification.target, target),
+		)
+	) {
+		throw new HTTPException(409, {
+			message: "This model verification is already in progress.",
+		});
+	}
 	const verification = await enqueueModelVerification({
 		providerCompanyId: body.providerCompanyId,
-		target: verificationTarget(body),
+		target,
 		apiKey: body.apiKey,
 		requestedBy: user.id,
 	});

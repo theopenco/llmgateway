@@ -147,8 +147,14 @@ const VIDEO_JOB_POLL_INTERVAL_SECONDS =
 	Number(process.env.VIDEO_JOB_POLL_INTERVAL_SECONDS) || 5;
 const VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS =
 	Number(process.env.VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS) || 5;
+const configuredModelVerificationPollIntervalSeconds = Number(
+	process.env.MODEL_VERIFICATION_POLL_INTERVAL_SECONDS,
+);
 const MODEL_VERIFICATION_POLL_INTERVAL_SECONDS =
-	Number(process.env.MODEL_VERIFICATION_POLL_INTERVAL_SECONDS) || 2;
+	Number.isFinite(configuredModelVerificationPollIntervalSeconds) &&
+	configuredModelVerificationPollIntervalSeconds > 0
+		? configuredModelVerificationPollIntervalSeconds
+		: 2;
 
 interface ApiKeyUsageEvent {
 	cost: Decimal;

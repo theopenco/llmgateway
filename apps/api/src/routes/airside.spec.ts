@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, inArray, tables } from "@llmgateway/db";
 import {
 	models as catalogueModels,
@@ -445,6 +446,14 @@ describe("airside provider portal", () => {
 		expect(stored?.credentialCiphertext).not.toContain(
 			"provider-secret-for-test",
 		);
+		const duplicateVerification = await app.request(
+			"/airside/model-verifications",
+			json(cookie, { ...mapping, apiKey: "another-provider-secret" }),
+		);
+		expect(duplicateVerification.status).toBe(409);
+		expect((await duplicateVerification.json()).message).toContain(
+			"already in progress",
+		);
 
 		const submission = {
 			...mapping,
@@ -492,6 +501,42 @@ describe("airside provider portal", () => {
 		expect(consumed?.submittedAt).toBeInstanceOf(Date);
 	});
 
+	it("matches managed credentials against upstream model IDs", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const providerKeyId = `verification-key-${crypto.randomUUID()}`;
+		await db.insert(tables.providerKey).values({
+			id: providerKeyId,
+			provider: "mistral",
+			...encryptProviderKeyForStorage(
+				"managed-provider-test-key",
+				providerKeyId,
+				null,
+			),
+			managed: true,
+			allowedModels: ["mistral-upstream-id"],
+		});
+
+		const queued = await app.request(
+			"/airside/model-verifications",
+			json(cookie, {
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				modelName: "mistral-public-id",
+				externalId: "mistral-upstream-id",
+			}),
+		);
+
+		expect(queued.status).toBe(202);
+		const queuedBody = await queued.json();
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: queuedBody.verification.id } },
+		});
+		expect(stored?.credentialSource).toBe("managed");
+	});
+
 	it("drafts a model with an initial price filing and blocks price edits", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
@@ -520,6 +565,24 @@ describe("airside provider portal", () => {
 		expect((await patched.json()).model.displayName).toBe(
 			"Mistral Large 3 Turbo",
 		);
+		const verificationGated = await app.request(
+			`/airside/models/${model.id}`,
+			json(
+				cookie,
+				{
+					jsonOutputSchema: true,
+					reasoningMaxTokens: true,
+					webSearch: true,
+				},
+				"PATCH",
+			),
+		);
+		expect(verificationGated.status).toBe(200);
+		expect((await verificationGated.json()).model).toMatchObject({
+			jsonOutputSchema: false,
+			reasoningMaxTokens: false,
+			webSearch: false,
+		});
 
 		// A second filing can't be submitted while one is pending.
 		const doubleFiling = await app.request(

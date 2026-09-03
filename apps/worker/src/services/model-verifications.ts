@@ -70,7 +70,7 @@ async function resolveCredential(
 		const key = keys.find(
 			(candidate) =>
 				!candidate.allowedModels?.length ||
-				candidate.allowedModels.includes(job.target.modelName),
+				candidate.allowedModels.includes(job.target.externalId),
 		);
 		if (!key) {
 			throw new Error("No active managed credential can verify this mapping.");
@@ -97,15 +97,32 @@ async function resolveCredential(
 export async function claimNextModelVerification(): Promise<VerificationRow | null> {
 	return await db.transaction(async (tx) => {
 		const staleBefore = new Date(Date.now() - STALE_RUNNING_MS);
-		await tx
-			.update(tables.providerModelVerification)
-			.set({ status: "queued", startedAt: null })
+		const staleJobs = await tx
+			.select({
+				id: tables.providerModelVerification.id,
+				attempts: tables.providerModelVerification.attempts,
+			})
+			.from(tables.providerModelVerification)
 			.where(
 				and(
 					eq(tables.providerModelVerification.status, "running"),
 					lt(tables.providerModelVerification.updatedAt, staleBefore),
 				),
-			);
+			)
+			.for("update", { skipLocked: true });
+		for (const staleJob of staleJobs) {
+			await tx
+				.update(tables.providerModelVerification)
+				.set({ status: "queued", startedAt: null })
+				.where(
+					and(
+						eq(tables.providerModelVerification.id, staleJob.id),
+						eq(tables.providerModelVerification.status, "running"),
+						eq(tables.providerModelVerification.attempts, staleJob.attempts),
+						lt(tables.providerModelVerification.updatedAt, staleBefore),
+					),
+				);
+		}
 		const [job] = await tx
 			.select()
 			.from(tables.providerModelVerification)
@@ -125,11 +142,19 @@ export async function claimNextModelVerification(): Promise<VerificationRow | nu
 				summary: null,
 				attempts: job.attempts + 1,
 			})
-			.where(eq(tables.providerModelVerification.id, job.id))
+			.where(
+				and(
+					eq(tables.providerModelVerification.id, job.id),
+					eq(tables.providerModelVerification.status, "queued"),
+					eq(tables.providerModelVerification.attempts, job.attempts),
+				),
+			)
 			.returning();
-		return claimed;
+		return claimed ?? null;
 	});
 }
+
+class StaleModelVerificationAttemptError extends Error {}
 
 function replaceCheck(
 	checks: ProviderModelVerificationCheck[],
@@ -178,13 +203,23 @@ export async function processNextModelVerification(
 			skipEnvVars: credential.skipEnvVars,
 			onCheck: async (check) => {
 				checks = replaceCheck(checks, check);
-				await db
+				const updated = await db
 					.update(tables.providerModelVerification)
 					.set({ checks })
-					.where(eq(tables.providerModelVerification.id, job.id));
+					.where(
+						and(
+							eq(tables.providerModelVerification.id, job.id),
+							eq(tables.providerModelVerification.status, "running"),
+							eq(tables.providerModelVerification.attempts, job.attempts),
+						),
+					)
+					.returning({ id: tables.providerModelVerification.id });
+				if (updated.length === 0) {
+					throw new StaleModelVerificationAttemptError();
+				}
 			},
 		});
-		await db
+		const completed = await db
 			.update(tables.providerModelVerification)
 			.set({
 				status: result.passed ? "passed" : "failed",
@@ -193,8 +228,21 @@ export async function processNextModelVerification(
 				completedAt: new Date(),
 				credentialCiphertext: null,
 			})
-			.where(eq(tables.providerModelVerification.id, job.id));
+			.where(
+				and(
+					eq(tables.providerModelVerification.id, job.id),
+					eq(tables.providerModelVerification.status, "running"),
+					eq(tables.providerModelVerification.attempts, job.attempts),
+				),
+			)
+			.returning({ id: tables.providerModelVerification.id });
+		if (completed.length === 0) {
+			return true;
+		}
 	} catch (error) {
+		if (error instanceof StaleModelVerificationAttemptError) {
+			return true;
+		}
 		const feedback = redactToken(
 			(error instanceof Error ? error.message : "Verification failed.").slice(
 				0,
@@ -203,7 +251,7 @@ export async function processNextModelVerification(
 			token,
 		);
 		checks = terminalChecks(checks, feedback);
-		await db
+		const completed = await db
 			.update(tables.providerModelVerification)
 			.set({
 				status: "failed",
@@ -212,7 +260,17 @@ export async function processNextModelVerification(
 				completedAt: new Date(),
 				credentialCiphertext: null,
 			})
-			.where(eq(tables.providerModelVerification.id, job.id));
+			.where(
+				and(
+					eq(tables.providerModelVerification.id, job.id),
+					eq(tables.providerModelVerification.status, "running"),
+					eq(tables.providerModelVerification.attempts, job.attempts),
+				),
+			)
+			.returning({ id: tables.providerModelVerification.id });
+		if (completed.length === 0) {
+			return true;
+		}
 		logger.warn("Airside model verification failed", {
 			verificationId: job.id,
 			providerId: job.target.providerId,

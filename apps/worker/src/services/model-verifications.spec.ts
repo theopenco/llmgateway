@@ -2,10 +2,16 @@ import { randomUUID } from "node:crypto";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { encryptModelVerificationCredential } from "@llmgateway/actions";
+import {
+	encryptModelVerificationCredential,
+	encryptProviderKeyForStorage,
+} from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
 
-import { processNextModelVerification } from "./model-verifications.js";
+import {
+	claimNextModelVerification,
+	processNextModelVerification,
+} from "./model-verifications.js";
 
 import type {
 	ProviderModelVerificationCheck,
@@ -14,9 +20,13 @@ import type {
 
 const originalHashSecret = process.env.GATEWAY_API_KEY_HASH_SECRET;
 const companyIds: string[] = [];
+const providerKeyIds: string[] = [];
 const userIds: string[] = [];
 
 afterEach(async () => {
+	for (const id of providerKeyIds.splice(0)) {
+		await db.delete(tables.providerKey).where(eq(tables.providerKey.id, id));
+	}
 	for (const id of companyIds.splice(0)) {
 		await db
 			.delete(tables.providerCompany)
@@ -32,13 +42,19 @@ afterEach(async () => {
 	}
 });
 
-async function enqueueVerification() {
+async function enqueueVerification(
+	options: {
+		credentialSource?: "supplied" | "managed";
+		allowedModels?: string[];
+	} = {},
+) {
 	process.env.GATEWAY_API_KEY_HASH_SECRET = "model-verification-test-secret";
 	const suffix = randomUUID();
 	const userId = `verification-user-${suffix}`;
 	const companyId = `verification-company-${suffix}`;
 	const providerId = `verification-provider-${suffix}`;
 	const verificationId = `verification-job-${suffix}`;
+	const credentialSource = options.credentialSource ?? "supplied";
 	userIds.push(userId);
 	companyIds.push(companyId);
 	await db.insert(tables.user).values({
@@ -59,6 +75,21 @@ async function enqueueVerification() {
 		status: "active",
 		claimedBy: userId,
 	});
+	if (credentialSource === "managed") {
+		const providerKeyId = `verification-key-${suffix}`;
+		providerKeyIds.push(providerKeyId);
+		await db.insert(tables.providerKey).values({
+			id: providerKeyId,
+			provider: providerId,
+			...encryptProviderKeyForStorage(
+				"managed-provider-key",
+				providerKeyId,
+				null,
+			),
+			managed: true,
+			allowedModels: options.allowedModels,
+		});
+	}
 	const target: ProviderModelVerificationTarget = {
 		providerId,
 		modelName: "model-x",
@@ -83,12 +114,15 @@ async function enqueueVerification() {
 		requestedBy: userId,
 		target,
 		checks,
-		credentialSource: "supplied",
-		credentialCiphertext: encryptModelVerificationCredential(
-			"single-use-provider-key",
-			verificationId,
-			companyId,
-		),
+		credentialSource,
+		credentialCiphertext:
+			credentialSource === "supplied"
+				? encryptModelVerificationCredential(
+						"single-use-provider-key",
+						verificationId,
+						companyId,
+					)
+				: null,
 	});
 	return verificationId;
 }
@@ -141,5 +175,72 @@ describe("model verification worker", () => {
 		expect(stored?.credentialCiphertext).toBeNull();
 		expect(JSON.stringify(stored)).not.toContain("single-use-provider-key");
 		expect(stored?.checks[0]).toMatchObject({ status: "failed" });
+	});
+
+	it("selects managed credentials by upstream model ID", async () => {
+		const verificationId = await enqueueVerification({
+			credentialSource: "managed",
+			allowedModels: ["upstream-model-x"],
+		});
+		await processNextModelVerification(async (options) => {
+			expect(options.token).toBe("managed-provider-key");
+			return {
+				passed: true,
+				checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
+				summary: "1 verification check passed.",
+			};
+		});
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: verificationId } },
+		});
+		expect(stored?.status).toBe("passed");
+	});
+
+	it("does not let a stale attempt overwrite a reclaimed job", async () => {
+		const verificationId = await enqueueVerification();
+		const replacementChecks: ProviderModelVerificationCheck[] = [
+			{
+				id: "basic",
+				label: "Basic completion",
+				status: "running",
+				feedback: "Replacement attempt",
+			},
+		];
+		await processNextModelVerification(async (options) => {
+			await db
+				.update(tables.providerModelVerification)
+				.set({ status: "queued", startedAt: null })
+				.where(eq(tables.providerModelVerification.id, verificationId));
+			const reclaimed = await claimNextModelVerification();
+			expect(reclaimed).toMatchObject({
+				id: verificationId,
+				status: "running",
+				attempts: 2,
+			});
+			await db
+				.update(tables.providerModelVerification)
+				.set({ checks: replacementChecks })
+				.where(eq(tables.providerModelVerification.id, verificationId));
+			await options.onCheck?.({
+				id: "basic",
+				label: "Basic completion",
+				status: "passed",
+			});
+			return {
+				passed: true,
+				checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
+				summary: "1 verification check passed.",
+			};
+		});
+
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: verificationId } },
+		});
+		expect(stored).toMatchObject({
+			status: "running",
+			attempts: 2,
+			checks: replacementChecks,
+		});
+		expect(stored?.credentialCiphertext).not.toBeNull();
 	});
 });

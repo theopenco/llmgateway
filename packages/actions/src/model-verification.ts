@@ -469,6 +469,13 @@ function containsNamedTool(value: unknown, name: string): boolean {
 	return Object.values(value).some((entry) => containsNamedTool(entry, name));
 }
 
+function isCompletedSearchStatus(value: unknown): boolean {
+	return (
+		typeof value === "string" &&
+		["completed", "succeeded", "success"].includes(value.toLowerCase())
+	);
+}
+
 function containsWebSearchEvidence(value: unknown): boolean {
 	if (Array.isArray(value)) {
 		return value.some(containsWebSearchEvidence);
@@ -476,22 +483,27 @@ function containsWebSearchEvidence(value: unknown): boolean {
 	if (!isRecord(value)) {
 		return false;
 	}
-	if (
-		typeof value.type === "string" &&
-		(value.type.includes("web_search") || value.type.includes("search_result"))
-	) {
-		return true;
+	if (typeof value.type === "string") {
+		if (value.type.includes("search_result")) {
+			return Object.keys(value).some((key) => key !== "type");
+		}
+		if (value.type.includes("web_search_call")) {
+			return isCompletedSearchStatus(value.status);
+		}
 	}
 	return Object.entries(value).some(([key, entry]) => {
+		if (key === "web_search_call") {
+			return isRecord(entry) && isCompletedSearchStatus(entry.status);
+		}
 		if (
 			[
 				"annotations",
 				"citations",
 				"groundingMetadata",
 				"search_results",
-				"web_search_call",
 			].includes(key) &&
-			((Array.isArray(entry) && entry.length > 0) || isRecord(entry))
+			((Array.isArray(entry) && entry.length > 0) ||
+				(isRecord(entry) && Object.keys(entry).length > 0))
 		) {
 			return true;
 		}
@@ -523,6 +535,16 @@ function validateResponse(
 ): string | null {
 	const assistantText = extractAssistantText(body);
 	switch (id) {
+		case "vision":
+			return /\bred\b/i.test(assistantText)
+				? null
+				: "The response did not identify the red image.";
+		case "audio":
+			return /\b(?:tone|beep|sine(?: wave)?|440(?:\s*(?:hz|hertz))?|a4)\b/i.test(
+				assistantText,
+			)
+				? null
+				: "The response did not identify the test tone.";
 		case "tools":
 			return containsNamedTool(body, "get_weather")
 				? null
