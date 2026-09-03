@@ -617,23 +617,24 @@ describe("Models API", () => {
 		expect(mistralProvider.pricing.ocr_page).toBe("0.004");
 	});
 
-	test("GET /v1/models should include proper output modalities for gemini-3.1-flash-image-preview", async () => {
+	test("GET /v1/models should include proper output modalities for Gemini 3.1 Flash Image", async () => {
 		const res = await app.request("/v1/models?include_deactivated=true");
 		expect(res.status).toBe(200);
 
 		const json = await res.json();
 
-		const imageModel = json.data.find(
-			(model: any) => model.id === "gemini-3.1-flash-image-preview",
-		);
+		for (const modelId of [
+			"gemini-3.1-flash-image",
+			"gemini-3.1-flash-image-preview",
+		]) {
+			const imageModel = json.data.find((model: any) => model.id === modelId);
 
-		expect(imageModel).toBeDefined();
-		expect(imageModel.architecture.output_modalities).toContain("text");
-		expect(imageModel.architecture.output_modalities).toContain("image");
-		expect(imageModel.architecture.output_modalities).toEqual([
-			"text",
-			"image",
-		]);
+			expect(imageModel).toBeDefined();
+			expect(imageModel.architecture.output_modalities).toEqual([
+				"text",
+				"image",
+			]);
+		}
 	});
 
 	test("GET /v1/models should include proper output modalities for Gemini 3 Pro Image", async () => {
@@ -699,6 +700,7 @@ describe("Models API", () => {
 		const json = await res.json();
 
 		for (const modelId of [
+			"gemini-3.1-flash-image",
 			"gemini-3.1-flash-image-preview",
 			"gemini-3.1-pro-preview",
 			"gemini-3-pro-image",
@@ -747,6 +749,7 @@ describe("Models API", () => {
 			"gemini-2.5-flash-image",
 			"gemini-3-pro-image",
 			"gemini-3-pro-image-preview",
+			"gemini-3.1-flash-image",
 			"gemini-3.1-flash-image-preview",
 		]);
 	});

@@ -2087,6 +2087,7 @@ chat.openapi(completions, async (c) => {
 	const inputImageCount =
 		requestedModel === "gemini-3-pro-image" ||
 		requestedModel === "gemini-3-pro-image-preview" ||
+		requestedModel === "gemini-3.1-flash-image" ||
 		requestedModel === "gemini-3.1-flash-image-preview" ||
 		requestedModel === "gemini-3.1-flash-lite-image"
 			? countInputImages(messages)
