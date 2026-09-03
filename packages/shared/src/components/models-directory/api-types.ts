@@ -154,6 +154,12 @@ type NextFetchInit = RequestInit & { next?: { revalidate?: number } };
 const MODELS_MEMO_TTL_MS = 60_000;
 const modelsMemo = new Map<string, { data: ApiModel[]; fetchedAt: number }>();
 
+export function fetchModelsResponseFromApi(
+	apiBackendUrl: string,
+): Promise<Response> {
+	return fetch(`${apiBackendUrl}/internal/models`, { cache: "no-store" });
+}
+
 export async function fetchModelsFromApi(
 	apiBackendUrl: string,
 ): Promise<ApiModel[]> {
@@ -162,8 +168,7 @@ export async function fetchModelsFromApi(
 		return memo.data;
 	}
 	try {
-		const init: NextFetchInit = { cache: "no-store" };
-		const response = await fetch(`${apiBackendUrl}/internal/models`, init);
+		const response = await fetchModelsResponseFromApi(apiBackendUrl);
 		if (!response.ok) {
 			console.error("Failed to fetch models:", response.statusText);
 			return memo?.data ?? [];
