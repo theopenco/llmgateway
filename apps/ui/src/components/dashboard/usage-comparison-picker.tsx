@@ -146,7 +146,7 @@ function ComparisonStartPicker({
 				defaultMonth={start}
 				disabled={{ after: latestStart }}
 				showOutsideDays={false}
-				className="p-0"
+				className="relative p-0"
 			/>
 			<div className="flex items-center justify-between border-t px-3 pt-3 sm:px-0">
 				<p className="text-xs text-muted-foreground">Ends automatically</p>
