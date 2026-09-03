@@ -36,6 +36,11 @@ import { Overview } from "@/components/dashboard/overview";
 import { RecentActivityCard } from "@/components/dashboard/recent-activity-card";
 import { ReferralBanner } from "@/components/dashboard/referral-banner";
 import {
+	parseUsageComparisonMode,
+	resolveUsageComparisonRange,
+} from "@/components/dashboard/usage-comparison";
+import { UsageComparisonPicker } from "@/components/dashboard/usage-comparison-picker";
+import {
 	DateRangePicker,
 	getDateRangeFromParams,
 } from "@/components/date-range-picker";
@@ -60,6 +65,10 @@ import { cn } from "@/lib/utils";
 
 import { useDisplayTimeZone } from "@llmgateway/shared";
 
+import type {
+	UsageComparisonMode,
+	UsageDateRange,
+} from "@/components/dashboard/usage-comparison";
 import type { ActivitT } from "@/types/activity";
 
 interface DashboardClientProps {
@@ -225,6 +234,17 @@ export function DashboardClient({
 	const metricParam = searchParams.get("metric");
 	const metric = (metricParam === "requests" ? "requests" : "costs") as
 		"costs" | "requests";
+	const costView =
+		searchParams.get("costView") === "breakdown" ? "breakdown" : "total";
+	const requestedComparisonMode = parseUsageComparisonMode(
+		searchParams.get("compare"),
+	);
+	const comparisonMode = rangeDays <= 366 ? requestedComparisonMode : "off";
+	const comparisonRange = resolveUsageComparisonRange(
+		comparisonMode,
+		{ from, to },
+		searchParams,
+	);
 
 	// If no from/to params exist, add them to the URL immediately
 	useEffect(() => {
@@ -293,6 +313,34 @@ export function DashboardClient({
 		},
 	);
 
+	const {
+		data: comparisonData,
+		isLoading: isComparisonLoading,
+		isError: isComparisonError,
+	} = api.useQuery(
+		"get",
+		"/activity",
+		{
+			params: {
+				query: {
+					from: comparisonRange
+						? format(comparisonRange.from, "yyyy-MM-dd")
+						: fromStr,
+					to: comparisonRange
+						? format(comparisonRange.to, "yyyy-MM-dd")
+						: toStr,
+					timezone: displayTimeZone,
+					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
+				},
+			},
+		},
+		{
+			enabled: !!selectedProject?.id && comparisonRange !== null,
+			refetchOnWindowFocus: false,
+			staleTime: 1000 * 60 * 5,
+		},
+	);
+
 	// Get API keys data to check plan limits
 	const { data: apiKeysData } = api.useQuery(
 		"get",
@@ -315,7 +363,45 @@ export function DashboardClient({
 	const updateMetricInUrl = (newMetric: "costs" | "requests") => {
 		const params = new URLSearchParams(searchParams.toString());
 		params.set("metric", newMetric);
-		router.push(`${buildUrl()}?${params.toString()}`);
+		router.push(`${buildUrl()}?${params.toString()}`, { scroll: false });
+	};
+
+	const updateCostViewInUrl = (newView: "total" | "breakdown") => {
+		const params = new URLSearchParams(searchParams.toString());
+		if (newView === "total") {
+			params.delete("costView");
+		} else {
+			params.set("costView", newView);
+		}
+		router.push(`${buildUrl()}?${params.toString()}`, { scroll: false });
+	};
+
+	const updateComparisonInUrl = (
+		newMode: UsageComparisonMode,
+		selectedRange?: UsageDateRange,
+	) => {
+		const params = new URLSearchParams(searchParams.toString());
+		if (newMode === "off") {
+			params.delete("compare");
+			params.delete("compareFrom");
+			params.delete("compareTo");
+		} else {
+			params.set("compare", newMode);
+			if (newMode === "custom" && selectedRange) {
+				params.set("compareFrom", format(selectedRange.from, "yyyy-MM-dd"));
+				params.set("compareTo", format(selectedRange.to, "yyyy-MM-dd"));
+			} else if (
+				(newMode === "previous-week" || newMode === "previous-month") &&
+				selectedRange
+			) {
+				params.set("compareFrom", format(selectedRange.from, "yyyy-MM-dd"));
+				params.delete("compareTo");
+			} else {
+				params.delete("compareFrom");
+				params.delete("compareTo");
+			}
+		}
+		router.push(`${buildUrl()}?${params.toString()}`, { scroll: false });
 	};
 
 	// Mode-normalized rows: cost/requestCount reflect the selected billing view
@@ -326,6 +412,9 @@ export function DashboardClient({
 		applyUsageModeToDaily(day, usageMode),
 	);
 	const prevActivityData = (prevData?.activity ?? []).map((day) =>
+		applyUsageModeToDaily(day, usageMode),
+	);
+	const comparisonActivityData = comparisonData?.activity.map((day) =>
 		applyUsageModeToDaily(day, usageMode),
 	);
 
@@ -825,34 +914,70 @@ export function DashboardClient({
 											<CardTitle>Usage Overview</CardTitle>
 											<CardDescription>
 												{metric === "costs"
-													? "Daily inference spend (provider list price)"
+													? costView === "total"
+														? "Daily total inference spend (provider list price)"
+														: "Daily inference spend by token type"
 													: "Daily request volume"}
 											</CardDescription>
 										</div>
-										<div className="inline-flex items-center rounded-lg border border-border/60 bg-muted/40 p-0.5">
-											{(["costs", "requests"] as const).map((option) => (
-												<button
-													key={option}
-													type="button"
-													onClick={() => updateMetricInUrl(option)}
-													className={cn(
-														"rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
-														metric === option
-															? "bg-background text-foreground shadow-sm"
-															: "text-muted-foreground hover:text-foreground",
-													)}
-												>
-													{option}
-												</button>
-											))}
+										<div className="flex flex-wrap items-center justify-end gap-2">
+											<div className="inline-flex items-center rounded-lg border border-border/60 bg-muted/40 p-0.5">
+												{(["costs", "requests"] as const).map((option) => (
+													<button
+														key={option}
+														type="button"
+														onClick={() => updateMetricInUrl(option)}
+														className={cn(
+															"rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
+															metric === option
+																? "bg-background text-foreground shadow-sm"
+																: "text-muted-foreground hover:text-foreground",
+														)}
+													>
+														{option}
+													</button>
+												))}
+											</div>
+											{metric === "costs" && (
+												<div className="inline-flex items-center rounded-lg border border-border/60 bg-muted/40 p-0.5">
+													{(["total", "breakdown"] as const).map((option) => (
+														<button
+															key={option}
+															type="button"
+															onClick={() => updateCostViewInUrl(option)}
+															className={cn(
+																"rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
+																costView === option
+																	? "bg-background text-foreground shadow-sm"
+																	: "text-muted-foreground hover:text-foreground",
+															)}
+														>
+															{option}
+														</button>
+													))}
+												</div>
+											)}
+											<UsageComparisonPicker
+												mode={comparisonMode}
+												currentRange={{ from, to }}
+												comparisonRange={comparisonRange}
+												disabled={rangeDays > 366}
+												onChange={updateComparisonInUrl}
+											/>
 										</div>
 									</div>
 								</CardHeader>
 								<CardContent className="pl-2">
 									<Overview
 										data={activityData}
+										comparisonData={comparisonActivityData}
+										comparisonRange={comparisonRange}
+										comparisonMode={comparisonMode}
 										isLoading={isLoading}
+										isComparisonLoading={isComparisonLoading}
+										isComparisonError={isComparisonError}
 										metric={metric}
+										costView={costView}
 									/>
 								</CardContent>
 							</Card>
