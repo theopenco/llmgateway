@@ -1,6 +1,13 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
+import {
+	CheckCircle2,
+	Clock3,
+	Loader2,
+	ShieldCheck,
+	XCircle,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -54,8 +61,65 @@ const CAPABILITIES = [
 	{ key: "vision", label: "Vision" },
 	{ key: "audio", label: "Audio input" },
 	{ key: "jsonOutput", label: "JSON output" },
+	{ key: "jsonOutputSchema", label: "Structured JSON" },
 	{ key: "reasoning", label: "Reasoning" },
+	{ key: "reasoningMaxTokens", label: "Reasoning budget" },
+	{ key: "webSearch", label: "Web search" },
 ] as const;
+
+type Verification = NonNullable<AirsideModel["latestVerification"]>;
+
+function VerificationResults({ verification }: { verification: Verification }) {
+	const statusLabel =
+		verification.status === "queued"
+			? "Queued"
+			: verification.status === "running"
+				? "Running"
+				: verification.status === "passed"
+					? "Passed"
+					: "Failed";
+	return (
+		<div
+			className="border-border bg-muted/25 space-y-3 rounded-lg border p-3"
+			aria-live="polite"
+			data-testid="verification-results"
+		>
+			<div className="flex items-center justify-between gap-3">
+				<div className="flex items-center gap-2 text-sm font-semibold">
+					<ShieldCheck className="text-primary size-4" aria-hidden="true" />
+					Preflight verification
+				</div>
+				<span className="text-muted-foreground font-mono text-[0.65rem] tracking-wider uppercase">
+					{statusLabel}
+				</span>
+			</div>
+			<ul className="divide-border divide-y">
+				{verification.checks.map((check) => (
+					<li key={check.id} className="flex items-start gap-2 py-2 text-xs">
+						{check.status === "passed" ? (
+							<CheckCircle2 className="text-signal mt-0.5 size-3.5 shrink-0" />
+						) : check.status === "failed" ? (
+							<XCircle className="text-destructive mt-0.5 size-3.5 shrink-0" />
+						) : check.status === "running" ? (
+							<Loader2 className="text-primary mt-0.5 size-3.5 shrink-0 animate-spin" />
+						) : (
+							<Clock3 className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
+						)}
+						<div>
+							<p className="font-medium">{check.label}</p>
+							{check.feedback ? (
+								<p className="text-muted-foreground mt-0.5">{check.feedback}</p>
+							) : null}
+						</div>
+					</li>
+				))}
+			</ul>
+			{verification.summary ? (
+				<p className="text-muted-foreground text-xs">{verification.summary}</p>
+			) : null}
+		</div>
+	);
+}
 
 // Unified reasoning_effort tiers a deployment can accept, in ascending order.
 const REASONING_EFFORTS = [
@@ -140,6 +204,8 @@ export function RegisterModelDialog({
 	const [cachedInputPrice, setCachedInputPrice] = useState("");
 	const [requestPrice, setRequestPrice] = useState("");
 	const [note, setNote] = useState("");
+	const [apiKey, setApiKey] = useState("");
+	const [verificationId, setVerificationId] = useState("");
 	const [maxRpm, setMaxRpm] = useState("");
 	const [maxRpd, setMaxRpd] = useState("");
 	const [rateLimitScope, setRateLimitScope] =
@@ -152,7 +218,10 @@ export function RegisterModelDialog({
 		vision: false,
 		audio: false,
 		jsonOutput: false,
+		jsonOutputSchema: false,
 		reasoning: false,
+		reasoningMaxTokens: false,
+		webSearch: false,
 	});
 	const [reasoningEfforts, setReasoningEfforts] = useState<
 		ReasoningEffortOption[]
@@ -162,6 +231,43 @@ export function RegisterModelDialog({
 	const effectiveProviderId = sortedProviderIds.includes(providerId)
 		? providerId
 		: (sortedProviderIds[0] ?? "");
+	const verificationQuery = api.useQuery(
+		"get",
+		"/airside/model-verifications/{id}",
+		{ params: { path: { id: verificationId } } },
+		{
+			enabled: Boolean(verificationId),
+			refetchInterval: (query) => {
+				const status = query.state.data?.verification.status;
+				return status === "queued" || status === "running" ? 1_000 : false;
+			},
+		},
+	);
+	const verification = verificationQuery.data?.verification;
+	const verificationInProgress =
+		verification?.status === "queued" || verification?.status === "running";
+	const resetVerification = () => {
+		if (verificationId) {
+			setVerificationId("");
+		}
+	};
+	const queueVerification = api.useMutation(
+		"post",
+		"/airside/model-verifications",
+		{
+			onSuccess: (data) => {
+				setVerificationId(data.verification.id);
+				setApiKey("");
+				toast.success("Preflight queued. Results will update here.");
+			},
+			onError: (error) => {
+				toast.error(
+					(error as { message?: string })?.message ??
+						"Failed to queue verification",
+				);
+			},
+		},
+	);
 
 	const createModel = api.useMutation("post", "/airside/models", {
 		onSuccess: async () => {
@@ -176,13 +282,30 @@ export function RegisterModelDialog({
 			setInputPrice("");
 			setOutputPrice("");
 			setNote("");
+			setApiKey("");
+			setVerificationId("");
 		},
 		onError: (error) => {
-			toast.error(
-				(error as { message?: string })?.message ?? "Failed to add the model",
-			);
+			const message =
+				(error as { message?: string })?.message ?? "Failed to add the model";
+			if (message.includes("changed after verification")) {
+				setVerificationId("");
+			}
+			toast.error(message);
 		},
 	});
+
+	const verificationMapping = {
+		providerCompanyId,
+		providerId: effectiveProviderId,
+		modelName,
+		externalId: externalId || undefined,
+		...capabilities,
+		reasoningEfforts:
+			capabilities.reasoning && reasoningEfforts.length > 0
+				? reasoningEfforts
+				: undefined,
+	};
 
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
@@ -203,8 +326,18 @@ export function RegisterModelDialog({
 					className="space-y-4"
 					onSubmit={(e) => {
 						e.preventDefault();
+						if (verification?.status !== "passed") {
+							queueVerification.mutate({
+								body: {
+									...verificationMapping,
+									apiKey: apiKey || undefined,
+								},
+							});
+							return;
+						}
 						createModel.mutate({
 							body: {
+								verificationId: verification.id,
 								providerCompanyId,
 								providerId: effectiveProviderId,
 								modelName,
@@ -246,7 +379,11 @@ export function RegisterModelDialog({
 										size="sm"
 										variant={id === effectiveProviderId ? "default" : "outline"}
 										className="font-mono"
-										onClick={() => setProviderId(id)}
+										disabled={verificationInProgress}
+										onClick={() => {
+											setProviderId(id);
+											resetVerification();
+										}}
 									>
 										{id}
 									</Button>
@@ -261,7 +398,11 @@ export function RegisterModelDialog({
 								id="model-name"
 								data-testid="model-name-input"
 								value={modelName}
-								onChange={(e) => setModelName(e.target.value)}
+								onChange={(e) => {
+									setModelName(e.target.value);
+									resetVerification();
+								}}
+								disabled={verificationInProgress}
 								placeholder="acme-large-2"
 								required
 							/>
@@ -272,7 +413,11 @@ export function RegisterModelDialog({
 								id="model-external-id"
 								data-testid="model-external-id-input"
 								value={externalId}
-								onChange={(e) => setExternalId(e.target.value)}
+								onChange={(e) => {
+									setExternalId(e.target.value);
+									resetVerification();
+								}}
+								disabled={verificationInProgress}
 								placeholder={modelName || "same as model ID"}
 							/>
 							<p className="text-muted-foreground text-xs">
@@ -343,12 +488,14 @@ export function RegisterModelDialog({
 									{cap.label}
 									<Switch
 										checked={capabilities[cap.key]}
-										onCheckedChange={(checked) =>
+										disabled={verificationInProgress}
+										onCheckedChange={(checked) => {
 											setCapabilities((prev) => ({
 												...prev,
 												[cap.key]: checked,
-											}))
-										}
+											}));
+											resetVerification();
+										}}
 									/>
 								</label>
 							))}
@@ -366,14 +513,16 @@ export function RegisterModelDialog({
 												key={effort}
 												type="button"
 												aria-pressed={active}
+												disabled={verificationInProgress}
 												data-testid={`effort-${effort}`}
-												onClick={() =>
+												onClick={() => {
 													setReasoningEfforts((prev) =>
 														prev.includes(effort)
 															? prev.filter((e) => e !== effort)
 															: [...prev, effort],
-													)
-												}
+													);
+													resetVerification();
+												}}
 												className={
 													active
 														? "bg-primary/15 text-primary border-primary/40 rounded-full border px-2.5 py-1 font-mono text-xs"
@@ -481,17 +630,170 @@ export function RegisterModelDialog({
 						</div>
 					</div>
 
+					<div className="border-border space-y-2 rounded-lg border p-3">
+						<Label htmlFor="verification-api-key">
+							Provider API key{" "}
+							<span className="text-muted-foreground">(if needed)</span>
+						</Label>
+						<Input
+							id="verification-api-key"
+							type="password"
+							autoComplete="off"
+							value={apiKey}
+							onChange={(event) => setApiKey(event.target.value)}
+							placeholder="Uses the managed carrier key when left blank"
+							disabled={verificationInProgress}
+						/>
+						<p className="text-muted-foreground text-xs">
+							Used only by the queued preflight and erased when it finishes.
+						</p>
+					</div>
+
+					{verification ? (
+						<VerificationResults verification={verification} />
+					) : null}
+
 					<DialogFooter>
 						<Button
 							type="submit"
-							disabled={createModel.isPending || !effectiveProviderId}
+							disabled={
+								createModel.isPending ||
+								queueVerification.isPending ||
+								verificationInProgress ||
+								!effectiveProviderId
+							}
 							data-testid="register-model-submit"
 							className="font-semibold"
 						>
-							{createModel.isPending ? "Filing…" : "File for approval"}
+							{createModel.isPending
+								? "Filing…"
+								: queueVerification.isPending
+									? "Queueing…"
+									: verification?.status === "passed"
+										? "File for approval"
+										: verification?.status === "failed"
+											? "Run preflight again"
+											: "Run preflight"}
 						</Button>
 					</DialogFooter>
 				</form>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+export function VerifyModelDialog({
+	model,
+	children,
+}: {
+	model: AirsideModel;
+	children: ReactNode;
+}) {
+	const api = useApi();
+	const invalidate = useInvalidateModels(model.providerCompanyId);
+	const [open, setOpen] = useState(false);
+	const [apiKey, setApiKey] = useState("");
+	const [verificationId, setVerificationId] = useState(
+		model.latestVerification?.id ?? "",
+	);
+	const verificationQuery = api.useQuery(
+		"get",
+		"/airside/model-verifications/{id}",
+		{ params: { path: { id: verificationId } } },
+		{
+			enabled: open && Boolean(verificationId),
+			refetchInterval: (query) => {
+				const status = query.state.data?.verification.status;
+				return status === "queued" || status === "running" ? 1_000 : false;
+			},
+		},
+	);
+	const verification = verificationQuery.data?.verification;
+	const queueVerification = api.useMutation(
+		"post",
+		"/airside/models/{id}/verifications",
+		{
+			onSuccess: async (data) => {
+				setVerificationId(data.verification.id);
+				setApiKey("");
+				await invalidate();
+				toast.success("Mapping verification queued.");
+			},
+			onError: (error) => {
+				toast.error(
+					(error as { message?: string })?.message ??
+						"Failed to queue verification",
+				);
+			},
+		},
+	);
+
+	return (
+		<Dialog
+			open={open}
+			onOpenChange={(next) => {
+				setOpen(next);
+				if (next) {
+					setVerificationId(model.latestVerification?.id ?? "");
+				} else {
+					void invalidate();
+				}
+			}}
+		>
+			<DialogTrigger asChild>{children}</DialogTrigger>
+			<DialogContent className="sm:max-w-lg">
+				<DialogHeader>
+					<DialogTitle className="font-display">
+						Verify {model.modelName}
+					</DialogTitle>
+					<DialogDescription>
+						Run the declared capabilities against the upstream model. Checks run
+						in the background and do not change the listing.
+					</DialogDescription>
+				</DialogHeader>
+				<div className="space-y-4">
+					<div className="space-y-2">
+						<Label htmlFor={`verify-api-key-${model.id}`}>
+							Provider API key{" "}
+							<span className="text-muted-foreground">(if needed)</span>
+						</Label>
+						<Input
+							id={`verify-api-key-${model.id}`}
+							type="password"
+							autoComplete="off"
+							value={apiKey}
+							onChange={(event) => setApiKey(event.target.value)}
+							placeholder="Uses the managed carrier key when left blank"
+						/>
+						<p className="text-muted-foreground text-xs">
+							The key is scoped to this run and erased at completion.
+						</p>
+					</div>
+					{verification ? (
+						<VerificationResults verification={verification} />
+					) : model.latestVerification ? (
+						<VerificationResults verification={model.latestVerification} />
+					) : null}
+				</div>
+				<DialogFooter>
+					<Button
+						type="button"
+						disabled={
+							queueVerification.isPending ||
+							verification?.status === "queued" ||
+							verification?.status === "running"
+						}
+						onClick={() =>
+							queueVerification.mutate({
+								params: { path: { id: model.id } },
+								body: { apiKey: apiKey || undefined },
+							})
+						}
+					>
+						<ShieldCheck className="size-4" />
+						{queueVerification.isPending ? "Queueing…" : "Run verification"}
+					</Button>
+				</DialogFooter>
 			</DialogContent>
 		</Dialog>
 	);
@@ -524,7 +826,10 @@ export function EditModelDialog({
 		vision: model.vision,
 		audio: model.audio,
 		jsonOutput: model.jsonOutput,
+		jsonOutputSchema: model.jsonOutputSchema,
 		reasoning: model.reasoning,
+		reasoningMaxTokens: model.reasoningMaxTokens,
+		webSearch: model.webSearch,
 	});
 	const [reasoningEfforts, setReasoningEfforts] = useState<
 		ReasoningEffortOption[]
@@ -551,7 +856,10 @@ export function EditModelDialog({
 			vision: model.vision,
 			audio: model.audio,
 			jsonOutput: model.jsonOutput,
+			jsonOutputSchema: model.jsonOutputSchema,
 			reasoning: model.reasoning,
+			reasoningMaxTokens: model.reasoningMaxTokens,
+			webSearch: model.webSearch,
 		});
 		setReasoningEfforts(
 			(model.reasoningEfforts ?? []) as ReasoningEffortOption[],

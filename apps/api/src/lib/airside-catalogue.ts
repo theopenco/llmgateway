@@ -91,8 +91,11 @@ export async function materializeAirsideModel(
 			audio: model.audio,
 			tools: model.tools,
 			jsonOutput: model.jsonOutput,
+			jsonOutputSchema: model.jsonOutputSchema,
 			reasoning: model.reasoning,
+			reasoningMaxTokens: model.reasoningMaxTokens,
 			reasoningEfforts: model.reasoningEfforts,
+			webSearch: model.webSearch,
 			status: "active" as const,
 			deactivatedAt: null,
 		};
@@ -152,8 +155,11 @@ export async function syncAirsideModelMetadata(
 				audio: model.audio,
 				tools: model.tools,
 				jsonOutput: model.jsonOutput,
+				jsonOutputSchema: model.jsonOutputSchema,
 				reasoning: model.reasoning,
+				reasoningMaxTokens: model.reasoningMaxTokens,
 				reasoningEfforts: model.reasoningEfforts,
+				webSearch: model.webSearch,
 			})
 			.where(
 				and(

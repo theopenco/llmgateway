@@ -4732,8 +4732,11 @@ export interface AirsideModelMetadataChanges {
 	audio?: boolean;
 	tools?: boolean;
 	jsonOutput?: boolean;
+	jsonOutputSchema?: boolean;
 	reasoning?: boolean;
+	reasoningMaxTokens?: boolean;
 	reasoningEfforts?: string[] | null;
+	webSearch?: boolean;
 	maxRpm?: number | null;
 	maxRpd?: number | null;
 	rateLimitScope?: "global" | "per_org";
@@ -4772,10 +4775,13 @@ export const providerDraftModel = pgTable(
 		audio: boolean().notNull().default(false),
 		tools: boolean().notNull().default(false),
 		jsonOutput: boolean().notNull().default(false),
+		jsonOutputSchema: boolean().notNull().default(false),
 		reasoning: boolean().notNull().default(false),
+		reasoningMaxTokens: boolean().notNull().default(false),
 		// Which unified reasoning_effort tiers the deployment accepts
 		// (subset of ReasoningEffort); null = parameter unsupported.
 		reasoningEfforts: jsonb().$type<string[]>(),
+		webSearch: boolean().notNull().default(false),
 		// Carrier-managed request caps. Admin `rate_limit` rows for the same
 		// provider/model always take precedence over these.
 		maxRpm: integer(),
@@ -4801,6 +4807,93 @@ export const providerDraftModel = pgTable(
 			.where(sql`status <> 'delisted'`),
 		index("provider_draft_model_company_idx").on(table.providerCompanyId),
 		index("provider_draft_model_status_idx").on(table.status),
+	],
+);
+
+export type ProviderModelVerificationStatus =
+	"queued" | "running" | "passed" | "failed";
+
+export type ProviderModelVerificationCheckStatus =
+	"queued" | "running" | "passed" | "failed" | "skipped";
+
+export interface ProviderModelVerificationCheck {
+	id: string;
+	label: string;
+	status: ProviderModelVerificationCheckStatus;
+	feedback?: string;
+}
+
+export interface ProviderModelVerificationTarget {
+	providerId: string;
+	modelName: string;
+	externalId: string;
+	streaming: boolean;
+	vision: boolean;
+	audio: boolean;
+	tools: boolean;
+	jsonOutput: boolean;
+	jsonOutputSchema: boolean;
+	reasoning: boolean;
+	reasoningMaxTokens: boolean;
+	reasoningEfforts: string[] | null;
+	webSearch: boolean;
+}
+
+// One queued verification of an Airside mapping. The target is frozen when
+// queued so an edit cannot change what a completed run proved. A supplied
+// credential is encrypted for this row only and erased on terminal status.
+export const providerModelVerification = pgTable(
+	"provider_model_verification",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		// Null for an unsubmitted new mapping; populated for an existing mapping
+		// and when a successful new-mapping verification is consumed.
+		draftModelId: text().references(() => providerDraftModel.id, {
+			onDelete: "cascade",
+		}),
+		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
+		target: jsonb().$type<ProviderModelVerificationTarget>().notNull(),
+		checks: jsonb().$type<ProviderModelVerificationCheck[]>().notNull(),
+		status: text({ enum: ["queued", "running", "passed", "failed"] })
+			.notNull()
+			.default("queued"),
+		credentialCiphertext: text(),
+		credentialSource: text({ enum: ["supplied", "managed", "environment"] })
+			.notNull()
+			.default("supplied"),
+		summary: text(),
+		attempts: integer().notNull().default(0),
+		startedAt: timestamp(),
+		completedAt: timestamp(),
+		// Set when a passed new-mapping verification creates the draft model.
+		submittedAt: timestamp(),
+	},
+	(table) => [
+		index("provider_model_verification_company_idx").on(
+			table.providerCompanyId,
+			table.createdAt,
+		),
+		index("provider_model_verification_model_idx").on(
+			table.draftModelId,
+			table.createdAt,
+		),
+		index("provider_model_verification_queue_idx").on(
+			table.status,
+			table.createdAt,
+		),
+		uniqueIndex("provider_model_verification_active_model_uidx")
+			.on(table.draftModelId)
+			.where(
+				sql`draft_model_id IS NOT NULL AND status IN ('queued', 'running')`,
+			),
 	],
 );
 

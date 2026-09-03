@@ -31,6 +31,10 @@ import {
 import { notifyAirsideCrewInvite } from "@/utils/discord.js";
 
 import {
+	createQueuedModelVerificationChecks,
+	encryptModelVerificationCredential,
+} from "@llmgateway/actions";
+import {
 	AIRSIDE_BASELINE_MARGIN,
 	AIRSIDE_DISCOUNT_MAX,
 	AIRSIDE_MARGIN_MAX,
@@ -43,10 +47,12 @@ import {
 	eq,
 	gte,
 	inArray,
+	shortid,
 	sql,
 	tables,
 } from "@llmgateway/db";
 import {
+	hasProviderEnvironmentToken,
 	models as catalogueModels,
 	providers as catalogueProviders,
 } from "@llmgateway/models";
@@ -55,6 +61,7 @@ import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 import { getStripe } from "./payments.js";
 
 import type { ServerTypes } from "@/vars.js";
+import type { ProviderModelVerificationTarget } from "@llmgateway/db";
 import type { ProviderModelMapping } from "@llmgateway/models";
 
 /**
@@ -133,6 +140,27 @@ const pricingSchema = z.object({
 	requestPrice: priceValue.optional(),
 });
 
+const verificationMappingSchema = z.object({
+	providerCompanyId: z.string(),
+	providerId: z.string(),
+	modelName: z.string().min(1).max(200),
+	externalId: z.string().min(1).max(200).optional(),
+	streaming: z.boolean().optional(),
+	vision: z.boolean().optional(),
+	audio: z.boolean().optional(),
+	tools: z.boolean().optional(),
+	jsonOutput: z.boolean().optional(),
+	jsonOutputSchema: z.boolean().optional(),
+	reasoning: z.boolean().optional(),
+	reasoningMaxTokens: z.boolean().optional(),
+	reasoningEfforts: reasoningEffortsValue.nullish(),
+	webSearch: z.boolean().optional(),
+});
+
+const queueVerificationSchema = verificationMappingSchema.extend({
+	apiKey: z.string().min(1).max(20_000).optional(),
+});
+
 const claimSchema = z.object({
 	id: z.string(),
 	providerCompanyId: z.string(),
@@ -209,6 +237,23 @@ const filingSchema = z.object({
 	createdAt: z.string(),
 });
 
+const modelVerificationSchema = z.object({
+	id: z.string(),
+	status: z.enum(["queued", "running", "passed", "failed"]),
+	checks: z.array(
+		z.object({
+			id: z.string(),
+			label: z.string(),
+			status: z.enum(["queued", "running", "passed", "failed", "skipped"]),
+			feedback: z.string().optional(),
+		}),
+	),
+	summary: z.string().nullable(),
+	createdAt: z.string(),
+	startedAt: z.string().nullable(),
+	completedAt: z.string().nullable(),
+});
+
 const modelSchema = z.object({
 	id: z.string(),
 	providerCompanyId: z.string(),
@@ -226,9 +271,12 @@ const modelSchema = z.object({
 	audio: z.boolean(),
 	tools: z.boolean(),
 	jsonOutput: z.boolean(),
+	jsonOutputSchema: z.boolean(),
 	reasoning: z.boolean(),
+	reasoningMaxTokens: z.boolean(),
 	// Supported unified reasoning_effort tiers; null = unsupported.
 	reasoningEfforts: z.array(z.enum(REASONING_EFFORT_VALUES)).nullable(),
+	webSearch: z.boolean(),
 	// Carrier-managed request caps; admin rate limits take precedence.
 	maxRpm: z.number().nullable(),
 	maxRpd: z.number().nullable(),
@@ -239,6 +287,7 @@ const modelSchema = z.object({
 	updatedAt: z.string(),
 	currentPricing: filingSchema.nullable(),
 	pendingFiling: filingSchema.nullable(),
+	latestVerification: modelVerificationSchema.nullable(),
 });
 
 const routingFilingSchema = z.object({
@@ -290,6 +339,8 @@ function serializeRoutingFiling(row: RoutingFilingRow) {
 type ProviderClaimRow = typeof tables.providerClaim.$inferSelect;
 type PriceFilingRow = typeof tables.providerPriceFiling.$inferSelect;
 type DraftModelRow = typeof tables.providerDraftModel.$inferSelect;
+type ModelVerificationRow =
+	typeof tables.providerModelVerification.$inferSelect;
 
 function serializeClaim(
 	row: ProviderClaimRow,
@@ -347,6 +398,136 @@ async function credentialedProviderIds(
 	return withKey;
 }
 
+function verificationTarget(
+	body: z.infer<typeof verificationMappingSchema>,
+): ProviderModelVerificationTarget {
+	return {
+		providerId: body.providerId,
+		modelName: body.modelName,
+		externalId: body.externalId ?? body.modelName,
+		streaming: body.streaming ?? true,
+		vision: body.vision ?? false,
+		audio: body.audio ?? false,
+		tools: body.tools ?? false,
+		jsonOutput: body.jsonOutput ?? false,
+		jsonOutputSchema: body.jsonOutputSchema ?? false,
+		reasoning: body.reasoning ?? false,
+		reasoningMaxTokens: body.reasoningMaxTokens ?? false,
+		reasoningEfforts: body.reasoningEfforts ?? null,
+		webSearch: body.webSearch ?? false,
+	};
+}
+
+function draftVerificationTarget(
+	model: DraftModelRow,
+): ProviderModelVerificationTarget {
+	return verificationTarget({
+		providerCompanyId: model.providerCompanyId,
+		providerId: model.providerId,
+		modelName: model.modelName,
+		externalId: model.externalId,
+		streaming: model.streaming,
+		vision: model.vision,
+		audio: model.audio,
+		tools: model.tools,
+		jsonOutput: model.jsonOutput,
+		jsonOutputSchema: model.jsonOutputSchema,
+		reasoning: model.reasoning,
+		reasoningMaxTokens: model.reasoningMaxTokens,
+		reasoningEfforts: model.reasoningEfforts as
+			(typeof REASONING_EFFORT_VALUES)[number][] | null,
+		webSearch: model.webSearch,
+	});
+}
+
+function verificationTargetsMatch(
+	left: ProviderModelVerificationTarget,
+	right: ProviderModelVerificationTarget,
+): boolean {
+	return (
+		left.providerId === right.providerId &&
+		left.modelName === right.modelName &&
+		left.externalId === right.externalId &&
+		left.streaming === right.streaming &&
+		left.vision === right.vision &&
+		left.audio === right.audio &&
+		left.tools === right.tools &&
+		left.jsonOutput === right.jsonOutput &&
+		left.jsonOutputSchema === right.jsonOutputSchema &&
+		left.reasoning === right.reasoning &&
+		left.reasoningMaxTokens === right.reasoningMaxTokens &&
+		JSON.stringify(left.reasoningEfforts) ===
+			JSON.stringify(right.reasoningEfforts) &&
+		left.webSearch === right.webSearch
+	);
+}
+
+async function verificationCredentialSource(
+	target: ProviderModelVerificationTarget,
+	apiKey: string | undefined,
+): Promise<"supplied" | "managed" | "environment"> {
+	if (apiKey) {
+		return "supplied";
+	}
+	const managedKeys = await db.query.providerKey.findMany({
+		where: {
+			provider: { eq: target.providerId },
+			managed: { eq: true },
+			status: { eq: "active" },
+		},
+		columns: { allowedModels: true },
+	});
+	if (
+		managedKeys.some(
+			(key) =>
+				!key.allowedModels?.length ||
+				key.allowedModels.includes(target.modelName),
+		)
+	) {
+		return "managed";
+	}
+	if (hasProviderEnvironmentToken(target.providerId)) {
+		return "environment";
+	}
+	throw new HTTPException(400, {
+		message: "Enter a provider API key to run this verification.",
+	});
+}
+
+async function enqueueModelVerification(input: {
+	providerCompanyId: string;
+	draftModelId?: string;
+	target: ProviderModelVerificationTarget;
+	apiKey?: string;
+	requestedBy: string;
+}): Promise<ModelVerificationRow> {
+	const id = shortid();
+	const credentialSource = await verificationCredentialSource(
+		input.target,
+		input.apiKey,
+	);
+	const [created] = await db
+		.insert(tables.providerModelVerification)
+		.values({
+			id,
+			providerCompanyId: input.providerCompanyId,
+			draftModelId: input.draftModelId ?? null,
+			requestedBy: input.requestedBy,
+			target: input.target,
+			checks: createQueuedModelVerificationChecks(input.target),
+			credentialSource,
+			credentialCiphertext: input.apiKey
+				? encryptModelVerificationCredential(
+						input.apiKey,
+						id,
+						input.providerCompanyId,
+					)
+				: null,
+		})
+		.returning();
+	return created;
+}
+
 function serializeFiling(row: PriceFilingRow) {
 	return {
 		id: row.id,
@@ -366,8 +547,23 @@ function serializeFiling(row: PriceFilingRow) {
 	};
 }
 
+function serializeVerification(row: ModelVerificationRow) {
+	return {
+		id: row.id,
+		status: row.status,
+		checks: row.checks,
+		summary: row.summary,
+		createdAt: row.createdAt.toISOString(),
+		startedAt: row.startedAt?.toISOString() ?? null,
+		completedAt: row.completedAt?.toISOString() ?? null,
+	};
+}
+
 function serializeModel(
-	row: DraftModelRow & { priceFilings?: PriceFilingRow[] },
+	row: DraftModelRow & {
+		priceFilings?: PriceFilingRow[];
+		modelVerifications?: ModelVerificationRow[];
+	},
 ) {
 	const filings = [...(row.priceFilings ?? [])].sort(
 		(a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
@@ -390,9 +586,12 @@ function serializeModel(
 		audio: row.audio,
 		tools: row.tools,
 		jsonOutput: row.jsonOutput,
+		jsonOutputSchema: row.jsonOutputSchema,
 		reasoning: row.reasoning,
+		reasoningMaxTokens: row.reasoningMaxTokens,
 		reasoningEfforts: (row.reasoningEfforts ?? null) as
 			(typeof REASONING_EFFORT_VALUES)[number][] | null,
+		webSearch: row.webSearch,
 		maxRpm: row.maxRpm,
 		maxRpd: row.maxRpd,
 		rateLimitScope: row.rateLimitScope,
@@ -401,6 +600,12 @@ function serializeModel(
 		updatedAt: row.updatedAt.toISOString(),
 		currentPricing: approved ? serializeFiling(approved) : null,
 		pendingFiling: pending ? serializeFiling(pending) : null,
+		latestVerification: (() => {
+			const latest = [...(row.modelVerifications ?? [])].sort(
+				(a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+			)[0];
+			return latest ? serializeVerification(latest) : null;
+		})(),
 	};
 }
 
@@ -1783,6 +1988,161 @@ airside.openapi(updateClaimBranding, async (c) => {
 // Models (fleet)
 // ---------------------------------------------------------------------------
 
+const queueNewModelVerification = createRoute({
+	method: "post",
+	path: "/model-verifications",
+	request: {
+		body: {
+			content: { "application/json": { schema: queueVerificationSchema } },
+		},
+	},
+	responses: {
+		202: {
+			content: {
+				"application/json": {
+					schema: z.object({ verification: modelVerificationSchema }),
+				},
+			},
+			description: "The queued model verification.",
+		},
+	},
+});
+
+airside.openapi(queueNewModelVerification, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const body = c.req.valid("json");
+	await requireCompanyMembership(user.id, body.providerCompanyId);
+	const claim = await db.query.providerClaim.findFirst({
+		where: {
+			providerCompanyId: { eq: body.providerCompanyId },
+			providerId: { eq: body.providerId },
+			status: { eq: "active" },
+		},
+	});
+	if (!claim) {
+		throw new HTTPException(403, {
+			message: "The provider must have an active claim before verification.",
+		});
+	}
+	if (staticCatalogueHasActiveMapping(body.providerId, body.modelName)) {
+		throw new HTTPException(409, {
+			message: "This provider mapping is already in the catalogue.",
+		});
+	}
+	const duplicate = await db.query.providerDraftModel.findFirst({
+		where: {
+			providerId: { eq: body.providerId },
+			modelName: { eq: body.modelName },
+			status: { ne: "delisted" },
+		},
+		columns: { id: true },
+	});
+	if (duplicate) {
+		throw new HTTPException(409, {
+			message: "A model with this name is already listed for the provider.",
+		});
+	}
+	const verification = await enqueueModelVerification({
+		providerCompanyId: body.providerCompanyId,
+		target: verificationTarget(body),
+		apiKey: body.apiKey,
+		requestedBy: user.id,
+	});
+	return c.json({ verification: serializeVerification(verification) }, 202);
+});
+
+const getModelVerification = createRoute({
+	method: "get",
+	path: "/model-verifications/{id}",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ verification: modelVerificationSchema }),
+				},
+			},
+			description: "Verification status and per-check feedback.",
+		},
+	},
+});
+
+airside.openapi(getModelVerification, async (c) => {
+	const user = requireUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const verification = await db.query.providerModelVerification.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!verification) {
+		throw new HTTPException(404, { message: "Verification not found" });
+	}
+	await requireCompanyMembership(user.id, verification.providerCompanyId);
+	return c.json({ verification: serializeVerification(verification) });
+});
+
+const queueExistingModelVerification = createRoute({
+	method: "post",
+	path: "/models/{id}/verifications",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						apiKey: z.string().min(1).max(20_000).optional(),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		202: {
+			content: {
+				"application/json": {
+					schema: z.object({ verification: modelVerificationSchema }),
+				},
+			},
+			description: "The queued verification for an existing mapping.",
+		},
+	},
+});
+
+airside.openapi(queueExistingModelVerification, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const { apiKey } = c.req.valid("json");
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!model) {
+		throw new HTTPException(404, { message: "Model not found" });
+	}
+	await requireCompanyMembership(user.id, model.providerCompanyId);
+	if (model.status === "delisted") {
+		throw new HTTPException(409, {
+			message: "Delisted mappings cannot be verified.",
+		});
+	}
+	let verification: ModelVerificationRow;
+	try {
+		verification = await enqueueModelVerification({
+			providerCompanyId: model.providerCompanyId,
+			draftModelId: model.id,
+			target: draftVerificationTarget(model),
+			apiKey,
+			requestedBy: user.id,
+		});
+	} catch (error) {
+		if (isUniqueViolation(error)) {
+			throw new HTTPException(409, {
+				message: "A verification for this mapping is already in progress.",
+			});
+		}
+		throw error;
+	}
+	return c.json({ verification: serializeVerification(verification) }, 202);
+});
+
 const listModels = createRoute({
 	method: "get",
 	path: "/models",
@@ -1809,7 +2169,13 @@ airside.openapi(listModels, async (c) => {
 	await requireCompanyMembership(user.id, providerCompanyId);
 	const rows = await db.query.providerDraftModel.findMany({
 		where: { providerCompanyId: { eq: providerCompanyId } },
-		with: { priceFilings: true },
+		with: {
+			priceFilings: true,
+			modelVerifications: {
+				orderBy: { createdAt: "desc" },
+				limit: 1,
+			},
+		},
 		orderBy: { createdAt: "desc" },
 	});
 	return c.json({ models: rows.map(serializeModel) });
@@ -1823,6 +2189,7 @@ const createModel = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
+						verificationId: z.string(),
 						providerCompanyId: z.string(),
 						providerId: z.string(),
 						modelName: z.string().min(1).max(200),
@@ -1838,8 +2205,11 @@ const createModel = createRoute({
 						audio: z.boolean().optional(),
 						tools: z.boolean().optional(),
 						jsonOutput: z.boolean().optional(),
+						jsonOutputSchema: z.boolean().optional(),
 						reasoning: z.boolean().optional(),
+						reasoningMaxTokens: z.boolean().optional(),
 						reasoningEfforts: reasoningEffortsValue.nullish(),
+						webSearch: z.boolean().optional(),
 						maxRpm: z.number().int().positive().optional(),
 						maxRpd: z.number().int().positive().optional(),
 						rateLimitScope: z.enum(["global", "per_org"]).optional(),
@@ -1906,6 +2276,36 @@ airside.openapi(createModel, async (c) => {
 			message: "A model with this name is already listed for the provider.",
 		});
 	}
+	const verification = await db.query.providerModelVerification.findFirst({
+		where: { id: { eq: body.verificationId } },
+	});
+	if (
+		!verification ||
+		verification.providerCompanyId !== body.providerCompanyId ||
+		verification.draftModelId !== null
+	) {
+		throw new HTTPException(404, {
+			message: "Verification not found for this new mapping.",
+		});
+	}
+	if (verification.status !== "passed") {
+		throw new HTTPException(409, {
+			message: "The mapping must pass verification before it can be submitted.",
+		});
+	}
+	if (verification.submittedAt) {
+		throw new HTTPException(409, {
+			message: "This verification has already been used.",
+		});
+	}
+	if (
+		!verificationTargetsMatch(verification.target, verificationTarget(body))
+	) {
+		throw new HTTPException(409, {
+			message:
+				"The mapping changed after verification. Run verification again.",
+		});
+	}
 
 	// cdb: the gateway caches airside model lookups; writes must invalidate.
 	const created = await cdb
@@ -1927,8 +2327,11 @@ airside.openapi(createModel, async (c) => {
 					audio: body.audio ?? false,
 					tools: body.tools ?? false,
 					jsonOutput: body.jsonOutput ?? false,
+					jsonOutputSchema: body.jsonOutputSchema ?? false,
 					reasoning: body.reasoning ?? false,
+					reasoningMaxTokens: body.reasoningMaxTokens ?? false,
 					reasoningEfforts: body.reasoningEfforts ?? null,
+					webSearch: body.webSearch ?? false,
 					maxRpm: body.maxRpm ?? null,
 					maxRpd: body.maxRpd ?? null,
 					rateLimitScope: body.rateLimitScope ?? "global",
@@ -1949,7 +2352,30 @@ airside.openapi(createModel, async (c) => {
 					note: body.note ?? null,
 				})
 				.returning();
-			return { ...model, priceFilings: [filing] };
+			const submittedAt = new Date();
+			const consumed = await tx
+				.update(tables.providerModelVerification)
+				.set({ draftModelId: model.id, submittedAt })
+				.where(
+					and(
+						eq(tables.providerModelVerification.id, verification.id),
+						eq(tables.providerModelVerification.status, "passed"),
+						sql`${tables.providerModelVerification.submittedAt} IS NULL`,
+					),
+				)
+				.returning({ id: tables.providerModelVerification.id });
+			if (consumed.length === 0) {
+				throw new HTTPException(409, {
+					message: "This verification has already been used.",
+				});
+			}
+			return {
+				...model,
+				priceFilings: [filing],
+				modelVerifications: [
+					{ ...verification, draftModelId: model.id, submittedAt },
+				],
+			};
 		})
 		.catch((err: unknown) => {
 			// The partial unique index on live (provider, model) rows backstops
@@ -2088,8 +2514,11 @@ airside.openapi(importCatalogueModels, async (c) => {
 					audio: Boolean(mapping.audio),
 					tools: mapping.tools ?? false,
 					jsonOutput: mapping.jsonOutput ?? false,
+					jsonOutputSchema: mapping.jsonOutputSchema ?? false,
 					reasoning: mapping.reasoning ?? false,
+					reasoningMaxTokens: mapping.reasoningMaxTokens ?? false,
 					reasoningEfforts: mapping.reasoningEfforts ?? null,
+					webSearch: mapping.webSearch ?? false,
 					status: "active",
 					createdBy: user.id,
 				})

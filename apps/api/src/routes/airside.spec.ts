@@ -138,19 +138,51 @@ async function createModel(
 	providerCompanyId: string,
 	overrides: Record<string, unknown> = {},
 ) {
+	const body: Record<string, unknown> = {
+		providerCompanyId,
+		providerId: "mistral",
+		modelName: "mistral-large-3",
+		displayName: "Mistral Large 3",
+		family: "mistral",
+		contextSize: 256000,
+		streaming: true,
+		tools: true,
+		pricing: { inputPrice: "2e-6", outputPrice: "6e-6" },
+		...overrides,
+	};
+	const verificationId = `verification-${crypto.randomUUID()}`;
+	await db.insert(tables.providerModelVerification).values({
+		id: verificationId,
+		providerCompanyId,
+		requestedBy: "test-user-id",
+		target: {
+			providerId: String(body.providerId),
+			modelName: String(body.modelName),
+			externalId: String(body.externalId ?? body.modelName),
+			streaming: body.streaming !== false,
+			vision: body.vision === true,
+			audio: body.audio === true,
+			tools: body.tools === true,
+			jsonOutput: body.jsonOutput === true,
+			jsonOutputSchema: body.jsonOutputSchema === true,
+			reasoning: body.reasoning === true,
+			reasoningMaxTokens: body.reasoningMaxTokens === true,
+			reasoningEfforts: Array.isArray(body.reasoningEfforts)
+				? body.reasoningEfforts.filter(
+						(effort): effort is string => typeof effort === "string",
+					)
+				: null,
+			webSearch: body.webSearch === true,
+		},
+		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
+		status: "passed",
+		completedAt: new Date(),
+	});
 	const res = await app.request(
 		"/airside/models",
 		json(cookie, {
-			providerCompanyId,
-			providerId: "mistral",
-			modelName: "mistral-large-3",
-			displayName: "Mistral Large 3",
-			family: "mistral",
-			contextSize: 256000,
-			streaming: true,
-			tools: true,
-			pricing: { inputPrice: "2e-6", outputPrice: "6e-6" },
-			...overrides,
+			...body,
+			verificationId,
 		}),
 	);
 	return res;
@@ -365,6 +397,99 @@ describe("airside provider portal", () => {
 			where: { providerId: { eq: "mistral" } },
 		});
 		expect(settings).toBeTruthy();
+	});
+
+	it("queues capability checks and gates a new mapping on their result", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const mapping = {
+			providerCompanyId: company.id,
+			providerId: "mistral",
+			modelName: "mistral-verified-x",
+			externalId: "mistral-verified-upstream",
+			streaming: true,
+			tools: true,
+			jsonOutput: true,
+			jsonOutputSchema: true,
+			reasoning: true,
+			reasoningMaxTokens: true,
+			reasoningEfforts: ["low" as const],
+			webSearch: true,
+		};
+		const queued = await app.request(
+			"/airside/model-verifications",
+			json(cookie, { ...mapping, apiKey: "provider-secret-for-test" }),
+		);
+		expect(queued.status).toBe(202);
+		const queuedBody = await queued.json();
+		expect(JSON.stringify(queuedBody)).not.toContain(
+			"provider-secret-for-test",
+		);
+		expect(queuedBody.verification).toMatchObject({
+			status: "queued",
+			checks: expect.arrayContaining([
+				expect.objectContaining({ id: "basic", status: "queued" }),
+				expect.objectContaining({ id: "streaming" }),
+				expect.objectContaining({ id: "tools" }),
+				expect.objectContaining({ id: "structured_json" }),
+				expect.objectContaining({ id: "reasoning_budget" }),
+				expect.objectContaining({ id: "web_search" }),
+			]),
+		});
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: queuedBody.verification.id } },
+		});
+		expect(stored?.credentialCiphertext).toMatch(/^llmgw:v2:/);
+		expect(stored?.credentialCiphertext).not.toContain(
+			"provider-secret-for-test",
+		);
+
+		const submission = {
+			...mapping,
+			verificationId: queuedBody.verification.id as string,
+			family: "mistral",
+			pricing: { inputPrice: "2e-6", outputPrice: "6e-6" },
+		};
+		const impending = await app.request(
+			"/airside/models",
+			json(cookie, submission),
+		);
+		expect(impending.status).toBe(409);
+		expect((await impending.json()).message).toContain("must pass");
+
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				status: "passed",
+				checks: stored!.checks.map((check) => ({
+					...check,
+					status: "passed" as const,
+					feedback: "Passed",
+				})),
+				completedAt: new Date(),
+				credentialCiphertext: null,
+			})
+			.where(eq(tables.providerModelVerification.id, stored!.id));
+		const created = await app.request(
+			"/airside/models",
+			json(cookie, submission),
+		);
+		expect(created.status).toBe(201);
+		const createdBody = await created.json();
+		expect(createdBody.model).toMatchObject({
+			modelName: "mistral-verified-x",
+			jsonOutputSchema: true,
+			reasoningMaxTokens: true,
+			webSearch: true,
+			latestVerification: expect.objectContaining({ status: "passed" }),
+		});
+		const consumed = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: stored!.id } },
+		});
+		expect(consumed?.draftModelId).toBe(createdBody.model.id);
+		expect(consumed?.submittedAt).toBeInstanceOf(Date);
 	});
 
 	it("drafts a model with an initial price filing and blocks price edits", async () => {
