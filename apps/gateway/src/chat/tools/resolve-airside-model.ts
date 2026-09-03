@@ -4,10 +4,15 @@ import {
 	findAirsideModelsByBareName,
 } from "@/lib/cached-queries.js";
 
-import { models, providers } from "@llmgateway/models";
+import {
+	expandAllProviderRegions,
+	models,
+	providers,
+} from "@llmgateway/models";
 
 import type { ParseModelInputResult } from "./parse-model-input.js";
 import type { ResolveModelInfoResult } from "./resolve-model-info.js";
+import type { AirsideListedModel } from "@/lib/cached-queries.js";
 import type {
 	Model,
 	ModelDefinition,
@@ -19,8 +24,8 @@ export interface AirsideResolution {
 	parseResult: ParseModelInputResult;
 	modelInfoResult: ResolveModelInfoResult;
 	/** The synthesized mapping carrying the approved filing's prices — thread
-	 *  it into calculateCosts so the request is billed at the filed rates. */
-	pricingMapping: ProviderModelMapping;
+	 *  it into calculateCosts so the request is billed at the canonical rates. */
+	pricingMappings: ProviderModelMapping[];
 	/** Set for custom carriers (providers that exist only as an approved
 	 *  Airside registration): the OpenAI-compatible endpoint to route to.
 	 *  Undefined for listings on catalogue providers, which use the
@@ -52,14 +57,47 @@ export async function resolveAirsideModel(
 		if (modelInput.includes(":")) {
 			return null;
 		}
-		const staticModelExists = models.some(
+		const staticModel = models.find(
 			(m) =>
 				m.id === modelInput ||
 				("aliases" in m &&
 					(m.aliases as readonly string[] | undefined)?.includes(modelInput)),
 		);
-		if (staticModelExists) {
-			return null;
+		if (staticModel) {
+			if (staticModel.id !== modelInput) {
+				const exactListings = await findAirsideModelsByBareName(modelInput);
+				if (exactListings.length === 1) {
+					return await buildResolution(exactListings[0]);
+				}
+				if (exactListings.length > 1) {
+					return null;
+				}
+			}
+			const listings = (
+				await findAirsideModelsByBareName(staticModel.id)
+			).filter((listed) =>
+				providers.some((provider) => provider.id === listed.mapping.providerId),
+			);
+			if (listings.length === 0) {
+				return null;
+			}
+			const { modelInfo, allModelProviders, pricingMappings } =
+				mergeAirsideListingsIntoModel(staticModel, listings);
+			return {
+				parseResult: {
+					requestedModel: staticModel.id as Model,
+					requestedProvider: undefined,
+					customProviderName: undefined,
+					requestedRegion: undefined,
+				},
+				modelInfoResult: {
+					modelInfo,
+					activeProviders: modelInfo.providers,
+					allModelProviders,
+					requestedProvider: undefined,
+				},
+				pricingMappings,
+			};
 		}
 		const listings = await findAirsideModelsByBareName(modelInput);
 		if (listings.length !== 1) {
@@ -110,12 +148,10 @@ export async function resolveAirsideModel(
 
 /** The synthesized parse/model-info results for one resolved listing. */
 async function buildResolution(
-	listed: Parameters<typeof airsideListingToModelDefinition>[0] & {
-		model: { providerId: string };
-	},
+	listed: AirsideListedModel,
 	knownCustomBaseUrl?: string,
 ): Promise<AirsideResolution> {
-	const providerId = listed.model.providerId;
+	const providerId = listed.mapping.providerId;
 	let customBaseUrl = knownCustomBaseUrl;
 	if (
 		customBaseUrl === undefined &&
@@ -128,7 +164,7 @@ async function buildResolution(
 
 	return {
 		parseResult: {
-			requestedModel: listed.model.modelName as Model,
+			requestedModel: listed.model.id as Model,
 			requestedProvider: providerId as Provider,
 			customProviderName: undefined,
 			requestedRegion: undefined,
@@ -139,57 +175,100 @@ async function buildResolution(
 			allModelProviders: [mapping],
 			requestedProvider: providerId as Provider,
 		},
-		pricingMapping: mapping,
+		pricingMappings: [mapping],
 		customBaseUrl,
+	};
+}
+
+/** Replace the static mappings owned by approved Airside listings. */
+export function mergeAirsideListingsIntoModel(
+	staticModel: ModelDefinition,
+	listings: AirsideListedModel[],
+): {
+	modelInfo: ModelDefinition;
+	allModelProviders: ProviderModelMapping[];
+	pricingMappings: ProviderModelMapping[];
+} {
+	const pricingMappings = listings.map(
+		(listed) => airsideListingToModelDefinition(listed).mapping,
+	);
+	const ownedProviderIds = new Set(
+		pricingMappings.map((mapping) => mapping.providerId),
+	);
+	const allModelProviders = [
+		...staticModel.providers.filter(
+			(mapping) => !ownedProviderIds.has(mapping.providerId),
+		),
+		...pricingMappings,
+	];
+	const now = new Date();
+	const activeProviders = allModelProviders.filter(
+		(mapping) => !mapping.deactivatedAt || mapping.deactivatedAt > now,
+	);
+	return {
+		modelInfo: { ...staticModel, providers: activeProviders },
+		allModelProviders,
+		pricingMappings,
 	};
 }
 
 /** Build the synthetic catalogue entry a listing represents — shared by the
  *  chat resolver and the /v1/models catalogue. */
-export function airsideListingToModelDefinition(listed: {
-	model: {
-		providerId: string;
-		modelName: string;
-		displayName: string | null;
-		contextSize: number | null;
-		maxOutput: number | null;
-		streaming: boolean;
-		vision: boolean;
-		audio: boolean;
-		tools: boolean;
-		jsonOutput: boolean;
-		reasoning: boolean;
-		reasoningEfforts: string[] | null;
-	};
-	pricing: {
-		inputPrice: string;
-		outputPrice: string;
-		cachedInputPrice: string | null;
-		requestPrice: string | null;
-	};
-}): { mapping: ProviderModelMapping; modelInfo: ModelDefinition } {
+export function airsideListingToModelDefinition(listed: AirsideListedModel): {
+	mapping: ProviderModelMapping;
+	modelInfo: ModelDefinition;
+} {
+	const staticModel = models.find(
+		(model) =>
+			model.id === listed.model.id ||
+			("aliases" in model &&
+				(model.aliases as readonly string[] | undefined)?.includes(
+					listed.model.id,
+				)),
+	) as ModelDefinition | undefined;
+	const staticMapping = staticModel
+		? expandAllProviderRegions(staticModel.providers).find(
+				(candidate) =>
+					candidate.providerId === listed.mapping.providerId &&
+					candidate.region === undefined,
+			)
+		: undefined;
 	const mapping: ProviderModelMapping = {
-		providerId: listed.model.providerId as Provider,
-		externalId: listed.model.modelName,
-		inputPrice: listed.pricing.inputPrice,
-		outputPrice: listed.pricing.outputPrice,
-		cachedInputPrice: listed.pricing.cachedInputPrice ?? undefined,
-		requestPrice: listed.pricing.requestPrice ?? undefined,
-		contextSize: listed.model.contextSize ?? undefined,
-		maxOutput: listed.model.maxOutput ?? undefined,
-		streaming: listed.model.streaming,
-		vision: listed.model.vision,
-		audio: listed.model.audio,
-		tools: listed.model.tools,
-		jsonOutput: listed.model.jsonOutput,
-		reasoning: listed.model.reasoning,
-		reasoningEfforts: (listed.model.reasoningEfforts ??
+		...staticMapping,
+		// A filing carries one flat price pair; inherited context-length tiers
+		// or peak windows would override it in calculateCosts.
+		pricingTiers: undefined,
+		peakPricing: undefined,
+		providerId: listed.mapping.providerId as Provider,
+		externalId: listed.mapping.externalId,
+		inputPrice: listed.mapping.inputPrice ?? undefined,
+		outputPrice: listed.mapping.outputPrice ?? undefined,
+		cachedInputPrice: listed.mapping.cachedInputPrice ?? undefined,
+		requestPrice: listed.mapping.requestPrice ?? undefined,
+		contextSize: listed.mapping.contextSize ?? undefined,
+		maxOutput: listed.mapping.maxOutput ?? undefined,
+		streaming: listed.mapping.streaming,
+		vision: listed.mapping.vision ?? undefined,
+		audio: listed.mapping.audio ?? undefined,
+		tools: listed.mapping.tools ?? undefined,
+		jsonOutput: listed.mapping.jsonOutput,
+		reasoning: listed.mapping.reasoning ?? undefined,
+		reasoningEfforts: (listed.mapping.reasoningEfforts ??
 			undefined) as ProviderModelMapping["reasoningEfforts"],
+		deactivatedAt: listed.mapping.deactivatedAt ?? undefined,
 	};
 	const modelInfo: ModelDefinition = {
-		id: listed.model.modelName as Model,
-		name: listed.model.displayName ?? listed.model.modelName,
-		family: "airside",
+		...staticModel,
+		id: listed.model.id as Model,
+		name: listed.model.name,
+		aliases: listed.model.aliases,
+		description: listed.model.description,
+		family: listed.model.family,
+		releasedAt: listed.model.releasedAt,
+		free: listed.model.free,
+		output: listed.model.output as ModelDefinition["output"],
+		imageInputRequired: listed.model.imageInputRequired,
+		stability: listed.model.stability,
 		providers: [mapping],
 	};
 	return { mapping, modelInfo };

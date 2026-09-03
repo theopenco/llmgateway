@@ -129,6 +129,7 @@ export function RegisterModelDialog({
 	const invalidate = useInvalidateModels(providerCompanyId);
 	const [open, setOpen] = useState(false);
 	const [modelName, setModelName] = useState("");
+	const [externalId, setExternalId] = useState("");
 	const [displayName, setDisplayName] = useState("");
 	const [contextSize, setContextSize] = useState("128000");
 	const [description, setDescription] = useState("");
@@ -170,6 +171,7 @@ export function RegisterModelDialog({
 			);
 			setOpen(false);
 			setModelName("");
+			setExternalId("");
 			setDisplayName("");
 			setInputPrice("");
 			setOutputPrice("");
@@ -206,9 +208,10 @@ export function RegisterModelDialog({
 								providerCompanyId,
 								providerId: effectiveProviderId,
 								modelName,
+								externalId: externalId || undefined,
 								displayName: displayName || undefined,
 								description: description || undefined,
-								family: family || undefined,
+								family,
 								contextSize: Number(contextSize) || undefined,
 								maxOutput: Number(maxOutput) || undefined,
 								...capabilities,
@@ -264,6 +267,19 @@ export function RegisterModelDialog({
 							/>
 						</div>
 						<div className="space-y-2">
+							<Label htmlFor="model-external-id">Upstream model ID</Label>
+							<Input
+								id="model-external-id"
+								data-testid="model-external-id-input"
+								value={externalId}
+								onChange={(e) => setExternalId(e.target.value)}
+								placeholder={modelName || "same as model ID"}
+							/>
+							<p className="text-muted-foreground text-xs">
+								The id your API expects. Fixed once listed.
+							</p>
+						</div>
+						<div className="space-y-2">
 							<Label htmlFor="model-display">Display name</Label>
 							<Input
 								id="model-display"
@@ -300,6 +316,7 @@ export function RegisterModelDialog({
 								value={family}
 								onChange={(e) => setFamily(e.target.value)}
 								placeholder="e.g. acme (groups related models)"
+								required
 							/>
 						</div>
 					</div>
@@ -547,7 +564,11 @@ export function EditModelDialog({
 	const updateModel = api.useMutation("patch", "/airside/models/{id}", {
 		onSuccess: async () => {
 			await invalidate();
-			toast.success("Model updated.");
+			toast.success(
+				model.status === "active"
+					? "Change filed for review."
+					: "Model updated.",
+			);
 			setOpen(false);
 		},
 		onError: (error) => {
@@ -576,8 +597,9 @@ export function EditModelDialog({
 						Edit {model.modelName}
 					</DialogTitle>
 					<DialogDescription>
-						Everything here applies immediately. Pricing is the exception — it
-						only changes through an approved fare filing.
+						{model.status === "active"
+							? "Changes to a live listing are filed for review and apply once we approve them. Pricing goes through a separate fare filing."
+							: "Everything here applies to the draft immediately; the initial fare filing covers it. Pricing only changes through a fare filing."}
 					</DialogDescription>
 				</DialogHeader>
 				<form
@@ -589,7 +611,7 @@ export function EditModelDialog({
 							body: {
 								displayName: displayName || null,
 								description: description || null,
-								family: family || null,
+								family,
 								contextSize: contextSize ? Number(contextSize) : null,
 								maxOutput: maxOutput ? Number(maxOutput) : null,
 								...capabilities,
@@ -605,6 +627,19 @@ export function EditModelDialog({
 					}}
 				>
 					<div className="grid gap-4 sm:grid-cols-2">
+						<div className="space-y-2">
+							<Label htmlFor="edit-external-id">Upstream model ID</Label>
+							<Input
+								id="edit-external-id"
+								className="font-mono"
+								value={model.externalId}
+								readOnly
+								disabled
+							/>
+							<p className="text-muted-foreground text-xs">
+								The id sent to your API. Delist and re-register to change it.
+							</p>
+						</div>
 						<div className="space-y-2">
 							<Label htmlFor="edit-display">Display name</Label>
 							<Input
@@ -640,6 +675,7 @@ export function EditModelDialog({
 								id="edit-family"
 								value={family}
 								onChange={(e) => setFamily(e.target.value)}
+								required
 							/>
 						</div>
 					</div>

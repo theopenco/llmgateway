@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import {
 	dematerializeAirsideModel,
+	materializeAirsideModel,
 	staticCatalogueHasActiveMapping,
 	syncAirsideModelMetadata,
 } from "@/lib/airside-catalogue.js";
@@ -20,6 +21,13 @@ import {
 	WEBSITE_VERIFICATION_TXT_NAME,
 	websiteVerificationRecord,
 } from "@/lib/airside-domains.js";
+import {
+	airsideModelMetadataSchema,
+	type AirsideModelMetadataInput,
+	diffMetadataChanges,
+	pickMetadataChanges,
+	REASONING_EFFORT_VALUES,
+} from "@/lib/airside-metadata.js";
 import { notifyAirsideCrewInvite } from "@/utils/discord.js";
 
 import {
@@ -111,16 +119,12 @@ const priceValue = z
 		message: "Price must be a non-negative decimal number string",
 	});
 
-const REASONING_EFFORT_VALUES = [
-	"none",
-	"minimal",
-	"low",
-	"medium",
-	"high",
-	"xhigh",
-	"max",
-] as const;
 const reasoningEffortsValue = z.array(z.enum(REASONING_EFFORT_VALUES)).max(7);
+
+const pendingBrandingSchema = z.object({
+	logoUrl: z.string().nullable().optional(),
+	iconUrl: z.string().nullable().optional(),
+});
 
 const pricingSchema = z.object({
 	inputPrice: priceValue,
@@ -143,6 +147,8 @@ const claimSchema = z.object({
 	reviewNote: z.string().nullable(),
 	logoUrl: z.string().nullable(),
 	iconUrl: z.string().nullable(),
+	// Branding edits on an active claim awaiting admin approval.
+	pendingBranding: pendingBrandingSchema.nullable(),
 	// Whether we hold a platform credential for this carrier. Without one the
 	// gateway has nothing to authenticate with, so an approved listing still
 	// serves no traffic — the portal says so instead of looking healthy.
@@ -189,11 +195,13 @@ const filingSchema = z.object({
 	id: z.string(),
 	draftModelId: z.string(),
 	providerCompanyId: z.string(),
-	kind: z.enum(["initial", "update"]),
+	kind: z.enum(["initial", "update", "metadata"]),
 	inputPrice: z.string(),
 	outputPrice: z.string(),
 	cachedInputPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
+	// Proposed non-price changes; set on "metadata" filings only.
+	metadata: airsideModelMetadataSchema.nullable(),
 	status: z.enum(["pending", "approved", "rejected"]),
 	note: z.string().nullable(),
 	reviewNote: z.string().nullable(),
@@ -206,6 +214,8 @@ const modelSchema = z.object({
 	providerCompanyId: z.string(),
 	providerId: z.string(),
 	modelName: z.string(),
+	// The id sent to the provider's API; fixed at registration or import.
+	externalId: z.string(),
 	displayName: z.string().nullable(),
 	description: z.string().nullable(),
 	family: z.string().nullable(),
@@ -301,6 +311,7 @@ function serializeClaim(
 		reviewNote: row.reviewNote,
 		logoUrl: row.logoUrl,
 		iconUrl: row.iconUrl,
+		pendingBranding: row.pendingBranding ?? null,
 		// Unknown on the single-claim responses (nothing renders the warning
 		// off those); the companies listing the portal polls resolves it.
 		hasManagedCredential: credentialedProviders?.has(row.providerId) ?? true,
@@ -346,6 +357,7 @@ function serializeFiling(row: PriceFilingRow) {
 		outputPrice: row.outputPrice,
 		cachedInputPrice: row.cachedInputPrice,
 		requestPrice: row.requestPrice,
+		metadata: (row.metadata ?? null) as AirsideModelMetadataInput | null,
 		status: row.status,
 		note: row.note,
 		reviewNote: row.reviewNote,
@@ -367,6 +379,7 @@ function serializeModel(
 		providerCompanyId: row.providerCompanyId,
 		providerId: row.providerId,
 		modelName: row.modelName,
+		externalId: row.externalId,
 		displayName: row.displayName,
 		description: row.description,
 		family: row.family,
@@ -1743,10 +1756,21 @@ airside.openapi(updateClaimBranding, async (c) => {
 	if (Object.keys(brandingUpdates).length === 0) {
 		return c.json({ claim: serializeClaim(claim, providerNamesById) });
 	}
+	// A pending claim is still under review, so its branding is part of what
+	// gets approved. Once live, the public pages only change after we approve.
+	const changes =
+		claim.status === "active"
+			? {
+					pendingBranding: {
+						...(claim.pendingBranding ?? {}),
+						...brandingUpdates,
+					},
+				}
+			: brandingUpdates;
 	// cdb: claim rows feed the gateway's custom-carrier resolution cache.
 	const [updated] = await cdb
 		.update(tables.providerClaim)
-		.set(brandingUpdates)
+		.set(changes)
 		.where(eq(tables.providerClaim.id, id))
 		.returning();
 	if (!updated) {
@@ -1802,9 +1826,11 @@ const createModel = createRoute({
 						providerCompanyId: z.string(),
 						providerId: z.string(),
 						modelName: z.string().min(1).max(200),
+						// Defaults to modelName. Immutable once listed.
+						externalId: z.string().min(1).max(200).optional(),
 						displayName: z.string().max(200).optional(),
 						description: z.string().max(2000).optional(),
-						family: z.string().max(100).optional(),
+						family: z.string().min(1).max(100),
 						contextSize: z.number().int().positive().optional(),
 						maxOutput: z.number().int().positive().optional(),
 						streaming: z.boolean().optional(),
@@ -1890,9 +1916,10 @@ airside.openapi(createModel, async (c) => {
 					providerCompanyId: body.providerCompanyId,
 					providerId: body.providerId,
 					modelName: body.modelName,
+					externalId: body.externalId ?? body.modelName,
 					displayName: body.displayName ?? null,
 					description: body.description ?? null,
-					family: body.family ?? null,
+					family: body.family,
 					contextSize: body.contextSize ?? null,
 					maxOutput: body.maxOutput ?? null,
 					streaming: body.streaming ?? true,
@@ -1939,10 +1966,9 @@ airside.openapi(createModel, async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// Catalogue → DB migration: a claimed carrier imports its static-catalogue
-// models as Airside listings (active, with the current prices as an approved
-// filing). Routing still prefers the static mapping; once we deactivate it in
-// packages/models, the imported listing takes over — that is the migration.
+// Catalogue → Airside ownership: a claimed carrier imports its static models
+// as active listings with the current prices as an approved filing. The
+// materialized mapping becomes the canonical row for every consumer.
 // ---------------------------------------------------------------------------
 
 const importCatalogueModels = createRoute({
@@ -2051,6 +2077,7 @@ airside.openapi(importCatalogueModels, async (c) => {
 					providerCompanyId: body.providerCompanyId,
 					providerId: body.providerId,
 					modelName: model.id,
+					externalId: mapping.externalId,
 					displayName: model.name ?? null,
 					family: model.family,
 					contextSize: mapping.contextSize ?? null,
@@ -2067,23 +2094,27 @@ airside.openapi(importCatalogueModels, async (c) => {
 					createdBy: user.id,
 				})
 				.returning();
-			await tx.insert(tables.providerPriceFiling).values({
-				draftModelId: row.id,
-				providerCompanyId: body.providerCompanyId,
-				kind: "initial",
-				inputPrice: String(mapping.inputPrice),
-				outputPrice: String(mapping.outputPrice),
-				cachedInputPrice: mapping.cachedInputPrice
-					? String(mapping.cachedInputPrice)
-					: null,
-				requestPrice: mapping.requestPrice
-					? String(mapping.requestPrice)
-					: null,
-				requestedBy: user.id,
-				status: "approved",
-				reviewNote: "Imported from the catalogue",
-				reviewedAt: new Date(),
-			});
+			const [filing] = await tx
+				.insert(tables.providerPriceFiling)
+				.values({
+					draftModelId: row.id,
+					providerCompanyId: body.providerCompanyId,
+					kind: "initial",
+					inputPrice: String(mapping.inputPrice),
+					outputPrice: String(mapping.outputPrice),
+					cachedInputPrice: mapping.cachedInputPrice
+						? String(mapping.cachedInputPrice)
+						: null,
+					requestPrice: mapping.requestPrice
+						? String(mapping.requestPrice)
+						: null,
+					requestedBy: user.id,
+					status: "approved",
+					reviewNote: "Imported from the catalogue",
+					reviewedAt: new Date(),
+				})
+				.returning();
+			await materializeAirsideModel(row, filing, tx);
 		});
 		imported.push(model.id);
 	}
@@ -2099,23 +2130,7 @@ const updateModel = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						displayName: z.string().max(200).nullish(),
-						description: z.string().max(2000).nullish(),
-						family: z.string().max(100).nullish(),
-						contextSize: z.number().int().positive().nullish(),
-						maxOutput: z.number().int().positive().nullish(),
-						streaming: z.boolean().optional(),
-						vision: z.boolean().optional(),
-						audio: z.boolean().optional(),
-						tools: z.boolean().optional(),
-						jsonOutput: z.boolean().optional(),
-						reasoning: z.boolean().optional(),
-						reasoningEfforts: reasoningEffortsValue.nullish(),
-						maxRpm: z.number().int().positive().nullish(),
-						maxRpd: z.number().int().positive().nullish(),
-						rateLimitScope: z.enum(["global", "per_org"]).optional(),
-					}),
+					schema: airsideModelMetadataSchema,
 				},
 			},
 		},
@@ -2128,7 +2143,7 @@ const updateModel = createRoute({
 				},
 			},
 			description:
-				"The updated model. Pricing is not editable here — file a price change instead.",
+				"The model. Drafts are edited in place; on an active listing the change is filed for admin approval and surfaces as `pendingFiling`. Pricing is not editable here — file a price change instead.",
 		},
 	},
 });
@@ -2149,33 +2164,7 @@ airside.openapi(updateModel, async (c) => {
 			message: "Delisted models cannot be edited.",
 		});
 	}
-	const updates = {
-		...(body.displayName !== undefined
-			? { displayName: body.displayName }
-			: {}),
-		...(body.description !== undefined
-			? { description: body.description }
-			: {}),
-		...(body.family !== undefined ? { family: body.family } : {}),
-		...(body.contextSize !== undefined
-			? { contextSize: body.contextSize }
-			: {}),
-		...(body.maxOutput !== undefined ? { maxOutput: body.maxOutput } : {}),
-		...(body.streaming !== undefined ? { streaming: body.streaming } : {}),
-		...(body.vision !== undefined ? { vision: body.vision } : {}),
-		...(body.audio !== undefined ? { audio: body.audio } : {}),
-		...(body.tools !== undefined ? { tools: body.tools } : {}),
-		...(body.jsonOutput !== undefined ? { jsonOutput: body.jsonOutput } : {}),
-		...(body.reasoning !== undefined ? { reasoning: body.reasoning } : {}),
-		...(body.reasoningEfforts !== undefined
-			? { reasoningEfforts: body.reasoningEfforts }
-			: {}),
-		...(body.maxRpm !== undefined ? { maxRpm: body.maxRpm } : {}),
-		...(body.maxRpd !== undefined ? { maxRpd: body.maxRpd } : {}),
-		...(body.rateLimitScope !== undefined
-			? { rateLimitScope: body.rateLimitScope }
-			: {}),
-	};
+	const updates = diffMetadataChanges(model, pickMetadataChanges(body));
 	// An empty diff is a no-op, not a drizzle "No values to set" 500.
 	if (Object.keys(updates).length === 0) {
 		const unchangedFilings = await db.query.providerPriceFiling.findMany({
@@ -2185,16 +2174,66 @@ airside.openapi(updateModel, async (c) => {
 			model: serializeModel({ ...model, priceFilings: unchangedFilings }),
 		});
 	}
-	const [updated] = await cdb
-		.update(tables.providerDraftModel)
-		.set(updates)
-		.where(eq(tables.providerDraftModel.id, id))
-		.returning();
-	if (!updated) {
-		throw new HTTPException(404, { message: "Model not found" });
+	if (model.status === "active") {
+		// Live listings only change through review: file the diff alongside
+		// the current prices so the filing row is self-describing.
+		const filings = await db.query.providerPriceFiling.findMany({
+			where: { draftModelId: { eq: id } },
+			orderBy: { createdAt: "desc" },
+		});
+		if (filings.some((f) => f.status === "pending")) {
+			throw new HTTPException(409, {
+				message: "A filing for this model is already pending review.",
+			});
+		}
+		const current = filings.find((f) => f.status === "approved");
+		if (!current) {
+			throw new HTTPException(409, {
+				message: "This listing has no approved pricing to file against.",
+			});
+		}
+		const filing = await db
+			.insert(tables.providerPriceFiling)
+			.values({
+				draftModelId: id,
+				providerCompanyId: model.providerCompanyId,
+				kind: "metadata",
+				inputPrice: current.inputPrice,
+				outputPrice: current.outputPrice,
+				cachedInputPrice: current.cachedInputPrice,
+				requestPrice: current.requestPrice,
+				metadata: updates,
+				requestedBy: user.id,
+			})
+			.returning()
+			.catch((err: unknown) => {
+				if (isUniqueViolation(err)) {
+					throw new HTTPException(409, {
+						message: "A filing for this model is already pending review.",
+					});
+				}
+				throw err;
+			});
+		return c.json({
+			model: serializeModel({
+				...model,
+				priceFilings: [...filings, ...filing],
+			}),
+		});
 	}
-	// Active listings mirror non-pricing edits straight into the catalogue.
-	await syncAirsideModelMetadata(updated);
+	const updated = await cdb.transaction(async (tx) => {
+		const [row] = await tx
+			.update(tables.providerDraftModel)
+			.set(updates)
+			.where(eq(tables.providerDraftModel.id, id))
+			.returning();
+		if (!row) {
+			throw new HTTPException(404, { message: "Model not found" });
+		}
+		// Active listings mirror non-pricing edits straight into the catalogue.
+		await syncAirsideModelMetadata(row, tx);
+		return row;
+	});
 	const filings = await db.query.providerPriceFiling.findMany({
 		where: { draftModelId: { eq: id } },
 	});
@@ -2240,26 +2279,28 @@ airside.openapi(deleteModel, async (c) => {
 			.where(eq(tables.providerDraftModel.id, id));
 		return c.json({ status: "deleted" as const });
 	}
-	await cdb
-		.update(tables.providerDraftModel)
-		.set({ status: "delisted", delistedAt: new Date() })
-		.where(eq(tables.providerDraftModel.id, id));
-	// A delisted model's pending filing would otherwise linger in the admin
-	// queue and approve as a silent no-op.
-	await db
-		.update(tables.providerPriceFiling)
-		.set({
-			status: "rejected",
-			reviewNote: "Model delisted",
-			reviewedAt: new Date(),
-		})
-		.where(
-			and(
-				eq(tables.providerPriceFiling.draftModelId, id),
-				eq(tables.providerPriceFiling.status, "pending"),
-			),
-		);
-	await dematerializeAirsideModel(model.providerId, model.modelName);
+	await cdb.transaction(async (tx) => {
+		await tx
+			.update(tables.providerDraftModel)
+			.set({ status: "delisted", delistedAt: new Date() })
+			.where(eq(tables.providerDraftModel.id, id));
+		// A delisted model's pending filing would otherwise linger in the admin
+		// queue and approve as a silent no-op.
+		await tx
+			.update(tables.providerPriceFiling)
+			.set({
+				status: "rejected",
+				reviewNote: "Model delisted",
+				reviewedAt: new Date(),
+			})
+			.where(
+				and(
+					eq(tables.providerPriceFiling.draftModelId, id),
+					eq(tables.providerPriceFiling.status, "pending"),
+				),
+			);
+		await dematerializeAirsideModel(model.providerId, model.modelName, tx);
+	});
 	return c.json({ status: "delisted" as const });
 });
 
@@ -2311,7 +2352,7 @@ airside.openapi(createPriceFiling, async (c) => {
 	});
 	if (pending) {
 		throw new HTTPException(409, {
-			message: "A price filing for this model is already pending review.",
+			message: "A filing for this model is already pending review.",
 		});
 	}
 	const kind = model.status === "active" ? "update" : "initial";

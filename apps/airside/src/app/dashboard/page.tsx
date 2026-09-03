@@ -214,7 +214,9 @@ export default function OperationsPage() {
 										<Badge variant="pending">
 											{filing.kind === "initial"
 												? "New listing"
-												: "Fare change"}
+												: filing.kind === "metadata"
+													? "Metadata change"
+													: "Fare change"}
 										</Badge>
 									</li>
 								))}

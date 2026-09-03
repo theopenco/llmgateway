@@ -27,11 +27,13 @@ import {
 	findCustomModel,
 	findActiveCustomModels,
 	findEffectiveDiscount,
+	findAirsideModel,
 	findAirsideRoutingAdjustment,
 	findEffectiveRoutingScoreMultiplier,
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
+	listAirsideModels,
 	type CustomModel,
 	type ManagedProviderAvailability,
 } from "@/lib/cached-queries.js";
@@ -281,7 +283,11 @@ import {
 	splitTaggedStreamingContentChunk,
 	splitReasoningFromTaggedContent,
 } from "./tools/reasoning-details.js";
-import { resolveAirsideModel } from "./tools/resolve-airside-model.js";
+import {
+	airsideListingToModelDefinition,
+	mergeAirsideListingsIntoModel,
+	resolveAirsideModel,
+} from "./tools/resolve-airside-model.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import { resolvePlatformCredential } from "./tools/resolve-platform-credential.js";
 import {
@@ -2070,6 +2076,10 @@ chat.openapi(completions, async (c) => {
 	const parseResult =
 		airsideResolution?.parseResult ?? parseModelInput(modelInput);
 	let requestedModel = parseResult.requestedModel;
+	// resolveAirsideModel settled Airside ownership for this id — for every
+	// provider on a bare-name request, only for the pinned pair otherwise.
+	const airsideCheckedModel = requestedModel;
+	const airsideCheckedProvider = parseResult.requestedProvider;
 	let customProviderName = parseResult.customProviderName;
 	let requestedRegion = parseResult.requestedRegion;
 
@@ -3491,8 +3501,58 @@ chat.openapi(completions, async (c) => {
 	// custom model catalog entry. Threaded into every calculateCosts call below
 	// so the request is billed at the catalog rates; undefined otherwise (those
 	// requests stay unbilled, as before).
+	const findAirsidePricingMapping = () =>
+		airsideResolution?.pricingMappings.find(
+			(mapping) =>
+				mapping.providerId === usedProvider &&
+				(mapping.region ?? null) === (usedRegion ?? null),
+		);
+	// auto, dynamic routes and cross-model fallbacks pick their target from
+	// the static catalogue, so the served pair may be Airside-owned without
+	// resolveAirsideModel having seen it.
+	const resolveAirsidePricingMapping = async (): Promise<
+		ProviderModelMapping | undefined
+	> => {
+		const fromResolution = findAirsidePricingMapping();
+		if (
+			fromResolution ||
+			(usedInternalModel === airsideCheckedModel &&
+				(airsideCheckedProvider === undefined ||
+					usedProvider === airsideCheckedProvider)) ||
+			usedRegion !== undefined ||
+			!usedProvider ||
+			usedProvider === "custom" ||
+			usedProvider === "llmgateway"
+		) {
+			return fromResolution;
+		}
+		const listed = await findAirsideModel(usedProvider, usedInternalModel);
+		return listed ? airsideListingToModelDefinition(listed).mapping : undefined;
+	};
 	let customPricingMapping: ProviderModelMapping | undefined =
-		airsideResolution?.pricingMapping;
+		findAirsidePricingMapping();
+	// The canonical Airside row governs request validation as well as
+	// billing, so it replaces the static mapping in finalModelInfo.
+	const applyAirsidePricingMapping = (
+		mapping: ProviderModelMapping | undefined,
+	) => {
+		customPricingMapping = mapping;
+		if (!mapping) {
+			return;
+		}
+		const base =
+			finalModelInfo ??
+			(models.find((m) => m.id === usedInternalModel) as
+				ModelDefinition | undefined) ??
+			modelInfo;
+		finalModelInfo = {
+			...base,
+			providers: [
+				...base.providers.filter((p) => p.providerId !== mapping.providerId),
+				mapping,
+			],
+		};
+	};
 	const applySelectedCustomProvider = (provider: ProviderModelMapping) => {
 		if (!isCustomAutoRoutingMapping(provider)) {
 			return;
@@ -3686,6 +3746,22 @@ chat.openapi(completions, async (c) => {
 			matchingModels.push(customModel);
 			activeCustomModelsByName.set(customModel.modelName, matchingModels);
 		}
+		const airsideListingsByModel = new Map<
+			string,
+			Awaited<ReturnType<typeof listAirsideModels>>
+		>();
+		for (const listing of await listAirsideModels()) {
+			if (
+				!providers.some(
+					(provider) => provider.id === listing.mapping.providerId,
+				)
+			) {
+				continue;
+			}
+			const listings = airsideListingsByModel.get(listing.model.id) ?? [];
+			listings.push(listing);
+			airsideListingsByModel.set(listing.model.id, listings);
+		}
 
 		// Find the cheapest model that meets our context size requirements
 		// Only consider hardcoded models for auto selection
@@ -3735,7 +3811,11 @@ chat.openapi(completions, async (c) => {
 		let anyPreComplianceCandidate = false;
 		let anyPostComplianceCandidate = false;
 
-		for (const modelDef of models) {
+		for (const staticModelDef of models) {
+			const listings = airsideListingsByModel.get(staticModelDef.id);
+			const modelDef = listings
+				? mergeAirsideListingsIntoModel(staticModelDef, listings).modelInfo
+				: staticModelDef;
 			if (modelDef.id === "auto" || modelDef.id === "custom") {
 				continue;
 			}
@@ -5517,6 +5597,12 @@ chat.openapi(completions, async (c) => {
 		finalModelInfo?.providers.find(
 			(p) => p.providerId === usedProvider && p.region === undefined,
 		);
+	if (usedProvider !== "custom") {
+		const airsideMapping = await resolveAirsidePricingMapping();
+		if (airsideResolution || airsideMapping) {
+			applyAirsidePricingMapping(airsideMapping);
+		}
+	}
 	const imageGenProviderMapping = getUsedProviderMapping();
 	let isImageGeneration = imageGenProviderMapping?.imageGenerations === true;
 	const usesAwsBedrockConverse = () =>
@@ -7479,18 +7565,19 @@ chat.openapi(completions, async (c) => {
 		);
 	}
 
-	function applyResolvedProviderContext(
+	async function applyResolvedProviderContext(
 		ctx: Awaited<ReturnType<typeof resolveProviderContext>>,
-	): void {
+	): Promise<void> {
 		usedProvider = ctx.usedProvider;
+		usedRegion = ctx.usedRegion;
+		usedInternalModel = ctx.usedInternalModel;
 		if (usedProvider !== "custom") {
 			customProviderName = undefined;
 			customProviderKey = undefined;
-			// Airside listings keep their filed prices across provider context
-			// changes; everything else resets to catalogue pricing.
-			customPricingMapping = airsideResolution?.pricingMapping;
+			// Airside-owned canonical pricing follows the selected provider;
+			// everything else resets to static catalogue pricing.
+			applyAirsidePricingMapping(await resolveAirsidePricingMapping());
 		}
-		usedInternalModel = ctx.usedInternalModel;
 		usedExternalId = ctx.usedExternalId;
 		usedModelFormatted = ctx.usedModelFormatted;
 		usedModelMapping = ctx.usedModelMapping;
@@ -7548,7 +7635,6 @@ chat.openapi(completions, async (c) => {
 		top_p = ctx.top_p;
 		frequency_penalty = ctx.frequency_penalty;
 		presence_penalty = ctx.presence_penalty;
-		usedRegion = ctx.usedRegion;
 		routingMetadata = withUsedCredential(
 			routingMetadata,
 			usedApiKeyHash,
@@ -8081,7 +8167,7 @@ chat.openapi(completions, async (c) => {
 								nextProvider,
 								true,
 							);
-							applyResolvedProviderContext(ctx);
+							await applyResolvedProviderContext(ctx);
 						} catch {
 							failedProviderIds.add(
 								providerRetryKey(nextProvider.providerId, nextProvider.region),
@@ -8364,7 +8450,7 @@ chat.openapi(completions, async (c) => {
 										},
 									),
 								);
-								applyResolvedProviderContext(sameProviderRetryContext);
+								await applyResolvedProviderContext(sameProviderRetryContext);
 								retryAttempt--;
 								continue;
 							}
@@ -8628,7 +8714,7 @@ chat.openapi(completions, async (c) => {
 										},
 									),
 								);
-								applyResolvedProviderContext(sameProviderRetryContext);
+								await applyResolvedProviderContext(sameProviderRetryContext);
 								retryAttempt--;
 								continue;
 							}
@@ -8991,7 +9077,7 @@ chat.openapi(completions, async (c) => {
 									},
 								),
 							);
-							applyResolvedProviderContext(sameProviderRetryContext);
+							await applyResolvedProviderContext(sameProviderRetryContext);
 							retryAttempt--;
 							continue;
 						}
@@ -9332,7 +9418,7 @@ chat.openapi(completions, async (c) => {
 									},
 								),
 							);
-							applyResolvedProviderContext(sameProviderRetryContext);
+							await applyResolvedProviderContext(sameProviderRetryContext);
 							retryAttempt--;
 							continue;
 						}
@@ -12476,7 +12562,7 @@ chat.openapi(completions, async (c) => {
 
 			try {
 				const ctx = await resolveProviderContextForRetry(nextProvider, stream);
-				applyResolvedProviderContext(ctx);
+				await applyResolvedProviderContext(ctx);
 			} catch {
 				failedProviderIds.add(
 					providerRetryKey(nextProvider.providerId, nextProvider.region),
@@ -12810,7 +12896,7 @@ chat.openapi(completions, async (c) => {
 						},
 					),
 				);
-				applyResolvedProviderContext(sameProviderRetryContext);
+				await applyResolvedProviderContext(sameProviderRetryContext);
 				retryAttempt--;
 				continue;
 			}
@@ -13318,7 +13404,7 @@ chat.openapi(completions, async (c) => {
 						},
 					),
 				);
-				applyResolvedProviderContext(sameProviderRetryContext);
+				await applyResolvedProviderContext(sameProviderRetryContext);
 				retryAttempt--;
 				continue;
 			}

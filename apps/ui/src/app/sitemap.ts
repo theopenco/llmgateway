@@ -441,6 +441,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
 	// Model pages
 	const modelPages: MetadataRoute.Sitemap = [];
+	const listedModelIds = new Set<string>();
 	for (const model of modelDefinitions as readonly ModelDefinition[]) {
 		// Fully deactivated models are hidden from the public directory, so they
 		// are not advertised for crawling either (the pages still resolve).
@@ -458,6 +459,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			changeFrequency: "weekly",
 			priority: 0.8,
 		});
+		listedModelIds.add(model.id);
 
 		// Model uptime pages and model+provider sub-pages are intentionally
 		// excluded from the sitemap: uptime pages are thin templates that
@@ -466,21 +468,22 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 	}
 
 	// DB-only catalogue entries (Airside carriers and their listings) are not
-	// in the static definitions, so pull them from the API. A fetch failure
-	// falls back to the static-only sitemap rather than failing the render.
+	// in the static definitions, so pull them from the API.
 	const { fetchModels, fetchProviders } = await import("@/lib/fetch-models");
-	const staticModelIds = new Set(modelDefinitions.map((m) => m.id as string));
 	const staticProviderIds = new Set(
 		providerDefinitions.map((p) => p.id as string),
 	);
 	const [apiModels, apiProviders] = await Promise.all([
-		fetchModels().catch(() => []),
-		fetchProviders().catch(() => []),
+		fetchModels(),
+		fetchProviders(),
 	]);
 	for (const model of apiModels) {
 		if (
-			staticModelIds.has(model.id) ||
-			!model.mappings.some((mapping) => mapping.status === "active")
+			listedModelIds.has(model.id) ||
+			!model.mappings.some(
+				(mapping) =>
+					mapping.status === "active" && !isMappingDeactivated(mapping),
+			)
 		) {
 			continue;
 		}
@@ -490,6 +493,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			changeFrequency: "weekly",
 			priority: 0.8,
 		});
+		listedModelIds.add(model.id);
 	}
 
 	// Provider pages
