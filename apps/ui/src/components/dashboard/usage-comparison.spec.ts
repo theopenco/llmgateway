@@ -30,6 +30,23 @@ describe("usage comparison ranges", () => {
 		});
 	});
 
+	it("uses a selected start date and preserves the current range length", () => {
+		const selectedStart = new URLSearchParams("compareFrom=2026-06-02");
+
+		expect(
+			resolveUsageComparisonRange("previous-week", current, selectedStart),
+		).toEqual({
+			from: new Date("2026-06-02T00:00:00"),
+			to: new Date("2026-06-08T00:00:00"),
+		});
+		expect(
+			resolveUsageComparisonRange("previous-month", current, selectedStart),
+		).toEqual({
+			from: new Date("2026-06-02T00:00:00"),
+			to: new Date("2026-06-08T00:00:00"),
+		});
+	});
+
 	it("accepts only complete ordered custom day ranges", () => {
 		const valid = new URLSearchParams(
 			"compareFrom=2026-06-02&compareTo=2026-06-05",

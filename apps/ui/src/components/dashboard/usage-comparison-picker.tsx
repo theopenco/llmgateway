@@ -1,10 +1,12 @@
 "use client";
 
-import { Check, ChevronDown, GitCompare } from "lucide-react";
+import { addDays, differenceInCalendarDays, subDays } from "date-fns";
+import { Check, ChevronDown, ChevronLeft, GitCompare } from "lucide-react";
 import { useState } from "react";
 
 import { DayRangePicker } from "@/components/date-range-picker";
 import { Button } from "@/lib/components/button";
+import { Calendar } from "@/lib/components/calendar";
 import {
 	Popover,
 	PopoverContent,
@@ -14,9 +16,15 @@ import { cn } from "@/lib/utils";
 
 import {
 	formatUsageDateRange,
+	resolveUsageComparisonRange,
 	type UsageComparisonMode,
 	type UsageDateRange,
 } from "./usage-comparison";
+
+type StartDateMode = Extract<
+	UsageComparisonMode,
+	"previous-week" | "previous-month"
+>;
 
 const OPTIONS: {
 	value: Exclude<UsageComparisonMode, "custom">;
@@ -50,7 +58,7 @@ interface UsageComparisonPickerProps {
 	currentRange: UsageDateRange;
 	comparisonRange: UsageDateRange | null;
 	disabled?: boolean;
-	onChange: (mode: UsageComparisonMode, customRange?: UsageDateRange) => void;
+	onChange: (mode: UsageComparisonMode, selectedRange?: UsageDateRange) => void;
 }
 
 function triggerLabel(
@@ -60,10 +68,94 @@ function triggerLabel(
 	if (mode === "off") {
 		return "Compare";
 	}
-	if (mode === "custom" && comparisonRange) {
+	if (comparisonRange && mode === "custom") {
 		return formatUsageDateRange(comparisonRange);
 	}
+	if (comparisonRange && mode === "previous-week") {
+		return `Week · ${formatUsageDateRange(comparisonRange)}`;
+	}
+	if (comparisonRange && mode === "previous-month") {
+		return `Month · ${formatUsageDateRange(comparisonRange)}`;
+	}
 	return OPTIONS.find((option) => option.value === mode)?.label ?? "Compare";
+}
+
+function ComparisonStartPicker({
+	mode,
+	currentRange,
+	start,
+	onStartChange,
+	onBack,
+	onSelect,
+}: {
+	mode: StartDateMode;
+	currentRange: UsageDateRange;
+	start: Date;
+	onStartChange: (start: Date) => void;
+	onBack: () => void;
+	onSelect: (range: UsageDateRange) => void;
+}) {
+	const rangeDays = differenceInCalendarDays(
+		currentRange.to,
+		currentRange.from,
+	);
+	const selectedRange = {
+		from: start,
+		to: addDays(start, rangeDays),
+	};
+	const latestStart = subDays(currentRange.from, 1);
+
+	return (
+		<div className="space-y-3">
+			<div className="flex items-start gap-2 px-3 pt-3 sm:px-0 sm:pt-0">
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon"
+					className="-ml-2 h-8 w-8"
+					onClick={onBack}
+					aria-label="Back to comparison options"
+				>
+					<ChevronLeft className="h-4 w-4" />
+				</Button>
+				<div>
+					<p className="text-sm font-medium">
+						{mode === "previous-week" ? "Week" : "Month"} comparison
+					</p>
+					<p className="text-xs text-muted-foreground">
+						Choose a start date for the {rangeDays + 1}-day comparison
+					</p>
+				</div>
+			</div>
+			<div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2">
+				<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+					Comparison range
+				</p>
+				<p className="mt-0.5 text-sm font-medium tabular-nums">
+					{formatUsageDateRange(selectedRange)}
+				</p>
+			</div>
+			<Calendar
+				mode="single"
+				selected={start}
+				onSelect={(day) => {
+					if (day) {
+						onStartChange(day);
+					}
+				}}
+				defaultMonth={start}
+				disabled={{ after: latestStart }}
+				showOutsideDays={false}
+				className="p-0"
+			/>
+			<div className="flex items-center justify-between border-t px-3 pt-3 sm:px-0">
+				<p className="text-xs text-muted-foreground">Ends automatically</p>
+				<Button type="button" size="sm" onClick={() => onSelect(selectedRange)}>
+					Compare
+				</Button>
+			</div>
+		</div>
+	);
 }
 
 export function UsageComparisonPicker({
@@ -75,7 +167,12 @@ export function UsageComparisonPicker({
 }: UsageComparisonPickerProps) {
 	const [open, setOpen] = useState(false);
 	const [showCustom, setShowCustom] = useState(false);
+	const [startDateMode, setStartDateMode] = useState<StartDateMode | null>(
+		null,
+	);
+	const [comparisonStart, setComparisonStart] = useState(currentRange.from);
 	const customDefault = comparisonRange ?? currentRange;
+	const showCalendar = showCustom || startDateMode !== null;
 
 	return (
 		<Popover
@@ -84,6 +181,7 @@ export function UsageComparisonPicker({
 				setOpen(nextOpen);
 				if (!nextOpen) {
 					setShowCustom(false);
+					setStartDateMode(null);
 				}
 			}}
 		>
@@ -114,7 +212,7 @@ export function UsageComparisonPicker({
 				align="end"
 				className={cn(
 					"p-0",
-					showCustom
+					showCalendar
 						? "max-h-[var(--radix-popover-content-available-height)] w-[calc(100vw-2rem)] overflow-y-auto p-3 sm:w-auto"
 						: "w-80",
 				)}
@@ -127,6 +225,18 @@ export function UsageComparisonPicker({
 						onCancel={() => setShowCustom(false)}
 						onSelect={(from, to) => {
 							onChange("custom", { from, to });
+							setOpen(false);
+						}}
+					/>
+				) : startDateMode ? (
+					<ComparisonStartPicker
+						mode={startDateMode}
+						currentRange={currentRange}
+						start={comparisonStart}
+						onStartChange={setComparisonStart}
+						onBack={() => setStartDateMode(null)}
+						onSelect={(range) => {
+							onChange(startDateMode, range);
 							setOpen(false);
 						}}
 					/>
@@ -143,6 +253,23 @@ export function UsageComparisonPicker({
 								key={option.value}
 								type="button"
 								onClick={() => {
+									if (
+										option.value === "previous-week" ||
+										option.value === "previous-month"
+									) {
+										const defaultRange =
+											mode === option.value && comparisonRange
+												? comparisonRange
+												: resolveUsageComparisonRange(
+														option.value,
+														currentRange,
+													);
+										if (defaultRange) {
+											setComparisonStart(defaultRange.from);
+										}
+										setStartDateMode(option.value);
+										return;
+									}
 									onChange(option.value);
 									setOpen(false);
 								}}

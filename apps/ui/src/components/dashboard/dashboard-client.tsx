@@ -378,7 +378,7 @@ export function DashboardClient({
 
 	const updateComparisonInUrl = (
 		newMode: UsageComparisonMode,
-		customRange?: UsageDateRange,
+		selectedRange?: UsageDateRange,
 	) => {
 		const params = new URLSearchParams(searchParams.toString());
 		if (newMode === "off") {
@@ -387,9 +387,15 @@ export function DashboardClient({
 			params.delete("compareTo");
 		} else {
 			params.set("compare", newMode);
-			if (newMode === "custom" && customRange) {
-				params.set("compareFrom", format(customRange.from, "yyyy-MM-dd"));
-				params.set("compareTo", format(customRange.to, "yyyy-MM-dd"));
+			if (newMode === "custom" && selectedRange) {
+				params.set("compareFrom", format(selectedRange.from, "yyyy-MM-dd"));
+				params.set("compareTo", format(selectedRange.to, "yyyy-MM-dd"));
+			} else if (
+				(newMode === "previous-week" || newMode === "previous-month") &&
+				selectedRange
+			) {
+				params.set("compareFrom", format(selectedRange.from, "yyyy-MM-dd"));
+				params.delete("compareTo");
 			} else {
 				params.delete("compareFrom");
 				params.delete("compareTo");
