@@ -64,6 +64,8 @@ import type { ServerTypes } from "@/vars.js";
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
 import type { ProviderModelMapping } from "@llmgateway/models";
 
+type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 /**
  * Airside — the self-serve provider portal. Provider companies ("carriers")
  * claim catalogue providers by verified email domain, list models whose
@@ -494,19 +496,22 @@ async function verificationCredentialSource(
 	});
 }
 
-async function enqueueModelVerification(input: {
-	providerCompanyId: string;
-	draftModelId?: string;
-	target: ProviderModelVerificationTarget;
-	apiKey?: string;
-	requestedBy: string;
-}): Promise<ModelVerificationRow> {
+async function enqueueModelVerification(
+	input: {
+		providerCompanyId: string;
+		draftModelId?: string;
+		target: ProviderModelVerificationTarget;
+		apiKey?: string;
+		requestedBy: string;
+	},
+	transaction?: DbTransaction,
+): Promise<ModelVerificationRow> {
 	const id = shortid();
 	const credentialSource = await verificationCredentialSource(
 		input.target,
 		input.apiKey,
 	);
-	const [created] = await db
+	const [created] = await (transaction ?? db)
 		.insert(tables.providerModelVerification)
 		.values({
 			id,
@@ -2043,30 +2048,49 @@ airside.openapi(queueNewModelVerification, async (c) => {
 		});
 	}
 	const target = verificationTarget(body);
-	const activeVerifications = await db.query.providerModelVerification.findMany(
-		{
-			where: {
-				providerCompanyId: { eq: body.providerCompanyId },
-				status: { in: ["queued", "running"] },
-			},
-			columns: { target: true },
-		},
-	);
-	if (
-		activeVerifications.some((verification) =>
-			verificationTargetsMatch(verification.target, target),
-		)
-	) {
-		throw new HTTPException(409, {
-			message: "This model verification is already in progress.",
+	let verification: ModelVerificationRow;
+	try {
+		verification = await db.transaction(async (tx) => {
+			await tx
+				.select({ id: tables.providerCompany.id })
+				.from(tables.providerCompany)
+				.where(eq(tables.providerCompany.id, body.providerCompanyId))
+				.for("update");
+			const activeVerifications =
+				await tx.query.providerModelVerification.findMany({
+					where: {
+						providerCompanyId: { eq: body.providerCompanyId },
+						status: { in: ["queued", "running"] },
+					},
+					columns: { target: true },
+				});
+			if (
+				activeVerifications.some((active) =>
+					verificationTargetsMatch(active.target, target),
+				)
+			) {
+				throw new HTTPException(409, {
+					message: "This model verification is already in progress.",
+				});
+			}
+			return await enqueueModelVerification(
+				{
+					providerCompanyId: body.providerCompanyId,
+					target,
+					apiKey: body.apiKey,
+					requestedBy: user.id,
+				},
+				tx,
+			);
 		});
+	} catch (error) {
+		if (isUniqueViolation(error)) {
+			throw new HTTPException(409, {
+				message: "This model verification is already in progress.",
+			});
+		}
+		throw error;
 	}
-	const verification = await enqueueModelVerification({
-		providerCompanyId: body.providerCompanyId,
-		target,
-		apiKey: body.apiKey,
-		requestedBy: user.id,
-	});
 	return c.json({ verification: serializeVerification(verification) }, 202);
 });
 

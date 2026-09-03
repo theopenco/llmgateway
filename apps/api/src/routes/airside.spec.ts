@@ -419,11 +419,26 @@ describe("airside provider portal", () => {
 			reasoningEfforts: ["low" as const],
 			webSearch: true,
 		};
-		const queued = await app.request(
-			"/airside/model-verifications",
-			json(cookie, { ...mapping, apiKey: "provider-secret-for-test" }),
+		const queueAttempts = await Promise.all(
+			Array.from({ length: 4 }, () =>
+				app.request(
+					"/airside/model-verifications",
+					json(cookie, { ...mapping, apiKey: "provider-secret-for-test" }),
+				),
+			),
 		);
-		expect(queued.status).toBe(202);
+		const queued = queueAttempts.find((response) => response.status === 202);
+		const conflicts = queueAttempts.filter(
+			(response) => response.status === 409,
+		);
+		expect(queued).toBeDefined();
+		expect(conflicts).toHaveLength(3);
+		for (const conflict of conflicts) {
+			expect((await conflict.json()).message).toContain("already in progress");
+		}
+		if (!queued) {
+			throw new Error("Expected one verification to be queued.");
+		}
 		const queuedBody = await queued.json();
 		expect(JSON.stringify(queuedBody)).not.toContain(
 			"provider-secret-for-test",
@@ -446,14 +461,23 @@ describe("airside provider portal", () => {
 		expect(stored?.credentialCiphertext).not.toContain(
 			"provider-secret-for-test",
 		);
-		const duplicateVerification = await app.request(
+		const activeVerifications =
+			await db.query.providerModelVerification.findMany({
+				where: {
+					providerCompanyId: { eq: company.id },
+					status: { in: ["queued", "running"] },
+				},
+			});
+		expect(activeVerifications).toHaveLength(1);
+		const otherTarget = await app.request(
 			"/airside/model-verifications",
-			json(cookie, { ...mapping, apiKey: "another-provider-secret" }),
+			json(cookie, {
+				...mapping,
+				modelName: "mistral-verified-y",
+				apiKey: "provider-secret-for-test",
+			}),
 		);
-		expect(duplicateVerification.status).toBe(409);
-		expect((await duplicateVerification.json()).message).toContain(
-			"already in progress",
-		);
+		expect(otherTarget.status).toBe(202);
 
 		const submission = {
 			...mapping,
