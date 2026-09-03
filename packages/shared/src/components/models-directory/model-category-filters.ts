@@ -204,6 +204,8 @@ export const OPEN_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 export const CLOSED_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 	"muse-spark-1.1",
 	"muse-spark-1.2",
+	"muse-spark-1.3",
+	"muse-spark-1.3-contributor",
 	// API-only at launch; no open weights published (unlike the K2 family)
 	"kimi-k3",
 ]);
