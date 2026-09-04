@@ -176,6 +176,40 @@ describe("checkOpenAIContentFilter", () => {
 		).rejects.toThrowError(abortError);
 	});
 
+	it("moderates through the env base URL of the OpenAI credential", async () => {
+		process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+		process.env.LLM_OPENAI_BASE_URL = "https://proxy.example.com";
+		const requestedUrls: string[] = [];
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+			requestedUrls.push(String(input));
+			return new Response(
+				JSON.stringify({
+					id: "modr-text",
+					model: "omni-moderation-latest",
+					results: [{ flagged: false, categories: {}, category_scores: {} }],
+				}),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			);
+		});
+
+		try {
+			await checkOpenAIContentFilter(
+				[{ role: "user", content: "hello" }],
+				{
+					requestId: "request-id",
+					organizationId: "org-id",
+					projectId: "project-id",
+					apiKeyId: "api-key-id",
+				},
+				undefined,
+			);
+		} finally {
+			delete process.env.LLM_OPENAI_BASE_URL;
+		}
+
+		expect(requestedUrls).toEqual(["https://proxy.example.com/v1/moderations"]);
+	});
+
 	it("submits one moderation request for text and one per image", async () => {
 		process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
 		const requestBodies: Array<{ model: string; input: unknown }> = [];

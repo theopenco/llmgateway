@@ -1595,6 +1595,7 @@ describe("videos", () => {
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
+				options: { google_vertex_project_id: "test-project" },
 			});
 
 			const createRes = await app.request("/v1/videos", {
@@ -1828,6 +1829,7 @@ describe("videos", () => {
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
+				options: { google_vertex_project_id: "test-project" },
 			});
 
 			const createRes = await app.request("/v1/videos", {
@@ -1913,6 +1915,7 @@ describe("videos", () => {
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
+				options: { google_vertex_project_id: "test-project" },
 			});
 
 			const createRes = await app.request("/v1/videos", {
@@ -1987,6 +1990,7 @@ describe("videos", () => {
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
+				options: { google_vertex_project_id: "test-project" },
 			});
 
 			const createRes = await app.request("/v1/videos", {
@@ -2070,6 +2074,7 @@ describe("videos", () => {
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
+				options: { google_vertex_project_id: "provider-project" },
 			});
 
 			const createRes = await app.request("/v1/videos", {
@@ -2196,6 +2201,7 @@ describe("videos", () => {
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
+				options: { google_vertex_project_id: "test-project" },
 			});
 
 			const createRes = await app.request("/v1/videos", {

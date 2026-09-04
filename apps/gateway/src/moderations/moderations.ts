@@ -5,7 +5,10 @@ import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
-import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
+import {
+	getCredentialSetting,
+	resolvePlatformCredential,
+} from "@/chat/tools/resolve-platform-credential.js";
 import { shouldRetryAlternateKey } from "@/chat/tools/retry-with-fallback.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import {
@@ -41,7 +44,11 @@ import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
-import { getProviderHeaders, readProviderKey } from "@llmgateway/actions";
+import {
+	getProviderDefaultBaseUrl,
+	getProviderHeaders,
+	readProviderKey,
+} from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { models } from "@llmgateway/models";
 
@@ -652,12 +659,20 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		});
 	}
 
-	// Moderation has never honored LLM_OPENAI_BASE_URL, so only the credential's
-	// own base URL overrides the default here.
 	const resolvedBaseUrl =
 		providerKey?.baseUrl ??
-		managedKey?.config?.baseUrl ??
-		"https://api.openai.com";
+		getCredentialSetting(
+			"openai",
+			"baseUrl",
+			{ providerKey, managedKey },
+			{ configIndex, variant: envVariant },
+		) ??
+		getProviderDefaultBaseUrl("openai");
+	if (!resolvedBaseUrl) {
+		throw new HTTPException(500, {
+			message: "No base URL set for provider: openai",
+		});
+	}
 	const upstreamUrl = `${resolvedBaseUrl}/v1/moderations`;
 	const requestBody = {
 		input,
