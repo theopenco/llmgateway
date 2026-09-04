@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-01
 
-> DevPass is a flat-price monthly subscription for AI coding tools. One API key unlocks 200+ models across 40+ providers in any OpenAI- or Anthropic-compatible coding agent (DevPass Code, Claude Code, OpenCode, Cursor, Cline, and more). Usage is metered at provider list rates with no token markup.
+> DevPass is a flat-price monthly subscription for AI coding tools. One API key connects the models in the live [DevPass catalogue](https://devpass.llmgateway.io/models) in any OpenAI- or Anthropic-compatible coding agent (DevPass Code, Claude Code, OpenCode, Cursor, Cline, and more). Usage is metered at provider list rates with no token markup.
 
 ## Lite
 
@@ -32,7 +32,7 @@ Last updated: 2026-09-01
 
 ## Every plan includes
 
-- All 200+ models, with new flagships available on release day (Claude, GPT, Gemini, GLM, Qwen, Kimi, and more)
+- Model access as listed in the live [DevPass catalogue](https://devpass.llmgateway.io/models)
 - Works with DevPass Code, Claude Code, OpenCode, Empryo, SoulForge, and any OpenAI/Anthropic-compatible tool
 - Real-time dashboard with per-request cost and latency
 - Switch tiers or cancel anytime — no lock-in, no cancellation fee

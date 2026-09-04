@@ -78,6 +78,10 @@ export default async function RealtimePage({
 		selectedOrganization?.id === orgId && orgIdProjectsData
 			? (orgIdProjectsData as { projects: Project[] })
 			: null;
+	if (!selectedOrganization) {
+		return <PlaygroundSeoSection variant="realtime" />;
+	}
+
 	if (!initialProjectsData && selectedOrganization?.id) {
 		try {
 			initialProjectsData = (await fetchServerData(
@@ -125,7 +129,6 @@ export default async function RealtimePage({
 					projectId={selectedProject.id}
 				/>
 			) : null}
-			<PlaygroundSeoSection variant="realtime" />
 			<RealtimePageClient
 				models={models}
 				providers={providers}

@@ -2,20 +2,20 @@
 
 Last updated: 2026-09-01
 
-> Lounge is a monthly AI chat membership: one subscription for 200+ models from OpenAI, Anthropic, Google, xAI, DeepSeek, Meta, Mistral, and more, plus image, video, and audio studios and multi-model group chat. Each tier includes a monthly credit allowance metered at provider list rates.
+> Lounge is a monthly AI chat membership: one subscription for models from multiple providers, plus image, video, and audio studios and multi-model group chat. Each tier includes a monthly credit allowance metered at provider list rates.
 
 ## Starter
 
 - Price: $9/month
 - Included usage: $18 of model usage per month (2× what you pay)
-- Models: Claude Sonnet plus fast models such as Claude Haiku and Gemini Flash
+- Models: standard model access; premium models require Plus or Pro. See the [current catalogue](https://llmgateway.io/models).
 - Chat, image, video, and audio studios; real-time usage and per-message cost
 
 ## Plus
 
 - Price: $19/month
 - Included usage: $47.50 of model usage per month (2.5× what you pay)
-- Models: every frontier model — Claude Opus, GPT-5, Gemini Pro, Grok, and more
+- Models: standard and premium model access. See the [current catalogue](https://llmgateway.io/models).
 - Replaces ChatGPT Plus, Claude Pro, and Gemini Advanced with one bill
 
 ## Pro
