@@ -97,4 +97,7 @@ test("SSO preserves the CLI return path and work email through errors", async ({
 		"admin@example.com",
 	);
 	expect(new URL(page.url()).searchParams.get("redirect")).toBe(target);
+	await page.getByRole("link", { name: "Back to login", exact: true }).click();
+	await expect(page).toHaveURL(/\/login\?redirect=/);
+	expect(new URL(page.url()).searchParams.get("redirect")).toBe(target);
 });

@@ -172,7 +172,11 @@ export default function Sso() {
 				</Form>
 
 				<Button asChild variant="ghost" className="w-full">
-					<Link href={"/login" as Route}>
+					<Link
+						href={
+							`/login?redirect=${encodeURIComponent(redirectTarget)}` as Route
+						}
+					>
 						<ArrowLeft className="mr-2 h-4 w-4" />
 						Back to login
 					</Link>
