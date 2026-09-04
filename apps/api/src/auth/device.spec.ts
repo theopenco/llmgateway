@@ -131,6 +131,35 @@ describe("CLI device authorization", () => {
 		).toMatchObject({ user: { id: userId } });
 	});
 
+	test("a bearer session takes precedence over a browser cookie", async () => {
+		const browser = await request("/get-session", undefined, browserToken);
+		const cookie = browser.headers
+			.getSetCookie()
+			.map((value) => value.split(";")[0])
+			.join("; ");
+		expect(cookie).toContain("session_token=");
+		const session = async (token?: string) =>
+			await apiAuth.api.getSession({
+				headers: new Headers({
+					Cookie: cookie,
+					...(token ? { Authorization: `Bearer ${token}` } : {}),
+				}),
+			});
+		expect(await session()).toMatchObject({ user: { id: userId } });
+		const otherId = randomUUID();
+		const otherToken = randomUUID();
+		await db
+			.insert(tables.user)
+			.values({ id: otherId, email: "bearer@example.com" });
+		await db.insert(tables.session).values({
+			token: otherToken,
+			userId: otherId,
+			expiresAt: new Date(Date.now() + 60_000),
+		});
+		expect(await session(otherToken)).toMatchObject({ user: { id: otherId } });
+		expect(await session("unknown-session")).toBeNull();
+	});
+
 	test("rejects unknown clients and slows down premature polling", async () => {
 		expect(
 			(await request("/device/code", { client_id: "untrusted" })).status,
