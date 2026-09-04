@@ -4,10 +4,11 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, eq, inArray, tables } from "@llmgateway/db";
+import { db, eq, inArray, sql, tables } from "@llmgateway/db";
 import {
 	models as catalogueModels,
 	type ModelDefinition,
+	type ProviderApiFormat,
 } from "@llmgateway/models";
 
 // Website verification resolves a real TXT record; the zone under test is
@@ -100,6 +101,7 @@ async function setRoutingSettings(
 		})
 		.onConflictDoUpdate({
 			target: tables.providerRoutingSettings.providerId,
+			targetWhere: sql`model_id IS NULL`,
 			set: {
 				providerCompanyId,
 				discountPercent: String(discountPercent),
@@ -160,6 +162,10 @@ async function createModel(
 			providerId: String(body.providerId),
 			modelName: String(body.modelName),
 			externalId: String(body.externalId ?? body.modelName),
+			apiFormat:
+				typeof body.apiFormat === "string"
+					? (body.apiFormat as ProviderApiFormat)
+					: "openai-chat-completions",
 			streaming: body.streaming !== false,
 			vision: body.vision === true,
 			audio: body.audio === true,
@@ -1380,6 +1386,121 @@ describe("airside provider portal", () => {
 		expect(outOfBounds.status).toBe(400);
 	});
 
+	it("applies an approved fare override to one model", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		await setRoutingSettings(company.id, "mistral", 0, 0.2);
+
+		const created = await createModel(cookie, company.id, {
+			modelName: "mistral-model-fare",
+			displayName: "Mistral Model Fare",
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		const modelApproved = await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		expect(modelApproved.status).toBe(200);
+
+		const initial = await app.request(
+			`/airside/routing-settings?providerCompanyId=${company.id}`,
+			{ headers: { Cookie: cookie } },
+		);
+		const initialSettings = (await initial.json()).settings[0];
+		expect(initialSettings).toMatchObject({
+			discountPercent: 0,
+			marginPercent: 0.2,
+		});
+		expect(initialSettings.modelOverrides).toEqual([
+			expect.objectContaining({
+				modelId: "mistral-model-fare",
+				discountPercent: 0,
+				marginPercent: 0.2,
+				overridden: false,
+			}),
+		]);
+
+		const filed = await app.request(
+			"/airside/routing-settings/mistral",
+			json(
+				cookie,
+				{
+					providerCompanyId: company.id,
+					modelId: "mistral-model-fare",
+					discountPercent: 0.1,
+					marginPercent: 0.15,
+				},
+				"PUT",
+			),
+		);
+		expect(filed.status).toBe(201);
+		const filing = (await filed.json()).filing;
+		expect(filing).toMatchObject({
+			modelId: "mistral-model-fare",
+			routingAdjustment: expect.closeTo(-0.05),
+		});
+
+		const whilePending = await app.request(
+			`/airside/routing-settings?providerCompanyId=${company.id}`,
+			{ headers: { Cookie: cookie } },
+		);
+		const pendingSettings = (await whilePending.json()).settings[0];
+		expect(pendingSettings).toMatchObject({
+			discountPercent: 0,
+			marginPercent: 0.2,
+		});
+		expect(pendingSettings.modelOverrides[0]).toMatchObject({
+			overridden: false,
+			discountPercent: 0,
+			marginPercent: 0.2,
+			pendingFiling: expect.objectContaining({ id: filing.id }),
+		});
+
+		const queue = await app.request("/admin/airside/filings?status=pending", {
+			headers: { Cookie: cookie },
+		});
+		expect((await queue.json()).routingFilings[0]).toMatchObject({
+			id: filing.id,
+			modelId: "mistral-model-fare",
+			currentDiscountPercent: 0,
+			currentMarginPercent: 0.2,
+		});
+
+		const approved = await app.request(
+			`/admin/airside/routing-filings/${filing.id}/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+		const stored = await db.query.providerRoutingSettings.findFirst({
+			where: {
+				providerId: { eq: "mistral" },
+				modelId: { eq: "mistral-model-fare" },
+			},
+		});
+		expect(Number(stored?.discountPercent)).toBeCloseTo(0.1);
+		expect(Number(stored?.marginPercent)).toBeCloseTo(0.15);
+
+		const final = await app.request(
+			`/airside/routing-settings?providerCompanyId=${company.id}`,
+			{ headers: { Cookie: cookie } },
+		);
+		const finalSettings = (await final.json()).settings[0];
+		expect(finalSettings).toMatchObject({
+			discountPercent: 0,
+			marginPercent: 0.2,
+		});
+		expect(finalSettings.modelOverrides[0]).toMatchObject({
+			overridden: true,
+			discountPercent: 0.1,
+			marginPercent: 0.15,
+			routingAdjustment: expect.closeTo(-0.05),
+		});
+	});
+
 	it("lists every carrier's settings and accrued margin for admins", async () => {
 		process.env.ADMIN_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
@@ -1449,6 +1570,24 @@ describe("airside provider portal", () => {
 				.delete(tables.globalModelStats)
 				.where(eq(tables.globalModelStats.usedProvider, "mistral"));
 		}
+	});
+
+	it("stores a model's selected upstream API format", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const res = await createModel(cookie, company.id, {
+			modelName: "responses-only-model",
+			apiFormat: "openai-responses",
+		});
+		expect(res.status).toBe(201);
+		const { model } = await res.json();
+		expect(model.apiFormat).toBe("openai-responses");
+		const stored = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: model.id } },
+		});
+		expect(stored?.apiFormat).toBe("openai-responses");
 	});
 
 	it("stores reasoning efforts and audio on a listing", async () => {

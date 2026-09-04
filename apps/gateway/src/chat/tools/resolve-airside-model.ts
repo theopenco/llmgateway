@@ -241,6 +241,10 @@ export function airsideListingToModelDefinition(listed: AirsideListedModel): {
 		peakPricing: undefined,
 		providerId: listed.mapping.providerId as Provider,
 		externalId: listed.mapping.externalId,
+		apiFormat:
+			listed.mapping.apiFormat === "provider-native"
+				? undefined
+				: (listed.mapping.apiFormat ?? undefined),
 		inputPrice: listed.mapping.inputPrice ?? undefined,
 		outputPrice: listed.mapping.outputPrice ?? undefined,
 		cachedInputPrice: listed.mapping.cachedInputPrice ?? undefined,

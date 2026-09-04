@@ -102,6 +102,53 @@ afterEach(() => {
 });
 
 describe("getProviderEndpoint", () => {
+	function getCustomEndpoint(
+		apiFormat: "openai-chat-completions" | "openai-responses" | "google-vertex",
+		options: { stream?: boolean; token?: string } = {},
+	) {
+		return getProviderEndpoint(
+			"custom",
+			"https://carrier.example/api",
+			"gpt-5.6-luna",
+			options.token,
+			options.stream ?? false,
+			false,
+			false,
+			undefined,
+			undefined,
+			false,
+			undefined,
+			true,
+			"gpt-5.6-luna",
+			apiFormat === "google-vertex" ? "api-key" : undefined,
+			undefined,
+			apiFormat,
+		);
+	}
+
+	it("honors an explicit OpenAI Chat Completions format", () => {
+		expect(getCustomEndpoint("openai-chat-completions")).toBe(
+			"https://carrier.example/api/v1/chat/completions",
+		);
+	});
+
+	it("honors an explicit OpenAI Responses format", () => {
+		expect(getCustomEndpoint("openai-responses")).toBe(
+			"https://carrier.example/api/v1/responses",
+		);
+	});
+
+	it("honors an explicit Google Vertex format", () => {
+		expect(
+			getCustomEndpoint("google-vertex", {
+				stream: true,
+				token: "provider-key",
+			}),
+		).toBe(
+			"https://carrier.example/api/v1/publishers/google/models/gpt-5.6-luna:streamGenerateContent?key=provider-key&alt=sse",
+		);
+	});
+
 	it("builds Glacier endpoints from env base URL", () => {
 		process.env.LLM_GLACIER_BASE_URL = "https://glacier.example.com";
 

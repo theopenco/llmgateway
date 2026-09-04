@@ -191,6 +191,7 @@ export async function recordRealtimeResponse(
 	const billingCost = costs.totalCost.toString();
 	const airsideRoutingSnapshot = await getAirsideRoutingSnapshot(
 		preflight.match.mapping.providerId,
+		preflight.match.modelId,
 	);
 
 	const inserted = await db.transaction(async (tx) => {
@@ -354,6 +355,7 @@ export async function recordRealtimeTranscription(
 	const billingCost = costs.totalCost.toString();
 	const airsideRoutingSnapshot = await getAirsideRoutingSnapshot(
 		transcription.mapping.providerId,
+		transcription.modelId,
 	);
 
 	const inserted = await db.transaction(async (tx) => {

@@ -79,6 +79,7 @@ export async function materializeAirsideModel(
 			.limit(1);
 		const mappingValues = {
 			externalId: model.externalId,
+			apiFormat: model.apiFormat,
 			source: "airside" as const,
 			inputPrice: filing.inputPrice,
 			outputPrice: filing.outputPrice,
@@ -203,6 +204,7 @@ function findStaticMapping(providerId: string, modelName: string) {
 function staticMappingValues(mapping: ProviderModelMapping) {
 	return {
 		externalId: mapping.externalId,
+		apiFormat: mapping.apiFormat ?? null,
 		source: "catalogue" as const,
 		inputPrice: mapping.inputPrice?.toString() ?? null,
 		outputPrice: mapping.outputPrice?.toString() ?? null,

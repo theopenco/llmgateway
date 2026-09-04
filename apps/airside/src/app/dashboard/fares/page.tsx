@@ -149,21 +149,28 @@ function EditBrandingDialog({ claim }: { claim: CompanyClaim }) {
 	);
 }
 
-function FareCard({
-	setting,
-	baselineMargin,
+type ModelRoutingSetting = RoutingSetting["modelOverrides"][number];
+
+function FareEditor({
+	providerId,
 	providerCompanyId,
-	claim,
+	baselineMargin,
+	setting,
 }: {
-	setting: RoutingSetting;
-	baselineMargin: number;
+	providerId: string;
 	providerCompanyId: string;
-	claim?: CompanyClaim;
+	baselineMargin: number;
+	setting:
+		| RoutingSetting
+		| (ModelRoutingSetting & { providerId?: never; modelOverrides?: never });
 }) {
 	const api = useApi();
 	const queryClient = useQueryClient();
 	const [discount, setDiscount] = useState(setting.discountPercent);
 	const [margin, setMargin] = useState(setting.marginPercent);
+	const modelSetting = "modelId" in setting ? setting : undefined;
+	const modelId = modelSetting?.modelId;
+	const testScope = modelId ? `${providerId}-${modelId}` : providerId;
 
 	useEffect(() => {
 		setDiscount(setting.discountPercent);
@@ -198,13 +205,155 @@ function FareCard({
 		discount !== setting.discountPercent || margin !== setting.marginPercent;
 
 	return (
+		<div className="space-y-6">
+			{modelId ? (
+				<div className="flex flex-wrap items-center justify-between gap-2">
+					<div>
+						<p className="font-mono text-sm font-semibold">{modelId}</p>
+						{modelSetting?.displayName ? (
+							<p className="text-muted-foreground text-xs">
+								{modelSetting.displayName}
+							</p>
+						) : null}
+					</div>
+					<Badge variant={modelSetting?.overridden ? "default" : "secondary"}>
+						{modelSetting?.overridden
+							? "Custom fares"
+							: "Inherits carrier fares"}
+					</Badge>
+				</div>
+			) : null}
+			{pending ? (
+				<div
+					className="border-primary/40 bg-primary/5 rounded-lg border p-3"
+					data-testid={`pending-fare-filing-${testScope}`}
+				>
+					<p className="text-sm font-medium">Fare change awaiting approval</p>
+					<p className="text-muted-foreground mt-1 font-mono text-xs">
+						discount {formatPercent(pending.discountPercent)} · landing fee{" "}
+						{formatPercent(pending.marginPercent)}
+					</p>
+					<p className="text-muted-foreground mt-1 text-xs">
+						Our team reviews every fare change before it reaches dispatch. Your
+						live fares stay in effect until then.
+					</p>
+				</div>
+			) : null}
+			<div>
+				<div className="mb-2 flex items-baseline justify-between">
+					<span className="text-sm font-medium">Traffic discount</span>
+					<span
+						className="font-mono text-sm"
+						data-testid={
+							modelId ? `discount-value-${modelId}` : "discount-value"
+						}
+					>
+						{formatPercent(discount)}
+					</span>
+				</div>
+				<Slider
+					value={[discount * 100]}
+					min={0}
+					max={50}
+					step={1}
+					disabled={!!pending}
+					data-testid={
+						modelId ? `discount-slider-${modelId}` : "discount-slider"
+					}
+					onValueChange={([value]) => setDiscount(value / 100)}
+				/>
+				<p className="text-muted-foreground mt-1.5 text-xs">
+					A fare sale: dispatch prices you this much cheaper when electing a
+					carrier. It never changes what you're paid per token.
+				</p>
+			</div>
+
+			<div>
+				<div className="mb-2 flex items-baseline justify-between">
+					<span className="text-sm font-medium">
+						Landing fee (gateway margin)
+					</span>
+					<span
+						className="font-mono text-sm"
+						data-testid={modelId ? `margin-value-${modelId}` : "margin-value"}
+					>
+						{formatPercent(margin)}
+					</span>
+				</div>
+				<Slider
+					value={[margin * 100]}
+					min={5}
+					max={50}
+					step={1}
+					disabled={!!pending}
+					data-testid={modelId ? `margin-slider-${modelId}` : "margin-slider"}
+					onValueChange={([value]) => setMargin(value / 100)}
+				/>
+				<p className="text-muted-foreground mt-1.5 text-xs">
+					The gateway's cut of your billed traffic (standard{" "}
+					{formatPercent(baselineMargin)}). Accepting more than standard boosts
+					your routing; less costs you routing priority.
+				</p>
+			</div>
+
+			<div className="flex items-center justify-between">
+				<p className="text-muted-foreground font-mono text-xs">
+					net adjustment:{" "}
+					<span
+						className={adjustment < 0 ? "text-signal" : "text-muted-foreground"}
+					>
+						{adjustment >= 0 ? "+" : ""}
+						{(adjustment * 100).toFixed(0)}%
+					</span>
+				</p>
+				<Button
+					size="sm"
+					className="font-semibold"
+					disabled={!!pending || !dirty || update.isPending}
+					data-testid={`save-fares-${testScope}`}
+					onClick={() =>
+						update.mutate({
+							params: { path: { providerId } },
+							body: {
+								providerCompanyId,
+								modelId,
+								discountPercent: discount,
+								marginPercent: margin,
+							},
+						})
+					}
+				>
+					{pending
+						? "Awaiting approval"
+						: update.isPending
+							? "Filing…"
+							: "File fare change"}
+				</Button>
+			</div>
+		</div>
+	);
+}
+
+function FareCard({
+	setting,
+	baselineMargin,
+	providerCompanyId,
+	claim,
+}: {
+	setting: RoutingSetting;
+	baselineMargin: number;
+	providerCompanyId: string;
+	claim?: CompanyClaim;
+}) {
+	const adjustment = setting.routingAdjustment;
+	return (
 		<Card data-testid={`fare-card-${setting.providerId}`}>
 			<CardHeader className="flex-row items-center justify-between">
 				<div>
 					<CardTitle className="font-display font-mono uppercase">
 						{setting.providerId}
 					</CardTitle>
-					<CardDescription>Fares & landing fees</CardDescription>
+					<CardDescription>Carrier-wide fares & landing fees</CardDescription>
 				</div>
 				<div className="flex items-center gap-2">
 					{claim?.pendingBranding ? (
@@ -220,105 +369,37 @@ function FareCard({
 					</Badge>
 				</div>
 			</CardHeader>
-			<CardContent className="space-y-6">
-				{pending ? (
-					<div
-						className="border-primary/40 bg-primary/5 rounded-lg border p-3"
-						data-testid={`pending-fare-filing-${setting.providerId}`}
-					>
-						<p className="text-sm font-medium">Fare change awaiting approval</p>
-						<p className="text-muted-foreground mt-1 font-mono text-xs">
-							discount {formatPercent(pending.discountPercent)} · landing fee{" "}
-							{formatPercent(pending.marginPercent)}
-						</p>
-						<p className="text-muted-foreground mt-1 text-xs">
-							Our team reviews every fare change before it reaches dispatch.
-							Your live fares stay in effect until then.
-						</p>
+			<CardContent className="space-y-8">
+				<FareEditor
+					providerId={setting.providerId}
+					providerCompanyId={providerCompanyId}
+					baselineMargin={baselineMargin}
+					setting={setting}
+				/>
+				{setting.modelOverrides.length > 0 ? (
+					<div className="border-border space-y-5 border-t pt-6">
+						<div>
+							<p className="text-sm font-semibold">Per-model overrides</p>
+							<p className="text-muted-foreground text-xs">
+								Each model inherits the carrier fares until you file a custom
+								rate.
+							</p>
+						</div>
+						{setting.modelOverrides.map((modelSetting) => (
+							<div
+								key={modelSetting.modelId}
+								className="border-border rounded-lg border p-4"
+							>
+								<FareEditor
+									providerId={setting.providerId}
+									providerCompanyId={providerCompanyId}
+									baselineMargin={baselineMargin}
+									setting={modelSetting}
+								/>
+							</div>
+						))}
 					</div>
 				) : null}
-				<div>
-					<div className="mb-2 flex items-baseline justify-between">
-						<span className="text-sm font-medium">Traffic discount</span>
-						<span className="font-mono text-sm" data-testid="discount-value">
-							{formatPercent(discount)}
-						</span>
-					</div>
-					<Slider
-						value={[discount * 100]}
-						min={0}
-						max={50}
-						step={1}
-						disabled={!!pending}
-						data-testid="discount-slider"
-						onValueChange={([value]) => setDiscount(value / 100)}
-					/>
-					<p className="text-muted-foreground mt-1.5 text-xs">
-						A fare sale: dispatch prices you this much cheaper when electing a
-						carrier. It never changes what you're paid per token.
-					</p>
-				</div>
-
-				<div>
-					<div className="mb-2 flex items-baseline justify-between">
-						<span className="text-sm font-medium">
-							Landing fee (gateway margin)
-						</span>
-						<span className="font-mono text-sm" data-testid="margin-value">
-							{formatPercent(margin)}
-						</span>
-					</div>
-					<Slider
-						value={[margin * 100]}
-						min={5}
-						max={50}
-						step={1}
-						disabled={!!pending}
-						data-testid="margin-slider"
-						onValueChange={([value]) => setMargin(value / 100)}
-					/>
-					<p className="text-muted-foreground mt-1.5 text-xs">
-						The gateway's cut of your billed traffic (standard{" "}
-						{formatPercent(baselineMargin)}). Accepting more than standard
-						boosts your routing; less costs you routing priority.
-					</p>
-				</div>
-
-				<div className="flex items-center justify-between">
-					<p className="text-muted-foreground font-mono text-xs">
-						net adjustment:{" "}
-						<span
-							className={
-								adjustment < 0 ? "text-signal" : "text-muted-foreground"
-							}
-						>
-							{adjustment >= 0 ? "+" : ""}
-							{(adjustment * 100).toFixed(0)}%
-						</span>
-					</p>
-					<Button
-						size="sm"
-						className="font-semibold"
-						disabled={!!pending || !dirty || update.isPending}
-						data-testid={`save-fares-${setting.providerId}`}
-						onClick={() =>
-							update.mutate({
-								params: { path: { providerId: setting.providerId } },
-								body: {
-									providerCompanyId,
-									discountPercent: discount,
-									marginPercent: margin,
-								},
-							})
-						}
-					>
-						{pending
-							? "Awaiting approval"
-							: update.isPending
-								? "Filing…"
-								: "File fare change"}
-					</Button>
-				</div>
 			</CardContent>
 		</Card>
 	);

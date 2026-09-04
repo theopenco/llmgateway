@@ -20,6 +20,7 @@ import { customAlphabet } from "nanoid";
 import type { gatewayContentFilterResponseSchema } from "./log-payloads.js";
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type {
+	ProviderApiFormat,
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
@@ -3352,6 +3353,14 @@ export const modelProviderMapping = pgTable(
 			.notNull()
 			.references(() => provider.id, { onDelete: "cascade" }),
 		externalId: text().notNull(),
+		apiFormat: text({
+			enum: [
+				"provider-native",
+				"openai-chat-completions",
+				"openai-responses",
+				"google-vertex",
+			],
+		}).$type<ProviderApiFormat>(),
 		region: text(),
 		source: text({ enum: ["catalogue", "airside"] })
 			.notNull()
@@ -4770,6 +4779,17 @@ export const providerDraftModel = pgTable(
 		// The id the provider's API expects; set once at registration or
 		// copied from the catalogue on import, never edited afterwards.
 		externalId: text().notNull(),
+		apiFormat: text({
+			enum: [
+				"provider-native",
+				"openai-chat-completions",
+				"openai-responses",
+				"google-vertex",
+			],
+		})
+			.$type<ProviderApiFormat>()
+			.notNull()
+			.default("provider-native"),
 		displayName: text(),
 		description: text(),
 		family: text(),
@@ -4832,6 +4852,7 @@ export interface ProviderModelVerificationTarget {
 	providerId: string;
 	modelName: string;
 	externalId: string;
+	apiFormat?: ProviderApiFormat;
 	streaming: boolean;
 	vision: boolean;
 	audio: boolean;
@@ -4951,8 +4972,8 @@ export const providerPriceFiling = pgTable(
 	],
 );
 
-// Per-claimed-provider routing knobs a carrier controls: a traffic discount
-// and the gateway margin they accept. Deliberately separate from
+// Provider-wide routing knobs, optionally overridden for one model: a traffic
+// discount and the gateway margin the carrier accepts. Deliberately separate from
 // `routing_score_multiplier` (the admin-only prioritization knob): the gateway
 // reads this table directly and adds both signals at the scoring seam.
 // Both values are fractions (0.1 = 10%), like `discount.discountPercent`.
@@ -4969,11 +4990,17 @@ export const providerRoutingSettings = pgTable(
 			.notNull()
 			.references(() => providerCompany.id, { onDelete: "cascade" }),
 		providerId: text().notNull(),
+		modelId: text(),
 		discountPercent: decimal().notNull().default("0"),
 		marginPercent: decimal().notNull().default("0.2"),
 	},
 	(table) => [
-		uniqueIndex("provider_routing_settings_provider_uidx").on(table.providerId),
+		uniqueIndex("provider_routing_settings_provider_default_uidx")
+			.on(table.providerId)
+			.where(sql`model_id IS NULL`),
+		uniqueIndex("provider_routing_settings_provider_model_uidx")
+			.on(table.providerId, table.modelId)
+			.where(sql`model_id IS NOT NULL`),
 		index("provider_routing_settings_company_idx").on(table.providerCompanyId),
 	],
 );
@@ -4994,6 +5021,7 @@ export const providerRoutingFiling = pgTable(
 			.notNull()
 			.references(() => providerCompany.id, { onDelete: "cascade" }),
 		providerId: text().notNull(),
+		modelId: text(),
 		discountPercent: decimal().notNull(),
 		marginPercent: decimal().notNull(),
 		status: text({ enum: ["pending", "approved", "rejected"] })
@@ -5005,10 +5033,12 @@ export const providerRoutingFiling = pgTable(
 		reviewedAt: timestamp(),
 	},
 	(table) => [
-		// One routing change can be in flight per provider at a time.
-		uniqueIndex("provider_routing_filing_pending_provider_uidx")
+		uniqueIndex("provider_routing_filing_pending_default_uidx")
 			.on(table.providerId)
-			.where(sql`status = 'pending'`),
+			.where(sql`model_id IS NULL AND status = 'pending'`),
+		uniqueIndex("provider_routing_filing_pending_model_uidx")
+			.on(table.providerId, table.modelId)
+			.where(sql`model_id IS NOT NULL AND status = 'pending'`),
 		index("provider_routing_filing_company_idx").on(table.providerCompanyId),
 		index("provider_routing_filing_status_idx").on(table.status),
 	],

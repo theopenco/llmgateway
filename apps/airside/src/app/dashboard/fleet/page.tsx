@@ -377,6 +377,15 @@ export default function FleetPage() {
 													↗ {model.externalId}
 												</span>
 											) : null}
+											<span className="font-mono">
+												{model.apiFormat === "openai-chat-completions"
+													? "Chat Completions"
+													: model.apiFormat === "openai-responses"
+														? "Responses API"
+														: model.apiFormat === "google-vertex"
+															? "Vertex API"
+															: "Carrier default"}
+											</span>
 											{model.contextSize ? (
 												<span className="font-mono">
 													{Math.round(model.contextSize / 1000)}k ctx

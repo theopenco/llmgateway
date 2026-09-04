@@ -54,6 +54,7 @@ import {
 import {
 	hasProviderEnvironmentToken,
 	models as catalogueModels,
+	PROVIDER_API_FORMATS,
 	providers as catalogueProviders,
 } from "@llmgateway/models";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
@@ -129,6 +130,7 @@ const priceValue = z
 	});
 
 const reasoningEffortsValue = z.array(z.enum(REASONING_EFFORT_VALUES)).max(7);
+const providerApiFormatValue = z.enum(PROVIDER_API_FORMATS);
 
 const pendingBrandingSchema = z.object({
 	logoUrl: z.string().nullable().optional(),
@@ -147,6 +149,7 @@ const verificationMappingSchema = z.object({
 	providerId: z.string(),
 	modelName: z.string().min(1).max(200),
 	externalId: z.string().min(1).max(200).optional(),
+	apiFormat: providerApiFormatValue.optional(),
 	streaming: z.boolean().optional(),
 	vision: z.boolean().optional(),
 	audio: z.boolean().optional(),
@@ -263,6 +266,7 @@ const modelSchema = z.object({
 	modelName: z.string(),
 	// The id sent to the provider's API; fixed at registration or import.
 	externalId: z.string(),
+	apiFormat: providerApiFormatValue,
 	displayName: z.string().nullable(),
 	description: z.string().nullable(),
 	family: z.string().nullable(),
@@ -296,6 +300,7 @@ const routingFilingSchema = z.object({
 	id: z.string(),
 	providerCompanyId: z.string(),
 	providerId: z.string(),
+	modelId: z.string().nullable(),
 	discountPercent: z.number(),
 	marginPercent: z.number(),
 	routingAdjustment: z.number(),
@@ -317,6 +322,18 @@ const routingSettingsSchema = z.object({
 	updatedAt: z.string().nullable(),
 	// The fare change awaiting admin approval, if any.
 	pendingFiling: routingFilingSchema.nullable(),
+	modelOverrides: z.array(
+		z.object({
+			modelId: z.string(),
+			displayName: z.string().nullable(),
+			discountPercent: z.number(),
+			marginPercent: z.number(),
+			routingAdjustment: z.number(),
+			overridden: z.boolean(),
+			updatedAt: z.string().nullable(),
+			pendingFiling: routingFilingSchema.nullable(),
+		}),
+	),
 });
 
 type RoutingFilingRow = typeof tables.providerRoutingFiling.$inferSelect;
@@ -328,6 +345,7 @@ function serializeRoutingFiling(row: RoutingFilingRow) {
 		id: row.id,
 		providerCompanyId: row.providerCompanyId,
 		providerId: row.providerId,
+		modelId: row.modelId,
 		discountPercent,
 		marginPercent,
 		routingAdjustment: computeAirsideAdjustment(discountPercent, marginPercent),
@@ -407,6 +425,7 @@ function verificationTarget(
 		providerId: body.providerId,
 		modelName: body.modelName,
 		externalId: body.externalId ?? body.modelName,
+		apiFormat: body.apiFormat ?? "openai-chat-completions",
 		streaming: body.streaming ?? true,
 		vision: body.vision ?? false,
 		audio: body.audio ?? false,
@@ -428,6 +447,7 @@ function draftVerificationTarget(
 		providerId: model.providerId,
 		modelName: model.modelName,
 		externalId: model.externalId,
+		apiFormat: model.apiFormat,
 		streaming: model.streaming,
 		vision: model.vision,
 		audio: model.audio,
@@ -450,6 +470,8 @@ function verificationTargetsMatch(
 		left.providerId === right.providerId &&
 		left.modelName === right.modelName &&
 		left.externalId === right.externalId &&
+		(left.apiFormat ?? "openai-chat-completions") ===
+			(right.apiFormat ?? "openai-chat-completions") &&
 		left.streaming === right.streaming &&
 		left.vision === right.vision &&
 		left.audio === right.audio &&
@@ -581,6 +603,7 @@ function serializeModel(
 		providerId: row.providerId,
 		modelName: row.modelName,
 		externalId: row.externalId,
+		apiFormat: row.apiFormat,
 		displayName: row.displayName,
 		description: row.description,
 		family: row.family,
@@ -2238,6 +2261,7 @@ const createModel = createRoute({
 						modelName: z.string().min(1).max(200),
 						// Defaults to modelName. Immutable once listed.
 						externalId: z.string().min(1).max(200).optional(),
+						apiFormat: providerApiFormatValue.optional(),
 						displayName: z.string().max(200).optional(),
 						description: z.string().max(2000).optional(),
 						family: z.string().min(1).max(100),
@@ -2360,6 +2384,7 @@ airside.openapi(createModel, async (c) => {
 					providerId: body.providerId,
 					modelName: body.modelName,
 					externalId: body.externalId ?? body.modelName,
+					apiFormat: body.apiFormat ?? "openai-chat-completions",
 					displayName: body.displayName ?? null,
 					description: body.description ?? null,
 					family: body.family,
@@ -2547,6 +2572,7 @@ airside.openapi(importCatalogueModels, async (c) => {
 					providerId: body.providerId,
 					modelName: model.id,
 					externalId: mapping.externalId,
+					apiFormat: mapping.apiFormat ?? "provider-native",
 					displayName: model.name ?? null,
 					family: model.family,
 					contextSize: mapping.contextSize ?? null,
@@ -2769,6 +2795,28 @@ airside.openapi(deleteModel, async (c) => {
 				and(
 					eq(tables.providerPriceFiling.draftModelId, id),
 					eq(tables.providerPriceFiling.status, "pending"),
+				),
+			);
+		await tx
+			.delete(tables.providerRoutingSettings)
+			.where(
+				and(
+					eq(tables.providerRoutingSettings.providerId, model.providerId),
+					eq(tables.providerRoutingSettings.modelId, model.modelName),
+				),
+			);
+		await tx
+			.update(tables.providerRoutingFiling)
+			.set({
+				status: "rejected",
+				reviewNote: "Model delisted",
+				reviewedAt: new Date(),
+			})
+			.where(
+				and(
+					eq(tables.providerRoutingFiling.providerId, model.providerId),
+					eq(tables.providerRoutingFiling.modelId, model.modelName),
+					eq(tables.providerRoutingFiling.status, "pending"),
 				),
 			);
 		await dematerializeAirsideModel(model.providerId, model.modelName, tx);
@@ -3121,28 +3169,52 @@ airside.openapi(listRoutingSettings, async (c) => {
 	const { providerCompanyId } = c.req.valid("query");
 	await requireCompanyMembership(user.id, providerCompanyId);
 	const providerIds = await getActiveClaimedProviderIds(providerCompanyId);
-	const [rows, pendingFilings] = providerIds.length
+	const [rows, pendingFilings, models] = providerIds.length
 		? await Promise.all([
 				db.query.providerRoutingSettings.findMany({
-					where: { providerId: { in: providerIds } },
+					where: {
+						providerCompanyId: { eq: providerCompanyId },
+						providerId: { in: providerIds },
+					},
 				}),
 				db.query.providerRoutingFiling.findMany({
 					where: {
+						providerCompanyId: { eq: providerCompanyId },
 						providerId: { in: providerIds },
 						status: { eq: "pending" },
 					},
 				}),
+				db.query.providerDraftModel.findMany({
+					where: {
+						providerCompanyId: { eq: providerCompanyId },
+						providerId: { in: providerIds },
+						status: { eq: "active" },
+					},
+					columns: {
+						providerId: true,
+						modelName: true,
+						displayName: true,
+					},
+					orderBy: { modelName: "asc" },
+				}),
 			])
-		: [[], []];
-	const rowByProvider = new Map(rows.map((row) => [row.providerId, row]));
-	const pendingByProvider = new Map(
-		pendingFilings.map((filing) => [filing.providerId, filing]),
+		: [[], [], []];
+	const scopeKey = (providerId: string, modelId: string | null) =>
+		JSON.stringify([providerId, modelId]);
+	const rowByScope = new Map(
+		rows.map((row) => [scopeKey(row.providerId, row.modelId), row]),
+	);
+	const pendingByScope = new Map(
+		pendingFilings.map((filing) => [
+			scopeKey(filing.providerId, filing.modelId),
+			filing,
+		]),
 	);
 	return c.json({
 		baselineMargin: AIRSIDE_BASELINE_MARGIN,
 		settings: providerIds.map((providerId) => {
-			const row = rowByProvider.get(providerId);
-			const pending = pendingByProvider.get(providerId);
+			const row = rowByScope.get(scopeKey(providerId, null));
+			const pending = pendingByScope.get(scopeKey(providerId, null));
 			const discountPercent = row ? Number(row.discountPercent) : 0;
 			const marginPercent = row
 				? Number(row.marginPercent)
@@ -3158,6 +3230,37 @@ airside.openapi(listRoutingSettings, async (c) => {
 				),
 				updatedAt: row ? row.updatedAt.toISOString() : null,
 				pendingFiling: pending ? serializeRoutingFiling(pending) : null,
+				modelOverrides: models
+					.filter((model) => model.providerId === providerId)
+					.map((model) => {
+						const override = rowByScope.get(
+							scopeKey(providerId, model.modelName),
+						);
+						const modelPending = pendingByScope.get(
+							scopeKey(providerId, model.modelName),
+						);
+						const modelDiscount = override
+							? Number(override.discountPercent)
+							: discountPercent;
+						const modelMargin = override
+							? Number(override.marginPercent)
+							: marginPercent;
+						return {
+							modelId: model.modelName,
+							displayName: model.displayName,
+							discountPercent: modelDiscount,
+							marginPercent: modelMargin,
+							routingAdjustment: computeAirsideAdjustment(
+								modelDiscount,
+								modelMargin,
+							),
+							overridden: Boolean(override),
+							updatedAt: override ? override.updatedAt.toISOString() : null,
+							pendingFiling: modelPending
+								? serializeRoutingFiling(modelPending)
+								: null,
+						};
+					}),
 			};
 		}),
 	});
@@ -3173,6 +3276,7 @@ const updateRoutingSettings = createRoute({
 				"application/json": {
 					schema: z.object({
 						providerCompanyId: z.string(),
+						modelId: z.string().min(1).max(200).nullable().optional(),
 						discountPercent: z.number().min(0).max(AIRSIDE_DISCOUNT_MAX),
 						marginPercent: z
 							.number()
@@ -3214,14 +3318,44 @@ airside.openapi(updateRoutingSettings, async (c) => {
 			message: "This provider is not claimed by the company.",
 		});
 	}
+	const modelId = body.modelId ?? null;
+	if (modelId) {
+		const model = await db.query.providerDraftModel.findFirst({
+			where: {
+				providerCompanyId: { eq: body.providerCompanyId },
+				providerId: { eq: providerId },
+				modelName: { eq: modelId },
+				status: { eq: "active" },
+			},
+			columns: { id: true },
+		});
+		if (!model) {
+			throw new HTTPException(404, { message: "Active model not found." });
+		}
+	}
 
 	const existing = await db.query.providerRoutingSettings.findFirst({
-		where: { providerId: { eq: providerId } },
+		where: {
+			providerId: { eq: providerId },
+			modelId: modelId ? { eq: modelId } : { isNull: true },
+		},
 	});
-	const currentDiscount = existing ? Number(existing.discountPercent) : 0;
-	const currentMargin = existing
-		? Number(existing.marginPercent)
-		: AIRSIDE_BASELINE_MARGIN;
+	const inherited = modelId
+		? await db.query.providerRoutingSettings.findFirst({
+				where: {
+					providerId: { eq: providerId },
+					modelId: { isNull: true },
+				},
+			})
+		: undefined;
+	const currentDiscount = Number(
+		existing?.discountPercent ?? inherited?.discountPercent ?? 0,
+	);
+	const currentMargin = Number(
+		existing?.marginPercent ??
+			inherited?.marginPercent ??
+			AIRSIDE_BASELINE_MARGIN,
+	);
 	if (
 		body.discountPercent === currentDiscount &&
 		body.marginPercent === currentMargin
@@ -3238,6 +3372,7 @@ airside.openapi(updateRoutingSettings, async (c) => {
 			.values({
 				providerCompanyId: body.providerCompanyId,
 				providerId,
+				modelId,
 				discountPercent: String(body.discountPercent),
 				marginPercent: String(body.marginPercent),
 				requestedBy: user.id,
@@ -3247,7 +3382,9 @@ airside.openapi(updateRoutingSettings, async (c) => {
 	} catch (err) {
 		if (isUniqueViolation(err)) {
 			throw new HTTPException(409, {
-				message: "A fare change for this carrier is already awaiting approval.",
+				message: modelId
+					? "A fare change for this model is already awaiting approval."
+					: "A fare change for this carrier is already awaiting approval.",
 			});
 		}
 		throw err;

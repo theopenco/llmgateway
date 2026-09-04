@@ -137,6 +137,16 @@ type CapabilityKey = (typeof CAPABILITIES)[number]["key"];
 
 type RateLimitScope = "global" | "per_org";
 
+const API_FORMATS: Array<{
+	value: AirsideModel["apiFormat"];
+	label: string;
+}> = [
+	{ value: "provider-native", label: "Carrier default" },
+	{ value: "openai-chat-completions", label: "OpenAI Chat Completions" },
+	{ value: "openai-responses", label: "OpenAI Responses" },
+	{ value: "google-vertex", label: "Google Vertex generateContent" },
+];
+
 /**
  * How a carrier's own caps are counted. Most carriers mean "my deployment
  * takes N req/min" — one counter for everyone — so that is the default; the
@@ -194,6 +204,9 @@ export function RegisterModelDialog({
 	const [open, setOpen] = useState(false);
 	const [modelName, setModelName] = useState("");
 	const [externalId, setExternalId] = useState("");
+	const [apiFormat, setApiFormat] = useState<AirsideModel["apiFormat"]>(
+		"openai-chat-completions",
+	);
 	const [displayName, setDisplayName] = useState("");
 	const [contextSize, setContextSize] = useState("128000");
 	const [description, setDescription] = useState("");
@@ -278,6 +291,7 @@ export function RegisterModelDialog({
 			setOpen(false);
 			setModelName("");
 			setExternalId("");
+			setApiFormat("openai-chat-completions");
 			setDisplayName("");
 			setInputPrice("");
 			setOutputPrice("");
@@ -300,6 +314,7 @@ export function RegisterModelDialog({
 		providerId: effectiveProviderId,
 		modelName,
 		externalId: externalId || undefined,
+		apiFormat,
 		...capabilities,
 		reasoningEfforts:
 			capabilities.reasoning && reasoningEfforts.length > 0
@@ -342,6 +357,7 @@ export function RegisterModelDialog({
 								providerId: effectiveProviderId,
 								modelName,
 								externalId: externalId || undefined,
+								apiFormat,
 								displayName: displayName || undefined,
 								description: description || undefined,
 								family,
@@ -432,6 +448,34 @@ export function RegisterModelDialog({
 								onChange={(e) => setDisplayName(e.target.value)}
 								placeholder="Acme Large 2"
 							/>
+						</div>
+						<div className="space-y-2 sm:col-span-2">
+							<Label htmlFor="model-api-format">Upstream API</Label>
+							<Select
+								value={apiFormat}
+								onValueChange={(value) => {
+									setApiFormat(value as AirsideModel["apiFormat"]);
+									resetVerification();
+								}}
+								disabled={verificationInProgress}
+							>
+								<SelectTrigger
+									id="model-api-format"
+									data-testid="model-api-format"
+								>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{API_FORMATS.map((format) => (
+										<SelectItem key={format.value} value={format.value}>
+											{format.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<p className="text-muted-foreground text-xs">
+								Used for preflight and every gateway request. Fixed once listed.
+							</p>
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor="model-context">Context size</Label>

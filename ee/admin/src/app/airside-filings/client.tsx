@@ -573,7 +573,10 @@ export function AirsideFilingsClient() {
 							</TableHeader>
 							<TableBody>
 								{filings.map((filing) => (
-									<TableRow key={filing.id} data-testid={`filing-${filing.id}`}>
+									<TableRow
+										key={filing.id}
+										data-testid={`filing-${filing.model.providerId}-${filing.model.modelName}`}
+									>
 										<TableCell>
 											<div className="font-medium">{filing.company.name}</div>
 											<div className="text-muted-foreground text-xs">
@@ -590,6 +593,9 @@ export function AirsideFilingsClient() {
 													↗ {filing.model.externalId}
 												</div>
 											) : null}
+											<div className="text-muted-foreground text-xs">
+												{filing.model.apiFormat}
+											</div>
 											{filing.kind === "initial" ? (
 												filing.model.sharesCatalogueModelName ? (
 													<Badge
@@ -722,6 +728,7 @@ export function AirsideFilingsClient() {
 								<TableRow>
 									<TableHead>Company</TableHead>
 									<TableHead>Provider</TableHead>
+									<TableHead>Scope</TableHead>
 									<TableHead>Discount</TableHead>
 									<TableHead>Margin</TableHead>
 									<TableHead>Adjustment</TableHead>
@@ -733,13 +740,16 @@ export function AirsideFilingsClient() {
 								{routingFilings.map((filing) => (
 									<TableRow
 										key={filing.id}
-										data-testid={`routing-filing-${filing.id}`}
+										data-testid={`routing-filing-${filing.providerId}-${filing.modelId ?? "all"}`}
 									>
 										<TableCell className="font-medium">
 											{filing.company.name}
 										</TableCell>
 										<TableCell className="font-mono text-sm">
 											{filing.providerId}
+										</TableCell>
+										<TableCell className="font-mono text-xs">
+											{filing.modelId ?? "All models"}
 										</TableCell>
 										<TableCell className="font-mono text-xs">
 											{Math.round(filing.currentDiscountPercent * 100)}% →{" "}

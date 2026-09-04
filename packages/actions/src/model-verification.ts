@@ -13,6 +13,7 @@ import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
 import { getProviderEndpoint } from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
+import { getProviderApiTransport } from "./provider-api-format.js";
 import {
 	decryptProviderKey,
 	encryptProviderKey,
@@ -659,6 +660,10 @@ async function runCheck(
 	const provider = (
 		knownProvider ? options.target.providerId : "custom"
 	) as ProviderId;
+	const transportProvider = getProviderApiTransport(
+		provider,
+		options.target.apiFormat,
+	);
 	let requestToken = options.token;
 	if (
 		provider === "vertex-anthropic" ||
@@ -671,7 +676,10 @@ async function runCheck(
 		provider,
 		options.baseUrl,
 		options.target.externalId,
-		isGoogleQueryTokenProvider(provider) ? requestToken : undefined,
+		isGoogleQueryTokenProvider(provider) ||
+			transportProvider === "google-vertex"
+			? requestToken
+			: undefined,
 		definition.request.stream ?? false,
 		options.target.reasoning,
 		false,
@@ -681,11 +689,16 @@ async function runCheck(
 		undefined,
 		options.skipEnvVars,
 		options.target.modelName,
+		transportProvider === "google-vertex" && provider !== "google-vertex"
+			? "api-key"
+			: undefined,
+		undefined,
+		options.target.apiFormat,
 	);
 	const useResponsesApi = endpoint.includes("/responses");
 	const { functionTools, webSearchTool } = splitTools(definition.request.tools);
 	const payload = await prepareRequestBody(
-		provider,
+		transportProvider,
 		options.target.modelName,
 		null,
 		options.target.externalId,
@@ -712,9 +725,13 @@ async function runCheck(
 		definition.id === "reasoning_budget" ? 256 : undefined,
 		useResponsesApi,
 	);
-	const headers = getProviderHeaders(provider, requestToken, {
+	const headers = getProviderHeaders(transportProvider, requestToken, {
 		providerKeyOptions: options.providerKeyOptions,
 		skipEnvVars: options.skipEnvVars,
+		tokenType:
+			transportProvider === "google-vertex" && provider !== "google-vertex"
+				? "api-key"
+				: undefined,
 	});
 	if (!(payload instanceof FormData)) {
 		headers["Content-Type"] = "application/json";

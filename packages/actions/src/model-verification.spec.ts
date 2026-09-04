@@ -26,6 +26,100 @@ const target: ProviderModelVerificationTarget = {
 };
 
 describe("model verification", () => {
+	it("verifies a custom OpenAI Responses model with the selected protocol", async () => {
+		const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					output: [
+						{
+							type: "message",
+							content: [{ type: "output_text", text: "OK" }],
+						},
+					],
+				}),
+				{ status: 200 },
+			),
+		);
+		const result = await runProviderModelVerification({
+			target: {
+				...target,
+				providerId: "custom-carrier",
+				apiFormat: "openai-responses",
+				streaming: false,
+				vision: false,
+				audio: false,
+				tools: false,
+				jsonOutput: false,
+				jsonOutputSchema: false,
+				reasoning: false,
+				reasoningMaxTokens: false,
+				webSearch: false,
+			},
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		expect(result.passed).toBe(true);
+		expect(fetchImplementation).toHaveBeenCalledOnce();
+		const [endpoint, request] = fetchImplementation.mock.calls[0];
+		expect(endpoint).toBe("https://carrier.example/v1/responses");
+		expect(request?.headers).toMatchObject({
+			Authorization: "Bearer provider-key",
+		});
+		expect(JSON.parse(String(request?.body))).toMatchObject({
+			model: "verification-model-upstream",
+			input: expect.any(Array),
+		});
+	});
+
+	it("verifies a custom model through Google Vertex", async () => {
+		const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					candidates: [
+						{
+							content: { parts: [{ text: "OK" }], role: "model" },
+							finishReason: "STOP",
+						},
+					],
+				}),
+				{ status: 200 },
+			),
+		);
+		const result = await runProviderModelVerification({
+			target: {
+				...target,
+				providerId: "custom-carrier",
+				apiFormat: "google-vertex",
+				streaming: false,
+				vision: false,
+				audio: false,
+				tools: false,
+				jsonOutput: false,
+				jsonOutputSchema: false,
+				reasoning: false,
+				reasoningMaxTokens: false,
+				webSearch: false,
+			},
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		expect(result.passed).toBe(true);
+		const [endpoint, request] = fetchImplementation.mock.calls[0];
+		expect(endpoint).toBe(
+			"https://carrier.example/v1/publishers/google/models/verification-model-upstream:generateContent?key=provider-key",
+		);
+		expect(request?.headers).not.toMatchObject({
+			Authorization: expect.any(String),
+		});
+		expect(JSON.parse(String(request?.body))).toMatchObject({
+			contents: expect.any(Array),
+		});
+	});
+
 	it("derives queued checks from mapping-level capabilities", () => {
 		expect(
 			createQueuedModelVerificationChecks(target).map(({ id }) => id),
