@@ -54,7 +54,11 @@ import {
 	getProviderEnvKeys,
 	providers,
 } from "@llmgateway/models";
-import { getModelIdsByProvider } from "@llmgateway/shared";
+import {
+	createEmptyProviderModelsByKind,
+	getModelIdsByProvider,
+	getModelIdsByProviderAndKind,
+} from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
@@ -178,6 +182,14 @@ const catalogEntrySchema = z.object({
 	 * (deactivated mappings excluded), for the allowed-models picker.
 	 */
 	models: z.array(z.string()),
+	/** Catalogue models grouped by the request surface used to invoke them. */
+	modelsByKind: z.object({
+		text: z.array(z.string()),
+		image: z.array(z.string()),
+		ocr: z.array(z.string()),
+		embedding: z.array(z.string()),
+		video: z.array(z.string()),
+	}),
 });
 
 type CredentialRow = typeof tables.providerKey.$inferSelect;
@@ -471,6 +483,7 @@ const getCatalog = createRoute({
 adminProviderCredentials.openapi(getCatalog, async (c) => {
 	// Live catalogue models per provider, for the allowed-models picker.
 	const modelsByProvider = getModelIdsByProvider();
+	const modelsByProviderAndKind = getModelIdsByProviderAndKind();
 
 	// Provider keys live on the gateway, which is a separate deployment: reading
 	// this process's own environment would report nothing at all in a split
@@ -504,6 +517,9 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				configKeys: getManagedCredentialConfigKeys(provider.id),
 				exclusiveConfigGroups: getProviderEnvExclusiveGroups(provider.id),
 				models: modelsByProvider.get(provider.id) ?? [],
+				modelsByKind:
+					modelsByProviderAndKind.get(provider.id) ??
+					createEmptyProviderModelsByKind(),
 			};
 		});
 
@@ -522,21 +538,28 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				columns: { providerId: true, modelName: true },
 			})
 		: [];
-	const carrierEntries = customCarriers.map((cl) => ({
-		id: cl.providerId,
-		name: cl.customName ?? cl.providerId,
-		apiKeyEnvVar: null,
-		apiKeyEnvConfigured: false,
-		regions: [],
-		defaultRegion: null,
-		apiKeyEnvCounts: countEnvCredentialsByVariant([]),
-		envCredentials: [],
-		configKeys: [],
-		exclusiveConfigGroups: [],
-		models: customListings
+	const carrierEntries = customCarriers.map((cl) => {
+		const carrierModels = customListings
 			.filter((m) => m.providerId === cl.providerId)
-			.map((m) => m.modelName),
-	}));
+			.map((m) => m.modelName);
+		return {
+			id: cl.providerId,
+			name: cl.customName ?? cl.providerId,
+			apiKeyEnvVar: null,
+			apiKeyEnvConfigured: false,
+			regions: [],
+			defaultRegion: null,
+			apiKeyEnvCounts: countEnvCredentialsByVariant([]),
+			envCredentials: [],
+			configKeys: [],
+			exclusiveConfigGroups: [],
+			models: carrierModels,
+			modelsByKind: {
+				...createEmptyProviderModelsByKind(),
+				text: carrierModels,
+			},
+		};
+	});
 
 	return c.json({
 		providers: [...entries, ...carrierEntries],
@@ -1406,8 +1429,8 @@ const verifyModelsResultSchema = z.object({
 	inCatalog: z.boolean(),
 	/**
 	 * Live probe outcome: true/false, or null when the model was not probed —
-	 * either it is missing from the catalogue or it cannot answer a chat
-	 * completion (image/embedding/audio models).
+	 * either it is missing from the catalogue or its request surface is not
+	 * enabled for live verification.
 	 */
 	valid: z.boolean().nullable(),
 	statusCode: z.number().optional(),
@@ -1485,13 +1508,20 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 				error: `Not available from ${target.provider} per the catalogue`,
 			};
 		}
-		if (!pinned.chatCapable) {
+		if (pinned.kind === "video") {
 			return {
 				model: modelId,
 				inCatalog: true,
 				valid: null,
-				error:
-					"Cannot be live-tested: the model does not answer chat completions",
+				error: "Not live-tested: video generation is intentionally skipped",
+			};
+		}
+		if (!pinned.kind) {
+			return {
+				model: modelId,
+				inCatalog: true,
+				valid: null,
+				error: "Cannot be live-tested: this model type is not supported yet",
 			};
 		}
 		if (isCredentialTestEnv()) {

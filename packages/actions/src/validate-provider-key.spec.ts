@@ -2,12 +2,28 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { logger } from "@llmgateway/logger";
 import { models } from "@llmgateway/models";
+import { getProviderModelKind } from "@llmgateway/shared";
 
 import {
+	getPinnedValidationModel,
 	getValidationModel,
 	pickCheapestRecentModel,
 	validateProviderKey,
 } from "./validate-provider-key.js";
+
+describe("getPinnedValidationModel", () => {
+	it("identifies each supported verification surface", () => {
+		expect(getPinnedValidationModel("openai", "gpt-image-2")?.kind).toBe(
+			"image",
+		);
+		expect(
+			getPinnedValidationModel("openai", "text-embedding-3-small")?.kind,
+		).toBe("embedding");
+		expect(
+			getPinnedValidationModel("mistral", "mistral-ocr-latest")?.kind,
+		).toBe("ocr");
+	});
+});
 
 describe("getValidationModel", () => {
 	it("never selects an OCR model for provider key validation", () => {
@@ -182,6 +198,189 @@ describe("validateProviderKey error reporting", () => {
 
 		expect(result.valid).toBe(false);
 		expect(result.error).toBe("401 Unauthorized");
+	});
+});
+
+describe("validateProviderKey model-specific probes", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	function mockSuccess() {
+		return vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(new Response("{}", { status: 200 }));
+	}
+
+	it("uses the embeddings endpoint for an embedding model", async () => {
+		const fetchMock = mockSuccess();
+
+		const result = await validateProviderKey(
+			"openai",
+			"sk-test",
+			undefined,
+			false,
+			undefined,
+			"text-embedding-3-small",
+		);
+
+		expect(result.valid).toBe(true);
+		expect(fetchMock.mock.calls[0][0]).toBe(
+			"https://api.openai.com/v1/embeddings",
+		);
+		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+			input: "Hello",
+			model: "text-embedding-3-small",
+		});
+	});
+
+	it("sends a minimal inline image to the OCR endpoint", async () => {
+		const fetchMock = mockSuccess();
+
+		const result = await validateProviderKey(
+			"mistral",
+			"mistral-test",
+			undefined,
+			false,
+			undefined,
+			"mistral-ocr-latest",
+		);
+
+		expect(result.valid).toBe(true);
+		expect(fetchMock.mock.calls[0][0]).toBe("https://api.mistral.ai/v1/ocr");
+		const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+		expect(body.document.type).toBe("image_url");
+		expect(body.document.image_url).toMatch(/^data:image\/png;base64,/);
+		expect(body.include_image_base64).toBe(false);
+	});
+
+	it("uses the lowest configured image size and quality", async () => {
+		const fetchMock = mockSuccess();
+
+		const result = await validateProviderKey(
+			"openai",
+			"sk-test",
+			undefined,
+			false,
+			undefined,
+			"gpt-image-2",
+		);
+
+		expect(result.valid).toBe(true);
+		expect(fetchMock.mock.calls[0][0]).toBe(
+			"https://api.openai.com/v1/images/generations",
+		);
+		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
+			model: "gpt-image-2",
+			size: "1024x1024",
+			quality: "low",
+			n: 1,
+		});
+	});
+
+	it("keeps unsupported size controls off legacy Grok image probes", async () => {
+		const fetchMock = mockSuccess();
+
+		const result = await validateProviderKey(
+			"xai",
+			"xai-test",
+			undefined,
+			false,
+			undefined,
+			"grok-imagine-image",
+		);
+
+		expect(result.valid).toBe(true);
+		const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+		expect(body).not.toHaveProperty("resolution");
+		expect(body.n).toBe(1);
+	});
+
+	it("enables low-resolution image output for a Gemini image model", async () => {
+		const fetchMock = mockSuccess();
+
+		const result = await validateProviderKey(
+			"google-ai-studio",
+			"google-test",
+			undefined,
+			false,
+			undefined,
+			"gemini-3.1-flash-image",
+		);
+
+		expect(result.valid).toBe(true);
+		const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+		expect(body.generationConfig.responseModalities).toEqual(["TEXT", "IMAGE"]);
+		expect(body.generationConfig.imageConfig.imageSize).toBe("512");
+	});
+
+	it("includes a reference image for image-edit mappings", async () => {
+		const fetchMock = mockSuccess();
+
+		const result = await validateProviderKey(
+			"alibaba",
+			"alibaba-test",
+			undefined,
+			false,
+			{ env_config: { region: "singapore" } },
+			"qwen-image-edit-plus",
+		);
+
+		expect(result.valid).toBe(true);
+		const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+		expect(body.input.messages[0].content[0].image).toMatch(
+			/^data:image\/png;base64,/,
+		);
+		expect(body.parameters.size).toBe("1024*1024");
+	});
+
+	it("constructs probes for every active image, OCR, and embedding mapping", async () => {
+		const fetchMock = mockSuccess();
+		const supportedKinds = new Set(["image", "ocr", "embedding"]);
+		const seen = new Set<string>();
+
+		for (const model of models) {
+			for (const mapping of model.providers) {
+				if (
+					"deactivatedAt" in mapping &&
+					mapping.deactivatedAt &&
+					new Date() >= mapping.deactivatedAt
+				) {
+					continue;
+				}
+				const kind = getProviderModelKind(model, mapping);
+				const key = `${mapping.providerId}/${model.id}`;
+				if (!kind || !supportedKinds.has(kind) || seen.has(key)) {
+					continue;
+				}
+				seen.add(key);
+
+				const result = await validateProviderKey(
+					mapping.providerId,
+					"test-token",
+					undefined,
+					false,
+					{
+						env_config: {
+							baseUrl: "https://validation.example.com",
+							...(mapping.providerId === "alibaba"
+								? { region: "singapore" }
+								: {}),
+							...(mapping.providerId === "google-vertex" ||
+							mapping.providerId === "quartz"
+								? { project: "test-project", region: "global" }
+								: {}),
+						},
+					},
+					model.id,
+				);
+
+				expect(result, key).toMatchObject({ valid: true, model: model.id });
+			}
+		}
+
+		expect(seen.size).toBeGreaterThan(0);
+		expect(fetchMock).toHaveBeenCalledTimes(seen.size);
 	});
 });
 

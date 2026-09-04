@@ -1540,9 +1540,39 @@ describe("managed credential allowed models", () => {
 		return json.providers.find((entry) => entry.id === provider)?.models ?? [];
 	}
 
+	async function catalogModelsByKind(provider: string) {
+		const res = await app.request("/admin/provider-credentials/catalog", {
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(200);
+		const json = (await res.json()) as {
+			providers: {
+				id: string;
+				modelsByKind: {
+					text: string[];
+					image: string[];
+					ocr: string[];
+					embedding: string[];
+					video: string[];
+				};
+			}[];
+		};
+		return json.providers.find((entry) => entry.id === provider)?.modelsByKind;
+	}
+
 	test("catalog lists each provider's live models for the picker", async () => {
 		const models = await catalogModels("openai");
 		expect(models.length).toBeGreaterThan(0);
+	});
+
+	test("catalog groups models by request surface", async () => {
+		const openai = await catalogModelsByKind("openai");
+		const mistral = await catalogModelsByKind("mistral");
+
+		expect(openai?.text.length).toBeGreaterThan(0);
+		expect(openai?.image).toContain("gpt-image-2");
+		expect(openai?.embedding).toContain("text-embedding-3-small");
+		expect(mistral?.ocr).toContain("mistral-ocr-latest");
 	});
 
 	test("stores a normalized allowed-models list", async () => {
@@ -1731,6 +1761,75 @@ describe("managed credential allowed models", () => {
 		});
 		expect(res.status).toBe(200);
 		expect(((await res.json()) as { allValid: boolean }).allValid).toBe(true);
+	});
+
+	test("verify-models probes image and embedding request surfaces", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		validateProviderKeyMock
+			.mockResolvedValueOnce({ valid: true })
+			.mockResolvedValueOnce({ valid: true });
+		const kinds = await catalogModelsByKind("openai");
+		const models = [kinds?.image[0], kinds?.embedding[0]].filter(
+			(model): model is string => model !== undefined,
+		);
+		expect(models).toHaveLength(2);
+
+		const res = await post("/admin/provider-credentials/verify-models", {
+			provider: "openai",
+			token: "sk-multimodal-verify",
+			models,
+		});
+
+		expect(res.status).toBe(200);
+		expect(
+			((await res.json()) as { results: { valid: boolean | null }[] }).results,
+		).toEqual([
+			expect.objectContaining({ valid: true }),
+			expect.objectContaining({ valid: true }),
+		]);
+		expect(validateProviderKeyMock).toHaveBeenCalledTimes(2);
+	});
+
+	test("verify-models probes OCR models", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });
+		const [model] = (await catalogModelsByKind("mistral"))?.ocr ?? [];
+		expect(model).toBeDefined();
+
+		const res = await post("/admin/provider-credentials/verify-models", {
+			provider: "mistral",
+			token: "mistral-ocr-verify",
+			models: [model],
+		});
+
+		expect(res.status).toBe(200);
+		expect(
+			((await res.json()) as { results: { valid: boolean | null }[] })
+				.results[0]?.valid,
+		).toBe(true);
+		expect(validateProviderKeyMock).toHaveBeenCalledTimes(1);
+	});
+
+	test("verify-models skips video generation", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		const [model] = (await catalogModelsByKind("xai"))?.video ?? [];
+		expect(model).toBeDefined();
+
+		const res = await post("/admin/provider-credentials/verify-models", {
+			provider: "xai",
+			token: "xai-video-verify",
+			models: [model],
+		});
+
+		expect(res.status).toBe(200);
+		const result = (
+			(await res.json()) as {
+				results: { valid: boolean | null; error?: string }[];
+			}
+		).results[0];
+		expect(result?.valid).toBeNull();
+		expect(result?.error).toContain("video generation");
+		expect(validateProviderKeyMock).not.toHaveBeenCalled();
 	});
 
 	test("verify-models accepts more than 50 models", async () => {

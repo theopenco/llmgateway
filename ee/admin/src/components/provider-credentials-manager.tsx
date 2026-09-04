@@ -3,6 +3,7 @@
 import {
 	CheckCheck,
 	CheckCircle2,
+	ChevronDown,
 	ClipboardPaste,
 	Loader2,
 	MinusCircle,
@@ -31,6 +32,13 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuShortcut,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -55,7 +63,7 @@ import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
 import { parseProviderModelList } from "@/lib/provider-model-list";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon } from "@llmgateway/shared";
+import { getProviderIcon, PROVIDER_MODEL_KINDS } from "@llmgateway/shared";
 import {
 	MultiModelIdSelector,
 	ReorderableItem,
@@ -70,6 +78,7 @@ import type {
 	ProviderCredentialModelVerification,
 	ProviderCredentialSelfTestResult,
 } from "@/lib/admin-provider-credentials";
+import type { ProviderModelKind } from "@llmgateway/shared";
 
 type Variant = "default" | "enterprise" | "plans";
 
@@ -112,6 +121,22 @@ const NO_CREDENTIALS: VariantCounts = {
 };
 
 const NO_MODELS: string[] = [];
+
+const NO_MODELS_BY_KIND: Record<ProviderModelKind, string[]> = {
+	text: [],
+	image: [],
+	ocr: [],
+	embedding: [],
+	video: [],
+};
+
+const MODEL_KIND_LABELS: Record<ProviderModelKind, string> = {
+	text: "Text models",
+	image: "Image models",
+	ocr: "OCR models",
+	embedding: "Embedding models",
+	video: "Video models",
+};
 
 function totalOf(counts: VariantCounts): number {
 	return counts.default + counts.enterprise + counts.plans;
@@ -1351,6 +1376,7 @@ function CredentialDialog({
 		catalogEntry ?? catalog.find((entry) => entry.id === provider);
 	const isRegionScoped = (selectedEntry?.regions.length ?? 0) > 0;
 	const availableModels = selectedEntry?.models ?? NO_MODELS;
+	const modelsByKind = selectedEntry?.modelsByKind ?? NO_MODELS_BY_KIND;
 	const allAvailableModelsSelected = useMemo(() => {
 		if (availableModels.length === 0) {
 			return false;
@@ -1765,6 +1791,37 @@ function CredentialDialog({
 											? `All ${availableModels.length} selected`
 											: `Select all ${availableModels.length}`}
 								</Button>
+								<DropdownMenu>
+									<DropdownMenuTrigger asChild>
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											disabled={availableModels.length === 0}
+											title="Replace the restriction with one model type."
+										>
+											Select by kind
+											<ChevronDown />
+										</Button>
+									</DropdownMenuTrigger>
+									<DropdownMenuContent align="end" className="z-[60] min-w-52">
+										{PROVIDER_MODEL_KINDS.map((kind) => (
+											<DropdownMenuItem
+												key={kind}
+												disabled={modelsByKind[kind].length === 0}
+												onSelect={() => {
+													setAllowedModels([...modelsByKind[kind]]);
+													clearVerifyResults();
+												}}
+											>
+												Only {MODEL_KIND_LABELS[kind].toLowerCase()}
+												<DropdownMenuShortcut>
+													{modelsByKind[kind].length}
+												</DropdownMenuShortcut>
+											</DropdownMenuItem>
+										))}
+									</DropdownMenuContent>
+								</DropdownMenu>
 								<PasteAllowedModelsDialog
 									availableIds={availableModels}
 									providerName={selectedEntry?.name ?? "this provider"}
@@ -1823,7 +1880,7 @@ function CredentialDialog({
 									!provider ||
 									(!isEdit && !token)
 								}
-								title="Probes every listed model through the key and reports which ones the account can actually serve."
+								title="Probes supported model types through the key and reports which ones the account can actually serve. Video generation is skipped."
 								aria-busy={verifyLoading}
 							>
 								{verifyLoading ? (
@@ -1977,7 +2034,7 @@ function CredentialDialog({
 /**
  * Status icon for one row of the verify-models report: green = probed and
  * served, red = probed and rejected, gray = listed but not probeable (unknown,
- * image, embedding and other non-chat models).
+ * models whose request surface is not enabled for verification).
  */
 function ModelVerificationIcon({ entry }: { entry: ModelVerificationEntry }) {
 	if (entry.valid === true) {
