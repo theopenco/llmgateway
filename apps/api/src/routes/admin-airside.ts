@@ -1131,7 +1131,12 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 						),
 				})
 				.from(tables.globalModelStats)
-				.where(inArray(tables.globalModelStats.usedProvider, providerIds))
+				.where(
+					and(
+						inArray(tables.globalModelStats.usedProvider, providerIds),
+						eq(tables.globalModelStats.usedMode, "credits"),
+					),
+				)
 				.groupBy(tables.globalModelStats.usedProvider)
 		: [];
 	const totalsByProvider = new Map(

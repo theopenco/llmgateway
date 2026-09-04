@@ -1,5 +1,6 @@
 import { Decimal } from "decimal.js";
 
+import { getAirsideRoutingSnapshot } from "@/lib/airside-routing-snapshot.js";
 import { recordSpend } from "@/lib/spend-limit.js";
 
 import { swrWrap } from "@llmgateway/cache";
@@ -188,6 +189,9 @@ export async function recordRealtimeResponse(
 	const { preflight, usage, costs } = input;
 	const usageKey = `response:${input.responseId}`;
 	const billingCost = costs.totalCost.toString();
+	const airsideRoutingSnapshot = await getAirsideRoutingSnapshot(
+		preflight.match.mapping.providerId,
+	);
 
 	const inserted = await db.transaction(async (tx) => {
 		const rows = await tx
@@ -205,6 +209,7 @@ export async function recordRealtimeResponse(
 				usedModel: `${preflight.match.mapping.providerId}/${preflight.match.modelId}`,
 				usedModelMapping: preflight.match.mapping.externalId,
 				usedProvider: preflight.match.mapping.providerId,
+				...airsideRoutingSnapshot,
 				responseSize: input.responseSizeBytes,
 				// Conversation content (text transcripts, audio) is intentionally not
 				// persisted for realtime sessions.
@@ -347,6 +352,9 @@ export async function recordRealtimeTranscription(
 	const { preflight, transcription, usage, costs } = input;
 	const usageKey = `transcription:${input.itemId}:${input.contentIndex}`;
 	const billingCost = costs.totalCost.toString();
+	const airsideRoutingSnapshot = await getAirsideRoutingSnapshot(
+		transcription.mapping.providerId,
+	);
 
 	const inserted = await db.transaction(async (tx) => {
 		const rows = await tx
@@ -364,6 +372,7 @@ export async function recordRealtimeTranscription(
 				usedModel: `${transcription.mapping.providerId}/${transcription.modelId}`,
 				usedModelMapping: transcription.mapping.externalId,
 				usedProvider: transcription.mapping.providerId,
+				...airsideRoutingSnapshot,
 				responseSize: input.responseSizeBytes,
 				// Transcript content is intentionally not persisted, matching the
 				// no-conversation-content policy for realtime sessions.
