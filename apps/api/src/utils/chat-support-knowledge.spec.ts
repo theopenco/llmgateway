@@ -146,4 +146,29 @@ describe("selectKnowledgeUrls", () => {
 		expect(selected).toHaveLength(600);
 		expect(selected.slice(0, guideUrls.length)).toEqual(guideUrls);
 	});
+
+	test("keeps later products when the first sitemap has 600 guides", () => {
+		const mainGuides = Array.from(
+			{ length: 600 },
+			(_, index) => `https://llmgateway.io/guides/guide-${index}`,
+		);
+		const laterProducts = [
+			"https://devpass.llmgateway.io/guides/getting-started",
+			"https://docs.llmgateway.io/quick-start",
+			"https://lounge.llmgateway.io/group",
+			"https://airside.llmgateway.io/legal/terms",
+		];
+
+		const selected = selectKnowledgeUrls(
+			[],
+			[mainGuides, ...laterProducts.map((url) => [url])],
+			600,
+		);
+
+		expect(selected).toHaveLength(600);
+		expect(selected.slice(0, laterProducts.length + 1)).toEqual([
+			mainGuides[0],
+			...laterProducts,
+		]);
+	});
 });

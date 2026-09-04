@@ -128,15 +128,41 @@ export function selectKnowledgeUrls(
 	for (const url of priorityUrls) {
 		add(url);
 	}
-	for (const urls of urlGroups) {
-		for (const url of urls) {
+	const guideGroups = urlGroups.map((urls) =>
+		urls.filter((url) => {
 			try {
 				const { pathname } = new URL(url);
-				if (pathname === "/guides" || pathname.startsWith("/guides/")) {
-					add(url);
-				}
+				return (
+					(pathname === "/guides" || pathname.startsWith("/guides/")) &&
+					isAllowedKnowledgeUrl(url)
+				);
 			} catch {
-				// Invalid URLs are discarded by add during the normal selection pass.
+				return false;
+			}
+		}),
+	);
+
+	// Reserve representation for each product before a guide-heavy sitemap can
+	// consume the remaining budget.
+	for (const guides of guideGroups) {
+		add(guides[0]);
+	}
+	for (let index = 0; index < urlGroups.length; index += 1) {
+		if (guideGroups[index]!.length === 0) {
+			add(urlGroups[index]!.find((url) => isAllowedKnowledgeUrl(url)));
+		}
+	}
+
+	const guideRounds = Math.max(0, ...guideGroups.map((urls) => urls.length));
+	for (
+		let index = 0;
+		index < guideRounds && selected.length < limit;
+		index += 1
+	) {
+		for (const guides of guideGroups) {
+			add(guides[index]);
+			if (selected.length >= limit) {
+				break;
 			}
 		}
 	}
