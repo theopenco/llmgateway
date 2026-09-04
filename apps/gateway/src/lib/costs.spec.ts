@@ -279,6 +279,62 @@ describe("calculateCosts", () => {
 		expect(result.pricingTier).toBe("Over 272K");
 	});
 
+	it("bills GPT-6 Astra cache writes at the short-context rate", async () => {
+		const result = await calculateCosts(
+			"gpt-6-astra",
+			"openai",
+			null,
+			2006,
+			300,
+			1920,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{ cacheWriteTokens: 40 },
+		);
+
+		expect(result.inputCost).toBeCloseTo(46 * 10e-6, 10);
+		expect(result.cachedInputCost).toBeCloseTo(1920 * 1e-6, 10);
+		expect(result.cacheWriteInputCost).toBeCloseTo(40 * 12.5e-6, 10);
+		expect(result.outputCost).toBeCloseTo(300 * 50e-6, 10);
+		expect(result.pricingTier).toBe("Up to 272K");
+	});
+
+	it("applies GPT-6 Astra long-context pricing above 272K", async () => {
+		const result = await calculateCosts(
+			"gpt-6-astra",
+			"openai",
+			null,
+			300000,
+			1000,
+			100000,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{ cacheWriteTokens: 50000 },
+		);
+
+		expect(result.inputCost).toBeCloseTo(150000 * 20e-6, 6);
+		expect(result.cachedInputCost).toBeCloseTo(100000 * 2e-6, 6);
+		expect(result.cacheWriteInputCost).toBeCloseTo(50000 * 25e-6, 6);
+		expect(result.outputCost).toBeCloseTo(1000 * 75e-6, 6);
+		expect(result.pricingTier).toBe("Over 272K");
+	});
+
 	it("should calculate costs with cached tokens for Anthropic (first request - cache creation)", async () => {
 		// For Anthropic first request: 4 non-cached + 1659 cache creation = 1663 total tokens, 0 cache reads
 		const result = await calculateCosts(
