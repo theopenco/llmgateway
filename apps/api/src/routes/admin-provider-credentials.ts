@@ -1422,7 +1422,7 @@ const verifyCredentialModels = createRoute({
 			content: {
 				"application/json": {
 					schema: credentialUnderTestSchema.extend({
-						models: z.array(z.string().min(1).max(200)).min(1).max(50),
+						models: z.array(z.string().min(1).max(200)).min(1).max(200),
 					}),
 				},
 			},

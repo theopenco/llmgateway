@@ -1733,6 +1733,22 @@ describe("managed credential allowed models", () => {
 		expect(((await res.json()) as { allValid: boolean }).allValid).toBe(true);
 	});
 
+	test("verify-models accepts more than 50 models", async () => {
+		const models = Array.from(
+			{ length: 51 },
+			(_, index) => `catalogue-model-${index}`,
+		);
+		const res = await post("/admin/provider-credentials/verify-models", {
+			provider: "openai",
+			token: "sk-verify-large-list",
+			models,
+		});
+		expect(res.status).toBe(200);
+		expect(
+			((await res.json()) as { results: { model: string }[] }).results,
+		).toHaveLength(models.length);
+	});
+
 	test("verify-models passes managed Azure Anthropic settings", async () => {
 		vi.stubEnv("E2E_TEST", "true");
 		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });

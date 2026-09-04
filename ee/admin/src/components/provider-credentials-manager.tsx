@@ -1,6 +1,7 @@
 "use client";
 
 import {
+	CheckCheck,
 	CheckCircle2,
 	ClipboardPaste,
 	Loader2,
@@ -109,6 +110,8 @@ const NO_CREDENTIALS: VariantCounts = {
 	enterprise: 0,
 	plans: 0,
 };
+
+const NO_MODELS: string[] = [];
 
 function totalOf(counts: VariantCounts): number {
 	return counts.default + counts.enterprise + counts.plans;
@@ -1330,6 +1333,17 @@ function CredentialDialog({
 	const selectedEntry =
 		catalogEntry ?? catalog.find((entry) => entry.id === provider);
 	const isRegionScoped = (selectedEntry?.regions.length ?? 0) > 0;
+	const availableModels = selectedEntry?.models ?? NO_MODELS;
+	const allAvailableModelsSelected = useMemo(() => {
+		if (availableModels.length === 0) {
+			return false;
+		}
+		const selected = new Set(allowedModels);
+		return (
+			selected.size === availableModels.length &&
+			availableModels.every((modelId) => selected.has(modelId))
+		);
+	}, [allowedModels, availableModels]);
 
 	// Settings where exactly one member may be filled (e.g. Azure's resource vs
 	// base URL). Filling one disables its siblings, so the invalid combination
@@ -1709,20 +1723,42 @@ function CredentialDialog({
 					</div>
 
 					<div className="flex flex-col gap-3 rounded-md border border-border/60 p-3">
-						<div className="flex items-center justify-between gap-2">
+						<div className="flex flex-wrap items-center justify-between gap-2">
 							<p className="text-sm font-medium">Allowed models</p>
-							<PasteAllowedModelsDialog
-								availableIds={selectedEntry?.models ?? []}
-								providerName={selectedEntry?.name ?? "this provider"}
-								value={allowedModels}
-								onChange={(next) => {
-									setAllowedModels(next);
-									setVerifyOutcome(undefined);
-								}}
-							/>
+							<div className="flex flex-wrap gap-2">
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									onClick={() => {
+										setAllowedModels([...availableModels]);
+										setVerifyOutcome(undefined);
+									}}
+									disabled={
+										availableModels.length === 0 || allAvailableModelsSelected
+									}
+									title="Explicitly selects every catalogue model so they can all be tested."
+								>
+									<CheckCheck />
+									{availableModels.length === 0
+										? "No models available"
+										: allAvailableModelsSelected
+											? `All ${availableModels.length} selected`
+											: `Select all ${availableModels.length}`}
+								</Button>
+								<PasteAllowedModelsDialog
+									availableIds={availableModels}
+									providerName={selectedEntry?.name ?? "this provider"}
+									value={allowedModels}
+									onChange={(next) => {
+										setAllowedModels(next);
+										setVerifyOutcome(undefined);
+									}}
+								/>
+							</div>
 						</div>
 						<MultiModelIdSelector
-							availableIds={selectedEntry?.models ?? []}
+							availableIds={availableModels}
 							value={allowedModels}
 							onChange={(next) => {
 								setAllowedModels(next);
@@ -1774,7 +1810,11 @@ function CredentialDialog({
 								{verifyLoading ? (
 									<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
 								) : null}
-								Verify models
+								{allowedModels.length === 0
+									? "Test selected models"
+									: allAvailableModelsSelected
+										? `Test all ${allowedModels.length} models`
+										: `Test ${allowedModels.length} selected model${allowedModels.length === 1 ? "" : "s"}`}
 							</Button>
 						</div>
 						{/* Live region so the async probe results are announced to
@@ -1810,36 +1850,16 @@ function CredentialDialog({
 								</p>
 							) : null}
 							{verifyOutcome?.result ? (
-								<div className="flex flex-col gap-1 rounded-md bg-muted/40 p-2">
-									<p
-										className={cn(
-											"text-xs font-medium",
-											verifyOutcome.result.allValid
-												? "text-green-600"
-												: "text-destructive",
-										)}
-									>
-										{verifyOutcome.result.allValid
-											? "All listed models verified."
-											: "Some models failed verification — save anyway if you know better, or remove them."}
-									</p>
-									<ul className="flex flex-col gap-1">
-										{verifyOutcome.result.results.map((entry) => (
-											<li
-												key={entry.model}
-												className="flex items-start gap-1.5 text-xs"
-											>
-												<ModelVerificationIcon entry={entry} />
-												<span className="font-mono">{entry.model}</span>
-												{entry.error ? (
-													<span className="text-muted-foreground">
-														— {entry.error}
-													</span>
-												) : null}
-											</li>
-										))}
-									</ul>
-								</div>
+								<ModelVerificationReport
+									verification={verifyOutcome.result}
+									onUseSuccessfulModels={(models) => {
+										setAllowedModels(models);
+										setVerifyOutcome(undefined);
+										toast.success(
+											`${models.length} successful model${models.length === 1 ? "" : "s"} selected`,
+										);
+									}}
+								/>
 							) : null}
 						</div>
 					</div>
@@ -1951,5 +1971,66 @@ function ModelVerificationIcon({ entry }: { entry: ModelVerificationEntry }) {
 	}
 	return (
 		<MinusCircle className="mt-px h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+	);
+}
+
+function ModelVerificationReport({
+	verification,
+	onUseSuccessfulModels,
+}: {
+	verification: ProviderCredentialModelVerification;
+	onUseSuccessfulModels: (models: string[]) => void;
+}) {
+	const successfulModels = verification.results
+		.filter((entry) => entry.valid === true)
+		.map((entry) => entry.model);
+	const failedCount = verification.results.filter(
+		(entry) => entry.valid === false || !entry.inCatalog,
+	).length;
+	const untestedCount =
+		verification.results.length - successfulModels.length - failedCount;
+	const hasModelsToRemove = failedCount > 0 || untestedCount > 0;
+
+	return (
+		<div className="flex flex-col gap-2 rounded-md bg-muted/40 p-2">
+			<div className="flex flex-wrap items-center justify-between gap-2">
+				<p
+					className={cn(
+						"text-xs font-medium",
+						failedCount > 0
+							? "text-destructive"
+							: untestedCount > 0
+								? "text-muted-foreground"
+								: "text-green-600",
+					)}
+				>
+					{successfulModels.length} succeeded · {failedCount} failed ·{" "}
+					{untestedCount} not testable
+				</p>
+				{hasModelsToRemove && successfulModels.length > 0 ? (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						onClick={() => onUseSuccessfulModels(successfulModels)}
+						title="Replaces the restriction list with only the models that returned a successful live response."
+					>
+						<CheckCheck />
+						Use {successfulModels.length} successful
+					</Button>
+				) : null}
+			</div>
+			<ul className="flex max-h-64 flex-col gap-1 overflow-y-auto pr-1">
+				{verification.results.map((entry) => (
+					<li key={entry.model} className="flex items-start gap-1.5 text-xs">
+						<ModelVerificationIcon entry={entry} />
+						<span className="font-mono">{entry.model}</span>
+						{entry.error ? (
+							<span className="text-muted-foreground">— {entry.error}</span>
+						) : null}
+					</li>
+				))}
+			</ul>
+		</div>
 	);
 }
