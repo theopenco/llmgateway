@@ -2,6 +2,8 @@
 
 import {
 	ArrowUpRight,
+	BarChart3,
+	User,
 	Bot,
 	Check,
 	Copy,
@@ -35,13 +37,41 @@ interface Tool {
 
 const tools: Tool[] = [
 	{
+		name: "get-account",
+		description:
+			"See your connected account, project, access scope, and API key spending limits. Owners and admins can also check the credit balance.",
+		icon: User,
+		parameters: [],
+		example: `{}`,
+	},
+	{
+		name: "get-usage",
+		description:
+			"Track requests, tokens, costs, trends, and your most-used provider, model, and coding app. Defaults to the last 30 UTC dates.",
+		icon: BarChart3,
+		parameters: ["from", "to", "granularity"],
+		example: `{ "granularity": "day" }`,
+	},
+	{
+		name: "get-usage-breakdown",
+		description:
+			"Rank providers, models, coding apps, or API keys by requests, cost, or tokens. Page through the results to explore further.",
+		icon: BarChart3,
+		parameters: ["group_by", "sort_by", "from", "to", "limit", "offset"],
+		example: `{
+  "group_by": "app",
+  "sort_by": "cost",
+  "limit": 10
+}`,
+	},
+	{
 		name: "chat",
 		description:
-			"Send messages to any LLM and get responses. Supports 200+ models from OpenAI, Anthropic, Google, and more.",
+			"Send messages to a model from the live catalog. Use list-models to choose a model and inspect its pricing.",
 		icon: MessageSquare,
 		parameters: ["model", "messages", "temperature", "max_tokens"],
 		example: `{
-  "model": "gpt-4o",
+  "model": "MODEL_ID",
   "messages": [{ "role": "user", "content": "Hello!" }]
 }`,
 	},
@@ -74,10 +104,14 @@ const tools: Tool[] = [
 		description:
 			"Discover available models with their capabilities, pricing, and provider information.",
 		icon: Server,
-		parameters: ["family", "limit", "include_deactivated"],
+		parameters: [
+			"family",
+			"limit",
+			"include_deactivated",
+			"exclude_deprecated",
+		],
 		example: `{
-  "family": "openai",
-  "limit": 10
+    "limit": 10
 }`,
 	},
 	{
@@ -86,8 +120,7 @@ const tools: Tool[] = [
 			"Get a list of all available image generation models with pricing and usage examples.",
 		icon: Sparkles,
 		parameters: [],
-		example: `// No parameters required
-// Returns: qwen-image-plus, qwen-image-max, etc.`,
+		example: `{}`,
 	},
 ];
 
@@ -127,11 +160,8 @@ bearer_token_env_var = "LLM_GATEWAY_API_KEY"`,
     "id": 1,
     "method": "tools/call",
     "params": {
-      "name": "chat",
-      "arguments": {
-        "model": "gpt-4o",
-        "messages": [{"role": "user", "content": "Hello!"}]
-      }
+      "name": "get-usage",
+      "arguments": {}
     }
   }'`,
 };
@@ -151,13 +181,34 @@ const aiAgentMarkdown = `# LLM Gateway MCP Server
 - MCP Version: 2024-11-05
 - Transport: HTTP Streamable
 
+## Usage Scope
+Owners/admins see the connected project's usage. Developers see only their own keys in that project, including inactive-key history. A project key never grants access to another project or organization. Use get-account to inspect the scope. Analytics tools are read-only and do not generate billable model requests.
+
 ## Available Tools
+
+### get-account
+No parameters. Returns the connected user, organization, project, role, usage scope, API key usage/limits, and the organization credit balance (null for developers). No credentials are returned. Credit balance is not a DevPass plan allowance.
+
+### get-usage
+Returns request/token totals, errors, cache hits, inference cost, credits/BYOK cost split, storage cost, trends, and most-used provider/model/app by request count.
+- from / to: optional inclusive UTC dates (YYYY-MM-DD); defaults to the last 30 dates, maximum 366 days
+- granularity: day (default) or hour (maximum 31 days)
+- Monetary fields end in Usd. Usage costs are not invoice totals; BYOK costs are billed by the provider.
+- Results use hourly aggregates and can lag recent requests. Only buckets with activity appear in the series.
+- Empty periods return zero totals and null rankings. Check updatedAt and appUsageCoverage before drawing conclusions.
+
+### get-usage-breakdown
+- group_by (required): provider, model, app, or api_key
+- sort_by: requests (default), cost, or tokens
+- from / to: same inclusive UTC date range as get-usage
+- limit: 1-100 (default 10); offset: 0-10000 (default 0)
+Returns rows with counts, tokens, costs, pagination.hasMore and coverage. App IDs come from request source attribution; unknown means no source was recorded. Historical per-key app data may be incomplete. No scope IDs are accepted as parameters.
 
 ### chat
 Send messages to any LLM model.
 
 **Parameters:**
-- \`model\` (string, required): Model ID (e.g., "gpt-4o", "claude-sonnet-4-20250514")
+- \`model\` (string, required): Model ID from list-models
 - \`messages\` (array, required): Array of {role, content} objects
 - \`temperature\` (number, optional): 0-2
 - \`max_tokens\` (number, optional): Maximum tokens
@@ -167,7 +218,7 @@ Send messages to any LLM model.
 {
   "name": "chat",
   "arguments": {
-    "model": "gpt-4o",
+    "model": "MODEL_ID",
     "messages": [{"role": "user", "content": "Hello"}]
   }
 }
@@ -216,19 +267,16 @@ Generate images with Gemini 3 Pro Image Preview ("Nano Banana"). Returns inline 
 List available LLM models.
 
 **Parameters:**
-- \`family\` (string, optional): Filter by provider (openai, anthropic, google)
+- \`family\` (string, optional): Filter by model family
 - \`limit\` (number, optional): Max results, default 20
 - \`include_deactivated\` (boolean, optional): Include inactive models
+- \`exclude_deprecated\` (boolean, optional): Exclude deprecated models
 
 ### list-image-models
 List available image generation models. No parameters required.
 
-## Supported Models
-- OpenAI: gpt-4o, gpt-4o-mini, o1, o3-mini
-- Anthropic: claude-sonnet-4-20250514, claude-opus-4-5
-- Google: gemini-2.0-flash, gemini-pro
-- Image: qwen-image-plus, qwen-image-max
-- And 200+ more at https://llmgateway.io/models
+## Catalog
+See the live models and providers at https://llmgateway.io/models and https://llmgateway.io/providers.
 
 ## MCP Configuration
 
@@ -300,9 +348,8 @@ export function McpContent() {
 					{[
 						{
 							icon: Server,
-							title: "200+ Models",
-							description:
-								"Access models from OpenAI, Anthropic, Google & more",
+							title: "Model Access",
+							description: "Discover and use models from the live catalog",
 						},
 						{
 							icon: Image,
@@ -310,9 +357,9 @@ export function McpContent() {
 							description: "Generate images directly from your AI assistant",
 						},
 						{
-							icon: Zap,
-							title: "Unified API",
-							description: "One endpoint for all providers and capabilities",
+							icon: BarChart3,
+							title: "Usage & Costs",
+							description: "Explore spending, trends, and your most-used apps",
 						},
 						{
 							icon: Terminal,
@@ -395,6 +442,20 @@ export function McpContent() {
 					</div>
 				</div>
 
+				<div className="max-w-3xl mx-auto space-y-4 text-center">
+					<h2 className="text-2xl font-bold">Ask about your usage</h2>
+					<p className="text-muted-foreground">
+						“What did I spend this month?” “Which model do I use most?” “Which
+						coding app costs the most?”
+					</p>
+					<p className="text-sm text-muted-foreground">
+						Owners and admins see the connected project. Developers see their
+						own keys in that project. Analytics calls are read-only and have no
+						model charges. Hourly statistics may lag recent requests; results
+						flag incomplete app history.
+					</p>
+				</div>
+
 				{/* Quick Start */}
 				<div>
 					<h2 className="text-2xl font-bold text-center mb-8">Quick Start</h2>
@@ -436,7 +497,7 @@ export function McpContent() {
 										<span className="text-xs text-muted-foreground">
 											Add to{" "}
 											<code className="bg-muted px-1 rounded">
-												~/.claude/claude_desktop_config.json
+												~/.claude.json
 											</code>
 										</span>
 										<Button

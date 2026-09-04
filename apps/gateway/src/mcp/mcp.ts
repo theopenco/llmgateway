@@ -15,6 +15,7 @@ import {
 } from "@/lib/api-key-usage-limits.js";
 import { findApiKeyByToken, findProjectById } from "@/lib/cached-queries.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
+import { registerUsageTools } from "@/mcp/usage-tools.js";
 
 import { parseDataUrl } from "@llmgateway/actions";
 import { logger, toError } from "@llmgateway/logger";
@@ -26,6 +27,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 import type { OpenAPIHono } from "@hono/zod-openapi";
+import type { ApiKey } from "@llmgateway/db";
 import type { Context } from "hono";
 
 // Define Zod schemas for MCP tool inputs
@@ -141,11 +143,32 @@ type GenerateNanoBananaInput = z.infer<typeof generateNanoBananaInputSchema>;
 /**
  * Creates an MCP server instance with tools for LLM Gateway
  */
-function createMcpServer(apiKey: string): McpServer {
+function createMcpServer(
+	apiKey: string,
+	apiKeyRecord: ApiKey,
+	clientHeaders: Record<string, string>,
+): McpServer {
 	const server = new McpServer({
 		name: "llmgateway",
 		version: "1.0.0",
 	});
+	registerUsageTools(server, apiKey);
+	const generationHeaders = {
+		...clientHeaders,
+		"Content-Type": "application/json",
+		Authorization: `Bearer ${apiKey}`,
+	};
+
+	async function assertGenerationAllowed() {
+		const project = await findProjectById(apiKeyRecord.projectId);
+		if (project) {
+			await assertMemberWithinBudget(
+				apiKeyRecord.createdBy,
+				project.organizationId,
+			);
+		}
+		assertApiKeyWithinUsageLimits(apiKeyRecord);
+	}
 
 	// Register the chat tool
 	server.tool(
@@ -154,19 +177,18 @@ function createMcpServer(apiKey: string): McpServer {
 		chatInputSchema.shape,
 		async (input: ChatInput) => {
 			try {
+				await assertGenerationAllowed();
 				// Call the internal chat completions endpoint
 				const gatewayUrl =
 					process.env.MCP_GATEWAY_URL ??
+					process.env.GATEWAY_URL ??
 					(process.env.NODE_ENV === "production"
 						? "https://api.llmgateway.io"
 						: "http://localhost:4001");
 
 				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
 					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						Authorization: `Bearer ${apiKey}`,
-					},
+					headers: generationHeaders,
 					body: JSON.stringify({
 						model: input.model,
 						messages: input.messages,
@@ -421,8 +443,10 @@ function createMcpServer(apiKey: string): McpServer {
 		generateImageInputSchema.shape,
 		async (input: GenerateImageInput) => {
 			try {
+				await assertGenerationAllowed();
 				const gatewayUrl =
 					process.env.MCP_GATEWAY_URL ??
+					process.env.GATEWAY_URL ??
 					(process.env.NODE_ENV === "production"
 						? "https://api.llmgateway.io"
 						: "http://localhost:4001");
@@ -430,10 +454,7 @@ function createMcpServer(apiKey: string): McpServer {
 				// Call the chat completions endpoint with image generation model
 				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
 					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						Authorization: `Bearer ${apiKey}`,
-					},
+					headers: generationHeaders,
 					body: JSON.stringify({
 						model: input.model,
 						messages: [
@@ -561,8 +582,10 @@ function createMcpServer(apiKey: string): McpServer {
 		generateNanoBananaInputSchema.shape,
 		async (input: GenerateNanoBananaInput) => {
 			try {
+				await assertGenerationAllowed();
 				const gatewayUrl =
 					process.env.MCP_GATEWAY_URL ??
+					process.env.GATEWAY_URL ??
 					(process.env.NODE_ENV === "production"
 						? "https://api.llmgateway.io"
 						: "http://localhost:4001");
@@ -584,10 +607,7 @@ function createMcpServer(apiKey: string): McpServer {
 
 				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
 					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						Authorization: `Bearer ${apiKey}`,
-					},
+					headers: generationHeaders,
 					body: JSON.stringify(body),
 				});
 
@@ -1149,7 +1169,13 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	// endpoint. Without this, any arbitrary string was accepted as a valid key
 	// (GHSA-8h26-h6v8-f9cg).
 	const apiKeyRecord = await findApiKeyByToken(apiKey);
-	if (!apiKeyRecord || apiKeyRecord.status !== "active") {
+	if (
+		!apiKeyRecord ||
+		apiKeyRecord.status !== "active" ||
+		(apiKeyRecord.keyType === "user" &&
+			apiKeyRecord.expiresAt &&
+			apiKeyRecord.expiresAt <= new Date())
+	) {
 		return c.json(
 			{
 				jsonrpc: "2.0",
@@ -1165,22 +1191,12 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	}
 
 	try {
-		// User-level limits take priority: enforce the per-member budget (set on
-		// the Teams page; fails open on read errors) before the per-key usage
-		// limits, so a member who is over budget is denied even if the key itself
-		// is within limits. Resolve the project so the org is known for the lookup.
 		const mcpProject = await findProjectById(apiKeyRecord.projectId);
 		if (mcpProject) {
 			await assertMemberProjectAccess(apiKeyRecord, mcpProject.organizationId);
-			await assertMemberWithinBudget(
-				apiKeyRecord.createdBy,
-				mcpProject.organizationId,
-			);
 		}
-		assertApiKeyWithinUsageLimits(apiKeyRecord);
 	} catch (error) {
-		// Preserve the thrown status: assertMemberWithinBudget uses 403 for a
-		// budget breach, which must not be flattened into a 401 (invalid key).
+		// Preserve project-access denials as 403 rather than invalid-key errors.
 		const status = error instanceof HTTPException ? error.status : 401;
 		return c.json(
 			{
@@ -1213,7 +1229,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				name: "llmgateway",
 				version: "1.0.0",
 				description:
-					"LLM Gateway MCP Server - Access multiple LLM providers through a unified API",
+					"LLM Gateway MCP Server - Generate text and images, inspect usage and costs, and rank models, providers and coding apps.",
 				protocolVersion: "2024-11-05",
 				capabilities: {
 					tools: {},
@@ -1267,7 +1283,20 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	}
 
 	if (method === "POST") {
-		const server = createMcpServer(apiKey);
+		const clientHeaders: Record<string, string> = {};
+		for (const header of [
+			"x-source",
+			"user-agent",
+			"http-referer",
+			"x-title",
+			"x-openrouter-title",
+		]) {
+			const value = c.req.header(header);
+			if (value) {
+				clientHeaders[header] = value;
+			}
+		}
+		const server = createMcpServer(apiKey, apiKeyRecord, clientHeaders);
 		try {
 			const rawBody = await c.req.json();
 
