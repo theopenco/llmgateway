@@ -1509,6 +1509,8 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				usedModel: getFormattedUsedVideoModel(jobToLog),
 				usedModelMapping: jobToLog.usedModel,
 				usedProvider: jobToLog.usedProvider,
+				providerMarginPercent: jobToLog.providerMarginPercent,
+				providerDiscountPercent: jobToLog.providerDiscountPercent,
 				responseSize,
 				content:
 					jobToLog.status === "completed" && responsePayload.content?.[0]?.url

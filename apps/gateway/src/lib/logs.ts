@@ -7,7 +7,7 @@ import {
 import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
-import { findAirsideRoutingSettings } from "./cached-queries.js";
+import { getAirsideRoutingSnapshot } from "./airside-routing-snapshot.js";
 import { recordSpend } from "./spend-limit.js";
 import {
 	redactErrorDetails,
@@ -419,18 +419,10 @@ export async function insertLog(
 	// stays reconstructable after a carrier changes them. SWR-cached, and never
 	// allowed to block logging.
 	if (logData.usedProvider && logData.providerMarginPercent === undefined) {
-		try {
-			const settings = await findAirsideRoutingSettings(logData.usedProvider);
-			if (settings) {
-				logData.providerMarginPercent = settings.marginPercent;
-				logData.providerDiscountPercent = settings.discountPercent;
-			}
-		} catch (error) {
-			logger.error(
-				"Failed to snapshot Airside routing settings for log",
-				error instanceof Error ? error : new Error(String(error)),
-			);
-		}
+		Object.assign(
+			logData,
+			await getAirsideRoutingSnapshot(logData.usedProvider),
+		);
 	}
 
 	// Maintain per-org daily/monthly spend-cap counters. Single DRY chokepoint

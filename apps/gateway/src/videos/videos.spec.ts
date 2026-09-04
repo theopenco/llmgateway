@@ -691,6 +691,16 @@ describe("videos", () => {
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
 		});
+		await db.insert(tables.providerCompany).values({
+			id: "airside-company-atlascloud-video",
+			name: "AtlasCloud Video",
+		});
+		await db.insert(tables.providerRoutingSettings).values({
+			providerCompanyId: "airside-company-atlascloud-video",
+			providerId: "atlascloud",
+			discountPercent: "0.05",
+			marginPercent: "0.25",
+		});
 
 		const seconds = 5;
 		const fourKPerSecondPrice = 0.42;
@@ -720,6 +730,8 @@ describe("videos", () => {
 			const videoJob = await db.query.videoJob.findFirst({
 				where: { id: { eq: created.id } },
 			});
+			expect(videoJob?.providerDiscountPercent).toBeCloseTo(0.05);
+			expect(videoJob?.providerMarginPercent).toBeCloseTo(0.25);
 			const mockVideo = getMockVideo(videoJob!.upstreamId);
 			expect(mockVideo?.requestBody).toMatchObject({
 				model: "kwaivgi/kling-v3.0-4k/text-to-video",
@@ -742,6 +754,10 @@ describe("videos", () => {
 		expect(videoOutputCosts[1]).toBeCloseTo(expectedCost, 6);
 		expect(totalCosts[0]).toBeCloseTo(expectedCost, 6);
 		expect(totalCosts[1]).toBeCloseTo(expectedCost, 6);
+		for (const log of logs) {
+			expect(log.providerDiscountPercent).toBeCloseTo(0.05);
+			expect(log.providerMarginPercent).toBeCloseTo(0.25);
+		}
 	});
 
 	test("/v1/videos restricts reference inputs to Seedance 2.x models", async () => {
