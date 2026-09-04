@@ -1268,11 +1268,18 @@ function CredentialDialog({
 	const [verifyOutcome, setVerifyOutcome] = useState<
 		{ result?: ProviderCredentialModelVerification; error?: string } | undefined
 	>();
+	const verifyRequestId = useRef(0);
+
+	const clearVerifyResults = useCallback(() => {
+		verifyRequestId.current += 1;
+		setVerifyLoading(false);
+		setVerifyOutcome(undefined);
+	}, []);
 
 	const clearProbeResults = useCallback(() => {
 		setSelfTestOutcome(undefined);
-		setVerifyOutcome(undefined);
-	}, []);
+		clearVerifyResults();
+	}, [clearVerifyResults]);
 
 	/**
 	 * The credential the test endpoints should probe: the stored one (its token
@@ -1309,6 +1316,8 @@ function CredentialDialog({
 	}
 
 	async function handleVerifyModels() {
+		const requestId = verifyRequestId.current + 1;
+		verifyRequestId.current = requestId;
 		setVerifyLoading(true);
 		setVerifyOutcome(undefined);
 		try {
@@ -1316,17 +1325,25 @@ function CredentialDialog({
 				...credentialUnderTest(),
 				models: allowedModels,
 			});
+			if (verifyRequestId.current !== requestId) {
+				return;
+			}
 			setVerifyOutcome(
 				outcome.success
 					? { result: outcome.result }
 					: { error: outcome.error ?? "Failed to verify models" },
 			);
 		} catch (cause) {
+			if (verifyRequestId.current !== requestId) {
+				return;
+			}
 			setVerifyOutcome({
 				error: thrownErrorMessage(cause, "Failed to verify models"),
 			});
 		} finally {
-			setVerifyLoading(false);
+			if (verifyRequestId.current === requestId) {
+				setVerifyLoading(false);
+			}
 		}
 	}
 
@@ -1339,11 +1356,11 @@ function CredentialDialog({
 			return false;
 		}
 		const selected = new Set(allowedModels);
-		return (
-			selected.size === availableModels.length &&
-			availableModels.every((modelId) => selected.has(modelId))
-		);
+		return availableModels.every((modelId) => selected.has(modelId));
 	}, [allowedModels, availableModels]);
+	const exactAvailableModelSelection =
+		allAvailableModelsSelected &&
+		allowedModels.length === availableModels.length;
 
 	// Settings where exactly one member may be filled (e.g. Azure's resource vs
 	// base URL). Filling one disables its siblings, so the invalid combination
@@ -1731,8 +1748,10 @@ function CredentialDialog({
 									variant="outline"
 									size="sm"
 									onClick={() => {
-										setAllowedModels([...availableModels]);
-										setVerifyOutcome(undefined);
+										setAllowedModels((current) =>
+											Array.from(new Set([...current, ...availableModels])),
+										);
+										clearVerifyResults();
 									}}
 									disabled={
 										availableModels.length === 0 || allAvailableModelsSelected
@@ -1752,7 +1771,7 @@ function CredentialDialog({
 									value={allowedModels}
 									onChange={(next) => {
 										setAllowedModels(next);
-										setVerifyOutcome(undefined);
+										clearVerifyResults();
 									}}
 								/>
 							</div>
@@ -1763,7 +1782,7 @@ function CredentialDialog({
 							onChange={(next) => {
 								setAllowedModels(next);
 								// A changed list invalidates the last verification report.
-								setVerifyOutcome(undefined);
+								clearVerifyResults();
 							}}
 							placeholder="All models (no restriction)"
 						/>
@@ -1811,8 +1830,8 @@ function CredentialDialog({
 									<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
 								) : null}
 								{allowedModels.length === 0
-									? "Test selected models"
-									: allAvailableModelsSelected
+									? "No models selected"
+									: exactAvailableModelSelection
 										? `Test all ${allowedModels.length} models`
 										: `Test ${allowedModels.length} selected model${allowedModels.length === 1 ? "" : "s"}`}
 							</Button>
@@ -1854,7 +1873,7 @@ function CredentialDialog({
 									verification={verifyOutcome.result}
 									onUseSuccessfulModels={(models) => {
 										setAllowedModels(models);
-										setVerifyOutcome(undefined);
+										clearVerifyResults();
 										toast.success(
 											`${models.length} successful model${models.length === 1 ? "" : "s"} selected`,
 										);
@@ -1957,8 +1976,8 @@ function CredentialDialog({
 
 /**
  * Status icon for one row of the verify-models report: green = probed and
- * served, red = probed and rejected (or unknown to the catalogue), gray =
- * listed but not probeable (image, embedding and other non-chat models).
+ * served, red = probed and rejected, gray = listed but not probeable (unknown,
+ * image, embedding and other non-chat models).
  */
 function ModelVerificationIcon({ entry }: { entry: ModelVerificationEntry }) {
 	if (entry.valid === true) {
@@ -1966,7 +1985,7 @@ function ModelVerificationIcon({ entry }: { entry: ModelVerificationEntry }) {
 			<CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0 text-green-600" />
 		);
 	}
-	if (entry.valid === false || !entry.inCatalog) {
+	if (entry.valid === false) {
 		return <XCircle className="mt-px h-3.5 w-3.5 shrink-0 text-destructive" />;
 	}
 	return (
@@ -1985,7 +2004,7 @@ function ModelVerificationReport({
 		.filter((entry) => entry.valid === true)
 		.map((entry) => entry.model);
 	const failedCount = verification.results.filter(
-		(entry) => entry.valid === false || !entry.inCatalog,
+		(entry) => entry.valid === false,
 	).length;
 	const untestedCount =
 		verification.results.length - successfulModels.length - failedCount;
