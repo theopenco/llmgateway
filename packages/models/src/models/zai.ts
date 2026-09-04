@@ -43,7 +43,7 @@ export const zaiModels = [
 				reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
 				vision: true,
 				tools: true,
-				supportedToolChoices: ["auto", "required", "function"],
+				supportedToolChoices: ["auto"],
 				jsonOutput: true,
 				supportsDeveloperRole: false,
 			},
