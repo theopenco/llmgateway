@@ -99,6 +99,9 @@ jobs:
           }
           cases.push({ name: "max output", body: { max_tokens: 131073, messages: [{ role: "user", content: "Say OK" }] } });
           cases.push({ name: "max context", body: { max_tokens: 1, messages: [{ role: "user", content: "hello ".repeat(1048577) }] } });
+          const tools = ["first", "second"].map(name => ({ type: "function", function: { name, description: `Run the ${name} function`, parameters: { type: "object", properties: {}, additionalProperties: false } } }));
+          cases.push({ name: "force required", body: { tools, tool_choice: "required", messages: [{ role: "user", content: "Do not call any function. Just say OK." }] } });
+          cases.push({ name: "force named", body: { tools, tool_choice: { type: "function", function: { name: "first" } }, messages: [{ role: "user", content: "Call the second function." }] } });
           for (const { name, body } of cases) {
             const response = await fetch("https://api.novita.ai/openai/v1/chat/completions", {
               method: "POST",
