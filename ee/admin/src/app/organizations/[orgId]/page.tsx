@@ -24,7 +24,7 @@ import { GiftCreditsDialog } from "@/components/gift-credits-dialog";
 import { ManualCreditsDialog } from "@/components/manual-credits-dialog";
 import { PlanTermBadge } from "@/components/plan-term-badge";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -388,11 +388,16 @@ export default async function OrganizationPage({
 									return await manageOrganization(orgId, data);
 								}}
 							/>
-							<CollapsibleTrigger asChild aria-controls={actionsContentId}>
-								<Button variant="outline" size="sm" className="group gap-2">
-									More actions
-									<ChevronDown className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
-								</Button>
+							<CollapsibleTrigger
+								aria-controls={actionsContentId}
+								className={buttonVariants({
+									variant: "outline",
+									size: "sm",
+									className: "group gap-2",
+								})}
+							>
+								More actions
+								<ChevronDown className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
 							</CollapsibleTrigger>
 						</div>
 					</div>
