@@ -1420,7 +1420,9 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						logger.warn("Speech API - no audio in SSE stream", {
 							requestId,
 							model: upstreamModel,
-							sseError: sseErrorMessage,
+							...(retentionLevel === "retain" && {
+								sseError: sseErrorMessage,
+							}),
 						});
 						routingAttempts.push(
 							buildRoutingAttempt(
