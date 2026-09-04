@@ -1143,6 +1143,48 @@ export default function ChatPageClient({
 
 	// Track which project has had its key ensured to prevent duplicate calls
 	const ensuredProjectRef = useRef<string | null>(null);
+	const ensureKeyRequestRef = useRef<{
+		projectId: string;
+		request: Promise<void>;
+	} | null>(null);
+
+	const ensurePlaygroundKey = useCallback(async () => {
+		if (!isAuthenticated || !selectedProject) {
+			throw new Error("Chat credentials are not ready yet.");
+		}
+
+		const projectId = selectedProject.id;
+		if (ensuredProjectRef.current === projectId) {
+			return;
+		}
+		if (ensureKeyRequestRef.current?.projectId === projectId) {
+			await ensureKeyRequestRef.current.request;
+			return;
+		}
+
+		const request = (async () => {
+			const response = await fetch("/api/ensure-playground-key", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ projectId }),
+			});
+			if (!response.ok) {
+				throw new Error(
+					`Failed to prepare chat credentials (${response.status}).`,
+				);
+			}
+			ensuredProjectRef.current = projectId;
+		})();
+		ensureKeyRequestRef.current = { projectId, request };
+
+		try {
+			await request;
+		} finally {
+			if (ensureKeyRequestRef.current?.request === request) {
+				ensureKeyRequestRef.current = null;
+			}
+		}
+	}, [isAuthenticated, selectedProject]);
 
 	// After login, ensure a playground key cookie exists via backend
 	useEffect(() => {
@@ -1152,27 +1194,15 @@ export default function ChatPageClient({
 			return;
 		}
 
-		const ensureKey = async () => {
-			const projectId = selectedProject.id;
-			// Skip if we've already ensured the key for this project
-			if (ensuredProjectRef.current === projectId) {
-				return;
-			}
-			try {
-				const response = await fetch("/api/ensure-playground-key", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ projectId }),
-				});
-				if (response.ok && selectedProject.id === projectId) {
-					ensuredProjectRef.current = projectId;
-				}
-			} catch {
-				// ignore for now
-			}
-		};
-		void ensureKey();
-	}, [isAuthenticated, selectedOrganization, selectedProject]);
+		void ensurePlaygroundKey().catch((error: unknown) => {
+			console.error("Failed to prepare chat credentials", error);
+		});
+	}, [
+		isAuthenticated,
+		selectedOrganization,
+		selectedProject,
+		ensurePlaygroundKey,
+	]);
 
 	const ensureCurrentChat = async (userMessage?: string): Promise<string> => {
 		if (chatIdRef.current) {
@@ -1267,6 +1297,14 @@ export default function ChatPageClient({
 		if (!ensureBillableContext()) {
 			return undefined;
 		}
+		try {
+			await ensurePlaygroundKey();
+		} catch (error) {
+			const errorMessage = getErrorMessage(error);
+			setError(errorMessage);
+			toast.error(errorMessage);
+			return undefined;
+		}
 
 		let savedUserMessage: { id: string } | undefined;
 		setError(null);
@@ -1334,6 +1372,8 @@ export default function ChatPageClient({
 				// Try again with a new chat
 				try {
 					const newChatId = await ensureCurrentChat(content);
+					streamingChatIdRef.current = newChatId;
+					isNewChatRef.current = true;
 					const savedMessage = await addMessage.mutateAsync({
 						params: { path: { id: newChatId } },
 						body: {
@@ -1355,38 +1395,36 @@ export default function ChatPageClient({
 					setIsLoading(false);
 					return undefined;
 				}
-			}
-
-			// If free limit or message limit is hit, keep the existing UI state and show a
-			// helpful toast instead of treating it like a hard failure/crash.
-			if (
+			} else if (
+				// If free limit or message limit is hit, keep the existing UI state and
+				// show a helpful toast instead of treating it like a hard failure.
 				error?.status === 400 &&
 				(error?.message?.includes("MESSAGE_LIMIT_REACHED") ||
 					error?.message?.includes("FREE_LIMIT_REACHED"))
 			) {
 				toast.error(error.message);
 				return undefined;
-			}
+			} else {
+				const errorMessage = getErrorMessage(error);
+				setError(errorMessage);
+				toast.error(errorMessage);
 
-			const errorMessage = getErrorMessage(error);
-			setError(errorMessage);
-			toast.error(errorMessage);
-
-			// If it was a new chat and we failed to add the first message, delete the chat
-			if (isNewChat && chatIdRef.current) {
-				try {
-					await deleteChat.mutateAsync({
-						params: { path: { id: chatIdRef.current } },
-					});
-					setCurrentChatId(null);
-					clearingChatRef.current = true;
-					chatIdRef.current = null;
-					setMessages([]);
-					isNewChatRef.current = false;
-				} catch (cleanupError) {
-					toast.error(
-						"Failed to cleanup chat: " + getErrorMessage(cleanupError),
-					);
+				// If it was a new chat and we failed to add the first message, delete the chat
+				if (isNewChat && chatIdRef.current) {
+					try {
+						await deleteChat.mutateAsync({
+							params: { path: { id: chatIdRef.current } },
+						});
+						setCurrentChatId(null);
+						clearingChatRef.current = true;
+						chatIdRef.current = null;
+						setMessages([]);
+						isNewChatRef.current = false;
+					} catch (cleanupError) {
+						toast.error(
+							"Failed to cleanup chat: " + getErrorMessage(cleanupError),
+						);
+					}
 				}
 			}
 		} finally {
