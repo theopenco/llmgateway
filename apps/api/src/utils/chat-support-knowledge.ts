@@ -5,20 +5,21 @@ import { logger } from "@llmgateway/logger";
 // Domains whose sitemaps are crawled to build the support assistant's
 // knowledge of every public page across the product suite. The agent links to
 // these URLs and can fetch their content on demand to ground answers.
-const KNOWLEDGE_SITEMAPS = [
+export const KNOWLEDGE_SITEMAPS = [
 	"https://llmgateway.io/sitemap.xml",
 	"https://devpass.llmgateway.io/sitemap.xml",
 	"https://docs.llmgateway.io/sitemap.xml",
 	"https://lounge.llmgateway.io/sitemap.xml",
+	"https://airside.llmgateway.io/sitemap.xml",
 ];
 
-// llms.txt overviews are short, curated markdown summaries of a product —
-// plans, pricing, and key pages. Their content is inlined into the support
-// assistant's system prompt so plan questions (DevPass tiers, Lounge/chat
-// plans) are answerable without a tool call.
-const KNOWLEDGE_LLMS_TXT = [
+// Short, curated product summaries inlined into the system prompt so product
+// scope, plans, pricing, and key pages are available without a tool call.
+export const KNOWLEDGE_LLMS_TXT = [
+	"https://llmgateway.io/llms.txt",
 	"https://devpass.llmgateway.io/llms.txt",
 	"https://lounge.llmgateway.io/llms.txt",
+	"https://airside.llmgateway.io/llms.txt",
 ];
 
 // Only pages on these hosts may be fetched by the agent's grounding tool.
@@ -30,16 +31,17 @@ const ALLOWED_HOSTS = [
 	"docs.llmgateway.io",
 	"lounge.llmgateway.io",
 	"chat.llmgateway.io",
+	"airside.llmgateway.io",
 ];
 
-const URLS_CACHE_KEY = "chat_support_knowledge_urls";
-const OVERVIEWS_CACHE_KEY = "chat_support_knowledge_overviews";
+const URLS_CACHE_KEY = "chat_support_knowledge_urls_v2";
+const OVERVIEWS_CACHE_KEY = "chat_support_knowledge_overviews_v2";
 const URLS_CACHE_TTL_SECONDS = 60 * 60 * 6; // 6 hours
 const PAGE_CACHE_TTL_SECONDS = 60 * 60 * 24; // 24 hours
 const FETCH_TIMEOUT_MS = 8000;
 const MAX_URLS = 600;
 const MAX_PAGE_CHARS = 6000;
-const MAX_OVERVIEW_CHARS = 4000;
+const MAX_OVERVIEW_CHARS = 6000;
 
 function extractLocs(xml: string): string[] {
 	const matches = xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi);
@@ -80,7 +82,7 @@ async function collectSitemapUrls(sitemapUrl: string): Promise<string[]> {
 	const locs = extractLocs(xml);
 	const isIndex = /<sitemapindex/i.test(xml);
 	if (!isIndex) {
-		return locs;
+		return locs.filter((loc) => isAllowedKnowledgeUrl(loc));
 	}
 
 	// A sitemap index could reference arbitrary external URLs; only follow
@@ -91,9 +93,65 @@ async function collectSitemapUrls(sitemapUrl: string): Promise<string[]> {
 	const nested = await Promise.all(
 		nestedUrls.map((nestedUrl) => fetchText(nestedUrl)),
 	);
-	return nested.flatMap((nestedXml) =>
-		nestedXml ? extractLocs(nestedXml) : [],
-	);
+	return nested
+		.flatMap((nestedXml) => (nestedXml ? extractLocs(nestedXml) : []))
+		.filter((loc) => isAllowedKnowledgeUrl(loc));
+}
+
+// Keep curated overviews and guides first, then take one URL from each sitemap
+// per round. Large catalogues cannot crowd guides or smaller products out of
+// the fixed prompt budget.
+export function selectKnowledgeUrls(
+	priorityUrls: readonly string[],
+	urlGroups: readonly (readonly string[])[],
+	limit = MAX_URLS,
+): string[] {
+	if (limit <= 0) {
+		return [];
+	}
+
+	const selected: string[] = [];
+	const seen = new Set<string>();
+	const add = (url: string | undefined): void => {
+		if (
+			!url ||
+			selected.length >= limit ||
+			seen.has(url) ||
+			!isAllowedKnowledgeUrl(url)
+		) {
+			return;
+		}
+		seen.add(url);
+		selected.push(url);
+	};
+
+	for (const url of priorityUrls) {
+		add(url);
+	}
+	for (const urls of urlGroups) {
+		for (const url of urls) {
+			try {
+				const { pathname } = new URL(url);
+				if (pathname === "/guides" || pathname.startsWith("/guides/")) {
+					add(url);
+				}
+			} catch {
+				// Invalid URLs are discarded by add during the normal selection pass.
+			}
+		}
+	}
+
+	const rounds = Math.max(0, ...urlGroups.map((urls) => urls.length));
+	for (let index = 0; index < rounds && selected.length < limit; index += 1) {
+		for (const urls of urlGroups) {
+			add(urls[index]);
+			if (selected.length >= limit) {
+				break;
+			}
+		}
+	}
+
+	return selected;
 }
 
 export async function getKnowledgeUrls(): Promise<string[]> {
@@ -109,11 +167,7 @@ export async function getKnowledgeUrls(): Promise<string[]> {
 	const results = await Promise.all(
 		KNOWLEDGE_SITEMAPS.map((sitemap) => collectSitemapUrls(sitemap)),
 	);
-	// The llms.txt overviews are listed first so they are always fetchable
-	// targets even when the sitemap list gets truncated at MAX_URLS.
-	const urls = Array.from(
-		new Set([...KNOWLEDGE_LLMS_TXT, ...results.flat()]),
-	).slice(0, MAX_URLS);
+	const urls = selectKnowledgeUrls(KNOWLEDGE_LLMS_TXT, results);
 
 	if (urls.length > 0) {
 		try {
@@ -136,9 +190,8 @@ export interface KnowledgeOverview {
 	content: string;
 }
 
-// Fetches the llms.txt product overviews (DevPass and Lounge plans/pricing)
-// so they can be inlined into the support assistant's system prompt. Cached in
-// Redis alongside the URL list; failures degrade to an empty list.
+// Fetches the llms.txt product overviews for the support assistant's system
+// prompt. Cached in Redis alongside the URL list; failures degrade gracefully.
 export async function getKnowledgeOverviews(): Promise<KnowledgeOverview[]> {
 	try {
 		const cached = await redisClient.get(OVERVIEWS_CACHE_KEY);
@@ -179,13 +232,18 @@ export async function getKnowledgeOverviews(): Promise<KnowledgeOverview[]> {
 
 export function isAllowedKnowledgeUrl(url: string): boolean {
 	try {
-		const { hostname, protocol } = new URL(url);
+		const { hostname, pathname, protocol } = new URL(url);
 		if (protocol !== "https:") {
 			return false;
 		}
-		return ALLOWED_HOSTS.some(
-			(host) => hostname === host || hostname.endsWith(`.${host}`),
-		);
+		if (
+			(hostname === "lounge.llmgateway.io" ||
+				hostname === "chat.llmgateway.io") &&
+			(pathname === "/share" || pathname.startsWith("/share/"))
+		) {
+			return false;
+		}
+		return ALLOWED_HOSTS.some((host) => hostname === host);
 	} catch {
 		return false;
 	}

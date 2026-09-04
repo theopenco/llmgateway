@@ -2,8 +2,20 @@
 
 import { format } from "date-fns";
 import { useMemo, useState } from "react";
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import {
+	Area,
+	AreaChart,
+	Bar,
+	BarChart,
+	CartesianGrid,
+	XAxis,
+	YAxis,
+} from "recharts";
 
+import {
+	ChartTypeToggle,
+	type ChartType,
+} from "@/components/chart-type-toggle";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -264,13 +276,16 @@ function ProviderSpendChart({
 	providerName,
 	metric,
 	bucketIsHour,
+	chartType,
 }: {
 	series: ProviderSeries;
 	providerName: string;
 	metric: Metric;
 	bucketIsHour: boolean;
+	chartType: ChartType;
 }) {
 	const Icon = getProviderIcon(series.provider);
+	const ChartRoot = chartType === "line" ? AreaChart : BarChart;
 
 	return (
 		<div className="rounded-lg border border-border/60 p-4">
@@ -291,8 +306,9 @@ function ProviderSpendChart({
 				</div>
 			) : (
 				<ChartContainer config={series.config} className="h-56 w-full">
-					<AreaChart
+					<ChartRoot
 						data={series.data}
+						accessibilityLayer
 						margin={{ left: 0, right: 8, top: 4, bottom: 0 }}
 					>
 						<CartesianGrid vertical={false} strokeDasharray="3 3" />
@@ -353,20 +369,30 @@ function ProviderSpendChart({
 								);
 							}}
 						/>
-						{series.seriesKeys.map((sk) => (
-							<Area
-								key={sk}
-								dataKey={sk}
-								type="monotone"
-								stackId="1"
-								stroke={`var(--color-${sk})`}
-								fill={`var(--color-${sk})`}
-								fillOpacity={0.5}
-								strokeWidth={1}
-							/>
-						))}
+						{series.seriesKeys.map((sk) =>
+							chartType === "line" ? (
+								<Area
+									key={sk}
+									dataKey={sk}
+									type="monotone"
+									stackId="credential"
+									stroke={`var(--color-${sk})`}
+									fill={`var(--color-${sk})`}
+									fillOpacity={0.5}
+									strokeWidth={1}
+								/>
+							) : (
+								<Bar
+									key={sk}
+									dataKey={sk}
+									stackId="credential"
+									fill={`var(--color-${sk})`}
+									maxBarSize={42}
+								/>
+							),
+						)}
 						<ChartLegend content={<ChartLegendContent />} />
-					</AreaChart>
+					</ChartRoot>
 				</ChartContainer>
 			)}
 		</div>
@@ -389,6 +415,7 @@ export function ProviderCredentialsSpendOverview({
 }) {
 	const [window, setWindow] = useState<SpendWindow>("7d");
 	const [metric, setMetric] = useState<Metric>("cost");
+	const [chartType, setChartType] = useState<ChartType>("line");
 	const $api = useApi();
 
 	const { data, isLoading } = $api.useQuery(
@@ -422,6 +449,7 @@ export function ProviderCredentialsSpendOverview({
 						</CardDescription>
 					</div>
 					<div className="flex flex-wrap items-center gap-3">
+						<ChartTypeToggle value={chartType} onValueChange={setChartType} />
 						<div className="flex items-center gap-1">
 							{METRICS.map((entry) => (
 								<button
@@ -470,6 +498,7 @@ export function ProviderCredentialsSpendOverview({
 								providerName={providerNames[series.provider] ?? series.provider}
 								metric={metric}
 								bucketIsHour={bucketIsHour}
+								chartType={chartType}
 							/>
 						))}
 					</div>

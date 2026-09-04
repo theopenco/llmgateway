@@ -9,10 +9,10 @@ import {
 	Server,
 	TrendingDown,
 } from "lucide-react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { TokenTimeRangeToggle } from "@/components/token-time-range-toggle";
 import {
 	UsageModeSelector,
 	useUsageMode,
@@ -120,22 +120,23 @@ export function ProjectMetricsSection({
 	projectId: string;
 }) {
 	const searchParams = useSearchParams();
-	const router = useRouter();
-	const pathname = usePathname();
 
 	const selectedWindow = parseWindow(searchParams.get("window"));
 	const usageMode = useUsageMode();
 	const [metrics, setMetrics] = useState<ProjectMetrics | null>(null);
 	const [loading, setLoading] = useState(true);
+	const [loadError, setLoadError] = useState<string | null>(null);
 
 	const loadMetrics = useCallback(
 		async (w: TokenWindow) => {
 			setLoading(true);
+			setLoadError(null);
 			try {
 				const data = await loadProjectMetricsAction(orgId, projectId, w);
 				setMetrics(data);
-			} catch (error) {
-				console.error("Failed to load project metrics:", error);
+			} catch {
+				setMetrics(null);
+				setLoadError("Unable to load usage data. Try again shortly.");
 			} finally {
 				setLoading(false);
 			}
@@ -146,20 +147,6 @@ export function ProjectMetricsSection({
 	useEffect(() => {
 		void loadMetrics(selectedWindow);
 	}, [loadMetrics, selectedWindow]);
-
-	const handleWindowChange = useCallback(
-		(w: TokenWindow) => {
-			const params = new URLSearchParams(searchParams.toString());
-			if (w === "1d") {
-				params.delete("window");
-			} else {
-				params.set("window", w);
-			}
-			const query = params.toString();
-			router.push(query ? `${pathname}?${query}` : pathname);
-		},
-		[searchParams, router, pathname],
-	);
 
 	if (loading) {
 		return (
@@ -178,7 +165,7 @@ export function ProjectMetricsSection({
 			<section className="space-y-4">
 				<h2 className="text-lg font-semibold">Usage Metrics</h2>
 				<div className="rounded-lg border border-dashed border-border/60 p-8 text-center text-sm text-muted-foreground">
-					No usage data available.
+					{loadError ?? "No usage data available."}
 				</div>
 			</section>
 		);
@@ -198,29 +185,27 @@ export function ProjectMetricsSection({
 
 	return (
 		<section className="space-y-4">
-			<div className="flex items-center justify-between">
+			<div className="flex flex-col gap-4 rounded-xl border border-border/60 bg-card/50 p-4 lg:flex-row lg:items-center lg:justify-between">
 				<div>
 					<h2 className="text-lg font-semibold">Usage Metrics</h2>
-					<p className="text-xs text-muted-foreground">
+					<p className="mt-1 text-xs text-muted-foreground">
 						{windowLabel} ({new Date(metrics.startDate).toLocaleDateString()} –{" "}
 						{new Date(metrics.endDate).toLocaleDateString()})
 					</p>
 				</div>
-				<div className="flex items-center gap-1">
-					<UsageModeSelector />
-					<div className="mx-1 h-5 w-px bg-border" />
-					{(["1h", "4h", "12h", "1d", "7d", "30d", "90d", "365d"] as const).map(
-						(w) => (
-							<Button
-								key={w}
-								variant={selectedWindow === w ? "default" : "outline"}
-								size="sm"
-								onClick={() => handleWindowChange(w)}
-							>
-								{w === "1d" ? "24h" : w}
-							</Button>
-						),
-					)}
+				<div className="grid gap-3 sm:grid-cols-2 sm:items-end">
+					<div className="space-y-1.5">
+						<span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+							Traffic
+						</span>
+						<UsageModeSelector compact />
+					</div>
+					<div className="space-y-1.5">
+						<span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+							Window
+						</span>
+						<TokenTimeRangeToggle initial={selectedWindow} />
+					</div>
 				</div>
 			</div>
 			<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

@@ -1,6 +1,7 @@
 import {
 	ArrowLeft,
 	Building2,
+	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
 	ExternalLink,
@@ -24,6 +25,11 @@ import { ManualCreditsDialog } from "@/components/manual-credits-dialog";
 import { PlanTermBadge } from "@/components/plan-term-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
 	Table,
 	TableBody,
@@ -328,176 +334,271 @@ export default async function OrganizationPage({
 				</Button>
 			</div>
 
-			<header className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-start">
-				<div className="space-y-2">
-					<div className="flex items-center gap-3">
-						<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-							<Building2 className="h-5 w-5" />
+			<header className="rounded-2xl border border-border/60 bg-card/50 p-5 shadow-sm">
+				<Collapsible>
+					<div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+						<div className="min-w-0">
+							<div className="flex items-center gap-3">
+								<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
+									<Building2 className="h-5 w-5" />
+								</div>
+								<div className="min-w-0">
+									<h1 className="truncate text-2xl font-semibold tracking-tight">
+										{org.name}
+									</h1>
+									<p className="truncate font-mono text-xs text-muted-foreground">
+										{org.id}
+									</p>
+								</div>
+							</div>
+							<div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+								<span>{org.billingEmail}</span>
+								<a
+									href={stripeSearchUrl(org.billingEmail)}
+									target="_blank"
+									rel="noopener noreferrer"
+									className="inline-flex items-center gap-1 text-blue-600 hover:underline"
+									title={`Search Stripe for ${org.billingEmail}`}
+								>
+									<ExternalLink className="h-3 w-3" />
+									Stripe
+								</a>
+								<span>Created {formatDate(org.createdAt)}</span>
+							</div>
 						</div>
-						<div>
-							<h1 className="text-2xl font-semibold tracking-tight">
-								{org.name}
-							</h1>
-							<p className="text-sm text-muted-foreground">{org.id}</p>
+						<div className="flex shrink-0 items-center gap-2">
+							<ManageOrgDialog
+								orgName={org.name}
+								plan={org.plan}
+								seats={org.seats ?? null}
+								apiKeyLimit={org.apiKeyLimit ?? null}
+								projectLimit={org.projectLimit ?? null}
+								trustTierOverride={
+									trustTier?.overridden ? trustTier.tier : null
+								}
+								planExpiresAt={org.planExpiresAt ?? null}
+								planStartedAt={org.planStartedAt ?? null}
+								isTrialActive={org.isTrialActive ?? false}
+								trialStartDate={org.trialStartDate ?? null}
+								trialEndDate={org.trialEndDate ?? null}
+								primaryTrigger
+								onSave={async (data) => {
+									"use server";
+									return await manageOrganization(orgId, data);
+								}}
+							/>
+							<CollapsibleTrigger asChild>
+								<Button variant="outline" size="sm" className="group gap-2">
+									More actions
+									<ChevronDown className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
+								</Button>
+							</CollapsibleTrigger>
 						</div>
 					</div>
-					<div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-						<span>{org.billingEmail}</span>
-						<span>•</span>
-						<a
-							href={stripeSearchUrl(org.billingEmail)}
-							target="_blank"
-							rel="noopener noreferrer"
-							className="inline-flex items-center gap-1 text-blue-600 hover:underline"
-							title={`Search Stripe for ${org.billingEmail}`}
-						>
-							<ExternalLink className="h-3 w-3" />
-							Stripe
-						</a>
-						<span>•</span>
-						<span>Created {formatDate(org.createdAt)}</span>
-					</div>
-					<div className="flex flex-wrap items-center gap-2">
-						<Badge variant={getPlanBadgeVariant(org.plan)}>{org.plan}</Badge>
-						{trustTier &&
-							(trustTier.exempt === "none" ? (
-								<Badge variant="default">
-									Trust Tier {trustTier.tier}
-									{trustTier.overridden ? " (manual)" : ""}
+
+					<div className="mt-5 grid overflow-hidden rounded-xl border border-border/60 bg-background/70 sm:grid-cols-2 xl:grid-cols-4">
+						<div className="border-b border-border/60 p-4 sm:border-r xl:border-b-0">
+							<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+								Plan
+							</p>
+							<div className="mt-2 flex flex-wrap items-center gap-2">
+								<Badge variant={getPlanBadgeVariant(org.plan)}>
+									{org.plan}
 								</Badge>
-							) : (
-								<Badge variant="outline">
-									{trustTier.exempt === "enterprise"
-										? "No rate limits (enterprise)"
-										: trustTier.exempt === "dev"
-											? "Dev plan limits"
-											: "Chat plan limits"}
+								{org.devPlan !== "none" ? (
+									<Badge variant={getDevPlanBadgeVariant(org.devPlan)}>
+										Dev: {org.devPlan}
+									</Badge>
+								) : null}
+								<PlanTermBadge
+									planExpiresAt={org.planExpiresAt}
+									planStartedAt={org.planStartedAt}
+									isTrialActive={org.isTrialActive}
+									trialStartDate={org.trialStartDate}
+									trialEndDate={org.trialEndDate}
+								/>
+							</div>
+						</div>
+						<div className="border-b border-border/60 p-4 xl:border-b-0 xl:border-r">
+							<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+								Account
+							</p>
+							<div className="mt-2 flex flex-wrap items-center gap-2">
+								<Badge
+									variant={org.status === "active" ? "secondary" : "outline"}
+								>
+									{org.status ?? "active"}
 								</Badge>
-							))}
-						<PlanTermBadge
-							planExpiresAt={org.planExpiresAt}
-							planStartedAt={org.planStartedAt}
-							isTrialActive={org.isTrialActive}
-							trialStartDate={org.trialStartDate}
-							trialEndDate={org.trialEndDate}
-						/>
-						{org.devPlan !== "none" && (
-							<Badge variant={getDevPlanBadgeVariant(org.devPlan)}>
-								Dev: {org.devPlan}
-							</Badge>
-						)}
-						<Badge variant={org.status === "active" ? "secondary" : "outline"}>
-							{org.status ?? "active"}
-						</Badge>
-						{org.riskFlagged && (
-							<Link href="/flagged-accounts">
-								<Badge variant="destructive">High risk — review</Badge>
-							</Link>
-						)}
-						{org.seats !== null && org.seats !== undefined && (
-							<Badge variant="outline">Seats: {org.seats}</Badge>
-						)}
-						{org.apiKeyLimit !== null && org.apiKeyLimit !== undefined && (
-							<Badge variant="outline">API keys: {org.apiKeyLimit}</Badge>
-						)}
-						{org.projectLimit !== null && org.projectLimit !== undefined && (
-							<Badge variant="outline">Projects: {org.projectLimit}</Badge>
-						)}
-						<span className="text-sm font-medium">
-							Credits: {creditsFormatter.format(parseFloat(org.credits))}
-						</span>
+								{org.riskFlagged ? (
+									<Link href="/flagged-accounts">
+										<Badge variant="destructive">High risk — review</Badge>
+									</Link>
+								) : null}
+							</div>
+						</div>
+						<div className="border-b border-border/60 p-4 sm:border-r sm:border-b-0">
+							<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+								Credits
+							</p>
+							<p className="mt-1.5 text-xl font-semibold tabular-nums">
+								{creditsFormatter.format(parseFloat(org.credits))}
+							</p>
+						</div>
+						<div className="p-4">
+							<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+								Trust policy
+							</p>
+							<p className="mt-1.5 text-sm font-medium">
+								{!trustTier
+									? "Default"
+									: trustTier.exempt === "none"
+										? `Tier ${trustTier.tier}${trustTier.overridden ? " · manual" : ""}`
+										: trustTier.exempt === "enterprise"
+											? "Enterprise exemption"
+											: trustTier.exempt === "dev"
+												? "Dev plan limits"
+												: "Chat plan limits"}
+							</p>
+						</div>
 					</div>
-					{trustTier && trustTier.exempt === "none" && (
-						<p className="text-sm text-muted-foreground">
-							Tier {trustTier.tier}: {trustTier.rpmMultiplier}× RPM ·{" "}
-							{creditsFormatter.format(trustTier.dailyCapUsd)}/day ·{" "}
-							{creditsFormatter.format(trustTier.monthlyCapUsd)}/month ·{" "}
-							{creditsFormatter.format(trustTier.topUpDailyCapUsd)}/24h top-ups
-							—{" "}
-							{trustTier.overridden
-								? "pinned by admin (override active)"
-								: `qualifies via ${trustTier.accountAgeDays}d age / ${creditsFormatter.format(trustTier.qualifyingSpendUsd)} net credits usage`}
-						</p>
-					)}
-				</div>
-				<div className="flex flex-wrap items-center gap-2">
-					{org.kind === "devpass" && (
-						<Button variant="outline" size="sm" asChild>
-							<Link href={`/devpass/${orgId}`}>Open in DevPass</Link>
-						</Button>
-					)}
-					<ManageOrgDialog
-						orgName={org.name}
-						plan={org.plan}
-						seats={org.seats ?? null}
-						apiKeyLimit={org.apiKeyLimit ?? null}
-						projectLimit={org.projectLimit ?? null}
-						trustTierOverride={trustTier?.overridden ? trustTier.tier : null}
-						planExpiresAt={org.planExpiresAt ?? null}
-						planStartedAt={org.planStartedAt ?? null}
-						isTrialActive={org.isTrialActive ?? false}
-						trialStartDate={org.trialStartDate ?? null}
-						trialEndDate={org.trialEndDate ?? null}
-						onSave={async (data) => {
-							"use server";
-							return await manageOrganization(orgId, data);
-						}}
-					/>
-					<GiftCreditsDialog
-						orgId={orgId}
-						orgName={org.name}
-						onGift={async (data) => {
-							"use server";
-							return await giftCreditsToOrganization(orgId, data);
-						}}
-					/>
-					<ManualCreditsDialog
-						orgName={org.name}
-						onCredit={async (data) => {
-							"use server";
-							return await addManualCreditsToOrganization(orgId, data);
-						}}
-					/>
-					<EnterpriseDealDialog
-						orgName={org.name}
-						onSave={async (data) => {
-							"use server";
-							return await addEnterpriseDealToOrganization(orgId, data);
-						}}
-					/>
-					<ReferralBonusDialog
-						orgName={org.name}
-						enabled={org.referralBonusEnabled ?? false}
-						percent={org.referralBonusPercent ?? 50}
-						onSave={async (data) => {
-							"use server";
-							return await updateReferralBonus(orgId, data);
-						}}
-					/>
-					<Button variant="outline" size="sm" asChild>
-						<Link href={`/organizations/${orgId}/discounts`}>
-							Manage Discounts
-						</Link>
-					</Button>
-					<Button variant="outline" size="sm" asChild>
-						<Link href={`/organizations/${orgId}/rate-limits`}>
-							Manage Rate Limits
-						</Link>
-					</Button>
-					<BlockOrgButton
-						orgId={orgId}
-						orgName={org.name}
-						variant="full"
-						disabled={getOrgDeletionBlockedReason(org.credits) !== null}
-						disabledReason={
-							getOrgDeletionBlockedReason(org.credits) ?? undefined
-						}
-						onBlock={async (id) => {
-							"use server";
-							return await blockOrganization(id);
-						}}
-					/>
-				</div>
+
+					<div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
+						{org.seats !== null && org.seats !== undefined ? (
+							<span>
+								Seats{" "}
+								<strong className="font-medium text-foreground">
+									{org.seats}
+								</strong>
+							</span>
+						) : null}
+						{org.apiKeyLimit !== null && org.apiKeyLimit !== undefined ? (
+							<span>
+								API keys{" "}
+								<strong className="font-medium text-foreground">
+									{org.apiKeyLimit}
+								</strong>
+							</span>
+						) : null}
+						{org.projectLimit !== null && org.projectLimit !== undefined ? (
+							<span>
+								Projects{" "}
+								<strong className="font-medium text-foreground">
+									{org.projectLimit}
+								</strong>
+							</span>
+						) : null}
+						{trustTier?.exempt === "none" ? (
+							<>
+								<span>{trustTier.rpmMultiplier}× RPM</span>
+								<span>
+									{creditsFormatter.format(trustTier.dailyCapUsd)}/day
+								</span>
+								<span>
+									{creditsFormatter.format(trustTier.monthlyCapUsd)}/month
+								</span>
+								<span>
+									{creditsFormatter.format(trustTier.topUpDailyCapUsd)}/24h
+									top-ups
+								</span>
+								<span>
+									{trustTier.overridden
+										? "Override active"
+										: `${trustTier.accountAgeDays}d age · ${creditsFormatter.format(trustTier.qualifyingSpendUsd)} net usage`}
+								</span>
+							</>
+						) : null}
+					</div>
+
+					<CollapsibleContent>
+						<div className="mt-4 grid gap-3 rounded-xl border border-border/60 bg-background p-4 md:grid-cols-2 xl:grid-cols-4">
+							<div>
+								<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+									Credits
+								</p>
+								<div className="flex flex-wrap gap-2">
+									<GiftCreditsDialog
+										orgId={orgId}
+										orgName={org.name}
+										onGift={async (data) => {
+											"use server";
+											return await giftCreditsToOrganization(orgId, data);
+										}}
+									/>
+									<ManualCreditsDialog
+										orgName={org.name}
+										onCredit={async (data) => {
+											"use server";
+											return await addManualCreditsToOrganization(orgId, data);
+										}}
+									/>
+								</div>
+							</div>
+							<div>
+								<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+									Commercial
+								</p>
+								<div className="flex flex-wrap gap-2">
+									<EnterpriseDealDialog
+										orgName={org.name}
+										onSave={async (data) => {
+											"use server";
+											return await addEnterpriseDealToOrganization(orgId, data);
+										}}
+									/>
+									<ReferralBonusDialog
+										orgName={org.name}
+										enabled={org.referralBonusEnabled ?? false}
+										percent={org.referralBonusPercent ?? 50}
+										onSave={async (data) => {
+											"use server";
+											return await updateReferralBonus(orgId, data);
+										}}
+									/>
+								</div>
+							</div>
+							<div>
+								<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+									Controls
+								</p>
+								<div className="flex flex-wrap gap-2">
+									<Button variant="outline" size="sm" asChild>
+										<Link href={`/organizations/${orgId}/discounts`}>
+											Discounts
+										</Link>
+									</Button>
+									<Button variant="outline" size="sm" asChild>
+										<Link href={`/organizations/${orgId}/rate-limits`}>
+											Rate limits
+										</Link>
+									</Button>
+									{org.kind === "devpass" ? (
+										<Button variant="outline" size="sm" asChild>
+											<Link href={`/devpass/${orgId}`}>Open in DevPass</Link>
+										</Button>
+									) : null}
+								</div>
+							</div>
+							<div>
+								<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-destructive">
+									Account safety
+								</p>
+								<BlockOrgButton
+									orgId={orgId}
+									orgName={org.name}
+									variant="full"
+									disabled={getOrgDeletionBlockedReason(org.credits) !== null}
+									disabledReason={
+										getOrgDeletionBlockedReason(org.credits) ?? undefined
+									}
+									onBlock={async (id) => {
+										"use server";
+										return await blockOrganization(id);
+									}}
+								/>
+							</div>
+						</div>
+					</CollapsibleContent>
+				</Collapsible>
 			</header>
 
 			<OrgMetricsSection orgId={orgId} />
