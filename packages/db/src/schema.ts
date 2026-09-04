@@ -3953,6 +3953,9 @@ export const auditLogActions = [
 	"custom_model.create",
 	"custom_model.update",
 	"custom_model.delete",
+	"organization_skill.create",
+	"organization_skill.update",
+	"organization_skill.delete",
 	// Subscription
 	"subscription.create",
 	"subscription.cancel",
@@ -4037,6 +4040,7 @@ export const auditLogResourceTypes = [
 	"iam_rule",
 	"provider_key",
 	"custom_model",
+	"organization_skill",
 	"subscription",
 	"payment_method",
 	"payment",
@@ -5640,6 +5644,37 @@ export const orgLimitHitDaily = pgTable(
 			table.endpointKey,
 		),
 		index("org_limit_hit_daily_day_idx").on(table.day),
+	],
+);
+
+export const organizationSkill = pgTable(
+	"organization_skill",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		description: text().notNull(),
+		content: text().notNull(),
+		files: jsonb()
+			.notNull()
+			.$type<
+				{ path: string; content: string; encoding?: "utf-8" | "base64" }[]
+			>()
+			.default([]),
+		enabled: boolean().notNull().default(true),
+	},
+	(table) => [
+		uniqueIndex("organization_skill_org_name_unique").on(
+			table.organizationId,
+			table.name,
+		),
 	],
 );
 
