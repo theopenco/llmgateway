@@ -297,6 +297,30 @@ describe("validateProviderKey model-specific probes", () => {
 		expect(cancel).toHaveBeenCalledOnce();
 	});
 
+	it("keeps a successful probe valid when body cancellation fails", async () => {
+		const response = new Response("generated output", { status: 200 });
+		vi.spyOn(response.body!, "cancel").mockRejectedValue(
+			new Error("cleanup failed"),
+		);
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+		const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+
+		const result = await validateProviderKey(
+			"openai",
+			"sk-test",
+			undefined,
+			false,
+			undefined,
+			"gpt-image-2",
+		);
+
+		expect(result).toEqual({ valid: true, model: "gpt-image-2" });
+		expect(warn).toHaveBeenCalledWith(
+			"Could not cancel provider key validation response body",
+			expect.objectContaining({ error: "cleanup failed" }),
+		);
+	});
+
 	it("sends a minimal inline image to the OCR endpoint", async () => {
 		const fetchMock = mockSuccess();
 

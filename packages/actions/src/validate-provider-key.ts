@@ -602,7 +602,15 @@ export async function validateProviderKey(
 				model: validationModel?.modelId,
 			};
 		}
-		await response.body?.cancel();
+		try {
+			await response.body?.cancel();
+		} catch (error) {
+			logger.warn("Could not cancel provider key validation response body", {
+				provider,
+				model: validationModel.modelId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
 
 		logger.debug("Provider key validation succeeded", {
 			provider,

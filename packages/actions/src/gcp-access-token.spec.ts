@@ -15,7 +15,7 @@ vi.mock("@llmgateway/cache", () => ({
 }));
 
 function serviceAccount(clientEmail: string): string {
-	const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 1024 });
+	const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 	return JSON.stringify({
 		client_email: clientEmail,
 		private_key: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
