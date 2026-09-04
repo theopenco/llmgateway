@@ -218,7 +218,7 @@ describe("validateProviderKey model-specific probes", () => {
 		const result = await validateProviderKey(
 			"openai",
 			"sk-test",
-			undefined,
+			"https://api.openai.com////",
 			false,
 			undefined,
 			"text-embedding-3-small",

@@ -240,8 +240,23 @@ export function getPinnedValidationModel(
 const VALIDATION_IMAGE_DATA_URL =
 	"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAAACXBIWXMAAAABAAAAAQBPJcTWAAAC0UlEQVR4nO3TsQnEQBDAQB+4/5bXJTgwzz5opgIlOjNzQdW9HQCbDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAO8OOdsJ3wyM9sJf80ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGeDEz2wn8kAFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0h72yQz4sw8iuwAAAABJRU5ErkJggg==";
 
+function trimSlashes(value: string, side: "leading" | "trailing"): string {
+	let start = 0;
+	let end = value.length;
+	if (side === "leading") {
+		while (start < end && value[start] === "/") {
+			start += 1;
+		}
+	} else {
+		while (end > start && value[end - 1] === "/") {
+			end -= 1;
+		}
+	}
+	return value.slice(start, end);
+}
+
 function appendPath(baseUrl: string, path: string): string {
-	return `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+	return `${trimSlashes(baseUrl, "trailing")}/${trimSlashes(path, "leading")}`;
 }
 
 function getValidationBaseUrl(
@@ -256,7 +271,7 @@ function getValidationBaseUrl(
 	if (!resolved) {
 		throw new Error(`Provider ${provider} requires a base URL`);
 	}
-	return resolved.replace(/\/+$/, "");
+	return trimSlashes(resolved, "trailing");
 }
 
 function getImageValidationConfig(modelId: string) {
