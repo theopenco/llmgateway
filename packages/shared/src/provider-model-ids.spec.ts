@@ -29,5 +29,7 @@ describe("getModelIdsByProviderAndKind", () => {
 		const grouped = getModelIdsByProviderAndKind(new Date("2026-09-04"));
 
 		expect(grouped.get("openai")?.text).not.toContain("tts-1");
+		expect(grouped.get("openai")?.text).not.toContain("gpt-4o-transcribe");
+		expect(grouped.get("openai")?.text).not.toContain("gpt-4o-mini-transcribe");
 	});
 });
