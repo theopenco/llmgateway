@@ -1,0 +1,52 @@
+---
+title: Organization skills
+description: Publish shared skills and custom instructions for developers in your enterprise organization.
+---
+
+Organization skills are reusable instructions and supporting files that enterprise teams share through the CLI. Owners and admins publish skills in the dashboard; developers can discover and download them using a project API key from the same organization.
+
+## Publish a skill
+
+1. Open **Organization → Skills** in the dashboard.
+2. Choose **Import SKILL.md** for a single skill, **Import folder** for a skill with references, scripts, or assets, or **New custom skill** to write instructions.
+3. Review the content and save. New skills are enabled immediately.
+
+A skill folder must contain `SKILL.md` at its root. Its YAML header needs a unique lowercase, hyphenated `name` of up to 64 characters and a `description` of up to 1,024 characters. Write the instructions below the header:
+
+```md
+---
+name: code-review
+description: Review code changes against the team's standards.
+---
+
+# Code review
+
+- Check correctness and error handling.
+- Explain the impact of each finding.
+- Suggest tests for important edge cases.
+```
+
+Bundles support up to 100 additional files and 1 MB of total content. `SKILL.md` supports up to 200,000 characters within that limit. Supporting paths must be relative to the skill folder; duplicate paths and parent-directory traversal are rejected. Existing YAML fields, such as `license` or `allowed-tools`, are preserved.
+
+## Manage access
+
+All active organization members can view skills. Owners and admins can edit, disable, or delete them. Keep a published skill's name unchanged; create a new skill to use a different name.
+
+Disabling a skill removes it from CLI discovery and prevents new downloads. Deleting it also removes its stored content. These actions cannot remove copies already downloaded to a developer's machine. Publishing and management actions appear in the organization's audit log without recording the skill content.
+
+## CLI API contract
+
+These endpoints belong to the [platform API](https://internal.llmgateway.io/docs). Authenticate with `Authorization: Bearer <project-api-key>`, using a regular project API key issued to an active member with access to that project.
+
+| Method | Path                | Response                                         |
+| ------ | ------------------- | ------------------------------------------------ |
+| GET    | `/v1/skills`        | `{ skills: [...] }` with enabled skill summaries |
+| GET    | `/v1/skills/{name}` | `{ skill: { ...summary, content, files } }`      |
+
+A summary contains `id`, `name`, `description`, `enabled`, `createdAt`, and `updatedAt`. Timestamps use ISO 8601. `content` is the complete `SKILL.md`, including its YAML header. Each supporting file contains a relative `path`, `content`, and optional `encoding` (`utf-8` by default, or `base64` for binary files).
+
+Clients should discover skills at the start of a session, download selected skills by name, and write each bundle into its own directory. Revalidate authorization before reusing organization content and remove cached availability when access is denied. Treat supporting scripts as code to review before running.
+
+The server derives the organization from the API key. Expired or revoked keys return `401`; removed project access or missing enterprise access returns `403`; missing or disabled skills return `404`. Responses use `Cache-Control: private, no-store`.
+
+Dashboard management uses session authentication at `/orgs/{organizationId}/skills`: `GET` lists summaries and `POST` creates a bundle. At `/orgs/{organizationId}/skills/{id}`, `GET` reads a bundle, `PUT` replaces `{ content, files }`, `PATCH` sets `{ enabled }`, and `DELETE` removes it. Duplicate names return `409`.
