@@ -296,6 +296,16 @@ export default function Signup() {
 					newUserCallbackPath="/dashboard"
 					requestSignUp
 				/>
+				<p className="text-center text-xs leading-relaxed text-muted-foreground">
+					By signing up, you agree to the{" "}
+					<Link
+						href="/legal/terms"
+						className="underline underline-offset-4 hover:text-foreground"
+					>
+						LLM Gateway Terms of Use
+					</Link>
+					.
+				</p>
 			</div>
 
 			<p className="mt-6 text-center text-sm text-muted-foreground">
