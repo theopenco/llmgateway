@@ -1538,11 +1538,12 @@ function addRequestedVideoMetadata(
 const DEFAULT_VERTEX_VIDEO_REGION = "us-central1";
 
 /**
- * Settings of a BYOK key serving video generation. The key is self-contained
- * and env vars never apply (mirrors getProviderEndpoint's skipEnvVars), so the
- * deployment's proxy or GCP project is never used with an org's own key.
- * Vertex output written to the platform bucket targets the storage project
- * instead, so the key's own project is only required without a bucket.
+ * Settings of a BYOK key serving video generation. The key is self-contained:
+ * `LLM_*` env vars are never applied implicitly (mirrors getProviderEndpoint's
+ * skipEnvVars), so the deployment's proxy or GCP project only reaches an org's
+ * own key when the key itself is configured for it. Vertex output written to
+ * the platform bucket targets the storage project instead, so the key's own
+ * project is only required without a bucket.
  */
 function resolveByokVideoProviderSettings(
 	providerId: Provider,
@@ -1564,7 +1565,9 @@ function resolveByokVideoProviderSettings(
 		vertexProjectId,
 		vertexRegion: DEFAULT_VERTEX_VIDEO_REGION,
 		hasVertexProject: Boolean(
-			vertexProjectId || getGoogleVertexVideoOutputBucket(),
+			vertexProjectId ||
+			(getGoogleVertexVideoOutputBucket() &&
+				process.env.GOOGLE_CLOUD_PROJECT?.trim()),
 		),
 	};
 }
@@ -1576,7 +1579,7 @@ function resolveByokVideoProviderContext(
 ): ProviderContext {
 	const settings = resolveByokVideoProviderSettings(providerId, providerKey);
 	if (!settings.baseUrl) {
-		throw new HTTPException(400, {
+		throw new HTTPException(500, {
 			message: `No base URL set for provider: ${providerId}`,
 		});
 	}

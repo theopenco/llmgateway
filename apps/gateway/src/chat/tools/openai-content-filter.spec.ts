@@ -178,7 +178,7 @@ describe("checkOpenAIContentFilter", () => {
 
 	it("moderates through the env base URL of the OpenAI credential", async () => {
 		process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
-		process.env.LLM_OPENAI_BASE_URL = "https://proxy.example.com";
+		process.env.LLM_OPENAI_BASE_URL = "https://proxy.example.com/";
 		const requestedUrls: string[] = [];
 		vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
 			requestedUrls.push(String(input));

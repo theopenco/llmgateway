@@ -659,21 +659,25 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		});
 	}
 
-	const resolvedBaseUrl =
-		providerKey?.baseUrl ??
-		getCredentialSetting(
-			"openai",
-			"baseUrl",
-			{ providerKey, managedKey },
-			{ configIndex, variant: envVariant },
-		) ??
-		getProviderDefaultBaseUrl("openai");
-	if (!resolvedBaseUrl) {
-		throw new HTTPException(500, {
-			message: "No base URL set for provider: openai",
-		});
-	}
-	const upstreamUrl = `${resolvedBaseUrl}/v1/moderations`;
+	// Resolved per attempt: a credential rotation below can switch to a
+	// managed key or env index with its own base URL.
+	const resolveUpstreamUrl = (): string => {
+		const resolvedBaseUrl =
+			providerKey?.baseUrl ??
+			getCredentialSetting(
+				"openai",
+				"baseUrl",
+				{ providerKey, managedKey },
+				{ configIndex, variant: envVariant },
+			) ??
+			getProviderDefaultBaseUrl("openai");
+		if (!resolvedBaseUrl) {
+			throw new HTTPException(500, {
+				message: "No base URL set for provider: openai",
+			});
+		}
+		return `${resolvedBaseUrl.replace(/\/+$/, "")}/v1/moderations`;
+	};
 	const requestBody = {
 		input,
 		model: upstreamModel,
@@ -772,7 +776,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 			try {
 				const fetchSignal = createCombinedSignal(controller);
-				upstreamResponse = await fetch(upstreamUrl, {
+				upstreamResponse = await fetch(resolveUpstreamUrl(), {
 					method: "POST",
 					// SSRF: never follow redirects on an authenticated provider request. A
 					// tenant-supplied baseUrl could 3xx to an internal host at request time,

@@ -378,6 +378,8 @@ interface ContentFilterCredential {
  */
 async function resolveContentFilterCredential(): Promise<ContentFilterCredential> {
 	const defaultBaseUrl = getProviderDefaultBaseUrl("openai") ?? "";
+	const moderationUrl = (baseUrl: string) =>
+		`${baseUrl.replace(/\/+$/, "")}${OPENAI_MODERATION_PATH}`;
 	if (await hasManagedProviderCredential("openai")) {
 		const managedKey = await findManagedProviderKey("openai", {
 			selectionScope: OPENAI_MODERATION_MODEL,
@@ -389,16 +391,15 @@ async function resolveContentFilterCredential(): Promise<ContentFilterCredential
 		}
 		return {
 			providerToken: readProviderKey(managedKey),
-			moderationUrl: `${managedKey.config?.baseUrl ?? defaultBaseUrl}${OPENAI_MODERATION_PATH}`,
+			moderationUrl: moderationUrl(
+				managedKey.config?.baseUrl ?? defaultBaseUrl,
+			),
 		};
 	}
 	const env = getProviderEnv("openai", { advanceRoundRobin: false });
 	const baseUrl =
 		getProviderEnvValue("openai", "baseUrl", env.configIndex) ?? defaultBaseUrl;
-	return {
-		providerToken: env.token,
-		moderationUrl: `${baseUrl}${OPENAI_MODERATION_PATH}`,
-	};
+	return { providerToken: env.token, moderationUrl: moderationUrl(baseUrl) };
 }
 
 async function runOpenAIContentFilterRequest(
