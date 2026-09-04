@@ -3,8 +3,8 @@
 import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
 import { useSearchParams } from "next/navigation";
 import {
-	Area,
-	AreaChart,
+	Bar,
+	BarChart,
 	CartesianGrid,
 	ResponsiveContainer,
 	Tooltip,
@@ -220,23 +220,41 @@ function CustomTooltip({
 function LegendItem({
 	color,
 	label,
-	dashed = false,
+	opacity = 1,
 }: {
 	color: string;
 	label: string;
-	dashed?: boolean;
+	opacity?: number;
 }) {
 	return (
 		<span className="inline-flex items-center gap-1.5">
 			<span
-				className="inline-block h-0.5 w-4"
-				style={
-					dashed
-						? {
-								backgroundImage: `repeating-linear-gradient(to right, ${color} 0 5px, transparent 5px 8px)`,
-							}
-						: { backgroundColor: color }
-				}
+				className="inline-block h-2.5 w-2.5 rounded-[2px]"
+				style={{
+					backgroundColor: color,
+					opacity,
+				}}
+			/>
+			{label}
+		</span>
+	);
+}
+
+function PeriodLegendItem({
+	label,
+	opacity = 1,
+}: {
+	label: string;
+	opacity?: number;
+}) {
+	return (
+		<span className="inline-flex items-center gap-1.5">
+			<span
+				className="inline-block h-2.5 w-4 rounded-[2px]"
+				style={{
+					background: `linear-gradient(90deg, ${COLORS.input} 0 33%, ${COLORS.output} 33% 66%, ${COLORS.cached} 66%)`,
+					opacity,
+				}}
 			/>
 			{label}
 		</span>
@@ -329,9 +347,14 @@ export function Overview({
 						<LegendItem color={COLORS.output} label="Output" />
 						<LegendItem color={COLORS.cached} label="Cached input" />
 						{hasComparison && (
-							<LegendItem
-								color={COLORS.current}
+							<PeriodLegendItem
 								label={`Current · ${formatUsageDateRange(currentRange)}`}
+							/>
+						)}
+						{hasComparison && comparisonLabel && (
+							<PeriodLegendItem
+								label={`${comparisonName(comparisonMode)} · ${comparisonLabel}`}
+								opacity={0.38}
 							/>
 						)}
 					</>
@@ -341,13 +364,15 @@ export function Overview({
 						label={`Current · ${formatUsageDateRange(currentRange)}`}
 					/>
 				)}
-				{hasComparison && comparisonLabel && (
-					<LegendItem
-						color={COLORS.comparison}
-						label={`${comparisonName(comparisonMode)} · ${comparisonLabel}`}
-						dashed
-					/>
-				)}
+				{hasComparison &&
+					comparisonLabel &&
+					!(metric === "costs" && costView === "breakdown") && (
+						<LegendItem
+							color={COLORS.comparison}
+							label={`${comparisonName(comparisonMode)} · ${comparisonLabel}`}
+							opacity={0.55}
+						/>
+					)}
 				{isComparisonLoading && (
 					<span className="animate-pulse">Loading comparison…</span>
 				)}
@@ -358,32 +383,12 @@ export function Overview({
 				)}
 			</div>
 			<ResponsiveContainer width="100%" height={350}>
-				<AreaChart
+				<BarChart
 					data={chartData}
 					margin={{ top: 5, right: 10, left: 10, bottom: 0 }}
+					barCategoryGap="18%"
+					barGap={3}
 				>
-					<defs>
-						<linearGradient id="gradientCurrent" x1="0" y1="0" x2="0" y2="1">
-							<stop offset="5%" stopColor={COLORS.current} stopOpacity={0.45} />
-							<stop
-								offset="95%"
-								stopColor={COLORS.current}
-								stopOpacity={0.03}
-							/>
-						</linearGradient>
-						<linearGradient id="gradientInput" x1="0" y1="0" x2="0" y2="1">
-							<stop offset="5%" stopColor={COLORS.input} stopOpacity={0.45} />
-							<stop offset="95%" stopColor={COLORS.input} stopOpacity={0.03} />
-						</linearGradient>
-						<linearGradient id="gradientOutput" x1="0" y1="0" x2="0" y2="1">
-							<stop offset="5%" stopColor={COLORS.output} stopOpacity={0.45} />
-							<stop offset="95%" stopColor={COLORS.output} stopOpacity={0.03} />
-						</linearGradient>
-						<linearGradient id="gradientCached" x1="0" y1="0" x2="0" y2="1">
-							<stop offset="5%" stopColor={COLORS.cached} stopOpacity={0.45} />
-							<stop offset="95%" stopColor={COLORS.cached} stopOpacity={0.03} />
-						</linearGradient>
-					</defs>
 					<CartesianGrid
 						strokeDasharray="3 3"
 						vertical={false}
@@ -424,100 +429,86 @@ export function Overview({
 						cursor={{ stroke: "currentColor", strokeOpacity: 0.15 }}
 					/>
 					{metric === "costs" && costView === "breakdown" && (
-						<Area
-							type="linear"
+						<Bar
 							dataKey="currentInputCost"
-							stroke={COLORS.input}
-							strokeWidth={2}
-							fill="url(#gradientInput)"
-							dot={pointCount === 1}
+							stackId="current"
+							fill={COLORS.input}
+							maxBarSize={56}
 							isAnimationActive={false}
 						/>
 					)}
 					{metric === "costs" && costView === "breakdown" && (
-						<Area
-							type="linear"
+						<Bar
 							dataKey="currentOutputCost"
-							stroke={COLORS.output}
-							strokeWidth={2}
-							fill="url(#gradientOutput)"
-							dot={pointCount === 1}
+							stackId="current"
+							fill={COLORS.output}
+							maxBarSize={56}
 							isAnimationActive={false}
 						/>
 					)}
 					{metric === "costs" && costView === "breakdown" && (
-						<Area
-							type="linear"
+						<Bar
 							dataKey="currentCachedInputCost"
-							stroke={COLORS.cached}
-							strokeWidth={2}
-							fill="url(#gradientCached)"
-							dot={pointCount === 1}
+							stackId="current"
+							fill={COLORS.cached}
+							radius={[4, 4, 0, 0]}
+							maxBarSize={56}
 							isAnimationActive={false}
 						/>
 					)}
 					{metric === "costs" && costView === "breakdown" && hasComparison && (
-						<Area
-							type="linear"
+						<Bar
 							dataKey="comparisonInputCost"
-							stroke={COLORS.input}
-							strokeWidth={1.5}
-							strokeDasharray="5 4"
-							fill="none"
-							dot={pointCount === 1}
+							stackId="comparison"
+							fill={COLORS.input}
+							fillOpacity={0.38}
+							maxBarSize={56}
 							isAnimationActive={false}
 						/>
 					)}
 					{metric === "costs" && costView === "breakdown" && hasComparison && (
-						<Area
-							type="linear"
+						<Bar
 							dataKey="comparisonOutputCost"
-							stroke={COLORS.output}
-							strokeWidth={1.5}
-							strokeDasharray="5 4"
-							fill="none"
-							dot={pointCount === 1}
+							stackId="comparison"
+							fill={COLORS.output}
+							fillOpacity={0.38}
+							maxBarSize={56}
 							isAnimationActive={false}
 						/>
 					)}
 					{metric === "costs" && costView === "breakdown" && hasComparison && (
-						<Area
-							type="linear"
+						<Bar
 							dataKey="comparisonCachedInputCost"
-							stroke={COLORS.cached}
-							strokeWidth={1.5}
-							strokeDasharray="5 4"
-							fill="none"
-							dot={pointCount === 1}
+							stackId="comparison"
+							fill={COLORS.cached}
+							fillOpacity={0.38}
+							radius={[4, 4, 0, 0]}
+							maxBarSize={56}
 							isAnimationActive={false}
 						/>
 					)}
 					{(metric !== "costs" || costView === "total") && (
-						<Area
-							type="linear"
+						<Bar
 							dataKey={metric === "costs" ? "currentCost" : "currentRequests"}
-							stroke={COLORS.current}
-							strokeWidth={2.25}
-							fill="url(#gradientCurrent)"
-							dot={pointCount === 1}
+							fill={COLORS.current}
+							radius={[4, 4, 0, 0]}
+							maxBarSize={56}
 							isAnimationActive={false}
 						/>
 					)}
 					{(metric !== "costs" || costView === "total") && hasComparison && (
-						<Area
-							type="linear"
+						<Bar
 							dataKey={
 								metric === "costs" ? "comparisonCost" : "comparisonRequests"
 							}
-							stroke={COLORS.comparison}
-							strokeWidth={2}
-							strokeDasharray="6 5"
-							fill="none"
-							dot={pointCount === 1}
+							fill={COLORS.comparison}
+							fillOpacity={0.55}
+							radius={[4, 4, 0, 0]}
+							maxBarSize={56}
 							isAnimationActive={false}
 						/>
 					)}
-				</AreaChart>
+				</BarChart>
 			</ResponsiveContainer>
 		</div>
 	);
