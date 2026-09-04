@@ -137,12 +137,7 @@ export function getValidationModel(
 				!isStable ||
 				isDeprecated ||
 				isDeactivated ||
-				providerMapping.imageGenerations ||
-				providerMapping.videoGenerations ||
-				providerMapping.embeddings ||
-				providerMapping.speechGenerations ||
-				providerMapping.transcriptions ||
-				providerMapping.ocr
+				getProviderModelKind(model, providerMapping) !== "text"
 			) {
 				return [];
 			}
@@ -600,6 +595,7 @@ export async function validateProviderKey(
 				model: validationModel?.modelId,
 			};
 		}
+		await response.body?.cancel();
 
 		logger.debug("Provider key validation succeeded", {
 			provider,

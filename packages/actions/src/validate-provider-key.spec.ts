@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { logger } from "@llmgateway/logger";
-import { models } from "@llmgateway/models";
+import { models, providers } from "@llmgateway/models";
 import { getProviderModelKind } from "@llmgateway/shared";
 
 import {
@@ -26,6 +26,19 @@ describe("getPinnedValidationModel", () => {
 });
 
 describe("getValidationModel", () => {
+	it("only selects text models for automatic validation", () => {
+		for (const provider of providers) {
+			const selected = getValidationModel(provider.id);
+			if (!selected) {
+				continue;
+			}
+			expect(
+				getPinnedValidationModel(provider.id, selected.modelId)?.kind,
+				provider.id,
+			).toBe("text");
+		}
+	});
+
 	it("never selects an OCR model for provider key validation", () => {
 		// The OCR model has zero token prices, which would otherwise make it the
 		// cheapest (first) candidate. It must be excluded so key validation calls
@@ -235,6 +248,24 @@ describe("validateProviderKey model-specific probes", () => {
 			input: "Hello",
 			model: "text-embedding-3-small",
 		});
+	});
+
+	it("cancels a successful response body", async () => {
+		const response = new Response("generated output", { status: 200 });
+		const cancel = vi.spyOn(response.body!, "cancel");
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+
+		const result = await validateProviderKey(
+			"openai",
+			"sk-test",
+			undefined,
+			false,
+			undefined,
+			"gpt-image-2",
+		);
+
+		expect(result.valid).toBe(true);
+		expect(cancel).toHaveBeenCalledOnce();
 	});
 
 	it("sends a minimal inline image to the OCR endpoint", async () => {
