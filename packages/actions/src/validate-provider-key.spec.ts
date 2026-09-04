@@ -250,6 +250,35 @@ describe("validateProviderKey model-specific probes", () => {
 		});
 	});
 
+	it("probes an explicit OpenAI-compatible custom model", async () => {
+		const fetchMock = mockSuccess();
+		const abortController = new AbortController();
+
+		const result = await validateProviderKey(
+			"custom",
+			"custom-token",
+			"https://carrier.example.com",
+			false,
+			undefined,
+			"upstream-chat-v1",
+			abortController.signal,
+		);
+
+		expect(result).toEqual({ valid: true, model: "upstream-chat-v1" });
+		expect(fetchMock.mock.calls[0][0]).toBe(
+			"https://carrier.example.com/v1/chat/completions",
+		);
+		expect(fetchMock.mock.calls[0][1]).toMatchObject({
+			signal: abortController.signal,
+			headers: expect.objectContaining({
+				Authorization: "Bearer custom-token",
+			}),
+		});
+		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
+			model: "upstream-chat-v1",
+		});
+	});
+
 	it("cancels a successful response body", async () => {
 		const response = new Response("generated output", { status: 200 });
 		const cancel = vi.spyOn(response.body!, "cancel");

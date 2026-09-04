@@ -21,6 +21,42 @@ interface MemoryCacheEntry {
 
 const memoryCache = new Map<string, MemoryCacheEntry>();
 
+function abortError(abortSignal: AbortSignal): Error {
+	return abortSignal.reason instanceof Error
+		? abortSignal.reason
+		: new Error("Operation aborted");
+}
+
+async function withAbortSignal<T>(
+	operation: Promise<T>,
+	abortSignal?: AbortSignal,
+): Promise<T> {
+	if (!abortSignal) {
+		return await operation;
+	}
+	abortSignal.throwIfAborted();
+	return await new Promise<T>((resolve, reject) => {
+		const onAbort = () => reject(abortError(abortSignal));
+		abortSignal.addEventListener("abort", onAbort, { once: true });
+		operation.then(
+			(value) => {
+				abortSignal.removeEventListener("abort", onAbort);
+				resolve(value);
+			},
+			(error: unknown) => {
+				abortSignal.removeEventListener("abort", onAbort);
+				reject(error instanceof Error ? error : new Error(String(error)));
+			},
+		);
+	});
+}
+
+function rethrowAbort(abortSignal?: AbortSignal): void {
+	if (abortSignal?.aborted) {
+		throw abortError(abortSignal);
+	}
+}
+
 function base64url(data: Buffer | string): string {
 	const buf = typeof data === "string" ? Buffer.from(data) : data;
 	return buf.toString("base64url");
@@ -117,12 +153,13 @@ export async function getGcpServiceAccountAccessToken(
 	}
 
 	try {
-		const redisToken = await redisClient.get(key);
+		const redisToken = await withAbortSignal(redisClient.get(key), abortSignal);
 		if (redisToken) {
 			memoryCache.set(key, { token: redisToken, expiresAt: now + TTL_MS });
 			return redisToken;
 		}
 	} catch (err) {
+		rethrowAbort(abortSignal);
 		logger.warn(
 			"Redis read failed for GCP service account token",
 			err instanceof Error ? err : new Error(String(err)),
@@ -132,8 +169,12 @@ export async function getGcpServiceAccountAccessToken(
 	const token = await exchangeJwtForAccessToken(sa, abortSignal);
 	memoryCache.set(key, { token, expiresAt: now + TTL_MS });
 	try {
-		await redisClient.set(key, token, "EX", TTL_SECONDS);
+		await withAbortSignal(
+			redisClient.set(key, token, "EX", TTL_SECONDS),
+			abortSignal,
+		);
 	} catch (err) {
+		rethrowAbort(abortSignal);
 		logger.warn(
 			"Redis write failed for GCP service account token",
 			err instanceof Error ? err : new Error(String(err)),

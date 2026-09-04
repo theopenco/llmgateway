@@ -1525,6 +1525,31 @@ describe("managed credential allowed models", () => {
 		});
 	}
 
+	async function createCustomCarrier() {
+		const [company] = await db
+			.insert(tables.providerCompany)
+			.values({ name: "Test Carrier" })
+			.returning({ id: tables.providerCompany.id });
+		const providerId = "test-carrier";
+		await db.insert(tables.providerClaim).values({
+			providerCompanyId: company.id,
+			providerId,
+			kind: "custom",
+			matchedDomain: "example.com",
+			customName: "Test Carrier",
+			customBaseUrl: "https://carrier.example.com",
+			status: "active",
+		});
+		await db.insert(tables.providerDraftModel).values({
+			providerCompanyId: company.id,
+			providerId,
+			modelName: "carrier-chat",
+			externalId: "upstream-chat-v1",
+			status: "active",
+		});
+		return { providerId, modelId: "carrier-chat" };
+	}
+
 	/**
 	 * Catalogue model ids for a provider, taken from the catalog route so the
 	 * tests never hardcode ids that rot when the catalogue changes.
@@ -1612,6 +1637,33 @@ describe("managed credential allowed models", () => {
 		expect(await res.text()).toContain("definitely-not-a-model");
 	});
 
+	test("stores model restrictions for custom carriers", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });
+		const carrier = await createCustomCarrier();
+
+		const res = await create({
+			provider: carrier.providerId,
+			token: "carrier-token",
+			allowedModels: [carrier.modelId],
+		});
+
+		expect(res.status).toBe(201);
+		expect(
+			((await res.json()) as { credential: { allowedModels: string[] } })
+				.credential.allowedModels,
+		).toEqual([carrier.modelId]);
+		expect(validateProviderKeyMock).toHaveBeenCalledWith(
+			"custom",
+			"carrier-token",
+			"https://carrier.example.com",
+			false,
+			expect.anything(),
+			"upstream-chat-v1",
+			expect.any(AbortSignal),
+		);
+	});
+
 	test("sets and clears the restriction on update", async () => {
 		const [model] = await catalogModels("openai");
 		const createRes = await create({ provider: "openai", token: "sk-update" });
@@ -1657,8 +1709,11 @@ describe("managed credential allowed models", () => {
 		expect(res.status).toBe(201);
 
 		expect(validateProviderKeyMock).toHaveBeenCalledTimes(1);
-		// (provider, token, baseUrl, skipValidation, options, pinnedModelId)
+		// (provider, token, baseUrl, skipValidation, options, pinnedModelId, signal)
 		expect(validateProviderKeyMock.mock.calls[0][5]).toBe(chatModel);
+		expect(validateProviderKeyMock.mock.calls[0][6]).toBeInstanceOf(
+			AbortSignal,
+		);
 	});
 
 	test("save-time validation skips the probe when no allowed model can chat", async () => {
@@ -1700,6 +1755,43 @@ describe("managed credential allowed models", () => {
 			token: "sk-not-saved-anywhere",
 		});
 		expect(res.status).toBe(200);
+	});
+
+	test("self-test rejects unsafe unsaved provider URLs", async () => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "false");
+		const res = await post("/admin/provider-credentials/self-test", {
+			provider: "openai",
+			token: "sk-not-saved-anywhere",
+			config: { baseUrl: "https://127.0.0.1" },
+		});
+		expect(res.status).toBe(400);
+		expect(await res.text()).toContain("private or reserved address");
+	});
+
+	test("self-test probes custom carriers with their upstream model", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });
+		const carrier = await createCustomCarrier();
+
+		const res = await post("/admin/provider-credentials/self-test", {
+			provider: carrier.providerId,
+			token: "carrier-token",
+		});
+
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({
+			valid: true,
+			model: carrier.modelId,
+		});
+		expect(validateProviderKeyMock).toHaveBeenCalledWith(
+			"custom",
+			"carrier-token",
+			"https://carrier.example.com",
+			false,
+			expect.anything(),
+			"upstream-chat-v1",
+			expect.any(AbortSignal),
+		);
 	});
 
 	test("self-test requires a credential or explicit values", async () => {
@@ -1761,6 +1853,39 @@ describe("managed credential allowed models", () => {
 		});
 		expect(res.status).toBe(200);
 		expect(((await res.json()) as { allValid: boolean }).allValid).toBe(true);
+	});
+
+	test("verify-models probes custom carrier mappings", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });
+		const carrier = await createCustomCarrier();
+
+		const res = await post("/admin/provider-credentials/verify-models", {
+			provider: carrier.providerId,
+			token: "carrier-token",
+			models: [carrier.modelId],
+		});
+
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({
+			results: [
+				{
+					model: carrier.modelId,
+					inCatalog: true,
+					valid: true,
+				},
+			],
+			allValid: true,
+		});
+		expect(validateProviderKeyMock).toHaveBeenCalledWith(
+			"custom",
+			"carrier-token",
+			"https://carrier.example.com",
+			false,
+			undefined,
+			"upstream-chat-v1",
+			expect.any(AbortSignal),
+		);
 	});
 
 	test("verify-models probes image and embedding request surfaces", async () => {

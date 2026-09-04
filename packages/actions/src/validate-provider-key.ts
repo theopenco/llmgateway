@@ -315,8 +315,9 @@ export async function validateProviderKey(
 		return { valid: true };
 	}
 
-	// Skip validation for custom providers since they don't have predefined models
-	if (provider === "custom") {
+	// A custom provider can only be probed when the caller supplies both the
+	// OpenAI-compatible endpoint and the exact upstream model id.
+	if (provider === "custom" && (!baseUrl || !pinnedModelId)) {
 		return { valid: true };
 	}
 
@@ -329,11 +330,17 @@ export async function validateProviderKey(
 
 	try {
 		validationModel = pinnedModelId
-			? (getPinnedValidationModel(
-					provider,
-					pinnedModelId,
-					providerKeyOptions,
-				) ?? undefined)
+			? provider === "custom"
+				? {
+						modelId: pinnedModelId,
+						externalId: pinnedModelId,
+						kind: "text" as const,
+					}
+				: (getPinnedValidationModel(
+						provider,
+						pinnedModelId,
+						providerKeyOptions,
+					) ?? undefined)
 			: (() => {
 					const selected = getValidationModel(provider, providerKeyOptions);
 					return selected ? { ...selected, kind: "text" as const } : undefined;
