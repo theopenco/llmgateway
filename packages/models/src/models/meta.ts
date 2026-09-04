@@ -116,6 +116,7 @@ export const metaModels = [
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 131072,
+				maxTemperature: 1,
 				streaming: true,
 				reasoning: true,
 				reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"],
@@ -123,6 +124,7 @@ export const metaModels = [
 				reasoningOutput: "omit",
 				supportsResponsesApi: true,
 				vision: true,
+				requiresBase64Images: true,
 				tools: true,
 				// Muse Spark's endpoint only accepts tool_choice="auto"; it rejects
 				// "none", "required", and named function choices with
