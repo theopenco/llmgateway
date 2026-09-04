@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "f890d884-b1a6-43c5-90a0-4f4facb74353",
+  "id": "b5423a01-7e32-4919-bb42-9c3525ca1baa",
   "prevId": "e2a6bd5c-6a77-45a7-b980-d70fe9467d14",
   "ddl": [
     {
@@ -457,12 +457,6 @@
     {
       "isRlsEnabled": false,
       "name": "provider_listing_request",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "provider_model_verification",
       "entityType": "tables",
       "schema": "public"
     },
@@ -19722,39 +19716,7 @@
       },
       "generated": null,
       "identity": null,
-      "name": "json_output_schema",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_draft_model"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "false",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
       "name": "reasoning",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_draft_model"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "false",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "reasoning_max_tokens",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_draft_model"
@@ -19768,22 +19730,6 @@
       "generated": null,
       "identity": null,
       "name": "reasoning_efforts",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_draft_model"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "false",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "web_search",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_draft_model"
@@ -20775,229 +20721,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "provider_listing_request"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "provider_company_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "draft_model_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "requested_by",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "target",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "checks",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'queued'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "status",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "credential_ciphertext",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'supplied'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "credential_source",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "summary",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "attempts",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "started_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "completed_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "submitted_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
     },
     {
       "type": "text",
@@ -25273,6 +24996,32 @@
       "generated": null,
       "identity": null,
       "name": "used_model",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "video_job"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "provider_margin_percent",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "video_job"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "provider_discount_percent",
       "entityType": "columns",
       "schema": "public",
       "table": "video_job"
@@ -30703,111 +30452,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "provider_company_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "provider_model_verification_company_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "draft_model_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "provider_model_verification_model_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "status",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "provider_model_verification_queue_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "draft_model_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": "draft_model_id IS NOT NULL AND status IN ('queued', 'running')",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "provider_model_verification_active_model_uidx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "draft_model_id",
           "isExpression": false,
           "asc": true,
@@ -34112,57 +33756,6 @@
     {
       "nameExplicit": false,
       "columns": [
-        "provider_company_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "provider_company",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "provider_model_verification_urLU4QwMtkGv_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "draft_model_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "provider_draft_model",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "provider_model_verification_k085IiDTJM2d_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "requested_by"
-      ],
-      "schemaTo": "public",
-      "tableTo": "user",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "name": "provider_model_verification_requested_by_user_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
         "draft_model_id"
       ],
       "schemaTo": "public",
@@ -35887,16 +35480,6 @@
       "name": "provider_listing_request_pkey",
       "schema": "public",
       "table": "provider_listing_request",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "provider_model_verification_pkey",
-      "schema": "public",
-      "table": "provider_model_verification",
       "entityType": "pks"
     },
     {
