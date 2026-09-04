@@ -2159,7 +2159,7 @@ export const log = pgTable(
 		// (`provider_routing_settings`) at request time, as fractions. Null when
 		// the provider has no settings row. Stamped so margin revenue can be
 		// reconstructed historically even after the carrier changes its settings;
-		// the hourly aggregators roll `cost * providerMarginPercent` into
+		// the hourly aggregators roll credits-mode, non-cached requests into
 		// `providerMarginAmount`.
 		providerMarginPercent: real(),
 		providerDiscountPercent: real(),
@@ -2472,6 +2472,11 @@ export const videoJob = pgTable(
 		requestedProvider: text(),
 		usedProvider: text().notNull(),
 		usedModel: text().notNull(),
+		// Airside routing settings at submission time. Finalization can happen
+		// hours later, so the worker copies these snapshots to the log instead of
+		// reading whichever settings happen to be live then.
+		providerMarginPercent: real(),
+		providerDiscountPercent: real(),
 		providerConfigIndex: integer(),
 		// Managed provider credential that created the job, when one served it.
 		// Polling, cancellation and content retrieval happen minutes to hours
@@ -5128,8 +5133,8 @@ export const projectHourlyModelStats = pgTable(
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
 		// Gateway margin earned on Airside-carrier traffic:
-		// SUM(log.cost * log.providerMarginPercent). 0 for providers without
-		// routing settings.
+		// SUM(log.cost * log.providerMarginPercent) for credits-mode, non-cached
+		// requests. 0 for providers without routing settings.
 		providerMarginAmount: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
@@ -5570,8 +5575,8 @@ export const globalModelStats = pgTable(
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
 		// Gateway margin earned on Airside-carrier traffic:
-		// SUM(log.cost * log.providerMarginPercent). 0 for providers without
-		// routing settings.
+		// SUM(log.cost * log.providerMarginPercent) for credits-mode, non-cached
+		// requests. 0 for providers without routing settings.
 		providerMarginAmount: real().notNull().default(0),
 	},
 	(table) => [

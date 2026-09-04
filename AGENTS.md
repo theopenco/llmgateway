@@ -318,6 +318,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Do not use useEffect for data fetching in the UI; instead, use TanStack Query for all data fetching and state management.
 - Never suppress errors with a silent `.catch(() => [])`, `.catch(() => ({}))`, or another empty/default fallback. Handle a deliberate recovery in the owning helper with explicit logging and last-known-good data when available; otherwise let the error propagate.
 - In frontend apps, always prefer Next.js `<Link>` (`next/link`) over raw `<a>` tags for internal navigation, and `next/navigation`'s router for programmatic navigation.
+- Use the shared `DialogSafePopover` for portaled popovers opened inside a `Dialog`. A regular Radix popover is outside the dialog's scroll lock, which blocks wheel scrolling in long dropdowns.
 - Always use top-level `import`, never use require or dynamic imports
 - Use conventional commit message format and limit the commit message title to max 50 characters
 - NEVER put internal or private information into anything published to the public repository — commit titles and bodies, branch names, PR titles and descriptions, PR/issue comments, code comments, changelog entries, or docs. This repository is public. Specifically never include: real user or customer names, email addresses, customer/partner/company names, organization/project/user IDs, API keys, tokens, secrets or credentials (including partial or redacted-looking values), dollar amounts (revenue, credit balances, spend, invoice totals, contract values), internal dashboards, internal ticket/Slack/Linear links, or internal infrastructure hostnames. Describe the situation generically instead — "a customer organization", "an enterprise account", "a large credit balance", "the affected provider key". Seeded test fixtures that already live in the repo (`admin@example.com`, `test-token`, `Test Organization`) and public provider pricing from `packages/models` are fine
@@ -354,10 +355,10 @@ When creating a new package in `packages/`, include these config files. Copy the
 ### Testing and Quality Assurance
 
 - Run `pnpm test:unit` after adding features
-- NEVER run the full E2E suite across all models. Instead, scope `pnpm test:e2e` to the model(s) you changed with `TEST_MODELS`, e.g. `TEST_MODELS="granite/glm-5.2" FULL_MODE=true pnpm test:e2e`. This runs every e2e file (streaming, reasoning, tool calls, json, etc.) but only for the pinned mapping, so do NOT invoke the individual `*.e2e.ts` files one by one — let `TEST_MODELS` filter the whole suite in a single run.
+- For changes to one or a few specific models, run e2e locally and scope `pnpm test:e2e` to those models with `TEST_MODELS`, e.g. `TEST_MODELS="granite/glm-5.2" FULL_MODE=true pnpm test:e2e`. This runs every e2e file (streaming, reasoning, tool calls, json, etc.) but only for the pinned mappings, so do NOT invoke the individual `*.e2e.ts` files one by one. Do not trigger the GitHub e2e workflow for these changes.
 - Run `pnpm build` to ensure production builds work
 - Run `pnpm format` after code changes
-- The CI e2e workflow (`.github/workflows/e2e.yml`) does NOT run automatically on pull requests, because e2e runs spend real money on provider API calls. Trigger it on demand by commenting `/e2e` on the pull request (only for maintainers/collaborators, and only for branches in this repository, not forks), or via `workflow_dispatch`.
+- The CI e2e workflow (`.github/workflows/e2e.yml`) does NOT run automatically on pull requests because it tests all models and spends real money on provider API calls. Trigger it only for complex gateway or backend changes that can affect routing, stability, uptime, or provider integration. Start it by commenting `/e2e` on the pull request (only for maintainers/collaborators, and only for branches in this repository, not forks), or via `workflow_dispatch`.
 
 ### Service URLs (Development)
 

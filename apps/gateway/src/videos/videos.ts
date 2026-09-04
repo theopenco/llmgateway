@@ -13,6 +13,7 @@ import {
 	shouldRetryRequest,
 	type RoutingAttempt,
 } from "@/chat/tools/retry-with-fallback.js";
+import { getAirsideRoutingSnapshot } from "@/lib/airside-routing-snapshot.js";
 import {
 	assertApiKeyWithinUsageLimits,
 	assertMemberProjectAccess,
@@ -4826,6 +4827,9 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 					inputImageCount,
 				)
 			: 0;
+	const airsideRoutingSnapshot = await getAirsideRoutingSnapshot(
+		selectedProviderContext.providerId,
+	);
 	const created = await db
 		.insert(tables.videoJob)
 		.values({
@@ -4844,6 +4848,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 			requestedProvider: requestedProvider ?? null,
 			usedProvider: selectedProviderContext.providerId,
 			usedModel: selectedUpstreamModelName,
+			...airsideRoutingSnapshot,
 			providerConfigIndex: selectedProviderContext.configIndex,
 			managedProviderKeyId:
 				selectedProviderContext.managedProviderKeyId ?? null,
