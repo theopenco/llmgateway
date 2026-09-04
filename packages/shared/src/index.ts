@@ -177,9 +177,21 @@ export {
 } from "./random.js";
 
 export {
+	createEmptyProviderModelsByKind,
 	getModelIdsByProvider,
+	getModelIdsByProviderAndKind,
+	getProviderModelKind,
 	getProviderModelIds,
+	PROVIDER_MODEL_KINDS,
+	type ProviderModelKind,
+	type ProviderModelsByKind,
 } from "./provider-model-ids.js";
+
+export {
+	getModelImageConfig,
+	GPT_IMAGE_SIZES,
+	type AspectRatio,
+} from "./image-generation-config.js";
 
 export {
 	addCalendarDays,
