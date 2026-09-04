@@ -309,6 +309,7 @@ export default async function OrganizationPage({
 	}
 
 	const org = transactionsData.organization;
+	const actionsContentId = `organization-actions-${orgId}`;
 	const transactions = transactionsData.transactions;
 	const txTotal = transactionsData.total;
 	const txTotalPages = Math.ceil(txTotal / txLimit);
@@ -387,7 +388,7 @@ export default async function OrganizationPage({
 									return await manageOrganization(orgId, data);
 								}}
 							/>
-							<CollapsibleTrigger asChild>
+							<CollapsibleTrigger asChild aria-controls={actionsContentId}>
 								<Button variant="outline" size="sm" className="group gap-2">
 									More actions
 									<ChevronDown className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-180" />
@@ -509,7 +510,7 @@ export default async function OrganizationPage({
 						) : null}
 					</div>
 
-					<CollapsibleContent>
+					<CollapsibleContent id={actionsContentId}>
 						<div className="mt-4 grid gap-3 rounded-xl border border-border/60 bg-background p-4 md:grid-cols-2 xl:grid-cols-4">
 							<div>
 								<p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
