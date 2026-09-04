@@ -61,6 +61,7 @@ function signJwt(sa: ServiceAccountKey): string {
 
 async function exchangeJwtForAccessToken(
 	sa: ServiceAccountKey,
+	abortSignal?: AbortSignal,
 ): Promise<string> {
 	const jwt = signJwt(sa);
 	const res = await fetch(sa.token_uri, {
@@ -70,6 +71,7 @@ async function exchangeJwtForAccessToken(
 			grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
 			assertion: jwt,
 		}),
+		signal: abortSignal,
 	});
 
 	if (!res.ok) {
@@ -97,6 +99,7 @@ function cacheKey(sa: ServiceAccountKey): string {
 
 export async function getGcpServiceAccountAccessToken(
 	serviceAccountJson: string,
+	abortSignal?: AbortSignal,
 ): Promise<string> {
 	const sa = parseServiceAccount(serviceAccountJson);
 	if (!sa) {
@@ -126,7 +129,7 @@ export async function getGcpServiceAccountAccessToken(
 		);
 	}
 
-	const token = await exchangeJwtForAccessToken(sa);
+	const token = await exchangeJwtForAccessToken(sa, abortSignal);
 	memoryCache.set(key, { token, expiresAt: now + TTL_MS });
 	try {
 		await redisClient.set(key, token, "EX", TTL_SECONDS);

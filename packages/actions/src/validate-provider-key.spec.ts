@@ -214,6 +214,7 @@ describe("validateProviderKey model-specific probes", () => {
 
 	it("uses the embeddings endpoint for an embedding model", async () => {
 		const fetchMock = mockSuccess();
+		const abortController = new AbortController();
 
 		const result = await validateProviderKey(
 			"openai",
@@ -222,12 +223,14 @@ describe("validateProviderKey model-specific probes", () => {
 			false,
 			undefined,
 			"text-embedding-3-small",
+			abortController.signal,
 		);
 
 		expect(result.valid).toBe(true);
 		expect(fetchMock.mock.calls[0][0]).toBe(
 			"https://api.openai.com/v1/embeddings",
 		);
+		expect(fetchMock.mock.calls[0][1]?.signal).toBe(abortController.signal);
 		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
 			input: "Hello",
 			model: "text-embedding-3-small",

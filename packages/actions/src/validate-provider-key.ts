@@ -313,6 +313,7 @@ export async function validateProviderKey(
 	skipValidation = false,
 	providerKeyOptions?: ProviderKeyOptions,
 	pinnedModelId?: string,
+	abortSignal?: AbortSignal,
 ): Promise<ProviderValidationResult> {
 	// Skip validation if requested (e.g. in test environment)
 	if (skipValidation) {
@@ -372,7 +373,7 @@ export async function validateProviderKey(
 		// headers.
 		let requestToken = token;
 		if (provider === "vertex-anthropic" || provider === "vertex-openai") {
-			requestToken = await getGcpServiceAccountAccessToken(token);
+			requestToken = await getGcpServiceAccountAccessToken(token, abortSignal);
 		}
 
 		const modelDef = models.find((m) => m.id === validationModel!.modelId);
@@ -557,6 +558,7 @@ export async function validateProviderKey(
 			// SSRF: never follow redirects when validating a tenant-supplied baseUrl,
 			// which could 3xx to an internal host (and would leak the upstream token).
 			redirect: "error",
+			signal: abortSignal,
 			headers,
 			body: payload instanceof FormData ? payload : JSON.stringify(payload),
 		});

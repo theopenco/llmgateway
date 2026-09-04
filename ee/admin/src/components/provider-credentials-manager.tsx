@@ -1293,6 +1293,7 @@ function CredentialDialog({
 	const [verifyOutcome, setVerifyOutcome] = useState<
 		{ result?: ProviderCredentialModelVerification; error?: string } | undefined
 	>();
+	const selfTestRequestId = useRef(0);
 	const verifyRequestId = useRef(0);
 
 	const clearVerifyResults = useCallback(() => {
@@ -1302,6 +1303,8 @@ function CredentialDialog({
 	}, []);
 
 	const clearProbeResults = useCallback(() => {
+		selfTestRequestId.current += 1;
+		setSelfTestLoading(false);
 		setSelfTestOutcome(undefined);
 		clearVerifyResults();
 	}, [clearVerifyResults]);
@@ -1322,21 +1325,31 @@ function CredentialDialog({
 	);
 
 	async function handleSelfTest() {
+		const requestId = selfTestRequestId.current + 1;
+		selfTestRequestId.current = requestId;
 		setSelfTestLoading(true);
 		setSelfTestOutcome(undefined);
 		try {
 			const outcome = await onSelfTest(credentialUnderTest());
+			if (selfTestRequestId.current !== requestId) {
+				return;
+			}
 			setSelfTestOutcome(
 				outcome.success
 					? { result: outcome.result }
 					: { error: outcome.error ?? "Failed to test credential" },
 			);
 		} catch (cause) {
+			if (selfTestRequestId.current !== requestId) {
+				return;
+			}
 			setSelfTestOutcome({
 				error: thrownErrorMessage(cause, "Failed to test credential"),
 			});
 		} finally {
-			setSelfTestLoading(false);
+			if (selfTestRequestId.current === requestId) {
+				setSelfTestLoading(false);
+			}
 		}
 	}
 

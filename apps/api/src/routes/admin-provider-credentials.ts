@@ -1437,6 +1437,9 @@ const verifyModelsResultSchema = z.object({
 	error: z.string().optional(),
 });
 
+const DEFAULT_MODEL_PROBE_TIMEOUT_MS = 30_000;
+const MEDIA_MODEL_PROBE_TIMEOUT_MS = 90_000;
+
 const verifyCredentialModels = createRoute({
 	method: "post",
 	path: "/provider-credentials/verify-models",
@@ -1534,6 +1537,11 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 			false,
 			validationOptions,
 			modelId,
+			AbortSignal.timeout(
+				pinned.kind === "image" || pinned.kind === "ocr"
+					? MEDIA_MODEL_PROBE_TIMEOUT_MS
+					: DEFAULT_MODEL_PROBE_TIMEOUT_MS,
+			),
 		);
 		return {
 			model: modelId,

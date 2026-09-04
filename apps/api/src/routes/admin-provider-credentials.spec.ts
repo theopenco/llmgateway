@@ -1868,6 +1868,7 @@ describe("managed credential allowed models", () => {
 			false,
 			{ env_config: { resource: "managed-resource" } },
 			model,
+			expect.any(AbortSignal),
 		);
 	});
 });
