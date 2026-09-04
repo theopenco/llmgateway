@@ -553,6 +553,36 @@ describe("organization route", () => {
 		).toBe("none");
 	});
 
+	test("payload retention can be enabled alongside a stored non-ZDR policy", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				retentionLevel: "none",
+				providerCompliancePolicy: { enabled: true, requireSoc2: true },
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ retentionLevel: "retain" }),
+		});
+
+		expect(response.status).toBe(200);
+		const organization = await db.query.organization.findFirst({
+			where: { id: { eq: "test-org-id" } },
+		});
+		expect(organization?.retentionLevel).toBe("retain");
+		expect(organization?.providerCompliancePolicy).toEqual({
+			enabled: true,
+			requireSoc2: true,
+		});
+	});
+
 	test("PATCH /orgs/{id} logs top-up setting changes separately from organization updates", async () => {
 		const response = await app.request("/orgs/test-org-id", {
 			method: "PATCH",

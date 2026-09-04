@@ -7260,7 +7260,7 @@ chat.openapi(completions, async (c) => {
 
 	// For Google providers, enrich messages with cached thought_signatures
 	// This is needed for multi-turn tool call conversations with Gemini 3+
-	if (isGoogleCompatibleProvider(usedProvider) && retentionLevel === "retain") {
+	if (isGoogleCompatibleProvider(usedProvider) && !zeroDataRetentionEnabled) {
 		const { redisClient } = await import("@llmgateway/cache");
 		for (const message of messages) {
 			if (
@@ -10525,7 +10525,7 @@ chat.openapi(completions, async (c) => {
 									toolSearchState,
 									toolCallChoiceIndices,
 									{
-										cacheThoughtSignatures: retentionLevel === "retain",
+										cacheThoughtSignatures: !zeroDataRetentionEnabled,
 									},
 								);
 
@@ -14172,7 +14172,7 @@ chat.openapi(completions, async (c) => {
 		splitTaggedReasoning,
 		!!webSearchTool,
 		!!webSearchTool?.forced,
-		{ cacheThoughtSignatures: retentionLevel === "retain" },
+		{ cacheThoughtSignatures: !zeroDataRetentionEnabled },
 	);
 	let { content, totalTokens } = parsedResponse;
 	const {
@@ -14477,7 +14477,7 @@ chat.openapi(completions, async (c) => {
 		cacheCreation1hTokens,
 		audioInputTokens,
 		echoedServiceTier,
-		{ cacheThoughtSignatures: retentionLevel === "retain" },
+		{ cacheThoughtSignatures: !zeroDataRetentionEnabled },
 	);
 	// Attach opaque reasoning payloads (e.g. OpenAI encrypted reasoning) to the
 	// assistant message so clients can replay them on later turns to preserve

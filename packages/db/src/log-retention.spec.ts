@@ -66,8 +66,25 @@ describe("stripRetentionSensitiveLogFields", () => {
 		expect(stripped.rawResponse).toBeNull();
 		expect(stripped.upstreamRequest).toBeNull();
 		expect(stripped.upstreamResponse).toBeNull();
-		expect(stripped.errorDetails).toBeNull();
-		expect(stripped.internalErrorDetails).toBeNull();
+	});
+
+	it("keeps error status metadata but drops the error body", () => {
+		const stripped = stripRetentionSensitiveLogFields(baseLogData());
+
+		expect(stripped.errorDetails).toEqual({
+			statusCode: 400,
+			statusText: "Bad Request",
+			responseText: "",
+		});
+		expect(stripped.internalErrorDetails).toEqual({
+			statusCode: 400,
+			statusText: "Bad Request",
+			responseText: "",
+		});
+		expect(
+			stripRetentionSensitiveLogFields(baseLogData({ errorDetails: null }))
+				.errorDetails,
+		).toBeNull();
 	});
 
 	it("nulls exactly the documented field list and nothing else", () => {
@@ -81,6 +98,8 @@ describe("stripRetentionSensitiveLogFields", () => {
 				)
 			) {
 				expect(stripped[key]).toBeNull();
+			} else if (key === "errorDetails" || key === "internalErrorDetails") {
+				expect(stripped[key]).not.toBeNull();
 			} else {
 				expect(stripped[key]).toEqual(input[key]);
 			}

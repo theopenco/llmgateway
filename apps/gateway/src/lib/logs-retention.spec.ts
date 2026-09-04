@@ -80,7 +80,11 @@ describe("insertLog retention stripping", () => {
 		expect(published.toolChoice).toBeNull();
 		expect(published.toolResults).toBeNull();
 		expect(published.responsesApiData).toBeNull();
-		expect(published.errorDetails).toBeNull();
+		expect(published.errorDetails).toEqual({
+			statusCode: 400,
+			statusText: "Bad Request",
+			responseText: "",
+		});
 		// Metadata is preserved.
 		expect(published.requestId).toBe("req-1");
 		expect(published.organizationId).toBe("org-1");

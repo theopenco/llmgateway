@@ -899,12 +899,12 @@ organization.openapi(updateOrganization, async (c) => {
 	} else {
 		const updateConditions = [eq(tables.organization.id, id)];
 		if (retentionLevel === "retain" && providerCompliancePolicy === undefined) {
-			const storedPolicy =
-				userOrganization.organization!.providerCompliancePolicy;
+			// Re-check the stored policy at write time so a concurrent ZDR enable
+			// cannot race payload retention on. The column is `json`, which has no
+			// equality operator, so test the flags instead of comparing the value.
+			const policyColumn = tables.organization.providerCompliancePolicy;
 			updateConditions.push(
-				storedPolicy === null
-					? isNull(tables.organization.providerCompliancePolicy)
-					: eq(tables.organization.providerCompliancePolicy, storedPolicy),
+				sql`coalesce((${policyColumn}::jsonb ->> 'enabled')::boolean and (${policyColumn}::jsonb ->> 'zeroDataRetention')::boolean, false) = false`,
 			);
 		}
 		if (
