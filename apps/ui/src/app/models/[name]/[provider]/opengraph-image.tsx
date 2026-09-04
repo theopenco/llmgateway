@@ -7,7 +7,6 @@ import Logo from "@/lib/icons/Logo";
 import { formatContextSize } from "@/lib/utils";
 
 import {
-	models as modelDefinitions,
 	providers as providerDefinitions,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
@@ -45,24 +44,6 @@ const getOgProviderIcon = (providerId: string) => {
 	}
 	return getProviderIcon(providerId);
 };
-
-export function generateStaticParams() {
-	const params: { name: string; provider: string }[] = [];
-
-	for (const model of modelDefinitions) {
-		const uniqueProviders = Array.from(
-			new Set(model.providers.map((mapping) => mapping.providerId)),
-		);
-		for (const providerId of uniqueProviders) {
-			params.push({
-				name: encodeURIComponent(model.id),
-				provider: encodeURIComponent(providerId),
-			});
-		}
-	}
-
-	return params;
-}
 
 interface ImageProps {
 	params: Promise<{ name: string; provider: string }>;
