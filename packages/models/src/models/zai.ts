@@ -40,7 +40,7 @@ export const zaiModels = [
 				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh", "max"],
+				reasoningEfforts: ["low", "high", "max"],
 				vision: true,
 				tools: true,
 				supportedToolChoices: ["auto"],
