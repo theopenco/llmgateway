@@ -143,6 +143,7 @@ export function getProviderHeaders(
 		case "novita":
 		case "moonshot":
 		case "meta":
+		case "meta-contributor":
 		case "alibaba":
 		case "nebius":
 		case "fireworks":

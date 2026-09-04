@@ -198,6 +198,9 @@ internalModels.openapi(getModelsRoute, async (c) => {
 			where: {
 				status: { eq: "active" },
 			},
+			orderBy: {
+				createdAt: "desc",
+			},
 		}),
 		db
 			.select({
@@ -283,13 +286,14 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				// Airside-materialized mappings carry their own efforts in the DB
 				// row; static rows are served from the shared definition.
 				reasoningEfforts:
-					sharedMapping?.reasoningEfforts ??
-					(mapping.reasoningEfforts as
-						NonNullable<typeof sharedMapping>["reasoningEfforts"] | null) ??
-					null,
+					mapping.source === "airside"
+						? ((mapping.reasoningEfforts as
+								NonNullable<typeof sharedMapping>["reasoningEfforts"] | null) ??
+							null)
+						: (sharedMapping?.reasoningEfforts ?? null),
 				reasoningMaxTokens: sharedMapping?.reasoningMaxTokens ?? null,
 				rerank: sharedMapping?.rerank ?? null,
-				audio: sharedMapping?.audio ?? null,
+				audio: mapping.audio ?? sharedMapping?.audio ?? null,
 				document: sharedMapping?.document ?? null,
 				realtime: sharedMapping?.realtime ?? null,
 				supportedVoices: sharedMapping?.supportedVoices ?? null,
@@ -343,7 +347,12 @@ internalModels.openapi(getModelsRoute, async (c) => {
 							),
 						)
 					: null,
+				// Airside-owned rows bill one flat filed price pair; the gateway drops
+				// inherited tiers and peak windows, so the directory must too.
 				pricingTiers: (() => {
+					if (mapping.source === "airside") {
+						return null;
+					}
 					const regionDef = mapping.region
 						? sharedMapping?.regions?.find((r) => r.id === mapping.region)
 						: null;
@@ -375,45 +384,51 @@ internalModels.openapi(getModelsRoute, async (c) => {
 								: null,
 					}));
 				})(),
-				peakPricing: sharedMapping?.peakPricing
-					? {
-							peak: {
-								inputPrice: String(sharedMapping.peakPricing.peak.inputPrice),
-								outputPrice: String(sharedMapping.peakPricing.peak.outputPrice),
-								cachedInputPrice:
-									sharedMapping.peakPricing.peak.cachedInputPrice !== undefined
-										? String(sharedMapping.peakPricing.peak.cachedInputPrice)
-										: null,
-							},
-							offPeak: {
-								inputPrice: String(
-									sharedMapping.peakPricing.offPeak.inputPrice,
+				peakPricing:
+					mapping.source !== "airside" && sharedMapping?.peakPricing
+						? {
+								peak: {
+									inputPrice: String(sharedMapping.peakPricing.peak.inputPrice),
+									outputPrice: String(
+										sharedMapping.peakPricing.peak.outputPrice,
+									),
+									cachedInputPrice:
+										sharedMapping.peakPricing.peak.cachedInputPrice !==
+										undefined
+											? String(sharedMapping.peakPricing.peak.cachedInputPrice)
+											: null,
+								},
+								offPeak: {
+									inputPrice: String(
+										sharedMapping.peakPricing.offPeak.inputPrice,
+									),
+									outputPrice: String(
+										sharedMapping.peakPricing.offPeak.outputPrice,
+									),
+									cachedInputPrice:
+										sharedMapping.peakPricing.offPeak.cachedInputPrice !==
+										undefined
+											? String(
+													sharedMapping.peakPricing.offPeak.cachedInputPrice,
+												)
+											: null,
+								},
+								hoursUtc: sharedMapping.peakPricing.hoursUtc.map(
+									([start, end]) => [start, end] as [number, number],
 								),
-								outputPrice: String(
-									sharedMapping.peakPricing.offPeak.outputPrice,
-								),
-								cachedInputPrice:
-									sharedMapping.peakPricing.offPeak.cachedInputPrice !==
-									undefined
-										? String(sharedMapping.peakPricing.offPeak.cachedInputPrice)
-										: null,
-							},
-							hoursUtc: sharedMapping.peakPricing.hoursUtc.map(
-								([start, end]) => [start, end] as [number, number],
-							),
-							offPeakDays: sharedMapping.peakPricing.offPeakDays
-								? {
-										daysOfWeek: [
-											...sharedMapping.peakPricing.offPeakDays.daysOfWeek,
-										],
-										utcOffsetMinutes:
-											sharedMapping.peakPricing.offPeakDays.utcOffsetMinutes,
-										timeZoneLabel:
-											sharedMapping.peakPricing.offPeakDays.timeZoneLabel,
-									}
-								: null,
-						}
-					: null,
+								offPeakDays: sharedMapping.peakPricing.offPeakDays
+									? {
+											daysOfWeek: [
+												...sharedMapping.peakPricing.offPeakDays.daysOfWeek,
+											],
+											utcOffsetMinutes:
+												sharedMapping.peakPricing.offPeakDays.utcOffsetMinutes,
+											timeZoneLabel:
+												sharedMapping.peakPricing.offPeakDays.timeZoneLabel,
+										}
+									: null,
+							}
+						: null,
 				serviceTiers: (() => {
 					const tiers = sharedMapping?.serviceTiers ?? null;
 					if (!tiers || tiers.length === 0) {

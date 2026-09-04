@@ -207,6 +207,9 @@ tests against the isolated database required by `AGENTS.md`.
   `*.e2e.ts` files one by one. It overrides `test: "skip"`, takes regions as
   `provider/model:region`, and fails loudly when an entry matches no mapping.
 - `FULL_MODE=true` expands the per-effort cases and includes free models.
+- `pnpm test:e2e` loads `.env` automatically. Use credentials already
+  configured in `.envrc` or `.env`; never inspect or invoke password managers
+  or other credential stores, and never retrieve provider secrets manually.
 - API key env names aren't derivable from the provider id — read
   `env.required` from `providers.ts`. Vertex provider variants use different
   credentials, and keys can be region-scoped; do not infer either from the

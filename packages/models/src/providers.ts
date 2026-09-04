@@ -1735,9 +1735,51 @@ export const providers: ProviderDefinition[] = [
 		legalEntity: "Meta Platforms, Inc.",
 		headquarters: "US",
 		dataPolicy: {
-			// Paid (pay-as-you-go) services are never trained on; only the free
-			// unpaid tier may be used for training per the Data Commitments page.
 			apiTraining: false,
+			promptLogging: true,
+			retentionPeriod: null,
+			soc2: null,
+			iso27001: null,
+			gdpr: true,
+		},
+		additionalLinks: [
+			{
+				desc: "Data Commitments",
+				link: "https://dev.meta.ai/legal/commitments",
+			},
+			{
+				desc: "Acceptable Use Policy",
+				link: "https://dev.meta.ai/legal/acceptable-use-policy",
+			},
+		],
+	},
+	{
+		id: "meta-contributor",
+		name: "Meta Contributor",
+		forwardsSafetyIdentifier: false,
+		description:
+			"Meta's discounted, training-eligible Model API tier for Muse models",
+		env: {
+			required: {
+				apiKey: "LLM_META_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#0668E1",
+		website: "https://dev.meta.ai",
+		statusPageUrl: null,
+		announcement: null,
+		apiKeyInstructions:
+			"Create an API key in the API keys tab of the Meta Model API dashboard.",
+		learnMore: "https://dev.meta.ai/docs/getting-started/authentication",
+		termsUrl: "https://dev.meta.ai/legal/terms-of-service",
+		privacyPolicyUrl: "https://www.facebook.com/privacy/policy/",
+		usagePolicyUrl: "https://dev.meta.ai/legal/acceptable-use-policy",
+		legalEntity: "Meta Platforms, Inc.",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: true,
 			promptLogging: true,
 			retentionPeriod: null,
 			soc2: null,

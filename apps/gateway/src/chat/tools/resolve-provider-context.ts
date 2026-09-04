@@ -903,7 +903,11 @@ export async function resolveProviderContext(
 		}
 	}
 
-	temperature = clampTemperature(temperature, usedProvider);
+	temperature = clampTemperature(
+		temperature,
+		usedProvider,
+		providerMappingForSelected?.maxTemperature,
+	);
 
 	// --- max_tokens validation ---
 	if (max_tokens !== undefined && providerMappingForSelected) {

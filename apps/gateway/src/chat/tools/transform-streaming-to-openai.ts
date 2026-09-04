@@ -854,6 +854,7 @@ export function transformStreamingToOpenai(
 		case "azure":
 		case "sakana":
 		case "meta":
+		case "meta-contributor":
 		case "aws-mantle":
 		case "openai": {
 			// Azure precedes every stream with a prompt-filter-only chunk that has

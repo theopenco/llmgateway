@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { cdb, db, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { runRealtimePreflight } from "./preflight.js";
@@ -59,6 +59,11 @@ describe("realtime preflight with managed credentials", () => {
 		// Health failures must attribute to the credential actually sent.
 		expect(result.trackedKeyHealthId).toBe("managed-openai");
 		expect(result.envVarName).toBeUndefined();
+		const [organization] = await db
+			.select({ safetyIdentifier: tables.organization.safetyIdentifier })
+			.from(tables.organization)
+			.where(eq(tables.organization.id, "org-id"));
+		expect(result.safetyIdentifier).toBe(organization?.safetyIdentifier);
 		// A managed credential is the platform's own key: the org is billed for
 		// the session exactly as it was on the env-var path.
 		expect(result.usedMode).toBe("credits");

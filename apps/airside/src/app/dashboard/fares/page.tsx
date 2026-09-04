@@ -63,7 +63,11 @@ function EditBrandingDialog({ claim }: { claim: CompanyClaim }) {
 			await queryClient.invalidateQueries({
 				queryKey: api.queryOptions("get", "/airside/companies", {}).queryKey,
 			});
-			toast.success("Branding updated.");
+			toast.success(
+				claim.status === "active"
+					? "Branding filed for review."
+					: "Branding updated.",
+			);
 			setOpen(false);
 		},
 		onError: (error) => {
@@ -103,6 +107,9 @@ function EditBrandingDialog({ claim }: { claim: CompanyClaim }) {
 					</DialogTitle>
 					<DialogDescription>
 						Logo and icon are shown on the public providers and models pages.
+						{claim.status === "active"
+							? " Changes to a live carrier are reviewed before they go public."
+							: ""}{" "}
 						The carrier name, website and API endpoint are what we approved —
 						they cannot be changed here.
 					</DialogDescription>
@@ -200,6 +207,9 @@ function FareCard({
 					<CardDescription>Fares & landing fees</CardDescription>
 				</div>
 				<div className="flex items-center gap-2">
+					{claim?.pendingBranding ? (
+						<Badge variant="pending">Branding under review</Badge>
+					) : null}
 					{claim ? <EditBrandingDialog claim={claim} /> : null}
 					<Badge variant={adjustment < 0 ? "success" : "secondary"}>
 						{adjustment < 0

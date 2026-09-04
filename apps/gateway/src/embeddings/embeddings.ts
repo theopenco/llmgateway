@@ -113,7 +113,7 @@ const embeddingRequestSchema = z.object({
 	}),
 	user: z.string().optional().openapi({
 		description:
-			"Stable end-user identifier forwarded to OpenAI for abuse monitoring.",
+			"Accepted for OpenAI compatibility. Upstream abuse attribution always uses LLM Gateway's opaque organization identifier.",
 	}),
 });
 
@@ -508,7 +508,6 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		model: requestedModel,
 		encoding_format,
 		dimensions,
-		user,
 	} = validationResult.data;
 
 	const match = findEmbeddingMapping(requestedModel);
@@ -984,9 +983,6 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			if (dimensions !== undefined) {
 				requestBody.dimensions = dimensions;
 			}
-			if (user !== undefined) {
-				requestBody.user = user;
-			}
 		} else {
 			upstreamUrl = `${resolvedBaseUrl}/v1/embeddings`;
 			requestBody = {
@@ -999,8 +995,8 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			if (dimensions !== undefined) {
 				requestBody.dimensions = dimensions;
 			}
-			if (user !== undefined) {
-				requestBody.user = user;
+			if (providerId === "openai" || providerId === "azure") {
+				requestBody.user = retryOrganization.safetyIdentifier;
 			}
 		}
 

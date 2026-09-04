@@ -54,6 +54,7 @@ export const curatedCategoryModelIds: Record<
 		"claude-opus-4-8",
 	]),
 	coding: new Set([
+		"claude-fable-5-1",
 		"claude-fable-5",
 		"claude-opus-4-8",
 		"claude-sonnet-5",
@@ -95,6 +96,7 @@ export const curatedCategoryModelIds: Record<
 	"creative-writing": new Set([
 		"claude-opus-4-8",
 		"claude-sonnet-5",
+		"claude-fable-5-1",
 		"claude-fable-5",
 		"kimi-k2.5",
 		"kimi-k2.6",
@@ -139,6 +141,7 @@ export const curatedCategoryModelIds: Record<
 		"gpt-5.2-pro",
 		"o4-mini",
 		"claude-opus-4-8",
+		"claude-fable-5-1",
 		"claude-fable-5",
 		"gemini-3.1-pro-preview",
 		"gemini-pro-latest",
@@ -201,6 +204,8 @@ export const OPEN_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 export const CLOSED_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 	"muse-spark-1.1",
 	"muse-spark-1.2",
+	"muse-spark-1.3",
+	"muse-spark-1.3-contributor",
 	// API-only at launch; no open weights published (unlike the K2 family)
 	"kimi-k3",
 ]);

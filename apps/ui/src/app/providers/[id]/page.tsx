@@ -43,8 +43,8 @@ interface ProviderPageProps {
  */
 async function renderDynamicProviderPage(id: string) {
 	const [apiProviders, apiModels] = await Promise.all([
-		fetchProviders().catch(() => []),
-		fetchModels().catch(() => []),
+		fetchProviders(),
+		fetchModels(),
 	]);
 	const apiProvider = apiProviders.find((p) => p.id === id);
 	if (!apiProvider) {
@@ -103,9 +103,9 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 		notFound();
 	}
 
-	const apiProviders = await fetchProviders().catch(() => []);
-	const uploadedLogo =
-		apiProviders.find((p) => p.id === id)?.airsideLogoUrl ?? undefined;
+	const apiProviders = await fetchProviders();
+	const apiProvider = apiProviders.find((p) => p.id === id);
+	const uploadedLogo = apiProvider?.airsideLogoUrl ?? undefined;
 
 	const apiModels = await fetchModels();
 	const discountByModelId = new Map<string, string>();
@@ -167,7 +167,7 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 		};
 	};
 
-	const providerModels: ModelWithProviders[] = modelDefinitions
+	const staticProviderModels: ModelWithProviders[] = modelDefinitions
 		.filter((model) =>
 			model.providers.some((p) => p.providerId === provider.id),
 		)
@@ -186,6 +186,52 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 			const bDate = b.releasedAt ? new Date(b.releasedAt).getTime() : 0;
 			return bDate - aDate; // Descending (newest first)
 		});
+
+	// The API catalogue includes approved Airside listings and is authoritative
+	// for mappings it serves. Keep unmatched static definitions as a deployment
+	// fallback while the catalogue sync catches up.
+	const publicProviderInfo: ApiProvider =
+		apiProvider ??
+		({
+			id: provider.id,
+			createdAt: new Date().toISOString(),
+			name: provider.name,
+			description: provider.description ?? null,
+			streaming: provider.streaming ?? null,
+			cancellation: provider.cancellation ?? null,
+			color: provider.color ?? null,
+			website: provider.website ?? null,
+			announcement: provider.announcement ?? null,
+			status: "active",
+		} satisfies ApiProvider);
+	const apiProviderModels: ModelWithProviders[] = apiModels
+		.filter((model) =>
+			model.mappings.some(
+				(mapping) =>
+					mapping.providerId === provider.id && mapping.status === "active",
+			),
+		)
+		.map((model) => ({
+			...model,
+			providerDetails: model.mappings
+				.filter(
+					(mapping) =>
+						mapping.providerId === provider.id && mapping.status === "active",
+				)
+				.map((mapping) => ({
+					provider: mapping,
+					providerInfo: publicProviderInfo,
+				})),
+		}));
+	const apiModelIds = new Set(apiProviderModels.map((model) => model.id));
+	const providerModels = [
+		...apiProviderModels,
+		...staticProviderModels.filter((model) => !apiModelIds.has(model.id)),
+	].sort((a, b) => {
+		const aDate = a.releasedAt ? new Date(a.releasedAt).getTime() : 0;
+		const bDate = b.releasedAt ? new Date(b.releasedAt).getTime() : 0;
+		return bDate - aDate;
+	});
 
 	// Deactivated models are still reachable behind the grid's toggle, but they
 	// are not part of what this provider currently offers.
@@ -284,9 +330,7 @@ export async function generateMetadata({
 	const provider = providerDefinitions.find((p) => p.id === id);
 
 	if (!provider || provider.name === "LLM Gateway") {
-		const apiProvider = (await fetchProviders().catch(() => [])).find(
-			(p) => p.id === id,
-		);
+		const apiProvider = (await fetchProviders()).find((p) => p.id === id);
 		if (!apiProvider) {
 			return {};
 		}
@@ -299,12 +343,22 @@ export async function generateMetadata({
 		};
 	}
 
-	const modelCount = (modelDefinitions as readonly ModelDefinition[]).filter(
-		(model) =>
+	const apiModels = await fetchModels();
+	const apiModelCount = apiModels.filter((model) =>
+		model.mappings.some(
+			(mapping) =>
+				mapping.providerId === provider.id &&
+				mapping.status === "active" &&
+				!isMappingDeactivated(mapping),
+		),
+	).length;
+	const modelCount =
+		apiModelCount ||
+		(modelDefinitions as readonly ModelDefinition[]).filter((model) =>
 			model.providers.some(
 				(p) => p.providerId === provider.id && !isMappingDeactivated(p),
 			),
-	).length;
+		).length;
 	const description = `Access ${modelCount} ${provider.name} models through LLM Gateway's OpenAI-compatible API with per-token pricing, automatic fallback, caching, and cost analytics.`;
 
 	return {

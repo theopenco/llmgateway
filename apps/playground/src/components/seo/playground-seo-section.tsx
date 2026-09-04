@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 export type SeoVariant =
-	"chat" | "image" | "video" | "audio" | "group" | "canvas";
+	"chat" | "image" | "video" | "audio" | "group" | "canvas" | "realtime";
 
 interface VariantContent {
 	h1: string;
@@ -110,6 +110,22 @@ const variants: Record<SeoVariant, VariantContent> = {
 			{ href: "/image", label: "AI image generation" },
 			{ href: "/video", label: "AI video generation" },
 			{ href: "/audio", label: "AI audio generation" },
+			{ href: "/group", label: "Compare models side by side" },
+		],
+	},
+	realtime: {
+		h1: "AI voice calls — realtime speech to speech with any model",
+		intro:
+			"Have a live voice conversation with realtime speech-to-speech models. Pick a model and a voice, talk naturally, interrupt mid-sentence, and read both sides of the transcript afterwards.",
+		bullets: [
+			"Models include OpenAI gpt-realtime and gpt-realtime-mini plus other speech-to-speech providers.",
+			"Barge in mid-sentence; the model stops and listens like a phone call.",
+			"Calls route through LLM Gateway for unified billing and usage tracking.",
+		],
+		related: [
+			{ href: "/", label: "Lounge AI chat" },
+			{ href: "/audio", label: "AI audio generation" },
+			{ href: "/image", label: "AI image generation" },
 			{ href: "/group", label: "Compare models side by side" },
 		],
 	},

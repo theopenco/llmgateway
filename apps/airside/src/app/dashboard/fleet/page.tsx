@@ -331,7 +331,9 @@ export default function FleetPage() {
 													<Stamp className="size-3" />
 													{model.pendingFiling.kind === "initial"
 														? "Awaiting clearance"
-														: "Fare filed"}
+														: model.pendingFiling.kind === "metadata"
+															? "Change filed"
+															: "Fare filed"}
 												</Badge>
 											) : null}
 										</div>
@@ -340,6 +342,14 @@ export default function FleetPage() {
 												<span>{model.displayName}</span>
 											) : null}
 											<span className="font-mono">{model.providerId}</span>
+											{model.externalId !== model.modelName ? (
+												<span
+													className="font-mono"
+													title="Upstream model ID sent to your API"
+												>
+													↗ {model.externalId}
+												</span>
+											) : null}
 											{model.contextSize ? (
 												<span className="font-mono">
 													{Math.round(model.contextSize / 1000)}k ctx

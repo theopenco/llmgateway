@@ -195,6 +195,56 @@ describe("embeddings", () => {
 		expect(embeddingLog?.reasoningContent).toBeNull();
 	});
 
+	test("/v1/embeddings replaces client user with the organization identifier", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-embeddings-safety",
+			...hashApiKeyForStorage("real-token-embeddings-safety"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-embeddings-safety",
+			...encryptProviderKeyForStorage(
+				"openai-token",
+				"provider-key-embeddings-safety",
+				"org-id",
+			),
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: harness.mockServerUrl,
+		});
+
+		const [organization] = await db
+			.select({ safetyIdentifier: tables.organization.safetyIdentifier })
+			.from(tables.organization)
+			.where(eq(tables.organization.id, "org-id"));
+
+		const res = await app.request("/v1/embeddings", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-embeddings-safety",
+			},
+			body: JSON.stringify({
+				model: "text-embedding-3-small",
+				input: "safety attribution input",
+				user: "client-controlled-user",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const logs = await waitForLogs(1);
+		const embeddingLog = logs.find(
+			(log) => log.usedModel === "openai/text-embedding-3-small",
+		);
+		expect(organization?.safetyIdentifier).toBeTruthy();
+		expect(embeddingLog?.upstreamRequest).toMatchObject({
+			user: organization?.safetyIdentifier,
+		});
+	});
+
 	test("/v1/embeddings returns upstream error when no alternate key is available", async () => {
 		resetFailOnceCounter();
 

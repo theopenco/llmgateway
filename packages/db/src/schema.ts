@@ -3348,6 +3348,9 @@ export const modelProviderMapping = pgTable(
 			.references(() => provider.id, { onDelete: "cascade" }),
 		externalId: text().notNull(),
 		region: text(),
+		source: text({ enum: ["catalogue", "airside"] })
+			.notNull()
+			.default("catalogue"),
 		inputPrice: decimal(),
 		outputPrice: decimal(),
 		cachedInputPrice: decimal(),
@@ -3359,6 +3362,7 @@ export const modelProviderMapping = pgTable(
 		maxOutput: integer(),
 		streaming: boolean().notNull().default(false),
 		vision: boolean(),
+		audio: boolean(),
 		reasoning: boolean(),
 		reasoningMaxTokens: boolean().notNull().default(false),
 		reasoningOutput: text(),
@@ -3401,6 +3405,10 @@ export const modelProviderMapping = pgTable(
 		index("model_provider_mapping_status_model_id_idx").on(
 			table.status,
 			table.modelId,
+		),
+		index("model_provider_mapping_source_status_idx").on(
+			table.source,
+			table.status,
 		),
 	],
 );
@@ -4685,6 +4693,9 @@ export const providerClaim = pgTable(
 		// surfaced on the public catalogue pages.
 		logoUrl: text(),
 		iconUrl: text(),
+		// Branding edits on an active claim wait here for admin approval.
+		// null = nothing pending; a null value inside clears that image.
+		pendingBranding: jsonb().$type<AirsidePendingBranding>(),
 		claimedBy: text().references(() => user.id, { onDelete: "set null" }),
 		status: text({ enum: ["pending", "active", "rejected", "revoked"] })
 			.notNull()
@@ -4710,6 +4721,29 @@ export const providerClaim = pgTable(
 // `provider_price_filing` rows and only ever changes through an approved
 // filing. A newly added model stays `draft` until its initial filing is
 // approved. Prices are text to preserve exponent notation (see customModel).
+export interface AirsideModelMetadataChanges {
+	displayName?: string | null;
+	description?: string | null;
+	family?: string;
+	contextSize?: number | null;
+	maxOutput?: number | null;
+	streaming?: boolean;
+	vision?: boolean;
+	audio?: boolean;
+	tools?: boolean;
+	jsonOutput?: boolean;
+	reasoning?: boolean;
+	reasoningEfforts?: string[] | null;
+	maxRpm?: number | null;
+	maxRpd?: number | null;
+	rateLimitScope?: "global" | "per_org";
+}
+
+export interface AirsidePendingBranding {
+	logoUrl?: string | null;
+	iconUrl?: string | null;
+}
+
 export const providerDraftModel = pgTable(
 	"provider_draft_model",
 	{
@@ -4723,8 +4757,11 @@ export const providerDraftModel = pgTable(
 			.notNull()
 			.references(() => providerCompany.id, { onDelete: "cascade" }),
 		providerId: text().notNull(),
-		// The model id at the provider (external id, e.g. "glm-5.2-air").
+		// The public catalogue id (e.g. "glm-5.2-air").
 		modelName: text().notNull(),
+		// The id the provider's API expects; set once at registration or
+		// copied from the catalogue on import, never edited afterwards.
+		externalId: text().notNull(),
 		displayName: text(),
 		description: text(),
 		family: text(),
@@ -4787,13 +4824,16 @@ export const providerPriceFiling = pgTable(
 		providerCompanyId: text()
 			.notNull()
 			.references(() => providerCompany.id, { onDelete: "cascade" }),
-		kind: text({ enum: ["initial", "update"] })
+		// "metadata" filings carry the proposed non-price changes in `metadata`
+		// and copy the current prices so the row stays self-describing.
+		kind: text({ enum: ["initial", "update", "metadata"] })
 			.notNull()
 			.default("update"),
 		inputPrice: text().notNull(),
 		outputPrice: text().notNull(),
 		cachedInputPrice: text(),
 		requestPrice: text(),
+		metadata: jsonb().$type<AirsideModelMetadataChanges>(),
 		status: text({ enum: ["pending", "approved", "rejected"] })
 			.notNull()
 			.default("pending"),

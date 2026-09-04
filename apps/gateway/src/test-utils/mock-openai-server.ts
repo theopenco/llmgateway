@@ -1212,6 +1212,10 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		});
 	}
 
+	if (hasUserMessageTrigger(chatMessages, "TRIGGER_NULL_BODY")) {
+		return c.json(null);
+	}
+
 	// Simulate an upstream that returns response headers (200) and a partial
 	// body, then hangs forever without finishing it. The gateway's res.json()
 	// blocks waiting for the rest, letting a test abort the client mid-read to
