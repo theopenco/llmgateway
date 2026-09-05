@@ -18,6 +18,8 @@ type VerificationRunner = (
 ) => ReturnType<typeof runProviderModelVerification>;
 
 const STALE_RUNNING_MS = 20 * 60 * 1000;
+const MAX_VERIFICATION_ATTEMPTS = 3;
+const STALE_ATTEMPT_FEEDBACK = "Verification timed out.";
 
 interface ResolvedCredential {
 	providerKey: string;
@@ -101,6 +103,7 @@ export async function claimNextModelVerification(): Promise<VerificationRow | nu
 			.select({
 				id: tables.providerModelVerification.id,
 				attempts: tables.providerModelVerification.attempts,
+				checks: tables.providerModelVerification.checks,
 			})
 			.from(tables.providerModelVerification)
 			.where(
@@ -111,9 +114,20 @@ export async function claimNextModelVerification(): Promise<VerificationRow | nu
 			)
 			.for("update", { skipLocked: true });
 		for (const staleJob of staleJobs) {
+			const exhausted = staleJob.attempts >= MAX_VERIFICATION_ATTEMPTS;
 			await tx
 				.update(tables.providerModelVerification)
-				.set({ status: "queued", startedAt: null })
+				.set(
+					exhausted
+						? {
+								status: "failed",
+								checks: terminalChecks(staleJob.checks, STALE_ATTEMPT_FEEDBACK),
+								summary: STALE_ATTEMPT_FEEDBACK,
+								completedAt: new Date(),
+								credentialCiphertext: null,
+							}
+						: { status: "queued", startedAt: null },
+				)
 				.where(
 					and(
 						eq(tables.providerModelVerification.id, staleJob.id),

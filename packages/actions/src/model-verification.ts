@@ -644,9 +644,18 @@ function isGoogleQueryTokenProvider(provider: ProviderId): boolean {
 	].includes(provider);
 }
 
+function redactSecrets(text: string, secrets: Iterable<string>): string {
+	let redacted = text;
+	for (const secret of secrets) {
+		redacted = redactToken(redacted, secret);
+	}
+	return redacted;
+}
+
 async function runCheck(
 	definition: ModelVerificationDefinition,
 	options: RunModelVerificationOptions,
+	secrets: Set<string>,
 ): Promise<string | null> {
 	const knownProvider = providers.some(
 		(provider) => provider.id === options.target.providerId,
@@ -672,6 +681,7 @@ async function runCheck(
 	) {
 		requestToken = await getGcpServiceAccountAccessToken(options.token);
 	}
+	secrets.add(requestToken);
 	const endpoint = getProviderEndpoint(
 		provider,
 		options.baseUrl,
@@ -753,9 +763,9 @@ async function runCheck(
 	});
 	const bodyText = await response.text();
 	if (!response.ok) {
-		return redactToken(
+		return redactSecrets(
 			upstreamErrorMessage(bodyText, response.status),
-			options.token,
+			secrets,
 		);
 	}
 	if (definition.request.stream) {
@@ -775,6 +785,7 @@ export async function runProviderModelVerification(
 ): Promise<ModelVerificationRunResult> {
 	const definitions = verificationDefinitions(options.target);
 	const checks = createQueuedModelVerificationChecks(options.target);
+	const secrets = new Set([options.token]);
 	for (let index = 0; index < definitions.length; index++) {
 		const definition = definitions[index];
 		const running: ProviderModelVerificationCheck = {
@@ -786,14 +797,14 @@ export async function runProviderModelVerification(
 		await options.onCheck?.(running);
 		let failure: string | null;
 		try {
-			failure = await runCheck(definition, options);
+			failure = await runCheck(definition, options, secrets);
 		} catch (error) {
-			failure = redactToken(
+			failure = redactSecrets(
 				(error instanceof Error
 					? error.message
 					: "Verification request failed."
 				).slice(0, 500),
-				options.token,
+				secrets,
 			);
 		}
 		const completed: ProviderModelVerificationCheck = failure
