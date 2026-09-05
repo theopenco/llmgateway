@@ -347,6 +347,10 @@ export function AirsideFilingsClient() {
 														{claim.customName} · {claim.customBaseUrl}
 													</div>
 												</>
+											) : claim.customName ? (
+												<div className="text-muted-foreground mt-0.5 text-xs">
+													{claim.customName}
+												</div>
 											) : null}
 										</TableCell>
 										<TableCell className="font-mono text-xs">
@@ -445,8 +449,8 @@ export function AirsideFilingsClient() {
 					<CardHeader>
 						<CardTitle>Branding changes</CardTitle>
 						<CardDescription>
-							Logo or icon edits on live carriers. Approving publishes them on
-							the providers and models pages.
+							Name, logo or icon edits on live carriers. Approving publishes
+							them on the providers and models pages.
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
@@ -455,6 +459,7 @@ export function AirsideFilingsClient() {
 								<TableRow>
 									<TableHead>Company</TableHead>
 									<TableHead>Provider</TableHead>
+									<TableHead>Name</TableHead>
 									<TableHead>Logo</TableHead>
 									<TableHead>Icon</TableHead>
 									<TableHead className="text-right">Actions</TableHead>
@@ -468,6 +473,20 @@ export function AirsideFilingsClient() {
 										</TableCell>
 										<TableCell className="font-mono text-sm">
 											{claim.providerId}
+										</TableCell>
+										<TableCell>
+											{claim.pendingBranding?.name !== undefined ? (
+												<div className="flex flex-col gap-1 text-sm">
+													<span className="text-muted-foreground">
+														Current: {claim.providerName}
+													</span>
+													<span>Proposed: {claim.pendingBranding.name}</span>
+												</div>
+											) : (
+												<span className="text-muted-foreground text-xs">
+													unchanged
+												</span>
+											)}
 										</TableCell>
 										{(["logoUrl", "iconUrl"] as const).map((field) => (
 											<TableCell key={field}>

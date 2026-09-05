@@ -32,6 +32,7 @@ import {
 } from "@llmgateway/db";
 import {
 	models as catalogueModels,
+	providers as catalogueProviders,
 	PROVIDER_API_FORMATS,
 } from "@llmgateway/models";
 
@@ -477,6 +478,7 @@ adminAirside.openapi(rejectFiling, async (c) => {
 const adminClaimSchema = z.object({
 	id: z.string(),
 	providerId: z.string(),
+	providerName: z.string(),
 	kind: z.enum(["catalogue", "custom"]),
 	customName: z.string().nullable(),
 	customBaseUrl: z.string().nullable(),
@@ -491,6 +493,7 @@ const adminClaimSchema = z.object({
 	// Branding edits on an active claim awaiting approval; null inside clears.
 	pendingBranding: z
 		.object({
+			name: z.string().optional(),
 			logoUrl: z.string().nullable().optional(),
 			iconUrl: z.string().nullable().optional(),
 		})
@@ -520,6 +523,11 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 	return {
 		id: row.id,
 		providerId: row.providerId,
+		providerName:
+			row.customName ??
+			catalogueProviders.find((provider) => provider.id === row.providerId)
+				?.name ??
+			row.providerId,
 		kind: row.kind,
 		customName: row.customName,
 		customBaseUrl: row.customBaseUrl,
@@ -647,6 +655,7 @@ adminAirside.openapi(approveBranding, async (c) => {
 	const [updated] = await cdb
 		.update(tables.providerClaim)
 		.set({
+			...(pending.name !== undefined ? { customName: pending.name } : {}),
 			...(pending.logoUrl !== undefined ? { logoUrl: pending.logoUrl } : {}),
 			...(pending.iconUrl !== undefined ? { iconUrl: pending.iconUrl } : {}),
 			pendingBranding: null,

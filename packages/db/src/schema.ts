@@ -4715,9 +4715,9 @@ export const providerClaim = pgTable(
 			.default("catalogue"),
 		// The registrable email domain that satisfied the match, lowercase.
 		matchedDomain: text().notNull(),
-		// Custom carriers only: submitted display name, OpenAI-compatible API
-		// base URL (SSRF-checked, domain-matched against the email) and blurb.
+		// Submitted display name; active claims hold the approved override.
 		customName: text(),
+		// Custom carriers only: domain-matched API base URL and blurb.
 		customBaseUrl: text(),
 		customDescription: text(),
 		// Carrier branding, uploaded at claim time as size-capped data URLs and
@@ -4774,6 +4774,7 @@ export interface AirsideModelMetadataChanges {
 }
 
 export interface AirsidePendingBranding {
+	name?: string;
 	logoUrl?: string | null;
 	iconUrl?: string | null;
 }

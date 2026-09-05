@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
+import * as emailUtils from "@/utils/email.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, inArray, sql, tables } from "@llmgateway/db";
@@ -199,10 +200,12 @@ describe("airside provider portal", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
+		vi.spyOn(emailUtils, "sendTransactionalEmail").mockResolvedValue(undefined);
 		cookie = await createTestUser();
 	});
 
 	afterEach(async () => {
+		vi.restoreAllMocks();
 		if (originalAdminEmails === undefined) {
 			delete process.env.ADMIN_EMAILS;
 		} else {
@@ -1660,7 +1663,7 @@ describe("airside provider portal", () => {
 		);
 		expect(res.status).toBe(200);
 		const filed = (await res.json()).claim;
-		// Live branding waits for review; identity fields are never editable.
+		// Live branding waits for review; the API endpoint stays fixed.
 		expect(filed.logoUrl).toBeNull();
 		expect(filed.pendingBranding).toEqual({ logoUrl: svg });
 		expect(filed.customBaseUrl).toBeNull();
@@ -1714,6 +1717,111 @@ describe("airside provider portal", () => {
 			(entry: { id: string }) => entry.id === claim.id,
 		);
 		expect(live).toMatchObject({ logoUrl: null, pendingBranding: null });
+	});
+
+	it.each(["catalogue", "custom"])(
+		"requires admin approval to rename a %s carrier",
+		async (kind) => {
+			const email = kind === "custom" ? "ops@acme-sky.ai" : "ops@mistral.ai";
+			await setUserEmail(email);
+			const company = await createCompany(cookie);
+			const claim =
+				kind === "custom"
+					? (await (await registerCarrier(cookie, company.id)).json()).claim
+					: await claimProvider(cookie, company.id);
+			await db
+				.insert(tables.provider)
+				.values({
+					id: claim.providerId,
+					name: kind === "custom" ? "Acme Sky" : "Mistral AI",
+					description: "",
+				})
+				.onConflictDoNothing();
+			await activateClaim(claim.providerId);
+			const currentName = kind === "custom" ? "Acme Sky" : "Mistral AI";
+			const name = "Updated Carrier";
+			const publicName = async () => {
+				const response = await app.request("/internal/providers");
+				return (await response.json()).providers.find(
+					(provider: { id: string }) => provider.id === claim.providerId,
+				)?.name;
+			};
+			const file = () =>
+				app.request(
+					`/airside/claims/${claim.id}`,
+					json(cookie, { name: `  ${name}  ` }, "PATCH"),
+				);
+			const filed = await file();
+			expect(filed.status).toBe(200);
+			expect((await filed.json()).claim).toMatchObject({
+				providerId: claim.providerId,
+				providerName: currentName,
+				pendingBranding: { name },
+			});
+			expect(await publicName()).toBe(currentName);
+			const approve = () =>
+				app.request(
+					`/admin/airside/claims/${claim.id}/branding/approve`,
+					json(cookie),
+				);
+			expect((await approve()).status).toBe(403);
+			expect(await publicName()).toBe(currentName);
+			process.env.ADMIN_EMAILS = email;
+			const rejected = await app.request(
+				`/admin/airside/claims/${claim.id}/branding/reject`,
+				json(cookie),
+			);
+			expect(rejected.status).toBe(200);
+			expect((await rejected.json()).claim.pendingBranding).toBeNull();
+			expect(await publicName()).toBe(currentName);
+			await file();
+			const approved = await approve();
+			expect(approved.status).toBe(200);
+			expect((await approved.json()).claim).toMatchObject({
+				providerId: claim.providerId,
+				providerName: name,
+				pendingBranding: null,
+			});
+			expect(await publicName()).toBe(name);
+			const companies = await app.request("/airside/companies", {
+				headers: { Cookie: cookie },
+			});
+			expect((await companies.json()).companies[0].claims[0].providerName).toBe(
+				name,
+			);
+			const invalid = await app.request(
+				`/airside/claims/${claim.id}`,
+				json(cookie, { name: "  " }, "PATCH"),
+			);
+			expect(invalid.status).toBe(400);
+		},
+	);
+
+	it("includes a pending carrier rename in its initial approval", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		process.env.ADMIN_EMAILS = "ops@acme-sky.ai";
+		const company = await createCompany(cookie);
+		const registered = await registerCarrier(cookie, company.id);
+		const { claim } = await registered.json();
+		const renamed = await app.request(
+			`/airside/claims/${claim.id}`,
+			json(cookie, { name: "Updated Carrier" }, "PATCH"),
+		);
+		expect(renamed.status).toBe(200);
+		expect((await renamed.json()).claim).toMatchObject({
+			status: "pending",
+			providerName: "Updated Carrier",
+			pendingBranding: null,
+		});
+		const approved = await app.request(
+			`/admin/airside/claims/${claim.id}/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+		const provider = await db.query.provider.findFirst({
+			where: { id: { eq: claim.providerId } },
+		});
+		expect(provider?.name).toBe("Updated Carrier");
 	});
 
 	it("carries cache and per-request pricing through filings", async () => {
@@ -2263,6 +2371,37 @@ describe("airside provider portal", () => {
 		expect(afterRevoke.status).toBe(400);
 	});
 
+	it.each([false, true])(
+		"rolls back a failed crew email and allows retry (existing account: %s)",
+		async (existing) => {
+			await setUserEmail("ops@mistral.ai");
+			const company = await createCompany(cookie);
+			const email = "copilot@mistral.ai";
+			if (existing) {
+				await createSecondUser(email);
+			}
+			vi.mocked(emailUtils.sendTransactionalEmail).mockRejectedValueOnce(
+				new Error("Delivery failed"),
+			);
+			const invite = () =>
+				app.request(
+					`/airside/companies/${company.id}/members`,
+					json(cookie, { email }),
+				);
+			const failed = await invite();
+			expect(failed.status).toBe(503);
+			const crew = await app.request(
+				`/airside/companies/${company.id}/members`,
+				{ headers: { Cookie: cookie } },
+			);
+			const body = await crew.json();
+			expect(body.members).toHaveLength(1);
+			expect(body.invites).toHaveLength(0);
+			expect((await invite()).status).toBe(201);
+			expect(emailUtils.sendTransactionalEmail).toHaveBeenCalledTimes(2);
+		},
+	);
+
 	it("manages the crew: invites, cap, domain rule, removal", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
@@ -2281,6 +2420,13 @@ describe("airside provider portal", () => {
 			role: "member",
 		});
 		expect(directBody.invite).toBeNull();
+		expect(emailUtils.sendTransactionalEmail).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: "pilot@mistral.ai",
+				strict: true,
+				text: expect.stringContaining("/login"),
+			}),
+		);
 
 		// The teammate sees the company; a stranger's crew endpoints 404.
 		const theirCompanies = await app.request("/airside/companies", {
@@ -2311,6 +2457,15 @@ describe("airside provider portal", () => {
 		const invitedBody = await invited.json();
 		expect(invitedBody.member).toBeNull();
 		expect(invitedBody.invite).toMatchObject({ email: "copilot@mistral.ai" });
+		expect(emailUtils.sendTransactionalEmail).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				to: "copilot@mistral.ai",
+				strict: true,
+				subject: "You've been invited to Mistral Ops on AirSide",
+				text: expect.stringContaining("/signup"),
+			}),
+		);
+		expect(emailUtils.sendTransactionalEmail).toHaveBeenCalledTimes(2);
 		// …and inviting the same address twice conflicts.
 		expect(
 			(

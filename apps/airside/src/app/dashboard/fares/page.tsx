@@ -26,6 +26,8 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { useApi } from "@/lib/fetch-client";
 import { formatPercent } from "@/lib/format";
@@ -49,12 +51,11 @@ type CompanyClaim = NonNullable<
 	ReturnType<typeof useCompany>["company"]
 >["claims"][number];
 
-/** Carrier branding stays editable after review; the identity fields (name,
- *  website, API endpoint) are what we approved and are locked. */
 function EditBrandingDialog({ claim }: { claim: CompanyClaim }) {
 	const api = useApi();
 	const queryClient = useQueryClient();
 	const [open, setOpen] = useState(false);
+	const [name, setName] = useState(claim.providerName);
 	const [logoUrl, setLogoUrl] = useState<string | null | undefined>(undefined);
 	const [iconUrl, setIconUrl] = useState<string | null | undefined>(undefined);
 
@@ -79,12 +80,15 @@ function EditBrandingDialog({ claim }: { claim: CompanyClaim }) {
 
 	const previewLogo = logoUrl === undefined ? claim.logoUrl : logoUrl;
 	const previewIcon = iconUrl === undefined ? claim.iconUrl : iconUrl;
+	const nameChanged =
+		name.trim() !== (claim.pendingBranding?.name ?? claim.providerName);
 
 	return (
 		<Dialog
 			open={open}
 			onOpenChange={(next) => {
 				if (next) {
+					setName(claim.pendingBranding?.name ?? claim.providerName);
 					setLogoUrl(undefined);
 					setIconUrl(undefined);
 				}
@@ -106,18 +110,25 @@ function EditBrandingDialog({ claim }: { claim: CompanyClaim }) {
 						Branding for {claim.providerName}
 					</DialogTitle>
 					<DialogDescription>
-						Logo and icon are shown on the public providers and models pages.
+						The name, logo and icon appear on public providers and models pages.
 						{claim.status === "active"
 							? " Changes to a live carrier are reviewed before they go public."
-							: ""}{" "}
-						The carrier name, website and API endpoint are what we approved —
-						they cannot be changed here.
+							: ""}
 					</DialogDescription>
 				</DialogHeader>
+				<div className="space-y-2">
+					<Label htmlFor={`branding-name-${claim.id}`}>Provider name</Label>
+					<Input
+						id={`branding-name-${claim.id}`}
+						value={name}
+						maxLength={100}
+						onChange={(event) => setName(event.target.value)}
+					/>
+				</div>
 				<ProviderBrandingFields
 					logoInputId={`branding-logo-${claim.id}`}
 					iconInputId={`branding-icon-${claim.id}`}
-					providerName={claim.providerName}
+					providerName={name}
 					logoUrl={previewLogo}
 					iconUrl={previewIcon}
 					onLogoChange={setLogoUrl}
@@ -128,13 +139,15 @@ function EditBrandingDialog({ claim }: { claim: CompanyClaim }) {
 						className="font-semibold"
 						disabled={
 							updateBranding.isPending ||
-							(logoUrl === undefined && iconUrl === undefined)
+							name.trim().length < 2 ||
+							(!nameChanged && logoUrl === undefined && iconUrl === undefined)
 						}
 						data-testid={`save-branding-${claim.providerId}`}
 						onClick={() =>
 							updateBranding.mutate({
 								params: { path: { id: claim.id } },
 								body: {
+									...(nameChanged ? { name: name.trim() } : {}),
 									...(logoUrl !== undefined ? { logoUrl } : {}),
 									...(iconUrl !== undefined ? { iconUrl } : {}),
 								},

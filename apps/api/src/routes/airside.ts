@@ -29,6 +29,7 @@ import {
 	REASONING_EFFORT_VALUES,
 } from "@/lib/airside-metadata.js";
 import { notifyAirsideCrewInvite } from "@/utils/discord.js";
+import { sendTransactionalEmail } from "@/utils/email.js";
 
 import {
 	createQueuedModelVerificationChecks,
@@ -133,6 +134,7 @@ const reasoningEffortsValue = z.array(z.enum(REASONING_EFFORT_VALUES)).max(7);
 const providerApiFormatValue = z.enum(PROVIDER_API_FORMATS);
 
 const pendingBrandingSchema = z.object({
+	name: z.string().optional(),
 	logoUrl: z.string().nullable().optional(),
 	iconUrl: z.string().nullable().optional(),
 });
@@ -372,9 +374,7 @@ function serializeClaim(
 		providerCompanyId: row.providerCompanyId,
 		providerId: row.providerId,
 		providerName:
-			row.kind === "custom"
-				? (row.customName ?? row.providerId)
-				: (providerNames.get(row.providerId) ?? row.providerId),
+			row.customName ?? providerNames.get(row.providerId) ?? row.providerId,
 		kind: row.kind,
 		matchedDomain: row.matchedDomain,
 		customBaseUrl: row.customBaseUrl,
@@ -1450,58 +1450,79 @@ airside.openapi(inviteCrewMember, async (c) => {
 	const existingUser = await db.query.user.findFirst({
 		where: { email: { eq: email } },
 	});
-	if (existingUser) {
+	const inviteUrl = new URL(
+		existingUser ? "/login" : "/signup",
+		process.env.AIRSIDE_URL ?? "https://airside.llmgateway.io",
+	).toString();
+	const sendInvite = async () => {
 		try {
-			const [member] = await db
-				.insert(tables.providerCompanyMember)
-				.values({
-					providerCompanyId: id,
-					userId: existingUser.id,
-					role: "member",
-				})
+			await sendTransactionalEmail({
+				to: email,
+				subject: `You've been invited to ${company.name} on AirSide`,
+				text: `You've been invited to join ${company.name} on AirSide.
+
+${existingUser ? "Sign in" : "Create an account and verify your email"} with ${email} to access the crew:
+${inviteUrl}
+
+If you weren't expecting this invitation, you can ignore this email.`,
+				strict: true,
+			});
+		} catch (err) {
+			throw new HTTPException(503, {
+				message: "The invitation email could not be sent. Please try again.",
+				cause: err,
+			});
+		}
+	};
+	try {
+		return await db.transaction(async (tx) => {
+			if (existingUser) {
+				const [member] = await tx
+					.insert(tables.providerCompanyMember)
+					.values({
+						providerCompanyId: id,
+						userId: existingUser.id,
+						role: "member",
+					})
+					.returning();
+				await sendInvite();
+				return c.json(
+					{
+						member: {
+							id: member.id,
+							role: member.role,
+							email: existingUser.email,
+							name: existingUser.name ?? null,
+							createdAt: member.createdAt.toISOString(),
+						},
+						invite: null,
+					},
+					201,
+				);
+			}
+			const [invite] = await tx
+				.insert(tables.providerCompanyInvite)
+				.values({ providerCompanyId: id, email, invitedBy: user.id })
 				.returning();
+			await sendInvite();
 			return c.json(
 				{
-					member: {
-						id: member.id,
-						role: member.role,
-						email: existingUser.email,
-						name: existingUser.name ?? null,
-						createdAt: member.createdAt.toISOString(),
+					member: null,
+					invite: {
+						id: invite.id,
+						email: invite.email,
+						createdAt: invite.createdAt.toISOString(),
 					},
-					invite: null,
 				},
 				201,
 			);
-		} catch (err) {
-			if (isUniqueViolation(err)) {
-				throw new HTTPException(409, {
-					message: "That person is already a crew member.",
-				});
-			}
-			throw err;
-		}
-	}
-	try {
-		const [invite] = await db
-			.insert(tables.providerCompanyInvite)
-			.values({ providerCompanyId: id, email, invitedBy: user.id })
-			.returning();
-		return c.json(
-			{
-				member: null,
-				invite: {
-					id: invite.id,
-					email: invite.email,
-					createdAt: invite.createdAt.toISOString(),
-				},
-			},
-			201,
-		);
+		});
 	} catch (err) {
 		if (isUniqueViolation(err)) {
 			throw new HTTPException(409, {
-				message: "That email has already been invited.",
+				message: existingUser
+					? "That person is already a crew member."
+					: "That email has already been invited.",
 			});
 		}
 		throw err;
@@ -1933,9 +1954,7 @@ airside.openapi(registerCarrier, async (c) => {
 	return c.json({ claim: serializeClaim(claim, providerNamesById) }, 201);
 });
 
-// Branding is the only carrier-editable part of a claim after filing: the
-// identity fields (provider id, display name, website, API endpoint) are what
-// the review approved, so changing them takes a new registration.
+// Names and images on active claims only go public after admin approval.
 const updateClaimBranding = createRoute({
 	method: "patch",
 	path: "/claims/{id}",
@@ -1945,6 +1964,7 @@ const updateClaimBranding = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
+						name: z.string().trim().min(2).max(100).optional(),
 						// null clears the image; omitted keeps the current one.
 						logoUrl: imageDataUrl(LOGO_MAX_BYTES).nullish(),
 						iconUrl: imageDataUrl(ICON_MAX_BYTES).nullish(),
@@ -1982,6 +2002,7 @@ airside.openapi(updateClaimBranding, async (c) => {
 		});
 	}
 	const brandingUpdates = {
+		...(body.name !== undefined ? { name: body.name } : {}),
 		...(body.logoUrl !== undefined ? { logoUrl: body.logoUrl } : {}),
 		...(body.iconUrl !== undefined ? { iconUrl: body.iconUrl } : {}),
 	};
@@ -1999,7 +2020,11 @@ airside.openapi(updateClaimBranding, async (c) => {
 						...brandingUpdates,
 					},
 				}
-			: brandingUpdates;
+			: {
+					...(body.name !== undefined ? { customName: body.name } : {}),
+					...(body.logoUrl !== undefined ? { logoUrl: body.logoUrl } : {}),
+					...(body.iconUrl !== undefined ? { iconUrl: body.iconUrl } : {}),
+				};
 	// cdb: claim rows feed the gateway's custom-carrier resolution cache.
 	const [updated] = await cdb
 		.update(tables.providerClaim)
