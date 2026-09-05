@@ -1,4 +1,4 @@
-import { ClipboardCheck, Stamp } from "lucide-react";
+import { ShieldCheck, Stamp } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -6,24 +6,110 @@ import { Footer } from "@/components/Footer";
 import { GetDevPassButton } from "@/components/GetDevPassButton";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
+import { getConfig } from "@/lib/config-server";
 import { FIRST_SURVEY_YEAR, fetchModelSurveyResults } from "@/lib/model-survey";
 
+import { models as catalogueModels, providers } from "@llmgateway/models";
+
+import {
+	BoardingPass,
+	PassportDataPage,
+	VendorMark,
+	VisaStamp,
+} from "./census-components";
+import { formatScore, parseCensusQuery } from "./census-shared";
+import { CensusRegistry } from "./CensusRegistry";
+
+import type { CensusModel } from "./census-shared";
 import type { ModelSurveyModel } from "@/lib/model-survey";
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 
 const BASE_URL = "https://devpass.llmgateway.io";
 
 export const revalidate = 300;
 
-const USE_CASE_LABELS: Record<string, string> = {
-	agentic_coding: "Agentic coding",
-	code_completion: "Autocomplete",
-	code_review: "Code review",
-	debugging: "Debugging",
-	writing_tests: "Writing tests",
-	docs_and_explanations: "Docs",
+// Display names for catalogue families whose provider name reads awkwardly
+// in a vendor chip, plus families that have no provider entry at all.
+const FAMILY_LABELS: Record<string, string> = {
+	google: "Google",
+	zai: "Z.ai",
+	alibaba: "Alibaba",
+	moonshot: "Moonshot",
+	mistral: "Mistral",
+	nvidia: "NVIDIA",
+	tencent: "Tencent",
+	inclusionai: "inclusionAI",
+	nousresearch: "Nous Research",
+	openbmb: "OpenBMB",
+	baai: "BAAI",
 	other: "Other",
 };
+
+const ID_FAMILY_HINTS: [RegExp, string][] = [
+	[/^(gpt|o\d|codex)/, "openai"],
+	[/^claude/, "anthropic"],
+	[/^gemini|^gemma/, "google"],
+	[/^deepseek/, "deepseek"],
+	[/^glm/, "zai"],
+	[/^qwen|^qwq/, "alibaba"],
+	[/^kimi|^moonshot/, "moonshot"],
+	[/^grok/, "xai"],
+	[/^(mistral|codestral|devstral|magistral)/, "mistral"],
+	[/^minimax/, "minimax"],
+	[/^llama/, "meta"],
+];
+
+type CatalogueModel = (typeof catalogueModels)[number];
+
+const catalogueById = new Map<string, CatalogueModel>(
+	catalogueModels.map((model): [string, CatalogueModel] => [model.id, model]),
+);
+
+function inferFamily(modelId: string): string {
+	const hit = ID_FAMILY_HINTS.find(([pattern]) => pattern.test(modelId));
+	return hit ? hit[1] : "other";
+}
+
+function vendorLabel(family: string): string {
+	return (
+		FAMILY_LABELS[family] ??
+		providers.find((provider) => provider.id === family)?.name ??
+		family.charAt(0).toUpperCase() + family.slice(1)
+	);
+}
+
+function enrichModels(models: ModelSurveyModel[]): CensusModel[] {
+	return models.map((model, index) => {
+		const definition = catalogueById.get(model.modelId);
+		const vendorId = definition?.family ?? inferFamily(model.modelId);
+		return {
+			...model,
+			rank: index + 1,
+			name: definition?.name ?? model.modelId,
+			vendorId,
+			vendorName: vendorLabel(vendorId),
+			topUseCase: model.useCases[0]?.useCase ?? null,
+		};
+	});
+}
+
+function leader(
+	models: CensusModel[],
+	score: (model: CensusModel) => number,
+): CensusModel | null {
+	let best: CensusModel | null = null;
+	for (const model of models) {
+		if (
+			!best ||
+			score(model) > score(best) ||
+			(score(model) === score(best) && model.responseCount > best.responseCount)
+		) {
+			best = model;
+		}
+	}
+	return best;
+}
 
 function parseYear(raw: string): number | null {
 	if (!/^\d{4}$/.test(raw)) {
@@ -47,8 +133,8 @@ export async function generateMetadata({
 	if (!year) {
 		return {};
 	}
-	const title = `The ${year} DevPass Model Census — Coding Models Rated by Developers`;
-	const description = `Value, quality, and speed scores for coding models, rated only by DevPass developers with verified real-world usage. No benchmarks — shipped-code verdicts.`;
+	const title = `${year} DevPass Model Census: Coding Models Rated by Developers`;
+	const description = `Coding models rated on value, quality, and speed by DevPass developers with verified usage. Sort and filter the ${year} registry by vendor, use case, and ratings.`;
 	return {
 		title: { absolute: title },
 		description,
@@ -67,125 +153,262 @@ export async function generateMetadata({
 	};
 }
 
-function ScoreMeter({ label, value }: { label: string; value: number }) {
-	return (
-		<div className="flex items-center gap-2">
-			<span className="w-14 shrink-0 font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground">
-				{label}
-			</span>
-			<div className="h-1.5 flex-1 overflow-hidden rounded-full bg-stone-200 dark:bg-stone-800 sm:w-24 sm:flex-none">
-				<div
-					className="h-full rounded-full bg-emerald-600 dark:bg-emerald-400"
-					style={{ width: `${(value / 5) * 100}%` }}
-				/>
-			</div>
-			<span className="w-8 shrink-0 text-right font-mono text-xs tabular-nums">
-				{value.toFixed(1)}
-			</span>
-		</div>
-	);
+const RULES = [
+	{
+		title: "Usage-verified, or it doesn't count",
+		body: "You can only rate a model your DevPass workspace has hit with 50+ requests in the past 30 days. Nobody rates a model they read a thread about.",
+	},
+	{
+		title: "Members only",
+		body: "Every respondent has an active, paid DevPass plan. These are verdicts from people spending their own credits.",
+	},
+	{
+		title: "No small-sample noise",
+		body: "A model is published only after 5 or more developers rate it, and only aggregates ever leave the building.",
+	},
+	{
+		title: "One reward per member per quarter",
+		body: "The census runs in quarterly waves. Your first entry of each wave earns a free Reset Pass — rate as many models as you use, but nobody can farm passes.",
+	},
+];
+
+function buildFaq(year: number, minResponses: number) {
+	return [
+		{
+			question: "How are models scored in the DevPass Model Census?",
+			answer: `Each entry rates one model from 1 to 5 on value for money, output quality, and speed, plus a yes-or-no “would you recommend it”. The registry shows the per-model averages and the share of raters who would recommend the model.`,
+		},
+		{
+			question: "Who can rate a model?",
+			answer:
+				"Only paid DevPass members, and only for models their workspace has sent at least 50 requests to in the past 30 days. Ratings are tied to verified usage, not opinions from a thread.",
+		},
+		{
+			question: "How is the registry ranked?",
+			answer:
+				"Registry rank is the model's position by average value score, with ties broken by number of ratings. The sort and filter controls change what you see on the board but never the underlying rank.",
+		},
+		{
+			question: "Why is a model missing from the registry?",
+			answer: `A model appears once ${minResponses} or more developers have filed a verified rating on it in ${year}. Per-use-case breakdowns are additionally hidden below two entries so no single respondent can be identified.`,
+		},
+		{
+			question: "How often does the census update?",
+			answer:
+				"Members file entries in quarterly waves and the yearly registry aggregates every wave. The published totals refresh every five minutes.",
+		},
+	];
 }
 
-function ModelRow({ model, rank }: { model: ModelSurveyModel; rank: number }) {
-	const topUseCase = model.useCases[0];
-	// Only the rows near the fold stagger in; deep rows render instantly so a
-	// long registry never feels like it's loading.
-	const staggered = rank <= 10;
-	const staggerStep = (rank - 1) * 70;
-	const delayMs = 140 + staggerStep;
+function SectionHeading({
+	id,
+	eyebrow,
+	title,
+	aside,
+}: {
+	id: string;
+	eyebrow: string;
+	title: string;
+	aside?: ReactNode;
+}) {
 	return (
-		<div
-			className={`border-b border-dashed border-stone-300/80 px-4 py-5 last:border-b-0 dark:border-stone-700/80 sm:flex sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-4 sm:px-6 ${
-				staggered
-					? "motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:fill-mode-both"
-					: ""
-			}`}
-			style={staggered ? { animationDelay: `${delayMs}ms` } : undefined}
-		>
-			<div className="flex min-w-0 items-center gap-4 sm:flex-1">
-				<div
-					className={
-						rank === 1
-							? "flex h-10 w-10 shrink-0 rotate-[-6deg] items-center justify-center rounded-full border-[3px] border-double border-emerald-700/70 font-mono text-sm font-bold text-emerald-800 mix-blend-multiply dark:border-emerald-400/60 dark:text-emerald-300 dark:mix-blend-screen"
-							: "flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-stone-300 font-mono text-sm text-stone-500 dark:border-stone-700 dark:text-stone-400"
-					}
+		<div className="mb-8 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+			<div>
+				<p className="font-mono text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-700 dark:text-emerald-400">
+					{eyebrow}
+				</p>
+				<h2
+					id={id}
+					className="font-display mt-2 text-3xl font-bold tracking-tight text-balance sm:text-4xl"
 				>
-					{rank}
-				</div>
-				<div className="min-w-0 flex-1">
-					<div className="truncate font-mono text-sm font-semibold">
-						{model.modelId}
-					</div>
-					<div className="mt-0.5 font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-						{model.responseCount} verified ratings
-						{topUseCase
-							? ` · mostly ${USE_CASE_LABELS[topUseCase.useCase] ?? topUseCase.useCase}`
-							: ""}
-					</div>
-				</div>
-				<div className="shrink-0 text-right sm:hidden">
-					<div className="font-mono text-xl font-bold tabular-nums">
-						{model.recommendPercent}%
-					</div>
-					<div className="font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground">
-						recommend
-					</div>
-				</div>
+					{title}
+				</h2>
 			</div>
-			<div className="mt-4 space-y-1.5 sm:mt-0">
-				<ScoreMeter label="Value" value={model.avgValueScore} />
-				<ScoreMeter label="Quality" value={model.avgQualityScore} />
-				<ScoreMeter label="Speed" value={model.avgSpeedScore} />
-			</div>
-			<div className="hidden w-24 text-right sm:block">
-				<div className="font-mono text-xl font-bold tabular-nums">
-					{model.recommendPercent}%
-				</div>
-				<div className="font-mono text-[9px] uppercase tracking-[0.15em] text-muted-foreground">
-					recommend
-				</div>
-			</div>
+			{aside ? (
+				<p className="max-w-md text-sm text-muted-foreground">{aside}</p>
+			) : null}
 		</div>
 	);
 }
 
 export default async function CensusPage({
 	params,
+	searchParams,
 }: {
 	params: Promise<{ year: string }>;
+	searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-	const { year: rawYear } = await params;
+	const [{ year: rawYear }, rawSearchParams] = await Promise.all([
+		params,
+		searchParams,
+	]);
 	const year = parseYear(rawYear);
 	if (!year) {
 		notFound();
 	}
 
 	const results = await fetchModelSurveyResults(year);
-	const models = results?.models ?? [];
-	const isCurrentYear = year === new Date().getUTCFullYear();
+	const models = enrichModels(results?.models ?? []);
+	const minResponses = results?.minResponses ?? 5;
+	const now = new Date();
+	const isCurrentYear = year === now.getUTCFullYear();
+	const quarter = Math.floor(now.getUTCMonth() / 3) + 1;
+	const initialQuery = parseCensusQuery(rawSearchParams);
+	const modelHrefBase = getConfig().uiUrl;
 
+	const vendorCounts = new Map<string, { name: string; count: number }>();
+	for (const model of models) {
+		const entry = vendorCounts.get(model.vendorId);
+		if (entry) {
+			entry.count += 1;
+		} else {
+			vendorCounts.set(model.vendorId, { name: model.vendorName, count: 1 });
+		}
+	}
+	const vendors = Array.from(vendorCounts, ([id, entry]) => ({
+		id,
+		name: entry.name,
+		count: entry.count,
+	})).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+	const vendorMarks = Object.fromEntries(
+		vendors.map((vendor) => [
+			vendor.id,
+			<VendorMark
+				key={vendor.id}
+				vendorId={vendor.id}
+				vendorName={vendor.name}
+			/>,
+		]),
+	);
+
+	const bestValue = leader(models, (m) => m.avgValueScore);
+	const bestQuality = leader(models, (m) => m.avgQualityScore);
+	const fastest = leader(models, (m) => m.avgSpeedScore);
+	const mostRated = leader(models, (m) => m.responseCount);
+	const champions =
+		bestValue && bestQuality && fastest
+			? [
+					{
+						title: "Best value",
+						code: "Value",
+						model: bestValue,
+						score: bestValue.avgValueScore,
+						scoreLabel: "Value",
+					},
+					{
+						title: "Best quality",
+						code: "Quality",
+						model: bestQuality,
+						score: bestQuality.avgQualityScore,
+						scoreLabel: "Quality",
+					},
+					{
+						title: "Fastest",
+						code: "Speed",
+						model: fastest,
+						score: fastest.avgSpeedScore,
+						scoreLabel: "Speed",
+					},
+				]
+			: [];
+
+	const asOf = now.toLocaleDateString("en-US", {
+		month: "long",
+		day: "numeric",
+		year: "numeric",
+		timeZone: "UTC",
+	});
+	const summary =
+		results && bestValue && bestQuality && fastest && mostRated
+			? `As of ${asOf}, ${bestValue.name} leads the ${year} DevPass Model Census on value for money (${formatScore(bestValue.avgValueScore)}/5 across ${bestValue.responseCount} verified ratings), ${bestQuality.name} leads on output quality (${formatScore(bestQuality.avgQualityScore)}/5), and ${fastest.name} leads on speed (${formatScore(fastest.avgSpeedScore)}/5). ${results.totalRespondents.toLocaleString("en-US")} DevPass developers have filed ${results.totalResponses.toLocaleString("en-US")} verified ratings across ${results.totalModelsRated} models. The most-rated model is ${mostRated.name} with ${mostRated.responseCount} ratings and a ${mostRated.recommendPercent}% recommend rate.`
+			: null;
+
+	const faq = buildFaq(year, minResponses);
+	const pageUrl = `${BASE_URL}/data/${year}`;
 	const jsonLd = {
 		"@context": "https://schema.org",
-		"@type": "Dataset",
-		name: `The ${year} DevPass Model Census`,
-		description:
-			"Coding LLMs rated on value for money, output quality, and speed by DevPass developers with verified usage.",
-		url: `${BASE_URL}/data/${year}`,
-		creator: {
-			"@type": "Organization",
-			name: "LLM Gateway",
-			url: "https://llmgateway.io",
-		},
-		license: "https://llmgateway.io/legal/terms",
-		isAccessibleForFree: true,
-		temporalCoverage: `${year}`,
-		variableMeasured: [
-			"value for money (1-5)",
-			"output quality (1-5)",
-			"speed (1-5)",
-			"would recommend (%)",
+		"@graph": [
+			{
+				"@type": "Dataset",
+				"@id": `${pageUrl}#dataset`,
+				name: `The ${year} DevPass Model Census`,
+				description:
+					"Coding LLMs rated on value for money, output quality, and speed by DevPass developers with verified usage.",
+				url: pageUrl,
+				creator: {
+					"@type": "Organization",
+					name: "LLM Gateway",
+					url: "https://llmgateway.io",
+				},
+				license: "https://llmgateway.io/legal/terms",
+				isAccessibleForFree: true,
+				temporalCoverage: `${year}`,
+				dateModified: now.toISOString().slice(0, 10),
+				keywords: [
+					"coding models",
+					"LLM ratings",
+					"developer survey",
+					"AI coding assistants",
+					"DevPass",
+				],
+				measurementTechnique:
+					"Self-reported 1–5 ratings from paid DevPass members with at least 50 requests on the rated model in the prior 30 days; models published at 5+ ratings.",
+				variableMeasured: [
+					"value for money (1-5)",
+					"output quality (1-5)",
+					"speed (1-5)",
+					"would recommend (%)",
+				],
+			},
+			...(models.length > 0
+				? [
+						{
+							"@type": "ItemList",
+							"@id": `${pageUrl}#registry`,
+							name: `${year} DevPass Model Census registry, ranked by value score`,
+							itemListOrder: "https://schema.org/ItemListOrderDescending",
+							numberOfItems: models.length,
+							itemListElement: models.map((model) => ({
+								"@type": "ListItem",
+								position: model.rank,
+								name: model.name,
+								description: `${model.vendorName} · value ${formatScore(model.avgValueScore)}/5, quality ${formatScore(model.avgQualityScore)}/5, speed ${formatScore(model.avgSpeedScore)}/5, ${model.recommendPercent}% would recommend, ${model.responseCount} verified ratings`,
+							})),
+						},
+					]
+				: []),
+			{
+				"@type": "FAQPage",
+				"@id": `${pageUrl}#faq`,
+				mainEntity: faq.map((item) => ({
+					"@type": "Question",
+					name: item.question,
+					acceptedAnswer: { "@type": "Answer", text: item.answer },
+				})),
+			},
+			{
+				"@type": "BreadcrumbList",
+				itemListElement: [
+					{
+						"@type": "ListItem",
+						position: 1,
+						name: "DevPass",
+						item: BASE_URL,
+					},
+					{
+						"@type": "ListItem",
+						position: 2,
+						name: `${year} Model Census`,
+						item: pageUrl,
+					},
+				],
+			},
 		],
 	};
+
+	// Model names and ids flow into the schema; escape "<" so no value can
+	// close the script element.
+	const jsonLdJson = JSON.stringify(jsonLd).replace(/</g, "\\u003c");
 
 	return (
 		<div className="min-h-screen bg-background">
@@ -193,164 +416,241 @@ export default async function CensusPage({
 			<script
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+				dangerouslySetInnerHTML={{ __html: jsonLdJson }}
 			/>
 
-			<main>
+			<main id="main">
 				{/* Hero */}
-				<section className="relative overflow-hidden border-b">
-					<div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_55%_55%_at_50%_-5%,_var(--tw-gradient-stops))] from-emerald-500/10 via-transparent to-transparent" />
-					<div className="container relative mx-auto max-w-3xl px-4 pt-16 pb-12 text-center motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:fill-mode-both sm:pt-20">
-						<div className="mb-4 inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-1.5 font-mono text-xs font-medium uppercase tracking-[0.15em] text-emerald-600 dark:text-emerald-400">
-							<ClipboardCheck className="h-3.5 w-3.5" />
-							{isCurrentYear
-								? `Census open · Q${Math.floor(new Date().getUTCMonth() / 3) + 1} wave filing now`
-								: `Final ${year} registry`}
+				<section
+					aria-labelledby="census-title"
+					className="census-guilloche relative overflow-hidden border-b"
+				>
+					<div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_60%_55%_at_20%_-10%,_var(--tw-gradient-stops))] from-emerald-500/15 via-transparent to-transparent" />
+					<div className="container relative mx-auto grid max-w-6xl gap-10 px-4 pt-14 pb-14 lg:grid-cols-12 lg:items-center lg:pt-20 lg:pb-20">
+						<div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:fill-mode-both lg:col-span-7">
+							<p className="inline-flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-700 dark:text-emerald-400">
+								<ShieldCheck aria-hidden="true" className="h-4 w-4" />
+								The {year} DevPass Model Census
+							</p>
+							<h1
+								id="census-title"
+								className="font-display mt-4 text-4xl font-bold tracking-tight text-balance sm:text-5xl lg:text-6xl"
+							>
+								Which coding models are actually worth the money?
+							</h1>
+							<p className="mt-5 max-w-xl text-lg leading-relaxed text-pretty text-muted-foreground">
+								The {year} DevPass Model Census rates coding models on value,
+								quality, and speed — using only developers who shipped with
+								them. Every rating is backed by at least 50 real requests
+								through LLM Gateway in the past 30 days. No benchmarks, no
+								vibes.
+							</p>
+							<div className="mt-8 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+								<Button size="lg" asChild>
+									<Link href="/dashboard/survey">
+										<Stamp aria-hidden="true" className="mr-1.5 h-4 w-4" />
+										File your entry · claim a free Reset Pass
+									</Link>
+								</Button>
+								<GetDevPassButton
+									cta="get_started"
+									location="census_hero"
+									signupHref="/signup?plan=pro"
+								/>
+							</div>
+							<ul className="mt-8 flex flex-wrap gap-x-6 gap-y-2 font-mono text-xs text-stone-600 dark:text-stone-400">
+								<li>✓ 50+ requests per rating</li>
+								<li>✓ Paid members only</li>
+								<li>✓ Aggregates, never individuals</li>
+							</ul>
 						</div>
-						<h1 className="text-4xl font-bold tracking-tight text-balance sm:text-5xl">
-							Which coding models are actually worth the money?
-						</h1>
-						<p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-pretty text-muted-foreground">
-							The {year} DevPass Model Census: value, quality, and speed — rated
-							only by developers who shipped with these models. Every rating is
-							backed by at least 50 real requests through LLM Gateway in the
-							past 30 days. No benchmarks, no vibes.
-						</p>
-						<div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-							<Button size="lg" asChild>
-								<Link href="/dashboard/survey">
-									<Stamp className="mr-1.5 h-4 w-4" />
-									File your entry · claim a free Reset Pass
-								</Link>
-							</Button>
-							<GetDevPassButton
-								cta="get_started"
-								location="census_hero"
-								signupHref="/signup?plan=pro"
-							/>
+						<div className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-4 motion-safe:fill-mode-both motion-safe:delay-150 lg:col-span-5">
+							{results ? (
+								<PassportDataPage
+									year={year}
+									results={results}
+									isCurrentYear={isCurrentYear}
+									quarter={quarter}
+								/>
+							) : (
+								<div className="census-paper rounded-2xl border border-stone-300/90 p-8 text-center dark:border-stone-700">
+									<VisaStamp tone="stone" rotate={-4} sub="Entries are safe">
+										Registry offline
+									</VisaStamp>
+									<p className="mx-auto mt-5 max-w-sm text-sm text-muted-foreground">
+										The registry couldn&apos;t be reached just now. Check back
+										in a few minutes.
+									</p>
+								</div>
+							)}
 						</div>
 					</div>
 				</section>
 
-				{/* Stats */}
-				{results && results.totalResponses > 0 && (
-					<section className="border-b bg-muted/20 px-4 py-8">
-						<div className="container mx-auto grid max-w-3xl grid-cols-3 gap-4 text-center">
-							{[
-								{ label: "Entries filed", value: results.totalResponses },
-								{
-									label: "Developers reporting",
-									value: results.totalRespondents,
-								},
-								{
-									label: "Models on the registry",
-									value: results.totalModelsRated,
-								},
-							].map((stat, index) => (
-								<div
-									key={stat.label}
-									className="motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:fill-mode-both"
-									style={{ animationDelay: `${index * 70}ms` }}
+				{/* Category leaders */}
+				{champions.length > 0 && (
+					<section aria-labelledby="leaders-title" className="px-4 py-14">
+						<div className="container mx-auto max-w-6xl">
+							<SectionHeading
+								id="leaders-title"
+								eyebrow="Now boarding · category leaders"
+								title="Top of the registry"
+								aside={`Highest average in each score across every model with ${minResponses}+ verified ratings. Ties go to the model with more ratings.`}
+							/>
+							<div className="grid gap-5 md:grid-cols-3">
+								{champions.map((champion, index) => {
+									const stagger = index * 90;
+									return (
+										<BoardingPass
+											key={champion.title}
+											title={champion.title}
+											code={champion.code}
+											model={champion.model}
+											score={champion.score}
+											scoreLabel={champion.scoreLabel}
+											year={year}
+											delayMs={120 + stagger}
+										/>
+									);
+								})}
+							</div>
+							{summary && (
+								<p
+									id="census-summary"
+									className="mt-8 max-w-4xl text-sm leading-relaxed text-muted-foreground"
 								>
-									<div className="font-mono text-2xl font-bold tabular-nums sm:text-3xl">
-										{stat.value.toLocaleString()}
-									</div>
-									<div className="mt-1 font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground sm:tracking-[0.2em]">
-										{stat.label}
-									</div>
-								</div>
-							))}
+									{summary}
+								</p>
+							)}
 						</div>
 					</section>
 				)}
 
 				{/* Registry */}
-				<section className="px-4 py-12">
-					<div className="container mx-auto max-w-3xl">
-						<div className="mb-4 flex items-baseline justify-between gap-4">
-							<h2 className="font-mono text-[10px] uppercase tracking-[0.25em] text-stone-500 sm:tracking-[0.35em] dark:text-stone-400">
-								The registry · ranked by value score
-							</h2>
-							<span className="shrink-0 font-mono text-[9px] tracking-[0.25em] whitespace-nowrap text-stone-400 dark:text-stone-500">
-								Doc. CS-{year}
-							</span>
-						</div>
+				<section
+					aria-labelledby="registry-title"
+					className="border-t bg-muted/20 px-4 py-14"
+				>
+					<div className="container mx-auto max-w-6xl">
+						<SectionHeading
+							id="registry-title"
+							eyebrow="Departures · full registry"
+							title="Every model on the registry"
+							aside="Click a column to sort, or narrow the board by vendor, use case, and rating count. Filters live in the URL, so a view can be shared."
+						/>
 						{models.length > 0 ? (
-							<div className="overflow-hidden rounded-lg border border-dashed border-stone-400/70 bg-stone-50/70 dark:border-stone-600/70 dark:bg-stone-900/30">
-								{models.map((model, index) => (
-									<ModelRow
-										key={model.modelId}
-										model={model}
-										rank={index + 1}
-									/>
-								))}
-							</div>
+							<CensusRegistry
+								year={year}
+								models={models}
+								vendors={vendors.map(({ id, name }) => ({ id, name }))}
+								vendorMarks={vendorMarks}
+								initialQuery={initialQuery}
+								minResponses={minResponses}
+								modelHrefBase={modelHrefBase}
+							/>
 						) : (
-							<div className="rounded-lg border border-dashed border-stone-400/70 bg-stone-50/70 p-10 text-center dark:border-stone-600/70 dark:bg-stone-900/30">
-								<div className="mx-auto inline-block rounded-md border-4 border-double border-stone-400/70 px-6 py-2 font-mono uppercase text-stone-500 dark:border-stone-600 dark:text-stone-400">
-									<div className="text-sm font-bold tracking-[0.3em]">
-										{results ? "Registry open" : "Registry offline"}
-									</div>
-								</div>
-								<p className="mx-auto mt-4 max-w-md text-sm text-muted-foreground">
+							<div className="census-paper rounded-2xl border border-stone-300/90 p-10 text-center dark:border-stone-700">
+								<VisaStamp tone={results ? "emerald" : "stone"} rotate={-4}>
+									{results ? "Registry open" : "Registry offline"}
+								</VisaStamp>
+								<p className="mx-auto mt-5 max-w-md text-sm text-muted-foreground">
 									{results
-										? `Models appear here once ${results.minResponses} developers have filed verified entries on them. DevPass members: your census entry gets the registry moving — and earns you a free Reset Pass.`
+										? `Models appear here once ${minResponses} developers have filed verified entries on them. DevPass members: your census entry gets the registry moving — and earns you a free Reset Pass.`
 										: "The registry couldn't be reached just now — the entries are safe. Check back in a few minutes."}
 								</p>
 							</div>
 						)}
 						<p className="mt-4 text-center text-xs text-muted-foreground">
-							Scores are 1–5 averages. Models need {results?.minResponses ?? 5}+
-							verified ratings to be listed; totals refresh every few minutes.
+							Scores are 1–5 averages. Models need {minResponses}+ verified
+							ratings to be listed; totals refresh every few minutes. Last
+							updated {asOf} (UTC).
 						</p>
 					</div>
 				</section>
 
-				{/* Methodology */}
-				<section className="border-t bg-muted/20 px-4 py-16">
-					<div className="container mx-auto max-w-2xl">
-						<h2 className="mb-6 text-center text-2xl font-bold tracking-tight sm:text-3xl">
-							The rules of the registry
-						</h2>
-						<div className="space-y-4">
-							{[
-								{
-									title: "Usage-verified, or it doesn't count",
-									body: "You can only rate a model your DevPass workspace has hit with 50+ requests in the past 30 days. Nobody rates a model they read a thread about.",
-								},
-								{
-									title: "Members only",
-									body: "Every respondent has an active, paid DevPass plan. These are verdicts from people spending their own credits.",
-								},
-								{
-									title: "No small-sample noise",
-									body: "A model is published only after 5 or more developers rate it, and only aggregates ever leave the building.",
-								},
-								{
-									title: "One reward per member per quarter",
-									body: "The census runs in quarterly waves. Your first entry of each wave earns a free Reset Pass — rate as many models as you use, but nobody can farm passes.",
-								},
-							].map((rule, index) => (
-								<div
-									key={rule.title}
-									className="flex gap-4 rounded-lg border border-dashed p-4"
-								>
-									<div className="font-mono text-sm font-bold text-emerald-700 dark:text-emerald-400">
-										{String(index + 1).padStart(2, "0")}
-									</div>
-									<div>
-										<div className="text-sm font-semibold">{rule.title}</div>
-										<p className="mt-1 text-sm text-muted-foreground">
-											{rule.body}
-										</p>
-									</div>
-								</div>
-							))}
+				{/* Rules + FAQ */}
+				<section aria-labelledby="rules-title" className="border-t px-4 py-16">
+					<div className="container mx-auto grid max-w-6xl gap-12 lg:grid-cols-2 lg:gap-16">
+						<div>
+							<p className="font-mono text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-700 dark:text-emerald-400">
+								Conditions of entry
+							</p>
+							<h2
+								id="rules-title"
+								className="font-display mt-2 text-3xl font-bold tracking-tight text-balance sm:text-4xl"
+							>
+								The rules of the registry
+							</h2>
+							<ol className="mt-8 space-y-4">
+								{RULES.map((rule, index) => (
+									<li
+										key={rule.title}
+										className="census-paper flex gap-4 rounded-xl border border-stone-300/90 p-5 dark:border-stone-700"
+									>
+										<span
+											aria-hidden="true"
+											className="flex h-10 w-10 shrink-0 -rotate-6 items-center justify-center rounded-full border-[3px] border-double border-emerald-700/70 font-mono text-sm font-bold text-emerald-800 mix-blend-multiply dark:border-emerald-400/60 dark:text-emerald-300 dark:mix-blend-screen"
+										>
+											{String(index + 1).padStart(2, "0")}
+										</span>
+										<div>
+											<h3 className="text-base font-semibold">{rule.title}</h3>
+											<p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+												{rule.body}
+											</p>
+										</div>
+									</li>
+								))}
+							</ol>
 						</div>
-						<div className="mt-10 text-center">
+						<div>
+							<p className="font-mono text-[11px] font-semibold uppercase tracking-[0.3em] text-emerald-700 dark:text-emerald-400">
+								Reading the census
+							</p>
+							<h2
+								id="faq-title"
+								className="font-display mt-2 text-3xl font-bold tracking-tight text-balance sm:text-4xl"
+							>
+								Model Census FAQ
+							</h2>
+							<dl className="mt-8 divide-y divide-dashed divide-stone-300 dark:divide-stone-700">
+								{faq.map((item) => (
+									<div key={item.question} className="py-5 first:pt-0">
+										<dt className="text-base font-semibold">{item.question}</dt>
+										<dd className="mt-2 text-sm leading-relaxed text-muted-foreground">
+											{item.answer}
+										</dd>
+									</div>
+								))}
+							</dl>
+						</div>
+					</div>
+				</section>
+
+				{/* CTA */}
+				<section
+					aria-labelledby="cta-title"
+					className="census-paper border-t px-4 py-16"
+				>
+					<div className="container mx-auto max-w-3xl text-center">
+						<VisaStamp rotate={-5} sub={`Wave Q${quarter} · ${year}`}>
+							Your entry
+						</VisaStamp>
+						<h2
+							id="cta-title"
+							className="font-display mt-6 text-3xl font-bold tracking-tight text-balance sm:text-4xl"
+						>
+							Rate the models you ship with, stamp a free Reset Pass
+						</h2>
+						<p className="mx-auto mt-4 max-w-xl text-base text-muted-foreground">
+							Takes two minutes. Your first entry of the wave earns a Reset Pass
+							on your tier, and every entry sharpens the registry for the next
+							developer at the desk.
+						</p>
+						<div className="mt-8">
 							<Button size="lg" asChild>
 								<Link href="/dashboard/survey">
-									<Stamp className="mr-1.5 h-4 w-4" />
+									<Stamp aria-hidden="true" className="mr-1.5 h-4 w-4" />
 									Rate your models · get a free Reset Pass
 								</Link>
 							</Button>
