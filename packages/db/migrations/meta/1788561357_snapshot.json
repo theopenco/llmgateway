@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "0101ad8d-c580-410a-82c8-44a97fc87ff3",
+  "id": "e6a0d739-7b37-4251-8329-a66cdbff9239",
   "prevId": "b5423a01-7e32-4919-bb42-9c3525ca1baa",
   "ddl": [
     {
@@ -121,6 +121,12 @@
     {
       "isRlsEnabled": false,
       "name": "dev_plan_card_fingerprint_history",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "device_code",
       "entityType": "tables",
       "schema": "public"
     },
@@ -313,12 +319,6 @@
     {
       "isRlsEnabled": false,
       "name": "organization_invite",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "organization_skill",
       "entityType": "tables",
       "schema": "public"
     },
@@ -4711,6 +4711,136 @@
       "entityType": "columns",
       "schema": "public",
       "table": "dev_plan_card_fingerprint_history"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "device_code",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_code",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "last_polled_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "polling_interval",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "client_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "scope",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
     },
     {
       "type": "text",
@@ -14776,135 +14906,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "organization_invite"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization_skill"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization_skill"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization_skill"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "organization_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization_skill"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "name",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization_skill"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "description",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization_skill"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "content",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization_skill"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "type": "unknown",
-        "value": "'[]'"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "files",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization_skill"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "true",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "enabled",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization_skill"
     },
     {
       "type": "text",
@@ -27304,6 +27305,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "expires_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "device_code_expires_at_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "organization_id",
           "isExpression": false,
           "asc": true,
@@ -29420,34 +29442,6 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "organization_invite"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "organization_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "name",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "organization_skill_org_name_unique",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "organization_skill"
     },
     {
       "nameExplicit": true,
@@ -32933,6 +32927,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "user",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "device_code_user_id_user_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "organization_id"
       ],
       "schemaTo": "public",
@@ -33473,23 +33484,6 @@
       "entityType": "fks",
       "schema": "public",
       "table": "organization_invite"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "organization",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "organization_skill_organization_id_organization_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "organization_skill"
     },
     {
       "nameExplicit": false,
@@ -35107,6 +35101,16 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "device_code_pkey",
+      "schema": "public",
+      "table": "device_code",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "discount_pkey",
       "schema": "public",
       "table": "discount",
@@ -35420,16 +35424,6 @@
       "name": "organization_invite_pkey",
       "schema": "public",
       "table": "organization_invite",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "organization_skill_pkey",
-      "schema": "public",
-      "table": "organization_skill",
       "entityType": "pks"
     },
     {
@@ -36329,6 +36323,28 @@
       "name": "dev_plan_card_fingerprint_history_fingerprint_key",
       "schema": "public",
       "table": "dev_plan_card_fingerprint_history",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "device_code"
+      ],
+      "nullsNotDistinct": false,
+      "name": "device_code_device_code_key",
+      "schema": "public",
+      "table": "device_code",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "user_code"
+      ],
+      "nullsNotDistinct": false,
+      "name": "device_code_user_code_key",
+      "schema": "public",
+      "table": "device_code",
       "entityType": "uniques"
     },
     {
