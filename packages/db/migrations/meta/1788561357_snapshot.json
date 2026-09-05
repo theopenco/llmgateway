@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "9f27025b-fb8c-4d91-990a-91da555d1bba",
+  "id": "e6a0d739-7b37-4251-8329-a66cdbff9239",
   "prevId": "b5423a01-7e32-4919-bb42-9c3525ca1baa",
   "ddl": [
     {
@@ -25,12 +25,6 @@
     {
       "isRlsEnabled": false,
       "name": "api_key_hourly_model_stats",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "api_key_hourly_source_stats",
       "entityType": "tables",
       "schema": "public"
     },
@@ -127,6 +121,12 @@
     {
       "isRlsEnabled": false,
       "name": "dev_plan_card_fingerprint_history",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "device_code",
       "entityType": "tables",
       "schema": "public"
     },
@@ -2001,727 +2001,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "api_key_hourly_model_stats"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "api_key_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "project_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "hour_timestamp",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "source",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "request_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "error_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "cache_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "streamed_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "non_streamed_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "completed_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "length_limit_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "content_filter_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "tool_calls_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "canceled_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "unknown_finish_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "client_error_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "gateway_error_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "upstream_error_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'0'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "input_tokens",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'0'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "output_tokens",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'0'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_tokens",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'0'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "reasoning_tokens",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'0'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "cached_tokens",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'0'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "cache_write_tokens",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "input_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "output_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "request_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "data_storage_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "discount_savings",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "image_input_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "image_output_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "audio_input_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "audio_output_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "video_output_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "cached_input_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "cache_write_input_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "credits_request_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "api_keys_request_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "credits_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "api_keys_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "credits_data_storage_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "api_keys_data_storage_cost",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
     },
     {
       "type": "text",
@@ -5432,6 +4711,136 @@
       "entityType": "columns",
       "schema": "public",
       "table": "dev_plan_card_fingerprint_history"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "device_code",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_code",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "last_polled_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "polling_interval",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "client_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "scope",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
     },
     {
       "type": "text",
@@ -27138,83 +26547,6 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "api_key_hourly_source_stats_api_key_id_hour_timestamp_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "project_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "hour_timestamp",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "api_key_hourly_source_stats_project_id_hour_timestamp_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "hour_timestamp",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "api_key_hourly_source_stats_hour_timestamp_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "api_key_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "hour_timestamp",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
       "name": "api_key_hourly_stats_api_key_id_hour_timestamp_idx",
       "entityType": "indexes",
       "schema": "public",
@@ -27968,6 +27300,27 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "dev_plan_card_fingerprint_history"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "expires_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "device_code_expires_at_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "device_code"
     },
     {
       "nameExplicit": true,
@@ -33574,6 +32927,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "user",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "device_code_user_id_user_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "organization_id"
       ],
       "schemaTo": "public",
@@ -35571,16 +34941,6 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "api_key_hourly_source_stats_pkey",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
       "name": "api_key_hourly_stats_pkey",
       "schema": "public",
       "table": "api_key_hourly_stats",
@@ -35734,6 +35094,16 @@
       "name": "dev_plan_card_fingerprint_history_pkey",
       "schema": "public",
       "table": "dev_plan_card_fingerprint_history",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "device_code_pkey",
+      "schema": "public",
+      "table": "device_code",
       "entityType": "pks"
     },
     {
@@ -36654,19 +36024,6 @@
       "nameExplicit": false,
       "columns": [
         "api_key_id",
-        "hour_timestamp",
-        "source"
-      ],
-      "nullsNotDistinct": false,
-      "name": "api_key_hourly_source_stats_api_key_id_hour_timestamp_source_unique",
-      "entityType": "uniques",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "api_key_id",
         "hour_timestamp"
       ],
       "nullsNotDistinct": false,
@@ -36966,6 +36323,28 @@
       "name": "dev_plan_card_fingerprint_history_fingerprint_key",
       "schema": "public",
       "table": "dev_plan_card_fingerprint_history",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "device_code"
+      ],
+      "nullsNotDistinct": false,
+      "name": "device_code_device_code_key",
+      "schema": "public",
+      "table": "device_code",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "user_code"
+      ],
+      "nullsNotDistinct": false,
+      "name": "device_code_user_code_key",
+      "schema": "public",
+      "table": "device_code",
       "entityType": "uniques"
     },
     {
