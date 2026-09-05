@@ -1765,6 +1765,13 @@
       "when": 1788595138023,
       "tag": "1788595138_equal_mathemanic",
       "breakpoints": true
+    },
+    {
+      "idx": 252,
+      "version": "8",
+      "when": 1788602670967,
+      "tag": "1788602670_wise_forge",
+      "breakpoints": true
     }
   ]
 }
