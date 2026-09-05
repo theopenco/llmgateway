@@ -7,6 +7,7 @@ import {
 	projectHourlySourceStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
+	apiKeyHourlySourceStats,
 	providerKeyHourlyStats,
 	eq,
 	inArray,
@@ -48,6 +49,7 @@ export async function deleteAll() {
 			await db.delete(projectHourlySourceStats);
 			await db.delete(apiKeyHourlyStats);
 			await db.delete(apiKeyHourlyModelStats);
+			await db.delete(apiKeyHourlySourceStats);
 			await db.delete(providerKeyHourlyStats);
 			await db.delete(tables.apiKey);
 			await db.delete(tables.providerKey);
