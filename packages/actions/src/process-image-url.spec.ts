@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
+import {
+	ImageSizeLimitError,
+	processImageUrl,
+	resolveImageFetchTimeoutMs,
+} from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 
 const MAX_SIZE_MB = 1;
@@ -22,6 +26,23 @@ function imageResponseWithBody(bytes: number): Response {
 		start(controller) {
 			controller.enqueue(new Uint8Array(bytes));
 			controller.close();
+		},
+	});
+	return new Response(stream, { headers: { "content-type": "image/png" } });
+}
+
+function stalledImageResponse(signal?: AbortSignal): Response {
+	// Models undici: the body stream is errored when the fetch signal aborts
+	// mid-download. With no signal the reader never settles, which is exactly
+	// the hang this test is about.
+	const stream = new ReadableStream<Uint8Array>({
+		start(controller) {
+			signal?.addEventListener("abort", () => {
+				controller.error(signal.reason);
+			});
+		},
+		pull() {
+			return new Promise<void>(() => {});
 		},
 	});
 	return new Response(stream, { headers: { "content-type": "image/png" } });
@@ -215,8 +236,30 @@ describe("processImageUrl size limits", () => {
 
 		await processImageUrl(REMOTE_URL);
 
-		expect(fetchSpy).toHaveBeenCalledWith(REMOTE_URL, { redirect: "error" });
+		expect(fetchSpy).toHaveBeenCalledWith(REMOTE_URL, {
+			redirect: "error",
+			signal: expect.any(AbortSignal),
+		});
 	});
+
+	it("gives up on a server that never finishes sending the image", async () => {
+		// A remote host that trickles bytes (or simply never sends the last one)
+		// keeps undici's bodyTimeout alive forever: client-h1 refreshes the timer
+		// on every chunk, so the 300s default is an inactivity timeout, not a
+		// deadline. Only a signal on the fetch bounds the whole download.
+		vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", "50");
+		vi.resetModules();
+		const { processImageUrl: freshProcessImageUrl } =
+			await import("./process-image-url.js");
+
+		vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) =>
+			Promise.resolve(stalledImageResponse(init?.signal ?? undefined)),
+		);
+
+		await expect(
+			freshProcessImageUrl(REMOTE_URL, false, MAX_SIZE_MB, "free"),
+		).rejects.toThrow("Failed to process image from URL");
+	}, 2000);
 });
 
 describe("processImageUrl data URLs", () => {
@@ -257,5 +300,37 @@ describe("processImageUrl data URLs", () => {
 		expect(Buffer.from(data, "base64").byteLength).toBe(
 			MAX_SIZE_MB * 1024 * 1024,
 		);
+	});
+});
+
+describe("resolveImageFetchTimeoutMs", () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	it("defaults to 15000 when unset", () => {
+		delete process.env.IMAGE_FETCH_TIMEOUT_MS;
+		expect(resolveImageFetchTimeoutMs()).toBe(15_000);
+	});
+
+	it.each(["-1", "Infinity", "1.5", "not-a-number"])(
+		"falls back to 15000 for invalid value %s (never throws)",
+		(value) => {
+			vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", value);
+			expect(resolveImageFetchTimeoutMs()).toBe(15_000);
+			expect(() =>
+				AbortSignal.timeout(resolveImageFetchTimeoutMs()),
+			).not.toThrow();
+		},
+	);
+
+	it("honours a valid integer value", () => {
+		vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", "5000");
+		expect(resolveImageFetchTimeoutMs()).toBe(5000);
+	});
+
+	it("honours 0", () => {
+		vi.stubEnv("IMAGE_FETCH_TIMEOUT_MS", "0");
+		expect(resolveImageFetchTimeoutMs()).toBe(0);
 	});
 });
