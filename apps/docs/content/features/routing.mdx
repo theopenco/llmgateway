@@ -40,14 +40,14 @@ Each factor has a **relative weight**. The factors are scored as ratios against 
 
 The default weights are:
 
-| Factor          | Default weight | Notes                                                                      |
-| --------------- | -------------- | -------------------------------------------------------------------------- |
-| **Price**       | `0.6`          | Cost efficiency (average of input and output price)                        |
-| **Uptime**      | `0.5`          | Provider reliability / low error rate                                      |
-| **Throughput**  | `0.05`         | Tokens per second generation speed                                         |
-| **Latency**     | `0.025`        | Time to first token — **only applied for streaming requests**              |
-| **Cache**       | `0.2`          | Prompt-cache support — **only applied for large prompts** (≥ 5,000 tokens) |
-| **Image price** | `1.0`          | Replaces the price weight for image-generation models                      |
+| Factor          | Default weight | Notes                                                                                  |
+| --------------- | -------------- | -------------------------------------------------------------------------------------- |
+| **Price**       | `0.6`          | Token cost for the expected input/output mix, including cache reads when relevant      |
+| **Uptime**      | `0.5`          | Provider reliability / low error rate                                                  |
+| **Throughput**  | `0.05`         | Tokens per second generation speed                                                     |
+| **Latency**     | `0.025`        | Time to first token — **only applied for streaming requests**                          |
+| **Cache**       | `0.2`          | Prompt-cache support for large prompts (≥ 5,000 tokens) or sessions with usage history |
+| **Image price** | `1.0`          | Replaces the price weight for image-generation models                                  |
 
 Because the weights are relative and normalized by the sum of the active weights, price and uptime dominate routing decisions in practice, while throughput and latency act as tie-breakers between otherwise comparable providers.
 
@@ -65,11 +65,22 @@ Provider metrics (uptime, throughput, latency) are not a flat "last N minutes" s
 
 This makes routing react quickly to a provider that just started failing or slowing down, without overreacting to a single noisy data point.
 
-**Cache Support for Large Prompts**:
+**Prompt Caching and Token Costs**:
 
-When the estimated prompt is at least 5,000 tokens, the **cache weight** (default `0.2`) is factored into the score based on whether each provider supports prompt caching (advertised via a cached input price). Providers that support caching score better than ones that do not, since caching can substantially reduce the cost of large or repeated prompts. Below the 5,000-token threshold, this weight is dropped entirely — caching has little impact on small prompts, so cache support is ignored. The selected provider's cache support is exposed as `cacheSupported` on the routing metadata.
+For estimated prompts of at least **5,000 tokens**, routing blends each provider's uncached and cached input prices and weights output by the expected output:input token ratio. Coding sessions that mostly reuse prompt tokens can therefore favor a provider with cheaper cache reads even when its uncached input price is higher. Providers without a cached input price use their full input price.
 
-For these cache-relevant requests, the price each provider is ranked on also reflects what a cached workload actually pays: the input price is blended with the provider's cached input price at an assumed cache-hit rate (`thresholds.cacheHitRate`, default `0.7`), and output is weighted at an assumed output:input ratio (`thresholds.cacheOutputRatio`, default `0.2`) instead of parity, since large-prompt traffic is dominated by input tokens. Providers that do not publish a cached input price are ranked at their full input price, matching how they bill. Setting `cacheHitRate` to `0` and `cacheOutputRatio` to `1` restores pure list-price ranking.
+These estimates use the project's **last 24 hours of model usage**, once it includes at least **20 successful requests and 100,000 input tokens**:
+
+- **Cache-hit rate** is cached input tokens divided by total input tokens. Each provider uses its own rate once it meets the same sample thresholds; otherwise it uses the project's combined rate for that model.
+- **Output:input ratio** uses the project's combined output and input tokens for that model across providers.
+
+Routing caches the usage lookup for 60 seconds. It reads hourly aggregates, which work with payload retention disabled. Buckets containing gateway response-cache hits are excluded because they cannot isolate upstream usage. During lookup failures, routing uses previously cached observations when available, then falls back to configured estimates. These are workload estimates, not guarantees that a particular prompt will hit a provider's cache.
+
+Without enough history, the defaults are **70% cache hits** (`thresholds.cacheHitRate: 0.7`) and **20% output/input** (`thresholds.cacheOutputRatio: 0.2`). Explicit Enterprise overrides take precedence over observations. Setting them to `0` and `1`, respectively, restores list-price ranking.
+
+Both `auto` and `price` routing use these token-cost estimates. The separate **cache weight** (default `0.2`) favors providers advertising cache support; `price` routing sets that weight to zero but still prices cache reads into its price score. Cache support appears as `cacheSupported` in routing metadata.
+
+When choosing a [session's provider](#sticky-session-routing), sufficient usage history also informs pricing and cache support for a short first prompt. Small requests outside a session weight input and output prices equally and omit the cache weight.
 
 **Exponential Uptime Penalty**:
 
@@ -153,12 +164,12 @@ This transparency allows you to understand and debug routing decisions.
 
 By default, model-ID routing uses the full weighted score described above (`routing: "auto"`). When you care about a single dimension, set the `routing` field — named after the factor it optimizes — to bias provider selection toward it:
 
-| Strategy           | Behavior                                                                             |
-| ------------------ | ------------------------------------------------------------------------------------ |
-| `auto` _(default)_ | Full weighted smart-routing score (price, uptime, throughput, latency, cache).       |
-| `price`            | Gives price a **90% relative weight**, so the cheapest provider almost always wins.  |
-| `throughput`       | Gives throughput a **90% relative weight**, so the fastest-generating provider wins. |
-| `latency`          | Gives latency a **90% relative weight**, so the lowest time-to-first-token wins.     |
+| Strategy           | Behavior                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------------------ |
+| `auto` _(default)_ | Full weighted smart-routing score (price, uptime, throughput, latency, cache).             |
+| `price`            | Gives price a **90% relative weight**, including estimated cache-read costs when relevant. |
+| `throughput`       | Gives throughput a **90% relative weight**, so the fastest-generating provider wins.       |
+| `latency`          | Gives latency a **90% relative weight**, so the lowest time-to-first-token wins.           |
 
 Each non-`auto` strategy keeps a small (10%) uptime weight, and the [exponential uptime penalty](#smart-routing-algorithm) still applies on top. This means the dominant pick is still skipped in favor of another provider when it has extremely bad uptime — you get the cheapest (or fastest) provider that is actually healthy, not one that is effectively down.
 
@@ -227,6 +238,8 @@ For the Anthropic Messages endpoint (`/v1/messages`), the session key is derived
 #### How pinning works
 
 On a session's **first** request the provider is chosen by the normal weighted smart-routing score — the same price-, priority-, uptime-, and throughput-aware algorithm used for non-sticky requests. That choice is then **persisted for the session** and reused on every subsequent request, so the upstream prompt cache stays warm without bouncing the conversation between providers.
+
+When sufficient project/model usage exists, the first selection uses its observed cache-hit rate and output/input mix even if the opening prompt is short. New usage observations affect future provider selections; a healthy existing pin stays in place as described below.
 
 Because the pinned provider is replayed directly, sticky requests **skip the epsilon-greedy exploration** — a session is never randomly bounced to a different provider mid-conversation.
 
@@ -495,7 +508,7 @@ Failed attempts still count against the provider's uptime score, even when the r
 
 ## Per-Project Routing Configuration (Enterprise)
 
-The values described above — scoring weights, thresholds, retry behavior, the metrics window, sticky-routing, and per-provider priorities — are the **defaults** that apply to every project. On the **Enterprise plan**, you can override any of them **per project** from the dashboard under **Project Settings → Routing**. Projects on other plans always use the defaults.
+All plans use observed token usage for cache pricing when sufficient history exists. On the **Enterprise plan**, you can override the settings listed below **per project** from the dashboard under **Project Settings → Routing**, including explicit cache-pricing assumptions. The 24-hour usage window and minimum sample requirements are fixed; the **History** settings control uptime, throughput, and latency metrics.
 
 Overrides are merged on top of the defaults, so you only set the values you want to change. When a custom configuration is disabled, the project falls back to the defaults.
 
@@ -504,7 +517,7 @@ The following groups can be customized per project:
 | Group                   | What it controls                                                                                                                                                                     | Defaults                                                                                                                                                                             |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Weights**             | Relative importance of each scoring factor                                                                                                                                           | `price 0.6`, `imagePrice 1.0`, `uptime 0.5`, `throughput 0.05`, `latency 0.025`, `cache 0.2`                                                                                         |
-| **Thresholds**          | Cache prompt-size threshold, uptime-penalty threshold, exploration rate, and the assumed defaults used when no metrics exist                                                         | `cachePromptTokens 5000`, `cacheHitRate 0.7`, `cacheOutputRatio 0.2`, `uptimePenalty 95`, `defaultUptime 100`, `defaultLatency 1000`, `defaultThroughput 50`, `explorationRate 0.01` |
+| **Thresholds**          | Cache prompt size and pricing overrides, uptime-penalty threshold, exploration rate, and fallback metrics                                                                            | `cachePromptTokens 5000`, `cacheHitRate 0.7`, `cacheOutputRatio 0.2`, `uptimePenalty 95`, `defaultUptime 100`, `defaultLatency 1000`, `defaultThroughput 50`, `explorationRate 0.01` |
 | **Retry**               | Max cross-provider fallback attempts and the low-uptime reroute threshold                                                                                                            | `maxRetries 2`, `lowUptimeFallbackThreshold 90`                                                                                                                                      |
 | **Timeouts**            | Per-request time limits (end-to-end, streaming, non-streaming) — see [Request Timeouts](/features/timeouts). Capped at the infrastructure defaults — an override can only lower them | `gatewayMs 1,500,000`, `streamingMs 1,200,000`, `plainMs 600,000`                                                                                                                    |
 | **History**             | The metrics window and the time-decay tier boundaries and weights                                                                                                                    | `windowMinutes 60` (max 120), `tier1Minutes 1`, `tier2Minutes 5`, `tier1Weight 10`, `tier2Weight 3`, `tier3Weight 1`                                                                 |

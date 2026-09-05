@@ -50,6 +50,7 @@ Use the local `skill-authoring` skill when creating or editing repository skills
 
 ### Documentation
 
+- ALWAYS update affected `apps/docs` pages in the same PR as user-visible behavior changes. For routing changes, update `apps/docs/content/features/routing.mdx` and review session and DevPass guidance for pricing, learning thresholds, overrides, fallback, and pinning behavior. Check the prose against the final implementation before handoff.
 - NEVER hardcode a list of models, providers, provider countries/headquarters, or any other catalogue-derived enumeration into documentation (`apps/docs`), changelog entries, or marketing copy. These lists go stale the moment the catalogue changes and are annoying to keep in sync. Instead, link to the relevant live page that is generated from the catalogue (e.g. the [models page](https://llmgateway.io/models) or [providers page](https://llmgateway.io/providers)).
 - The ONLY exception is video generation and image generation models: their per-model requirements (supported sizes, durations, resolutions, etc.) are how users figure out how to call them, so listing those specific models and their constraints in the docs is acceptable and preferred there.
 
