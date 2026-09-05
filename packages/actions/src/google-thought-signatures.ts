@@ -21,6 +21,26 @@ export function isGoogleReasoningDetail(detail: ReasoningDetail): boolean {
 	);
 }
 
+/** Keep the provider's text available when JSON healing changes the answer. */
+export function preserveGoogleResponseText(
+	details: ReasoningDetail[],
+	originalText: string,
+	responseText: string,
+): ReasoningDetail[] {
+	if (originalText === responseText) {
+		return details;
+	}
+	const index = details.findIndex(isGoogleReasoningDetail);
+	return details.map((detail, i) =>
+		i === index
+			? {
+					...detail,
+					google_response: { original_text: originalText, text: responseText },
+				}
+			: detail,
+	);
+}
+
 /** Keep signed text boundaries even when Chat Completions flattens content. */
 export function buildGoogleReasoningDetails(
 	parts: Array<
@@ -56,7 +76,30 @@ export function restoreGoogleReasoningDetails<T extends GoogleTextPart>(
 	parts: T[],
 	details: ReasoningDetail[] | undefined,
 ): Array<T | GoogleTextPart> {
-	const restored: Array<T | GoogleTextPart> = [...parts];
+	let restored: Array<T | GoogleTextPart> = [...parts];
+	for (const detail of details ?? []) {
+		if (
+			!isGoogleReasoningDetail(detail) ||
+			!detail.google_response ||
+			typeof detail.google_response !== "object"
+		) {
+			continue;
+		}
+		const { original_text: originalText, text } =
+			detail.google_response as Record<string, unknown>;
+		if (
+			typeof originalText === "string" &&
+			typeof text === "string" &&
+			parts.every(
+				(part) =>
+					part.text !== undefined && !part.thought && !part.thoughtSignature,
+			) &&
+			parts.map((part) => part.text).join("") === text
+		) {
+			restored = [{ text: originalText }];
+			break;
+		}
+	}
 	let textOffset = 0;
 	const explicitParts = parts.flatMap((part) => {
 		const offset = textOffset;

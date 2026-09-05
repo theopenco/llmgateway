@@ -1,4 +1,7 @@
-import { buildGoogleReasoningDetails } from "@llmgateway/actions";
+import {
+	buildGoogleReasoningDetails,
+	preserveGoogleResponseText,
+} from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -553,9 +556,18 @@ export function transformResponseToOpenai(
 							},
 						];
 			for (const [index, choice] of googleChoices.entries()) {
-				const details = buildGoogleReasoningDetails(
-					googleCandidates[index]?.content?.parts ?? [],
-				);
+				const parts = googleCandidates[index]?.content?.parts ?? [];
+				let details = buildGoogleReasoningDetails(parts);
+				if (details.length > 0 && typeof choice.message.content === "string") {
+					details = preserveGoogleResponseText(
+						details,
+						parts
+							.filter((part: { thought?: boolean }) => !part.thought)
+							.map((part: { text?: string }) => part.text ?? "")
+							.join(""),
+						choice.message.content,
+					);
+				}
 				if (details.length > 0) {
 					Object.assign(choice.message, { reasoning_details: details });
 				}

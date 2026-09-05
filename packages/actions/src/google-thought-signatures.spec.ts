@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	buildGoogleReasoningDetails,
+	preserveGoogleResponseText,
 	restoreGoogleReasoningDetails,
 } from "./google-thought-signatures.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
@@ -47,6 +48,24 @@ describe("Gemini signed text parts", () => {
 			{ text: "answer", thoughtSignature: "answer-signature" },
 			{ text: "", thoughtSignature: "final-signature" },
 		]);
+	});
+
+	it("replays original signed JSON while keeping client edits authoritative", () => {
+		const parts = [
+			{ text: '{"answer":' },
+			{ text: "42}}", thoughtSignature: "json-signature" },
+		];
+		const details = preserveGoogleResponseText(
+			buildGoogleReasoningDetails(parts),
+			'{"answer":42}}',
+			'{"answer":42}',
+		);
+		expect(
+			restoreGoogleReasoningDetails([{ text: '{"answer":42}' }], details),
+		).toEqual(parts);
+		expect(
+			restoreGoogleReasoningDetails([{ text: '{"answer":43}' }], details),
+		).toEqual([{ text: '{"answer":43}' }]);
 	});
 
 	it("accepts signature-only OpenRouter details and ignores foreign formats", async () => {

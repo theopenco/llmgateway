@@ -409,6 +409,8 @@ The gateway converts supported `reasoning_details` formats to native provider fi
 
 Gemini text turns carry signatures in `reasoning_details` entries with `type: "reasoning.text"` and `format: "google-gemini-v1"`. Replay the entire assistant message, including these entries. Preserve each entry's `google_part` metadata: it lets the gateway restore the original signed text boundaries. Streaming clients must collect `delta.reasoning_details`, including entries arriving with empty text.
 
+When the gateway repairs JSON, clients receive the repaired answer. The entries also carry `google_response` metadata so replay can restore the original signed text. Editing the returned answer prevents that restoration.
+
 On the Responses API, replay the complete `output`: assistant message items carry `reasoning_details`, while function call items carry `extra_content.google.thought_signature`. These fields are returned without an `include` opt-in. Stored conversations using `previous_response_id` preserve them automatically. Gemini signatures are not converted into OpenAI `encrypted_content`.
 
 For Chat Completions, `content[]` text parts and `tool_calls[]` also accept `extra_content.google.thought_signature`. The tool-call signature cache remains a fallback, but replaying the metadata also works when signatures are not cached. Only replay signatures with the original content and the model/provider that issued them.

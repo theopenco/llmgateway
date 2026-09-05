@@ -39,6 +39,7 @@ describe("Gemini thought signature replay", () => {
 	let server: Server;
 	let baseUrl = "";
 	let toolResponse = false;
+	let jsonResponse = false;
 	let captured: Array<{
 		contents: Array<{ role: string; parts: MockGooglePart[] }>;
 	}> = [];
@@ -107,8 +108,8 @@ describe("Gemini thought signature replay", () => {
 				if (req.url?.includes("streamGenerateContent")) {
 					res.writeHead(200, { "Content-Type": "text/event-stream" });
 					for (const chunk of [
-						response([{ text: "Answer: " }]),
-						response([{ text: "42" }]),
+						response([{ text: jsonResponse ? '{"answer":' : "Answer: " }]),
+						response([{ text: jsonResponse ? "42}}" : "42" }]),
 						response([{ text: "", thoughtSignature: signature }], true),
 					]) {
 						res.write(`data: ${JSON.stringify(chunk)}\n\n`);
@@ -120,8 +121,11 @@ describe("Gemini thought signature replay", () => {
 						JSON.stringify(
 							response(
 								[
-									{ text: "Answer: " },
-									{ text: "42", thoughtSignature: signature },
+									{ text: jsonResponse ? '{"answer":' : "Answer: " },
+									{
+										text: jsonResponse ? "42}}" : "42",
+										thoughtSignature: signature,
+									},
 								],
 								true,
 							),
@@ -149,6 +153,7 @@ describe("Gemini thought signature replay", () => {
 	async function setup(retention: "retain" | "none") {
 		captured = [];
 		toolResponse = false;
+		jsonResponse = false;
 		await db
 			.update(tables.organization)
 			.set({ retentionLevel: retention })
@@ -173,11 +178,16 @@ describe("Gemini thought signature replay", () => {
 		});
 	}
 
-	for (const retention of ["retain", "none"] as const) {
+	for (const { retention, json } of [
+		{ retention: "retain", json: false },
+		{ retention: "none", json: false },
+		{ retention: "none", json: true },
+	] as const) {
 		for (const stream of [false, true]) {
 			for (const endpoint of ["chat/completions", "responses"]) {
-				test(`${endpoint}: replays ${stream ? "streamed" : "non-streamed"} text with retention ${retention}`, async () => {
+				test(`${endpoint}: replays ${stream ? "streamed" : "non-streamed"} ${json ? "healed JSON" : "text"} with retention ${retention}`, async () => {
 					await setup(retention);
+					jsonResponse = json;
 					const initial = { role: "user", content: "What is the answer?" };
 					const isResponses = endpoint === "responses";
 					const res = await app.request(`/v1/${endpoint}`, {
@@ -186,6 +196,11 @@ describe("Gemini thought signature replay", () => {
 						body: JSON.stringify({
 							model,
 							stream,
+							...(json
+								? isResponses
+									? { text: { format: { type: "json_object" } } }
+									: { response_format: { type: "json_object" } }
+								: {}),
 							...(isResponses
 								? { input: [initial], store: false }
 								: { messages: [initial] }),
@@ -204,6 +219,12 @@ describe("Gemini thought signature replay", () => {
 						const message = response.output.find(
 							(item) => item.type === "message",
 						);
+						expect(message?.content).toMatchObject([
+							{
+								type: "output_text",
+								text: json ? '{"answer":42}' : "Answer: 42",
+							},
+						]);
 						expect(message?.reasoning_details).toEqual(
 							expect.arrayContaining([
 								expect.objectContaining({
@@ -234,6 +255,7 @@ describe("Gemini thought signature replay", () => {
 							};
 							message = response.choices[0]!.message;
 						}
+						expect(message.content).toBe(json ? '{"answer":42}' : "Answer: 42");
 						expect(message.reasoning_details).toEqual(
 							expect.arrayContaining([
 								expect.objectContaining({
@@ -267,12 +289,12 @@ describe("Gemini thought signature replay", () => {
 					).toEqual(
 						stream
 							? [
-									{ text: "Answer: 42" },
+									{ text: json ? '{"answer":42}}' : "Answer: 42" },
 									{ text: "", thoughtSignature: signature },
 								]
 							: [
-									{ text: "Answer: " },
-									{ text: "42", thoughtSignature: signature },
+									{ text: json ? '{"answer":' : "Answer: " },
+									{ text: json ? "42}}" : "42", thoughtSignature: signature },
 								],
 					);
 				});

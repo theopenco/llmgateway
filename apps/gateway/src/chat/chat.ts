@@ -148,6 +148,8 @@ import {
 	UnsupportedDocumentFormatError,
 	type RoutingMetadata,
 	type GoogleThoughtSignatureState,
+	isGoogleReasoningDetail,
+	preserveGoogleResponseText,
 } from "@llmgateway/actions";
 import {
 	generateCacheKey,
@@ -175,6 +177,7 @@ import {
 import { logger, toError } from "@llmgateway/logger";
 import {
 	type BaseMessage,
+	type ReasoningDetail,
 	getModelStreamingSupport,
 	hasMaxTokens,
 	hasRegionSpecificEnvKey,
@@ -9720,6 +9723,7 @@ chat.openapi(completions, async (c) => {
 				// Buffer for storing chunks when healing is enabled
 				// We need to buffer content, track last chunk info, and replay healed content at the end
 				const bufferedContentChunks: string[] = [];
+				const bufferedGoogleDetails: ReasoningDetail[] = [];
 				let lastChunkId: string | null = null;
 				let lastChunkModel: string | null = null;
 				let lastChunkCreated: number | null = null;
@@ -10763,6 +10767,24 @@ chat.openapi(completions, async (c) => {
 									);
 									if (chunkWithoutContent.choices?.[0]?.delta?.content) {
 										delete chunkWithoutContent.choices[0].delta.content;
+									}
+									const bufferedDelta = chunkWithoutContent.choices?.[0]?.delta;
+									if (
+										isGoogleCompatibleProvider(usedProvider) &&
+										bufferedContentChunks.length > 0 &&
+										bufferedDelta?.reasoning_details
+									) {
+										const details =
+											bufferedDelta.reasoning_details as ReasoningDetail[];
+										bufferedGoogleDetails.push(
+											...details.filter(isGoogleReasoningDetail),
+										);
+										bufferedDelta.reasoning_details = details.filter(
+											(detail) => !isGoogleReasoningDetail(detail),
+										);
+										if (bufferedDelta.reasoning_details.length === 0) {
+											delete bufferedDelta.reasoning_details;
+										}
 									}
 
 									// Only send chunk if it has meaningful data (not just empty delta)
@@ -11851,6 +11873,15 @@ chat.openapi(completions, async (c) => {
 											index: 0,
 											delta: {
 												content: healingResult.content,
+												...(bufferedGoogleDetails.length > 0
+													? {
+															reasoning_details: preserveGoogleResponseText(
+																bufferedGoogleDetails,
+																bufferedContent,
+																healingResult.content,
+															),
+														}
+													: {}),
 											},
 											finish_reason: null,
 										},
