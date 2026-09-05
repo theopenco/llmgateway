@@ -1,9 +1,12 @@
 import {
 	getProviderMetricsFromHistory,
+	getProjectRoutingUsage,
+	metricsKey,
 	type ProviderMetrics,
 } from "@llmgateway/db";
 import {
 	DEFAULT_ROUTING_HISTORY,
+	DEFAULT_ROUTING_THRESHOLDS,
 	type ResolvedRoutingConfig,
 } from "@llmgateway/shared/routing-config";
 
@@ -22,7 +25,35 @@ export async function getProviderMetricsForRouting(
 		region?: string;
 	}>,
 	cfg?: ResolvedRoutingConfig,
+	usageContext?: { projectId: string; promptTokens: number; session?: boolean },
 ): Promise<Map<string, ProviderMetrics>> {
 	const history = cfg?.history ?? DEFAULT_ROUTING_HISTORY;
-	return await getProviderMetricsFromHistory(combinations, history);
+	const thresholds = cfg?.thresholds ?? DEFAULT_ROUTING_THRESHOLDS;
+	const [metrics, usage] = await Promise.all([
+		getProviderMetricsFromHistory(combinations, history),
+		usageContext &&
+		(usageContext.promptTokens >= thresholds.cachePromptTokens ||
+			usageContext.session)
+			? getProjectRoutingUsage(usageContext.projectId, combinations)
+			: undefined,
+	]);
+	if (usage) {
+		for (const candidate of combinations) {
+			const key = metricsKey(
+				candidate.modelId,
+				candidate.providerId,
+				candidate.region,
+			);
+			const tokenMix = usage.get(key);
+			if (tokenMix) {
+				metrics.set(key, {
+					...candidate,
+					totalRequests: 0,
+					...metrics.get(key),
+					...tokenMix,
+				});
+			}
+		}
+	}
+	return metrics;
 }

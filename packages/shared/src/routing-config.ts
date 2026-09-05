@@ -12,16 +12,13 @@ export interface RoutingWeightsConfig {
 export interface RoutingThresholdsConfig {
 	cachePromptTokens?: number;
 	/**
-	 * Assumed prompt-cache hit rate ([0,1]) used to blend cachedInputPrice into
-	 * the routing price once a request reaches cachePromptTokens. 0 ranks on
-	 * list prices only.
+	 * Prompt-cache hit rate ([0,1]). Explicit overrides take precedence over
+	 * observed project usage; otherwise the default is a cold-start fallback.
 	 */
 	cacheHitRate?: number;
 	/**
-	 * Assumed output:input token ratio for cache-relevant (large-prompt)
-	 * requests. The default ranking weighs output at parity with input, which
-	 * buries cachedInputPrice differences for prompt-heavy traffic; 1 keeps
-	 * parity.
+	 * Output:input ratio for large prompts. Explicit overrides take precedence
+	 * over observed project usage; otherwise the default is a cold-start fallback.
 	 */
 	cacheOutputRatio?: number;
 	uptimePenalty?: number;
@@ -100,6 +97,11 @@ export interface RoutingConfigOverrides {
 export interface ResolvedRoutingConfig {
 	weights: Required<RoutingWeightsConfig>;
 	thresholds: Required<RoutingThresholdsConfig>;
+	/** Preserve explicit pricing assumptions when applying observed token usage. */
+	cachePricingOverrides?: Pick<
+		RoutingThresholdsConfig,
+		"cacheHitRate" | "cacheOutputRatio"
+	>;
 	retry: Required<RoutingRetryConfig>;
 	/**
 	 * Timeouts are intentionally kept as the raw project overrides (not
@@ -316,6 +318,10 @@ export function resolveRoutingConfig(
 			DEFAULT_ROUTING_THRESHOLDS,
 			effectiveOverrides?.thresholds,
 		),
+		cachePricingOverrides: {
+			cacheHitRate: effectiveOverrides?.thresholds?.cacheHitRate,
+			cacheOutputRatio: effectiveOverrides?.thresholds?.cacheOutputRatio,
+		},
 		retry: mergeGroup(DEFAULT_ROUTING_RETRY, effectiveOverrides?.retry),
 		timeouts: timeoutOverrides,
 		history: clampHistory(

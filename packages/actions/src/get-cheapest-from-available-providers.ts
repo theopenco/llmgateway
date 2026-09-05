@@ -553,13 +553,27 @@ async function getProviderSelectionPrices<T extends AvailableModelProvider>(
 				modelWithPricing.providers,
 				provider,
 			);
+			const metrics = options?.metricsMap?.get(
+				metricsKey(modelWithPricing.id, provider.providerId, provider.region),
+			);
+			const overrides = options?.routingConfig?.cachePricingOverrides;
+			const observedCachePricing = cachePricing && {
+				hitRate:
+					overrides?.cacheHitRate !== undefined || cachePricing.hitRate === 0
+						? cachePricing.hitRate
+						: (metrics?.cacheHitRate ?? cachePricing.hitRate),
+				outputRatio:
+					overrides?.cacheOutputRatio !== undefined
+						? cachePricing.outputRatio
+						: (metrics?.cacheOutputRatio ?? cachePricing.outputRatio),
+			};
 			const { price, discount } = await getDiscountedProviderSelectionPrice(
 				providerInfo,
 				modelWithPricing.id,
 				{
 					...options,
 					videoPricing,
-					cachePricing,
+					cachePricing: observedCachePricing,
 				},
 			);
 			let routingMultiplier = new Decimal(1);
@@ -672,12 +686,22 @@ export async function getCheapestFromAvailableProviders<
 	const promptTokens = options?.promptTokens;
 	const cfg = options?.routingConfig ?? getDefaultRoutingConfig();
 	const { thresholds } = cfg;
+	const sessionStore = options?.sessionProviderStore;
+	const sessionSticky = sessionStore !== undefined && cfg.session.enabled;
 	// Use higher price weight for image generation models
 	const isImageModel = modelWithPricing.output?.includes("image") ?? false;
 	const cacheSupportRelevant =
-		promptTokens !== undefined && promptTokens >= thresholds.cachePromptTokens;
-	// Rank cache-relevant requests on the price a cached workload pays. Below
-	// the prompt-size threshold ranking is unchanged.
+		(promptTokens !== undefined &&
+			promptTokens >= thresholds.cachePromptTokens) ||
+		// A new session may start small before growing into the project's usual
+		// workload. Use that history before choosing the provider it pins.
+		(sessionSticky &&
+			availableModelProviders.some(
+				(p) =>
+					metricsMap?.get(
+						metricsKey(modelWithPricing.id, p.providerId, p.region),
+					)?.cacheOutputRatio !== undefined,
+			));
 	const cachePricing: CachePricingContext | undefined = cacheSupportRelevant
 		? {
 				hitRate: Math.min(1, Math.max(0, thresholds.cacheHitRate)),
@@ -731,8 +755,6 @@ export async function getCheapestFromAvailableProviders<
 	// is enabled for the project), the provider is scored with the normal
 	// weighted algorithm below and then pinned for the session via the store.
 	// Exploration is skipped so the deterministic best is what gets persisted.
-	const sessionStore = options?.sessionProviderStore;
-	const sessionSticky = sessionStore !== undefined && cfg.session.enabled;
 
 	// Epsilon-greedy exploration: randomly select a provider some % of the time
 	// (configurable per project via thresholds.explorationRate). Skip during tests

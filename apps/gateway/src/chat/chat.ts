@@ -4143,6 +4143,11 @@ chat.openapi(completions, async (c) => {
 			const metricsMap = await getProviderMetricsForRouting(
 				metricsCombinations,
 				routingCfg,
+				{
+					projectId: project.id,
+					promptTokens: routingPromptTokens,
+					session: sessionStickyEnabled,
+				},
 			);
 			providerAgnosticSelectedProviders =
 				await collapseProvidersToBestRegionPerProvider(
@@ -4443,6 +4448,11 @@ chat.openapi(completions, async (c) => {
 					const metricsMap = await getProviderMetricsForRouting(
 						metricsCombinations,
 						routingCfg,
+						{
+							projectId: project.id,
+							promptTokens: routingPromptTokens,
+							session: sessionStickyEnabled,
+						},
 					);
 					const bestRegionResult = await getCheapestFromAvailableProviders(
 						eligibleMappings,
@@ -4668,6 +4678,11 @@ chat.openapi(completions, async (c) => {
 						const allMetricsMap = await getProviderMetricsForRouting(
 							metricsCombinations,
 							routingCfg,
+							{
+								projectId: project.id,
+								promptTokens: routingPromptTokens,
+								session: sessionStickyEnabled,
+							},
 						);
 
 						const cheapestResult = await getCheapestFromAvailableProviders(
@@ -4848,6 +4863,11 @@ chat.openapi(completions, async (c) => {
 						const allMetricsMap = await getProviderMetricsForRouting(
 							metricsCombinations,
 							routingCfg,
+							{
+								projectId: project.id,
+								promptTokens: routingPromptTokens,
+								session: sessionStickyEnabled,
+							},
 						);
 						const providerAgnosticCandidates =
 							await collapseProvidersToBestRegionPerProvider(
@@ -5196,6 +5216,11 @@ chat.openapi(completions, async (c) => {
 				const metricsMap = await getProviderMetricsForRouting(
 					metricsCombinations,
 					routingCfg,
+					{
+						projectId: project.id,
+						promptTokens: routingPromptTokens,
+						session: sessionStickyEnabled,
+					},
 				);
 				const providerAgnosticCandidates =
 					await collapseProvidersToBestRegionPerProvider(
@@ -5457,6 +5482,11 @@ chat.openapi(completions, async (c) => {
 			metricsMap = await getProviderMetricsForRouting(
 				metricsCombinations,
 				routingCfg,
+				{
+					projectId: project.id,
+					promptTokens: routingPromptTokens,
+					session: sessionStickyEnabled,
+				},
 			);
 		}
 
