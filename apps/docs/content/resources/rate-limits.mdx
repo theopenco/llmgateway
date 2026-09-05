@@ -85,7 +85,7 @@ The limit covers dashboard top-ups (card and hosted checkout), auto top-up, and 
 
 Organizations on a **Dev plan** (also called devpass) or a **Chat plan** have their own, tighter per-endpoint limits and do not receive the spend-based multiplier.
 
-Dev plans are inference-only and only cover **chat completions, messages, responses, the models list, and OCR**, each at a flat 120 requests-per-minute floor. The other endpoints (embeddings, moderations, images, speech, videos) are **not available** on Dev plans and are marked **—** below.
+Dev plans cover text inference only: **chat completions, messages, responses, the models list, and moderations**, each at a flat 120 requests-per-minute floor. The other endpoints (embeddings, rerank, OCR, images, speech, transcriptions, videos) return a `403` on Dev plans and are marked **—** below.
 
 | Endpoint             | Dev plan / min | Chat plan / min |
 | -------------------- | -------------- | --------------- |
@@ -93,11 +93,13 @@ Dev plans are inference-only and only cover **chat completions, messages, respon
 | Messages (Anthropic) | 120            | 60              |
 | Responses            | 120            | 60              |
 | Models               | 120            | 120             |
-| OCR                  | 120            | 30              |
+| Moderations          | 120            | 120             |
 | Embeddings           | —              | 120             |
-| Moderations          | —              | 120             |
+| Rerank               | —              | 120             |
+| OCR                  | —              | 30              |
 | Images               | —              | 30              |
 | Speech               | —              | 30              |
+| Transcriptions       | —              | 30              |
 | Videos               | —              | 12              |
 
 ### Enterprise
@@ -149,22 +151,20 @@ Because slots free up continuously as in-flight requests complete, retrying afte
 
 ## Free Models
 
-Free models (models with zero input and output pricing) have additional rate limits that depend on your account's credit status:
+Free models (models with zero input and output pricing) have additional rate limits that depend on your account's credit status. The limit is counted **per organization per model id**, so each free model has its own independent budget. Using free models also requires a **verified email address** — unverified accounts receive a `403`.
 
 ### Base Rate Limits
 
 For organizations with **zero credits**:
 
-- **5 requests per 10 minutes**
-- Applies to all free model requests
+- **5 requests per 10 minutes** per free model
 - Resets every 10 minutes
 
 ### Elevated Rate Limits
 
 For organizations that have **purchased at least some credits**:
 
-- **20 requests per minute**
-- Applies to all free model requests
+- **20 requests per minute** per free model
 - Resets every minute
 
 <Callout type="info">
@@ -175,23 +175,31 @@ For organizations that have **purchased at least some credits**:
 
 ## Provider Limits
 
-Some providers and models enforce their own upstream request limits. When a provider limit is reached, LLMGateway returns a `429` and includes provider-scoped headers (`X-RateLimit-Limit-Provider`, `X-RateLimit-Remaining-Provider`). Where possible, [fallback routing](/features/routing) automatically retries the request on a healthy provider.
+LLMGateway can enforce per-provider/model request caps (per-minute and per-day windows) on top of the per-endpoint limits. When such a cap is configured, chat responses that go through provider rate-limit accounting carry provider-scoped headers (`X-RateLimit-Limit-Provider`, `X-RateLimit-Remaining-Provider`, plus per-window `…-Provider-RPM` / `…-Provider-RPD` variants) — on successful responses too, not just on 429s. A request rejected early (a pinned provider with `X-No-Fallback` whose cap is already exhausted) may return the `429` without these headers. A capped provider is normally just deprioritized — [routing](/features/routing) picks a provider with remaining budget instead; a `429` is returned only when the request pins the capped provider explicitly with `X-No-Fallback`.
 
 ## Rate Limit Headers
 
-When a request is rate limited, the `429` response includes:
+When a request is rejected by the [per-organization endpoint limits](#per-organization-endpoint-limits) or the [concurrency limit](#concurrent-request-limits), the `429` response includes both the standard draft `RateLimit-*` headers and the legacy `X-RateLimit-*` variants:
 
 ```http
 Retry-After: 12
+RateLimit-Limit: 600
+RateLimit-Remaining: 0
+RateLimit-Reset: 12
 X-RateLimit-Limit: 600
 X-RateLimit-Remaining: 0
 X-RateLimit-Reset: 1640995200
 ```
 
 - `Retry-After`: Seconds to wait before retrying
-- `X-RateLimit-Limit`: Maximum number of requests allowed in the current window
-- `X-RateLimit-Remaining`: Number of requests remaining in the current window
+- `RateLimit-Limit` / `X-RateLimit-Limit`: Maximum number of requests allowed in the current window
+- `RateLimit-Remaining` / `X-RateLimit-Remaining`: Number of requests remaining in the current window
+- `RateLimit-Reset`: Seconds until the rate limit window resets
 - `X-RateLimit-Reset`: Unix timestamp when the rate limit window resets
+
+When rate limiting is enforced, successful responses on rate-limited endpoints also carry `RateLimit-Limit` and `RateLimit-Remaining` (without the `X-` prefix), so clients can self-throttle before ever hitting a `429`.
+
+Other `429` sources carry their own header subsets: free-model limits set limit/remaining headers on every free-model request (plus retry/reset headers when limited), while a provider-cap rejection under `X-No-Fallback` may arrive without the full set. Always treat `Retry-After` as the primary backoff signal when present.
 
 ## Rate Limit Exceeded
 
@@ -257,12 +265,12 @@ How `529` differs from `429`:
 ## Best Practices
 
 - **Respect `Retry-After`.** Implement exponential backoff when you receive `429` or `529` responses, starting from the `Retry-After` value.
-- **Watch the headers.** Monitor `X-RateLimit-Remaining` to back off before you hit the limit.
+- **Watch the headers.** Monitor `RateLimit-Remaining` on successful responses to back off before you hit the limit.
 - **Spread traffic across endpoints.** Limits are per endpoint, so unrelated workloads don't compete for the same budget.
 - **Scale with usage.** Regular organizations unlock higher limits automatically as lifetime spend grows; [contact us](mailto:contact@llmgateway.io) about an [Enterprise plan](https://llmgateway.io/enterprise) to remove the per-minute limits and get an elevated concurrency ceiling.
 
 <Callout type="success">
 	Adding even a small amount of credits to your account (e.g., $10) will
 	immediately upgrade your free model rate limits from 5 requests per 10 minutes
-	to 20 requests per minute.
+	to 20 requests per minute (free-model use still requires a verified email).
 </Callout>

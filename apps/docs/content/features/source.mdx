@@ -39,6 +39,10 @@ The `X-Source` header accepts domain names in various formats. All of the follow
 
 All variations will be stripped down to the base domain (`example.com`) for aggregation purposes.
 
+After stripping the protocol and `www.` prefix, the value must contain only alphanumeric characters, hyphens, dots, and slashes — a value with other characters (underscores, spaces, query strings) fails the whole request with a `400`.
+
+When no `X-Source` header is sent, the gateway falls back to the `HTTP-Referer` header, and recognizes well-known coding agents from the `User-Agent` and `X-Title` headers for source attribution.
+
 ## Public Statistics
 
 Data from the `X-Source` header is used to generate public statistics about LLM Gateway usage, including:

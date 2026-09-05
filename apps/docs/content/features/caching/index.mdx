@@ -22,7 +22,7 @@ You see it in your usage as `prompt_tokens_details.cached_tokens`. For most prov
 
 ## Gateway Caching
 
-LLM Gateway performs the caching. When a request is **byte-identical** to a previous one (same model, same messages, same parameters), the response is served from the gateway's cache without any provider call. Repeated identical calls cost **$0**.
+LLM Gateway performs the caching. When a request is **identical** to a previous one (same model, same messages, same parameters), the response is served from the gateway's cache without any provider call. Repeated identical calls cost **$0**.
 
 This is most useful for deterministic API workloads — classification, batch jobs, FAQ lookups, retries — rather than free-form chat, because chat prompts almost always differ on the latest turn.
 

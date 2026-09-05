@@ -15,9 +15,9 @@ This is the behavior you see surfaced as `cached_tokens` in your usage payloads,
 <Callout type="info">
 	Looking for $0 on repeated calls instead of a discount on the cached portion?
 	That is [Gateway Caching](/features/caching/gateway-caching), which serves
-	byte-identical requests entirely from LLM Gateway without hitting the
-	provider. It is a better fit for deterministic API workloads than for chat.
-	See the [Caching Overview](/features/caching) for a side-by-side comparison.
+	identical requests entirely from LLM Gateway without hitting the provider. It
+	is a better fit for deterministic API workloads than for chat. See the
+	[Caching Overview](/features/caching) for a side-by-side comparison.
 </Callout>
 
 ## Automatic caching
@@ -48,7 +48,7 @@ The mode applies to every upstream that takes an explicit cache marker, whicheve
 
 Where the upstream takes per-block markers, they are forwarded on `system` blocks, message text blocks, tool definitions, and `tool_result` blocks. A `cache_control` on an image or other non-text content block is not forwarded — put the breakpoint on an adjacent text block instead.
 
-Changes take up to 5 minutes to take effect due to the project-settings cache.
+Changes saved through the dashboard or API take effect immediately — the gateway's cached project settings are invalidated on write.
 
 To take advantage of automatic caching:
 
@@ -126,15 +126,9 @@ The same `cache_control` markers work on the native [`/v1/messages` endpoint](/f
 
 Every Claude model has a **minimum prompt length below which nothing is cached**. A `cache_control` marker on a shorter prompt is accepted without error, but the provider silently skips the cache write — the response reports `cache_creation_input_tokens: 0` and `cache_read_input_tokens: 0` on every call, no matter how often you repeat the request. This is Anthropic's documented behavior, not a dropped breakpoint; you would see exactly the same result calling Anthropic directly.
 
-The threshold counts **all tokens up to and including the marked block** (tools, system, and preceding messages), and it varies by model generation:
+The threshold counts **all tokens up to and including the marked block** (tools, system, and preceding messages), and it varies by model.
 
-| Models                                                | Minimum cacheable tokens |
-| ----------------------------------------------------- | ------------------------ |
-| Opus 4.5+, Sonnet 5, Haiku 4.5                        | 4,096                    |
-| Sonnet 4.6, Haiku 3.5                                 | 2,048                    |
-| Sonnet 4.5 and earlier, Opus 4.1 and earlier, Haiku 3 | 1,024                    |
-
-The models endpoint (`GET https://api.llmgateway.io/v1/models`) exposes the exact threshold as `min_cacheable_tokens` on each provider entry, so clients can check it programmatically. LLM Gateway's automatic marker injection uses the same threshold, which is why short system prompts never trigger automatic cache writes either.
+The models endpoint (`GET https://api.llmgateway.io/v1/models`) exposes each model's exact threshold as `min_cacheable_tokens` on its provider entry, so clients can check it programmatically. LLM Gateway's automatic marker injection uses the same threshold, which is why short system prompts never trigger automatic cache writes either.
 
 ### Verifying cache writes and the write premium
 
@@ -200,7 +194,7 @@ For providers that publish a separate explicit-cache read rate (for example, Ali
 
 ## Related
 
-- [Gateway Caching](/features/caching/gateway-caching) — serve byte-identical requests entirely from LLM Gateway at $0 cost
+- [Gateway Caching](/features/caching/gateway-caching) — serve identical requests entirely from LLM Gateway at $0 cost
 - [Caching Overview](/features/caching) — side-by-side comparison of provider caching vs. gateway caching
 - [Cost Breakdown](/features/cost-breakdown) — full reference for the usage and cost fields on every response
 - [Smart Routing](/features/routing) — how cache support influences provider selection for large prompts

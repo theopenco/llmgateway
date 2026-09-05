@@ -131,6 +131,29 @@ Limit the number of searches per request (provider-dependent):
 }
 ```
 
+### Domain Filters
+
+Restrict which domains the model may search with `allowed_domains`, or exclude domains with `blocked_domains` (provider-dependent; use one or the other, not both):
+
+```json
+{
+	"type": "web_search",
+	"allowed_domains": ["example.com"]
+}
+```
+
+### Shorthand: `web_search: true`
+
+As a shortcut, set the top-level `web_search` body field to `true` instead of adding the tool — the gateway injects a default `web_search` tool for you (it has no effect if the tool is already present):
+
+```json
+{
+	"model": "gpt-5.2",
+	"messages": [{ "role": "user", "content": "What happened in tech today?" }],
+	"web_search": true
+}
+```
+
 ## Requiring a Search
 
 By default the `web_search` tool offers the model a search and lets it judge

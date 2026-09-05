@@ -53,6 +53,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 - **Format**: Lowercase letters (`a-z`) with optional single hyphens between them
 - **Examples**: `mycompany`, `internal`, `my-company`, `eu-west`
 - **Invalid**: `MyCompany`, `my_company`, `123test`, `-mycompany`, `my-`, `my--company`
+- **Reserved**: `dynamic` is rejected (it is the [dynamic routes](/features/dynamic-routes) model prefix), and the name must be unique within your organization
 
 <Callout type="warn">
 	The custom provider name must match the regex pattern `/^[a-z]+(-[a-z]+)*$/`
@@ -62,8 +63,10 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 ### Base URL
 
 - Must be a valid URL pointing to your provider's base endpoint
-- Use an `https://` URL for hosted providers; an `http://` URL is allowed when
-  self-hosting (for example a service on your own network)
+- On the hosted service the URL must be `https://` and must not resolve to a
+  private, reserved, or internal address. `http://` URLs and private-network
+  hosts (for example a service on your own network) work only on self-hosted
+  deployments that set `ALLOW_INSECURE_PROVIDER_URLS=true`
 - LLMGateway will append `/v1/chat/completions` automatically
 - **Example**: `https://api.example.com` → `https://api.example.com/v1/chat/completions`
 
@@ -79,7 +82,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 ## Supported Features
 
-Custom providers inherit full LLMGateway functionality.
+Custom providers serve **chat completions** — `/v1/chat/completions` and the endpoints that proxy through it (`/v1/responses` and `/v1/messages`). Gateway features that apply to that path (caching, routing, IAM, logging, cost tracking via the custom model catalog) work as usual. Embeddings, images, audio, video, rerank, OCR, and moderations do not route to custom providers.
 
 ## Custom Model Catalog
 

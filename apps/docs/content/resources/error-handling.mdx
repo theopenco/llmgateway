@@ -32,11 +32,11 @@ Errors on the OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/embeddin
 | `error.param`   | The request parameter that caused the error, or `null` when not parameter-specific. |
 | `error.code`    | A more specific machine-readable code, or `null` when no specific code applies.     |
 
-The HTTP status code on the response always matches the error and is the authoritative signal — read it from the response status line rather than the body.
+For normal JSON responses, the HTTP status code matches the error and is the authoritative signal — read it from the response status line rather than the body. The exception is an error arriving mid-stream, where the status is already `200` and the error must be read from the SSE event payload (see [Streaming Errors](#streaming-errors)).
 
 ## Status Codes
 
-The gateway maps HTTP status codes to OpenAI error types and codes as follows:
+For **gateway-raised** errors (authentication failures, usage limits, validation problems, rate limits, timeouts), the gateway maps HTTP status codes to OpenAI error types and codes as follows:
 
 | Status | `type`                  | `code`                   |
 | ------ | ----------------------- | ------------------------ |
@@ -61,9 +61,16 @@ The gateway maps HTTP status codes to OpenAI error types and codes as follows:
 	`unsupported_parameter_combination`.
 </Callout>
 
+## Upstream Provider Errors
+
+Errors from the upstream provider follow different rules on the chat completions path:
+
+- **Upstream 4xx client errors** (a genuinely invalid request) are passed through with their **original status code**. An already OpenAI-shaped error body is forwarded unchanged; bare provider shapes are wrapped in the OpenAI envelope with `type` and `code` set to `client_error` (or the provider's own error type), and only these wrapped bodies carry extra diagnostic fields inside `error`: `requestedProvider`, `usedProvider`, `requestedModel`, `usedInternalModel`, and `responseText`.
+- **Upstream provider/gateway-side failures** (5xx, upstream rate limits, provider credential or funding problems) first go through [automatic retry and fallback](/features/routing#automatic-retry--fallback). If no provider succeeds, the gateway returns **HTTP 500** with `type`/`code` of `upstream_error` or `gateway_error` and the same diagnostic fields — the upstream status code is not passed through (it is recorded in the request log's error details). Some exhaustion paths instead return **HTTP 502** with `type` `upstream_error` and `code` `all_providers_failed`, without the diagnostic fields.
+
 ## Streaming Errors
 
-For streaming requests (`"stream": true`), an error that occurs **after** the stream has started is delivered as an SSE `error` event whose payload uses the same `{ "error": { ... } }` envelope. Errors that occur **before** streaming begins (such as authentication failures) are returned as a normal JSON error response with the appropriate status code.
+For streaming requests (`"stream": true`), an error that occurs **after** the stream has started is delivered as an SSE `error` event whose payload uses the same `{ "error": { ... } }` envelope. Because the HTTP status is already `200` at that point, read the error from the event payload; its `type`/`code` values are gateway-specific (for example `upstream_timeout`/`timeout`, `upstream_error`/`all_providers_failed`, or `gateway_error`) rather than the status-code table above, and `param` may be absent. Errors that occur **before** streaming begins (such as authentication failures) are returned as a normal JSON error response with the appropriate status code.
 
 ## Anthropic Endpoint
 

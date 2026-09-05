@@ -210,8 +210,10 @@ Sticky session routing solves this: attach a session identifier and LLMGateway p
 For chat completions, the session key is resolved in priority order:
 
 1. The `x-session-id` header
-2. The `prompt_cache_key` body field (OpenAI-compatible)
-3. The `user` body field (OpenAI-compatible)
+2. The `x-session-affinity` header (sent automatically by coding agents such as opencode)
+3. The `session_id` or `session-id` header
+4. The `prompt_cache_key` body field (OpenAI-compatible)
+5. The `user` body field (OpenAI-compatible)
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
@@ -238,9 +240,10 @@ Request compatibility takes precedence over the saved pin. The gateway first fil
 
 An established pin yields only when its provider can no longer serve the session well. A session is re-scored and re-pinned to the current weighted-best provider when its provider:
 
-- Drops below the session uptime threshold (default 85%),
-- Is filtered out by health checks (e.g. excluded for low uptime), or
-- Fails the request and is dropped by the [automatic retry & fallback](#automatic-retry--fallback) loop.
+- Drops below the session uptime threshold (default 85%), or
+- Is filtered out of the candidate set (health or compatibility filtering).
+
+Sticky requests never enter the cross-provider [automatic retry & fallback](#automatic-retry--fallback) loop — a transient failure is retried against the pinned provider only, on another configured key when several exist, or on the same key when the provider has just one. The failure still degrades that provider's uptime metrics, which is what triggers re-pinning on a subsequent request once the uptime threshold is crossed.
 
 Re-pinning runs the same weighted algorithm again, so the replacement is the best currently available provider — not an arbitrary one.
 
@@ -379,9 +382,9 @@ When using model ID routing (without a provider prefix), LLMGateway automaticall
 ### How Retry Works
 
 1. Your request is routed to the best available provider using the smart routing algorithm
-2. If that provider returns a server error (5xx), times out, or has a connection failure, the gateway marks the provider as failed
+2. If that provider fails with a retryable error (see [What Triggers a Retry](#what-triggers-a-retry) below), the gateway marks the provider as failed
 3. The next best available provider is selected and the request is retried
-4. Up to **2 retries** are attempted before returning an error to the client
+4. Up to **2 retries** by default (configurable per project via the routing configuration) are attempted before returning an error to the client
 
 ```
 Request → Provider A (500 error) → Provider B (200 OK) → Response
@@ -391,15 +394,17 @@ Both streaming and non-streaming requests support automatic retry.
 
 ### What Triggers a Retry
 
-Retries are triggered by **server-side failures** only:
+Retries are triggered by failures classified as **provider-side or gateway-side problems**:
 
 - **5xx errors** (500 Internal Server Error, 502 Bad Gateway, 503 Service Unavailable, etc.)
 - **Timeouts** (upstream provider took too long to respond)
 - **Connection failures** (network errors, DNS failures, etc.)
+- **Upstream rate limits** (a `429` from the provider)
+- **Provider account and mapping problems** — an upstream `401`/`403` (bad provider credentials), `402` (provider account out of funds), `404`/`405` (model or endpoint mapping gap), and a few specific `400` bodies that indicate the same kinds of gateway-side problems
 
 Retries are **not** triggered by:
 
-- **4xx client errors** (400 Bad Request, 401 Unauthorized, 403 Forbidden, 422 Unprocessable Entity)
+- **4xx client errors** — a request that is genuinely invalid (validation errors, unsupported parameters) fails the same way everywhere, so it is passed through with its original status instead of retried
 - **Content filter responses** (Azure ResponsibleAI, etc.)
 
 ### When Retry Is Disabled
@@ -408,6 +413,7 @@ Automatic retry to a different provider is disabled when:
 
 - The `X-No-Fallback: true` header is set
 - A specific provider is requested (e.g., `openai/gpt-4o`)
+- The request carries a session id and [sticky session routing](#sticky-session-routing) is enabled — the session stays pinned to its provider
 - No alternative providers are available for the requested model
 - The maximum retry count (2) has been exhausted
 
@@ -511,6 +517,7 @@ The following groups can be customized per project:
 | **Timeouts**            | Per-request time limits (end-to-end, streaming, non-streaming) — see [Request Timeouts](/features/timeouts). Capped at the infrastructure defaults — an override can only lower them | `gatewayMs 1,500,000`, `streamingMs 1,200,000`, `plainMs 600,000`                                                                                                                    |
 | **History**             | The metrics window and the time-decay tier boundaries and weights                                                                                                                    | `windowMinutes 60` (max 120), `tier1Minutes 1`, `tier2Minutes 5`, `tier1Weight 10`, `tier2Weight 3`, `tier3Weight 1`                                                                 |
 | **Sticky**              | Stable-provider preference: on/off, TTL, hard-switch uptime floor, soft-switch score margin                                                                                          | `enabled true`, `ttlSeconds 3600`, `uptimeThreshold 85`, `scoreMargin 0.15`                                                                                                          |
+| **Session**             | [Sticky session routing](#sticky-session-routing): on/off, pin TTL, re-pin uptime floor                                                                                              | `enabled true`, `ttlSeconds 3600`, `uptimeThreshold 85`                                                                                                                              |
 | **Provider priorities** | Per-provider priority multipliers; set a provider to `0` to disable it for that project                                                                                              | `1` for every provider                                                                                                                                                               |
 
 <Callout type="info">
@@ -560,7 +567,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 <Callout type="success">
 	Adding even a small amount of credits to your account (e.g., $10) will
 	immediately upgrade your free model rate limits from 5 requests per 10 minutes
-	to 20 requests per minute.
+	to 20 requests per minute (free-model use still requires a verified email).
 </Callout>
 
 <Callout type="info">

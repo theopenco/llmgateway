@@ -248,6 +248,10 @@ When a request is denied by a member-level rule, the `403` error message states 
 
 Member-level rules can also be managed programmatically via the [master key API](/features/master-keys#member-iam-rules), addressing members by membership id or email.
 
+## Team-Level IAM Rules
+
+The same rule types can additionally be configured on an **organization team**. Team rules apply to members with the `developer` role who are assigned to that team, and they are evaluated **before** member and key rules: a request must pass the team's rules, then the member's rules, then the key's rules, and each layer can only narrow what the previous one allowed. When a request is denied by a team-level rule, the `403` error message states that the restriction is inherited from an organization team IAM rule set by the org admin.
+
 ## Error Handling
 
 When API keys encounter IAM rule violations, the API returns a `403` with the standard OpenAI error envelope:

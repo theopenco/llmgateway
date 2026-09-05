@@ -30,6 +30,8 @@ Every significant action is logged with detailed metadata:
 
 ## Tracked Actions
 
+The categories below are illustrative, not exhaustive — many more actions are recorded (master keys, custom providers and models, organization teams and team IAM rules, SSO and SCIM events, invites, plan changes, refunds, and others). The action filter dropdown in the dashboard lists the full set.
+
 ### Organization Management
 
 - `organization.update` — Organization settings changed
@@ -60,7 +62,7 @@ Every significant action is logged with detailed metadata:
 ### Provider Key Management
 
 - `provider_key.create` — Provider key added
-- `provider_key.update` — Provider key status changed
+- `provider_key.update` — Provider key changed (status, base URL, token rotation, and other fields)
 - `provider_key.delete` — Provider key removed
 
 ### Billing Events
@@ -81,7 +83,7 @@ Filter logs by:
 
 ## Data Retention
 
-Audit logs are retained for **90 days** on the Enterprise plan.
+Audit logs are retained for **at least 90 days** on the Enterprise plan — there is currently no automatic expiry.
 
 ## Access Control
 

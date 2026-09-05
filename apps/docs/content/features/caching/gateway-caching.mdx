@@ -1,6 +1,6 @@
 ---
 title: Gateway Caching
-description: Serve byte-identical requests entirely from LLM Gateway at $0 cost.
+description: Serve repeated identical requests entirely from LLM Gateway at $0 cost.
 icon: Zap
 ---
 
@@ -8,15 +8,15 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 # Gateway Caching
 
-Gateway caching serves a previously-seen, byte-identical request entirely from LLM Gateway without forwarding it to the upstream provider. Repeated identical calls cost **$0** — there is no inference and no provider charge. It is most useful for API workloads with deterministic inputs (classification, batch jobs, FAQ lookups, retries) rather than free-form chat.
+Gateway caching serves a previously-seen request entirely from LLM Gateway without forwarding it to the upstream provider. Requests are matched on the parsed [cache-key fields](#cache-key-generation) — formatting differences like whitespace, and parameters outside the cache key, do not create a separate entry. Repeated identical calls cost **$0** — there is no inference and no provider charge. It is most useful for API workloads with deterministic inputs (classification, batch jobs, FAQ lookups, retries) rather than free-form chat.
 
 <Callout type="info">
 	If you want to reduce the cost of long, partially-shared prompts in chat apps
 	or coding tools, you want [Provider Cache
 	Control](/features/caching/provider-cache-control) instead. That discounts the
-	cached portion of your prompt on every call — it does not require
-	byte-identical requests. See the [Caching Overview](/features/caching) for a
-	side-by-side comparison.
+	cached portion of your prompt on every call — it does not require identical
+	requests. See the [Caching Overview](/features/caching) for a side-by-side
+	comparison.
 </Callout>
 
 ## How It Works
@@ -50,9 +50,9 @@ Caching can dramatically reduce costs for applications with repetitive requests:
 <Callout type="info">
 	Caching is **free** and **independent** of [Data
 	Retention](/features/data-retention). Cached responses live in a short-lived
-	cache (TTL-bound, typically seconds to minutes) and are not stored as
-	long-term request data — you do not need to enable data retention to use
-	caching.
+	cache bounded by your configured TTL (60 seconds by default) and are not
+	stored as long-term request data — you do not need to enable data retention to
+	use caching.
 </Callout>
 
 To use caching:
@@ -61,24 +61,30 @@ To use caching:
 2. Configure the cache duration (TTL) as needed
 3. Make requests as normal—caching is automatic
 
+<Callout type="warning">
+	Gateway caching is not available on DevPass coding-plan organizations — the
+	project setting is ignored there and every request goes upstream.
+</Callout>
+
 ## Cache Key Generation
 
-The cache key is generated from these request parameters:
+The cache key is scoped to your **project** and includes the **resolved provider and model** — so two projects never share cache entries, and the same request routed to a different provider is a separate entry. The key is a hash of these request parameters:
 
-- Model identifier
-- Messages array (roles and content)
-- Temperature
-- Max tokens
-- Top P
-- Tools/functions
-- Tool choice
+- Resolved provider and model
+- Messages array (roles and content, including the system prompt)
+- Temperature, max tokens, top P
+- Frequency and presence penalty
 - Response format
-- System prompt
-- Other model-specific parameters
+- Tools/functions, tool choice, and the web search tool
+- Reasoning effort and reasoning max tokens
+- `prompt_cache_key`, `prompt_cache_retention`, `prompt_cache_options`
+- `n` and `service_tier`
+- The response mode — streaming and non-streaming entries are kept separate, so an otherwise identical `stream: true` request never shares an entry with a non-streaming one
 
 <Callout type="info">
-	Requests with different parameter values, even slight variations, will not
-	share cache entries.
+	Requests with different values for any of these parameters, even slight
+	variations, will not share cache entries. Parameters outside this list do not
+	affect the cache key.
 </Callout>
 
 ## Cache Behavior
@@ -87,7 +93,7 @@ The cache key is generated from these request parameters:
 
 When a cache hit occurs:
 
-- Response is returned immediately (sub-millisecond latency)
+- Non-streaming responses are returned immediately
 - No provider API call is made
 - No inference costs are incurred
 
@@ -96,7 +102,7 @@ When a cache hit occurs:
 When a cache miss occurs:
 
 - Request is forwarded to the LLM provider
-- Response is stored in cache
+- A successful response is stored in cache — errored, client-cancelled, or incomplete responses are never stored
 - Normal inference costs apply
 - Future identical requests will hit the cache
 
@@ -104,8 +110,8 @@ When a cache miss occurs:
 
 Caching works with both streaming and non-streaming requests:
 
-- **Non-streaming**: Full response is cached and returned
-- **Streaming**: The complete response is reconstructed from cache and streamed back
+- **Non-streaming**: Full response is cached and returned immediately on a hit
+- **Streaming**: The complete stream is cached chunk by chunk (only once it finished successfully) and replayed on a hit, reproducing the original chunk timing with each gap capped at one second — so a streamed replay takes roughly as long as the original stream
 
 ## Cache TTL (Time-to-Live)
 
@@ -115,9 +121,9 @@ The default cache duration is 60 seconds. Adjust this based on your use case—l
 
 ## Identifying Cached Responses
 
-A cache hit replays the stored response body, so it is byte-identical to the original — same `id`, same content. Two markers tell you it was a replay:
+A cache hit replays the stored completion — same `id`, same content, same token counts. The `metadata` envelope is rebuilt for the current request (fresh `request_id` and `log_id`) and all cost fields are zeroed, so the body is not byte-for-byte identical to the original response. Two markers tell you it was a replay:
 
-- the `x-llmgateway-cache: HIT` response header (set on every lane, including `/v1/messages`, which has no metadata envelope)
+- the `x-llmgateway-cache: HIT` response header — set on `/v1/chat/completions`, `/v1/messages` (which has no metadata envelope), and the AI SDK endpoints; it is not surfaced on `/v1/responses`
 - `metadata.cached: true` on the response body (and on the final metadata chunk of a streamed replay)
 
 All cost fields are zeroed on a replay, because no upstream call was made:
@@ -145,7 +151,7 @@ Token counts are **not** zeroed — they still describe the completion you are r
 
 ## Bypassing the Cache for a Single Request
 
-Send `x-no-cache: true` to skip the cache for one request — the call goes upstream and its response is not stored. Useful when a client retries an identical request and expects a fresh sample (for example an agent loop) without disabling caching for the whole project.
+Send `x-no-cache: true` to skip the cache for one request — the call goes upstream and its response is not stored. Useful when a client retries an identical request and expects a fresh sample (for example an agent loop) without disabling caching for the whole project. The header works on `/v1/chat/completions`, `/v1/messages`, and the AI SDK endpoints; it is not forwarded on `/v1/responses`.
 
 ```bash
 curl https://api.llmgateway.io/v1/chat/completions \
@@ -223,12 +229,12 @@ Caching may not be suitable for:
 - Highly personalized responses
 - Time-sensitive information
 - Creative tasks requiring variety
-- Chat or coding tools where prompts overlap but are not byte-identical — use [Provider Cache Control](/features/caching/provider-cache-control) instead
+- Chat or coding tools where prompts overlap but are not identical — use [Provider Cache Control](/features/caching/provider-cache-control) instead
 
 ## Pricing
 
 Caching is **completely free**. Cached responses are held in a short-lived
-in-memory cache (bounded by your configured TTL) and do not incur storage
+Redis-backed cache (bounded by your configured TTL) and do not incur storage
 charges. Storage costs only apply if you separately enable [Data
 Retention](/features/data-retention) for full request/response payloads.
 

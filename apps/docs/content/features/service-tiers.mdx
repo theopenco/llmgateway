@@ -143,7 +143,7 @@ image tokens. Flat per-request and web-search fees are not tier-scaled.
 When a provider reports the tier that was actually served, LLM Gateway bills
 that returned tier instead of blindly billing the requested value:
 
-- A `priority` request that runs as priority is billed at 2.5x.
+- A `priority` request that runs as priority is billed at that provider mapping's priority multiplier, shown on the [model page](https://llmgateway.io/models).
 - A `flex` request that runs as flex is billed at 0.5x.
 - A request that is served as standard is billed at the standard 1x rate.
 
