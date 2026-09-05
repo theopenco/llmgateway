@@ -24,6 +24,7 @@ import {
 	setResponsesContext,
 	deleteResponsesContext,
 } from "@/lib/responses-context.js";
+import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -191,7 +192,7 @@ responses.post("/", async (c) => {
 	if (!validation.success) {
 		const message = `Invalid request: ${formatValidationError(validation.error)}`;
 		logger.warn("Invalid Responses API request", {
-			issues: validation.error.issues,
+			issues: summarizeZodIssues(validation.error.issues),
 			path: c.req.path,
 			method: c.req.method,
 		});
@@ -752,7 +753,7 @@ responses.post("/compact", async (c) => {
 	if (!validation.success) {
 		const message = `Invalid request: ${formatValidationError(validation.error)}`;
 		logger.warn("Invalid Responses compact request", {
-			issues: validation.error.issues,
+			issues: summarizeZodIssues(validation.error.issues),
 			path: c.req.path,
 			method: c.req.method,
 		});

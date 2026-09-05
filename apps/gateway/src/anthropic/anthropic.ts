@@ -23,6 +23,7 @@ import {
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { streamSSE } from "@/lib/pending-work.js";
 import { extractAnthropicSessionId } from "@/lib/session-id.js";
+import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
 import {
 	isToolSearchBlock,
@@ -112,7 +113,7 @@ export const anthropic = new OpenAPIHono<ServerTypes>({
 				? buildOpenAiRequestRejectionMessage(openAiFields)
 				: `Invalid request format: ${formatValidationIssues(result.error)}`;
 		logger.warn("Invalid Messages API request", {
-			issues: result.error.issues,
+			issues: summarizeZodIssues(result.error.issues),
 			path: c.req.path,
 			method: c.req.method,
 		});
@@ -619,7 +620,7 @@ anthropic.openapi(messages, async (c) => {
 	if (!validation.success) {
 		const message = `Invalid request format: ${formatValidationIssues(validation.error)}`;
 		logger.warn("Invalid Messages API request", {
-			issues: validation.error.issues,
+			issues: summarizeZodIssues(validation.error.issues),
 			path: c.req.path,
 			method: c.req.method,
 		});

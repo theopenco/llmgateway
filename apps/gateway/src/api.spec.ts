@@ -6024,6 +6024,158 @@ describe("api", () => {
 		expect(log.unifiedFinishReason).toBe("content_filter");
 	});
 
+	test("/v1/images/generations omits the response preview from logs under ZDR", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-image-generation-zdr",
+			...hashApiKeyForStorage("real-token-image-generation-zdr"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-image-generation-zdr",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-image-generation-zdr",
+				"org-id",
+			),
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+		await db
+			.update(tables.organization)
+			.set({
+				retentionLevel: "none",
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		const secretContent = "retained-image-response-text";
+		const originalFetch = globalThis.fetch;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+				if (url === `${mockServerUrl}/v1/chat/completions`) {
+					return new Response(
+						JSON.stringify({
+							id: "chatcmpl-zdr-no-image",
+							object: "chat.completion",
+							created: 1,
+							model: "llmgateway/custom",
+							choices: [
+								{
+									index: 0,
+									message: { role: "assistant", content: secretContent },
+									finish_reason: "stop",
+								},
+							],
+							usage: {
+								prompt_tokens: 10,
+								completion_tokens: 5,
+								total_tokens: 15,
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+		try {
+			const res = await app.request("/v1/images/generations", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-image-generation-zdr",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					prompt: "Draw something",
+				}),
+			});
+
+			expect(res.status).toBe(500);
+			const noImagesLog = warnSpy.mock.calls.find(
+				([message]) =>
+					message ===
+					"Images API - no images found in chat completions response",
+			);
+			expect(noImagesLog?.[1]).toEqual({
+				model: "llmgateway/custom",
+				hasContent: true,
+				hasImages: false,
+			});
+			expect(JSON.stringify(warnSpy.mock.calls)).not.toContain(secretContent);
+		} finally {
+			warnSpy.mockRestore();
+			fetchSpy.mockRestore();
+		}
+	});
+
+	test.each([
+		{
+			path: "/v1/chat/completions",
+			body: {
+				model: "gpt-4o-mini",
+				messages: [{ role: "user", content: "hi" }],
+				tools: [{ type: "rejected-secret-value", function: { name: "f" } }],
+			},
+		},
+		{
+			path: "/v1/messages",
+			body: {
+				model: "claude-sonnet-4-5",
+				max_tokens: 16,
+				messages: [{ role: "rejected-secret-value", content: "hi" }],
+			},
+		},
+		{
+			path: "/v1/responses",
+			body: {
+				model: "gpt-4o-mini",
+				input: "hi",
+				truncation: "rejected-secret-value",
+			},
+		},
+	])(
+		"$path logs validation issues without the rejected values",
+		async ({ path, body }) => {
+			const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+			try {
+				const res = await app.request(path, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify(body),
+				});
+
+				expect(res.status).toBe(400);
+				const validationLog = warnSpy.mock.calls.find(([, meta]) =>
+					Array.isArray((meta as { issues?: unknown } | undefined)?.issues),
+				);
+				expect(validationLog).toBeDefined();
+				expect(JSON.stringify(warnSpy.mock.calls)).not.toContain(
+					"rejected-secret-value",
+				);
+			} finally {
+				warnSpy.mockRestore();
+			}
+		},
+	);
+
 	test("/v1/images/edits returns empty data for content filter", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-image-edits-content-filter",

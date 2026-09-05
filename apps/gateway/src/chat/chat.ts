@@ -122,6 +122,7 @@ import {
 	isTimeoutError,
 } from "@/lib/timeout-config.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
+import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
 import {
 	applyGoogleServiceTier,
@@ -1364,7 +1365,7 @@ export const chat = new OpenAPIHono<ServerTypes>({
 			: "Invalid request parameters";
 		const cause = invalidJson ? "invalid_json" : "invalid_parameters";
 		logger.warn("Invalid chat completions request", {
-			issues: result.error.issues,
+			issues: summarizeZodIssues(result.error.issues),
 			path: c.req.path,
 			method: c.req.method,
 		});
@@ -1616,7 +1617,7 @@ chat.openapi(completions, async (c) => {
 	if (!validationResult.success) {
 		const message = "Invalid request parameters";
 		logger.warn("Invalid chat completions request", {
-			issues: validationResult.error.issues,
+			issues: summarizeZodIssues(validationResult.error.issues),
 			path: c.req.path,
 			method: c.req.method,
 		});
