@@ -40,21 +40,29 @@ test("homepage content and branding are available without JavaScript", async ({
 }) => {
 	const response = await request.get("/", { headers: { Accept: "text/html" } });
 	const html = await response.text();
-	const content = html.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, "");
-	const text = content
-		.replace(/<[^>]*>/g, "")
-		.replace(/\s+/g, " ")
-		.trim();
-	console.log(
-		`Homepage: ${html.length} HTML characters, ${text.length} text characters, ${((100 * text.length) / content.length).toFixed(1)}% content ratio excluding scripts and styles`,
-	);
 	const context = await browser.newContext({ javaScriptEnabled: false });
 	const page = await context.newPage();
+	const metrics = await page.evaluate((markup) => {
+		const document = new DOMParser().parseFromString(markup, "text/html");
+		document
+			.querySelectorAll("script, style")
+			.forEach((element) => element.remove());
+		const text = (document.documentElement.textContent ?? "")
+			.replace(/\s+/g, " ")
+			.trim();
+		return {
+			textLength: text.length,
+			ratio: text.length / document.documentElement.outerHTML.length,
+		};
+	}, html);
+	console.log(
+		`Homepage: ${html.length} HTML characters, ${metrics.textLength} text characters, ${(100 * metrics.ratio).toFixed(1)}% content ratio excluding scripts and styles`,
+	);
 	await page.goto("/");
 	await expect(page.locator("h1")).toHaveCount(1);
 	await expect(page.locator("h1")).toContainText("LLM Gateway");
 	expect((await page.locator("body").innerText()).length).toBeGreaterThan(500);
-	expect(text.length / content.length).toBeGreaterThanOrEqual(0.05);
+	expect(metrics.ratio).toBeGreaterThanOrEqual(0.05);
 	const headings = await page
 		.locator("h1,h2,h3,h4,h5,h6")
 		.evaluateAll((elements) =>
