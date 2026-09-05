@@ -282,6 +282,7 @@ services:
     environment:
       - API_URL=${API_URL:-http://localhost:4002}
       - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
+      - CLIENT_IP_HEADER=${CLIENT_IP_HEADER:-X-Forwarded-For}
       - AIRSIDE_URL=${AIRSIDE_URL:-http://localhost:3007}
       - POSTHOG_HOST=${POSTHOG_HOST}
       - POSTHOG_KEY=${POSTHOG_KEY}
