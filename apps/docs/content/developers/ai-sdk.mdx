@@ -1,6 +1,6 @@
 ---
 title: Using the AI SDK
-description: Generate text, stream responses, and call tools with the Vercel AI SDK and LLM Gateway
+description: Generate text, stream responses, call tools, and generate video with the Vercel AI SDK and LLM Gateway
 icon: Zap
 ---
 
@@ -150,6 +150,28 @@ const { text } = await generateText({
 	dashboards like any other gateway request — with per-request cost, tokens, and
 	latency.
 </Callout>
+
+## Generate video
+
+Version 4 of the provider (AI SDK 7, Node.js 22 or later, ESM) adds `llmgateway.video()` for the SDK's experimental video API. The provider submits a gateway video job, the SDK polls it, and the finished file is downloaded from the authenticated content endpoint.
+
+```typescript
+import { writeFile } from "node:fs/promises";
+import { llmgateway } from "@llmgateway/ai-sdk-provider";
+import { experimental_generateVideo as generateVideo } from "ai";
+
+const { video } = await generateVideo({
+	model: llmgateway.video("seedance-2-0"),
+	prompt: "A cinematic aerial view of ocean waves at sunrise",
+	duration: 8,
+	resolution: "1280x720",
+	poll: { intervalMs: 5_000, timeoutMs: 600_000 },
+});
+
+await writeFile("video.mp4", video.uint8Array);
+```
+
+`duration` and a text prompt are required. `resolution` maps to the gateway's `size`, `duration` to `seconds`, and `generateAudio` to `audio`. Pass a first frame as `prompt.image`, first and last frames with `frameImages`, and reference inputs with `inputReferences`; any other gateway field, such as `callback_url`, goes through `providerOptions.llmgateway`. `experimental_startVideo` and `experimental_getVideoStatus` let another process pick up a running job. Supported sizes, durations, and inputs depend on the model — see [video generation](/features/video-generation) for the REST reference. Projects on AI SDK 6 should stay on `@llmgateway/ai-sdk-provider@3`, which has no video support.
 
 ## Next steps
 
