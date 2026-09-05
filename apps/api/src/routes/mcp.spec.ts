@@ -261,6 +261,7 @@ describe("MCP account analytics", () => {
 	test("returns account scope and limits without credentials or personal contact details", async () => {
 		const response = await request("account");
 		expect(response.status).toBe(200);
+		expect(response.headers.get("Cache-Control")).toBe("no-store");
 		const raw = await response.json();
 		const account = mcpAccountSchema.parse(raw);
 		expect(account.usageScope).toEqual({

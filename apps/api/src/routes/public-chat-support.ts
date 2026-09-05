@@ -68,28 +68,23 @@ const MAX_CONTEXT_MESSAGES = 30;
 
 const DOCS_BASE_URL = "https://docs.llmgateway.io";
 
-const BASE_SYSTEM_PROMPT = `You are the LLM Gateway support assistant. You ONLY answer questions related to LLM Gateway — the unified API gateway for multiple LLM providers — and its products (the dashboard at llmgateway.io, DevPass at devpass.llmgateway.io, the docs at docs.llmgateway.io, and Lounge, the AI chat app at lounge.llmgateway.io).
+const BASE_SYSTEM_PROMPT = `You are the LLM Gateway support assistant. You ONLY answer questions about the public LLM Gateway product suite:
+- AI Gateway: the unified API, model and provider catalogue, routing, and developer features.
+- Dashboard and Observability: API keys, configuration, usage, cost, reliability, security, teams, and billing.
+- DevPass and DevPass Code: flat-price coding plans, supported coding agents, setup, usage, and plan limits.
+- Lounge: chat, projects, group chat, media studios, voice calls, memberships, and credits.
+- Airside: the provider console for carrier claims, crew, model listings, fare filings, routing, and traffic.
+- Documentation: API reference, guides, integrations, migrations, and self-hosting.
 
-Your knowledge covers:
-- Getting started, quick start, and setup
-- API endpoints: /v1/chat/completions, /v1/messages, /v1/models, /v1/moderations, /v1/videos
-- Features: routing, caching, response healing, vision, image generation, video generation, web search, reasoning, guardrails, audit logs, cost breakdown, data retention, metadata, custom providers, API keys, moderations
-- Guides: Cursor, Cline, Claude Code, Codex CLI, OpenCode, Autohand, CLI, MCP, n8n, Agent Skills, OpenClaw
-- Integrations: AWS Bedrock, Azure
-- Migrations: from OpenRouter, LiteLLM, Vercel AI Gateway
-- Learning: dashboard, API keys, playground, billing, activity, usage metrics, model usage, transactions, team, org preferences, preferences, provider keys, referrals, security events, guardrails, audit logs, policies
-- DevPass subscription plans
-- Lounge (chat) subscription plans
-- Self-hosting
-- Rate limits and resources
+Do not mix product rules. DevPass plans, Lounge memberships, and AI Gateway pay-as-you-go usage are separate. Use the live product overviews below as the authority on product scope, plans, and pricing.
 
 When answering:
-1. Be concise and helpful.
-2. Link to relevant pages using the real URLs listed in the "Available pages" section below. Never invent URLs.
-3. When you are unsure of an answer or need exact details, use the \`fetchPage\` tool to read the most relevant page before answering. Prefer grounding your answer in fetched content.
-4. If the question is NOT related to LLM Gateway, politely decline and suggest they ask about LLM Gateway features instead.
-5. Do not make up features or capabilities. If unsure after checking the docs, direct them to ${DOCS_BASE_URL} or suggest contacting support at contact@llmgateway.io.
-6. Keep responses short — ideally under 200 words.`;
+1. Identify the relevant product, then answer concisely.
+2. Link only to real URLs from the "Available pages" section below. Never invent URLs.
+3. Use the \`fetchPage\` tool for exact or uncertain details and ground the answer in the fetched page.
+4. If the question is unrelated to LLM Gateway, politely decline and invite a product question.
+5. Never invent features or capabilities. If the docs do not answer the question, link to ${DOCS_BASE_URL} or suggest contact@llmgateway.io.
+6. Keep responses under 200 words when possible.`;
 
 async function buildSystemPrompt(): Promise<string> {
 	const [urls, overviews] = await Promise.all([
@@ -99,15 +94,15 @@ async function buildSystemPrompt(): Promise<string> {
 
 	let prompt = BASE_SYSTEM_PROMPT;
 
-	// Inline the llms.txt product overviews (DevPass and Lounge plans, pricing,
-	// key pages) so plan questions are answerable without a tool call.
+	// Inline each product's llms.txt overview so scope and plan questions are
+	// answerable without a tool call.
 	if (overviews.length > 0) {
 		const overviewSections = overviews
 			.map((o) => `--- ${o.url} ---\n${o.content}`)
 			.join("\n\n");
 		prompt += `
 
-Product overviews (live llms.txt files — authoritative on DevPass and Lounge plans and pricing):
+Product overviews (live llms.txt files — authoritative on product scope, plans, pricing, and key pages):
 
 ${overviewSections}`;
 	}
@@ -116,7 +111,7 @@ ${overviewSections}`;
 		const urlList = urls.map((u) => `- ${u}`).join("\n");
 		prompt += `
 
-Available pages (sourced from the live sitemaps and llms.txt files of llmgateway.io, devpass.llmgateway.io, docs.llmgateway.io and lounge.llmgateway.io). Use these for accurate links and as targets for the \`fetchPage\` tool:
+Available pages (sourced from the live LLM Gateway, DevPass, Lounge, Airside, and documentation sites). Use these for accurate links and as targets for the \`fetchPage\` tool:
 ${urlList}`;
 	}
 
@@ -549,7 +544,7 @@ publicChatSupport.post("/", async (c) => {
 		tools: {
 			fetchPage: tool({
 				description:
-					"Fetch the readable text content of an LLM Gateway page (llmgateway.io, devpass/docs/lounge.llmgateway.io) to ground your answer in accurate, up-to-date information. Pass a full https URL from the available pages list.",
+					"Fetch an approved LLM Gateway, DevPass, Lounge, Airside, or documentation page to ground an answer in current information. Pass a full https URL from the available pages list.",
 				inputSchema: z.object({
 					url: z
 						.string()

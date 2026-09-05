@@ -1734,7 +1734,7 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 	});
 });
 
-describe("prepareRequestBody - OpenAI explicit prompt caching (GPT-5.6)", () => {
+describe("prepareRequestBody - OpenAI explicit prompt caching", () => {
 	const explicitCacheMessages = [
 		{
 			role: "system",
@@ -1749,18 +1749,21 @@ describe("prepareRequestBody - OpenAI explicit prompt caching (GPT-5.6)", () => 
 		{ role: "user", content: "dynamic input" },
 	];
 
-	test("forwards prompt_cache_options and breakpoints for gpt-5.6 chat completions", async () => {
-		const requestBody = (await prepareOpenAITextRequest({
-			model: "gpt-5.6-sol",
-			promptCacheOptions: { mode: "explicit" },
-			messages: explicitCacheMessages,
-		})) as any;
+	test.each(["gpt-5.6-sol", "gpt-6-astra"])(
+		"forwards prompt_cache_options and breakpoints for %s",
+		async (model) => {
+			const requestBody = (await prepareOpenAITextRequest({
+				model,
+				promptCacheOptions: { mode: "explicit" },
+				messages: explicitCacheMessages,
+			})) as any;
 
-		expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
-		expect(requestBody.messages[0].content[0].prompt_cache_breakpoint).toEqual({
-			mode: "explicit",
-		});
-	});
+			expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
+			expect(
+				requestBody.messages[0].content[0].prompt_cache_breakpoint,
+			).toEqual({ mode: "explicit" });
+		},
+	);
 
 	test("carries breakpoints through the Responses API content transform", async () => {
 		const requestBody = (await prepareOpenAITextRequest({

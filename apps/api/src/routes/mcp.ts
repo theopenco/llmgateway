@@ -109,7 +109,10 @@ mcp.openapi(
 			},
 		},
 	}),
-	(c) => c.json(c.get("mcpAccount")),
+	(c) => {
+		c.header("Cache-Control", "no-store");
+		return c.json(c.get("mcpAccount"));
+	},
 );
 
 mcp.openapi(

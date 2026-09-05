@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { assertMcpHttpsUrl } from "@/mcp/request-url.js";
+
 import { logger, toError } from "@llmgateway/logger";
 import {
 	mcpAccountSchema,
@@ -24,8 +26,10 @@ async function requestUsage<T extends Record<string, unknown>>(
 			(process.env.NODE_ENV === "production"
 				? "https://internal.llmgateway.io"
 				: "http://localhost:4002");
+		assertMcpHttpsUrl(baseUrl);
 		const response = await fetch(new URL(`/mcp/${path}`, baseUrl), {
 			method: input === undefined ? "GET" : "POST",
+			redirect: "error",
 			headers: {
 				Authorization: `Bearer ${apiKey}`,
 				"Content-Type": "application/json",

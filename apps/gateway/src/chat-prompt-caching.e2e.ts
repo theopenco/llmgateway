@@ -97,10 +97,15 @@ describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 			getTestOptions(),
 			async ({ model, originalModel, provider, minCacheableTokens }) => {
 				// Generate a long system prompt that exceeds the model's minimum cacheable token threshold
-				// We need significantly more than the minimum to ensure caching is triggered
-				// Using 2x the minimum + buffer to be safe (Anthropic's tokenizer is ~4 chars per token)
+				// Google's implicit cache is best-effort and needs a longer prefix to
+				// produce reliable hits at the published minimum.
+				const thresholdMultiplier =
+					provider.providerId === "google-ai-studio" ||
+					provider.providerId === "google-vertex"
+						? 4
+						: 2;
 				// eslint-disable-next-line no-mixed-operators
-				const targetTokens = minCacheableTokens * 2 + 1000;
+				const targetTokens = minCacheableTokens * thresholdMultiplier + 1000;
 				const charsPerRepeat = 95; // approximate chars in each repeat string
 				const repeatCount = Math.ceil((targetTokens * 4) / charsPerRepeat);
 				const longSystemPrompt = `You are a helpful AI assistant specialized in analyzing complex data and providing detailed insights. ${"This is detailed context information that should be cached for optimal efficiency and performance. ".repeat(repeatCount)}Please analyze any questions carefully.`;

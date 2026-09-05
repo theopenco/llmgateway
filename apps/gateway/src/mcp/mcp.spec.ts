@@ -64,9 +64,15 @@ describe("MCP endpoint", () => {
 		await db.delete(tables.user);
 	}
 
-	beforeEach(reset);
+	beforeEach(async () => {
+		vi.stubEnv("API_URL", "https://internal.example.com");
+		vi.stubEnv("GATEWAY_URL", "https://gateway.example.com");
+		vi.stubEnv("MCP_GATEWAY_URL", undefined);
+		await reset();
+	});
 	afterEach(async () => {
 		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
 		await reset();
 	});
 
@@ -92,6 +98,91 @@ describe("MCP endpoint", () => {
 			}),
 		});
 	}
+
+	const generationCalls = [
+		{
+			name: "chat",
+			arguments: {
+				model: "gpt-4o",
+				messages: [{ role: "user", content: "hi" }],
+			},
+		},
+		{ name: "generate-image", arguments: { prompt: "a blue circle" } },
+		{ name: "generate-nano-banana", arguments: { prompt: "a blue circle" } },
+	];
+
+	test.each(["MCP_GATEWAY_URL", "GATEWAY_URL"])(
+		"rejects non-HTTPS or invalid %s before generation requests",
+		async (variable) => {
+			await seedActiveKey();
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockRejectedValue(new Error("Unexpected request"));
+			for (const url of [
+				"http://gateway.example.com",
+				"http://localhost:4001",
+				"ftp://gateway.example.com",
+				"invalid-url",
+			]) {
+				vi.stubEnv(variable, url);
+				for (const params of generationCalls) {
+					const body = await (await rpc("tools/call", params)).json();
+					expect(body.result.isError).toBe(true);
+				}
+			}
+			expect(fetchSpy).not.toHaveBeenCalled();
+		},
+	);
+
+	test("rejects non-HTTPS or invalid API URLs before analytics requests", async () => {
+		await seedActiveKey();
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockRejectedValue(new Error("Unexpected request"));
+		for (const url of [
+			"http://internal.example.com",
+			"http://localhost:4002",
+			"ftp://internal.example.com",
+			"invalid-url",
+		]) {
+			vi.stubEnv("API_URL", url);
+			const body = await (
+				await rpc("tools/call", { name: "get-account", arguments: {} })
+			).json();
+			expect(body.result.isError).toBe(true);
+		}
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	test("disables redirects on all authenticated MCP requests", async () => {
+		await seedActiveKey();
+		vi.stubEnv("MCP_GATEWAY_URL", "https://mcp.example.com");
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(null, {
+				status: 307,
+				headers: { Location: "https://redirect.example.com" },
+			}),
+		);
+		for (const params of [
+			...generationCalls,
+			{ name: "get-account", arguments: {} },
+		]) {
+			const body = await (await rpc("tools/call", params)).json();
+			expect(body.result.isError).toBe(true);
+			expect(fetchSpy).toHaveBeenLastCalledWith(
+				params.name === "get-account"
+					? new URL("https://internal.example.com/mcp/account")
+					: "https://mcp.example.com/v1/chat/completions",
+				expect.objectContaining({
+					redirect: "error",
+					headers: expect.objectContaining({
+						Authorization: "Bearer real-token",
+					}),
+				}),
+			);
+		}
+		expect(fetchSpy).toHaveBeenCalledTimes(4);
+	});
 
 	test("advertises analytics with read-only annotations and output schemas", async () => {
 		await seedActiveKey();

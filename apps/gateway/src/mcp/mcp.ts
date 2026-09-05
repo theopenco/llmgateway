@@ -15,6 +15,7 @@ import {
 } from "@/lib/api-key-usage-limits.js";
 import { findApiKeyByToken, findProjectById } from "@/lib/cached-queries.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
+import { assertMcpHttpsUrl } from "@/mcp/request-url.js";
 import { registerUsageTools } from "@/mcp/usage-tools.js";
 
 import { parseDataUrl } from "@llmgateway/actions";
@@ -185,9 +186,11 @@ function createMcpServer(
 					(process.env.NODE_ENV === "production"
 						? "https://api.llmgateway.io"
 						: "http://localhost:4001");
+				assertMcpHttpsUrl(gatewayUrl);
 
 				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
 					method: "POST",
+					redirect: "error",
 					headers: generationHeaders,
 					body: JSON.stringify({
 						model: input.model,
@@ -450,10 +453,12 @@ function createMcpServer(
 					(process.env.NODE_ENV === "production"
 						? "https://api.llmgateway.io"
 						: "http://localhost:4001");
+				assertMcpHttpsUrl(gatewayUrl);
 
 				// Call the chat completions endpoint with image generation model
 				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
 					method: "POST",
+					redirect: "error",
 					headers: generationHeaders,
 					body: JSON.stringify({
 						model: input.model,
@@ -589,6 +594,7 @@ function createMcpServer(
 					(process.env.NODE_ENV === "production"
 						? "https://api.llmgateway.io"
 						: "http://localhost:4001");
+				assertMcpHttpsUrl(gatewayUrl);
 
 				const body: Record<string, unknown> = {
 					model: "gemini-3-pro-image",
@@ -609,6 +615,7 @@ function createMcpServer(
 					method: "POST",
 					headers: generationHeaders,
 					body: JSON.stringify(body),
+					redirect: "error",
 				});
 
 				if (!response.ok) {
