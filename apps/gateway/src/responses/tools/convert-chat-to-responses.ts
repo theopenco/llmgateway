@@ -381,16 +381,15 @@ export function convertChatResponseToResponses(
 			});
 		}
 	} else if (
-		message?.content !== null &&
-		message?.content !== undefined &&
-		(message.content.trim() !== "" || googleDetails.length > 0)
+		(typeof message?.content === "string" && message.content.trim() !== "") ||
+		googleDetails.length > 0
 	) {
 		messageItems.push({
-			precedingToolCalls: message.content_before_tool_calls
+			precedingToolCalls: message?.content_before_tool_calls
 				? 0
 				: toolCalls.length,
-			text: message.content,
-			...(message.phase ? { phase: message.phase } : {}),
+			text: message?.content ?? "",
+			...(message?.phase ? { phase: message.phase } : {}),
 		});
 	}
 

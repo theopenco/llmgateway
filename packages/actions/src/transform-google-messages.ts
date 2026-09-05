@@ -7,7 +7,10 @@ import {
 	type ProviderId,
 } from "@llmgateway/models";
 
-import { restoreGoogleReasoningDetails } from "./google-thought-signatures.js";
+import {
+	isGoogleReasoningDetail,
+	restoreGoogleReasoningDetails,
+} from "./google-thought-signatures.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
@@ -268,6 +271,17 @@ export async function transformGoogleMessages(
 	const result: GoogleMessageExtended[] = [];
 
 	for (const m of messages) {
+		// Preserve the normalizer's removal of foreign reasoning-only turns.
+		if (
+			m.role === "assistant" &&
+			(m.content === null || m.content === undefined) &&
+			!m.tool_calls?.length &&
+			m.reasoning_details !== undefined &&
+			!m.reasoning_details.some(isGoogleReasoningDetail)
+		) {
+			continue;
+		}
+
 		// Handle tool role messages - these become user messages with functionResponse
 		if (m.role === "tool") {
 			// Check if there's already a user message for function responses we can append to
@@ -296,7 +310,7 @@ export async function transformGoogleMessages(
 
 		// Handle assistant messages with tool_calls
 		if (m.role === "assistant" && m.tool_calls && m.tool_calls.length > 0) {
-			const parts: GooglePart[] = [];
+			let parts: GooglePart[] = [];
 
 			// Add text content if present
 			if (m.content) {
@@ -317,6 +331,8 @@ export async function transformGoogleMessages(
 					parts.push({ text: m.content });
 				}
 			}
+
+			parts = restoreGoogleReasoningDetails(parts, m.reasoning_details);
 
 			// Add function calls
 			for (const toolCall of m.tool_calls) {
@@ -351,7 +367,7 @@ export async function transformGoogleMessages(
 
 			result.push({
 				role: "model",
-				parts: restoreGoogleReasoningDetails(parts, m.reasoning_details),
+				parts,
 			});
 			continue;
 		}

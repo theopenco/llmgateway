@@ -290,12 +290,9 @@ Agents work over many turns: the model reasons, calls a tool, and the tool resul
 LLMGateway preserves reasoning the same way OpenAI's Responses API does. The model returns an opaque **encrypted reasoning** payload, and you send it back unchanged along with the rest of the conversation on the next call. The payload is issued and verified by the provider — the gateway passes it through without inspecting or rewriting it.
 
 <Callout type="info">
-	Encrypted reasoning is produced by models served over OpenAI's Responses API
-	(OpenAI and Azure OpenAI reasoning models). Other reasoning models return
-	summary text only, and there is nothing to replay — asking for encrypted
-	reasoning is ignored rather than rejected, so the same client code works
-	against every model. Gemini thought signatures are handled automatically: the
-	gateway re-attaches them to replayed tool calls.
+	Readable reasoning summaries and opaque replay data are separate. Summaries
+	remain available when the model provides them; the gateway cannot decrypt
+	provider-issued reasoning payloads or Gemini thought signatures.
 </Callout>
 
 ### Responses API
@@ -406,7 +403,15 @@ The Chat Completions format has no reasoning items, so the gateway carries the s
 
 To preserve the reasoning, append the assistant message back into `messages` exactly as you received it (with `reasoning_details` intact) before the matching `tool` result. No opt-in parameter is required — the field is always present when the model produced one. When streaming, the entries arrive as a `delta.reasoning_details` chunk.
 
-Replaying is safe across models: entries a provider cannot consume are stripped before the upstream request, so the same conversation history can be sent to any model.
+The gateway converts supported `reasoning_details` formats to native provider fields and strips these entries from other upstream requests.
+
+### Gemini Thought Signatures
+
+Gemini text turns carry signatures in `reasoning_details` entries with `type: "reasoning.text"` and `format: "google-gemini-v1"`. Replay the entire assistant message, including these entries. Preserve each entry's `google_part` metadata: it lets the gateway restore the original signed text boundaries. Streaming clients must collect `delta.reasoning_details`, including entries arriving with empty text.
+
+On the Responses API, replay the complete `output`: assistant message items carry `reasoning_details`, while function call items carry `extra_content.google.thought_signature`. These fields are returned without an `include` opt-in. Stored conversations using `previous_response_id` preserve them automatically. Gemini signatures are not converted into OpenAI `encrypted_content`.
+
+For Chat Completions, `content[]` text parts and `tool_calls[]` also accept `extra_content.google.thought_signature`. The tool-call signature cache remains a fallback, but replaying the metadata also works when signatures are not cached. Only replay signatures with the original content and the model/provider that issued them.
 
 ### Error Handling
 

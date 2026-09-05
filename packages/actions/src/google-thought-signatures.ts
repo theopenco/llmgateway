@@ -57,24 +57,42 @@ export function restoreGoogleReasoningDetails<T extends GoogleTextPart>(
 	details: ReasoningDetail[] | undefined,
 ): Array<T | GoogleTextPart> {
 	const restored: Array<T | GoogleTextPart> = [...parts];
+	let textOffset = 0;
+	const explicitParts = parts.flatMap((part) => {
+		const offset = textOffset;
+		if (!part.thought) {
+			textOffset += part.text?.length ?? 0;
+		}
+		return part.thoughtSignature && part.text !== undefined
+			? [{ part, offset }]
+			: [];
+	});
 	for (const detail of details ?? []) {
 		if (!isGoogleReasoningDetail(detail)) {
 			continue;
 		}
 		const signature = detail.signature as string;
-		if (parts.some((part) => part.thoughtSignature === signature)) {
+		const metadata =
+			detail.google_part && typeof detail.google_part === "object"
+				? (detail.google_part as Record<string, unknown>)
+				: undefined;
+		const explicitIndex = explicitParts.findIndex(
+			({ part, offset }) =>
+				part.thoughtSignature === signature &&
+				(!metadata ||
+					(part.text === metadata.text &&
+						(part.thought ?? false) === metadata.thought &&
+						offset === metadata.text_offset)),
+		);
+		if (explicitIndex !== -1) {
+			explicitParts.splice(explicitIndex, 1);
 			continue;
 		}
-		const metadata = detail.google_part;
-		if (!metadata || typeof metadata !== "object") {
+		if (!metadata) {
 			restored.push({ text: "", thoughtSignature: signature });
 			continue;
 		}
-		const {
-			text,
-			thought,
-			text_offset: offset,
-		} = metadata as Record<string, unknown>;
+		const { text, thought, text_offset: offset } = metadata;
 		if (
 			typeof text !== "string" ||
 			typeof thought !== "boolean" ||

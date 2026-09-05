@@ -311,9 +311,20 @@ export function convertResponsesInputToMessages(
 					]
 				: convertedContent;
 		if (role === "assistant" && msg.reasoning_details) {
-			pendingReasoning.details.push(
-				...msg.reasoning_details.filter(isGoogleReasoningDetail),
+			const googleDetails = msg.reasoning_details.filter(
+				isGoogleReasoningDetail,
 			);
+			pendingReasoning.details.push(...googleDetails);
+			// A streamed signature may precede the tool call in its own empty
+			// output item. Keep both on the same assistant turn when replaying.
+			if (
+				googleDetails.length > 0 &&
+				!extractTextFromContent(content) &&
+				isToolCallItem(input[i + 1])
+			) {
+				i++;
+				continue;
+			}
 		}
 		const chatMsg: ChatMessage = {
 			role,

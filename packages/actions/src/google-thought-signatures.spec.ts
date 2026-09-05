@@ -137,8 +137,60 @@ describe("Gemini signed text parts", () => {
 		]);
 	});
 
+	it("matches explicit signatures by part, not signature value", () => {
+		const parts = [
+			{ text: "first", thoughtSignature: "shared-signature" },
+			{ text: "second", thoughtSignature: "shared-signature" },
+			{ text: "", thoughtSignature: "shared-signature" },
+		];
+		expect(
+			restoreGoogleReasoningDetails(
+				[parts[0]!, { text: "second" }],
+				buildGoogleReasoningDetails(parts),
+			),
+		).toEqual(parts);
+	});
+
+	it("restores a signed thought before tool calls without answer text", async () => {
+		const thought = {
+			text: "I should look this up.",
+			thought: true,
+			thoughtSignature: "thought-signature",
+		};
+		const result = await transformGoogleMessages([
+			{
+				role: "assistant",
+				content: "",
+				reasoning_details: buildGoogleReasoningDetails([thought]),
+				tool_calls: [
+					{
+						id: "call_test",
+						type: "function",
+						function: { name: "lookup", arguments: "{}" },
+					},
+				],
+			},
+		]);
+		expect(result[0]!.parts).toEqual([
+			thought,
+			{ functionCall: { name: "lookup", args: {} } },
+		]);
+	});
+
 	it("retains reasoning details through Google request preparation only", async () => {
 		const messages: BaseMessage[] = [
+			{
+				role: "assistant",
+				// HTTP requests accept null content; BaseMessage is narrower.
+				content: null as unknown as string,
+				reasoning_details: [
+					{
+						type: "reasoning.encrypted",
+						format: "openai-responses-v1",
+						data: "foreign-payload",
+					},
+				],
+			},
 			{
 				role: "assistant",
 				content: "Answer",

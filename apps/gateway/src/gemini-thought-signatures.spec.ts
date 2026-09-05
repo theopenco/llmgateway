@@ -43,6 +43,11 @@ describe("Gemini thought signature replay", () => {
 		contents: Array<{ role: string; parts: MockGooglePart[] }>;
 	}> = [];
 	const signature = "test-text-signature";
+	const signedThought = {
+		text: "I should look this up.",
+		thought: true,
+		thoughtSignature: "test-thought-signature",
+	};
 	const headers = {
 		"Content-Type": "application/json",
 		Authorization: "Bearer test-token",
@@ -79,6 +84,7 @@ describe("Gemini thought signature replay", () => {
 				if (toolResponse) {
 					const payload = response(
 						[
+							signedThought,
 							{
 								functionCall: { name: "lookup", args: {} },
 								thoughtSignature: signature,
@@ -88,7 +94,10 @@ describe("Gemini thought signature replay", () => {
 					);
 					if (req.url?.includes("streamGenerateContent")) {
 						res.writeHead(200, { "Content-Type": "text/event-stream" });
-						res.end(`data: ${JSON.stringify(payload)}\n\n`);
+						res.write(`data: ${JSON.stringify(response([signedThought]))}\n\n`);
+						res.end(
+							`data: ${JSON.stringify(response(payload.candidates[0]!.content.parts.slice(1), true))}\n\n`,
+						);
 					} else {
 						res.writeHead(200, { "Content-Type": "application/json" });
 						res.end(JSON.stringify(payload));
@@ -390,6 +399,21 @@ describe("Gemini thought signature replay", () => {
 				expect(call?.extra_content).toEqual({
 					google: { thought_signature: signature },
 				});
+				expect(
+					response.output.find((item) => item.type === "reasoning"),
+				).toMatchObject({
+					summary: [{ type: "summary_text", text: signedThought.text }],
+				});
+				expect(
+					response.output.find((item) => item.type === "message"),
+				).toMatchObject({
+					reasoning_details: [
+						{
+							format: "google-gemini-v1",
+							signature: signedThought.thoughtSignature,
+						},
+					],
+				});
 				const callId = String(call.call_id);
 				await redisClient.del(`thought_signature:${callId}`);
 				toolResponse = false;
@@ -420,6 +444,7 @@ describe("Gemini thought signature replay", () => {
 				expect(
 					captured[1]!.contents.find((item) => item.role === "model")?.parts,
 				).toEqual([
+					signedThought,
 					{
 						functionCall: { name: "lookup", args: {} },
 						thoughtSignature: signature,
