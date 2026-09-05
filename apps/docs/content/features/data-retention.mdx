@@ -75,7 +75,13 @@ Data is retained for 30 days for all users. Enterprise plans can have custom ret
 	storage. Because this is independent of the retention level, it applies to
 	metadata-only organizations, including DevPass and chat, whose Responses API
 	input and output items are therefore held for up to 30 days. Send `store:
-	false` with the request to opt out.
+	false` with the request to opt out. When an Enterprise organization's
+	[zero-data-retention policy](/features/compliance) is active, the gateway
+	rejects Responses API requests unless `store: false` is set, does not retain
+	compaction state, bypasses the gateway response cache, strips provider
+	prompt-cache markers, and prevents payload retention or project response
+	caching from being enabled until ZDR is disabled. ZDR cannot be enabled until
+	both settings are off.
 </Callout>
 
 ## Accessing Stored Data

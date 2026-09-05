@@ -40,6 +40,7 @@ export function parseProviderResponse(
 	 * request actually searches, so an unforced one must count zero.
 	 */
 	webSearchForced = false,
+	options?: { cacheThoughtSignatures?: boolean },
 ) {
 	let content = null;
 	let reasoningContent = null;
@@ -447,15 +448,17 @@ export function parseProviderResponse(
 								},
 							};
 							// Store in Redis for server-side retrieval since OpenAI SDKs don't preserve extra_content
-							redisClient
-								.setex(
-									`thought_signature:${toolCall.id}`,
-									86400, // 1 day expiration
-									part.thoughtSignature,
-								)
-								.catch((err) => {
-									logger.error("Failed to cache thought_signature", { err });
-								});
+							if (options?.cacheThoughtSignatures !== false) {
+								redisClient
+									.setex(
+										`thought_signature:${toolCall.id}`,
+										86400, // 1 day expiration
+										part.thoughtSignature,
+									)
+									.catch((err) => {
+										logger.error("Failed to cache thought_signature", { err });
+									});
+							}
 						}
 						return toolCall;
 					}) ?? null;

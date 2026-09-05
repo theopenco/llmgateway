@@ -35,7 +35,10 @@ import {
 } from "@/lib/cached-queries.js";
 import { raceClientAbort } from "@/lib/client-abort.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
-import { assertProviderCompliant } from "@/lib/compliance.js";
+import {
+	assertProviderCompliant,
+	getEffectiveRetentionLevel,
+} from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
@@ -482,7 +485,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 		baseOrganization,
 	);
 
-	const retentionLevel = organization.retentionLevel ?? "none";
+	const retentionLevel = getEffectiveRetentionLevel(organization);
 
 	// 2. Resolve model → provider mapping
 	const result = findRerankMapping(requestedModel);

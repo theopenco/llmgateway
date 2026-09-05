@@ -40,6 +40,11 @@ describe("realtime client secrets route", () => {
 			},
 			allowedTranscriptionModelIds: [],
 			project: { organizationId: "org_test" },
+			organization: {
+				id: "org_test",
+				plan: "pro",
+				providerCompliancePolicy: null,
+			},
 		});
 	});
 
@@ -104,6 +109,34 @@ describe("realtime client secrets route", () => {
 		expect(JSON.stringify(await response.json())).not.toContain(
 			"secret prompt",
 		);
+	});
+
+	it("rejects pinned instructions while ZDR is active", async () => {
+		mocks.runRealtimePreflight.mockResolvedValueOnce({
+			match: {
+				modelId: "gpt-realtime-2.1-mini",
+				mapping: {
+					providerId: "openai",
+					supportedVoices: ["marin", "cedar"],
+				},
+			},
+			allowedTranscriptionModelIds: [],
+			project: { organizationId: "org_test" },
+			organization: {
+				id: "org_test",
+				plan: "enterprise",
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			},
+		});
+
+		const response = await mint({ instructions: "secret prompt" });
+
+		expect(response.status).toBe(400);
+		expect((await response.json()).error.code).toBe("zdr_storage_conflict");
+		expect(mocks.createClientSecret).not.toHaveBeenCalled();
 	});
 
 	it("defaults instructions and voice to null when not pinned", async () => {

@@ -480,6 +480,7 @@ describe("isAttestationCompliant", () => {
 			{ enabled: true, requireGdpr: true },
 			{ enabled: true, blockApiTraining: true },
 			{ enabled: true, blockPromptLogging: true },
+			{ enabled: true, zeroDataRetention: true },
 			{ enabled: true, allowedCountries: ["US"] },
 		];
 		for (const policy of singleRequirementPolicies) {
@@ -557,6 +558,39 @@ describe("isAttestationCompliant", () => {
 				{ enabled: true, blockPromptLogging: true },
 			),
 		).toBe(false);
+	});
+
+	it("zeroDataRetention requires no prompt logging and zero retention", () => {
+		expect(
+			isAttestationCompliant(
+				{ promptLogging: false, retentionPeriod: "0 days" },
+				{ enabled: true, zeroDataRetention: true },
+			),
+		).toBe(true);
+		expect(
+			isAttestationCompliant(
+				{ promptLogging: false, retentionPeriod: "24 hours" },
+				{ enabled: true, zeroDataRetention: true },
+			),
+		).toBe(false);
+		expect(
+			getAttestationComplianceFailures(
+				{ promptLogging: true, retentionPeriod: "0 days" },
+				{ enabled: true, zeroDataRetention: true },
+			),
+		).toEqual(["zeroDataRetention"]);
+		expect(
+			getAttestationComplianceFailures(
+				{ promptLogging: false },
+				{ enabled: true, zeroDataRetention: true },
+			),
+		).toEqual(["zeroDataRetention"]);
+		expect(
+			getProviderComplianceFailures(getProviderDefinition("bytedance")!, {
+				enabled: true,
+				zeroDataRetention: true,
+			}),
+		).toContain("zeroDataRetention");
 	});
 
 	it("allowedCountries checks the attested headquarters, failing closed when absent", () => {

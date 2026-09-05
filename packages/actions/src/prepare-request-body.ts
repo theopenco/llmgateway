@@ -2288,6 +2288,7 @@ export async function prepareRequestBody(
 						responsesBody.service_tier = supportedServiceTier;
 					}
 					if (
+						allowProviderCacheWrites &&
 						prompt_cache_retention !== undefined &&
 						(prompt_cache_retention !== "24h" ||
 							supportsOpenAIExtendedPromptCache(usedInternalModel))
@@ -2321,11 +2322,12 @@ export async function prepareRequestBody(
 				// required for hits at all) a key derived from the conversation
 				// prefix.
 				if (
-					usedProvider === "openai" ||
-					usedProvider === "azure" ||
-					usedProvider === "aws-mantle" ||
-					usedProvider === "meta" ||
-					usedProvider === "meta-contributor"
+					allowProviderCacheWrites &&
+					(usedProvider === "openai" ||
+						usedProvider === "azure" ||
+						usedProvider === "aws-mantle" ||
+						usedProvider === "meta" ||
+						usedProvider === "meta-contributor")
 				) {
 					const upstreamCacheKey =
 						(prompt_cache_key !== undefined
@@ -2489,17 +2491,20 @@ export async function prepareRequestBody(
 					// Azure is intentionally excluded on this path: chat completions
 					// may hit a legacy deployment-based api-version that rejects
 					// unknown body fields, and the deployment type isn't known here.
-					const upstreamCacheKey =
-						(prompt_cache_key !== undefined
-							? hashPromptCacheKey(prompt_cache_key)
-							: undefined) ??
-						(session_id !== undefined
-							? hashSessionCacheKey(session_id)
-							: undefined);
-					if (upstreamCacheKey !== undefined) {
-						requestBody.prompt_cache_key = upstreamCacheKey;
+					if (allowProviderCacheWrites) {
+						const upstreamCacheKey =
+							(prompt_cache_key !== undefined
+								? hashPromptCacheKey(prompt_cache_key)
+								: undefined) ??
+							(session_id !== undefined
+								? hashSessionCacheKey(session_id)
+								: undefined);
+						if (upstreamCacheKey !== undefined) {
+							requestBody.prompt_cache_key = upstreamCacheKey;
+						}
 					}
 					if (
+						allowProviderCacheWrites &&
 						prompt_cache_retention !== undefined &&
 						(prompt_cache_retention !== "24h" ||
 							supportsOpenAIExtendedPromptCache(usedInternalModel))
