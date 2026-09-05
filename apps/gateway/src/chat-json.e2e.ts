@@ -15,6 +15,11 @@ import {
 } from "@/chat-helpers.e2e.js";
 import { readAll } from "@/test-utils/test-helpers.js";
 
+import {
+	createJsonOutputVerificationRequest,
+	createStructuredJsonVerificationRequest,
+} from "@llmgateway/actions";
+
 import type { ProviderModelMapping } from "@llmgateway/models";
 
 describe("e2e", getConcurrentTestOptions(), () => {
@@ -40,21 +45,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				"Content-Type": "application/json",
 				Authorization: `Bearer real-token`,
 			},
-			body: JSON.stringify({
-				model: model,
-				messages: [
-					{
-						role: "system",
-						content:
-							"You are a helpful assistant. Always respond with valid JSON.",
-					},
-					{
-						role: "user",
-						content: 'Return a JSON object with "message": "Hello World"',
-					},
-				],
-				response_format: { type: "json_object" },
-			}),
+			body: JSON.stringify(createJsonOutputVerificationRequest(model)),
 		});
 
 		const json = await res.json();
@@ -95,46 +86,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				"Content-Type": "application/json",
 				Authorization: `Bearer real-token`,
 			},
-			body: JSON.stringify({
-				model: model,
-				messages: [
-					{
-						role: "system",
-						content: "You are a helpful assistant.",
-					},
-					{
-						role: "user",
-						content: "Provide basic facts about the country France.",
-					},
-				],
-				response_format: {
-					type: "json_schema",
-					json_schema: {
-						name: "country_facts",
-						description: "Basic facts about a country",
-						schema: {
-							type: "object",
-							properties: {
-								name: {
-									type: "string",
-									description: "The country's name",
-								},
-								capital: {
-									type: "string",
-									description: "The country's capital city",
-								},
-								continent: {
-									type: "string",
-									description: "The continent the country is on",
-								},
-							},
-							required: ["name", "capital", "continent"],
-							additionalProperties: false,
-						},
-						strict: true,
-					},
-				},
-			}),
+			body: JSON.stringify(createStructuredJsonVerificationRequest(model)),
 		});
 
 		const json = await res.json();
