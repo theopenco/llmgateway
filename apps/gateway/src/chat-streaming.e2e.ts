@@ -14,8 +14,6 @@ import {
 } from "@/chat-helpers.e2e.js";
 import { readAll } from "@/test-utils/test-helpers.js";
 
-import { createStreamingVerificationRequest } from "@llmgateway/actions";
-
 describe("e2e", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);
 
@@ -38,7 +36,20 @@ describe("e2e", getConcurrentTestOptions(), () => {
 					"x-no-fallback": "true",
 					Authorization: `Bearer real-token`,
 				},
-				body: JSON.stringify(createStreamingVerificationRequest(model)),
+				body: JSON.stringify({
+					model: model,
+					messages: [
+						{
+							role: "system",
+							content: "You are a helpful assistant.",
+						},
+						{
+							role: "user",
+							content: "Hello! This is a streaming e2e test.",
+						},
+					],
+					stream: true,
+				}),
 			});
 
 			if (res.status !== 200) {

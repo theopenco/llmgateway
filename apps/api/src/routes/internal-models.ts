@@ -485,12 +485,7 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 	});
 	const activeClaims = await db.query.providerClaim.findMany({
 		where: { status: { eq: "active" } },
-		columns: {
-			providerId: true,
-			customName: true,
-			logoUrl: true,
-			iconUrl: true,
-		},
+		columns: { providerId: true, logoUrl: true, iconUrl: true },
 	});
 	const brandingByProvider = new Map(
 		activeClaims.map((claim) => [claim.providerId, claim]),
@@ -500,7 +495,6 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 	return c.json({
 		providers: providers.map((provider) => ({
 			...provider,
-			name: brandingByProvider.get(provider.id)?.customName ?? provider.name,
 			modelCardBadge:
 				providerDefinitions.find((p) => p.id === provider.id)?.modelCardBadge ??
 				null,

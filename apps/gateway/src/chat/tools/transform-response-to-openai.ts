@@ -419,11 +419,10 @@ export function transformResponseToOpenai(
 	cacheCreation1hTokens: number | null = null,
 	audioInputTokens: number | null = null,
 	serviceTier?: string,
-	responseProvider: Provider = usedProvider,
 ) {
 	let transformedResponse = json;
 
-	switch (responseProvider) {
+	switch (usedProvider) {
 		case "google-ai-studio":
 		case "glacier":
 		case "iceberg":
@@ -437,7 +436,7 @@ export function transformResponseToOpenai(
 			// carry response healing and image-generation labels.
 			const googleCandidates = dedupeGoogleCandidateParts(
 				Array.isArray(json?.candidates) ? json.candidates : [],
-				responseProvider,
+				usedProvider,
 			);
 			const googleChoices =
 				googleCandidates.length > 1
@@ -524,7 +523,7 @@ export function transformResponseToOpenai(
 								},
 								finish_reason: mapFinishReasonToOpenai(
 									candidate.finishReason ?? finishReason,
-									responseProvider,
+									usedProvider,
 									candidateToolCalls.length > 0,
 								),
 							};
@@ -544,7 +543,7 @@ export function transformResponseToOpenai(
 								},
 								finish_reason: mapFinishReasonToOpenai(
 									finishReason,
-									responseProvider,
+									usedProvider,
 									!!toolResults,
 								),
 							},

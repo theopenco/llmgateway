@@ -102,53 +102,6 @@ afterEach(() => {
 });
 
 describe("getProviderEndpoint", () => {
-	function getCustomEndpoint(
-		apiFormat: "openai-chat-completions" | "openai-responses" | "google-vertex",
-		options: { stream?: boolean; token?: string } = {},
-	) {
-		return getProviderEndpoint(
-			"custom",
-			"https://carrier.example/api",
-			"gpt-5.6-luna",
-			options.token,
-			options.stream ?? false,
-			false,
-			false,
-			undefined,
-			undefined,
-			false,
-			undefined,
-			true,
-			"gpt-5.6-luna",
-			apiFormat === "google-vertex" ? "api-key" : undefined,
-			undefined,
-			apiFormat,
-		);
-	}
-
-	it("honors an explicit OpenAI Chat Completions format", () => {
-		expect(getCustomEndpoint("openai-chat-completions")).toBe(
-			"https://carrier.example/api/v1/chat/completions",
-		);
-	});
-
-	it("honors an explicit OpenAI Responses format", () => {
-		expect(getCustomEndpoint("openai-responses")).toBe(
-			"https://carrier.example/api/v1/responses",
-		);
-	});
-
-	it("honors an explicit Google Vertex format", () => {
-		expect(
-			getCustomEndpoint("google-vertex", {
-				stream: true,
-				token: "provider-key",
-			}),
-		).toBe(
-			"https://carrier.example/api/v1/publishers/google/models/gpt-5.6-luna:streamGenerateContent?key=provider-key&alt=sse",
-		);
-	});
-
 	it("builds Glacier endpoints from env base URL", () => {
 		process.env.LLM_GLACIER_BASE_URL = "https://glacier.example.com";
 
@@ -327,43 +280,6 @@ describe("getProviderEndpoint", () => {
 	});
 
 	describe("vertex oauth token type", () => {
-		it.each(["environment", "provider options", "managed credential"])(
-			"preserves OAuth from %s with an explicit Vertex format",
-			(source) => {
-				process.env.LLM_GOOGLE_CLOUD_PROJECT = "project-a";
-				process.env.LLM_GOOGLE_VERTEX_REGION = "global";
-				process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE =
-					source === "environment" ? "oauth" : "api-key";
-
-				const endpoint = getProviderEndpoint(
-					"google-vertex",
-					"https://aiplatform.googleapis.com",
-					"gemini-2.5-pro",
-					"provider-token",
-					true,
-					undefined,
-					undefined,
-					source === "provider options"
-						? { google_vertex_token_type: "oauth" }
-						: source === "managed credential"
-							? { env_config: { tokenType: "oauth" } }
-							: undefined,
-					undefined,
-					undefined,
-					undefined,
-					false,
-					undefined,
-					undefined,
-					undefined,
-					"google-vertex",
-				);
-
-				expect(endpoint).toBe(
-					"https://aiplatform.googleapis.com/v1/projects/project-a/locations/global/publishers/google/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
-				);
-			},
-		);
-
 		it("omits ?key= when token type is oauth via env var", () => {
 			process.env.LLM_GOOGLE_CLOUD_PROJECT = "project-a";
 			process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
@@ -833,34 +749,6 @@ describe("getProviderEndpoint", () => {
 	});
 
 	describe("aws-bedrock regions", () => {
-		it.each([undefined, "https://carrier.example/openai/v1"])(
-			"preserves Mantle routing with an explicit Chat Completions format and base URL %s",
-			(baseUrl) => {
-				const endpoint = getProviderEndpoint(
-					"aws-bedrock",
-					baseUrl,
-					"grok-4-3",
-					undefined,
-					false,
-					undefined,
-					undefined,
-					undefined,
-					undefined,
-					undefined,
-					"us-west-2",
-					true,
-					"grok-4-3",
-					undefined,
-					undefined,
-					"openai-chat-completions",
-				);
-
-				expect(endpoint).toBe(
-					`${baseUrl ?? "https://bedrock-mantle.us-west-2.api.aws/openai/v1"}/chat/completions`,
-				);
-			},
-		);
-
 		it("defaults to us-east-1 endpoint with global. prefix when no region is set", () => {
 			const endpoint = getProviderEndpoint(
 				"aws-bedrock",

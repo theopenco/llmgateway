@@ -1305,35 +1305,21 @@ export interface EffectiveRoutingScoreMultiplier {
  */
 export async function findAirsideRoutingSettings(
 	provider: string,
-	model?: string,
 ): Promise<{ discountPercent: number; marginPercent: number } | null> {
 	const rows = await swrWrap(
-		`airsideRouting:${JSON.stringify([provider, model])}`,
+		`airsideRouting:${provider}`,
 		[providerRoutingSettingsTableName],
 		async () =>
 			await db
 				.select({
-					modelId: providerRoutingSettingsTable.modelId,
 					discountPercent: providerRoutingSettingsTable.discountPercent,
 					marginPercent: providerRoutingSettingsTable.marginPercent,
 				})
 				.from(providerRoutingSettingsTable)
-				.where(
-					and(
-						eq(providerRoutingSettingsTable.providerId, provider),
-						model
-							? or(
-									eq(providerRoutingSettingsTable.modelId, model),
-									isNull(providerRoutingSettingsTable.modelId),
-								)
-							: isNull(providerRoutingSettingsTable.modelId),
-					),
-				),
+				.where(eq(providerRoutingSettingsTable.providerId, provider))
+				.limit(1),
 	);
-	const row =
-		(model
-			? rows.find((candidate) => candidate.modelId === model)
-			: undefined) ?? rows.find((candidate) => candidate.modelId === null);
+	const row = rows[0];
 	if (!row) {
 		return null;
 	}
@@ -1345,9 +1331,8 @@ export async function findAirsideRoutingSettings(
 
 export async function findAirsideRoutingAdjustment(
 	provider: string,
-	model?: string,
 ): Promise<number> {
-	const settings = await findAirsideRoutingSettings(provider, model);
+	const settings = await findAirsideRoutingSettings(provider);
 	if (!settings) {
 		return 0;
 	}

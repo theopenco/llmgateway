@@ -738,10 +738,6 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.providerCompany.id,
 			to: r.providerDraftModel.providerCompanyId,
 		}),
-		modelVerifications: r.many.providerModelVerification({
-			from: r.providerCompany.id,
-			to: r.providerModelVerification.providerCompanyId,
-		}),
 		priceFilings: r.many.providerPriceFiling({
 			from: r.providerCompany.id,
 			to: r.providerPriceFiling.providerCompanyId,
@@ -757,16 +753,6 @@ export const relations = defineRelations(schema, (r) => ({
 		routingFilings: r.many.providerRoutingFiling({
 			from: r.providerCompany.id,
 			to: r.providerRoutingFiling.providerCompanyId,
-		}),
-	},
-	providerModelVerification: {
-		providerCompany: r.one.providerCompany({
-			from: r.providerModelVerification.providerCompanyId,
-			to: r.providerCompany.id,
-		}),
-		draftModel: r.one.providerDraftModel({
-			from: r.providerModelVerification.draftModelId,
-			to: r.providerDraftModel.id,
 		}),
 	},
 	providerCompanyInvite: {
@@ -799,10 +785,6 @@ export const relations = defineRelations(schema, (r) => ({
 		priceFilings: r.many.providerPriceFiling({
 			from: r.providerDraftModel.id,
 			to: r.providerPriceFiling.draftModelId,
-		}),
-		modelVerifications: r.many.providerModelVerification({
-			from: r.providerDraftModel.id,
-			to: r.providerModelVerification.draftModelId,
 		}),
 	},
 	providerPriceFiling: {

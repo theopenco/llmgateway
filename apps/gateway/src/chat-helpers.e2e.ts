@@ -11,7 +11,6 @@ import {
 	getSupportedServiceTiers,
 	models,
 	type ProviderModelMapping,
-	type ReasoningEffort,
 	providers,
 	getConcurrentTestOptions,
 	getTestOptions,
@@ -985,15 +984,15 @@ export const thinkingDisabledForcedToolChoiceModels = testModels.filter((m) =>
 // back to the strongest declared tier.
 export function getSupportedReasoningEffort(
 	providers: ProviderModelMapping[] | undefined,
-): ReasoningEffort {
+): string {
 	const efforts = providers?.find(
 		(p) => p.reasoning === true,
 	)?.reasoningEfforts;
 	if (!efforts || efforts.includes("medium")) {
 		return "medium";
 	}
-	for (const effort of ["high", "low", "minimal", "xhigh", "max"] as const) {
-		if (efforts.includes(effort)) {
+	for (const effort of ["high", "low", "minimal", "xhigh", "max"]) {
+		if (efforts.includes(effort as (typeof efforts)[number])) {
 			return effort;
 		}
 	}

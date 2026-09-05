@@ -53,11 +53,7 @@ export default function TrafficPage() {
 				},
 			},
 		},
-		{
-			enabled: !!company,
-			refetchInterval: 15_000,
-			refetchIntervalInBackground: false,
-		},
+		{ enabled: !!company },
 	);
 
 	if (companyLoading) {

@@ -129,8 +129,6 @@ export async function syncProvidersAndModels() {
 							.update(modelProviderMapping)
 							.set({
 								externalId: mapping.externalId,
-								apiFormat:
-									"apiFormat" in mapping ? (mapping.apiFormat ?? null) : null,
 								region: mappingRegion ?? null,
 								inputPrice:
 									"inputPrice" in mapping && mapping.inputPrice !== undefined
@@ -222,7 +220,6 @@ export async function syncProvidersAndModels() {
 							modelId: modelDef.id,
 							providerId: mapping.providerId,
 							externalId: mapping.externalId,
-							apiFormat: "apiFormat" in mapping ? mapping.apiFormat : undefined,
 							region: mappingRegion ?? undefined,
 							inputPrice:
 								"inputPrice" in mapping && mapping.inputPrice !== undefined

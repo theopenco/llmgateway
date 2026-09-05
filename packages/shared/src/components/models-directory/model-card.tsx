@@ -5,9 +5,6 @@ import {
 	AlertCircle,
 	ArrowUpRight,
 	Ban,
-	Blocks,
-	Brain,
-	Braces,
 	CalendarClock,
 	Clock,
 	Copy,
@@ -16,20 +13,12 @@ import {
 	ChevronUp,
 	Gem,
 	Globe,
-	Eye,
-	FileText,
 	Linkedin,
-	ListFilter,
-	Radio,
-	Search,
 	Share2,
-	SlidersHorizontal,
-	Volume2,
-	Wrench,
 	Zap,
 } from "lucide-react";
 import Link from "next/link.js";
-import { useId, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { CarrierMark } from "@/components/carrier-mark";
 import { getProviderIcon } from "@/components/provider-icons";
@@ -63,7 +52,6 @@ import {
 	formatPerSecondPriceLabel,
 	formatPerUnitPrice,
 } from "./format";
-import { getMappingCapabilities } from "./mapping-capabilities";
 import { ModelCodeExampleDialog } from "./model-code-example-dialog";
 import { ModelStatusBadge } from "./model-status-badge";
 import {
@@ -77,7 +65,6 @@ import type {
 	ApiModelProviderMapping,
 	ApiProvider,
 } from "./api-types";
-import type { MAPPING_CAPABILITIES } from "./mapping-capabilities";
 import type { StabilityLevel } from "@llmgateway/models";
 
 interface ModelWithProviders extends ApiModel {
@@ -157,21 +144,6 @@ function hasEstimatedImageCost(mapping: ApiModelProviderMapping): boolean {
 		mapping.imageOutputPrice && mapping.imageOutputTokensByResolution,
 	);
 }
-
-const MAPPING_CAPABILITY_ICONS = {
-	streaming: Zap,
-	vision: Eye,
-	audio: Volume2,
-	document: FileText,
-	tools: Wrench,
-	reasoning: Brain,
-	reasoningMaxTokens: SlidersHorizontal,
-	jsonOutput: Braces,
-	jsonOutputSchema: Blocks,
-	webSearch: Search,
-	realtime: Radio,
-	rerank: ListFilter,
-} satisfies Record<(typeof MAPPING_CAPABILITIES)[number]["key"], typeof Zap>;
 
 export function ModelCard({
 	model,
@@ -667,7 +639,6 @@ export function ProviderSection({
 	headerExtra?: React.ReactNode;
 }) {
 	const [activeRegionIdx, setActiveRegionIdx] = useState(0);
-	const mappingDetailsId = useId();
 	const [showTokenPricing, setShowTokenPricing] = useState(false);
 	const [showMappingDetails, setShowMappingDetails] = useState(false);
 	const [timeBasedPricingMode, setTimeBasedPricingMode] = useState<
@@ -685,9 +656,7 @@ export function ProviderSection({
 			MODEL_DEACTIVATION_NOTICE_DAYS,
 		);
 	const showDeactivationNotice = isDeactivated || isScheduled;
-	const mappingCapabilities = getMappingCapabilities(activeMapping);
 	const hasMappingDetails =
-		mappingCapabilities.length > 0 ||
 		(activeMapping.reasoningEfforts?.length ?? 0) > 0 ||
 		(activeMapping.supportedParameters?.length ?? 0) > 0;
 	const supportedServiceTierIds = new Set(activeMapping.serviceTiers ?? []);
@@ -1649,40 +1618,11 @@ export function ProviderSection({
 					</button>
 				)}
 
-				{/* Mapping metadata, collapsed by default */}
+				{/* Reasoning efforts + supported parameters, collapsed by default */}
 				{hasMappingDetails && (
 					<>
 						{showMappingDetails && (
-							<div
-								id={mappingDetailsId}
-								className="space-y-2.5"
-								onClick={(event) => event.stopPropagation()}
-							>
-								{mappingCapabilities.length > 0 && (
-									<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
-										<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
-											Capabilities
-										</div>
-										<div className="flex flex-wrap gap-1.5">
-											{mappingCapabilities.map(({ key, label }) => {
-												const Icon = MAPPING_CAPABILITY_ICONS[key];
-												return (
-													<Badge
-														key={key}
-														variant="outline"
-														className="h-6 gap-1.5 border-border/60 bg-background/70 px-2 text-[10px] font-medium text-foreground"
-													>
-														<Icon
-															className="h-3 w-3 text-primary"
-															aria-hidden="true"
-														/>
-														{label}
-													</Badge>
-												);
-											})}
-										</div>
-									</div>
-								)}
+							<div className="space-y-2.5">
 								{(activeMapping.reasoningEfforts?.length ?? 0) > 0 && (
 									<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
 										<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
@@ -1723,8 +1663,6 @@ export function ProviderSection({
 						)}
 						<button
 							type="button"
-							aria-expanded={showMappingDetails}
-							aria-controls={mappingDetailsId}
 							className="w-full flex items-center justify-center gap-1.5 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
 							onClick={(e) => {
 								e.stopPropagation();

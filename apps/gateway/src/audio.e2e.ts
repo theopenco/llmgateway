@@ -13,7 +13,6 @@ import {
 	providerModels,
 } from "@/chat-helpers.e2e.js";
 
-import { createAudioVerificationRequest } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
@@ -87,9 +86,24 @@ describe("e2e audio input", getTestOptions(), () => {
 					"Content-Type": "application/json",
 					Authorization: `Bearer ${AUDIO_API_KEY_TOKEN}`,
 				},
-				body: JSON.stringify(
-					createAudioVerificationRequest(model, audioBase64),
-				),
+				body: JSON.stringify({
+					model,
+					messages: [
+						{
+							role: "user",
+							content: [
+								{
+									type: "text",
+									text: "What do you hear in this audio? Reply in one short sentence.",
+								},
+								{
+									type: "input_audio",
+									input_audio: { data: audioBase64, format: "wav" },
+								},
+							],
+						},
+					],
+				}),
 			});
 
 			const json = await res.json();
