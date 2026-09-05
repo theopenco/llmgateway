@@ -18,7 +18,7 @@ import {
 	findOrganizationById,
 	findProjectById,
 } from "@/lib/cached-queries.js";
-import { getEffectiveRetentionLevel } from "@/lib/compliance.js";
+import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 
 import { parseDataUrl } from "@llmgateway/actions";
@@ -148,7 +148,7 @@ type GenerateNanoBananaInput = z.infer<typeof generateNanoBananaInputSchema>;
  */
 function createMcpServer(
 	apiKey: string,
-	retentionLevel: "retain" | "none",
+	zeroDataRetentionEnabled: boolean,
 ): McpServer {
 	const server = new McpServer({
 		name: "llmgateway",
@@ -565,7 +565,7 @@ function createMcpServer(
 	// Register the generate-nano-banana tool
 	server.tool(
 		"generate-nano-banana",
-		`Generate an image using Gemini 3 Pro Image (Nano Banana Pro). Tailored for AI coding agents - always returns an inline image preview.${process.env.UPLOAD_DIR && retentionLevel === "retain" ? " Also saves images to disk and returns file paths." : ""}`,
+		`Generate an image using Gemini 3 Pro Image (Nano Banana Pro). Tailored for AI coding agents - always returns an inline image preview.${zeroDataRetentionEnabled ? "" : process.env.UPLOAD_DIR ? " Also saves images to disk and returns file paths." : " Set UPLOAD_DIR to enable saving images to disk."}`,
 		generateNanoBananaInputSchema.shape,
 		async (input: GenerateNanoBananaInput) => {
 			try {
@@ -636,8 +636,9 @@ function createMcpServer(
 					};
 				}
 
-				const uploadDir =
-					retentionLevel === "retain" ? process.env.UPLOAD_DIR : undefined;
+				const uploadDir = zeroDataRetentionEnabled
+					? undefined
+					: process.env.UPLOAD_DIR;
 				const contentBlocks: Array<
 					| { type: "text"; text: string }
 					| { type: "image"; data: string; mimeType: string }
@@ -1173,7 +1174,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 		);
 	}
 
-	let retentionLevel: "retain" | "none" = "none";
+	let zeroDataRetentionEnabled = false;
 	try {
 		// User-level limits take priority: enforce the per-member budget (set on
 		// the Teams page; fails open on read errors) before the per-key usage
@@ -1184,7 +1185,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 			const mcpOrganization = await findOrganizationById(
 				mcpProject.organizationId,
 			);
-			retentionLevel = getEffectiveRetentionLevel(mcpOrganization);
+			zeroDataRetentionEnabled = isZeroDataRetentionEnabled(mcpOrganization);
 			await assertMemberProjectAccess(apiKeyRecord, mcpProject.organizationId);
 			await assertMemberWithinBudget(
 				apiKeyRecord.createdBy,
@@ -1281,7 +1282,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	}
 
 	if (method === "POST") {
-		const server = createMcpServer(apiKey, retentionLevel);
+		const server = createMcpServer(apiKey, zeroDataRetentionEnabled);
 		try {
 			const rawBody = await c.req.json();
 
