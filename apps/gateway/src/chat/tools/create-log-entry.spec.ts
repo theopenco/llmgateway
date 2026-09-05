@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createLogEntry } from "./create-log-entry.js";
+import { validateSource } from "./validate-source.js";
 
 import type { CreateLogEntryOptions } from "./create-log-entry.js";
 import type { GatewayApiKey } from "@/lib/cached-queries.js";
@@ -12,7 +13,7 @@ import type { GatewayApiKey } from "@/lib/cached-queries.js";
  * platform-managed credential means LLM Gateway pays the provider and bills
  * nobody, so the mapping is pinned here.
  */
-describe("createLogEntry usedMode", () => {
+describe("createLogEntry", () => {
 	const project = {
 		id: "project-id",
 		organizationId: "org-id",
@@ -37,6 +38,53 @@ describe("createLogEntry usedMode", () => {
 			...overrides,
 		});
 	}
+
+	it.each([
+		"codex",
+		"claude.com/claude-code",
+		"open-code",
+		"lounge.llmgateway.io",
+		"chat.llmgateway.io",
+		"docs-ask-ai",
+		"support-chat",
+		"onboarding",
+		"llmgateway.io/playground",
+		"chatbox",
+		"continue.dev",
+		"bolt.new",
+		"v0.dev",
+		"lovable.dev",
+	])("preserves the recognized source %s", (source) => {
+		expect(entry({ source }).source).toBe(source);
+	});
+
+	it("normalizes raw sources used by client-error logging", () => {
+		expect(entry({ source: "https://www.lounge.llmgateway.io" }).source).toBe(
+			"lounge.llmgateway.io",
+		);
+		expect(entry({ source: "invalid_source?request=123" }).source).toBe(
+			"unknown",
+		);
+		expect(entry({ source: "a".repeat(10_000) }).source).toBe("unknown");
+		expect(entry().source).toBeNull();
+	});
+
+	it("bounds distinct sources from validated headers and referers", () => {
+		const sources = new Set(
+			Array.from(
+				{ length: 100 },
+				(_, index) =>
+					entry({ source: validateSource(`app-${index}.example.com`) }).source,
+			),
+		);
+		expect([...sources]).toEqual(["unknown"]);
+		expect(
+			entry({ source: validateSource(undefined, "https://www.example.com") })
+				.source,
+		).toBe("unknown");
+		expect(entry({ source: "custom-claw-1" }).source).toBe("openclaw");
+		expect(entry({ source: "custom-claw-2" }).source).toBe("openclaw");
+	});
 
 	it("bills as credits when the platform's own credential served the request", () => {
 		// Covers both platform paths: an `LLM_*` env var and a managed

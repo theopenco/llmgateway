@@ -1,4 +1,5 @@
-CREATE TABLE "api_key_hourly_source_stats" (
+-- This table may already exist from migration 1788560095_productive_makkari.
+CREATE TABLE IF NOT EXISTS "api_key_hourly_source_stats" (
 	"id" text PRIMARY KEY,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
@@ -48,6 +49,6 @@ CREATE TABLE "api_key_hourly_source_stats" (
 	CONSTRAINT "api_key_hourly_source_stats_api_key_id_hour_timestamp_source_unique" UNIQUE("api_key_id","hour_timestamp","source")
 );
 --> statement-breakpoint
-CREATE INDEX "api_key_hourly_source_stats_api_key_id_hour_timestamp_idx" ON "api_key_hourly_source_stats" ("api_key_id","hour_timestamp");--> statement-breakpoint
-CREATE INDEX "api_key_hourly_source_stats_project_id_hour_timestamp_idx" ON "api_key_hourly_source_stats" ("project_id","hour_timestamp");--> statement-breakpoint
-CREATE INDEX "api_key_hourly_source_stats_hour_timestamp_idx" ON "api_key_hourly_source_stats" ("hour_timestamp");
+CREATE INDEX IF NOT EXISTS "api_key_hourly_source_stats_api_key_id_hour_timestamp_idx" ON "api_key_hourly_source_stats" ("api_key_id","hour_timestamp");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "api_key_hourly_source_stats_project_id_hour_timestamp_idx" ON "api_key_hourly_source_stats" ("project_id","hour_timestamp");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "api_key_hourly_source_stats_hour_timestamp_idx" ON "api_key_hourly_source_stats" ("hour_timestamp");

@@ -1,6 +1,7 @@
 import { Decimal } from "decimal.js";
 
 import { getAirsideRoutingSnapshot } from "@/lib/airside-routing-snapshot.js";
+import { normalizeLogSource } from "@/lib/normalize-log-source.js";
 import { recordSpend } from "@/lib/spend-limit.js";
 
 import { swrWrap } from "@llmgateway/cache";
@@ -230,7 +231,7 @@ export async function recordRealtimeResponse(
 				cached: false,
 				mode: preflight.project.mode as "api-keys" | "credits" | "hybrid",
 				usedMode: preflight.usedMode,
-				source: input.source,
+				source: normalizeLogSource(input.source),
 				userAgent: input.userAgent ?? null,
 				// Float cost columns stay populated for dashboards and legacy queries;
 				// billingCost is the exact decimal the worker debits.
@@ -393,7 +394,7 @@ export async function recordRealtimeTranscription(
 				cached: false,
 				mode: preflight.project.mode as "api-keys" | "credits" | "hybrid",
 				usedMode: preflight.usedMode,
-				source: input.source,
+				source: normalizeLogSource(input.source),
 				userAgent: input.userAgent ?? null,
 				cost: costs.totalCost.toNumber(),
 				inputCost: costs.inputCost.toNumber(),
