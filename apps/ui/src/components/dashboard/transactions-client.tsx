@@ -130,6 +130,8 @@ export function TransactionsClient({
 				return "Subscription Renewal";
 			case "subscription_cancellation":
 				return "Subscription Cancellation";
+			case "provider_margin_share":
+				return "Provider Margin Share";
 			default:
 				return type;
 		}
