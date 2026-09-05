@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "9cb1a101-654b-4fec-8ea7-ffb7d9c22bfe",
+  "id": "e6a0d739-7b37-4251-8329-a66cdbff9239",
   "prevId": "b5423a01-7e32-4919-bb42-9c3525ca1baa",
   "ddl": [
     {
@@ -121,6 +121,12 @@
     {
       "isRlsEnabled": false,
       "name": "dev_plan_card_fingerprint_history",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "device_code",
       "entityType": "tables",
       "schema": "public"
     },
@@ -457,12 +463,6 @@
     {
       "isRlsEnabled": false,
       "name": "provider_listing_request",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "provider_model_verification",
       "entityType": "tables",
       "schema": "public"
     },
@@ -4711,6 +4711,136 @@
       "entityType": "columns",
       "schema": "public",
       "table": "dev_plan_card_fingerprint_history"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "device_code",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_code",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "last_polled_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "polling_interval",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "client_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "scope",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
     },
     {
       "type": "text",
@@ -11173,19 +11303,6 @@
       "generated": null,
       "identity": null,
       "name": "external_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "model_provider_mapping"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "api_format",
       "entityType": "columns",
       "schema": "public",
       "table": "model_provider_mapping"
@@ -19582,22 +19699,6 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'provider-native'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "api_format",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_draft_model"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
       "default": null,
@@ -19751,39 +19852,7 @@
       },
       "generated": null,
       "identity": null,
-      "name": "json_output_schema",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_draft_model"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "false",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
       "name": "reasoning",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_draft_model"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "false",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "reasoning_max_tokens",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_draft_model"
@@ -19797,22 +19866,6 @@
       "generated": null,
       "identity": null,
       "name": "reasoning_efforts",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_draft_model"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "false",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "web_search",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_draft_model"
@@ -20816,229 +20869,6 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "provider_company_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "draft_model_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "requested_by",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "target",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "checks",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'queued'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "status",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "credential_ciphertext",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'supplied'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "credential_source",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "summary",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "attempts",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "started_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "completed_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "submitted_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
       "table": "provider_price_filing"
     },
     {
@@ -21333,19 +21163,6 @@
       "table": "provider_routing_filing"
     },
     {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "model_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_routing_filing"
-    },
-    {
       "type": "numeric",
       "typeSchema": null,
       "notNull": true,
@@ -21506,19 +21323,6 @@
       "generated": null,
       "identity": null,
       "name": "provider_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_routing_settings"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "model_id",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_routing_settings"
@@ -27501,6 +27305,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "expires_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "device_code_expires_at_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "organization_id",
           "isExpression": false,
           "asc": true,
@@ -30784,111 +30609,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "provider_company_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "provider_model_verification_company_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "draft_model_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "provider_model_verification_model_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "status",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "provider_model_verification_queue_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "draft_model_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": "draft_model_id IS NOT NULL AND status IN ('queued', 'running')",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "provider_model_verification_active_model_uidx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "draft_model_id",
           "isExpression": false,
           "asc": true,
@@ -30960,39 +30680,11 @@
         }
       ],
       "isUnique": true,
-      "where": "model_id IS NULL AND status = 'pending'",
+      "where": "status = 'pending'",
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "provider_routing_filing_pending_default_uidx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "provider_routing_filing"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "provider_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "model_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": "model_id IS NOT NULL AND status = 'pending'",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "provider_routing_filing_pending_model_uidx",
+      "name": "provider_routing_filing_pending_provider_uidx",
       "entityType": "indexes",
       "schema": "public",
       "table": "provider_routing_filing"
@@ -31051,39 +30743,11 @@
         }
       ],
       "isUnique": true,
-      "where": "model_id IS NULL",
+      "where": null,
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "provider_routing_settings_provider_default_uidx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "provider_routing_settings"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "provider_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "model_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": "model_id IS NOT NULL",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "provider_routing_settings_provider_model_uidx",
+      "name": "provider_routing_settings_provider_uidx",
       "entityType": "indexes",
       "schema": "public",
       "table": "provider_routing_settings"
@@ -33263,6 +32927,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "user",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "device_code_user_id_user_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "organization_id"
       ],
       "schemaTo": "public",
@@ -34245,57 +33926,6 @@
       "entityType": "fks",
       "schema": "public",
       "table": "provider_key"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "provider_company_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "provider_company",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "provider_model_verification_urLU4QwMtkGv_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "draft_model_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "provider_draft_model",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "provider_model_verification_k085IiDTJM2d_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "provider_model_verification"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "requested_by"
-      ],
-      "schemaTo": "public",
-      "tableTo": "user",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "name": "provider_model_verification_requested_by_user_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "provider_model_verification"
     },
     {
       "nameExplicit": false,
@@ -35471,6 +35101,16 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "device_code_pkey",
+      "schema": "public",
+      "table": "device_code",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "discount_pkey",
       "schema": "public",
       "table": "discount",
@@ -36024,16 +35664,6 @@
       "name": "provider_listing_request_pkey",
       "schema": "public",
       "table": "provider_listing_request",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "provider_model_verification_pkey",
-      "schema": "public",
-      "table": "provider_model_verification",
       "entityType": "pks"
     },
     {
@@ -36693,6 +36323,28 @@
       "name": "dev_plan_card_fingerprint_history_fingerprint_key",
       "schema": "public",
       "table": "dev_plan_card_fingerprint_history",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "device_code"
+      ],
+      "nullsNotDistinct": false,
+      "name": "device_code_device_code_key",
+      "schema": "public",
+      "table": "device_code",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "user_code"
+      ],
+      "nullsNotDistinct": false,
+      "name": "device_code_user_code_key",
+      "schema": "public",
+      "table": "device_code",
       "entityType": "uniques"
     },
     {
