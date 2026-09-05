@@ -13,7 +13,12 @@ import {
 	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
-import { findApiKeyByToken, findProjectById } from "@/lib/cached-queries.js";
+import {
+	findApiKeyByToken,
+	findOrganizationById,
+	findProjectById,
+} from "@/lib/cached-queries.js";
+import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { assertMcpHttpsUrl } from "@/mcp/request-url.js";
 import { registerUsageTools } from "@/mcp/usage-tools.js";
@@ -148,6 +153,7 @@ function createMcpServer(
 	apiKey: string,
 	apiKeyRecord: ApiKey,
 	clientHeaders: Record<string, string>,
+	zeroDataRetentionEnabled: boolean,
 ): McpServer {
 	const server = new McpServer({
 		name: "llmgateway",
@@ -583,7 +589,7 @@ function createMcpServer(
 	// Register the generate-nano-banana tool
 	server.tool(
 		"generate-nano-banana",
-		`Generate an image using Gemini 3 Pro Image (Nano Banana Pro). Tailored for AI coding agents - always returns an inline image preview.${process.env.UPLOAD_DIR ? " Also saves images to disk and returns file paths." : " Set UPLOAD_DIR to enable saving images to disk."}`,
+		`Generate an image using Gemini 3 Pro Image (Nano Banana Pro). Tailored for AI coding agents - always returns an inline image preview.${zeroDataRetentionEnabled ? "" : process.env.UPLOAD_DIR ? " Also saves images to disk and returns file paths." : " Set UPLOAD_DIR to enable saving images to disk."}`,
 		generateNanoBananaInputSchema.shape,
 		async (input: GenerateNanoBananaInput) => {
 			try {
@@ -655,7 +661,9 @@ function createMcpServer(
 					};
 				}
 
-				const uploadDir = process.env.UPLOAD_DIR;
+				const uploadDir = zeroDataRetentionEnabled
+					? undefined
+					: process.env.UPLOAD_DIR;
 				const contentBlocks: Array<
 					| { type: "text"; text: string }
 					| { type: "image"; data: string; mimeType: string }
@@ -1197,9 +1205,14 @@ export async function mcpHandler(c: Context): Promise<Response> {
 		);
 	}
 
+	let zeroDataRetentionEnabled = false;
 	try {
 		const mcpProject = await findProjectById(apiKeyRecord.projectId);
 		if (mcpProject) {
+			const mcpOrganization = await findOrganizationById(
+				mcpProject.organizationId,
+			);
+			zeroDataRetentionEnabled = isZeroDataRetentionEnabled(mcpOrganization);
 			await assertMemberProjectAccess(apiKeyRecord, mcpProject.organizationId);
 		}
 	} catch (error) {
@@ -1303,7 +1316,12 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				clientHeaders[header] = value;
 			}
 		}
-		const server = createMcpServer(apiKey, apiKeyRecord, clientHeaders);
+		const server = createMcpServer(
+			apiKey,
+			apiKeyRecord,
+			clientHeaders,
+			zeroDataRetentionEnabled,
+		);
 		try {
 			const rawBody = await c.req.json();
 

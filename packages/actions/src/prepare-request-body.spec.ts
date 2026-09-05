@@ -7302,7 +7302,12 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 		provider: Parameters<typeof prepareRequestBody>[0],
 		model: string,
 		messages: Parameters<typeof prepareRequestBody>[4],
-		opts: { promptCacheKey?: string; sessionId?: string } = {},
+		opts: {
+			promptCacheKey?: string;
+			promptCacheRetention?: "in_memory" | "24h";
+			sessionId?: string;
+			providerCacheControlMode?: ProviderCacheControlMode;
+		} = {},
 	) {
 		return (await prepareRequestBody(
 			provider,
@@ -7332,14 +7337,17 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 			undefined, // reasoning_max_tokens
 			undefined, // useResponsesApi
 			opts.promptCacheKey,
-			undefined, // prompt_cache_retention
-			"auto", // providerCacheControlMode
+			opts.promptCacheRetention,
+			opts.providerCacheControlMode ?? "auto",
 			undefined, // n
 			undefined, // service_tier
 			undefined, // verbosity
 			undefined, // prompt_cache_options
 			opts.sessionId,
-		)) as { prompt_cache_key?: string };
+		)) as {
+			prompt_cache_key?: string;
+			prompt_cache_retention?: string;
+		};
 	}
 
 	const conversation = [
@@ -7462,6 +7470,29 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 
 		expect(openai.prompt_cache_key).toBeUndefined();
 		expect(azure.prompt_cache_key).toBeUndefined();
+	});
+
+	test("cache-off mode omits all upstream cache-routing keys", async () => {
+		for (const [provider, model] of [
+			["meta", "muse-spark-1.1"],
+			["openai", "gpt-5-mini"],
+			["openai", "gpt-4o-mini"],
+			["azure", "gpt-5-mini"],
+		] as const) {
+			const requestBody = await prepareCacheKeyRequest(
+				provider,
+				model,
+				conversation,
+				{
+					promptCacheKey: "caller-session-key",
+					promptCacheRetention: "in_memory",
+					sessionId: "sess-123",
+					providerCacheControlMode: "off",
+				},
+			);
+			expect(requestBody.prompt_cache_key).toBeUndefined();
+			expect(requestBody.prompt_cache_retention).toBeUndefined();
+		}
 	});
 
 	test("sakana: never receives a prompt_cache_key", async () => {

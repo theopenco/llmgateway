@@ -53,6 +53,11 @@ function baseLogData(overrides: Partial<LogInsertData>): LogInsertData {
 		toolChoice: "auto",
 		toolResults: [{ id: "1" }],
 		responsesApiData: { foo: "bar" },
+		errorDetails: {
+			statusCode: 400,
+			statusText: "Bad Request",
+			responseText: "secret echoed prompt",
+		},
 		...overrides,
 	} as LogInsertData;
 }
@@ -75,6 +80,11 @@ describe("insertLog retention stripping", () => {
 		expect(published.toolChoice).toBeNull();
 		expect(published.toolResults).toBeNull();
 		expect(published.responsesApiData).toBeNull();
+		expect(published.errorDetails).toEqual({
+			statusCode: 400,
+			statusText: "Bad Request",
+			responseText: "",
+		});
 		// Metadata is preserved.
 		expect(published.requestId).toBe("req-1");
 		expect(published.organizationId).toBe("org-1");

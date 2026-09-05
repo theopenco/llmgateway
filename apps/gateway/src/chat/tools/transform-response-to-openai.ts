@@ -419,6 +419,7 @@ export function transformResponseToOpenai(
 	cacheCreation1hTokens: number | null = null,
 	audioInputTokens: number | null = null,
 	serviceTier?: string,
+	options?: { cacheThoughtSignatures?: boolean },
 	responseProvider: Provider = usedProvider,
 ) {
 	let transformedResponse = json;
@@ -489,17 +490,19 @@ export function transformResponseToOpenai(
 										};
 										// Same cache as parse-provider-response: the id is the
 										// `thought_signature:<id>` key read back on the next turn.
-										redisClient
-											.setex(
-												`thought_signature:${toolCall.id}`,
-												86400,
-												part.thoughtSignature,
-											)
-											.catch((err) => {
-												logger.error("Failed to cache thought_signature", {
-													err,
+										if (options?.cacheThoughtSignatures !== false) {
+											redisClient
+												.setex(
+													`thought_signature:${toolCall.id}`,
+													86400,
+													part.thoughtSignature,
+												)
+												.catch((err) => {
+													logger.error("Failed to cache thought_signature", {
+														err,
+													});
 												});
-											});
+										}
 									}
 									return toolCall;
 								});

@@ -786,6 +786,117 @@ describe("api", () => {
 		expect(thinkingIndex).toBeLessThan(textIndex);
 	});
 
+	test("/v1/messages redacts malformed tool arguments under ZDR", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+		await db
+			.update(tables.organization)
+			.set({
+				retentionLevel: "none",
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		const secretArguments = '{"secret":"retained-provider-payload"';
+		const originalFetch = globalThis.fetch;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+				if (
+					url.startsWith(mockServerUrl) &&
+					url.endsWith("/v1/chat/completions")
+				) {
+					return new Response(
+						JSON.stringify({
+							id: "chatcmpl-zdr-tool",
+							object: "chat.completion",
+							created: 1,
+							model: "custom",
+							choices: [
+								{
+									index: 0,
+									message: {
+										role: "assistant",
+										content: null,
+										tool_calls: [
+											{
+												id: "call-zdr",
+												type: "function",
+												function: {
+													name: "lookup",
+													arguments: secretArguments,
+												},
+											},
+										],
+									},
+									finish_reason: "tool_calls",
+								},
+							],
+							usage: {
+								prompt_tokens: 10,
+								completion_tokens: 5,
+								total_tokens: 15,
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+
+		try {
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					max_tokens: 128,
+					messages: [{ role: "user", content: "Use the lookup tool" }],
+				}),
+			});
+
+			expect(res.status).toBe(500);
+			const parseLog = errorSpy.mock.calls.find(
+				([message]) =>
+					message === "Failed to parse anthropic tool call arguments",
+			);
+			expect(parseLog?.[1]).toEqual({ errorName: "SyntaxError" });
+			expect(JSON.stringify(parseLog)).not.toContain(secretArguments);
+		} finally {
+			errorSpy.mockRestore();
+			fetchSpy.mockRestore();
+		}
+	});
+
 	// The gateway emits server_tool_use + web_search_tool_result blocks for
 	// native web search, so SDK clients replay them on the following turn. They
 	// have no OpenAI-format equivalent and must be dropped, not rejected and not
@@ -2750,6 +2861,126 @@ describe("api", () => {
 		expect(logRow?.messages).toEqual([{ role: "user", content: "Hello!" }]);
 		expect(typeof logRow?.content).toBe("string");
 		expect((logRow?.content ?? "").length).toBeGreaterThan(0);
+	});
+
+	test("/v1/chat/completions bypasses payload storage and caching under ZDR", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				retentionLevel: "retain",
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+		await db
+			.update(tables.project)
+			.set({
+				cachingEnabled: true,
+				providerCacheControlMode: "passthrough",
+			})
+			.where(eq(tables.project.id, "project-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-zdr-retention",
+			...hashApiKeyForStorage("real-token-zdr-retention"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-zdr-retention",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-zdr-retention",
+				"org-id",
+			),
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const requestId = `zdr-retention-${randomUUID()}`;
+		const body = JSON.stringify({
+			model: "llmgateway/custom",
+			messages: [
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "Sensitive ZDR payload",
+							cache_control: { type: "ephemeral" },
+						},
+					],
+				},
+			],
+		});
+		const makeRequest = () =>
+			app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-zdr-retention",
+					"x-request-id": requestId,
+				},
+				body,
+			});
+
+		const originalNodeEnv = process.env.NODE_ENV;
+		const originalFetch = globalThis.fetch;
+		const upstreamBodies: unknown[] = [];
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+				if (url === `${mockServerUrl}/v1/chat/completions`) {
+					const requestBody =
+						input instanceof Request ? await input.clone().text() : init?.body;
+					if (typeof requestBody === "string") {
+						upstreamBodies.push(JSON.parse(requestBody));
+					}
+				}
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+		let firstResponse: Response;
+		let secondResponse: Response;
+		try {
+			try {
+				process.env.NODE_ENV = "development";
+				firstResponse = await makeRequest();
+			} finally {
+				process.env.NODE_ENV = originalNodeEnv;
+			}
+			secondResponse = await makeRequest();
+		} finally {
+			fetchSpy.mockRestore();
+		}
+
+		expect(firstResponse.status).toBe(200);
+		expect(secondResponse.status).toBe(200);
+		expect(firstResponse.headers.get("x-llmgateway-cache")).toBeNull();
+		expect(secondResponse.headers.get("x-llmgateway-cache")).toBeNull();
+		expect(upstreamBodies).toHaveLength(2);
+		for (const upstreamBody of upstreamBodies) {
+			expect(JSON.stringify(upstreamBody)).not.toContain("cache_control");
+		}
+
+		const logs = await waitForLogs(2);
+		expect(logs).toHaveLength(2);
+		for (const log of logs) {
+			expect(log.cached).toBe(false);
+			expect(log.messages).toBeNull();
+			expect(log.content).toBeNull();
+			expect(log.reasoningContent).toBeNull();
+		}
 	});
 
 	test("/v1/responses works when retention is disabled and keeps state out of the log", async () => {
@@ -5796,6 +6027,158 @@ describe("api", () => {
 		expect(log.finishReason).toBe("content_filter");
 		expect(log.unifiedFinishReason).toBe("content_filter");
 	});
+
+	test("/v1/images/generations omits the response preview from logs under ZDR", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-image-generation-zdr",
+			...hashApiKeyForStorage("real-token-image-generation-zdr"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-image-generation-zdr",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-image-generation-zdr",
+				"org-id",
+			),
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+		await db
+			.update(tables.organization)
+			.set({
+				retentionLevel: "none",
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		const secretContent = "retained-image-response-text";
+		const originalFetch = globalThis.fetch;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+				if (url === `${mockServerUrl}/v1/chat/completions`) {
+					return new Response(
+						JSON.stringify({
+							id: "chatcmpl-zdr-no-image",
+							object: "chat.completion",
+							created: 1,
+							model: "llmgateway/custom",
+							choices: [
+								{
+									index: 0,
+									message: { role: "assistant", content: secretContent },
+									finish_reason: "stop",
+								},
+							],
+							usage: {
+								prompt_tokens: 10,
+								completion_tokens: 5,
+								total_tokens: 15,
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+		try {
+			const res = await app.request("/v1/images/generations", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-image-generation-zdr",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					prompt: "Draw something",
+				}),
+			});
+
+			expect(res.status).toBe(500);
+			const noImagesLog = warnSpy.mock.calls.find(
+				([message]) =>
+					message ===
+					"Images API - no images found in chat completions response",
+			);
+			expect(noImagesLog?.[1]).toEqual({
+				model: "llmgateway/custom",
+				hasContent: true,
+				hasImages: false,
+			});
+			expect(JSON.stringify(warnSpy.mock.calls)).not.toContain(secretContent);
+		} finally {
+			warnSpy.mockRestore();
+			fetchSpy.mockRestore();
+		}
+	});
+
+	test.each([
+		{
+			path: "/v1/chat/completions",
+			body: {
+				model: "gpt-4o-mini",
+				messages: [{ role: "user", content: "hi" }],
+				tools: [{ type: "rejected-secret-value", function: { name: "f" } }],
+			},
+		},
+		{
+			path: "/v1/messages",
+			body: {
+				model: "claude-sonnet-4-5",
+				max_tokens: 16,
+				messages: [{ role: "rejected-secret-value", content: "hi" }],
+			},
+		},
+		{
+			path: "/v1/responses",
+			body: {
+				model: "gpt-4o-mini",
+				input: "hi",
+				truncation: "rejected-secret-value",
+			},
+		},
+	])(
+		"$path logs validation issues without the rejected values",
+		async ({ path, body }) => {
+			const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+			try {
+				const res = await app.request(path, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify(body),
+				});
+
+				expect(res.status).toBe(400);
+				const validationLog = warnSpy.mock.calls.find(([, meta]) =>
+					Array.isArray((meta as { issues?: unknown } | undefined)?.issues),
+				);
+				expect(validationLog).toBeDefined();
+				expect(JSON.stringify(warnSpy.mock.calls)).not.toContain(
+					"rejected-secret-value",
+				);
+			} finally {
+				warnSpy.mockRestore();
+			}
+		},
+	);
 
 	test("/v1/images/edits returns empty data for content filter", async () => {
 		await db.insert(tables.apiKey).values({
