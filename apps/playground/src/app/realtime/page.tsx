@@ -8,6 +8,7 @@ import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import {
 	decodeModelPreference,
 	REALTIME_MODEL_COOKIE,
+	REALTIME_TRANSCRIPTION_MODEL_COOKIE,
 } from "@/lib/model-preferences";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -37,6 +38,9 @@ export default async function RealtimePage({
 	const cookieStore = await cookies();
 	const initialModelPreference = decodeModelPreference(
 		cookieStore.get(REALTIME_MODEL_COOKIE)?.value,
+	);
+	const initialTranscriptionModelPreference = decodeModelPreference(
+		cookieStore.get(REALTIME_TRANSCRIPTION_MODEL_COOKIE)?.value,
 	);
 
 	const [models, providers, initialOrganizationsData, orgIdProjectsData] =
@@ -137,6 +141,9 @@ export default async function RealtimePage({
 				projects={projects}
 				selectedProject={selectedProject}
 				initialModelPreference={initialModelPreference}
+				initialTranscriptionModelPreference={
+					initialTranscriptionModelPreference
+				}
 			/>
 		</>
 	);
