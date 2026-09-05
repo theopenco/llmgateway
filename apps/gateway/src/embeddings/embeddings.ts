@@ -35,7 +35,10 @@ import {
 } from "@/lib/cached-queries.js";
 import { raceClientAbort } from "@/lib/client-abort.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
-import { assertProviderCompliant } from "@/lib/compliance.js";
+import {
+	assertProviderCompliant,
+	getEffectiveRetentionLevel,
+} from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
@@ -110,7 +113,7 @@ const embeddingRequestSchema = z.object({
 	}),
 	user: z.string().optional().openapi({
 		description:
-			"Stable end-user identifier forwarded to OpenAI for abuse monitoring.",
+			"Accepted for OpenAI compatibility. Upstream abuse attribution always uses LLM Gateway's opaque organization identifier.",
 	}),
 });
 
@@ -505,7 +508,6 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		model: requestedModel,
 		encoding_format,
 		dimensions,
-		user,
 	} = validationResult.data;
 
 	const match = findEmbeddingMapping(requestedModel);
@@ -643,7 +645,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		});
 	}
 
-	const retentionLevel = organization.retentionLevel ?? "none";
+	const retentionLevel = getEffectiveRetentionLevel(organization);
 
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
@@ -851,21 +853,19 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			});
 		}
 
-		// Env baseUrl override: LLM_<PROVIDER>_BASE_URL can redirect upstream
-		// traffic to proxies, regional endpoints, or test mocks. Applies to
-		// any provider — getProviderEnvValue returns undefined for providers
-		// that don't declare a baseUrl env in packages/models/src/providers.ts,
-		// so the ?? chain falls through safely. providerKey.baseUrl still wins
-		// when set, so BYOK callers can opt out by configuring their own.
-		const envBaseUrl = getCredentialSetting(providerId, "baseUrl", managedKey, {
-			configIndex,
-			variant: envVariant,
-		});
+		const credential = { providerKey, managedKey };
 		const resolvedBaseUrl =
 			providerKey?.baseUrl ??
-			envBaseUrl ??
-			getProviderDefaultBaseUrl(providerId) ??
-			"https://api.openai.com";
+			getCredentialSetting(providerId, "baseUrl", credential, {
+				configIndex,
+				variant: envVariant,
+			}) ??
+			getProviderDefaultBaseUrl(providerId);
+		if (!resolvedBaseUrl) {
+			throw new HTTPException(500, {
+				message: `No base URL set for provider: ${providerId}`,
+			});
+		}
 
 		let upstreamUrl: string;
 		let requestBody: Record<string, unknown>;
@@ -920,7 +920,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			}
 			const vertexProjectId =
 				providerKey?.options?.google_vertex_project_id ??
-				getCredentialSetting("google-vertex", "project", managedKey, {
+				getCredentialSetting("google-vertex", "project", credential, {
 					configIndex,
 					variant: envVariant,
 				});
@@ -949,7 +949,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				};
 			}
 			const vertexRegion =
-				getCredentialSetting("google-vertex", "region", managedKey, {
+				getCredentialSetting("google-vertex", "region", credential, {
 					configIndex,
 					defaultValue: "global",
 					variant: envVariant,
@@ -981,9 +981,6 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			if (dimensions !== undefined) {
 				requestBody.dimensions = dimensions;
 			}
-			if (user !== undefined) {
-				requestBody.user = user;
-			}
 		} else {
 			upstreamUrl = `${resolvedBaseUrl}/v1/embeddings`;
 			requestBody = {
@@ -996,8 +993,8 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			if (dimensions !== undefined) {
 				requestBody.dimensions = dimensions;
 			}
-			if (user !== undefined) {
-				requestBody.user = user;
+			if (providerId === "openai" || providerId === "azure") {
+				requestBody.user = retryOrganization.safetyIdentifier;
 			}
 		}
 

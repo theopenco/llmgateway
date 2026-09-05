@@ -38,7 +38,10 @@ import {
 	MIN_REQUESTS_FOR_STATS,
 	type ProviderWindowStats,
 } from "@/lib/provider-stats";
-import { activeModelCounts, listedProviders } from "@/lib/providers-catalog";
+import {
+	activeModelCounts,
+	publicProviderDefinitions,
+} from "@/lib/providers-catalog";
 
 import {
 	countryCodeToFlag,
@@ -78,14 +81,14 @@ type ComplianceFilterKey =
 	| "requireIso27001"
 	| "requireGdpr"
 	| "blockApiTraining"
-	| "blockPromptLogging";
+	| "zeroDataRetention";
 
 const COMPLIANCE_FILTERS: { key: ComplianceFilterKey; label: string }[] = [
 	{ key: "requireSoc2", label: "SOC 2" },
 	{ key: "requireIso27001", label: "ISO 27001" },
 	{ key: "requireGdpr", label: "GDPR" },
 	{ key: "blockApiTraining", label: "No training" },
-	{ key: "blockPromptLogging", label: "No logging" },
+	{ key: "zeroDataRetention", label: "ZDR" },
 ];
 
 function formatTtft(ms: number | null | undefined): string {
@@ -127,12 +130,21 @@ interface ProvidersGridProps {
 	/** DB-only providers (custom Airside carriers) to list alongside the
 	 *  static catalogue. */
 	extraProviders?: ExtraGridProvider[];
+	/** API-backed counts, including approved Airside listings. */
+	modelCounts?: Record<string, number>;
 }
 
-type GridProvider = (typeof listedProviders)[number] | ExtraGridProvider;
+type GridProvider =
+	(typeof publicProviderDefinitions)[number] | ExtraGridProvider;
 
-function modelsCountOf(p: GridProvider): number {
-	return "modelsCount" in p ? p.modelsCount : activeModelCounts[p.id] || 0;
+function modelsCountOf(
+	p: GridProvider,
+	modelCounts?: Record<string, number>,
+): number {
+	return (
+		modelCounts?.[p.id] ??
+		("modelsCount" in p ? p.modelsCount : activeModelCounts[p.id] || 0)
+	);
 }
 
 export function ProvidersGrid({
@@ -141,6 +153,7 @@ export function ProvidersGrid({
 	subheading,
 	uploadedLogos,
 	extraProviders,
+	modelCounts,
 }: ProvidersGridProps = {}) {
 	const router = useRouter();
 	const api = useApi();
@@ -162,17 +175,20 @@ export function ProvidersGrid({
 	};
 
 	const visibleProviders = useMemo<GridProvider[]>(() => {
+		const listedProviders = publicProviderDefinitions.filter(
+			(provider) => modelsCountOf(provider, modelCounts) > 0,
+		);
 		// Country pages only list catalogue providers — custom carriers carry
 		// no headquarters metadata.
 		if (countryCode) {
 			return listedProviders.filter((p) => p.headquarters === countryCode);
 		}
 		return [...listedProviders, ...(extraProviders ?? [])];
-	}, [countryCode, extraProviders]);
+	}, [countryCode, extraProviders, modelCounts]);
 
 	const totalProviders = visibleProviders.length;
 	const totalModels = visibleProviders.reduce(
-		(sum, p) => sum + modelsCountOf(p),
+		(sum, p) => sum + modelsCountOf(p, modelCounts),
 		0,
 	);
 
@@ -213,7 +229,7 @@ export function ProvidersGrid({
 			return {
 				...provider,
 				stats,
-				modelsCount: modelsCountOf(provider),
+				modelsCount: modelsCountOf(provider, modelCounts),
 			};
 		});
 
@@ -283,6 +299,7 @@ export function ProvidersGrid({
 		statsByProvider,
 		visibleProviders,
 		country,
+		modelCounts,
 		reqs,
 		countryCode,
 	]);

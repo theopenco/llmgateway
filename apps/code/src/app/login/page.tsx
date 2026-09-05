@@ -234,11 +234,11 @@ function LoginForm() {
 								DevPass
 							</span>
 						</div>
-						<h1 className="text-4xl font-bold leading-tight tracking-tight text-white xl:text-5xl">
+						<p className="text-4xl font-bold leading-tight tracking-tight text-white xl:text-5xl">
 							Welcome back,
 							<br />
 							developer.
-						</h1>
+						</p>
 						<p className="mt-4 max-w-md text-lg text-zinc-400">
 							Your dev environment is ready. Pick up where you left off.
 						</p>

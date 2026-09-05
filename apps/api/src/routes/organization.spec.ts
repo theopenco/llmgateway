@@ -373,6 +373,216 @@ describe("organization route", () => {
 		});
 	});
 
+	test("ZDR cannot be enabled while payload retention is active", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise", retentionLevel: "retain" })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			}),
+		});
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			message: expect.stringContaining("requires Metadata Only"),
+		});
+		const organization = await db.query.organization.findFirst({
+			where: { id: { eq: "test-org-id" } },
+		});
+		expect(organization?.retentionLevel).toBe("retain");
+		expect(organization?.providerCompliancePolicy?.enabled).not.toBe(true);
+	});
+
+	test("ZDR can be enabled when payload retention is disabled", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise", retentionLevel: "none" })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		const organization = await db.query.organization.findFirst({
+			where: { id: { eq: "test-org-id" } },
+		});
+		expect(organization?.retentionLevel).toBe("none");
+		expect(organization?.providerCompliancePolicy).toEqual({
+			enabled: true,
+			zeroDataRetention: true,
+		});
+	});
+
+	test("legacy no prompt logging remains compatible with payload retention", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise", retentionLevel: "retain" })
+			.where(eq(tables.organization.id, "test-org-id"));
+		await db.insert(tables.project).values({
+			id: "test-project-id",
+			name: "Cached Project",
+			organizationId: "test-org-id",
+			cachingEnabled: true,
+		});
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockPromptLogging: true,
+				},
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		const organization = await db.query.organization.findFirst({
+			where: { id: { eq: "test-org-id" } },
+		});
+		expect(organization?.retentionLevel).toBe("retain");
+		expect(organization?.providerCompliancePolicy).toEqual({
+			enabled: true,
+			blockPromptLogging: true,
+		});
+		expect(
+			(
+				await db.query.project.findFirst({
+					where: { id: { eq: "test-project-id" } },
+				})
+			)?.cachingEnabled,
+		).toBe(true);
+	});
+
+	test("ZDR cannot be enabled while a project cache is active", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise", retentionLevel: "none" })
+			.where(eq(tables.organization.id, "test-org-id"));
+		await db.insert(tables.project).values({
+			id: "cached-project-id",
+			name: "Cached Project",
+			organizationId: "test-org-id",
+			cachingEnabled: true,
+		});
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			}),
+		});
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			message: expect.stringContaining("response caching"),
+		});
+		expect(
+			(
+				await db.query.organization.findFirst({
+					where: { id: { eq: "test-org-id" } },
+				})
+			)?.providerCompliancePolicy?.enabled,
+		).not.toBe(true);
+	});
+
+	test("payload retention stays blocked by stored ZDR after downgrade", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "free",
+				retentionLevel: "none",
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ retentionLevel: "retain" }),
+		});
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			message: expect.stringContaining("Zero data retention"),
+		});
+		expect(
+			(
+				await db.query.organization.findFirst({
+					where: { id: { eq: "test-org-id" } },
+				})
+			)?.retentionLevel,
+		).toBe("none");
+	});
+
+	test("payload retention can be enabled alongside a stored non-ZDR policy", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				retentionLevel: "none",
+				providerCompliancePolicy: { enabled: true, requireSoc2: true },
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ retentionLevel: "retain" }),
+		});
+
+		expect(response.status).toBe(200);
+		const organization = await db.query.organization.findFirst({
+			where: { id: { eq: "test-org-id" } },
+		});
+		expect(organization?.retentionLevel).toBe("retain");
+		expect(organization?.providerCompliancePolicy).toEqual({
+			enabled: true,
+			requireSoc2: true,
+		});
+	});
+
 	test("PATCH /orgs/{id} logs top-up setting changes separately from organization updates", async () => {
 		const response = await app.request("/orgs/test-org-id", {
 			method: "PATCH",

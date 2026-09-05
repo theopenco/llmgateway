@@ -12,7 +12,7 @@ import { notFound } from "next/navigation";
 
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
-import { findDynamicModelDefinition } from "@/lib/airside-model-fallback";
+import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
 import {
 	Card,
@@ -21,12 +21,12 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+import { fetchProviders } from "@/lib/fetch-models";
 
 import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
 	expandAllProviderRegions,
-	type ModelDefinition,
 } from "@llmgateway/models";
 
 import type { Metadata } from "next";
@@ -47,22 +47,23 @@ export default async function ModelUptimePage({ params }: PageProps) {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
 
-	// Static catalogue first; Airside listings resolve via the API fallback.
-	const modelDef =
-		(modelDefinitions.find((m) => m.id === decodedName) as
-			ModelDefinition | undefined) ??
-		(await findDynamicModelDefinition(decodedName));
+	const modelDef = await findPublicModelDefinition(decodedName);
 
 	if (!modelDef) {
 		notFound();
 	}
 
 	const expandedProviders = expandAllProviderRegions(modelDef.providers);
+	const apiProviders = await fetchProviders();
 	const providerNames = Array.from(
 		new Set(
 			expandedProviders.map((p) => {
 				const info = providerDefinitions.find((pd) => pd.id === p.providerId);
-				return info?.name ?? p.providerId;
+				return (
+					info?.name ??
+					apiProviders.find((provider) => provider.id === p.providerId)?.name ??
+					p.providerId
+				);
 			}),
 		),
 	);
@@ -374,10 +375,7 @@ export async function generateMetadata({
 }: PageProps): Promise<Metadata> {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
-	const model =
-		(modelDefinitions.find((m) => m.id === decodedName) as
-			ModelDefinition | undefined) ??
-		(await findDynamicModelDefinition(decodedName));
+	const model = await findPublicModelDefinition(decodedName);
 
 	if (!model) {
 		return {};

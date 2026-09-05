@@ -6,8 +6,6 @@ icon: Image
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-# Image Generation
-
 LLMGateway supports image generation through two APIs:
 
 1. **`/v1/images/generations`** — OpenAI-compatible images endpoint (recommended for simple image generation)
@@ -577,10 +575,10 @@ You can customize the generated image using the optional `image_config` paramete
 
 Available Google models:
 
-| Model                            | Description                                                                         |
-| -------------------------------- | ----------------------------------------------------------------------------------- |
-| `gemini-3-pro-image`             | Gemini 3 Pro with native image generation. Supports aspect ratios and 1K–4K sizes.  |
-| `gemini-3.1-flash-image-preview` | Gemini 3.1 Flash with native image generation. Supports 0.5K–4K sizes (default 1K). |
+| Model                    | Description                                                                         |
+| ------------------------ | ----------------------------------------------------------------------------------- |
+| `gemini-3-pro-image`     | Gemini 3 Pro with native image generation. Supports aspect ratios and 1K–4K sizes.  |
+| `gemini-3.1-flash-image` | Gemini 3.1 Flash with native image generation. Supports 0.5K–4K sizes (default 1K). |
 
 #### gemini-3-pro-image
 
@@ -608,14 +606,14 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 | `aspect_ratio` | string | The aspect ratio of the generated image. Options: `"1:1"`, `"2:3"`, `"3:2"`, `"3:4"`, `"4:3"`, `"4:5"`, `"5:4"`, `"9:16"`, `"16:9"`, `"21:9"` |
 | `image_size`   | string | The resolution of the generated image. Options: `"1K"` (1024x1024), `"2K"` (2048x2048), `"4K"` (4096x4096)                                    |
 
-#### gemini-3.1-flash-image-preview
+#### gemini-3.1-flash-image
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemini-3.1-flash-image-preview",
+    "model": "gemini-3.1-flash-image",
     "messages": [
       {
         "role": "user",
@@ -634,8 +632,8 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 | `image_size`   | string | The resolution of the generated image. Options: `"0.5K"` (512x512), `"1K"` (1024x1024, default), `"2K"` (2048x2048), `"4K"` (4096x4096)                                           |
 
 <Callout type="info">
-	`gemini-3.1-flash-image-preview` uniquely supports `"0.5K"` resolution, which
-	is not available on other Google image models.
+	`gemini-3.1-flash-image` uniquely supports `"0.5K"` resolution, which is not
+	available on other Google image models.
 </Callout>
 
 ### Meta Models

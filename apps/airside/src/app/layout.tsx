@@ -29,16 +29,28 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
 	metadataBase: new URL("https://airside.llmgateway.io"),
 	title: {
-		default: "Airside by LLM Gateway — the carrier console",
+		default: "Airside — List Your LLM API on LLM Gateway",
 		template: "%s | Airside by LLM Gateway",
 	},
 	description:
-		"The self-serve console for LLM providers. Claim your carrier, register your fleet, file your fares, and watch dispatch route traffic to your models.",
+		"List your LLM API on LLM Gateway. Verify your provider domain, publish models and pricing, and track routed traffic through Airside's self-serve console.",
 	applicationName: "Airside",
+	alternates: { canonical: "./" },
+	robots: {
+		index: true,
+		follow: true,
+		googleBot: {
+			index: true,
+			follow: true,
+			"max-video-preview": -1,
+			"max-image-preview": "large",
+			"max-snippet": -1,
+		},
+	},
 	openGraph: {
-		title: "Airside by LLM Gateway",
+		title: "Airside — List Your LLM API on LLM Gateway",
 		description:
-			"The self-serve console for LLM providers. Claim your carrier, register your fleet, file your fares, and win traffic.",
+			"List your LLM API on LLM Gateway, publish models and pricing, and track routed traffic through Airside's self-serve provider console.",
 		siteName: "Airside by LLM Gateway",
 		url: "https://airside.llmgateway.io",
 		locale: "en_US",
@@ -46,9 +58,9 @@ export const metadata: Metadata = {
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "Airside by LLM Gateway",
+		title: "Airside — List Your LLM API on LLM Gateway",
 		description:
-			"The self-serve console for LLM providers. Claim your carrier, register your fleet, file your fares, and win traffic.",
+			"List your LLM API on LLM Gateway, publish models and pricing, and track routed traffic through Airside's self-serve provider console.",
 	},
 };
 

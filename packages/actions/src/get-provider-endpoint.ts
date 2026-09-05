@@ -215,6 +215,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	runware: "https://api.runware.ai",
 	moonshot: "https://api.moonshot.ai",
 	meta: "https://api.meta.ai",
+	"meta-contributor": "https://api.meta.ai",
 	nebius: "https://api.tokenfactory.nebius.com",
 	zai: "https://api.z.ai",
 	nanogpt: "https://nano-gpt.com/api",
@@ -993,13 +994,14 @@ export function getProviderEndpoint(
 		case "llmgateway":
 		case "groq":
 		case "cerebras":
+		case "meta-contributor":
 		case "meta": {
 			// Muse Spark only exposes reasoning (as summaries) through the
 			// Responses API — Chat Completions redacts reasoning_content entirely.
 			if (model) {
 				const modelDef = models.find((m) => m.id === (modelId ?? model));
 				const providerMapping = modelDef?.providers.find(
-					(p) => p.providerId === "meta",
+					(p) => p.providerId === provider,
 				);
 				const supportsResponsesApi =
 					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===

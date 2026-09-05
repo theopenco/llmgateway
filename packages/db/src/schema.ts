@@ -218,6 +218,23 @@ export const verification = pgTable("verification", {
 	updatedAt: timestamp().$onUpdate(() => new Date()),
 });
 
+export const deviceCode = pgTable(
+	"device_code",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		deviceCode: text().notNull().unique(),
+		userCode: text().notNull().unique(),
+		userId: text().references(() => user.id, { onDelete: "cascade" }),
+		expiresAt: timestamp().notNull(),
+		status: text().notNull(),
+		lastPolledAt: timestamp(),
+		pollingInterval: integer(),
+		clientId: text(),
+		scope: text(),
+	},
+	(table) => [index("device_code_expires_at_idx").on(table.expiresAt)],
+);
+
 export const organization = pgTable(
 	"organization",
 	{
@@ -2162,7 +2179,7 @@ export const log = pgTable(
 		// (`provider_routing_settings`) at request time, as fractions. Null when
 		// the provider has no settings row. Stamped so margin revenue can be
 		// reconstructed historically even after the carrier changes its settings;
-		// the hourly aggregators roll `cost * providerMarginPercent` into
+		// the hourly aggregators roll credits-mode, non-cached requests into
 		// `providerMarginAmount`.
 		providerMarginPercent: real(),
 		providerDiscountPercent: real(),
@@ -2475,6 +2492,11 @@ export const videoJob = pgTable(
 		requestedProvider: text(),
 		usedProvider: text().notNull(),
 		usedModel: text().notNull(),
+		// Airside routing settings at submission time. Finalization can happen
+		// hours later, so the worker copies these snapshots to the log instead of
+		// reading whichever settings happen to be live then.
+		providerMarginPercent: real(),
+		providerDiscountPercent: real(),
 		providerConfigIndex: integer(),
 		// Managed provider credential that created the job, when one served it.
 		// Polling, cancellation and content retrieval happen minutes to hours
@@ -3351,6 +3373,9 @@ export const modelProviderMapping = pgTable(
 			.references(() => provider.id, { onDelete: "cascade" }),
 		externalId: text().notNull(),
 		region: text(),
+		source: text({ enum: ["catalogue", "airside"] })
+			.notNull()
+			.default("catalogue"),
 		inputPrice: decimal(),
 		outputPrice: decimal(),
 		cachedInputPrice: decimal(),
@@ -3362,6 +3387,7 @@ export const modelProviderMapping = pgTable(
 		maxOutput: integer(),
 		streaming: boolean().notNull().default(false),
 		vision: boolean(),
+		audio: boolean(),
 		reasoning: boolean(),
 		reasoningMaxTokens: boolean().notNull().default(false),
 		reasoningOutput: text(),
@@ -3404,6 +3430,10 @@ export const modelProviderMapping = pgTable(
 		index("model_provider_mapping_status_model_id_idx").on(
 			table.status,
 			table.modelId,
+		),
+		index("model_provider_mapping_source_status_idx").on(
+			table.source,
+			table.status,
 		),
 	],
 );
@@ -3943,6 +3973,9 @@ export const auditLogActions = [
 	"custom_model.create",
 	"custom_model.update",
 	"custom_model.delete",
+	"organization_skill.create",
+	"organization_skill.update",
+	"organization_skill.delete",
 	// Subscription
 	"subscription.create",
 	"subscription.cancel",
@@ -4027,6 +4060,7 @@ export const auditLogResourceTypes = [
 	"iam_rule",
 	"provider_key",
 	"custom_model",
+	"organization_skill",
 	"subscription",
 	"payment_method",
 	"payment",
@@ -4688,6 +4722,9 @@ export const providerClaim = pgTable(
 		// surfaced on the public catalogue pages.
 		logoUrl: text(),
 		iconUrl: text(),
+		// Branding edits on an active claim wait here for admin approval.
+		// null = nothing pending; a null value inside clears that image.
+		pendingBranding: jsonb().$type<AirsidePendingBranding>(),
 		claimedBy: text().references(() => user.id, { onDelete: "set null" }),
 		status: text({ enum: ["pending", "active", "rejected", "revoked"] })
 			.notNull()
@@ -4713,6 +4750,29 @@ export const providerClaim = pgTable(
 // `provider_price_filing` rows and only ever changes through an approved
 // filing. A newly added model stays `draft` until its initial filing is
 // approved. Prices are text to preserve exponent notation (see customModel).
+export interface AirsideModelMetadataChanges {
+	displayName?: string | null;
+	description?: string | null;
+	family?: string;
+	contextSize?: number | null;
+	maxOutput?: number | null;
+	streaming?: boolean;
+	vision?: boolean;
+	audio?: boolean;
+	tools?: boolean;
+	jsonOutput?: boolean;
+	reasoning?: boolean;
+	reasoningEfforts?: string[] | null;
+	maxRpm?: number | null;
+	maxRpd?: number | null;
+	rateLimitScope?: "global" | "per_org";
+}
+
+export interface AirsidePendingBranding {
+	logoUrl?: string | null;
+	iconUrl?: string | null;
+}
+
 export const providerDraftModel = pgTable(
 	"provider_draft_model",
 	{
@@ -4726,8 +4786,11 @@ export const providerDraftModel = pgTable(
 			.notNull()
 			.references(() => providerCompany.id, { onDelete: "cascade" }),
 		providerId: text().notNull(),
-		// The model id at the provider (external id, e.g. "glm-5.2-air").
+		// The public catalogue id (e.g. "glm-5.2-air").
 		modelName: text().notNull(),
+		// The id the provider's API expects; set once at registration or
+		// copied from the catalogue on import, never edited afterwards.
+		externalId: text().notNull(),
 		displayName: text(),
 		description: text(),
 		family: text(),
@@ -4790,13 +4853,16 @@ export const providerPriceFiling = pgTable(
 		providerCompanyId: text()
 			.notNull()
 			.references(() => providerCompany.id, { onDelete: "cascade" }),
-		kind: text({ enum: ["initial", "update"] })
+		// "metadata" filings carry the proposed non-price changes in `metadata`
+		// and copy the current prices so the row stays self-describing.
+		kind: text({ enum: ["initial", "update", "metadata"] })
 			.notNull()
 			.default("update"),
 		inputPrice: text().notNull(),
 		outputPrice: text().notNull(),
 		cachedInputPrice: text(),
 		requestPrice: text(),
+		metadata: jsonb().$type<AirsideModelMetadataChanges>(),
 		status: text({ enum: ["pending", "approved", "rejected"] })
 			.notNull()
 			.default("pending"),
@@ -4998,8 +5064,8 @@ export const projectHourlyModelStats = pgTable(
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
 		// Gateway margin earned on Airside-carrier traffic:
-		// SUM(log.cost * log.providerMarginPercent). 0 for providers without
-		// routing settings.
+		// SUM(log.cost * log.providerMarginPercent) for credits-mode, non-cached
+		// requests. 0 for providers without routing settings.
 		providerMarginAmount: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
@@ -5356,6 +5422,86 @@ export const apiKeyHourlyModelStats = pgTable(
 	],
 );
 
+// Per-key app usage remains available after request retention expires.
+export const apiKeyHourlySourceStats = pgTable(
+	"api_key_hourly_source_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		apiKeyId: text().notNull(),
+		projectId: text().notNull(), // Denormalized for efficient queries
+		hourTimestamp: timestamp().notNull(), // Start of the hour bucket
+		source: text().notNull(),
+		// Request counts
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		streamedCount: integer().notNull().default(0),
+		nonStreamedCount: integer().notNull().default(0),
+		// Unified finish reason counts
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		// Error type counts (subset of errorCount)
+		clientErrorCount: integer().notNull().default(0),
+		gatewayErrorCount: integer().notNull().default(0),
+		upstreamErrorCount: integer().notNull().default(0),
+		// Token counts
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		reasoningTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
+		// Costs
+		cost: real().notNull().default(0),
+		inputCost: real().notNull().default(0),
+		outputCost: real().notNull().default(0),
+		requestCost: real().notNull().default(0),
+		dataStorageCost: real().notNull().default(0),
+		discountSavings: real().notNull().default(0),
+		imageInputCost: real().notNull().default(0),
+		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
+		videoOutputCost: real().notNull().default(0),
+		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
+		// Per-mode breakdowns
+		creditsRequestCount: integer().notNull().default(0),
+		apiKeysRequestCount: integer().notNull().default(0),
+		creditsCost: real().notNull().default(0),
+		apiKeysCost: real().notNull().default(0),
+		creditsDataStorageCost: real().notNull().default(0),
+		apiKeysDataStorageCost: real().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint for one record per api-key-hour-source
+		unique().on(table.apiKeyId, table.hourTimestamp, table.source),
+		// Index for dashboard queries (api key + time range)
+		index("api_key_hourly_source_stats_api_key_id_hour_timestamp_idx").on(
+			table.apiKeyId,
+			table.hourTimestamp,
+		),
+		// Index for project-level queries (all keys in a project)
+		index("api_key_hourly_source_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+		// Index for worker refresh queries
+		index("api_key_hourly_source_stats_hour_timestamp_idx").on(
+			table.hourTimestamp,
+		),
+	],
+);
+
 // Dimensions the global stats tables are keyed on in addition to the day
 // bucket and the model/source. Both carry an "unknown" member: rows written
 // before these columns existed keep it, and it is also the fallback for
@@ -5440,8 +5586,8 @@ export const globalModelStats = pgTable(
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
 		// Gateway margin earned on Airside-carrier traffic:
-		// SUM(log.cost * log.providerMarginPercent). 0 for providers without
-		// routing settings.
+		// SUM(log.cost * log.providerMarginPercent) for credits-mode, non-cached
+		// requests. 0 for providers without routing settings.
 		providerMarginAmount: real().notNull().default(0),
 	},
 	(table) => [
@@ -5598,6 +5744,37 @@ export const orgLimitHitDaily = pgTable(
 			table.endpointKey,
 		),
 		index("org_limit_hit_daily_day_idx").on(table.day),
+	],
+);
+
+export const organizationSkill = pgTable(
+	"organization_skill",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		description: text().notNull(),
+		content: text().notNull(),
+		files: jsonb()
+			.notNull()
+			.$type<
+				{ path: string; content: string; encoding?: "utf-8" | "base64" }[]
+			>()
+			.default([]),
+		enabled: boolean().notNull().default(true),
+	},
+	(table) => [
+		uniqueIndex("organization_skill_org_name_unique").on(
+			table.organizationId,
+			table.name,
+		),
 	],
 );
 

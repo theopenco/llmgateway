@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Privacy Notice — Airside",
+	title: "Privacy Notice",
 	description:
-		"Supplemental Airside Privacy Notice for AI model providers. What the carrier console collects, how claims and filings are reviewed, what traffic data you see, and how long it is kept.",
+		"Supplemental Airside Privacy Notice for AI model providers: what the carrier console collects, how claims and filings are reviewed, and how long data is kept.",
 	alternates: { canonical: "/legal/privacy" },
 	openGraph: {
 		title: "Airside Supplemental Privacy Notice",

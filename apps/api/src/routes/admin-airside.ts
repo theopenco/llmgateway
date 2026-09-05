@@ -7,9 +7,15 @@ import { z } from "zod";
 import {
 	dematerializeAirsideModel,
 	materializeAirsideModel,
+	syncAirsideModelMetadata,
 	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
 import { verifiedWebsiteDomain } from "@/lib/airside-domains.js";
+import {
+	airsideModelMetadataSchema,
+	type AirsideModelMetadataInput,
+	currentMetadataFor,
+} from "@/lib/airside-metadata.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 
 import {
@@ -41,12 +47,16 @@ adminAirside.use("/*", adminMiddleware);
 
 const adminFilingSchema = z.object({
 	id: z.string(),
-	kind: z.enum(["initial", "update"]),
+	kind: z.enum(["initial", "update", "metadata"]),
 	status: z.enum(["pending", "approved", "rejected"]),
 	inputPrice: z.string(),
 	outputPrice: z.string(),
 	cachedInputPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
+	// "metadata" filings: the proposed changes and the listing's current
+	// values for the same keys, for diffing.
+	metadata: airsideModelMetadataSchema.nullable(),
+	currentMetadata: airsideModelMetadataSchema.nullable(),
 	note: z.string().nullable(),
 	reviewNote: z.string().nullable(),
 	reviewedAt: z.string().nullable(),
@@ -55,6 +65,7 @@ const adminFilingSchema = z.object({
 		id: z.string(),
 		providerId: z.string(),
 		modelName: z.string(),
+		externalId: z.string(),
 		displayName: z.string().nullable(),
 		status: z.enum(["draft", "active", "rejected", "delisted"]),
 		// The name matches an existing catalogue model (id or alias): approving
@@ -165,6 +176,13 @@ function serializeAdminFiling(row: FilingWithRelations) {
 		outputPrice: row.outputPrice,
 		cachedInputPrice: row.cachedInputPrice,
 		requestPrice: row.requestPrice,
+		metadata: (row.metadata ?? null) as AirsideModelMetadataInput | null,
+		currentMetadata: row.metadata
+			? (currentMetadataFor(
+					row.draftModel,
+					row.metadata,
+				) as AirsideModelMetadataInput)
+			: null,
 		note: row.note,
 		reviewNote: row.reviewNote,
 		reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
@@ -173,6 +191,7 @@ function serializeAdminFiling(row: FilingWithRelations) {
 			id: row.draftModel.id,
 			providerId: row.draftModel.providerId,
 			modelName: row.draftModel.modelName,
+			externalId: row.draftModel.externalId,
 			displayName: row.draftModel.displayName,
 			status: row.draftModel.status,
 			sharesCatalogueModelName,
@@ -341,15 +360,18 @@ adminAirside.openapi(approveFiling, async (c) => {
 				.update(tables.providerDraftModel)
 				.set({ status: "active" })
 				.where(eq(tables.providerDraftModel.id, filing.draftModelId));
+			await materializeAirsideModel(filing.draftModel, filing, tx);
+		} else if (filing.kind === "metadata") {
+			const [row] = await tx
+				.update(tables.providerDraftModel)
+				.set(filing.metadata ?? {})
+				.where(eq(tables.providerDraftModel.id, filing.draftModelId))
+				.returning();
+			await syncAirsideModelMetadata(row, tx);
+		} else {
+			await updateAirsideMappingPrices(filing.draftModel, filing, tx);
 		}
 	});
-	// Approved listings join the DB catalogue: /internal/models (models
-	// directory, playground selector) and /v1/models pick them up from there.
-	if (filing.kind === "initial") {
-		await materializeAirsideModel(filing.draftModel, filing);
-	} else {
-		await updateAirsideMappingPrices(filing.draftModel, filing);
-	}
 	const updated = await db.query.providerPriceFiling.findFirst({
 		where: { id: { eq: id } },
 		with: {
@@ -451,6 +473,15 @@ const adminClaimSchema = z.object({
 	reviewNote: z.string().nullable(),
 	reviewedAt: z.string().nullable(),
 	createdAt: z.string(),
+	logoUrl: z.string().nullable(),
+	iconUrl: z.string().nullable(),
+	// Branding edits on an active claim awaiting approval; null inside clears.
+	pendingBranding: z
+		.object({
+			logoUrl: z.string().nullable().optional(),
+			iconUrl: z.string().nullable().optional(),
+		})
+		.nullable(),
 	company: z.object({
 		id: z.string(),
 		name: z.string(),
@@ -485,6 +516,9 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 		reviewNote: row.reviewNote,
 		reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
 		createdAt: row.createdAt.toISOString(),
+		logoUrl: row.logoUrl,
+		iconUrl: row.iconUrl,
+		pendingBranding: row.pendingBranding ?? null,
 		company: {
 			id: row.providerCompany.id,
 			name: row.providerCompany.name,
@@ -500,6 +534,11 @@ const listClaims = createRoute({
 	request: {
 		query: z.object({
 			status: z.enum(["pending", "active", "rejected", "revoked"]).optional(),
+			// Only claims with a branding change awaiting review.
+			pendingBranding: z
+				.enum(["true", "false"])
+				.transform((value) => value === "true")
+				.optional(),
 		}),
 	},
 	responses: {
@@ -520,7 +559,12 @@ const listClaims = createRoute({
 adminAirside.openapi(listClaims, async (c) => {
 	const query = c.req.valid("query");
 	const rows = await db.query.providerClaim.findMany({
-		where: query.status ? { status: { eq: query.status } } : undefined,
+		where: {
+			...(query.status ? { status: { eq: query.status } } : {}),
+			...(query.pendingBranding
+				? { pendingBranding: { isNotNull: true } }
+				: {}),
+		},
 		with: { providerCompany: true },
 		orderBy: { createdAt: "asc" },
 		limit: 100,
@@ -551,6 +595,88 @@ async function getPendingClaim(id: string) {
 	}
 	return claim as ClaimWithRelations;
 }
+
+async function getClaimWithPendingBranding(id: string) {
+	const claim = await db.query.providerClaim.findFirst({
+		where: { id: { eq: id } },
+		with: { providerCompany: true },
+	});
+	if (!claim) {
+		throw new HTTPException(404, { message: "Claim not found" });
+	}
+	if (!claim.pendingBranding) {
+		throw new HTTPException(409, {
+			message: "This claim has no branding change awaiting review.",
+		});
+	}
+	return claim as ClaimWithRelations;
+}
+
+const approveBranding = createRoute({
+	method: "post",
+	path: "/airside/claims/{id}/branding/approve",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ claim: adminClaimSchema }) },
+			},
+			description: "The claim with the pending branding applied.",
+		},
+	},
+});
+
+adminAirside.openapi(approveBranding, async (c) => {
+	const { id } = c.req.valid("param");
+	const claim = await getClaimWithPendingBranding(id);
+	const pending = claim.pendingBranding!;
+	// cdb: /internal/providers reads branding off cached claim rows.
+	const [updated] = await cdb
+		.update(tables.providerClaim)
+		.set({
+			...(pending.logoUrl !== undefined ? { logoUrl: pending.logoUrl } : {}),
+			...(pending.iconUrl !== undefined ? { iconUrl: pending.iconUrl } : {}),
+			pendingBranding: null,
+		})
+		.where(eq(tables.providerClaim.id, id))
+		.returning();
+	return c.json({
+		claim: await serializeAdminClaim({
+			...updated,
+			providerCompany: claim.providerCompany,
+		}),
+	});
+});
+
+const rejectBranding = createRoute({
+	method: "post",
+	path: "/airside/claims/{id}/branding/reject",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: z.object({ claim: adminClaimSchema }) },
+			},
+			description: "The claim with the pending branding discarded.",
+		},
+	},
+});
+
+adminAirside.openapi(rejectBranding, async (c) => {
+	const { id } = c.req.valid("param");
+	const claim = await getClaimWithPendingBranding(id);
+	const [updated] = await cdb
+		.update(tables.providerClaim)
+		.set({ pendingBranding: null })
+		.where(eq(tables.providerClaim.id, id))
+		.returning();
+	return c.json({
+		claim: await serializeAdminClaim({
+			...updated,
+			providerCompany: claim.providerCompany,
+		}),
+	});
+});
 
 const approveClaim = createRoute({
 	method: "post",
@@ -746,7 +872,6 @@ adminAirside.openapi(revokeClaim, async (c) => {
 		});
 	}
 	// cdb so the gateway's cached multiplier reads are invalidated.
-	let revokedModelNames: string[] = [];
 	await cdb.transaction(async (tx) => {
 		const updated = await tx
 			.update(tables.providerClaim)
@@ -756,6 +881,9 @@ adminAirside.openapi(revokeClaim, async (c) => {
 				reviewNote: reviewNote ?? null,
 				reviewedAt: new Date(),
 				revokedAt: new Date(),
+				// A branding change filed before revocation must not linger in
+				// the review queue.
+				pendingBranding: null,
 			})
 			.where(
 				and(
@@ -830,25 +958,25 @@ adminAirside.openapi(revokeClaim, async (c) => {
 				.update(tables.providerDraftModel)
 				.set({ status: "delisted", delistedAt: new Date() })
 				.where(inArray(tables.providerDraftModel.id, modelIds));
-			revokedModelNames = companyModels.map((m) => m.modelName);
+			for (const model of companyModels) {
+				await dematerializeAirsideModel(claim.providerId, model.modelName, tx);
+			}
+		}
+		if (claim.kind === "custom") {
+			// The provider row only existed for this registration; drop it once no
+			// catalogue mapping references it any more.
+			const remaining = await tx
+				.select({ id: tables.modelProviderMapping.id })
+				.from(tables.modelProviderMapping)
+				.where(eq(tables.modelProviderMapping.providerId, claim.providerId))
+				.limit(1);
+			if (remaining.length === 0) {
+				await tx
+					.delete(tables.provider)
+					.where(eq(tables.provider.id, claim.providerId));
+			}
 		}
 	});
-	for (const modelName of revokedModelNames) {
-		await dematerializeAirsideModel(claim.providerId, modelName);
-	}
-	if (claim.kind === "custom") {
-		// The provider row only existed for this registration; drop it once no
-		// catalogue mapping references it any more.
-		const remaining = await db.query.modelProviderMapping.findFirst({
-			where: { providerId: { eq: claim.providerId } },
-			columns: { id: true },
-		});
-		if (!remaining) {
-			await cdb
-				.delete(tables.provider)
-				.where(eq(tables.provider.id, claim.providerId));
-		}
-	}
 	const updated = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },
 		with: { providerCompany: true },
@@ -1003,7 +1131,12 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 						),
 				})
 				.from(tables.globalModelStats)
-				.where(inArray(tables.globalModelStats.usedProvider, providerIds))
+				.where(
+					and(
+						inArray(tables.globalModelStats.usedProvider, providerIds),
+						eq(tables.globalModelStats.usedMode, "credits"),
+					),
+				)
 				.groupBy(tables.globalModelStats.usedProvider)
 		: [];
 	const totalsByProvider = new Map(

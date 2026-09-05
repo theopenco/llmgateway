@@ -35,7 +35,7 @@ const STEPS = [
 	{
 		icon: ShieldCheck,
 		title: "Verify your domain",
-		body: "Sign up with your company email. When its domain matches your API endpoint's domain, your carrier code unlocks — no sales call, no paperwork.",
+		body: "Sign up with your company email. When its domain matches your API endpoint's domain, your carrier code unlocks. Settle the one-time $2,500 listing fee — or a partner invite code — and you're cleared to claim. No sales call, no paperwork.",
 	},
 	{
 		icon: PlaneTakeoff,
@@ -76,6 +76,10 @@ const FAQ = [
 		a: "Anyone with a verified email address on the provider's own domain. If your API is served from api.acme.ai, an @acme.ai address claims the acme carrier — that's the whole check, enforced server-side.",
 	},
 	{
+		q: "What does listing cost?",
+		a: "A one-time $2,500 listing fee per provider company, paid via Stripe during onboarding and due before your claim is approved — non-refundable, and waived with an invite code if we already work with you. No subscription, no minimum volume: once listed you only share the gateway margin you accept on traffic you win.",
+	},
+	{
 		q: "Can we run more than one carrier?",
 		a: "Yes. A company can hold multiple providers — regional deployments, a fast-inference brand and a budget brand — all under one operations console.",
 	},
@@ -103,7 +107,7 @@ const JSON_LD = [
 		name: "Airside by LLM Gateway",
 		url: SITE_URL,
 		description:
-			"The self-serve console for LLM providers. Claim your carrier, register your fleet, file your fares, and win traffic on LLM Gateway.",
+			"Airside is the self-service provider portal for LLM Gateway. Verify your domain, submit models and pricing for approval, and track routed traffic.",
 		inLanguage: "en",
 		publisher: { "@id": "https://llmgateway.io#organization" },
 	},
@@ -164,20 +168,30 @@ export default function LandingPage() {
 								Put your models on the departure board.
 							</h1>
 							<p className="text-muted-foreground mt-6 max-w-xl text-lg text-pretty">
-								LLM Gateway routes developer traffic across model providers.
-								Airside is where providers run the airline: claim your carrier,
-								register your fleet, file your fares — and win routes.
+								Airside is the self-service provider portal for LLM Gateway.
+								List your LLM API, submit models and pricing for approval, and
+								track the developer traffic routed to your service.
 							</p>
 							<div className="mt-8 flex flex-wrap items-center gap-3">
 								<Button asChild size="lg" className="font-semibold">
-									<Link href="/signup">Claim your carrier code</Link>
+									<Link href="/signup">
+										Claim your carrier code
+										<span
+											aria-hidden="true"
+											className="border-primary-foreground/40 h-5 w-px border-l border-dashed"
+										/>
+										<span className="font-mono text-xs font-normal tracking-widest">
+											$2,500
+										</span>
+									</Link>
 								</Button>
 								<Button asChild size="lg" variant="outline">
 									<Link href="/#dispatch">See how dispatch routes</Link>
 								</Button>
 							</div>
 							<p className="text-muted-foreground mt-4 font-mono text-xs">
-								Self-serve. Verified by your email domain. Live in minutes.
+								Self-serve. Verified by your email domain. One-time $2,500
+								listing fee — you're listed once we approve your claim.
 							</p>
 						</div>
 						<DepartureBoard />
@@ -363,11 +377,21 @@ export default function LandingPage() {
 						</h2>
 						<div className="mt-8 flex justify-center">
 							<Button asChild size="lg" className="font-semibold">
-								<Link href="/signup">Claim your carrier code</Link>
+								<Link href="/signup">
+									Claim your carrier code
+									<span
+										aria-hidden="true"
+										className="border-primary-foreground/40 h-5 w-px border-l border-dashed"
+									/>
+									<span className="font-mono text-xs font-normal tracking-widest">
+										$2,500
+									</span>
+								</Link>
 							</Button>
 						</div>
 						<p className="text-muted-foreground mt-4 font-mono text-xs">
-							Free to claim — you only ever share margin on traffic you win.
+							One-time $2,500 listing fee, due before approval — after that you
+							only share margin on traffic you win.
 						</p>
 					</div>
 				</section>

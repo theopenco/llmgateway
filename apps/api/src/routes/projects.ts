@@ -8,6 +8,11 @@ import {
 	providerCacheControlModeSchema,
 	resolveProviderCacheControlMode,
 } from "@/utils/provider-cache-control.js";
+import {
+	isZeroDataRetentionEnabled,
+	zdrCachingConflictMessage,
+	zdrProviderCachingConflictMessage,
+} from "@/utils/zdr-settings.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
@@ -383,6 +388,21 @@ projects.openapi(updateProject, async (c) => {
 	// cached project lookups (Drizzle cache + SWR mirror) for the project table.
 	// Otherwise settings like defaultRoutingStrategy/mode/caching would keep
 	// using the previous value until the cache expires (up to the SWR TTL).
+	const providerCachingChanged =
+		providerCacheControlMode !== undefined &&
+		providerCacheControlMode !== project.providerCacheControlMode;
+	if (
+		(cachingEnabled ||
+			(providerCachingChanged && providerCacheControlMode !== "off")) &&
+		isZeroDataRetentionEnabled(projectUserOrg?.organization)
+	) {
+		throw new HTTPException(400, {
+			message: cachingEnabled
+				? zdrCachingConflictMessage
+				: zdrProviderCachingConflictMessage,
+		});
+	}
+
 	const [updatedProject] = await cdb
 		.update(tables.project)
 		.set(updateData)
@@ -559,6 +579,10 @@ export async function createProjectForOrg(
 	} = input;
 	const providerCacheControlMode =
 		resolveProviderCacheControlMode(input) ?? "auto";
+	const providerCachingExplicitlyEnabled =
+		(input.providerCacheControlMode !== undefined ||
+			input.providerCacheControlEnabled !== undefined) &&
+		providerCacheControlMode !== "off";
 
 	if (!options.skipAccessCheck) {
 		const userOrganization = await db.query.userOrganization.findFirst({
@@ -615,6 +639,17 @@ export async function createProjectForOrg(
 	if (existingProjects.length >= projectLimit) {
 		throw new HTTPException(403, {
 			message: `You have reached the limit of ${projectLimit} projects. Contact us at contact@llmgateway.io to unlock more.`,
+		});
+	}
+
+	if (
+		(cachingEnabled || providerCachingExplicitlyEnabled) &&
+		isZeroDataRetentionEnabled(organizationRow)
+	) {
+		throw new HTTPException(400, {
+			message: cachingEnabled
+				? zdrCachingConflictMessage
+				: zdrProviderCachingConflictMessage,
 		});
 	}
 

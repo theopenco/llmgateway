@@ -2,6 +2,12 @@ import ProjectsPageClient from "@/components/playground/projects-page-client";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Organization } from "@/lib/types";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+	title: "Projects",
+	robots: { index: false, follow: false },
+};
 
 export default async function ProjectsPage({
 	searchParams,

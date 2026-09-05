@@ -291,10 +291,9 @@ async function resolveVideoProviderContext(
 			throw new Error(`No API key set for provider: ${job.usedProvider}`);
 		}
 
-		const baseUrl =
-			providerKey.baseUrl ??
-			getProviderEnvValue(providerId, "baseUrl") ??
-			defaultBaseUrl;
+		// A BYOK key is self-contained: the deployment's env base URL never
+		// applies to an org's own key (mirrors the gateway's skipEnvVars).
+		const baseUrl = providerKey.baseUrl ?? defaultBaseUrl;
 		if (!baseUrl) {
 			throw new Error(`No base URL set for provider: ${job.usedProvider}`);
 		}
@@ -1509,6 +1508,8 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				usedModel: getFormattedUsedVideoModel(jobToLog),
 				usedModelMapping: jobToLog.usedModel,
 				usedProvider: jobToLog.usedProvider,
+				providerMarginPercent: jobToLog.providerMarginPercent,
+				providerDiscountPercent: jobToLog.providerDiscountPercent,
 				responseSize,
 				content:
 					jobToLog.status === "completed" && responsePayload.content?.[0]?.url

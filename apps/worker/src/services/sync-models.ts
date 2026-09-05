@@ -118,6 +118,11 @@ export async function syncProvidersAndModels() {
 					)[0];
 
 					if (existingMapping) {
+						// An approved Airside filing owns this canonical row until the
+						// listing is delisted. Catalogue sync must not overwrite it.
+						if (existingMapping.source === "airside") {
+							continue;
+						}
 						// Use null (not undefined) for missing fields to ensure DB is updated
 						// undefined in Drizzle means "don't update", null means "set to NULL"
 						await database
@@ -163,6 +168,7 @@ export async function syncProvidersAndModels() {
 								maxOutput: "maxOutput" in mapping ? mapping.maxOutput : null,
 								streaming: mapping.streaming === false ? false : true,
 								vision: "vision" in mapping ? mapping.vision : null,
+								audio: "audio" in mapping ? mapping.audio : null,
 								reasoning: "reasoning" in mapping ? mapping.reasoning : null,
 								reasoningMaxTokens:
 									"reasoningMaxTokens" in mapping
@@ -252,6 +258,7 @@ export async function syncProvidersAndModels() {
 							maxOutput: "maxOutput" in mapping ? mapping.maxOutput : undefined,
 							streaming: mapping.streaming === false ? false : true,
 							vision: "vision" in mapping ? mapping.vision : undefined,
+							audio: "audio" in mapping ? mapping.audio : undefined,
 							reasoning: "reasoning" in mapping ? mapping.reasoning : undefined,
 							reasoningMaxTokens:
 								"reasoningMaxTokens" in mapping

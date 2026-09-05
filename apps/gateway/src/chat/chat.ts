@@ -27,11 +27,13 @@ import {
 	findCustomModel,
 	findActiveCustomModels,
 	findEffectiveDiscount,
+	findAirsideModel,
 	findAirsideRoutingAdjustment,
 	findEffectiveRoutingScoreMultiplier,
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
+	listAirsideModels,
 	type CustomModel,
 	type ManagedProviderAvailability,
 } from "@/lib/cached-queries.js";
@@ -45,8 +47,10 @@ import {
 import {
 	complianceBlockMessage,
 	getActiveCompliancePolicy,
+	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
+	isZeroDataRetentionEnabled,
 	logComplianceBlock,
 	type ComplianceCheckContext,
 } from "@/lib/compliance.js";
@@ -118,6 +122,7 @@ import {
 	isTimeoutError,
 } from "@/lib/timeout-config.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
+import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
 import {
 	applyGoogleServiceTier,
@@ -281,7 +286,11 @@ import {
 	splitTaggedStreamingContentChunk,
 	splitReasoningFromTaggedContent,
 } from "./tools/reasoning-details.js";
-import { resolveAirsideModel } from "./tools/resolve-airside-model.js";
+import {
+	airsideListingToModelDefinition,
+	mergeAirsideListingsIntoModel,
+	resolveAirsideModel,
+} from "./tools/resolve-airside-model.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import { resolvePlatformCredential } from "./tools/resolve-platform-credential.js";
 import {
@@ -1356,7 +1365,7 @@ export const chat = new OpenAPIHono<ServerTypes>({
 			: "Invalid request parameters";
 		const cause = invalidJson ? "invalid_json" : "invalid_parameters";
 		logger.warn("Invalid chat completions request", {
-			issues: result.error.issues,
+			issues: summarizeZodIssues(result.error.issues),
 			path: c.req.path,
 			method: c.req.method,
 		});
@@ -1608,7 +1617,7 @@ chat.openapi(completions, async (c) => {
 	if (!validationResult.success) {
 		const message = "Invalid request parameters";
 		logger.warn("Invalid chat completions request", {
-			issues: validationResult.error.issues,
+			issues: summarizeZodIssues(validationResult.error.issues),
 			path: c.req.path,
 			method: c.req.method,
 		});
@@ -2070,6 +2079,10 @@ chat.openapi(completions, async (c) => {
 	const parseResult =
 		airsideResolution?.parseResult ?? parseModelInput(modelInput);
 	let requestedModel = parseResult.requestedModel;
+	// resolveAirsideModel settled Airside ownership for this id — for every
+	// provider on a bare-name request, only for the pinned pair otherwise.
+	const airsideCheckedModel = requestedModel;
+	const airsideCheckedProvider = parseResult.requestedProvider;
 	let customProviderName = parseResult.customProviderName;
 	let requestedRegion = parseResult.requestedRegion;
 
@@ -2077,6 +2090,7 @@ chat.openapi(completions, async (c) => {
 	const inputImageCount =
 		requestedModel === "gemini-3-pro-image" ||
 		requestedModel === "gemini-3-pro-image-preview" ||
+		requestedModel === "gemini-3.1-flash-image" ||
 		requestedModel === "gemini-3.1-flash-image-preview" ||
 		requestedModel === "gemini-3.1-flash-lite-image"
 			? countInputImages(messages)
@@ -2365,9 +2379,11 @@ chat.openapi(completions, async (c) => {
 	// would push the zero-credit org we just waived the charge for into negative
 	// credits. Forcing it here rather than zeroing at each cost site keeps the
 	// two in step: no stored payloads, therefore no storage to charge for.
-	const retentionLevel = sponsoredOnboarding
-		? "none"
-		: (organization.retentionLevel ?? "none");
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(organization);
+	const retentionLevel =
+		sponsoredOnboarding || zeroDataRetentionEnabled
+			? "none"
+			: getEffectiveRetentionLevel(organization);
 
 	// Note: the end-user-wallet credits substitution (withWalletCredits) happens
 	// further below — orgs backing end-user wallets are always regular
@@ -2707,6 +2723,7 @@ chat.openapi(completions, async (c) => {
 					await logViolation(project.organizationId, violation, {
 						apiKeyId: apiKey.id,
 						model: requestedModel,
+						retainSensitiveContent: retentionLevel === "retain",
 					});
 				} catch {
 					// Silently ignore logging failures
@@ -2834,6 +2851,7 @@ chat.openapi(completions, async (c) => {
 				await logViolation(project.organizationId, violation, {
 					apiKeyId: apiKey.id,
 					model: requestedModel,
+					retainSensitiveContent: retentionLevel === "retain",
 				});
 			} catch {
 				// Silently ignore logging failures
@@ -3491,8 +3509,58 @@ chat.openapi(completions, async (c) => {
 	// custom model catalog entry. Threaded into every calculateCosts call below
 	// so the request is billed at the catalog rates; undefined otherwise (those
 	// requests stay unbilled, as before).
+	const findAirsidePricingMapping = () =>
+		airsideResolution?.pricingMappings.find(
+			(mapping) =>
+				mapping.providerId === usedProvider &&
+				(mapping.region ?? null) === (usedRegion ?? null),
+		);
+	// auto, dynamic routes and cross-model fallbacks pick their target from
+	// the static catalogue, so the served pair may be Airside-owned without
+	// resolveAirsideModel having seen it.
+	const resolveAirsidePricingMapping = async (): Promise<
+		ProviderModelMapping | undefined
+	> => {
+		const fromResolution = findAirsidePricingMapping();
+		if (
+			fromResolution ||
+			(usedInternalModel === airsideCheckedModel &&
+				(airsideCheckedProvider === undefined ||
+					usedProvider === airsideCheckedProvider)) ||
+			usedRegion !== undefined ||
+			!usedProvider ||
+			usedProvider === "custom" ||
+			usedProvider === "llmgateway"
+		) {
+			return fromResolution;
+		}
+		const listed = await findAirsideModel(usedProvider, usedInternalModel);
+		return listed ? airsideListingToModelDefinition(listed).mapping : undefined;
+	};
 	let customPricingMapping: ProviderModelMapping | undefined =
-		airsideResolution?.pricingMapping;
+		findAirsidePricingMapping();
+	// The canonical Airside row governs request validation as well as
+	// billing, so it replaces the static mapping in finalModelInfo.
+	const applyAirsidePricingMapping = (
+		mapping: ProviderModelMapping | undefined,
+	) => {
+		customPricingMapping = mapping;
+		if (!mapping) {
+			return;
+		}
+		const base =
+			finalModelInfo ??
+			(models.find((m) => m.id === usedInternalModel) as
+				ModelDefinition | undefined) ??
+			modelInfo;
+		finalModelInfo = {
+			...base,
+			providers: [
+				...base.providers.filter((p) => p.providerId !== mapping.providerId),
+				mapping,
+			],
+		};
+	};
 	const applySelectedCustomProvider = (provider: ProviderModelMapping) => {
 		if (!isCustomAutoRoutingMapping(provider)) {
 			return;
@@ -3686,6 +3754,22 @@ chat.openapi(completions, async (c) => {
 			matchingModels.push(customModel);
 			activeCustomModelsByName.set(customModel.modelName, matchingModels);
 		}
+		const airsideListingsByModel = new Map<
+			string,
+			Awaited<ReturnType<typeof listAirsideModels>>
+		>();
+		for (const listing of await listAirsideModels()) {
+			if (
+				!providers.some(
+					(provider) => provider.id === listing.mapping.providerId,
+				)
+			) {
+				continue;
+			}
+			const listings = airsideListingsByModel.get(listing.model.id) ?? [];
+			listings.push(listing);
+			airsideListingsByModel.set(listing.model.id, listings);
+		}
 
 		// Find the cheapest model that meets our context size requirements
 		// Only consider hardcoded models for auto selection
@@ -3735,7 +3819,11 @@ chat.openapi(completions, async (c) => {
 		let anyPreComplianceCandidate = false;
 		let anyPostComplianceCandidate = false;
 
-		for (const modelDef of models) {
+		for (const staticModelDef of models) {
+			const listings = airsideListingsByModel.get(staticModelDef.id);
+			const modelDef = listings
+				? mergeAirsideListingsIntoModel(staticModelDef, listings).modelInfo
+				: staticModelDef;
 			if (modelDef.id === "auto" || modelDef.id === "custom") {
 				continue;
 			}
@@ -5517,6 +5605,12 @@ chat.openapi(completions, async (c) => {
 		finalModelInfo?.providers.find(
 			(p) => p.providerId === usedProvider && p.region === undefined,
 		);
+	if (usedProvider !== "custom") {
+		const airsideMapping = await resolveAirsidePricingMapping();
+		if (airsideResolution || airsideMapping) {
+			applyAirsidePricingMapping(airsideMapping);
+		}
+	}
 	const imageGenProviderMapping = getUsedProviderMapping();
 	let isImageGeneration = imageGenProviderMapping?.imageGenerations === true;
 	const usesAwsBedrockConverse = () =>
@@ -6043,11 +6137,7 @@ chat.openapi(completions, async (c) => {
 	// A sponsored onboarding call is exempt: its storage cost is zeroed below, so
 	// there is nothing to fund. Without this, a new account that turned retention
 	// on before finishing the wizard hits the very 402 this path exists to avoid.
-	if (
-		organization &&
-		organization.retentionLevel === "retain" &&
-		!sponsoredOnboarding
-	) {
+	if (organization && retentionLevel === "retain" && !sponsoredOnboarding) {
 		const { totalAvailableCredits } = getAvailableCredits(organization);
 
 		if (totalAvailableCredits <= 0) {
@@ -6390,15 +6480,20 @@ chat.openapi(completions, async (c) => {
 	const {
 		enabled: projectCachingEnabled,
 		duration: cacheDuration,
-		providerCacheControlMode,
+		providerCacheControlMode: configuredProviderCacheControlMode,
 	} = await isCachingEnabled(project.id);
+	const providerCacheControlMode = zeroDataRetentionEnabled
+		? "off"
+		: configuredProviderCacheControlMode;
 	// Per-request opt-out, mirroring X-No-Fallback. Agent workloads that retry a
 	// byte-identical request expect a fresh sample rather than a replay, so let
 	// a caller bypass the response cache (both read and write) without turning
 	// the project setting off.
 	const noCache = c.req.header("x-no-cache") === "true";
 	const cachingEnabled =
-		organization.devPlan !== "none" || noCache ? false : projectCachingEnabled;
+		organization.devPlan !== "none" || noCache || zeroDataRetentionEnabled
+			? false
+			: projectCachingEnabled;
 
 	let cacheKey: string | null = null;
 	let streamingCacheKey: string | null = null;
@@ -7142,7 +7237,11 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	temperature = clampTemperature(temperature, usedProvider);
+	temperature = clampTemperature(
+		temperature,
+		usedProvider,
+		getUsedProviderMapping()?.maxTemperature,
+	);
 
 	// Check if the request can be canceled
 	let requestCanBeCanceled =
@@ -7162,7 +7261,7 @@ chat.openapi(completions, async (c) => {
 
 	// For Google providers, enrich messages with cached thought_signatures
 	// This is needed for multi-turn tool call conversations with Gemini 3+
-	if (isGoogleCompatibleProvider(usedProvider)) {
+	if (isGoogleCompatibleProvider(usedProvider) && !zeroDataRetentionEnabled) {
 		const { redisClient } = await import("@llmgateway/cache");
 		for (const message of messages) {
 			if (
@@ -7475,18 +7574,19 @@ chat.openapi(completions, async (c) => {
 		);
 	}
 
-	function applyResolvedProviderContext(
+	async function applyResolvedProviderContext(
 		ctx: Awaited<ReturnType<typeof resolveProviderContext>>,
-	): void {
+	): Promise<void> {
 		usedProvider = ctx.usedProvider;
+		usedRegion = ctx.usedRegion;
+		usedInternalModel = ctx.usedInternalModel;
 		if (usedProvider !== "custom") {
 			customProviderName = undefined;
 			customProviderKey = undefined;
-			// Airside listings keep their filed prices across provider context
-			// changes; everything else resets to catalogue pricing.
-			customPricingMapping = airsideResolution?.pricingMapping;
+			// Airside-owned canonical pricing follows the selected provider;
+			// everything else resets to static catalogue pricing.
+			applyAirsidePricingMapping(await resolveAirsidePricingMapping());
 		}
-		usedInternalModel = ctx.usedInternalModel;
 		usedExternalId = ctx.usedExternalId;
 		usedModelFormatted = ctx.usedModelFormatted;
 		usedModelMapping = ctx.usedModelMapping;
@@ -7544,7 +7644,6 @@ chat.openapi(completions, async (c) => {
 		top_p = ctx.top_p;
 		frequency_penalty = ctx.frequency_penalty;
 		presence_penalty = ctx.presence_penalty;
-		usedRegion = ctx.usedRegion;
 		routingMetadata = withUsedCredential(
 			routingMetadata,
 			usedApiKeyHash,
@@ -8077,7 +8176,7 @@ chat.openapi(completions, async (c) => {
 								nextProvider,
 								true,
 							);
-							applyResolvedProviderContext(ctx);
+							await applyResolvedProviderContext(ctx);
 						} catch {
 							failedProviderIds.add(
 								providerRetryKey(nextProvider.providerId, nextProvider.region),
@@ -8360,7 +8459,7 @@ chat.openapi(completions, async (c) => {
 										},
 									),
 								);
-								applyResolvedProviderContext(sameProviderRetryContext);
+								await applyResolvedProviderContext(sameProviderRetryContext);
 								retryAttempt--;
 								continue;
 							}
@@ -8624,7 +8723,7 @@ chat.openapi(completions, async (c) => {
 										},
 									),
 								);
-								applyResolvedProviderContext(sameProviderRetryContext);
+								await applyResolvedProviderContext(sameProviderRetryContext);
 								retryAttempt--;
 								continue;
 							}
@@ -8752,7 +8851,9 @@ chat.openapi(completions, async (c) => {
 						) {
 							logger.warn("Provider error", {
 								status: res.status,
-								errorText: errorResponseText,
+								...(retentionLevel === "retain" && {
+									errorText: errorResponseText,
+								}),
 								usedProvider,
 								requestedProvider,
 								usedInternalModel,
@@ -8987,7 +9088,7 @@ chat.openapi(completions, async (c) => {
 									},
 								),
 							);
-							applyResolvedProviderContext(sameProviderRetryContext);
+							await applyResolvedProviderContext(sameProviderRetryContext);
 							retryAttempt--;
 							continue;
 						}
@@ -9135,7 +9236,9 @@ chat.openapi(completions, async (c) => {
 
 						logger.warn("Immediate streaming provider error", {
 							status: inferredStatusCode,
-							errorText: errorResponseText,
+							...(retentionLevel === "retain" && {
+								errorText: errorResponseText,
+							}),
 							usedProvider,
 							requestedProvider,
 							usedInternalModel,
@@ -9328,7 +9431,7 @@ chat.openapi(completions, async (c) => {
 									},
 								),
 							);
-							applyResolvedProviderContext(sameProviderRetryContext);
+							await applyResolvedProviderContext(sameProviderRetryContext);
 							retryAttempt--;
 							continue;
 						}
@@ -9920,9 +10023,11 @@ chat.openapi(completions, async (c) => {
 								(eventData.includes("event:") || eventData.includes("id:"))
 							) {
 								logger.warn("Event data contains SSE field", {
-									eventData:
-										eventData.substring(0, 200) +
-										(eventData.length > 200 ? "..." : ""),
+									...(retentionLevel === "retain" && {
+										eventData:
+											eventData.substring(0, 200) +
+											(eventData.length > 200 ? "..." : ""),
+									}),
 									dataIndex,
 									eventEnd,
 									bufferLength: bufferCopy.length,
@@ -10182,12 +10287,19 @@ chat.openapi(completions, async (c) => {
 									// Since we already validated JSON completeness above, this is likely a format issue
 									// Create structured error for logging
 									streamingError = {
-										message: e instanceof Error ? e.message : String(e),
+										message:
+											retentionLevel === "retain"
+												? e instanceof Error
+													? e.message
+													: String(e)
+												: "Failed to parse streaming JSON",
 										type: "json_parse_error",
 										code: "json_parse_error",
 										details: {
 											name: e instanceof Error ? e.name : "ParseError",
-											eventData: eventData.substring(0, 5000),
+											...(retentionLevel === "retain" && {
+												eventData: eventData.substring(0, 5000),
+											}),
 											provider: usedProvider,
 											model: usedInternalModel,
 											eventLength: eventData.length,
@@ -10197,10 +10309,13 @@ chat.openapi(completions, async (c) => {
 										},
 									};
 									logger.warn("Failed to parse streaming JSON", {
-										error: e instanceof Error ? e.message : String(e),
-										eventData:
-											eventData.substring(0, 200) +
-											(eventData.length > 200 ? "..." : ""),
+										errorName: e instanceof Error ? e.name : "ParseError",
+										...(retentionLevel === "retain" && {
+											error: e instanceof Error ? e.message : String(e),
+											eventData:
+												eventData.substring(0, 200) +
+												(eventData.length > 200 ? "..." : ""),
+										}),
 										provider: usedProvider,
 										eventLength: eventData.length,
 										bufferEnd: eventEnd,
@@ -10410,6 +10525,9 @@ chat.openapi(completions, async (c) => {
 									supportsReasoning,
 									toolSearchState,
 									toolCallChoiceIndices,
+									{
+										cacheThoughtSignatures: !zeroDataRetentionEnabled,
+									},
 								);
 
 								// Skip null events (some providers have non-data events)
@@ -12472,7 +12590,7 @@ chat.openapi(completions, async (c) => {
 
 			try {
 				const ctx = await resolveProviderContextForRetry(nextProvider, stream);
-				applyResolvedProviderContext(ctx);
+				await applyResolvedProviderContext(ctx);
 			} catch {
 				failedProviderIds.add(
 					providerRetryKey(nextProvider.providerId, nextProvider.region),
@@ -12806,7 +12924,7 @@ chat.openapi(completions, async (c) => {
 						},
 					),
 				);
-				applyResolvedProviderContext(sameProviderRetryContext);
+				await applyResolvedProviderContext(sameProviderRetryContext);
 				retryAttempt--;
 				continue;
 			}
@@ -13064,7 +13182,9 @@ chat.openapi(completions, async (c) => {
 			) {
 				logger.warn("Provider error", {
 					status: res.status,
-					errorText: errorResponseText,
+					...(retentionLevel === "retain" && {
+						errorText: errorResponseText,
+					}),
 					usedProvider,
 					requestedProvider,
 					usedInternalModel,
@@ -13314,7 +13434,7 @@ chat.openapi(completions, async (c) => {
 						},
 					),
 				);
-				applyResolvedProviderContext(sameProviderRetryContext);
+				await applyResolvedProviderContext(sameProviderRetryContext);
 				retryAttempt--;
 				continue;
 			}
@@ -13791,6 +13911,9 @@ chat.openapi(completions, async (c) => {
 		} else {
 			json = await readBodyWithClientAbort(res.json());
 		}
+		if (json === null || typeof json !== "object" || Array.isArray(json)) {
+			throw new TypeError("Provider response body must be a JSON object");
+		}
 	} catch (bodyError) {
 		// Re-throw non-Error values (mirrors the fetch catch above).
 		if (!(bodyError instanceof Error)) {
@@ -14003,7 +14126,7 @@ chat.openapi(completions, async (c) => {
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);
 	}
-	if (process.env.NODE_ENV !== "production") {
+	if (process.env.NODE_ENV !== "production" && retentionLevel === "retain") {
 		logger.debug("API response", { response: json });
 	}
 	// Track response size - prefer Content-Length header to avoid expensive stringify on large responses
@@ -14050,6 +14173,7 @@ chat.openapi(completions, async (c) => {
 		splitTaggedReasoning,
 		!!webSearchTool,
 		!!webSearchTool?.forced,
+		{ cacheThoughtSignatures: !zeroDataRetentionEnabled },
 	);
 	let { content, totalTokens } = parsedResponse;
 	const {
@@ -14132,13 +14256,20 @@ chat.openapi(completions, async (c) => {
 			reasoningTokens,
 			hasToolResults: !!toolResults,
 			toolResultsCount: toolResults?.length ?? 0,
-			rawCandidates: json.candidates,
+			...(retentionLevel === "retain" && {
+				rawCandidates: json.candidates,
+			}),
 			rawUsageMetadata: json.usageMetadata,
 		});
 	}
 
 	// Debug: Log images found in response
-	logger.debug("Gateway - parseProviderResponse extracted images", { images });
+	logger.debug(
+		"Gateway - parseProviderResponse extracted images",
+		retentionLevel === "retain"
+			? { images }
+			: { imageCount: images?.length ?? 0 },
+	);
 	logger.debug("Gateway - Used provider", { usedProvider });
 	logger.debug("Gateway - Used model", { usedInternalModel });
 
@@ -14347,6 +14478,7 @@ chat.openapi(completions, async (c) => {
 		cacheCreation1hTokens,
 		audioInputTokens,
 		echoedServiceTier,
+		{ cacheThoughtSignatures: !zeroDataRetentionEnabled },
 	);
 	// Attach opaque reasoning payloads (e.g. OpenAI encrypted reasoning) to the
 	// assistant message so clients can replay them on later turns to preserve

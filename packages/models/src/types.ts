@@ -385,6 +385,7 @@ export interface BaseRequestBody {
 
 export interface OpenAIRequestBody extends BaseRequestBody {
 	messages: OpenAIMessage[];
+	user?: string;
 	tools?: OpenAITool[];
 	tool_choice?: ToolChoiceType;
 	prompt_cache_key?: string;

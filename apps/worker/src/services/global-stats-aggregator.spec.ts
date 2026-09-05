@@ -45,6 +45,7 @@ describe("global stats aggregation", () => {
 		totalTokens?: string;
 		createdAt?: Date;
 		providerMarginPercent?: number;
+		cached?: boolean;
 	}) =>
 		db.insert(log).values({
 			requestId: `global-stats-request-${randomUUID()}`,
@@ -55,6 +56,7 @@ describe("global stats aggregation", () => {
 			source: ids.source,
 			cost: values.cost,
 			providerMarginPercent: values.providerMarginPercent,
+			cached: values.cached ?? false,
 			promptTokens: "10",
 			completionTokens: "20",
 			totalTokens: values.totalTokens ?? "30",
@@ -302,16 +304,38 @@ describe("global stats aggregation", () => {
 			usedMode: "credits",
 			cost: 0.5,
 		});
+		// Cache hits do not incur a second provider charge, even if a malformed
+		// historical row carries a non-zero cost and margin snapshot.
+		await insertLog({
+			organizationId: ids.paygOrgId,
+			projectId: ids.paygProjectId,
+			usedMode: "credits",
+			cost: 0.6,
+			providerMarginPercent: 0.5,
+			cached: true,
+		});
+		// BYOK pays the provider directly, so it cannot earn gateway margin.
+		await insertLog({
+			organizationId: ids.paygOrgId,
+			projectId: ids.paygProjectId,
+			usedMode: "api-keys",
+			cost: 0.4,
+			providerMarginPercent: 0.5,
+		});
 
 		await aggregate();
 
 		const rows = await readModelStats();
-		expect(rows).toHaveLength(1);
-		expect(Number(rows[0].cost)).toBeCloseTo(0.8, 6);
-		expect(Number(rows[0].providerMarginAmount)).toBeCloseTo(
+		expect(rows).toHaveLength(2);
+		const credits = rows.find((row) => row.usedMode === "credits");
+		const byok = rows.find((row) => row.usedMode === "api-keys");
+		expect(Number(credits?.cost)).toBeCloseTo(1.4, 6);
+		expect(Number(credits?.providerMarginAmount)).toBeCloseTo(
 			0.1 * 0.3 + 0.2 * 0.25, // eslint-disable-line no-mixed-operators
 			6,
 		);
+		expect(Number(byok?.cost)).toBeCloseTo(0.4, 6);
+		expect(Number(byok?.providerMarginAmount)).toBe(0);
 	});
 
 	test("applies the same dimensions to source stats", async () => {

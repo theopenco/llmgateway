@@ -9,10 +9,10 @@ import {
 	Server,
 	TrendingDown,
 } from "lucide-react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { TokenTimeRangeToggle } from "@/components/token-time-range-toggle";
 import {
 	UsageModeSelector,
 	useUsageMode,
@@ -114,8 +114,6 @@ function MetricCard({
 
 export function OrgMetricsSection({ orgId }: { orgId: string }) {
 	const searchParams = useSearchParams();
-	const router = useRouter();
-	const pathname = usePathname();
 
 	const window = parseWindow(searchParams.get("window"));
 	const usageMode = useUsageMode();
@@ -136,20 +134,6 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 	useEffect(() => {
 		void loadMetrics(window);
 	}, [loadMetrics, window]);
-
-	const handleWindowChange = useCallback(
-		(w: TokenWindow) => {
-			const params = new URLSearchParams(searchParams.toString());
-			if (w === "1d") {
-				params.delete("window");
-			} else {
-				params.set("window", w);
-			}
-			const query = params.toString();
-			router.push(query ? `${pathname}?${query}` : pathname);
-		},
-		[searchParams, router, pathname],
-	);
 
 	if (loading) {
 		return (
@@ -188,73 +172,27 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 
 	return (
 		<section className="space-y-4">
-			<div className="flex items-center justify-between">
+			<div className="flex flex-col gap-4 rounded-xl border border-border/60 bg-card/50 p-4 lg:flex-row lg:items-center lg:justify-between">
 				<div>
 					<h2 className="text-lg font-semibold">Usage Metrics</h2>
-					<p className="text-xs text-muted-foreground">
+					<p className="mt-1 text-xs text-muted-foreground">
 						{windowLabel} ({new Date(metrics.startDate).toLocaleDateString()} –{" "}
 						{new Date(metrics.endDate).toLocaleDateString()})
 					</p>
 				</div>
-				<div className="flex items-center gap-1">
-					<UsageModeSelector />
-					<div className="mx-1 h-5 w-px bg-border" />
-					<Button
-						variant={window === "1h" ? "default" : "outline"}
-						size="sm"
-						onClick={() => handleWindowChange("1h")}
-					>
-						1h
-					</Button>
-					<Button
-						variant={window === "4h" ? "default" : "outline"}
-						size="sm"
-						onClick={() => handleWindowChange("4h")}
-					>
-						4h
-					</Button>
-					<Button
-						variant={window === "12h" ? "default" : "outline"}
-						size="sm"
-						onClick={() => handleWindowChange("12h")}
-					>
-						12h
-					</Button>
-					<Button
-						variant={window === "1d" ? "default" : "outline"}
-						size="sm"
-						onClick={() => handleWindowChange("1d")}
-					>
-						24h
-					</Button>
-					<Button
-						variant={window === "7d" ? "default" : "outline"}
-						size="sm"
-						onClick={() => handleWindowChange("7d")}
-					>
-						7d
-					</Button>
-					<Button
-						variant={window === "30d" ? "default" : "outline"}
-						size="sm"
-						onClick={() => handleWindowChange("30d")}
-					>
-						30d
-					</Button>
-					<Button
-						variant={window === "90d" ? "default" : "outline"}
-						size="sm"
-						onClick={() => handleWindowChange("90d")}
-					>
-						90d
-					</Button>
-					<Button
-						variant={window === "365d" ? "default" : "outline"}
-						size="sm"
-						onClick={() => handleWindowChange("365d")}
-					>
-						365d
-					</Button>
+				<div className="grid gap-3 sm:grid-cols-2 sm:items-end">
+					<div className="space-y-1.5">
+						<span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+							Traffic
+						</span>
+						<UsageModeSelector compact />
+					</div>
+					<div className="space-y-1.5">
+						<span className="block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+							Window
+						</span>
+						<TokenTimeRangeToggle initial={window} />
+					</div>
 				</div>
 			</div>
 			<div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

@@ -180,6 +180,7 @@ function getProviderMapping(
 interface OpenAIImageRequest {
 	model: string;
 	prompt: string;
+	user?: string;
 	size?: string;
 	quality?: OpenAIImageQuality;
 	n?: number;
@@ -1455,6 +1456,7 @@ export async function prepareRequestBody(
 		const openaiImageRequest: OpenAIImageRequest = {
 			model: usedExternalId,
 			prompt,
+			...(safety_identifier !== undefined && { user: safety_identifier }),
 			...(openaiSize && { size: openaiSize }),
 			...(openaiQuality && { quality: openaiQuality }),
 			...(image_config?.n && { n: image_config.n }),
@@ -1466,6 +1468,9 @@ export async function prepareRequestBody(
 			const formData = new FormData();
 			formData.append("model", openaiImageRequest.model);
 			formData.append("prompt", openaiImageRequest.prompt);
+			if (openaiImageRequest.user !== undefined) {
+				formData.append("user", openaiImageRequest.user);
+			}
 			if (openaiImageRequest.size) {
 				formData.append("size", openaiImageRequest.size);
 			}
@@ -1952,6 +1957,19 @@ export async function prepareRequestBody(
 		});
 	}
 
+	if (usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") {
+		// Novita rejects empty text blocks alongside otherwise valid image input.
+		processedMessages = processedMessages.map((message) => {
+			if (!Array.isArray(message.content)) {
+				return message;
+			}
+			const content = message.content.filter(
+				(part) => !isTextContent(part) || part.text !== "",
+			);
+			return content.length ? { ...message, content } : message;
+		});
+	}
+
 	// Some deployments fetch remote image URLs themselves but only decode a
 	// subset of the formats they accept inline (Novita's ERNIE 4.5 VL rejects a
 	// remote PNG while accepting the same bytes as a data URL), so mappings that
@@ -2149,6 +2167,7 @@ export async function prepareRequestBody(
 		case "azure":
 		case "sakana":
 		case "meta":
+		case "meta-contributor":
 		case "aws-mantle":
 		case "openai": {
 			// Determine whether to use Responses API format.
@@ -2226,7 +2245,7 @@ export async function prepareRequestBody(
 					model: usedExternalId,
 					input: transformedMessages,
 					reasoning:
-						usedProvider === "meta"
+						usedProvider === "meta" || usedProvider === "meta-contributor"
 							? {
 									...(reasoning_effort !== undefined && {
 										effort: reasoning_effort,
@@ -2269,6 +2288,7 @@ export async function prepareRequestBody(
 						responsesBody.service_tier = supportedServiceTier;
 					}
 					if (
+						allowProviderCacheWrites &&
 						prompt_cache_retention !== undefined &&
 						(prompt_cache_retention !== "24h" ||
 							supportsOpenAIExtendedPromptCache(usedInternalModel))
@@ -2302,10 +2322,12 @@ export async function prepareRequestBody(
 				// required for hits at all) a key derived from the conversation
 				// prefix.
 				if (
-					usedProvider === "openai" ||
-					usedProvider === "azure" ||
-					usedProvider === "aws-mantle" ||
-					usedProvider === "meta"
+					allowProviderCacheWrites &&
+					(usedProvider === "openai" ||
+						usedProvider === "azure" ||
+						usedProvider === "aws-mantle" ||
+						usedProvider === "meta" ||
+						usedProvider === "meta-contributor")
 				) {
 					const upstreamCacheKey =
 						(prompt_cache_key !== undefined
@@ -2314,7 +2336,7 @@ export async function prepareRequestBody(
 						(session_id !== undefined
 							? hashSessionCacheKey(session_id)
 							: undefined) ??
-						(usedProvider === "meta"
+						(usedProvider === "meta" || usedProvider === "meta-contributor"
 							? deriveConversationCacheKey(processedMessages)
 							: undefined);
 					if (upstreamCacheKey !== undefined) {
@@ -2450,6 +2472,18 @@ export async function prepareRequestBody(
 				return responsesBody;
 			} else {
 				// Use regular chat completions format
+				if (usedProvider === "openai" || usedProvider === "azure") {
+					if (safety_identifier !== undefined) {
+						if (usedProvider === "openai") {
+							requestBody.safety_identifier = safety_identifier;
+						} else {
+							// Azure's deployment-based APIs predate safety_identifier but
+							// accept `user` for the same abuse-attribution purpose.
+							requestBody.user = safety_identifier;
+						}
+					}
+				}
+
 				if (usedProvider === "openai") {
 					if (supportedServiceTier) {
 						requestBody.service_tier = supportedServiceTier;
@@ -2457,22 +2491,20 @@ export async function prepareRequestBody(
 					// Azure is intentionally excluded on this path: chat completions
 					// may hit a legacy deployment-based api-version that rejects
 					// unknown body fields, and the deployment type isn't known here.
-					const upstreamCacheKey =
-						(prompt_cache_key !== undefined
-							? hashPromptCacheKey(prompt_cache_key)
-							: undefined) ??
-						(session_id !== undefined
-							? hashSessionCacheKey(session_id)
-							: undefined);
-					if (upstreamCacheKey !== undefined) {
-						requestBody.prompt_cache_key = upstreamCacheKey;
-					}
-					// Azure is excluded here for the same reason as the cache key
-					// above; it gets `safety_identifier` on the Responses path only.
-					if (safety_identifier !== undefined) {
-						requestBody.safety_identifier = safety_identifier;
+					if (allowProviderCacheWrites) {
+						const upstreamCacheKey =
+							(prompt_cache_key !== undefined
+								? hashPromptCacheKey(prompt_cache_key)
+								: undefined) ??
+							(session_id !== undefined
+								? hashSessionCacheKey(session_id)
+								: undefined);
+						if (upstreamCacheKey !== undefined) {
+							requestBody.prompt_cache_key = upstreamCacheKey;
+						}
 					}
 					if (
+						allowProviderCacheWrites &&
 						prompt_cache_retention !== undefined &&
 						(prompt_cache_retention !== "24h" ||
 							supportsOpenAIExtendedPromptCache(usedInternalModel))

@@ -210,11 +210,8 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 				.map((p) => p.id),
 		);
 
-		// Approved Airside listings join the catalogue dynamically, merged by
-		// model id so a listing never duplicates a static entry. An ACTIVE
-		// static mapping for the same provider wins (mirroring the routing
-		// rule); with only deactivated static mappings, the Airside mapping is
-		// appended to the existing model — the catalogue → DB migration case.
+		// Airside-owned canonical mappings join the static model metadata. The
+		// materialized row is authoritative for its provider/model pair.
 		const airsideDefinitions = (await listAirsideModels()).map(
 			(listed) => airsideListingToModelDefinition(listed).modelInfo,
 		);
@@ -238,22 +235,15 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 			}
 			const existing = allCatalogueModels[existingIndex];
 			const airsideMapping = airsideModel.providers[0];
-			const staticHasActive = existing.providers.some((provider) => {
-				if (provider.providerId !== airsideMapping.providerId) {
-					return false;
-				}
-				const deactivatedAt =
-					"deactivatedAt" in provider
-						? (provider.deactivatedAt as Date | string | undefined)
-						: undefined;
-				return !(deactivatedAt && new Date(deactivatedAt) <= currentDate);
-			});
-			if (!staticHasActive) {
-				allCatalogueModels[existingIndex] = {
-					...existing,
-					providers: [...existing.providers, airsideMapping],
-				} as ModelDefinition;
-			}
+			allCatalogueModels[existingIndex] = {
+				...existing,
+				providers: [
+					...existing.providers.filter(
+						(provider) => provider.providerId !== airsideMapping.providerId,
+					),
+					airsideMapping,
+				],
+			} as ModelDefinition;
 		}
 
 		// Filter models based on deactivation and deprecation status of their provider mappings

@@ -203,10 +203,18 @@ TEST_MODELS="<provider>/<model>" FULL_MODE=true pnpm test:e2e
 Add the relevant action and Playground specs when those files changed. Run all
 tests against the isolated database required by `AGENTS.md`.
 
-- Scope e2e with `TEST_MODELS` — never run the full suite, and don't invoke the
-  `*.e2e.ts` files one by one. It overrides `test: "skip"`, takes regions as
-  `provider/model:region`, and fails loudly when an entry matches no mapping.
+- For mapping-only changes, the scoped local run is the only relevant e2e
+  result. Never run e2e without `TEST_MODELS` or trigger the GitHub e2e
+  workflow. Failures outside the selected mappings, including failures from an
+  accidentally triggered full run, do not affect acceptance or auto-merge.
+  Once every selected mapping passes, e2e has passed for the change.
+- Scope e2e with `TEST_MODELS`, and don't invoke the `*.e2e.ts` files one by
+  one. It overrides `test: "skip"`, takes regions as `provider/model:region`,
+  and fails loudly when an entry matches no mapping.
 - `FULL_MODE=true` expands the per-effort cases and includes free models.
+- `pnpm test:e2e` loads `.env` automatically. Use credentials already
+  configured in `.envrc` or `.env`; never inspect or invoke password managers
+  or other credential stores, and never retrieve provider secrets manually.
 - API key env names aren't derivable from the provider id — read
   `env.required` from `providers.ts`. Vertex provider variants use different
   credentials, and keys can be region-scoped; do not infer either from the

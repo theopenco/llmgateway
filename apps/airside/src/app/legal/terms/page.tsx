@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Terms of Use — Airside",
+	title: "Terms of Use",
 	description:
-		"Supplemental Airside Terms of Use for AI model providers. Covers carrier claims and domain verification, the listing fee, tariff filings, dispatch routing, usage reporting, and delisting.",
+		"Supplemental Airside Terms of Use for model providers: carrier claims and domain verification, the listing fee, tariff filings, dispatch routing, and delisting.",
 	alternates: { canonical: "/legal/terms" },
 	openGraph: {
 		title: "Airside Supplemental Terms of Use",

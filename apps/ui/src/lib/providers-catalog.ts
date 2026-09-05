@@ -27,10 +27,13 @@ export const activeModelCounts = getActiveModelCountsByProvider();
  * least one routable model mapping. Gateway, custom, and stealth providers are
  * not self-serve public entries.
  */
-export const listedProviders = providerDefinitions.filter(
+export const publicProviderDefinitions = providerDefinitions.filter(
 	(provider) =>
 		provider.name !== "LLM Gateway" &&
 		provider.id !== "custom" &&
-		!isStealthProvider(provider) &&
-		(activeModelCounts[provider.id] ?? 0) > 0,
+		!isStealthProvider(provider),
+);
+
+export const listedProviders = publicProviderDefinitions.filter(
+	(provider) => (activeModelCounts[provider.id] ?? 0) > 0,
 );

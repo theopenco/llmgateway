@@ -54,7 +54,11 @@ import {
 	getProviderEnvKeys,
 	providers,
 } from "@llmgateway/models";
-import { getModelIdsByProvider } from "@llmgateway/shared";
+import {
+	createEmptyProviderModelsByKind,
+	getModelIdsByProvider,
+	getModelIdsByProviderAndKind,
+} from "@llmgateway/shared";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
@@ -76,6 +80,9 @@ const PROVIDER_KEY_VARIANTS = [
 
 const variantSchema = z.enum(PROVIDER_KEY_VARIANTS);
 const statusSchema = z.enum(["active", "inactive"]);
+
+const DEFAULT_MODEL_PROBE_TIMEOUT_MS = 30_000;
+const MEDIA_MODEL_PROBE_TIMEOUT_MS = 90_000;
 
 const credentialSchema = z.object({
 	id: z.string(),
@@ -178,6 +185,14 @@ const catalogEntrySchema = z.object({
 	 * (deactivated mappings excluded), for the allowed-models picker.
 	 */
 	models: z.array(z.string()),
+	/** Catalogue models grouped by the request surface used to invoke them. */
+	modelsByKind: z.object({
+		text: z.array(z.string()),
+		image: z.array(z.string()),
+		ocr: z.array(z.string()),
+		embedding: z.array(z.string()),
+		video: z.array(z.string()),
+	}),
 });
 
 type CredentialRow = typeof tables.providerKey.$inferSelect;
@@ -287,7 +302,16 @@ async function validateConfig(
 
 	for (const [key, value] of Object.entries(config)) {
 		if (key.toLowerCase().includes("url")) {
-			await assertSafeProviderUrl(value);
+			try {
+				await assertSafeProviderUrl(value);
+			} catch (error) {
+				throw new HTTPException(400, {
+					message:
+						error instanceof Error
+							? error.message
+							: "Provider base URL is not allowed",
+				});
+			}
 		}
 	}
 }
@@ -342,6 +366,56 @@ async function findActiveCustomCarrier(providerId: string) {
 	});
 }
 
+interface CustomCarrierTarget {
+	baseUrl: string;
+	models: Map<string, string>;
+}
+
+async function getCustomCarrierTarget(
+	providerId: string,
+): Promise<CustomCarrierTarget | null> {
+	const carrier = await findActiveCustomCarrier(providerId);
+	if (!carrier?.customBaseUrl) {
+		return null;
+	}
+	const listings = await db.query.providerDraftModel.findMany({
+		where: {
+			providerId: { eq: providerId },
+			status: { eq: "active" },
+		},
+		columns: { modelName: true, externalId: true },
+	});
+	return {
+		baseUrl: carrier.customBaseUrl,
+		models: new Map(
+			listings.map((listing) => [listing.modelName, listing.externalId]),
+		),
+	};
+}
+
+async function validateManagedAllowedModels(
+	provider: string,
+	allowedModels: string[] | null,
+	validationOptions: ReturnType<typeof managedCredentialValidationOptions>,
+): Promise<void> {
+	if (!allowedModels) {
+		return;
+	}
+	if (providers.some((entry) => entry.id === provider)) {
+		validateAllowedModels(provider, allowedModels, validationOptions);
+		return;
+	}
+	const carrier = await getCustomCarrierTarget(provider);
+	const unknown = allowedModels.filter(
+		(modelId) => !carrier?.models.has(modelId),
+	);
+	if (unknown.length > 0) {
+		throw new HTTPException(400, {
+			message: `Not available from ${provider} per the catalogue: ${unknown.join(", ")}`,
+		});
+	}
+}
+
 /**
  * Confirms the credential actually works upstream by sending one minimal
  * completion through it, using exactly the settings the gateway will send with
@@ -374,34 +448,47 @@ async function validateCredentialToken(
 		return;
 	}
 
-	// Custom carriers have no catalogue validation model to probe (and
-	// validateProviderKey short-circuits for them) — store without a live check.
-	if (!providers.some((p) => p.id === provider)) {
-		return;
-	}
-
 	const validationOptions = managedCredentialValidationOptions(
 		provider,
 		config,
 		region,
 	);
-
-	const pinnedModelId = pickAllowedValidationModel(
-		provider,
-		allowedModels ?? null,
-		validationOptions,
-	);
-	if (allowedModels?.length && !pinnedModelId) {
-		return;
+	const isCatalogueProvider = providers.some((entry) => entry.id === provider);
+	let validationProvider = provider as ProviderId;
+	let validationBaseUrl: string | undefined;
+	let pinnedModelId: string | undefined;
+	if (isCatalogueProvider) {
+		pinnedModelId = pickAllowedValidationModel(
+			provider,
+			allowedModels ?? null,
+			validationOptions,
+		);
+		if (allowedModels?.length && !pinnedModelId) {
+			return;
+		}
+	} else {
+		const carrier = await getCustomCarrierTarget(provider);
+		const candidate = allowedModels?.length
+			? allowedModels
+					.map((modelId) => carrier?.models.get(modelId))
+					.find((externalId) => externalId !== undefined)
+			: carrier?.models.values().next().value;
+		if (!carrier || !candidate) {
+			return;
+		}
+		validationProvider = "custom";
+		validationBaseUrl = carrier.baseUrl;
+		pinnedModelId = candidate;
 	}
 
 	const result = await validateProviderKey(
-		provider as ProviderId,
+		validationProvider,
 		token,
-		undefined, // base URL travels in config/env_config for managed credentials
+		validationBaseUrl,
 		false,
 		validationOptions,
 		pinnedModelId,
+		AbortSignal.timeout(DEFAULT_MODEL_PROBE_TIMEOUT_MS),
 	);
 
 	if (result.valid) {
@@ -471,6 +558,7 @@ const getCatalog = createRoute({
 adminProviderCredentials.openapi(getCatalog, async (c) => {
 	// Live catalogue models per provider, for the allowed-models picker.
 	const modelsByProvider = getModelIdsByProvider();
+	const modelsByProviderAndKind = getModelIdsByProviderAndKind();
 
 	// Provider keys live on the gateway, which is a separate deployment: reading
 	// this process's own environment would report nothing at all in a split
@@ -504,6 +592,9 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				configKeys: getManagedCredentialConfigKeys(provider.id),
 				exclusiveConfigGroups: getProviderEnvExclusiveGroups(provider.id),
 				models: modelsByProvider.get(provider.id) ?? [],
+				modelsByKind:
+					modelsByProviderAndKind.get(provider.id) ??
+					createEmptyProviderModelsByKind(),
 			};
 		});
 
@@ -522,21 +613,28 @@ adminProviderCredentials.openapi(getCatalog, async (c) => {
 				columns: { providerId: true, modelName: true },
 			})
 		: [];
-	const carrierEntries = customCarriers.map((cl) => ({
-		id: cl.providerId,
-		name: cl.customName ?? cl.providerId,
-		apiKeyEnvVar: null,
-		apiKeyEnvConfigured: false,
-		regions: [],
-		defaultRegion: null,
-		apiKeyEnvCounts: countEnvCredentialsByVariant([]),
-		envCredentials: [],
-		configKeys: [],
-		exclusiveConfigGroups: [],
-		models: customListings
+	const carrierEntries = customCarriers.map((cl) => {
+		const carrierModels = customListings
 			.filter((m) => m.providerId === cl.providerId)
-			.map((m) => m.modelName),
-	}));
+			.map((m) => m.modelName);
+		return {
+			id: cl.providerId,
+			name: cl.customName ?? cl.providerId,
+			apiKeyEnvVar: null,
+			apiKeyEnvConfigured: false,
+			regions: [],
+			defaultRegion: null,
+			apiKeyEnvCounts: countEnvCredentialsByVariant([]),
+			envCredentials: [],
+			configKeys: [],
+			exclusiveConfigGroups: [],
+			models: carrierModels,
+			modelsByKind: {
+				...createEmptyProviderModelsByKind(),
+				text: carrierModels,
+			},
+		};
+	});
 
 	return c.json({
 		providers: [...entries, ...carrierEntries],
@@ -1014,7 +1112,7 @@ adminProviderCredentials.openapi(createCredential, async (c) => {
 
 	await validateConfig(body.provider, config);
 	validateRegion(body.provider, body.region?.trim() || null);
-	validateAllowedModels(
+	await validateManagedAllowedModels(
 		body.provider,
 		allowedModels,
 		managedCredentialValidationOptions(body.provider, config, body.region),
@@ -1135,7 +1233,7 @@ adminProviderCredentials.openapi(updateCredential, async (c) => {
 		const allowedModels = normalizeAllowedModels(body.allowedModels);
 		// Checked against the config/region this PATCH leaves in effect, so an
 		// edit that also moves the region validates against the right mapping.
-		validateAllowedModels(
+		await validateManagedAllowedModels(
 			existing.provider,
 			allowedModels,
 			managedCredentialValidationOptions(
@@ -1270,6 +1368,7 @@ interface CredentialUnderTest {
 	token: string;
 	config: Record<string, string>;
 	region: string | null;
+	customCarrier: CustomCarrierTarget | null;
 }
 
 async function resolveCredentialUnderTest(
@@ -1290,7 +1389,12 @@ async function resolveCredentialUnderTest(
 	}
 
 	const provider = body.provider ?? credential?.provider;
-	if (!provider || !providers.some((p) => p.id === provider)) {
+	const isCatalogueProvider = providers.some((entry) => entry.id === provider);
+	const customCarrier =
+		provider && !isCatalogueProvider
+			? await getCustomCarrierTarget(provider)
+			: null;
+	if (!provider || (!isCatalogueProvider && !customCarrier)) {
 		throw new HTTPException(400, {
 			message: provider
 				? `Unknown provider: ${provider}`
@@ -1316,18 +1420,23 @@ async function resolveCredentialUnderTest(
 			message: "Provide a token or a credentialId with a stored token",
 		});
 	}
+	const config =
+		body.config !== undefined
+			? normalizeConfig(body.config)
+			: (credential?.config ?? {});
+	const region =
+		body.region !== undefined
+			? body.region?.trim() || null
+			: (credential?.region ?? null);
+	await validateConfig(provider, config);
+	validateRegion(provider, region);
 
 	return {
 		provider,
 		token,
-		config:
-			body.config !== undefined
-				? normalizeConfig(body.config)
-				: (credential?.config ?? {}),
-		region:
-			body.region !== undefined
-				? body.region?.trim() || null
-				: (credential?.region ?? null),
+		config,
+		region,
+		customCarrier,
 	};
 }
 
@@ -1377,22 +1486,33 @@ adminProviderCredentials.openapi(selfTestCredential, async (c) => {
 	if (isCredentialTestEnv()) {
 		return c.json({ valid: true });
 	}
+	const customCarrierModel = target.customCarrier
+		? target.customCarrier.models.entries().next().value
+		: undefined;
+	if (target.customCarrier && !customCarrierModel) {
+		return c.json({
+			valid: false,
+			error: `No active models are available from ${target.provider}`,
+		});
+	}
 
 	const result = await validateProviderKey(
-		target.provider as ProviderId,
+		target.customCarrier ? "custom" : (target.provider as ProviderId),
 		target.token,
-		undefined, // base URL travels in config/env_config for managed credentials
+		target.customCarrier?.baseUrl,
 		false,
 		managedCredentialValidationOptions(
 			target.provider,
 			target.config,
 			target.region,
 		),
+		customCarrierModel?.[1],
+		AbortSignal.timeout(DEFAULT_MODEL_PROBE_TIMEOUT_MS),
 	);
 
 	return c.json({
 		valid: result.valid,
-		model: result.model,
+		model: customCarrierModel?.[0] ?? result.model,
 		statusCode: result.statusCode,
 		// validateProviderKey already redacts; re-redact defensively so no path
 		// can echo the plaintext token back to the admin client.
@@ -1406,8 +1526,8 @@ const verifyModelsResultSchema = z.object({
 	inCatalog: z.boolean(),
 	/**
 	 * Live probe outcome: true/false, or null when the model was not probed —
-	 * either it is missing from the catalogue or it cannot answer a chat
-	 * completion (image/embedding/audio models).
+	 * either it is missing from the catalogue or its request surface is not
+	 * enabled for live verification.
 	 */
 	valid: z.boolean().nullable(),
 	statusCode: z.number().optional(),
@@ -1422,7 +1542,7 @@ const verifyCredentialModels = createRoute({
 			content: {
 				"application/json": {
 					schema: credentialUnderTestSchema.extend({
-						models: z.array(z.string().min(1).max(200)).min(1).max(50),
+						models: z.array(z.string().min(1).max(200)).min(1).max(200),
 					}),
 				},
 			},
@@ -1472,6 +1592,38 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 	type VerifyResult = z.infer<typeof verifyModelsResultSchema>;
 
 	const verifyOne = async (modelId: string): Promise<VerifyResult> => {
+		if (target.customCarrier) {
+			const externalId = target.customCarrier.models.get(modelId);
+			if (!externalId) {
+				return {
+					model: modelId,
+					inCatalog: false,
+					valid: null,
+					error: `Not available from ${target.provider} per the catalogue`,
+				};
+			}
+			if (isCredentialTestEnv()) {
+				return { model: modelId, inCatalog: true, valid: true };
+			}
+			const result = await validateProviderKey(
+				"custom",
+				target.token,
+				target.customCarrier.baseUrl,
+				false,
+				undefined,
+				externalId,
+				AbortSignal.timeout(DEFAULT_MODEL_PROBE_TIMEOUT_MS),
+			);
+			return {
+				model: modelId,
+				inCatalog: true,
+				valid: result.valid,
+				statusCode: result.statusCode,
+				error: result.error
+					? redactToken(result.error, target.token)
+					: undefined,
+			};
+		}
 		const pinned = getPinnedValidationModel(
 			target.provider as ProviderId,
 			modelId,
@@ -1485,13 +1637,20 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 				error: `Not available from ${target.provider} per the catalogue`,
 			};
 		}
-		if (!pinned.chatCapable) {
+		if (pinned.kind === "video") {
 			return {
 				model: modelId,
 				inCatalog: true,
 				valid: null,
-				error:
-					"Cannot be live-tested: the model does not answer chat completions",
+				error: "Not live-tested: video generation is intentionally skipped",
+			};
+		}
+		if (!pinned.kind) {
+			return {
+				model: modelId,
+				inCatalog: true,
+				valid: null,
+				error: "Cannot be live-tested: this model type is not supported yet",
 			};
 		}
 		if (isCredentialTestEnv()) {
@@ -1504,6 +1663,11 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 			false,
 			validationOptions,
 			modelId,
+			AbortSignal.timeout(
+				pinned.kind === "image" || pinned.kind === "ocr"
+					? MEDIA_MODEL_PROBE_TIMEOUT_MS
+					: DEFAULT_MODEL_PROBE_TIMEOUT_MS,
+			),
 		);
 		return {
 			model: modelId,

@@ -4,6 +4,7 @@ import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
+import { bearer, deviceAuthorization } from "better-auth/plugins";
 import { Redis } from "ioredis";
 
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
@@ -27,7 +28,7 @@ import {
 } from "@/utils/sso-domain.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, lt, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
@@ -691,7 +692,51 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 			},
 			basePath: "/auth",
 			trustedOrigins: originUrls.split(","),
+			rateLimit: {
+				customStorage: {
+					get: async (key: string) => {
+						const value = await redisClient.get(`auth:rate-limit:${key}`);
+						return value
+							? (JSON.parse(value) as {
+									key: string;
+									count: number;
+									lastRequest: number;
+								})
+							: null;
+					},
+					set: async (
+						key: string,
+						value: { key: string; count: number; lastRequest: number },
+					) => {
+						await redisClient.set(
+							`auth:rate-limit:${key}`,
+							JSON.stringify(value),
+							"EX",
+							60,
+						);
+					},
+				},
+				customRules: {
+					"/device/code": { window: 60, max: 30 },
+					"/device/token": { window: 60, max: 120 },
+					"/device": { window: 60, max: 30 },
+					"/device/approve": { window: 60, max: 30 },
+					"/device/deny": { window: 60, max: 30 },
+				},
+			},
 			plugins: [
+				bearer(),
+				deviceAuthorization({
+					verificationUri: `${uiUrl}/connect/device`,
+					expiresIn: "10m",
+					interval: "5s",
+					validateClient: (clientId) => clientId === "llmgateway-cli",
+					onDeviceAuthRequest: async () => {
+						await db
+							.delete(tables.deviceCode)
+							.where(lt(tables.deviceCode.expiresAt, new Date()));
+					},
+				}),
 				passkey({
 					rpID: process.env.PASSKEY_RP_ID ?? "localhost",
 					rpName: process.env.PASSKEY_RP_NAME ?? "LLMGateway",
@@ -787,6 +832,7 @@ If you didn't request this, you can safely ignore this email. Your password won'
 					session: tables.session,
 					account: tables.account,
 					verification: tables.verification,
+					deviceCode: tables.deviceCode,
 					passkey: tables.passkey,
 					ssoProvider: tables.ssoProvider,
 				},
@@ -1225,6 +1271,16 @@ The LLM Gateway Team`.trim();
 					// don't leave orphaned orgs.
 					if (
 						!ctx.path.startsWith("/sso/") &&
+						// These routes continue an authenticated session. Device
+						// verification can refresh the browser session before approval;
+						// token exchange derives from that explicitly approved session.
+						![
+							"/get-session",
+							"/device",
+							"/device/approve",
+							"/device/deny",
+							"/device/token",
+						].includes(ctx.path) &&
 						(await isSSOEnforcedForEmail(dbUser?.email))
 					) {
 						// Delete only the session this blocked attempt just created — not

@@ -79,6 +79,7 @@ export function transformStreamingToOpenai(
 	supportsReasoning = true,
 	toolSearchState?: AnthropicToolSearchState,
 	toolCallChoiceIndices?: Set<number>,
+	options?: { cacheThoughtSignatures?: boolean },
 ): any {
 	let transformedData = data;
 
@@ -683,7 +684,7 @@ export function transformStreamingToOpenai(
 
 						// Cache thoughtSignature in Redis for server-side retrieval in multi-turn conversations
 						// This is especially important when OpenAI SDKs don't preserve extra_content/provider_extra
-						if (sig) {
+						if (sig && options?.cacheThoughtSignatures !== false) {
 							redisClient
 								.setex(
 									`thought_signature:${toolCallId}`,
@@ -853,6 +854,7 @@ export function transformStreamingToOpenai(
 		case "azure":
 		case "sakana":
 		case "meta":
+		case "meta-contributor":
 		case "aws-mantle":
 		case "openai": {
 			// Azure precedes every stream with a prompt-filter-only chunk that has

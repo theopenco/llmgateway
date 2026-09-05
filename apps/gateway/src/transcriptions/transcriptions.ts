@@ -34,7 +34,10 @@ import {
 	findProviderKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
-import { assertProviderCompliant } from "@/lib/compliance.js";
+import {
+	assertProviderCompliant,
+	getEffectiveRetentionLevel,
+} from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
@@ -50,6 +53,7 @@ import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import {
+	getProviderDefaultBaseUrl,
 	getProviderHeaders,
 	providerKeyLabel,
 	readProviderKey,
@@ -541,7 +545,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 		});
 	}
 
-	const retentionLevel = organization.retentionLevel ?? "none";
+	const retentionLevel = getEffectiveRetentionLevel(organization);
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
@@ -741,12 +745,20 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			});
 		}
 
-		const envBaseUrl = getCredentialSetting(providerId, "baseUrl", managedKey, {
-			configIndex,
-			variant: envVariant,
-		});
 		const resolvedBaseUrl =
-			providerKey?.baseUrl ?? envBaseUrl ?? "https://api.x.ai";
+			providerKey?.baseUrl ??
+			getCredentialSetting(
+				providerId,
+				"baseUrl",
+				{ providerKey, managedKey },
+				{ configIndex, variant: envVariant },
+			) ??
+			getProviderDefaultBaseUrl(providerId);
+		if (!resolvedBaseUrl) {
+			throw new HTTPException(500, {
+				message: `No base URL set for provider: ${providerId}`,
+			});
+		}
 
 		return {
 			providerKey,
