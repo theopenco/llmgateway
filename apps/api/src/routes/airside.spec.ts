@@ -527,6 +527,14 @@ describe("airside provider portal", () => {
 			webSearch: true,
 			latestVerification: expect.objectContaining({ status: "passed" }),
 		});
+		const patched = await app.request(
+			`/airside/models/${createdBody.model.id}`,
+			json(cookie, { displayName: "Mistral Verified X" }, "PATCH"),
+		);
+		expect(patched.status).toBe(200);
+		expect((await patched.json()).model.latestVerification).toMatchObject({
+			status: "passed",
+		});
 		const consumed = await db.query.providerModelVerification.findFirst({
 			where: { id: { eq: stored!.id } },
 		});

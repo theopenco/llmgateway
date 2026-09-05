@@ -32,6 +32,7 @@ import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
 import { findEffectiveProviderDiscount } from "@/lib/discount";
 import { fetchProviders } from "@/lib/fetch-models";
+import { serializeJsonLd } from "@/lib/json-ld";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -213,14 +214,14 @@ export default async function ModelProviderPage({ params }: PageProps) {
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(breadcrumbSchema),
+					__html: serializeJsonLd(breadcrumbSchema),
 				}}
 			/>
 			<script
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(productSchema),
+					__html: serializeJsonLd(productSchema),
 				}}
 			/>
 			<Navbar />

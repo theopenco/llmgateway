@@ -90,7 +90,10 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 
 		const [model, apiProviders, discounts] = await Promise.all([
 			findPublicModelDefinition(decodedName),
-			fetchProviders(),
+			fetchProviders().catch((error: unknown) => {
+				console.error("Failed to fetch providers for OpenGraph image:", error);
+				return [];
+			}),
 			fetchModelDiscounts(decodedName),
 		]);
 

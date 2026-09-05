@@ -103,6 +103,7 @@ async function getListingFeeAmount(): Promise<number | null> {
 
 // Crew size cap: the owner plus invited teammates, pending invites included.
 export const AIRSIDE_CREW_MAX = 10;
+const INVITE_EMAIL_TIMEOUT_MS = 10_000;
 
 // Uploaded branding is stored inline as data URLs; keep them small. SVG only:
 // vector marks scale cleanly everywhere the branding renders (cards, hero,
@@ -489,7 +490,7 @@ function verificationTargetsMatch(
 async function verificationCredentialSource(
 	target: ProviderModelVerificationTarget,
 	apiKey: string | undefined,
-): Promise<"supplied" | "managed" | "environment"> {
+): Promise<ModelVerificationRow["credentialSource"]> {
 	if (apiKey) {
 		return "supplied";
 	}
@@ -525,14 +526,11 @@ async function enqueueModelVerification(
 		target: ProviderModelVerificationTarget;
 		apiKey?: string;
 		requestedBy: string;
+		credentialSource: ModelVerificationRow["credentialSource"];
 	},
 	transaction?: DbTransaction,
 ): Promise<ModelVerificationRow> {
 	const id = shortid();
-	const credentialSource = await verificationCredentialSource(
-		input.target,
-		input.apiKey,
-	);
 	const [created] = await (transaction ?? db)
 		.insert(tables.providerModelVerification)
 		.values({
@@ -542,7 +540,7 @@ async function enqueueModelVerification(
 			requestedBy: input.requestedBy,
 			target: input.target,
 			checks: createQueuedModelVerificationChecks(input.target),
-			credentialSource,
+			credentialSource: input.credentialSource,
 			credentialCiphertext: input.apiKey
 				? encryptModelVerificationCredential(
 						input.apiKey,
@@ -1466,6 +1464,7 @@ ${inviteUrl}
 
 If you weren't expecting this invitation, you can ignore this email.`,
 				strict: true,
+				timeoutMs: INVITE_EMAIL_TIMEOUT_MS,
 			});
 		} catch (err) {
 			throw new HTTPException(503, {
@@ -2096,6 +2095,10 @@ airside.openapi(queueNewModelVerification, async (c) => {
 		});
 	}
 	const target = verificationTarget(body);
+	const credentialSource = await verificationCredentialSource(
+		target,
+		body.apiKey,
+	);
 	let verification: ModelVerificationRow;
 	try {
 		verification = await db.transaction(async (tx) => {
@@ -2127,6 +2130,7 @@ airside.openapi(queueNewModelVerification, async (c) => {
 					target,
 					apiKey: body.apiKey,
 					requestedBy: user.id,
+					credentialSource,
 				},
 				tx,
 			);
@@ -2214,14 +2218,17 @@ airside.openapi(queueExistingModelVerification, async (c) => {
 			message: "Delisted mappings cannot be verified.",
 		});
 	}
+	const target = draftVerificationTarget(model);
+	const credentialSource = await verificationCredentialSource(target, apiKey);
 	let verification: ModelVerificationRow;
 	try {
 		verification = await enqueueModelVerification({
 			providerCompanyId: model.providerCompanyId,
 			draftModelId: model.id,
-			target: draftVerificationTarget(model),
+			target,
 			apiKey,
 			requestedBy: user.id,
+			credentialSource,
 		});
 	} catch (error) {
 		if (isUniqueViolation(error)) {
@@ -2677,6 +2684,9 @@ airside.openapi(updateModel, async (c) => {
 	const body = c.req.valid("json");
 	const model = await db.query.providerDraftModel.findFirst({
 		where: { id: { eq: id } },
+		with: {
+			modelVerifications: { orderBy: { createdAt: "desc" }, limit: 1 },
+		},
 	});
 	if (!model) {
 		throw new HTTPException(404, { message: "Model not found" });
@@ -2761,7 +2771,11 @@ airside.openapi(updateModel, async (c) => {
 		where: { draftModelId: { eq: id } },
 	});
 	return c.json({
-		model: serializeModel({ ...updated, priceFilings: filings }),
+		model: serializeModel({
+			...updated,
+			priceFilings: filings,
+			modelVerifications: model.modelVerifications,
+		}),
 	});
 });
 

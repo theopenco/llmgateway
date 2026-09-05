@@ -1147,6 +1147,9 @@ export default function ChatPageClient({
 		projectId: string;
 		request: Promise<void>;
 	} | null>(null);
+	// Bumped on logout/project reset so a stale in-flight request cannot mark
+	// the next session as ensured.
+	const ensureKeyGenerationRef = useRef(0);
 
 	const ensurePlaygroundKey = useCallback(async () => {
 		if (!isAuthenticated || !selectedProject) {
@@ -1162,6 +1165,7 @@ export default function ChatPageClient({
 			return;
 		}
 
+		const generation = ensureKeyGenerationRef.current;
 		const request = (async () => {
 			const response = await fetch("/api/ensure-playground-key", {
 				method: "POST",
@@ -1173,7 +1177,9 @@ export default function ChatPageClient({
 					`Failed to prepare chat credentials (${response.status}).`,
 				);
 			}
-			ensuredProjectRef.current = projectId;
+			if (ensureKeyGenerationRef.current === generation) {
+				ensuredProjectRef.current = projectId;
+			}
 		})();
 		ensureKeyRequestRef.current = { projectId, request };
 
@@ -1190,7 +1196,9 @@ export default function ChatPageClient({
 	useEffect(() => {
 		// Reset ref when user logs out or project is unset
 		if (!isAuthenticated || !selectedProject) {
+			ensureKeyGenerationRef.current += 1;
 			ensuredProjectRef.current = null;
+			ensureKeyRequestRef.current = null;
 			return;
 		}
 
