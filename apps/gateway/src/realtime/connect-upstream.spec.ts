@@ -79,6 +79,27 @@ describe("resolveUpstreamTarget", () => {
 		);
 	});
 
+	it("ignores the env base-URL override for a BYOK key", () => {
+		process.env.LLM_OPENAI_BASE_URL = "https://proxy.example.com/";
+		const target = resolveUpstreamTarget({
+			...buildPreflight("openai", "gpt-realtime-2.1-mini"),
+			providerKey: { id: "byok-key", baseUrl: null },
+		} as unknown as RealtimePreflightResult);
+		expect(target.url).toBe(
+			"wss://api.openai.com/v1/realtime?model=gpt-realtime-2.1-mini",
+		);
+	});
+
+	it("strips a trailing slash from the configured base URL", () => {
+		process.env.LLM_OPENAI_BASE_URL = "https://proxy.example.com/";
+		const target = resolveUpstreamTarget(
+			buildPreflight("openai", "gpt-realtime-2.1-mini"),
+		);
+		expect(target.url).toBe(
+			"wss://proxy.example.com/v1/realtime?model=gpt-realtime-2.1-mini",
+		);
+	});
+
 	it("leaves the OpenAI URL and headers unchanged", () => {
 		const target = resolveUpstreamTarget(
 			buildPreflight("openai", "gpt-realtime-2.1-mini"),

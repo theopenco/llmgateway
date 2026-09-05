@@ -357,7 +357,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 ### Testing and Quality Assurance
 
 - Run `pnpm test:unit` after adding features
-- For changes to one or a few specific models, run e2e locally and scope `pnpm test:e2e` to those models with `TEST_MODELS`, e.g. `TEST_MODELS="granite/glm-5.2" FULL_MODE=true pnpm test:e2e`. This runs every e2e file (streaming, reasoning, tool calls, json, etc.) but only for the pinned mappings, so do NOT invoke the individual `*.e2e.ts` files one by one. Do not trigger the GitHub e2e workflow for these changes.
+- For changes that only add or update specific model mappings, the only relevant e2e result is a local run scoped to exactly those mappings, e.g. `TEST_MODELS="granite/glm-5.2" FULL_MODE=true pnpm test:e2e`. This runs every e2e behavior file but filters its cases to the pinned mappings, so do NOT invoke individual `*.e2e.ts` files, run e2e without `TEST_MODELS`, or trigger the GitHub e2e workflow. Failures from other mappings or an accidentally triggered full run do not affect acceptance or auto-merge; once every changed mapping passes its scoped run, e2e has passed for the change.
 - Run `pnpm build` to ensure production builds work
 - Run `pnpm format` after code changes
 - The CI e2e workflow (`.github/workflows/e2e.yml`) does NOT run automatically on pull requests because it tests all models and spends real money on provider API calls. Trigger it only for complex gateway or backend changes that can affect routing, stability, uptime, or provider integration. Start it by commenting `/e2e` on the pull request (only for maintainers/collaborators, and only for branches in this repository, not forks), or via `workflow_dispatch`.

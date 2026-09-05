@@ -7,6 +7,7 @@ import {
 	projectHourlySourceStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
+	apiKeyHourlySourceStats,
 	providerKeyHourlyStats,
 	apiKey,
 	sql,
@@ -474,6 +475,55 @@ async function recalculateApiKeyHourlyModelStats(
 	}
 }
 
+export async function recalculateApiKeyHourlySourceStats(
+	projectId: string,
+	hourTimestamp: string,
+) {
+	const database = db;
+
+	const apiKeySourceStats = await database
+		.select({
+			apiKeyId: log.apiKeyId,
+			source: sql<string>`coalesce(${log.source}, 'unknown')`.as("source"),
+			...getCommonAggregationFields(),
+		})
+		.from(log)
+		.innerJoin(apiKey, eq(apiKey.id, log.apiKeyId))
+		.where(
+			and(
+				sql`${log.projectId} = ${projectId}`,
+				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
+				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+				inArray(apiKey.keyType, ["user", "end_user_customer"]),
+			),
+		)
+		.groupBy(log.apiKeyId, sql`coalesce(${log.source}, 'unknown')`);
+
+	for (const stat of apiKeySourceStats) {
+		const { apiKeyId, source, ...statsFields } = stat;
+		await database
+			.insert(apiKeyHourlySourceStats)
+			.values({
+				apiKeyId,
+				projectId,
+				hourTimestamp: sql`${hourTimestamp}::timestamp`,
+				source,
+				...statsFields,
+			})
+			.onConflictDoUpdate({
+				target: [
+					apiKeyHourlySourceStats.apiKeyId,
+					apiKeyHourlySourceStats.hourTimestamp,
+					apiKeyHourlySourceStats.source,
+				],
+				set: {
+					...statsFields,
+					updatedAt: new Date(),
+				},
+			});
+	}
+}
+
 /**
  * Aggregation fields for provider-key spend. Deliberately a small subset of
  * {@link getCommonAggregationFields}: this table exists to answer "what did
@@ -580,6 +630,7 @@ async function recalculateBucket(projectId: string, hourTimestamp: string) {
 	await recalculateProjectHourlySourceStats(projectId, hourTimestamp);
 	await recalculateApiKeyHourlyStats(projectId, hourTimestamp);
 	await recalculateApiKeyHourlyModelStats(projectId, hourTimestamp);
+	await recalculateApiKeyHourlySourceStats(projectId, hourTimestamp);
 	await recalculateProviderKeyHourlyStats(projectId, hourTimestamp);
 }
 

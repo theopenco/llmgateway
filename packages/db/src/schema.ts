@@ -218,6 +218,23 @@ export const verification = pgTable("verification", {
 	updatedAt: timestamp().$onUpdate(() => new Date()),
 });
 
+export const deviceCode = pgTable(
+	"device_code",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		deviceCode: text().notNull().unique(),
+		userCode: text().notNull().unique(),
+		userId: text().references(() => user.id, { onDelete: "cascade" }),
+		expiresAt: timestamp().notNull(),
+		status: text().notNull(),
+		lastPolledAt: timestamp(),
+		pollingInterval: integer(),
+		clientId: text(),
+		scope: text(),
+	},
+	(table) => [index("device_code_expires_at_idx").on(table.expiresAt)],
+);
+
 export const organization = pgTable(
 	"organization",
 	{
@@ -3953,6 +3970,9 @@ export const auditLogActions = [
 	"custom_model.create",
 	"custom_model.update",
 	"custom_model.delete",
+	"organization_skill.create",
+	"organization_skill.update",
+	"organization_skill.delete",
 	// Subscription
 	"subscription.create",
 	"subscription.cancel",
@@ -4037,6 +4057,7 @@ export const auditLogResourceTypes = [
 	"iam_rule",
 	"provider_key",
 	"custom_model",
+	"organization_skill",
 	"subscription",
 	"payment_method",
 	"payment",
@@ -5398,6 +5419,86 @@ export const apiKeyHourlyModelStats = pgTable(
 	],
 );
 
+// Per-key app usage remains available after request retention expires.
+export const apiKeyHourlySourceStats = pgTable(
+	"api_key_hourly_source_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		apiKeyId: text().notNull(),
+		projectId: text().notNull(), // Denormalized for efficient queries
+		hourTimestamp: timestamp().notNull(), // Start of the hour bucket
+		source: text().notNull(),
+		// Request counts
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		streamedCount: integer().notNull().default(0),
+		nonStreamedCount: integer().notNull().default(0),
+		// Unified finish reason counts
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		// Error type counts (subset of errorCount)
+		clientErrorCount: integer().notNull().default(0),
+		gatewayErrorCount: integer().notNull().default(0),
+		upstreamErrorCount: integer().notNull().default(0),
+		// Token counts
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		reasoningTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
+		// Costs
+		cost: real().notNull().default(0),
+		inputCost: real().notNull().default(0),
+		outputCost: real().notNull().default(0),
+		requestCost: real().notNull().default(0),
+		dataStorageCost: real().notNull().default(0),
+		discountSavings: real().notNull().default(0),
+		imageInputCost: real().notNull().default(0),
+		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
+		videoOutputCost: real().notNull().default(0),
+		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
+		// Per-mode breakdowns
+		creditsRequestCount: integer().notNull().default(0),
+		apiKeysRequestCount: integer().notNull().default(0),
+		creditsCost: real().notNull().default(0),
+		apiKeysCost: real().notNull().default(0),
+		creditsDataStorageCost: real().notNull().default(0),
+		apiKeysDataStorageCost: real().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint for one record per api-key-hour-source
+		unique().on(table.apiKeyId, table.hourTimestamp, table.source),
+		// Index for dashboard queries (api key + time range)
+		index("api_key_hourly_source_stats_api_key_id_hour_timestamp_idx").on(
+			table.apiKeyId,
+			table.hourTimestamp,
+		),
+		// Index for project-level queries (all keys in a project)
+		index("api_key_hourly_source_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+		// Index for worker refresh queries
+		index("api_key_hourly_source_stats_hour_timestamp_idx").on(
+			table.hourTimestamp,
+		),
+	],
+);
+
 // Dimensions the global stats tables are keyed on in addition to the day
 // bucket and the model/source. Both carry an "unknown" member: rows written
 // before these columns existed keep it, and it is also the fallback for
@@ -5640,6 +5741,37 @@ export const orgLimitHitDaily = pgTable(
 			table.endpointKey,
 		),
 		index("org_limit_hit_daily_day_idx").on(table.day),
+	],
+);
+
+export const organizationSkill = pgTable(
+	"organization_skill",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		description: text().notNull(),
+		content: text().notNull(),
+		files: jsonb()
+			.notNull()
+			.$type<
+				{ path: string; content: string; encoding?: "utf-8" | "base64" }[]
+			>()
+			.default([]),
+		enabled: boolean().notNull().default(true),
+	},
+	(table) => [
+		uniqueIndex("organization_skill_org_name_unique").on(
+			table.organizationId,
+			table.name,
+		),
 	],
 );
 

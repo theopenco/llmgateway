@@ -6,8 +6,6 @@ icon: TriangleAlert
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-# Error Handling
-
 On the OpenAI-compatible endpoints, LLMGateway returns errors in the same format as the OpenAI API, so existing OpenAI SDKs and tooling can parse gateway errors without changes. This applies to errors forwarded from upstream providers as well as errors raised by the gateway itself (authentication failures, usage limits, validation problems, timeouts, and so on). The Anthropic-compatible Messages endpoint (`/v1/messages`) instead returns Anthropic-native errors — see [Anthropic Endpoint](#anthropic-endpoint) below.
 
 ## Error Format

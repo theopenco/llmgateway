@@ -1516,6 +1516,7 @@ describe("api", () => {
 				"Content-Type": "application/json",
 				Authorization: "Bearer real-token",
 				"x-request-id": requestId,
+				"x-source": "unique-request.example.com",
 			},
 			body: JSON.stringify({
 				model: "llmgateway/custom",
@@ -1528,6 +1529,7 @@ describe("api", () => {
 		expect(log.finishReason).toBe("client_error");
 		expect(log.apiOrigin).toBe("chat-completions");
 		expect(log.errorDetails?.cause).toBe("invalid_parameters");
+		expect(log.source).toBe("unknown");
 	});
 
 	test("/v1/responses logs invalid message roles", async () => {
@@ -1546,6 +1548,7 @@ describe("api", () => {
 				"Content-Type": "application/json",
 				Authorization: "Bearer real-token",
 				"x-request-id": requestId,
+				"x-source": "codex",
 			},
 			body: JSON.stringify({
 				model: "llmgateway/custom",
@@ -1558,6 +1561,7 @@ describe("api", () => {
 		expect(log.finishReason).toBe("client_error");
 		expect(log.apiOrigin).toBe("responses");
 		expect(log.errorDetails?.cause).toBe("invalid_request");
+		expect(log.source).toBe("codex");
 	});
 
 	test("/v1/messages explains an OpenAI-format tools rejection", async () => {

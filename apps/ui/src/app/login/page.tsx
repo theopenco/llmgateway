@@ -13,7 +13,7 @@ import {
 	Building2,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
@@ -23,6 +23,7 @@ import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { useAuthErrorToast } from "@/lib/auth-errors";
+import { getAuthRedirect, isCliAuthRedirect } from "@/lib/auth-redirect";
 import { Button } from "@/lib/components/button";
 import {
 	Form,
@@ -56,24 +57,15 @@ export default function Login() {
 	const { signIn } = useAuth();
 	const { ssoEnabled } = useAppConfig();
 
-	// Support a post-login `?redirect=` target (e.g. the CLI connect flow). Only
-	// same-origin relative paths are honored to avoid open-redirects.
-	const [redirectTarget] = useState(() => {
-		if (typeof window === "undefined") {
-			return "/dashboard";
-		}
-		const target = new URLSearchParams(window.location.search).get("redirect");
-		return target && target.startsWith("/") && !target.startsWith("//")
-			? target
-			: "/dashboard";
-	});
+	const searchParams = useSearchParams();
+	const redirectTarget = getAuthRedirect(searchParams.get("redirect"));
 
 	const { isAuthenticated } = useSessionStatus();
 
 	useUser({
 		redirectTo: redirectTarget,
 		redirectWhen: "authenticated",
-		checkOnboarding: true,
+		checkOnboarding: !isCliAuthRedirect(redirectTarget),
 		enabled: isAuthenticated,
 	});
 
@@ -200,8 +192,11 @@ export default function Login() {
 			// Send the user to the dedicated SSO page, which asks only for a work
 			// email — clearer than the full email+password form when SSO only needs
 			// the email. Carry over whatever they've already typed.
-			const query = email ? `?email=${encodeURIComponent(email)}` : "";
-			router.push(`/sso${query}` as Route);
+			const query = new URLSearchParams({ redirect: redirectTarget });
+			if (email) {
+				query.set("email", email);
+			}
+			router.push(`/sso?${query.toString()}` as Route);
 			return;
 		}
 

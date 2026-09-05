@@ -2,8 +2,20 @@
 
 import { format } from "date-fns";
 import { useCallback, useEffect, useState } from "react";
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import {
+	Area,
+	AreaChart,
+	Bar,
+	BarChart,
+	CartesianGrid,
+	XAxis,
+	YAxis,
+} from "recharts";
 
+import {
+	ChartTypeToggle,
+	type ChartType,
+} from "@/components/chart-type-toggle";
 import { TokenBreakdown } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
 import {
@@ -161,6 +173,8 @@ export function HistoryChart({
 	const [internalWindow, setInternalWindow] = useState<HistoryWindow>("4h");
 	const window = externalWindow ?? internalWindow;
 	const [activeMetric, setActiveMetric] = useState<ActiveMetric>("requests");
+	const [chartType, setChartType] = useState<ChartType>("line");
+	const ChartRoot = chartType === "line" ? AreaChart : BarChart;
 
 	const loadData = useCallback(
 		async (w: HistoryWindow) => {
@@ -170,7 +184,6 @@ export function HistoryChart({
 				const result = await fetchData(w);
 				setData(result ?? []);
 			} catch (err) {
-				console.error("Failed to load history:", err);
 				setData([]);
 				setError(
 					err instanceof Error ? err.message : "Failed to load history data",
@@ -375,21 +388,30 @@ export function HistoryChart({
 						</span>
 					)}
 				</div>
-				<div className="flex items-center gap-1 border-b pb-2">
-					{metricTabs.map((tab) => (
-						<button
-							key={tab.key}
-							className={cn(
-								"rounded-md px-3 py-1 text-xs font-medium transition-colors",
-								activeMetric === tab.key
-									? "bg-primary text-primary-foreground"
-									: "text-muted-foreground hover:text-foreground",
-							)}
-							onClick={() => setActiveMetric(tab.key)}
-						>
-							{tab.label}
-						</button>
-					))}
+				<div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
+					<div
+						className="flex items-center gap-1"
+						role="group"
+						aria-label="Metric"
+					>
+						{metricTabs.map((tab) => (
+							<button
+								key={tab.key}
+								type="button"
+								aria-pressed={activeMetric === tab.key}
+								className={cn(
+									"rounded-md px-3 py-1 text-xs font-medium transition-colors",
+									activeMetric === tab.key
+										? "bg-primary text-primary-foreground"
+										: "text-muted-foreground hover:text-foreground",
+								)}
+								onClick={() => setActiveMetric(tab.key)}
+							>
+								{tab.label}
+							</button>
+						))}
+					</div>
+					<ChartTypeToggle value={chartType} onValueChange={setChartType} />
 				</div>
 			</CardHeader>
 			<CardContent className="px-2 pb-4 sm:px-6">
@@ -421,8 +443,9 @@ export function HistoryChart({
 						config={config}
 						className="aspect-auto h-[200px] w-full"
 					>
-						<AreaChart
+						<ChartRoot
 							data={data}
+							accessibilityLayer
 							margin={{ left: 0, right: 8, top: 4, bottom: 0 }}
 						>
 							<CartesianGrid vertical={false} strokeDasharray="3 3" />
@@ -490,23 +513,31 @@ export function HistoryChart({
 									/>
 								}
 							/>
-							{dataKeys.map((key, i) => (
-								<Area
-									key={key}
-									dataKey={key}
-									type="monotone"
-									// The three token series are disjoint slices of the total, so
-									// stacking them keeps the silhouette equal to total tokens.
-									stackId={activeMetric === "tokens" ? "tokens" : undefined}
-									stroke={`var(--color-${key})`}
-									fill={`var(--color-${key})`}
-									fillOpacity={
-										activeMetric === "tokens" ? 0.3 : i === 0 ? 0.1 : 0.05
-									}
-									strokeWidth={2}
-								/>
-							))}
-						</AreaChart>
+							{dataKeys.map((key, i) =>
+								chartType === "line" ? (
+									<Area
+										key={key}
+										dataKey={key}
+										type="monotone"
+										stackId={activeMetric === "tokens" ? "tokens" : undefined}
+										stroke={`var(--color-${key})`}
+										fill={`var(--color-${key})`}
+										fillOpacity={
+											activeMetric === "tokens" ? 0.3 : i === 0 ? 0.1 : 0.05
+										}
+										strokeWidth={2}
+									/>
+								) : (
+									<Bar
+										key={key}
+										dataKey={key}
+										stackId={activeMetric === "tokens" ? "tokens" : undefined}
+										fill={`var(--color-${key})`}
+										maxBarSize={34}
+									/>
+								),
+							)}
+						</ChartRoot>
 					</ChartContainer>
 				)}
 			</CardContent>

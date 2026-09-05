@@ -1957,6 +1957,19 @@ export async function prepareRequestBody(
 		});
 	}
 
+	if (usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") {
+		// Novita rejects empty text blocks alongside otherwise valid image input.
+		processedMessages = processedMessages.map((message) => {
+			if (!Array.isArray(message.content)) {
+				return message;
+			}
+			const content = message.content.filter(
+				(part) => !isTextContent(part) || part.text !== "",
+			);
+			return content.length ? { ...message, content } : message;
+		});
+	}
+
 	// Some deployments fetch remote image URLs themselves but only decode a
 	// subset of the formats they accept inline (Novita's ERNIE 4.5 VL rejects a
 	// remote PNG while accepting the same bytes as a data URL), so mappings that

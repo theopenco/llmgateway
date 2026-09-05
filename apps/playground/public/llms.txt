@@ -1,6 +1,6 @@
 # Lounge by LLM Gateway
 
-> Lounge (lounge.llmgateway.io) is the members' lounge for AI: chat with 200+ models from OpenAI, Anthropic, Google, xAI, DeepSeek, Meta, Mistral, and other providers in one place. It supports text chat, image and video generation, side-by-side multi-model group chats, and projects with knowledge files — every frontier model, one membership.
+> Lounge is an AI chat app by LLM Gateway. Use models from multiple providers in one interface; the live [catalogue](https://llmgateway.io/models) lists current availability. It supports text chat, image and video generation, side-by-side multi-model group chats, and projects with knowledge files with one membership.
 
 ## Memberships
 
@@ -16,9 +16,9 @@
 - [Pricing](https://lounge.llmgateway.io/pricing): Starter, Plus, and Pro memberships with included usage.
 - [Pricing (machine-readable)](https://lounge.llmgateway.io/pricing.md): Plain-markdown Lounge pricing for AI agents.
 - [Compare](https://lounge.llmgateway.io/compare): Lounge vs ChatGPT, Claude, Gemini, Poe, T3 Chat, Perplexity, and OpenRouter.
-- [Image studio](https://lounge.llmgateway.io/image): DALL·E, Flux, Stable Diffusion, and Seedream side by side.
-- [Video studio](https://lounge.llmgateway.io/video): Veo, Wan, and other text-to-video models.
-- [Audio studio](https://lounge.llmgateway.io/audio): ElevenLabs, OpenAI, and Gemini text to speech.
+- [Image studio](https://lounge.llmgateway.io/image): Generate and compare images across supported models.
+- [Video studio](https://lounge.llmgateway.io/video): Generate short videos from text prompts.
+- [Audio studio](https://lounge.llmgateway.io/audio): Turn text into speech with supported voices and models.
 - [Voice calls](https://lounge.llmgateway.io/realtime): Realtime speech-to-speech conversations.
 - [Group chat](https://lounge.llmgateway.io/group): One prompt to many models, compared side by side.
 - [Canvas](https://lounge.llmgateway.io/canvas): Build UIs from JSON specs with live preview.
