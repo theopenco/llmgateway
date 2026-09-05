@@ -35,16 +35,19 @@ export async function getProjectRoutingUsage(
 		return result;
 	}
 	const modelIds = [...new Set(combinations.map((c) => c.modelId))].sort();
-	const cacheKey = `projectRoutingUsage:v1:${projectId}:${modelIds.join(",")}`;
+	const cacheKey = `projectRoutingUsage:v2:${projectId}:${modelIds.join(",")}`;
 	const rows = await swrWrap(
 		cacheKey,
 		["project_hourly_model_stats"],
 		async () => {
 			const windowMs = 24 * 60 * 60 * 1000;
 			const windowStart = new Date(Date.now() - windowMs);
+			// Stats store the display id (provider/model[:region]); match on the
+			// catalog id and fold regions into their provider.
+			const catalogModelId = sql<string>`split_part(split_part(${stats.usedModel}, '/', 2), ':', 1)`;
 			return await cdb
 				.select({
-					modelId: stats.usedModel,
+					modelId: catalogModelId.as("model_id"),
 					providerId: stats.usedProvider,
 					requests: sql<string>`sum(${stats.requestCount} - ${stats.errorCount})`,
 					input: sql<string>`sum(${stats.inputTokens})`,
@@ -56,12 +59,12 @@ export async function getProjectRoutingUsage(
 					and(
 						eq(stats.projectId, projectId),
 						gte(stats.hourTimestamp, windowStart),
-						inArray(stats.usedModel, modelIds),
+						inArray(catalogModelId, modelIds),
 						// Mixed response-cache buckets cannot isolate upstream token usage.
 						eq(stats.cacheCount, 0),
 					),
 				)
-				.groupBy(stats.usedModel, stats.usedProvider)
+				.groupBy(catalogModelId, stats.usedProvider)
 				.$withCache({
 					// A stable tag prevents the moving time boundary from busting the cache.
 					tag: cacheKey,

@@ -29,11 +29,14 @@ afterEach(async () => {
 	await db.delete(stats).where(eq(stats.projectId, projectId));
 });
 
-function row(overrides: Partial<typeof stats.$inferInsert> = {}) {
+function row({
+	usedProvider = "deepinfra",
+	...overrides
+}: Partial<typeof stats.$inferInsert> = {}) {
 	return {
 		projectId,
-		usedModel: modelId,
-		usedProvider: "deepinfra",
+		usedModel: `${usedProvider}/${modelId}`,
+		usedProvider,
 		hourTimestamp: new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000),
 		requestCount: 100,
 		inputTokens: "10000000",
@@ -84,7 +87,7 @@ describe("getProjectRoutingUsage", () => {
 	it("uses only this project's recent model usage without response-cache buckets", async () => {
 		await db.insert(stats).values([
 			row(),
-			row({ usedModel: "unrelated-model", cachedTokens: "0" }),
+			row({ usedModel: "deepinfra/unrelated-model", cachedTokens: "0" }),
 			row({
 				hourTimestamp: new Date(Date.now() - 90_000_000),
 				cachedTokens: "0",
@@ -97,6 +100,27 @@ describe("getProjectRoutingUsage", () => {
 		const usage = await getProjectRoutingUsage(projectId, combinations);
 		expect(usage.get(metricsKey(modelId, "fireworks"))).toEqual({
 			cacheHitRate: 0.995,
+			cacheOutputRatio: 0.005,
+		});
+	});
+
+	it("folds regional rows into their provider", async () => {
+		await db.insert(stats).values([
+			row({
+				inputTokens: "5000000",
+				cachedTokens: "4000000",
+				outputTokens: "25000",
+			}),
+			row({
+				usedModel: `deepinfra/${modelId}:us-east`,
+				inputTokens: "5000000",
+				cachedTokens: "5000000",
+				outputTokens: "25000",
+			}),
+		]);
+		const usage = await getProjectRoutingUsage(projectId, combinations);
+		expect(usage.get(metricsKey(modelId, "deepinfra"))).toEqual({
+			cacheHitRate: 0.9,
 			cacheOutputRatio: 0.005,
 		});
 	});

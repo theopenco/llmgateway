@@ -60,7 +60,7 @@ describe("DevPass cached-workload price routing", () => {
 					hourTimestamp: new Date(
 						Math.floor(Date.now() / 3_600_000) * 3_600_000,
 					),
-					usedModel: model,
+					usedModel: `deepinfra/${model}`,
 					usedProvider: "deepinfra",
 					requestCount: 100,
 					inputTokens: "10000000",
