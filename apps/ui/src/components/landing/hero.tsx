@@ -1,5 +1,3 @@
-"use client";
-
 import { ArrowRight, ChevronRight } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -136,7 +134,7 @@ export function Hero({
 
 								{/* Centered hero content - optimized for conversion */}
 								<div className="text-center max-w-4xl mx-auto">
-									<div className="animate-hero-enter">
+									<div>
 										<h1 className="text-balance text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-foreground">
 											LLM Gateway — One API for {MARKETING_STATS.providers}{" "}
 											providers, including OpenAI, Anthropic, and Google
