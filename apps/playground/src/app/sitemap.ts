@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import createFetchClient from "openapi-fetch";
 
 import { comparisons } from "@/lib/comparisons";
@@ -29,6 +30,8 @@ async function fetchPublicShares(): Promise<ShareListItem[]> {
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+	await connection();
+
 	const baseUrl = "https://lounge.llmgateway.io";
 
 	const staticEntries: MetadataRoute.Sitemap = [
