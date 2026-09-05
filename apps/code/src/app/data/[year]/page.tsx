@@ -406,13 +406,17 @@ export default async function CensusPage({
 		],
 	};
 
+	// Model names and ids flow into the schema; escape "<" so no value can
+	// close the script element.
+	const jsonLdJson = JSON.stringify(jsonLd).replace(/</g, "\\u003c");
+
 	return (
 		<div className="min-h-screen bg-background">
 			<Header />
 			<script
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
-				dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+				dangerouslySetInnerHTML={{ __html: jsonLdJson }}
 			/>
 
 			<main id="main">
