@@ -13,6 +13,7 @@ import {
 	validateResponse,
 } from "@/chat-helpers.e2e.js";
 
+import { createBasicVerificationRequest } from "@llmgateway/actions";
 import { uniqueId } from "@llmgateway/shared/random";
 
 import { app } from "./app.js";
@@ -41,19 +42,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				"x-no-fallback": "true",
 				Authorization: `Bearer real-token`,
 			},
-			body: JSON.stringify({
-				model: model,
-				messages: [
-					{
-						role: "system",
-						content: "You are a helpful assistant.",
-					},
-					{
-						role: "user",
-						content: "Hello, just reply 'OK'!",
-					},
-				],
-			}),
+			body: JSON.stringify(createBasicVerificationRequest(model)),
 		});
 
 		const json = await res.json();

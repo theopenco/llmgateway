@@ -1,14 +1,13 @@
 import { ImageResponse } from "next/og";
 
+import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { discountFraction, getEffectiveProviderDiscount } from "@/lib/discount";
-import { fetchModelDiscounts } from "@/lib/fetch-models";
+import { fetchModelDiscounts, fetchProviders } from "@/lib/fetch-models";
 import Logo from "@/lib/icons/Logo";
 import { formatContextSize } from "@/lib/utils";
 
 import {
-	models as modelDefinitions,
 	providers as providerDefinitions,
-	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 import {
@@ -26,7 +25,6 @@ export const size = {
 };
 export const contentType = "image/png";
 export const revalidate = 60;
-export const dynamicParams = false;
 
 const getOgProviderIcon = (providerId: string) => {
 	if (providerId === "aws-bedrock" || providerId === "aws-mantle") {
@@ -46,24 +44,6 @@ const getOgProviderIcon = (providerId: string) => {
 	}
 	return getProviderIcon(providerId);
 };
-
-export function generateStaticParams() {
-	const params: { name: string; provider: string }[] = [];
-
-	for (const model of modelDefinitions) {
-		const uniqueProviders = Array.from(
-			new Set(model.providers.map((mapping) => mapping.providerId)),
-		);
-		for (const providerId of uniqueProviders) {
-			params.push({
-				name: encodeURIComponent(model.id),
-				provider: encodeURIComponent(providerId),
-			});
-		}
-	}
-
-	return params;
-}
 
 interface ImageProps {
 	params: Promise<{ name: string; provider: string }>;
@@ -108,8 +88,11 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 		const decodedName = decodeURIComponent(name);
 		const decodedProvider = decodeURIComponent(provider);
 
-		const model = modelDefinitions.find((m) => m.id === decodedName) as
-			ModelDefinition | undefined;
+		const [model, apiProviders, discounts] = await Promise.all([
+			findPublicModelDefinition(decodedName),
+			fetchProviders(),
+			fetchModelDiscounts(decodedName),
+		]);
 
 		if (!model) {
 			return new ImageResponse(
@@ -134,16 +117,39 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 			);
 		}
 
-		const selectedMapping =
-			model.providers.find((p) => p.providerId === decodedProvider) ??
-			model.providers[0];
-		const providerInfo = providerDefinitions.find(
-			(p) => p.id === selectedMapping?.providerId,
+		const selectedMapping = model.providers.find(
+			(mapping) => mapping.providerId === decodedProvider,
 		);
+
+		if (!selectedMapping) {
+			return new ImageResponse(
+				<div
+					style={{
+						width: "100%",
+						height: "100%",
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "center",
+						background: "#020817",
+						color: "white",
+						fontSize: 48,
+						fontWeight: 700,
+						fontFamily:
+							"system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+					}}
+				>
+					Provider not found
+				</div>,
+				size,
+			);
+		}
+
+		const providerInfo =
+			providerDefinitions.find((p) => p.id === selectedMapping.providerId) ??
+			apiProviders.find((p) => p.id === selectedMapping.providerId);
 		const ProviderIcon = selectedMapping
 			? getOgProviderIcon(selectedMapping.providerId)
 			: null;
-		const discounts = await fetchModelDiscounts(decodedName);
 		const effectiveDiscount = selectedMapping
 			? getEffectiveProviderDiscount(
 					discounts,
@@ -226,7 +232,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 		const supportingProviders = uniqueProviderIds
 			.map((providerId) => {
 				const icon = getOgProviderIcon(providerId);
-				const info = providerDefinitions.find((p) => p.id === providerId);
+				const info =
+					providerDefinitions.find((p) => p.id === providerId) ??
+					apiProviders.find((p) => p.id === providerId);
 				return {
 					id: providerId,
 					name: info?.name ?? providerId,

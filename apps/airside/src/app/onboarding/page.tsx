@@ -167,10 +167,9 @@ function RegisterCarrierDialog({
 						Register a new carrier
 					</DialogTitle>
 					<DialogDescription>
-						List a provider that is not in the catalogue yet. Your API must be
-						OpenAI-compatible (we call{" "}
-						<span className="font-mono">/v1/chat/completions</span> under the
-						base URL) and hosted on{" "}
+						List a provider that is not in the catalogue yet. Each model can use
+						its carrier-default API, OpenAI Chat Completions or Responses, or
+						the Google Vertex format, hosted on{" "}
 						{claimDomains.map((domain, i) => (
 							<span key={domain}>
 								{i > 0 ? " or " : ""}
@@ -207,7 +206,7 @@ function RegisterCarrierDialog({
 								value={providerId}
 								onChange={(e) => setProviderId(e.target.value)}
 								placeholder="acme-ai"
-								pattern="[a-z][a-z0-9-]{2,31}"
+								pattern={"[a-z][a-z0-9\\-]{2,31}"}
 								title="3-32 chars: lowercase letters, digits and hyphens, starting with a letter"
 								required
 							/>

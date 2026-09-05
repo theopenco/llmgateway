@@ -7,6 +7,7 @@ import {
 	Loader2,
 	Pencil,
 	Plus,
+	ShieldCheck,
 	Stamp,
 	TriangleAlert,
 	Trash2,
@@ -20,6 +21,7 @@ import {
 	EditModelDialog,
 	FileFareDialog,
 	RegisterModelDialog,
+	VerifyModelDialog,
 } from "@/components/dashboard/ModelDialogs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -122,7 +124,17 @@ export default function FleetPage() {
 		{
 			params: { query: { providerCompanyId: company?.id ?? "" } },
 		},
-		{ enabled: !!company },
+		{
+			enabled: !!company,
+			refetchInterval: (query) =>
+				query.state.data?.models.some(
+					(model) =>
+						model.latestVerification?.status === "queued" ||
+						model.latestVerification?.status === "running",
+				)
+					? 1_000
+					: false,
+		},
 	);
 
 	const importModels = api.useMutation("post", "/airside/models/import", {
@@ -336,6 +348,21 @@ export default function FleetPage() {
 															: "Fare filed"}
 												</Badge>
 											) : null}
+											{model.latestVerification ? (
+												<Badge
+													variant={
+														model.latestVerification.status === "passed"
+															? "success"
+															: model.latestVerification.status === "failed"
+																? "destructive"
+																: "pending"
+													}
+													title={model.latestVerification.summary ?? undefined}
+												>
+													<ShieldCheck className="size-3" />
+													Verification {model.latestVerification.status}
+												</Badge>
+											) : null}
 										</div>
 										<div className="text-muted-foreground mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs">
 											{model.displayName ? (
@@ -350,6 +377,15 @@ export default function FleetPage() {
 													↗ {model.externalId}
 												</span>
 											) : null}
+											<span className="font-mono">
+												{model.apiFormat === "openai-chat-completions"
+													? "Chat Completions"
+													: model.apiFormat === "openai-responses"
+														? "Responses API"
+														: model.apiFormat === "google-vertex"
+															? "Vertex API"
+															: "Carrier default"}
+											</span>
 											{model.contextSize ? (
 												<span className="font-mono">
 													{Math.round(model.contextSize / 1000)}k ctx
@@ -376,6 +412,15 @@ export default function FleetPage() {
 										<div className="flex items-center gap-1">
 											{model.status !== "delisted" ? (
 												<>
+													<VerifyModelDialog model={model}>
+														<Button
+															size="sm"
+															variant="outline"
+															data-testid={`verify-${model.modelName}`}
+														>
+															<ShieldCheck className="size-3.5" /> Verify
+														</Button>
+													</VerifyModelDialog>
 													<FileFareDialog model={model}>
 														<Button
 															size="sm"
