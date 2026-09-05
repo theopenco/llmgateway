@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "f9795878-1b8a-4155-b62f-67e35a2839a4",
-  "prevId": "5079345e-d562-4d09-80ac-9c5c974bb349",
+  "id": "e6a0d739-7b37-4251-8329-a66cdbff9239",
+  "prevId": "b5423a01-7e32-4919-bb42-9c3525ca1baa",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -121,6 +121,12 @@
     {
       "isRlsEnabled": false,
       "name": "dev_plan_card_fingerprint_history",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "device_code",
       "entityType": "tables",
       "schema": "public"
     },
@@ -4705,6 +4711,136 @@
       "entityType": "columns",
       "schema": "public",
       "table": "dev_plan_card_fingerprint_history"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "device_code",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_code",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "last_polled_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "polling_interval",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "client_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "scope",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "device_code"
     },
     {
       "type": "text",
@@ -11185,6 +11321,22 @@
       "table": "model_provider_mapping"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'catalogue'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "source",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping"
+    },
+    {
       "type": "numeric",
       "typeSchema": null,
       "notNull": false,
@@ -11326,6 +11478,19 @@
       "generated": null,
       "identity": null,
       "name": "vision",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "audio",
       "entityType": "columns",
       "schema": "public",
       "table": "model_provider_mapping"
@@ -13866,22 +14031,6 @@
       "table": "organization"
     },
     {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'current'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "subscription_payment_status",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
       "type": "integer",
       "typeSchema": null,
       "notNull": false,
@@ -14063,6 +14212,35 @@
       "generated": null,
       "identity": null,
       "name": "dev_plan_included_reset_passes_used",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_credits_frozen",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "dev_plan_credits_limit_before_freeze",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
@@ -18963,6 +19141,19 @@
       "table": "provider_claim"
     },
     {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "pending_branding",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_claim"
+    },
+    {
       "type": "text",
       "typeSchema": null,
       "notNull": false,
@@ -19488,6 +19679,19 @@
       "generated": null,
       "identity": null,
       "name": "model_name",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_draft_model"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "external_id",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_draft_model"
@@ -20789,6 +20993,19 @@
       "generated": null,
       "identity": null,
       "name": "request_price",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_price_filing"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "metadata",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_price_filing"
@@ -24920,6 +25137,32 @@
       "table": "video_job"
     },
     {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "provider_margin_percent",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "video_job"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "provider_discount_percent",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "video_job"
+    },
+    {
       "type": "integer",
       "typeSchema": null,
       "notNull": false,
@@ -27062,6 +27305,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "expires_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "device_code_expires_at_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "organization_id",
           "isExpression": false,
           "asc": true,
@@ -28363,6 +28627,34 @@
       "method": "btree",
       "concurrently": false,
       "name": "model_provider_mapping_status_model_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "model_provider_mapping"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "source",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "status",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "model_provider_mapping_source_status_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "model_provider_mapping"
@@ -32635,6 +32927,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "user",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "device_code_user_id_user_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "device_code"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "organization_id"
       ],
       "schemaTo": "public",
@@ -34792,6 +35101,16 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "device_code_pkey",
+      "schema": "public",
+      "table": "device_code",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "discount_pkey",
       "schema": "public",
       "table": "discount",
@@ -36004,6 +36323,28 @@
       "name": "dev_plan_card_fingerprint_history_fingerprint_key",
       "schema": "public",
       "table": "dev_plan_card_fingerprint_history",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "device_code"
+      ],
+      "nullsNotDistinct": false,
+      "name": "device_code_device_code_key",
+      "schema": "public",
+      "table": "device_code",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "user_code"
+      ],
+      "nullsNotDistinct": false,
+      "name": "device_code_user_code_key",
+      "schema": "public",
+      "table": "device_code",
       "entityType": "uniques"
     },
     {
