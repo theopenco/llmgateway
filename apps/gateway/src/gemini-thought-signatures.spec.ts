@@ -13,6 +13,10 @@ import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harne
 import type { GoogleTextPart } from "@llmgateway/actions";
 import type { ReasoningDetail } from "@llmgateway/models";
 
+interface MockGooglePart extends GoogleTextPart {
+	functionCall?: { name: string; args: Record<string, unknown> };
+}
+
 interface AssistantMessage {
 	role: "assistant";
 	content: string;
@@ -34,8 +38,9 @@ describe("Gemini thought signature replay", () => {
 	createGatewayApiTestHarness();
 	let server: Server;
 	let baseUrl = "";
+	let toolResponse = false;
 	let captured: Array<{
-		contents: Array<{ role: string; parts: GoogleTextPart[] }>;
+		contents: Array<{ role: string; parts: MockGooglePart[] }>;
 	}> = [];
 	const signature = "test-text-signature";
 	const headers = {
@@ -54,7 +59,7 @@ describe("Gemini thought signature replay", () => {
 			});
 			req.on("end", () => {
 				captured.push(JSON.parse(body));
-				const response = (parts: GoogleTextPart[], final = false) => ({
+				const response = (parts: MockGooglePart[], final = false) => ({
 					candidates: [
 						{
 							content: { role: "model", parts },
@@ -71,6 +76,25 @@ describe("Gemini thought signature replay", () => {
 							}
 						: {}),
 				});
+				if (toolResponse) {
+					const payload = response(
+						[
+							{
+								functionCall: { name: "lookup", args: {} },
+								thoughtSignature: signature,
+							},
+						],
+						true,
+					);
+					if (req.url?.includes("streamGenerateContent")) {
+						res.writeHead(200, { "Content-Type": "text/event-stream" });
+						res.end(`data: ${JSON.stringify(payload)}\n\n`);
+					} else {
+						res.writeHead(200, { "Content-Type": "application/json" });
+						res.end(JSON.stringify(payload));
+					}
+					return;
+				}
 				if (req.url?.includes("streamGenerateContent")) {
 					res.writeHead(200, { "Content-Type": "text/event-stream" });
 					for (const chunk of [
@@ -115,6 +139,7 @@ describe("Gemini thought signature replay", () => {
 
 	async function setup(retention: "retain" | "none") {
 		captured = [];
+		toolResponse = false;
 		await db
 			.update(tables.organization)
 			.set({ retentionLevel: retention })
@@ -325,4 +350,82 @@ describe("Gemini thought signature replay", () => {
 			},
 		]);
 	});
+	for (const stream of [false, true]) {
+		for (const store of [false, true]) {
+			test(`Responses replays ${stream ? "streamed" : "non-streamed"} tools from ${store ? "stored history" : "retention-off history"} without Redis signatures`, async () => {
+				await setup(store ? "retain" : "none");
+				toolResponse = true;
+				const first = await app.request("/v1/responses", {
+					method: "POST",
+					headers,
+					body: JSON.stringify({
+						model,
+						input: "Look up the answer.",
+						stream,
+						store,
+						tools: [
+							{
+								type: "function",
+								name: "lookup",
+								parameters: { type: "object", properties: {} },
+							},
+						],
+					}),
+				});
+				expect(first.status).toBe(200);
+				const response = stream
+					? (parseEvents(await first.text()).find(
+							(event) => event.type === "response.completed",
+						)?.response as {
+							id: string;
+							output: Array<Record<string, unknown>>;
+						})
+					: ((await first.json()) as {
+							id: string;
+							output: Array<Record<string, unknown>>;
+						});
+				const call = response.output.find(
+					(item) => item.type === "function_call",
+				)!;
+				expect(call?.extra_content).toEqual({
+					google: { thought_signature: signature },
+				});
+				const callId = String(call.call_id);
+				await redisClient.del(`thought_signature:${callId}`);
+				toolResponse = false;
+				const result = {
+					type: "function_call_output",
+					call_id: callId,
+					output: "42",
+				};
+				const next = await app.request("/v1/responses", {
+					method: "POST",
+					headers,
+					body: JSON.stringify({
+						model,
+						store,
+						...(store
+							? { previous_response_id: response.id, input: [result] }
+							: {
+									input: [
+										{ role: "user", content: "Look up the answer." },
+										...response.output,
+										result,
+									],
+								}),
+					}),
+				});
+				expect(next.status).toBe(200);
+				await next.text();
+				expect(
+					captured[1]!.contents.find((item) => item.role === "model")?.parts,
+				).toEqual([
+					{
+						functionCall: { name: "lookup", args: {} },
+						thoughtSignature: signature,
+					},
+				]);
+			});
+		}
+	}
 });

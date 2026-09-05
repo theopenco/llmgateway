@@ -11,6 +11,7 @@ import { toResponsesToolCallItem } from "./tool-registry.js";
 
 import type { ResponsesEchoRequest } from "./convert-chat-to-responses.js";
 import type { ToolRegistry } from "./tool-registry.js";
+import type { GoogleExtraContent } from "@llmgateway/models";
 
 // One assistant message output item in the stream. Providers may emit several
 // per turn (e.g. a commentary message before tool calls and a final_answer
@@ -61,6 +62,7 @@ interface StreamingState {
 		{
 			id: string;
 			callId: string;
+			extraContent?: GoogleExtraContent;
 			name: string;
 			arguments: string;
 			outputIndex: number;
@@ -281,6 +283,7 @@ export function processStreamChunk(
 					tool_calls?: Array<{
 						index: number;
 						id?: string;
+						extra_content?: GoogleExtraContent;
 						function?: {
 							name?: string;
 							arguments?: string;
@@ -432,6 +435,7 @@ export function processStreamChunk(
 				state.toolCalls.set(tc.index, {
 					id: fcId,
 					callId,
+					extraContent: tc.extra_content,
 					name,
 					arguments: tc.function?.arguments ?? "",
 					outputIndex: tcOutputIndex,
@@ -443,6 +447,7 @@ export function processStreamChunk(
 						item: toResponsesToolCallItem(state.toolRegistry, {
 							id: fcId,
 							callId,
+							extraContent: tc.extra_content,
 							name,
 							arguments: "",
 							status: "in_progress",
@@ -450,6 +455,9 @@ export function processStreamChunk(
 					}),
 				);
 			} else {
+				if (tc.extra_content) {
+					existing.extraContent = tc.extra_content;
+				}
 				if (tc.function?.arguments) {
 					existing.arguments += tc.function.arguments;
 					// A freeform tool's payload is the `input` field inside these JSON
@@ -699,6 +707,7 @@ export function buildFinalOutputItems(
 			item: toResponsesToolCallItem(state.toolRegistry, {
 				id: tc.id,
 				callId: tc.callId,
+				extraContent: tc.extraContent,
 				name: tc.name,
 				arguments: tc.arguments,
 				status: "completed",
@@ -823,6 +832,7 @@ export function createCompletionEvents(
 		const item = toResponsesToolCallItem(state.toolRegistry, {
 			id: tc.id,
 			callId: tc.callId,
+			extraContent: tc.extraContent,
 			name: tc.name,
 			arguments: tc.arguments,
 			status: "completed",

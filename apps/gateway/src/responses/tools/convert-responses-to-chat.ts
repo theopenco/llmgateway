@@ -5,6 +5,7 @@ import { isGoogleReasoningDetail } from "@llmgateway/actions";
 import { flattenToolName } from "./tool-registry.js";
 
 import type { ResponsesRequest } from "@/responses/schemas.js";
+import type { GoogleExtraContent } from "@llmgateway/models";
 
 // Unreplayable items, plus tool declarations already lifted into `tools`. They
 // have no chat completions equivalent, so they are skipped rather than turned
@@ -19,6 +20,7 @@ function isToolCallItem(item: unknown): item is {
 	call_id: string;
 	name: string;
 	namespace?: string;
+	extra_content?: GoogleExtraContent;
 	arguments?: string;
 	input?: string;
 } {
@@ -33,6 +35,7 @@ interface ChatMessage {
 	tool_calls?: Array<{
 		id: string;
 		type: "function";
+		extra_content?: GoogleExtraContent;
 		function: {
 			name: string;
 			arguments: string;
@@ -154,6 +157,9 @@ export function convertResponsesInputToMessages(
 				}
 				toolCalls.push({
 					id: current.call_id,
+					...(current.extra_content
+						? { extra_content: current.extra_content }
+						: {}),
 					type: "function",
 					function: {
 						name: flattenToolName(current.name, current.namespace),

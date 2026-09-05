@@ -15,7 +15,7 @@ describe("Gemini signed text parts", () => {
 			{ text: "summary", thought: true, thoughtSignature: "thought-signature" },
 			{ text: "first", thoughtSignature: "first-signature" },
 			{ text: " then " },
-			{ text: "second", thoughtSignature: "second-signature" },
+			{ text: "second", thoughtSignature: "first-signature" },
 			{ text: "", thoughtSignature: "empty-signature" },
 		];
 		expect(

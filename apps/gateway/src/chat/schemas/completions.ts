@@ -1,6 +1,6 @@
 import { z } from "@hono/zod-openapi";
 
-const googleExtraContentSchema = z.object({
+export const googleExtraContentSchema = z.object({
 	google: z.object({ thought_signature: z.string().optional() }).optional(),
 });
 

@@ -1,6 +1,9 @@
 import { z } from "@hono/zod-openapi";
 
-import { reasoningDetailsSchema } from "@/chat/schemas/completions.js";
+import {
+	googleExtraContentSchema,
+	reasoningDetailsSchema,
+} from "@/chat/schemas/completions.js";
 
 /**
  * Flatten a Zod error into `path: message` pairs a client can act on.
@@ -130,6 +133,7 @@ const itemStatusSchema = nullishToUndefined(
 );
 
 const functionCallItemSchema = z.object({
+	extra_content: googleExtraContentSchema.optional(),
 	type: z.literal("function_call"),
 	id: nullishToUndefined(z.string()),
 	call_id: z.string(),
@@ -154,6 +158,7 @@ const functionCallOutputItemSchema = z.object({
 // JSON `arguments`, so the model can emit e.g. a patch or a script without
 // JSON-escaping it.
 const customToolCallItemSchema = z.object({
+	extra_content: googleExtraContentSchema.optional(),
 	type: z.literal("custom_tool_call"),
 	id: nullishToUndefined(z.string()),
 	call_id: z.string(),

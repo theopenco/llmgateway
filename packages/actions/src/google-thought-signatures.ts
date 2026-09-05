@@ -62,7 +62,7 @@ export function restoreGoogleReasoningDetails<T extends GoogleTextPart>(
 			continue;
 		}
 		const signature = detail.signature as string;
-		if (restored.some((part) => part.thoughtSignature === signature)) {
+		if (parts.some((part) => part.thoughtSignature === signature)) {
 			continue;
 		}
 		const metadata = detail.google_part;

@@ -4,6 +4,7 @@ import { shortid } from "@llmgateway/db";
 import { toResponsesToolCallItem } from "./tool-registry.js";
 
 import type { ToolRegistry } from "./tool-registry.js";
+import type { GoogleExtraContent } from "@llmgateway/models";
 
 interface ChatCompletionsResponse {
 	id?: string;
@@ -23,6 +24,7 @@ interface ChatCompletionsResponse {
 			tool_calls?: Array<{
 				id: string;
 				type: string;
+				extra_content?: GoogleExtraContent;
 				function: {
 					name: string;
 					arguments: string;
@@ -440,6 +442,7 @@ export function convertChatResponseToResponses(
 			toResponsesToolCallItem(toolRegistry, {
 				id: `fc_${shortid(24)}`,
 				callId: toolCall.id,
+				extraContent: toolCall.extra_content,
 				name: toolCall.function.name,
 				arguments: toolCall.function.arguments,
 				status: "completed",
