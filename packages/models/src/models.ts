@@ -25,12 +25,11 @@ import { tencentModels } from "./models/tencent.js";
 import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
+import { isRetiredProvider, type ProviderId } from "./providers.js";
 
-import type { providers } from "./providers.js";
+export type Provider = ProviderId;
 
-export type Provider = (typeof providers)[number]["id"];
-
-export type Model = (typeof models)[number]["id"];
+export type Model = (typeof allModels)[number]["id"];
 
 /**
  * Decimal-safe price representation. Always a string so values are preserved
@@ -179,7 +178,7 @@ export interface ProviderRegion {
 export type ToolChoiceMode = "auto" | "none" | "required" | "function";
 
 export interface ProviderModelMapping {
-	providerId: (typeof providers)[number]["id"];
+	providerId: ProviderId;
 	/**
 	 * Provider-specific upstream model id used when calling the upstream
 	 * provider. Distinct from the canonical `ModelDefinition.id` and from any
@@ -862,7 +861,8 @@ export interface ModelDefinition {
 	releasedAt?: Date;
 }
 
-export const models = [
+/** Complete definitions, including retired providers, for history and billing. */
+export const allModels = [
 	...llmgatewayModels,
 	...openaiModels,
 	...anthropicModels,
@@ -891,3 +891,12 @@ export const models = [
 	...zaiModels,
 	...elevenlabsModels,
 ] as const satisfies ModelDefinition[];
+
+export const models: (ModelDefinition & { id: Model })[] = allModels.map(
+	(model) => ({
+		...model,
+		providers: model.providers.filter(
+			(mapping) => !isRetiredProvider(mapping.providerId),
+		),
+	}),
+);

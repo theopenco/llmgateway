@@ -6,10 +6,7 @@ import {
 } from "crypto";
 
 import { redisClient, storageRedisClient } from "@llmgateway/cache";
-import {
-	models as allModels,
-	providers as allProviders,
-} from "@llmgateway/models";
+import { allModels, allProviders, isRetiredProvider } from "@llmgateway/models";
 import { DEV_PLAN_PRICES, getDevPlanCreditsLimit } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
@@ -1148,7 +1145,7 @@ function generateSeedProviders() {
 		cancellation: p.cancellation ?? null,
 		color: p.color ?? null,
 		website: p.website ?? null,
-		status: "active" as const,
+		status: p.retiredAt ? ("inactive" as const) : ("active" as const),
 		logsCount: randomInt(500, 50000),
 		errorsCount: randomInt(10, 2000),
 		clientErrorsCount: randomInt(5, 500),
@@ -1244,7 +1241,7 @@ function generateSeedModelProviderMappings() {
 				stability: p.stability ?? "stable",
 				supportedParameters: p.supportedParameters ?? null,
 				test: p.test ?? null,
-				status: "active" as const,
+				status: isRetiredProvider(p.providerId) ? "inactive" : "active",
 				logsCount: randomInt(50, 15000),
 				errorsCount: randomInt(2, 800),
 				clientErrorsCount: randomInt(1, 200),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { models } from "./models.js";
+import { allModels as models } from "./models.js";
 
 import type { ModelDefinition, ProviderModelMapping } from "./models.js";
 

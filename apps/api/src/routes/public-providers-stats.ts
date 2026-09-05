@@ -14,6 +14,7 @@ import {
 	gte,
 	sql,
 } from "@llmgateway/db";
+import { isRetiredProvider } from "@llmgateway/models";
 import { deriveStabilityMetrics } from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
@@ -187,5 +188,8 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 		};
 	});
 
-	return c.json({ providers, window });
+	return c.json({
+		providers: providers.filter((p) => !isRetiredProvider(p.providerId)),
+		window,
+	});
 });

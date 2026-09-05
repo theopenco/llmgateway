@@ -252,9 +252,11 @@ export interface ProviderDefinition {
 	dataPolicy?: ProviderDataPolicy | null;
 	/** Additional provider policy links shown in the Data & Privacy card */
 	additionalLinks?: ProviderAdditionalLink[];
+	/** Archived from the catalogue; retained for historical lookups. */
+	retiredAt?: Date;
 }
 
-export const providers: ProviderDefinition[] = [
+export const allProviders: ProviderDefinition[] = [
 	{
 		id: "llmgateway",
 		name: "LLM Gateway",
@@ -451,6 +453,7 @@ export const providers: ProviderDefinition[] = [
 	},
 	{
 		id: "iceberg",
+		retiredAt: new Date("2026-09-02"),
 		name: "Iceberg",
 		forwardsSafetyIdentifier: false,
 		description:
@@ -476,6 +479,7 @@ export const providers: ProviderDefinition[] = [
 	},
 	{
 		id: "granite",
+		retiredAt: new Date("2026-08-21"),
 		name: "Granite",
 		forwardsSafetyIdentifier: false,
 		description:
@@ -2106,12 +2110,18 @@ export const providers: ProviderDefinition[] = [
 	},
 ] as const satisfies ProviderDefinition[];
 
-export type ProviderId = (typeof providers)[number]["id"];
+export const providers = allProviders.filter((provider) => !provider.retiredAt);
+
+export type ProviderId = (typeof allProviders)[number]["id"];
+
+export function isRetiredProvider(providerId: string): boolean {
+	return Boolean(getProviderDefinition(providerId)?.retiredAt);
+}
 
 export function getProviderDefinition(
 	providerId: ProviderId | string,
 ): ProviderDefinition | undefined {
-	return providers.find((p) => p.id === providerId);
+	return allProviders.find((p) => p.id === providerId);
 }
 
 /**
@@ -2201,9 +2211,7 @@ export function isStealthProvider(
 	provider: ProviderId | ProviderDefinition,
 ): boolean {
 	const def =
-		typeof provider === "string"
-			? providers.find((p) => p.id === provider)
-			: provider;
+		typeof provider === "string" ? getProviderDefinition(provider) : provider;
 	return Boolean(def?.env.required.baseUrl);
 }
 

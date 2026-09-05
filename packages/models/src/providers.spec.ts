@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import { getSupportedServiceTiers, supportsServiceTier } from "./helpers.js";
 import { anthropicModels } from "./models/anthropic.js";
 import { xaiModels } from "./models/xai.js";
-import { models } from "./models.js";
+import { allModels, models } from "./models.js";
 import {
 	formatServiceTierMultiplier,
+	allProviders,
+	getProviderDefinition,
+	isRetiredProvider,
 	getServiceTier,
 	isStealthProvider,
 	providers,
@@ -44,6 +47,56 @@ describe("provider legal metadata", () => {
 
 		expect(incompleteProviders).toEqual([]);
 	});
+});
+
+describe("retired providers", () => {
+	it("only archives providers whose mappings have all deactivated", () => {
+		for (const provider of allProviders.filter((p) => p.retiredAt)) {
+			const mappings = allModels.flatMap((model) =>
+				model.providers.filter((mapping) => mapping.providerId === provider.id),
+			);
+			expect(mappings.length).toBeGreaterThan(0);
+			for (const mapping of mappings as ProviderModelMapping[]) {
+				expect(mapping.deactivatedAt).toBeInstanceOf(Date);
+				expect(mapping.deactivatedAt!.getTime()).toBeLessThanOrEqual(
+					provider.retiredAt!.getTime(),
+				);
+			}
+		}
+	});
+
+	it.each(["iceberg", "granite"])(
+		"hides %s while retaining its history and redaction metadata",
+		(id) => {
+			expect(isRetiredProvider(id)).toBe(true);
+			expect(providers.some((provider) => provider.id === id)).toBe(false);
+			expect(
+				models.some((model) =>
+					model.providers.some((mapping) => mapping.providerId === id),
+				),
+			).toBe(false);
+			expect(
+				allModels.some((model) =>
+					model.providers.some((mapping) => mapping.providerId === id),
+				),
+			).toBe(true);
+			expect(getProviderDefinition(id)?.name).toBeTruthy();
+			expect(isStealthProvider(id)).toBe(true);
+		},
+	);
+
+	it.each(["glacier", "quartz"])(
+		"keeps operational stealth provider %s listed",
+		(id) => {
+			expect(isRetiredProvider(id)).toBe(false);
+			expect(providers.some((provider) => provider.id === id)).toBe(true);
+			expect(
+				models.some((model) =>
+					model.providers.some((mapping) => mapping.providerId === id),
+				),
+			).toBe(true);
+		},
+	);
 });
 
 describe("getServiceTier", () => {

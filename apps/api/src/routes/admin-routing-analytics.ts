@@ -27,7 +27,7 @@ import {
 } from "@llmgateway/db";
 import {
 	getProviderDefinition,
-	models,
+	allModels as models,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 import { deriveStabilityMetrics } from "@llmgateway/shared";

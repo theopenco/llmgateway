@@ -21,6 +21,7 @@ import {
 import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
+	isRetiredProvider,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 import { deriveStabilityMetrics } from "@llmgateway/shared";
@@ -222,6 +223,9 @@ internalModels.openapi(getModelsRoute, async (c) => {
 
 	const mappingsByModelId = new Map<string, typeof activeMappings>();
 	for (const mapping of activeMappings) {
+		if (isRetiredProvider(mapping.providerId)) {
+			continue;
+		}
 		const existing = mappingsByModelId.get(mapping.modelId);
 		if (existing) {
 			existing.push(mapping);
@@ -493,14 +497,16 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 
 	// modelCardBadge only exists in the catalogue, not the provider table
 	return c.json({
-		providers: providers.map((provider) => ({
-			...provider,
-			modelCardBadge:
-				providerDefinitions.find((p) => p.id === provider.id)?.modelCardBadge ??
-				null,
-			airsideLogoUrl: brandingByProvider.get(provider.id)?.logoUrl ?? null,
-			airsideIconUrl: brandingByProvider.get(provider.id)?.iconUrl ?? null,
-		})),
+		providers: providers
+			.filter((provider) => !isRetiredProvider(provider.id))
+			.map((provider) => ({
+				...provider,
+				modelCardBadge:
+					providerDefinitions.find((p) => p.id === provider.id)
+						?.modelCardBadge ?? null,
+				airsideLogoUrl: brandingByProvider.get(provider.id)?.logoUrl ?? null,
+				airsideIconUrl: brandingByProvider.get(provider.id)?.iconUrl ?? null,
+			})),
 	});
 });
 
@@ -680,7 +686,11 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 		fetchedAt: arenaBenchmarks.fetchedAt,
 	};
 
-	return c.json({ modelId, providers, arena });
+	return c.json({
+		modelId,
+		providers: providers.filter((p) => !isRetiredProvider(p.providerId)),
+		arena,
+	});
 });
 
 // --- Public per-provider uptime/history (last 4h) ---
@@ -875,6 +885,9 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 
 	// Seed with active providers so idle ones still render
 	for (const p of activeProviders) {
+		if (isRetiredProvider(p.providerId)) {
+			continue;
+		}
 		if (!byProvider.has(p.providerId)) {
 			byProvider.set(p.providerId, {
 				providerId: p.providerId,
@@ -885,6 +898,9 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 	}
 
 	for (const r of rows) {
+		if (isRetiredProvider(r.providerId)) {
+			continue;
+		}
 		const key = r.providerId;
 		const entry = byProvider.get(key) ?? {
 			providerId: r.providerId,

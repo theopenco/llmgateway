@@ -12,8 +12,9 @@ import {
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
-	providers,
-	models,
+	allProviders as providers,
+	allModels as models,
+	isRetiredProvider,
 	expandAllProviderRegions,
 } from "@llmgateway/models";
 
@@ -35,7 +36,7 @@ export async function syncProvidersAndModels() {
 					color: providerDef.color,
 					website: providerDef.website,
 					announcement: providerDef.announcement,
-					status: "active",
+					status: providerDef.retiredAt ? "inactive" : "active",
 				})
 				.onConflictDoUpdate({
 					target: provider.id,
@@ -47,6 +48,7 @@ export async function syncProvidersAndModels() {
 						color: providerDef.color,
 						website: providerDef.website,
 						announcement: providerDef.announcement,
+						...(providerDef.retiredAt ? { status: "inactive" as const } : {}),
 						updatedAt: new Date(),
 					},
 				});
@@ -203,7 +205,9 @@ export async function syncProvidersAndModels() {
 									"test" in mapping
 										? (mapping.test as "skip" | "only" | null)
 										: null,
-								status: "active",
+								status: isRetiredProvider(mapping.providerId)
+									? "inactive"
+									: "active",
 								deprecatedAt:
 									"deprecatedAt" in mapping
 										? (mapping.deprecatedAt ?? null)
@@ -294,7 +298,9 @@ export async function syncProvidersAndModels() {
 								"test" in mapping
 									? (mapping.test as "skip" | "only" | undefined)
 									: undefined,
-							status: "active",
+							status: isRetiredProvider(mapping.providerId)
+								? "inactive"
+								: "active",
 						});
 					}
 				}

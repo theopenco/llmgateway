@@ -62,6 +62,38 @@ describe("sync-models", () => {
 		expect(gptModel?.status).toBe("active");
 	});
 
+	it("archives providers without deleting their existing mappings", async () => {
+		await syncProvidersAndModels();
+		const original = await db.query.modelProviderMapping.findFirst({
+			where: { providerId: { eq: "iceberg" } },
+		});
+		expect(original).toBeDefined();
+		await db
+			.update(provider)
+			.set({ status: "active" })
+			.where(eq(provider.id, "iceberg"));
+		await db
+			.update(modelProviderMapping)
+			.set({ status: "active", logsCount: 42 })
+			.where(eq(modelProviderMapping.id, original!.id));
+
+		await syncProvidersAndModels();
+
+		const archivedProvider = await db.query.provider.findFirst({
+			where: { id: { eq: "iceberg" } },
+		});
+		const archivedMapping = await db.query.modelProviderMapping.findFirst({
+			where: { id: { eq: original!.id } },
+		});
+		expect(archivedProvider?.status).toBe("inactive");
+		expect(archivedMapping).toMatchObject({
+			id: original!.id,
+			status: "inactive",
+			logsCount: 42,
+		});
+		expect(archivedMapping?.deactivatedAt).toEqual(original!.deactivatedAt);
+	});
+
 	it("should sync model-provider mappings", async () => {
 		await syncProvidersAndModels();
 

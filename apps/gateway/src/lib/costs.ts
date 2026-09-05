@@ -9,7 +9,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	type ModelDefinition,
 	type ProviderModelMapping,
-	models,
+	allModels as models,
 	type PricingTier,
 	type ToolCall,
 	expandAllProviderRegions,

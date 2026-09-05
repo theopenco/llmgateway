@@ -39,6 +39,20 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false); // Not estimated
 	});
 
+	it("retains pricing for historical requests to retired providers", async () => {
+		const result = await calculateCosts(
+			"glm-5.2",
+			"granite",
+			null,
+			100,
+			50,
+			null,
+		);
+		expect(result.inputCost).toBeCloseTo(100 * 1.4e-6, 10);
+		expect(result.outputCost).toBeCloseTo(50 * 4.4e-6, 10);
+		expect(result.totalCost).toBeCloseTo(0.00036, 10);
+	});
+
 	it("should calculate costs with null token counts but provided text", async () => {
 		const result = await calculateCosts(
 			"gpt-4",
