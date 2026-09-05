@@ -73,7 +73,8 @@ interface Transaction {
 		| "dev_plan_renewal"
 		| "dev_plan_reset_pass"
 		| "chat_plan_start"
-		| "chat_plan_renewal";
+		| "chat_plan_renewal"
+		| "provider_margin_share";
 	creditAmount: string | null;
 	amount: string | null;
 	status: "pending" | "completed" | "failed";
@@ -378,6 +379,8 @@ function TransactionCard({
 				return "Subscription Cancelled";
 			case "subscription_end":
 				return "Subscription Ended";
+			case "provider_margin_share":
+				return "Provider Margin Share";
 			default:
 				return type;
 		}

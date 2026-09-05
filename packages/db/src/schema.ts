@@ -633,6 +633,11 @@ export const transaction = pgTable(
 				// Developer-funded bonus credited to an end-user wallet on top-up,
 				// debited from the developer org's credit balance.
 				"end_user_bonus",
+				// Admin-configured share of the Airside carrier margin earned on the
+				// org's traffic, rolled up by the worker into
+				// `organization.endUserMarginBalance` (paid out by the end-user
+				// margin rail). `amount` and `creditAmount` both carry the share.
+				"provider_margin_share",
 			],
 		}).notNull(),
 		amount: decimal(),
@@ -4004,6 +4009,8 @@ export const auditLogActions = [
 	"enterprise_license_fee.update",
 	// Referral
 	"referral_bonus.update",
+	// Provider margin share
+	"provider_margin_share.update",
 	// Dev Plan
 	"dev_plan.subscribe",
 	"dev_plan.cancel",
@@ -4992,6 +4999,33 @@ export const providerPriceFiling = pgTable(
 		index("provider_price_filing_company_idx").on(table.providerCompanyId),
 		index("provider_price_filing_status_idx").on(table.status),
 	],
+);
+
+// Admin-only revenue share of the Airside carrier margin the gateway earns on
+// an embeddable-SDK distributor org's platform-paid traffic. `sharePercent` is
+// a fraction like `provider_routing_settings.marginPercent` (0.5 = half of the
+// margin). Kept off `organization` on purpose: dashboard endpoints return org
+// rows whole, and this arrangement must stay invisible outside ee/admin. The
+// share accrues into `organization.endUserMarginBalance`;
+// `pendingTransactionAmount` is accrued but not yet rolled into a
+// `provider_margin_share` transaction.
+export const organizationProviderMarginShare = pgTable(
+	"organization_provider_margin_share",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.unique()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		sharePercent: decimal().notNull().default("0"),
+		totalAccrued: decimal().notNull().default("0"),
+		pendingTransactionAmount: decimal().notNull().default("0"),
+	},
 );
 
 // Provider-wide routing knobs, optionally overridden for one model: a traffic
