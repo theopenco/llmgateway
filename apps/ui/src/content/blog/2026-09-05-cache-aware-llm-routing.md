@@ -9,7 +9,7 @@ faqs:
   - question: "Does LLM Gateway route based on prompt caching costs?"
     answer: "Yes. For prompts of 5,000 tokens or more, smart routing ranks each provider on a blended price that assumes a 70% cache-hit rate on input tokens and a 20% output-to-input token ratio, using the provider's published cached input price. Providers without a cached input price are ranked at their full input price, which is also how they bill."
   - question: "Can I turn cache-aware routing off?"
-    answer: "Yes. Per-project routing thresholds are available on the Enterprise plan. Setting cacheHitRate to 0 and cacheOutputRatio to 1 restores pure list-price ranking; raising cacheHitRate makes routing favor providers with cheap cache reads more strongly."
+    answer: "Yes. Per-project routing thresholds are available on the Enterprise plan. Setting cacheHitRate to 0 and cacheOutputRatio to 1 puts the price component back on list prices, although the separate cache-support weight still applies to large prompts. Raising cacheHitRate makes routing favor providers with cheap cache reads more strongly."
   - question: "Why does the output-to-input ratio matter for routing?"
     answer: "Weighting output at parity with input lets a slightly cheaper output price cancel out a large cache-read difference, because output prices are several times higher than input prices. Large-prompt traffic is dominated by input tokens, so routing weights output at 20% of input for cache-relevant requests."
 image:
@@ -27,7 +27,7 @@ This post is about the bug in that ranking, why the obvious fix does not work on
 
 A user filed an issue with the catalogue's own data. Kimi K2.5 was served by two providers that both listed it at competitive input and output prices. On list prices, provider A won the election. But provider A billed a cache read at 55.6% of its input price, while provider B billed it at 15.6%. For an agent that hits the cache on most of its prompt, the "cheaper" provider was up to 2.6x more expensive on the invoice.
 
-Nothing was wrong with billing. The cost engine already charged cache reads at each provider's `cachedInputPrice`. The ranking simply never read that field, so routing optimised a number the customer never paid.
+Nothing was wrong with billing. The cost engine already charged cache reads at each provider's `cachedInputPrice`, or at its explicit-cache `cacheReadInputPrice` where a provider publishes a separate rate for `cache_control` reads. The ranking simply never read that field, so routing optimised a number the customer never paid.
 
 ## Why blending the input price is not enough
 
@@ -47,7 +47,7 @@ price = (cachedInputPrice·h + inputPrice·(1−h) + outputPrice·r) / 2
 | `cacheHitRate`      | 0.7     | Assumed share of prompt tokens served from cache (`h`)     |
 | `cacheOutputRatio`  | 0.2     | Assumed output-to-input token ratio (`r`)                  |
 
-Below the threshold, nothing changed. Providers without a published cached input price are ranked at their full input price, which is exactly how they bill. Peak and off-peak cached prices are respected where a provider has time-based pricing.
+Below the threshold, nothing changed. Providers without a published cached input price are ranked at their full input price, which is exactly how they bill. The blend uses the implicit cached input price only: explicit-cache reads requested with `cache_control` are billed at a provider's `cacheReadInputPrice` where one exists, and that rate is outside the ranking. Peak and off-peak cached prices are respected where a provider has time-based pricing.
 
 ## A worked example
 
@@ -82,7 +82,7 @@ The same ranking had a second blind spot: providers with context-length pricing 
 
 ## Tuning it
 
-Both thresholds live under **Project Settings → Routing** on the Enterprise plan. Teams that know their workload can set `cacheHitRate` from their own cache statistics, which the dashboard and the `get-usage` MCP tool report per period. Setting `cacheHitRate: 0` and `cacheOutputRatio: 1` restores the old behavior exactly.
+Both thresholds live under **Project Settings → Routing** on the Enterprise plan. Teams that know their workload can set `cacheHitRate` from their own cache statistics, which the dashboard and the `get-usage` MCP tool report per period. Setting `cacheHitRate: 0` and `cacheOutputRatio: 1` returns the price component to list prices; the separate cache-support weight described above still applies, so selection is not a pure list-price ranking.
 
 ## Getting started
 

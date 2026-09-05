@@ -26,7 +26,7 @@ npx @llmgateway/cli auth login --sso you@example.com
 npx @llmgateway/cli auth login --no-browser --timeout 600
 ```
 
-The terminal prints a short code, and the approval page at `/connect/device` shows the same code next to the account it will sign in. You approve only if they match. The CLI then receives a separate, revocable session, never your browser cookie, and `auth logout` revokes it on the server. Codes expire, are single use, and are rate limited. Email, password, and `--key` sign-in still work for deployments without device authorization.
+The terminal prints a short code, and the approval page at `/connect/device` shows the same code next to the account it will sign in. You approve only if they match. The CLI then receives a separate, revocable session, never your browser cookie, and `auth logout` revokes it on the server. Codes expire, are single use, and are rate limited. For deployments without device authorization, email and password sign-in still works when SSO is not enforced for the email domain, and `--key` remains the API-key fallback.
 
 Self-hosting? The device flow ships with a migration and the CLI client ID `llmgateway-cli`; pass `--api-url`, `--dashboard-url`, and `--gateway-url` to point the CLI at a private deployment.
 

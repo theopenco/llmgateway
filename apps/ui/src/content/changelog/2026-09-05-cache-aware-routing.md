@@ -27,7 +27,7 @@ For requests at or above the cache-relevance gate (`cachePromptTokens`, default 
 | `cacheHitRate`      | `0.7`   | Assumed share of prompt tokens served from the provider's cache |
 | `cacheOutputRatio`  | `0.2`   | Assumed output-to-input token ratio for large-prompt requests   |
 
-Providers that do not publish a cached input price rank at their full input price, exactly as they bill. Peak and off-peak cached prices are respected. Smaller prompts rank as before, and setting `cacheHitRate` to `0` and `cacheOutputRatio` to `1` restores pure list-price ranking.
+Providers that do not publish a cached input price rank at their full input price, exactly as they bill. Peak and off-peak cached prices are respected. The blend covers implicit cache hits only: explicit-cache reads requested with `cache_control` are billed at a provider's separate `cacheReadInputPrice` where one exists and are not part of the ranking. Smaller prompts rank as before, and setting `cacheHitRate` to `0` and `cacheOutputRatio` to `1` returns the price component to list prices while the separate cache-support weight still applies.
 
 The output ratio matters as much as the blend: at output parity, a cheaper output price swamps any cache difference, and large-prompt traffic is dominated by input tokens anyway. The defaults are asymmetric on purpose. Treating a one-shot large prompt as cached costs at most about 11% on the affected models; ranking a cached workload on list prices costs up to 160%.
 

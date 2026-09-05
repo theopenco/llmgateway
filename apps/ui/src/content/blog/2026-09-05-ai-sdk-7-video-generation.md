@@ -89,15 +89,18 @@ Video jobs take minutes, and a serverless function may not want to hold the conn
 
 Model IDs are strings, so anything on the [models page with the video filter](https://llmgateway.io/models?filters=1&videoGeneration=true) works. The current families and what they accept:
 
-| Model family     | Provider        | Resolutions       | Durations        |
-| ---------------- | --------------- | ----------------- | ---------------- |
-| Veo 3.1          | `google-vertex` | 720p, 1080p, 4K   | 4, 6, 8, or 10 s |
-| Seedance 2.5     | `bytedance`     | 480p, 720p, 1080p | 4–30 s           |
-| Seedance 2.0     | `bytedance`     | 720p, 1080p       | 4–15 s           |
-| Seedance 1.5 Pro | `bytedance`     | 720p, 1080p       | 5 or 10 s        |
-| KLING v3.0       | `atlascloud`    | 720p, 1080p, 4K   | 5 or 10 s        |
+| Model             | Provider        | Resolutions       | Durations        | Frames         | References            |
+| ----------------- | --------------- | ----------------- | ---------------- | -------------- | --------------------- |
+| Veo 3.1           | `google-vertex` | 720p, 1080p, 4K   | 4, 6, 8, or 10 s | First and last | Images                |
+| Seedance 2.5      | `bytedance`     | 480p, 720p, 1080p | 4–30 s           | First and last | Images, videos, audio |
+| Seedance 2.0      | `bytedance`     | 720p, 1080p       | 4–15 s           | First and last | Images, videos, audio |
+| Seedance 2.0 Fast | `bytedance`     | 720p              | 4–15 s           | First and last | Images, videos, audio |
+| Seedance 2.0 Mini | `bytedance`     | 480p, 720p        | 4–15 s           | First and last | Images, videos, audio |
+| Seedance 1.5 Pro  | `bytedance`     | 720p, 1080p       | 5 or 10 s        | None           | None                  |
+| KLING v3.0        | `atlascloud`    | 720p, 1080p, 4K   | 5 or 10 s        | First and last | None                  |
+| KLING v3.0 Turbo  | `atlascloud`    | 720p, 1080p       | 5 or 10 s        | First and last | None                  |
 
-Frame and reference inputs are supported on Seedance 2.x and KLING v3.0; Veo 3.1 accepts first and last frames. The docs table lists the exact `size` strings per model.
+KLING v3.0 Turbo always generates audio and rejects `generateAudio: false`; use KLING v3.0 for silent output. Frame inputs and reference inputs cannot be combined in one request. The [video generation docs](https://docs.llmgateway.io/features/video-generation) list the exact `size` strings per model.
 
 ## What else changed in version 4
 
@@ -108,7 +111,7 @@ Chat, completion, and image models now implement AI SDK 7's v4 model interfaces,
 ## Getting started
 
 - **[Try LLM Gateway free](https://llmgateway.io/signup)** and generate your first clip with the code above
-- **[Read the AI SDK docs page](https://docs.llmgateway.io/developers/ai-sdk)** for text, tools, structured output, images, and video in one place
+- **[Read the AI SDK docs page](https://docs.llmgateway.io/developers/ai-sdk)** for text, streaming, tools, and video in one place
 - **[Generating images with the AI SDK](https://docs.llmgateway.io/developers/ai-sdk-images)** uses the same provider with `llmgateway.image()`
 
 <BlogCta variant="gateway" location="bottom" />

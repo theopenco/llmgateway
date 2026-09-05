@@ -42,7 +42,7 @@ A few properties were non-negotiable:
 - No session token ever travels in a redirect URL.
 - Password, social, and passkey login still respect enforced SSO. Browser login does not create a side door.
 
-Deployments without device authorization keep working with `auth login --email` or `auth login --key`, and the CLI reports the missing capability explicitly instead of failing in a confusing way.
+Deployments without device authorization keep working with `auth login --email`, as long as your organization does not enforce SSO for that email domain, or with `auth login --key` as the API-key fallback, and the CLI reports the missing capability explicitly instead of failing in a confusing way.
 
 ## Organization skills: publish once, install everywhere
 
