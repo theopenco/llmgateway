@@ -10,7 +10,8 @@ LLMGateway supports low-latency, speech-to-speech conversations through the
 OpenAI-compatible **`/v1/realtime`** WebSocket endpoint. Sessions support text
 and audio input/output, server-side voice activity detection (VAD), input
 audio transcription, and function calling — using the same event protocol as
-the OpenAI Realtime API.
+the OpenAI Realtime API. The same endpoint also serves
+[transcription-only sessions](#transcription-sessions) for live speech-to-text.
 
 The API is a drop-in replacement: point any OpenAI realtime client at
 `wss://api.llmgateway.io/v1/realtime`, authenticate with your LLMGateway API
@@ -244,6 +245,84 @@ Transcripts arrive as standard
   transcription model's listed per-token rates.
 - Both the current nested form (`session.audio.input.transcription`) and the
   legacy top-level form (`session.input_audio_transcription`) are accepted.
+- Transcription models are billed the way their provider meters them, per
+  token or per minute of audio, at the rates on the models page.
+
+## Transcription Sessions
+
+For live speech-to-text without a speech model in the loop — captions, agent
+assist, voice notes — open a **transcription session**. It uses the same
+WebSocket endpoint and event protocol, but the session's only model is the
+transcription model, so you pay for transcription alone. The model is pinned
+at connection time, so it goes in the URL alongside `intent=transcription`:
+
+```
+wss://api.llmgateway.io/v1/realtime?intent=transcription&model=gpt-live-transcribe
+```
+
+The gateway applies the transcription model itself once the session is
+created. Configure the rest with `session.update`, then stream audio with
+`input_audio_buffer.append`:
+
+```json
+{
+	"type": "session.update",
+	"session": {
+		"type": "transcription",
+		"audio": {
+			"input": {
+				"format": { "type": "audio/pcm", "rate": 24000 },
+				"transcription": {
+					"model": "gpt-live-transcribe",
+					"delay": "low",
+					"languages": ["en"]
+				},
+				"turn_detection": null
+			}
+		}
+	}
+}
+```
+
+Transcripts arrive as `conversation.item.input_audio_transcription.delta` and
+`.completed` events, exactly as in a realtime session.
+
+- Any realtime transcription model on the
+  [models page](https://llmgateway.io/models) can open a transcription
+  session; the page also shows whether a model is billed per token or per
+  minute of audio.
+- The model is locked for the session: a `session.update` that names another
+  transcription model is rejected with `transcription_model_locked`, and
+  disabling transcription is rejected with `transcription_model_required`.
+  Other transcription settings (`delay`, `keywords`, `languages`, `prompt`,
+  `turn_detection`, `noise_reduction`) are passed through to the provider.
+- `response.create` is rejected with `response_not_supported`; a
+  transcription session never generates.
+- Browser clients mint a client secret with `session.type: "transcription"`
+  and connect with the `openai-insecure-api-key` subprotocol as usual. The
+  `intent` and `model` query parameters are optional with a secret, but if
+  present they must match what the secret was minted for:
+
+```json
+{
+	"session": {
+		"type": "transcription",
+		"audio": {
+			"input": {
+				"transcription": { "model": "gpt-live-transcribe" }
+			}
+		}
+	}
+}
+```
+
+Session gating, limits and billing work as for realtime sessions: each
+completed transcription is billed before its transcript is forwarded, and a
+session that no longer clears the credit, spend or rate-limit checks is
+closed after the current turn. Streaming models transcribe audio before it is
+committed; audio that has already produced transcript deltas is committed by
+the gateway on disconnect and ahead of an `input_audio_buffer.clear`, so it is
+billed like any other turn.
 
 ## Function Calling
 

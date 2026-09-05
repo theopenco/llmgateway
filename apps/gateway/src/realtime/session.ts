@@ -63,6 +63,14 @@ const pingIntervalMs = () =>
 const AUTO_RESPONSE_CONTROL_EVENT_ID = "event_lmg_disable_auto_response";
 
 /**
+ * event_id of the gateway-injected session.update that pins a transcription
+ * session's ASR model upstream. Unlike the auto-response control above, a
+ * rejection here is fatal: the provider would transcribe on its own default
+ * model, which the session cannot bill.
+ */
+const TRANSCRIPTION_CONTROL_EVENT_ID = "event_lmg_pin_transcription_model";
+
+/**
  * Stored prompt references are rejected: a prompt can carry its own tool
  * definitions, so honoring one would let hosted tools (MCP, connectors) past
  * the function-tools-only check and incur provider fees this gateway does not
@@ -170,10 +178,23 @@ export class RealtimeProxySession {
 	private readonly allowedTranscription: RealtimeMappingMatch | null;
 	private readonly pinnedInstructions: string | null;
 	private readonly pinnedVoice: string | null;
-	// Committed user audio items whose billable transcription terminal event
-	// (completed or failed) has not arrived yet. Draining must wait for these
+	// A transcription-only session (intent=transcription): its single model is
+	// the ASR mapping, pinned from connect, and it never generates responses.
+	private readonly transcriptionOnly: boolean;
+	// User audio items whose billable transcription terminal event (completed
+	// or failed) has not arrived yet: committed items, plus uncommitted audio
+	// that has already produced transcript deltas. Draining must wait for these
 	// so no billable transcription tail is dropped on disconnect.
 	private readonly pendingTranscriptionItems = new Set<string>();
+	// Uncommitted audio the provider is already transcribing live (streaming
+	// ASR models emit deltas before any commit). The provider only reports the
+	// billable duration in the completed event of a committed item, so this
+	// audio has to be committed before the session can be torn down or the
+	// buffer cleared, or the delivered transcript would go unbilled.
+	private liveTranscriptionItem: string | null = null;
+	// Close code/reason to finish a drain with once every billable tail event
+	// has been captured.
+	private drainClose: { code: number; reason: string } | null = null;
 	// Serializes the async generation gates so two rapid response.create
 	// events can't both pass the checks before either marks itself in-flight.
 	private gateInProgress = false;
@@ -222,6 +243,16 @@ export class RealtimeProxySession {
 		this.pinnedVoice = options.pinnedVoice;
 		this.onClosed = options.onClosed;
 		this.clientQueue = this.upstreamConfigured;
+		this.transcriptionOnly = this.preflight.sessionType === "transcription";
+		if (this.transcriptionOnly) {
+			this.transcription = {
+				match: this.preflight.match,
+				requestedModel: this.requestedModel,
+			};
+			this.transcriptionEnabled = true;
+			this.desiredAutoRespond = false;
+			this.turnDetectionEnabled = false;
+		}
 
 		this.client.on("message", (data, isBinary) => {
 			this.clientQueue = this.clientQueue
@@ -282,7 +313,7 @@ export class RealtimeProxySession {
 						"Maximum realtime session duration reached. Reconnect to continue.",
 					),
 				);
-				this.shutdown(1000, "session_duration_limit");
+				this.drainOrShutdown(1000, "session_duration_limit");
 			}, maxSessionMs()),
 		);
 
@@ -364,6 +395,15 @@ export class RealtimeProxySession {
 				this.handleSessionUpdate(message);
 				return;
 			case "response.create":
+				if (this.transcriptionOnly) {
+					this.sendToClientRaw(
+						buildErrorEvent(
+							"response_not_supported",
+							"Transcription sessions only transcribe input audio and cannot generate responses. Open a realtime session to use response.create.",
+						),
+					);
+					return;
+				}
 				await this.handleResponseCreate(message);
 				return;
 			case "conversation.item.create":
@@ -377,6 +417,18 @@ export class RealtimeProxySession {
 					return;
 				}
 				this.forwardToUpstream(JSON.stringify(message));
+				return;
+			case "input_audio_buffer.clear":
+				// Clearing audio the provider has already transcribed live would
+				// discard the only event that carries its billable duration. Commit
+				// it first so the transcript the client already received is billed;
+				// the buffer is then empty and the clear proceeds as requested.
+				if (this.liveTranscriptionItem !== null) {
+					this.forwardToUpstream(
+						JSON.stringify({ type: "input_audio_buffer.commit" }),
+					);
+				}
+				this.forwardToUpstream(text);
 				return;
 			default:
 				this.forwardToUpstream(text);
@@ -451,6 +503,15 @@ export class RealtimeProxySession {
 		} | null = null;
 		let nextTranscriptionEnabled: boolean | null = null;
 		if (requestedTranscription !== undefined) {
+			if (requestedTranscription === null && this.transcriptionOnly) {
+				this.sendToClientRaw(
+					buildErrorEvent(
+						"transcription_model_required",
+						"A transcription session cannot disable input audio transcription.",
+					),
+				);
+				return;
+			}
 			if (requestedTranscription === null) {
 				// Disabling transcription is always allowed. The pinned mapping is
 				// deliberately kept: items committed while transcription was on still
@@ -486,20 +547,8 @@ export class RealtimeProxySession {
 					);
 					return;
 				}
-				if (
-					!this.preflight.allowedTranscriptionModelIds.includes(match.modelId)
-				) {
-					// Transcription bills a second model, so it must clear the same
-					// per-key IAM rules as the realtime model (resolved at connect
-					// time).
-					this.sendToClientRaw(
-						buildErrorEvent(
-							"transcription_model_not_allowed",
-							`This API key is not allowed to use the transcription model ${match.modelId}.`,
-						),
-					);
-					return;
-				}
+				// A pinned model is checked before IAM so the caller learns the model
+				// is locked rather than that it is merely disallowed.
 				if (
 					this.allowedTranscription &&
 					(match.mapping.providerId !==
@@ -510,7 +559,9 @@ export class RealtimeProxySession {
 					this.sendToClientRaw(
 						buildErrorEvent(
 							"transcription_model_locked",
-							"The transcription model was pinned when this session's client secret was created and cannot be changed.",
+							this.transcriptionOnly
+								? "The transcription model is pinned for this session and cannot be changed."
+								: "The transcription model was pinned when this session's client secret was created and cannot be changed.",
 						),
 					);
 					return;
@@ -526,6 +577,20 @@ export class RealtimeProxySession {
 						buildErrorEvent(
 							"transcription_model_locked",
 							"The transcription model is pinned for this session and cannot be changed.",
+						),
+					);
+					return;
+				}
+				if (
+					!this.preflight.allowedTranscriptionModelIds.includes(match.modelId)
+				) {
+					// Transcription bills a second model, so it must clear the same
+					// per-key IAM rules as the realtime model (resolved at connect
+					// time).
+					this.sendToClientRaw(
+						buildErrorEvent(
+							"transcription_model_not_allowed",
+							`This API key is not allowed to use the transcription model ${match.modelId}.`,
 						),
 					);
 					return;
@@ -590,7 +655,9 @@ export class RealtimeProxySession {
 			const fwdSession = cloneForwarded().session as Record<string, unknown>;
 			fwdSession.model = this.preflight.match.mapping.externalId;
 		}
-		if (turnDetection !== undefined) {
+		// A transcription session never generates, so its VAD config is forwarded
+		// untouched: there is no auto-response to take over.
+		if (turnDetection !== undefined && !this.transcriptionOnly) {
 			if (turnDetection === null) {
 				this.turnDetectionEnabled = false;
 			} else if (typeof turnDetection === "object") {
@@ -703,7 +770,7 @@ export class RealtimeProxySession {
 	}
 
 	private async maybeAutoRespond(): Promise<void> {
-		if (this.clientGone()) {
+		if (this.transcriptionOnly || this.clientGone()) {
 			// Server VAD can still commit residual audio while the session drains;
 			// starting a generation now bills a response nobody receives (and the
 			// drain timer may kill it mid-flight, leaving the provider's cost
@@ -869,12 +936,12 @@ export class RealtimeProxySession {
 					`This session has reached its spend limit ($${maxSessionSpendUsd()}). Reconnect to start a new session.`,
 				),
 			);
-			this.shutdown(1008, "session_spend_limit");
+			this.drainOrShutdown(1008, "session_spend_limit");
 			return;
 		}
-		const authorization = await this.authorizeAccount(
-			this.transcription?.match ?? this.preflight.match,
-		);
+		const transcriptionMatch =
+			this.transcription?.match ?? this.preflight.match;
+		const authorization = await this.authorizeAccount(transcriptionMatch);
 		if (!authorization.ok) {
 			if (authorization.severity === "transient") {
 				return;
@@ -882,8 +949,29 @@ export class RealtimeProxySession {
 			this.sendToClientRaw(
 				buildErrorEvent(authorization.code, authorization.message),
 			);
-			this.shutdown(1008, authorization.code);
+			this.drainOrShutdown(1008, authorization.code);
 			return;
+		}
+		// A transcription session never passes the generation gates, so each
+		// billed transcription is the unit that consumes the provider/model
+		// rate-limit slot instead. (Speech sessions consume it per generation;
+		// charging their input transcription too would double-count.)
+		if (this.transcriptionOnly) {
+			const rateLimit = await checkProviderRateLimit(
+				this.preflight.project.organizationId,
+				transcriptionMatch.mapping.providerId,
+				transcriptionMatch.modelId,
+			);
+			if (!rateLimit.allowed) {
+				this.sendToClientRaw(
+					buildErrorEvent(
+						"rate_limit_exceeded",
+						`Provider rate limit exceeded${rateLimit.retryAfter ? `; retry after ${rateLimit.retryAfter}s` : ""}.`,
+					),
+				);
+				this.drainOrShutdown(1008, "rate_limit_exceeded");
+				return;
+			}
 		}
 		if (this.preflight.usedMode !== "credits") {
 			return;
@@ -898,7 +986,7 @@ export class RealtimeProxySession {
 				"Organization has insufficient credits to continue this session.",
 			),
 		);
-		this.shutdown(1008, "insufficient_credits");
+		this.drainOrShutdown(1008, "insufficient_credits");
 	}
 
 	private canonicalModelId(match: RealtimeMappingMatch): string {
@@ -922,7 +1010,11 @@ export class RealtimeProxySession {
 	}
 
 	private normalizeSessionModelIds(session: Record<string, unknown>): void {
-		session.model = this.canonicalModelId(this.preflight.match);
+		// A transcription session object carries no session model; its only
+		// model is the transcription one, canonicalized below.
+		if (!this.transcriptionOnly) {
+			session.model = this.canonicalModelId(this.preflight.match);
+		}
 		const audio =
 			session.audio && typeof session.audio === "object"
 				? (session.audio as Record<string, unknown>)
@@ -992,6 +1084,30 @@ export class RealtimeProxySession {
 				this.normalizeSessionModelIds(session);
 				this.redactPinnedInstructions(session);
 				this.sendToClientRaw(JSON.stringify(event));
+				if (this.transcriptionOnly) {
+					// Pin the billed ASR model upstream before any client event, so
+					// audio committed by a client that never configures the model is
+					// still transcribed on the mapping this session bills.
+					this.suppressSessionUpdated += 1;
+					this.forwardToUpstream(
+						JSON.stringify({
+							type: "session.update",
+							event_id: TRANSCRIPTION_CONTROL_EVENT_ID,
+							session: {
+								type: "transcription",
+								audio: {
+									input: {
+										transcription: {
+											model: this.preflight.match.mapping.externalId,
+										},
+									},
+								},
+							},
+						}),
+					);
+					this.resolveUpstreamConfigured();
+					return;
+				}
 				// Disable the provider's automatic VAD response so every generation
 				// passes the gateway's authorization gates, and apply any pinned
 				// instructions and voice. The echoed session.updated for this
@@ -1060,9 +1176,40 @@ export class RealtimeProxySession {
 				await this.handleResponseDone(event, JSON.stringify(event));
 				return;
 			}
+			case "conversation.item.input_audio_transcription.delta": {
+				// A delta for an item that was never committed means the provider is
+				// transcribing the live buffer: from here on that audio is billable
+				// work that must be committed before teardown.
+				const itemId =
+					typeof event.item_id === "string" ? event.item_id : undefined;
+				if (itemId && !this.pendingTranscriptionItems.has(itemId)) {
+					this.pendingTranscriptionItems.add(itemId);
+					this.liveTranscriptionItem = itemId;
+				}
+				this.sendToClientRaw(text);
+				return;
+			}
+			case "input_audio_buffer.cleared": {
+				if (this.liveTranscriptionItem !== null) {
+					// The gateway commits live audio ahead of every clear, so the
+					// provider dropped it on its own: nothing carries its duration.
+					logger.error("Realtime live transcription audio cleared unbilled", {
+						sessionId: this.sessionRecordId,
+						itemId: this.liveTranscriptionItem,
+					});
+					this.pendingTranscriptionItems.delete(this.liveTranscriptionItem);
+					this.liveTranscriptionItem = null;
+					this.maybeFinishDrain();
+				}
+				this.sendToClientRaw(text);
+				return;
+			}
 			case "input_audio_buffer.committed": {
 				const itemId =
 					typeof event.item_id === "string" ? event.item_id : undefined;
+				if (itemId === this.liveTranscriptionItem) {
+					this.liveTranscriptionItem = null;
+				}
 				if (this.transcriptionEnabled && itemId) {
 					this.pendingTranscriptionItems.add(itemId);
 				}
@@ -1097,6 +1244,17 @@ export class RealtimeProxySession {
 					event.error && typeof event.error === "object"
 						? (event.error as Record<string, unknown>)
 						: undefined;
+				if (errorPayload?.event_id === TRANSCRIPTION_CONTROL_EVENT_ID) {
+					// Without the pin the provider transcribes on its own default
+					// model, whose usage this session cannot price.
+					logger.error(
+						"Realtime transcription model pin rejected upstream; closing session",
+						{ sessionId: this.sessionRecordId, error: errorPayload },
+					);
+					this.sendToClientRaw(text);
+					this.shutdown(1011, "transcription_pin_rejected");
+					return;
+				}
 				if (
 					this.suppressSessionUpdated > 0 &&
 					errorPayload?.event_id === AUTO_RESPONSE_CONTROL_EVENT_ID
@@ -1375,34 +1533,59 @@ export class RealtimeProxySession {
 			!this.responseInFlight &&
 			this.pendingTranscriptionItems.size === 0
 		) {
-			this.shutdown(1000, "client_disconnected");
+			this.shutdown(
+				this.drainClose?.code ?? 1000,
+				this.drainClose?.reason ?? "client_disconnected",
+			);
 		}
+	}
+
+	/**
+	 * Close the session, first draining any billable work still outstanding:
+	 * an in-flight response is cancelled and live-transcribed audio committed,
+	 * then the upstream stays open (bounded by the drain timeout) to capture
+	 * the terminal events that carry their usage. The client socket is closed
+	 * immediately so nothing new can start during the drain.
+	 */
+	private drainOrShutdown(code: number, reason: string): void {
+		if (this.finalized || this.draining) {
+			return;
+		}
+		if (
+			(this.responseInFlight ||
+				this.pendingTranscriptionItems.size > 0 ||
+				this.liveTranscriptionItem !== null) &&
+			this.upstream.readyState === WebSocket.OPEN
+		) {
+			this.draining = true;
+			this.drainClose = { code, reason };
+			if (this.responseInFlight) {
+				this.forwardToUpstream(JSON.stringify({ type: "response.cancel" }));
+			}
+			if (this.liveTranscriptionItem !== null) {
+				this.forwardToUpstream(
+					JSON.stringify({ type: "input_audio_buffer.commit" }),
+				);
+			}
+			try {
+				if (this.client.readyState === WebSocket.OPEN) {
+					this.client.close(code, reason.slice(0, 120));
+				}
+			} catch {
+				this.client.terminate();
+			}
+			this.drainTimer = setTimeout(() => {
+				this.shutdown(code, `${reason}_drain_timeout`);
+			}, drainTimeoutMs());
+			return;
+		}
+		this.shutdown(code, reason);
 	}
 
 	// --- Lifecycle ---
 
 	private async handleClientClose(): Promise<void> {
-		if (this.finalized || this.draining) {
-			return;
-		}
-		if (
-			(this.responseInFlight || this.pendingTranscriptionItems.size > 0) &&
-			this.upstream.readyState === WebSocket.OPEN
-		) {
-			// Cancel in-flight work but keep the upstream open briefly to capture
-			// the terminal events that carry billable usage: the cancelled
-			// response's response.done and any outstanding transcription
-			// completed/failed events.
-			this.draining = true;
-			if (this.responseInFlight) {
-				this.forwardToUpstream(JSON.stringify({ type: "response.cancel" }));
-			}
-			this.drainTimer = setTimeout(() => {
-				this.shutdown(1000, "client_disconnected_drain_timeout");
-			}, drainTimeoutMs());
-			return;
-		}
-		this.shutdown(1000, "client_disconnected");
+		this.drainOrShutdown(1000, "client_disconnected");
 	}
 
 	private handleUpstreamClose(code: number): void {
@@ -1416,12 +1599,12 @@ export class RealtimeProxySession {
 	}
 
 	/**
-	 * Force-close from outside (server drain). This provider reports usage
-	 * inside the terminal event itself, so there is never a buffered snapshot
-	 * awaiting a charge and closing is an immediate hard stop.
+	 * Force-close from outside (server drain). Outstanding billable work is
+	 * drained first, within the drain timeout, which the server's shutdown
+	 * grace period covers.
 	 */
 	public close(code: number, reason: string): void {
-		this.shutdown(code, reason);
+		this.drainOrShutdown(code, reason);
 	}
 
 	/**
@@ -1476,7 +1659,8 @@ export class RealtimeProxySession {
 				reason === "billing_unavailable" ||
 				reason === "upstream_protocol_error" ||
 				reason === "unbillable_response" ||
-				reason === "unbillable_transcription"
+				reason === "unbillable_transcription" ||
+				reason === "transcription_pin_rejected"
 				? "error"
 				: "closed",
 			reason,

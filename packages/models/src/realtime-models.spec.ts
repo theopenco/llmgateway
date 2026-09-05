@@ -125,14 +125,38 @@ describe("realtime model catalogue validation", () => {
 		"%s declares required transcription prices",
 		(_id, entry) => {
 			const { mapping } = entry;
-			// Transcription usage is token-metered per modality: text input, audio
-			// input, and text output must all be priceable, or completed
-			// transcription events would be unbillable.
-			expect(mapping.inputPrice).toBeDefined();
-			expect(mapping.inputAudioPrice).toBeDefined();
-			expect(mapping.outputPrice).toBeDefined();
+			// A completed transcription event is priced either per token (text
+			// input, audio input, text output) or per audio duration; a mapping
+			// declaring neither would produce unbillable events.
+			const tokenPriced =
+				mapping.inputPrice !== undefined &&
+				mapping.inputAudioPrice !== undefined &&
+				mapping.outputPrice !== undefined;
+			const durationPriced = mapping.inputAudioHourPrice !== undefined;
+			expect(tokenPriced || durationPriced).toBe(true);
 			expect(mapping.audio).toBe(true);
 			expect(mapping.test).toBe("skip");
 		},
 	);
+
+	it("declares the gpt-live-transcribe mapping exactly", () => {
+		const entry = transcriptionEntries.find(
+			(e) => e.model.id === "gpt-live-transcribe",
+		);
+		expect(entry).toBeDefined();
+		const { model, mapping } = entry!;
+		expect(model.output).toEqual(["text"]);
+		expect(mapping.providerId).toBe("openai");
+		expect(mapping.externalId).toBe("gpt-live-transcribe");
+		// $0.017 per minute of audio, expressed per hour.
+		expect(mapping.inputAudioHourPrice).toBe("1.02");
+		expect(mapping.requestPrice).toBe("0");
+		// Duration-billed only: the token prices are the catalogue's zero
+		// placeholders, which the billing path treats as absent so a token usage
+		// block fails closed instead of billing nothing.
+		expect(mapping.inputPrice).toBe("0");
+		expect(mapping.outputPrice).toBe("0");
+		expect(mapping.inputAudioPrice).toBeUndefined();
+		expect(mapping.realtime).toBeUndefined();
+	});
 });

@@ -109,6 +109,52 @@ export function findRealtimeTranscriptionMapping(
 }
 
 /**
+ * Resolve the model of a transcription-only session
+ * (`/v1/realtime?intent=transcription`): any active `realtimeTranscription`
+ * mapping, honoring a "provider/model" pinned form, with the first eligible
+ * mapping in definition order winning. Unlike findRealtimeTranscriptionMapping
+ * there is no enclosing speech-to-speech session to fix the provider, so the
+ * mapping itself decides which upstream the session connects to.
+ */
+export function findTranscriptionSessionMapping(
+	requestedModel: string,
+	now: Date = new Date(),
+): RealtimeMappingMatch | null {
+	let requestedProvider: string | undefined;
+	let modelKey = requestedModel;
+	const slashIdx = requestedModel.indexOf("/");
+	if (slashIdx > 0) {
+		requestedProvider = requestedModel.slice(0, slashIdx);
+		modelKey = requestedModel.slice(slashIdx + 1);
+	}
+
+	for (const rawModel of modelDefinitions) {
+		const model = rawModel as ModelDefinition;
+		if (model.id !== modelKey && !model.aliases?.includes(modelKey)) {
+			continue;
+		}
+		for (const mapping of model.providers) {
+			const candidate = mapping as ProviderModelMapping;
+			if (candidate.realtimeTranscription !== true) {
+				continue;
+			}
+			if (requestedProvider && candidate.providerId !== requestedProvider) {
+				continue;
+			}
+			if (candidate.deactivatedAt && now > candidate.deactivatedAt) {
+				continue;
+			}
+			return {
+				modelDef: model,
+				mapping: candidate,
+				modelId: model.id,
+			};
+		}
+	}
+	return null;
+}
+
+/**
  * Every active `realtimeTranscription` mapping for a provider. Used to resolve
  * which ASR models an API key's IAM rules actually permit, once per session,
  * instead of per session.update.

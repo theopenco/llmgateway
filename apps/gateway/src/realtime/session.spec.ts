@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { assertMemberProjectAccess } from "@/lib/api-key-usage-limits.js";
 import { findApiKeyByToken } from "@/lib/cached-queries.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
+import { checkProviderRateLimit } from "@/lib/provider-rate-limit.js";
 
 import {
 	closeRealtimeSessionRecord,
@@ -837,6 +838,342 @@ describe("RealtimeProxySession transcription", () => {
 			"rts_1",
 			"error",
 			expect.stringContaining("unpriceable_transcription"),
+			expect.anything(),
+		);
+
+		session.shutdown(1000, "test_done");
+	});
+});
+
+describe("RealtimeProxySession transcription sessions", () => {
+	const transcriptionMatch = {
+		modelId: "gpt-live-transcribe",
+		modelDef: { id: "gpt-live-transcribe" },
+		mapping: {
+			providerId: "openai",
+			externalId: "gpt-live-transcribe",
+			inputPrice: "0",
+			outputPrice: "0",
+			inputAudioHourPrice: "1.02",
+		},
+	} as unknown as RealtimeMappingMatch;
+
+	function createTranscriptionSession() {
+		return createSession(
+			{
+				sessionType: "transcription",
+				match: transcriptionMatch,
+				allowedTranscriptionModelIds: ["gpt-live-transcribe"],
+			},
+			transcriptionMatch,
+		);
+	}
+
+	it("pins the transcription model upstream on session.created and hides the echo", async () => {
+		const { client, upstream, session, upstreamSends } =
+			createTranscriptionSession();
+
+		upstreamSends({
+			type: "session.created",
+			session: { id: "sess_1", type: "transcription" },
+		});
+		upstreamSends({
+			type: "session.updated",
+			session: { id: "sess_1", type: "transcription" },
+		});
+		await flush();
+
+		expect(upstream.sent).toHaveLength(1);
+		const control = JSON.parse(upstream.sent[0]) as {
+			type: string;
+			event_id: string;
+			session: {
+				type: string;
+				audio: { input: { transcription: { model: string } } };
+			};
+		};
+		expect(control.type).toBe("session.update");
+		expect(control.event_id).toBe("event_lmg_pin_transcription_model");
+		expect(control.session.type).toBe("transcription");
+		expect(control.session.audio.input.transcription.model).toBe(
+			"gpt-live-transcribe",
+		);
+		// The control echo is suppressed; the created event is forwarded without
+		// a realtime session model stamped onto it.
+		expect(client.sent).toHaveLength(1);
+		const created = JSON.parse(client.sent[0]) as {
+			type: string;
+			session: { model?: string };
+		};
+		expect(created.type).toBe("session.created");
+		expect(created.session.model).toBeUndefined();
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("rejects response.create", async () => {
+		const { client, upstream, session, clientSends } = await openSession(
+			createTranscriptionSession(),
+		);
+
+		clientSends({ type: "response.create" });
+		await flush();
+
+		expect(upstream.sent).toHaveLength(0);
+		expect(client.sent.some((m) => m.includes("response_not_supported"))).toBe(
+			true,
+		);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("does not start a response for committed audio", async () => {
+		const { upstream, session, upstreamSends } = await openSession(
+			createTranscriptionSession(),
+		);
+
+		upstreamSends({ type: "input_audio_buffer.committed", item_id: "item_1" });
+		await flush();
+
+		expect(upstream.sent.some((m) => m.includes("response.create"))).toBe(
+			false,
+		);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("bills duration usage against the per-hour audio price", async () => {
+		const { client, session, upstreamSends } = await openSession(
+			createTranscriptionSession(),
+		);
+
+		upstreamSends({ type: "input_audio_buffer.committed", item_id: "item_1" });
+		upstreamSends({
+			type: "conversation.item.input_audio_transcription.completed",
+			item_id: "item_1",
+			content_index: 0,
+			transcript: "hello",
+			usage: { type: "duration", seconds: 90 },
+		});
+		await flush();
+
+		expect(recordRealtimeTranscription).toHaveBeenCalledTimes(1);
+		const input = vi.mocked(recordRealtimeTranscription).mock.calls[0][0];
+		expect(input.transcription.modelId).toBe("gpt-live-transcribe");
+		expect(input.usage.inputAudioSeconds).toBe(90);
+		expect(input.costs.totalCost.toString()).toBe("0.0255");
+		expect(input.pricingSnapshot.audioInputHour).toBe("1.02");
+		expect(
+			client.sent.some((m) =>
+				m.includes("input_audio_transcription.completed"),
+			),
+		).toBe(true);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("keeps the transcription model locked and forwards other config", async () => {
+		const { client, upstream, session, clientSends } = await openSession(
+			createTranscriptionSession(),
+		);
+
+		clientSends({
+			type: "session.update",
+			session: {
+				type: "transcription",
+				audio: { input: { transcription: null } },
+			},
+		});
+		clientSends({
+			type: "session.update",
+			session: {
+				type: "transcription",
+				audio: { input: { transcription: { model: "gpt-4o-transcribe" } } },
+			},
+		});
+		await flush();
+		expect(
+			client.sent.some((m) => m.includes("transcription_model_required")),
+		).toBe(true);
+		expect(
+			client.sent.some((m) => m.includes("transcription_model_locked")),
+		).toBe(true);
+		expect(upstream.sent).toHaveLength(0);
+
+		clientSends({
+			type: "session.update",
+			session: {
+				type: "transcription",
+				audio: {
+					input: {
+						transcription: {
+							model: "openai/gpt-live-transcribe",
+							delay: "low",
+						},
+						turn_detection: null,
+					},
+				},
+			},
+		});
+		await flush();
+		expect(upstream.sent).toHaveLength(1);
+		const forwarded = JSON.parse(upstream.sent[0]) as {
+			session: {
+				audio: {
+					input: {
+						transcription: { model: string; delay: string };
+						turn_detection: null;
+					};
+				};
+			};
+		};
+		expect(forwarded.session.audio.input.transcription).toEqual({
+			model: "gpt-live-transcribe",
+			delay: "low",
+		});
+		expect(forwarded.session.audio.input.turn_detection).toBeNull();
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("commits live-transcribed audio on disconnect and bills it before closing", async () => {
+		const { client, upstream, session, upstreamSends } = await openSession(
+			createTranscriptionSession(),
+		);
+
+		// Streaming ASR emits deltas for audio the client never committed.
+		upstreamSends({
+			type: "conversation.item.input_audio_transcription.delta",
+			item_id: "item_live",
+			delta: "Hello",
+		});
+		await flush();
+		client.emit("close");
+		await flush();
+
+		// The gateway commits the live buffer and keeps the upstream open.
+		expect(
+			upstream.sent.some((m) => m.includes("input_audio_buffer.commit")),
+		).toBe(true);
+		expect(upstream.closed).toHaveLength(0);
+		expect(closeRealtimeSessionRecord).not.toHaveBeenCalled();
+
+		upstreamSends({
+			type: "input_audio_buffer.committed",
+			item_id: "item_live",
+		});
+		upstreamSends({
+			type: "conversation.item.input_audio_transcription.completed",
+			item_id: "item_live",
+			content_index: 0,
+			transcript: "Hello",
+			usage: { type: "duration", seconds: 2 },
+		});
+		await flush();
+
+		expect(recordRealtimeTranscription).toHaveBeenCalledTimes(1);
+		expect(closeRealtimeSessionRecord).toHaveBeenCalledWith(
+			"rts_1",
+			"closed",
+			"client_disconnected",
+			expect.anything(),
+		);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("commits live-transcribed audio ahead of a client clear", async () => {
+		const { upstream, session, clientSends, upstreamSends } = await openSession(
+			createTranscriptionSession(),
+		);
+
+		upstreamSends({
+			type: "conversation.item.input_audio_transcription.delta",
+			item_id: "item_live",
+			delta: "Hello",
+		});
+		await flush();
+		clientSends({ type: "input_audio_buffer.clear" });
+		await flush();
+
+		expect(upstream.sent.map((m) => JSON.parse(m).type)).toEqual([
+			"input_audio_buffer.commit",
+			"input_audio_buffer.clear",
+		]);
+
+		// A clear with nothing live is forwarded as is.
+		upstreamSends({
+			type: "input_audio_buffer.committed",
+			item_id: "item_live",
+		});
+		upstream.sent.length = 0;
+		clientSends({ type: "input_audio_buffer.clear" });
+		await flush();
+		expect(upstream.sent.map((m) => JSON.parse(m).type)).toEqual([
+			"input_audio_buffer.clear",
+		]);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("closes the session when the provider rate limit is exhausted", async () => {
+		vi.mocked(checkProviderRateLimit).mockResolvedValueOnce({
+			allowed: false,
+			rateLimited: true,
+			blockedBy: ["rpm"],
+			retryAfter: 30,
+		} as unknown as Awaited<ReturnType<typeof checkProviderRateLimit>>);
+		const { client, session, upstreamSends } = await openSession(
+			createTranscriptionSession(),
+		);
+
+		upstreamSends({ type: "input_audio_buffer.committed", item_id: "item_1" });
+		upstreamSends({
+			type: "conversation.item.input_audio_transcription.completed",
+			item_id: "item_1",
+			content_index: 0,
+			transcript: "hello",
+			usage: { type: "duration", seconds: 4 },
+		});
+		await flush();
+
+		expect(checkProviderRateLimit).toHaveBeenCalledWith(
+			"org_1",
+			"openai",
+			"gpt-live-transcribe",
+		);
+		expect(client.sent.some((m) => m.includes("rate_limit_exceeded"))).toBe(
+			true,
+		);
+		expect(closeRealtimeSessionRecord).toHaveBeenCalledWith(
+			"rts_1",
+			"closed",
+			"rate_limit_exceeded",
+			expect.anything(),
+		);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("closes the session when the upstream rejects the model pin", async () => {
+		const { session, upstreamSends } = await openSession(
+			createTranscriptionSession(),
+		);
+
+		upstreamSends({
+			type: "error",
+			error: {
+				type: "invalid_request_error",
+				event_id: "event_lmg_pin_transcription_model",
+				message: "Unsupported model",
+			},
+		});
+		await flush();
+
+		expect(closeRealtimeSessionRecord).toHaveBeenCalledWith(
+			"rts_1",
+			"error",
+			"transcription_pin_rejected",
 			expect.anything(),
 		);
 

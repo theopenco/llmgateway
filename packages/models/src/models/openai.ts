@@ -3131,4 +3131,31 @@ export const openaiModels = [
 			},
 		],
 	},
+	{
+		id: "gpt-live-transcribe",
+		name: "GPT Live Transcribe",
+		description:
+			"OpenAI's low-latency streaming speech-to-text model. Served only through the gateway's /v1/realtime WebSocket endpoint as a transcription session (intent=transcription) or as the input-audio transcription model of a speech-to-speech session, billed per minute of audio.",
+		family: "openai",
+		output: ["text"],
+		stability: "beta",
+		releasedAt: new Date("2026-07-28"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "gpt-live-transcribe",
+				inputPrice: "0",
+				outputPrice: "0",
+				inputAudioHourPrice: "1.02",
+				requestPrice: "0",
+				streaming: false,
+				vision: false,
+				audio: true,
+				tools: false,
+				jsonOutput: false,
+				realtimeTranscription: true,
+				test: "skip",
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];
