@@ -12,7 +12,6 @@ import {
 
 describe("shouldRedactProviderError", () => {
 	it("returns true for stealth providers", () => {
-		expect(shouldRedactProviderError("granite")).toBe(true);
 		expect(shouldRedactProviderError("glacier")).toBe(true);
 		expect(shouldRedactProviderError("quartz")).toBe(true);
 	});
@@ -24,16 +23,15 @@ describe("shouldRedactProviderError", () => {
 		expect(shouldRedactProviderError("custom")).toBe(false);
 	});
 
-	it("returns false for missing providers", () => {
+	it("returns false for missing or unknown providers", () => {
 		expect(shouldRedactProviderError(null)).toBe(false);
 		expect(shouldRedactProviderError(undefined)).toBe(false);
 		expect(shouldRedactProviderError("")).toBe(false);
+		expect(shouldRedactProviderError("not-a-provider")).toBe(false);
 	});
 
-	it("fails closed for removed or unknown provider definitions", () => {
-		expect(shouldRedactProviderError("iceberg")).toBe(true);
-		expect(shouldRedactProviderError("granite")).toBe(true);
-		expect(shouldRedactProviderError("not-a-provider")).toBe(true);
+	it("does not redact Airside custom carriers, which have no catalogue definition", () => {
+		expect(shouldRedactProviderError("acme-carrier")).toBe(false);
 	});
 });
 
@@ -86,13 +84,13 @@ describe("buildUpstreamErrorClientPayload", () => {
 
 	it("redacts the body and upstream status text for stealth providers", () => {
 		const payload = buildUpstreamErrorClientPayload(
-			"granite",
+			"glacier",
 			500,
 			"SecretVendor exploded",
 			'{"error":{"message":"SecretVendor internal error"}}',
 		);
 		expect(payload.message).toBe(
-			"Error from provider granite: 500 Internal Server Error",
+			"Error from provider glacier: 500 Internal Server Error",
 		);
 		expect(payload.responseText).toBe(
 			"Upstream provider error (500 Internal Server Error)",

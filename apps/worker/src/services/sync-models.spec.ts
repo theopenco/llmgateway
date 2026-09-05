@@ -49,20 +49,31 @@ describe("sync-models", () => {
 		expect(openaiProvider?.status).toBe("active");
 	});
 
-	it("retains removed provider rows and leaves registered Airside carriers active", async () => {
-		await db.insert(provider).values(
-			["removed-provider-test", "custom-carrier-test"].map((id) => ({
-				id,
-				name: id,
+	it("retains removed provider rows and leaves Airside carrier rows to the carrier", async () => {
+		const removed = "removed-provider-test";
+		const carrier = "custom-carrier-test";
+		const pendingCarrier = "pending-carrier-test";
+		await db.insert(provider).values([
+			{
+				id: removed,
+				name: removed,
 				description: "Historical provider",
 				logsCount: 42,
-			})),
-		);
+			},
+			// Deactivated by a sync that raced the claim approval.
+			{
+				id: carrier,
+				name: carrier,
+				description: "Carrier",
+				status: "inactive",
+			},
+			{ id: pendingCarrier, name: pendingCarrier, description: "Carrier" },
+		]);
 		await db
 			.insert(model)
 			.values({ id: "removed-mapping-test", family: "test" });
 		await db.insert(modelProviderMapping).values(
-			["removed-provider-test", "custom-carrier-test"].map((providerId) => ({
+			[removed, carrier, pendingCarrier].map((providerId) => ({
 				id: providerId,
 				providerId,
 				modelId: "removed-mapping-test",
@@ -70,56 +81,64 @@ describe("sync-models", () => {
 				inputPrice: "1.4e-6",
 				logsCount: 42,
 				source:
-					providerId === "custom-carrier-test"
-						? ("airside" as const)
-						: ("catalogue" as const),
+					providerId === removed
+						? ("catalogue" as const)
+						: ("airside" as const),
 			})),
 		);
 		await db
 			.insert(tables.providerCompany)
 			.values({ id: "sync-test-company", name: "Test carrier company" });
-		await db.insert(tables.providerClaim).values({
-			providerCompanyId: "sync-test-company",
-			providerId: "custom-carrier-test",
-			kind: "custom",
-			status: "active",
-			matchedDomain: "example.com",
+		await db.insert(tables.providerClaim).values(
+			[carrier, pendingCarrier].map((providerId) => ({
+				providerCompanyId: "sync-test-company",
+				providerId,
+				kind: "custom" as const,
+				status:
+					providerId === carrier ? ("active" as const) : ("pending" as const),
+				matchedDomain: "example.com",
+			})),
+		);
+		const statusOf = async (id: string) => ({
+			provider: (
+				await db.query.provider.findFirst({ where: { id: { eq: id } } })
+			)?.status,
+			mapping: (
+				await db.query.modelProviderMapping.findFirst({
+					where: { id: { eq: id } },
+				})
+			)?.status,
 		});
 		try {
 			await syncProvidersAndModels();
 			await syncProvidersAndModels();
 			const oldProvider = await db.query.provider.findFirst({
-				where: { id: { eq: "removed-provider-test" } },
+				where: { id: { eq: removed } },
 			});
 			const oldMapping = await db.query.modelProviderMapping.findFirst({
-				where: { id: { eq: "removed-provider-test" } },
+				where: { id: { eq: removed } },
 			});
 			expect(oldProvider).toMatchObject({
-				name: "removed-provider-test",
+				name: removed,
 				status: "inactive",
 				logsCount: 42,
 			});
 			expect(oldMapping).toMatchObject({
-				id: "removed-provider-test",
+				id: removed,
 				externalId: "old-upstream-model",
 				status: "inactive",
 				logsCount: 42,
 			});
 			expect(Number(oldMapping?.inputPrice)).toBe(1.4e-6);
-			expect(
-				(
-					await db.query.provider.findFirst({
-						where: { id: { eq: "custom-carrier-test" } },
-					})
-				)?.status,
-			).toBe("active");
-			expect(
-				(
-					await db.query.modelProviderMapping.findFirst({
-						where: { id: { eq: "custom-carrier-test" } },
-					})
-				)?.status,
-			).toBe("active");
+			expect(await statusOf(carrier)).toEqual({
+				provider: "active",
+				mapping: "active",
+			});
+			// Airside mappings are only ever (de)materialized by the carrier flow.
+			expect(await statusOf(pendingCarrier)).toEqual({
+				provider: "inactive",
+				mapping: "active",
+			});
 		} finally {
 			await db
 				.delete(tables.providerCompany)

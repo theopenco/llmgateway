@@ -9,6 +9,7 @@ import {
 	sql,
 	isNotNull,
 	isNull,
+	inArray,
 	notInArray,
 	getCatalogueProviderIds,
 } from "@llmgateway/db";
@@ -35,12 +36,25 @@ export async function syncProvidersAndModels() {
 					notInArray(provider.id, catalogueProviderIds),
 				),
 			);
+		// A row deactivated while its carrier claim was still pending comes back
+		// once the claim is active; nothing else re-activates provider rows.
+		await database
+			.update(provider)
+			.set({ status: "active" })
+			.where(
+				and(
+					eq(provider.status, "inactive"),
+					inArray(provider.id, catalogueProviderIds),
+				),
+			);
+		// Airside rows are carrier-managed and never follow the static catalogue.
 		await database
 			.update(modelProviderMapping)
 			.set({ status: "inactive" })
 			.where(
 				and(
 					eq(modelProviderMapping.status, "active"),
+					eq(modelProviderMapping.source, "catalogue"),
 					notInArray(modelProviderMapping.providerId, catalogueProviderIds),
 				),
 			);
