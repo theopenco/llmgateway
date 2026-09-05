@@ -21,13 +21,19 @@ describe("shouldRedactProviderError", () => {
 		expect(shouldRedactProviderError("openai")).toBe(false);
 		expect(shouldRedactProviderError("anthropic")).toBe(false);
 		expect(shouldRedactProviderError("aws-bedrock")).toBe(false);
+		expect(shouldRedactProviderError("custom")).toBe(false);
 	});
 
-	it("returns false for missing or unknown providers", () => {
+	it("returns false for missing providers", () => {
 		expect(shouldRedactProviderError(null)).toBe(false);
 		expect(shouldRedactProviderError(undefined)).toBe(false);
 		expect(shouldRedactProviderError("")).toBe(false);
-		expect(shouldRedactProviderError("not-a-provider")).toBe(false);
+	});
+
+	it("fails closed for removed or unknown provider definitions", () => {
+		expect(shouldRedactProviderError("iceberg")).toBe(true);
+		expect(shouldRedactProviderError("granite")).toBe(true);
+		expect(shouldRedactProviderError("not-a-provider")).toBe(true);
 	});
 });
 

@@ -9,6 +9,8 @@ import {
 	sql,
 	isNotNull,
 	isNull,
+	notInArray,
+	getCatalogueProviderIds,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -22,6 +24,26 @@ export async function syncProvidersAndModels() {
 
 	try {
 		const database = db;
+		const catalogueProviderIds = [...(await getCatalogueProviderIds())];
+		// Preserve removed providers and every referencing row for historical reads.
+		await database
+			.update(provider)
+			.set({ status: "inactive" })
+			.where(
+				and(
+					eq(provider.status, "active"),
+					notInArray(provider.id, catalogueProviderIds),
+				),
+			);
+		await database
+			.update(modelProviderMapping)
+			.set({ status: "inactive" })
+			.where(
+				and(
+					eq(modelProviderMapping.status, "active"),
+					notInArray(modelProviderMapping.providerId, catalogueProviderIds),
+				),
+			);
 
 		for (const providerDef of providers) {
 			await database

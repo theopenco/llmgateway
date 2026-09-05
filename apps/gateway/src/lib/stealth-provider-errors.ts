@@ -1,6 +1,6 @@
 import { STATUS_CODES } from "node:http";
 
-import { isStealthProvider } from "@llmgateway/models";
+import { getProviderDefinition, isStealthProvider } from "@llmgateway/models";
 
 import type { errorDetails } from "@llmgateway/db";
 import type { ProviderId } from "@llmgateway/models";
@@ -19,10 +19,14 @@ type ErrorDetails = z.infer<typeof errorDetails>;
 export function shouldRedactProviderError(
 	provider: string | null | undefined,
 ): boolean {
-	if (!provider) {
+	if (!provider || provider === "custom") {
 		return false;
 	}
-	return isStealthProvider(provider as ProviderId);
+	// Deleted definitions must not make historical or in-flight errors public.
+	return (
+		!getProviderDefinition(provider) ||
+		isStealthProvider(provider as ProviderId)
+	);
 }
 
 export function canonicalStatusText(statusCode: number): string {

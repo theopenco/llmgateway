@@ -366,42 +366,6 @@ export function getProviderEndpoint(
 					);
 				}
 				break;
-			case "iceberg":
-				url =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"iceberg",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-				if (!url) {
-					throw new Error(
-						"Iceberg provider requires LLM_ICEBERG_BASE_URL environment variable",
-					);
-				}
-				break;
-			case "granite":
-				url =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"granite",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-				if (!url) {
-					throw new Error(
-						"Granite provider requires LLM_GRANITE_BASE_URL environment variable",
-					);
-				}
-				break;
 			case "vertex-openai": {
 				const vertexOpenaiDefaultHost =
 					regionBaseUrl ?? "https://aiplatform.googleapis.com";
@@ -669,8 +633,7 @@ export function getProviderEndpoint(
 				? `${baseEndpoint}?${queryParams.join("&")}`
 				: baseEndpoint;
 		}
-		case "glacier":
-		case "iceberg": {
+		case "glacier": {
 			const endpoint = stream ? "streamGenerateContent" : "generateContent";
 			const baseEndpoint = externalId
 				? `${url}/v1beta/models/${externalId}:${endpoint}`

@@ -1,6 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
-import { db, provider, model, modelProviderMapping, eq } from "@llmgateway/db";
+import {
+	db,
+	provider,
+	model,
+	modelProviderMapping,
+	eq,
+	tables,
+} from "@llmgateway/db";
 
 import { syncProvidersAndModels } from "./sync-models.js";
 
@@ -40,6 +47,84 @@ describe("sync-models", () => {
 		expect(openaiProvider?.name).toBe("OpenAI");
 		expect(openaiProvider?.streaming).toBe(true);
 		expect(openaiProvider?.status).toBe("active");
+	});
+
+	it("retains removed provider rows and leaves registered Airside carriers active", async () => {
+		await db.insert(provider).values(
+			["removed-provider-test", "custom-carrier-test"].map((id) => ({
+				id,
+				name: id,
+				description: "Historical provider",
+				logsCount: 42,
+			})),
+		);
+		await db
+			.insert(model)
+			.values({ id: "removed-mapping-test", family: "test" });
+		await db.insert(modelProviderMapping).values(
+			["removed-provider-test", "custom-carrier-test"].map((providerId) => ({
+				id: providerId,
+				providerId,
+				modelId: "removed-mapping-test",
+				externalId: "old-upstream-model",
+				inputPrice: "1.4e-6",
+				logsCount: 42,
+				source:
+					providerId === "custom-carrier-test"
+						? ("airside" as const)
+						: ("catalogue" as const),
+			})),
+		);
+		await db
+			.insert(tables.providerCompany)
+			.values({ id: "sync-test-company", name: "Test carrier company" });
+		await db.insert(tables.providerClaim).values({
+			providerCompanyId: "sync-test-company",
+			providerId: "custom-carrier-test",
+			kind: "custom",
+			status: "active",
+			matchedDomain: "example.com",
+		});
+		try {
+			await syncProvidersAndModels();
+			await syncProvidersAndModels();
+			const oldProvider = await db.query.provider.findFirst({
+				where: { id: { eq: "removed-provider-test" } },
+			});
+			const oldMapping = await db.query.modelProviderMapping.findFirst({
+				where: { id: { eq: "removed-provider-test" } },
+			});
+			expect(oldProvider).toMatchObject({
+				name: "removed-provider-test",
+				status: "inactive",
+				logsCount: 42,
+			});
+			expect(oldMapping).toMatchObject({
+				id: "removed-provider-test",
+				externalId: "old-upstream-model",
+				status: "inactive",
+				logsCount: 42,
+			});
+			expect(Number(oldMapping?.inputPrice)).toBe(1.4e-6);
+			expect(
+				(
+					await db.query.provider.findFirst({
+						where: { id: { eq: "custom-carrier-test" } },
+					})
+				)?.status,
+			).toBe("active");
+			expect(
+				(
+					await db.query.modelProviderMapping.findFirst({
+						where: { id: { eq: "custom-carrier-test" } },
+					})
+				)?.status,
+			).toBe("active");
+		} finally {
+			await db
+				.delete(tables.providerCompany)
+				.where(eq(tables.providerCompany.id, "sync-test-company"));
+		}
 	});
 
 	it("should sync models from @llmgateway/models package", async () => {

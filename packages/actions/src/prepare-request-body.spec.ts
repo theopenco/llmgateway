@@ -7819,15 +7819,6 @@ describe("prepareRequestBody - developer role normalization", () => {
 		)) as any;
 	}
 
-	test("rewrites developer to system for a mapping with supportsDeveloperRole: false (granite/glm-5.2)", async () => {
-		const requestBody = await prepare("granite", "glm-5.2");
-		expect(requestBody.messages[0].role).toBe("system");
-		expect(requestBody.messages[0].content).toBe(
-			"You are a helpful assistant.",
-		);
-		expect(requestBody.messages[1].role).toBe("user");
-	});
-
 	test("rewrites developer to system for alibaba/glm-5.2 (supportsDeveloperRole: false)", async () => {
 		const requestBody = await prepare("alibaba", "glm-5.2");
 		expect(requestBody.messages[0].role).toBe("system");
