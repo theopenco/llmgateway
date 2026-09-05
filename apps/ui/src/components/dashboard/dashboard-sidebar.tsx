@@ -223,6 +223,12 @@ const ORGANIZATION_NAVIGATION: readonly {
 		enterpriseGated: true,
 	},
 	{
+		href: "org/skills",
+		label: "Skills",
+		icon: AnimatedTerminal,
+		enterpriseGated: true,
+	},
+	{
 		href: "org/guardrails",
 		label: "Guardrails",
 		icon: AnimatedShield,
@@ -764,9 +770,7 @@ function OrganizationSection({
 	);
 }
 
-// Org-level entries visible to project-scoped "developer" members: the custom
-// models catalog is readable by every active member, so developers get a
-// read-only view of the providers and models their org makes available.
+// Organization resources available to project-scoped developers.
 function DeveloperOrgSection({
 	isActive,
 	isMobile,
@@ -795,6 +799,16 @@ function DeveloperOrgSection({
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
 					/>
+					{isEnterprise && (
+						<OrgNavItem
+							href={buildOrgUrl("org/skills")}
+							label="Skills"
+							icon={AnimatedTerminal}
+							isActive={isActive("org/skills")}
+							isMobile={isMobile}
+							toggleSidebar={toggleSidebar}
+						/>
+					)}
 				</SidebarMenu>
 			</SidebarGroupContent>
 		</SidebarGroup>
@@ -1270,6 +1284,16 @@ export function DashboardSidebar({
 					section: "Organization",
 					icon: AnimatedBotMessageSquare,
 				},
+				...(selectedOrganization?.enterpriseAccess === true
+					? [
+							{
+								href: buildOrgUrl("org/skills"),
+								label: "Skills",
+								section: "Organization",
+								icon: AnimatedTerminal,
+							},
+						]
+					: []),
 			];
 		}
 
@@ -1314,7 +1338,14 @@ export function DashboardSidebar({
 				external: !item.internal,
 			})),
 		];
-	}, [isDeveloper, buildUrl, buildOrgUrl, searchParams, toolsResources]);
+	}, [
+		isDeveloper,
+		selectedOrganization?.enterpriseAccess,
+		buildUrl,
+		buildOrgUrl,
+		searchParams,
+		toolsResources,
+	]);
 
 	const searchMatches = useMemo(
 		() => filterSearchableLinks(searchableLinks, searchQuery),
