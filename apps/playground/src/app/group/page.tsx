@@ -13,12 +13,12 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Group Chat — Compare AI Models Side by Side",
 	description:
-		"Send one prompt to multiple AI models simultaneously. Compare responses from GPT-5, Claude, Gemini, and more in real time.",
+		"Send one prompt to multiple AI models and compare streamed responses, latency, and cost side by side in Lounge.",
 	alternates: { canonical: "/group" },
 	openGraph: {
 		title: "Group Chat — Compare AI Models Side by Side | Lounge",
 		description:
-			"Send one prompt to multiple AI models simultaneously. Compare responses from GPT-5, Claude, Gemini, and more in real time.",
+			"Send one prompt to multiple AI models and compare streamed responses, latency, and cost side by side in Lounge.",
 		type: "website",
 		url: "https://lounge.llmgateway.io/group",
 	},
@@ -98,6 +98,10 @@ export default async function GroupPage({
 		null;
 
 	// Ensure we have projects for the selected organization (when orgId not provided)
+	if (!selectedOrganization) {
+		return <PlaygroundSeoSection variant="group" />;
+	}
+
 	if (!initialProjectsData && selectedOrganization?.id) {
 		try {
 			initialProjectsData = (await fetchServerData(
@@ -147,7 +151,6 @@ export default async function GroupPage({
 					projectId={selectedProject.id}
 				/>
 			) : null}
-			<PlaygroundSeoSection variant="group" />
 			<GroupChatClient
 				models={models.filter(
 					(m) =>
