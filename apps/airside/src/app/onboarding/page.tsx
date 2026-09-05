@@ -167,10 +167,9 @@ function RegisterCarrierDialog({
 						Register a new carrier
 					</DialogTitle>
 					<DialogDescription>
-						List a provider that is not in the catalogue yet. Your API must be
-						OpenAI-compatible (we call{" "}
-						<span className="font-mono">/v1/chat/completions</span> under the
-						base URL) and hosted on{" "}
+						List a provider that is not in the catalogue yet. Each model can use
+						its carrier-default API, OpenAI Chat Completions or Responses, or
+						the Google Vertex format, hosted on{" "}
 						{claimDomains.map((domain, i) => (
 							<span key={domain}>
 								{i > 0 ? " or " : ""}
@@ -207,7 +206,7 @@ function RegisterCarrierDialog({
 								value={providerId}
 								onChange={(e) => setProviderId(e.target.value)}
 								placeholder="acme-ai"
-								pattern="[a-z][a-z0-9-]{2,31}"
+								pattern={"[a-z][a-z0-9\\-]{2,31}"}
 								title="3-32 chars: lowercase letters, digits and hyphens, starting with a letter"
 								required
 							/>
@@ -724,8 +723,8 @@ function OnboardingContent() {
 										{claimDomains.map((d) => `@${d}`).join(" or ")}
 									</span>
 									. If your provider is not on LLM Gateway yet, register it as a
-									new carrier below — all you need is an OpenAI-compatible API
-									on that domain.
+									new carrier below — all you need is an inference API on that
+									domain.
 								</p>
 							)
 						) : (
@@ -835,7 +834,7 @@ function OnboardingContent() {
 							<div className="mt-4 flex items-center justify-between gap-3">
 								<p className="text-muted-foreground text-xs">
 									{registerBlockedReason ??
-										`Not in the catalogue? Register your own carrier — an OpenAI-compatible API on ${claimDomains
+										`Not in the catalogue? Register your own carrier — an inference API on ${claimDomains
 											.map((d) => `@${d}`)
 											.join(" or ")} is all it takes.`}
 								</p>

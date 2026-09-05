@@ -9,9 +9,10 @@ export interface AirsideRoutingSnapshot {
 
 export async function getAirsideRoutingSnapshot(
 	provider: string,
+	model?: string,
 ): Promise<AirsideRoutingSnapshot> {
 	try {
-		const settings = await findAirsideRoutingSettings(provider);
+		const settings = await findAirsideRoutingSettings(provider, model);
 		return {
 			providerMarginPercent: settings?.marginPercent ?? null,
 			providerDiscountPercent: settings?.discountPercent ?? null,

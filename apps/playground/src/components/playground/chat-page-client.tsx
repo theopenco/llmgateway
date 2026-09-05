@@ -1143,36 +1143,74 @@ export default function ChatPageClient({
 
 	// Track which project has had its key ensured to prevent duplicate calls
 	const ensuredProjectRef = useRef<string | null>(null);
+	const ensureKeyRequestRef = useRef<{
+		projectId: string;
+		request: Promise<void>;
+	} | null>(null);
+	// Bumped on logout/project reset so a stale in-flight request cannot mark
+	// the next session as ensured.
+	const ensureKeyGenerationRef = useRef(0);
+
+	const ensurePlaygroundKey = useCallback(async () => {
+		if (!isAuthenticated || !selectedProject) {
+			throw new Error("Chat credentials are not ready yet.");
+		}
+
+		const projectId = selectedProject.id;
+		if (ensuredProjectRef.current === projectId) {
+			return;
+		}
+		if (ensureKeyRequestRef.current?.projectId === projectId) {
+			await ensureKeyRequestRef.current.request;
+			return;
+		}
+
+		const generation = ensureKeyGenerationRef.current;
+		const request = (async () => {
+			const response = await fetch("/api/ensure-playground-key", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ projectId }),
+			});
+			if (!response.ok) {
+				throw new Error(
+					`Failed to prepare chat credentials (${response.status}).`,
+				);
+			}
+			if (ensureKeyGenerationRef.current === generation) {
+				ensuredProjectRef.current = projectId;
+			}
+		})();
+		ensureKeyRequestRef.current = { projectId, request };
+
+		try {
+			await request;
+		} finally {
+			if (ensureKeyRequestRef.current?.request === request) {
+				ensureKeyRequestRef.current = null;
+			}
+		}
+	}, [isAuthenticated, selectedProject]);
 
 	// After login, ensure a playground key cookie exists via backend
 	useEffect(() => {
 		// Reset ref when user logs out or project is unset
 		if (!isAuthenticated || !selectedProject) {
+			ensureKeyGenerationRef.current += 1;
 			ensuredProjectRef.current = null;
+			ensureKeyRequestRef.current = null;
 			return;
 		}
 
-		const ensureKey = async () => {
-			const projectId = selectedProject.id;
-			// Skip if we've already ensured the key for this project
-			if (ensuredProjectRef.current === projectId) {
-				return;
-			}
-			try {
-				const response = await fetch("/api/ensure-playground-key", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ projectId }),
-				});
-				if (response.ok && selectedProject.id === projectId) {
-					ensuredProjectRef.current = projectId;
-				}
-			} catch {
-				// ignore for now
-			}
-		};
-		void ensureKey();
-	}, [isAuthenticated, selectedOrganization, selectedProject]);
+		void ensurePlaygroundKey().catch((error: unknown) => {
+			console.error("Failed to prepare chat credentials", error);
+		});
+	}, [
+		isAuthenticated,
+		selectedOrganization,
+		selectedProject,
+		ensurePlaygroundKey,
+	]);
 
 	const ensureCurrentChat = async (userMessage?: string): Promise<string> => {
 		if (chatIdRef.current) {
@@ -1264,143 +1302,159 @@ export default function ChatPageClient({
 			name?: string;
 		}>,
 	) => {
-		if (!ensureBillableContext()) {
-			return undefined;
+		if (isSendingRef.current) {
+			throw new Error("A message is already being sent.");
 		}
-
-		let savedUserMessage: { id: string } | undefined;
-		setError(null);
-		setFinishReason(null);
-		setIsLoading(true);
-		posthog.capture("playground_chat_sent", {
-			model: selectedModel,
-			has_images: !!images?.length,
-			has_audio: !!audio?.length,
-			has_documents: !!documents?.length,
-			web_search: webSearchEnabled,
-		});
-		errorOccurredRef.current = false;
 		isSendingRef.current = true;
-		if (isTemporaryChat) {
-			isSendingRef.current = false;
-			isNewChatRef.current = false;
-			setIsLoading(false);
-			if (syncInput) {
-				const submitFns = Object.values(extraSubmitRefs.current);
-				const results = await Promise.allSettled(
-					submitFns.map((submit) => submit(content)),
-				);
-				for (const result of results) {
-					if (result.status === "rejected") {
-						posthog.capture("playground_mirror_prompt_failure", {
-							reason: String(result.reason),
-						});
-					}
-				}
-			}
-			return undefined;
-		}
-
-		const isNewChat = !chatIdRef.current;
-		if (isNewChat) {
-			isNewChatRef.current = true;
-		}
-
+		let readyToStream = false;
 		try {
-			const chatId = await ensureCurrentChat(content);
-			streamingChatIdRef.current = chatId;
-
-			const savedMessage = await addMessage.mutateAsync({
-				params: { path: { id: chatId } },
-				body: {
-					role: "user",
-					...(content.trim() ? { content } : {}),
-					...(images?.length ? { images: JSON.stringify(images) } : {}),
-					...(audio?.length ? { audios: JSON.stringify(audio) } : {}),
-					...(documents?.length
-						? { documents: JSON.stringify(documents) }
-						: {}),
-				},
-			});
-			savedUserMessage = savedMessage.message;
-		} catch (error: any) {
-			// If chat not found, it means the chat was deleted or is stale
-			if (error?.status === 404 && error?.message?.includes("Chat not found")) {
-				clearingChatRef.current = true;
-				chatIdRef.current = null;
-				setCurrentChatId(null);
-				setMessages([]);
-
-				// Try again with a new chat
-				try {
-					const newChatId = await ensureCurrentChat(content);
-					const savedMessage = await addMessage.mutateAsync({
-						params: { path: { id: newChatId } },
-						body: {
-							role: "user",
-							...(content.trim() ? { content } : {}),
-							...(images?.length ? { images: JSON.stringify(images) } : {}),
-							...(audio?.length ? { audios: JSON.stringify(audio) } : {}),
-							...(documents?.length
-								? { documents: JSON.stringify(documents) }
-								: {}),
-						},
-					});
-					setIsLoading(false);
-					savedUserMessage = savedMessage.message;
-				} catch (retryError) {
-					const retryErrorMessage = getErrorMessage(retryError);
-					setError(retryErrorMessage);
-					toast.error(retryErrorMessage);
-					setIsLoading(false);
-					return undefined;
-				}
+			if (!ensureBillableContext()) {
+				return undefined;
 			}
-
-			// If free limit or message limit is hit, keep the existing UI state and show a
-			// helpful toast instead of treating it like a hard failure/crash.
-			if (
-				error?.status === 400 &&
-				(error?.message?.includes("MESSAGE_LIMIT_REACHED") ||
-					error?.message?.includes("FREE_LIMIT_REACHED"))
-			) {
-				toast.error(error.message);
+			try {
+				await ensurePlaygroundKey();
+			} catch (error) {
+				const errorMessage = getErrorMessage(error);
+				setError(errorMessage);
+				toast.error(errorMessage);
 				return undefined;
 			}
 
-			const errorMessage = getErrorMessage(error);
-			setError(errorMessage);
-			toast.error(errorMessage);
+			let savedUserMessage: { id: string } | undefined;
+			setError(null);
+			setFinishReason(null);
+			setIsLoading(true);
+			posthog.capture("playground_chat_sent", {
+				model: selectedModel,
+				has_images: !!images?.length,
+				has_audio: !!audio?.length,
+				has_documents: !!documents?.length,
+				web_search: webSearchEnabled,
+			});
+			errorOccurredRef.current = false;
+			if (isTemporaryChat) {
+				isNewChatRef.current = false;
+				setIsLoading(false);
+				if (syncInput) {
+					const submitFns = Object.values(extraSubmitRefs.current);
+					const results = await Promise.allSettled(
+						submitFns.map((submit) => submit(content)),
+					);
+					for (const result of results) {
+						if (result.status === "rejected") {
+							posthog.capture("playground_mirror_prompt_failure", {
+								reason: String(result.reason),
+							});
+						}
+					}
+				}
+				return undefined;
+			}
 
-			// If it was a new chat and we failed to add the first message, delete the chat
-			if (isNewChat && chatIdRef.current) {
-				try {
-					await deleteChat.mutateAsync({
-						params: { path: { id: chatIdRef.current } },
-					});
-					setCurrentChatId(null);
+			const isNewChat = !chatIdRef.current;
+			if (isNewChat) {
+				isNewChatRef.current = true;
+			}
+
+			try {
+				const chatId = await ensureCurrentChat(content);
+				streamingChatIdRef.current = chatId;
+
+				const savedMessage = await addMessage.mutateAsync({
+					params: { path: { id: chatId } },
+					body: {
+						role: "user",
+						...(content.trim() ? { content } : {}),
+						...(images?.length ? { images: JSON.stringify(images) } : {}),
+						...(audio?.length ? { audios: JSON.stringify(audio) } : {}),
+						...(documents?.length
+							? { documents: JSON.stringify(documents) }
+							: {}),
+					},
+				});
+				savedUserMessage = savedMessage.message;
+			} catch (error: any) {
+				// If chat not found, it means the chat was deleted or is stale
+				if (
+					error?.status === 404 &&
+					error?.message?.includes("Chat not found")
+				) {
 					clearingChatRef.current = true;
 					chatIdRef.current = null;
+					setCurrentChatId(null);
 					setMessages([]);
-					isNewChatRef.current = false;
-				} catch (cleanupError) {
-					toast.error(
-						"Failed to cleanup chat: " + getErrorMessage(cleanupError),
-					);
-				}
-			}
-		} finally {
-			setIsLoading(false);
-		}
 
-		// When sync is enabled and comparison windows are open, mirror the
-		// submitted prompt into each extra window as a separate user message.
-		// Fire without awaiting so the primary panel can start streaming in
-		// parallel rather than waiting for all extra panels to finish first.
-		if (syncInput) {
-			const submitFns = Object.values(extraSubmitRefs.current);
-			void Promise.allSettled(submitFns.map((submit) => submit(content))).then(
-				(results) => {
+					// Try again with a new chat
+					try {
+						const newChatId = await ensureCurrentChat(content);
+						streamingChatIdRef.current = newChatId;
+						isNewChatRef.current = true;
+						const savedMessage = await addMessage.mutateAsync({
+							params: { path: { id: newChatId } },
+							body: {
+								role: "user",
+								...(content.trim() ? { content } : {}),
+								...(images?.length ? { images: JSON.stringify(images) } : {}),
+								...(audio?.length ? { audios: JSON.stringify(audio) } : {}),
+								...(documents?.length
+									? { documents: JSON.stringify(documents) }
+									: {}),
+							},
+						});
+						setIsLoading(false);
+						savedUserMessage = savedMessage.message;
+					} catch (retryError) {
+						const retryErrorMessage = getErrorMessage(retryError);
+						setError(retryErrorMessage);
+						toast.error(retryErrorMessage);
+						setIsLoading(false);
+						return undefined;
+					}
+				} else if (
+					// If free limit or message limit is hit, keep the existing UI state and
+					// show a helpful toast instead of treating it like a hard failure.
+					error?.status === 400 &&
+					(error?.message?.includes("MESSAGE_LIMIT_REACHED") ||
+						error?.message?.includes("FREE_LIMIT_REACHED"))
+				) {
+					toast.error(error.message);
+					return undefined;
+				} else {
+					const errorMessage = getErrorMessage(error);
+					setError(errorMessage);
+					toast.error(errorMessage);
+
+					// If it was a new chat and we failed to add the first message, delete the chat
+					if (isNewChat && chatIdRef.current) {
+						try {
+							await deleteChat.mutateAsync({
+								params: { path: { id: chatIdRef.current } },
+							});
+							setCurrentChatId(null);
+							clearingChatRef.current = true;
+							chatIdRef.current = null;
+							setMessages([]);
+							isNewChatRef.current = false;
+						} catch (cleanupError) {
+							toast.error(
+								"Failed to cleanup chat: " + getErrorMessage(cleanupError),
+							);
+						}
+					}
+				}
+			} finally {
+				setIsLoading(false);
+			}
+
+			// When sync is enabled and comparison windows are open, mirror the
+			// submitted prompt into each extra window as a separate user message.
+			// Fire without awaiting so the primary panel can start streaming in
+			// parallel rather than waiting for all extra panels to finish first.
+			if (syncInput) {
+				const submitFns = Object.values(extraSubmitRefs.current);
+				void Promise.allSettled(
+					submitFns.map((submit) => submit(content)),
+				).then((results) => {
 					for (const result of results) {
 						if (result.status === "rejected") {
 							// Don't surface comparison errors as hard failures;
@@ -1410,10 +1464,15 @@ export default function ChatPageClient({
 							});
 						}
 					}
-				},
-			);
+				});
+			}
+			readyToStream = savedUserMessage !== undefined;
+			return savedUserMessage;
+		} finally {
+			if (!readyToStream) {
+				isSendingRef.current = false;
+			}
 		}
-		return savedUserMessage;
 	};
 
 	const handleOcrMessage = async (
@@ -1547,6 +1606,7 @@ export default function ChatPageClient({
 			}
 			toast.error(message);
 		} finally {
+			isSendingRef.current = false;
 			setOcrPending(false);
 		}
 	};

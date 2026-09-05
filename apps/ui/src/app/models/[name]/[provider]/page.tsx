@@ -32,6 +32,7 @@ import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
 import { findEffectiveProviderDiscount } from "@/lib/discount";
 import { fetchProviders } from "@/lib/fetch-models";
+import { serializeJsonLd } from "@/lib/json-ld";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -213,14 +214,14 @@ export default async function ModelProviderPage({ params }: PageProps) {
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(breadcrumbSchema),
+					__html: serializeJsonLd(breadcrumbSchema),
 				}}
 			/>
 			<script
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(productSchema),
+					__html: serializeJsonLd(productSchema),
 				}}
 			/>
 			<Navbar />
@@ -505,11 +506,7 @@ export async function generateMetadata({
 	const title = `${model.name ?? model.id} on ${providerName}`;
 	const description = `Pricing, latency, and capabilities for ${model.name ?? model.id} via ${providerName} on LLM Gateway.`;
 	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
-	// The OG card route only prerenders static-catalogue pairs
-	// (dynamicParams=false); DB-only pages advertise the site card instead.
-	const ogImageUrl = modelDefinitions.some((m) => m.id === decodedName)
-		? `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}/opengraph-image`
-		: "/opengraph.png";
+	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}/opengraph-image`;
 
 	return {
 		title,
