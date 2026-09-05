@@ -720,6 +720,14 @@ export interface ProviderModelMapping {
 	 */
 	realtimeTranscription?: boolean;
 	/**
+	 * Whether this mapping accepts a `turn_detection` config on a transcription
+	 * session. Streaming ASR deployments segment continuously on their own and
+	 * reject the field outright, so it is opt-in: without it, callers must
+	 * commit turns themselves (`turn_detection: null` plus
+	 * `input_audio_buffer.commit`).
+	 */
+	realtimeTranscriptionTurnDetection?: boolean;
+	/**
 	 * Whether this model uses a dedicated transcription (speech-to-text) API.
 	 * When true, requests are routed to the gateway's /v1/audio/transcriptions
 	 * endpoint, which turns audio into text rather than returning a chat

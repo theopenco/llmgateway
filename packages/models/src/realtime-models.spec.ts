@@ -158,5 +158,19 @@ describe("realtime model catalogue validation", () => {
 		expect(mapping.outputPrice).toBe("0");
 		expect(mapping.inputAudioPrice).toBeUndefined();
 		expect(mapping.realtime).toBeUndefined();
+		// Streaming ASR: OpenAI rejects turn_detection on this model.
+		expect(mapping.realtimeTranscriptionTurnDetection).toBeUndefined();
+	});
+
+	it("declares turn detection support only on transcription mappings", () => {
+		for (const model of models as readonly ModelDefinition[]) {
+			for (const provider of model.providers) {
+				const mapping = provider as ProviderModelMapping;
+				if (mapping.realtimeTranscriptionTurnDetection === undefined) {
+					continue;
+				}
+				expect(mapping.realtimeTranscription).toBe(true);
+			}
+		}
 	});
 });

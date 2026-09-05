@@ -296,6 +296,9 @@ Transcripts arrive as `conversation.item.input_audio_transcription.delta` and
   disabling transcription is rejected with `transcription_model_required`.
   Other transcription settings (`delay`, `keywords`, `languages`, `prompt`,
   `turn_detection`, `noise_reduction`) are passed through to the provider.
+  Streaming transcription models segment audio continuously and reject
+  `turn_detection`: send `null` and commit turns yourself with
+  `input_audio_buffer.commit`.
 - `response.create` is rejected with `response_not_supported`; a
   transcription session never generates.
 - Browser clients mint a client secret with `session.type: "transcription"`
