@@ -417,9 +417,14 @@ export async function insertLog(
 	// stays reconstructable after a carrier changes them. SWR-cached, and never
 	// allowed to block logging.
 	if (logData.usedProvider && logData.providerMarginPercent === undefined) {
+		const routingModel = logData.usedModel?.startsWith(
+			`${logData.usedProvider}/`,
+		)
+			? logData.usedModel.slice(logData.usedProvider.length + 1)
+			: logData.usedModel;
 		Object.assign(
 			logData,
-			await getAirsideRoutingSnapshot(logData.usedProvider),
+			await getAirsideRoutingSnapshot(logData.usedProvider, routingModel),
 		);
 	}
 

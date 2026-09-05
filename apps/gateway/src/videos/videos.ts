@@ -134,7 +134,7 @@ function createProviderRoutingScoreMultiplierResolver() {
 	) => {
 		const [multiplier, airsideAdjustment] = await Promise.all([
 			findEffectiveRoutingScoreMultiplier(provider.providerId, modelId),
-			findAirsideRoutingAdjustment(provider.providerId),
+			findAirsideRoutingAdjustment(provider.providerId, modelId),
 		]);
 		return String(Number(multiplier.scoreMultiplier) + airsideAdjustment);
 	};
@@ -4831,6 +4831,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 			: 0;
 	const airsideRoutingSnapshot = await getAirsideRoutingSnapshot(
 		selectedProviderContext.providerId,
+		normalizedModel,
 	);
 	const created = await db
 		.insert(tables.videoJob)

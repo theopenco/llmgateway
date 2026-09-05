@@ -16,6 +16,8 @@ import {
 } from "@/chat-helpers.e2e.js";
 import { readAll } from "@/test-utils/test-helpers.js";
 
+import { createToolVerificationRequest } from "@llmgateway/actions";
+
 describe("e2e", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);
 
@@ -38,46 +40,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 					"x-no-fallback": "true",
 					Authorization: `Bearer real-token`,
 				},
-				body: JSON.stringify({
-					model: model,
-					messages: [
-						{
-							role: "system",
-							content:
-								"You are a weather assistant that can get weather information for cities.",
-						},
-						{
-							role: "user",
-							content: "What's the weather like in San Francisco?",
-						},
-					],
-					tools: [
-						{
-							type: "function",
-							function: {
-								name: "get_weather",
-								description: "Get the current weather for a given city",
-								parameters: {
-									type: "object",
-									properties: {
-										city: {
-											type: "string",
-											description: "The city name to get weather for",
-										},
-										unit: {
-											type: "string",
-											enum: ["celsius", "fahrenheit"],
-											description: "Temperature unit",
-											default: "fahrenheit",
-										},
-									},
-									required: ["city"],
-								},
-							},
-						},
-					],
-					tool_choice: "required",
-				}),
+				body: JSON.stringify(createToolVerificationRequest(model)),
 			});
 
 			const json = await res.json();
