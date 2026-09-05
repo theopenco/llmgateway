@@ -167,27 +167,37 @@ export async function resolvePlatformCredential(
  * One of a provider's credential settings (`baseUrl`, `project`, `region`, …)
  * for the credential actually serving the request.
  *
- * A managed credential carries its own settings and never falls back to the
- * environment, mirroring how a BYOK key is self-contained. Requests still on
- * the env-var path read the provider's `LLM_*` var as before.
+ * A database-backed credential is self-contained and never falls back to the
+ * environment: a managed credential carries its settings in `config`, and a
+ * BYOK key carries them in its own columns/options (`baseUrl`,
+ * `google_vertex_project_id`, …) which the caller reads first. Only requests on
+ * the env-var path read the provider's `LLM_*` var. This mirrors
+ * `getProviderEndpoint`'s `skipEnvVars`, so an org's own key is never sent to
+ * the deployment's proxy or stamped with the platform's GCP project.
  *
  * Endpoints that call `getProviderEndpoint` don't need this — passing
  * `managedCredentialOptions(managedKey)` covers them. It exists for the
- * endpoints (embeddings, speech, OCR, transcriptions, video) that build their
- * upstream URL themselves.
+ * endpoints (embeddings, speech, OCR, transcriptions, video, realtime,
+ * moderations) that build their upstream URL themselves.
  */
 export function getCredentialSetting(
 	provider: Provider,
 	key: string,
-	managedKey: ProviderKeyRow | undefined,
+	credential: {
+		providerKey?: ProviderKeyRow;
+		managedKey?: ProviderKeyRow;
+	},
 	options: {
 		configIndex?: number;
 		defaultValue?: string;
 		variant?: EnvVarVariant;
 	} = {},
 ): string | undefined {
-	if (managedKey) {
-		return managedKey.config?.[key] ?? options.defaultValue;
+	if (credential.providerKey) {
+		return options.defaultValue;
+	}
+	if (credential.managedKey) {
+		return credential.managedKey.config?.[key] ?? options.defaultValue;
 	}
 	return getProviderEnvValue(
 		provider,

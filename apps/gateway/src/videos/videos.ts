@@ -1535,6 +1535,82 @@ function addRequestedVideoMetadata(
 	};
 }
 
+const DEFAULT_VERTEX_VIDEO_REGION = "us-central1";
+
+/**
+ * Settings of a BYOK key serving video generation. The key is self-contained:
+ * `LLM_*` env vars are never applied implicitly (mirrors getProviderEndpoint's
+ * skipEnvVars), so the deployment's proxy or GCP project only reaches an org's
+ * own key when the key itself is configured for it. Vertex output written to
+ * the platform bucket targets the storage project instead, so the key's own
+ * project is only required without a bucket.
+ */
+function resolveByokVideoProviderSettings(
+	providerId: Provider,
+	providerKey: InferSelectModel<typeof tables.providerKey>,
+): {
+	baseUrl: string | null;
+	vertexProjectId?: string;
+	vertexRegion?: string;
+	hasVertexProject: boolean;
+} {
+	const baseUrl =
+		providerKey.baseUrl ?? getDefaultVideoProviderBaseUrl(providerId);
+	if (!isGoogleVertexVideoProvider(providerId)) {
+		return { baseUrl, hasVertexProject: true };
+	}
+	const vertexProjectId = providerKey.options?.google_vertex_project_id;
+	return {
+		baseUrl,
+		vertexProjectId,
+		vertexRegion: DEFAULT_VERTEX_VIDEO_REGION,
+		hasVertexProject: Boolean(
+			vertexProjectId ||
+			(getGoogleVertexVideoOutputBucket() &&
+				process.env.GOOGLE_CLOUD_PROJECT?.trim()),
+		),
+	};
+}
+
+function resolveByokVideoProviderContext(
+	providerId: Provider,
+	providerKey: InferSelectModel<typeof tables.providerKey>,
+	requestId: string,
+): ProviderContext {
+	const settings = resolveByokVideoProviderSettings(providerId, providerKey);
+	if (!settings.baseUrl) {
+		throw new HTTPException(500, {
+			message: `No base URL set for provider: ${providerId}`,
+		});
+	}
+	if (!settings.hasVertexProject) {
+		throw new HTTPException(400, {
+			message: `Google Vertex video generation requires google_vertex_project_id on the provider key`,
+		});
+	}
+	return {
+		providerId,
+		baseUrl: settings.baseUrl,
+		token: readProviderKey(providerKey),
+		requestId,
+		usedMode: "api-keys",
+		configIndex: null,
+		providerKeyId: providerKey.id,
+		providerKeyLabel: providerKeyLabel(providerKey),
+		vertexProjectId: settings.vertexProjectId,
+		vertexRegion: settings.vertexRegion,
+		vertexTokenType: resolveVideoVertexTokenType(providerId, providerKey, null),
+	};
+}
+
+function hasByokVideoConfiguration(
+	providerId: Provider,
+	providerKey: InferSelectModel<typeof tables.providerKey>,
+): boolean {
+	const settings = resolveByokVideoProviderSettings(providerId, providerKey);
+	return Boolean(settings.baseUrl) && settings.hasVertexProject;
+}
+
 async function resolveProviderContext(
 	providerId: Provider,
 	project: InferSelectModel<typeof tables.project>,
@@ -1543,13 +1619,6 @@ async function resolveProviderContext(
 	selectionScope: string,
 ): Promise<ProviderContext> {
 	const defaultBaseUrl = getDefaultVideoProviderBaseUrl(providerId);
-	const sharedVertexProjectId = isGoogleVertexVideoProvider(providerId)
-		? getProviderEnvValue(providerId, "project")
-		: undefined;
-	const sharedVertexRegion = isGoogleVertexVideoProvider(providerId)
-		? (getProviderEnvValue(providerId, "region", undefined, "us-central1") ??
-			"us-central1")
-		: undefined;
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
@@ -1570,41 +1639,7 @@ async function resolveProviderContext(
 			});
 		}
 
-		const baseUrl =
-			providerKey.baseUrl ??
-			getProviderEnvValue(providerId, "baseUrl") ??
-			defaultBaseUrl;
-		if (!baseUrl) {
-			throw new HTTPException(400, {
-				message: `No base URL set for provider: ${providerId}`,
-			});
-		}
-
-		if (isGoogleVertexVideoProvider(providerId) && !sharedVertexProjectId) {
-			throw new HTTPException(500, {
-				message: `${providerId} project environment variable is required for video generation`,
-			});
-		}
-
-		const providerContext: ProviderContext = {
-			providerId,
-			baseUrl,
-			token: readProviderKey(providerKey),
-			requestId,
-			usedMode: "api-keys",
-			configIndex: null,
-			providerKeyId: providerKey.id,
-			providerKeyLabel: providerKeyLabel(providerKey),
-			vertexProjectId: sharedVertexProjectId,
-			vertexRegion: sharedVertexRegion,
-			vertexTokenType: resolveVideoVertexTokenType(
-				providerId,
-				providerKey,
-				null,
-			),
-		};
-
-		return providerContext;
+		return resolveByokVideoProviderContext(providerId, providerKey, requestId);
 	}
 
 	if (project.mode === "credits") {
@@ -1625,41 +1660,7 @@ async function resolveProviderContext(
 		getVideoProviderKeyFilter(providerId),
 	);
 	if (providerKey) {
-		const baseUrl =
-			providerKey.baseUrl ??
-			getProviderEnvValue(providerId, "baseUrl") ??
-			defaultBaseUrl;
-		if (!baseUrl) {
-			throw new HTTPException(400, {
-				message: `No base URL set for provider: ${providerId}`,
-			});
-		}
-
-		if (isGoogleVertexVideoProvider(providerId) && !sharedVertexProjectId) {
-			throw new HTTPException(500, {
-				message: `${providerId} project environment variable is required for video generation`,
-			});
-		}
-
-		const providerContext: ProviderContext = {
-			providerId,
-			baseUrl,
-			token: readProviderKey(providerKey),
-			requestId,
-			usedMode: "api-keys",
-			configIndex: null,
-			providerKeyId: providerKey.id,
-			providerKeyLabel: providerKeyLabel(providerKey),
-			vertexProjectId: sharedVertexProjectId,
-			vertexRegion: sharedVertexRegion,
-			vertexTokenType: resolveVideoVertexTokenType(
-				providerId,
-				providerKey,
-				null,
-			),
-		};
-
-		return providerContext;
+		return resolveByokVideoProviderContext(providerId, providerKey, requestId);
 	}
 
 	// A provider with any managed credential is served only by those: its
@@ -1708,11 +1709,12 @@ async function resolvePlatformVideoProviderContext(
 	const configIndex = platformCredential.configIndex;
 
 	const readSetting = (key: string, defaultValue?: string) =>
-		getCredentialSetting(providerId, key, managedKey, {
-			configIndex,
-			defaultValue,
-			variant: envVariant,
-		});
+		getCredentialSetting(
+			providerId,
+			key,
+			{ managedKey },
+			{ configIndex, defaultValue, variant: envVariant },
+		);
 
 	const baseUrl = readSetting("baseUrl") ?? defaultBaseUrl;
 	if (!baseUrl) {
@@ -1725,7 +1727,8 @@ async function resolvePlatformVideoProviderContext(
 		? readSetting("project")
 		: undefined;
 	const vertexRegion = isGoogleVertexVideoProvider(providerId)
-		? (readSetting("region", "us-central1") ?? "us-central1")
+		? (readSetting("region", DEFAULT_VERTEX_VIDEO_REGION) ??
+			DEFAULT_VERTEX_VIDEO_REGION)
 		: undefined;
 
 	if (isGoogleVertexVideoProvider(providerId) && !vertexProjectId) {
@@ -1770,12 +1773,7 @@ async function hasVideoProviderConfiguration(
 			getVideoProviderKeyFilter(providerId),
 		);
 		return Boolean(
-			providerKey &&
-			(providerKey.baseUrl ??
-				getProviderEnvValue(providerId, "baseUrl") ??
-				defaultBaseUrl) &&
-			(!isGoogleVertexVideoProvider(providerId) ||
-				Boolean(getProviderEnvValue(providerId, "project"))),
+			providerKey && hasByokVideoConfiguration(providerId, providerKey),
 		);
 	}
 
@@ -1795,13 +1793,7 @@ async function hasVideoProviderConfiguration(
 		getVideoProviderKeyFilter(providerId),
 	);
 	if (providerKey) {
-		return Boolean(
-			(providerKey.baseUrl ??
-				getProviderEnvValue(providerId, "baseUrl") ??
-				defaultBaseUrl) &&
-			(!isGoogleVertexVideoProvider(providerId) ||
-				Boolean(getProviderEnvValue(providerId, "project"))),
-		);
+		return hasByokVideoConfiguration(providerId, providerKey);
 	}
 
 	return await hasPlatformVideoConfiguration(
@@ -2754,10 +2746,10 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 			});
 		}
 
-		const baseUrl =
-			providerKey.baseUrl ??
-			getProviderEnvValue(providerId, "baseUrl") ??
-			defaultBaseUrl;
+		const { baseUrl } = resolveByokVideoProviderSettings(
+			providerId,
+			providerKey,
+		);
 		if (!baseUrl) {
 			throw new HTTPException(400, {
 				message: `No base URL set for provider: ${providerId}`,
