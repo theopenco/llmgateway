@@ -31,9 +31,9 @@ export const zaiModels = [
 			{
 				providerId: "novita",
 				externalId: "zai-org/glm-5.3-flash",
-				inputPrice: "0.075e-6",
-				cachedInputPrice: "0.015e-6",
-				outputPrice: "0.25e-6",
+				inputPrice: "0.15e-6",
+				cachedInputPrice: "0.03e-6",
+				outputPrice: "0.5e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 131072,
