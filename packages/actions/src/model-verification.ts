@@ -695,7 +695,7 @@ async function runCheck(
 		undefined,
 		options.target.apiFormat,
 	);
-	const useResponsesApi = endpoint.includes("/responses");
+	const useResponsesApi = options.target.apiFormat === "openai-responses";
 	const { functionTools, webSearchTool } = splitTools(definition.request.tools);
 	const payload = await prepareRequestBody(
 		transportProvider,

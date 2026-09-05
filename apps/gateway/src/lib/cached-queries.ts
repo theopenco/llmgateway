@@ -1308,7 +1308,7 @@ export async function findAirsideRoutingSettings(
 	model?: string,
 ): Promise<{ discountPercent: number; marginPercent: number } | null> {
 	const rows = await swrWrap(
-		`airsideRouting:${provider}:${model ?? "all"}`,
+		`airsideRouting:${JSON.stringify([provider, model])}`,
 		[providerRoutingSettingsTableName],
 		async () =>
 			await db

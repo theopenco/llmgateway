@@ -1294,151 +1294,159 @@ export default function ChatPageClient({
 			name?: string;
 		}>,
 	) => {
-		if (!ensureBillableContext()) {
-			return undefined;
+		if (isSendingRef.current) {
+			throw new Error("A message is already being sent.");
 		}
-		try {
-			await ensurePlaygroundKey();
-		} catch (error) {
-			const errorMessage = getErrorMessage(error);
-			setError(errorMessage);
-			toast.error(errorMessage);
-			return undefined;
-		}
-
-		let savedUserMessage: { id: string } | undefined;
-		setError(null);
-		setFinishReason(null);
-		setIsLoading(true);
-		posthog.capture("playground_chat_sent", {
-			model: selectedModel,
-			has_images: !!images?.length,
-			has_audio: !!audio?.length,
-			has_documents: !!documents?.length,
-			web_search: webSearchEnabled,
-		});
-		errorOccurredRef.current = false;
 		isSendingRef.current = true;
-		if (isTemporaryChat) {
-			isSendingRef.current = false;
-			isNewChatRef.current = false;
-			setIsLoading(false);
-			if (syncInput) {
-				const submitFns = Object.values(extraSubmitRefs.current);
-				const results = await Promise.allSettled(
-					submitFns.map((submit) => submit(content)),
-				);
-				for (const result of results) {
-					if (result.status === "rejected") {
-						posthog.capture("playground_mirror_prompt_failure", {
-							reason: String(result.reason),
-						});
-					}
-				}
-			}
-			return undefined;
-		}
-
-		const isNewChat = !chatIdRef.current;
-		if (isNewChat) {
-			isNewChatRef.current = true;
-		}
-
+		let readyToStream = false;
 		try {
-			const chatId = await ensureCurrentChat(content);
-			streamingChatIdRef.current = chatId;
-
-			const savedMessage = await addMessage.mutateAsync({
-				params: { path: { id: chatId } },
-				body: {
-					role: "user",
-					...(content.trim() ? { content } : {}),
-					...(images?.length ? { images: JSON.stringify(images) } : {}),
-					...(audio?.length ? { audios: JSON.stringify(audio) } : {}),
-					...(documents?.length
-						? { documents: JSON.stringify(documents) }
-						: {}),
-				},
-			});
-			savedUserMessage = savedMessage.message;
-		} catch (error: any) {
-			// If chat not found, it means the chat was deleted or is stale
-			if (error?.status === 404 && error?.message?.includes("Chat not found")) {
-				clearingChatRef.current = true;
-				chatIdRef.current = null;
-				setCurrentChatId(null);
-				setMessages([]);
-
-				// Try again with a new chat
-				try {
-					const newChatId = await ensureCurrentChat(content);
-					streamingChatIdRef.current = newChatId;
-					isNewChatRef.current = true;
-					const savedMessage = await addMessage.mutateAsync({
-						params: { path: { id: newChatId } },
-						body: {
-							role: "user",
-							...(content.trim() ? { content } : {}),
-							...(images?.length ? { images: JSON.stringify(images) } : {}),
-							...(audio?.length ? { audios: JSON.stringify(audio) } : {}),
-							...(documents?.length
-								? { documents: JSON.stringify(documents) }
-								: {}),
-						},
-					});
-					setIsLoading(false);
-					savedUserMessage = savedMessage.message;
-				} catch (retryError) {
-					const retryErrorMessage = getErrorMessage(retryError);
-					setError(retryErrorMessage);
-					toast.error(retryErrorMessage);
-					setIsLoading(false);
-					return undefined;
-				}
-			} else if (
-				// If free limit or message limit is hit, keep the existing UI state and
-				// show a helpful toast instead of treating it like a hard failure.
-				error?.status === 400 &&
-				(error?.message?.includes("MESSAGE_LIMIT_REACHED") ||
-					error?.message?.includes("FREE_LIMIT_REACHED"))
-			) {
-				toast.error(error.message);
+			if (!ensureBillableContext()) {
 				return undefined;
-			} else {
+			}
+			try {
+				await ensurePlaygroundKey();
+			} catch (error) {
 				const errorMessage = getErrorMessage(error);
 				setError(errorMessage);
 				toast.error(errorMessage);
+				return undefined;
+			}
 
-				// If it was a new chat and we failed to add the first message, delete the chat
-				if (isNewChat && chatIdRef.current) {
-					try {
-						await deleteChat.mutateAsync({
-							params: { path: { id: chatIdRef.current } },
-						});
-						setCurrentChatId(null);
-						clearingChatRef.current = true;
-						chatIdRef.current = null;
-						setMessages([]);
-						isNewChatRef.current = false;
-					} catch (cleanupError) {
-						toast.error(
-							"Failed to cleanup chat: " + getErrorMessage(cleanupError),
-						);
+			let savedUserMessage: { id: string } | undefined;
+			setError(null);
+			setFinishReason(null);
+			setIsLoading(true);
+			posthog.capture("playground_chat_sent", {
+				model: selectedModel,
+				has_images: !!images?.length,
+				has_audio: !!audio?.length,
+				has_documents: !!documents?.length,
+				web_search: webSearchEnabled,
+			});
+			errorOccurredRef.current = false;
+			if (isTemporaryChat) {
+				isNewChatRef.current = false;
+				setIsLoading(false);
+				if (syncInput) {
+					const submitFns = Object.values(extraSubmitRefs.current);
+					const results = await Promise.allSettled(
+						submitFns.map((submit) => submit(content)),
+					);
+					for (const result of results) {
+						if (result.status === "rejected") {
+							posthog.capture("playground_mirror_prompt_failure", {
+								reason: String(result.reason),
+							});
+						}
 					}
 				}
+				return undefined;
 			}
-		} finally {
-			setIsLoading(false);
-		}
 
-		// When sync is enabled and comparison windows are open, mirror the
-		// submitted prompt into each extra window as a separate user message.
-		// Fire without awaiting so the primary panel can start streaming in
-		// parallel rather than waiting for all extra panels to finish first.
-		if (syncInput) {
-			const submitFns = Object.values(extraSubmitRefs.current);
-			void Promise.allSettled(submitFns.map((submit) => submit(content))).then(
-				(results) => {
+			const isNewChat = !chatIdRef.current;
+			if (isNewChat) {
+				isNewChatRef.current = true;
+			}
+
+			try {
+				const chatId = await ensureCurrentChat(content);
+				streamingChatIdRef.current = chatId;
+
+				const savedMessage = await addMessage.mutateAsync({
+					params: { path: { id: chatId } },
+					body: {
+						role: "user",
+						...(content.trim() ? { content } : {}),
+						...(images?.length ? { images: JSON.stringify(images) } : {}),
+						...(audio?.length ? { audios: JSON.stringify(audio) } : {}),
+						...(documents?.length
+							? { documents: JSON.stringify(documents) }
+							: {}),
+					},
+				});
+				savedUserMessage = savedMessage.message;
+			} catch (error: any) {
+				// If chat not found, it means the chat was deleted or is stale
+				if (
+					error?.status === 404 &&
+					error?.message?.includes("Chat not found")
+				) {
+					clearingChatRef.current = true;
+					chatIdRef.current = null;
+					setCurrentChatId(null);
+					setMessages([]);
+
+					// Try again with a new chat
+					try {
+						const newChatId = await ensureCurrentChat(content);
+						streamingChatIdRef.current = newChatId;
+						isNewChatRef.current = true;
+						const savedMessage = await addMessage.mutateAsync({
+							params: { path: { id: newChatId } },
+							body: {
+								role: "user",
+								...(content.trim() ? { content } : {}),
+								...(images?.length ? { images: JSON.stringify(images) } : {}),
+								...(audio?.length ? { audios: JSON.stringify(audio) } : {}),
+								...(documents?.length
+									? { documents: JSON.stringify(documents) }
+									: {}),
+							},
+						});
+						setIsLoading(false);
+						savedUserMessage = savedMessage.message;
+					} catch (retryError) {
+						const retryErrorMessage = getErrorMessage(retryError);
+						setError(retryErrorMessage);
+						toast.error(retryErrorMessage);
+						setIsLoading(false);
+						return undefined;
+					}
+				} else if (
+					// If free limit or message limit is hit, keep the existing UI state and
+					// show a helpful toast instead of treating it like a hard failure.
+					error?.status === 400 &&
+					(error?.message?.includes("MESSAGE_LIMIT_REACHED") ||
+						error?.message?.includes("FREE_LIMIT_REACHED"))
+				) {
+					toast.error(error.message);
+					return undefined;
+				} else {
+					const errorMessage = getErrorMessage(error);
+					setError(errorMessage);
+					toast.error(errorMessage);
+
+					// If it was a new chat and we failed to add the first message, delete the chat
+					if (isNewChat && chatIdRef.current) {
+						try {
+							await deleteChat.mutateAsync({
+								params: { path: { id: chatIdRef.current } },
+							});
+							setCurrentChatId(null);
+							clearingChatRef.current = true;
+							chatIdRef.current = null;
+							setMessages([]);
+							isNewChatRef.current = false;
+						} catch (cleanupError) {
+							toast.error(
+								"Failed to cleanup chat: " + getErrorMessage(cleanupError),
+							);
+						}
+					}
+				}
+			} finally {
+				setIsLoading(false);
+			}
+
+			// When sync is enabled and comparison windows are open, mirror the
+			// submitted prompt into each extra window as a separate user message.
+			// Fire without awaiting so the primary panel can start streaming in
+			// parallel rather than waiting for all extra panels to finish first.
+			if (syncInput) {
+				const submitFns = Object.values(extraSubmitRefs.current);
+				void Promise.allSettled(
+					submitFns.map((submit) => submit(content)),
+				).then((results) => {
 					for (const result of results) {
 						if (result.status === "rejected") {
 							// Don't surface comparison errors as hard failures;
@@ -1448,10 +1456,15 @@ export default function ChatPageClient({
 							});
 						}
 					}
-				},
-			);
+				});
+			}
+			readyToStream = savedUserMessage !== undefined;
+			return savedUserMessage;
+		} finally {
+			if (!readyToStream) {
+				isSendingRef.current = false;
+			}
 		}
-		return savedUserMessage;
 	};
 
 	const handleOcrMessage = async (
@@ -1585,6 +1598,7 @@ export default function ChatPageClient({
 			}
 			toast.error(message);
 		} finally {
+			isSendingRef.current = false;
 			setOcrPending(false);
 		}
 	};

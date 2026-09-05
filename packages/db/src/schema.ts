@@ -219,6 +219,23 @@ export const verification = pgTable("verification", {
 	updatedAt: timestamp().$onUpdate(() => new Date()),
 });
 
+export const deviceCode = pgTable(
+	"device_code",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		deviceCode: text().notNull().unique(),
+		userCode: text().notNull().unique(),
+		userId: text().references(() => user.id, { onDelete: "cascade" }),
+		expiresAt: timestamp().notNull(),
+		status: text().notNull(),
+		lastPolledAt: timestamp(),
+		pollingInterval: integer(),
+		clientId: text(),
+		scope: text(),
+	},
+	(table) => [index("device_code_expires_at_idx").on(table.expiresAt)],
+);
+
 export const organization = pgTable(
 	"organization",
 	{

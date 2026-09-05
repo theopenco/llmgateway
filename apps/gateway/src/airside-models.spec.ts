@@ -643,39 +643,45 @@ describe("airside-listed models", () => {
 		expect(captured).toHaveLength(0);
 	});
 
-	test("uses model fare overrides without changing the provider default", async () => {
-		await db.insert(tables.providerCompany).values({
-			id: "fare-company",
-			name: "Fare Company",
-		});
-		await db.insert(tables.providerRoutingSettings).values([
-			{
-				providerCompanyId: "fare-company",
-				providerId: "fare-provider",
-				modelId: null,
-				discountPercent: "0",
-				marginPercent: "0.2",
-			},
-			{
-				providerCompanyId: "fare-company",
-				providerId: "fare-provider",
-				modelId: "gpt-5.6-luna",
-				discountPercent: "0.1",
-				marginPercent: "0.15",
-			},
-		]);
-		await clearCache();
+	test.each(["gpt-5.6-luna", "all"])(
+		"uses fare overrides for %s without changing the provider default",
+		async (modelId) => {
+			await db.insert(tables.providerCompany).values({
+				id: "fare-company",
+				name: "Fare Company",
+			});
+			await db.insert(tables.providerRoutingSettings).values([
+				{
+					providerCompanyId: "fare-company",
+					providerId: "fare-provider",
+					modelId: null,
+					discountPercent: "0",
+					marginPercent: "0.2",
+				},
+				{
+					providerCompanyId: "fare-company",
+					providerId: "fare-provider",
+					modelId,
+					discountPercent: "0.1",
+					marginPercent: "0.15",
+				},
+			]);
+			await clearCache();
 
-		await expect(
-			findAirsideRoutingAdjustment("fare-provider", "gpt-5.6-luna"),
-		).resolves.toBeCloseTo(-0.05);
-		await expect(
-			findAirsideRoutingAdjustment("fare-provider", "another-model"),
-		).resolves.toBeCloseTo(0);
-		await expect(
-			findAirsideRoutingAdjustment("fare-provider"),
-		).resolves.toBeCloseTo(0);
-	});
+			await expect(
+				findAirsideRoutingAdjustment("fare-provider"),
+			).resolves.toBeCloseTo(0);
+			await expect(
+				findAirsideRoutingAdjustment("fare-provider", modelId),
+			).resolves.toBeCloseTo(-0.05);
+			await expect(
+				findAirsideRoutingAdjustment("fare-provider", "another-model"),
+			).resolves.toBeCloseTo(0);
+			await expect(
+				findAirsideRoutingAdjustment("fare-provider"),
+			).resolves.toBeCloseTo(0);
+		},
+	);
 
 	async function setRoutingUptime(
 		modelId: string,

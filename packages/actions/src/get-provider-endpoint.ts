@@ -652,6 +652,18 @@ export function getProviderEndpoint(
 		throw new Error(`Failed to determine base URL for provider ${provider}`);
 	}
 
+	if (
+		provider === "aws-bedrock" &&
+		(apiFormat === "openai-chat-completions" ||
+			((!apiFormat || apiFormat === "provider-native") &&
+				providerMapping?.apiFormat === "openai-chat-completions"))
+	) {
+		return appendPath(
+			getBedrockMantleBaseUrl(url, region),
+			"/chat/completions",
+		);
+	}
+
 	if (apiFormat === "openai-chat-completions") {
 		return appendPath(url, "/v1/chat/completions");
 	}
@@ -668,7 +680,7 @@ export function getProviderEndpoint(
 			configIndex,
 			providerKeyOptions,
 			skipEnvVars,
-			vertexTokenType ?? "api-key",
+			vertexTokenType ?? (provider === "google-vertex" ? undefined : "api-key"),
 			variant,
 		);
 	}
@@ -831,11 +843,6 @@ export function getProviderEndpoint(
 			}
 			return `${url}/api/paas/v4/chat/completions`;
 		case "aws-bedrock": {
-			if (providerMapping?.apiFormat === "openai-chat-completions") {
-				const mantleBaseUrl = getBedrockMantleBaseUrl(url, region);
-				return appendPath(mantleBaseUrl, "/chat/completions");
-			}
-
 			const awsRegionPrefix = region
 				? (
 						providers.find((p) => p.id === "aws-bedrock") as

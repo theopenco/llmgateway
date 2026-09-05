@@ -252,6 +252,7 @@ function FareEditor({
 					</span>
 				</div>
 				<Slider
+					aria-label="Traffic discount"
 					value={[discount * 100]}
 					min={0}
 					max={50}
@@ -281,6 +282,7 @@ function FareEditor({
 					</span>
 				</div>
 				<Slider
+					aria-label="Landing fee (gateway margin)"
 					value={[margin * 100]}
 					min={5}
 					max={50}

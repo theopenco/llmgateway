@@ -26,6 +26,46 @@ const target: ProviderModelVerificationTarget = {
 };
 
 describe("model verification", () => {
+	it("keeps Chat Completions payloads when the base URL contains /responses", async () => {
+		const fetchImplementation = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(
+				Response.json({ choices: [{ message: { content: "OK" } }] }),
+			);
+		const result = await runProviderModelVerification({
+			target: {
+				...target,
+				providerId: "custom-carrier",
+				apiFormat: "openai-chat-completions",
+				streaming: false,
+				vision: false,
+				audio: false,
+				tools: false,
+				jsonOutput: false,
+				jsonOutputSchema: false,
+				reasoning: false,
+				reasoningMaxTokens: false,
+				webSearch: false,
+			},
+			token: "provider-key",
+			baseUrl: "https://carrier.example/responses-proxy",
+			fetchImplementation,
+		});
+
+		expect(result.passed).toBe(true);
+		expect(fetchImplementation).toHaveBeenCalledOnce();
+		const [endpoint, request] = fetchImplementation.mock.calls[0];
+		expect(endpoint).toBe(
+			"https://carrier.example/responses-proxy/v1/chat/completions",
+		);
+		const payload = JSON.parse(String(request?.body));
+		expect(payload).toMatchObject({
+			model: "verification-model-upstream",
+			messages: expect.any(Array),
+		});
+		expect(payload).not.toHaveProperty("input");
+	});
+
 	it("verifies a custom OpenAI Responses model with the selected protocol", async () => {
 		const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
 			new Response(
