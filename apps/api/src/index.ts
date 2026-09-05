@@ -23,6 +23,7 @@ import { beacon } from "./routes/beacon.js";
 import { cliSkills } from "./routes/cli-skills.js";
 import { routes } from "./routes/index.js";
 import { internalModels } from "./routes/internal-models.js";
+import { mcp } from "./routes/mcp.js";
 import { platformConnect } from "./routes/platform-connect.js";
 import { platformCustomers } from "./routes/platform-customers.js";
 import { platformSessionRefresh } from "./routes/platform-session-refresh.js";
@@ -336,6 +337,7 @@ app.get("/docs", swaggerUI({ url: "./json" }));
 app.route("/", authHandler);
 
 app.route("/v1/master", v1Master);
+app.route("/mcp", mcp);
 
 app.route("/v1", platformSessions);
 
