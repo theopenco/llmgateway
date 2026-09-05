@@ -20,6 +20,7 @@ import { redisClient } from "./auth/config.js";
 import { authHandler } from "./auth/handler.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { beacon } from "./routes/beacon.js";
+import { cliSkills } from "./routes/cli-skills.js";
 import { routes } from "./routes/index.js";
 import { internalModels } from "./routes/internal-models.js";
 import { mcp } from "./routes/mcp.js";
@@ -355,5 +356,6 @@ app.route("/v1/config", publicConfig);
 // SCIM 2.0 provisioning (Okta → us). Bearer-token auth inside the router; mounted
 // before the session-guarded `routes` group so it stays outside session auth.
 app.route("/scim/v2", scim);
+app.route("/v1/skills", cliSkills);
 
 app.route("/", routes);
