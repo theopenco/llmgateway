@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { app } from "@/app.js";
+import { openAIErrorSchema } from "@/lib/error-schemas.js";
 
 interface SpecOperation {
 	operationId?: string;
@@ -14,6 +15,7 @@ interface Spec {
 	info: { title: string; description?: string };
 	components?: {
 		securitySchemes?: Record<string, { type: string; scheme?: string }>;
+		schemas?: Record<string, unknown>;
 	};
 	paths: Record<string, Record<string, SpecOperation>>;
 }
@@ -25,6 +27,50 @@ async function fetchSpec(path: string): Promise<Spec> {
 }
 
 describe("openapi document", () => {
+	it("publishes reusable error schemas matching runtime errors", async () => {
+		const spec = await fetchSpec("/openapi.json");
+		expect(spec.components?.schemas?.OpenAIError).toMatchObject({
+			type: "object",
+			properties: {
+				error: {
+					properties: {
+						message: { type: "string" },
+						type: { type: "string" },
+						code: { type: "string", nullable: true },
+						param: { type: "string", nullable: true },
+					},
+				},
+			},
+		});
+		expect(spec.components?.schemas?.AnthropicError).toBeTruthy();
+		for (const [path, methods] of Object.entries(spec.paths)) {
+			if (!path.startsWith("/v1/")) {
+				continue;
+			}
+			for (const [method, operation] of Object.entries(methods)) {
+				for (const [status, response] of Object.entries(operation.responses)) {
+					if (Number(status) < 400) {
+						continue;
+					}
+					expect(response, `${method} ${path} ${status}`).toMatchObject({
+						content: {
+							"application/json": {
+								schema: {
+									$ref: `#/components/schemas/${path === "/v1/messages" ? "AnthropicError" : "OpenAIError"}`,
+								},
+							},
+						},
+					});
+				}
+			}
+		}
+		const response = await app.request("/v1/key");
+		expect(response.status).toBe(401);
+		expect(openAIErrorSchema.safeParse(await response.json()).success).toBe(
+			true,
+		);
+	});
+
 	it("is served at /json and the standard /openapi.json", async () => {
 		const spec = await fetchSpec("/openapi.json");
 		const legacy = await fetchSpec("/json");

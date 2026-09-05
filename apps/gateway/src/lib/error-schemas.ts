@@ -10,10 +10,10 @@ export const openAIErrorSchema = z
 			message: z.string(),
 			type: z.string(),
 			param: z.string().nullable(),
-			code: z.string(),
+			code: z.string().nullable(),
 		}),
 	})
-	.openapi({ description: "OpenAI-compatible error object." });
+	.openapi("OpenAIError", { description: "OpenAI-compatible error object." });
 
 /** Anthropic-compatible error envelope returned by `/v1/messages`. */
 export const anthropicErrorSchema = z
@@ -24,14 +24,21 @@ export const anthropicErrorSchema = z
 			message: z.string(),
 		}),
 	})
-	.openapi({ description: "Anthropic-compatible error object." });
+	.openapi("AnthropicError", {
+		description: "Anthropic-compatible error object.",
+	});
 
 // Plain OpenAPI header objects (not zod) so declaring them does not tighten
 // the route's typed handler signature.
-const rateLimitHeaders = {
-	"Retry-After": {
+export const rateLimitHeaders = {
+	"RateLimit-Policy": {
 		schema: { type: "string" } as const,
-		description: "Seconds to wait before retrying.",
+		description:
+			'Quota policy as an HTTP Structured Fields list, e.g. "requests";q=60;w=60.',
+	},
+	RateLimit: {
+		schema: { type: "string" } as const,
+		description: 'Available quota and reset delay, e.g. "requests";r=59;t=60.',
 	},
 	"RateLimit-Limit": {
 		schema: { type: "string" } as const,
@@ -44,6 +51,14 @@ const rateLimitHeaders = {
 	"RateLimit-Reset": {
 		schema: { type: "string" } as const,
 		description: "Seconds until the current window resets.",
+	},
+};
+
+const retryHeaders = {
+	...rateLimitHeaders,
+	"Retry-After": {
+		schema: { type: "string" } as const,
+		description: "Seconds to wait before retrying.",
 	},
 };
 
@@ -71,10 +86,13 @@ export function standardErrorResponses(
 		402: errorResponse(schema, "Insufficient credits or plan limits reached."),
 		403: errorResponse(schema, "Forbidden request or upstream response."),
 		404: errorResponse(schema, "Unknown model or upstream not-found response."),
+		408: errorResponse(schema, "Request timeout."),
 		410: errorResponse(schema, "Archived or unavailable project."),
+		413: errorResponse(schema, "Request too large."),
+		415: errorResponse(schema, "Unsupported media type."),
 		429: {
 			content: { "application/json": { schema } },
-			headers: rateLimitHeaders,
+			headers: retryHeaders,
 			description:
 				"Rate limited (organization, endpoint, or upstream provider). Back off until Retry-After elapses.",
 		},
@@ -82,6 +100,10 @@ export function standardErrorResponses(
 		502: errorResponse(schema, "Failed to connect to the upstream provider."),
 		503: errorResponse(schema, "Service unavailable upstream response."),
 		504: errorResponse(schema, "Upstream provider timeout."),
+		529: {
+			...errorResponse(schema, "Gateway overloaded."),
+			headers: { "Retry-After": retryHeaders["Retry-After"] },
+		},
 	};
 }
 
@@ -94,7 +116,7 @@ export function publicErrorResponses(
 	return {
 		429: {
 			content: { "application/json": { schema } },
-			headers: rateLimitHeaders,
+			headers: retryHeaders,
 			description: "Rate limited. Back off until Retry-After elapses.",
 		},
 		500: errorResponse(schema, "Internal server error."),

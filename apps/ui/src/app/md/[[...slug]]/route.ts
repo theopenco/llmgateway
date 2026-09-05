@@ -34,14 +34,20 @@ export async function GET(
 		"X-Robots-Tag": "noindex",
 	};
 	if (!file) {
-		return new Response(NOT_FOUND_MARKDOWN, { status: 404, headers });
+		return new Response(NOT_FOUND_MARKDOWN, {
+			status: 404,
+			headers: { ...headers, "Cache-Control": "no-store" },
+		});
 	}
 	// Self-fetch the static file from the trusted configured origin (never
 	// the request's own Host header) so this works in any deployment layout
 	// without trusting attacker-controllable input.
 	const res = await fetch(new URL(`/${file}`, getConfig().appUrl));
 	if (!res.ok) {
-		return new Response(NOT_FOUND_MARKDOWN, { status: 404, headers });
+		return new Response(NOT_FOUND_MARKDOWN, {
+			status: 404,
+			headers: { ...headers, "Cache-Control": "no-store" },
+		});
 	}
 	return new Response(await res.text(), { status: 200, headers });
 }

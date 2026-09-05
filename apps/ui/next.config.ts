@@ -426,40 +426,57 @@ const nextConfig: NextConfig = {
 		];
 	},
 	async rewrites() {
-		return [
-			// /llms.txt is served as a static file from public/ (which takes
-			// precedence over rewrites), so it is intentionally not proxied here.
-			{
-				source: "/llms-full.txt",
-				destination: "https://docs.llmgateway.io/llms-full.txt",
-			},
-			{
-				source: "/docs-health",
-				destination: "https://docs.llmgateway.io/health",
-			},
-			// OAuth discovery metadata (RFC 8414 / RFC 9728) lives on the
-			// gateway, where the MCP server and OAuth endpoints are; mirror it
-			// here so agents probing the primary domain find it.
-			{
-				source: "/.well-known/oauth-authorization-server",
-				destination: `${process.env.GATEWAY_URL ?? "https://api.llmgateway.io"}/.well-known/oauth-authorization-server`,
-			},
-			{
-				source: "/.well-known/oauth-protected-resource",
-				destination: `${process.env.GATEWAY_URL ?? "https://api.llmgateway.io"}/.well-known/oauth-protected-resource`,
-			},
-			// First-party PostHog ingestion proxy — ad blockers block
-			// *.posthog.com directly, silently dropping client events. The
-			// client is configured with api_host: "/ingest" (providers.tsx).
-			{
-				source: "/ingest/static/:path*",
-				destination: "https://us-assets.i.posthog.com/static/:path*",
-			},
-			{
-				source: "/ingest/:path*",
-				destination: "https://us.i.posthog.com/:path*",
-			},
-		];
+		return {
+			afterFiles: [
+				// /llms.txt is served as a static file from public/ (which takes
+				// precedence over rewrites), so it is intentionally not proxied here.
+				{
+					source: "/llms-full.txt",
+					destination: `${process.env.DOCS_URL ?? "https://docs.llmgateway.io"}/llms-full.txt`,
+				},
+				{
+					source: "/docs-health",
+					destination: `${process.env.DOCS_URL ?? "https://docs.llmgateway.io"}/health`,
+				},
+				// OAuth discovery metadata (RFC 8414 / RFC 9728) lives on the
+				// gateway, where the MCP server and OAuth endpoints are; mirror it
+				// here so agents probing the primary domain find it.
+				{
+					source: "/.well-known/oauth-authorization-server",
+					destination: `${process.env.GATEWAY_URL ?? "https://api.llmgateway.io"}/.well-known/oauth-authorization-server`,
+				},
+				{
+					source: "/.well-known/oauth-protected-resource",
+					destination: `${process.env.GATEWAY_URL ?? "https://api.llmgateway.io"}/.well-known/oauth-protected-resource`,
+				},
+				// First-party PostHog ingestion proxy — ad blockers block
+				// *.posthog.com directly, silently dropping client events. The
+				// client is configured with api_host: "/ingest" (providers.tsx).
+				{
+					source: "/ingest/static/:path*",
+					destination: "https://us-assets.i.posthog.com/static/:path*",
+				},
+				{
+					source: "/ingest/:path*",
+					destination: "https://us.i.posthog.com/:path*",
+				},
+				{
+					source: "/openapi.json",
+					destination: `${process.env.GATEWAY_URL ?? "https://api.llmgateway.io"}/openapi.json`,
+				},
+				{
+					source: "/.well-known/oauth-protected-resource/mcp",
+					destination: `${process.env.GATEWAY_URL ?? "https://api.llmgateway.io"}/.well-known/oauth-protected-resource/mcp`,
+				},
+			],
+			fallback: [
+				{
+					source: "/:path*",
+					missing: [{ type: "header", key: "accept", value: ".*text/html.*" }],
+					destination: "/md/_not-found",
+				},
+			],
+		};
 	},
 	typescript: {
 		ignoreBuildErrors: true,

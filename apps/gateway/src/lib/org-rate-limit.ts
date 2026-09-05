@@ -62,7 +62,7 @@ export type { PathRateLimitConfig, PlanClass, ResolvedSpendTier };
 export { isOrgRateLimitEnabled };
 
 /** The sliding window size in seconds (shared across paths). */
-function getWindowSeconds(): number {
+export function getWindowSeconds(): number {
 	return getRateLimitEnvNumber("GATEWAY_RATE_LIMIT_WINDOW_SECONDS", 60);
 }
 

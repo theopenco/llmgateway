@@ -74,6 +74,7 @@ import {
 	getLicensedOrganizationPlan,
 	hasOrganizationEnterpriseAccess,
 } from "@/lib/enterprise.js";
+import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import {
@@ -1413,6 +1414,7 @@ const completions = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: z.object({

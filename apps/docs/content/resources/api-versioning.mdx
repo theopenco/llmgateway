@@ -1,0 +1,26 @@
+---
+title: LLM Gateway API Versioning and Deprecation Policy
+description: API compatibility, deprecation notices, and retirement information for LLM Gateway integrations.
+---
+
+LLM Gateway's public REST API uses URL path versions. The current OpenAI-compatible base URL is `https://api.llmgateway.io/v1`. The [OpenAPI specification](https://llmgateway.io/openapi.json) describes the supported operations and typed errors.
+
+## Compatibility
+
+Breaking changes to the REST contract use a new path version. Additive fields, new endpoints, and new model or provider mappings can appear within an existing version. Clients should tolerate unknown response fields.
+
+The AI SDK gateway protocol has its own versioned paths and negotiation. MCP negotiates its protocol version during initialization; neither uses the REST path version as its protocol version.
+
+## Deprecation and sunset
+
+API deprecation notices are published in the [LLM Gateway changelog](https://llmgateway.io/changelog), with the affected surface, replacement, migration steps, and any scheduled retirement date. Deprecation means a surface is discouraged; sunset means it will stop serving requests. No retirement date is currently scheduled for `/v1`.
+
+When an endpoint is deprecated, its notice defines the transition period. There is no blanket minimum notice period. Model availability can change on an upstream provider's schedule, independently of API versioning.
+
+Deprecated endpoints use the [Deprecation header](https://www.rfc-editor.org/rfc/rfc9745.html) with an HTTP Structured Fields date and a `Link` with `rel="deprecation"` pointing to the notice. A scheduled retirement additionally uses the [Sunset header](https://www.rfc-editor.org/rfc/rfc8594.html) with an HTTP date. These headers are omitted on endpoints without an announced deprecation or retirement.
+
+Clients should monitor the changelog, migrate before a published sunset, and treat a missing `Sunset` header as an unspecified date.
+
+## Model and provider lifecycle
+
+Model and provider availability is separate from the REST contract. Consult the live [models](https://llmgateway.io/models) and [providers](https://llmgateway.io/providers) directories before choosing an integration target. Deprecated entries remain available for historical lookups; deactivated mappings cannot serve new requests.
