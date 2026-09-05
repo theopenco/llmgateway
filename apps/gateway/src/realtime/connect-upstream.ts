@@ -31,15 +31,17 @@ export function resolveUpstreamTarget(
 ): UpstreamTarget {
 	const providerId = preflight.match.mapping.providerId as Provider;
 
-	// Base URL of the platform credential serving the session: the managed
-	// credential's own config when one is active, the provider's env var
-	// otherwise. BYOK base URLs are rejected in preflight.
+	// Base URL of the credential serving the session: the managed credential's
+	// own config when one is active, the provider's env var on the env path. A
+	// BYOK key always uses the provider default: custom BYOK base URLs are
+	// rejected in preflight, and the deployment's proxy must not receive an
+	// org's own key.
 	const credentialBaseUrl = getCredentialSetting(
 		providerId,
 		"baseUrl",
-		preflight.managedKey,
+		{ providerKey: preflight.providerKey, managedKey: preflight.managedKey },
 		{ configIndex: preflight.configIndex, variant: preflight.envVariant },
-	);
+	)?.replace(/\/+$/, "");
 
 	if (providerId === "google-ai-studio") {
 		const baseUrl =
