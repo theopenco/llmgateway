@@ -1,3 +1,5 @@
+import type { ReasoningDetail } from "@llmgateway/models";
+
 export interface ChatMessage {
 	role: "user" | "system" | "assistant" | undefined;
 	content: string;
@@ -41,6 +43,7 @@ export interface StreamingDelta {
 	role?: "assistant";
 	content?: string;
 	reasoning?: string;
+	reasoning_details?: ReasoningDetail[];
 	images?: ImageObject[];
 	tool_calls?: ToolCall[];
 	annotations?: Annotation[];

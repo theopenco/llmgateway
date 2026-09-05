@@ -1,3 +1,4 @@
+import { isGoogleReasoningDetail } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 
 import { toResponsesToolCallItem } from "./tool-registry.js";
@@ -361,6 +362,8 @@ export function convertChatResponseToResponses(
 	// previous_response_id it becomes a stray assistant message that separates
 	// the tool_calls assistant from its tool result, causing strict providers
 	// (deepseek, bytedance, aws-bedrock, kimi, etc.) to reject the request.
+	const googleDetails =
+		message?.reasoning_details?.filter(isGoogleReasoningDetail) ?? [];
 	const toolCalls = message?.tool_calls ?? [];
 	const messageItems: Array<{
 		precedingToolCalls: number;
@@ -378,7 +381,7 @@ export function convertChatResponseToResponses(
 	} else if (
 		message?.content !== null &&
 		message?.content !== undefined &&
-		message.content.trim() !== ""
+		(message.content.trim() !== "" || googleDetails.length > 0)
 	) {
 		messageItems.push({
 			precedingToolCalls: message.content_before_tool_calls
@@ -396,6 +399,9 @@ export function convertChatResponseToResponses(
 		type: "message",
 		id: `msg_${shortid(24)}`,
 		role: "assistant",
+		...(isLast && googleDetails.length > 0
+			? { reasoning_details: googleDetails }
+			: {}),
 		content: [
 			{
 				type: "output_text",

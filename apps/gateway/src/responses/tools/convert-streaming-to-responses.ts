@@ -1,3 +1,4 @@
+import { isGoogleReasoningDetail } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 
 import {
@@ -21,6 +22,7 @@ interface MessageItemState {
 	phase?: string;
 	parts: string[];
 	contentPartStarted: boolean;
+	reasoningDetails?: Array<Record<string, unknown>>;
 	annotations: Record<string, unknown>[];
 }
 
@@ -468,8 +470,10 @@ export function processStreamChunk(
 		}
 	}
 
-	// Handle content delta
-	if (delta.content) {
+	// Handle content and replayable Gemini signature deltas.
+	const googleDetails =
+		delta.reasoning_details?.filter(isGoogleReasoningDetail) ?? [];
+	if (delta.content || googleDetails.length > 0) {
 		let current = state.messageItems[state.messageItems.length - 1];
 		// Start a new message item on first content, or when a boundary marker
 		// (or differing phase) announced that a new message item begins.
@@ -513,6 +517,12 @@ export function processStreamChunk(
 			);
 		}
 
+		if (googleDetails.length > 0) {
+			current.reasoningDetails = [
+				...(current.reasoningDetails ?? []),
+				...googleDetails,
+			];
+		}
 		if (!current.contentPartStarted) {
 			current.contentPartStarted = true;
 			events.push(
@@ -526,14 +536,14 @@ export function processStreamChunk(
 			);
 		}
 
-		current.parts.push(delta.content);
+		current.parts.push(delta.content ?? "");
 		events.push(
 			emitEvent(state, "response.output_text.delta", {
 				type: "response.output_text.delta",
 				item_id: current.id,
 				output_index: current.outputIndex,
 				content_index: 0,
-				delta: delta.content,
+				delta: delta.content ?? "",
 			}),
 		);
 	}
@@ -714,6 +724,9 @@ export function buildFinalOutputItems(
 					},
 				],
 				...(message.phase ? { phase: message.phase } : {}),
+				...(message.reasoningDetails
+					? { reasoning_details: message.reasoningDetails }
+					: {}),
 				status: "completed",
 			},
 		});
@@ -796,6 +809,9 @@ export function createCompletionEvents(
 						},
 					],
 					...(message.phase ? { phase: message.phase } : {}),
+					...(message.reasoningDetails
+						? { reasoning_details: message.reasoningDetails }
+						: {}),
 					status: "completed",
 				},
 			}),

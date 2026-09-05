@@ -7,6 +7,7 @@ import {
 	type ProviderId,
 } from "@llmgateway/models";
 
+import { restoreGoogleReasoningDetails } from "./google-thought-signatures.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
@@ -224,6 +225,7 @@ function resolveGoogleAudioMime(
 // Google-specific message format with all part types
 interface GooglePart {
 	text?: string;
+	thought?: boolean;
 	thoughtSignature?: string;
 	inline_data?: {
 		mime_type: string;
@@ -303,7 +305,7 @@ export async function transformGoogleMessages(
 						if (isTextContent(content)) {
 							const textPart: GooglePart = { text: content.text };
 							// Check for thought_signature in extra_content
-							const extraContent = (content as any).extra_content;
+							const extraContent = content.extra_content;
 							if (extraContent?.google?.thought_signature) {
 								textPart.thoughtSignature =
 									extraContent.google.thought_signature;
@@ -332,7 +334,7 @@ export async function transformGoogleMessages(
 						},
 					};
 					// Check for thought_signature on the tool call
-					const extraContent = (toolCall as any).extra_content;
+					const extraContent = toolCall.extra_content;
 					if (extraContent?.google?.thought_signature) {
 						functionCallPart.thoughtSignature =
 							extraContent.google.thought_signature;
@@ -349,7 +351,7 @@ export async function transformGoogleMessages(
 
 			result.push({
 				role: "model",
-				parts,
+				parts: restoreGoogleReasoningDetails(parts, m.reasoning_details),
 			});
 			continue;
 		}
@@ -363,7 +365,7 @@ export async function transformGoogleMessages(
 				if (isTextContent(content)) {
 					const textPart: GooglePart = { text: content.text };
 					// Check for thought_signature in extra_content
-					const extraContent = (content as any).extra_content;
+					const extraContent = content.extra_content;
 					if (extraContent?.google?.thought_signature) {
 						textPart.thoughtSignature = extraContent.google.thought_signature;
 					}
@@ -440,10 +442,16 @@ export async function transformGoogleMessages(
 			}
 		} else {
 			// String content
-			parts.push({ text: m.content });
+			parts.push({ text: m.content ?? "" });
 		}
 
-		result.push({ role, parts });
+		result.push({
+			role,
+			parts:
+				m.role === "assistant"
+					? restoreGoogleReasoningDetails(parts, m.reasoning_details)
+					: parts,
+		});
 	}
 
 	return result;

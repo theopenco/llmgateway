@@ -147,6 +147,7 @@ import {
 	UnsupportedAudioFormatError,
 	UnsupportedDocumentFormatError,
 	type RoutingMetadata,
+	type GoogleThoughtSignatureState,
 } from "@llmgateway/actions";
 import {
 	generateCacheKey,
@@ -7270,7 +7271,10 @@ chat.openapi(completions, async (c) => {
 				Array.isArray(message.tool_calls)
 			) {
 				for (const toolCall of message.tool_calls) {
-					if (toolCall.id) {
+					if (
+						toolCall.id &&
+						!toolCall.extra_content?.google?.thought_signature
+					) {
 						try {
 							// Use redisClient.get directly since thought_signature is a plain string, not JSON
 							const cachedSignature = await redisClient.get(
@@ -9653,6 +9657,10 @@ chat.openapi(completions, async (c) => {
 				// arrives, so the pair can be forwarded to native clients intact.
 				const toolSearchState: AnthropicToolSearchState = new Map();
 				const toolCallChoiceIndices = new Set<number>();
+				const googleThoughtSignatureState = new Map<
+					number,
+					GoogleThoughtSignatureState
+				>();
 				let sawUpstreamDoneSentinel = false;
 				let sawProviderTerminalEvent = false;
 				let sawOpenAiResponsesDoneEvent = false;
@@ -10527,6 +10535,7 @@ chat.openapi(completions, async (c) => {
 									toolCallChoiceIndices,
 									{
 										cacheThoughtSignatures: !zeroDataRetentionEnabled,
+										googleThoughtSignatureState,
 									},
 								);
 

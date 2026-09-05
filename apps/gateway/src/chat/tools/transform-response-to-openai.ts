@@ -1,3 +1,4 @@
+import { buildGoogleReasoningDetails } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -551,6 +552,14 @@ export function transformResponseToOpenai(
 								),
 							},
 						];
+			for (const [index, choice] of googleChoices.entries()) {
+				const details = buildGoogleReasoningDetails(
+					googleCandidates[index]?.content?.parts ?? [],
+				);
+				if (details.length > 0) {
+					Object.assign(choice.message, { reasoning_details: details });
+				}
+			}
 			transformedResponse = {
 				id: `chatcmpl-${Date.now()}`,
 				object: "chat.completion",

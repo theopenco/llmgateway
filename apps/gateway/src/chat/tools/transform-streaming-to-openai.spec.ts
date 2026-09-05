@@ -870,4 +870,52 @@ describe("transformStreamingToOpenai", () => {
 			expect.objectContaining({ hasCandidates: false }),
 		);
 	});
+	it("tracks signed text offsets separately for streamed candidates", () => {
+		const googleThoughtSignatureState = new Map<
+			number,
+			{ textOffset: number; index: number }
+		>();
+		const transform = (candidates: unknown[]) =>
+			transformStreamingToOpenai(
+				"google-vertex",
+				"gemini-3.5-flash",
+				{ candidates },
+				[],
+				undefined,
+				true,
+				undefined,
+				undefined,
+				{ googleThoughtSignatureState },
+			);
+		transform([
+			{ index: 0, content: { parts: [{ text: "First" }] } },
+			{ index: 1, content: { parts: [{ text: "Second" }] } },
+		]);
+		const result = transform([
+			{
+				index: 1,
+				content: {
+					parts: [{ text: "", thoughtSignature: "second-signature" }],
+				},
+			},
+			{
+				index: 0,
+				content: { parts: [{ text: "", thoughtSignature: "first-signature" }] },
+			},
+		]);
+		expect(result.choices[0].delta.reasoning_details).toMatchObject([
+			{
+				signature: "second-signature",
+				index: 0,
+				google_part: { text_offset: 6 },
+			},
+		]);
+		expect(result.choices[1].delta.reasoning_details).toMatchObject([
+			{
+				signature: "first-signature",
+				index: 0,
+				google_part: { text_offset: 5 },
+			},
+		]);
+	});
 });

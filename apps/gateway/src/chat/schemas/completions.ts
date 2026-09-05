@@ -1,5 +1,15 @@
 import { z } from "@hono/zod-openapi";
 
+const googleExtraContentSchema = z.object({
+	google: z.object({ thought_signature: z.string().optional() }).optional(),
+});
+
+export const reasoningDetailsSchema = z.array(
+	z
+		.object({ text: z.string().optional(), type: z.string().optional() })
+		.passthrough(),
+);
+
 export const completionsRequestSchema = z.object({
 	model: z.string().openapi({
 		example: "gpt-5",
@@ -21,6 +31,7 @@ export const completionsRequestSchema = z.object({
 							z.object({
 								type: z.literal("text"),
 								text: z.string(),
+								extra_content: googleExtraContentSchema.optional(),
 								cache_control: z
 									.object({
 										type: z.literal("ephemeral"),
@@ -110,6 +121,7 @@ export const completionsRequestSchema = z.object({
 					z.object({
 						id: z.string(),
 						type: z.literal("function"),
+						extra_content: googleExtraContentSchema.optional(),
 						function: z.object({
 							name: z.string(),
 							arguments: z.string(),
@@ -133,16 +145,7 @@ export const completionsRequestSchema = z.object({
 				}),
 			reasoning: z.string().optional(),
 			reasoning_content: z.string().optional(),
-			reasoning_details: z
-				.array(
-					z
-						.object({
-							text: z.string().optional(),
-							type: z.string().optional(),
-						})
-						.passthrough(),
-				)
-				.optional(),
+			reasoning_details: reasoningDetailsSchema.optional(),
 			phase: z.enum(["commentary", "final_answer"]).optional().openapi({
 				description:
 					"OpenAI Responses assistant-message phase. Replayed upstream for OpenAI Responses API models; stripped for other providers.",

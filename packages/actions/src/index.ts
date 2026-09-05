@@ -5,6 +5,7 @@ export * from "./parse-tool-call-arguments.js";
 export * from "./request-error.js";
 export * from "./process-image-url.js";
 export * from "./transform-google-messages.js";
+export * from "./google-thought-signatures.js";
 export * from "./get-provider-headers.js";
 export * from "./apply-service-tier.js";
 export * from "./prepare-request-body.js";

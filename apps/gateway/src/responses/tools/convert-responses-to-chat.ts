@@ -1,5 +1,7 @@
 import { UNREPLAYABLE_ITEM_TYPES } from "@/responses/schemas.js";
 
+import { isGoogleReasoningDetail } from "@llmgateway/actions";
+
 import { flattenToolName } from "./tool-registry.js";
 
 import type { ResponsesRequest } from "@/responses/schemas.js";
@@ -178,6 +180,11 @@ export function convertResponsesInputToMessages(
 					next.type === "message" &&
 					(next.role === "assistant" || next.role === undefined)
 				) {
+					if (Array.isArray(next.reasoning_details)) {
+						pendingReasoning.details.push(
+							...next.reasoning_details.filter(isGoogleReasoningDetail),
+						);
+					}
 					const text = extractTextFromContent(next.content);
 					if (text) {
 						foldedContent = (foldedContent ?? "") + text;
@@ -252,6 +259,7 @@ export function convertResponsesInputToMessages(
 		// Regular message items
 		const msg = item as {
 			role: string;
+			reasoning_details?: Array<Record<string, unknown>>;
 			phase?: "commentary" | "final_answer";
 			content?: string | Array<Record<string, unknown>> | null;
 			name?: string;
@@ -296,6 +304,11 @@ export function convertResponsesInputToMessages(
 							: (convertedContent ?? [])),
 					]
 				: convertedContent;
+		if (role === "assistant" && msg.reasoning_details) {
+			pendingReasoning.details.push(
+				...msg.reasoning_details.filter(isGoogleReasoningDetail),
+			);
+		}
 		const chatMsg: ChatMessage = {
 			role,
 			content,

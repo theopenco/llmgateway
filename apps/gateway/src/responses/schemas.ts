@@ -1,5 +1,7 @@
 import { z } from "@hono/zod-openapi";
 
+import { reasoningDetailsSchema } from "@/chat/schemas/completions.js";
+
 /**
  * Flatten a Zod error into `path: message` pairs a client can act on.
  *
@@ -63,6 +65,7 @@ const responseInputContentSchema = z.union([
 ]);
 
 const messageItemSchema = z.object({
+	reasoning_details: reasoningDetailsSchema.optional(),
 	type: z.literal("message"),
 	role: z.enum(["user", "assistant", "system", "developer"]),
 	phase: z.enum(["commentary", "final_answer"]).optional(),
