@@ -1,9 +1,11 @@
 "use client";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
+import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import {
 	Form,
@@ -74,6 +76,10 @@ export function CachingSettings({
 }: CachingSettingsProps) {
 	const { toast } = useToast();
 	const queryClient = useQueryClient();
+	const { buildOrgUrl, selectedOrganization } = useDashboardNavigation();
+	const zeroDataRetentionEnabled =
+		selectedOrganization?.providerCompliancePolicy?.enabled === true &&
+		selectedOrganization.providerCompliancePolicy.zeroDataRetention === true;
 
 	const form = useForm<CachingFormData>({
 		resolver: zodResolver(cachingFormSchema),
@@ -107,7 +113,9 @@ export function CachingSettings({
 				body: {
 					cachingEnabled: data.cachingEnabled,
 					cacheDurationSeconds: data.cacheDurationSeconds,
-					providerCacheControlMode: data.providerCacheControlMode,
+					...(zeroDataRetentionEnabled
+						? {}
+						: { providerCacheControlMode: data.providerCacheControlMode }),
 				},
 			});
 
@@ -138,6 +146,28 @@ export function CachingSettings({
 
 			<Separator />
 
+			{zeroDataRetentionEnabled ? (
+				<div
+					role="status"
+					className="rounded-lg border bg-muted/50 p-4 text-sm"
+				>
+					<div className="font-medium">ZDR blocks caching</div>
+					<p className="mt-1 text-muted-foreground">
+						Response caching and provider prompt caching cannot be enabled while
+						zero data retention is active. Disable ZDR in{` `}
+						<span className="whitespace-nowrap">
+							<Link
+								href={buildOrgUrl("org/compliance")}
+								className="font-medium text-foreground underline underline-offset-4"
+							>
+								Compliance
+							</Link>
+							{` `}first.
+						</span>
+					</p>
+				</div>
+			) : null}
+
 			<Form {...form}>
 				<form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
 					<FormField
@@ -149,6 +179,7 @@ export function CachingSettings({
 									<Switch
 										checked={field.value}
 										onCheckedChange={field.onChange}
+										disabled={zeroDataRetentionEnabled && !field.value}
 									/>
 								</FormControl>
 								<div className="space-y-1 leading-none">
@@ -202,9 +233,10 @@ export function CachingSettings({
 							<FormItem className="space-y-3">
 								<FormControl>
 									<RadioGroup
-										value={field.value}
+										value={zeroDataRetentionEnabled ? "off" : field.value}
 										onValueChange={field.onChange}
 										className="gap-3"
+										disabled={zeroDataRetentionEnabled}
 									>
 										{PROVIDER_CACHE_CONTROL_OPTIONS.map((option) => (
 											<div
@@ -215,6 +247,7 @@ export function CachingSettings({
 													value={option.value}
 													id={`provider-cache-${option.value}`}
 													className="mt-1"
+													disabled={zeroDataRetentionEnabled}
 												/>
 												<div className="space-y-1 leading-none">
 													<Label htmlFor={`provider-cache-${option.value}`}>
@@ -241,7 +274,11 @@ export function CachingSettings({
 					<div className="flex justify-end">
 						<Button
 							type="submit"
-							disabled={form.formState.isSubmitting || updateProject.isPending}
+							disabled={
+								form.formState.isSubmitting ||
+								updateProject.isPending ||
+								(zeroDataRetentionEnabled && cachingEnabled)
+							}
 						>
 							{form.formState.isSubmitting || updateProject.isPending
 								? "Saving..."

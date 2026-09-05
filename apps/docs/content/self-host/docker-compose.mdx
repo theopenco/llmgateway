@@ -52,6 +52,7 @@ Pin to a specific version by replacing the `latest` image tags with the [latest 
 - **Web Interface**: http://localhost:3002
 - **Chat Playground**: http://localhost:3003
 - **Documentation**: http://localhost:3005
+- **Provider Portal (Airside)**: http://localhost:3007
 - **API Endpoint**: http://localhost:4002
 - **Gateway Endpoint**: http://localhost:4001
 
@@ -157,11 +158,6 @@ every service and retain the old entries while credentials and hashes still use
 them. Authentication checks every retained entry, while new hashes use the
 first entry. Removing an old entry makes its provider credentials undecryptable
 and its remaining hashes unusable.
-
-When upgrading from a release that stored gateway API keys as plaintext, update
-the gateway first and wait for it to become healthy before updating the API.
-The compatible gateway accepts both legacy plaintext keys and new hash-only
-keys; reversing that order can briefly reject keys created during the rollout.
 
 ## Multiple API keys and load balancing
 

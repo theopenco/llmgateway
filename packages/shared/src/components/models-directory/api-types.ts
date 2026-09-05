@@ -17,6 +17,9 @@ export interface ApiProvider {
 		multiplier: number;
 		description?: string;
 	}> | null;
+	/** Branding uploaded by the Airside carrier that claimed this provider. */
+	airsideLogoUrl?: string | null;
+	airsideIconUrl?: string | null;
 	status: "active" | "inactive";
 }
 
@@ -37,6 +40,8 @@ export interface ApiModelProviderMapping {
 	imageInputTokensByResolution: Record<string, number> | null;
 	imageOutputTokensByResolution: Record<string, number> | null;
 	inputCharacterPrice: string | null;
+	inputAudioPrice?: string | null;
+	cachedInputAudioPrice?: string | null;
 	outputAudioPrice: string | null;
 	requestPrice: string | null;
 	ocrPagePrice?: string | null;
@@ -46,6 +51,8 @@ export interface ApiModelProviderMapping {
 	quantization?: string | null;
 	streaming: boolean;
 	vision: boolean | null;
+	audio?: boolean | null;
+	document?: boolean | null;
 	reasoning: boolean | null;
 	reasoningEfforts?:
 		("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max")[] | null;
@@ -57,8 +64,11 @@ export interface ApiModelProviderMapping {
 	jsonOutputSchema: boolean | null;
 	webSearch: boolean | null;
 	webSearchPrice: string | null;
+	realtime?: boolean | null;
+	supportedVoices?: string[] | null;
 	supportedVideoSizes: string[] | null;
 	supportedVideoDurationsSeconds: number[] | null;
+	supportedVideoDurationsSecondsImageToVideo?: number[] | null;
 	supportsVideoAudio: boolean | null;
 	supportsVideoWithoutAudio: boolean | null;
 	perSecondPrice: Record<string, string> | null;
@@ -116,6 +126,7 @@ export interface ApiModel {
 	family: string;
 	free: boolean | null;
 	output: string[] | null;
+	imageInputRequired?: boolean | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
 	status: "active" | "inactive";
 	mappings: ApiModelProviderMapping[];
@@ -135,25 +146,47 @@ export interface ApiModel {
 
 type NextFetchInit = RequestInit & { next?: { revalidate?: number } };
 
+// Deliberate module-level cache (per server process, keyed by backend URL):
+// the models payload exceeds Next's 2MB fetch-cache entry limit, so `next:
+// { revalidate }` can never refresh it — a stale disk entry would be served
+// forever. This memo restores the 60s reuse and keeps serving the last good
+// catalogue through an API blip instead of rendering an empty directory.
+const MODELS_MEMO_TTL_MS = 60_000;
+const modelsMemo = new Map<string, { data: ApiModel[]; fetchedAt: number }>();
+
+export function fetchModelsResponseFromApi(
+	apiBackendUrl: string,
+): Promise<Response> {
+	return fetch(`${apiBackendUrl}/internal/models`, { cache: "no-store" });
+}
+
 export async function fetchModelsFromApi(
 	apiBackendUrl: string,
 ): Promise<ApiModel[]> {
+	const memo = modelsMemo.get(apiBackendUrl);
+	if (memo && Date.now() - memo.fetchedAt < MODELS_MEMO_TTL_MS) {
+		return memo.data;
+	}
 	try {
-		const init: NextFetchInit = { next: { revalidate: 60 } };
-		const response = await fetch(`${apiBackendUrl}/internal/models`, init);
+		const response = await fetchModelsResponseFromApi(apiBackendUrl);
 		if (!response.ok) {
 			console.error("Failed to fetch models:", response.statusText);
-			return [];
+			return memo?.data ?? [];
 		}
 		const data = await response.json();
 		const models: Omit<ApiModel, "premium">[] = data.models ?? [];
-		return models.map((model) => ({
+		const withPremium = models.map((model) => ({
 			...model,
 			premium: isPremiumModel(model.id),
 		}));
+		modelsMemo.set(apiBackendUrl, {
+			data: withPremium,
+			fetchedAt: Date.now(),
+		});
+		return withPremium;
 	} catch (error) {
 		console.error("Error fetching models:", error);
-		return [];
+		return memo?.data ?? [];
 	}
 }
 

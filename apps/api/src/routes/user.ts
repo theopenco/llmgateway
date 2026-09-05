@@ -26,7 +26,6 @@ const USERNAME_REGEX = /^[a-z0-9_-]{3,30}$/;
 
 const publicUserSchema = z.object({
 	id: z.string(),
-	createdAt: z.string().datetime(),
 	email: z.string(),
 	name: z.string().nullable(),
 	onboardingCompleted: z.boolean(),
@@ -59,6 +58,8 @@ const enterpriseLicenseSchema = z.object({
 	]),
 	enterpriseEnabled: z.boolean(),
 	whiteLabelEnabled: z.boolean(),
+	kind: z.enum(["enterprise", "white_label"]).nullable(),
+	organizationId: z.string().nullable(),
 	expiresAt: z.string().nullable(),
 	graceEndsAt: z.string().nullable(),
 });
@@ -103,7 +104,6 @@ function toPublicUser(
 ): z.infer<typeof publicUserSchema> {
 	return {
 		id: userRecord.id,
-		createdAt: userRecord.createdAt.toISOString(),
 		email: userRecord.email,
 		name: userRecord.name,
 		onboardingCompleted: userRecord.onboardingCompleted,
@@ -195,6 +195,8 @@ user.openapi(get, async (c) => {
 			enterpriseEnabled: license.enterpriseEnabled,
 			whiteLabelEnabled:
 				license.enterpriseEnabled && license.kind === "white_label",
+			kind: license.kind,
+			organizationId: license.organizationId,
 			expiresAt: license.expiresAt,
 			graceEndsAt: license.graceEndsAt,
 		},

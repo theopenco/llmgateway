@@ -362,6 +362,7 @@ export const moonshotModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "moonshotai/Kimi-K2.5",
+				deactivatedAt: new Date("2026-09-07"),
 				inputPrice: "0.45e-6",
 				cachedInputPrice: "0.07e-6",
 				outputPrice: "2.25e-6",
@@ -515,37 +516,9 @@ export const moonshotModels = [
 				jsonOutput: true,
 			},
 			{
-				providerId: "tundra",
-				externalId: "kimi-k2.6",
-				// Tundra rejects tool_choice="required" with a 400; named/forced
-				// function choice works, so allow everything except "required".
-				supportedToolChoices: ["auto", "none", "function"],
-				inputPrice: "0.4e-6",
-				cachedInputPrice: "0.08e-6",
-				outputPrice: "2.2e-6",
-				requestPrice: "0",
-				contextSize: 262144,
-				maxOutput: 262144,
-				streaming: true,
-				reasoning: true,
-				// The Tundra endpoint is asymmetric: streaming responses
-				// emit thinking in a separate reasoning_content field, but
-				// non-streaming responses inline it into content with no
-				// reasoning_content. Mark reasoning output as omitted so the gateway
-				// keeps streaming content clean (reasoning_content -> reasoning) yet
-				// does not require structured reasoning to be returned.
-				reasoningOutput: "omit",
-				// Tundra's kimi-k2.6 deployment rejects image inputs with a 400
-				// ("image_url content is not supported for this model") even though
-				// the model is vision-capable on other providers (verified
-				// 2026-07-19), so route image requests elsewhere.
-				vision: false,
-				tools: true,
-				jsonOutput: true,
-			},
-			{
 				providerId: "nebius",
 				externalId: "moonshotai/Kimi-K2.6",
+				deactivatedAt: new Date("2026-08-31"),
 				// Streaming tool calls are unreliable on this deployment: required
 				// choices can end without a tool call, while named choices can leak raw
 				// control tokens into argument deltas (verified 2026-07-22).
@@ -660,6 +633,7 @@ export const moonshotModels = [
 			{
 				providerId: "nebius",
 				externalId: "moonshotai/Kimi-K2.7-Code",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.95e-6",
 				outputPrice: "4.0e-6",
 				requestPrice: "0",
@@ -675,6 +649,31 @@ export const moonshotModels = [
 				// JSON mode returns the object in reasoning_content with empty
 				// content on this deployment (verified 2026-07-22).
 				jsonOutput: false,
+			},
+			{
+				providerId: "scx-ai-gp",
+				externalId: "Kimi-K2.7-Code",
+				supportedToolChoices: ["auto", "none"],
+				inputPrice: "0.89e-6",
+				cachedInputPrice: "0.18e-6",
+				outputPrice: "3.71e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 262144,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "minimal", "low", "medium", "high", "xhigh"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 		],
 	},
@@ -750,19 +749,26 @@ export const moonshotModels = [
 				],
 			},
 			{
-				providerId: "permafrost",
-				externalId: "kimi-k3",
+				providerId: "runware",
+				externalId: "moonshotai:kimi@k3",
+				supportedToolChoices: ["auto", "none", "required"],
 				inputPrice: "3.0e-6",
-				cachedInputPrice: "0.6e-6",
+				cachedInputPrice: "0.3e-6",
 				outputPrice: "15.0e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 1048576,
-				streaming: true,
+				maxTemperature: 1,
+				minCacheableTokens: 4096,
 				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "max"],
+				reasoningOutput: "omit",
+				streaming: true,
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsDeveloperRole: false,
 			},
 			{
 				providerId: "novita",
@@ -804,6 +810,7 @@ export const moonshotModels = [
 			{
 				providerId: "nebius",
 				externalId: "moonshotai/Kimi-K3",
+				deactivatedAt: new Date("2026-08-31"),
 				// Named tool choice is rejected with a 400 ("Named tool choice is not
 				// supported for Kimi K3"), and "required" is silently broken: the
 				// upstream emits the call as text in `reasoning_content` and returns
@@ -886,6 +893,43 @@ export const moonshotModels = [
 				vision: true,
 				tools: true,
 				jsonOutput: true,
+			},
+			{
+				providerId: "scx-ai-gp",
+				externalId: "Kimi-K3",
+				// SCX resells the Alibaba Model Studio deployment, whose named
+				// function choice returns finish_reason "stop" instead of
+				// "tool_calls", so only auto/none/required are offered.
+				supportedToolChoices: ["auto", "none", "required"],
+				inputPrice: "2.83e-6",
+				cachedInputPrice: "0.28e-6",
+				outputPrice: "14.13e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
 			},
 		],
 	},

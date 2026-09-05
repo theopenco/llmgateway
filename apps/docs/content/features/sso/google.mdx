@@ -7,8 +7,6 @@ icon: Google
 import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
 
-# Google Workspace
-
 Google Workspace works differently from the SAML providers: employees already sign in to LLM Gateway with the standard **Sign in with Google** button using their Workspace-managed Google account. Instead of registering a SAML application, you configure an **auto-join email domain** — anyone who signs in with a Google account on that domain is added to your organization automatically.
 
 <Callout type="info">
@@ -80,10 +78,11 @@ Auto-joined members get the **developer** role and receive the organization's **
 
 ## What's not available with Google Workspace
 
-With a Google-only setup, the **Directory sync (SCIM)** and **Group role mapping** cards on the SSO page are disabled:
+With a Google-only setup, the **Directory sync (SCIM)**, **Group role mapping**, and **Group team mapping** cards on the SSO page are disabled:
 
 - **SCIM** — Google Workspace doesn't support SCIM provisioning for custom apps, so there's no directory sync to configure.
 - **Group role mapping** — role mappings apply to groups pushed via SCIM, so they can't take effect either. Auto-joined members always start as **developer**.
+- **Group team mapping** — team mappings also rely on SCIM-pushed groups. Assign auto-joined developers to teams on the **Members** page instead.
 
 **Default project access** works as usual and applies to auto-joined members.
 

@@ -3,12 +3,14 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { apiAuth as auth } from "@/auth/config.js";
 
 import { activity } from "./activity.js";
+import { adminAirside } from "./admin-airside.js";
 import { adminLicense } from "./admin-license.js";
 import { adminLimitHits } from "./admin-limit-hits.js";
 import { adminOrgDetails } from "./admin-org-details.js";
 import adminProviderCredentials from "./admin-provider-credentials.js";
 import { adminRoutingAnalytics } from "./admin-routing-analytics.js";
 import admin from "./admin.js";
+import { airside } from "./airside.js";
 import { analytics } from "./analytics.js";
 import { auditLogs } from "./audit-logs.js";
 import { chatPlans } from "./chat-plans.js";
@@ -28,6 +30,8 @@ import { lounge } from "./lounge.js";
 import masterKeys from "./master-keys.js";
 import { modelRatings } from "./model-ratings.js";
 import { modelSurvey } from "./model-survey.js";
+import { organizationSkills } from "./organization-skills.js";
+import { organizationTeams } from "./organization-teams.js";
 import organization from "./organization.js";
 import { payments } from "./payments.js";
 import playground from "./playground.js";
@@ -70,6 +74,9 @@ routes.route("/admin", adminProviderCredentials);
 routes.route("/admin", adminOrgDetails);
 routes.route("/admin", adminRoutingAnalytics);
 routes.route("/admin", adminLimitHits);
+routes.route("/admin", adminAirside);
+
+routes.route("/airside", airside);
 
 routes.route("/analytics", analytics);
 
@@ -80,7 +87,9 @@ routes.route("/projects", projects);
 routes.route("/playground", playground);
 
 routes.route("/orgs", organization);
+routes.route("/orgs", organizationSkills);
 routes.route("/team", team);
+routes.route("/team", organizationTeams);
 routes.route("/payments", payments);
 routes.route("/chat", chat);
 routes.route("/chats", chats);

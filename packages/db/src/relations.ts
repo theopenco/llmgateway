@@ -59,7 +59,11 @@ export const relations = defineRelations(schema, (r) => ({
 		}),
 	},
 	organization: {
+		skills: r.many.organizationSkill(),
 		userOrganizations: r.many.userOrganization(),
+		devPlanCardFingerprintHistory: r.many.devPlanCardFingerprintHistory(),
+		teams: r.many.organizationTeam(),
+		ssoTeamMappings: r.many.ssoTeamMapping(),
 		projects: r.many.project(),
 		providerKeys: r.many.providerKey(),
 		masterKeys: r.many.masterKey({
@@ -126,6 +130,12 @@ export const relations = defineRelations(schema, (r) => ({
 			to: r.modelSurveyResponse.organizationId,
 		}),
 	},
+	devPlanCardFingerprintHistory: {
+		organization: r.one.organization({
+			from: r.devPlanCardFingerprintHistory.organizationId,
+			to: r.organization.id,
+		}),
+	},
 	referral: {
 		referrerOrganization: r.one.organization({
 			from: r.referral.referrerOrganizationId,
@@ -145,6 +155,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.userOrganization.organizationId,
 			to: r.organization.id,
 		}),
+		team: r.one.organizationTeam({
+			from: r.userOrganization.teamId,
+			to: r.organizationTeam.id,
+		}),
 		userProjects: r.many.userProject({
 			from: r.userOrganization.id,
 			to: r.userProject.userOrganizationId,
@@ -152,6 +166,54 @@ export const relations = defineRelations(schema, (r) => ({
 		iamRules: r.many.userIamRule({
 			from: r.userOrganization.id,
 			to: r.userIamRule.userOrganizationId,
+		}),
+	},
+	organizationTeam: {
+		organization: r.one.organization({
+			from: r.organizationTeam.organizationId,
+			to: r.organization.id,
+		}),
+		members: r.many.userOrganization({
+			from: r.organizationTeam.id,
+			to: r.userOrganization.teamId,
+		}),
+		projects: r.many.organizationTeamProject({
+			from: r.organizationTeam.id,
+			to: r.organizationTeamProject.teamId,
+		}),
+		iamRules: r.many.organizationTeamIamRule({
+			from: r.organizationTeam.id,
+			to: r.organizationTeamIamRule.teamId,
+		}),
+		ssoMappings: r.many.ssoTeamMapping({
+			from: r.organizationTeam.id,
+			to: r.ssoTeamMapping.teamId,
+		}),
+	},
+	ssoTeamMapping: {
+		organization: r.one.organization({
+			from: r.ssoTeamMapping.organizationId,
+			to: r.organization.id,
+		}),
+		team: r.one.organizationTeam({
+			from: r.ssoTeamMapping.teamId,
+			to: r.organizationTeam.id,
+		}),
+	},
+	organizationTeamIamRule: {
+		team: r.one.organizationTeam({
+			from: r.organizationTeamIamRule.teamId,
+			to: r.organizationTeam.id,
+		}),
+	},
+	organizationTeamProject: {
+		team: r.one.organizationTeam({
+			from: r.organizationTeamProject.teamId,
+			to: r.organizationTeam.id,
+		}),
+		project: r.one.project({
+			from: r.organizationTeamProject.projectId,
+			to: r.project.id,
 		}),
 	},
 	userIamRule: {
@@ -198,6 +260,10 @@ export const relations = defineRelations(schema, (r) => ({
 		userProjects: r.many.userProject({
 			from: r.project.id,
 			to: r.userProject.projectId,
+		}),
+		organizationTeams: r.many.organizationTeamProject({
+			from: r.project.id,
+			to: r.organizationTeamProject.projectId,
 		}),
 		apiKeys: r.many.apiKey(),
 		logs: r.many.log(),
@@ -629,6 +695,12 @@ export const relations = defineRelations(schema, (r) => ({
 			to: r.organization.id,
 		}),
 	},
+	organizationSkill: {
+		organization: r.one.organization({
+			from: r.organizationSkill.organizationId,
+			to: r.organization.id,
+		}),
+	},
 	skill: {
 		user: r.one.user({
 			from: r.skill.userId,
@@ -651,6 +723,90 @@ export const relations = defineRelations(schema, (r) => ({
 		user: r.one.user({
 			from: r.loungePointEvent.userId,
 			to: r.user.id,
+		}),
+	},
+	providerCompany: {
+		members: r.many.providerCompanyMember({
+			from: r.providerCompany.id,
+			to: r.providerCompanyMember.providerCompanyId,
+		}),
+		claims: r.many.providerClaim({
+			from: r.providerCompany.id,
+			to: r.providerClaim.providerCompanyId,
+		}),
+		draftModels: r.many.providerDraftModel({
+			from: r.providerCompany.id,
+			to: r.providerDraftModel.providerCompanyId,
+		}),
+		priceFilings: r.many.providerPriceFiling({
+			from: r.providerCompany.id,
+			to: r.providerPriceFiling.providerCompanyId,
+		}),
+		routingSettings: r.many.providerRoutingSettings({
+			from: r.providerCompany.id,
+			to: r.providerRoutingSettings.providerCompanyId,
+		}),
+		invites: r.many.providerCompanyInvite({
+			from: r.providerCompany.id,
+			to: r.providerCompanyInvite.providerCompanyId,
+		}),
+		routingFilings: r.many.providerRoutingFiling({
+			from: r.providerCompany.id,
+			to: r.providerRoutingFiling.providerCompanyId,
+		}),
+	},
+	providerCompanyInvite: {
+		providerCompany: r.one.providerCompany({
+			from: r.providerCompanyInvite.providerCompanyId,
+			to: r.providerCompany.id,
+		}),
+	},
+	providerCompanyMember: {
+		providerCompany: r.one.providerCompany({
+			from: r.providerCompanyMember.providerCompanyId,
+			to: r.providerCompany.id,
+		}),
+		user: r.one.user({
+			from: r.providerCompanyMember.userId,
+			to: r.user.id,
+		}),
+	},
+	providerClaim: {
+		providerCompany: r.one.providerCompany({
+			from: r.providerClaim.providerCompanyId,
+			to: r.providerCompany.id,
+		}),
+	},
+	providerDraftModel: {
+		providerCompany: r.one.providerCompany({
+			from: r.providerDraftModel.providerCompanyId,
+			to: r.providerCompany.id,
+		}),
+		priceFilings: r.many.providerPriceFiling({
+			from: r.providerDraftModel.id,
+			to: r.providerPriceFiling.draftModelId,
+		}),
+	},
+	providerPriceFiling: {
+		draftModel: r.one.providerDraftModel({
+			from: r.providerPriceFiling.draftModelId,
+			to: r.providerDraftModel.id,
+		}),
+		providerCompany: r.one.providerCompany({
+			from: r.providerPriceFiling.providerCompanyId,
+			to: r.providerCompany.id,
+		}),
+	},
+	providerRoutingSettings: {
+		providerCompany: r.one.providerCompany({
+			from: r.providerRoutingSettings.providerCompanyId,
+			to: r.providerCompany.id,
+		}),
+	},
+	providerRoutingFiling: {
+		providerCompany: r.one.providerCompany({
+			from: r.providerRoutingFiling.providerCompanyId,
+			to: r.providerCompany.id,
 		}),
 	},
 }));

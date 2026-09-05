@@ -1,6 +1,6 @@
 ---
 title: Model Context Protocol (MCP)
-description: Use LLM Gateway as an MCP server for Claude Code, Cursor, and other MCP-compatible clients
+description: Check usage, costs, and your most-used models, providers and coding apps from any MCP client
 icon: Mcp
 ---
 
@@ -8,26 +8,86 @@ import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
 import { Tabs, Tab } from "fumadocs-ui/components/tabs";
 
-LLM Gateway provides a Model Context Protocol (MCP) server that enables AI assistants like Claude Code to access multiple LLM providers through a unified interface. This allows you to use any model from OpenAI, Anthropic, Google, and more directly from your AI coding assistant.
+Connect your AI assistant to LLM Gateway to inspect your usage and costs, discover your most-used models, providers and coding apps, and generate text or images. The same API key connects all of these tools.
 
 <Callout type="info">
 	**Using DevPass?** This integration also works with a
 	[DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs
-	without a provider prefix (`claude-sonnet-4-5`, not
-	`anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on
-	coding plans; the gateway picks the provider for you.
+	without a provider prefix (`model-id` instead of `provider/model-id`) —
+	provider-pinned routing is not available on coding plans; the gateway picks
+	the provider for you.
 </Callout>
 
 ## What is MCP?
 
 The Model Context Protocol (MCP) is an open standard that allows AI assistants to connect with external tools and data sources. LLM Gateway's MCP server exposes tools for:
 
+- **Account and usage analytics** - Check spending limits, request/token totals, costs, trends, and provider/model/app rankings
 - **Chat completions** - Send messages to any supported LLM
 - **Image generation** - Generate images using models like Qwen Image
-- **Nano Banana image generation** - Generate images with Gemini 3 Pro Image Preview and optionally save to disk
+- **Nano Banana image generation** - Generate images with Gemini 3 Pro Image and optionally save to disk
 - **Model discovery** - List available models with capabilities and pricing
 
 ## Available Tools
+
+### `get-account`
+
+Inspect the connected user, organization, project, role, analytics scope, and API key spending limits. Owners and admins also receive the organization's current credit balance. The balance is not a DevPass plan allowance. No parameters are required, and credentials are never returned.
+
+### `get-usage`
+
+Get request/token totals, errors, cache hits, costs, a time series, and your most-used provider, model, and coding agent/app **by request count**.
+
+| Parameter     | Description                                                                        |
+| ------------- | ---------------------------------------------------------------------------------- |
+| `from`        | Optional first UTC date, `YYYY-MM-DD`, inclusive. Defaults to 29 days before `to`. |
+| `to`          | Optional last UTC date, inclusive. Defaults to today. Maximum range: 366 days.     |
+| `granularity` | `day` (default) or `hour`. Hourly reports allow at most 31 days.                   |
+
+```json
+{
+	"from": "2026-08-01",
+	"to": "2026-08-31",
+	"granularity": "day"
+}
+```
+
+The response includes `scope`, the resolved dates, `updatedAt`, `totals`, `series`, `mostUsedProvider`, `mostUsedModel`, `mostUsedApp`, and `appUsageCoverage`. Only time buckets with activity appear in `series`. Empty periods return zero totals, an empty series, and null rankings.
+
+### `get-usage-breakdown`
+
+Rank providers, models, coding apps, or API keys by requests, inference cost, or tokens.
+
+| Parameter    | Description                                                             |
+| ------------ | ----------------------------------------------------------------------- |
+| `group_by`   | Required: `provider`, `model`, `app`, or `api_key`.                     |
+| `sort_by`    | `requests` (default), `cost`, or `tokens`, descending. Ties use the ID. |
+| `from`, `to` | Same inclusive UTC dates as `get-usage`.                                |
+| `limit`      | Results per page: 1–100, default 10.                                    |
+| `offset`     | Results to skip: 0–10000, default 0.                                    |
+
+```json
+{
+	"group_by": "app",
+	"sort_by": "cost",
+	"limit": 10
+}
+```
+
+The response includes each row's ID, display name, requests, tokens and costs, plus `pagination.hasMore` and `coverage`. Increase `offset` by `limit` to get the next page. Known app aliases are combined before ranking. `unknown` identifies requests with no recorded source; custom app names remain as recorded.
+
+### Analytics scope and cost fields
+
+- Owners and admins see the **connected project's** usage across its keys. Developers see only the keys they created in that project, including inactive-key history.
+- A project API key does not grant access to another project or organization. Tools do not accept scope overrides. Use a key for the project you want to inspect.
+- Use an active user API key. Customer credentials and expired or revoked keys cannot read account analytics. Project access is checked on every analytics request.
+- Analytics tools are read-only, incur no model charges, and remain available when a key or member reaches a spending limit. Generation tools still enforce those limits.
+- `costUsd` is inference usage cost. `creditsCostUsd` and `byokCostUsd` separate gateway credits from provider costs paid with your own provider keys. `dataStorageCostUsd` is separate. These are usage statistics, not invoice totals or exact changes in credit balance.
+- Statistics come from hourly aggregates, survive request-retention cleanup, and may lag recent requests. `updatedAt` reports the last summary aggregation in the requested period.
+- App attribution uses the request's recorded source, including recognized coding clients and `x-source` values. MCP generation calls preserve client attribution headers. Configure `x-source` on your MCP connection if your client does not identify itself. Attribution does not identify which person used a shared key.
+- Historical per-key app statistics start when per-key source aggregation is enabled. `appUsageCoverage` / `coverage` compare recorded breakdown requests with total requests; `complete: false` means rankings cover only part of the period. This differs from an `unknown` source, which is a recorded request without app attribution.
+
+All three tools return JSON in both `structuredContent` and a text content block for older clients. An unavailable backend produces a tool error, never a fabricated zero-usage report.
 
 ### `chat`
 
@@ -35,7 +95,7 @@ Send a message to any LLM and get a response.
 
 **Parameters:**
 
-- `model` (string) - The model to use (e.g., `"gpt-4o"`, `"claude-sonnet-4-20250514"`)
+- `model` (string) - A model ID from `list-models` or the [live catalog](https://llmgateway.io/models)
 - `messages` (array) - Array of messages with `role` and `content`
 - `temperature` (number, optional) - Sampling temperature (0-2)
 - `max_tokens` (number, optional) - Maximum tokens to generate
@@ -44,7 +104,7 @@ Send a message to any LLM and get a response.
 
 ```json
 {
-	"model": "gpt-4o",
+	"model": "MODEL_ID",
 	"messages": [{ "role": "user", "content": "Explain quantum computing" }],
 	"temperature": 0.7
 }
@@ -73,7 +133,7 @@ Generate images from text prompts using AI image models.
 
 ### `generate-nano-banana`
 
-Generate an image using Gemini 3 Pro Image Preview ("Nano Banana"). Returns an inline image preview, and optionally saves the image to disk when the server is configured with an upload directory.
+Generate an image using Gemini 3 Pro Image ("Nano Banana Pro"). Returns an inline image preview, and optionally saves the image to disk when the server is configured with an upload directory.
 
 **Parameters:**
 
@@ -108,27 +168,13 @@ List available LLM models with capabilities and pricing.
 - `include_deactivated` (boolean, optional) - Include deactivated models
 - `exclude_deprecated` (boolean, optional) - Exclude deprecated models
 - `limit` (number, optional) - Maximum models to return (default: 20)
-- `family` (string, optional) - Filter by family (e.g., `"openai"`, `"anthropic"`)
+- `family` (string, optional) - Filter by model family
 
 ### `list-image-models`
 
 List all available image generation models.
 
-**Example output:**
-
-```
-# Image Generation Models
-
-## Qwen Image Plus
-- **Model ID:** `qwen-image-plus`
-- **Description:** Text-to-image with excellent text rendering
-- **Price:** $0.03 per request
-
-## Qwen Image Max
-- **Model ID:** `qwen-image-max`
-- **Description:** Highest quality text-to-image
-- **Price:** $0.075 per request
-```
+Use the tool for current model IDs, capabilities, and pricing, or browse the [live models page](https://llmgateway.io/models).
 
 ## Setup
 
@@ -182,10 +228,10 @@ List all available image generation models.
 
     Try using the tools in Claude Code:
 
-    - "Use the chat tool to ask GPT-4o about TypeScript best practices"
+    - "Show my usage and costs for the last 30 days"
     - "Generate an image of a futuristic city using the generate-image tool"
     - "Use generate-nano-banana to create a hero image for my landing page"
-    - "List all available models from Anthropic"
+    - "Which model, provider, and coding app do I use most?"
 
     </Step>
     </Steps>
@@ -233,10 +279,10 @@ List all available image generation models.
 
     Run `/mcp` in the Codex TUI to confirm the `llmgateway` server is connected. Try:
 
-    - "Use the chat tool to ask GPT-4o about TypeScript best practices"
+    - "Show my usage and costs for the last 30 days"
     - "Generate an image of a futuristic city using the generate-image tool"
     - "Use generate-nano-banana to create a hero image for my landing page"
-    - "List all available models from Anthropic"
+    - "Which model, provider, and coding app do I use most?"
 
     </Step>
     </Steps>
@@ -285,10 +331,10 @@ List all available image generation models.
 
     Open a chat in **Agent Mode**, click the **Select Tools** icon, and verify the LLM Gateway tools appear. Try:
 
-    - "Use the chat tool to ask GPT-4o about TypeScript best practices"
+    - "Show my usage and costs for the last 30 days"
     - "Generate an image of a futuristic city using the generate-image tool"
     - "Use generate-nano-banana to create a hero image for my landing page"
-    - "List all available models from Anthropic"
+    - "Which model, provider, and coding app do I use most?"
 
     </Step>
     </Steps>
@@ -330,12 +376,21 @@ List all available image generation models.
 
 ## Use Cases
 
+### Usage and Spending
+
+```text
+What did I spend this month, and which coding app accounts for the most cost?
+Show my most-used model and provider, then compare daily usage with last month.
+```
+
+Use `get-account` to confirm the scope, `get-usage` for each period, and `get-usage-breakdown` with `group_by: "app"` and `sort_by: "cost"` for the app ranking.
+
 ### Multi-Model Access in Claude Code
 
 Use Claude Code to interact with models it doesn't natively support:
 
 ```
-Use the chat tool with model "gpt-4o" to analyze this code for security issues.
+List available models, then use the chat tool with a suitable model to review this code.
 ```
 
 ### Image Generation
@@ -360,7 +415,7 @@ Use generate-nano-banana to create a hero image for my landing page with a 16:9 
 Query available models to find the best option for your task:
 
 ```
-List models from OpenAI and Anthropic, then use the cheapest one for this simple task.
+List models and their pricing, then choose a suitable low-cost model for this task.
 ```
 
 ## Authentication
@@ -370,7 +425,7 @@ The MCP server supports two authentication methods:
 1. **Bearer Token** - `Authorization: Bearer your-api-key`
 2. **API Key Header** - `x-api-key: your-api-key`
 
-Your API key is the same one you use for the REST API and works across all LLM Gateway services.
+Use the same project API key you use for inference. Analytics access follows the [scope rules above](#analytics-scope-and-cost-fields).
 
 ## OAuth Support
 
@@ -431,8 +486,8 @@ The MCP server respects your account's rate limits. If you're hitting limits:
 
 ## Benefits
 
-- **Unified Access** - Use 200+ models from 40+ providers through one interface
-- **Cost Tracking** - Monitor usage and costs in the LLM Gateway dashboard
+- **Unified Access** - Discover the [live model and provider catalog](https://llmgateway.io/models) through one interface
+- **Cost Tracking** - Ask your assistant about usage, spending, and your most-used models, providers, and apps
 - **Caching** - Automatic response caching reduces costs and latency
 - **Fallback** - Automatic provider failover ensures reliability
 - **Image Generation** - Generate images directly from your AI assistant

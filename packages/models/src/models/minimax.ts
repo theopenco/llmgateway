@@ -62,6 +62,7 @@ export const minimaxModels = [
 			{
 				providerId: "nebius",
 				externalId: "MiniMaxAI/MiniMax-M3",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "0.3e-6",
 				outputPrice: "1.2e-6",
 				requestPrice: "0",

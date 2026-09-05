@@ -32,6 +32,37 @@ Search matches model names, ids, aliases, and providers. The **Filters** panel o
 
 <ThemedImage alt="Models filters" basePath="/learn/models-filters" />
 
+### Lifecycle status
+
+Every provider mapping carries exactly one lifecycle status, shown as a badge on
+the mapping and selectable from the **Status** chips in the filter panel:
+
+| Status          | Meaning                                                                  |
+| --------------- | ------------------------------------------------------------------------ |
+| **Deprecated**  | Still routes; the provider has announced a sunset, so migrate soon       |
+| **Scheduled**   | Still routes, but deactivation is set for a date inside the next 90 days |
+| **Deactivated** | No longer routes; requests return errors                                 |
+
+Status resolves by urgency — deactivated beats scheduled beats deprecated — so a
+mapping never carries two, and a deactivation further out than the 90-day notice
+window stays plain active rather than warning early. The chips are single-select
+and write to `?status=`, so a filtered view can be shared.
+
+With no chip selected, the directory lists everything routable and hides
+mappings already past their deprecation or deactivation date.
+
+### Time-based pricing
+
+A few provider mappings bill different rates depending on when the request
+arrives. Those cards carry a **Time-based pricing** toggle: switch between
+**Peak** and **Off-peak** to see each set of input, cached-input, and output
+prices, with the schedule that decides which one applies spelled out underneath —
+the peak hours, their time zone, and any days that are off-peak all day.
+
+Billing follows the same schedule automatically at request time; there is
+nothing to set on your side. To pay off-peak rates, move batch or backfill work
+into the off-peak window.
+
 ## Compliance eligibility
 
 When your organization is on the Enterprise plan and its provider compliance policy is enabled, every row is evaluated with the same fail-closed rules the gateway enforces at request time — certifications (SOC 2, ISO 27001, GDPR), data-policy requirements (no training on prompts, no prompt logging), country restrictions, and provider/model allow and deny lists.

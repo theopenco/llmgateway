@@ -2,6 +2,39 @@ import type { ModelDefinition } from "@/models.js";
 
 export const anthropicModels = [
 	{
+		id: "claude-fable-5-1",
+		name: "Claude Fable 5.1",
+		description:
+			"Anthropic's most capable model for demanding reasoning and long-horizon agentic work, extending Claude Fable 5 with stronger agentic coding, multistep research, and document work.",
+		family: "anthropic",
+		releasedAt: new Date("2026-09-01"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "anthropic",
+				externalId: "claude-fable-5-1",
+				inputPrice: "10.0e-6",
+				outputPrice: "50.0e-6",
+				cachedInputPrice: "0.25e-6",
+				cacheWriteInputPrice: "12.5e-6",
+				cacheWriteInputPrice1h: "20.0e-6",
+				minCacheableTokens: 512,
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 128000,
+				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				reasoningMode: "adaptive",
+				reasoningOutput: "omit",
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutputSchema: true,
+				supportedParameters: ["max_tokens", "effort"],
+			},
+		],
+	},
+	{
 		id: "claude-fable-5",
 		name: "Claude Fable 5",
 		description: "Next generation intelligence for knowledge work and coding.",

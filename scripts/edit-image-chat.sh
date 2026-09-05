@@ -47,7 +47,7 @@ PAYLOAD_FILE=$(mktemp)
 trap "rm -f '$PAYLOAD_FILE'" EXIT
 
 # Build chat completions payload with vision input via file to avoid argument-too-long errors
-printf '{"model":"gemini-3.1-flash-image-preview","image_config":{"aspect_ratio":"1:1","image_size":"1K"},"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:%s;base64,' "$MIME_TYPE" > "$PAYLOAD_FILE"
+printf '{"model":"gemini-3.1-flash-image","image_config":{"aspect_ratio":"1:1","image_size":"1K"},"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:%s;base64,' "$MIME_TYPE" > "$PAYLOAD_FILE"
 base64 -i "$IMAGE_FILE" | tr -d '\n' >> "$PAYLOAD_FILE"
 printf '"}},{"type":"text","text":"%s"}]}],"stream":false}' "$PROMPT" >> "$PAYLOAD_FILE"
 

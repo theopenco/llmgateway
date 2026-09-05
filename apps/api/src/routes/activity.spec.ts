@@ -7,7 +7,9 @@ import {
 	aggregateLogsForTesting,
 } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 describe("activity endpoint", () => {
 	let token: string;
@@ -42,14 +44,14 @@ describe("activity endpoint", () => {
 		await db.insert(tables.apiKey).values([
 			{
 				id: "test-api-key-id",
-				token: "test-token",
+				...hashApiKeyForStorage("test-token"),
 				projectId: "test-project-id",
 				description: "Test API Key",
 				createdBy: "test-user-id",
 			},
 			{
 				id: "test-api-key-id-2",
-				token: "test-token-2",
+				...hashApiKeyForStorage("test-token-2"),
 				projectId: "test-project-id-2",
 				description: "Test API Key 2",
 				createdBy: "test-user-id",
@@ -58,7 +60,11 @@ describe("activity endpoint", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "test-provider-key-id",
-			token: "test-provider-token",
+			...encryptProviderKeyForStorage(
+				"test-provider-token",
+				"test-provider-key-id",
+				"test-org-id",
+			),
 			provider: "openai",
 			organizationId: "test-org-id",
 		});
@@ -283,7 +289,6 @@ describe("activity endpoint", () => {
 	test("GET /activity should default to 7 days when no date params provided", async () => {
 		const res = await app.request("/activity", {
 			headers: {
-				Authorization: "Bearer test-token",
 				Cookie: token,
 			},
 		});
@@ -312,7 +317,7 @@ describe("activity endpoint", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "test-end-user-customer-key-id",
-			token: "euck_test-token",
+			...hashApiKeyForStorage("euck_test-token"),
 			projectId: "test-project-id",
 			description: "Embedded end-user: customer-a",
 			keyType: "end_user_customer",
@@ -375,7 +380,7 @@ describe("activity endpoint", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "playground-key",
-			token: "playground-token",
+			...hashApiKeyForStorage("playground-token"),
 			projectId: "test-project-id",
 			description: "Playground",
 			kind: "playground",
@@ -1866,7 +1871,7 @@ describe("activity endpoint", () => {
 
 			await db.insert(tables.apiKey).values({
 				id: OTHER_KEY,
-				token: "teammate-token",
+				...hashApiKeyForStorage("teammate-token"),
 				projectId: "test-project-id",
 				description: "Teammate Key",
 				createdBy: "teammate-id",
@@ -2021,14 +2026,14 @@ describe("activity endpoint", () => {
 			await db.insert(tables.apiKey).values([
 				{
 					id: "owner-key-2",
-					token: "owner-token-2",
+					...hashApiKeyForStorage("owner-token-2"),
 					projectId: "test-project-id",
 					description: "Owner Key 2",
 					createdBy: "test-user-id",
 				},
 				{
 					id: "member-key",
-					token: "member-token",
+					...hashApiKeyForStorage("member-token"),
 					projectId: "test-project-id",
 					description: "Member Key",
 					createdBy: MEMBER_ID,
@@ -2171,7 +2176,7 @@ describe("activity endpoint", () => {
 
 			await db.insert(tables.apiKey).values({
 				id: "user-breakdown-euc-key",
-				token: "euck_user-breakdown-token",
+				...hashApiKeyForStorage("euck_user-breakdown-token"),
 				projectId: "test-project-id",
 				description: "Embedded end-user: customer-b",
 				keyType: "end_user_customer",

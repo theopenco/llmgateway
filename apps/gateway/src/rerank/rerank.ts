@@ -24,6 +24,7 @@ import {
 } from "@/lib/api-key-health.js";
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import {
@@ -33,7 +34,10 @@ import {
 	findProviderKey,
 } from "@/lib/cached-queries.js";
 import { raceClientAbort } from "@/lib/client-abort.js";
-import { assertProviderCompliant } from "@/lib/compliance.js";
+import {
+	assertProviderCompliant,
+	getEffectiveRetentionLevel,
+} from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
@@ -458,6 +462,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 	}
 
 	// Budget checks
+	await assertMemberProjectAccess(apiKey, baseProject.organizationId);
 	await assertMemberWithinBudget(apiKey.createdBy, baseProject.organizationId);
 	assertApiKeyWithinUsageLimits(apiKey);
 
@@ -480,7 +485,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 		baseOrganization,
 	);
 
-	const retentionLevel = organization.retentionLevel ?? "none";
+	const retentionLevel = getEffectiveRetentionLevel(organization);
 
 	// 2. Resolve model → provider mapping
 	const result = findRerankMapping(requestedModel);
@@ -687,20 +692,20 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 			});
 		}
 
-		// Base URL of the platform credential serving the attempt: the managed
-		// credential's own config when one is active, the provider's env var
-		// otherwise. A BYOK key's base URL still wins when set.
-		const envBaseUrl = getCredentialSetting(
-			providerId as Provider,
-			"baseUrl",
-			managedKeyInner,
-			{ configIndex, variant: envVariant },
-		);
 		const resolvedBaseUrl =
 			providerKeyInner?.baseUrl ??
-			envBaseUrl ??
-			getProviderDefaultBaseUrl(providerId) ??
-			"https://api.openai.com";
+			getCredentialSetting(
+				providerId as Provider,
+				"baseUrl",
+				{ providerKey: providerKeyInner, managedKey: managedKeyInner },
+				{ configIndex, variant: envVariant },
+			) ??
+			getProviderDefaultBaseUrl(providerId);
+		if (!resolvedBaseUrl) {
+			throw new HTTPException(500, {
+				message: `No base URL set for provider: ${providerId}`,
+			});
+		}
 
 		let upstreamUrl: string;
 		let requestBody: Record<string, unknown>;

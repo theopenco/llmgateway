@@ -1,0 +1,41 @@
+# Airside by LLM Gateway
+
+> Airside is the self-service provider portal for LLM Gateway. LLM API providers can verify their domain, submit models and pricing for approval, and track routed traffic. Providers control their routing discount and the gateway margin they accept.
+
+## How it works
+
+- Claim your carrier: sign up with a company email whose registrable domain matches your API endpoint's domain (or your published website). Free and disposable email domains are rejected. Claims are reviewed and approved by the LLM Gateway team before going live, and only one live claim exists per provider.
+- Register a new provider: a provider that isn't in the catalogue yet can be registered as a custom carrier by submitting its OpenAI-compatible API base URL on the same verified domain.
+- Register your fleet: list models with context size, max output, capabilities (streaming, vision, audio, tools, JSON output, reasoning efforts) and per-model rate limits. Non-pricing attributes are editable in place; new listings are reviewed before they enter service.
+- File your fares: pricing never changes silently — every price change is a tariff filing that takes effect only after approval. Input, output, cached-input and per-request prices are all supported. One filing can be pending per model at a time.
+- Win traffic: routing scores carriers on price (after your discount and the gateway margin you accept), availability, throughput and latency. Lower scores win the request.
+- Watch your traffic: requests, errors, tokens and billed traffic, aggregated per model and per day across every gateway tenant. Aggregates never expose tenant identities, and prompts and responses are never shown to carriers.
+
+## Economics
+
+- Listing on llmgateway.io costs a one-time, non-refundable $2,500 fee per provider company, charged via Stripe before a claim is approved. Providers we already work with can skip it with an invite code entered during onboarding. Self-hosted deployments without a configured fee list for free.
+- There is no recurring platform fee and no minimum volume. You share margin only on traffic you actually win.
+- A listing covers your team: owners can invite up to 10 crew members to the console.
+- You set the gateway margin you accept and an optional routing discount; changes are filed for review and change how your models are scored once approved.
+- You keep your billed traffic less the gateway margin you accept. The console reports traffic, not amounts owed; settlement is governed by a separate written agreement.
+- Machine-readable summary: https://airside.llmgateway.io/pricing.md
+
+## The airport metaphor
+
+- Passengers = developers
+- Carriers = model providers
+- Passports = coding agents
+- Visas = reset limits
+- Fares = model prices
+- Landing fee = the gateway margin
+- Dispatch = the routing election
+
+## Links
+
+- Portal: https://airside.llmgateway.io
+- Terms of Use (carriers): https://airside.llmgateway.io/legal/terms
+- Privacy Notice (carriers): https://airside.llmgateway.io/legal/privacy
+- LLM Gateway: https://llmgateway.io
+- Provider legal & data-handling information: https://llmgateway.io/legal/providers
+- Docs: https://docs.llmgateway.io
+- Airside feature docs: https://docs.llmgateway.io/features/airside

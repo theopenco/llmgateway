@@ -12,6 +12,7 @@ import {
 import type {
 	AnthropicRequestBody,
 	OpenAIRequestBody,
+	OpenAIResponsesRequestBody,
 	ProviderCacheControlMode,
 	ProviderModelMapping,
 } from "@llmgateway/models";
@@ -64,6 +65,40 @@ async function prepareOpenAIImageRequest(imageConfig: {
 		undefined,
 		true,
 	);
+}
+
+async function prepareMetaImageRequest(imageConfig: {
+	image_size?: string;
+	image_quality?: string;
+}) {
+	return (await prepareRequestBody(
+		"meta",
+		"muse-image-1.0",
+		null,
+		"muse-image-1.0",
+		[{ role: "user", content: "Generate a cinematic landscape" }],
+		false,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		true,
+		false,
+		20,
+		null,
+		undefined,
+		imageConfig,
+		undefined,
+		true,
+		undefined,
+		undefined,
+		true,
+	)) as OpenAIResponsesRequestBody;
 }
 
 async function prepareOpenAITextRequest(options: {
@@ -1495,6 +1530,29 @@ describe("prepareRequestBody - OpenAI image generation", () => {
 	});
 });
 
+describe("prepareRequestBody - Meta image generation", () => {
+	test.each(["1024x1024", "1024x1536", "1536x1024"])(
+		"adds the Muse image tool with size %s",
+		async (size) => {
+			const requestBody = await prepareMetaImageRequest({
+				image_size: size,
+				image_quality: "high",
+			});
+
+			expect(requestBody).toMatchObject({
+				model: "muse-image-1.0",
+				tools: [{ type: "image_generation", size }],
+			});
+		},
+	);
+
+	test("rejects a size Muse does not support", async () => {
+		await expect(
+			prepareMetaImageRequest({ image_size: "2048x2048" }),
+		).rejects.toBeInstanceOf(RequestError);
+	});
+});
+
 describe("prepareRequestBody - xAI image generation", () => {
 	async function prepareXaiImageRequest(imageConfig: {
 		aspect_ratio?: string;
@@ -1676,7 +1734,7 @@ describe("prepareRequestBody - OpenAI prompt caching", () => {
 	});
 });
 
-describe("prepareRequestBody - OpenAI explicit prompt caching (GPT-5.6)", () => {
+describe("prepareRequestBody - OpenAI explicit prompt caching", () => {
 	const explicitCacheMessages = [
 		{
 			role: "system",
@@ -1691,18 +1749,21 @@ describe("prepareRequestBody - OpenAI explicit prompt caching (GPT-5.6)", () => 
 		{ role: "user", content: "dynamic input" },
 	];
 
-	test("forwards prompt_cache_options and breakpoints for gpt-5.6 chat completions", async () => {
-		const requestBody = (await prepareOpenAITextRequest({
-			model: "gpt-5.6-sol",
-			promptCacheOptions: { mode: "explicit" },
-			messages: explicitCacheMessages,
-		})) as any;
+	test.each(["gpt-5.6-sol", "gpt-6-astra"])(
+		"forwards prompt_cache_options and breakpoints for %s",
+		async (model) => {
+			const requestBody = (await prepareOpenAITextRequest({
+				model,
+				promptCacheOptions: { mode: "explicit" },
+				messages: explicitCacheMessages,
+			})) as any;
 
-		expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
-		expect(requestBody.messages[0].content[0].prompt_cache_breakpoint).toEqual({
-			mode: "explicit",
-		});
-	});
+			expect(requestBody.prompt_cache_options).toEqual({ mode: "explicit" });
+			expect(
+				requestBody.messages[0].content[0].prompt_cache_breakpoint,
+			).toEqual({ mode: "explicit" });
+		},
+	);
 
 	test("carries breakpoints through the Responses API content transform", async () => {
 		const requestBody = (await prepareOpenAITextRequest({
@@ -7241,7 +7302,12 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 		provider: Parameters<typeof prepareRequestBody>[0],
 		model: string,
 		messages: Parameters<typeof prepareRequestBody>[4],
-		opts: { promptCacheKey?: string; sessionId?: string } = {},
+		opts: {
+			promptCacheKey?: string;
+			promptCacheRetention?: "in_memory" | "24h";
+			sessionId?: string;
+			providerCacheControlMode?: ProviderCacheControlMode;
+		} = {},
 	) {
 		return (await prepareRequestBody(
 			provider,
@@ -7271,14 +7337,17 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 			undefined, // reasoning_max_tokens
 			undefined, // useResponsesApi
 			opts.promptCacheKey,
-			undefined, // prompt_cache_retention
-			"auto", // providerCacheControlMode
+			opts.promptCacheRetention,
+			opts.providerCacheControlMode ?? "auto",
 			undefined, // n
 			undefined, // service_tier
 			undefined, // verbosity
 			undefined, // prompt_cache_options
 			opts.sessionId,
-		)) as { prompt_cache_key?: string };
+		)) as {
+			prompt_cache_key?: string;
+			prompt_cache_retention?: string;
+		};
 	}
 
 	const conversation = [
@@ -7401,6 +7470,29 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 
 		expect(openai.prompt_cache_key).toBeUndefined();
 		expect(azure.prompt_cache_key).toBeUndefined();
+	});
+
+	test("cache-off mode omits all upstream cache-routing keys", async () => {
+		for (const [provider, model] of [
+			["meta", "muse-spark-1.1"],
+			["openai", "gpt-5-mini"],
+			["openai", "gpt-4o-mini"],
+			["azure", "gpt-5-mini"],
+		] as const) {
+			const requestBody = await prepareCacheKeyRequest(
+				provider,
+				model,
+				conversation,
+				{
+					promptCacheKey: "caller-session-key",
+					promptCacheRetention: "in_memory",
+					sessionId: "sess-123",
+					providerCacheControlMode: "off",
+				},
+			);
+			expect(requestBody.prompt_cache_key).toBeUndefined();
+			expect(requestBody.prompt_cache_retention).toBeUndefined();
+		}
 	});
 
 	test("sakana: never receives a prompt_cache_key", async () => {

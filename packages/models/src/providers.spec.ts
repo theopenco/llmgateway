@@ -29,6 +29,23 @@ const getRegionIds = (provider: unknown) =>
 		? (provider.regions?.map((region) => region.id) ?? [])
 		: [];
 
+describe("provider legal metadata", () => {
+	it("is complete for providers with websites", () => {
+		const incompleteProviders = providers
+			.filter((provider) => provider.website)
+			.filter(
+				(provider) =>
+					!provider.legalEntity ||
+					!provider.termsUrl ||
+					!provider.privacyPolicyUrl ||
+					!provider.usagePolicyUrl,
+			)
+			.map((provider) => provider.name);
+
+		expect(incompleteProviders).toEqual([]);
+	});
+});
+
 describe("getServiceTier", () => {
 	it("returns the configured Vertex Flex / Priority tiers", () => {
 		expect(getServiceTier("google-vertex", "flex")?.multiplier).toBe(0.5);
@@ -145,6 +162,21 @@ describe("model service tier support", () => {
 			),
 		).toEqual(["flex", "priority"]);
 		expect(
+			getSupportedServiceTiers("gemini-3.8-flash", "google-vertex").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["flex", "priority"]);
+		expect(
+			getSupportedServiceTiers("gemini-3.1-flash-image", "google-vertex").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["flex"]);
+		expect(
+			getSupportedServiceTiers("gemini-3-pro-image", "google-vertex").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["flex"]);
+		expect(
 			getSupportedServiceTiers(
 				"gemini-3-pro-image-preview",
 				"google-vertex",
@@ -185,11 +217,21 @@ describe("model service tier support", () => {
 			),
 		).toEqual(["flex", "priority"]);
 		expect(
+			getSupportedServiceTiers("gemini-3.8-flash", "google-ai-studio").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["flex", "priority"]);
+		expect(
+			getSupportedServiceTiers("gemini-3-pro-image", "google-ai-studio").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["flex", "priority"]);
+		expect(
 			getSupportedServiceTiers(
 				"gemini-3-pro-image-preview",
 				"google-ai-studio",
 			).map((tier) => tier.id),
-		).toEqual(["flex"]);
+		).toEqual(["flex", "priority"]);
 	});
 
 	it("limits Google Vertex service tiers to the global endpoint", () => {
@@ -225,6 +267,9 @@ describe("model service tier support", () => {
 			supportsServiceTier("gemini-3-pro-preview", "google-vertex", "priority"),
 		).toBe(false);
 		expect(
+			supportsServiceTier("gemini-3.1-flash-image", "google-ai-studio", "flex"),
+		).toBe(false);
+		expect(
 			supportsServiceTier(
 				"gemini-3.1-flash-image-preview",
 				"google-ai-studio",
@@ -236,15 +281,7 @@ describe("model service tier support", () => {
 
 describe("isStealthProvider", () => {
 	it("flags providers that require a baseUrl env var (no default endpoint)", () => {
-		for (const id of [
-			"glacier",
-			"iceberg",
-			"granite",
-			"quartz",
-			"avalanche",
-			"tundra",
-			"permafrost",
-		]) {
+		for (const id of ["glacier", "iceberg", "granite", "quartz"]) {
 			expect(isStealthProvider(id)).toBe(true);
 		}
 	});

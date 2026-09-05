@@ -1,5 +1,6 @@
 "use server";
 
+import { apiErrorMessage } from "./api-error";
 import { createServerApiClient } from "./server-api";
 
 import type { TokenWindow } from "./types";
@@ -18,12 +19,17 @@ export async function loadProjectMetricsAction(
 	window: TokenWindow,
 ) {
 	const $api = await createServerApiClient();
-	const { data } = await $api.GET(
+	const { data, error, response } = await $api.GET(
 		"/admin/organizations/{orgId}/projects/{projectId}/metrics",
 		{
 			params: { path: { orgId, projectId }, query: { window } },
 		},
 	);
+	if (!response.ok) {
+		throw new Error(
+			apiErrorMessage(error, "Failed to load project metrics", response),
+		);
+	}
 	return data ?? null;
 }
 
@@ -231,13 +237,17 @@ export async function deleteOrganizationPaymentMethod(
 	orgId: string,
 	paymentMethodId: string,
 	replacementPaymentMethodId?: string,
+	releaseDevPlanCardFingerprint?: boolean,
 ): Promise<{ success: boolean; error?: string }> {
 	const $api = await createServerApiClient();
 	const { data, error } = await $api.DELETE(
 		"/admin/organizations/{orgId}/payment-methods/{paymentMethodId}",
 		{
 			params: { path: { orgId, paymentMethodId } },
-			body: { replacementPaymentMethodId },
+			body: {
+				replacementPaymentMethodId,
+				releaseDevPlanCardFingerprint,
+			},
 		},
 	);
 
@@ -245,6 +255,28 @@ export async function deleteOrganizationPaymentMethod(
 		const message =
 			(error as { message?: string } | undefined)?.message ??
 			"Failed to delete payment method";
+		return { success: false, error: message };
+	}
+
+	return { success: true };
+}
+
+export async function releaseDevPlanCardFingerprint(
+	orgId: string,
+	fingerprintId: string,
+): Promise<{ success: boolean; error?: string }> {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.DELETE(
+		"/admin/organizations/{orgId}/dev-plan-card-fingerprints/{fingerprintId}",
+		{
+			params: { path: { orgId, fingerprintId } },
+		},
+	);
+
+	if (error || !data) {
+		const message =
+			(error as { message?: string } | undefined)?.message ??
+			"Failed to release card fingerprint";
 		return { success: false, error: message };
 	}
 

@@ -1,7 +1,5 @@
 import { HTTPException } from "hono/http-exception";
 
-import { hasOrganizationEnterpriseAccess } from "@/lib/enterprise.js";
-
 import { logViolation } from "@llmgateway/guardrails";
 import { logger, toError } from "@llmgateway/logger";
 import {
@@ -19,21 +17,43 @@ import {
 interface OrganizationLike {
 	id: string;
 	plan: string;
+	kind?: string | null;
+	retentionLevel?: "retain" | "none" | null;
 	providerCompliancePolicy?: ProviderCompliancePolicy | null;
+}
+
+export function isZeroDataRetentionEnabled(
+	organization: OrganizationLike | null | undefined,
+): boolean {
+	return organization
+		? getActiveCompliancePolicy(organization)?.zeroDataRetention === true
+		: false;
+}
+
+export function getEffectiveRetentionLevel(
+	organization: OrganizationLike | null | undefined,
+): "retain" | "none" {
+	return isZeroDataRetentionEnabled(organization)
+		? "none"
+		: (organization?.retentionLevel ?? "none");
 }
 
 /**
  * The active provider compliance policy for an organization, or `undefined`
- * when none should be enforced. Compliance is an enterprise feature, so the
- * policy only applies to enterprise orgs that have explicitly enabled it.
+ * when none is enabled. Enforcement deliberately checks neither enterprise
+ * access nor the organization kind: what a policy may contain is restricted at
+ * configuration time in the API (full policies need enterprise access, DevPass
+ * settings can only write the no-training requirement), but an enabled stored
+ * policy must fail closed. Gating enforcement on plan/license silently dropped
+ * all restrictions when the gate misfired, and narrowing by kind stripped the
+ * full policy of a devpass-kind org that holds an enterprise plan down to the
+ * no-training requirement — both are compliance breaches, not downgrades.
  */
 export function getActiveCompliancePolicy(
 	organization: OrganizationLike,
 ): ProviderCompliancePolicy | undefined {
-	return hasOrganizationEnterpriseAccess(organization.id, organization.plan) &&
-		organization.providerCompliancePolicy?.enabled
-		? organization.providerCompliancePolicy
-		: undefined;
+	const policy = organization.providerCompliancePolicy;
+	return policy?.enabled ? policy : undefined;
 }
 
 /** Request-scoped facts the policy needs beyond the catalogue. */

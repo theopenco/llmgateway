@@ -313,9 +313,10 @@ export function ComplianceAttestationCard({
 				</div>
 
 				<p className="text-xs text-muted-foreground">
-					Only an explicit &quot;No&quot; satisfies requirements like &quot;No
-					training on prompts&quot; or &quot;No prompt logging&quot; —
-					&quot;Unknown&quot; never does.
+					No training requires &quot;Trains on API prompts&quot; to be
+					&quot;No&quot;. Zero data retention requires &quot;Logs prompts&quot;
+					to be &quot;No&quot; and the retention period to be exactly &quot;0
+					days&quot;. &quot;Unknown&quot; never satisfies a requirement.
 				</p>
 
 				<div className="flex items-center justify-between gap-4">

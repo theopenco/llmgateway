@@ -7,8 +7,6 @@ icon: Microsoft
 import { Step, Steps } from "fumadocs-ui/components/steps";
 import { Callout } from "fumadocs-ui/components/callout";
 
-# Microsoft Entra ID
-
 This guide walks an organization admin through connecting **Microsoft Entra ID** (formerly Azure Active Directory) to LLM Gateway for SAML single sign-on and SCIM provisioning.
 
 <Callout type="info">
@@ -172,7 +170,7 @@ Configuring SAML isn't enough on its own — Entra only issues a SAML assertion 
 	correct. Assign at least your own account before testing.
 </Callout>
 
-If you also set up SCIM below, assigning users there covers this same requirement; but for SSO **without** SCIM this assignment step is mandatory.
+If you also set up SCIM below, these same assignments determine which users and groups are in provisioning scope. For SSO **without** SCIM this assignment step is still mandatory.
 
 ## Configure SCIM provisioning
 
@@ -189,7 +187,7 @@ In LLM Gateway, on **Organization → SSO → Directory sync (SCIM)**, click **G
 <Step>
 ### Add admin credentials in Entra
 
-In Entra, on your Enterprise App → **Provisioning → Automatic → Admin Credentials**:
+In the current Entra provisioning workspace, open your Enterprise App → **Provisioning → Manage → Connectivity**. In the classic interface, use **Provisioning → Automatic → Admin Credentials** instead:
 
 - **Authentication method:** choose the token option — labelled **"Long-lived bearer token"** (or **"Secret token"**). **Do not** pick "OAuth 2.0 code grant flow": LLM Gateway's SCIM endpoint authenticates a plain static bearer token (`Authorization: Bearer <token>`), not an OAuth code exchange. The presence of a **Tenant URL + Secret token** pair on the form confirms you're on the right method.
 - **Tenant URL:** the SCIM base URL, e.g. `https://internal.llmgateway.io/scim/v2`
@@ -205,26 +203,174 @@ A green check confirms the credentials are valid.
 	is fine — pick the bearer/secret-token option and the steps are identical.
 </Callout>
 
+<Callout type="warn">
+	Do not continue until **Test connection** succeeds. The Tenant URL must be
+	publicly reachable by Microsoft; a stopped local server or expired temporary
+	tunnel leaves Entra configured but unable to sync.
+</Callout>
+
 </Step>
 
 <Step>
 ### Assign users and start provisioning
 
-- **Mappings:** the Entra SCIM defaults are fine (`userPrincipalName → userName`, `mail → emails[work]`, `givenName/surname → name.*`, `accountEnabled → active`, group provisioning on).
-- **Settings → Scope:** "Sync only assigned users and groups".
+- Under **Manage → Provisioning → Mappings**, confirm both **Provision Microsoft Entra ID Users** and **Provision Microsoft Entra ID Groups** show **Yes**.
+- Under **Manage → Attribute mapping**, the default user mappings are fine (`userPrincipalName → userName`, `mail → emails[work]`, `givenName/surname → name.*`, `accountEnabled → active`).
+- Expand **Settings** and set **Scope** to **Sync only assigned users and groups**.
 - Under **Users and groups**, assign the people/groups who should get access.
 - Set **Provisioning Status = On** and Save. Use **Provision on demand** to test a single user instantly.
 
 Entra then begins syncing assigned users on its provisioning cycle.
+
+<Callout type="info">
+	If the Overview says **Initial sync paused** and **Last cycle completed:
+	Never**, return to **Manage → Provisioning**, set **Provisioning Status** to
+	**On**, and click **Save**.
+</Callout>
 
 </Step>
 </Steps>
 
 Assigned users are created in LLM Gateway and added to the organization (default role **developer**). Deactivating or unassigning a user in Entra removes their membership.
 
+## Sync Entra groups to LLM Gateway teams
+
+The complete path is:
+
+`Entra security group → Enterprise App assignment → SCIM group + members → exact-name mapping → LLM Gateway team policy`
+
+Three Entra settings are involved, and they do different jobs:
+
+| Entra setting                                                         | Purpose                                                                                                                  | If it is missing                                                                   |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| **Security group membership**                                         | Defines who belongs to the group.                                                                                        | Entra has no membership change to send.                                            |
+| **Enterprise App → Users and groups** assignment                      | Places the group and its immediate members in scope when provisioning is set to **Sync only assigned users and groups**. | The group is skipped as not assigned.                                              |
+| **Provisioning → Manage → Provisioning → Mappings** group job enabled | Sends the group object, exact `displayName`, and membership changes to LLM Gateway.                                      | Users may be provisioned, but LLM Gateway never sees their Entra group membership. |
+
+<Callout type="warn">
+	Assigning a group to the Enterprise App is not the same as provisioning the
+	group object. Team mapping works only when the group is assigned **and** the
+	group attribute mapping is enabled.
+</Callout>
+
+<Callout type="info">
+	You do not need to add a groups claim to the SAML assertion. SAML handles
+	sign-in; SCIM sends the group object and membership used for team mapping.
+</Callout>
+
+Microsoft documents [Enterprise App group assignment](https://learn.microsoft.com/entra/identity/enterprise-apps/assign-user-or-group-access-portal) and [group object provisioning](https://learn.microsoft.com/entra/identity/app-provisioning/customize-application-attributes#editing-group-attribute-mappings) separately for the same reason.
+
+### Recommended group layout
+
+Use one unmapped access group to keep users provisioned, plus separate groups for team policy:
+
+| Entra security group | Assigned to the Enterprise App | LLM Gateway mapping           | Purpose                                                                     |
+| -------------------- | ------------------------------ | ----------------------------- | --------------------------------------------------------------------------- |
+| `Gateway Access`     | Yes                            | None                          | Baseline SSO/SCIM access; keeps the user in scope while their team changes. |
+| `Gateway Platform`   | Yes                            | `Gateway Platform → Platform` | Applies the Platform team's policy.                                         |
+| `Gateway Data`       | Yes                            | `Gateway Data → Data`         | Applies the Data team's policy.                                             |
+
+Make every user an **immediate member** of `Gateway Access` and an immediate member of the appropriate policy group. Do not nest the policy groups inside the access group: Entra application assignment and provisioning do not expand nested group membership.
+
+<Callout type="warn">
+	Without the baseline group (or a direct user assignment), leaving a mapped
+	policy group can make the user entirely out of scope. Entra then deprovisions
+	the organization member instead of only removing their team, which also
+	revokes that member's API keys.
+</Callout>
+
+<Steps>
+<Step>
+### Create the Entra security groups
+
+In the Entra admin center, go to **Entra ID → Groups → All groups → New group**:
+
+- **Group type:** **Security**. Entra requires assigned groups to be security-enabled.
+- **Group name:** choose a stable name such as `Gateway Platform`. LLM Gateway matches this display name exactly, including case and spaces.
+- **Membership type:** **Assigned** is simplest. Dynamic membership also works, but its own evaluation delay is added before provisioning runs.
+- Add the users as direct members.
+
+Group-based Enterprise App assignment requires Microsoft Entra ID P1 or P2.
+
+</Step>
+
+<Step>
+### Assign every relevant group to the Enterprise App
+
+Open **Entra ID → Enterprise apps → All applications → \<your LLM Gateway app\> → Users and groups → Add user/group**. Select the baseline access group and every group you plan to map, keep the offered application role (commonly **User** or **Default Access**), then click **Assign**. That role does not select an LLM Gateway team; the exact-name mapping does.
+
+Assigning only individual users is enough to provision those users, but it does not put an unassigned group object in scope. The group itself must appear on the Enterprise App's **Users and groups** page.
+
+</Step>
+
+<Step>
+### Enable group object provisioning
+
+On the same Enterprise App, open **Provisioning → Manage → Provisioning**, expand **Mappings**, and confirm **Provision Microsoft Entra ID Groups** shows **Yes**. Then open **Manage → Attribute mapping → Groups** and confirm the three default group mappings remain:
+
+- `displayName → displayName`
+- `members → members`
+- `objectId → externalId`
+
+In the classic interface, these controls are together under **Provisioning → Mappings → Provision Microsoft Entra ID Groups**. Keep **Settings → Scope** set to **Sync only assigned users and groups**, set **Provisioning Status** to **On**, and save.
+
+</Step>
+
+<Step>
+### Map the exact group name in LLM Gateway
+
+First create the destination team under **Organization → Teams**. Then open **Organization → SSO → Group team mapping**:
+
+1. Enter the Entra group's exact display name, for example `Gateway Platform`.
+2. Select the LLM Gateway team, for example **Platform**.
+3. Click **Save mapping**.
+
+The mapping can be created before or after Entra pushes the group. If the group already exists in LLM Gateway, saving applies the team immediately to its current developer members.
+
+</Step>
+
+<Step>
+### Run and verify the first sync
+
+For a quick test, use **Enterprise App → Provisioning → Provision on demand**, search for the group, select an affected member, then click **Provision**. Entra's [on-demand group test](https://learn.microsoft.com/entra/identity/app-provisioning/provision-on-demand) handles up to five selected members at a time. For the normal background cycle, use **Start provisioning** and check **Provisioning logs** for the group and its users; Entra generally runs the synchronization process about every 40 minutes.
+
+In LLM Gateway, open **Organization → Members** and confirm the developer shows the expected team. Provisioning only the user tests user creation; provision the **group** to test group-to-team mapping.
+
+</Step>
+</Steps>
+
+### What changes after the first sync
+
+| Change in Entra                   | SCIM change sent to LLM Gateway                 | Result                                                                                             |
+| --------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Add an assigned group/member      | Create or update the user and group membership. | The developer receives the mapped team.                                                            |
+| Move a user between mapped groups | Remove one group membership and add the other.  | The developer moves to the newly resolved team.                                                    |
+| Remove the last mapped membership | Remove the group membership.                    | The SCIM-assigned team is cleared; the user remains provisioned through the baseline access group. |
+| Rename a mapped group             | Update the SCIM group's `displayName`.          | The old exact-name mapping stops matching; update it on the LLM Gateway SSO page.                  |
+| Unassign or delete the group      | Deprovision the SCIM group.                     | Its members lose that mapped team; users remain only if another assignment keeps them in scope.    |
+
+An explicit non-null team assignment made by an admin on the **Members** page is never overwritten. If an admin only clears a SCIM-assigned team, the next SCIM event restores the mapped team. If several mapped groups apply, the alphabetically first exact group name wins. Owners and admins cannot belong to teams, so a privileged group → role mapping takes precedence.
+
+<Callout type="info">
+	Team project access is an additional ceiling: a developer can use a project
+	only when both their personal/default project grants and their team allow it.
+</Callout>
+
+### If the user syncs but the team does not
+
+Check the path in order:
+
+1. On the Enterprise App's **Users and groups** page, confirm the **group** is assigned—not only its individual user.
+2. Under **Provisioning → Manage → Provisioning → Mappings**, confirm **Provision Microsoft Entra ID Groups** is **Yes**.
+3. Under **Manage → Attribute mapping → Groups**, confirm `displayName`, `members`, and `objectId` are still mapped.
+4. Use **Provision on demand** with the group and member, then inspect the **Provisioning logs** for a group operation.
+5. In LLM Gateway, confirm the Group team mapping is character-for-character identical to the Entra display name and the member's role is **developer**.
+
+If the user appears in LLM Gateway but no group operation appears in Entra's logs, the problem is on the Entra assignment or group-provisioning side. If the group operation succeeds but the team stays empty, check the exact-name mapping and member role in LLM Gateway.
+
 ## Group → role mapping (optional)
 
-On the **SSO** page, add mappings such as `Acme Admins → admin`. When Entra pushes group membership over SCIM, each member gets the **highest** mapped role among their groups (default `developer`). Owners are never auto-demoted, so you can't accidentally lock yourself out of the owner role.
+The same SCIM groups can drive organization roles. On the **SSO** page, add mappings such as `Gateway Admins → admin`. Each member gets the **highest** mapped role among their groups (default `developer`). Owners are never auto-demoted. Because owners and admins cannot belong to teams, a privileged role mapping clears any team assignment.
 
 ## Default project access (optional)
 

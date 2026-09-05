@@ -82,7 +82,7 @@ services:
       - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-llmgateway_dev_password}@postgres:5432/${POSTGRES_DB:-llmgateway}
       - UI_URL=${UI_URL:-http://localhost:3002}
       - API_URL=${API_URL:-http://localhost:4002}
-      - ORIGIN_URLS=${ORIGIN_URLS:-http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:3006,http://localhost:4002}
+      - ORIGIN_URLS=${ORIGIN_URLS:-http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:3006,http://localhost:3007,http://localhost:4002}
       - COOKIE_DOMAIN=${COOKIE_DOMAIN:-localhost}
       - PASSKEY_RP_ID=${PASSKEY_RP_ID:-localhost}
       - PASSKEY_RP_NAME=${PASSKEY_RP_NAME:-LLMGateway}
@@ -95,6 +95,7 @@ services:
       - POSTHOG_HOST=${POSTHOG_HOST}
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
       - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - AIRSIDE_LISTING_PRICE_ID=${AIRSIDE_LISTING_PRICE_ID:-}
       - GATEWAY_API_KEY_HASH_SECRET=${GATEWAY_API_KEY_HASH_SECRET}
       - LLMGATEWAY_ENTERPRISE_LICENSE=${LLMGATEWAY_ENTERPRISE_LICENSE:-}
       - ONBOARDING_SPONSOR_SECRET=${ONBOARDING_SPONSOR_SECRET:-}
@@ -252,6 +253,36 @@ services:
       - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
       - CLIENT_IP_HEADER=${CLIENT_IP_HEADER:-X-Forwarded-For}
       - CODE_URL=${CODE_URL:-http://localhost:3004}
+      - POSTHOG_HOST=${POSTHOG_HOST}
+      - POSTHOG_KEY=${POSTHOG_KEY}
+      - CI=${CI}
+
+  # Airside Service
+  airside:
+    image: ghcr.io/theopenco/llmgateway-airside:latest
+    container_name: llmgateway-airside
+    restart: unless-stopped
+    ports:
+      - "${AIRSIDE_PORT:-3007}:80"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:80/",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - llmgateway-network
+    environment:
+      - API_URL=${API_URL:-http://localhost:4002}
+      - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
+      - AIRSIDE_URL=${AIRSIDE_URL:-http://localhost:3007}
       - POSTHOG_HOST=${POSTHOG_HOST}
       - POSTHOG_KEY=${POSTHOG_KEY}
       - CI=${CI}

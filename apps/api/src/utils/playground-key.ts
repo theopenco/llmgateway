@@ -28,6 +28,10 @@ interface PlaygroundApiKeyResult {
 	cookieMaxAge: number;
 }
 
+// Playground keys are per (project, user): the row is provisioned lazily the
+// first time that member uses the playground, and is only ever rotated for the
+// member who owns it. Scoping by creator keeps teammates from revoking each
+// other's key. The cookie carries the secret because storage is hash-only.
 export async function getOrCreatePlaygroundApiKey(
 	projectId: string,
 	userId: string,
@@ -47,6 +51,7 @@ export async function getOrCreatePlaygroundApiKey(
 					eq(tables.apiKey.status, "active"),
 					eq(tables.apiKey.keyType, "user"),
 					eq(tables.apiKey.kind, "playground"),
+					eq(tables.apiKey.createdBy, userId),
 				),
 			)
 			.orderBy(asc(tables.apiKey.createdAt))
@@ -56,9 +61,8 @@ export async function getOrCreatePlaygroundApiKey(
 		const tokenMatches =
 			key &&
 			existingToken &&
-			(key.token === existingToken ||
-				(key.tokenHash !== null &&
-					getApiKeyFingerprints(existingToken).includes(key.tokenHash)));
+			key.tokenHash !== null &&
+			getApiKeyFingerprints(existingToken).includes(key.tokenHash);
 
 		if (
 			key &&
@@ -66,18 +70,14 @@ export async function getOrCreatePlaygroundApiKey(
 			tokenMatches &&
 			(!key.expiresAt || key.expiresAt.getTime() > now)
 		) {
-			const isLegacyKey = key.token !== null;
 			const expiresAt = key.expiresAt ?? new Date(now + PLAYGROUND_KEY_TTL_MS);
 			const shouldUpdate =
-				isLegacyKey ||
-				!key.expiresAt ||
-				key.description !== PLAYGROUND_KEY_DESCRIPTION;
+				!key.expiresAt || key.description !== PLAYGROUND_KEY_DESCRIPTION;
 
 			if (shouldUpdate) {
 				await tx
 					.update(tables.apiKey)
 					.set({
-						...(isLegacyKey ? hashApiKeyForStorage(existingToken) : {}),
 						description: PLAYGROUND_KEY_DESCRIPTION,
 						expiresAt,
 					})
@@ -87,7 +87,7 @@ export async function getOrCreatePlaygroundApiKey(
 			return {
 				token: existingToken,
 				issued: false,
-				cookieNeedsRefresh: isLegacyKey || !key.expiresAt,
+				cookieNeedsRefresh: !key.expiresAt,
 				cookieMaxAge: Math.max(
 					1,
 					Math.min(

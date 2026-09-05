@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import {
@@ -46,7 +48,7 @@ describe("api", () => {
 	test("/v1/chat/completions rejects image-output models for dev-plan orgs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -81,7 +83,7 @@ describe("api", () => {
 	test("/v1/chat/completions rejects text-to-speech models with a pointer to /v1/audio/speech", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -110,7 +112,7 @@ describe("api", () => {
 	test("/v1/images/generations is blocked for dev-plan orgs via the chat-completions guard", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -140,7 +142,7 @@ describe("api", () => {
 	test("/v1/chat/completions rejects provider-targeting model strings for dev-plan orgs", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -173,7 +175,7 @@ describe("api", () => {
 	test("/v1/chat/completions e2e success", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -182,7 +184,11 @@ describe("api", () => {
 		// Create provider key with mock server URL as baseUrl
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -219,7 +225,7 @@ describe("api", () => {
 	test("/v1/messages accepts thinking blocks in conversation history", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -227,7 +233,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -268,7 +278,7 @@ describe("api", () => {
 	test("/v1/messages pairs a legacy id-less function_call with its function result", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -276,7 +286,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -372,7 +386,7 @@ describe("api", () => {
 	test("/v1/messages forwards tool_result-turn text as structured content (cache_control opt-in)", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -380,7 +394,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -496,7 +514,7 @@ describe("api", () => {
 	test("/v1/messages keeps a caller's tool_result cache_control on the wire", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -504,7 +522,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "anthropic",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -610,7 +632,7 @@ describe("api", () => {
 	test("/v1/messages keeps a caller's tool cache_control on the wire", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -618,7 +640,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "anthropic",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -708,7 +734,7 @@ describe("api", () => {
 	test("/v1/messages surfaces reasoning as a thinking block (non-streaming)", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -716,7 +742,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -756,6 +786,117 @@ describe("api", () => {
 		expect(thinkingIndex).toBeLessThan(textIndex);
 	});
 
+	test("/v1/messages redacts malformed tool arguments under ZDR", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+		await db
+			.update(tables.organization)
+			.set({
+				retentionLevel: "none",
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		const secretArguments = '{"secret":"retained-provider-payload"';
+		const originalFetch = globalThis.fetch;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+				if (
+					url.startsWith(mockServerUrl) &&
+					url.endsWith("/v1/chat/completions")
+				) {
+					return new Response(
+						JSON.stringify({
+							id: "chatcmpl-zdr-tool",
+							object: "chat.completion",
+							created: 1,
+							model: "custom",
+							choices: [
+								{
+									index: 0,
+									message: {
+										role: "assistant",
+										content: null,
+										tool_calls: [
+											{
+												id: "call-zdr",
+												type: "function",
+												function: {
+													name: "lookup",
+													arguments: secretArguments,
+												},
+											},
+										],
+									},
+									finish_reason: "tool_calls",
+								},
+							],
+							usage: {
+								prompt_tokens: 10,
+								completion_tokens: 5,
+								total_tokens: 15,
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+		const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+
+		try {
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					max_tokens: 128,
+					messages: [{ role: "user", content: "Use the lookup tool" }],
+				}),
+			});
+
+			expect(res.status).toBe(500);
+			const parseLog = errorSpy.mock.calls.find(
+				([message]) =>
+					message === "Failed to parse anthropic tool call arguments",
+			);
+			expect(parseLog?.[1]).toEqual({ errorName: "SyntaxError" });
+			expect(JSON.stringify(parseLog)).not.toContain(secretArguments);
+		} finally {
+			errorSpy.mockRestore();
+			fetchSpy.mockRestore();
+		}
+	});
+
 	// The gateway emits server_tool_use + web_search_tool_result blocks for
 	// native web search, so SDK clients replay them on the following turn. They
 	// have no OpenAI-format equivalent and must be dropped, not rejected and not
@@ -763,7 +904,7 @@ describe("api", () => {
 	test("/v1/messages accepts web-search blocks in conversation history", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -771,7 +912,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -855,7 +1000,7 @@ describe("api", () => {
 	test("/v1/messages marks gateway response-cache replays", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -863,7 +1008,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -916,7 +1065,7 @@ describe("api", () => {
 	test("/v1/messages web search does not reuse a tool-less cached response", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -924,7 +1073,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "anthropic",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1028,7 +1181,7 @@ describe("api", () => {
 	test("/v1/messages returns an Anthropic msg_ id", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1036,7 +1189,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1081,7 +1238,7 @@ describe("api", () => {
 	test("/v1/messages surfaces reasoning as thinking_delta events (streaming)", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1089,7 +1246,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1139,7 +1300,7 @@ describe("api", () => {
 	test("/v1/messages mirrors Anthropic's rejection of budget thinking on adaptive-only models", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1175,7 +1336,7 @@ describe("api", () => {
 	test("/v1/messages still accepts a valid body carrying OpenAI-only parameters", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1183,7 +1344,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1225,14 +1390,18 @@ describe("api", () => {
 	test("/v1/messages accepts compatibility instruction roles", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
 		});
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1261,7 +1430,7 @@ describe("api", () => {
 	test("/v1/messages renders schema validation failures as Anthropic errors", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1299,7 +1468,7 @@ describe("api", () => {
 	test("/v1/messages rejects unknown message roles", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1334,7 +1503,7 @@ describe("api", () => {
 	test("/v1/chat/completions logs invalid message roles", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1347,6 +1516,7 @@ describe("api", () => {
 				"Content-Type": "application/json",
 				Authorization: "Bearer real-token",
 				"x-request-id": requestId,
+				"x-source": "unique-request.example.com",
 			},
 			body: JSON.stringify({
 				model: "llmgateway/custom",
@@ -1359,12 +1529,13 @@ describe("api", () => {
 		expect(log.finishReason).toBe("client_error");
 		expect(log.apiOrigin).toBe("chat-completions");
 		expect(log.errorDetails?.cause).toBe("invalid_parameters");
+		expect(log.source).toBe("unknown");
 	});
 
 	test("/v1/responses logs invalid message roles", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1377,6 +1548,7 @@ describe("api", () => {
 				"Content-Type": "application/json",
 				Authorization: "Bearer real-token",
 				"x-request-id": requestId,
+				"x-source": "codex",
 			},
 			body: JSON.stringify({
 				model: "llmgateway/custom",
@@ -1389,12 +1561,13 @@ describe("api", () => {
 		expect(log.finishReason).toBe("client_error");
 		expect(log.apiOrigin).toBe("responses");
 		expect(log.errorDetails?.cause).toBe("invalid_request");
+		expect(log.source).toBe("codex");
 	});
 
 	test("/v1/messages explains an OpenAI-format tools rejection", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1464,7 +1637,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-compliance-block",
-			token: "real-token-compliance-block",
+			...hashApiKeyForStorage("real-token-compliance-block"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1472,7 +1645,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-compliance-block",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-compliance-block",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1515,7 +1692,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-compliance-allow",
-			token: "real-token-compliance-allow",
+			...hashApiKeyForStorage("real-token-compliance-allow"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1523,7 +1700,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-compliance-allow",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-compliance-allow",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1545,6 +1726,263 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 	});
 
+	test("/v1/chat/completions enforces an enabled compliance policy on non-enterprise plans", async () => {
+		// Regression: enforcement used to be gated on enterprise access, so a
+		// plan change (or a gateway without a valid enterprise license) silently
+		// disabled the org's provider allow list and requests were routed to
+		// blocked providers.
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "pro",
+				providerCompliancePolicy: {
+					enabled: true,
+					blockStealthProviders: true,
+					allowedCountries: ["US"],
+					allowedProviders: ["openai"],
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-non-enterprise",
+			...hashApiKeyForStorage("real-token-compliance-non-enterprise"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-non-enterprise",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-compliance-non-enterprise",
+				"org-id",
+			),
+			provider: "zai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-non-enterprise",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "zai/glm-5.3",
+				messages: [{ role: "user", content: "Hello compliance!" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
+	});
+
+	test("/v1/chat/completions enforces the full policy on devpass-kind enterprise orgs", async () => {
+		// Regression: the devpass narrowing kept only blockApiTraining, so a
+		// devpass-kind org carrying a fuller policy (only reachable out-of-band;
+		// the API limits devpass orgs to blockApiTraining) had its provider
+		// allow list silently dropped — requests were routed to non-allow-listed
+		// providers that merely don't train on prompts.
+		await harness.setDevPlan({ devPlan: "pro" });
+		await harness.setProjectMode("api-keys");
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: {
+					enabled: true,
+					blockApiTraining: true,
+					allowedProviders: ["openai"],
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-devpass-enterprise",
+			...hashApiKeyForStorage("real-token-compliance-devpass-enterprise"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-devpass-enterprise",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-compliance-devpass-enterprise",
+				"org-id",
+			),
+			provider: "zai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		// zai does not train on prompts, so it passed the narrowed policy; the
+		// allow list must still exclude it. Dev plans reject provider pinning,
+		// so route by bare model id like the affected traffic did.
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-devpass-enterprise",
+			},
+			body: JSON.stringify({
+				model: "glm-5.3",
+				messages: [{ role: "user", content: "Hello compliance!" }],
+			}),
+		});
+
+		expect(res.status).toBe(403);
+		const json = await res.json();
+		expect(json.error.message).toContain("provider compliance policy");
+	});
+
+	test("/v1/chat/completions enforces no-training routing for DevPass", async () => {
+		await harness.setDevPlan({ devPlan: "pro" });
+		await harness.setProjectMode("credits");
+		await db
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockApiTraining: true,
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-devpass-no-training",
+			...hashApiKeyForStorage("real-token-devpass-no-training"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.apiKeyIamRule).values({
+			id: "iam-allow-deepseek-devpass-no-training",
+			apiKeyId: "token-id-devpass-no-training",
+			ruleType: "allow_providers",
+			ruleValue: { providers: ["deepseek"] },
+			status: "active",
+		});
+
+		const previousPlansKey = process.env.LLM_DEEPSEEK_API_KEY__PLANS;
+		process.env.LLM_DEEPSEEK_API_KEY__PLANS = "sk-test-key";
+		try {
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-devpass-no-training",
+				},
+				body: JSON.stringify({
+					model: "deepseek-v4-flash",
+					messages: [{ role: "user", content: "Hello compliance!" }],
+				}),
+			});
+
+			expect(res.status).toBe(403);
+			const json = await res.json();
+			expect(json.error.message).toContain("provider compliance policy");
+		} finally {
+			if (previousPlansKey === undefined) {
+				delete process.env.LLM_DEEPSEEK_API_KEY__PLANS;
+			} else {
+				process.env.LLM_DEEPSEEK_API_KEY__PLANS = previousPlansKey;
+			}
+		}
+	});
+
+	test("/v1/chat/completions routes DevPass through a no-training provider", async () => {
+		await harness.setDevPlan({ devPlan: "pro" });
+		await harness.setProjectMode("credits");
+		await db
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockApiTraining: true,
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-devpass-no-training-route",
+			...hashApiKeyForStorage("real-token-devpass-no-training-route"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.apiKeyIamRule).values({
+			id: "iam-devpass-no-training-route",
+			apiKeyId: "token-id-devpass-no-training-route",
+			ruleType: "allow_providers",
+			ruleValue: { providers: ["deepseek", "novita"] },
+			status: "active",
+		});
+
+		const previousDeepSeekKey = process.env.LLM_DEEPSEEK_API_KEY__PLANS;
+		const previousNovitaKey = process.env.LLM_NOVITA_AI_API_KEY__PLANS;
+		process.env.LLM_DEEPSEEK_API_KEY__PLANS = "sk-deepseek-test-key";
+		process.env.LLM_NOVITA_AI_API_KEY__PLANS = "sk-novita-test-key";
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					id: "chatcmpl-devpass-no-training",
+					object: "chat.completion",
+					created: 1,
+					model: "deepseek/deepseek-v4-flash-0731",
+					choices: [
+						{
+							index: 0,
+							message: { role: "assistant", content: "Hello!" },
+							finish_reason: "stop",
+						},
+					],
+					usage: {
+						prompt_tokens: 1,
+						completion_tokens: 1,
+						total_tokens: 2,
+					},
+				}),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			),
+		);
+
+		try {
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-devpass-no-training-route",
+				},
+				body: JSON.stringify({
+					model: "deepseek-v4-flash",
+					messages: [{ role: "user", content: "Use no-training routing" }],
+				}),
+			});
+
+			expect(res.status).toBe(200);
+			expect((await res.json()).metadata.used_provider).toBe("novita");
+		} finally {
+			fetchSpy.mockRestore();
+			if (previousDeepSeekKey === undefined) {
+				delete process.env.LLM_DEEPSEEK_API_KEY__PLANS;
+			} else {
+				process.env.LLM_DEEPSEEK_API_KEY__PLANS = previousDeepSeekKey;
+			}
+			if (previousNovitaKey === undefined) {
+				delete process.env.LLM_NOVITA_AI_API_KEY__PLANS;
+			} else {
+				process.env.LLM_NOVITA_AI_API_KEY__PLANS = previousNovitaKey;
+			}
+		}
+	});
+
 	test("/v1/embeddings is blocked by the compliance policy too", async () => {
 		// Compliance enforcement also covers non-chat endpoints. text-embedding-3-small
 		// resolves to OpenAI, whose dataPolicy has promptLogging: true.
@@ -1558,7 +1996,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-compliance-embeddings",
-			token: "real-token-compliance-embeddings",
+			...hashApiKeyForStorage("real-token-compliance-embeddings"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1566,7 +2004,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-compliance-embeddings",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-compliance-embeddings",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1603,7 +2045,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-compliance-country-block",
-			token: "real-token-compliance-country-block",
+			...hashApiKeyForStorage("real-token-compliance-country-block"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1611,7 +2053,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-compliance-country-block",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-compliance-country-block",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1648,7 +2094,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-compliance-country-allow",
-			token: "real-token-compliance-country-allow",
+			...hashApiKeyForStorage("real-token-compliance-country-allow"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1656,7 +2102,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-compliance-country-allow",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-compliance-country-allow",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1694,7 +2144,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-custom-compliance",
-			token: "real-token-custom-compliance",
+			...hashApiKeyForStorage("real-token-custom-compliance"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1702,7 +2152,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-custom-compliance",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-custom-compliance",
+				"org-id",
+			),
 			provider: "custom",
 			name: "mycustom",
 			organizationId: "org-id",
@@ -1814,7 +2268,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-openai-not-attested",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-openai-not-attested",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1878,7 +2336,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-blocked-provider",
-			token: "real-token-blocked-provider",
+			...hashApiKeyForStorage("real-token-blocked-provider"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1886,7 +2344,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-blocked-provider",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-blocked-provider",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1933,7 +2395,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-policy-over-iam",
-			token: "real-token-policy-over-iam",
+			...hashApiKeyForStorage("real-token-policy-over-iam"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1949,7 +2411,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-policy-over-iam",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-policy-over-iam",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -1989,7 +2455,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-allowed-provider-block",
-			token: "real-token-allowed-provider-block",
+			...hashApiKeyForStorage("real-token-allowed-provider-block"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1997,7 +2463,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-allowed-provider-block",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-allowed-provider-block",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2036,7 +2506,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-allowed-provider-pass",
-			token: "real-token-allowed-provider-pass",
+			...hashApiKeyForStorage("real-token-allowed-provider-pass"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2044,7 +2514,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-allowed-provider-pass",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-allowed-provider-pass",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2080,7 +2554,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-blocked-model",
-			token: "real-token-blocked-model",
+			...hashApiKeyForStorage("real-token-blocked-model"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2088,7 +2562,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-blocked-model",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-blocked-model",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2161,7 +2639,7 @@ describe("api", () => {
 	test("/v1/chat/completions rejects unsupported service tiers", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-unsupported-service-tier",
-			token: "real-token-unsupported-service-tier",
+			...hashApiKeyForStorage("real-token-unsupported-service-tier"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2207,7 +2685,7 @@ describe("api", () => {
 	test("/v1/chat/completions rejects flex on Fireworks, which only sells priority", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-fireworks-flex",
-			token: "real-token-fireworks-flex",
+			...hashApiKeyForStorage("real-token-fireworks-flex"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2237,7 +2715,7 @@ describe("api", () => {
 	test("/v1/chat/completions rejects a Fireworks tier request on a proxied key", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-fireworks-proxy-tier",
-			token: "real-token-fireworks-proxy-tier",
+			...hashApiKeyForStorage("real-token-fireworks-proxy-tier"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2251,7 +2729,11 @@ describe("api", () => {
 		// and this case is about an untrusted proxy.
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-fireworks-proxy-tier",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-fireworks-proxy-tier",
+				"org-id",
+			),
 			provider: "fireworks",
 			organizationId: "org-id",
 			baseUrl: "https://fireworks-proxy.example.com",
@@ -2285,7 +2767,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-retention-none",
-			token: "real-token-retention-none",
+			...hashApiKeyForStorage("real-token-retention-none"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2293,7 +2775,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-retention-none",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-retention-none",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2334,7 +2820,7 @@ describe("api", () => {
 		// The seeded org defaults to retentionLevel: "retain".
 		await db.insert(tables.apiKey).values({
 			id: "token-id-retention-retain",
-			token: "real-token-retention-retain",
+			...hashApiKeyForStorage("real-token-retention-retain"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2342,7 +2828,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-retention-retain",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-retention-retain",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2373,6 +2863,126 @@ describe("api", () => {
 		expect((logRow?.content ?? "").length).toBeGreaterThan(0);
 	});
 
+	test("/v1/chat/completions bypasses payload storage and caching under ZDR", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				retentionLevel: "retain",
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+		await db
+			.update(tables.project)
+			.set({
+				cachingEnabled: true,
+				providerCacheControlMode: "passthrough",
+			})
+			.where(eq(tables.project.id, "project-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-zdr-retention",
+			...hashApiKeyForStorage("real-token-zdr-retention"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-zdr-retention",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-zdr-retention",
+				"org-id",
+			),
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const requestId = `zdr-retention-${randomUUID()}`;
+		const body = JSON.stringify({
+			model: "llmgateway/custom",
+			messages: [
+				{
+					role: "user",
+					content: [
+						{
+							type: "text",
+							text: "Sensitive ZDR payload",
+							cache_control: { type: "ephemeral" },
+						},
+					],
+				},
+			],
+		});
+		const makeRequest = () =>
+			app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-zdr-retention",
+					"x-request-id": requestId,
+				},
+				body,
+			});
+
+		const originalNodeEnv = process.env.NODE_ENV;
+		const originalFetch = globalThis.fetch;
+		const upstreamBodies: unknown[] = [];
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+				if (url === `${mockServerUrl}/v1/chat/completions`) {
+					const requestBody =
+						input instanceof Request ? await input.clone().text() : init?.body;
+					if (typeof requestBody === "string") {
+						upstreamBodies.push(JSON.parse(requestBody));
+					}
+				}
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+		let firstResponse: Response;
+		let secondResponse: Response;
+		try {
+			try {
+				process.env.NODE_ENV = "development";
+				firstResponse = await makeRequest();
+			} finally {
+				process.env.NODE_ENV = originalNodeEnv;
+			}
+			secondResponse = await makeRequest();
+		} finally {
+			fetchSpy.mockRestore();
+		}
+
+		expect(firstResponse.status).toBe(200);
+		expect(secondResponse.status).toBe(200);
+		expect(firstResponse.headers.get("x-llmgateway-cache")).toBeNull();
+		expect(secondResponse.headers.get("x-llmgateway-cache")).toBeNull();
+		expect(upstreamBodies).toHaveLength(2);
+		for (const upstreamBody of upstreamBodies) {
+			expect(JSON.stringify(upstreamBody)).not.toContain("cache_control");
+		}
+
+		const logs = await waitForLogs(2);
+		expect(logs).toHaveLength(2);
+		for (const log of logs) {
+			expect(log.cached).toBe(false);
+			expect(log.messages).toBeNull();
+			expect(log.content).toBeNull();
+			expect(log.reasoningContent).toBeNull();
+		}
+	});
+
 	test("/v1/responses works when retention is disabled and keeps state out of the log", async () => {
 		// Responses API state lives in the dedicated responses storage (30d
 		// TTL), not the log table, so a non-retaining org can use the full
@@ -2384,7 +2994,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-responses-retention-none",
-			token: "real-token-responses-retention-none",
+			...hashApiKeyForStorage("real-token-responses-retention-none"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2392,7 +3002,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-responses-retention-none",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-responses-retention-none",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2444,7 +3058,7 @@ describe("api", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-nonglobal-service-tier",
-				token: "real-token-nonglobal-service-tier",
+				...hashApiKeyForStorage("real-token-nonglobal-service-tier"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -2452,7 +3066,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-nonglobal-service-tier",
-				token: "google-test-key",
+				...encryptProviderKeyForStorage(
+					"google-test-key",
+					"provider-key-id-nonglobal-service-tier",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -2490,7 +3108,7 @@ describe("api", () => {
 	test("/v1/chat/completions preserves nested OpenAI Responses service tier", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-nested-service-tier",
-			token: "real-token-nested-service-tier",
+			...hashApiKeyForStorage("real-token-nested-service-tier"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2498,7 +3116,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-nested-service-tier",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-nested-service-tier",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2533,7 +3155,7 @@ describe("api", () => {
 	test("/v1/chat/completions omits service tier metadata without a tier request", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-no-service-tier-meta",
-			token: "real-token-no-service-tier-meta",
+			...hashApiKeyForStorage("real-token-no-service-tier-meta"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2541,7 +3163,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-no-service-tier-meta",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-no-service-tier-meta",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2568,7 +3194,7 @@ describe("api", () => {
 	test("/v1/chat/completions applies the dev-plan default flex service tier", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-devplan-flex-default",
-			token: "real-token-devplan-flex-default",
+			...hashApiKeyForStorage("real-token-devplan-flex-default"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2576,7 +3202,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-devplan-flex-default",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-devplan-flex-default",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2619,7 +3249,7 @@ describe("api", () => {
 	test("/v1/chat/completions records providers dropped by the dev-plan flex default", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-devplan-flex-filtered",
-			token: "real-token-devplan-flex-filtered",
+			...hashApiKeyForStorage("real-token-devplan-flex-filtered"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2627,7 +3257,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-devplan-flex-filtered",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-devplan-flex-filtered",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2680,7 +3314,7 @@ describe("api", () => {
 	test("/v1/chat/completions lets an explicit service_tier win over the dev-plan default", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-devplan-flex-override",
-			token: "real-token-devplan-flex-override",
+			...hashApiKeyForStorage("real-token-devplan-flex-override"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2688,7 +3322,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-devplan-flex-override",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-devplan-flex-override",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2720,7 +3358,7 @@ describe("api", () => {
 	test("/v1/chat/completions rejects an explicit priority service_tier on dev plans", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-devplan-priority",
-			token: "real-token-devplan-priority",
+			...hashApiKeyForStorage("real-token-devplan-priority"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2728,7 +3366,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-devplan-priority",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-devplan-priority",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2761,7 +3403,7 @@ describe("api", () => {
 	test("/v1/chat/completions skips the dev-plan flex default for models without flex support", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-devplan-flex-unsupported",
-			token: "real-token-devplan-flex-unsupported",
+			...hashApiKeyForStorage("real-token-devplan-flex-unsupported"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2769,7 +3411,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-devplan-flex-unsupported",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-devplan-flex-unsupported",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2803,7 +3449,7 @@ describe("api", () => {
 	test("/v1/chat/completions streams service tier in the final usage chunk", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-service-tier-stream",
-			token: "real-token-service-tier-stream",
+			...hashApiKeyForStorage("real-token-service-tier-stream"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2811,7 +3457,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-service-tier-stream",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-service-tier-stream",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2845,7 +3495,7 @@ describe("api", () => {
 	test("/v1/chat/completions records requested service tier on upstream errors", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-service-tier-upstream-error",
-			token: "real-token-service-tier-upstream-error",
+			...hashApiKeyForStorage("real-token-service-tier-upstream-error"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2857,7 +3507,11 @@ describe("api", () => {
 		// before it ever serves a tier.
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-service-tier-upstream-error",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-service-tier-upstream-error",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2891,7 +3545,7 @@ describe("api", () => {
 	test("/v1/responses forwards the requested service tier", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-responses-service-tier",
-			token: "real-token-responses-service-tier",
+			...hashApiKeyForStorage("real-token-responses-service-tier"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2899,7 +3553,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-responses-service-tier",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-responses-service-tier",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -2930,10 +3588,64 @@ describe("api", () => {
 		expect(logs[0].usedServiceTier).toBe("priority");
 	});
 
+	test.each([
+		"openai/gpt-5.6-sol",
+		"openai/gpt-5.6-terra",
+		"openai/gpt-5.6-luna",
+	])("/v1/responses forwards max_output_tokens to %s", async (model) => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-responses-max-output-tokens",
+			...hashApiKeyForStorage("real-token-responses-max-output-tokens"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-responses-max-output-tokens",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-responses-max-output-tokens",
+				"org-id",
+			),
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/responses", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-responses-max-output-tokens",
+				"x-debug": "true",
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model,
+				service_tier: "flex",
+				reasoning: { effort: "max" },
+				max_output_tokens: 64,
+				input: "Hello!",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		expect(logs).toHaveLength(1);
+		expect(logs[0].routingMetadata?.strippedParameters ?? []).not.toContain(
+			"max_tokens",
+		);
+		expect(logs[0].upstreamRequest).toMatchObject({
+			max_output_tokens: 64,
+		});
+	});
+
 	test("/v1/responses rejects unsupported service tiers", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-responses-bad-service-tier",
-			token: "real-token-responses-bad-service-tier",
+			...hashApiKeyForStorage("real-token-responses-bad-service-tier"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2963,7 +3675,7 @@ describe("api", () => {
 	test("/v1/responses streams the served service tier", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-responses-service-tier-stream",
-			token: "real-token-responses-service-tier-stream",
+			...hashApiKeyForStorage("real-token-responses-service-tier-stream"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -2971,7 +3683,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-responses-service-tier-stream",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-responses-service-tier-stream",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -3026,7 +3742,7 @@ describe("api", () => {
 		// the requested tier was rebuilt from the fallback context.
 		await db.insert(tables.apiKey).values({
 			id: "token-id-tier-key-rotation",
-			token: "real-token-tier-key-rotation",
+			...hashApiKeyForStorage("real-token-tier-key-rotation"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3035,14 +3751,22 @@ describe("api", () => {
 		await db.insert(tables.providerKey).values([
 			{
 				id: "provider-key-tier-rotation-primary",
-				token: "sk-primary-key",
+				...encryptProviderKeyForStorage(
+					"sk-primary-key",
+					"provider-key-tier-rotation-primary",
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
 			},
 			{
 				id: "provider-key-tier-rotation-secondary",
-				token: "sk-secondary-key",
+				...encryptProviderKeyForStorage(
+					"sk-secondary-key",
+					"provider-key-tier-rotation-secondary",
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -3097,7 +3821,7 @@ describe("api", () => {
 		// provider with no premium tier would serve, and bill, standard silently.
 		await db.insert(tables.apiKey).values({
 			id: "token-id-tier-no-downgrade-fallback",
-			token: "real-token-tier-no-downgrade-fallback",
+			...hashApiKeyForStorage("real-token-tier-no-downgrade-fallback"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3106,14 +3830,22 @@ describe("api", () => {
 		await db.insert(tables.providerKey).values([
 			{
 				id: "provider-key-tier-fallback-openai",
-				token: "sk-openai-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-openai-test-key",
+					"provider-key-tier-fallback-openai",
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
 			},
 			{
 				id: "provider-key-tier-fallback-azure",
-				token: "azure-test-key",
+				...encryptProviderKeyForStorage(
+					"azure-test-key",
+					"provider-key-tier-fallback-azure",
+					"org-id",
+				),
 				provider: "azure",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -3155,7 +3887,7 @@ describe("api", () => {
 		// is what keeps the request on openai.
 		await db.insert(tables.apiKey).values({
 			id: "token-id-tier-fallback-control",
-			token: "real-token-tier-fallback-control",
+			...hashApiKeyForStorage("real-token-tier-fallback-control"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3164,14 +3896,22 @@ describe("api", () => {
 		await db.insert(tables.providerKey).values([
 			{
 				id: "provider-key-tier-control-openai",
-				token: "sk-openai-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-openai-test-key",
+					"provider-key-tier-control-openai",
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
 			},
 			{
 				id: "provider-key-tier-control-azure",
-				token: "azure-test-key",
+				...encryptProviderKeyForStorage(
+					"azure-test-key",
+					"provider-key-tier-control-azure",
+					"org-id",
+				),
 				provider: "azure",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -3204,7 +3944,7 @@ describe("api", () => {
 	test("/v1/chat/completions forwards generated request id upstream", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-generated-request-id",
-			token: "real-token-generated-request-id",
+			...hashApiKeyForStorage("real-token-generated-request-id"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3212,7 +3952,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-generated-request-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-generated-request-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -3300,7 +4044,7 @@ describe("api", () => {
 	test("/v1/chat/completions generates request id when empty", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-empty-request-id",
-			token: "real-token-empty-request-id",
+			...hashApiKeyForStorage("real-token-empty-request-id"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3308,7 +4052,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-empty-request-id",
-			token: "sk-test-key-empty-request-id",
+			...encryptProviderKeyForStorage(
+				"sk-test-key-empty-request-id",
+				"provider-key-id-empty-request-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -3402,7 +4150,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3410,7 +4158,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -3446,7 +4198,7 @@ describe("api", () => {
 	test("/v1/moderations e2e success", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3454,7 +4206,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -3507,7 +4263,7 @@ describe("api", () => {
 	test("/v1/moderations retries with next env key on invalid key", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3628,7 +4384,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-moderations-credits",
-			token: "real-token-moderations-credits",
+			...hashApiKeyForStorage("real-token-moderations-credits"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3658,7 +4414,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-moderations-hybrid-credits",
-			token: "real-token-moderations-hybrid-credits",
+			...hashApiKeyForStorage("real-token-moderations-hybrid-credits"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3685,7 +4441,7 @@ describe("api", () => {
 	test("/v1/embeddings e2e success", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings",
-			token: "real-token-embeddings",
+			...hashApiKeyForStorage("real-token-embeddings"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3693,7 +4449,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-embeddings",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-embeddings",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -3759,7 +4519,7 @@ describe("api", () => {
 	test("/v1/embeddings rejects unknown model", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-unknown",
-			token: "real-token-embeddings-unknown",
+			...hashApiKeyForStorage("real-token-embeddings-unknown"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3785,7 +4545,7 @@ describe("api", () => {
 	test("/v1/embeddings enforces IAM provider rules", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-iam",
-			token: "real-token-embeddings-iam",
+			...hashApiKeyForStorage("real-token-embeddings-iam"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3801,7 +4561,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-embeddings-iam",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-embeddings-iam",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -3838,7 +4602,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-credits",
-			token: "real-token-embeddings-credits",
+			...hashApiKeyForStorage("real-token-embeddings-credits"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3873,7 +4637,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-spend-cap",
-			token: "real-token-spend-cap",
+			...hashApiKeyForStorage("real-token-spend-cap"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3923,7 +4687,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-hybrid-credits",
-			token: "real-token-embeddings-hybrid-credits",
+			...hashApiKeyForStorage("real-token-embeddings-hybrid-credits"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3955,7 +4719,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-retention",
-			token: "real-token-embeddings-retention",
+			...hashApiKeyForStorage("real-token-embeddings-retention"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3963,7 +4727,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-embeddings-retention",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-embeddings-retention",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -3991,7 +4759,7 @@ describe("api", () => {
 	test("/v1/embeddings google-ai-studio single input", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-google",
-			token: "real-token-embeddings-google",
+			...hashApiKeyForStorage("real-token-embeddings-google"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -3999,7 +4767,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-embeddings-google",
-			token: "google-test-key",
+			...encryptProviderKeyForStorage(
+				"google-test-key",
+				"provider-key-id-embeddings-google",
+				"org-id",
+			),
 			provider: "google-ai-studio",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -4080,7 +4852,7 @@ describe("api", () => {
 
 			await db.insert(tables.apiKey).values({
 				id: "token-id-embeddings-google-env",
-				token: "real-token-embeddings-google-env",
+				...hashApiKeyForStorage("real-token-embeddings-google-env"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -4134,7 +4906,7 @@ describe("api", () => {
 	test("/v1/embeddings google-ai-studio uses upstream usageMetadata when present", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-google-v2",
-			token: "real-token-embeddings-google-v2",
+			...hashApiKeyForStorage("real-token-embeddings-google-v2"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -4142,7 +4914,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-embeddings-google-v2",
-			token: "google-test-key",
+			...encryptProviderKeyForStorage(
+				"google-test-key",
+				"provider-key-id-embeddings-google-v2",
+				"org-id",
+			),
 			provider: "google-ai-studio",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -4186,7 +4962,7 @@ describe("api", () => {
 	test("/v1/embeddings google-ai-studio rejects token-id input", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-google-tokenid",
-			token: "real-token-embeddings-google-tokenid",
+			...hashApiKeyForStorage("real-token-embeddings-google-tokenid"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -4194,7 +4970,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-embeddings-google-tokenid",
-			token: "google-test-key",
+			...encryptProviderKeyForStorage(
+				"google-test-key",
+				"provider-key-id-embeddings-google-tokenid",
+				"org-id",
+			),
 			provider: "google-ai-studio",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -4221,7 +5001,7 @@ describe("api", () => {
 	test("/v1/embeddings google-ai-studio packs base64 encoding_format", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-google-b64",
-			token: "real-token-embeddings-google-b64",
+			...hashApiKeyForStorage("real-token-embeddings-google-b64"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -4229,7 +5009,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-embeddings-google-b64",
-			token: "google-test-key",
+			...encryptProviderKeyForStorage(
+				"google-test-key",
+				"provider-key-id-embeddings-google-b64",
+				"org-id",
+			),
 			provider: "google-ai-studio",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -4272,7 +5056,7 @@ describe("api", () => {
 	test("/v1/embeddings google-ai-studio batched input", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-embeddings-google-batch",
-			token: "real-token-embeddings-google-batch",
+			...hashApiKeyForStorage("real-token-embeddings-google-batch"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -4280,7 +5064,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-embeddings-google-batch",
-			token: "google-test-key",
+			...encryptProviderKeyForStorage(
+				"google-test-key",
+				"provider-key-id-embeddings-google-batch",
+				"org-id",
+			),
 			provider: "google-ai-studio",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -4316,7 +5104,7 @@ describe("api", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-embeddings-vertex",
-				token: "real-token-embeddings-vertex",
+				...hashApiKeyForStorage("real-token-embeddings-vertex"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -4324,7 +5112,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-embeddings-vertex",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id-embeddings-vertex",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -4404,7 +5196,7 @@ describe("api", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-embeddings-vertex-batch",
-				token: "real-token-embeddings-vertex-batch",
+				...hashApiKeyForStorage("real-token-embeddings-vertex-batch"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -4412,7 +5204,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-embeddings-vertex-batch",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id-embeddings-vertex-batch",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -4452,7 +5248,7 @@ describe("api", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-embeddings-vertex-b64",
-				token: "real-token-embeddings-vertex-b64",
+				...hashApiKeyForStorage("real-token-embeddings-vertex-b64"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -4460,7 +5256,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-embeddings-vertex-b64",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id-embeddings-vertex-b64",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -4513,7 +5313,7 @@ describe("api", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-embeddings-vertex-tokenid",
-				token: "real-token-embeddings-vertex-tokenid",
+				...hashApiKeyForStorage("real-token-embeddings-vertex-tokenid"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -4521,7 +5321,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-embeddings-vertex-tokenid",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id-embeddings-vertex-tokenid",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -4558,7 +5362,7 @@ describe("api", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-embeddings-vertex-noproj",
-				token: "real-token-embeddings-vertex-noproj",
+				...hashApiKeyForStorage("real-token-embeddings-vertex-noproj"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -4567,7 +5371,11 @@ describe("api", () => {
 			await harness.setProjectMode("credits");
 			await cdb.insert(tables.providerKey).values({
 				id: "managed-key-embeddings-vertex-noproj",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"managed-key-embeddings-vertex-noproj",
+					null,
+				),
 				provider: "google-vertex",
 				managed: true,
 				organizationId: null,
@@ -4606,7 +5414,7 @@ describe("api", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-embeddings-vertex-005",
-				token: "real-token-embeddings-vertex-005",
+				...hashApiKeyForStorage("real-token-embeddings-vertex-005"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -4614,7 +5422,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-embeddings-vertex-005",
-				token: "vertex-test-token",
+				...encryptProviderKeyForStorage(
+					"vertex-test-token",
+					"provider-key-id-embeddings-vertex-005",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -4659,7 +5471,7 @@ describe("api", () => {
 	test("/v1/moderations forwards request id upstream", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-moderation-forwarded-request-id",
-			token: "real-token-moderation-forwarded-request-id",
+			...hashApiKeyForStorage("real-token-moderation-forwarded-request-id"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -4667,7 +5479,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-moderation-forwarded-request-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-moderation-forwarded-request-id",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -4744,7 +5560,7 @@ describe("api", () => {
 	test("/v1/moderations e2e timeout error", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -4752,7 +5568,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -4807,7 +5627,7 @@ describe("api", () => {
 	test("/v1/images/edits accepts Gemini size and aspect ratio", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-image-edits",
-			token: "real-token-image-edits",
+			...hashApiKeyForStorage("real-token-image-edits"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -4843,7 +5663,7 @@ describe("api", () => {
 	test("/v1/images/edits logs oversized image input client errors", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-image-edit-oversized",
-			token: "real-token-image-edit-oversized",
+			...hashApiKeyForStorage("real-token-image-edit-oversized"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -4902,7 +5722,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-image-edit-retention-none",
-			token: "real-token-image-edit-retention-none",
+			...hashApiKeyForStorage("real-token-image-edit-retention-none"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -4939,7 +5759,7 @@ describe("api", () => {
 	test("/v1/images/generations forwards X-No-Fallback to chat completions", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-image-no-fallback",
-			token: "real-token-image-no-fallback",
+			...hashApiKeyForStorage("real-token-image-no-fallback"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -5023,7 +5843,7 @@ describe("api", () => {
 	test("/v1/images/edits forwards X-No-Fallback to chat completions", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-image-edits-no-fallback",
-			token: "real-token-image-edits-no-fallback",
+			...hashApiKeyForStorage("real-token-image-edits-no-fallback"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -5113,7 +5933,7 @@ describe("api", () => {
 	test("/v1/images/generations returns empty data for content filter", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-image-generation-content-filter",
-			token: "real-token-image-generation-content-filter",
+			...hashApiKeyForStorage("real-token-image-generation-content-filter"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -5121,7 +5941,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-image-generation-content-filter",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-image-generation-content-filter",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -5204,10 +6028,162 @@ describe("api", () => {
 		expect(log.unifiedFinishReason).toBe("content_filter");
 	});
 
+	test("/v1/images/generations omits the response preview from logs under ZDR", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-image-generation-zdr",
+			...hashApiKeyForStorage("real-token-image-generation-zdr"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-image-generation-zdr",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-image-generation-zdr",
+				"org-id",
+			),
+			provider: "llmgateway",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+		await db
+			.update(tables.organization)
+			.set({
+				retentionLevel: "none",
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		const secretContent = "retained-image-response-text";
+		const originalFetch = globalThis.fetch;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+				if (url === `${mockServerUrl}/v1/chat/completions`) {
+					return new Response(
+						JSON.stringify({
+							id: "chatcmpl-zdr-no-image",
+							object: "chat.completion",
+							created: 1,
+							model: "llmgateway/custom",
+							choices: [
+								{
+									index: 0,
+									message: { role: "assistant", content: secretContent },
+									finish_reason: "stop",
+								},
+							],
+							usage: {
+								prompt_tokens: 10,
+								completion_tokens: 5,
+								total_tokens: 15,
+							},
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
+					);
+				}
+				return await originalFetch(input as RequestInfo | URL, init);
+			});
+		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+		try {
+			const res = await app.request("/v1/images/generations", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-image-generation-zdr",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					prompt: "Draw something",
+				}),
+			});
+
+			expect(res.status).toBe(500);
+			const noImagesLog = warnSpy.mock.calls.find(
+				([message]) =>
+					message ===
+					"Images API - no images found in chat completions response",
+			);
+			expect(noImagesLog?.[1]).toEqual({
+				model: "llmgateway/custom",
+				hasContent: true,
+				hasImages: false,
+			});
+			expect(JSON.stringify(warnSpy.mock.calls)).not.toContain(secretContent);
+		} finally {
+			warnSpy.mockRestore();
+			fetchSpy.mockRestore();
+		}
+	});
+
+	test.each([
+		{
+			path: "/v1/chat/completions",
+			body: {
+				model: "gpt-4o-mini",
+				messages: [{ role: "user", content: "hi" }],
+				tools: [{ type: "rejected-secret-value", function: { name: "f" } }],
+			},
+		},
+		{
+			path: "/v1/messages",
+			body: {
+				model: "claude-sonnet-4-5",
+				max_tokens: 16,
+				messages: [{ role: "rejected-secret-value", content: "hi" }],
+			},
+		},
+		{
+			path: "/v1/responses",
+			body: {
+				model: "gpt-4o-mini",
+				input: "hi",
+				truncation: "rejected-secret-value",
+			},
+		},
+	])(
+		"$path logs validation issues without the rejected values",
+		async ({ path, body }) => {
+			const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+			try {
+				const res = await app.request(path, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify(body),
+				});
+
+				expect(res.status).toBe(400);
+				const validationLog = warnSpy.mock.calls.find(([, meta]) =>
+					Array.isArray((meta as { issues?: unknown } | undefined)?.issues),
+				);
+				expect(validationLog).toBeDefined();
+				expect(JSON.stringify(warnSpy.mock.calls)).not.toContain(
+					"rejected-secret-value",
+				);
+			} finally {
+				warnSpy.mockRestore();
+			}
+		},
+	);
+
 	test("/v1/images/edits returns empty data for content filter", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-image-edits-content-filter",
-			token: "real-token-image-edits-content-filter",
+			...hashApiKeyForStorage("real-token-image-edits-content-filter"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -5215,7 +6191,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-image-edits-content-filter",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-image-edits-content-filter",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -5306,7 +6286,7 @@ describe("api", () => {
 	test("/v1/chat/completions blocks with openai content filter mode", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -5314,7 +6294,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -5471,7 +6455,7 @@ describe("api", () => {
 	test("/v1/chat/completions monitors with openai content filter method", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -5479,7 +6463,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -5625,7 +6613,7 @@ describe("api", () => {
 	test("/v1/chat/completions ignores openai content filter fetch failures", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -5633,7 +6621,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -5742,7 +6734,7 @@ describe("api", () => {
 	test("/v1/chat/completions ignores missing openai moderation credentials", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -5750,7 +6742,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -5840,7 +6836,7 @@ describe("api", () => {
 	test("/v1/chat/completions skips openai content filter for non-targeted models", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -5848,7 +6844,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -5960,7 +6960,7 @@ describe("api", () => {
 	test("/v1/chat/completions validates before openai content filter", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -6054,7 +7054,7 @@ describe("api", () => {
 	test("Reasoning effort error for unsupported model", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -6087,7 +7087,7 @@ describe("api", () => {
 	test("Max tokens validation error when exceeding model limit", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -6096,7 +7096,11 @@ describe("api", () => {
 		// Create provider key for OpenAI with mock server URL as baseUrl
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -6133,7 +7137,7 @@ describe("api", () => {
 	test("Max tokens validation allows valid token count", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -6142,7 +7146,11 @@ describe("api", () => {
 		// Create provider key for OpenAI with mock server URL as baseUrl
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -6172,6 +7180,14 @@ describe("api", () => {
 	});
 
 	test("Error when requesting provider-specific model name without prefix", async () => {
+		// Auth now runs before model validation, so the request needs a key.
+		await db.insert(tables.apiKey).values({
+			id: "prefix-test-token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
 		// Create a fake model name that would be a provider-specific model name
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
@@ -6201,11 +7217,19 @@ describe("api", () => {
 
 	// invalid model test
 	test("/v1/chat/completions invalid model", async () => {
+		// Auth now runs before model validation, so the request needs a key.
+		await db.insert(tables.apiKey).values({
+			id: "invalid-model-token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
 		const res = await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				Authorization: `Bearer fake`,
+				Authorization: `Bearer real-token`,
 			},
 			body: JSON.stringify({
 				model: "invalid",
@@ -6223,7 +7247,7 @@ describe("api", () => {
 	test("/v1/chat/completions rejects embedding models", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-chat-embed-reject",
-			token: "real-token-chat-embed-reject",
+			...hashApiKeyForStorage("real-token-chat-embed-reject"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -6296,7 +7320,7 @@ describe("api", () => {
 	test("/v1/chat/completions with explicit provider", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -6305,7 +7329,11 @@ describe("api", () => {
 		// Create provider key for OpenAI with mock server URL as baseUrl
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -6334,7 +7362,7 @@ describe("api", () => {
 	test("/v1/chat/completions cached responses are free", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-cache",
-			token: "real-token-cache",
+			...hashApiKeyForStorage("real-token-cache"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -6342,7 +7370,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-cache",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-cache",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -6447,7 +7479,7 @@ describe("api", () => {
 	test("/v1/chat/completions cache is not shared across tenants", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-cache-victim",
-			token: "real-token-cache-victim",
+			...hashApiKeyForStorage("real-token-cache-victim"),
 			projectId: "project-id",
 			description: "Victim API Key",
 			createdBy: "user-id",
@@ -6455,7 +7487,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-cache-victim",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-cache-victim",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -6483,10 +7519,15 @@ describe("api", () => {
 			mode: "api-keys",
 			cachingEnabled: true,
 		});
+		await db.insert(tables.userOrganization).values({
+			id: "user-org-id-cache-attacker",
+			userId: "user-id",
+			organizationId: "org-id-attacker",
+		});
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-cache-attacker",
-			token: "real-token-cache-attacker",
+			...hashApiKeyForStorage("real-token-cache-attacker"),
 			projectId: "project-id-attacker",
 			description: "Attacker API Key",
 			createdBy: "user-id",
@@ -6494,7 +7535,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-cache-attacker",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-cache-attacker",
+				"org-id-attacker",
+			),
 			provider: "openai",
 			organizationId: "org-id-attacker",
 			baseUrl: mockServerUrl,
@@ -6542,7 +7587,7 @@ describe("api", () => {
 	test("/v1/chat/completions streaming cache hits are marked and free", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-cache-stream",
-			token: "real-token-cache-stream",
+			...hashApiKeyForStorage("real-token-cache-stream"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -6550,7 +7595,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-cache-stream",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-cache-stream",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -6622,7 +7671,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -6630,7 +7679,7 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-db-key",
+			...encryptProviderKeyForStorage("sk-db-key", "provider-key-id", "org-id"),
 			provider: "alibaba",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -6697,14 +7746,18 @@ describe("api", () => {
 			await harness.setProjectMode("hybrid");
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
 			});
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-db-key",
+				...encryptProviderKeyForStorage(
+					"sk-db-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "alibaba",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -6769,14 +7822,18 @@ describe("api", () => {
 		test("region-less providers omit used_region", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
 			});
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-db-key",
+				...encryptProviderKeyForStorage(
+					"sk-db-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -6820,7 +7877,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -6828,7 +7885,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "studio-db-key",
+			...encryptProviderKeyForStorage(
+				"studio-db-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "google-ai-studio",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -6911,7 +7972,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -6922,7 +7983,11 @@ describe("api", () => {
 		// the credits-backed provider via its demoted score entry.
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "studio-db-key",
+			...encryptProviderKeyForStorage(
+				"studio-db-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "google-ai-studio",
 			organizationId: "org-id",
 			baseUrl: "http://127.0.0.1:9",
@@ -7010,7 +8075,7 @@ describe("api", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -7018,7 +8083,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "studio-db-key",
+			...encryptProviderKeyForStorage(
+				"studio-db-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "google-ai-studio",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -7131,7 +8200,7 @@ describe("api", () => {
 	test("/v1/chat/completions cached anthropic response classifies finish reason", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-cache-anthropic",
-			token: "real-token-cache-anthropic",
+			...hashApiKeyForStorage("real-token-cache-anthropic"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -7139,7 +8208,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-cache-anthropic",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-cache-anthropic",
+				"org-id",
+			),
 			provider: "anthropic",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -7234,7 +8307,7 @@ describe("api", () => {
 	test.skip("/v1/chat/completions with model that has multiple providers", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -7242,7 +8315,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 		});
@@ -7275,7 +8352,7 @@ describe("api", () => {
 	test("/v1/chat/completions with llmgateway/auto", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -7285,7 +8362,11 @@ describe("api", () => {
 		// provider that the mock server supports.
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "aws-test-key",
+			...encryptProviderKeyForStorage(
+				"aws-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "aws-bedrock",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -7316,7 +8397,7 @@ describe("api", () => {
 	test("/v1/chat/completions with missing provider API key", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -7349,7 +8430,7 @@ describe("api", () => {
 	test("/v1/chat/completions with provider error response", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -7358,7 +8439,11 @@ describe("api", () => {
 		// Create provider key with mock server URL as baseUrl
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -7404,7 +8489,7 @@ describe("api", () => {
 	test.skip("/v1/chat/completions with inference.net provider", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -7413,7 +8498,11 @@ describe("api", () => {
 		// Create provider key for inference.net with mock server URL as baseUrl
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "inference-test-key",
+			...encryptProviderKeyForStorage(
+				"inference-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "inference.net",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -7450,7 +8539,7 @@ describe("api", () => {
 	test("/v1/chat/completions with a disabled key", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			status: "inactive",
@@ -7460,7 +8549,11 @@ describe("api", () => {
 		// Create provider key for OpenAI with mock server URL as baseUrl
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -7488,7 +8581,7 @@ describe("api", () => {
 	test("/v1/chat/completions with custom X-LLMGateway headers", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -7497,7 +8590,11 @@ describe("api", () => {
 		// Create provider key with mock server URL as baseUrl
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -7539,7 +8636,7 @@ describe("api", () => {
 	test("/v1/chat/completions records pi session_id header as sessionId", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -7547,7 +8644,11 @@ describe("api", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -7592,7 +8693,7 @@ describe("api", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -7601,7 +8702,11 @@ describe("api", () => {
 			// Create provider key for google-vertex (active at 2026-01-20) with mock server URL
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-google",
-				token: "google-test-key",
+				...encryptProviderKeyForStorage(
+					"google-test-key",
+					"provider-key-google",
+					"org-id",
+				),
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -7674,7 +8779,7 @@ describe("api", () => {
 		test("non-streaming request times out when upstream is slow", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -7682,7 +8787,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "llmgateway",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -7727,7 +8836,7 @@ describe("api", () => {
 		test("streaming request times out when upstream is slow", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -7735,7 +8844,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "llmgateway",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -7786,7 +8899,7 @@ describe("api", () => {
 		test("streaming request surfaces truncated upstream streams", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -7794,7 +8907,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "llmgateway",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -7842,7 +8959,7 @@ describe("api", () => {
 		test("streaming request surfaces a trailing upstream error tail", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -7850,7 +8967,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "llmgateway",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -7901,7 +9022,7 @@ describe("api", () => {
 		test("streaming request closes cleanly after finish reason without upstream done sentinel", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -7909,7 +9030,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "llmgateway",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -7956,7 +9081,7 @@ describe("api", () => {
 		test("streaming OpenAI Responses API closes cleanly after done events", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -7964,7 +9089,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -8012,7 +9141,7 @@ describe("api", () => {
 		test("streaming OpenAI Responses API treats done events without completed status as truncated", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -8020,7 +9149,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -8069,7 +9202,7 @@ describe("api", () => {
 		test("streaming OpenAI Responses API closes cleanly after response.completed", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -8077,7 +9210,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -8125,7 +9262,7 @@ describe("api", () => {
 		test("streaming request surfaces inline provider SSE errors", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -8133,7 +9270,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "llmgateway",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -8199,7 +9340,7 @@ describe("api", () => {
 
 			await db.insert(tables.apiKey).values({
 				id: "token-id-stream-auth-error",
-				token: "real-token-stream-auth-error",
+				...hashApiKeyForStorage("real-token-stream-auth-error"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -8207,7 +9348,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-stream-auth-error",
-				token: "sk-test-key-stream-auth-error",
+				...encryptProviderKeyForStorage(
+					"sk-test-key-stream-auth-error",
+					"provider-key-id-stream-auth-error",
+					"org-id",
+				),
 				provider: "llmgateway",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -8260,7 +9405,7 @@ describe("api", () => {
 		test("request with short delay under timeout succeeds", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -8268,7 +9413,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "llmgateway",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -8333,7 +9482,7 @@ describe("api", () => {
 			try {
 				await db.insert(tables.apiKey).values({
 					id: "token-id",
-					token: "real-token",
+					...hashApiKeyForStorage("real-token"),
 					projectId: "project-id",
 					description: "Test API Key",
 					createdBy: "user-id",
@@ -8371,7 +9520,7 @@ describe("api", () => {
 			try {
 				await db.insert(tables.apiKey).values({
 					id: "token-id",
-					token: "real-token",
+					...hashApiKeyForStorage("real-token"),
 					projectId: "project-id",
 					description: "Test API Key",
 					createdBy: "user-id",
@@ -8405,7 +9554,7 @@ describe("api", () => {
 		test("forwards n to OpenAI and returns multiple choices", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-n",
-				token: "real-token-n",
+				...hashApiKeyForStorage("real-token-n"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -8413,7 +9562,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-n",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id-n",
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -8465,7 +9618,7 @@ describe("api", () => {
 		test("rejects n > 1 with 400 when the model does not advertise supportsN", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-n-unsupported",
-				token: "real-token-n-unsupported",
+				...hashApiKeyForStorage("real-token-n-unsupported"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -8473,7 +9626,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-n-unsupported",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id-n-unsupported",
+					"org-id",
+				),
 				provider: "llmgateway",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -8502,7 +9659,7 @@ describe("api", () => {
 		test("streams n choices end-to-end with one shared usage chunk", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-n-stream",
-				token: "real-token-n-stream",
+				...hashApiKeyForStorage("real-token-n-stream"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -8510,7 +9667,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-n-stream",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id-n-stream",
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -8599,7 +9760,7 @@ describe("api", () => {
 		test("rejects n > 1 with stream + tools (tool aggregation unsupported)", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-n-stream-tools",
-				token: "real-token-n-stream-tools",
+				...hashApiKeyForStorage("real-token-n-stream-tools"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -8607,7 +9768,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-n-stream-tools",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id-n-stream-tools",
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -8649,7 +9814,7 @@ describe("api", () => {
 		test("does not reject n > 1 + stream when the only tool entry is native web_search", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-n-stream-websearch-tool",
-				token: "real-token-n-stream-websearch-tool",
+				...hashApiKeyForStorage("real-token-n-stream-websearch-tool"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -8657,7 +9822,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-n-stream-websearch-tool",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id-n-stream-websearch-tool",
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -8695,7 +9864,7 @@ describe("api", () => {
 		test("does not reject n > 1 + stream with web_search: true flag", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-n-stream-websearch-flag",
-				token: "real-token-n-stream-websearch-flag",
+				...hashApiKeyForStorage("real-token-n-stream-websearch-flag"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -8703,7 +9872,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-n-stream-websearch-flag",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id-n-stream-websearch-flag",
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -8738,7 +9911,7 @@ describe("api", () => {
 		test("n=1 is accepted and forwarded without altering choice count", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-n-one",
-				token: "real-token-n-one",
+				...hashApiKeyForStorage("real-token-n-one"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -8746,7 +9919,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-n-one",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id-n-one",
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -8773,7 +9950,7 @@ describe("api", () => {
 		test("routing excludes mappings without supportsN at selection time", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-n-route-exclude",
-				token: "real-token-n-route-exclude",
+				...hashApiKeyForStorage("real-token-n-route-exclude"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -8781,7 +9958,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-n-route-exclude-azure",
-				token: "sk-test-key-azure",
+				...encryptProviderKeyForStorage(
+					"sk-test-key-azure",
+					"provider-key-id-n-route-exclude-azure",
+					"org-id",
+				),
 				provider: "azure",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -8810,7 +9991,7 @@ describe("api", () => {
 		test("retry path forwards n to fallback provider key (TRIGGER_FAIL_ONCE)", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-n-retry",
-				token: "real-token-n-retry",
+				...hashApiKeyForStorage("real-token-n-retry"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -8822,14 +10003,22 @@ describe("api", () => {
 			await db.insert(tables.providerKey).values([
 				{
 					id: "provider-key-id-n-retry-a",
-					token: "sk-test-key-a",
+					...encryptProviderKeyForStorage(
+						"sk-test-key-a",
+						"provider-key-id-n-retry-a",
+						"org-id",
+					),
 					provider: "openai",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
 				{
 					id: "provider-key-id-n-retry-b",
-					token: "sk-test-key-b",
+					...encryptProviderKeyForStorage(
+						"sk-test-key-b",
+						"provider-key-id-n-retry-b",
+						"org-id",
+					),
 					provider: "openai",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
@@ -8869,7 +10058,7 @@ describe("api", () => {
 		test("forwards n to Google as candidateCount and de-dupes candidate 0", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-n-google",
-				token: "real-token-n-google",
+				...hashApiKeyForStorage("real-token-n-google"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -8877,7 +10066,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-n-google",
-				token: "google-test-key",
+				...encryptProviderKeyForStorage(
+					"google-test-key",
+					"provider-key-id-n-google",
+					"org-id",
+				),
 				provider: "google-ai-studio",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -8941,7 +10134,7 @@ describe("api", () => {
 		test("rejects n > 1 with streaming on Google models", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-n-google-stream",
-				token: "real-token-n-google-stream",
+				...hashApiKeyForStorage("real-token-n-google-stream"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -8949,7 +10142,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-n-google-stream",
-				token: "google-test-key",
+				...encryptProviderKeyForStorage(
+					"google-test-key",
+					"provider-key-id-n-google-stream",
+					"org-id",
+				),
 				provider: "google-ai-studio",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -8981,7 +10178,7 @@ describe("api", () => {
 		test("rejects n above Google's candidateCount cap", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-n-google-cap",
-				token: "real-token-n-google-cap",
+				...hashApiKeyForStorage("real-token-n-google-cap"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -8989,7 +10186,11 @@ describe("api", () => {
 
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id-n-google-cap",
-				token: "google-test-key",
+				...encryptProviderKeyForStorage(
+					"google-test-key",
+					"provider-key-id-n-google-cap",
+					"org-id",
+				),
 				provider: "google-ai-studio",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -9050,14 +10251,18 @@ describe("api", () => {
 		test("anthropic refusal with no output is not billed", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
 			});
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "anthropic",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -9113,14 +10318,18 @@ describe("api", () => {
 		test("anthropic refusal after partial output is still billed", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
 			});
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "anthropic",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -9168,14 +10377,18 @@ describe("api", () => {
 		test("aws-bedrock refusal with no output is not billed", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
 			});
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "aws-test-key",
+				...encryptProviderKeyForStorage(
+					"aws-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "aws-bedrock",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -9220,14 +10433,18 @@ describe("api", () => {
 		test("streaming anthropic refusal with no output is not billed", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
 			});
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "anthropic",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -9354,14 +10571,18 @@ describe("api", () => {
 		test("stream truncated after partial output is not billed", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
 			});
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "anthropic",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -9443,14 +10664,18 @@ describe("api", () => {
 		test("stream truncated after tool calls only is not billed", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
 			});
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "anthropic",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -9541,14 +10766,18 @@ describe("api", () => {
 		test("a successful stream logs the completion count it was billed for", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
 			});
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "anthropic",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -9648,14 +10877,18 @@ describe("api", () => {
 		test("empty non-streaming response is not billed", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
 			});
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "anthropic",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -9717,14 +10950,18 @@ describe("api", () => {
 		test("forwards Anthropic web_search server tool to the provider", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
 			});
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "anthropic",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -9840,14 +11077,18 @@ describe("api", () => {
 		test("forwards the tool search tool, defer_loading and the replayed pair", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
 			});
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "anthropic",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -10031,14 +11272,18 @@ describe("api", () => {
 		test("re-emits the streamed tool search pair as content blocks", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
 			});
 			await db.insert(tables.providerKey).values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "anthropic",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -10195,7 +11440,7 @@ describe("api", () => {
 		test("still rejects a custom tool missing input_schema", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -10293,7 +11538,7 @@ describe("api", () => {
 		) {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -10308,7 +11553,11 @@ describe("api", () => {
 			for (const [index, providerId] of providerIds.entries()) {
 				await db.insert(tables.providerKey).values({
 					id: `provider-key-id-${index}`,
-					token: "sk-test-key",
+					...encryptProviderKeyForStorage(
+						"sk-test-key",
+						`provider-key-id-${index}`,
+						"org-id",
+					),
 					provider: providerId,
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
@@ -10580,7 +11829,7 @@ describe("api", () => {
 		test("native OpenAI path resolves a bare ling-3.0-flash id to DeepInfra and maps reasoning none to enable_thinking false", async () => {
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -10589,7 +11838,11 @@ describe("api", () => {
 			for (const [index, providerId] of lingProviders.entries()) {
 				await db.insert(tables.providerKey).values({
 					id: `provider-key-id-${index}`,
-					token: "sk-test-key",
+					...encryptProviderKeyForStorage(
+						"sk-test-key",
+						`provider-key-id-${index}`,
+						"org-id",
+					),
 					provider: providerId,
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,

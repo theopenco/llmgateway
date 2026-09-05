@@ -33,6 +33,9 @@ data:
   {{- if .Values.urls.code }}
   CODE_URL: {{ .Values.urls.code | quote }}
   {{- end }}
+  {{- if .Values.urls.airside }}
+  AIRSIDE_URL: {{ .Values.urls.airside | quote }}
+  {{- end }}
   {{- if .Values.urls.docs }}
   DOCS_URL: {{ .Values.urls.docs | quote }}
   {{- end }}

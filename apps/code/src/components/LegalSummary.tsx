@@ -39,7 +39,9 @@ const termsCards: SummaryCard[] = [
 			<>
 				Lite, Pro and Max each include a monthly usage allowance measured in
 				provider cost. Allowances reset every cycle and don&rsquo;t roll over,
-				except when you upgrade mid-cycle.
+				except when you upgrade mid-cycle. Fees are generally non-refundable
+				once usage begins; a first-payment refund within 14 days may be offered
+				as goodwill only while usage remains below 20%.
 			</>
 		),
 	},
@@ -129,8 +131,9 @@ const privacyCards: SummaryCard[] = [
 		body: (
 			<>
 				Prompts are forwarded to the AI provider behind the model you chose —
-				each applies its own retention policy. We pass through provider-side
-				&ldquo;no training&rdquo; flags where they exist.
+				each applies its own retention and training policy. Enable No AI
+				training in Settings to use only providers that explicitly opt API
+				inputs out of model training.
 			</>
 		),
 	},

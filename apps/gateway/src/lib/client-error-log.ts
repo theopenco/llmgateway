@@ -5,6 +5,7 @@ import {
 	findOrganizationById,
 	findProjectById,
 } from "@/lib/cached-queries.js";
+import { getEffectiveRetentionLevel } from "@/lib/compliance.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 
@@ -54,7 +55,7 @@ async function resolveLogContext(
 		apiKey,
 		project,
 		requestId,
-		retentionLevel: organization?.retentionLevel ?? "none",
+		retentionLevel: getEffectiveRetentionLevel(organization),
 	};
 }
 

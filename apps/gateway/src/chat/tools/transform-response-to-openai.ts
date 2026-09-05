@@ -360,8 +360,7 @@ function buildUsageObject(
 		prompt_tokens: Math.max(1, promptTokens ?? 1),
 		completion_tokens: completionTokens ?? 0,
 		total_tokens: (() => {
-			const fallbackTotal =
-				(promptTokens ?? 0) + (completionTokens ?? 0) + (reasoningTokens ?? 0);
+			const fallbackTotal = (promptTokens ?? 0) + (completionTokens ?? 0);
 			return Math.max(1, totalTokens ?? fallbackTotal);
 		})(),
 		...(reasoningTokens !== null && {
@@ -420,6 +419,7 @@ export function transformResponseToOpenai(
 	cacheCreation1hTokens: number | null = null,
 	audioInputTokens: number | null = null,
 	serviceTier?: string,
+	options?: { cacheThoughtSignatures?: boolean },
 ) {
 	let transformedResponse = json;
 
@@ -489,17 +489,19 @@ export function transformResponseToOpenai(
 										};
 										// Same cache as parse-provider-response: the id is the
 										// `thought_signature:<id>` key read back on the next turn.
-										redisClient
-											.setex(
-												`thought_signature:${toolCall.id}`,
-												86400,
-												part.thoughtSignature,
-											)
-											.catch((err) => {
-												logger.error("Failed to cache thought_signature", {
-													err,
+										if (options?.cacheThoughtSignatures !== false) {
+											redisClient
+												.setex(
+													`thought_signature:${toolCall.id}`,
+													86400,
+													part.thoughtSignature,
+												)
+												.catch((err) => {
+													logger.error("Failed to cache thought_signature", {
+														err,
+													});
 												});
-											});
+										}
 									}
 									return toolCall;
 								});
@@ -923,6 +925,7 @@ export function transformResponseToOpenai(
 		case "novita":
 		case "sakana":
 		case "meta":
+		case "meta-contributor":
 		case "aws-mantle":
 		case "openai": {
 			// Handle OpenAI / Azure image generation responses (e.g. gpt-image-2)
@@ -1001,6 +1004,7 @@ export function transformResponseToOpenai(
 							message: {
 								role: "assistant",
 								content: content,
+								...(images && images.length > 0 && { images }),
 								...(reasoningContent !== null && {
 									reasoning: reasoningContent,
 								}),
@@ -1531,6 +1535,21 @@ export function transformResponseToOpenai(
 		typeof transformedResponse === "object"
 	) {
 		transformedResponse.service_tier = serviceTier;
+	}
+
+	if (
+		transformedResponse?.usage &&
+		typeof transformedResponse.usage === "object"
+	) {
+		if (promptTokens !== null) {
+			transformedResponse.usage.prompt_tokens = promptTokens;
+		}
+		if (completionTokens !== null) {
+			transformedResponse.usage.completion_tokens = completionTokens;
+		}
+		if (totalTokens !== null) {
+			transformedResponse.usage.total_tokens = totalTokens;
+		}
 	}
 
 	return transformedResponse;

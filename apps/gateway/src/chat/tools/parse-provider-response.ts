@@ -7,6 +7,7 @@ import { estimateTokens } from "./estimate-tokens.js";
 import {
 	adjustGoogleCandidateTokens,
 	extractBedrockCacheCreationDetails,
+	normalizeCompletionTokens,
 } from "./extract-token-usage.js";
 import { dedupeGoogleCandidateParts } from "./google-candidates.js";
 import {
@@ -39,6 +40,7 @@ export function parseProviderResponse(
 	 * request actually searches, so an unforced one must count zero.
 	 */
 	webSearchForced = false,
+	options?: { cacheThoughtSignatures?: boolean },
 ) {
 	let content = null;
 	let reasoningContent = null;
@@ -110,12 +112,15 @@ export function parseProviderResponse(
 				finishReason = allChoices[0]?.finish_reason ?? null;
 				promptTokens = json.usage?.prompt_tokens ?? null;
 				completionTokens = json.usage?.completion_tokens ?? null;
-				reasoningTokens = json.usage?.reasoning_tokens ?? null;
+				reasoningTokens =
+					json.usage?.reasoning_tokens ??
+					json.usage?.completion_tokens_details?.reasoning_tokens ??
+					null;
 				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
 				totalTokens =
 					json.usage?.total_tokens ??
 					(promptTokens !== null && completionTokens !== null
-						? promptTokens + completionTokens + (reasoningTokens ?? 0)
+						? promptTokens + completionTokens
 						: null);
 				break;
 			}
@@ -443,15 +448,17 @@ export function parseProviderResponse(
 								},
 							};
 							// Store in Redis for server-side retrieval since OpenAI SDKs don't preserve extra_content
-							redisClient
-								.setex(
-									`thought_signature:${toolCall.id}`,
-									86400, // 1 day expiration
-									part.thoughtSignature,
-								)
-								.catch((err) => {
-									logger.error("Failed to cache thought_signature", { err });
-								});
+							if (options?.cacheThoughtSignatures !== false) {
+								redisClient
+									.setex(
+										`thought_signature:${toolCall.id}`,
+										86400, // 1 day expiration
+										part.thoughtSignature,
+									)
+									.catch((err) => {
+										logger.error("Failed to cache thought_signature", { err });
+									});
+							}
 						}
 						return toolCall;
 					}) ?? null;
@@ -585,7 +592,10 @@ export function parseProviderResponse(
 			finishReason = json.choices?.[0]?.finish_reason ?? null;
 			promptTokens = json.usage?.prompt_tokens ?? null;
 			completionTokens = json.usage?.completion_tokens ?? null;
-			reasoningTokens = json.usage?.reasoning_tokens ?? null;
+			reasoningTokens =
+				json.usage?.reasoning_tokens ??
+				json.usage?.completion_tokens_details?.reasoning_tokens ??
+				null;
 			cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
 			totalTokens = json.usage?.total_tokens ?? null;
 
@@ -629,6 +639,14 @@ export function parseProviderResponse(
 
 			// Extract tool calls from Mistral/Novita format (same as OpenAI)
 			toolResults = json.choices?.[0]?.message?.tool_calls ?? null;
+			if (
+				usedProvider === "novita" &&
+				finishReason === "stop" &&
+				Array.isArray(toolResults) &&
+				toolResults.length > 0
+			) {
+				finishReason = "tool_calls";
+			}
 			break;
 		}
 		case "alibaba": {
@@ -675,14 +693,28 @@ export function parseProviderResponse(
 					) ??
 					null;
 				finishReason = json.choices?.[0]?.finish_reason ?? null;
+				// DashScope returns finish_reason "stop" when the caller forced a
+				// named function via tool_choice, even though the message carries the
+				// tool call; normalize to "tool_calls" so downstream consumers see the
+				// OpenAI-standard value.
+				if (
+					finishReason === "stop" &&
+					Array.isArray(toolResults) &&
+					toolResults.length > 0
+				) {
+					finishReason = "tool_calls";
+				}
 				promptTokens = json.usage?.prompt_tokens ?? null;
 				completionTokens = json.usage?.completion_tokens ?? null;
-				reasoningTokens = json.usage?.reasoning_tokens ?? null;
+				reasoningTokens =
+					json.usage?.reasoning_tokens ??
+					json.usage?.completion_tokens_details?.reasoning_tokens ??
+					null;
 				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
 				totalTokens =
 					json.usage?.total_tokens ??
 					(promptTokens !== null && completionTokens !== null
-						? promptTokens + completionTokens + (reasoningTokens ?? 0)
+						? promptTokens + completionTokens
 						: null);
 				// Alibaba uses Anthropic-style `cache_control: {type: "ephemeral"}` on
 				// the request, but reports usage in OpenAI shape with
@@ -834,6 +866,27 @@ export function parseProviderResponse(
 				const messageOutput = json.output.find(
 					(item: any) => item.type === "message",
 				);
+				const imageOutputs = json.output.filter(
+					(
+						item: Record<string, unknown>,
+					): item is Record<string, unknown> & { result: string } =>
+						item.type === "image_generation_call" &&
+						typeof item.result === "string" &&
+						item.result.length > 0,
+				);
+				if (imageOutputs.length > 0) {
+					images = imageOutputs.map(
+						(
+							item: Record<string, unknown> & { result: string },
+						): ImageObject => ({
+							type: "image_url",
+							image_url: {
+								url: `data:image/webp;base64,${item.result}`,
+							},
+						}),
+					);
+					content = imageLabel;
+				}
 				// A response can carry several reasoning items (e.g. one before
 				// each tool call), so collect them all once — both the summary text
 				// and the encrypted payloads below are derived from every item.
@@ -880,10 +933,11 @@ export function parseProviderResponse(
 				// Extract message content. With multiple phased messages, join
 				// them so nothing is dropped from the chat-completions surface.
 				if (allMessageOutputs.length > 1) {
-					content = allMessageOutputs
-						.map((m: { text: string }) => m.text)
-						.filter(Boolean)
-						.join("\n\n");
+					content =
+						allMessageOutputs
+							.map((m: { text: string }) => m.text)
+							.filter(Boolean)
+							.join("\n\n") || content;
 				} else if (messageOutput?.content?.[0]?.text) {
 					content = messageOutput.content[0].text;
 				}
@@ -1164,21 +1218,15 @@ export function parseProviderResponse(
 				// Standard OpenAI-style token parsing
 				promptTokens = json.usage?.prompt_tokens ?? null;
 				completionTokens = json.usage?.completion_tokens ?? null;
-				// xAI and Vertex's xAI endpoint report reasoning outside
-				// `completion_tokens` and only expose the count in the nested details.
-				// Reading it here is what makes reasoning billable at all. Providers
-				// that fold reasoning into `completion_tokens` must keep reading the
-				// top-level field only, or the same tokens would be billed twice.
 				reasoningTokens =
 					json.usage?.reasoning_tokens ??
-					(usedProvider === "xai" || usedProvider === "vertex-openai"
-						? (json.usage?.completion_tokens_details?.reasoning_tokens ?? null)
-						: null);
+					json.usage?.completion_tokens_details?.reasoning_tokens ??
+					null;
 				cachedTokens = json.usage?.prompt_tokens_details?.cached_tokens ?? null;
 				totalTokens =
 					json.usage?.total_tokens ??
 					(promptTokens !== null && completionTokens !== null
-						? promptTokens + completionTokens + (reasoningTokens ?? 0)
+						? promptTokens + completionTokens
 						: null);
 				// GPT-5.6+ bills prompt-cache writes at 1.25x and reports them in
 				// `cache_write_tokens` (a subset of prompt_tokens, like cached_tokens).
@@ -1269,6 +1317,13 @@ export function parseProviderResponse(
 		content = reasoningContent;
 		reasoningContent = null;
 	}
+
+	completionTokens = normalizeCompletionTokens(
+		promptTokens,
+		completionTokens,
+		reasoningTokens,
+		totalTokens,
+	);
 
 	return {
 		content,

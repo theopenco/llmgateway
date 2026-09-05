@@ -127,6 +127,7 @@ export function convertResponsesInputToMessages(
 	// and attach to the next assistant message so the provider layer can replay
 	// the reasoning (encrypted payloads and/or text) on this turn.
 	const pendingReasoning: PendingReasoning = { texts: [], details: [] };
+	const pendingGeneratedImages: Array<Record<string, unknown>> = [];
 
 	let i = 0;
 	while (i < input.length) {
@@ -227,6 +228,22 @@ export function convertResponsesInputToMessages(
 			continue;
 		}
 
+		if (
+			"type" in item &&
+			item.type === "image_generation_call" &&
+			typeof item.result === "string" &&
+			item.result.length > 0
+		) {
+			pendingGeneratedImages.push({
+				type: "image_url",
+				image_url: {
+					url: `data:image/webp;base64,${item.result}`,
+				},
+			});
+			i++;
+			continue;
+		}
+
 		if ("type" in item && SKIPPED_ITEM_TYPES.has(item.type as string)) {
 			i++;
 			continue;
@@ -269,9 +286,19 @@ export function convertResponsesInputToMessages(
 			}
 		}
 
+		const convertedContent = convertContent(msg.content);
+		const content =
+			role === "user" && pendingGeneratedImages.length > 0
+				? [
+						...pendingGeneratedImages.splice(0),
+						...(typeof convertedContent === "string"
+							? [{ type: "text", text: convertedContent }]
+							: (convertedContent ?? [])),
+					]
+				: convertedContent;
 		const chatMsg: ChatMessage = {
 			role,
-			content: convertContent(msg.content),
+			content,
 			...(role === "assistant" ? takePendingReasoning(pendingReasoning) : {}),
 			...(role === "assistant" && msg.phase ? { phase: msg.phase } : {}),
 		};
@@ -290,6 +317,10 @@ export function convertResponsesInputToMessages(
 
 		messages.push(chatMsg);
 		i++;
+	}
+
+	if (pendingGeneratedImages.length > 0) {
+		messages.push({ role: "user", content: pendingGeneratedImages });
 	}
 
 	return messages;

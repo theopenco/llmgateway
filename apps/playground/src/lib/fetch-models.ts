@@ -1,5 +1,7 @@
 import { cache } from "react";
 
+import { fetchModelsResponseFromApi } from "@llmgateway/shared/components";
+
 export interface ApiProvider {
 	id: string;
 	createdAt: string;
@@ -89,9 +91,7 @@ const API_URL =
 
 export const fetchModels = cache(async (): Promise<ApiModel[]> => {
 	try {
-		const response = await fetch(`${API_URL}/internal/models`, {
-			next: { revalidate: 60 },
-		});
+		const response = await fetchModelsResponseFromApi(API_URL);
 		if (!response.ok) {
 			console.error("Failed to fetch models:", response.statusText);
 			return [];
@@ -107,7 +107,7 @@ export const fetchModels = cache(async (): Promise<ApiModel[]> => {
 export const fetchProviders = cache(async (): Promise<ApiProvider[]> => {
 	try {
 		const response = await fetch(`${API_URL}/internal/providers`, {
-			next: { revalidate: 60 },
+			cache: "no-store",
 		});
 		if (!response.ok) {
 			console.error("Failed to fetch providers:", response.statusText);

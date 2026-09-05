@@ -87,7 +87,6 @@ describe("getApiKeyHashSecret / getApiKeyFingerprint", () => {
 	it("builds hash-only storage values", () => {
 		setSecret("secret-new");
 		expect(hashApiKeyForStorage("llmgtwy_secret-value")).toEqual({
-			token: null,
 			tokenHash: getApiKeyFingerprint("llmgtwy_secret-value"),
 			tokenMasked: "llmgtwy_secr•••••",
 		});
@@ -96,7 +95,6 @@ describe("getApiKeyHashSecret / getApiKeyFingerprint", () => {
 	it("builds hash-only values without API-key display metadata", () => {
 		setSecret("secret-new");
 		expect(hashTokenForStorage("es_session-secret")).toEqual({
-			token: null,
 			tokenHash: getApiKeyFingerprint("es_session-secret"),
 		});
 	});

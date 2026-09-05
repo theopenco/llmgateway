@@ -6,18 +6,23 @@ description: Use LLM Gateway's built-in MCP server to give Claude Code, Codex, C
 date: 2026-07-03
 ---
 
-LLM Gateway ships a hosted [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server at `https://api.llmgateway.io/mcp`. Connect it to Claude Code, Codex, Cursor, or any MCP-compatible client and your AI assistant gets tools to call **any model in our catalog** — ask GPT-5 for a second opinion from inside Claude Code, generate images mid-session, or look up model pricing without leaving your editor.
+LLM Gateway ships a hosted [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server at `https://api.llmgateway.io/mcp`. Connect it to Claude Code, Codex, Cursor, or any MCP-compatible client and your AI assistant gets tools to call **any model in our catalog** — get a second opinion from another model, generate images mid-session, or inspect your usage and costs without leaving your editor.
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`model-id` instead of `provider/model-id`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
 
 ## What you get
 
-The MCP server exposes four tools:
+The MCP server exposes eight tools:
 
+- **`get-account`** — inspect your connected account, project, access scope, and key spending limits
+- **`get-usage`** — get request/token totals, costs, trends, and your most-used provider, model, and coding app
+- **`get-usage-breakdown`** — rank providers, models, apps, or API keys by requests, cost, or tokens
 - **`chat`** — send messages to any supported LLM (`model`, `messages`, optional `temperature` / `max_tokens`)
 - **`generate-image`** — text-to-image with models like Qwen Image (`prompt`, optional `model`, `size`, `n`)
 - **`generate-nano-banana`** — image generation with Gemini 3 Pro Image Preview, with optional save-to-disk
 - **`list-models`** / **`list-image-models`** — browse available models with capabilities and pricing
+
+Analytics cover the connected project: owners/admins see project totals, while developers see their own keys in that project. These tools are read-only and have no model charges. They use hourly statistics, so recent usage may lag; results flag incomplete historical app data. Costs distinguish gateway credits from BYOK provider costs and are not invoice totals.
 
 ## Setup
 
@@ -84,11 +89,11 @@ Any other MCP client works the same way: streamable HTTP transport, `https://api
 
 Once connected, ask your assistant things like:
 
-- "Use the chat tool to ask GPT-5 about TypeScript best practices"
+- "What did I spend this month, and which model do I use most?"
 - "Generate an image of a futuristic city with the generate-image tool"
-- "List all available Anthropic models with pricing"
+- "Rank my coding apps by cost over the last 30 days"
 
-Every tool call is a normal LLM Gateway request — it shows up in your [dashboard](/dashboard) with cost and token counts, hits the cache when repeated, and uses the same credits as your API traffic.
+Generation calls use the same billing and analytics as your API traffic and appear in your [dashboard](/dashboard). Account, usage, and model-discovery tools do not generate billable model requests.
 
 ## Why use it
 

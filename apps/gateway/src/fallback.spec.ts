@@ -9,8 +9,10 @@ import {
 	vi,
 } from "vitest";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables, type Log } from "@llmgateway/db";
 import { getProviderDefinition } from "@llmgateway/models";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { maskToken } from "@llmgateway/shared/mask-token";
 
 import { app } from "./app.js";
@@ -141,7 +143,7 @@ describe("fallback and error status code handling", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -149,7 +151,11 @@ describe("fallback and error status code handling", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider,
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -162,7 +168,7 @@ describe("fallback and error status code handling", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -170,7 +176,11 @@ describe("fallback and error status code handling", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id",
-			token: "sk-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id",
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,
@@ -182,7 +192,7 @@ describe("fallback and error status code handling", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -191,14 +201,22 @@ describe("fallback and error status code handling", () => {
 		await db.insert(tables.providerKey).values([
 			{
 				id: "provider-key-together",
-				token: "sk-together-key",
+				...encryptProviderKeyForStorage(
+					"sk-together-key",
+					"provider-key-together",
+					"org-id",
+				),
 				provider: "together-ai",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
 			},
 			{
 				id: "provider-key-cerebras",
-				token: "sk-cerebras-key",
+				...encryptProviderKeyForStorage(
+					"sk-cerebras-key",
+					"provider-key-cerebras",
+					"org-id",
+				),
 				provider: "cerebras",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -211,7 +229,7 @@ describe("fallback and error status code handling", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -220,14 +238,22 @@ describe("fallback and error status code handling", () => {
 		await db.insert(tables.providerKey).values([
 			{
 				id: `${provider}-key-primary`,
-				token: `${provider}-primary-token`,
+				...encryptProviderKeyForStorage(
+					`${provider}-primary-token`,
+					`${provider}-key-primary`,
+					"org-id",
+				),
 				provider,
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
 			},
 			{
 				id: `${provider}-key-secondary`,
-				token: `${provider}-secondary-token`,
+				...encryptProviderKeyForStorage(
+					`${provider}-secondary-token`,
+					`${provider}-key-secondary`,
+					"org-id",
+				),
 				provider,
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -240,7 +266,7 @@ describe("fallback and error status code handling", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -249,7 +275,11 @@ describe("fallback and error status code handling", () => {
 		await db.insert(tables.providerKey).values([
 			{
 				id: `${provider}-key-singapore`,
-				token: `${provider}-singapore-token`,
+				...encryptProviderKeyForStorage(
+					`${provider}-singapore-token`,
+					`${provider}-key-singapore`,
+					"org-id",
+				),
 				provider,
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -259,7 +289,11 @@ describe("fallback and error status code handling", () => {
 			},
 			{
 				id: `${provider}-key-beijing`,
-				token: `${provider}-beijing-token`,
+				...encryptProviderKeyForStorage(
+					`${provider}-beijing-token`,
+					`${provider}-key-beijing`,
+					"org-id",
+				),
 				provider,
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -305,6 +339,7 @@ describe("fallback and error status code handling", () => {
 				modelId,
 				providerId,
 				modelProviderMappingId: mappingId,
+				usedMode: "credits",
 				minuteTimestamp,
 				logsCount: totalRequests,
 				errorsCount,
@@ -323,6 +358,7 @@ describe("fallback and error status code handling", () => {
 				target: [
 					tables.modelProviderMappingHistory.modelProviderMappingId,
 					tables.modelProviderMappingHistory.minuteTimestamp,
+					tables.modelProviderMappingHistory.usedMode,
 				],
 				set: {
 					logsCount: totalRequests,
@@ -397,7 +433,7 @@ describe("fallback and error status code handling", () => {
 			.where(eq(tables.organization.id, "org-id"));
 		await db.insert(tables.apiKey).values({
 			id: "auto-custom-token-id",
-			token: "auto-custom-token",
+			...hashApiKeyForStorage("auto-custom-token"),
 			projectId: "project-id",
 			description: "Custom auto-routing key",
 			createdBy: "user-id",
@@ -405,7 +441,11 @@ describe("fallback and error status code handling", () => {
 		await db.insert(tables.providerKey).values([
 			{
 				id: "auto-custom-provider-key",
-				token: "sk-custom-auto",
+				...encryptProviderKeyForStorage(
+					"sk-custom-auto",
+					"auto-custom-provider-key",
+					"org-id",
+				),
 				provider: "custom",
 				name: "my-custom",
 				baseUrl: mockServerUrl,
@@ -414,7 +454,11 @@ describe("fallback and error status code handling", () => {
 			},
 			{
 				id: "auto-anthropic-provider-key",
-				token: "sk-anthropic-auto",
+				...encryptProviderKeyForStorage(
+					"sk-anthropic-auto",
+					"auto-anthropic-provider-key",
+					"org-id",
+				),
 				provider: "anthropic",
 				baseUrl: mockServerUrl,
 				organizationId: "org-id",
@@ -667,6 +711,38 @@ describe("fallback and error status code handling", () => {
 			expect(log.errorDetails).toBeTruthy();
 			expect(log.usedProvider).toBe("llmgateway");
 			expect(log.requestedModel).toBe("llmgateway/custom");
+		});
+
+		test("null upstream response body is classified as upstream_error (502), not an unhandled 500", async () => {
+			await setupCustomKeys();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+				},
+				body: JSON.stringify({
+					model: "llmgateway/custom",
+					messages: [{ role: "user", content: "TRIGGER_NULL_BODY" }],
+				}),
+			});
+
+			expect(res.status).toBe(502);
+			const json = await res.json();
+			expect(json).toHaveProperty("error");
+			expect(json.error.type).toBe("upstream_error");
+			expect(json.error.code).toBe("fetch_failed");
+
+			const logs = await waitForLogs(1);
+			expect(logs.length).toBe(1);
+
+			const log = logs[0];
+			expect(log.finishReason).toBe("upstream_error");
+			expect(log.hasError).toBe(true);
+			expect(log.errorDetails?.responseText).toBe(
+				"Provider response body must be a JSON object",
+			);
 		});
 
 		test("mid-body failure marks the routed provider attempt as failed, not a succeeded routing attempt", async () => {
@@ -1157,7 +1233,7 @@ describe("fallback and error status code handling", () => {
 			try {
 				await db.insert(tables.apiKey).values({
 					id: "token-id",
-					token: "real-token",
+					...hashApiKeyForStorage("real-token"),
 					projectId: "project-id",
 					description: "Test API Key",
 					createdBy: "user-id",
@@ -1166,7 +1242,11 @@ describe("fallback and error status code handling", () => {
 				// Create provider key for google-vertex (active at 2026-01-20) with mock server URL
 				await db.insert(tables.providerKey).values({
 					id: "provider-key-google",
-					token: "google-test-key",
+					...encryptProviderKeyForStorage(
+						"google-test-key",
+						"provider-key-google",
+						"org-id",
+					),
 					provider: "google-vertex",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
@@ -1337,21 +1417,33 @@ describe("fallback and error status code handling", () => {
 			await db.insert(tables.providerKey).values([
 				{
 					id: "provider-key-zai",
-					token: "sk-zai-key",
+					...encryptProviderKeyForStorage(
+						"sk-zai-key",
+						"provider-key-zai",
+						"org-id",
+					),
 					provider: "zai",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
 				{
 					id: "provider-key-alibaba",
-					token: "sk-alibaba-key",
+					...encryptProviderKeyForStorage(
+						"sk-alibaba-key",
+						"provider-key-alibaba",
+						"org-id",
+					),
 					provider: "alibaba",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
 				{
 					id: "provider-key-novita",
-					token: "sk-novita-key",
+					...encryptProviderKeyForStorage(
+						"sk-novita-key",
+						"provider-key-novita",
+						"org-id",
+					),
 					provider: "novita",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
@@ -1476,21 +1568,33 @@ describe("fallback and error status code handling", () => {
 			await db.insert(tables.providerKey).values([
 				{
 					id: "provider-key-zai",
-					token: "sk-zai-key",
+					...encryptProviderKeyForStorage(
+						"sk-zai-key",
+						"provider-key-zai",
+						"org-id",
+					),
 					provider: "zai",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
 				{
 					id: "provider-key-alibaba",
-					token: "sk-alibaba-key",
+					...encryptProviderKeyForStorage(
+						"sk-alibaba-key",
+						"provider-key-alibaba",
+						"org-id",
+					),
 					provider: "alibaba",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
 				{
 					id: "provider-key-novita",
-					token: "sk-novita-key",
+					...encryptProviderKeyForStorage(
+						"sk-novita-key",
+						"provider-key-novita",
+						"org-id",
+					),
 					provider: "novita",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
@@ -1599,21 +1703,33 @@ describe("fallback and error status code handling", () => {
 			await db.insert(tables.providerKey).values([
 				{
 					id: "provider-key-zai",
-					token: "sk-zai-key",
+					...encryptProviderKeyForStorage(
+						"sk-zai-key",
+						"provider-key-zai",
+						"org-id",
+					),
 					provider: "zai",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
 				{
 					id: "provider-key-alibaba",
-					token: "sk-alibaba-key",
+					...encryptProviderKeyForStorage(
+						"sk-alibaba-key",
+						"provider-key-alibaba",
+						"org-id",
+					),
 					provider: "alibaba",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
 				},
 				{
 					id: "provider-key-novita",
-					token: "sk-novita-key",
+					...encryptProviderKeyForStorage(
+						"sk-novita-key",
+						"provider-key-novita",
+						"org-id",
+					),
 					provider: "novita",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
@@ -2796,7 +2912,7 @@ describe("fallback and error status code handling", () => {
 					.where(eq(tables.project.id, "project-id"));
 				await db.insert(tables.apiKey).values({
 					id: "token-id",
-					token: "real-token",
+					...hashApiKeyForStorage("real-token"),
 					projectId: "project-id",
 					description: "Test API Key",
 					createdBy: "user-id",
@@ -2875,14 +2991,18 @@ describe("fallback and error status code handling", () => {
 					.where(eq(tables.project.id, "project-id"));
 				await db.insert(tables.apiKey).values({
 					id: "token-id",
-					token: "real-token",
+					...hashApiKeyForStorage("real-token"),
 					projectId: "project-id",
 					description: "Test API Key",
 					createdBy: "user-id",
 				});
 				await db.insert(tables.providerKey).values({
 					id: "openai-byok-key",
-					token: "openai-byok-token",
+					...encryptProviderKeyForStorage(
+						"openai-byok-token",
+						"openai-byok-key",
+						"org-id",
+					),
 					provider: "openai",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
@@ -2958,7 +3078,7 @@ describe("fallback and error status code handling", () => {
 					.where(eq(tables.project.id, "project-id"));
 				await db.insert(tables.apiKey).values({
 					id: "token-id",
-					token: "real-token",
+					...hashApiKeyForStorage("real-token"),
 					projectId: "project-id",
 					description: "Test API Key",
 					createdBy: "user-id",
@@ -2970,7 +3090,11 @@ describe("fallback and error status code handling", () => {
 				await db.insert(tables.providerKey).values([
 					{
 						id: "openai-byok-primary",
-						token: "openai-byok-primary-token",
+						...encryptProviderKeyForStorage(
+							"openai-byok-primary-token",
+							"openai-byok-primary",
+							"org-id",
+						),
 						tokenMasked: maskToken("openai-byok-primary-token"),
 						provider: "openai",
 						organizationId: "org-id",
@@ -2979,7 +3103,11 @@ describe("fallback and error status code handling", () => {
 					},
 					{
 						id: "openai-byok-secondary",
-						token: "openai-byok-secondary-token",
+						...encryptProviderKeyForStorage(
+							"openai-byok-secondary-token",
+							"openai-byok-secondary",
+							"org-id",
+						),
 						tokenMasked: maskToken("openai-byok-secondary-token"),
 						// A named key, which is how its owner recognizes it.
 						name: "billing-team-key",
@@ -3070,7 +3198,7 @@ describe("fallback and error status code handling", () => {
 			await ensureProviders(["openai"]);
 			await db.insert(tables.apiKey).values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -3082,7 +3210,11 @@ describe("fallback and error status code handling", () => {
 			await db.insert(tables.providerKey).values([
 				{
 					id: "openai-key-general",
-					token: "openai-general-token",
+					...encryptProviderKeyForStorage(
+						"openai-general-token",
+						"openai-key-general",
+						"org-id",
+					),
 					tokenMasked: maskToken("openai-general-token"),
 					provider: "openai",
 					organizationId: "org-id",
@@ -3091,7 +3223,11 @@ describe("fallback and error status code handling", () => {
 				},
 				{
 					id: "openai-key-restricted",
-					token: "openai-restricted-token",
+					...encryptProviderKeyForStorage(
+						"openai-restricted-token",
+						"openai-key-restricted",
+						"org-id",
+					),
 					tokenMasked: maskToken("openai-restricted-token"),
 					name: "embeddings-only-key",
 					provider: "openai",
@@ -3139,14 +3275,18 @@ describe("fallback and error status code handling", () => {
 					.where(eq(tables.project.id, "project-id"));
 				await db.insert(tables.apiKey).values({
 					id: "token-id",
-					token: "real-token",
+					...hashApiKeyForStorage("real-token"),
 					projectId: "project-id",
 					description: "Test API Key",
 					createdBy: "user-id",
 				});
 				await db.insert(tables.providerKey).values({
 					id: "openai-byok-key",
-					token: "openai-byok-token",
+					...encryptProviderKeyForStorage(
+						"openai-byok-token",
+						"openai-byok-key",
+						"org-id",
+					),
 					provider: "openai",
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
@@ -3215,7 +3355,7 @@ describe("fallback and error status code handling", () => {
 					.where(eq(tables.project.id, "project-id"));
 				await db.insert(tables.apiKey).values({
 					id: "token-id",
-					token: "real-token",
+					...hashApiKeyForStorage("real-token"),
 					projectId: "project-id",
 					description: "Test API Key",
 					createdBy: "user-id",

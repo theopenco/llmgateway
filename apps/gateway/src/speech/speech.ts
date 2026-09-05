@@ -24,6 +24,7 @@ import {
 } from "@/lib/api-key-health.js";
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import {
@@ -32,7 +33,10 @@ import {
 	findProjectById,
 	findProviderKey,
 } from "@/lib/cached-queries.js";
-import { assertProviderCompliant } from "@/lib/compliance.js";
+import {
+	assertProviderCompliant,
+	getEffectiveRetentionLevel,
+} from "@/lib/compliance.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
@@ -634,6 +638,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	// User-level limits take priority: enforce the per-member budget (set on the
 	// Teams page; fails open on read errors) before the per-key usage limits, so a
 	// member who is over budget is denied even if the key itself is within limits.
+	await assertMemberProjectAccess(apiKey, project.organizationId);
 	await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
 	assertApiKeyWithinUsageLimits(apiKey);
 
@@ -650,7 +655,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		});
 	}
 
-	const retentionLevel = organization.retentionLevel ?? "none";
+	const retentionLevel = getEffectiveRetentionLevel(organization);
 
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
@@ -878,15 +883,19 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			throw new HTTPException(500, { message: "No token" });
 		}
 
-		const envBaseUrl = getCredentialSetting(providerId, "baseUrl", managedKey, {
-			configIndex,
-			variant: envVariant,
-		});
+		const credential = { providerKey, managedKey };
 		const resolvedBaseUrl =
 			providerKey?.baseUrl ??
-			envBaseUrl ??
-			PROVIDER_BASE_URL_DEFAULTS[providerId] ??
-			"https://generativelanguage.googleapis.com";
+			getCredentialSetting(providerId, "baseUrl", credential, {
+				configIndex,
+				variant: envVariant,
+			}) ??
+			PROVIDER_BASE_URL_DEFAULTS[providerId];
+		if (!resolvedBaseUrl) {
+			throw new HTTPException(500, {
+				message: `No base URL set for provider: ${providerId}`,
+			});
+		}
 
 		const elevenLabsOutputFormat =
 			ELEVENLABS_OUTPUT_FORMATS[responseFormat] ?? "mp3_44100_128";
@@ -906,7 +915,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		} else if (isGoogleVertex) {
 			const vertexProjectId =
 				providerKey?.options?.google_vertex_project_id ??
-				getCredentialSetting("google-vertex", "project", managedKey, {
+				getCredentialSetting("google-vertex", "project", credential, {
 					configIndex,
 					variant: envVariant,
 				});
@@ -926,7 +935,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				});
 			}
 			const vertexRegion =
-				getCredentialSetting("google-vertex", "region", managedKey, {
+				getCredentialSetting("google-vertex", "region", credential, {
 					configIndex,
 					defaultValue: "global",
 					variant: envVariant,
@@ -1415,7 +1424,9 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						logger.warn("Speech API - no audio in SSE stream", {
 							requestId,
 							model: upstreamModel,
-							sseError: sseErrorMessage,
+							...(retentionLevel === "retain" && {
+								sseError: sseErrorMessage,
+							}),
 						});
 						routingAttempts.push(
 							buildRoutingAttempt(

@@ -2,16 +2,17 @@ import { describe, expect, it, vi } from "vitest";
 
 import { transformStreamingToOpenai } from "./transform-streaming-to-openai.js";
 
-const { warn, error } = vi.hoisted(() => ({
+const { warn, error, setexMock } = vi.hoisted(() => ({
 	warn: vi.fn(),
 	error: vi.fn(),
+	setexMock: vi.fn(() => Promise.resolve("OK")),
 }));
 
 vi.mock("@llmgateway/cache", () => ({
 	redisClient: {
 		get: vi.fn(),
 		// The caller chains .catch() on this, so it must be thenable.
-		setex: vi.fn(() => Promise.resolve("OK")),
+		setex: setexMock,
 	},
 }));
 
@@ -48,32 +49,58 @@ describe("transformStreamingToOpenai", () => {
 		expect(result.model).toBe("deepinfra/deepseek-v4-flash");
 	});
 
-	it("does not warn for Permafrost OpenAI streaming chunks", () => {
-		warn.mockClear();
+	it("normalizes Novita tool-call finishes across streaming chunks", () => {
+		const toolCallChoiceIndices = new Set<number>();
 
-		const result = transformStreamingToOpenai(
-			"permafrost",
-			"kimi-k3",
+		transformStreamingToOpenai(
+			"novita",
+			"novita/glm-5.3",
 			{
-				id: "chatcmpl_123",
-				object: "chat.completion.chunk",
-				model: "kimi-k3",
+				id: "chatcmpl-123",
 				choices: [
 					{
-						index: 0,
-						delta: { content: "Hello" },
+						index: 1,
+						delta: {
+							tool_calls: [
+								{
+									index: 0,
+									id: "call_123",
+									function: { name: "get_weather", arguments: "" },
+								},
+							],
+						},
 						finish_reason: null,
 					},
 				],
 			},
 			[],
+			undefined,
+			true,
+			undefined,
+			toolCallChoiceIndices,
 		);
 
-		expect(result).toMatchObject({
-			id: "chatcmpl_123",
-			choices: [{ delta: { content: "Hello" } }],
-		});
-		expect(warn).not.toHaveBeenCalled();
+		const result = transformStreamingToOpenai(
+			"novita",
+			"novita/glm-5.3",
+			{
+				id: "chatcmpl-123",
+				choices: [
+					{ index: 0, delta: {}, finish_reason: "stop" },
+					{ index: 1, delta: {}, finish_reason: "stop" },
+				],
+			},
+			[],
+			undefined,
+			true,
+			undefined,
+			toolCallChoiceIndices,
+		);
+
+		expect(result.choices).toMatchObject([
+			{ index: 0, finish_reason: "stop" },
+			{ index: 1, finish_reason: "tool_calls" },
+		]);
 	});
 
 	it("generates a unique id per streamed google tool call", () => {
@@ -111,6 +138,39 @@ describe("transformStreamingToOpenai", () => {
 		for (const id of ids) {
 			expect(id.startsWith("read_file_")).toBe(true);
 		}
+	});
+
+	it("keeps streamed thought signatures inline without caching them", () => {
+		setexMock.mockClear();
+		const result = transformStreamingToOpenai(
+			"google-ai-studio",
+			"gemini-3.5-flash",
+			{
+				candidates: [
+					{
+						content: {
+							parts: [
+								{
+									functionCall: { name: "read_file", args: {} },
+									thoughtSignature: "sig-private",
+								},
+							],
+						},
+					},
+				],
+			},
+			[],
+			undefined,
+			true,
+			undefined,
+			undefined,
+			{ cacheThoughtSignatures: false },
+		);
+
+		expect(result.choices[0].delta.tool_calls[0].provider_extra).toEqual({
+			google: { thought_signature: "sig-private" },
+		});
+		expect(setexMock).not.toHaveBeenCalled();
 	});
 
 	it("transforms azure-anthropic streaming events like anthropic", () => {

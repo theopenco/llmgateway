@@ -20,6 +20,13 @@ type ErnieRequestBody = OpenAIRequestBody & {
 	chat_template_kwargs?: Record<string, boolean>;
 };
 
+interface ByteDanceImageRequest {
+	model: string;
+	prompt: string;
+	size?: string;
+	image?: string | string[];
+}
+
 const MODEL_ID = "ernie-4.5-vl-424b-a47b";
 const EXTERNAL_ID = "baidu/ernie-4.5-vl-424b-a47b";
 
@@ -58,6 +65,71 @@ async function prepare(options: {
 function imagePart(url: string) {
 	return { type: "image_url", image_url: { url } };
 }
+
+async function prepareSeedream(content: unknown) {
+	return (await prepareRequestBody(
+		"bytedance",
+		"seedream-5-0-pro",
+		null,
+		"dola-seedream-5-0-pro-260628",
+		[{ role: "user", content }] as Parameters<typeof prepareRequestBody>[4],
+		false,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		false,
+		false,
+		20,
+		null,
+		undefined,
+		{ image_size: "1K" },
+		undefined,
+		true,
+	)) as unknown as ByteDanceImageRequest;
+}
+
+describe("prepareRequestBody - Seedream image editing", () => {
+	test("the Seedream 5.0 Pro mapping accepts image input", () => {
+		const mapping = models
+			.find((m) => m.id === "seedream-5-0-pro")
+			?.providers.find((p) => p.providerId === "bytedance");
+
+		expect(mapping?.vision).toBe(true);
+	});
+
+	test("forwards one reference image in ByteDance's scalar format", async () => {
+		const requestBody = await prepareSeedream([
+			imagePart("data:image/png;base64,aGVsbG8="),
+			{ type: "text", text: "Keep the subject and change the background" },
+		]);
+
+		expect(requestBody).toEqual({
+			model: "dola-seedream-5-0-pro-260628",
+			prompt: "Keep the subject and change the background",
+			size: "1K",
+			image: "data:image/png;base64,aGVsbG8=",
+		});
+	});
+
+	test("forwards multiple reference images as an array", async () => {
+		const requestBody = await prepareSeedream([
+			{ type: "text", text: "Combine the subjects from both images" },
+			imagePart("https://example.com/first.png"),
+			imagePart("data:image/jpeg;base64,d29ybGQ="),
+		]);
+
+		expect(requestBody.image).toEqual([
+			"https://example.com/first.png",
+			"data:image/jpeg;base64,d29ybGQ=",
+		]);
+	});
+});
 
 describe("prepareRequestBody - requiresBase64Images", () => {
 	beforeEach(() => {

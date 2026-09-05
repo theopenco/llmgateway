@@ -27,6 +27,43 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("transformResponseToOpenai", () => {
+	test("includes Responses API images in Meta chat output", () => {
+		const images = [
+			{
+				type: "image_url" as const,
+				image_url: { url: "data:image/webp;base64,UklGRmFrZQ==" },
+			},
+		];
+		const response = transformResponseToOpenai(
+			"meta",
+			"muse-image-1.0",
+			{
+				id: "resp_muse",
+				created_at: 1,
+				output: [{ type: "image_generation_call" }],
+			},
+			"Image generated",
+			"Planning the image",
+			"stop",
+			10,
+			5,
+			15,
+			2,
+			3,
+			null,
+			images,
+			"meta/muse-image-1.0",
+			"meta",
+			"muse-image-1.0",
+		);
+
+		expect(response.choices[0].message).toMatchObject({
+			content: "Image generated",
+			reasoning: "Planning the image",
+			images,
+		});
+	});
+
 	test("includes request_id in response metadata", () => {
 		const response = transformResponseToOpenai(
 			"openai",
@@ -398,6 +435,47 @@ describe("transformResponseToOpenai", () => {
 			expect.anything(),
 			expect.anything(),
 		);
+
+		setexMock.mockClear();
+		const nonRetainingResponse = transformResponseToOpenai(
+			"google-ai-studio",
+			"gemini-2.5-flash",
+			json,
+			null,
+			null,
+			"STOP",
+			10,
+			20,
+			30,
+			null,
+			null,
+			parsedToolCalls,
+			[],
+			"gemini-2.5-flash",
+			null,
+			"gemini-2.5-flash",
+			null,
+			false,
+			null,
+			null,
+			"req_google_n_tools_no_cache",
+			undefined,
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			undefined,
+			{ cacheThoughtSignatures: false },
+		);
+
+		expect(
+			nonRetainingResponse.choices[1].message.tool_calls[0].extra_content,
+		).toEqual({
+			google: { thought_signature: "sig-candidate-1" },
+		});
+		expect(setexMock).not.toHaveBeenCalled();
 	});
 
 	test("does not overwrite choice 0 content on multi-choice OpenAI responses", () => {
@@ -449,6 +527,52 @@ describe("transformResponseToOpenai", () => {
 
 		expect(response.choices[0].message.content).toBe("variant 1");
 		expect(response.choices[1].message.content).toBe("variant 2");
+	});
+
+	test("writes normalized xAI token counts to the response", () => {
+		const response = transformResponseToOpenai(
+			"xai",
+			"grok-4-6",
+			{
+				id: "chatcmpl-test",
+				object: "chat.completion",
+				created: 1,
+				model: "grok-4-6",
+				choices: [
+					{
+						index: 0,
+						message: { role: "assistant", content: "42" },
+						finish_reason: "stop",
+					},
+				],
+				usage: {
+					prompt_tokens: 213,
+					completion_tokens: 4,
+					total_tokens: 527,
+					completion_tokens_details: { reasoning_tokens: 310 },
+				},
+			},
+			"42",
+			null,
+			"stop",
+			213,
+			314,
+			527,
+			310,
+			128,
+			null,
+			[],
+			"xai/grok-4-6",
+			"xai",
+			"grok-4-6",
+		);
+
+		expect(response.usage).toMatchObject({
+			prompt_tokens: 213,
+			completion_tokens: 314,
+			total_tokens: 527,
+			completion_tokens_details: { reasoning_tokens: 310 },
+		});
 	});
 
 	// The OpenAI-compatible provider branches route through the same

@@ -114,12 +114,6 @@ export {
 } from "./gateway-url.js";
 
 export {
-	getAvalancheApiBaseUrl,
-	getAvalancheJobsApiBaseUrl,
-	getAvalancheFileUploadBaseUrl,
-} from "./avalanche.js";
-
-export {
 	createHttpClient,
 	type HttpClientOptions,
 	type HttpClientConfig,
@@ -183,17 +177,32 @@ export {
 } from "./random.js";
 
 export {
+	createEmptyProviderModelsByKind,
 	getModelIdsByProvider,
+	getModelIdsByProviderAndKind,
+	getProviderModelKind,
 	getProviderModelIds,
+	PROVIDER_MODEL_KINDS,
+	type ProviderModelKind,
+	type ProviderModelsByKind,
 } from "./provider-model-ids.js";
 
 export {
+	getModelImageConfig,
+	GPT_IMAGE_SIZES,
+	type AspectRatio,
+} from "./image-generation-config.js";
+
+export {
 	addCalendarDays,
+	ENTERPRISE_LICENSE_CRITICAL_DAYS,
+	ENTERPRISE_LICENSE_EXPIRING_DAYS,
 	ENTERPRISE_TRIAL_DAY_PRESETS,
 	ENTERPRISE_TRIAL_DAYS,
 	extendTrialEnd,
 	formatPlanTermBadge,
 	formatPlanTermLabel,
+	getEnterpriseLicenseTerm,
 	getOrganizationTerm,
 	getPlanTerm,
 	PLAN_TERM_CRITICAL_DAYS,
@@ -365,3 +374,13 @@ export {
 
 export * from "./components/ui/index.js";
 export { discountFraction, isValidDiscount } from "./lib/discount.js";
+export {
+	mcpAccountSchema,
+	mcpUsageInputSchema,
+	mcpUsageBreakdownInputSchema,
+	mcpUsageSchema,
+	mcpUsageBreakdownSchema,
+	type McpUsageInput,
+	type McpUsageBreakdownInput,
+	type McpUsageScope,
+} from "./mcp-usage.js";

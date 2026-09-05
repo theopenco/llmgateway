@@ -6,8 +6,6 @@ icon: Key
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-# API Keys & IAM Rules
-
 API keys are the primary method for authenticating with the LLM Gateway. This guide covers creating API keys, managing them, and configuring IAM rules for fine-grained access control.
 
 ## Overview
@@ -51,8 +49,7 @@ each with its own page:
 	API keys are shown in full only once during creation. Make sure to copy and
 	store them securely. New and rolled secrets are stored only as keyed
 	HMAC-SHA-256 fingerprints, and authentication compares the fingerprint of the
-	presented secret. Existing keys remain valid; rolling an older key migrates it
-	to hash-only storage.
+	presented secret.
 </Callout>
 
 ### Programmatically

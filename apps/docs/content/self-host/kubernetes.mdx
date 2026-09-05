@@ -42,13 +42,6 @@ config:
 helm install llmgateway oci://ghcr.io/theopenco/charts/llmgateway -f values.yaml
 ```
 
-When upgrading from a release that stored gateway API keys as plaintext, roll
-out the new gateway image first and wait for all gateway pods to become ready
-before rolling out the API image. The compatible gateway accepts both legacy
-plaintext keys and new hash-only keys; reversing that order can briefly reject
-keys created during the rollout. The chart's `gateway.image.tag` and
-`api.image.tag` overrides let you perform these as two Helm upgrades.
-
 ## Enterprise license
 
 For the chart-managed Secret, set the signed license in your values:

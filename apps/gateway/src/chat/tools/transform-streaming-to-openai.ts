@@ -78,6 +78,8 @@ export function transformStreamingToOpenai(
 	serverToolUseIndices?: Set<number>,
 	supportsReasoning = true,
 	toolSearchState?: AnthropicToolSearchState,
+	toolCallChoiceIndices?: Set<number>,
+	options?: { cacheThoughtSignatures?: boolean },
 ): any {
 	let transformedData = data;
 
@@ -682,7 +684,7 @@ export function transformStreamingToOpenai(
 
 						// Cache thoughtSignature in Redis for server-side retrieval in multi-turn conversations
 						// This is especially important when OpenAI SDKs don't preserve extra_content/provider_extra
-						if (sig) {
+						if (sig && options?.cacheThoughtSignatures !== false) {
 							redisClient
 								.setex(
 									`thought_signature:${toolCallId}`,
@@ -852,6 +854,7 @@ export function transformStreamingToOpenai(
 		case "azure":
 		case "sakana":
 		case "meta":
+		case "meta-contributor":
 		case "aws-mantle":
 		case "openai": {
 			// Azure precedes every stream with a prompt-filter-only chunk that has
@@ -1538,9 +1541,8 @@ export function transformStreamingToOpenai(
 		case "gonka24":
 		case "ranoai":
 		case "baidu":
+		case "consensusprotocol":
 		case "granite":
-		case "tundra":
-		case "permafrost":
 		case "xiaomi":
 		case "azure-ai-foundry":
 		case "vertex-openai":
@@ -1566,6 +1568,30 @@ export function transformStreamingToOpenai(
 				usedModel,
 				supportsReasoning,
 			);
+
+			if (
+				usedProvider === "novita" &&
+				Array.isArray(transformedData?.choices)
+			) {
+				for (const [position, choice] of transformedData.choices.entries()) {
+					const choiceIndex =
+						typeof choice?.index === "number" ? choice.index : position;
+					const hasToolCallDelta =
+						Array.isArray(choice?.delta?.tool_calls) &&
+						choice.delta.tool_calls.length > 0;
+
+					if (hasToolCallDelta) {
+						toolCallChoiceIndices?.add(choiceIndex);
+					}
+
+					if (
+						choice?.finish_reason === "stop" &&
+						(hasToolCallDelta || toolCallChoiceIndices?.has(choiceIndex))
+					) {
+						choice.finish_reason = "tool_calls";
+					}
+				}
+			}
 
 			// Map non-standard finish reasons to OpenAI-compatible values
 			if (transformedData?.choices?.[0]?.finish_reason === "end_turn") {

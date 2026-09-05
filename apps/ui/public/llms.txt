@@ -1,12 +1,12 @@
 # LLM Gateway
 
-> LLM Gateway is a unified API for routing requests across 40+ LLM providers, including OpenAI, Anthropic, Google, Meta, Mistral, and DeepSeek. Use one OpenAI-compatible API and one key to access 200+ models, with usage analytics, cost tracking, caching, and automatic failover. Open source (AGPLv3) and self-hostable.
+> LLM Gateway is an open-source AI gateway. Route requests through one OpenAI-compatible API and key, with usage analytics, cost tracking, caching, and automatic failover. The live models and providers directories list current availability. Open source (AGPLv3) and self-hostable.
 
 ## Key pages
 
 - [Models](https://llmgateway.io/models): Full catalog of supported LLMs with pricing, context windows, and capabilities.
 - [LLM Rankings](https://llmgateway.io/rankings): Which models developers actually run in production — live token volume, trends, and provider market share over 24h/7d/30d windows.
-- [Model release timeline](https://llmgateway.io/timeline): When each LLM was released by its provider and when it was added to LLM Gateway — a reference for AI model release dates (GPT, Claude, Gemini, Llama, Mistral, DeepSeek).
+- [Model release timeline](https://llmgateway.io/timeline): When each LLM was released by its provider and when it was added to LLM Gateway — a reference for AI model release dates.
 - [Pricing](https://llmgateway.io/pricing): Per-token at provider rates. Pay-as-you-go credits carry a flat 5% platform fee; Bring-Your-Own-Keys is free; enterprise plans available.
 - [Pricing (machine-readable)](https://llmgateway.io/pricing.md): Plain-markdown pricing summary for AI agents.
 - [Providers](https://llmgateway.io/providers): Every supported provider and the models each offers.
@@ -27,7 +27,7 @@
 - [Best models for math](https://llmgateway.io/models/math): Reasoning models for competition math and quantitative work.
 - [Long context models](https://llmgateway.io/models/long-context): Models with 200K to 2M token context windows.
 - [Cheapest models](https://llmgateway.io/models/cheapest): Models at or under $0.20 per million input tokens.
-- [Open source models](https://llmgateway.io/models/open-source): Open-weight LLMs (Llama, DeepSeek, Qwen, GLM, Kimi, GPT-OSS) served via API.
+- [Open source models](https://llmgateway.io/models/open-source): Open-weight LLMs served via API, with current pricing and capabilities.
 
 ## Developer resources
 
@@ -41,6 +41,6 @@
 
 ## Notes
 
-- New models are typically available within 48 hours of their provider release.
+- See the live [catalogue](https://llmgateway.io/models) for current model availability.
 - The API is OpenAI-compatible; point your existing SDK at the gateway base URL.
 - Pages with a markdown representation honor `Accept: text/markdown` (currently / and /pricing).

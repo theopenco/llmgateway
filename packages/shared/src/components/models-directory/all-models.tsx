@@ -41,6 +41,7 @@ import {
 	Volume2,
 	Mic,
 	ListOrdered,
+	Clock,
 } from "lucide-react";
 import Link from "next/link.js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation.js";
@@ -74,18 +75,42 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-	isMappingDeactivated,
+	getMappingStatus,
+	isModelMappingStatus,
 	shouldShowDeactivationNotice,
+	type ModelMappingStatus,
 } from "@/deactivation";
 import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
 import { matchesCapability } from "./capability-filters";
-import { formatDeprecationDate, formatPerImagePriceRange } from "./format";
+import {
+	formatDeprecationDate,
+	formatPerImagePriceRange,
+	formatPerSecondPriceLabel,
+	formatPerUnitPrice,
+} from "./format";
 import { ModelCard } from "./model-card";
 import { applyCategoryFilter } from "./model-category-filters";
 import {
+	compareSortValues,
+	effectiveTokenPrice,
+	getInputCharacterPricePer1K,
+	getMaxPerSecondPrice,
+	getMinPerSecondPrice,
+	hasPaidTier,
+	inputPriceInUnit,
+	isPriceUnitField,
+	minUnitPrice,
+	outputPriceInUnit,
+	parseStrictPrice,
+	PRICE_UNIT_FIELDS,
+} from "./pricing-schedule";
+import { isVisibleMapping } from "./status-filters";
+import {
 	applyUseCaseFilter,
+	getExcludedCapabilityKeys,
+	getImpliedCapabilityKeys,
 	isUseCaseCategory,
 	providerRowPassesFilters,
 } from "./use-case-filters";
@@ -97,6 +122,7 @@ import type {
 	ApiProvider,
 } from "./api-types";
 import type { ModelCategoryFilter } from "./model-category-filters";
+import type { PriceUnitField } from "./pricing-schedule";
 import type { StabilityLevel } from "@llmgateway/models";
 
 interface ModelWithProviders extends ApiModel {
@@ -154,6 +180,53 @@ type SortField =
 	| "cachedInputPrice"
 	| "discount";
 type SortDirection = "asc" | "desc";
+
+const PRICE_UNIT_OPTIONS: {
+	field: PriceUnitField;
+	Icon: React.ComponentType<{ className?: string }>;
+	iconClass: string;
+	name: string;
+	unit: string;
+}[] = [
+	{
+		field: "perImagePrice",
+		Icon: ImagePlus,
+		iconClass: "text-pink-500",
+		name: "Image",
+		unit: "$/image",
+	},
+	{
+		field: "perSecondPrice",
+		Icon: Video,
+		iconClass: "text-violet-500",
+		name: "Video",
+		unit: "$/sec",
+	},
+	{
+		field: "inputCharacterPrice",
+		Icon: Volume2,
+		iconClass: "text-rose-500",
+		name: "Speech",
+		unit: "$/1K chars",
+	},
+];
+
+function minAcross<T>(
+	items: T[],
+	value: (item: T) => number | null,
+): number | null {
+	const values = items.map(value).filter((v): v is number => v !== null);
+	return values.length > 0 ? Math.min(...values) : null;
+}
+
+function withinBounds(value: number | null, min: string, max: string) {
+	if (value === null) {
+		return !min && !max;
+	}
+	const minPrice = min ? parseFloat(min) : -Infinity;
+	const maxPrice = max ? parseFloat(max) : Infinity;
+	return value >= minPrice && value <= maxPrice;
+}
 
 // Capability icon type
 interface CapabilityIcon {
@@ -328,6 +401,27 @@ const ModelTableRow = React.memo(
 		const blockedReasons = row.provider.blockedReasons ?? [];
 		const isBlocked = blockedReasons.length > 0;
 		const showDeactivationNotice = shouldShowDeactivationNotice(row.provider);
+		const mappingStatus = getMappingStatus(row.provider);
+		const isScheduled = mappingStatus === "scheduled";
+		const inputTokenPrice = effectiveTokenPrice(
+			row.provider.inputPrice,
+			row.provider.discount,
+		);
+		const outputTokenPrice = effectiveTokenPrice(
+			row.provider.outputPrice,
+			row.provider.discount,
+		);
+		const minPerSecond = getMinPerSecondPrice(row.provider);
+		const maxPerSecond = getMaxPerSecondPrice(row.provider);
+		const perThousandChars = getInputCharacterPricePer1K(row.provider);
+		const hasCharacterPricing =
+			(parseStrictPrice(row.provider.inputCharacterPrice) ?? 0) > 0;
+		const perSecondPrices = row.provider.perSecondPrice;
+		const perSecondLabel = perSecondPrices
+			? (formatPerSecondPriceLabel(perSecondPrices, row.provider.discount)
+					?.value ??
+				(minPerSecond !== null ? formatPerUnitPrice(minPerSecond) : null))
+			: null;
 
 		return (
 			<>
@@ -433,7 +527,11 @@ const ModelTableRow = React.memo(
 								<Tooltip>
 									<TooltipTrigger asChild>
 										<span className="shrink-0 cursor-help">
-											<AlertCircle className="h-3.5 w-3.5 text-red-500" />
+											{isScheduled ? (
+												<Clock className="h-3.5 w-3.5 text-amber-500" />
+											) : (
+												<AlertCircle className="h-3.5 w-3.5 text-red-500" />
+											)}
 										</span>
 									</TooltipTrigger>
 									<TooltipContent>
@@ -494,7 +592,7 @@ const ModelTableRow = React.memo(
 									</TooltipTrigger>
 									<TooltipContent>
 										<p className="text-xs">
-											Premium tier — $5+/M input or $15+/M output. Subject to
+											Premium tier / $5+/M input or $15+/M output. Subject to
 											the weekly fair-use allowance on DevPass plans.
 										</p>
 									</TooltipContent>
@@ -525,41 +623,24 @@ const ModelTableRow = React.memo(
 
 					{/* Input Price Column */}
 					<TableCell className="text-right font-mono text-sm">
-						{row.provider.perSecondPrice && !row.provider.inputPrice ? (
+						{minPerSecond !== null && !inputTokenPrice ? (
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<span className="text-violet-500 cursor-help">
-										{(() => {
-											const prices = row.provider.perSecondPrice;
-											const values = Object.values(prices)
-												.map(Number)
-												.filter(Number.isFinite);
-											if (values.length === 0) {
-												return "—";
-											}
-											const min = Math.min(...values);
-											return `$${min}/sec`;
-										})()}
+										{formatPerUnitPrice(minPerSecond)}/sec
 									</span>
 								</TooltipTrigger>
 								<TooltipContent>
 									<p className="text-xs">Video per-second pricing</p>
 								</TooltipContent>
 							</Tooltip>
-						) : (!row.provider.inputPrice ||
-								parseFloat(row.provider.inputPrice) === 0) &&
-						  row.provider.inputCharacterPrice &&
-						  parseFloat(row.provider.inputCharacterPrice) > 0 ? (
+						) : hasCharacterPricing &&
+						  perThousandChars !== null &&
+						  !inputTokenPrice ? (
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<span className="text-sky-500 cursor-help">
-										$
-										{parseFloat(
-											(
-												parseFloat(row.provider.inputCharacterPrice) * 1000
-											).toFixed(4),
-										)}
-										/1K chars
+										{formatPerUnitPrice(perThousandChars)}/1K chars
 									</span>
 								</TooltipTrigger>
 								<TooltipContent>
@@ -611,21 +692,11 @@ const ModelTableRow = React.memo(
 
 					{/* Output Price Column */}
 					<TableCell className="text-right font-mono text-sm">
-						{row.provider.perSecondPrice && !row.provider.outputPrice ? (
+						{maxPerSecond !== null && !outputTokenPrice ? (
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<span className="text-violet-500 cursor-help">
-										{(() => {
-											const prices = row.provider.perSecondPrice;
-											const values = Object.values(prices)
-												.map(Number)
-												.filter(Number.isFinite);
-											if (values.length === 0) {
-												return "—";
-											}
-											const max = Math.max(...values);
-											return `$${max}/sec`;
-										})()}
+										{formatPerUnitPrice(maxPerSecond)}/sec
 									</span>
 								</TooltipTrigger>
 								<TooltipContent>
@@ -658,9 +729,13 @@ const ModelTableRow = React.memo(
 								.map((key) => CAPABILITY_LABEL_BY_FILTER_KEY[key])
 								.filter((label): label is string => Boolean(label));
 							const ordered = [
-								...row.capabilities.filter((c) =>
-									pinnedLabels.includes(c.label),
-								),
+								...pinnedLabels
+									.map((label) =>
+										row.capabilities.find((c) => c.label === label),
+									)
+									.filter((c): c is (typeof row.capabilities)[number] =>
+										Boolean(c),
+									),
 								...row.capabilities.filter(
 									(c) => !pinnedLabels.includes(c.label),
 								),
@@ -736,30 +811,15 @@ const ModelTableRow = React.memo(
 												{parseFloat(row.provider.requestPrice).toFixed(3)}
 											</Badge>
 										)}
-									{row.provider.perSecondPrice &&
-										Object.keys(row.provider.perSecondPrice).length > 0 && (
-											<Badge
-												variant="outline"
-												className="text-sm px-3 py-1.5 bg-background"
-											>
-												<Video className="h-4 w-4 mr-2 text-violet-500" />
-												Video{" "}
-												{(() => {
-													const prices = row.provider.perSecondPrice!;
-													const defaultVideo = prices["default_video"];
-													const defaultAudio = prices["default_audio"];
-													const defaultPrice = prices["default"];
-													if (defaultVideo && defaultAudio) {
-														return `$${defaultVideo} – $${defaultAudio}/sec`;
-													}
-													if (defaultPrice) {
-														return `$${defaultPrice}/sec`;
-													}
-													const firstValue = Object.values(prices)[0];
-													return firstValue ? `$${firstValue}/sec` : "";
-												})()}
-											</Badge>
-										)}
+									{perSecondLabel !== null && (
+										<Badge
+											variant="outline"
+											className="text-sm px-3 py-1.5 bg-background"
+										>
+											<Video className="h-4 w-4 mr-2 text-violet-500" />
+											Video {perSecondLabel}/sec
+										</Badge>
+									)}
 									{row.provider.perImagePrice &&
 										Object.keys(row.provider.perImagePrice).length > 0 && (
 											<Badge
@@ -846,19 +906,32 @@ export function AllModels({
 				: "asc",
 	);
 	const urlCategory = searchParams.get("category");
-	const [filters, setFilters] = useState({
+
+	// The status chips are single-select: `?status=` holds at most one value.
+	// Legacy `?deactivated=true` links map onto the Deactivated chip so old
+	// URLs keep working. No param means the default view (no status filter).
+	function getStatusFilterFromUrl(
+		searchParams: URLSearchParams,
+	): ModelMappingStatus | null {
+		const status = searchParams.get("status");
+		if (status && isModelMappingStatus(status) && status !== "active") {
+			return status;
+		}
+		return searchParams.get("deactivated") === "true" ? "deactivated" : null;
+	}
+
+	const [filters, setFilters] = useState(() => {
 		// With the selector hidden there is no way to see or change the
 		// category, so ignore any URL override and pin the default. When the
 		// selector is shown, only accept a known category from the URL so an
 		// unsupported value falls back to the default instead of silently
 		// matching every row.
-		category: hideUseCaseFilter
+		const category = hideUseCaseFilter
 			? defaultCategory
 			: isUseCaseCategory(urlCategory)
 				? urlCategory
-				: defaultCategory,
-		tier: searchParams.get("tier") ?? "all",
-		capabilities: {
+				: defaultCategory;
+		const capabilities = {
 			streaming: searchParams.get("streaming") === "true",
 			vision: searchParams.get("vision") === "true",
 			tools: searchParams.get("tools") === "true",
@@ -874,23 +947,40 @@ export function AllModels({
 			webSearch: searchParams.get("webSearch") === "true",
 			free: searchParams.get("free") === "true",
 			discounted: searchParams.get("discounted") === "true",
-		},
-		selectedProvider: searchParams.get("provider") ?? "all",
-		showDeactivated: searchParams.get("deactivated") === "true",
-		source: searchParams.get("source") ?? "all",
-		eligibleOnly: searchParams.get("eligibility") === "eligible",
-		inputPrice: {
-			min: searchParams.get("inputPriceMin") ?? "",
-			max: searchParams.get("inputPriceMax") ?? "",
-		},
-		outputPrice: {
-			min: searchParams.get("outputPriceMin") ?? "",
-			max: searchParams.get("outputPriceMax") ?? "",
-		},
-		contextSize: {
-			min: searchParams.get("contextSizeMin") ?? "",
-			max: searchParams.get("contextSizeMax") ?? "",
-		},
+		};
+		// A deep link can pair the category with a capability it excludes; the
+		// toggle renders disabled, so drop the filter rather than emptying the
+		// directory through a control that cannot be cleared.
+		for (const key of getExcludedCapabilityKeys(category)) {
+			if (key in capabilities) {
+				capabilities[key as keyof typeof capabilities] = false;
+			}
+		}
+		return {
+			category,
+			tier: searchParams.get("tier") ?? "all",
+			capabilities,
+			selectedProvider: searchParams.get("provider") ?? "all",
+			status: getStatusFilterFromUrl(searchParams),
+			source: searchParams.get("source") ?? "all",
+			eligibleOnly: searchParams.get("eligibility") === "eligible",
+			inputPrice: {
+				min: searchParams.get("inputPriceMin") ?? "",
+				max: searchParams.get("inputPriceMax") ?? "",
+			},
+			outputPrice: {
+				min: searchParams.get("outputPriceMin") ?? "",
+				max: searchParams.get("outputPriceMax") ?? "",
+			},
+			contextSize: {
+				min: searchParams.get("contextSizeMin") ?? "",
+				max: searchParams.get("contextSizeMax") ?? "",
+			},
+			priceUnit: (() => {
+				const v = searchParams.get("priceUnit");
+				return isPriceUnitField(v) ? v : null;
+			})(),
+		};
 	});
 
 	// Org-directory extensions: the Source and Eligibility filters only appear
@@ -905,6 +995,29 @@ export function AllModels({
 				model.mappings.some((mapping) => mapping.blockedReasons?.length),
 			),
 		[models],
+	);
+	// The per-unit toggles only appear when the current category has image,
+	// video or speech pricing; a unit left in the URL is ignored until then.
+	const hasPerUnitData = useMemo(() => {
+		const inScope = (model: ApiModel) =>
+			(!categoryFilter ||
+				applyCategoryFilter(categoryFilter, model, model.mappings)) &&
+			(!filters.category ||
+				filters.category === "all" ||
+				applyUseCaseFilter(filters.category, model, model.mappings));
+		return models.some(
+			(model) =>
+				inScope(model) &&
+				model.mappings.some((mapping) =>
+					PRICE_UNIT_FIELDS.some(
+						(unit) => minUnitPrice(mapping, unit) !== null,
+					),
+				),
+		);
+	}, [models, categoryFilter, filters.category]);
+	const priceUnit = hasPerUnitData ? filters.priceUnit : null;
+	const priceUnitOption = PRICE_UNIT_OPTIONS.find(
+		(option) => option.field === priceUnit,
 	);
 
 	const updateUrlWithFilters = useCallback(
@@ -922,25 +1035,42 @@ export function AllModels({
 		[router, searchParams],
 	);
 
+	const setStatusFilter = useCallback(
+		(status: ModelMappingStatus | null) => {
+			setFilters((prev) => ({ ...prev, status }));
+			updateUrlWithFilters({
+				status: status ?? undefined,
+				deactivated: undefined,
+				page: undefined,
+			});
+		},
+		[updateUrlWithFilters],
+	);
+
 	// Calculate total counts (excluding deprecated and deactivated models)
 	const { totalModelCount, totalProviderCount } = useMemo(() => {
 		const now = new Date();
 
 		// Count models that have at least one visible mapping
 		const visibleModelCount = models.filter((model) =>
-			model.mappings.some((mapping) => {
-				if (mapping.deprecatedAt && new Date(mapping.deprecatedAt) <= now) {
-					return false;
-				}
-				return filters.showDeactivated || !isMappingDeactivated(mapping, now);
-			}),
+			model.mappings.some((mapping) =>
+				isVisibleMapping(
+					mapping,
+					{
+						status: filters.status,
+						showDeactivated: false,
+						eligibleOnly: filters.eligibleOnly,
+					},
+					now,
+				),
+			),
 		).length;
 
 		return {
 			totalModelCount: visibleModelCount,
 			totalProviderCount: providers.length,
 		};
-	}, [models, providers, filters.showDeactivated]);
+	}, [models, providers, filters.status, filters.eligibleOnly]);
 
 	const modelsWithProviders: ModelWithProviders[] = useMemo(() => {
 		const now = new Date();
@@ -957,19 +1087,19 @@ export function AllModels({
 			})
 			.map((model) => {
 				// Filter out deprecated provider mappings, plus deactivated ones
-				// unless the visitor opted into seeing them
-				const visibleMappings = model.mappings.filter((mapping) => {
-					if (mapping.deprecatedAt && new Date(mapping.deprecatedAt) <= now) {
-						return false;
-					}
-					if (!filters.showDeactivated && isMappingDeactivated(mapping, now)) {
-						return false;
-					}
-					if (filters.eligibleOnly && mapping.blockedReasons?.length) {
-						return false;
-					}
-					return true;
-				});
+				// unless the visitor opted into seeing them; with a status chip
+				// active only mappings of exactly that status remain
+				const visibleMappings = model.mappings.filter((mapping) =>
+					isVisibleMapping(
+						mapping,
+						{
+							status: filters.status,
+							showDeactivated: false,
+							eligibleOnly: filters.eligibleOnly,
+						},
+						now,
+					),
+				);
 
 				return {
 					...model,
@@ -1187,36 +1317,16 @@ export function AllModels({
 				}
 			}
 
-			// Price filters
-			const hasInputPrice = (min: string, max: string) => {
-				return model.providerDetails.some((p) => {
-					if (
-						p.provider.inputPrice === null ||
-						p.provider.inputPrice === undefined
-					) {
-						return !min && !max;
-					}
-					const price = parseFloat(p.provider.inputPrice) * 1e6; // Convert to per million tokens
-					const minPrice = min ? parseFloat(min) : 0;
-					const maxPrice = max ? parseFloat(max) : Infinity;
-					return price >= minPrice && price <= maxPrice;
-				});
-			};
+			// Price bounds apply to the selected per-unit price, else $/M tokens
+			const hasInputPrice = (min: string, max: string) =>
+				model.providerDetails.some((p) =>
+					withinBounds(inputPriceInUnit(p.provider, priceUnit), min, max),
+				);
 
-			const hasOutputPrice = (min: string, max: string) => {
-				return model.providerDetails.some((p) => {
-					if (
-						p.provider.outputPrice === null ||
-						p.provider.outputPrice === undefined
-					) {
-						return !min && !max;
-					}
-					const price = parseFloat(p.provider.outputPrice) * 1e6; // Convert to per million tokens
-					const minPrice = min ? parseFloat(min) : 0;
-					const maxPrice = max ? parseFloat(max) : Infinity;
-					return price >= minPrice && price <= maxPrice;
-				});
-			};
+			const hasOutputPrice = (min: string, max: string) =>
+				model.providerDetails.some((p) =>
+					withinBounds(outputPriceInUnit(p.provider, priceUnit), min, max),
+				);
 
 			const hasContextSize = (min: string, max: string) => {
 				return model.providerDetails.some((p) => {
@@ -1251,14 +1361,21 @@ export function AllModels({
 			) {
 				return false;
 			}
+			if (
+				priceUnit &&
+				!model.providerDetails.some(
+					(p) => minUnitPrice(p.provider, priceUnit) !== null,
+				)
+			) {
+				return false;
+			}
 
 			return true;
 		});
 
-		// Apply sorting - default to createdAt (falls back to releasedAt) descending (newest first)
-		return [...filteredModels].sort((a, b) => {
-			// Default sorting by createdAt, fallback to releasedAt, when no sort field selected
-			if (!sortField) {
+		// Default to createdAt (falls back to releasedAt) descending (newest first)
+		if (!sortField) {
+			return [...filteredModels].sort((a, b) => {
 				const aDate = a.createdAt
 					? new Date(a.createdAt).getTime()
 					: a.releasedAt
@@ -1269,109 +1386,55 @@ export function AllModels({
 					: b.releasedAt
 						? new Date(b.releasedAt).getTime()
 						: 0;
-				return bDate - aDate; // Descending (newest first)
-			}
+				return bDate - aDate;
+			});
+		}
 
-			let aValue: string | number;
-			let bValue: string | number;
-
+		const sortKey = (model: ModelWithProviders): string | number | null => {
 			switch (sortField) {
 				case "provider":
-					// For grid view, sort by first provider name
-					aValue = (
-						a.providerDetails[0]?.providerInfo?.name ??
-						a.providerDetails[0]?.provider.providerId ??
+					return (
+						model.providerDetails[0]?.providerInfo?.name ??
+						model.providerDetails[0]?.provider.providerId ??
 						""
 					).toLowerCase();
-					bValue = (
-						b.providerDetails[0]?.providerInfo?.name ??
-						b.providerDetails[0]?.provider.providerId ??
-						""
-					).toLowerCase();
-					break;
 				case "name":
-					aValue = (a.name ?? a.id).toLowerCase();
-					bValue = (b.name ?? b.id).toLowerCase();
-					break;
-				case "inputPrice": {
-					// Get the min input price among all providers for this model
-					const aInputPrices = a.providerDetails
-						.map((p) => p.provider.inputPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					const bInputPrices = b.providerDetails
-						.map((p) => p.provider.inputPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					aValue =
-						aInputPrices.length > 0 ? Math.min(...aInputPrices) : Infinity;
-					bValue =
-						bInputPrices.length > 0 ? Math.min(...bInputPrices) : Infinity;
-					break;
-				}
-				case "outputPrice": {
-					// Get the min output price among all providers for this model
-					const aOutputPrices = a.providerDetails
-						.map((p) => p.provider.outputPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					const bOutputPrices = b.providerDetails
-						.map((p) => p.provider.outputPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					aValue =
-						aOutputPrices.length > 0 ? Math.min(...aOutputPrices) : Infinity;
-					bValue =
-						bOutputPrices.length > 0 ? Math.min(...bOutputPrices) : Infinity;
-					break;
-				}
-				case "cachedInputPrice": {
-					// Get the min cached input price among all providers for this model
-					const aCachedInputPrices = a.providerDetails
-						.map((p) => p.provider.cachedInputPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					const bCachedInputPrices = b.providerDetails
-						.map((p) => p.provider.cachedInputPrice)
-						.filter((p): p is string => p !== null && p !== undefined)
-						.map((p) => parseFloat(p));
-					aValue =
-						aCachedInputPrices.length > 0
-							? Math.min(...aCachedInputPrices)
-							: Infinity;
-					bValue =
-						bCachedInputPrices.length > 0
-							? Math.min(...bCachedInputPrices)
-							: Infinity;
-					break;
-				}
-				case "discount": {
-					// Highest discount across all providers for this model
-					const aDiscounts = a.providerDetails.map((m) =>
-						discountFraction(m.provider.discount),
+					return (model.name ?? model.id).toLowerCase();
+				case "inputPrice":
+					return minAcross(model.providerDetails, (p) =>
+						inputPriceInUnit(p.provider, priceUnit),
 					);
-					const bDiscounts = b.providerDetails.map((m) =>
-						discountFraction(m.provider.discount),
+				case "outputPrice":
+					return minAcross(model.providerDetails, (p) =>
+						outputPriceInUnit(p.provider, priceUnit),
 					);
-					aValue = aDiscounts.length > 0 ? Math.max(...aDiscounts) : 0;
-					bValue = bDiscounts.length > 0 ? Math.max(...bDiscounts) : 0;
-					break;
-				}
+				case "cachedInputPrice":
+					return minAcross(model.providerDetails, (p) =>
+						effectiveTokenPrice(
+							p.provider.cachedInputPrice,
+							p.provider.discount,
+						),
+					);
+				case "discount":
+					return Math.max(
+						0,
+						...model.providerDetails.map((p) =>
+							discountFraction(p.provider.discount),
+						),
+					);
 				default:
-					return 0;
+					return null;
 			}
+		};
 
-			if (aValue < bValue) {
-				return sortDirection === "asc" ? -1 : 1;
-			}
-			if (aValue > bValue) {
-				return sortDirection === "asc" ? 1 : -1;
-			}
-			return 0;
-		});
+		return filteredModels
+			.map((model) => ({ model, key: sortKey(model) }))
+			.sort((a, b) => compareSortValues(a.key, b.key, sortDirection))
+			.map(({ model }) => model);
 	}, [
 		searchQuery,
 		filters,
+		priceUnit,
 		sortField,
 		sortDirection,
 		models,
@@ -1415,22 +1478,15 @@ export function AllModels({
 				) {
 					continue;
 				}
+				if (priceUnit && minUnitPrice(provider, priceUnit) === null) {
+					continue;
+				}
 
 				const hasAdditionalPricing =
 					provider.webSearch === true ||
-					(provider.requestPrice !== null &&
-						provider.requestPrice !== undefined &&
-						parseFloat(provider.requestPrice) > 0) ||
-					(provider.perSecondPrice !== null &&
-						provider.perSecondPrice !== undefined &&
-						Object.values(provider.perSecondPrice).some(
-							(price) => parseFloat(price) > 0,
-						)) ||
-					(provider.perImagePrice !== null &&
-						provider.perImagePrice !== undefined &&
-						Object.values(provider.perImagePrice).some(
-							(price) => parseFloat(price) > 0,
-						));
+					(parseStrictPrice(provider.requestPrice) ?? 0) > 0 ||
+					hasPaidTier(provider.perSecondPrice) ||
+					hasPaidTier(provider.perImagePrice);
 
 				rows.push({
 					model,
@@ -1444,10 +1500,9 @@ export function AllModels({
 			}
 		}
 
-		// Sort flattened rows
-		return rows.sort((a, b) => {
-			if (!sortField) {
-				// Default: sort by createdAt (falls back to releasedAt) descending (newest first)
+		// Default: sort by createdAt (falls back to releasedAt) descending (newest first)
+		if (!sortField) {
+			return rows.sort((a, b) => {
 				const aDate = a.model.createdAt
 					? new Date(a.model.createdAt).getTime()
 					: a.model.releasedAt
@@ -1459,80 +1514,44 @@ export function AllModels({
 						? new Date(b.model.releasedAt).getTime()
 						: 0;
 				return bDate - aDate;
-			}
+			});
+		}
 
-			let aValue: string | number;
-			let bValue: string | number;
-
+		const sortKey = (row: FlattenedModelRow): string | number | null => {
 			switch (sortField) {
 				case "provider":
-					aValue = (
-						a.providerInfo?.name ?? a.provider.providerId
+					return (
+						row.providerInfo?.name ?? row.provider.providerId
 					).toLowerCase();
-					bValue = (
-						b.providerInfo?.name ?? b.provider.providerId
-					).toLowerCase();
-					break;
 				case "name":
-					aValue = (a.model.name ?? a.model.id).toLowerCase();
-					bValue = (b.model.name ?? b.model.id).toLowerCase();
-					break;
-				case "inputPrice": {
-					const aPrice = a.provider.inputPrice;
-					const bPrice = b.provider.inputPrice;
-					aValue =
-						aPrice !== null && aPrice !== undefined
-							? parseFloat(aPrice)
-							: Infinity;
-					bValue =
-						bPrice !== null && bPrice !== undefined
-							? parseFloat(bPrice)
-							: Infinity;
-					break;
-				}
-				case "outputPrice": {
-					const aPrice = a.provider.outputPrice;
-					const bPrice = b.provider.outputPrice;
-					aValue =
-						aPrice !== null && aPrice !== undefined
-							? parseFloat(aPrice)
-							: Infinity;
-					bValue =
-						bPrice !== null && bPrice !== undefined
-							? parseFloat(bPrice)
-							: Infinity;
-					break;
-				}
-				case "cachedInputPrice": {
-					const aPrice = a.provider.cachedInputPrice;
-					const bPrice = b.provider.cachedInputPrice;
-					aValue =
-						aPrice !== null && aPrice !== undefined
-							? parseFloat(aPrice)
-							: Infinity;
-					bValue =
-						bPrice !== null && bPrice !== undefined
-							? parseFloat(bPrice)
-							: Infinity;
-					break;
-				}
+					return (row.model.name ?? row.model.id).toLowerCase();
+				case "inputPrice":
+					return inputPriceInUnit(row.provider, priceUnit);
+				case "outputPrice":
+					return outputPriceInUnit(row.provider, priceUnit);
+				case "cachedInputPrice":
+					return effectiveTokenPrice(
+						row.provider.cachedInputPrice,
+						row.provider.discount,
+					);
 				case "discount":
-					aValue = discountFraction(a.provider.discount);
-					bValue = discountFraction(b.provider.discount);
-					break;
+					return discountFraction(row.provider.discount);
 				default:
-					return 0;
+					return null;
 			}
+		};
 
-			if (aValue < bValue) {
-				return sortDirection === "asc" ? -1 : 1;
-			}
-			if (aValue > bValue) {
-				return sortDirection === "asc" ? 1 : -1;
-			}
-			return 0;
-		});
-	}, [modelsWithProviders, sortField, sortDirection, filters.selectedProvider]);
+		return rows
+			.map((row) => ({ row, key: sortKey(row) }))
+			.sort((a, b) => compareSortValues(a.key, b.key, sortDirection))
+			.map(({ row }) => row);
+	}, [
+		modelsWithProviders,
+		sortField,
+		sortDirection,
+		filters.selectedProvider,
+		priceUnit,
+	]);
 
 	const hasActiveFilters =
 		categoryFilter ||
@@ -1541,7 +1560,7 @@ export function AllModels({
 		(filters.tier && filters.tier !== "all") ||
 		Object.values(filters.capabilities).some(Boolean) ||
 		(filters.selectedProvider && filters.selectedProvider !== "all") ||
-		filters.showDeactivated ||
+		filters.status !== null ||
 		(filters.source && filters.source !== "all") ||
 		filters.eligibleOnly ||
 		filters.inputPrice.min ||
@@ -1549,7 +1568,8 @@ export function AllModels({
 		filters.outputPrice.min ||
 		filters.outputPrice.max ||
 		filters.contextSize.min ||
-		filters.contextSize.max;
+		filters.contextSize.max ||
+		priceUnit !== null;
 
 	// Pagination
 	const currentPage = Math.max(
@@ -1669,11 +1689,11 @@ export function AllModels({
 		price: string | null | undefined,
 		discount?: string | null,
 	) => {
-		if (price === null || price === undefined) {
+		const priceNum = parseStrictPrice(price);
+		if (priceNum === null) {
 			return "—";
 		}
-		const priceNum = parseFloat(price);
-		const discountNum = discount ? parseFloat(discount) : 0;
+		const discountNum = discountFraction(discount);
 		const originalPrice = (priceNum * 1e6).toFixed(2);
 		if (discountNum > 0) {
 			const discountedPrice = (priceNum * 1e6 * (1 - discountNum)).toFixed(2);
@@ -1721,12 +1741,13 @@ export function AllModels({
 				discounted: false,
 			},
 			selectedProvider: "all",
-			showDeactivated: false,
+			status: null,
 			source: "all",
 			eligibleOnly: false,
 			inputPrice: { min: "", max: "" },
 			outputPrice: { min: "", max: "" },
 			contextSize: { min: "", max: "" },
+			priceUnit: null,
 		});
 		setSortField(null);
 		setSortDirection("asc");
@@ -1746,10 +1767,13 @@ export function AllModels({
 			videoGeneration: undefined,
 			audioGeneration: undefined,
 			embedding: undefined,
+			rerank: undefined,
 			webSearch: undefined,
 			free: undefined,
 			discounted: undefined,
+			page: undefined,
 			provider: undefined,
+			status: undefined,
 			deactivated: undefined,
 			source: undefined,
 			eligibility: undefined,
@@ -1759,6 +1783,7 @@ export function AllModels({
 			outputPriceMax: undefined,
 			contextSizeMin: undefined,
 			contextSizeMax: undefined,
+			priceUnit: undefined,
 			sortField: undefined,
 			sortDir: undefined,
 		});
@@ -1778,10 +1803,36 @@ export function AllModels({
 								<Select
 									value={filters.category}
 									onValueChange={(value) => {
-										setFilters((prev) => ({ ...prev, category: value }));
-										updateUrlWithFilters({
-											category: value !== defaultCategory ? value : undefined,
+										// Clear capability filters the outgoing or incoming
+										// category implies or excludes: implied ones are
+										// absorbed by the category, and leaving any of them
+										// pressed would silently re-apply after the next
+										// category switch, with no enabled toggle to clear it.
+										const staleKeys = Array.from(
+											new Set([
+												...getImpliedCapabilityKeys(filters.category),
+												...getExcludedCapabilityKeys(filters.category),
+												...getImpliedCapabilityKeys(value),
+												...getExcludedCapabilityKeys(value),
+											]),
+										);
+										setFilters((prev) => {
+											const capabilities = { ...prev.capabilities };
+											for (const key of staleKeys) {
+												if (key in capabilities) {
+													capabilities[key as keyof typeof capabilities] =
+														false;
+												}
+											}
+											return { ...prev, category: value, capabilities };
 										});
+										const urlUpdates: Record<string, string | undefined> = {
+											category: value !== defaultCategory ? value : undefined,
+										};
+										for (const key of staleKeys) {
+											urlUpdates[key] = undefined;
+										}
+										updateUrlWithFilters(urlUpdates);
 									}}
 								>
 									<SelectTrigger className="w-full">
@@ -1837,7 +1888,7 @@ export function AllModels({
 
 						{showPricingTierFilter ? (
 							<>
-								{/* Pricing tier — stacked under Use Case (or standing in
+								{/* Pricing tier / stacked under Use Case (or standing in
 								    for it when that select is hidden) to keep the filter
 								    grid on a single row */}
 								<div className="font-medium text-sm">
@@ -1975,54 +2026,80 @@ export function AllModels({
 									icon: Percent,
 									color: "text-red-500",
 								},
-							].map(({ key, label, icon: Icon, color }) => (
-								<Toggle
-									key={`${key}-${label}`}
-									variant="outline"
-									size="sm"
-									pressed={
-										filters.capabilities[
-											key as keyof typeof filters.capabilities
-										]
-									}
-									onPressedChange={(pressed) => {
-										setFilters((prev) => ({
-											...prev,
-											capabilities: {
-												...prev.capabilities,
-												[key]: pressed,
-											},
-										}));
-										if (key === "discounted") {
-											if (pressed) {
-												setSortField("discount");
-												setSortDirection("desc");
-												updateUrlWithFilters({
-													[key]: "true",
-													sortField: "discount",
-													sortDir: "desc",
-												});
+							].map(({ key, label, icon: Icon, color }) => {
+								const isImplied = impliedCapabilityKeys.includes(key);
+								const isExcluded = excludedCapabilityKeys.includes(key);
+								const toggle = (
+									<Toggle
+										key={`${key}-${label}`}
+										variant="outline"
+										size="sm"
+										disabled={isImplied || isExcluded}
+										pressed={
+											!isExcluded &&
+											(isImplied ||
+												filters.capabilities[
+													key as keyof typeof filters.capabilities
+												])
+										}
+										onPressedChange={(pressed) => {
+											setFilters((prev) => ({
+												...prev,
+												capabilities: {
+													...prev.capabilities,
+													[key]: pressed,
+												},
+											}));
+											if (key === "discounted") {
+												if (pressed) {
+													setSortField("discount");
+													setSortDirection("desc");
+													updateUrlWithFilters({
+														[key]: "true",
+														sortField: "discount",
+														sortDir: "desc",
+													});
+												} else {
+													setSortField(null);
+													setSortDirection("desc");
+													updateUrlWithFilters({
+														[key]: undefined,
+														sortField: undefined,
+														sortDir: undefined,
+													});
+												}
 											} else {
-												setSortField(null);
-												setSortDirection("desc");
 												updateUrlWithFilters({
-													[key]: undefined,
-													sortField: undefined,
-													sortDir: undefined,
+													[key]: pressed ? "true" : undefined,
 												});
 											}
-										} else {
-											updateUrlWithFilters({
-												[key]: pressed ? "true" : undefined,
-											});
-										}
-									}}
-									className="gap-1.5"
-								>
-									<Icon className={`h-3.5 w-3.5 ${color}`} />
-									<span className="text-xs">{label}</span>
-								</Toggle>
-							))}
+										}}
+										className="gap-1.5"
+									>
+										<Icon className={`h-3.5 w-3.5 ${color}`} />
+										<span className="text-xs">{label}</span>
+									</Toggle>
+								);
+								return isImplied || isExcluded ? (
+									<Tooltip key={`${key}-${label}`}>
+										<TooltipTrigger asChild>
+											{/* The disabled toggle is unfocusable, so the wrapper
+											    takes the tab stop to keep the tooltip reachable
+											    by keyboard and assistive tech. */}
+											<span tabIndex={0}>{toggle}</span>
+										</TooltipTrigger>
+										<TooltipContent>
+											<p className="text-xs">
+												{isImplied
+													? "Already included in the selected category"
+													: "No models in the selected category can match this"}
+											</p>
+										</TooltipContent>
+									</Tooltip>
+								) : (
+									toggle
+								);
+							})}
 						</div>
 					</div>
 
@@ -2103,23 +2180,77 @@ export function AllModels({
 						)}
 
 						<div className="font-medium text-sm">Status</div>
-						<div className="flex flex-wrap gap-2">
-							<Toggle
-								variant="outline"
-								size="sm"
-								pressed={filters.showDeactivated}
-								onPressedChange={(pressed) => {
-									setFilters((prev) => ({ ...prev, showDeactivated: pressed }));
-									updateUrlWithFilters({
-										deactivated: pressed ? "true" : undefined,
-										page: undefined,
-									});
-								}}
-								className="gap-1.5"
-							>
-								<AlertCircle className="h-3.5 w-3.5 text-red-500" />
-								<span className="text-xs">Show deactivated</span>
-							</Toggle>
+						<div className="flex flex-col items-start gap-1.5">
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span>
+										<Toggle
+											variant="outline"
+											size="sm"
+											pressed={filters.status === "deactivated"}
+											onPressedChange={(pressed) => {
+												setStatusFilter(pressed ? "deactivated" : null);
+											}}
+											className="gap-1.5 w-fit"
+										>
+											<AlertCircle className="h-3.5 w-3.5 text-red-500" />
+											<span className="text-xs">Deactivated</span>
+										</Toggle>
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Dead / requests return errors and no longer route
+									</p>
+								</TooltipContent>
+							</Tooltip>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span>
+										<Toggle
+											variant="outline"
+											size="sm"
+											pressed={filters.status === "scheduled"}
+											onPressedChange={(pressed) => {
+												setStatusFilter(pressed ? "scheduled" : null);
+											}}
+											className="gap-1.5 w-fit"
+										>
+											<Clock className="h-3.5 w-3.5 text-amber-500" />
+											<span className="text-xs">Scheduled</span>
+										</Toggle>
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Still works / deactivation scheduled within 90 days, plan to
+										migrate
+									</p>
+								</TooltipContent>
+							</Tooltip>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<span>
+										<Toggle
+											variant="outline"
+											size="sm"
+											pressed={filters.status === "deprecated"}
+											onPressedChange={(pressed) => {
+												setStatusFilter(pressed ? "deprecated" : null);
+											}}
+											className="gap-1.5 w-fit"
+										>
+											<AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+											<span className="text-xs">Deprecated</span>
+										</Toggle>
+									</span>
+								</TooltipTrigger>
+								<TooltipContent>
+									<p className="text-xs">
+										Still works / provider announced sunset, migrate soon
+									</p>
+								</TooltipContent>
+							</Tooltip>
 							{hasBlockedMappings && (
 								<Toggle
 									variant="outline"
@@ -2142,7 +2273,9 @@ export function AllModels({
 					</div>
 
 					<div className="space-y-3">
-						<div className="font-medium text-sm">Input Price ($/M tokens)</div>
+						<div className="font-medium text-sm">
+							Input Price ({priceUnitOption?.unit ?? "$/M tokens"})
+						</div>
 						<div className="space-y-2">
 							<Input
 								placeholder="Min price"
@@ -2173,10 +2306,53 @@ export function AllModels({
 								className="h-8"
 							/>
 						</div>
+						{hasPerUnitData && (
+							<div className="space-y-2">
+								<div className="font-medium text-sm">Price per unit</div>
+								<div className="flex w-fit flex-col gap-1.5">
+									{PRICE_UNIT_OPTIONS.map(
+										({ field, Icon, iconClass, name, unit }) => (
+											<Toggle
+												key={field}
+												variant="outline"
+												size="sm"
+												pressed={priceUnit === field}
+												onPressedChange={(pressed) => {
+													// Bounds typed in the previous unit no longer apply
+													const next = pressed ? field : null;
+													setFilters((prev) => ({
+														...prev,
+														priceUnit: next,
+														inputPrice: { min: "", max: "" },
+														outputPrice: { min: "", max: "" },
+													}));
+													updateUrlWithFilters({
+														priceUnit: next ?? undefined,
+														inputPriceMin: undefined,
+														inputPriceMax: undefined,
+														outputPriceMin: undefined,
+														outputPriceMax: undefined,
+														page: undefined,
+													});
+												}}
+												className="gap-1.5 w-fit justify-start"
+											>
+												<Icon className={`h-3.5 w-3.5 ${iconClass}`} />
+												<span className="text-xs">
+													{name} {unit}
+												</span>
+											</Toggle>
+										),
+									)}
+								</div>
+							</div>
+						)}
 					</div>
 
 					<div className="space-y-3">
-						<div className="font-medium text-sm">Output Price ($/M tokens)</div>
+						<div className="font-medium text-sm">
+							Output Price ({priceUnitOption?.unit ?? "$/M tokens"})
+						</div>
 						<div className="space-y-2">
 							<Input
 								placeholder="Min price"
@@ -2247,20 +2423,32 @@ export function AllModels({
 		</Card>
 	);
 
-	// Capability filter keys that are active, used to pin the matching icon to
-	// the front of the features column in the table view.
-	const pinnedCapabilityKeys = useMemo(
-		() =>
-			(
-				Object.entries(filters.capabilities) as Array<
-					[keyof typeof filters.capabilities, boolean]
-				>
-			)
-				.filter(([, pressed]) => pressed)
-				.map(([key]) => key)
-				.filter((key) => CAPABILITY_LABEL_BY_FILTER_KEY[key]),
-		[filters.capabilities],
+	// Capability toggles the active category disables: implied ones are
+	// satisfied by every matching model, excluded ones can never match.
+	const impliedCapabilityKeys = useMemo(
+		() => getImpliedCapabilityKeys(filters.category, categoryFilter),
+		[filters.category, categoryFilter],
 	);
+	const excludedCapabilityKeys = useMemo(
+		() => getExcludedCapabilityKeys(filters.category),
+		[filters.category],
+	);
+
+	// Capability keys pinned to the front of the features column in the table
+	// view: explicitly pressed filters first, then keys the active category
+	// implies (which every row necessarily has).
+	const pinnedCapabilityKeys = useMemo(() => {
+		const explicitKeys = (
+			Object.entries(filters.capabilities) as Array<
+				[keyof typeof filters.capabilities, boolean]
+			>
+		)
+			.filter(([, pressed]) => pressed)
+			.map(([key]) => key)
+			.filter((key) => CAPABILITY_LABEL_BY_FILTER_KEY[key]);
+
+		return Array.from(new Set([...explicitKeys, ...impliedCapabilityKeys]));
+	}, [filters.capabilities, impliedCapabilityKeys]);
 
 	const renderTableView = () => {
 		return (
@@ -2295,7 +2483,7 @@ export function AllModels({
 										onClick={() => handleSort("inputPrice")}
 										className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
 									>
-										Input $/M
+										Input {priceUnitOption?.unit ?? "$/M"}
 										{getSortIcon("inputPrice")}
 									</Button>
 								</TableHead>
@@ -2305,7 +2493,7 @@ export function AllModels({
 										onClick={() => handleSort("outputPrice")}
 										className="h-auto p-0 font-semibold hover:bg-transparent uppercase text-xs tracking-wider"
 									>
-										Output $/M
+										Output {priceUnitOption?.unit ?? "$/M"}
 										{getSortIcon("outputPrice")}
 									</Button>
 								</TableHead>
@@ -2487,7 +2675,7 @@ export function AllModels({
 														: 0,
 													Object.values(filters.capabilities).filter(Boolean)
 														.length,
-													filters.showDeactivated ? 1 : 0,
+													filters.status ? 1 : 0,
 													filters.source && filters.source !== "all" ? 1 : 0,
 													filters.eligibleOnly ? 1 : 0,
 													[
@@ -2502,6 +2690,7 @@ export function AllModels({
 														filters.contextSize.min,
 														filters.contextSize.max,
 													].filter(Boolean).length,
+													priceUnit ? 1 : 0,
 												].reduce((a, b) => a + b, 0)}
 											</Badge>
 										)}

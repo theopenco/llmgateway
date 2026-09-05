@@ -14,8 +14,7 @@ const MAX_MASK_BULLETS = 5;
  * token (e.g. a custom-provider key shorter than visibleChars) cannot leak
  * through as plaintext into provider_key.token_masked or UI list responses.
  *
- * Empty input returns empty (callers pass row.token ?? "" for legacy rows
- * that may have a null token; that's expected).
+ * Empty input returns empty.
  */
 export function maskToken(token: string, visibleChars = 12): string {
 	if (token.length === 0) {

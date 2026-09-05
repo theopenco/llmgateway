@@ -41,6 +41,9 @@ const providerSchema = z.object({
 	website: z.string().nullable(),
 	announcement: z.string().nullable(),
 	modelCardBadge: z.string().nullable(),
+	// Branding uploaded by the Airside carrier that claimed this provider.
+	airsideLogoUrl: z.string().nullable(),
+	airsideIconUrl: z.string().nullable(),
 	status: z.enum(["active", "inactive"]),
 });
 
@@ -195,6 +198,9 @@ internalModels.openapi(getModelsRoute, async (c) => {
 			where: {
 				status: { eq: "active" },
 			},
+			orderBy: {
+				createdAt: "desc",
+			},
 		}),
 		db
 			.select({
@@ -277,10 +283,17 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				...mapping,
 				discount: getGlobalDiscount(mapping.providerId, model.id),
 				quantization: sharedMapping?.quantization ?? null,
-				reasoningEfforts: sharedMapping?.reasoningEfforts ?? null,
+				// Airside-materialized mappings carry their own efforts in the DB
+				// row; static rows are served from the shared definition.
+				reasoningEfforts:
+					mapping.source === "airside"
+						? ((mapping.reasoningEfforts as
+								NonNullable<typeof sharedMapping>["reasoningEfforts"] | null) ??
+							null)
+						: (sharedMapping?.reasoningEfforts ?? null),
 				reasoningMaxTokens: sharedMapping?.reasoningMaxTokens ?? null,
 				rerank: sharedMapping?.rerank ?? null,
-				audio: sharedMapping?.audio ?? null,
+				audio: mapping.audio ?? sharedMapping?.audio ?? null,
 				document: sharedMapping?.document ?? null,
 				realtime: sharedMapping?.realtime ?? null,
 				supportedVoices: sharedMapping?.supportedVoices ?? null,
@@ -334,7 +347,12 @@ internalModels.openapi(getModelsRoute, async (c) => {
 							),
 						)
 					: null,
+				// Airside-owned rows bill one flat filed price pair; the gateway drops
+				// inherited tiers and peak windows, so the directory must too.
 				pricingTiers: (() => {
+					if (mapping.source === "airside") {
+						return null;
+					}
 					const regionDef = mapping.region
 						? sharedMapping?.regions?.find((r) => r.id === mapping.region)
 						: null;
@@ -366,45 +384,51 @@ internalModels.openapi(getModelsRoute, async (c) => {
 								: null,
 					}));
 				})(),
-				peakPricing: sharedMapping?.peakPricing
-					? {
-							peak: {
-								inputPrice: String(sharedMapping.peakPricing.peak.inputPrice),
-								outputPrice: String(sharedMapping.peakPricing.peak.outputPrice),
-								cachedInputPrice:
-									sharedMapping.peakPricing.peak.cachedInputPrice !== undefined
-										? String(sharedMapping.peakPricing.peak.cachedInputPrice)
-										: null,
-							},
-							offPeak: {
-								inputPrice: String(
-									sharedMapping.peakPricing.offPeak.inputPrice,
+				peakPricing:
+					mapping.source !== "airside" && sharedMapping?.peakPricing
+						? {
+								peak: {
+									inputPrice: String(sharedMapping.peakPricing.peak.inputPrice),
+									outputPrice: String(
+										sharedMapping.peakPricing.peak.outputPrice,
+									),
+									cachedInputPrice:
+										sharedMapping.peakPricing.peak.cachedInputPrice !==
+										undefined
+											? String(sharedMapping.peakPricing.peak.cachedInputPrice)
+											: null,
+								},
+								offPeak: {
+									inputPrice: String(
+										sharedMapping.peakPricing.offPeak.inputPrice,
+									),
+									outputPrice: String(
+										sharedMapping.peakPricing.offPeak.outputPrice,
+									),
+									cachedInputPrice:
+										sharedMapping.peakPricing.offPeak.cachedInputPrice !==
+										undefined
+											? String(
+													sharedMapping.peakPricing.offPeak.cachedInputPrice,
+												)
+											: null,
+								},
+								hoursUtc: sharedMapping.peakPricing.hoursUtc.map(
+									([start, end]) => [start, end] as [number, number],
 								),
-								outputPrice: String(
-									sharedMapping.peakPricing.offPeak.outputPrice,
-								),
-								cachedInputPrice:
-									sharedMapping.peakPricing.offPeak.cachedInputPrice !==
-									undefined
-										? String(sharedMapping.peakPricing.offPeak.cachedInputPrice)
-										: null,
-							},
-							hoursUtc: sharedMapping.peakPricing.hoursUtc.map(
-								([start, end]) => [start, end] as [number, number],
-							),
-							offPeakDays: sharedMapping.peakPricing.offPeakDays
-								? {
-										daysOfWeek: [
-											...sharedMapping.peakPricing.offPeakDays.daysOfWeek,
-										],
-										utcOffsetMinutes:
-											sharedMapping.peakPricing.offPeakDays.utcOffsetMinutes,
-										timeZoneLabel:
-											sharedMapping.peakPricing.offPeakDays.timeZoneLabel,
-									}
-								: null,
-						}
-					: null,
+								offPeakDays: sharedMapping.peakPricing.offPeakDays
+									? {
+											daysOfWeek: [
+												...sharedMapping.peakPricing.offPeakDays.daysOfWeek,
+											],
+											utcOffsetMinutes:
+												sharedMapping.peakPricing.offPeakDays.utcOffsetMinutes,
+											timeZoneLabel:
+												sharedMapping.peakPricing.offPeakDays.timeZoneLabel,
+										}
+									: null,
+							}
+						: null,
 				serviceTiers: (() => {
 					const tiers = sharedMapping?.serviceTiers ?? null;
 					if (!tiers || tiers.length === 0) {
@@ -459,6 +483,13 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 			createdAt: "desc",
 		},
 	});
+	const activeClaims = await db.query.providerClaim.findMany({
+		where: { status: { eq: "active" } },
+		columns: { providerId: true, logoUrl: true, iconUrl: true },
+	});
+	const brandingByProvider = new Map(
+		activeClaims.map((claim) => [claim.providerId, claim]),
+	);
 
 	// modelCardBadge only exists in the catalogue, not the provider table
 	return c.json({
@@ -467,6 +498,8 @@ internalModels.openapi(getProvidersRoute, async (c) => {
 			modelCardBadge:
 				providerDefinitions.find((p) => p.id === provider.id)?.modelCardBadge ??
 				null,
+			airsideLogoUrl: brandingByProvider.get(provider.id)?.logoUrl ?? null,
+			airsideIconUrl: brandingByProvider.get(provider.id)?.iconUrl ?? null,
 		})),
 	});
 });

@@ -180,6 +180,7 @@ function getProviderMapping(
 interface OpenAIImageRequest {
 	model: string;
 	prompt: string;
+	user?: string;
 	size?: string;
 	quality?: OpenAIImageQuality;
 	n?: number;
@@ -1455,6 +1456,7 @@ export async function prepareRequestBody(
 		const openaiImageRequest: OpenAIImageRequest = {
 			model: usedExternalId,
 			prompt,
+			...(safety_identifier !== undefined && { user: safety_identifier }),
 			...(openaiSize && { size: openaiSize }),
 			...(openaiQuality && { quality: openaiQuality }),
 			...(image_config?.n && { n: image_config.n }),
@@ -1466,6 +1468,9 @@ export async function prepareRequestBody(
 			const formData = new FormData();
 			formData.append("model", openaiImageRequest.model);
 			formData.append("prompt", openaiImageRequest.prompt);
+			if (openaiImageRequest.user !== undefined) {
+				formData.append("user", openaiImageRequest.user);
+			}
 			if (openaiImageRequest.size) {
 				formData.append("size", openaiImageRequest.size);
 			}
@@ -1712,27 +1717,37 @@ export async function prepareRequestBody(
 
 	// Handle ByteDance Seedream image generation
 	if (imageGenerations && usedProvider === "bytedance") {
-		// Extract prompt from last user message
 		const lastUserMessage = [...messages]
 			.reverse()
 			.find((m) => m.role === "user");
 		let prompt = "";
+		const imageUrls: string[] = [];
 		if (lastUserMessage) {
 			if (typeof lastUserMessage.content === "string") {
 				prompt = lastUserMessage.content;
 			} else if (Array.isArray(lastUserMessage.content)) {
-				prompt = lastUserMessage.content
-					.filter((p): p is { type: "text"; text: string } => p.type === "text")
-					.map((p) => p.text)
-					.join("\n");
+				for (const part of lastUserMessage.content) {
+					if (part.type === "text" && part.text) {
+						prompt += (prompt ? "\n" : "") + part.text;
+					} else if (part.type === "image_url" && part.image_url) {
+						const url =
+							typeof part.image_url === "string"
+								? part.image_url
+								: part.image_url.url;
+						if (url) {
+							imageUrls.push(url);
+						}
+					}
+				}
 			}
 		}
 
-		// ByteDance Seedream format
 		const bytedanceImageRequest: any = {
 			model: usedExternalId,
 			prompt,
 			...(image_config?.image_size && { size: image_config.image_size }),
+			...(imageUrls.length === 1 && { image: imageUrls[0] }),
+			...(imageUrls.length > 1 && { image: imageUrls }),
 		};
 
 		return bytedanceImageRequest;
@@ -1942,6 +1957,19 @@ export async function prepareRequestBody(
 		});
 	}
 
+	if (usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") {
+		// Novita rejects empty text blocks alongside otherwise valid image input.
+		processedMessages = processedMessages.map((message) => {
+			if (!Array.isArray(message.content)) {
+				return message;
+			}
+			const content = message.content.filter(
+				(part) => !isTextContent(part) || part.text !== "",
+			);
+			return content.length ? { ...message, content } : message;
+		});
+	}
+
 	// Some deployments fetch remote image URLs themselves but only decode a
 	// subset of the formats they accept inline (Novita's ERNIE 4.5 VL rejects a
 	// remote PNG while accepting the same bytes as a data URL), so mappings that
@@ -2139,6 +2167,7 @@ export async function prepareRequestBody(
 		case "azure":
 		case "sakana":
 		case "meta":
+		case "meta-contributor":
 		case "aws-mantle":
 		case "openai": {
 			// Determine whether to use Responses API format.
@@ -2216,7 +2245,7 @@ export async function prepareRequestBody(
 					model: usedExternalId,
 					input: transformedMessages,
 					reasoning:
-						usedProvider === "meta"
+						usedProvider === "meta" || usedProvider === "meta-contributor"
 							? {
 									...(reasoning_effort !== undefined && {
 										effort: reasoning_effort,
@@ -2259,6 +2288,7 @@ export async function prepareRequestBody(
 						responsesBody.service_tier = supportedServiceTier;
 					}
 					if (
+						allowProviderCacheWrites &&
 						prompt_cache_retention !== undefined &&
 						(prompt_cache_retention !== "24h" ||
 							supportsOpenAIExtendedPromptCache(usedInternalModel))
@@ -2292,10 +2322,12 @@ export async function prepareRequestBody(
 				// required for hits at all) a key derived from the conversation
 				// prefix.
 				if (
-					usedProvider === "openai" ||
-					usedProvider === "azure" ||
-					usedProvider === "aws-mantle" ||
-					usedProvider === "meta"
+					allowProviderCacheWrites &&
+					(usedProvider === "openai" ||
+						usedProvider === "azure" ||
+						usedProvider === "aws-mantle" ||
+						usedProvider === "meta" ||
+						usedProvider === "meta-contributor")
 				) {
 					const upstreamCacheKey =
 						(prompt_cache_key !== undefined
@@ -2304,7 +2336,7 @@ export async function prepareRequestBody(
 						(session_id !== undefined
 							? hashSessionCacheKey(session_id)
 							: undefined) ??
-						(usedProvider === "meta"
+						(usedProvider === "meta" || usedProvider === "meta-contributor"
 							? deriveConversationCacheKey(processedMessages)
 							: undefined);
 					if (upstreamCacheKey !== undefined) {
@@ -2346,7 +2378,11 @@ export async function prepareRequestBody(
 				// Add web search tool for Responses API
 				if (webSearchTool) {
 					responsesBody.tools ??= [];
-					const webSearch: any = { type: "web_search" };
+					const webSearch: {
+						type: "web_search";
+						user_location?: unknown;
+						search_context_size?: string;
+					} = { type: "web_search" };
 					if (webSearchTool.user_location) {
 						webSearch.user_location = webSearchTool.user_location;
 					}
@@ -2361,6 +2397,34 @@ export async function prepareRequestBody(
 					if (webSearchTool.forced) {
 						responsesBody.tool_choice = { type: "web_search" };
 					}
+				}
+
+				if (usedProvider === "meta" && usedInternalModel === "muse-image-1.0") {
+					const supportedSizes = [
+						"1024x1024",
+						"1024x1536",
+						"1536x1024",
+					] as const;
+					const requestedSize = image_config?.image_size;
+					if (
+						requestedSize !== undefined &&
+						!supportedSizes.includes(
+							requestedSize as (typeof supportedSizes)[number],
+						)
+					) {
+						throw new RequestError(
+							`Invalid image_size for Muse Image: "${requestedSize}". Allowed values: ${supportedSizes.join(
+								", ",
+							)}`,
+						);
+					}
+					responsesBody.tools ??= [];
+					responsesBody.tools.push({
+						type: "image_generation",
+						...(requestedSize && {
+							size: requestedSize as (typeof supportedSizes)[number],
+						}),
+					});
 				}
 				if (resolvedToolChoice) {
 					responsesBody.tool_choice = toResponsesToolChoice(resolvedToolChoice);
@@ -2408,6 +2472,18 @@ export async function prepareRequestBody(
 				return responsesBody;
 			} else {
 				// Use regular chat completions format
+				if (usedProvider === "openai" || usedProvider === "azure") {
+					if (safety_identifier !== undefined) {
+						if (usedProvider === "openai") {
+							requestBody.safety_identifier = safety_identifier;
+						} else {
+							// Azure's deployment-based APIs predate safety_identifier but
+							// accept `user` for the same abuse-attribution purpose.
+							requestBody.user = safety_identifier;
+						}
+					}
+				}
+
 				if (usedProvider === "openai") {
 					if (supportedServiceTier) {
 						requestBody.service_tier = supportedServiceTier;
@@ -2415,22 +2491,20 @@ export async function prepareRequestBody(
 					// Azure is intentionally excluded on this path: chat completions
 					// may hit a legacy deployment-based api-version that rejects
 					// unknown body fields, and the deployment type isn't known here.
-					const upstreamCacheKey =
-						(prompt_cache_key !== undefined
-							? hashPromptCacheKey(prompt_cache_key)
-							: undefined) ??
-						(session_id !== undefined
-							? hashSessionCacheKey(session_id)
-							: undefined);
-					if (upstreamCacheKey !== undefined) {
-						requestBody.prompt_cache_key = upstreamCacheKey;
-					}
-					// Azure is excluded here for the same reason as the cache key
-					// above; it gets `safety_identifier` on the Responses path only.
-					if (safety_identifier !== undefined) {
-						requestBody.safety_identifier = safety_identifier;
+					if (allowProviderCacheWrites) {
+						const upstreamCacheKey =
+							(prompt_cache_key !== undefined
+								? hashPromptCacheKey(prompt_cache_key)
+								: undefined) ??
+							(session_id !== undefined
+								? hashSessionCacheKey(session_id)
+								: undefined);
+						if (upstreamCacheKey !== undefined) {
+							requestBody.prompt_cache_key = upstreamCacheKey;
+						}
 					}
 					if (
+						allowProviderCacheWrites &&
 						prompt_cache_retention !== undefined &&
 						(prompt_cache_retention !== "24h" ||
 							supportsOpenAIExtendedPromptCache(usedInternalModel))

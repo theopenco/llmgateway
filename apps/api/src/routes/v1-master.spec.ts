@@ -10,6 +10,7 @@ import {
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
 import { and, cdb, db, eq, getTableName, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 const ORIGINAL_HASH_SECRET = process.env.GATEWAY_API_KEY_HASH_SECRET;
@@ -89,7 +90,7 @@ describe("v1/master cache invalidation", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "test-api-key-id",
-			token: "test-master-token",
+			...hashApiKeyForStorage("test-master-token"),
 			projectId: "test-project-id",
 			description: "Test API Key",
 			createdBy: "test-user-id",
@@ -141,7 +142,7 @@ describe("v1/master cache invalidation", () => {
 	test("GET /keys hides playground session keys", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "playground-session-key",
-			token: "playground-session-token",
+			...hashApiKeyForStorage("playground-session-token"),
 			projectId: "test-project-id",
 			description: "Session key",
 			kind: "playground",
@@ -160,7 +161,7 @@ describe("v1/master cache invalidation", () => {
 	test("managed playground keys reject master-key mutations", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "playground-key",
-			token: "playground-token",
+			...hashApiKeyForStorage("playground-token"),
 			projectId: "test-project-id",
 			description: "Playground",
 			kind: "playground",
@@ -184,7 +185,7 @@ describe("v1/master cache invalidation", () => {
 	test("managed playground keys reject master-key IAM mutations", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "playground-key",
-			token: "playground-token",
+			...hashApiKeyForStorage("playground-token"),
 			projectId: "test-project-id",
 			description: "Playground",
 			kind: "playground",
@@ -261,7 +262,7 @@ describe("v1/master cache invalidation", () => {
 		});
 		await db.insert(tables.apiKey).values({
 			id: "member-api-key-id",
-			token: "member-api-key-token",
+			...hashApiKeyForStorage("member-api-key-token"),
 			projectId: "test-project-id",
 			description: "Member API Key",
 			createdBy: "member-user-id",
@@ -299,7 +300,7 @@ describe("v1/master cache invalidation", () => {
 		const apiKeyToken = `${apiKeyId}-token`;
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token: apiKeyToken,
+			...hashApiKeyForStorage(apiKeyToken),
 			projectId: "test-project-id",
 			description: "Cache Test Key",
 			createdBy: "test-user-id",
@@ -332,7 +333,7 @@ describe("v1/master cache invalidation", () => {
 		const apiKeyToken = `${apiKeyId}-token`;
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token: apiKeyToken,
+			...hashApiKeyForStorage(apiKeyToken),
 			projectId: "test-project-id",
 			description: "Cache Test Key",
 			createdBy: "test-user-id",
@@ -375,7 +376,10 @@ describe("v1/master cache invalidation", () => {
 		const res = await app.request(`/v1/master/projects/${projectId}`, {
 			method: "PATCH",
 			headers: authHeaders({ "Content-Type": "application/json" }),
-			body: JSON.stringify({ name: "Renamed Project" }),
+			body: JSON.stringify({
+				name: "Renamed Project",
+				cachingEnabled: true,
+			}),
 		});
 		expect(res.status).toBe(200);
 
@@ -385,6 +389,90 @@ describe("v1/master cache invalidation", () => {
 			.from(tables.project)
 			.where(eq(tables.project.id, projectId));
 		expect(fresh[0]?.name).toBe("Renamed Project");
+		expect(fresh[0]?.cachingEnabled).toBe(true);
+	});
+
+	test("PATCH /projects/{id} rejects caching while ZDR is active", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const res = await app.request("/v1/master/projects/test-project-id", {
+			method: "PATCH",
+			headers: authHeaders({ "Content-Type": "application/json" }),
+			body: JSON.stringify({ cachingEnabled: true }),
+		});
+
+		expect(res.status).toBe(400);
+		expect(await res.json()).toMatchObject({
+			message: expect.stringContaining("response caching"),
+		});
+		expect(
+			(
+				await db.query.project.findFirst({
+					where: { id: { eq: "test-project-id" } },
+				})
+			)?.cachingEnabled,
+		).toBe(false);
+	});
+
+	test("POST /projects rejects caching while ZDR is active", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const res = await app.request("/v1/master/projects", {
+			method: "POST",
+			headers: authHeaders({ "Content-Type": "application/json" }),
+			body: JSON.stringify({
+				name: "Cached Project",
+				cachingEnabled: true,
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		expect(await res.json()).toMatchObject({
+			message: expect.stringContaining("response caching"),
+		});
+	});
+
+	test("PATCH /projects/{id} rejects provider caching while ZDR is active", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+		await db
+			.update(tables.project)
+			.set({ providerCacheControlMode: "off" })
+			.where(eq(tables.project.id, "test-project-id"));
+
+		const res = await app.request("/v1/master/projects/test-project-id", {
+			method: "PATCH",
+			headers: authHeaders({ "Content-Type": "application/json" }),
+			body: JSON.stringify({ providerCacheControlMode: "passthrough" }),
+		});
+
+		expect(res.status).toBe(400);
+		expect(await res.json()).toMatchObject({
+			message: expect.stringContaining("Provider prompt caching"),
+		});
 	});
 
 	test("DELETE /projects/{id} invalidates the gateway project cache", async () => {
@@ -423,7 +511,7 @@ describe("v1/master cache invalidation", () => {
 		const apiKeyId = `cache-test-api-key-${crypto.randomUUID()}`;
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token: `${apiKeyId}-token`,
+			...hashApiKeyForStorage(`${apiKeyId}-token`),
 			projectId: "test-project-id",
 			description: "IAM Cache Test Key",
 			createdBy: "test-user-id",
@@ -464,7 +552,7 @@ describe("v1/master cache invalidation", () => {
 		const apiKeyId = `cache-test-api-key-${crypto.randomUUID()}`;
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token: `${apiKeyId}-token`,
+			...hashApiKeyForStorage(`${apiKeyId}-token`),
 			projectId: "test-project-id",
 			description: "IAM Cache Test Key",
 			createdBy: "test-user-id",
@@ -522,7 +610,7 @@ describe("v1/master cache invalidation", () => {
 		const apiKeyId = `cache-test-api-key-${crypto.randomUUID()}`;
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token: `${apiKeyId}-token`,
+			...hashApiKeyForStorage(`${apiKeyId}-token`),
 			projectId: "test-project-id",
 			description: "IAM Cache Test Key",
 			createdBy: "test-user-id",

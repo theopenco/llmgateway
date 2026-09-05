@@ -4,6 +4,7 @@ import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
+import { bearer, deviceAuthorization } from "better-auth/plugins";
 import { Redis } from "ioredis";
 
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
@@ -26,7 +27,7 @@ import {
 } from "@/utils/sso-domain.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, lt, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getClientIpFromHeaders } from "@llmgateway/shared/client-ip";
 import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
@@ -37,9 +38,10 @@ const cookieDomain = process.env.COOKIE_DOMAIN ?? "localhost";
 const uiUrl = process.env.UI_URL ?? "http://localhost:3002";
 const codeUrl = process.env.CODE_URL ?? "http://localhost:3004";
 const adminUrl = process.env.ADMIN_URL ?? "http://localhost:3006";
+const airsideUrl = process.env.AIRSIDE_URL ?? "http://localhost:3007";
 const originUrls =
 	process.env.ORIGIN_URLS ??
-	"http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:4002,http://localhost:3006";
+	"http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:4002,http://localhost:3006,http://localhost:3007";
 const isHosted = process.env.HOSTED === "true";
 
 // SSO-only enforcement: returns true when the email's domain has an SSO
@@ -104,21 +106,34 @@ function ssoRequiredResponse(): Response {
 	);
 }
 
-function isCodeAppOrigin(url: string | null | undefined): boolean {
+function matchesOrigin(
+	url: string | null | undefined,
+	appUrl: string,
+): boolean {
 	if (!url) {
 		return false;
 	}
 	try {
-		return new URL(url).origin === new URL(codeUrl).origin;
+		return new URL(url).origin === new URL(appUrl).origin;
 	} catch {
 		return false;
 	}
 }
 
+function isCodeAppOrigin(url: string | null | undefined): boolean {
+	return matchesOrigin(url, codeUrl);
+}
+
 function resolveCallbackBaseUrl(request?: Request): string {
 	const originHeader =
 		request?.headers.get("origin") ?? request?.headers.get("referer");
-	return isCodeAppOrigin(originHeader) ? codeUrl : uiUrl;
+	if (isCodeAppOrigin(originHeader)) {
+		return codeUrl;
+	}
+	if (matchesOrigin(originHeader, airsideUrl)) {
+		return airsideUrl;
+	}
+	return uiUrl;
 }
 
 export const redisClient = new Redis({
@@ -677,15 +692,60 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 			},
 			basePath: "/auth",
 			trustedOrigins: originUrls.split(","),
+			rateLimit: {
+				customStorage: {
+					get: async (key: string) => {
+						const value = await redisClient.get(`auth:rate-limit:${key}`);
+						return value
+							? (JSON.parse(value) as {
+									key: string;
+									count: number;
+									lastRequest: number;
+								})
+							: null;
+					},
+					set: async (
+						key: string,
+						value: { key: string; count: number; lastRequest: number },
+					) => {
+						await redisClient.set(
+							`auth:rate-limit:${key}`,
+							JSON.stringify(value),
+							"EX",
+							60,
+						);
+					},
+				},
+				customRules: {
+					"/device/code": { window: 60, max: 30 },
+					"/device/token": { window: 60, max: 120 },
+					"/device": { window: 60, max: 30 },
+					"/device/approve": { window: 60, max: 30 },
+					"/device/deny": { window: 60, max: 30 },
+				},
+			},
 			plugins: [
+				bearer(),
+				deviceAuthorization({
+					verificationUri: `${uiUrl}/connect/device`,
+					expiresIn: "10m",
+					interval: "5s",
+					validateClient: (clientId) => clientId === "llmgateway-cli",
+					onDeviceAuthRequest: async () => {
+						await db
+							.delete(tables.deviceCode)
+							.where(lt(tables.deviceCode.expiresAt, new Date()));
+					},
+				}),
 				passkey({
 					rpID: process.env.PASSKEY_RP_ID ?? "localhost",
 					rpName: process.env.PASSKEY_RP_NAME ?? "LLMGateway",
 					// Accept passkey ceremonies from the main dashboard, the DevPass
-					// (code) app and the admin dashboard, which all share the same
-					// registrable rpID. Passkeys are registered on the main dashboard;
-					// listing the admin origin lets admins reuse them to sign in there.
-					origin: [uiUrl, codeUrl, adminUrl],
+					// (code) app, the admin dashboard and the Airside provider portal,
+					// which all share the same registrable rpID. Passkeys are
+					// registered on the main dashboard; listing the other origins lets
+					// users reuse them to sign in there.
+					origin: [uiUrl, codeUrl, adminUrl, airsideUrl],
 				}),
 				sso({
 					// This app uses a custom organization model (userOrganization),
@@ -772,6 +832,7 @@ If you didn't request this, you can safely ignore this email. Your password won'
 					session: tables.session,
 					account: tables.account,
 					verification: tables.verification,
+					deviceCode: tables.deviceCode,
 					passkey: tables.passkey,
 					ssoProvider: tables.ssoProvider,
 				},
@@ -1210,6 +1271,16 @@ The LLM Gateway Team`.trim();
 					// don't leave orphaned orgs.
 					if (
 						!ctx.path.startsWith("/sso/") &&
+						// These routes continue an authenticated session. Device
+						// verification can refresh the browser session before approval;
+						// token exchange derives from that explicitly approved session.
+						![
+							"/get-session",
+							"/device",
+							"/device/approve",
+							"/device/deny",
+							"/device/token",
+						].includes(ctx.path) &&
 						(await isSSOEnforcedForEmail(dbUser?.email))
 					) {
 						// Delete only the session this blocked attempt just created — not

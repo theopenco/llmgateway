@@ -215,6 +215,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	runware: "https://api.runware.ai",
 	moonshot: "https://api.moonshot.ai",
 	meta: "https://api.meta.ai",
+	"meta-contributor": "https://api.meta.ai",
 	nebius: "https://api.tokenfactory.nebius.com",
 	zai: "https://api.z.ai",
 	nanogpt: "https://nano-gpt.com/api",
@@ -230,6 +231,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	fireworks: "https://api.fireworks.ai/inference",
 	ranoai: "https://api.ranoai.com",
 	baidu: "https://api.baiduqianfan.ai",
+	consensusprotocol: "https://api.consensusprotocol.org",
 };
 
 export function getProviderDefaultBaseUrl(
@@ -447,42 +449,6 @@ export function getProviderEndpoint(
 				if (!url) {
 					throw new Error(
 						"Quartz provider requires LLM_QUARTZ_BASE_URL environment variable",
-					);
-				}
-				break;
-			case "tundra":
-				url =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"tundra",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-				if (!url) {
-					throw new Error(
-						"Tundra provider requires LLM_TUNDRA_BASE_URL environment variable",
-					);
-				}
-				break;
-			case "permafrost":
-				url =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"permafrost",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-				if (!url) {
-					throw new Error(
-						"Permafrost provider requires LLM_PERMAFROST_BASE_URL environment variable",
 					);
 				}
 				break;
@@ -1028,13 +994,14 @@ export function getProviderEndpoint(
 		case "llmgateway":
 		case "groq":
 		case "cerebras":
+		case "meta-contributor":
 		case "meta": {
 			// Muse Spark only exposes reasoning (as summaries) through the
 			// Responses API — Chat Completions redacts reasoning_content entirely.
 			if (model) {
 				const modelDef = models.find((m) => m.id === (modelId ?? model));
 				const providerMapping = modelDef?.providers.find(
-					(p) => p.providerId === "meta",
+					(p) => p.providerId === provider,
 				);
 				const supportsResponsesApi =
 					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
@@ -1055,11 +1022,10 @@ export function getProviderEndpoint(
 		case "minimax":
 		case "xiaomi":
 		case "embercloud":
-		case "tundra":
-		case "permafrost":
 		case "scx-ai":
 		case "scx-ai-gp":
 		case "ranoai":
+		case "consensusprotocol":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

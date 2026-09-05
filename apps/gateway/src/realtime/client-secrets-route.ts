@@ -1,6 +1,7 @@
 import { OpenAPIHono, z } from "@hono/zod-openapi";
 
 import { validateSource } from "@/chat/tools/validate-source.js";
+import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 
@@ -201,6 +202,14 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 
 	const instructions = body.session.instructions ?? null;
 	if (instructions !== null) {
+		if (isZeroDataRetentionEnabled(preflight.organization)) {
+			return errorResponse(
+				c,
+				400,
+				"zdr_storage_conflict",
+				"Pinned realtime session instructions are unavailable while zero data retention is active. Omit session.instructions.",
+			);
+		}
 		const estimatedTokens = estimateTokensFromText(instructions);
 		if (estimatedTokens > MAX_CLIENT_SECRET_INSTRUCTIONS_TOKENS) {
 			return errorResponse(

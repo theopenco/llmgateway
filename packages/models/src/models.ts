@@ -388,6 +388,10 @@ export interface ProviderModelMapping {
 	 */
 	maxOutput?: number;
 	/**
+	 * Maximum temperature accepted by this provider mapping.
+	 */
+	maxTemperature?: number;
+	/**
 	 * Weight quantization the provider serves this model at (e.g. "fp8").
 	 * Only set when the provider explicitly documents the serving precision;
 	 * when absent, the quantization is unknown or undisclosed.

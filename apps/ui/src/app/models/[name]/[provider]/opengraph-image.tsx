@@ -591,37 +591,37 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 							perSecondPrice &&
 							Object.entries(perSecondPrice)
 								.slice(0, 2)
-								.map(([key, price]) => (
-									<div
-										key={key}
-										style={{
-											display: "flex",
-											flexDirection: "column",
-											gap: 10,
-											padding: "28px 36px",
-											backgroundColor: "#0A0A0A",
-											borderRadius: 20,
-											border: "1px solid #1F2937",
-										}}
-									>
-										<span
+								.map(([key, price]) => {
+									return (
+										<div
+											key={key}
 											style={{
-												color: "#9CA3AF",
-												fontSize: 20,
-												fontWeight: 500,
-												textTransform: "uppercase",
-												letterSpacing: "0.05em",
+												display: "flex",
+												flexDirection: "column",
+												gap: 10,
+												padding: "28px 36px",
+												backgroundColor: "#0A0A0A",
+												borderRadius: 20,
+												border: "1px solid #1F2937",
 											}}
 										>
-											{key === "default"
-												? "Per Second"
-												: key.replace(/_/g, " ")}
-										</span>
-										<span style={{ fontWeight: 700, fontSize: 56 }}>
-											${price.toFixed(4)}
-										</span>
-									</div>
-								))}
+											<span
+												style={{
+													color: "#9CA3AF",
+													fontSize: 20,
+													fontWeight: 500,
+													textTransform: "uppercase",
+													letterSpacing: "0.05em",
+												}}
+											>
+												{key === "default"
+													? "Per Second"
+													: key.replace(/_/g, " ")}
+											</span>
+											{formatUnitPrice(price, "/sec")}
+										</div>
+									);
+								})}
 
 						{/* Per-Image Price for image gen, tiered by output resolution.
 						    Fall back to the "default" tier when it is the only entry. */}

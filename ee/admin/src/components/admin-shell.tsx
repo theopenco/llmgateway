@@ -17,6 +17,8 @@ import {
 	MessageCircle,
 	MessageSquare,
 	Percent,
+	PlaneLanding,
+	PlaneTakeoff,
 	Route,
 	Server,
 	Settings,
@@ -46,6 +48,11 @@ import {
 } from "@/components/ui/sidebar";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
+
+import {
+	formatPlanTermLabel,
+	getEnterpriseLicenseTerm,
+} from "@llmgateway/shared";
 
 import { Logo } from "./ui/logo";
 
@@ -130,6 +137,18 @@ const navItems: NavItem[] = [
 		match: "prefix",
 	},
 	{
+		href: "/airside-filings",
+		label: "Airside Filings",
+		icon: PlaneTakeoff,
+		match: "prefix",
+	},
+	{
+		href: "/airside-carriers",
+		label: "Airside Carriers",
+		icon: PlaneLanding,
+		match: "prefix",
+	},
+	{
 		href: "/chat-support-logs",
 		label: "Chat Support Logs",
 		icon: MessageCircle,
@@ -163,6 +182,15 @@ function isActive(item: NavItem, pathname: string): boolean {
 	return item.match === "exact"
 		? pathname === item.href
 		: pathname.startsWith(item.href);
+}
+
+function formatDate(date: Date): string {
+	return date.toLocaleDateString("en-US", {
+		timeZone: "UTC",
+		month: "long",
+		day: "numeric",
+		year: "numeric",
+	});
 }
 
 interface AdminShellProps {
@@ -218,6 +246,15 @@ export function AdminShell({ children, signedIn }: AdminShellProps) {
 	// list would suggest there is something reachable behind it, and a sign out
 	// button makes no sense when nobody is signed in.
 	const showNav = user ? user.isAdmin : isLoading && !error && signedIn;
+	const license = data?.enterpriseLicense;
+	const licenseTerm = getEnterpriseLicenseTerm(license?.expiresAt);
+	const whiteLabelExpiryTerm =
+		license?.kind === "white_label" &&
+		license.status === "active" &&
+		licenseTerm !== null &&
+		(licenseTerm.status === "expiring" || licenseTerm.status === "critical")
+			? licenseTerm
+			: null;
 
 	if (!showNav) {
 		return (
@@ -302,13 +339,35 @@ export function AdminShell({ children, signedIn }: AdminShellProps) {
 			</Sidebar>
 			<SidebarInset>
 				<MobileHeader />
-				{data?.enterpriseLicense?.status === "grace" && (
-					<Alert className="rounded-none border-x-0 border-t-0 border-amber-500/40 bg-amber-500/10 px-6 text-amber-950 dark:text-amber-100">
+				{whiteLabelExpiryTerm && (
+					<Alert
+						className={
+							whiteLabelExpiryTerm.status === "critical"
+								? "rounded-none border-x-0 border-t-0 border-red-500/40 bg-red-500/10 px-6 text-red-950 dark:text-red-100"
+								: "rounded-none border-x-0 border-t-0 border-orange-500/40 bg-orange-500/10 px-6 text-orange-950 dark:text-orange-100"
+						}
+					>
 						<AlertTriangle />
-						<AlertTitle>Enterprise license expired</AlertTitle>
-						<AlertDescription>
+						<AlertTitle>White-label license expires soon</AlertTitle>
+						<AlertDescription className="text-current/90">
+							Install a renewed license before{" "}
+							{formatDate(whiteLabelExpiryTerm.expiresAt)} (
+							{formatPlanTermLabel(whiteLabelExpiryTerm).toLowerCase()}) to keep
+							admin access.
+						</AlertDescription>
+					</Alert>
+				)}
+				{license?.kind === "white_label" && license.status === "grace" && (
+					<Alert className="rounded-none border-x-0 border-t-0 border-red-500/40 bg-red-500/10 px-6 text-red-950 dark:text-red-100">
+						<AlertTriangle />
+						<AlertTitle>White-label license expired</AlertTitle>
+						<AlertDescription className="text-current/90">
 							Admin access remains available during the seven-day grace period.
-							Install a renewed license before it ends.
+							Install a renewed license
+							{license.graceEndsAt
+								? ` before ${formatDate(new Date(license.graceEndsAt))}`
+								: " before grace ends"}
+							.
 						</AlertDescription>
 					</Alert>
 				)}

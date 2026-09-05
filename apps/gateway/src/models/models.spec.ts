@@ -1,12 +1,39 @@
-import { describe, expect, test, vi } from "vitest";
+import { beforeAll, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
 
+import { cdb, eq, tables } from "@llmgateway/db";
 import { models as modelsList, providers } from "@llmgateway/models";
 
 import type { ProviderModelMapping } from "@llmgateway/models";
 
 describe("Models API", () => {
+	beforeAll(async () => {
+		// These tests derive expectations from the static catalogue alone, so
+		// Airside listings leaked by an interrupted spec would skew them.
+		// cdb: the gateway reads listings through the Redis query cache, so the
+		// cleanup must invalidate it too.
+		await cdb.delete(tables.providerPriceFiling);
+		await cdb.delete(tables.providerDraftModel);
+		const airsideModelIds = await cdb
+			.select({ modelId: tables.modelProviderMapping.modelId })
+			.from(tables.modelProviderMapping)
+			.where(eq(tables.modelProviderMapping.source, "airside"));
+		await cdb
+			.delete(tables.modelProviderMapping)
+			.where(eq(tables.modelProviderMapping.source, "airside"));
+		for (const modelId of new Set(airsideModelIds.map((row) => row.modelId))) {
+			const remaining = await cdb
+				.select({ id: tables.modelProviderMapping.id })
+				.from(tables.modelProviderMapping)
+				.where(eq(tables.modelProviderMapping.modelId, modelId))
+				.limit(1);
+			if (remaining.length === 0) {
+				await cdb.delete(tables.model).where(eq(tables.model.id, modelId));
+			}
+		}
+	});
+
 	test("GET /v1/models should return a list of models", async () => {
 		const res = await app.request("/v1/models");
 
@@ -488,7 +515,10 @@ describe("Models API", () => {
 		// (otherwise a mapping whose deactivatedAt lies between the request
 		// and the assertion could flake).
 		const frozenNow = new Date("2026-08-11T00:00:00Z");
-		vi.useFakeTimers();
+		// Fake only Date: the handler now reads Airside listings from the DB,
+		// and faking setTimeout would strand that network IO (and leak frozen
+		// timers into every later test when this one times out).
+		vi.useFakeTimers({ toFake: ["Date"] });
 		vi.setSystemTime(frozenNow);
 		try {
 			const res = await app.request("/v1/models");
@@ -587,42 +617,44 @@ describe("Models API", () => {
 		expect(mistralProvider.pricing.ocr_page).toBe("0.004");
 	});
 
-	test("GET /v1/models should include proper output modalities for gemini-3.1-flash-image-preview", async () => {
+	test("GET /v1/models should include proper output modalities for Gemini 3.1 Flash Image", async () => {
 		const res = await app.request("/v1/models?include_deactivated=true");
 		expect(res.status).toBe(200);
 
 		const json = await res.json();
 
-		const imageModel = json.data.find(
-			(model: any) => model.id === "gemini-3.1-flash-image-preview",
-		);
+		for (const modelId of [
+			"gemini-3.1-flash-image",
+			"gemini-3.1-flash-image-preview",
+		]) {
+			const imageModel = json.data.find((model: any) => model.id === modelId);
 
-		expect(imageModel).toBeDefined();
-		expect(imageModel.architecture.output_modalities).toContain("text");
-		expect(imageModel.architecture.output_modalities).toContain("image");
-		expect(imageModel.architecture.output_modalities).toEqual([
-			"text",
-			"image",
-		]);
+			expect(imageModel).toBeDefined();
+			expect(imageModel.architecture.output_modalities).toEqual([
+				"text",
+				"image",
+			]);
+		}
 	});
 
-	test("GET /v1/models should include proper output modalities for gemini-3-pro-image-preview", async () => {
+	test("GET /v1/models should include proper output modalities for Gemini 3 Pro Image", async () => {
 		const res = await app.request("/v1/models?include_deactivated=true");
 		expect(res.status).toBe(200);
 
 		const json = await res.json();
 
-		const imageModel = json.data.find(
-			(model: any) => model.id === "gemini-3-pro-image-preview",
-		);
+		for (const modelId of [
+			"gemini-3-pro-image",
+			"gemini-3-pro-image-preview",
+		]) {
+			const imageModel = json.data.find((model: any) => model.id === modelId);
 
-		expect(imageModel).toBeDefined();
-		expect(imageModel.architecture.output_modalities).toContain("text");
-		expect(imageModel.architecture.output_modalities).toContain("image");
-		expect(imageModel.architecture.output_modalities).toEqual([
-			"text",
-			"image",
-		]);
+			expect(imageModel).toBeDefined();
+			expect(imageModel.architecture.output_modalities).toEqual([
+				"text",
+				"image",
+			]);
+		}
 	});
 
 	test("GET /v1/models should include proper output modalities for Veo 3.1 preview models", async () => {
@@ -644,9 +676,6 @@ describe("Models API", () => {
 			expect(videoModel.per_request_limits).toEqual({
 				max_video_duration_seconds: "10",
 			});
-			const avalancheProvider = videoModel.providers.find(
-				(provider: any) => provider.providerId === "avalanche",
-			);
 			const googleVertexProvider = videoModel.providers.find(
 				(provider: any) => provider.providerId === "google-vertex",
 			);
@@ -661,15 +690,6 @@ describe("Models API", () => {
 			]);
 			expect(googleVertexProvider?.supportsVideoAudio).toBe(true);
 			expect(googleVertexProvider?.supportsVideoWithoutAudio).toBe(true);
-			expect(avalancheProvider?.pricing.per_second).toBeDefined();
-			expect(avalancheProvider?.supportedVideoSizes).toEqual([
-				"1920x1080",
-				"1080x1920",
-				"3840x2160",
-				"2160x3840",
-			]);
-			expect(avalancheProvider?.supportsVideoAudio).toBe(true);
-			expect(avalancheProvider?.supportsVideoWithoutAudio).toBe(false);
 		}
 	});
 
@@ -680,8 +700,10 @@ describe("Models API", () => {
 		const json = await res.json();
 
 		for (const modelId of [
+			"gemini-3.1-flash-image",
 			"gemini-3.1-flash-image-preview",
 			"gemini-3.1-pro-preview",
+			"gemini-3-pro-image",
 			"gemini-3-pro-image-preview",
 		]) {
 			const model = json.data.find((item: any) => item.id === modelId);
@@ -725,7 +747,9 @@ describe("Models API", () => {
 
 		expect(glacierModelIds).toEqual([
 			"gemini-2.5-flash-image",
+			"gemini-3-pro-image",
 			"gemini-3-pro-image-preview",
+			"gemini-3.1-flash-image",
 			"gemini-3.1-flash-image-preview",
 		]);
 	});

@@ -7,6 +7,7 @@ import {
 import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
+import { getAirsideRoutingSnapshot } from "./airside-routing-snapshot.js";
 import { recordSpend } from "./spend-limit.js";
 import {
 	redactErrorDetails,
@@ -413,6 +414,16 @@ export async function insertLog(
 			: undefined,
 		errorType,
 	});
+
+	// Snapshot the used provider's Airside routing settings so margin revenue
+	// stays reconstructable after a carrier changes them. SWR-cached, and never
+	// allowed to block logging.
+	if (logData.usedProvider && logData.providerMarginPercent === undefined) {
+		Object.assign(
+			logData,
+			await getAirsideRoutingSnapshot(logData.usedProvider),
+		);
+	}
 
 	// Maintain per-org daily/monthly spend-cap counters. Single DRY chokepoint
 	// for every request path; swallows its own Redis errors so logging is never

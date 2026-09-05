@@ -1,6 +1,8 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
+import { airsideListingToModelDefinition } from "@/chat/tools/resolve-airside-model.js";
+import { listAirsideModels } from "@/lib/cached-queries.js";
 import { publicErrorResponses } from "@/lib/error-schemas.js";
 
 import { logger, toError } from "@llmgateway/logger";
@@ -208,8 +210,44 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 				.map((p) => p.id),
 		);
 
+		// Airside-owned canonical mappings join the static model metadata. The
+		// materialized row is authoritative for its provider/model pair.
+		const airsideDefinitions = (await listAirsideModels()).map(
+			(listed) => airsideListingToModelDefinition(listed).modelInfo,
+		);
+		const allCatalogueModels: ModelDefinition[] = [...modelsList];
+		const modelIndexById = new Map<string, number>();
+		allCatalogueModels.forEach((model, index) => {
+			modelIndexById.set(model.id, index);
+			if ("aliases" in model) {
+				for (const alias of (model.aliases as readonly string[] | undefined) ??
+					[]) {
+					modelIndexById.set(alias, index);
+				}
+			}
+		});
+		for (const airsideModel of airsideDefinitions) {
+			const existingIndex = modelIndexById.get(airsideModel.id);
+			if (existingIndex === undefined) {
+				modelIndexById.set(airsideModel.id, allCatalogueModels.length);
+				allCatalogueModels.push(airsideModel);
+				continue;
+			}
+			const existing = allCatalogueModels[existingIndex];
+			const airsideMapping = airsideModel.providers[0];
+			allCatalogueModels[existingIndex] = {
+				...existing,
+				providers: [
+					...existing.providers.filter(
+						(provider) => provider.providerId !== airsideMapping.providerId,
+					),
+					airsideMapping,
+				],
+			} as ModelDefinition;
+		}
+
 		// Filter models based on deactivation and deprecation status of their provider mappings
-		const deactivationFilteredModels = modelsList.filter(
+		const deactivationFilteredModels = allCatalogueModels.filter(
 			(model: ModelDefinition) => {
 				// Check if all provider mappings are deactivated
 				const allDeactivated = model.providers.every(

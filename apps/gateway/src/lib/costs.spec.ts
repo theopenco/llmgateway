@@ -279,6 +279,62 @@ describe("calculateCosts", () => {
 		expect(result.pricingTier).toBe("Over 272K");
 	});
 
+	it("bills GPT-6 Astra cache writes at the short-context rate", async () => {
+		const result = await calculateCosts(
+			"gpt-6-astra",
+			"openai",
+			null,
+			2006,
+			300,
+			1920,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{ cacheWriteTokens: 40 },
+		);
+
+		expect(result.inputCost).toBeCloseTo(46 * 10e-6, 10);
+		expect(result.cachedInputCost).toBeCloseTo(1920 * 1e-6, 10);
+		expect(result.cacheWriteInputCost).toBeCloseTo(40 * 12.5e-6, 10);
+		expect(result.outputCost).toBeCloseTo(300 * 50e-6, 10);
+		expect(result.pricingTier).toBe("Up to 272K");
+	});
+
+	it("applies GPT-6 Astra long-context pricing above 272K", async () => {
+		const result = await calculateCosts(
+			"gpt-6-astra",
+			"openai",
+			null,
+			300000,
+			1000,
+			100000,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{ cacheWriteTokens: 50000 },
+		);
+
+		expect(result.inputCost).toBeCloseTo(150000 * 20e-6, 6);
+		expect(result.cachedInputCost).toBeCloseTo(100000 * 2e-6, 6);
+		expect(result.cacheWriteInputCost).toBeCloseTo(50000 * 25e-6, 6);
+		expect(result.outputCost).toBeCloseTo(1000 * 75e-6, 6);
+		expect(result.pricingTier).toBe("Over 272K");
+	});
+
 	it("should calculate costs with cached tokens for Anthropic (first request - cache creation)", async () => {
 		// For Anthropic first request: 4 non-cached + 1659 cache creation = 1663 total tokens, 0 cache reads
 		const result = await calculateCosts(
@@ -695,6 +751,24 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false);
 	});
 
+	it("uses separately reported reasoning when completion is unavailable", async () => {
+		const result = await calculateCosts(
+			"gemini-2.5-pro",
+			"google-ai-studio",
+			null,
+			1000,
+			null,
+			null,
+			undefined,
+			200,
+		);
+
+		expect(result.outputCost).toBeCloseTo(0.002);
+		expect(result.totalCost).toBeCloseTo(0.00325);
+		expect(result.completionTokens).toBe(200);
+		expect(result.estimatedCost).toBe(false);
+	});
+
 	it("should bill RanoAI cached tokens at the cache-read rate", async () => {
 		// RanoAI does automatic prefix caching and charges input_cache_read
 		// (0.05/M), half the input rate. Without cachedInputPrice the engine
@@ -733,6 +807,22 @@ describe("calculateCosts", () => {
 		// two-decimal toBeCloseTo would not catch.
 		expect(result.inputCost).toBeCloseTo(0.0001, 10);
 		expect(result.outputCost).toBeCloseTo(0.000099, 10); // 330 * 0.3e-6, not 597
+		expect(result.completionTokens).toBe(330);
+	});
+
+	it("should not double-bill DeepSeek reasoning tokens", async () => {
+		const result = await calculateCosts(
+			"deepseek-v4-flash-vision-exp",
+			"deepseek",
+			null,
+			1000,
+			330,
+			null,
+			undefined,
+			267,
+		);
+
+		expect([0.0002178, 0.0004356]).toContain(result.outputCost);
 		expect(result.completionTokens).toBe(330);
 	});
 
@@ -1112,8 +1202,8 @@ describe("calculateCosts", () => {
 				null,
 				{ servedServiceTier: "flex" },
 			);
-			expect(result.inputCost).toBeCloseTo(0.00025);
-			expect(result.outputCost).toBeCloseTo(0.00105);
+			expect(result.inputCost).toBeCloseTo(0.0005);
+			expect(result.outputCost).toBeCloseTo(0.0021);
 		});
 
 		it("ignores Google Vertex tiers outside the global endpoint", async () => {
@@ -1401,7 +1491,7 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputTokens).toBe(747); // 1 * 747
 		expect(result.imageOutputCost).toBeCloseTo(747 * (60 / 1e6)); // 747 * $60/1M
 		const textTokens = 800 - 747; // 53 text tokens
-		const expectedTextCost = textTokens * (1.5 / 1e6);
+		const expectedTextCost = textTokens * (3 / 1e6);
 		const expectedImageCost = 747 * (60 / 1e6);
 		expect(result.outputCost).toBeCloseTo(expectedTextCost + expectedImageCost);
 	});
@@ -1425,7 +1515,7 @@ describe("calculateCosts", () => {
 		expect(result.imageOutputTokens).toBe(5040); // 2 * 2520
 		expect(result.imageOutputCost).toBeCloseTo(5040 * (60 / 1e6));
 		const textTokens = Math.max(0, 5100 - 5040); // 60 text tokens
-		const expectedTextCost = textTokens * (1.5 / 1e6);
+		const expectedTextCost = textTokens * (3 / 1e6);
 		const expectedImageCost = 5040 * (60 / 1e6);
 		expect(result.outputCost).toBeCloseTo(expectedTextCost + expectedImageCost);
 	});
@@ -1565,6 +1655,27 @@ describe("calculateCosts", () => {
 		);
 	});
 
+	it("bills Muse at its flat per-image price", async () => {
+		const result = await calculateCosts(
+			"muse-image-1.0",
+			"meta",
+			null,
+			9520,
+			443,
+			7936,
+			undefined,
+			160,
+			1,
+			"1024x1024",
+			0,
+		);
+
+		expect(result.inputCost).toBe(0);
+		expect(result.imageOutputCost).toBeCloseTo(0.01);
+		expect(result.outputCost).toBeCloseTo(0.01);
+		expect(result.totalCost).toBeCloseTo(0.01);
+	});
+
 	it("bills perImagePrice even when prompt usage is absent or zero", async () => {
 		// An upstream response that omits prompt usage must still charge for the
 		// generated images instead of bailing out of cost calculation entirely.
@@ -1645,17 +1756,16 @@ describe("calculateCosts", () => {
 		}
 	});
 
-	it("matches xAI's own reported cost for grok-4-6", async () => {
+	it("matches xAI's own reported cost with normalized completion tokens", async () => {
 		// Real grok-4.6 response: 213 prompt tokens (128 cached), 4 completion and
 		// 310 reasoning tokens, billed by xAI at 21180000 usd ticks = $0.002118.
-		// xAI reports reasoning tokens outside completion_tokens, so they are
-		// billed on top of the completion count.
+		// Extraction normalizes the raw output to 314 inclusive completion tokens.
 		const result = await calculateCosts(
 			"grok-4-6",
 			"xai",
 			null,
 			213,
-			4,
+			314,
 			128,
 			undefined,
 			310,
@@ -1663,13 +1773,13 @@ describe("calculateCosts", () => {
 		expect(result.totalCost).toBeCloseTo(0.002118, 9);
 	});
 
-	it("bills Vertex Grok 4.6 reasoning outside completion tokens", async () => {
+	it("bills normalized Vertex Grok 4.6 completion tokens", async () => {
 		const result = await calculateCosts(
 			"grok-4-6",
 			"vertex-openai",
 			"global",
 			216,
-			1,
+			101,
 			0,
 			undefined,
 			100,

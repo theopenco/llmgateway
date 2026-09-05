@@ -3,7 +3,9 @@ import { beforeAll, describe, expect, test } from "vitest";
 import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 // Request-path tests for the AI SDK Gateway protocol surface: header-driven
 // model/spec/streaming negotiation, the hop into /v1/chat/completions, the
@@ -22,7 +24,7 @@ describe("ai sdk gateway protocol surface", () => {
 	async function seedKeys(suffix: string) {
 		await db.insert(tables.apiKey).values({
 			id: `token-aisdk-${suffix}`,
-			token: `real-token-aisdk-${suffix}`,
+			...hashApiKeyForStorage(`real-token-aisdk-${suffix}`),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -30,7 +32,11 @@ describe("ai sdk gateway protocol surface", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: `provider-key-aisdk-${suffix}`,
-			token: "sk-openai-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-openai-test-key",
+				`provider-key-aisdk-${suffix}`,
+				"org-id",
+			),
 			provider: "openai",
 			organizationId: "org-id",
 			baseUrl: mockServerUrl,

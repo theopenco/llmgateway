@@ -89,7 +89,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		// expect(log.cost).not.toBeNull();
 	});
 
-	if (process.env.EXPERIMENTAL) {
+	describe("extended coverage", () => {
 		test.each(providerModels)(
 			"complex $model",
 			getTestOptions(),
@@ -159,9 +159,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				expect(json.usage.completion_tokens).toBeGreaterThan(0);
 				expect(json.usage.total_tokens).toBeGreaterThan(0);
 				expect(json.usage.total_tokens).toEqual(
-					json.usage.prompt_tokens +
-						json.usage.completion_tokens +
-						(json.usage.reasoning_tokens ?? 0),
+					json.usage.prompt_tokens + json.usage.completion_tokens,
 				);
 			},
 		);
@@ -219,5 +217,5 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				expect(json.usage.total_tokens).toBeGreaterThan(0);
 			},
 		);
-	}
+	});
 });

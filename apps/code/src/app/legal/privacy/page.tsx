@@ -3,10 +3,17 @@ import { LegalSummary } from "@/components/LegalSummary";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Privacy Policy — DevPass",
+	title: "Privacy Policy",
 	description:
-		"Supplemental DevPass Privacy Policy. It builds on the LLM Gateway Privacy Policy and covers DevPass-specific request retention, per-agent metadata, AI provider routing, and sub-processors.",
+		"Supplemental DevPass Privacy Policy covering request retention, per-agent metadata, AI provider routing, and sub-processors, on top of the LLM Gateway policy.",
 	alternates: { canonical: "/legal/privacy" },
+	openGraph: {
+		title: "DevPass Supplemental Privacy Policy",
+		description:
+			"How DevPass handles request retention, per-agent metadata, AI provider routing, and sub-processors.",
+		type: "article",
+		url: "https://devpass.llmgateway.io/legal/privacy",
+	},
 };
 
 export default function PrivacyPage() {
@@ -137,13 +144,13 @@ export default function PrivacyPage() {
 			<h2>3. Sharing With AI Providers</h2>
 			<p>
 				When you make a request, your prompt is forwarded to the AI provider you
-				selected (e.g., Anthropic, OpenAI, Google, Mistral, DeepSeek). Each
-				provider applies its own privacy and data-retention policy to that
-				traffic. We pass through provider-side opt-outs where supported (for
-				example, &ldquo;no training&rdquo; flags). You are responsible for
-				reviewing the privacy policies of any provider you use. The Base
-				Policy&rsquo;s sections on AI Providers and on stealth/undisclosed
-				providers also apply to DevPass.
+				selected. Each provider applies its own privacy and data-retention
+				policy to that traffic. You can enable <strong>No AI training</strong>{" "}
+				in DevPass Settings to restrict routing to providers that explicitly
+				state API inputs are not used to train models. Providers with an unknown
+				training policy are excluded while this setting is enabled, so some
+				models may be unavailable. The Base Policy&rsquo;s sections on AI
+				Providers and on stealth/undisclosed providers also apply to DevPass.
 			</p>
 			<hr />
 			<h2>4. Sub-processors</h2>

@@ -33,14 +33,23 @@ import {
 	getEffectiveRateLimit,
 	addApiKeyPeriodDuration,
 	organizationCacheTag,
+	organizationTeam as organizationTeamTable,
+	organizationTeamIamRule as organizationTeamIamRuleTable,
+	organizationTeamProject as organizationTeamProjectTable,
 	providerKeyAllowsModel,
 	organization as organizationTable,
 	project as projectTable,
+	computeAirsideAdjustment,
+	model as modelTable,
+	modelProviderMapping as modelProviderMappingTable,
+	providerClaim as providerClaimTable,
+	providerRoutingSettings as providerRoutingSettingsTable,
 	providerKey as providerKeyTable,
 	routingScoreMultiplier as routingScoreMultiplierTable,
 	user as userTable,
 	userIamRule as userIamRuleTable,
 	userOrganization as userOrganizationTable,
+	userProject as userProjectTable,
 	wallet as walletTable,
 } from "@llmgateway/db";
 import { getRegionScopedDefaultRegion } from "@llmgateway/models";
@@ -55,12 +64,12 @@ import {
 	isTrackedKeyHealthy,
 } from "./api-key-health.js";
 
+import type { ApiKey } from "@llmgateway/db";
 import type { ApiKeyPeriodDurationUnit } from "@llmgateway/db";
 import type { EffectiveRateLimit } from "@llmgateway/db";
 import type { EffectiveDiscount } from "@llmgateway/db";
 import type { InferSelectModel } from "@llmgateway/db";
 import type {
-	apiKey,
 	apiKeyIamRule,
 	customModel,
 	endUserSession,
@@ -69,20 +78,25 @@ import type {
 	providerKey,
 	user,
 	userIamRule,
+	organizationTeamIamRule,
 	userOrganization,
 	wallet,
 } from "@llmgateway/db";
 import type { EnvVarVariant } from "@llmgateway/models";
 
 // Type aliases for cleaner function signatures
-type ApiKey = InferSelectModel<typeof apiKey>;
 type EndUserSession = InferSelectModel<typeof endUserSession>;
 type ApiKeyIamRule = InferSelectModel<typeof apiKeyIamRule>;
 type UserIamRule = InferSelectModel<typeof userIamRule>;
+type OrganizationTeamIamRule = InferSelectModel<typeof organizationTeamIamRule>;
 export type CustomModel = InferSelectModel<typeof customModel>;
 type Organization = InferSelectModel<typeof organization>;
 type Project = InferSelectModel<typeof project>;
 type ProviderKey = InferSelectModel<typeof providerKey>;
+export interface AirsideListedModel {
+	model: InferSelectModel<typeof modelTable>;
+	mapping: InferSelectModel<typeof modelProviderMappingTable>;
+}
 type User = InferSelectModel<typeof user>;
 type UserOrganization = InferSelectModel<typeof userOrganization>;
 type Wallet = InferSelectModel<typeof wallet>;
@@ -93,15 +107,29 @@ const apiKeyIamRuleTableName = getTableName(apiKeyIamRuleTable);
 const endCustomerTableName = getTableName(endCustomerTable);
 const endUserSessionTableName = getTableName(endUserSessionTable);
 const organizationTableName = getTableName(organizationTable);
+const organizationTeamTableName = getTableName(organizationTeamTable);
+const organizationTeamIamRuleTableName = getTableName(
+	organizationTeamIamRuleTable,
+);
+const organizationTeamProjectTableName = getTableName(
+	organizationTeamProjectTable,
+);
 const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
 const customModelTableName = getTableName(customModelTable);
+const modelTableName = getTableName(modelTable);
+const modelProviderMappingTableName = getTableName(modelProviderMappingTable);
+const providerClaimTableName = getTableName(providerClaimTable);
+const providerRoutingSettingsTableName = getTableName(
+	providerRoutingSettingsTable,
+);
 const routingScoreMultiplierTableName = getTableName(
 	routingScoreMultiplierTable,
 );
 const userTableName = getTableName(userTable);
 const userIamRuleTableName = getTableName(userIamRuleTable);
 const userOrganizationTableName = getTableName(userOrganizationTable);
+const userProjectTableName = getTableName(userProjectTable);
 const walletTableName = getTableName(walletTable);
 
 function selectProviderKeyWithFailover<T extends { id: string }>(
@@ -185,10 +213,7 @@ export async function findApiKeyByToken(
 				.from(apiKeyTable)
 				.where(
 					and(
-						or(
-							eq(apiKeyTable.token, token),
-							inArray(apiKeyTable.tokenHash, tokenHashes),
-						),
+						inArray(apiKeyTable.tokenHash, tokenHashes),
 						ne(apiKeyTable.keyType, "end_user_customer"),
 						ne(apiKeyTable.keyType, "platform_secret"),
 					),
@@ -246,12 +271,7 @@ export async function findApiKeyByToken(
 						eq(apiKeyTable.status, "active"),
 					),
 				)
-				.where(
-					or(
-						eq(endUserSessionTable.token, token),
-						inArray(endUserSessionTable.tokenHash, tokenHashes),
-					),
-				)
+				.where(inArray(endUserSessionTable.tokenHash, tokenHashes))
 				.limit(1);
 			const row = rows[0];
 			if (!row || row.session.status !== "active") {
@@ -505,6 +525,141 @@ export async function findCustomModel(
 				.limit(1),
 	);
 	return results[0];
+}
+
+/** Find an active Airside-owned canonical mapping. */
+export async function findAirsideModel(
+	providerId: string,
+	modelName: string,
+): Promise<AirsideListedModel | undefined> {
+	const results = await swrWrap(
+		`airsideModel:${providerId}:${modelName}`,
+		[modelTableName, modelProviderMappingTableName],
+		async () =>
+			await db
+				.select({
+					model: modelTable,
+					mapping: modelProviderMappingTable,
+				})
+				.from(modelProviderMappingTable)
+				.innerJoin(
+					modelTable,
+					eq(modelTable.id, modelProviderMappingTable.modelId),
+				)
+				.where(
+					and(
+						eq(modelProviderMappingTable.source, "airside"),
+						eq(modelProviderMappingTable.status, "active"),
+						eq(modelProviderMappingTable.providerId, providerId),
+						eq(modelProviderMappingTable.modelId, modelName),
+						isNull(modelProviderMappingTable.region),
+					),
+				)
+				.limit(1),
+	);
+	return results[0];
+}
+
+export interface AirsideCustomCarrier {
+	providerId: string;
+	name: string;
+	baseUrl: string;
+}
+
+/**
+ * The active custom-carrier registration behind a non-catalogue provider
+ * prefix, if any. Custom carriers exist only in the DB: their listings route
+ * to the OpenAI-compatible endpoint registered on the approved claim.
+ */
+export async function findAirsideCustomProvider(
+	providerId: string,
+): Promise<AirsideCustomCarrier | undefined> {
+	const rows = await swrWrap(
+		`airsideCustomProvider:${providerId}`,
+		[providerClaimTableName],
+		async () =>
+			await db
+				.select({
+					providerId: providerClaimTable.providerId,
+					customName: providerClaimTable.customName,
+					customBaseUrl: providerClaimTable.customBaseUrl,
+				})
+				.from(providerClaimTable)
+				.where(
+					and(
+						eq(providerClaimTable.providerId, providerId),
+						eq(providerClaimTable.kind, "custom"),
+						eq(providerClaimTable.status, "active"),
+					),
+				)
+				.limit(1),
+	);
+	const row = rows[0];
+	if (!row?.customBaseUrl) {
+		return undefined;
+	}
+	return {
+		providerId: row.providerId,
+		name: row.customName ?? row.providerId,
+		baseUrl: row.customBaseUrl,
+	};
+}
+
+/** Active Airside mappings for a bare model name across all carriers. */
+export async function findAirsideModelsByBareName(
+	modelName: string,
+): Promise<AirsideListedModel[]> {
+	const rows = await swrWrap(
+		`airsideModelByName:${modelName}`,
+		[modelTableName, modelProviderMappingTableName],
+		async () =>
+			await db
+				.select({
+					model: modelTable,
+					mapping: modelProviderMappingTable,
+				})
+				.from(modelProviderMappingTable)
+				.innerJoin(
+					modelTable,
+					eq(modelTable.id, modelProviderMappingTable.modelId),
+				)
+				.where(
+					and(
+						eq(modelProviderMappingTable.source, "airside"),
+						eq(modelProviderMappingTable.status, "active"),
+						eq(modelProviderMappingTable.modelId, modelName),
+						isNull(modelProviderMappingTable.region),
+					),
+				),
+	);
+	return rows;
+}
+
+/** Every active Airside-owned mapping for the /v1/models catalogue. */
+export async function listAirsideModels(): Promise<AirsideListedModel[]> {
+	const rows = await swrWrap(
+		"airsideModels:all",
+		[modelTableName, modelProviderMappingTableName],
+		async () =>
+			await db
+				.select({
+					model: modelTable,
+					mapping: modelProviderMappingTable,
+				})
+				.from(modelProviderMappingTable)
+				.innerJoin(
+					modelTable,
+					eq(modelTable.id, modelProviderMappingTable.modelId),
+				)
+				.where(
+					and(
+						eq(modelProviderMappingTable.source, "airside"),
+						eq(modelProviderMappingTable.status, "active"),
+						isNull(modelProviderMappingTable.region),
+					),
+				),
+	);
+	return rows;
 }
 
 /** Find every active custom model catalog entry for an organization. */
@@ -990,6 +1145,111 @@ export async function findActiveUserIamRules(
 	);
 }
 
+/** Active IAM rules inherited from the developer's assigned organization team. */
+export async function findActiveTeamIamRules(
+	userId: string,
+	organizationId: string,
+): Promise<OrganizationTeamIamRule[]> {
+	return await swrWrap(
+		`teamIamRules:${organizationId}:${userId}`,
+		[
+			organizationTeamIamRuleTableName,
+			organizationTeamTableName,
+			userOrganizationTableName,
+		],
+		async () => {
+			const rows = await db
+				.select({ rule: organizationTeamIamRuleTable })
+				.from(userOrganizationTable)
+				.innerJoin(
+					organizationTeamIamRuleTable,
+					eq(organizationTeamIamRuleTable.teamId, userOrganizationTable.teamId),
+				)
+				.where(
+					and(
+						eq(userOrganizationTable.userId, userId),
+						eq(userOrganizationTable.organizationId, organizationId),
+						eq(userOrganizationTable.role, "developer"),
+						eq(organizationTeamIamRuleTable.status, "active"),
+					),
+				);
+			return rows.map((row) => row.rule);
+		},
+	);
+}
+
+/**
+ * Project authorization for normal user keys. Developers must retain both
+ * their personal project grant and, when assigned, the team's project grant.
+ */
+export async function memberHasEffectiveProjectAccess(
+	userId: string,
+	organizationId: string,
+	projectId: string,
+): Promise<boolean> {
+	return await swrWrap(
+		`memberProjectAccess:${organizationId}:${userId}:${projectId}`,
+		[
+			userOrganizationTableName,
+			userProjectTableName,
+			organizationTeamTableName,
+			organizationTeamProjectTableName,
+		],
+		async () => {
+			const memberships = await db
+				.select({
+					id: userOrganizationTable.id,
+					role: userOrganizationTable.role,
+					teamId: userOrganizationTable.teamId,
+				})
+				.from(userOrganizationTable)
+				.where(
+					and(
+						eq(userOrganizationTable.userId, userId),
+						eq(userOrganizationTable.organizationId, organizationId),
+					),
+				)
+				.limit(1);
+			const membership = memberships[0];
+			if (!membership) {
+				return false;
+			}
+			if (membership.role !== "developer") {
+				return true;
+			}
+
+			const personal = await db
+				.select({ id: userProjectTable.id })
+				.from(userProjectTable)
+				.where(
+					and(
+						eq(userProjectTable.userOrganizationId, membership.id),
+						eq(userProjectTable.projectId, projectId),
+					),
+				)
+				.limit(1);
+			if (!personal[0]) {
+				return false;
+			}
+			if (!membership.teamId) {
+				return true;
+			}
+
+			const team = await db
+				.select({ id: organizationTeamProjectTable.id })
+				.from(organizationTeamProjectTable)
+				.where(
+					and(
+						eq(organizationTeamProjectTable.teamId, membership.teamId),
+						eq(organizationTeamProjectTable.projectId, projectId),
+					),
+				)
+				.limit(1);
+			return !!team[0];
+		},
+	);
+}
+
 /**
  * Get the effective rate limits for an org/provider/model combination.
  *
@@ -1003,6 +1263,10 @@ export async function findEffectiveRateLimit(
 	provider: string,
 	model: string,
 ): Promise<EffectiveRateLimit> {
+	// An active listing now serves its pair even when the static catalogue
+	// still maps it (see resolveAirsideModel), so the carrier's own caps apply
+	// wherever a listing exists. getEffectiveRateLimit only reads them from
+	// active listings, and admin rate_limit rows still outrank them.
 	return await getEffectiveRateLimit(organizationId, provider, model);
 }
 
@@ -1033,6 +1297,51 @@ export interface EffectiveRoutingScoreMultiplier {
  * Get the internal routing score adjustment for a provider/model combination.
  * The stable SQL shape is cached by Drizzle and the result is mirrored in SWR.
  */
+/**
+ * The routing-price adjustment produced by a carrier's own Airside settings
+ * (accepted gateway margin + traffic discount). Deliberately separate from
+ * routing_score_multiplier, which stays an admin-only prioritization knob —
+ * the two combine additively at the scoring seam.
+ */
+export async function findAirsideRoutingSettings(
+	provider: string,
+): Promise<{ discountPercent: number; marginPercent: number } | null> {
+	const rows = await swrWrap(
+		`airsideRouting:${provider}`,
+		[providerRoutingSettingsTableName],
+		async () =>
+			await db
+				.select({
+					discountPercent: providerRoutingSettingsTable.discountPercent,
+					marginPercent: providerRoutingSettingsTable.marginPercent,
+				})
+				.from(providerRoutingSettingsTable)
+				.where(eq(providerRoutingSettingsTable.providerId, provider))
+				.limit(1),
+	);
+	const row = rows[0];
+	if (!row) {
+		return null;
+	}
+	return {
+		discountPercent: Number(row.discountPercent),
+		marginPercent: Number(row.marginPercent),
+	};
+}
+
+export async function findAirsideRoutingAdjustment(
+	provider: string,
+): Promise<number> {
+	const settings = await findAirsideRoutingSettings(provider);
+	if (!settings) {
+		return 0;
+	}
+	return computeAirsideAdjustment(
+		settings.discountPercent,
+		settings.marginPercent,
+	);
+}
+
 export async function findEffectiveRoutingScoreMultiplier(
 	provider: string,
 	model: string,
@@ -1121,13 +1430,23 @@ export type MemberBudget = Pick<
 	| "periodUsageDurationUnit"
 >;
 
+export type MemberBudgetWithTeam = MemberBudget & {
+	teamBudget: {
+		maxApiKeys: number | null;
+		usageLimit: string | null;
+		periodUsageLimit: string | null;
+		periodUsageDurationValue: number | null;
+		periodUsageDurationUnit: ApiKeyPeriodDurationUnit | null;
+	} | null;
+};
+
 export async function findUserOrganizationBudget(
 	userId: string,
 	organizationId: string,
-): Promise<MemberBudget | undefined> {
+): Promise<MemberBudgetWithTeam | undefined> {
 	return await swrWrap(
 		`uoBudget:${organizationId}:${userId}`,
-		[userOrganizationTableName],
+		[userOrganizationTableName, organizationTeamTableName],
 		async () => {
 			const results = await db
 				.select({
@@ -1139,8 +1458,20 @@ export async function findUserOrganizationBudget(
 						userOrganizationTable.periodUsageDurationValue,
 					periodUsageDurationUnit:
 						userOrganizationTable.periodUsageDurationUnit,
+					teamId: userOrganizationTable.teamId,
+					teamMaxApiKeys: organizationTeamTable.maxApiKeys,
+					teamUsageLimit: organizationTeamTable.usageLimit,
+					teamPeriodUsageLimit: organizationTeamTable.periodUsageLimit,
+					teamPeriodUsageDurationValue:
+						organizationTeamTable.periodUsageDurationValue,
+					teamPeriodUsageDurationUnit:
+						organizationTeamTable.periodUsageDurationUnit,
 				})
 				.from(userOrganizationTable)
+				.leftJoin(
+					organizationTeamTable,
+					eq(organizationTeamTable.id, userOrganizationTable.teamId),
+				)
 				.where(
 					and(
 						eq(userOrganizationTable.userId, userId),
@@ -1148,7 +1479,27 @@ export async function findUserOrganizationBudget(
 					),
 				)
 				.limit(1);
-			return results[0];
+			const result = results[0];
+			if (!result) {
+				return undefined;
+			}
+			return {
+				role: result.role,
+				maxApiKeys: result.maxApiKeys,
+				usageLimit: result.usageLimit,
+				periodUsageLimit: result.periodUsageLimit,
+				periodUsageDurationValue: result.periodUsageDurationValue,
+				periodUsageDurationUnit: result.periodUsageDurationUnit,
+				teamBudget: result.teamId
+					? {
+							maxApiKeys: result.teamMaxApiKeys,
+							usageLimit: result.teamUsageLimit,
+							periodUsageLimit: result.teamPeriodUsageLimit,
+							periodUsageDurationValue: result.teamPeriodUsageDurationValue,
+							periodUsageDurationUnit: result.teamPeriodUsageDurationUnit,
+						}
+					: null,
+			};
 		},
 	);
 }

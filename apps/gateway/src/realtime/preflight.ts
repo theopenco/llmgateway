@@ -1,11 +1,10 @@
-import { createHash } from "node:crypto";
-
 import { HTTPException } from "hono/http-exception";
 
 import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import {
@@ -80,29 +79,10 @@ export interface RealtimePreflightResult {
 	 */
 	clientIp: string | undefined;
 	/**
-	 * Stable, privacy-preserving end-user identifier forwarded upstream via the
-	 * OpenAI-Safety-Identifier header (a hash, never a raw internal id).
+	 * Stable, privacy-preserving identifier forwarded upstream via the
+	 * OpenAI-Safety-Identifier header.
 	 */
 	safetyIdentifier: string;
-}
-
-/**
- * Derive the opaque `OpenAI-Safety-Identifier` for a session. It is keyed on the
- * tenant (organization + project) rather than on the API key: keys are rotatable
- * credentials, so deriving from one would reset the upstream abuse-tracking
- * identity on every rotation, and no part of a credential should ever be fed
- * into a fast digest. Both ids are 20-character CSPRNG nanoids (~119 bits each),
- * so a plain digest needs no salt or pepper: there is no small input space to
- * enumerate, and the hash exists only to keep internal ids off the wire.
- */
-function deriveSafetyIdentifier(
-	organizationId: string,
-	projectId: string,
-): string {
-	return createHash("sha256")
-		.update(`realtime-safety-identifier:${organizationId}:${projectId}`)
-		.digest("hex")
-		.slice(0, 32);
 }
 
 export function getAvailableCredits(organization: Organization): number {
@@ -231,6 +211,7 @@ async function runRealtimePreflightInner(
 		);
 	}
 
+	await assertMemberProjectAccess(apiKey, project.organizationId);
 	await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
 	assertApiKeyWithinUsageLimits(apiKey);
 
@@ -417,6 +398,6 @@ async function runRealtimePreflightInner(
 		usedMode: providerKey ? "api-keys" : "credits",
 		allowedTranscriptionModelIds,
 		clientIp: input.clientIp,
-		safetyIdentifier: deriveSafetyIdentifier(organization.id, project.id),
+		safetyIdentifier: organization.safetyIdentifier,
 	};
 }

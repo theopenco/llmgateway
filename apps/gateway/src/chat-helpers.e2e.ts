@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { describe, expect, it } from "vitest";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables, type ProviderKeyOptions } from "@llmgateway/db";
 import {
 	type ModelDefinition,
@@ -15,6 +16,7 @@ import {
 	getTestOptions,
 	expandAllProviderRegions,
 } from "@llmgateway/models";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { uniqueId } from "@llmgateway/shared/random";
 
 import {
@@ -1141,7 +1143,7 @@ export async function createProviderKey(
 		.insert(tables.providerKey)
 		.values({
 			id: keyId,
-			token,
+			...encryptProviderKeyForStorage(token, keyId, "org-id"),
 			provider: provider.replace("env-", ""), // Remove env- prefix for the provider field
 			organizationId: "org-id",
 			baseUrl,
@@ -1150,7 +1152,7 @@ export async function createProviderKey(
 		.onConflictDoUpdate({
 			target: tables.providerKey.id,
 			set: {
-				token,
+				...encryptProviderKeyForStorage(token, keyId, "org-id"),
 				baseUrl,
 				options,
 			},
@@ -1238,7 +1240,7 @@ export async function beforeAllHook() {
 		.insert(tables.apiKey)
 		.values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",

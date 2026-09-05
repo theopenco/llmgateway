@@ -14,6 +14,7 @@ import {
 	eq,
 	inArray,
 	isNull,
+	ne,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -37,6 +38,10 @@ import {
 } from "./lib/three-d-secure.js";
 import { posthog } from "./posthog.js";
 import { getStripe, type StripeMode } from "./routes/payments.js";
+import {
+	claimDevPlanCardFingerprint,
+	rememberDevPlanCardFingerprint,
+} from "./utils/dev-plan-card-fingerprints.js";
 import { getDevPlanTierFromInvoice } from "./utils/dev-plan-prices.js";
 import {
 	notifyChatPlanCancelled,
@@ -418,6 +423,16 @@ stripeRoutes.openapi(webhookHandler, async (c) => {
 			case "checkout.session.completed":
 				await handleCheckoutSessionCompleted(event);
 				break;
+			case "checkout.session.async_payment_succeeded": {
+				// Delayed payment methods settle after `completed` fired with
+				// payment_status "unpaid". Only the airside listing fee opts into
+				// this event; other checkout flows settle synchronously.
+				const settledSession = event.data.object as Stripe.Checkout.Session;
+				if (settledSession.metadata?.type === "airside_listing_fee") {
+					await handleAirsideListingCheckout(settledSession);
+				}
+				break;
+			}
 			case "invoice.payment_succeeded":
 				await handleInvoicePaymentSucceeded(event);
 				break;
@@ -912,12 +927,10 @@ export async function finalizeDevPlanSetupSession(
 			: null;
 
 	if (fingerprint && isDevPlanCardDedupeEnforced()) {
-		const conflictingOrg = await db.query.organization.findFirst({
-			where: {
-				devPlanCardFingerprint: { eq: fingerprint },
-				id: { ne: organizationId },
-			},
-		});
+		const conflictingOrg = await claimDevPlanCardFingerprint(
+			organizationId,
+			fingerprint,
+		);
 		if (conflictingOrg) {
 			try {
 				await getStripe().paymentMethods.detach(paymentMethod.id);
@@ -1093,6 +1106,7 @@ export async function finalizeDevPlanSetupSession(
 		);
 		return { status: "already_processed", subscriptionId: subscription.id };
 	}
+	await rememberDevPlanCardFingerprint(organizationId, fingerprint);
 
 	logger.info(
 		`Successfully activated dev plan ${devPlanTier} for organization ${organizationId} with ${creditsLimit} credits via setup-mode checkout`,
@@ -1256,6 +1270,11 @@ async function handleCheckoutSessionCompleted(
 
 	if (!subscription && metadata?.type === "provider_listing") {
 		await handleProviderListingCheckout(session);
+		return;
+	}
+
+	if (!subscription && metadata?.type === "airside_listing_fee") {
+		await handleAirsideListingCheckout(session);
 		return;
 	}
 
@@ -1475,6 +1494,7 @@ async function handleCheckoutSessionCompleted(
 					devPlanCardFingerprint: fingerprint,
 				})
 				.where(eq(tables.organization.id, organizationId));
+			await rememberDevPlanCardFingerprint(organizationId, fingerprint);
 
 			logger.info(
 				`Successfully activated dev plan ${devPlanTier} for organization ${organizationId} with ${creditsLimit} credits`,
@@ -1968,6 +1988,43 @@ async function recordCreditTopUp({
 			organization: organizationId,
 		},
 	});
+}
+
+async function handleAirsideListingCheckout(session: Stripe.Checkout.Session) {
+	if (session.payment_status !== "paid") {
+		logger.info(
+			`Airside listing checkout session payment not yet settled (status: ${session.payment_status}), skipping`,
+		);
+		return;
+	}
+	const providerCompanyId = session.metadata?.providerCompanyId;
+	if (!providerCompanyId) {
+		logger.error("Airside listing checkout session missing providerCompanyId");
+		return;
+	}
+	const updated = await db
+		.update(tables.providerCompany)
+		.set({
+			paymentStatus: "paid",
+			stripeCheckoutSessionId: session.id,
+			paidAt: new Date(),
+		})
+		.where(
+			and(
+				eq(tables.providerCompany.id, providerCompanyId),
+				ne(tables.providerCompany.paymentStatus, "paid"),
+			),
+		)
+		.returning({ id: tables.providerCompany.id });
+	if (updated.length === 0) {
+		// Already paid via another session: a duplicate successful charge that
+		// needs a manual refund.
+		logger.error(
+			`Airside listing fee paid twice for provider company ${providerCompanyId}; refund checkout session ${session.id}`,
+		);
+		return;
+	}
+	logger.info(`Marked airside provider company ${providerCompanyId} as paid`);
 }
 
 async function handleProviderListingCheckout(session: Stripe.Checkout.Session) {
@@ -3850,6 +3907,7 @@ export async function handleInvoicePaymentSucceeded(event: {
 			);
 			return;
 		}
+		await rememberDevPlanCardFingerprint(organizationId, fingerprint);
 
 		const [transaction] = await db
 			.insert(tables.transaction)

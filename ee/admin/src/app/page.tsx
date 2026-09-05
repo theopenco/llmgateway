@@ -313,8 +313,14 @@ export default async function Page({
 							style={revealAt(2)}
 							rows={[
 								{
-									label: "Credits",
+									label: "Credits Stripe",
 									value: currencyFormatter.format(metrics.grossCreditsRevenue),
+								},
+								{
+									label: "Credits external",
+									value: currencyFormatter.format(
+										metrics.grossManualPaymentsRevenue,
+									),
 								},
 								{
 									label: "DevPass",
@@ -344,16 +350,6 @@ export default async function Page({
 												label: "Pro subs",
 												value: currencyFormatter.format(
 													metrics.grossProSubscriptionsRevenue,
-												),
-											},
-										]
-									: []),
-								...(metrics.grossManualPaymentsRevenue > 0
-									? [
-											{
-												label: "Manual payments",
-												value: currencyFormatter.format(
-													metrics.grossManualPaymentsRevenue,
 												),
 											},
 										]

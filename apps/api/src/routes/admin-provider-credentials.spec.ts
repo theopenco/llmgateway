@@ -7,6 +7,7 @@ import {
 	deleteAll,
 } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import {
 	decryptProviderKey,
 	deleteProviderEnvInventory,
@@ -23,6 +24,7 @@ import {
 	getProviderDefinition,
 	getRegionEnvVarSuffix,
 } from "@llmgateway/models";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
 import type * as LlmGatewayActions from "@llmgateway/actions";
@@ -128,7 +130,7 @@ describe("admin provider credentials", () => {
 		});
 		expect(row?.managed).toBe(true);
 		expect(row?.organizationId).toBeNull();
-		expect(row?.token).toBeNull();
+		expect(row?.tokenCiphertext).toMatch(/^llmgw:v2:/);
 	});
 
 	test("never returns the plaintext token", async () => {
@@ -405,7 +407,7 @@ describe("admin provider credentials", () => {
 		});
 		await db.insert(tables.providerKey).values({
 			id: "byok-key",
-			token: "sk-byok",
+			...encryptProviderKeyForStorage("sk-byok", "byok-key", "byok-org"),
 			provider: "openai",
 			organizationId: "byok-org",
 		});
@@ -845,7 +847,7 @@ describe("managed credential ordering", () => {
 	async function seed(id: string, provider = "openai") {
 		await db.insert(tables.providerKey).values({
 			id,
-			token: `token-${id}`,
+			...encryptProviderKeyForStorage(`token-${id}`, id, null),
 			provider,
 			managed: true,
 			organizationId: null,
@@ -905,7 +907,7 @@ describe("managed credential ordering", () => {
 		});
 		await db.insert(tables.providerKey).values({
 			id: "byok-key",
-			token: "sk-byok",
+			...encryptProviderKeyForStorage("sk-byok", "byok-key", "byok-org"),
 			provider: "openai",
 			organizationId: "byok-org",
 		});
@@ -1010,7 +1012,7 @@ describe("managed credential reorder cache invalidation", () => {
 		for (const id of ["cache-cred-a", "cache-cred-b"]) {
 			await db.insert(tables.providerKey).values({
 				id,
-				token: `token-${id}`,
+				...encryptProviderKeyForStorage(`token-${id}`, id, null),
 				provider,
 				managed: true,
 				organizationId: null,
@@ -1064,14 +1066,14 @@ describe("managed credential reorder cache invalidation", () => {
 			});
 			await db.insert(tables.apiKey).values({
 				id: apiKeyId,
-				token: "spend-api-key-token",
+				...hashApiKeyForStorage("spend-api-key-token"),
 				projectId,
 				description: "Spend Key",
 				createdBy: "test-user-id",
 			});
 			await db.insert(tables.providerKey).values({
 				id: providerKeyId,
-				token: "sk-spend-cred",
+				...encryptProviderKeyForStorage("sk-spend-cred", providerKeyId, null),
 				provider: "openai",
 				managed: true,
 				organizationId: null,
@@ -1128,7 +1130,7 @@ describe("managed credential reorder cache invalidation", () => {
 			// spend outlives the key itself.
 			await db.insert(tables.providerKey).values({
 				id: "retired-cred",
-				token: "sk-retired",
+				...encryptProviderKeyForStorage("sk-retired", "retired-cred", null),
 				provider: "openai",
 				managed: true,
 				organizationId: null,
@@ -1192,7 +1194,7 @@ describe("managed credential reorder cache invalidation", () => {
 		test("reports zeroes for a key with no attributed traffic", async () => {
 			await db.insert(tables.providerKey).values({
 				id: "quiet-cred",
-				token: "sk-quiet",
+				...encryptProviderKeyForStorage("sk-quiet", "quiet-cred", null),
 				provider: "openai",
 				managed: true,
 				organizationId: null,
@@ -1282,7 +1284,7 @@ describe("managed credential reorder cache invalidation", () => {
 			});
 			await db.insert(tables.apiKey).values({
 				id: apiKeyId,
-				token: "overview-api-key-token",
+				...hashApiKeyForStorage("overview-api-key-token"),
 				projectId,
 				description: "Overview Key",
 				createdBy: "test-user-id",
@@ -1332,14 +1334,22 @@ describe("managed credential reorder cache invalidation", () => {
 			await db.insert(tables.providerKey).values([
 				{
 					id: "overview-cred-a",
-					token: "sk-overview-a",
+					...encryptProviderKeyForStorage(
+						"sk-overview-a",
+						"overview-cred-a",
+						null,
+					),
 					provider: "openai",
 					managed: true,
 					organizationId: null,
 				},
 				{
 					id: "overview-cred-b",
-					token: "sk-overview-b",
+					...encryptProviderKeyForStorage(
+						"sk-overview-b",
+						"overview-cred-b",
+						null,
+					),
 					provider: "anthropic",
 					managed: true,
 					organizationId: null,
@@ -1373,7 +1383,11 @@ describe("managed credential reorder cache invalidation", () => {
 		test("returns a bucket grid covering the whole window", async () => {
 			await db.insert(tables.providerKey).values({
 				id: "overview-grid",
-				token: "sk-overview-grid",
+				...encryptProviderKeyForStorage(
+					"sk-overview-grid",
+					"overview-grid",
+					null,
+				),
 				provider: "openai",
 				managed: true,
 				organizationId: null,
@@ -1400,7 +1414,11 @@ describe("managed credential reorder cache invalidation", () => {
 			});
 			await db.insert(tables.providerKey).values({
 				id: "overview-byok",
-				token: "sk-overview-byok",
+				...encryptProviderKeyForStorage(
+					"sk-overview-byok",
+					"overview-byok",
+					"byok-org",
+				),
 				provider: "openai",
 				managed: false,
 				organizationId: "byok-org",
@@ -1416,14 +1434,22 @@ describe("managed credential reorder cache invalidation", () => {
 			await db.insert(tables.providerKey).values([
 				{
 					id: "overview-quiet",
-					token: "sk-overview-quiet",
+					...encryptProviderKeyForStorage(
+						"sk-overview-quiet",
+						"overview-quiet",
+						null,
+					),
 					provider: "openai",
 					managed: true,
 					organizationId: null,
 				},
 				{
 					id: "overview-retired",
-					token: "sk-overview-retired",
+					...encryptProviderKeyForStorage(
+						"sk-overview-retired",
+						"overview-retired",
+						null,
+					),
 					provider: "openai",
 					managed: true,
 					organizationId: null,
@@ -1431,7 +1457,11 @@ describe("managed credential reorder cache invalidation", () => {
 				},
 				{
 					id: "overview-retired-spending",
-					token: "sk-overview-retired-spending",
+					...encryptProviderKeyForStorage(
+						"sk-overview-retired-spending",
+						"overview-retired-spending",
+						null,
+					),
 					provider: "openai",
 					managed: true,
 					organizationId: null,
@@ -1495,6 +1525,31 @@ describe("managed credential allowed models", () => {
 		});
 	}
 
+	async function createCustomCarrier() {
+		const [company] = await db
+			.insert(tables.providerCompany)
+			.values({ name: "Test Carrier" })
+			.returning({ id: tables.providerCompany.id });
+		const providerId = "test-carrier";
+		await db.insert(tables.providerClaim).values({
+			providerCompanyId: company.id,
+			providerId,
+			kind: "custom",
+			matchedDomain: "example.com",
+			customName: "Test Carrier",
+			customBaseUrl: "https://carrier.example.com",
+			status: "active",
+		});
+		await db.insert(tables.providerDraftModel).values({
+			providerCompanyId: company.id,
+			providerId,
+			modelName: "carrier-chat",
+			externalId: "upstream-chat-v1",
+			status: "active",
+		});
+		return { providerId, modelId: "carrier-chat" };
+	}
+
 	/**
 	 * Catalogue model ids for a provider, taken from the catalog route so the
 	 * tests never hardcode ids that rot when the catalogue changes.
@@ -1510,9 +1565,39 @@ describe("managed credential allowed models", () => {
 		return json.providers.find((entry) => entry.id === provider)?.models ?? [];
 	}
 
+	async function catalogModelsByKind(provider: string) {
+		const res = await app.request("/admin/provider-credentials/catalog", {
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(200);
+		const json = (await res.json()) as {
+			providers: {
+				id: string;
+				modelsByKind: {
+					text: string[];
+					image: string[];
+					ocr: string[];
+					embedding: string[];
+					video: string[];
+				};
+			}[];
+		};
+		return json.providers.find((entry) => entry.id === provider)?.modelsByKind;
+	}
+
 	test("catalog lists each provider's live models for the picker", async () => {
 		const models = await catalogModels("openai");
 		expect(models.length).toBeGreaterThan(0);
+	});
+
+	test("catalog groups models by request surface", async () => {
+		const openai = await catalogModelsByKind("openai");
+		const mistral = await catalogModelsByKind("mistral");
+
+		expect(openai?.text.length).toBeGreaterThan(0);
+		expect(openai?.image).toContain("gpt-image-2");
+		expect(openai?.embedding).toContain("text-embedding-3-small");
+		expect(mistral?.ocr).toContain("mistral-ocr-latest");
 	});
 
 	test("stores a normalized allowed-models list", async () => {
@@ -1550,6 +1635,33 @@ describe("managed credential allowed models", () => {
 		});
 		expect(res.status).toBe(400);
 		expect(await res.text()).toContain("definitely-not-a-model");
+	});
+
+	test("stores model restrictions for custom carriers", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });
+		const carrier = await createCustomCarrier();
+
+		const res = await create({
+			provider: carrier.providerId,
+			token: "carrier-token",
+			allowedModels: [carrier.modelId],
+		});
+
+		expect(res.status).toBe(201);
+		expect(
+			((await res.json()) as { credential: { allowedModels: string[] } })
+				.credential.allowedModels,
+		).toEqual([carrier.modelId]);
+		expect(validateProviderKeyMock).toHaveBeenCalledWith(
+			"custom",
+			"carrier-token",
+			"https://carrier.example.com",
+			false,
+			expect.anything(),
+			"upstream-chat-v1",
+			expect.any(AbortSignal),
+		);
 	});
 
 	test("sets and clears the restriction on update", async () => {
@@ -1597,8 +1709,11 @@ describe("managed credential allowed models", () => {
 		expect(res.status).toBe(201);
 
 		expect(validateProviderKeyMock).toHaveBeenCalledTimes(1);
-		// (provider, token, baseUrl, skipValidation, options, pinnedModelId)
+		// (provider, token, baseUrl, skipValidation, options, pinnedModelId, signal)
 		expect(validateProviderKeyMock.mock.calls[0][5]).toBe(chatModel);
+		expect(validateProviderKeyMock.mock.calls[0][6]).toBeInstanceOf(
+			AbortSignal,
+		);
 	});
 
 	test("save-time validation skips the probe when no allowed model can chat", async () => {
@@ -1640,6 +1755,43 @@ describe("managed credential allowed models", () => {
 			token: "sk-not-saved-anywhere",
 		});
 		expect(res.status).toBe(200);
+	});
+
+	test("self-test rejects unsafe unsaved provider URLs", async () => {
+		vi.stubEnv("ALLOW_INSECURE_PROVIDER_URLS", "false");
+		const res = await post("/admin/provider-credentials/self-test", {
+			provider: "openai",
+			token: "sk-not-saved-anywhere",
+			config: { baseUrl: "https://127.0.0.1" },
+		});
+		expect(res.status).toBe(400);
+		expect(await res.text()).toContain("private or reserved address");
+	});
+
+	test("self-test probes custom carriers with their upstream model", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });
+		const carrier = await createCustomCarrier();
+
+		const res = await post("/admin/provider-credentials/self-test", {
+			provider: carrier.providerId,
+			token: "carrier-token",
+		});
+
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({
+			valid: true,
+			model: carrier.modelId,
+		});
+		expect(validateProviderKeyMock).toHaveBeenCalledWith(
+			"custom",
+			"carrier-token",
+			"https://carrier.example.com",
+			false,
+			expect.anything(),
+			"upstream-chat-v1",
+			expect.any(AbortSignal),
+		);
 	});
 
 	test("self-test requires a credential or explicit values", async () => {
@@ -1703,6 +1855,124 @@ describe("managed credential allowed models", () => {
 		expect(((await res.json()) as { allValid: boolean }).allValid).toBe(true);
 	});
 
+	test("verify-models probes custom carrier mappings", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });
+		const carrier = await createCustomCarrier();
+
+		const res = await post("/admin/provider-credentials/verify-models", {
+			provider: carrier.providerId,
+			token: "carrier-token",
+			models: [carrier.modelId],
+		});
+
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({
+			results: [
+				{
+					model: carrier.modelId,
+					inCatalog: true,
+					valid: true,
+				},
+			],
+			allValid: true,
+		});
+		expect(validateProviderKeyMock).toHaveBeenCalledWith(
+			"custom",
+			"carrier-token",
+			"https://carrier.example.com",
+			false,
+			undefined,
+			"upstream-chat-v1",
+			expect.any(AbortSignal),
+		);
+	});
+
+	test("verify-models probes image and embedding request surfaces", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		validateProviderKeyMock
+			.mockResolvedValueOnce({ valid: true })
+			.mockResolvedValueOnce({ valid: true });
+		const kinds = await catalogModelsByKind("openai");
+		const models = [kinds?.image[0], kinds?.embedding[0]].filter(
+			(model): model is string => model !== undefined,
+		);
+		expect(models).toHaveLength(2);
+
+		const res = await post("/admin/provider-credentials/verify-models", {
+			provider: "openai",
+			token: "sk-multimodal-verify",
+			models,
+		});
+
+		expect(res.status).toBe(200);
+		expect(
+			((await res.json()) as { results: { valid: boolean | null }[] }).results,
+		).toEqual([
+			expect.objectContaining({ valid: true }),
+			expect.objectContaining({ valid: true }),
+		]);
+		expect(validateProviderKeyMock).toHaveBeenCalledTimes(2);
+	});
+
+	test("verify-models probes OCR models", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });
+		const [model] = (await catalogModelsByKind("mistral"))?.ocr ?? [];
+		expect(model).toBeDefined();
+
+		const res = await post("/admin/provider-credentials/verify-models", {
+			provider: "mistral",
+			token: "mistral-ocr-verify",
+			models: [model],
+		});
+
+		expect(res.status).toBe(200);
+		expect(
+			((await res.json()) as { results: { valid: boolean | null }[] })
+				.results[0]?.valid,
+		).toBe(true);
+		expect(validateProviderKeyMock).toHaveBeenCalledTimes(1);
+	});
+
+	test("verify-models skips video generation", async () => {
+		vi.stubEnv("E2E_TEST", "true");
+		const [model] = (await catalogModelsByKind("xai"))?.video ?? [];
+		expect(model).toBeDefined();
+
+		const res = await post("/admin/provider-credentials/verify-models", {
+			provider: "xai",
+			token: "xai-video-verify",
+			models: [model],
+		});
+
+		expect(res.status).toBe(200);
+		const result = (
+			(await res.json()) as {
+				results: { valid: boolean | null; error?: string }[];
+			}
+		).results[0];
+		expect(result?.valid).toBeNull();
+		expect(result?.error).toContain("video generation");
+		expect(validateProviderKeyMock).not.toHaveBeenCalled();
+	});
+
+	test("verify-models accepts more than 50 models", async () => {
+		const models = Array.from(
+			{ length: 51 },
+			(_, index) => `catalogue-model-${index}`,
+		);
+		const res = await post("/admin/provider-credentials/verify-models", {
+			provider: "openai",
+			token: "sk-verify-large-list",
+			models,
+		});
+		expect(res.status).toBe(200);
+		expect(
+			((await res.json()) as { results: { model: string }[] }).results,
+		).toHaveLength(models.length);
+	});
+
 	test("verify-models passes managed Azure Anthropic settings", async () => {
 		vi.stubEnv("E2E_TEST", "true");
 		validateProviderKeyMock.mockResolvedValueOnce({ valid: true });
@@ -1723,6 +1993,7 @@ describe("managed credential allowed models", () => {
 			false,
 			{ env_config: { resource: "managed-resource" } },
 			model,
+			expect.any(AbortSignal),
 		);
 	});
 });

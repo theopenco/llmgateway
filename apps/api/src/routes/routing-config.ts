@@ -97,6 +97,8 @@ const weightsSchema = z
 const thresholdsSchema = z
 	.object({
 		cachePromptTokens: z.number().int().min(0).optional(),
+		cacheHitRate: z.number().min(0).max(1).optional(),
+		cacheOutputRatio: z.number().min(0).max(10).optional(),
 		uptimePenalty: z.number().min(0).max(100).optional(),
 		defaultUptime: z.number().min(0).max(100).optional(),
 		defaultLatency: z.number().min(0).optional(),
@@ -212,6 +214,8 @@ const resolvedConfigSchema = z.object({
 	}),
 	thresholds: z.object({
 		cachePromptTokens: z.number(),
+		cacheHitRate: z.number(),
+		cacheOutputRatio: z.number(),
 		uptimePenalty: z.number(),
 		defaultUptime: z.number(),
 		defaultLatency: z.number(),
@@ -476,6 +480,8 @@ const getDefaults = createRoute({
 						}),
 						thresholds: z.object({
 							cachePromptTokens: z.number(),
+							cacheHitRate: z.number(),
+							cacheOutputRatio: z.number(),
 							uptimePenalty: z.number(),
 							defaultUptime: z.number(),
 							defaultLatency: z.number(),

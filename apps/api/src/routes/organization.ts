@@ -22,6 +22,10 @@ import {
 } from "@/utils/invoice.js";
 import { providerCacheControlModeSchema } from "@/utils/provider-cache-control.js";
 import { isConfigurableDomain, normalizeDomain } from "@/utils/sso-domain.js";
+import {
+	isZeroDataRetentionEnabled,
+	zdrCachingConflictMessage,
+} from "@/utils/zdr-settings.js";
 
 import {
 	getOrgTierQualifyingSpendUsd,
@@ -31,6 +35,7 @@ import { logAuditEvent } from "@llmgateway/audit";
 import { redisClient } from "@llmgateway/cache";
 import {
 	and,
+	cdb,
 	db,
 	desc,
 	eq,
@@ -86,6 +91,9 @@ const customModelRefRegex = new RegExp(
 	`^${CUSTOM_PROVIDER_NAME_REGEX.source.slice(1, -1)}/.+$`,
 );
 
+const zdrRetentionConflictMessage =
+	"Zero data retention requires Metadata Only. Disable payload retention before enabling ZDR, or disable ZDR before enabling payload retention.";
+
 const complianceProviderRefSchema = z
 	.string()
 	.max(256)
@@ -114,6 +122,7 @@ const providerCompliancePolicySchema = z.object({
 	requireGdpr: z.boolean().optional(),
 	blockApiTraining: z.boolean().optional(),
 	blockPromptLogging: z.boolean().optional(),
+	zeroDataRetention: z.boolean().optional(),
 	blockStealthProviders: z.boolean().optional(),
 	allowedCountries: z
 		.array(
@@ -717,10 +726,41 @@ organization.openapi(updateOrganization, async (c) => {
 		});
 	}
 
-	// Provider compliance policies are an enterprise feature managed by owners
-	// and admins (matching the Guardrails settings page).
+	// DevPass accepts only the no-API-training requirement, regardless of plan.
+	// Other organizations retain the enterprise gate for enabling a policy.
 	if (providerCompliancePolicy !== undefined) {
 		if (
+			userOrganization.role !== "owner" &&
+			userOrganization.role !== "admin"
+		) {
+			throw new HTTPException(403, {
+				message: "Only owners and admins can manage compliance policies",
+			});
+		}
+		if (
+			userOrganization.organization?.kind === "devpass" &&
+			providerCompliancePolicy !== null
+		) {
+			const unsupportedKeys = Object.entries(providerCompliancePolicy)
+				.filter(([key, value]) => {
+					if (key === "enabled" || key === "blockApiTraining") {
+						return false;
+					}
+					return Array.isArray(value) ? value.length > 0 : Boolean(value);
+				})
+				.map(([key]) => key);
+
+			if (unsupportedKeys.length > 0) {
+				throw new HTTPException(403, {
+					message: `DevPass compliance settings only support blockApiTraining; unsupported settings: ${unsupportedKeys.join(", ")}`,
+				});
+			}
+		} else if (
+			// Clearing or disabling a policy stays allowed without enterprise
+			// access: the gateway enforces any enabled stored policy fail-closed,
+			// so a downgraded org must be able to turn a leftover policy off.
+			providerCompliancePolicy !== null &&
+			providerCompliancePolicy.enabled &&
 			!hasOrganizationEnterpriseAccess(
 				userOrganization.organization?.id,
 				userOrganization.organization?.plan,
@@ -730,12 +770,41 @@ organization.openapi(updateOrganization, async (c) => {
 				message: "Provider compliance policies require an enterprise plan",
 			});
 		}
-		if (
-			userOrganization.role !== "owner" &&
-			userOrganization.role !== "admin"
-		) {
-			throw new HTTPException(403, {
-				message: "Only owners and admins can manage compliance policies",
+	}
+
+	const effectiveCompliancePolicy =
+		providerCompliancePolicy === undefined
+			? userOrganization.organization!.providerCompliancePolicy
+			: providerCompliancePolicy;
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled({
+		...userOrganization.organization!,
+		providerCompliancePolicy: effectiveCompliancePolicy,
+	});
+	const nextRetentionLevel =
+		retentionLevel ?? userOrganization.organization!.retentionLevel;
+
+	if (
+		(retentionLevel !== undefined || providerCompliancePolicy !== undefined) &&
+		zeroDataRetentionEnabled &&
+		nextRetentionLevel === "retain"
+	) {
+		throw new HTTPException(400, {
+			message: zdrRetentionConflictMessage,
+		});
+	}
+
+	if (providerCompliancePolicy !== undefined && zeroDataRetentionEnabled) {
+		const cachedProject = await db.query.project.findFirst({
+			columns: { id: true },
+			where: {
+				organizationId: { eq: id },
+				cachingEnabled: { eq: true },
+				status: { ne: "deleted" },
+			},
+		});
+		if (cachedProject) {
+			throw new HTTPException(400, {
+				message: zdrCachingConflictMessage,
 			});
 		}
 	}
@@ -828,11 +897,31 @@ organization.openapi(updateOrganization, async (c) => {
 	if (Object.keys(updateData).length === 0) {
 		updatedOrganization = userOrganization.organization!;
 	} else {
+		const updateConditions = [eq(tables.organization.id, id)];
+		if (retentionLevel === "retain" && providerCompliancePolicy === undefined) {
+			// Re-check the stored policy at write time so a concurrent ZDR enable
+			// cannot race payload retention on. The column is `json`, which has no
+			// equality operator, so test the flags instead of comparing the value.
+			const policyColumn = tables.organization.providerCompliancePolicy;
+			updateConditions.push(
+				sql`coalesce((${policyColumn}::jsonb ->> 'enabled')::boolean and (${policyColumn}::jsonb ->> 'zeroDataRetention')::boolean, false) = false`,
+			);
+		}
+		if (
+			providerCompliancePolicy !== undefined &&
+			zeroDataRetentionEnabled &&
+			retentionLevel === undefined
+		) {
+			updateConditions.push(eq(tables.organization.retentionLevel, "none"));
+		}
+
 		try {
-			[updatedOrganization] = await db
+			// Cached client so gateway policy gates see compliance changes
+			// immediately instead of serving the previous organization row.
+			[updatedOrganization] = await cdb
 				.update(tables.organization)
 				.set(updateData)
-				.where(eq(tables.organization.id, id))
+				.where(and(...updateConditions))
 				.returning();
 		} catch (err) {
 			const code =
@@ -844,6 +933,11 @@ organization.openapi(updateOrganization, async (c) => {
 				});
 			}
 			throw err;
+		}
+		if (!updatedOrganization) {
+			throw new HTTPException(400, {
+				message: zdrRetentionConflictMessage,
+			});
 		}
 	}
 
