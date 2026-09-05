@@ -61,7 +61,6 @@ import {
 	GLOBAL_STATS_INTERVAL_SECONDS,
 	processClosedHours,
 } from "./services/global-stats-aggregator.js";
-import { processNextModelVerification } from "./services/model-verifications.js";
 import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
 	refreshProjectHourlyStats,
@@ -147,14 +146,6 @@ const VIDEO_JOB_POLL_INTERVAL_SECONDS =
 	Number(process.env.VIDEO_JOB_POLL_INTERVAL_SECONDS) || 5;
 const VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS =
 	Number(process.env.VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS) || 5;
-const configuredModelVerificationPollIntervalSeconds = Number(
-	process.env.MODEL_VERIFICATION_POLL_INTERVAL_SECONDS,
-);
-const MODEL_VERIFICATION_POLL_INTERVAL_SECONDS =
-	Number.isFinite(configuredModelVerificationPollIntervalSeconds) &&
-	configuredModelVerificationPollIntervalSeconds > 0
-		? configuredModelVerificationPollIntervalSeconds
-		: 2;
 
 interface ApiKeyUsageEvent {
 	cost: Decimal;
@@ -2341,33 +2332,6 @@ async function runVideoJobsLoop() {
 	}
 }
 
-async function runModelVerificationLoop() {
-	activeLoops++;
-	const interval = MODEL_VERIFICATION_POLL_INTERVAL_SECONDS * 1000;
-	logger.info(
-		`Starting model verification loop (interval: ${MODEL_VERIFICATION_POLL_INTERVAL_SECONDS} seconds)...`,
-	);
-	try {
-		while (!isStopRequested()) {
-			try {
-				const processed = await processNextModelVerification();
-				if (!processed) {
-					await interruptibleSleep(interval);
-				}
-			} catch (error) {
-				logger.error(
-					"Error in model verification loop",
-					error instanceof Error ? error : new Error(String(error)),
-				);
-				await interruptibleSleep(5000);
-			}
-		}
-	} finally {
-		activeLoops--;
-		logger.info("Model verification loop stopped");
-	}
-}
-
 async function runVideoWebhookLoop() {
 	activeLoops++;
 	const interval = VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS * 1000;
@@ -3181,9 +3145,6 @@ export async function startWorker() {
 		`- Video webhooks: runs every ${VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS} seconds for callback delivery`,
 	);
 	logger.info(
-		`- Model verification: runs every ${MODEL_VERIFICATION_POLL_INTERVAL_SECONDS} seconds`,
-	);
-	logger.info(
 		"- Aggregated stats: runs every 1 minute at the start of each minute",
 	);
 	logger.info(
@@ -3203,7 +3164,6 @@ export async function startWorker() {
 	void runCurrentMinuteHistoryLoop();
 	void runVideoJobsLoop();
 	void runVideoWebhookLoop();
-	void runModelVerificationLoop();
 	void runAggregatedStatsLoop();
 	void runProjectStatsLoop();
 	void runGlobalStatsLoop();

@@ -127,7 +127,6 @@ import {
 	getCheapestFromAvailableProviders,
 	getDiscountedProviderSelectionPrice,
 	getGcpServiceAccountAccessToken,
-	getProviderApiTransport,
 	getProviderEndpoint,
 	getProviderHeaders,
 	isPremiumServiceTier,
@@ -563,7 +562,7 @@ function createProviderRoutingScoreMultiplierResolver() {
 	) => {
 		const [multiplier, airsideAdjustment] = await Promise.all([
 			findEffectiveRoutingScoreMultiplier(provider.providerId, modelId),
-			findAirsideRoutingAdjustment(provider.providerId, modelId),
+			findAirsideRoutingAdjustment(provider.providerId),
 		]);
 		return String(Number(multiplier.scoreMultiplier) + airsideAdjustment);
 	};
@@ -5606,10 +5605,6 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 	const imageGenProviderMapping = getUsedProviderMapping();
-	let transportProvider = getProviderApiTransport(
-		usedProvider,
-		imageGenProviderMapping?.apiFormat,
-	);
 	let isImageGeneration = imageGenProviderMapping?.imageGenerations === true;
 	const usesAwsBedrockConverse = () =>
 		usedProvider === "aws-bedrock" &&
@@ -6396,11 +6391,8 @@ chat.openapi(completions, async (c) => {
 	// apply and env-based resolution should win. Hence we gate on
 	// `trackedKeyHealthId`, not `providerKey`.
 	function resolveActiveVertexTokenType(): VertexTokenType | undefined {
-		if (transportProvider !== "google-vertex") {
-			return undefined;
-		}
 		if (usedProvider !== "google-vertex") {
-			return "api-key";
+			return undefined;
 		}
 		const dbKeyIsActiveCredential = trackedKeyHealthId !== undefined;
 		return resolveVertexTokenType(
@@ -6426,7 +6418,7 @@ chat.openapi(completions, async (c) => {
 			airsideResolution?.customBaseUrl ? "custom" : usedProvider,
 			airsideResolution?.customBaseUrl ?? credentialBaseUrl,
 			upstreamModelName,
-			usesGoogleQueryToken(transportProvider) ? usedToken : undefined,
+			usesGoogleQueryToken(usedProvider) ? usedToken : undefined,
 			stream,
 			supportsReasoning,
 			hasExistingToolCalls,
@@ -6438,7 +6430,6 @@ chat.openapi(completions, async (c) => {
 			usedInternalModel,
 			resolveActiveVertexTokenType(),
 			envVariant,
-			getUsedProviderMapping()?.apiFormat,
 		);
 
 		// If region is still unset but the provider supports regions, resolve the
@@ -7232,7 +7223,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Anthropic does not allow temperature and top_p to be set simultaneously
-	if (isAnthropicMessagesProvider(transportProvider)) {
+	if (isAnthropicMessagesProvider(usedProvider)) {
 		if (temperature !== undefined && top_p !== undefined) {
 			top_p = undefined;
 		}
@@ -7262,7 +7253,7 @@ chat.openapi(completions, async (c) => {
 
 	// For Google providers, enrich messages with cached thought_signatures
 	// This is needed for multi-turn tool call conversations with Gemini 3+
-	if (isGoogleCompatibleProvider(transportProvider)) {
+	if (isGoogleCompatibleProvider(usedProvider)) {
 		const { redisClient } = await import("@llmgateway/cache");
 		for (const message of messages) {
 			if (
@@ -7320,7 +7311,7 @@ chat.openapi(completions, async (c) => {
 	let requestBody: ProviderRequestBody | FormData;
 	try {
 		requestBody = await prepareRequestBody(
-			transportProvider,
+			usedProvider,
 			usedInternalModel,
 			usedRegion ?? null,
 			upstreamModelName,
@@ -7579,7 +7570,6 @@ chat.openapi(completions, async (c) => {
 		ctx: Awaited<ReturnType<typeof resolveProviderContext>>,
 	): Promise<void> {
 		usedProvider = ctx.usedProvider;
-		transportProvider = ctx.transportProvider;
 		usedRegion = ctx.usedRegion;
 		usedInternalModel = ctx.usedInternalModel;
 		if (usedProvider !== "custom") {
@@ -8215,7 +8205,7 @@ chat.openapi(completions, async (c) => {
 						// that fails before fetch returns (timeout/connection error)
 						// logs no served tier instead of the prior provider's.
 						servedServiceTier = null;
-						const headers = getProviderHeaders(transportProvider, usedToken, {
+						const headers = getProviderHeaders(usedProvider, usedToken, {
 							requestId,
 							// Same resolved token type as the endpoint so header auth and
 							// the `?key=` query param never disagree.
@@ -8228,9 +8218,7 @@ chat.openapi(completions, async (c) => {
 						// Anthropic's effort-based reasoning fields — triggered by the
 						// explicit `effort` param or by a `reasoning_effort` mapped onto an
 						// adaptive model (Opus 4.7+).
-						if (
-							anthropicRequestNeedsEffortBeta(transportProvider, requestBody)
-						) {
+						if (anthropicRequestNeedsEffortBeta(usedProvider, requestBody)) {
 							const currentBeta = headers["anthropic-beta"];
 							headers["anthropic-beta"] = currentBeta
 								? `${currentBeta},effort-2025-11-24`
@@ -8239,7 +8227,7 @@ chat.openapi(completions, async (c) => {
 
 						// Add structured outputs beta header for Anthropic if json_schema response_format is specified
 						if (
-							transportProvider === "anthropic" &&
+							usedProvider === "anthropic" &&
 							response_format?.type === "json_schema"
 						) {
 							const currentBeta = headers["anthropic-beta"];
@@ -8252,7 +8240,7 @@ chat.openapi(completions, async (c) => {
 						// field; Vertex uses a header set above in getProviderHeaders.
 						applyGoogleServiceTier(
 							requestBody,
-							transportProvider,
+							usedProvider,
 							forwardedServiceTier,
 						);
 
@@ -9674,7 +9662,7 @@ chat.openapi(completions, async (c) => {
 				const streamFormatProvider: Provider =
 					usedProvider === "aws-bedrock" && !isAwsBedrock
 						? "openai"
-						: transportProvider;
+						: (usedProvider as Provider);
 				const taggedReasoningStreamState = {
 					inReasoning: false,
 					pending: "",
@@ -9701,7 +9689,7 @@ chat.openapi(completions, async (c) => {
 					!healingDisabledByN &&
 					streamingIsJsonResponseFormat &&
 					(streamingResponseHealingEnabled === true ||
-						(isAnthropicMessagesProvider(transportProvider) &&
+						(isAnthropicMessagesProvider(usedProvider) &&
 							response_format?.type === "json_object") ||
 						(usesAwsBedrockConverse() &&
 							response_format?.type === "json_object") ||
@@ -10573,7 +10561,7 @@ chat.openapi(completions, async (c) => {
 
 								// For Anthropic, if we have partial usage data, complete it
 								if (
-									isAnthropicMessagesProvider(transportProvider) &&
+									isAnthropicMessagesProvider(usedProvider) &&
 									transformedData.usage
 								) {
 									const usage = transformedData.usage;
@@ -10607,7 +10595,7 @@ chat.openapi(completions, async (c) => {
 								}
 
 								// For Google providers, add usage information when available
-								if (isGoogleCompatibleProvider(transportProvider)) {
+								if (isGoogleCompatibleProvider(usedProvider)) {
 									const usage = extractTokenUsage(
 										data,
 										usedProvider,
@@ -10674,7 +10662,7 @@ chat.openapi(completions, async (c) => {
 
 								// For Anthropic streaming tool calls, enrich delta chunks with id/type/name
 								// from the initial content_block_start event. This ensures OpenAI SDK compatibility.
-								if (isAnthropicMessagesProvider(transportProvider)) {
+								if (isAnthropicMessagesProvider(usedProvider)) {
 									const toolCalls =
 										transformedData.choices?.[0]?.delta?.tool_calls;
 									if (toolCalls && toolCalls.length > 0) {
@@ -10817,11 +10805,11 @@ chat.openapi(completions, async (c) => {
 								// For providers with custom extraction logic (google-ai-studio, anthropic),
 								// use raw data. For others (like aws-bedrock), use transformed OpenAI format.
 								const contentChunk = extractContent(
-									isGoogleCompatibleProvider(transportProvider) ||
-										isAnthropicMessagesProvider(transportProvider)
+									isGoogleCompatibleProvider(usedProvider) ||
+										isAnthropicMessagesProvider(usedProvider)
 										? data
 										: transformedData,
-									streamFormatProvider,
+									usedProvider,
 								);
 								if (contentChunk) {
 									fullContent += contentChunk;
@@ -10834,7 +10822,7 @@ chat.openapi(completions, async (c) => {
 								}
 
 								// Track image data size for Google providers (for token estimation)
-								if (isGoogleCompatibleProvider(transportProvider)) {
+								if (isGoogleCompatibleProvider(usedProvider)) {
 									const parts = data.candidates?.[0]?.content?.parts ?? [];
 									for (const part of parts) {
 										if (part.inlineData?.data) {
@@ -10849,7 +10837,7 @@ chat.openapi(completions, async (c) => {
 
 								// Track web search calls for cost calculation
 								// Check for web search results based on provider-specific data
-								if (isAnthropicMessagesProvider(transportProvider)) {
+								if (isAnthropicMessagesProvider(usedProvider)) {
 									// For Anthropic, count web_search_tool_result blocks
 									if (
 										data.type === "content_block_start" &&
@@ -10857,7 +10845,7 @@ chat.openapi(completions, async (c) => {
 									) {
 										webSearchCount++;
 									}
-								} else if (isGoogleCompatibleProvider(transportProvider)) {
+								} else if (isGoogleCompatibleProvider(usedProvider)) {
 									// For Google, count when grounding metadata is present
 									if (data.candidates?.[0]?.groundingMetadata) {
 										const groundingMetadata =
@@ -10889,11 +10877,11 @@ chat.openapi(completions, async (c) => {
 								// For providers with custom extraction logic (google-ai-studio, anthropic),
 								// use raw data. For others, use transformed OpenAI format.
 								const reasoningContentChunk = extractReasoning(
-									isGoogleCompatibleProvider(transportProvider) ||
-										isAnthropicMessagesProvider(transportProvider)
+									isGoogleCompatibleProvider(usedProvider) ||
+										isAnthropicMessagesProvider(usedProvider)
 										? data
 										: transformedData,
-									streamFormatProvider,
+									usedProvider,
 								);
 								if (reasoningContentChunk) {
 									fullReasoningContent += reasoningContentChunk;
@@ -10918,7 +10906,7 @@ chat.openapi(completions, async (c) => {
 
 										// For Anthropic content_block_delta events, match by content block index
 										if (
-											isAnthropicMessagesProvider(transportProvider) &&
+											isAnthropicMessagesProvider(usedProvider) &&
 											newCall._contentBlockIndex !== undefined
 										) {
 											existingCall =
@@ -11452,14 +11440,14 @@ chat.openapi(completions, async (c) => {
 					// Exclude content filter responses as they are intentionally empty.
 					const isContentFilterStreamingResponse = isContentFilterFinishReason(
 						finishReason,
-						transportProvider,
+						usedProvider,
 					);
 					// A length-limit finish reason (e.g. a tiny `max_tokens`) can
 					// legitimately produce no content, so treat an empty response in
 					// that case as expected rather than an upstream error.
 					const isLengthLimitStreamingResponse = isLengthLimitFinishReason(
 						finishReason,
-						transportProvider,
+						usedProvider,
 					);
 					const hasEmptyResponse =
 						!streamingError &&
@@ -11669,7 +11657,7 @@ chat.openapi(completions, async (c) => {
 						// produced content is billed normally.
 						if (
 							streamingCostsEarly.totalCost !== null &&
-							isRefusalFinishReason(finishReason, transportProvider) &&
+							isRefusalFinishReason(finishReason, usedProvider) &&
 							!hasMeaningfulAssistantOutput({
 								completionTokens: calculatedCompletionTokens,
 								reasoningTokens,
@@ -11699,7 +11687,7 @@ chat.openapi(completions, async (c) => {
 									// Only add image input tokens for providers that
 									// exclude them from upstream usage (Google)
 									const providerExcludesImageInput =
-										isGoogleCompatibleProvider(transportProvider);
+										isGoogleCompatibleProvider(usedProvider);
 									const imageInputAdj = providerExcludesImageInput
 										? inputImageCount * 560
 										: 0;
@@ -12118,7 +12106,7 @@ chat.openapi(completions, async (c) => {
 					);
 
 					// Enhanced logging for Google models streaming to debug missing responses
-					if (isGoogleCompatibleProvider(transportProvider)) {
+					if (isGoogleCompatibleProvider(usedProvider)) {
 						logger.debug("Google model streaming response completed", {
 							usedProvider,
 							usedInternalModel,
@@ -12162,10 +12150,6 @@ chat.openapi(completions, async (c) => {
 						content: fullContent,
 						reasoningContent: fullReasoningContent || null,
 						finishReason: canceled ? "canceled" : finishReason,
-						unifiedFinishReason: getUnifiedFinishReason(
-							canceled ? "canceled" : finishReason,
-							transportProvider,
-						),
 						promptTokens: shouldIncludeTokensForBilling
 							? (calculatedPromptTokens?.toString() ?? null)
 							: null,
@@ -12622,7 +12606,7 @@ chat.openapi(completions, async (c) => {
 		});
 
 		try {
-			const headers = getProviderHeaders(transportProvider, usedToken, {
+			const headers = getProviderHeaders(usedProvider, usedToken, {
 				requestId,
 				// Same resolved token type as the endpoint so header auth and the
 				// `?key=` query param never disagree.
@@ -12636,7 +12620,7 @@ chat.openapi(completions, async (c) => {
 			// Add the effort beta header whenever the outgoing body uses Anthropic's
 			// effort-based reasoning fields — triggered by the explicit `effort` param
 			// or by a `reasoning_effort` mapped onto an adaptive model (Opus 4.7+).
-			if (anthropicRequestNeedsEffortBeta(transportProvider, requestBody)) {
+			if (anthropicRequestNeedsEffortBeta(usedProvider, requestBody)) {
 				const currentBeta = headers["anthropic-beta"];
 				headers["anthropic-beta"] = currentBeta
 					? `${currentBeta},effort-2025-11-24`
@@ -12645,7 +12629,7 @@ chat.openapi(completions, async (c) => {
 
 			// Add structured outputs beta header for Anthropic if json_schema response_format is specified
 			if (
-				transportProvider === "anthropic" &&
+				usedProvider === "anthropic" &&
 				response_format?.type === "json_schema"
 			) {
 				const currentBeta = headers["anthropic-beta"];
@@ -12670,11 +12654,7 @@ chat.openapi(completions, async (c) => {
 
 			// For the Gemini Developer API the processing tier is a body field;
 			// Vertex uses a header set above in getProviderHeaders.
-			applyGoogleServiceTier(
-				requestBody,
-				transportProvider,
-				forwardedServiceTier,
-			);
+			applyGoogleServiceTier(requestBody, usedProvider, forwardedServiceTier);
 
 			res = await fetch(url, {
 				method: "POST",
@@ -14156,7 +14136,7 @@ chat.openapi(completions, async (c) => {
 
 	// Extract content and token usage based on provider
 	const parsedResponse = parseProviderResponse(
-		transportProvider,
+		usedProvider,
 		usedInternalModel,
 		json,
 		messages,
@@ -14207,7 +14187,7 @@ chat.openapi(completions, async (c) => {
 	const shouldHealNonStreaming =
 		isJsonResponseFormat &&
 		(responseHealingEnabled === true ||
-			(isAnthropicMessagesProvider(transportProvider) &&
+			(isAnthropicMessagesProvider(usedProvider) &&
 				response_format?.type === "json_object") ||
 			(usesAwsBedrockConverse() && response_format?.type === "json_object") ||
 			usedProvider === "novita" ||
@@ -14234,7 +14214,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Enhanced logging for Google models to debug missing responses
-	if (isGoogleCompatibleProvider(transportProvider)) {
+	if (isGoogleCompatibleProvider(usedProvider)) {
 		logger.debug("Google model response parsed", {
 			usedProvider,
 			usedInternalModel,
@@ -14271,7 +14251,7 @@ chat.openapi(completions, async (c) => {
 
 	// Estimate tokens if not provided by the API
 	const estimatedTokens = estimateTokens(
-		transportProvider,
+		usedProvider,
 		messages,
 		content,
 		promptTokens,
@@ -14336,7 +14316,7 @@ chat.openapi(completions, async (c) => {
 	// applied before transformResponseToOpenai so the cost echoed back to the
 	// client also reflects the zeroed charge.
 	if (
-		isRefusalFinishReason(finishReason, transportProvider) &&
+		isRefusalFinishReason(finishReason, usedProvider) &&
 		!hasMeaningfulAssistantOutput({
 			completionTokens: calculatedCompletionTokens,
 			reasoningTokens: calculatedReasoningTokens,
@@ -14352,14 +14332,14 @@ chat.openapi(completions, async (c) => {
 	// calls). Exclude content filter responses as they are intentionally empty.
 	const isContentFilterResponse = isContentFilterFinishReason(
 		finishReason,
-		transportProvider,
+		usedProvider,
 	);
 	// A length-limit finish reason (e.g. a tiny `max_tokens`) can legitimately
 	// produce no content at all, so an empty response in that case is expected
 	// behavior rather than an upstream error.
 	const isLengthLimitResponse = isLengthLimitFinishReason(
 		finishReason,
-		transportProvider,
+		usedProvider,
 	);
 	const hasEmptyNonStreamingResponse =
 		!!finishReason &&
@@ -14461,7 +14441,6 @@ chat.openapi(completions, async (c) => {
 		cacheCreation1hTokens,
 		audioInputTokens,
 		echoedServiceTier,
-		transportProvider,
 	);
 	// Attach opaque reasoning payloads (e.g. OpenAI encrypted reasoning) to the
 	// assistant message so clients can replay them on later turns to preserve
@@ -14616,10 +14595,6 @@ chat.openapi(completions, async (c) => {
 		finishReason: hasEmptyNonStreamingResponse
 			? "upstream_error"
 			: finishReason,
-		unifiedFinishReason: getUnifiedFinishReason(
-			hasEmptyNonStreamingResponse ? "upstream_error" : finishReason,
-			transportProvider,
-		),
 		promptTokens: calculatedPromptTokens?.toString() ?? null,
 		completionTokens: calculatedCompletionTokens?.toString() ?? null,
 		totalTokens:

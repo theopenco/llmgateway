@@ -47,15 +47,6 @@ export type Price = string;
 export type ReasoningEffort =
 	"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
-export const PROVIDER_API_FORMATS = [
-	"provider-native",
-	"openai-chat-completions",
-	"openai-responses",
-	"google-vertex",
-] as const;
-
-export type ProviderApiFormat = (typeof PROVIDER_API_FORMATS)[number];
-
 /**
  * Pricing tier for models with context-length based pricing
  */
@@ -496,7 +487,7 @@ export interface ProviderModelMapping {
 	 * Provider-specific request/endpoint format when a provider has multiple API
 	 * surfaces for different models. Defaults to the provider's native format.
 	 */
-	apiFormat?: ProviderApiFormat;
+	apiFormat?: "openai-chat-completions";
 	/**
 	 * Provider service tier IDs supported by this specific model mapping.
 	 * Provider definitions own the tier metadata and default multipliers;

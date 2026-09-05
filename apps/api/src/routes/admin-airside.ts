@@ -30,11 +30,7 @@ import {
 	sql,
 	tables,
 } from "@llmgateway/db";
-import {
-	models as catalogueModels,
-	providers as catalogueProviders,
-	PROVIDER_API_FORMATS,
-} from "@llmgateway/models";
+import { models as catalogueModels } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -70,7 +66,6 @@ const adminFilingSchema = z.object({
 		providerId: z.string(),
 		modelName: z.string(),
 		externalId: z.string(),
-		apiFormat: z.enum(PROVIDER_API_FORMATS),
 		displayName: z.string().nullable(),
 		status: z.enum(["draft", "active", "rejected", "delisted"]),
 		// The name matches an existing catalogue model (id or alias): approving
@@ -106,7 +101,6 @@ type FilingWithRelations = typeof tables.providerPriceFiling.$inferSelect & {
 const adminRoutingFilingSchema = z.object({
 	id: z.string(),
 	providerId: z.string(),
-	modelId: z.string().nullable(),
 	status: z.enum(["pending", "approved", "rejected"]),
 	discountPercent: z.number(),
 	marginPercent: z.number(),
@@ -138,7 +132,6 @@ function serializeAdminRoutingFiling(
 	return {
 		id: row.id,
 		providerId: row.providerId,
-		modelId: row.modelId,
 		status: row.status,
 		discountPercent,
 		marginPercent,
@@ -199,7 +192,6 @@ function serializeAdminFiling(row: FilingWithRelations) {
 			providerId: row.draftModel.providerId,
 			modelName: row.draftModel.modelName,
 			externalId: row.draftModel.externalId,
-			apiFormat: row.draftModel.apiFormat,
 			displayName: row.draftModel.displayName,
 			status: row.draftModel.status,
 			sharesCatalogueModelName,
@@ -280,13 +272,8 @@ adminAirside.openapi(listFilings, async (c) => {
 				},
 			})
 		: [];
-	const routingScopeKey = (providerId: string, modelId: string | null) =>
-		JSON.stringify([providerId, modelId]);
-	const currentByScope = new Map(
-		currentSettings.map((row) => [
-			routingScopeKey(row.providerId, row.modelId),
-			row,
-		]),
+	const currentByProvider = new Map(
+		currentSettings.map((row) => [row.providerId, row]),
 	);
 	return c.json({
 		filings: rows.map((row) =>
@@ -296,8 +283,7 @@ adminAirside.openapi(listFilings, async (c) => {
 		routingFilings: routingRows.map((row) =>
 			serializeAdminRoutingFiling(
 				row as RoutingFilingWithCompany,
-				currentByScope.get(routingScopeKey(row.providerId, row.modelId)) ??
-					currentByScope.get(routingScopeKey(row.providerId, null)),
+				currentByProvider.get(row.providerId),
 			),
 		),
 		routingPendingCount: routingPending.length,
@@ -478,7 +464,6 @@ adminAirside.openapi(rejectFiling, async (c) => {
 const adminClaimSchema = z.object({
 	id: z.string(),
 	providerId: z.string(),
-	providerName: z.string(),
 	kind: z.enum(["catalogue", "custom"]),
 	customName: z.string().nullable(),
 	customBaseUrl: z.string().nullable(),
@@ -493,7 +478,6 @@ const adminClaimSchema = z.object({
 	// Branding edits on an active claim awaiting approval; null inside clears.
 	pendingBranding: z
 		.object({
-			name: z.string().optional(),
 			logoUrl: z.string().nullable().optional(),
 			iconUrl: z.string().nullable().optional(),
 		})
@@ -523,11 +507,6 @@ async function serializeAdminClaim(row: ClaimWithRelations) {
 	return {
 		id: row.id,
 		providerId: row.providerId,
-		providerName:
-			row.customName ??
-			catalogueProviders.find((provider) => provider.id === row.providerId)
-				?.name ??
-			row.providerId,
 		kind: row.kind,
 		customName: row.customName,
 		customBaseUrl: row.customBaseUrl,
@@ -655,7 +634,6 @@ adminAirside.openapi(approveBranding, async (c) => {
 	const [updated] = await cdb
 		.update(tables.providerClaim)
 		.set({
-			...(pending.name !== undefined ? { customName: pending.name } : {}),
 			...(pending.logoUrl !== undefined ? { logoUrl: pending.logoUrl } : {}),
 			...(pending.iconUrl !== undefined ? { iconUrl: pending.iconUrl } : {}),
 			pendingBranding: null,
@@ -757,16 +735,10 @@ adminAirside.openapi(approveClaim, async (c) => {
 				})
 				.onConflictDoNothing();
 		}
-		const [settings] = await tx
-			.select()
-			.from(tables.providerRoutingSettings)
-			.where(
-				and(
-					eq(tables.providerRoutingSettings.providerId, claim.providerId),
-					sql`${tables.providerRoutingSettings.modelId} IS NULL`,
-				),
-			)
-			.limit(1);
+		// Read via db: cdb reads inside a transaction can serve stale cache.
+		const settings = await db.query.providerRoutingSettings.findFirst({
+			where: { providerId: { eq: claim.providerId } },
+		});
 		if (!settings) {
 			await tx.insert(tables.providerRoutingSettings).values({
 				providerCompanyId: claim.providerCompanyId,
@@ -1135,7 +1107,6 @@ adminAirside.openapi(listRoutingSettings, async (c) => {
 				tables.providerCompany.id,
 			),
 		)
-		.where(sql`${tables.providerRoutingSettings.modelId} IS NULL`)
 		.orderBy(tables.providerCompany.name);
 
 	const providerIds = rows.map((row) => row.providerId);
@@ -1220,18 +1191,9 @@ async function serializeRoutingFilingWithCurrent(id: string) {
 		with: { providerCompany: true },
 	});
 	const current = filing
-		? ((await db.query.providerRoutingSettings.findFirst({
-				where: {
-					providerId: { eq: filing.providerId },
-					modelId: filing.modelId ? { eq: filing.modelId } : { isNull: true },
-				},
-			})) ??
-			(await db.query.providerRoutingSettings.findFirst({
-				where: {
-					providerId: { eq: filing.providerId },
-					modelId: { isNull: true },
-				},
-			})))
+		? await db.query.providerRoutingSettings.findFirst({
+				where: { providerId: { eq: filing.providerId } },
+			})
 		: undefined;
 	return serializeAdminRoutingFiling(
 		filing as RoutingFilingWithCompany,
@@ -1283,36 +1245,24 @@ adminAirside.openapi(approveRoutingFiling, async (c) => {
 				message: "This filing has already been reviewed.",
 			});
 		}
-		const [current] = await tx
-			.select()
-			.from(tables.providerRoutingSettings)
-			.where(
-				and(
-					eq(tables.providerRoutingSettings.providerId, filing.providerId),
-					filing.modelId
-						? eq(tables.providerRoutingSettings.modelId, filing.modelId)
-						: sql`${tables.providerRoutingSettings.modelId} IS NULL`,
-				),
-			)
-			.limit(1);
-		if (current) {
-			await tx
-				.update(tables.providerRoutingSettings)
-				.set({
-					providerCompanyId: filing.providerCompanyId,
-					discountPercent: filing.discountPercent,
-					marginPercent: filing.marginPercent,
-				})
-				.where(eq(tables.providerRoutingSettings.id, current.id));
-		} else {
-			await tx.insert(tables.providerRoutingSettings).values({
+		// Upsert keyed on the provider's unique settings row; ownership is
+		// refreshed because the row can predate a change of hands.
+		await tx
+			.insert(tables.providerRoutingSettings)
+			.values({
 				providerId: filing.providerId,
-				modelId: filing.modelId,
 				providerCompanyId: filing.providerCompanyId,
 				discountPercent: filing.discountPercent,
 				marginPercent: filing.marginPercent,
+			})
+			.onConflictDoUpdate({
+				target: tables.providerRoutingSettings.providerId,
+				set: {
+					providerCompanyId: filing.providerCompanyId,
+					discountPercent: filing.discountPercent,
+					marginPercent: filing.marginPercent,
+				},
 			});
-		}
 	});
 	return c.json({ filing: await serializeRoutingFilingWithCurrent(id) });
 });

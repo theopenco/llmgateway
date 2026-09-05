@@ -5,7 +5,6 @@ import {
 	type EnvVarVariant,
 	type ProviderDefinition,
 	type ProviderModelMapping,
-	type ProviderApiFormat,
 	type ProviderId,
 	type VertexTokenType,
 	getProviderEnvValue,
@@ -269,7 +268,6 @@ export function getProviderEndpoint(
 	modelId?: string,
 	vertexTokenType?: VertexTokenType,
 	variant?: EnvVarVariant,
-	apiFormat?: ProviderApiFormat,
 ): string {
 	let externalId = model;
 	let providerMapping: ProviderModelMapping | undefined;
@@ -652,39 +650,6 @@ export function getProviderEndpoint(
 		throw new Error(`Failed to determine base URL for provider ${provider}`);
 	}
 
-	if (
-		provider === "aws-bedrock" &&
-		(apiFormat === "openai-chat-completions" ||
-			((!apiFormat || apiFormat === "provider-native") &&
-				providerMapping?.apiFormat === "openai-chat-completions"))
-	) {
-		return appendPath(
-			getBedrockMantleBaseUrl(url, region),
-			"/chat/completions",
-		);
-	}
-
-	if (apiFormat === "openai-chat-completions") {
-		return appendPath(url, "/v1/chat/completions");
-	}
-	if (apiFormat === "openai-responses") {
-		return appendPath(url, "/v1/responses");
-	}
-	if (apiFormat === "google-vertex") {
-		return buildVertexCompatibleEndpoint(
-			"google-vertex",
-			url,
-			externalId,
-			token,
-			stream,
-			configIndex,
-			providerKeyOptions,
-			skipEnvVars,
-			vertexTokenType ?? (provider === "google-vertex" ? undefined : "api-key"),
-			variant,
-		);
-	}
-
 	switch (provider) {
 		case "anthropic":
 			return `${url}/v1/messages`;
@@ -843,6 +808,11 @@ export function getProviderEndpoint(
 			}
 			return `${url}/api/paas/v4/chat/completions`;
 		case "aws-bedrock": {
+			if (providerMapping?.apiFormat === "openai-chat-completions") {
+				const mantleBaseUrl = getBedrockMantleBaseUrl(url, region);
+				return appendPath(mantleBaseUrl, "/chat/completions");
+			}
+
 			const awsRegionPrefix = region
 				? (
 						providers.find((p) => p.id === "aws-bedrock") as

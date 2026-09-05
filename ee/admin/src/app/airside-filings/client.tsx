@@ -347,10 +347,6 @@ export function AirsideFilingsClient() {
 														{claim.customName} · {claim.customBaseUrl}
 													</div>
 												</>
-											) : claim.customName ? (
-												<div className="text-muted-foreground mt-0.5 text-xs">
-													{claim.customName}
-												</div>
 											) : null}
 										</TableCell>
 										<TableCell className="font-mono text-xs">
@@ -449,8 +445,8 @@ export function AirsideFilingsClient() {
 					<CardHeader>
 						<CardTitle>Branding changes</CardTitle>
 						<CardDescription>
-							Name, logo or icon edits on live carriers. Approving publishes
-							them on the providers and models pages.
+							Logo or icon edits on live carriers. Approving publishes them on
+							the providers and models pages.
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
@@ -459,7 +455,6 @@ export function AirsideFilingsClient() {
 								<TableRow>
 									<TableHead>Company</TableHead>
 									<TableHead>Provider</TableHead>
-									<TableHead>Name</TableHead>
 									<TableHead>Logo</TableHead>
 									<TableHead>Icon</TableHead>
 									<TableHead className="text-right">Actions</TableHead>
@@ -473,20 +468,6 @@ export function AirsideFilingsClient() {
 										</TableCell>
 										<TableCell className="font-mono text-sm">
 											{claim.providerId}
-										</TableCell>
-										<TableCell>
-											{claim.pendingBranding?.name !== undefined ? (
-												<div className="flex flex-col gap-1 text-sm">
-													<span className="text-muted-foreground">
-														Current: {claim.providerName}
-													</span>
-													<span>Proposed: {claim.pendingBranding.name}</span>
-												</div>
-											) : (
-												<span className="text-muted-foreground text-xs">
-													unchanged
-												</span>
-											)}
 										</TableCell>
 										{(["logoUrl", "iconUrl"] as const).map((field) => (
 											<TableCell key={field}>
@@ -592,10 +573,7 @@ export function AirsideFilingsClient() {
 							</TableHeader>
 							<TableBody>
 								{filings.map((filing) => (
-									<TableRow
-										key={filing.id}
-										data-testid={`filing-${filing.model.providerId}-${filing.model.modelName}`}
-									>
+									<TableRow key={filing.id} data-testid={`filing-${filing.id}`}>
 										<TableCell>
 											<div className="font-medium">{filing.company.name}</div>
 											<div className="text-muted-foreground text-xs">
@@ -612,9 +590,6 @@ export function AirsideFilingsClient() {
 													↗ {filing.model.externalId}
 												</div>
 											) : null}
-											<div className="text-muted-foreground text-xs">
-												{filing.model.apiFormat}
-											</div>
 											{filing.kind === "initial" ? (
 												filing.model.sharesCatalogueModelName ? (
 													<Badge
@@ -747,7 +722,6 @@ export function AirsideFilingsClient() {
 								<TableRow>
 									<TableHead>Company</TableHead>
 									<TableHead>Provider</TableHead>
-									<TableHead>Scope</TableHead>
 									<TableHead>Discount</TableHead>
 									<TableHead>Margin</TableHead>
 									<TableHead>Adjustment</TableHead>
@@ -759,16 +733,13 @@ export function AirsideFilingsClient() {
 								{routingFilings.map((filing) => (
 									<TableRow
 										key={filing.id}
-										data-testid={`routing-filing-${filing.providerId}-${filing.modelId ?? "all"}`}
+										data-testid={`routing-filing-${filing.id}`}
 									>
 										<TableCell className="font-medium">
 											{filing.company.name}
 										</TableCell>
 										<TableCell className="font-mono text-sm">
 											{filing.providerId}
-										</TableCell>
-										<TableCell className="font-mono text-xs">
-											{filing.modelId ?? "All models"}
 										</TableCell>
 										<TableCell className="font-mono text-xs">
 											{Math.round(filing.currentDiscountPercent * 100)}% →{" "}
