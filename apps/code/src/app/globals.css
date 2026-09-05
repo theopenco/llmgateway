@@ -171,3 +171,61 @@
 @utility animate-accordion-up {
 	animation: accordion-up 0.2s ease-out;
 }
+
+/* Model census: passport paper + always-dark departures board.
+   Unlayered on purpose: Tailwind v4 does not emit custom classes declared
+   inside @layer components. */
+
+.census-paper {
+	background-color: #f6f1e6;
+	background-image:
+		repeating-linear-gradient(
+			0deg,
+			rgba(6, 78, 59, 0.045) 0 1px,
+			transparent 1px 9px
+		),
+		radial-gradient(circle at 30% 20%, rgba(6, 78, 59, 0.06), transparent 45%),
+		radial-gradient(circle at 75% 80%, rgba(6, 78, 59, 0.05), transparent 40%);
+}
+.dark .census-paper {
+	background-color: #161a18;
+	background-image:
+		repeating-linear-gradient(
+			0deg,
+			rgba(52, 211, 153, 0.045) 0 1px,
+			transparent 1px 9px
+		),
+		radial-gradient(
+			circle at 30% 20%,
+			rgba(52, 211, 153, 0.07),
+			transparent 45%
+		),
+		radial-gradient(
+			circle at 75% 80%,
+			rgba(52, 211, 153, 0.05),
+			transparent 40%
+		);
+}
+.census-guilloche {
+	background-image: repeating-radial-gradient(
+		circle at 50% 130%,
+		rgba(6, 78, 59, 0.07) 0 1px,
+		transparent 1px 16px
+	);
+}
+.dark .census-guilloche {
+	background-image: repeating-radial-gradient(
+		circle at 50% 130%,
+		rgba(52, 211, 153, 0.06) 0 1px,
+		transparent 1px 16px
+	);
+}
+.census-board {
+	color-scheme: dark;
+	background-color: #0c110f;
+	background-image: linear-gradient(
+		180deg,
+		rgba(255, 255, 255, 0.035),
+		transparent 30%
+	);
+}
