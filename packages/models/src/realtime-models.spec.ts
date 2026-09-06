@@ -162,6 +162,27 @@ describe("realtime model catalogue validation", () => {
 		expect(mapping.realtimeTranscriptionTurnDetection).toBeUndefined();
 	});
 
+	it("declares the gpt-transcribe mapping exactly", () => {
+		const entry = transcriptionEntries.find(
+			(e) => e.model.id === "gpt-transcribe",
+		);
+		expect(entry).toBeDefined();
+		const { model, mapping } = entry!;
+		expect(model.output).toEqual(["text"]);
+		expect(mapping.providerId).toBe("openai");
+		expect(mapping.externalId).toBe("gpt-transcribe");
+		// $0.0045 per minute of audio, expressed per hour.
+		expect(mapping.inputAudioHourPrice).toBe("0.27");
+		expect(mapping.requestPrice).toBe("0");
+		expect(mapping.inputPrice).toBe("0");
+		expect(mapping.outputPrice).toBe("0");
+		expect(mapping.inputAudioPrice).toBeUndefined();
+		expect(mapping.realtime).toBeUndefined();
+		// Unlike the streaming model, gpt-transcribe transcribes committed turns
+		// and accepts server VAD to commit them.
+		expect(mapping.realtimeTranscriptionTurnDetection).toBe(true);
+	});
+
 	it("declares turn detection support only on transcription mappings", () => {
 		for (const model of models as readonly ModelDefinition[]) {
 			for (const provider of model.providers) {
