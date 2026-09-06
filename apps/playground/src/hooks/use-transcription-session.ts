@@ -62,6 +62,11 @@ const METER_EPSILON = 0.02;
 const SPEECH_ON_LEVEL = 0.2;
 const SPEECH_OFF_LEVEL = 0.12;
 const SPEECH_OFF_HOLD_MS = 500;
+/**
+ * Upper bound on holding the socket open after Stop for the final segment's
+ * terminal event; past it the session is torn down regardless.
+ */
+const STOP_DRAIN_TIMEOUT_MS = 5000;
 
 interface UseTranscriptionSessionOptions {
 	model: string | null;
@@ -114,6 +119,16 @@ export function useTranscriptionSession({
 	const inputLevelRef = useRef(0);
 	const userSpeakingRef = useRef(false);
 	const userQuietSinceRef = useRef(0);
+	// Audio items whose terminal transcription event (completed or failed) has
+	// not arrived: Stop keeps the socket open until this empties.
+	const pendingItemsRef = useRef(new Set<string>());
+	// Audio the provider has not committed yet: streamed chunks on manual turns,
+	// or a server-VAD turn whose speech_started has no committed event yet.
+	const uncommittedAudioRef = useRef(false);
+	// A commit whose committed (or error) event is still expected: one sent by
+	// Stop, or the server VAD's own commit that follows speech_stopped.
+	const awaitingCommitRef = useRef(false);
+	const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const turnDetectionRef = useRef<TranscriptionTurnDetection>(turnDetection);
 	turnDetectionRef.current = turnDetection;
 	const modelRef = useRef<string | null>(null);
@@ -165,6 +180,17 @@ export function useTranscriptionSession({
 		}, METER_INTERVAL_MS);
 	}, []);
 
+	const releaseMicrophone = useCallback(() => {
+		captureRef.current?.stop();
+		captureRef.current = null;
+		if (streamRef.current) {
+			for (const track of streamRef.current.getTracks()) {
+				track.stop();
+			}
+			streamRef.current = null;
+		}
+	}, []);
+
 	const cleanup = useCallback(() => {
 		sessionIdRef.current += 1;
 		if (elapsedTimerRef.current) {
@@ -175,19 +201,19 @@ export function useTranscriptionSession({
 			clearInterval(meterTimerRef.current);
 			meterTimerRef.current = null;
 		}
+		if (stopTimerRef.current) {
+			clearTimeout(stopTimerRef.current);
+			stopTimerRef.current = null;
+		}
+		pendingItemsRef.current.clear();
+		uncommittedAudioRef.current = false;
+		awaitingCommitRef.current = false;
 		inputLevelRef.current = 0;
 		userSpeakingRef.current = false;
 		userQuietSinceRef.current = 0;
 		setInputLevel(0);
 		setUserSpeaking(false);
-		captureRef.current?.stop();
-		captureRef.current = null;
-		if (streamRef.current) {
-			for (const track of streamRef.current.getTracks()) {
-				track.stop();
-			}
-			streamRef.current = null;
-		}
+		releaseMicrophone();
 		const ws = wsRef.current;
 		wsRef.current = null;
 		if (ws) {
@@ -207,7 +233,18 @@ export function useTranscriptionSession({
 			void context.close().catch(() => {});
 		}
 		updateStatus("idle");
-	}, [updateStatus]);
+	}, [releaseMicrophone, updateStatus]);
+
+	/** After Stop: tear down once every outstanding transcription has landed. */
+	const finishStopIfDrained = useCallback(() => {
+		if (
+			statusRef.current === "ending" &&
+			!awaitingCommitRef.current &&
+			pendingItemsRef.current.size === 0
+		) {
+			cleanup();
+		}
+	}, [cleanup]);
 
 	const fail = useCallback(
 		(message: string) => {
@@ -293,6 +330,7 @@ export function useTranscriptionSession({
 						typeof event.item_id === "string" ? event.item_id : null;
 					const delta = typeof event.delta === "string" ? event.delta : "";
 					if (itemId) {
+						pendingItemsRef.current.add(itemId);
 						upsertSegment(itemId, (previous) => previous + delta, "partial");
 					}
 					return;
@@ -303,6 +341,7 @@ export function useTranscriptionSession({
 					const text =
 						typeof event.transcript === "string" ? event.transcript : null;
 					if (itemId) {
+						pendingItemsRef.current.delete(itemId);
 						upsertSegment(itemId, (previous) => text ?? previous, "final");
 					}
 					const rawUsage = asObject(event.usage);
@@ -319,12 +358,14 @@ export function useTranscriptionSession({
 						audioInputTokens:
 							prev.audioInputTokens + readCount(inputDetails.audio_tokens),
 					}));
+					finishStopIfDrained();
 					return;
 				}
 				case "conversation.item.input_audio_transcription.failed": {
 					const itemId =
 						typeof event.item_id === "string" ? event.item_id : null;
 					if (itemId) {
+						pendingItemsRef.current.delete(itemId);
 						upsertSegment(itemId, (previous) => previous, "failed");
 					}
 					const message = asObject(event.error)?.message;
@@ -333,15 +374,30 @@ export function useTranscriptionSession({
 							? message
 							: "Transcription failed for the last turn.",
 					);
+					finishStopIfDrained();
 					return;
 				}
 				case "input_audio_buffer.speech_started":
+					uncommittedAudioRef.current = true;
 					setUserSpeaking(true);
 					return;
 				case "input_audio_buffer.speech_stopped":
-				case "input_audio_buffer.committed":
+					uncommittedAudioRef.current = false;
+					awaitingCommitRef.current = true;
 					setUserSpeaking(false);
 					return;
+				case "input_audio_buffer.committed": {
+					const itemId =
+						typeof event.item_id === "string" ? event.item_id : null;
+					if (itemId) {
+						pendingItemsRef.current.add(itemId);
+					}
+					uncommittedAudioRef.current = false;
+					awaitingCommitRef.current = false;
+					setUserSpeaking(false);
+					finishStopIfDrained();
+					return;
+				}
 				case "error": {
 					const message = asObject(event.error)?.message;
 					onErrorRef.current?.(
@@ -349,12 +405,21 @@ export function useTranscriptionSession({
 							? message
 							: "The transcription session reported an error.",
 					);
+					// A rejected Stop commit (e.g. an empty buffer) has nothing to wait for.
+					awaitingCommitRef.current = false;
+					finishStopIfDrained();
 					break;
 				}
 				default:
 			}
 		},
-		[sendEvent, startMeterLoop, updateStatus, upsertSegment],
+		[
+			finishStopIfDrained,
+			sendEvent,
+			startMeterLoop,
+			updateStatus,
+			upsertSegment,
+		],
 	);
 
 	const runStart = useCallback(
@@ -469,7 +534,12 @@ export function useTranscriptionSession({
 				if (isStale()) {
 					return;
 				}
-				if (statusRef.current === "ending" || statusRef.current === "idle") {
+				if (statusRef.current === "ending") {
+					// The gateway closed first: nothing more can arrive for Stop.
+					cleanup();
+					return;
+				}
+				if (statusRef.current === "idle") {
 					return;
 				}
 				fail(
@@ -502,6 +572,9 @@ export function useTranscriptionSession({
 						) {
 							return;
 						}
+						if (turnDetectionRef.current === "manual") {
+							uncommittedAudioRef.current = true;
+						}
 						const resampled = resampleLinear(samples, context.sampleRate);
 						socket.send(
 							JSON.stringify({
@@ -517,7 +590,7 @@ export function useTranscriptionSession({
 				}
 			}
 		},
-		[fail, handleServerEvent, model, updateStatus],
+		[cleanup, fail, handleServerEvent, model, updateStatus],
 	);
 
 	/** Clear the finished session from view. No-op while one is in progress. */
@@ -544,13 +617,34 @@ export function useTranscriptionSession({
 		void runStart(context, sessionIdRef.current);
 	}, [model, reset, runStart, updateStatus]);
 
+	/**
+	 * Stop capturing, finalize the open turn and keep the socket up until its
+	 * transcription lands, so the last segment and its usage are not lost.
+	 * A second Stop while ending tears the session down immediately.
+	 */
 	const stop = useCallback(() => {
-		if (statusRef.current === "idle") {
+		const current = statusRef.current;
+		if (current === "idle") {
+			return;
+		}
+		const ws = wsRef.current;
+		if (current !== "live" || !ws || ws.readyState !== WebSocket.OPEN) {
+			updateStatus("ending");
+			cleanup();
 			return;
 		}
 		updateStatus("ending");
-		cleanup();
-	}, [cleanup, updateStatus]);
+		releaseMicrophone();
+		if (uncommittedAudioRef.current) {
+			awaitingCommitRef.current = true;
+			sendEvent({ type: "input_audio_buffer.commit" });
+		}
+		if (!awaitingCommitRef.current && pendingItemsRef.current.size === 0) {
+			cleanup();
+			return;
+		}
+		stopTimerRef.current = setTimeout(cleanup, STOP_DRAIN_TIMEOUT_MS);
+	}, [cleanup, releaseMicrophone, sendEvent, updateStatus]);
 
 	/** Manual turns only: finalize the audio streamed since the last commit. */
 	const commit = useCallback(() => {
