@@ -10,7 +10,7 @@ LLMGateway applies rate limits to ensure fair usage and protect platform stabili
 
 - **Per-organization endpoint limits** — a requests-per-minute cap on every API endpoint, scoped to your organization.
 - **Free model limits** — additional limits specifically for zero-cost models.
-- **Provider limits** — upstream limits enforced per provider/model when applicable.
+- **Provider/model caps** — limits configured and enforced by LLMGateway for a provider/model.
 
 ## Per-Organization Endpoint Limits
 
@@ -173,23 +173,31 @@ For organizations that have **purchased at least some credits**:
 
 ## Provider Limits
 
-Some providers and models enforce their own upstream request limits. When a provider limit is reached, LLMGateway returns a `429` and includes provider-scoped headers (`X-RateLimit-Limit-Provider`, `X-RateLimit-Remaining-Provider`). Where possible, [fallback routing](/features/routing) automatically retries the request on a healthy provider.
+LLMGateway uses configured provider/model caps to route requests away from providers that have reached their allowance. If you pin a provider and disable fallback, reaching one of these gateway-enforced caps can return `429`.
+
+Rate limits returned by an upstream provider are treated as provider errors and are eligible for retries or [fallback routing](/features/routing), subject to your routing configuration and available providers. Upstream `Retry-After` and rate-limit headers are never forwarded to clients, including when retries are exhausted. Provider-scoped quota headers (`X-RateLimit-*-Provider*`) are not exposed.
 
 ## Rate Limit Headers
 
-When a request is rate limited, the `429` response includes:
+All rate-limit response headers describe limits enforced by **LLMGateway**. A gateway rate-limit response can include:
 
 ```http
 Retry-After: 12
+RateLimit-Limit: 600
+RateLimit-Remaining: 0
+RateLimit-Reset: 12
 X-RateLimit-Limit: 600
 X-RateLimit-Remaining: 0
 X-RateLimit-Reset: 1640995200
 ```
 
 - `Retry-After`: Seconds to wait before retrying
-- `X-RateLimit-Limit`: Maximum number of requests allowed in the current window
-- `X-RateLimit-Remaining`: Number of requests remaining in the current window
-- `X-RateLimit-Reset`: Unix timestamp when the rate limit window resets
+- `RateLimit-Limit` / `X-RateLimit-Limit`: Limit for the current gateway window
+- `RateLimit-Remaining` / `X-RateLimit-Remaining`: Remaining allowance in that window
+- `RateLimit-Reset`: Seconds until the gateway limit resets
+- `X-RateLimit-Reset`: Unix timestamp when the gateway limit resets
+
+Successful authenticated responses on limited endpoints also include `RateLimit-Limit` and `RateLimit-Remaining`, so clients can slow down before reaching their gateway limit.
 
 ## Rate Limit Exceeded
 
@@ -255,7 +263,7 @@ How `529` differs from `429`:
 ## Best Practices
 
 - **Respect `Retry-After`.** Implement exponential backoff when you receive `429` or `529` responses, starting from the `Retry-After` value.
-- **Watch the headers.** Monitor `X-RateLimit-Remaining` to back off before you hit the limit.
+- **Watch the headers.** Monitor `RateLimit-Remaining` to back off before you hit the limit.
 - **Spread traffic across endpoints.** Limits are per endpoint, so unrelated workloads don't compete for the same budget.
 - **Scale with usage.** Regular organizations unlock higher limits automatically as lifetime spend grows; [contact us](mailto:contact@llmgateway.io) about an [Enterprise plan](https://llmgateway.io/enterprise) to remove the per-minute limits and get an elevated concurrency ceiling.
 

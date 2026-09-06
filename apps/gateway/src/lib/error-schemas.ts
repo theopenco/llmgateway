@@ -76,7 +76,7 @@ export function standardErrorResponses(
 			content: { "application/json": { schema } },
 			headers: rateLimitHeaders,
 			description:
-				"Rate limited (organization, endpoint, or upstream provider). Back off until Retry-After elapses.",
+				"Rate limited. Response headers describe only LLMGateway-enforced limits; upstream provider headers are not forwarded. Honor Retry-After when present.",
 		},
 		500: errorResponse(schema, "Internal server error."),
 		502: errorResponse(schema, "Failed to connect to the upstream provider."),
