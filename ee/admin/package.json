@@ -70,7 +70,7 @@
 		"@eslint/eslintrc": "^3.3.1",
 		"@tailwindcss/postcss": "^4.1.16",
 		"@tanstack/react-query-devtools": "5.90.2",
-		"@types/node": "^26.2.0",
+		"@types/node": "^26.4.0",
 		"@types/react": "^19.2.18",
 		"@types/react-dom": "^19.2.4",
 		"eslint": "^9.38.0",
