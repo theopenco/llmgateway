@@ -17,7 +17,7 @@
 		"test:e2e": "playwright test"
 	},
 	"dependencies": {
-		"@better-auth/passkey": "1.6.26",
+		"@better-auth/passkey": "1.7.2",
 		"@hookform/resolvers": "5.2.2",
 		"@llmgateway/shared": "workspace:*",
 		"@radix-ui/react-dialog": "^1.1.15",
@@ -29,7 +29,7 @@
 		"@tanstack/react-query": "^5.90.5",
 		"api": "workspace:*",
 		"babel-plugin-react-compiler": "1.0.0",
-		"better-auth": "1.6.26",
+		"better-auth": "1.7.2",
 		"class-variance-authority": "0.7.1",
 		"clsx": "^2.1.1",
 		"lucide-react": "0.548.0",
