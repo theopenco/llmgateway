@@ -78,7 +78,7 @@ In this example, 8,000 of the 8,200 prompt tokens were served from the provider'
 
 Cached input tokens are billed at the model's published `cached_input` price (typically 10–25% of the regular input price, depending on the provider and model). Output tokens and any non-cached input tokens are billed at the normal rate.
 
-When the [Smart Routing](/features/routing) algorithm selects a provider for a large prompt (≥ 5,000 estimated tokens), it gives extra weight to providers that advertise cache support, since caching can substantially reduce the cost of repeated large prompts.
+When [Smart Routing](/features/routing) selects a provider for a large prompt (≥ 5,000 estimated tokens) or a new session, it favors providers that advertise cache support and ranks price on what a cached workload pays: uncached and cached input prices blended at your project's observed cache-hit rate from the last 24 hours, falling back to defaults until enough usage exists. See [Prompt Caching and Token Costs](/features/routing#smart-routing-algorithm) for thresholds and overrides.
 
 ## Explicit caching with `cache_control`
 
@@ -201,4 +201,4 @@ For providers that publish a separate explicit-cache read rate (for example, Ali
 - [Gateway Caching](/features/caching/gateway-caching) — serve byte-identical requests entirely from LLM Gateway at $0 cost
 - [Caching Overview](/features/caching) — side-by-side comparison of provider caching vs. gateway caching
 - [Cost Breakdown](/features/cost-breakdown) — full reference for the usage and cost fields on every response
-- [Smart Routing](/features/routing) — how cache support influences provider selection for large prompts
+- [Smart Routing](/features/routing) — how cache support and observed cache-hit rates influence provider selection

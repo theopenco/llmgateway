@@ -100,12 +100,12 @@ const THRESHOLD_FIELDS: { key: string; label: string; help: string }[] = [
 	{
 		key: "cacheHitRate",
 		label: "Cache Hit Rate",
-		help: "Assumed cache-hit rate (0-1) used to price cached input into ranking",
+		help: "Cache-hit rate (0-1) used to price cached input; set it to override the rate learned from recent usage",
 	},
 	{
 		key: "cacheOutputRatio",
 		label: "Cache Output Ratio",
-		help: "Assumed output:input token ratio for large-prompt requests (1 = parity)",
+		help: "Output:input token ratio for large prompts (1 = parity); set it to override the ratio learned from recent usage",
 	},
 	{
 		key: "uptimePenalty",

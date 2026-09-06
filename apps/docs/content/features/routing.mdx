@@ -71,10 +71,10 @@ For estimated prompts of at least **5,000 tokens**, routing blends each provider
 
 These estimates use the project's **last 24 hours of model usage**, once it includes at least **20 successful requests and 100,000 input tokens**:
 
-- **Cache-hit rate** is cached input tokens divided by total input tokens. Each provider uses its own rate once it meets the same sample thresholds; otherwise it uses the project's combined rate for that model.
+- **Cache-hit rate** is cached input tokens divided by total input tokens. Each provider uses its own rate, counted across all of its regions, once it meets the same sample thresholds; otherwise it uses the project's combined rate for that model.
 - **Output:input ratio** uses the project's combined output and input tokens for that model across providers.
 
-Routing caches the usage lookup for 60 seconds. It reads hourly aggregates, which work with payload retention disabled. Buckets containing gateway response-cache hits are excluded because they cannot isolate upstream usage. During lookup failures, routing uses previously cached observations when available, then falls back to configured estimates. These are workload estimates, not guarantees that a particular prompt will hit a provider's cache.
+Routing caches the usage lookup for 60 seconds. It reads hourly aggregates, which work with payload retention disabled. Hourly buckets containing gateway response-cache hits are excluded because they cannot isolate upstream usage, so projects with response caching enabled may keep using the defaults. During lookup failures, routing uses previously cached observations when available, then falls back to configured estimates. These are workload estimates, not guarantees that a particular prompt will hit a provider's cache.
 
 Without enough history, the defaults are **70% cache hits** (`thresholds.cacheHitRate: 0.7`) and **20% output/input** (`thresholds.cacheOutputRatio: 0.2`). Explicit Enterprise overrides take precedence over observations. Setting them to `0` and `1`, respectively, restores list-price ranking.
 
