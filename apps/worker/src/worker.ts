@@ -118,6 +118,7 @@ const LIMIT_HIT_FLUSH_LOCK_KEY = "limit_hit_flush";
 const STALE_TOPUP_PI_LOCK_KEY = "stale_topup_pi_cancel";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
+const MARGIN_SHARE_FLUSH_LOCK_KEY = "margin_share_flush";
 const LOCK_DURATION_MINUTES = 5;
 // LLM SDK: emit a wallet.low_balance webhook when a wallet's balance
 // crosses below this (USD) on a usage debit.
@@ -232,6 +233,7 @@ const schema = z.object({
 	cost: z.number().nullable(),
 	billing_cost: z.string().nullable(),
 	cached: z.boolean(),
+	provider_margin_percent: z.number().nullable(),
 	api_key_id: z.string(),
 	provider_key_id: z.string().nullable(),
 	end_user_session_id: z.string().nullable(),
@@ -1074,6 +1076,7 @@ export async function batchProcessLogs(): Promise<number> {
 					cost: log.cost,
 					billing_cost: log.billingCost,
 					cached: log.cached,
+					provider_margin_percent: log.providerMarginPercent,
 					api_key_id: log.apiKeyId,
 					provider_key_id: log.providerKeyId,
 					end_user_session_id: log.endUserSessionId,
@@ -1143,6 +1146,9 @@ export async function batchProcessLogs(): Promise<number> {
 			// usage_debit ledger row back to a gateway log.
 			const walletCosts = new Map<string, Decimal>();
 			const walletLogIds = new Map<string, string>();
+			// Airside carrier margin the gateway earns on platform-paid requests,
+			// keyed by org, for the provider-margin-share settlement below.
+			const providerMarginByOrg = new Map<string, Decimal>();
 			// Upstream provider spend attributed per provider_key row (BYOK and
 			// managed alike). Uses the raw `cost` column — what the credential
 			// spends at the provider — not billingCost, which carries plan/margin
@@ -1267,6 +1273,23 @@ export async function batchProcessLogs(): Promise<number> {
 						const existingEvents = apiKeyEvents.get(row.api_key_id) ?? [];
 						existingEvents.push(usageEvent);
 						apiKeyEvents.set(row.api_key_id, existingEvents);
+					}
+
+					// Same predicate as providerMarginAmountField(): credits mode,
+					// not cached (guarded above), raw provider cost.
+					if (
+						row.used_mode === "credits" &&
+						row.cost &&
+						row.cost > 0 &&
+						row.provider_margin_percent &&
+						row.provider_margin_percent > 0
+					) {
+						providerMarginByOrg.set(
+							row.organization_id,
+							(
+								providerMarginByOrg.get(row.organization_id) ?? new Decimal(0)
+							).plus(new Decimal(row.cost).times(row.provider_margin_percent)),
+						);
 					}
 
 					// LLM SDK: end-user session traffic debits the wallet, not
@@ -1567,6 +1590,48 @@ export async function batchProcessLogs(): Promise<number> {
 
 			// deductedOrgIds is populated inside the loop above — only orgs
 			// with actual regular-credit deductions are included.
+
+			// Pass the configured fraction of this batch's carrier margin to
+			// distributor orgs. Lands in endUserMarginBalance (paid out by the
+			// end-user margin rail); flushMarginShareTransactions rolls it into
+			// a provider_margin_share transaction. Runs before the wallet
+			// debits to keep the org → wallet lock order.
+			if (providerMarginByOrg.size > 0) {
+				const shareRows = await tx
+					.select()
+					.from(tables.organizationProviderMarginShare)
+					.where(
+						inArray(
+							tables.organizationProviderMarginShare.organizationId,
+							Array.from(providerMarginByOrg.keys()),
+						),
+					);
+				for (const shareRow of shareRows) {
+					const accrued = (
+						providerMarginByOrg.get(shareRow.organizationId) ?? new Decimal(0)
+					).times(new Decimal(shareRow.sharePercent));
+					if (!accrued.greaterThan(0)) {
+						continue;
+					}
+					const accruedStr = accrued.toString();
+					await tx
+						.update(organization)
+						.set({
+							endUserMarginBalance: sql`${organization.endUserMarginBalance} + ${accruedStr}`,
+						})
+						.where(eq(organization.id, shareRow.organizationId));
+					await tx
+						.update(tables.organizationProviderMarginShare)
+						.set({
+							totalAccrued: sql`${tables.organizationProviderMarginShare.totalAccrued} + ${accruedStr}`,
+							pendingTransactionAmount: sql`${tables.organizationProviderMarginShare.pendingTransactionAmount} + ${accruedStr}`,
+						})
+						.where(eq(tables.organizationProviderMarginShare.id, shareRow.id));
+					logger.debug(
+						`Accrued ${accruedStr} provider margin share for organization ${shareRow.organizationId}`,
+					);
+				}
+			}
 
 			// LLM SDK: debit end-user wallets and append usage_debit ledger
 			// rows. Kept fully separate from the org-credit path above so normal
@@ -2974,6 +3039,70 @@ async function runWebhookDeliveryLoop() {
 	}
 }
 
+/**
+ * Roll the provider margin share accrued by batchProcessLogs into one
+ * `provider_margin_share` transaction per org, so the org's billing history
+ * shows the income without a row per billing batch.
+ */
+export async function flushMarginShareTransactions(): Promise<void> {
+	const lockAcquired = await acquireLock(MARGIN_SHARE_FLUSH_LOCK_KEY);
+	if (!lockAcquired) {
+		return;
+	}
+
+	try {
+		const rows = await db
+			.select()
+			.from(tables.organizationProviderMarginShare)
+			.where(
+				sql`${tables.organizationProviderMarginShare.pendingTransactionAmount} > 0`,
+			);
+
+		for (const row of rows) {
+			const pending = new Decimal(row.pendingTransactionAmount);
+			if (!pending.greaterThan(0)) {
+				continue;
+			}
+			const pendingStr = pending.toString();
+
+			await db.transaction(async (tx) => {
+				// Claim exactly the amount being recorded; a billing batch that
+				// lands in between keeps its accrual for the next flush.
+				const claimed = await tx
+					.update(tables.organizationProviderMarginShare)
+					.set({
+						pendingTransactionAmount: sql`${tables.organizationProviderMarginShare.pendingTransactionAmount} - ${pendingStr}`,
+					})
+					.where(
+						and(
+							eq(tables.organizationProviderMarginShare.id, row.id),
+							sql`${tables.organizationProviderMarginShare.pendingTransactionAmount} >= ${pendingStr}`,
+						),
+					)
+					.returning({ id: tables.organizationProviderMarginShare.id });
+				if (claimed.length === 0) {
+					return;
+				}
+
+				await tx.insert(tables.transaction).values({
+					organizationId: row.organizationId,
+					type: "provider_margin_share",
+					amount: pendingStr,
+					creditAmount: pendingStr,
+					status: "completed",
+					description: "Provider margin share",
+				});
+			});
+
+			logger.info(
+				`Recorded ${pendingStr} provider margin share for organization ${row.organizationId}`,
+			);
+		}
+	} finally {
+		await releaseLock(MARGIN_SHARE_FLUSH_LOCK_KEY);
+	}
+}
+
 /** Minimum accrued margin (USD) before the auto-payout loop transfers it. */
 const AUTO_PAYOUT_MIN_AMOUNT = 25;
 
@@ -3089,6 +3218,7 @@ async function runMarginPayoutLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
+				await flushMarginShareTransactions();
 				await processMarginPayouts();
 				await interruptibleSleep(interval);
 			} catch (error) {

@@ -1587,6 +1587,14 @@ async function seed() {
 		createdBy: "test-user-id",
 	});
 
+	// Half of the Airside carrier margin (mistral accepts 30%, seeded below)
+	// earned on this org's traffic is passed to the org.
+	await upsert(tables.organizationProviderMarginShare, {
+		id: "sdk-poc-margin-share-id",
+		organizationId: "sdk-poc-org-id",
+		sharePercent: "0.5",
+	});
+
 	// Personal org for the test admin so DevPass Pro is available locally
 	await upsert(tables.organization, {
 		id: "test-personal-org-id",
