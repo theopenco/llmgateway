@@ -200,8 +200,6 @@ Running the built `dist/serve.js` gives no watch (rebuild + restart after code c
 
 `beforeAllHook` stamps each provider's `baseUrl` env var (`LLM_OPENAI_BASE_URL`, `LLM_ANTHROPIC_BASE_URL`, …) onto the provider key it seeds, so exporting that var plus the matching `LLM_*_API_KEY` is enough to run the whole suite through a proxy — no test changes needed. An `http://` base URL additionally needs `ALLOW_INSECURE_PROVIDER_URLS=true`.
 
-`chat-service-tier.e2e.ts` cannot pass in that setup: `providerKeyBaseUrlSupportsServiceTier` makes a key with a non-upstream base URL ineligible for Flex/Priority, so every case 400s by design. Exclude that file rather than treating the failures as a regression.
-
 #### E2E Test Structure
 
 Reserve `*.e2e.ts` for tests that make real upstream provider requests. Tests

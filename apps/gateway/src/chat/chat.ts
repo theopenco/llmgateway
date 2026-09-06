@@ -2400,14 +2400,7 @@ chat.openapi(completions, async (c) => {
 	// this org's env-credential reads. Undefined = base vars only.
 	const envVariant = getLicensedOrganizationEnvVariant(organization);
 
-	// Dev-plan (DevPass) orgs can default routing to cheaper flex processing via
-	// their dashboard settings to save on plan credits. Applied softly, and only
-	// when the request itself doesn't specify a service_tier: the tier kicks in
-	// only if at least one candidate mapping supports flex AND has a credential
-	// that reaches the provider's real upstream (mirroring the service-tier key
-	// eligibility enforced below), so requests to models without flex support
-	// stay on standard processing instead of failing the explicit-tier
-	// validation and eligibility checks below.
+	// Apply the dev-plan flex default only when a mapping and credential support it.
 	if (
 		isDevPlan &&
 		organization.devPlanServiceTier === "flex" &&
@@ -3440,13 +3433,7 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Flex/Priority is only honored when the request reaches the provider's real
-	// upstream endpoint — a provider key with a custom base URL (proxy) may
-	// silently drop the tier and be billed/reported as standard. Exclude
-	// providers that have no upstream-eligible credential from service-tier
-	// routing (mirroring the compliance policy): auto/model-id routing drops
-	// them, and only fails when none remain; a pinned provider with no eligible
-	// key returns a clear 400 instead of silently downgrading.
+	// Exclude providers without a credential in a tier-capable region.
 	let serviceTierOrgKeys:
 		InferSelectModel<typeof tables.providerKey>[] | undefined;
 	const isProviderServiceTierEligible = (providerId: string): boolean => {
@@ -3454,11 +3441,6 @@ chat.openapi(completions, async (c) => {
 			(key) => key.provider === providerId,
 		);
 		const hasCompliantDbKey = dbKeys.some(providerKeySupportsServiceTier);
-		// An env credential is eligible only when at least one of its (possibly
-		// comma-indexed) base URLs targets the managed upstream — a custom base URL
-		// on every env index is just as ineligible as a custom DB key. In hybrid
-		// mode env is used only when no DB key is picked, which the
-		// serviceTierKeyFilter guarantees for a custom base URL.
 		const envEligible =
 			(project.mode === "credits" || project.mode === "hybrid") &&
 			hasServiceTierEligibleEnvCredential(providerId as Provider);
@@ -3495,7 +3477,7 @@ chat.openapi(completions, async (c) => {
 			!isProviderServiceTierEligible(usedProvider);
 		if (iamFilteredModelProviders.length === 0 || pinnedIneligible) {
 			throw new HTTPException(400, {
-				message: `Service tier '${service_tier}' requires a provider key that targets the original upstream endpoint. Remove the custom base URL from the ${pinnedIneligible ? `${usedProvider} ` : ""}provider key or omit service_tier.`,
+				message: `No provider key is available in a region that supports service tier '${service_tier}'${pinnedIneligible ? ` for ${usedProvider}` : ""}.`,
 			});
 		}
 	};
@@ -5700,11 +5682,7 @@ chat.openapi(completions, async (c) => {
 			providerKeyLabel: providerKeyLabel(providerKey),
 		};
 	}
-	// Flex/Priority is only honored when the request reaches the provider's real
-	// upstream endpoint on a tier-capable location. Skip provider keys whose
-	// custom base URL (proxy) may silently drop the tier, and Vertex keys pinned
-	// to a regional endpoint, so a compliant key (or the managed env credential
-	// in hybrid mode) is used instead.
+	// Skip Vertex credentials pinned to a region that cannot serve the tier.
 	const serviceTierKeyFilter = isRequestedServiceTier(service_tier)
 		? providerKeySupportsServiceTier
 		: undefined;

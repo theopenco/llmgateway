@@ -2712,7 +2712,7 @@ describe("api", () => {
 		});
 	});
 
-	test("/v1/chat/completions rejects a Fireworks tier request on a proxied key", async () => {
+	test("/v1/chat/completions forwards a Fireworks tier request through a proxied key", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-fireworks-proxy-tier",
 			...hashApiKeyForStorage("real-token-fireworks-proxy-tier"),
@@ -2721,12 +2721,6 @@ describe("api", () => {
 			createdBy: "user-id",
 		});
 
-		// Fireworks never reports the tier it served, so a priority request is
-		// billed at the tier it was sent at. A proxy base URL may silently drop
-		// the field, which would overbill — the request must be rejected instead.
-		// Deliberately not the mock URL: the harness trusts that one via
-		// SERVICE_TIER_TRUSTED_BASE_URLS so the positive tier paths stay testable,
-		// and this case is about an untrusted proxy.
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-id-fireworks-proxy-tier",
 			...encryptProviderKeyForStorage(
@@ -2736,7 +2730,7 @@ describe("api", () => {
 			),
 			provider: "fireworks",
 			organizationId: "org-id",
-			baseUrl: "https://fireworks-proxy.example.com",
+			baseUrl: mockServerUrl,
 		});
 
 		const res = await app.request("/v1/chat/completions", {
@@ -2744,6 +2738,7 @@ describe("api", () => {
 			headers: {
 				"Content-Type": "application/json",
 				Authorization: "Bearer real-token-fireworks-proxy-tier",
+				"x-no-fallback": "true",
 			},
 			body: JSON.stringify({
 				model: "fireworks/kimi-k3",
@@ -2752,11 +2747,13 @@ describe("api", () => {
 			}),
 		});
 
-		expect(res.status).toBe(400);
+		expect(res.status).toBe(200);
 		const json = await res.json();
-		expect(json.error.message).toContain(
-			"requires a provider key that targets the original upstream endpoint",
-		);
+		expect(json.service_tier).toBe("priority");
+		const logs = await waitForLogs(1);
+		expect(logs[0].usedProvider).toBe("fireworks");
+		expect(logs[0].requestedServiceTier).toBe("priority");
+		expect(logs[0].usedServiceTier).toBe("priority");
 	});
 
 	test("/v1/chat/completions strips log payload when retention is disabled", async () => {

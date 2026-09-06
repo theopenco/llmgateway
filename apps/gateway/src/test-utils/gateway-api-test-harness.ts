@@ -148,14 +148,9 @@ export function createGatewayApiTestHarness() {
 
 	beforeAll(async () => {
 		mockServerUrl = await startMockServer();
-		// The mock stands in for every provider upstream, so service-tier requests
-		// would otherwise be rejected for not targeting the catalogue's real
-		// endpoint. Trusting it here keeps the positive tier paths exercisable.
-		process.env.SERVICE_TIER_TRUSTED_BASE_URLS = mockServerUrl;
 	});
 
 	afterAll(() => {
-		delete process.env.SERVICE_TIER_TRUSTED_BASE_URLS;
 		stopMockServer();
 	});
 
