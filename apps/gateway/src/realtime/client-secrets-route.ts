@@ -329,6 +329,7 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 	logger.info("Realtime client secret minted", {
 		organizationId: preflight.project.organizationId,
 		model: preflight.match.modelId,
+		sessionType: "realtime",
 		ttlSeconds,
 	});
 
