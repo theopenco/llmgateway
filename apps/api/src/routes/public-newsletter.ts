@@ -1,9 +1,10 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
-import { redisClient } from "@/auth/config.js";
+import { consumeRateLimit } from "@/utils/public-rate-limit.js";
 
 import { logger } from "@llmgateway/logger";
+import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -16,37 +17,12 @@ const RESEND_TIMEOUT_MS = 10_000;
 const resendApiKey = process.env.RESEND_API_KEY;
 const resendNewsletterTopicId = process.env.RESEND_NEWSLETTER_TOPIC_ID;
 
-function extractClientIP(c: {
-	req: { header: (name: string) => string | undefined };
-}): string | null {
-	const cfConnectingIP = c.req.header("CF-Connecting-IP");
-	if (cfConnectingIP) {
-		return cfConnectingIP;
-	}
-
-	const xForwardedFor = c.req.header("X-Forwarded-For");
-	if (xForwardedFor) {
-		return xForwardedFor.split(",")[0]?.trim() ?? null;
-	}
-
-	return c.req.header("X-Real-IP") ?? null;
-}
-
 async function checkRateLimit(identifier: string): Promise<boolean> {
-	const key = `newsletter_rate_limit:${identifier}`;
-	try {
-		const count = await redisClient.incr(key);
-		if (count === 1) {
-			await redisClient.expire(key, RATE_LIMIT_WINDOW_SECONDS);
-		}
-		return count <= RATE_LIMIT_MAX;
-	} catch (error) {
-		logger.error("Newsletter rate limit check failed", {
-			error,
-			identifier,
-		});
-		return true;
-	}
+	return await consumeRateLimit(
+		`newsletter_rate_limit:${identifier}`,
+		RATE_LIMIT_MAX,
+		RATE_LIMIT_WINDOW_SECONDS,
+	);
 }
 
 const subscribeRoute = createRoute({
@@ -102,7 +78,7 @@ const subscribeRoute = createRoute({
 
 publicNewsletter.openapi(subscribeRoute, async (c) => {
 	const { email } = c.req.valid("json");
-	const ipAddress = extractClientIP(c);
+	const ipAddress = getClientIpFromContext(c);
 
 	const rateLimitKey = ipAddress ?? `email:${email}`;
 	const canSubmit = await checkRateLimit(rateLimitKey);

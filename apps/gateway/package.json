@@ -43,7 +43,6 @@
 		"hono": "^4.12.34",
 		"hono-openapi": "^1.1.1",
 		"ioredis": "5.7.0",
-		"ipaddr.js": "2.2.0",
 		"posthog-node": "5.10.4",
 		"redis": "5.9.0",
 		"undici": "8.9.0",

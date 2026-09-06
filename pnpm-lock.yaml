@@ -794,9 +794,6 @@ importers:
       ioredis:
         specifier: 5.7.0
         version: 5.7.0
-      ipaddr.js:
-        specifier: 2.2.0
-        version: 2.2.0
       posthog-node:
         specifier: 5.10.4
         version: 5.10.4
@@ -1697,6 +1694,9 @@ importers:
       '@llmgateway/logger':
         specifier: workspace:*
         version: link:../logger
+      '@llmgateway/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@opentelemetry/api':
         specifier: 1.9.0
         version: 1.9.0
@@ -1856,6 +1856,9 @@ importers:
       embla-carousel-react:
         specifier: 8.6.0
         version: 8.6.0(react@19.2.8)
+      ipaddr.js:
+        specifier: 2.2.0
+        version: 2.2.0
       lucide-react:
         specifier: 0.561.0
         version: 0.561.0(react@19.2.8)

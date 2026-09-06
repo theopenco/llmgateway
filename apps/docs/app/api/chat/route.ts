@@ -11,6 +11,7 @@ import { z } from "zod";
 import { source } from "@/lib/source";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { getClientIpFromHeaders } from "@llmgateway/shared/client-ip";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 
 export const runtime = "nodejs";
@@ -70,15 +71,6 @@ function isGlobalAllowed(max: number, windowMs: number): boolean {
 	}
 	globalHits.push(now);
 	return true;
-}
-
-function extractClientIP(req: Request): string {
-	return (
-		req.headers.get("cf-connecting-ip") ??
-		req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-		req.headers.get("x-real-ip") ??
-		"unknown"
-	);
 }
 
 interface CustomDocument extends DocumentData {
@@ -191,7 +183,7 @@ export async function POST(req: Request) {
 
 	// Narrower windows first so a blocked request doesn't consume the wider
 	// quotas; the global bucket last so per-IP rejections don't eat into it.
-	const ip = extractClientIP(req);
+	const ip = getClientIpFromHeaders(req.headers) ?? "unknown";
 	if (!isAllowed(`burst:${ip}`, BURST_LIMIT_MAX, BURST_LIMIT_WINDOW_MS)) {
 		return Response.json(
 			{

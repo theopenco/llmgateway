@@ -93,6 +93,11 @@
 			"types": "./dist/url-safety-node.d.ts",
 			"import": "./dist/url-safety-node.js",
 			"default": "./dist/url-safety-node.js"
+		},
+		"./client-ip": {
+			"types": "./dist/client-ip.d.ts",
+			"import": "./dist/client-ip.js",
+			"default": "./dist/client-ip.js"
 		}
 	},
 	"module": "./dist/index.js",
@@ -134,6 +139,7 @@
 		"date-fns": "4.1.0",
 		"decimal.js": "10.5.0",
 		"embla-carousel-react": "8.6.0",
+		"ipaddr.js": "2.2.0",
 		"lucide-react": "0.561.0",
 		"motion": "12.23.24",
 		"next": "16.3.0",

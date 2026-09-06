@@ -1,6 +1,9 @@
+import { headers } from "next/headers";
 import { ImageResponse } from "next/og";
 
 import { getConfig } from "@/lib/config-server";
+
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 
 export const size = {
 	width: 1200,
@@ -463,7 +466,7 @@ export default async function ShareOgImage({ params }: OgImageProps) {
 		const config = getConfig();
 		const response = await fetch(
 			`${config.apiBackendUrl}/public/chats/share/${shareId}`,
-			{ cache: "no-store" },
+			{ cache: "no-store", headers: forwardedIpHeaders(await headers()) },
 		);
 
 		const data = response.ok

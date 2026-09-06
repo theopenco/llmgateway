@@ -1,10 +1,61 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 
+import { consumeRateLimit } from "@/utils/public-rate-limit.js";
+
 import { db, tables, eq, isNull, and, desc } from "@llmgateway/db";
+import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 
 import type { ServerTypes } from "@/vars.js";
 
 const publicChatShares = new OpenAPIHono<ServerTypes>();
+
+// Both endpoints are public and unauthenticated, and every call joins
+// chatShare to chat in Postgres — without a limit a single address can turn
+// them into a database load generator. Limits are per IP; the Lounge share
+// pages render server-side and forward the visitor's X-Forwarded-For so real
+// traffic is bucketed per visitor rather than behind one server IP.
+const RATE_LIMIT_BURST_WINDOW_SECONDS = 20;
+const RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
+// A single share page view costs three calls (metadata, page, OG image), so
+// the per-share budget is generous.
+const SHARE_BURST_MAX = 30;
+const SHARE_HOURLY_MAX = 600;
+// The listing scans every active public share and is bounded only by `limit`,
+// so it gets a much tighter budget: sitemap regeneration needs a handful of
+// calls per hour, nothing more.
+const LIST_BURST_MAX = 5;
+const LIST_HOURLY_MAX = 60;
+
+const rateLimitedSchema = z.object({ message: z.string() });
+
+const rateLimitedResponse = {
+	content: { "application/json": { schema: rateLimitedSchema } },
+	description: "Rate limit exceeded.",
+};
+
+// Separate buckets per endpoint so a scraper hammering the listing can't lock
+// a visitor out of the share pages.
+async function withinRateLimit(
+	c: { req: { header: (name: string) => string | undefined } },
+	bucket: string,
+	burstMax: number,
+	hourlyMax: number,
+): Promise<boolean> {
+	const identifier = `ip:${getClientIpFromContext(c) ?? "unknown"}`;
+	const burstOk = await consumeRateLimit(
+		`chat_share_rate_limit:${bucket}_burst:${identifier}`,
+		burstMax,
+		RATE_LIMIT_BURST_WINDOW_SECONDS,
+	);
+	if (!burstOk) {
+		return false;
+	}
+	return await consumeRateLimit(
+		`chat_share_rate_limit:${bucket}_hour:${identifier}`,
+		hourlyMax,
+		RATE_LIMIT_WINDOW_SECONDS,
+	);
+}
 
 const sharedMessageSchema = z.object({
 	id: z.string(),
@@ -58,6 +109,7 @@ const getSharedChat = createRoute({
 			},
 			description: "Shared chat not found.",
 		},
+		429: rateLimitedResponse,
 	},
 });
 
@@ -85,10 +137,18 @@ const listSharedChats = createRoute({
 			},
 			description: "Active public shared chats (id + updatedAt) for sitemaps.",
 		},
+		429: rateLimitedResponse,
 	},
 });
 
 publicChatShares.openapi(listSharedChats, async (c) => {
+	if (!(await withinRateLimit(c, "list", LIST_BURST_MAX, LIST_HOURLY_MAX))) {
+		return c.json(
+			{ message: "Too many requests. Please try again later." },
+			429,
+		);
+	}
+
 	const { limit } = c.req.valid("query");
 	const rows = await db
 		.select({
@@ -119,6 +179,13 @@ publicChatShares.openapi(listSharedChats, async (c) => {
 });
 
 publicChatShares.openapi(getSharedChat, async (c) => {
+	if (!(await withinRateLimit(c, "share", SHARE_BURST_MAX, SHARE_HOURLY_MAX))) {
+		return c.json(
+			{ message: "Too many requests. Please try again later." },
+			429,
+		);
+	}
+
 	const { shareId } = c.req.valid("param");
 	const [share] = await db
 		.select({

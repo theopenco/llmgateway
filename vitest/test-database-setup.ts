@@ -12,3 +12,6 @@ process.env.VIDEO_CONTENT_TOKEN_ALLOW_DEV ??= "true";
 // Tests exercise providers against local mock servers (http://localhost:...),
 // so relax the provider base URL SSRF guard like a self-hosted deployment.
 process.env.ALLOW_INSECURE_PROVIDER_URLS ??= "true";
+// Every rate limit and IP allow-list reads the header named here, and the
+// helper refuses to guess one, so tests have to name it like a deployment.
+process.env.CLIENT_IP_HEADER ??= "X-Forwarded-For";
