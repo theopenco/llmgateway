@@ -106,6 +106,7 @@ import {
 	peekProviderRateLimit,
 	pickNonRateLimitedCandidates,
 	providerRateLimitWindows,
+	type ProviderRateLimitResult,
 } from "@/lib/provider-rate-limit.js";
 import { getResponsesContext } from "@/lib/responses-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
@@ -348,10 +349,86 @@ import type {
 import type { OriginalRequestParams } from "./tools/resolve-provider-context.js";
 import type { ServerTypes } from "@/vars.js";
 import type { RoutingCredentialSource } from "@llmgateway/shared/routing-telemetry";
+import type { Context } from "hono";
 
 const _derivedProjectId = getVertexAnthropicProjectId();
 if (_derivedProjectId && !process.env.LLM_VERTEX_ANTHROPIC_PROJECT) {
 	process.env.LLM_VERTEX_ANTHROPIC_PROJECT = _derivedProjectId;
+}
+
+/**
+ * Emit the provider-scoped rate-limit headers (X-RateLimit-*-Provider plus the
+ * per-window RPM/RPD variants) for every configured window.
+ */
+function setProviderScopedRateLimitHeaders(
+	c: Context<ServerTypes>,
+	limits: ProviderRateLimitResult["limits"],
+): void {
+	const entries = Object.entries(limits) as Array<
+		[
+			keyof typeof providerRateLimitWindows,
+			ProviderRateLimitResult["limits"][keyof ProviderRateLimitResult["limits"]],
+		]
+	>;
+	const primary = entries.find(([, limit]) => limit.limit > 0);
+
+	if (primary) {
+		c.header("X-RateLimit-Limit-Provider", primary[1].limit.toString());
+		c.header("X-RateLimit-Remaining-Provider", primary[1].remaining.toString());
+	}
+
+	for (const [window, limit] of entries) {
+		if (limit.limit === 0) {
+			continue;
+		}
+
+		c.header(
+			`X-RateLimit-Limit-Provider-${providerRateLimitWindows[window].headerSuffix}`,
+			limit.limit.toString(),
+		);
+		c.header(
+			`X-RateLimit-Remaining-Provider-${providerRateLimitWindows[window].headerSuffix}`,
+			limit.remaining.toString(),
+		);
+	}
+}
+
+/**
+ * Emit the full rate-limit-exceeded header set for a provider-cap 429,
+ * matching the org limiter (middleware/org-rate-limit.ts): Retry-After plus
+ * the draft RateLimit-* fields (Reset is delta-seconds) alongside the legacy
+ * X- variants (epoch reset).
+ */
+function setProviderRateLimitExceededHeaders(
+	c: Context<ServerTypes>,
+	result: ProviderRateLimitResult,
+): void {
+	// When several windows are blocked, describe the one with the longest wait
+	// so limit and reset headers refer to the same policy.
+	const primaryWindow = result.blockedBy.reduce(
+		(slowest, window) =>
+			(result.limits[window].retryAfter ?? 0) >
+			(result.limits[slowest].retryAfter ?? 0)
+				? window
+				: slowest,
+		result.blockedBy[0] ?? "rpm",
+	);
+	const retryAfter =
+		result.limits[primaryWindow].retryAfter ??
+		result.retryAfter ??
+		providerRateLimitWindows[primaryWindow].seconds;
+	const limit = result.limits[primaryWindow].limit;
+
+	c.header("Retry-After", String(retryAfter));
+	c.header("RateLimit-Limit", String(limit));
+	c.header("RateLimit-Remaining", "0");
+	c.header("RateLimit-Reset", String(retryAfter));
+	c.header("X-RateLimit-Limit", String(limit));
+	c.header("X-RateLimit-Remaining", "0");
+	c.header(
+		"X-RateLimit-Reset",
+		String(Math.floor(Date.now() / 1000) + retryAfter),
+	);
 }
 
 /**
@@ -4532,6 +4609,9 @@ chat.openapi(completions, async (c) => {
 
 		if (rateLimitPeek.rateLimited) {
 			if (noFallback) {
+				setProviderScopedRateLimitHeaders(c, rateLimitPeek.limits);
+				setProviderRateLimitExceededHeaders(c, rateLimitPeek);
+
 				const blockedLimits = rateLimitPeek.blockedBy
 					.map(
 						(window) =>
@@ -6040,56 +6120,13 @@ chat.openapi(completions, async (c) => {
 			modelInfo.id,
 		);
 
-		const providerRateLimitEntries = Object.entries(
-			providerRateLimitResult.limits,
-		) as Array<
-			[
-				keyof typeof providerRateLimitWindows,
-				(typeof providerRateLimitResult.limits)[keyof typeof providerRateLimitResult.limits],
-			]
-		>;
-		const primaryProviderRateLimit = providerRateLimitEntries.find(
-			([, limit]) => limit.limit > 0,
-		);
-
-		if (primaryProviderRateLimit) {
-			c.header(
-				"X-RateLimit-Limit-Provider",
-				primaryProviderRateLimit[1].limit.toString(),
-			);
-			c.header(
-				"X-RateLimit-Remaining-Provider",
-				primaryProviderRateLimit[1].remaining.toString(),
-			);
-		}
-
-		for (const [window, limit] of providerRateLimitEntries) {
-			if (limit.limit === 0) {
-				continue;
-			}
-
-			c.header(
-				`X-RateLimit-Limit-Provider-${providerRateLimitWindows[window].headerSuffix}`,
-				limit.limit.toString(),
-			);
-			c.header(
-				`X-RateLimit-Remaining-Provider-${providerRateLimitWindows[window].headerSuffix}`,
-				limit.remaining.toString(),
-			);
-		}
+		setProviderScopedRateLimitHeaders(c, providerRateLimitResult.limits);
 
 		// Race condition: between peek and consume, the window may have filled.
 		// Only hard-block if the user explicitly requested this provider with no-fallback.
 		if (!providerRateLimitResult.allowed) {
 			if (noFallback && requestedProvider) {
-				const retryAfter = providerRateLimitResult.retryAfter;
-				if (retryAfter) {
-					c.header("Retry-After", retryAfter.toString());
-					c.header("RateLimit-Reset", retryAfter.toString());
-					const resetTime = Math.floor(Date.now() / 1000) + retryAfter;
-					c.header("X-RateLimit-Reset", resetTime.toString());
-				}
-				c.header("RateLimit-Remaining", "0");
+				setProviderRateLimitExceededHeaders(c, providerRateLimitResult);
 
 				const blockedLimits = providerRateLimitResult.blockedBy
 					.map(
@@ -13654,6 +13691,10 @@ chat.openapi(completions, async (c) => {
 					type: "upstream_error",
 					param: null,
 					code: "all_providers_failed",
+					requestedProvider,
+					usedProvider,
+					requestedModel: initialRequestedModel,
+					usedInternalModel,
 				},
 			},
 			502,

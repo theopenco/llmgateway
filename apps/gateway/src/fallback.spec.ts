@@ -3654,6 +3654,14 @@ describe("fallback and error status code handling", () => {
 			});
 
 			expect(res.status).toBe(502);
+			// The all-attempts-exhausted 502 carries the same diagnostic fields as
+			// the terminal-error path.
+			const json = await res.json();
+			expect(json.error.type).toBe("upstream_error");
+			expect(json.error.code).toBe("all_providers_failed");
+			expect(json.error.usedProvider).toBe("together-ai");
+			expect(json.error.requestedModel).toBe("glm-4.7");
+			expect(json.error.usedInternalModel).toBeTruthy();
 
 			const logs = await waitForLogs(1);
 			expect(logs).toHaveLength(1);
