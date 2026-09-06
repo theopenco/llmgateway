@@ -4811,18 +4811,29 @@ export async function handleSubscriptionUpdated(
 			? organization.devPlanStripeSubscriptionId === subscription.id &&
 				organization.devPlan !== "none"
 			: organization.stripeSubscriptionId === subscription.id;
-	let confirmedPaymentFailure = false;
+	// A past-due org can also recover without a paid invoice: voiding the failed
+	// renewal or marking it uncollectible returns the subscription to `active`
+	// with no `invoice.paid`, so confirm that against Stripe here as well.
+	const reportsRecovery =
+		organization.subscriptionPaymentStatus === "past_due" &&
+		(subscription.status === "active" || subscription.status === "trialing");
+	let paymentStatusUpdate: "past_due" | "current" | undefined;
 	if (
 		isOrgActiveSubscription &&
-		PAYMENT_FAILURE_STATUSES.includes(subscription.status)
+		(PAYMENT_FAILURE_STATUSES.includes(subscription.status) || reportsRecovery)
 	) {
 		try {
 			const liveSubscription = await getStripe().subscriptions.retrieve(
 				subscription.id,
 			);
-			confirmedPaymentFailure = PAYMENT_FAILURE_STATUSES.includes(
-				liveSubscription.status,
-			);
+			if (PAYMENT_FAILURE_STATUSES.includes(liveSubscription.status)) {
+				paymentStatusUpdate = "past_due";
+			} else if (
+				liveSubscription.status === "active" ||
+				liveSubscription.status === "trialing"
+			) {
+				paymentStatusUpdate = "current";
+			}
 		} catch (error) {
 			logger.error(
 				`Failed to verify payment status for subscription ${subscription.id}`,
@@ -4830,9 +4841,6 @@ export async function handleSubscriptionUpdated(
 			);
 		}
 	}
-	const paymentStatusUpdate = confirmedPaymentFailure
-		? ("past_due" as const)
-		: undefined;
 
 	if (isChatPlan) {
 		const wasChatPlanCancelled = organization.chatPlanCancelled;
@@ -5373,12 +5381,16 @@ export async function handleSubscriptionCreated(
 				// ahead of this handler was skipped by its active-subscription guard
 				// (stripeSubscriptionId was not set yet), so nothing else would mark
 				// it. Clearing unconditionally would show a failed Pro subscription as
-				// healthy indefinitely.
-				subscriptionPaymentStatus: PAYMENT_FAILURE_STATUSES.includes(
-					subscription.status,
-				)
-					? "past_due"
-					: "current",
+				// healthy indefinitely. Once checkout has recorded this subscription,
+				// leave the state it derived from the actual payment alone: the first
+				// invoice is deduped by then, so a stale `incomplete` written here
+				// would have nothing left to clear it.
+				subscriptionPaymentStatus:
+					organization.stripeSubscriptionId === subscription.id
+						? undefined
+						: PAYMENT_FAILURE_STATUSES.includes(subscription.status)
+							? "past_due"
+							: "current",
 			})
 			.where(eq(tables.organization.id, organizationId))
 			.returning();

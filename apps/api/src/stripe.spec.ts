@@ -1146,6 +1146,27 @@ describe("handleSubscriptionCreated — Pro payment state", () => {
 		expect(org?.plan).toBe("pro");
 		expect(org?.subscriptionPaymentStatus).toBe("current");
 	});
+
+	test("leaves a checkout-recorded subscription's payment state alone", async () => {
+		// checkout.session.completed already recorded this subscription and its
+		// first invoice (so invoice.payment_succeeded is deduped). A late
+		// `incomplete` created event must not flip the paid org to past_due.
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			plan: "pro",
+			stripeSubscriptionId: SUB_ID,
+			subscriptionPaymentStatus: "current",
+		});
+
+		await handleSubscriptionCreated(makeCreatedEvent("incomplete"));
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.subscriptionPaymentStatus).toBe("current");
+	});
 });
 
 describe("handleInvoicePaymentSucceeded — superseded Pro subscription", () => {
@@ -1344,6 +1365,58 @@ describe("handleSubscriptionUpdated — payment state", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.subscriptionPaymentStatus).toBe("current");
+	});
+
+	test("clears past_due once Stripe reports the subscription active again", async () => {
+		// Voiding the failed renewal (or marking it uncollectible) returns the
+		// subscription to active without an invoice.paid, so this is the only
+		// way back to current in that case.
+		stripeMock.subscriptions.retrieve.mockResolvedValue({ status: "active" });
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "50",
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+			subscriptionPaymentStatus: "past_due",
+		});
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({ cancelAtPeriodEnd: false, status: "active" }),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.subscriptionPaymentStatus).toBe("current");
+		expect(org?.devPlanCreditsUsed).toBe("50");
+	});
+
+	test("keeps past_due when a stale active update arrives but Stripe still reports past_due", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue({ status: "past_due" });
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "pro",
+			devPlanCreditsLimit: "237",
+			devPlanCreditsUsed: "50",
+			devPlanStripeSubscriptionId: SUB_ID,
+			devPlanCancelled: false,
+			subscriptionPaymentStatus: "past_due",
+		});
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({ cancelAtPeriodEnd: false, status: "active" }),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.subscriptionPaymentStatus).toBe("past_due");
 	});
 
 	test("does not mutate state when a superseded subscription expires", async () => {
