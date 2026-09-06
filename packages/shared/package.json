@@ -93,11 +93,17 @@
 			"types": "./dist/url-safety-node.d.ts",
 			"import": "./dist/url-safety-node.js",
 			"default": "./dist/url-safety-node.js"
+		},
+		"./not-found": {
+			"types": "./dist/components/jelly/not-found-page.d.ts",
+			"import": "./dist/components/jelly/not-found-page.js",
+			"default": "./dist/components/jelly/not-found-page.js"
 		}
 	},
 	"module": "./dist/index.js",
 	"types": "./dist/index.d.ts",
 	"files": [
+		"assets/",
 		"dist/"
 	],
 	"scripts": {
@@ -147,11 +153,13 @@
 		"resend": "6.8.0",
 		"sonner": "^2.0.7",
 		"tailwind-merge": "3.4.0",
+		"three": "0.185.1",
 		"undici": "8.9.0",
 		"zod": "3.25.75"
 	},
 	"devDependencies": {
 		"@types/react": "^19.2.18",
-		"@types/react-dom": "^19.2.4"
+		"@types/react-dom": "^19.2.4",
+		"@types/three": "0.185.1"
 	}
 }
