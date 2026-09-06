@@ -11466,6 +11466,163 @@ describe("api", () => {
 		});
 	});
 
+	describe("web_search domain filter validation", () => {
+		// allowed_domains and blocked_domains are mutually exclusive. Without
+		// request-time validation the gateway silently keeps allowed_domains
+		// and drops blocked_domains when preparing the provider request.
+		test("rejects web_search tool with both allowed_domains and blocked_domains", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-ws-domains",
+				...hashApiKeyForStorage("real-token-ws-domains"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-ws-domains",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o",
+					messages: [{ role: "user", content: "Hello!" }],
+					tools: [
+						{
+							type: "web_search",
+							allowed_domains: ["anthropic.com"],
+							blocked_domains: ["example.com"],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.error?.code).toBe("unsupported_parameter_combination");
+			expect(json.error?.param).toBe("tools");
+			expect(json.error?.message).toContain("allowed_domains");
+			expect(json.error?.message).toContain("blocked_domains");
+		});
+
+		test("rejects a conflicting duplicate web_search tool entry", async () => {
+			// Only the first web_search entry is extracted; a later conflicting
+			// duplicate must still be rejected, not silently discarded.
+			await db.insert(tables.apiKey).values({
+				id: "token-id-ws-domains-dup",
+				...hashApiKeyForStorage("real-token-ws-domains-dup"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-ws-domains-dup",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o",
+					messages: [{ role: "user", content: "Hello!" }],
+					tools: [
+						{
+							type: "web_search",
+							allowed_domains: ["anthropic.com"],
+						},
+						{
+							type: "web_search",
+							allowed_domains: ["anthropic.com"],
+							blocked_domains: ["example.com"],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.error?.code).toBe("unsupported_parameter_combination");
+			expect(json.error?.param).toBe("tools");
+		});
+
+		test("rejects /v1/responses web_search tool with both domain filters", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-ws-domains-resp",
+				...hashApiKeyForStorage("real-token-ws-domains-resp"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/responses", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-ws-domains-resp",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o",
+					input: [{ role: "user", content: "Hello!" }],
+					tools: [
+						{
+							type: "web_search",
+							allowed_domains: ["anthropic.com"],
+							blocked_domains: ["example.com"],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			const json = await res.json();
+			expect(json.error?.code).toBe("unsupported_parameter_combination");
+			expect(json.error?.param).toBe("tools");
+			expect(json.error?.message).toContain("allowed_domains");
+			expect(json.error?.message).toContain("blocked_domains");
+		});
+
+		test("rejects /v1/messages web_search server tool with both domain filters", async () => {
+			await db.insert(tables.apiKey).values({
+				id: "token-id-ws-domains-msgs",
+				...hashApiKeyForStorage("real-token-ws-domains-msgs"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+
+			const res = await app.request("/v1/messages", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-ws-domains-msgs",
+				},
+				body: JSON.stringify({
+					model: "anthropic/claude-sonnet-4-6",
+					max_tokens: 1024,
+					messages: [{ role: "user", content: "Hello!" }],
+					tools: [
+						{
+							type: "web_search_20250305",
+							name: "web_search",
+							allowed_domains: ["anthropic.com"],
+							blocked_domains: ["example.com"],
+						},
+					],
+				}),
+			});
+
+			expect(res.status).toBe(400);
+			// The messages route wraps the inner chat error in Anthropic's
+			// envelope, which carries only type + message (no code/param).
+			const json = await res.json();
+			expect(json.type).toBe("error");
+			expect(json.error?.type).toBe("invalid_request_error");
+			expect(json.error?.message).toContain("allowed_domains");
+			expect(json.error?.message).toContain("blocked_domains");
+		});
+	});
+
 	describe("native /v1/messages reasoning controls for Ling-3.0-flash", () => {
 		// Ling-3.0-flash is a hybrid reasoning model that thinks by default; its
 		// only reasoning control is the vLLM chat-template flag `enable_thinking`

@@ -1870,6 +1870,31 @@ chat.openapi(completions, async (c) => {
 	// The web_search tool is a special tool that enables native web search for providers that support it
 	let webSearchTool: WebSearchTool | undefined;
 	if (tools && Array.isArray(tools)) {
+		// allowed_domains and blocked_domains are mutually exclusive; providers
+		// accept only one, and silently preferring one would drop the caller's
+		// other filter. Check every entry — only the first web_search tool is
+		// extracted below, so a conflicting duplicate must be rejected here.
+		if (
+			tools.some(
+				(tool: any) =>
+					tool.type === "web_search" &&
+					tool.allowed_domains?.length &&
+					tool.blocked_domains?.length,
+			)
+		) {
+			return c.json(
+				{
+					error: {
+						message:
+							"The web_search tool cannot specify both allowed_domains and blocked_domains. Use one or the other.",
+						type: "invalid_request_error",
+						param: "tools",
+						code: "unsupported_parameter_combination",
+					},
+				},
+				400,
+			);
+		}
 		const webSearchToolIndex = tools.findIndex(
 			(tool: any) => tool.type === "web_search",
 		);
