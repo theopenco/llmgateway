@@ -1,35 +1,42 @@
 import { HTTPException } from "hono/http-exception";
 
 /**
- * Validates and normalizes the x-source header with HTTP-Referer fallback
- * Strips http(s):// and www. if present
- * Validates allowed characters: a-zA-Z0-9, -, ., /
+ * Strips http(s):// and www., then checks allowed characters:
+ * a-zA-Z0-9, -, ., /
+ * Returns the normalized value, or undefined if invalid.
+ */
+function normalizeSource(value: string): string | undefined {
+	const normalized = value.replace(/^https?:\/\//, "").replace(/^www\./, "");
+
+	return /^[a-zA-Z0-9./-]+$/.test(normalized) ? normalized : undefined;
+}
+
+/**
+ * Validates and normalizes the x-source header with HTTP-Referer fallback.
+ * An invalid explicit x-source throws 400 (the caller deliberately set it);
+ * an invalid implicit referer is dropped so later fallbacks can apply.
  */
 export function validateSource(
 	source: string | undefined,
 	referer?: string | undefined,
 ): string | undefined {
-	// Use x-source if available, otherwise fallback to HTTP-Referer
-	const sourceToValidate = source ?? referer;
-
-	if (!sourceToValidate) {
-		return undefined;
+	// An empty x-source carries no attribution intent; treat it as absent
+	// (like on main, which never 400ed on it) so fallbacks still apply.
+	if (source) {
+		const normalized = normalizeSource(source);
+		if (normalized === undefined) {
+			throw new HTTPException(400, {
+				message:
+					"Invalid x-source header: only alphanumeric characters, hyphens, dots, and slashes are allowed",
+			});
+		}
+		return normalized;
 	}
 
-	// Strip http:// or https:// if present
-	let normalized = sourceToValidate.replace(/^https?:\/\//, "");
-
-	// Strip www. if present
-	normalized = normalized.replace(/^www\./, "");
-
-	// Validate allowed characters: a-zA-Z0-9, -, ., /
-	const allowedPattern = /^[a-zA-Z0-9./-]+$/;
-	if (!allowedPattern.test(normalized)) {
-		throw new HTTPException(400, {
-			message:
-				"Invalid x-source header: only alphanumeric characters, hyphens, dots, and slashes are allowed",
-		});
+	if (referer) {
+		// Telemetry-only fallback: drop invalid values instead of failing the request
+		return normalizeSource(referer);
 	}
 
-	return normalized;
+	return undefined;
 }
