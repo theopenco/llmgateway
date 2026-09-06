@@ -332,6 +332,14 @@ export const organization = pgTable(
 		paymentFailureCount: integer().notNull().default(0),
 		lastPaymentFailureAt: timestamp(),
 		paymentFailureStartedAt: timestamp(),
+		// Payment state of this org's subscription-backed plan. Renewal dates only
+		// advance after a paid invoice; this separately records dunning so an unpaid
+		// renewal is visible without pretending the next cycle has started.
+		subscriptionPaymentStatus: text({
+			enum: ["current", "past_due"],
+		})
+			.notNull()
+			.default("current"),
 		// Admin-set trust-tier pin (0-4). When set it takes precedence over the
 		// computed age/spend tier everywhere (RPM multiplier, spend caps, top-up
 		// allowance) — both to hold an abusive org down and to lift a vetted org
@@ -376,11 +384,6 @@ export const organization = pgTable(
 		// counter clears on subscribe/upgrade/renewal (included passes don't
 		// roll over).
 		devPlanIncludedResetPassesUsed: integer().notNull().default(0),
-		// Set when dunning freezes dev-plan spend (limit capped to used). The
-		// pre-freeze limit is preserved so recovery restores the exact value
-		// (which may be a prorated mid-cycle amount), not a full tier cap.
-		devPlanCreditsFrozen: boolean().notNull().default(false),
-		devPlanCreditsLimitBeforeFreeze: decimal(),
 		devPlanBillingCycleStart: timestamp(),
 		// Lease held while a dev plan upgrade request is in flight, guarding
 		// against a double charge from racing requests (e.g. a double-clicked

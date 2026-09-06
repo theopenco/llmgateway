@@ -27,6 +27,7 @@ import {
 	refundDevpassPayment,
 } from "@/lib/admin-devpass";
 import { giftCreditsToOrganization } from "@/lib/admin-organizations";
+import { formatRenewalSummary } from "@/lib/renewal-state";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
@@ -377,7 +378,7 @@ export default async function DevpassDetailPage({
 						{currencyFormatter.format(sub.mrr)}
 					</div>
 					<div className="mt-1 text-xs text-muted-foreground">
-						Renews {formatDate(sub.expiresAt)}
+						{formatRenewalSummary(sub, formatDate)}
 					</div>
 					{sub.pendingTier && (
 						<div className="mt-1 text-xs text-amber-600">

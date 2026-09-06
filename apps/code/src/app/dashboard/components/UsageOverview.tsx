@@ -15,6 +15,7 @@ import {
 	formatDayKey,
 	useDisplayTimeZone,
 } from "@llmgateway/shared";
+import { useRerenderAt } from "@llmgateway/shared/components";
 
 import AllowanceExhaustedCard from "./AllowanceExhaustedCard";
 import PayAsYouGoCard from "./PayAsYouGoCard";
@@ -53,6 +54,7 @@ interface UsageOverviewProps {
 	billingCycleStart: string | null;
 	currentPeriodEnd: string | null;
 	cancelledAtPeriodEnd: boolean;
+	subscriptionPaymentStatus: "current" | "past_due";
 	cycle?: DevPlanCycle;
 	paygEnabled: boolean;
 	regularCredits: number;
@@ -202,6 +204,7 @@ export default function UsageOverview({
 	billingCycleStart,
 	currentPeriodEnd,
 	cancelledAtPeriodEnd,
+	subscriptionPaymentStatus,
 	cycle = "monthly",
 	paygEnabled,
 	regularCredits,
@@ -329,16 +332,28 @@ export default function UsageOverview({
 				})()
 			: null;
 
+	// Clock-derived, so flip it on a timer — see the billing page for why the
+	// status poll alone doesn't re-render this.
+	useRerenderAt(renewAt);
+	const renewalProcessing =
+		!cancelledAtPeriodEnd && renewAt !== null && renewAt <= new Date();
+	// Same wording and precision as the billing page's renewal hint, so the two
+	// screens can't disagree about when the plan turns over.
 	const renewWhen = renewAt
 		? formatDateTime(renewAt, displayTimeZone, "monthDayYearHourMinuteZone")
 		: null;
-	const cycleEndsHint = cancelledAtPeriodEnd
-		? renewWhen
-			? `Cancels ${renewWhen}`
-			: "Cancels at period end"
-		: renewAt
-			? `Renews ${renewWhen} (in ${formatDistanceToNowStrict(renewAt)})`
-			: "—";
+	const cycleEndsHint =
+		subscriptionPaymentStatus === "past_due"
+			? "Renewal payment failed — update it in Billing"
+			: renewalProcessing
+				? "Renewal payment processing"
+				: cancelledAtPeriodEnd
+					? renewWhen
+						? `Cancels ${renewWhen}`
+						: "Cancels at period end"
+					: renewAt
+						? `Renews ${renewWhen} (in ${formatDistanceToNowStrict(renewAt)})`
+						: "—";
 
 	return (
 		<div className="space-y-5">

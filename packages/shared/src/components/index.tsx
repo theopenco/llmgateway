@@ -25,6 +25,7 @@ export * from "./time";
 export * from "./time-zone-provider";
 export * from "./time-zone-setting";
 export * from "./use-countdown";
+export * from "./use-rerender-at";
 export * from "./ui/index";
 export * from "./models-directory/capability-filters";
 export * from "./models-directory/pricing-schedule";

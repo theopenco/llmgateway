@@ -60,7 +60,6 @@ export type SelfRefundIneligibilityReason =
 	| "not_owner"
 	| "not_latest_purchase"
 	| "plan_inactive"
-	| "credits_frozen"
 	| "usage_exceeded"
 	| "pass_already_used";
 
@@ -241,10 +240,6 @@ function checkPlanEligibility(
 	if (plan === "none" || !subscriptionId) {
 		return ineligible("plan_inactive");
 	}
-	if (isDev && organization.devPlanCreditsFrozen) {
-		return ineligible("credits_frozen");
-	}
-
 	const paymentTypes: string[] = isDev
 		? ["dev_plan_start", "dev_plan_renewal", "dev_plan_upgrade"]
 		: ["chat_plan_start", "chat_plan_renewal", "chat_plan_upgrade"];

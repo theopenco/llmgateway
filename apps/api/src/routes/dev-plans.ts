@@ -7,6 +7,10 @@ import { readApiKeyMask } from "@/lib/api-key-mask.js";
 import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import {
+	renewalPaymentResultSchema,
+	retryDevPlanRenewal,
+} from "@/lib/retry-dev-plan-renewal.js";
+import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
 	isSelfRefundCandidateType,
@@ -316,6 +320,7 @@ const getPersonalOrg = createRoute({
 						devPlanBillingCycleStart: z.string().nullable(),
 						devPlanCancelled: z.boolean(),
 						devPlanExpiresAt: z.string().nullable(),
+						subscriptionPaymentStatus: z.enum(["current", "past_due"]),
 						credits: z.string(),
 					}),
 				},
@@ -347,6 +352,7 @@ devPlans.openapi(getPersonalOrg, async (c) => {
 			org.devPlanBillingCycleStart?.toISOString() ?? null,
 		devPlanCancelled: org.devPlanCancelled,
 		devPlanExpiresAt: org.devPlanExpiresAt?.toISOString() ?? null,
+		subscriptionPaymentStatus: org.subscriptionPaymentStatus,
 		credits: org.credits,
 	});
 });
@@ -372,12 +378,11 @@ async function resetEndedDevPlan(organizationId: string): Promise<void> {
 			// with the plan; purchased passes were paid for and survive to a
 			// future resubscribe.
 			devPlanIncludedResetPassesUsed: 0,
-			devPlanCreditsFrozen: false,
-			devPlanCreditsLimitBeforeFreeze: null,
 			devPlanStripeSubscriptionId: null,
 			devPlanExpiresAt: null,
 			devPlanCancelled: false,
 			devPlanBillingCycleStart: null,
+			subscriptionPaymentStatus: "current",
 		})
 		.where(eq(tables.organization.id, organizationId));
 }
@@ -1437,7 +1442,7 @@ devPlans.openapi(changeTier, async (c) => {
 					// Fresh billing cycle: set the limit to the new tier's full
 					// allowance plus the rollover, zero out usage (including the
 					// premium weekly window), advance the cycle start, clear any
-					// pending change and dunning freeze state, and persist the new
+					// pending change and persist the new
 					// period end as the renewal date.
 					await tx
 						.update(tables.organization)
@@ -1448,11 +1453,10 @@ devPlans.openapi(changeTier, async (c) => {
 							devPlanPremiumCreditsUsed: "0",
 							devPlanPremiumWeekStart: new Date(),
 							devPlanIncludedResetPassesUsed: 0,
-							devPlanCreditsFrozen: false,
-							devPlanCreditsLimitBeforeFreeze: null,
 							devPlanBillingCycleStart: new Date(),
 							devPlanExpiresAt: newExpiresAt,
 							devPlanPendingTier: null,
+							subscriptionPaymentStatus: "current",
 						})
 						.where(eq(tables.organization.id, personalOrg.id));
 				}
@@ -1800,6 +1804,7 @@ const getStatus = createRoute({
 						devPlanBillingCycleStart: z.string().nullable(),
 						devPlanCancelled: z.boolean(),
 						devPlanExpiresAt: z.string().nullable(),
+						subscriptionPaymentStatus: z.enum(["current", "past_due"]),
 						regularCredits: z.string(),
 						// Opt-in pay-as-you-go overflow: bill the org's regular
 						// credits once the monthly allowance is exhausted.
@@ -1876,6 +1881,7 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanBillingCycleStart: null,
 			devPlanCancelled: false,
 			devPlanExpiresAt: null,
+			subscriptionPaymentStatus: "current" as const,
 			regularCredits: "0",
 			devPlanPaygEnabled: false,
 			autoTopUpEnabled: false,
@@ -1999,6 +2005,7 @@ devPlans.openapi(getStatus, async (c) => {
 			personalOrg.devPlanBillingCycleStart?.toISOString() ?? null,
 		devPlanCancelled: personalOrg.devPlanCancelled,
 		devPlanExpiresAt: personalOrg.devPlanExpiresAt?.toISOString() ?? null,
+		subscriptionPaymentStatus: personalOrg.subscriptionPaymentStatus,
 		regularCredits: personalOrg.credits,
 		devPlanPaygEnabled: personalOrg.devPlanPaygEnabled,
 		autoTopUpEnabled: personalOrg.autoTopUpEnabled,
@@ -2569,7 +2576,6 @@ const getInvoices = createRoute({
 												"not_owner",
 												"not_latest_purchase",
 												"plan_inactive",
-												"credits_frozen",
 												"usage_exceeded",
 												"pass_already_used",
 											])
@@ -3316,6 +3322,7 @@ const updatePaymentMethod = createRoute({
 				"application/json": {
 					schema: z.object({
 						success: z.boolean(),
+						renewalPayment: renewalPaymentResultSchema,
 					}),
 				},
 			},
@@ -3440,7 +3447,7 @@ devPlans.openapi(updatePaymentMethod, async (c) => {
 		invoice_settings: { default_payment_method: paymentMethodId },
 	});
 
-	await getStripe().subscriptions.update(
+	const subscription = await getStripe().subscriptions.update(
 		personalOrg.devPlanStripeSubscriptionId,
 		{ default_payment_method: paymentMethodId },
 	);
@@ -3466,6 +3473,7 @@ devPlans.openapi(updatePaymentMethod, async (c) => {
 	return c.json(
 		{
 			success: true,
+			renewalPayment: await retryDevPlanRenewal(subscription, paymentMethodId),
 		},
 		200,
 	);

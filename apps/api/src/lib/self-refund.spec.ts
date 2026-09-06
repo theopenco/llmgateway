@@ -350,28 +350,6 @@ describe("computeSelfRefundEligibility", () => {
 		});
 	});
 
-	test("frozen dev plan credits block the refund", async () => {
-		await seedOrg({
-			devPlan: "pro",
-			devPlanCreditsUsed: "0",
-			devPlanCreditsLimit: "237",
-			devPlanStripeSubscriptionId: "sub_test_1",
-			devPlanCreditsFrozen: true,
-		});
-		const tx = await seedTransaction({
-			type: "dev_plan_start",
-			amount: "79",
-			creditAmount: "237",
-			stripePaymentIntentId: null,
-			stripeInvoiceId: "in_test_1",
-		});
-
-		expect(await getEligibility(tx.id)).toEqual({
-			eligible: false,
-			reason: "credits_frozen",
-		});
-	});
-
 	test("first chat plan purchase under 20% of the allowance is eligible", async () => {
 		await seedOrg({
 			kind: "chat",

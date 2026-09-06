@@ -119,6 +119,8 @@ export default function CapHitResetOfferDialog({
 	const resetsIn = premiumWeekResetsAt
 		? formatDistanceToNowStrict(new Date(premiumWeekResetsAt))
 		: null;
+	// This dialog is where someone asks "when do I get the allowance back?", so
+	// give the moment to the minute in their own zone, not just a duration.
 	const resetsWhen = premiumWeekResetsAt
 		? formatDateTime(
 				premiumWeekResetsAt,
