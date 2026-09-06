@@ -7,7 +7,13 @@ interface SpecOperation {
 	operationId?: string;
 	description?: string;
 	summary?: string;
-	responses: Record<string, { headers?: Record<string, unknown> }>;
+	responses: Record<
+		string,
+		{
+			headers?: Record<string, unknown>;
+			content?: Record<string, { schema?: Record<string, unknown> }>;
+		}
+	>;
 }
 
 interface Spec {

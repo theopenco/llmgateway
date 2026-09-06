@@ -51,3 +51,19 @@ export async function GET(
 	}
 	return new Response(await res.text(), { status: 200, headers });
 }
+
+export async function POST(
+	request: Request,
+	context: { params: Promise<{ slug?: string[] }> },
+) {
+	const { slug } = await context.params;
+	if (MARKDOWN_PAGES[`/${(slug ?? []).join("/")}`]) {
+		return new Response(null, {
+			status: 405,
+			headers: { Allow: "GET, HEAD, OPTIONS" },
+		});
+	}
+	return await GET(request, context);
+}
+
+export { POST as PUT, POST as PATCH, POST as DELETE };

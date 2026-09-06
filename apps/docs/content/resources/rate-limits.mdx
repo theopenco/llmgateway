@@ -177,7 +177,7 @@ Some providers and models enforce their own upstream request limits. When a prov
 
 ## Rate Limit Headers
 
-Authenticated responses on limited endpoints advertise the enforced organization quota. Anonymous requests, enterprise RPM exemptions, and disabled or unavailable limiters do not advertise a quota they did not check.
+Successful authenticated responses carry the organization requests-per-minute (RPM) policy, remaining request quota, and reset delay only when they passed an RPM quota check. Anonymous requests, enterprise RPM exemptions, and disabled or unavailable RPM limiters omit these headers on success.
 
 ```http
 RateLimit-Policy: "requests";q=600;w=60

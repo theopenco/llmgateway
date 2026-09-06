@@ -22,6 +22,15 @@ test("unknown routes give agents markdown recovery and browsers a real 404", asy
 				expect(body).toContain(link);
 			}
 			expect(body.length).toBeLessThan(1500);
+			for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+				const response = await request.fetch(path, {
+					method,
+					headers: { Accept: accept },
+				});
+				expect(response.status(), `${method} ${path}`).toBe(404);
+				expect(response.headers()["content-type"]).toContain("text/markdown");
+				expect(await response.text()).toBe(body);
+			}
 		}
 		const browser = await request.get(path, {
 			headers: { Accept: "text/html" },
@@ -32,6 +41,9 @@ test("unknown routes give agents markdown recovery and browsers a real 404", asy
 		expect(head.status()).toBe(404);
 		expect(await head.body()).toHaveLength(0);
 	}
+	const existing = await request.post("/md/pricing");
+	expect(existing.status()).toBe(405);
+	expect(existing.headers().allow).toBe("GET, HEAD, OPTIONS");
 });
 
 test("homepage content and branding are available without JavaScript", async ({

@@ -107,9 +107,11 @@ describe("MCP endpoint", () => {
 			headers: { Origin: "https://untrusted.example" },
 		});
 		expect(invalidOrigin.status).toBe(403);
-		const subscription = await app.request("/mcp", { headers });
-		expect(subscription.status).toBe(405);
-		expect(subscription.headers.get("Allow")).toBe("POST");
+		for (const method of ["GET", "HEAD", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
+			const response = await app.request("/mcp", { method, headers });
+			expect(response.status, method).toBe(405);
+			expect(response.headers.get("Allow"), method).toBe("POST");
+		}
 		const unauthenticated = await app.request("/mcp", {
 			method: "POST",
 			headers: { Accept: headers.Accept },

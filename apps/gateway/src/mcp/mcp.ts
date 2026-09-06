@@ -1306,7 +1306,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 		(accept.includes("application/json") &&
 			accept.includes("text/event-stream"));
 	if (streamableHttp) {
-		if (method === "GET" || method === "DELETE") {
+		if (method !== "POST") {
 			c.header("Allow", "POST");
 			return c.json(
 				{
