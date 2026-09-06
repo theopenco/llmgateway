@@ -39,15 +39,7 @@ function getEnvCredentialCount(
 }
 
 /**
- * Whether a single env credential index can carry a Flex/Priority service-tier
- * request. Requires:
- * - an eligible base URL (managed default / canonical upstream, not a proxy);
- * - for google-vertex, a global region — Flex/Priority PayGo is served only on
- *   the global endpoint, and a non-global index would have its tier header
- *   dropped by getForwardedServiceTier and be silently served as standard.
- *
- * Base URL and region are comma-indexed in lockstep with the API-key env var,
- * so this is evaluated per index.
+ * Check the region at each credential index for Vertex tier support.
  */
 function isServiceTierEligibleEnvIndex(
 	provider: Provider,
@@ -55,13 +47,6 @@ function isServiceTierEligibleEnvIndex(
 	variant?: EnvVarVariant,
 ): boolean {
 	return providerCredentialSupportsServiceTier(provider, {
-		baseUrl: getProviderEnvValue(
-			provider,
-			"baseUrl",
-			index,
-			undefined,
-			variant,
-		),
 		region: getProviderEnvValue(provider, "region", index, "global", variant),
 	});
 }
@@ -69,8 +54,7 @@ function isServiceTierEligibleEnvIndex(
 /**
  * Env credential indices that are NOT eligible to carry a Flex/Priority
  * service-tier request. Used to exclude those indices from round-robin
- * selection so a service-tier request lands on a credential that hits the real
- * upstream on a tier-capable endpoint.
+ * selection so a service-tier request lands on a tier-capable region.
  */
 export function getServiceTierIneligibleEnvIndices(
 	provider: Provider,

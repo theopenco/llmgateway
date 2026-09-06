@@ -1,5 +1,5 @@
 ---
-title: Model Context Protocol (MCP)
+title: LLM Gateway MCP Server
 description: Check usage, costs, and your most-used models, providers and coding apps from any MCP client
 icon: Mcp
 ---
@@ -17,6 +17,14 @@ Connect your AI assistant to LLM Gateway to inspect your usage and costs, discov
 	provider-pinned routing is not available on coding plans; the gateway picks
 	the provider for you.
 </Callout>
+
+## Connection and discovery
+
+Connect with Streamable HTTP at `https://llmgateway.io/mcp` or `https://api.llmgateway.io/mcp`. Send an API key in `Authorization: Bearer <api-key>`. A GET without an SSE Accept header returns public server information; browser navigation on the main domain opens the setup page.
+
+For protocol requests, POST a single JSON-RPC message with `Content-Type: application/json` and `Accept: application/json, text/event-stream`. Initialize first, then send the negotiated `MCP-Protocol-Version` header on subsequent requests. The transport is stateless: requests return JSON, accepted notifications return an empty 202, and standalone SSE subscriptions and session deletion return 405. Clients using the original HTTP+SSE bridge remain supported.
+
+[Protected resource metadata](https://api.llmgateway.io/.well-known/oauth-protected-resource/mcp) publishes authentication discovery. Unauthorized protocol requests include a `WWW-Authenticate` challenge pointing to it.
 
 ## What is MCP?
 

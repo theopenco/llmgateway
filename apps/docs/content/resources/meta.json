@@ -2,5 +2,5 @@
 	"title": "Resources",
 	"description": "Reference material for working with the LLM Gateway API",
 	"icon": "BookOpen",
-	"pages": ["error-handling", "rate-limits"]
+	"pages": ["error-handling", "rate-limits", "api-versioning"]
 }

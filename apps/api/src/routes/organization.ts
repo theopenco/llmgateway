@@ -21,6 +21,7 @@ import {
 	isRefundTransaction,
 } from "@/utils/invoice.js";
 import { providerCacheControlModeSchema } from "@/utils/provider-cache-control.js";
+import { serializeOrganization } from "@/utils/serialize-organization.js";
 import { isConfigurableDomain, normalizeDomain } from "@/utils/sso-domain.js";
 import {
 	isZeroDataRetentionEnabled,
@@ -398,7 +399,7 @@ organization.openapi(getOrganizations, async (c) => {
 
 	let organizations = userOrganizations
 		.map((uo) => ({
-			...uo.organization!,
+			...serializeOrganization(uo.organization!),
 			role: uo.role,
 			enterpriseAccess: hasOrganizationEnterpriseAccess(
 				uo.organization?.id,
@@ -424,7 +425,7 @@ organization.openapi(getOrganizations, async (c) => {
 		) {
 			organizations = [
 				{
-					...defaultOrganization,
+					...serializeOrganization(defaultOrganization),
 					role: "owner" as const,
 					enterpriseAccess: hasOrganizationEnterpriseAccess(
 						defaultOrganization.id,
@@ -593,7 +594,7 @@ organization.openapi(createOrganization, async (c) => {
 	});
 
 	return c.json({
-		organization: newOrganization,
+		organization: serializeOrganization(newOrganization),
 	});
 });
 
@@ -1082,7 +1083,7 @@ organization.openapi(updateOrganization, async (c) => {
 
 	return c.json({
 		message: "Organization updated successfully",
-		organization: updatedOrganization,
+		organization: serializeOrganization(updatedOrganization),
 	});
 });
 
