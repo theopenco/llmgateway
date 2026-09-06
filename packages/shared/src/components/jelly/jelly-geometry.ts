@@ -9,6 +9,8 @@ import { logoPaths } from "@/components/ui/logo-paths";
 
 import type { Vector2 } from "three";
 
+let restGeometry: BufferGeometry | undefined;
+
 function distanceToOutline(x: number, y: number, points: Vector2[]) {
 	let inside = false;
 	let distance = Infinity;
@@ -41,6 +43,9 @@ function smoothMinimum(a: number, b: number, radius: number) {
 }
 
 export function createJellyGeometry() {
+	if (restGeometry) {
+		return restGeometry.clone();
+	}
 	const svg = new SVGLoader().parse(
 		`<svg xmlns="http://www.w3.org/2000/svg">${logoPaths.map((d) => `<path d="${d}" />`).join("")}</svg>`,
 	);
@@ -145,5 +150,7 @@ export function createJellyGeometry() {
 	geometry.dispose();
 	surface.geometry.dispose();
 	placeholder.dispose();
-	return merged;
+	// Physics mutates each instance; keep the cached rest surface untouched.
+	restGeometry = merged;
+	return restGeometry.clone();
 }

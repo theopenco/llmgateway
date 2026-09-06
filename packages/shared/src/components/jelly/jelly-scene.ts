@@ -151,6 +151,7 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 	const stretch = new Vector3();
 	const tilt = new Vector2();
 	let grabbed: number | null = null;
+	let hoverPending = false;
 	let height = 0.5;
 	let heightVelocity = 0;
 	let frame = 0;
@@ -195,6 +196,13 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 			jelly.rotation.y += (-0.18 + tilt.x * 0.06 - jelly.rotation.y) * dt * 6;
 		}
 		renderer.render(scene, camera);
+		if (hoverPending && grabbed === null && !reducedMotion) {
+			hoverPending = false;
+			raycaster.setFromCamera(pointer, camera);
+			canvas.style.cursor = raycaster.intersectObject(jelly).length
+				? "grab"
+				: "default";
+		}
 		if (
 			!reducedMotion &&
 			(grabbed !== null || physics.active || time < activeUntil)
@@ -275,9 +283,7 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 			wake();
 		} else if (grabbed === null && event.pointerType !== "touch") {
 			tilt.copy(pointer);
-			canvas.style.cursor = raycaster.intersectObject(jelly).length
-				? "grab"
-				: "default";
+			hoverPending = true;
 			wake();
 		}
 	}
@@ -304,6 +310,7 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 	function resetDrag() {
 		const pointerId = grabbed;
 		grabbed = null;
+		hoverPending = false;
 		physics.release();
 		target.set(0, 0, 0);
 		canvas.style.cursor = "default";
@@ -315,6 +322,10 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 	function pointerLeave() {
 		if (reducedMotion) {
 			return;
+		}
+		hoverPending = false;
+		if (grabbed === null) {
+			canvas.style.cursor = "default";
 		}
 		tilt.set(0, 0);
 		wake();
