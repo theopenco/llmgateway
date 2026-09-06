@@ -57,8 +57,14 @@ export function resolveUpstreamTarget(
 	}
 
 	const baseUrl = credentialBaseUrl ?? "https://api.openai.com";
+	// A transcription session has no session model in the URL: the ASR model
+	// is applied by the gateway's control session.update once connected.
+	const query =
+		preflight.sessionType === "transcription"
+			? "intent=transcription"
+			: `model=${encodeURIComponent(preflight.match.mapping.externalId)}`;
 	return {
-		url: `${baseUrl.replace(/^http/, "ws")}/v1/realtime?model=${encodeURIComponent(preflight.match.mapping.externalId)}`,
+		url: `${baseUrl.replace(/^http/, "ws")}/v1/realtime?${query}`,
 		headers: {
 			Authorization: `Bearer ${preflight.upstreamToken}`,
 			"OpenAI-Safety-Identifier": preflight.safetyIdentifier,

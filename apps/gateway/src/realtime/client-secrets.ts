@@ -5,6 +5,8 @@ import { logger } from "@llmgateway/logger";
 
 import { RealtimeConnectError } from "./errors.js";
 
+import type { RealtimeSessionType } from "./preflight.js";
+
 export const CLIENT_SECRET_PREFIX = "ek_";
 export const DEFAULT_CLIENT_SECRET_TTL_SECONDS = 60;
 export const MIN_CLIENT_SECRET_TTL_SECONDS = 10;
@@ -31,12 +33,19 @@ export interface RealtimeClientSecretRecord {
 	 */
 	token: string;
 	/**
-	 * Canonical realtime model pinned at mint time.
+	 * Canonical model pinned at mint time: the realtime model, or for a
+	 * transcription session its transcription model.
 	 */
 	model: string;
 	/**
+	 * Whether the secret opens a speech-to-speech or a transcription-only
+	 * session. The WebSocket upgrade must use the matching intent.
+	 */
+	sessionType: RealtimeSessionType;
+	/**
 	 * Transcription model pinned at mint time, or null when the secret does
-	 * not authorize input transcription.
+	 * not authorize input transcription. Always null for transcription
+	 * sessions, whose transcription model is `model` itself.
 	 */
 	transcriptionModel: string | null;
 	/**
@@ -91,6 +100,7 @@ export function clampClientSecretTtl(seconds: unknown): number {
 export interface CreateClientSecretInput {
 	token: string;
 	model: string;
+	sessionType: RealtimeSessionType;
 	transcriptionModel: string | null;
 	instructions: string | null;
 	voice: string | null;
@@ -114,6 +124,7 @@ export async function createClientSecret(
 		v: 1,
 		token: input.token,
 		model: input.model,
+		sessionType: input.sessionType,
 		transcriptionModel: input.transcriptionModel,
 		instructions: input.instructions,
 		voice: input.voice,
@@ -179,6 +190,15 @@ export function parseClientSecretRecord(
 	if (typeof record.model !== "string" || record.model.length === 0) {
 		return null;
 	}
+	// sessionType postdates the v1 record shape; an absent key is a realtime
+	// secret minted by an older build, as instructions/voice below.
+	if (
+		record.sessionType !== undefined &&
+		record.sessionType !== "realtime" &&
+		record.sessionType !== "transcription"
+	) {
+		return null;
+	}
 	if (
 		record.transcriptionModel !== null &&
 		typeof record.transcriptionModel !== "string"
@@ -215,6 +235,7 @@ export function parseClientSecretRecord(
 		v: 1,
 		token: record.token,
 		model: record.model,
+		sessionType: record.sessionType ?? "realtime",
 		transcriptionModel: record.transcriptionModel,
 		instructions: record.instructions ?? null,
 		voice: record.voice ?? null,

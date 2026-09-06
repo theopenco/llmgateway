@@ -30,24 +30,40 @@ describe("normalizeTranscriptionUsage", () => {
 				outputTokens: 10,
 				inputTextTokens: 2,
 				inputAudioTokens: 18,
+				inputAudioSeconds: 0,
 			},
 		});
+	});
+
+	it("normalizes a duration usage block", () => {
+		expect(
+			normalizeTranscriptionUsage({ type: "duration", seconds: 3.2 }),
+		).toEqual({
+			ok: true,
+			usage: {
+				totalTokens: 0,
+				inputTokens: 0,
+				outputTokens: 0,
+				inputTextTokens: 0,
+				inputAudioTokens: 0,
+				inputAudioSeconds: 3.2,
+			},
+		});
+	});
+
+	it("rejects malformed duration seconds", () => {
+		expect(normalizeTranscriptionUsage({ type: "duration" }).ok).toBe(false);
+		expect(
+			normalizeTranscriptionUsage({ type: "duration", seconds: -1 }).ok,
+		).toBe(false);
+		expect(
+			normalizeTranscriptionUsage({ type: "duration", seconds: "3" }).ok,
+		).toBe(false);
 	});
 
 	it("rejects missing usage", () => {
 		expect(normalizeTranscriptionUsage(undefined).ok).toBe(false);
 		expect(normalizeTranscriptionUsage(null).ok).toBe(false);
-	});
-
-	it("rejects duration-based usage", () => {
-		const result = normalizeTranscriptionUsage({
-			type: "duration",
-			seconds: 4.2,
-		});
-		expect(result).toEqual({
-			ok: false,
-			reason: "unsupported usage type: duration",
-		});
 	});
 
 	it("rejects missing usage type", () => {
@@ -133,6 +149,7 @@ describe("priceTranscriptionUsage", () => {
 				outputTokens: 10,
 				inputTextTokens: 2,
 				inputAudioTokens: 18,
+				inputAudioSeconds: 0,
 			},
 			snapshot,
 		);
@@ -153,6 +170,7 @@ describe("priceTranscriptionUsage", () => {
 				outputTokens: 0,
 				inputTextTokens: 0,
 				inputAudioTokens: 5,
+				inputAudioSeconds: 0,
 			},
 			buildTranscriptionPriceSnapshot({
 				inputPrice: undefined,
@@ -174,6 +192,7 @@ describe("priceTranscriptionUsage", () => {
 				outputTokens: 0,
 				inputTextTokens: 0,
 				inputAudioTokens: 10,
+				inputAudioSeconds: 0,
 			},
 			buildTranscriptionPriceSnapshot({
 				inputPrice: "2e-6",
@@ -186,6 +205,72 @@ describe("priceTranscriptionUsage", () => {
 		}
 		expect(result.costs.audioInputCost.toString()).toBe("0.00002");
 	});
+
+	it("prices duration usage against the per-hour audio price", () => {
+		const result = priceTranscriptionUsage(
+			{
+				totalTokens: 0,
+				inputTokens: 0,
+				outputTokens: 0,
+				inputTextTokens: 0,
+				inputAudioTokens: 0,
+				inputAudioSeconds: 90,
+			},
+			buildTranscriptionPriceSnapshot({
+				inputPrice: "0",
+				outputPrice: "0",
+				inputAudioHourPrice: "1.02",
+			}),
+		);
+		if (!result.ok) {
+			throw new Error(`expected ok, got ${result.reason}`);
+		}
+		// 90s at $1.02/h = $0.0255 (i.e. 1.5 min at $0.017/min).
+		expect(result.costs.audioInputCost.toString()).toBe("0.0255");
+		expect(result.costs.inputCost.toString()).toBe("0");
+		expect(result.costs.outputCost.toString()).toBe("0");
+		expect(result.costs.totalCost.toString()).toBe("0.0255");
+	});
+
+	it("fails for duration usage on a token-priced mapping", () => {
+		const result = priceTranscriptionUsage(
+			{
+				totalTokens: 0,
+				inputTokens: 0,
+				outputTokens: 0,
+				inputTextTokens: 0,
+				inputAudioTokens: 0,
+				inputAudioSeconds: 12,
+			},
+			snapshot,
+		);
+		expect(result).toEqual({
+			ok: false,
+			reason: "no price configured for audio input duration",
+		});
+	});
+
+	it("fails for token usage on a duration-priced mapping instead of billing zero", () => {
+		const result = priceTranscriptionUsage(
+			{
+				totalTokens: 10,
+				inputTokens: 10,
+				outputTokens: 0,
+				inputTextTokens: 0,
+				inputAudioTokens: 10,
+				inputAudioSeconds: 0,
+			},
+			buildTranscriptionPriceSnapshot({
+				inputPrice: "0",
+				outputPrice: "0",
+				inputAudioHourPrice: "1.02",
+			}),
+		);
+		expect(result).toEqual({
+			ok: false,
+			reason: "no price configured for audio input tokens",
+		});
+	});
 });
 
 describe("applyTranscriptionDiscount", () => {
@@ -197,6 +282,7 @@ describe("applyTranscriptionDiscount", () => {
 				outputTokens: 10,
 				inputTextTokens: 2,
 				inputAudioTokens: 18,
+				inputAudioSeconds: 0,
 			},
 			buildTranscriptionPriceSnapshot({
 				inputPrice: "1e-6",
@@ -227,6 +313,7 @@ describe("applyTranscriptionDiscount", () => {
 				outputTokens: 0,
 				inputTextTokens: 1,
 				inputAudioTokens: 0,
+				inputAudioSeconds: 0,
 			},
 			buildTranscriptionPriceSnapshot({
 				inputPrice: "1e-6",

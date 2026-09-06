@@ -1,6 +1,10 @@
 "use client";
 
 import {
+	Captions,
+	Check,
+	Copy,
+	Info,
 	Mic,
 	MicOff,
 	Phone,
@@ -29,6 +33,16 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+	useTranscriptionSession,
+	type TranscriptionTurnDetection,
+} from "@/hooks/use-transcription-session";
 import {
 	useVoiceCall,
 	type VoiceCallStatus,
@@ -45,6 +59,7 @@ import { deriveCallTitle, formatCallDuration } from "@/lib/call-history";
 import {
 	getModelPreferenceCookie,
 	REALTIME_MODEL_COOKIE,
+	REALTIME_TRANSCRIPTION_MODEL_COOKIE,
 	setModelPreferenceCookie,
 } from "@/lib/model-preferences";
 import { base64ToBytes } from "@/lib/realtime-audio";
@@ -54,7 +69,11 @@ import {
 } from "@/lib/realtime-model-value";
 import { cn } from "@/lib/utils";
 
-import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
+import type {
+	ApiModel,
+	ApiModelProviderMapping,
+	ApiProvider,
+} from "@/lib/fetch-models";
 import type { Organization, Project } from "@/lib/types";
 
 interface RealtimePageClientProps {
@@ -65,7 +84,11 @@ interface RealtimePageClientProps {
 	projects: Project[];
 	selectedProject: Project | null;
 	initialModelPreference?: string | null;
+	initialTranscriptionModelPreference?: string | null;
 }
+
+/** Speech-to-speech call, or a transcription-only session on the same endpoint. */
+type RealtimeMode = "call" | "transcribe";
 
 const STATUS_LABELS: Record<VoiceCallStatus, string> = {
 	idle: "Ready",
@@ -89,25 +112,49 @@ const REPLAY_CHAR_WARNING = 8000;
 const SEED_ID_PREFIX = "seed-";
 /** How close to the bottom still counts as "following" the live transcript. */
 const FOLLOW_TRANSCRIPT_THRESHOLD_PX = 64;
+/** The gateway has no transcription-only mode for Gemini Live. */
+const GEMINI_PROVIDER_ID = "google-ai-studio";
+
+const TURN_DETECTION_OPTIONS: {
+	value: TranscriptionTurnDetection;
+	label: string;
+	description: string;
+}[] = [
+	{
+		value: "server_vad",
+		label: "Server VAD",
+		description:
+			"The provider detects speech and silence, and finalizes a turn each time you pause.",
+	},
+	{
+		value: "manual",
+		label: "Manual",
+		description:
+			"Audio streams uncommitted; press Commit turn to finalize. Anything not committed before you stop is never transcribed.",
+	},
+];
 
 /**
- * Restrict the catalogue to models that have at least one active realtime
- * mapping, and copy each surviving model with only those mappings so the
- * ModelSelector (which does not capability-filter by mode) cannot offer a
- * non-realtime provider.
+ * Restrict the catalogue to models with at least one active mapping passing
+ * the predicate, and copy each surviving model with only those mappings so
+ * the ModelSelector (which does not capability-filter by mode) cannot offer
+ * a provider that cannot serve the session.
  */
-function restrictToRealtimeModels(models: ApiModel[]): ApiModel[] {
+function restrictToSessionModels(
+	models: ApiModel[],
+	canServe: (mapping: ApiModelProviderMapping) => boolean,
+): ApiModel[] {
 	const now = Date.now();
 	return models
 		.map((model) => {
-			const realtimeMappings = model.mappings.filter(
+			const mappings = model.mappings.filter(
 				(mapping) =>
-					mapping.realtime === true &&
+					canServe(mapping) &&
 					mapping.status === "active" &&
 					(!mapping.deactivatedAt ||
 						new Date(mapping.deactivatedAt).getTime() > now),
 			);
-			return { ...model, mappings: realtimeMappings };
+			return { ...model, mappings };
 		})
 		.filter((model) => model.mappings.length > 0)
 		.sort((a, b) => {
@@ -115,6 +162,45 @@ function restrictToRealtimeModels(models: ApiModel[]): ApiModel[] {
 			const dateB = b.releasedAt ? new Date(b.releasedAt).getTime() : 0;
 			return dateB - dateA;
 		});
+}
+
+/** URL param first, then the stored preference, then the newest model. */
+function pickInitialModel(
+	models: ApiModel[],
+	urlValue: string | null,
+	cookieName: string,
+	serverPreference: string | null | undefined,
+): string {
+	if (urlValue && isKnownModelValue(models, urlValue)) {
+		return urlValue;
+	}
+	const stored = getModelPreferenceCookie(cookieName) ?? serverPreference;
+	if (stored && isKnownModelValue(models, stored)) {
+		return stored;
+	}
+	return models[0]?.id ?? "";
+}
+
+/** How the transcription model is metered, for the header hint. */
+function describeTranscriptionPrice(
+	mapping: ApiModelProviderMapping | null,
+): string | null {
+	if (!mapping) {
+		return null;
+	}
+	const hourPrice = mapping.inputAudioHourPrice
+		? parseFloat(mapping.inputAudioHourPrice)
+		: 0;
+	if (hourPrice > 0) {
+		return `$${(hourPrice / 60).toFixed(3)}/min`;
+	}
+	const audioTokenPrice = mapping.inputAudioPrice
+		? parseFloat(mapping.inputAudioPrice)
+		: 0;
+	if (audioTokenPrice > 0) {
+		return `$${(audioTokenPrice * 1_000_000).toFixed(2)}/M audio tokens`;
+	}
+	return null;
 }
 
 export default function RealtimePageClient({
@@ -125,6 +211,7 @@ export default function RealtimePageClient({
 	projects: _projects,
 	selectedProject,
 	initialModelPreference,
+	initialTranscriptionModelPreference,
 }: RealtimePageClientProps) {
 	const { user, isLoading: isUserLoading } = useUser();
 	const posthog = usePostHog();
@@ -133,22 +220,44 @@ export default function RealtimePageClient({
 	const searchParams = useSearchParams();
 
 	const realtimeModels = useMemo(
-		() => restrictToRealtimeModels(models),
+		() =>
+			restrictToSessionModels(models, (mapping) => mapping.realtime === true),
+		[models],
+	);
+	const transcriptionModels = useMemo(
+		() =>
+			restrictToSessionModels(
+				models,
+				(mapping) =>
+					mapping.realtimeTranscription === true &&
+					mapping.providerId !== GEMINI_PROVIDER_ID,
+			),
 		[models],
 	);
 
-	const [selectedModel, setSelectedModel] = useState<string>(() => {
-		const modelParam = searchParams.get("model");
-		if (modelParam && isKnownModelValue(realtimeModels, modelParam)) {
-			return modelParam;
-		}
-		const stored =
-			getModelPreferenceCookie(REALTIME_MODEL_COOKIE) ?? initialModelPreference;
-		if (stored && isKnownModelValue(realtimeModels, stored)) {
-			return stored;
-		}
-		return realtimeModels[0]?.id ?? "";
-	});
+	const [mode, setMode] = useState<RealtimeMode>(() =>
+		searchParams.get("mode") === "transcribe" ? "transcribe" : "call",
+	);
+	const isTranscribeMode = mode === "transcribe";
+
+	const [selectedModel, setSelectedModel] = useState<string>(() =>
+		pickInitialModel(
+			realtimeModels,
+			isTranscribeMode ? null : searchParams.get("model"),
+			REALTIME_MODEL_COOKIE,
+			initialModelPreference,
+		),
+	);
+	const [transcriptionModel, setTranscriptionModel] = useState<string>(() =>
+		pickInitialModel(
+			transcriptionModels,
+			isTranscribeMode ? searchParams.get("model") : null,
+			REALTIME_TRANSCRIPTION_MODEL_COOKIE,
+			initialTranscriptionModelPreference,
+		),
+	);
+	const [turnDetection, setTurnDetection] =
+		useState<TranscriptionTurnDetection>("server_vad");
 
 	// A provider-pinned selection must resolve to that provider's mapping: it
 	// decides both the voice list and which wire protocol the call speaks, and
@@ -156,6 +265,21 @@ export default function RealtimePageClient({
 	const selectedMapping = useMemo(
 		() => resolveSelectedMapping(realtimeModels, selectedModel),
 		[realtimeModels, selectedModel],
+	);
+	const selectedTranscriptionMapping = useMemo(
+		() => resolveSelectedMapping(transcriptionModels, transcriptionModel),
+		[transcriptionModels, transcriptionModel],
+	);
+	// Streaming ASR models segment continuously and reject `turn_detection`
+	// upstream, so they can only run manual turns.
+	const supportsServerVad =
+		selectedTranscriptionMapping?.realtimeTranscriptionTurnDetection === true;
+	const effectiveTurnDetection: TranscriptionTurnDetection = supportsServerVad
+		? turnDetection
+		: "manual";
+	const transcriptionPriceLabel = useMemo(
+		() => describeTranscriptionPrice(selectedTranscriptionMapping),
+		[selectedTranscriptionMapping],
 	);
 	const voices = useMemo(
 		() => selectedMapping?.supportedVoices ?? [],
@@ -177,6 +301,14 @@ export default function RealtimePageClient({
 			setModelPreferenceCookie(REALTIME_MODEL_COOKIE, selectedModel);
 		}
 	}, [selectedModel]);
+	useEffect(() => {
+		if (transcriptionModel) {
+			setModelPreferenceCookie(
+				REALTIME_TRANSCRIPTION_MODEL_COOKIE,
+				transcriptionModel,
+			);
+		}
+	}, [transcriptionModel]);
 
 	const onCallError = useCallback((message: string) => {
 		toast.error(message);
@@ -205,10 +337,33 @@ export default function RealtimePageClient({
 		provider: selectedMapping?.providerId ?? null,
 		onCallError,
 	});
+	const {
+		status: transcriptionStatus,
+		muted: transcriptionMuted,
+		setMuted: setTranscriptionMuted,
+		elapsedSeconds: transcriptionElapsedSeconds,
+		segments,
+		usage: transcriptionUsage,
+		userSpeaking: transcriptionUserSpeaking,
+		inputLevel: transcriptionInputLevel,
+		start: startTranscription,
+		stop: stopTranscription,
+		commit: commitTranscription,
+		reset: resetTranscription,
+	} = useTranscriptionSession({
+		model: transcriptionModel || null,
+		turnDetection: effectiveTurnDetection,
+		onError: onCallError,
+	});
 
 	const isAuthenticated = !isUserLoading && !!user;
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
-	const inCall = status !== "idle";
+	// Only the selected mode's session can be active; the other hook is idle.
+	const activeStatus = isTranscribeMode ? transcriptionStatus : status;
+	const activeElapsedSeconds = isTranscribeMode
+		? transcriptionElapsedSeconds
+		: elapsedSeconds;
+	const inCall = activeStatus !== "idle";
 	const controlsLocked = inCall;
 
 	const { data: historyData, isLoading: isHistoryLoading } = useRealtimeHistory(
@@ -223,7 +378,8 @@ export default function RealtimePageClient({
 
 	// Persist the transcript once per call, when the call returns to idle. The
 	// browser is the only place a realtime transcript exists — the gateway
-	// deliberately does not store conversation content.
+	// deliberately does not store conversation content. Transcription sessions
+	// are not saved: history rows model a two-sided call.
 	const savedCallRef = useRef(false);
 	const previousStatusRef = useRef<VoiceCallStatus>("idle");
 	// Set while this session continues a saved call: its turns are appended to
@@ -331,6 +487,8 @@ export default function RealtimePageClient({
 	);
 	const viewedCall = viewedCallData?.item ?? null;
 	const isViewingHistory = !inCall && !!viewedCallId;
+	// Transcribe mode shows its own segments unless a saved call is open.
+	const showTranscription = isTranscribeMode && !isViewingHistory;
 
 	// Saved turns carry no upstream item id, so they are keyed by position.
 	const displayedTurns = useMemo(() => {
@@ -436,7 +594,7 @@ export default function RealtimePageClient({
 		if (element && followTranscriptRef.current) {
 			element.scrollTop = element.scrollHeight;
 		}
-	}, [displayedTurns]);
+	}, [displayedTurns, segments]);
 
 	const displayedUsage = isViewingHistory
 		? viewedCall?.usage
@@ -465,11 +623,36 @@ export default function RealtimePageClient({
 		continuedCallIdRef.current = null;
 		setViewedCallId(null);
 		reset();
-	}, [inCall, reset]);
+		resetTranscription();
+	}, [inCall, reset, resetTranscription]);
 
 	const handleCallDeleted = useCallback((itemId: string) => {
 		setViewedCallId((current) => (current === itemId ? null : current));
 	}, []);
+
+	// The mode lives in the URL so a session type is linkable and survives a
+	// reload; replaceState keeps the switch client-side.
+	const handleModeChange = useCallback(
+		(value: string) => {
+			if (inCall || (value !== "call" && value !== "transcribe")) {
+				return;
+			}
+			setMode(value);
+			const params = new URLSearchParams(searchParams.toString());
+			if (value === "transcribe") {
+				params.set("mode", "transcribe");
+			} else {
+				params.delete("mode");
+			}
+			const query = params.toString();
+			window.history.replaceState(
+				null,
+				"",
+				query ? `${pathname}?${query}` : pathname,
+			);
+		},
+		[inCall, pathname, searchParams],
+	);
 
 	const returnUrl = useMemo(() => {
 		const search = searchParams.toString();
@@ -535,6 +718,30 @@ export default function RealtimePageClient({
 		start();
 	}, [posthog, selectedModel, start, voice]);
 
+	const handleStartTranscription = useCallback(() => {
+		posthog.capture("playground_realtime_transcription_started", {
+			model: transcriptionModel,
+			turnDetection: effectiveTurnDetection,
+		});
+		continuedCallIdRef.current = null;
+		setViewedCallId(null);
+		startTranscription();
+	}, [effectiveTurnDetection, posthog, startTranscription, transcriptionModel]);
+
+	const handleCopyTranscript = useCallback(() => {
+		const text = segments
+			.filter((segment) => segment.status !== "failed" && segment.text.trim())
+			.map((segment) => segment.text.trim())
+			.join("\n");
+		if (!text) {
+			return;
+		}
+		void navigator.clipboard.writeText(text).then(
+			() => toast.success("Transcript copied."),
+			() => toast.error("Could not copy the transcript."),
+		);
+	}, [segments]);
+
 	// Reopen a saved call as a live one: its turns are replayed to the model as
 	// conversation items and the new turns are appended back onto the same row.
 	const handleContinueCall = useCallback(() => {
@@ -584,7 +791,10 @@ export default function RealtimePageClient({
 
 	const hasBillingContext = !!selectedOrganization && !!selectedProject;
 	const isIdleEmptyState =
-		!inCall && !isViewingHistory && displayedTurns.length === 0;
+		!inCall &&
+		!isViewingHistory &&
+		(isTranscribeMode ? segments.length === 0 : displayedTurns.length === 0);
+	const canStart = isAuthenticated && hasBillingContext;
 
 	return (
 		<SidebarProvider>
@@ -603,59 +813,147 @@ export default function RealtimePageClient({
 				<div className="flex flex-1 flex-col min-w-0">
 					<header className="bg-background flex items-center gap-3 border-b p-4">
 						<SidebarTrigger />
+						<Tabs value={mode} onValueChange={handleModeChange}>
+							<TabsList aria-label="Session type">
+								<TabsTrigger value="call" disabled={controlsLocked}>
+									<Phone />
+									Call
+								</TabsTrigger>
+								<TabsTrigger value="transcribe" disabled={controlsLocked}>
+									<Captions />
+									Transcribe
+								</TabsTrigger>
+							</TabsList>
+						</Tabs>
 						<div className="flex w-full min-w-0 max-w-[360px] items-center gap-2 sm:max-w-[420px]">
 							<ModelSelector
-								models={realtimeModels}
+								models={isTranscribeMode ? transcriptionModels : realtimeModels}
 								providers={providers}
-								value={selectedModel}
-								onValueChange={setSelectedModel}
-								placeholder="Select a realtime model..."
+								value={isTranscribeMode ? transcriptionModel : selectedModel}
+								onValueChange={
+									isTranscribeMode ? setTranscriptionModel : setSelectedModel
+								}
+								placeholder={
+									isTranscribeMode
+										? "Select a transcription model..."
+										: "Select a realtime model..."
+								}
 								mode="realtime"
 								isOptionDisabled={() => controlsLocked}
 							/>
 						</div>
-						{voices.length > 0 && (
+						{isTranscribeMode ? (
 							<div className="flex items-center gap-2">
 								<Label
-									htmlFor="realtime-voice"
-									className="text-muted-foreground text-xs whitespace-nowrap"
+									htmlFor="realtime-turn-detection"
+									className="text-muted-foreground flex items-center gap-1 text-xs whitespace-nowrap"
 								>
-									Voice
+									Turns
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<Info
+												className="size-3.5"
+												aria-label="About turn detection"
+											/>
+										</TooltipTrigger>
+										<TooltipContent className="max-w-64">
+											Turn detection decides when a spoken turn ends. Each
+											finished turn is transcribed, finalized and billed.
+											{!supportsServerVad &&
+												" This model segments audio itself and only supports manual turns."}
+										</TooltipContent>
+									</Tooltip>
 								</Label>
 								<Select
-									value={voice}
-									onValueChange={setVoice}
-									disabled={controlsLocked}
+									value={effectiveTurnDetection}
+									onValueChange={(value) =>
+										setTurnDetection(
+											value === "manual" ? "manual" : "server_vad",
+										)
+									}
+									disabled={controlsLocked || !supportsServerVad}
 								>
-									<SelectTrigger id="realtime-voice" className="w-[130px]">
-										<SelectValue placeholder="Voice" />
+									<SelectTrigger
+										id="realtime-turn-detection"
+										className="w-[130px]"
+									>
+										{/* Explicit value text keeps the option descriptions
+										    out of the closed trigger. */}
+										<SelectValue>
+											{
+												TURN_DETECTION_OPTIONS.find(
+													(option) => option.value === effectiveTurnDetection,
+												)?.label
+											}
+										</SelectValue>
 									</SelectTrigger>
-									<SelectContent>
-										{voices.map((v) => (
-											<SelectItem key={v} value={v}>
-												{v.charAt(0).toUpperCase() + v.slice(1)}
+									<SelectContent className="w-72">
+										{TURN_DETECTION_OPTIONS.map((option) => (
+											<SelectItem
+												key={option.value}
+												value={option.value}
+												textValue={option.label}
+											>
+												<span className="flex flex-col gap-0.5 py-0.5">
+													<span>{option.label}</span>
+													<span className="text-muted-foreground text-xs whitespace-normal">
+														{option.description}
+													</span>
+												</span>
 											</SelectItem>
 										))}
 									</SelectContent>
 								</Select>
+								{transcriptionPriceLabel && (
+									<span className="text-muted-foreground hidden text-xs whitespace-nowrap md:inline">
+										{transcriptionPriceLabel}
+									</span>
+								)}
 							</div>
+						) : (
+							voices.length > 0 && (
+								<div className="flex items-center gap-2">
+									<Label
+										htmlFor="realtime-voice"
+										className="text-muted-foreground text-xs whitespace-nowrap"
+									>
+										Voice
+									</Label>
+									<Select
+										value={voice}
+										onValueChange={setVoice}
+										disabled={controlsLocked}
+									>
+										<SelectTrigger id="realtime-voice" className="w-[130px]">
+											<SelectValue placeholder="Voice" />
+										</SelectTrigger>
+										<SelectContent>
+											{voices.map((v) => (
+												<SelectItem key={v} value={v}>
+													{v.charAt(0).toUpperCase() + v.slice(1)}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</div>
+							)
 						)}
 						<div className="ml-auto flex items-center gap-3 text-sm">
 							<span
 								className={
-									status === "live"
+									activeStatus === "live"
 										? "flex items-center gap-1.5 text-green-600 dark:text-green-400"
 										: "text-muted-foreground"
 								}
 							>
-								{status === "live" && (
+								{activeStatus === "live" && (
 									<span className="inline-block h-2 w-2 animate-pulse rounded-full bg-green-500" />
 								)}
-								{STATUS_LABELS[status]}
+								{STATUS_LABELS[activeStatus]}
 							</span>
 							{inCall && (
 								<span className="text-muted-foreground tabular-nums">
-									{formatCallDuration(elapsedSeconds)}
+									{formatCallDuration(activeElapsedSeconds)}
 								</span>
 							)}
 						</div>
@@ -735,7 +1033,45 @@ export default function RealtimePageClient({
 												</Button>
 											</div>
 										)}
-										{displayedTurns.length === 0 ? (
+										{showTranscription ? (
+											segments.length === 0 ? (
+												<div
+													className={cn(
+														"flex flex-col items-center justify-center gap-3 text-center",
+														!isIdleEmptyState && "flex-1",
+													)}
+												>
+													<Captions className="text-muted-foreground/50 h-12 w-12" />
+													<p className="text-muted-foreground text-sm">
+														{inCall
+															? "Say something — the live transcript appears here."
+															: "Start transcribing to turn your speech into text as you talk."}
+													</p>
+												</div>
+											) : (
+												<div className="flex flex-col gap-2 pb-4">
+													{segments.map((segment) => (
+														<p
+															key={segment.id}
+															className={cn(
+																"rounded-lg border px-4 py-2 text-sm leading-6",
+																segment.status === "partial" &&
+																	"text-muted-foreground border-dashed",
+																segment.status === "failed" &&
+																	"border-destructive/40 text-destructive",
+															)}
+														>
+															{segment.text || "…"}
+															{segment.status === "failed" && (
+																<span className="ml-2 text-xs italic">
+																	(transcription failed)
+																</span>
+															)}
+														</p>
+													))}
+												</div>
+											)
+										) : displayedTurns.length === 0 ? (
 											<div
 												className={cn(
 													"flex flex-col items-center justify-center gap-3 text-center",
@@ -817,20 +1153,109 @@ export default function RealtimePageClient({
 								<div
 									className={cn("shrink-0", !isIdleEmptyState && "border-t")}
 								>
-									{status === "live" && (
+									{activeStatus === "live" && (
 										<div className="mx-auto flex w-full max-w-3xl items-center justify-center pt-5">
 											<VoiceActivityIndicator
 												live
-												muted={muted}
-												userSpeaking={userSpeaking}
-												assistantSpeaking={assistantSpeaking}
-												inputLevel={inputLevel}
-												outputLevel={outputLevel}
+												muted={isTranscribeMode ? transcriptionMuted : muted}
+												userSpeaking={
+													isTranscribeMode
+														? transcriptionUserSpeaking
+														: userSpeaking
+												}
+												assistantSpeaking={
+													isTranscribeMode ? false : assistantSpeaking
+												}
+												inputLevel={
+													isTranscribeMode
+														? transcriptionInputLevel
+														: inputLevel
+												}
+												outputLevel={isTranscribeMode ? 0 : outputLevel}
 											/>
 										</div>
 									)}
-									<div className="mx-auto flex w-full max-w-3xl items-center justify-center gap-4 p-6">
-										{!inCall ? (
+									<div className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-center gap-4 p-6">
+										{isTranscribeMode ? (
+											!inCall ? (
+												<>
+													<Button
+														size="lg"
+														className="gap-2 rounded-full px-8"
+														disabled={
+															!transcriptionModel ||
+															!selectedTranscriptionMapping ||
+															!canStart
+														}
+														onClick={handleStartTranscription}
+													>
+														<Captions className="h-4 w-4" />
+														Start transcribing
+													</Button>
+													{showTranscription && segments.length > 0 && (
+														<Button
+															size="lg"
+															variant="outline"
+															className="gap-2 rounded-full"
+															onClick={handleCopyTranscript}
+														>
+															<Copy className="h-4 w-4" />
+															Copy transcript
+														</Button>
+													)}
+												</>
+											) : (
+												<>
+													<Button
+														size="lg"
+														variant={
+															transcriptionMuted ? "secondary" : "outline"
+														}
+														className="gap-2 rounded-full"
+														onClick={() =>
+															setTranscriptionMuted(!transcriptionMuted)
+														}
+														disabled={transcriptionStatus !== "live"}
+													>
+														{transcriptionMuted ? (
+															<MicOff className="h-4 w-4" />
+														) : (
+															<Mic className="h-4 w-4" />
+														)}
+														{transcriptionMuted ? "Unmute" : "Mute"}
+													</Button>
+													{effectiveTurnDetection === "manual" && (
+														<Tooltip>
+															<TooltipTrigger asChild>
+																<Button
+																	size="lg"
+																	variant="outline"
+																	className="gap-2 rounded-full"
+																	onClick={commitTranscription}
+																	disabled={transcriptionStatus !== "live"}
+																>
+																	<Check className="h-4 w-4" />
+																	Commit turn
+																</Button>
+															</TooltipTrigger>
+															<TooltipContent>
+																Finalize the audio streamed since the last
+																commit
+															</TooltipContent>
+														</Tooltip>
+													)}
+													<Button
+														size="lg"
+														variant="destructive"
+														className="gap-2 rounded-full px-8"
+														onClick={stopTranscription}
+													>
+														<Square className="h-4 w-4" />
+														Stop
+													</Button>
+												</>
+											)
+										) : !inCall ? (
 											<>
 												<Button
 													size="lg"
@@ -840,8 +1265,7 @@ export default function RealtimePageClient({
 														// Without a resolved mapping the provider — and so the
 														// wire protocol the call must speak — is unknown.
 														!selectedMapping ||
-														!isAuthenticated ||
-														!hasBillingContext
+														!canStart
 													}
 													onClick={handleStart}
 												>
@@ -854,10 +1278,7 @@ export default function RealtimePageClient({
 														variant="outline"
 														className="gap-2 rounded-full px-8"
 														disabled={
-															!selectedModel ||
-															!selectedMapping ||
-															!isAuthenticated ||
-															!hasBillingContext
+															!selectedModel || !selectedMapping || !canStart
 														}
 														onClick={handleContinueCall}
 													>
@@ -894,16 +1315,29 @@ export default function RealtimePageClient({
 											</>
 										)}
 									</div>
-									{displayedUsage && (
-										<div className="text-muted-foreground mx-auto w-full max-w-3xl px-6 pb-3 text-center text-xs">
-											{displayedUsage.responses} response
-											{displayedUsage.responses === 1 ? "" : "s"} ·{" "}
-											{displayedUsage.inputTokens.toLocaleString()} in /{" "}
-											{displayedUsage.outputTokens.toLocaleString()} out tokens
-											({displayedUsage.audioInputTokens.toLocaleString()} /{" "}
-											{displayedUsage.audioOutputTokens.toLocaleString()} audio)
-										</div>
-									)}
+									{showTranscription
+										? (transcriptionUsage.segments > 0 || inCall) && (
+												<div className="text-muted-foreground mx-auto w-full max-w-3xl px-6 pb-3 text-center text-xs">
+													{transcriptionUsage.segments} segment
+													{transcriptionUsage.segments === 1 ? "" : "s"}
+													{transcriptionUsage.audioSeconds > 0 &&
+														` · ${transcriptionUsage.audioSeconds.toFixed(1)}s of audio billed`}
+													{transcriptionUsage.totalTokens > 0 &&
+														` · ${transcriptionUsage.inputTokens.toLocaleString()} in / ${transcriptionUsage.outputTokens.toLocaleString()} out tokens (${transcriptionUsage.audioInputTokens.toLocaleString()} audio)`}
+												</div>
+											)
+										: displayedUsage && (
+												<div className="text-muted-foreground mx-auto w-full max-w-3xl px-6 pb-3 text-center text-xs">
+													{displayedUsage.responses} response
+													{displayedUsage.responses === 1 ? "" : "s"} ·{" "}
+													{displayedUsage.inputTokens.toLocaleString()} in /{" "}
+													{displayedUsage.outputTokens.toLocaleString()} out
+													tokens (
+													{displayedUsage.audioInputTokens.toLocaleString()} /{" "}
+													{displayedUsage.audioOutputTokens.toLocaleString()}{" "}
+													audio)
+												</div>
+											)}
 								</div>
 							</>
 						)}

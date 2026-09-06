@@ -31,6 +31,7 @@ describe("realtime client secrets route", () => {
 			expiresAt: 123,
 		});
 		mocks.runRealtimePreflight.mockResolvedValue({
+			sessionType: "realtime",
 			match: {
 				modelId: "gpt-realtime-2.1-mini",
 				mapping: {
@@ -113,6 +114,7 @@ describe("realtime client secrets route", () => {
 
 	it("rejects pinned instructions while ZDR is active", async () => {
 		mocks.runRealtimePreflight.mockResolvedValueOnce({
+			sessionType: "realtime",
 			match: {
 				modelId: "gpt-realtime-2.1-mini",
 				mapping: {
@@ -175,6 +177,100 @@ describe("realtime client secrets route", () => {
 		expect(response.status).toBe(400);
 		expect((await response.json()).error.code).toBe("voice_not_supported");
 		expect(mocks.createClientSecret).not.toHaveBeenCalled();
+	});
+
+	it("mints transcription session secrets", async () => {
+		mocks.runRealtimePreflight.mockResolvedValue({
+			sessionType: "transcription",
+			match: {
+				modelId: "gpt-live-transcribe",
+				mapping: { providerId: "openai" },
+			},
+			allowedTranscriptionModelIds: ["gpt-live-transcribe"],
+			project: { organizationId: "org_test" },
+		});
+
+		const response = await realtimeClientSecretsRoute.request(
+			"/client_secrets",
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					session: {
+						type: "transcription",
+						audio: {
+							input: { transcription: { model: "gpt-live-transcribe" } },
+						},
+					},
+				}),
+			},
+		);
+
+		expect(response.status).toBe(200);
+		expect(mocks.runRealtimePreflight).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestedModel: "gpt-live-transcribe",
+				intent: "transcription",
+			}),
+		);
+		expect(mocks.createClientSecret).toHaveBeenCalledWith(
+			expect.objectContaining({
+				model: "openai/gpt-live-transcribe",
+				sessionType: "transcription",
+				transcriptionModel: null,
+				instructions: null,
+				voice: null,
+			}),
+		);
+		expect((await response.json()).session).toEqual({
+			type: "transcription",
+			audio: {
+				input: { transcription: { model: "openai/gpt-live-transcribe" } },
+			},
+		});
+	});
+
+	it("rejects a transcription model as a realtime session model", async () => {
+		mocks.runRealtimePreflight.mockResolvedValue({
+			sessionType: "transcription",
+			match: {
+				modelId: "gpt-live-transcribe",
+				mapping: { providerId: "openai" },
+			},
+			allowedTranscriptionModelIds: ["gpt-live-transcribe"],
+			project: { organizationId: "org_test" },
+		});
+
+		const response = await realtimeClientSecretsRoute.request(
+			"/client_secrets",
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					session: { type: "realtime", model: "gpt-live-transcribe" },
+				}),
+			},
+		);
+
+		expect(response.status).toBe(400);
+		expect((await response.json()).error.code).toBe("model_not_found");
+		expect(mocks.createClientSecret).not.toHaveBeenCalled();
+	});
+
+	it("rejects transcription sessions without a model", async () => {
+		const response = await realtimeClientSecretsRoute.request(
+			"/client_secrets",
+			{
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					session: { type: "transcription", audio: { input: {} } },
+				}),
+			},
+		);
+
+		expect(response.status).toBe(400);
+		expect((await response.json()).error.code).toBe("invalid_request");
 	});
 
 	it("still rejects unknown session fields", async () => {

@@ -78,6 +78,10 @@ function apiMappingToDefinition(
 		webSearch: optional(mapping.webSearch),
 		webSearchPrice: optional(mapping.webSearchPrice),
 		realtime: optional(mapping.realtime),
+		realtimeTranscription: optional(mapping.realtimeTranscription),
+		realtimeTranscriptionTurnDetection: optional(
+			mapping.realtimeTranscriptionTurnDetection,
+		),
 		supportedVoices: optional(mapping.supportedVoices),
 		supportedParameters: optional(
 			mapping.supportedParameters,
