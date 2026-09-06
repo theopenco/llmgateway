@@ -6523,11 +6523,19 @@ chat.openapi(completions, async (c) => {
 			webSearchTool,
 			reasoning_effort,
 			reasoning_max_tokens,
+			// Schema documents omitting reasoning.context as equivalent to "auto"
+			reasoning_context:
+				reasoning_context === "auto" ? undefined : reasoning_context,
 			prompt_cache_key,
 			prompt_cache_retention,
 			prompt_cache_options,
 			n,
 			service_tier,
+			verbosity,
+			effort,
+			image_config,
+			sensitive_word_check,
+			plugins: plugins?.length ? plugins : undefined,
 		};
 
 		if (stream) {

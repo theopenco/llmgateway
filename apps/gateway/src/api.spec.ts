@@ -7473,6 +7473,93 @@ describe("api", () => {
 		expect(afterBypass.filter((log) => log.cached).length).toBe(1);
 	});
 
+	// Requests differing only in an upstream-forwarded field must not share a
+	// cache entry — e.g. a response-healed body must never be replayed to a
+	// request that did not enable the plugin.
+	test("/v1/chat/completions cache key includes plugins and sensitive_word_check", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-cache-fields",
+			...hashApiKeyForStorage("real-token-cache-fields"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-cache-fields",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-cache-fields",
+				"org-id",
+			),
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await db
+			.update(tables.project)
+			.set({ cachingEnabled: true })
+			.where(eq(tables.project.id, "project-id"));
+
+		const basePayload = {
+			model: "openai/gpt-4o-mini",
+			messages: [{ role: "user", content: `Cache field test ${randomUUID()}` }],
+		};
+
+		const makeRequest = (extra: Record<string, unknown> = {}) =>
+			app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-cache-fields",
+				},
+				body: JSON.stringify({ ...basePayload, ...extra }),
+			});
+
+		// Prime the cache (setCache is a no-op under NODE_ENV=test).
+		const originalNodeEnv = process.env.NODE_ENV;
+		try {
+			process.env.NODE_ENV = "development";
+			const primeRes = await makeRequest();
+			expect(primeRes.status).toBe(200);
+			expect(primeRes.headers.get("x-llmgateway-cache")).toBeNull();
+		} finally {
+			process.env.NODE_ENV = originalNodeEnv;
+		}
+
+		// Byte-identical replay hits, proving the entry is primed...
+		const replayRes = await makeRequest();
+		expect(replayRes.status).toBe(200);
+		expect(replayRes.headers.get("x-llmgateway-cache")).toBe("HIT");
+
+		// ...so any miss below is caused by the differing field alone.
+		const pluginsRes = await makeRequest({
+			plugins: [{ id: "response-healing" }],
+		});
+		expect(pluginsRes.status).toBe(200);
+		expect(pluginsRes.headers.get("x-llmgateway-cache")).toBeNull();
+
+		const sensitiveRes = await makeRequest({
+			sensitive_word_check: { status: "ENABLE" },
+		});
+		expect(sensitiveRes.status).toBe(200);
+		expect(sensitiveRes.headers.get("x-llmgateway-cache")).toBeNull();
+
+		// Semantically equivalent inputs must still share the primed entry:
+		// plugins: [] behaves like omitted, and reasoning.context "auto" is
+		// documented as equivalent to omitting the field.
+		const emptyPluginsRes = await makeRequest({ plugins: [] });
+		expect(emptyPluginsRes.status).toBe(200);
+		expect(emptyPluginsRes.headers.get("x-llmgateway-cache")).toBe("HIT");
+
+		const autoContextRes = await makeRequest({
+			reasoning: { context: "auto" },
+		});
+		expect(autoContextRes.status).toBe(200);
+		expect(autoContextRes.headers.get("x-llmgateway-cache")).toBe("HIT");
+	});
+
 	// GHSA-h9ww-f95j-h54c: cache keys are project-scoped, so a byte-identical
 	// request from another organization must never replay a victim's cached
 	// response.
