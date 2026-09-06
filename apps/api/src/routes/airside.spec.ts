@@ -2231,7 +2231,22 @@ describe("airside provider portal", () => {
 		expect(res.status).toBe(201);
 		const { claim } = await res.json();
 
-		// Approval creates the DB catalogue provider row.
+		// The catalogue sync leaves a revoked carrier's row inactive; approval
+		// must flip it back or the re-claimed id stays unlisted.
+		await db
+			.insert(tables.provider)
+			.values({
+				id: "acme-sky",
+				name: "stale",
+				description: "",
+				status: "inactive",
+			})
+			.onConflictDoUpdate({
+				target: tables.provider.id,
+				set: { name: "stale", status: "inactive" },
+			});
+
+		// Approval creates (or re-activates) the DB catalogue provider row.
 		const approve = await app.request(
 			`/admin/airside/claims/${claim.id}/approve`,
 			json(cookie),
@@ -2240,7 +2255,7 @@ describe("airside provider portal", () => {
 		const providerRow = await db.query.provider.findFirst({
 			where: { id: { eq: "acme-sky" } },
 		});
-		expect(providerRow?.name).toBe("Acme Sky");
+		expect(providerRow).toMatchObject({ name: "Acme Sky", status: "active" });
 
 		// The managed-credentials catalog now offers the carrier…
 		const catalog = await app.request("/admin/provider-credentials/catalog", {

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import {
+	cdb,
 	db,
 	provider,
 	model,
@@ -89,7 +90,8 @@ describe("sync-models", () => {
 		await db
 			.insert(tables.providerCompany)
 			.values({ id: "sync-test-company", name: "Test carrier company" });
-		await db.insert(tables.providerClaim).values(
+		// cdb: getCatalogueProviderIds caches the active carrier set.
+		await cdb.insert(tables.providerClaim).values(
 			[carrier, pendingCarrier].map((providerId) => ({
 				providerCompanyId: "sync-test-company",
 				providerId,
@@ -140,6 +142,9 @@ describe("sync-models", () => {
 				mapping: "active",
 			});
 		} finally {
+			await cdb
+				.delete(tables.providerClaim)
+				.where(eq(tables.providerClaim.providerCompanyId, "sync-test-company"));
 			await db
 				.delete(tables.providerCompany)
 				.where(eq(tables.providerCompany.id, "sync-test-company"));

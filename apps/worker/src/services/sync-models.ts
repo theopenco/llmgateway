@@ -36,8 +36,8 @@ export async function syncProvidersAndModels() {
 					notInArray(provider.id, catalogueProviderIds),
 				),
 			);
-		// A row deactivated while its carrier claim was still pending comes back
-		// once the claim is active; nothing else re-activates provider rows.
+		// Re-activate rows whose id is back in the catalogue: a re-added
+		// provider, or a carrier approved after a sync had deactivated its row.
 		await database
 			.update(provider)
 			.set({ status: "active" })

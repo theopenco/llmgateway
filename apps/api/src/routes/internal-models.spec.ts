@@ -2,15 +2,24 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { internalModels } from "@/routes/internal-models.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 
 const modelId = "removed-provider-test";
 const carrierId = "catalogue-test-carrier";
 const companyId = "catalogue-test-company";
+const providerIds = ["iceberg", "granite", "glacier", carrierId];
 
 describe("removed provider catalogue visibility", () => {
+	// The provider table is shared across spec files and never reset, so put
+	// back whatever was there before the upserts instead of deleting blindly.
+	let preexisting: { id: string; status: "active" | "inactive" }[] = [];
+
 	beforeAll(async () => {
-		for (const id of ["iceberg", "granite", "glacier", carrierId]) {
+		preexisting = await db.query.provider.findMany({
+			where: { id: { in: providerIds } },
+			columns: { id: true, status: true },
+		});
+		for (const id of providerIds) {
 			await db
 				.insert(tables.provider)
 				.values({
@@ -27,7 +36,8 @@ describe("removed provider catalogue visibility", () => {
 		await db
 			.insert(tables.providerCompany)
 			.values({ id: companyId, name: "Test carrier company" });
-		await db.insert(tables.providerClaim).values({
+		// cdb: getCatalogueProviderIds caches the active carrier set.
+		await cdb.insert(tables.providerClaim).values({
 			providerCompanyId: companyId,
 			providerId: carrierId,
 			kind: "custom",
@@ -36,7 +46,7 @@ describe("removed provider catalogue visibility", () => {
 		});
 		await db.insert(tables.model).values({ id: modelId, family: "test" });
 		await db.insert(tables.modelProviderMapping).values(
-			["iceberg", "granite", "glacier", carrierId].map((providerId) => ({
+			providerIds.map((providerId) => ({
 				modelId,
 				providerId,
 				externalId: modelId,
@@ -53,10 +63,23 @@ describe("removed provider catalogue visibility", () => {
 
 	afterAll(async () => {
 		await db.delete(tables.model).where(eq(tables.model.id, modelId));
+		await cdb
+			.delete(tables.providerClaim)
+			.where(eq(tables.providerClaim.providerCompanyId, companyId));
 		await db
 			.delete(tables.providerCompany)
 			.where(eq(tables.providerCompany.id, companyId));
-		await db.delete(tables.provider).where(eq(tables.provider.id, carrierId));
+		for (const id of providerIds) {
+			const prior = preexisting.find((row) => row.id === id);
+			if (prior) {
+				await db
+					.update(tables.provider)
+					.set({ status: prior.status })
+					.where(eq(tables.provider.id, id));
+			} else {
+				await db.delete(tables.provider).where(eq(tables.provider.id, id));
+			}
+		}
 	});
 
 	it("omits removed providers before sync, but preserves registered custom carriers", async () => {
