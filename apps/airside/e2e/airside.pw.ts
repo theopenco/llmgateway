@@ -1,12 +1,12 @@
 import { expect, test } from "@playwright/test";
 
-import type { Page } from "@playwright/test";
+import type { Page, Route } from "@playwright/test";
 
 // Requires a freshly seeded local stack (`pnpm setup` + dev servers): the
 // seed creates the "Mistral AI" carrier (ops@mistral.ai, password == email)
 // with a claimed mistral provider, two active models and a drafted one.
-// The register-model test creates a uniquely named model per run, so the
-// suite stays green on re-runs against the same seed.
+// Verification requests are intercepted in the browser tests so the queue UI
+// is covered without making paid provider calls.
 
 async function login(page: Page, email = "ops@mistral.ai") {
 	await page.goto("/login");
@@ -14,6 +14,15 @@ async function login(page: Page, email = "ops@mistral.ai") {
 	await page.fill('input[type="password"]', email);
 	await page.click('button[type="submit"]');
 	await page.waitForURL("**/dashboard**", { timeout: 45_000 });
+}
+
+function corsHeaders(route: Route) {
+	return {
+		"access-control-allow-origin": route.request().headers().origin ?? "*",
+		"access-control-allow-credentials": "true",
+		"access-control-allow-headers": "content-type",
+		"access-control-allow-methods": "GET,POST,OPTIONS",
+	};
 }
 
 test("landing page shows the departure board and CTA", async ({ page }) => {
@@ -51,6 +60,7 @@ test("fleet lists seeded models with their filing states", async ({ page }) => {
 
 	const active = page.getByTestId("model-strip-mistral-medium-4");
 	await expect(active).toContainText("In service");
+	await expect(page.getByTestId("verify-mistral-medium-4")).toBeVisible();
 
 	const draft = page.getByTestId("model-strip-mistral-large-4");
 	await expect(draft).toContainText("Filed");
@@ -63,41 +73,140 @@ test("fleet lists seeded models with their filing states", async ({ page }) => {
 	await expect(page.getByTestId("file-fare-codestral-3")).toBeDisabled();
 });
 
-test("registering a model drafts it with an initial fare filing", async ({
-	page,
-}) => {
+test("registering a model requires provider preflight", async ({ page }) => {
+	let statusReads = 0;
+	await page.route("**/airside/model-verifications**", async (route) => {
+		if (route.request().method() === "OPTIONS") {
+			await route.fulfill({ status: 204, headers: corsHeaders(route) });
+			return;
+		}
+		const status =
+			route.request().method() === "POST"
+				? "queued"
+				: statusReads++ === 0
+					? "running"
+					: "passed";
+		await route.fulfill({
+			status: route.request().method() === "POST" ? 202 : 200,
+			contentType: "application/json",
+			headers: corsHeaders(route),
+			body: JSON.stringify({
+				verification: {
+					id: "pw-new-model-verification",
+					status,
+					checks: [
+						{
+							id: "basic",
+							label: "Basic completion",
+							status,
+							...(status === "passed" ? { feedback: "Passed" } : {}),
+						},
+					],
+					summary: status === "passed" ? "1 verification check passed." : null,
+					createdAt: new Date().toISOString(),
+					startedAt: status === "queued" ? null : new Date().toISOString(),
+					completedAt: status === "passed" ? new Date().toISOString() : null,
+				},
+			}),
+		});
+	});
 	await login(page);
 	await page.goto("/dashboard/fleet");
 	await expect(page.getByTestId("fleet-page")).toBeVisible({
 		timeout: 20_000,
 	});
 
-	const modelName = `pw-test-${Date.now()}`;
 	await page.getByTestId("register-model-button").click();
-	await page.getByTestId("model-name-input").fill(modelName);
+	await page.getByTestId("model-name-input").fill("pw-preflight-model");
+	await page.getByLabel("Family").fill("playwright");
 	// Prices are entered as dollars per million tokens.
 	await page.getByTestId("input-price").fill("1");
 	await page.getByTestId("output-price").fill("3");
+	await expect(page.getByLabel("Provider API key (if needed)")).toHaveAttribute(
+		"type",
+		"password",
+	);
+	await expect(page.getByTestId("register-model-submit")).toHaveText(
+		"Run preflight",
+	);
+	await expect(page.getByTestId("verification-results")).not.toBeVisible();
+	await page.getByLabel("Provider API key (if needed)").fill("pw-provider-key");
 	await page.getByTestId("register-model-submit").click();
+	await expect(page.getByTestId("verification-results")).toContainText(
+		"Passed",
+		{ timeout: 10_000 },
+	);
+	await expect(page.getByTestId("register-model-submit")).toBeEnabled();
+	await expect(page.getByTestId("register-model-submit")).toHaveText(
+		"File for approval",
+	);
+});
 
-	const strip = page.getByTestId(`model-strip-${modelName}`);
-	await expect(strip).toBeVisible({ timeout: 15_000 });
-	await expect(strip).toContainText("Filed");
-	await expect(strip).toContainText("Awaiting clearance");
-
-	// The initial tariff shows up in the filings history as pending.
-	await page.goto("/dashboard/filings");
-	const filings = page.getByTestId("filings-page");
-	await expect(filings).toBeVisible({ timeout: 20_000 });
-	await expect(filings).toContainText(modelName);
-
-	// Drafts can be removed outright.
-	await page.goto("/dashboard/fleet");
-	await page.getByTestId(`delete-${modelName}`).click();
-	await page.getByTestId(`confirm-delete-${modelName}`).click();
-	await expect(page.getByTestId(`model-strip-${modelName}`)).not.toBeVisible({
-		timeout: 15_000,
+test("existing mappings report failed verification checks", async ({
+	page,
+}) => {
+	await page.route("**/airside/models/*/verifications", async (route) => {
+		if (route.request().method() === "OPTIONS") {
+			await route.fulfill({ status: 204, headers: corsHeaders(route) });
+			return;
+		}
+		await route.fulfill({
+			status: 202,
+			contentType: "application/json",
+			headers: corsHeaders(route),
+			body: JSON.stringify({
+				verification: {
+					id: "pw-existing-model-verification",
+					status: "queued",
+					checks: [
+						{ id: "basic", label: "Basic completion", status: "queued" },
+					],
+					summary: null,
+					createdAt: new Date().toISOString(),
+					startedAt: null,
+					completedAt: null,
+				},
+			}),
+		});
 	});
+	await page.route(
+		"**/airside/model-verifications/pw-existing-model-verification",
+		async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: "application/json",
+				headers: corsHeaders(route),
+				body: JSON.stringify({
+					verification: {
+						id: "pw-existing-model-verification",
+						status: "failed",
+						checks: [
+							{
+								id: "tools",
+								label: "Tool calls",
+								status: "failed",
+								feedback: "The required tool call was not returned.",
+							},
+						],
+						summary: "1 of 1 verification checks failed.",
+						createdAt: new Date().toISOString(),
+						startedAt: new Date().toISOString(),
+						completedAt: new Date().toISOString(),
+					},
+				}),
+			});
+		},
+	);
+
+	await login(page);
+	await page.goto("/dashboard/fleet");
+	await page.getByTestId("verify-mistral-medium-4").click();
+	await page.getByLabel("Provider API key (if needed)").fill("pw-provider-key");
+	await page.getByRole("button", { name: "Run verification" }).click();
+	await expect(page.getByTestId("verification-results")).toContainText(
+		"The required tool call was not returned.",
+		{ timeout: 10_000 },
+	);
 });
 
 test("fares page files a fare change for approval", async ({ page }) => {

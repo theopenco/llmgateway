@@ -158,7 +158,7 @@ type RequirementKey =
 	| "requireSoc2OrIso27001"
 	| "requireGdpr"
 	| "blockApiTraining"
-	| "blockPromptLogging"
+	| "zeroDataRetention"
 	| "blockStealthProviders";
 
 const REQUIREMENTS: {
@@ -166,6 +166,28 @@ const REQUIREMENTS: {
 	name: string;
 	description: string;
 }[] = [
+	{
+		key: "zeroDataRetention",
+		name: "Zero data retention (ZDR)",
+		description:
+			"Only use providers that do not log prompts. This can exclude common providers that temporarily retain data for legal or safety purposes without training on it. Requires Metadata Only retention, disables project response caching, and requires Responses API requests to set store to false.",
+	},
+	{
+		key: "blockApiTraining",
+		name: "No training on prompts",
+		description: "Block providers that train on API prompts.",
+	},
+	{
+		key: "blockStealthProviders",
+		name: "No stealth providers",
+		description:
+			"Block stealth providers — undisclosed platforms whose data policy and headquarters are unknown.",
+	},
+	{
+		key: "requireGdpr",
+		name: "GDPR compliant",
+		description: "Only allow providers that are GDPR compliant.",
+	},
 	{
 		key: "requireSoc2",
 		name: "SOC 2 (Type 1 or 2)",
@@ -189,27 +211,6 @@ const REQUIREMENTS: {
 		description:
 			"Allow providers that hold either a SOC 2 Type 2 report or an ISO 27001 certification.",
 	},
-	{
-		key: "requireGdpr",
-		name: "GDPR compliant",
-		description: "Only allow providers that are GDPR compliant.",
-	},
-	{
-		key: "blockApiTraining",
-		name: "No training on prompts",
-		description: "Block providers that train on API prompts.",
-	},
-	{
-		key: "blockPromptLogging",
-		name: "No prompt logging",
-		description: "Block providers that log prompts.",
-	},
-	{
-		key: "blockStealthProviders",
-		name: "No stealth providers",
-		description:
-			"Block stealth providers — undisclosed platforms whose data policy and headquarters are unknown.",
-	},
 ];
 
 const DEFAULT_POLICY: ProviderCompliancePolicy = { enabled: false };
@@ -228,7 +229,8 @@ type RestrictionListKey =
 export function ComplianceClient() {
 	const params = useParams();
 	const organizationId = params.orgId as string;
-	const { selectedOrganization, buildOrgUrl } = useDashboardNavigation();
+	const { projects, selectedOrganization, buildOrgUrl } =
+		useDashboardNavigation();
 	const { user } = useUser();
 	const { data: teamData, isLoading: isLoadingTeam } =
 		useTeamMembers(organizationId);
@@ -376,9 +378,29 @@ export function ComplianceClient() {
 		}));
 	};
 
+	const canManageStoredPolicy =
+		currentUserRole === "owner" || currentUserRole === "admin";
 	const canManage =
-		selectedOrganization?.enterpriseAccess === true &&
-		(currentUserRole === "owner" || currentUserRole === "admin");
+		selectedOrganization?.enterpriseAccess === true && canManageStoredPolicy;
+	const payloadRetentionEnabled =
+		selectedOrganization?.retentionLevel === "retain";
+	const cachedProjects = projects.filter(
+		(project) => project.cachingEnabled && project.status !== "deleted",
+	);
+	const projectCachingEnabled = cachedProjects.length > 0;
+	const zdrEnableBlocked = payloadRetentionEnabled || projectCachingEnabled;
+	const retentionBlocksPolicyEnable =
+		zdrEnableBlocked &&
+		policy.enabled !== true &&
+		policy.zeroDataRetention === true;
+	const zdrConflictsWithSettings =
+		zdrEnableBlocked &&
+		policy.enabled === true &&
+		policy.zeroDataRetention === true;
+	const savedLegacyPromptLoggingEnabled =
+		selectedOrganization?.providerCompliancePolicy?.blockPromptLogging === true;
+	const showLegacyPromptLoggingReset =
+		savedLegacyPromptLoggingEnabled || policy.blockPromptLogging === true;
 
 	const toggleCountry = (code: string) => {
 		setPolicy((p) => {
@@ -390,12 +412,13 @@ export function ComplianceClient() {
 		});
 	};
 
-	const handleSave = async () => {
+	const savePolicy = async (nextPolicy: ProviderCompliancePolicy) => {
 		try {
 			await updateOrganization.mutateAsync({
 				params: { path: { id: organizationId } },
-				body: { providerCompliancePolicy: policy },
+				body: { providerCompliancePolicy: nextPolicy },
 			});
+			setPolicy(nextPolicy);
 			toast({
 				title: "Settings saved",
 				description: "Your provider compliance policy has been updated.",
@@ -409,9 +432,7 @@ export function ComplianceClient() {
 		}
 	};
 
-	if (selectedOrganization?.enterpriseAccess !== true) {
-		return <ContactSalesCard />;
-	}
+	const handleSave = async () => await savePolicy(policy);
 
 	if (isLoadingTeam) {
 		return (
@@ -419,6 +440,44 @@ export function ComplianceClient() {
 				<div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
 			</div>
 		);
+	}
+
+	if (selectedOrganization?.enterpriseAccess !== true) {
+		if (policy.enabled && canManageStoredPolicy) {
+			return (
+				<div className="flex flex-col">
+					<div className="flex-1 space-y-4 p-4 pt-6 md:p-8">
+						<h2 className="text-2xl md:text-3xl font-bold tracking-tight">
+							Compliance
+						</h2>
+						<Card className="max-w-2xl">
+							<CardHeader>
+								<CardTitle>Saved compliance policy is active</CardTitle>
+								<CardDescription>
+									The policy remains enforced after Enterprise access ends.
+								</CardDescription>
+							</CardHeader>
+							<CardContent className="space-y-4">
+								<p className="text-sm text-muted-foreground">
+									Disable the saved policy to remove its restrictions. It cannot
+									be enabled again without Enterprise access.
+								</p>
+								<Button
+									variant="destructive"
+									disabled={updateOrganization.isPending}
+									onClick={() => savePolicy({ ...policy, enabled: false })}
+								>
+									{updateOrganization.isPending
+										? "Disabling..."
+										: "Disable policy"}
+								</Button>
+							</CardContent>
+						</Card>
+					</div>
+				</div>
+			);
+		}
+		return <ContactSalesCard />;
 	}
 
 	if (!canManage) {
@@ -463,6 +522,7 @@ export function ComplianceClient() {
 								<div className="flex items-center gap-2">
 									<Switch
 										checked={policy.enabled}
+										disabled={retentionBlocksPolicyEnable}
 										onCheckedChange={(enabled) =>
 											setPolicy((p) => ({ ...p, enabled }))
 										}
@@ -471,43 +531,158 @@ export function ComplianceClient() {
 								</div>
 								<Button
 									onClick={handleSave}
-									disabled={updateOrganization.isPending}
+									disabled={
+										updateOrganization.isPending || zdrConflictsWithSettings
+									}
 								>
 									<Save className="h-4 w-4 mr-2" />
 									{updateOrganization.isPending ? "Saving..." : "Save Changes"}
 								</Button>
 							</div>
 						</div>
-					</CardHeader>
-					<CardContent
-						className={
-							policy.enabled
-								? "space-y-4"
-								: "space-y-4 opacity-60 pointer-events-none select-none"
-						}
-					>
-						{REQUIREMENTS.map((requirement) => (
+						{zdrEnableBlocked ? (
 							<div
-								key={requirement.key}
-								className="flex items-center justify-between p-4 border rounded-lg"
+								role="status"
+								className="mt-4 rounded-lg border bg-muted/50 p-4 text-sm"
 							>
-								<div className="flex items-center gap-4">
+								<div className="font-medium">Current settings block ZDR</div>
+								<div className="mt-1 space-y-2 text-muted-foreground">
+									{payloadRetentionEnabled ? (
+										<p>
+											Set data retention to Metadata Only{` `}
+											<span className="whitespace-nowrap">
+												in{` `}
+												<Link
+													href={buildOrgUrl("org/policies")}
+													className="font-medium text-foreground underline underline-offset-4"
+												>
+													Organization policies
+												</Link>
+											</span>
+											.
+										</p>
+									) : null}
+									{projectCachingEnabled ? (
+										<div>
+											<p>
+												Disable response caching for every project listed below.
+											</p>
+											<ul className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+												{cachedProjects.map((project) => (
+													<li key={project.id}>
+														<Link
+															href={`/dashboard/${organizationId}/${project.id}/settings/preferences`}
+															className="whitespace-nowrap font-medium text-foreground underline underline-offset-4"
+														>
+															{project.name}
+														</Link>
+													</li>
+												))}
+											</ul>
+										</div>
+									) : null}
+								</div>
+							</div>
+						) : policy.enabled && policy.zeroDataRetention === true ? (
+							<div
+								role="status"
+								className="mt-4 rounded-lg border bg-muted/50 p-4 text-sm"
+							>
+								<div className="font-medium">ZDR is active</div>
+								<p className="mt-1 text-muted-foreground">
+									Data retention must remain Metadata Only, project response
+									caching cannot be enabled, and Responses API requests must set
+									<code>store: false</code>. To retain prompts again, disable
+									ZDR first. Review the current setting
+									{` `}
+									<span className="whitespace-nowrap">
+										in{` `}
+										<Link
+											href={buildOrgUrl("org/policies")}
+											className="font-medium text-foreground underline underline-offset-4"
+										>
+											Organization policies
+										</Link>
+										.
+									</span>
+								</p>
+							</div>
+						) : null}
+						{showLegacyPromptLoggingReset ? (
+							<div className="mt-4 rounded-lg border bg-muted/50 p-4 text-sm">
+								<div className="flex items-start justify-between gap-4">
+									<div className="min-w-0">
+										<Label htmlFor="legacy-prompt-logging" className="block">
+											Legacy no prompt logging rule
+										</Label>
+										<p
+											id="legacy-prompt-logging-description"
+											className="mt-1 text-muted-foreground"
+										>
+											{policy.blockPromptLogging === true
+												? "This deprecated rule still affects provider routing. You can turn it off, but it cannot be enabled again from the dashboard."
+												: "This rule will be disabled when you save. It cannot be enabled again from the dashboard."}
+										</p>
+									</div>
 									<Switch
-										checked={policy[requirement.key] ?? false}
-										disabled={!policy.enabled}
-										onCheckedChange={(value) =>
-											setPolicy((p) => ({ ...p, [requirement.key]: value }))
-										}
+										id="legacy-prompt-logging"
+										checked={policy.blockPromptLogging === true}
+										disabled={policy.blockPromptLogging !== true}
+										aria-describedby="legacy-prompt-logging-description"
+										onCheckedChange={(checked) => {
+											if (!checked) {
+												setPolicy((p) => ({
+													...p,
+													blockPromptLogging: false,
+												}));
+											}
+										}}
 									/>
-									<div>
-										<div className="font-medium">{requirement.name}</div>
-										<div className="text-sm text-muted-foreground">
-											{requirement.description}
+								</div>
+							</div>
+						) : null}
+					</CardHeader>
+					<CardContent className="space-y-4">
+						{REQUIREMENTS.map((requirement) => {
+							const canClearInactiveZdr =
+								!policy.enabled &&
+								requirement.key === "zeroDataRetention" &&
+								policy.zeroDataRetention === true;
+							const requirementDisabled =
+								(!policy.enabled && !canClearInactiveZdr) ||
+								(requirement.key === "zeroDataRetention" &&
+									zdrEnableBlocked &&
+									policy.zeroDataRetention !== true);
+
+							return (
+								<div
+									key={requirement.key}
+									className={cn(
+										"flex items-center justify-between p-4 border rounded-lg",
+										requirementDisabled && "opacity-60 select-none",
+									)}
+								>
+									<div className="flex items-center gap-4">
+										<Switch
+											checked={policy[requirement.key] ?? false}
+											disabled={requirementDisabled}
+											onCheckedChange={(value) =>
+												setPolicy((p) => ({
+													...p,
+													[requirement.key]: value,
+												}))
+											}
+										/>
+										<div>
+											<div className="font-medium">{requirement.name}</div>
+											<div className="text-sm text-muted-foreground">
+												{requirement.description}
+											</div>
 										</div>
 									</div>
 								</div>
-							</div>
-						))}
+							);
+						})}
 					</CardContent>
 				</Card>
 
@@ -762,7 +937,7 @@ export function ComplianceClient() {
 												.map((provider) => (
 													<span key={provider.id} className="block">
 														No attestation on file — requests through{" "}
-														<span className="font-mono">{provider.name}/*</span>{" "}
+														<span className="font-mono">{`${provider.name}/*`}</span>{" "}
 														will be blocked.{" "}
 														<Link
 															href={`${buildOrgUrl("org/models")}?providerKey=${provider.id}`}

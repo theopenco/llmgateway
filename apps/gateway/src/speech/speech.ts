@@ -34,7 +34,10 @@ import {
 	findProviderKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
-import { assertProviderCompliant } from "@/lib/compliance.js";
+import {
+	assertProviderCompliant,
+	getEffectiveRetentionLevel,
+} from "@/lib/compliance.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
@@ -652,7 +655,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		});
 	}
 
-	const retentionLevel = organization.retentionLevel ?? "none";
+	const retentionLevel = getEffectiveRetentionLevel(organization);
 
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
@@ -1421,7 +1424,9 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						logger.warn("Speech API - no audio in SSE stream", {
 							requestId,
 							model: upstreamModel,
-							sseError: sseErrorMessage,
+							...(retentionLevel === "retain" && {
+								sseError: sseErrorMessage,
+							}),
 						});
 						routingAttempts.push(
 							buildRoutingAttempt(

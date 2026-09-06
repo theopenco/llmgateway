@@ -21,7 +21,12 @@ import {
 	isRefundTransaction,
 } from "@/utils/invoice.js";
 import { providerCacheControlModeSchema } from "@/utils/provider-cache-control.js";
+import { serializeOrganization } from "@/utils/serialize-organization.js";
 import { isConfigurableDomain, normalizeDomain } from "@/utils/sso-domain.js";
+import {
+	isZeroDataRetentionEnabled,
+	zdrCachingConflictMessage,
+} from "@/utils/zdr-settings.js";
 
 import {
 	getOrgTierQualifyingSpendUsd,
@@ -87,6 +92,9 @@ const customModelRefRegex = new RegExp(
 	`^${CUSTOM_PROVIDER_NAME_REGEX.source.slice(1, -1)}/.+$`,
 );
 
+const zdrRetentionConflictMessage =
+	"Zero data retention requires Metadata Only. Disable payload retention before enabling ZDR, or disable ZDR before enabling payload retention.";
+
 const complianceProviderRefSchema = z
 	.string()
 	.max(256)
@@ -115,6 +123,7 @@ const providerCompliancePolicySchema = z.object({
 	requireGdpr: z.boolean().optional(),
 	blockApiTraining: z.boolean().optional(),
 	blockPromptLogging: z.boolean().optional(),
+	zeroDataRetention: z.boolean().optional(),
 	blockStealthProviders: z.boolean().optional(),
 	allowedCountries: z
 		.array(
@@ -391,7 +400,7 @@ organization.openapi(getOrganizations, async (c) => {
 
 	let organizations = userOrganizations
 		.map((uo) => ({
-			...uo.organization!,
+			...serializeOrganization(uo.organization!),
 			role: uo.role,
 			enterpriseAccess: hasOrganizationEnterpriseAccess(
 				uo.organization?.id,
@@ -417,7 +426,7 @@ organization.openapi(getOrganizations, async (c) => {
 		) {
 			organizations = [
 				{
-					...defaultOrganization,
+					...serializeOrganization(defaultOrganization),
 					role: "owner" as const,
 					enterpriseAccess: hasOrganizationEnterpriseAccess(
 						defaultOrganization.id,
@@ -586,7 +595,7 @@ organization.openapi(createOrganization, async (c) => {
 	});
 
 	return c.json({
-		organization: newOrganization,
+		organization: serializeOrganization(newOrganization),
 	});
 });
 
@@ -764,6 +773,43 @@ organization.openapi(updateOrganization, async (c) => {
 		}
 	}
 
+	const effectiveCompliancePolicy =
+		providerCompliancePolicy === undefined
+			? userOrganization.organization!.providerCompliancePolicy
+			: providerCompliancePolicy;
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled({
+		...userOrganization.organization!,
+		providerCompliancePolicy: effectiveCompliancePolicy,
+	});
+	const nextRetentionLevel =
+		retentionLevel ?? userOrganization.organization!.retentionLevel;
+
+	if (
+		(retentionLevel !== undefined || providerCompliancePolicy !== undefined) &&
+		zeroDataRetentionEnabled &&
+		nextRetentionLevel === "retain"
+	) {
+		throw new HTTPException(400, {
+			message: zdrRetentionConflictMessage,
+		});
+	}
+
+	if (providerCompliancePolicy !== undefined && zeroDataRetentionEnabled) {
+		const cachedProject = await db.query.project.findFirst({
+			columns: { id: true },
+			where: {
+				organizationId: { eq: id },
+				cachingEnabled: { eq: true },
+				status: { ne: "deleted" },
+			},
+		});
+		if (cachedProject) {
+			throw new HTTPException(400, {
+				message: zdrCachingConflictMessage,
+			});
+		}
+	}
+
 	// Google SSO domain auto-join is an enterprise feature managed by owners and
 	// admins. The value is normalized and validated before storage.
 	let normalizedSsoDomain: string | null | undefined;
@@ -852,13 +898,31 @@ organization.openapi(updateOrganization, async (c) => {
 	if (Object.keys(updateData).length === 0) {
 		updatedOrganization = userOrganization.organization!;
 	} else {
+		const updateConditions = [eq(tables.organization.id, id)];
+		if (retentionLevel === "retain" && providerCompliancePolicy === undefined) {
+			// Re-check the stored policy at write time so a concurrent ZDR enable
+			// cannot race payload retention on. The column is `json`, which has no
+			// equality operator, so test the flags instead of comparing the value.
+			const policyColumn = tables.organization.providerCompliancePolicy;
+			updateConditions.push(
+				sql`coalesce((${policyColumn}::jsonb ->> 'enabled')::boolean and (${policyColumn}::jsonb ->> 'zeroDataRetention')::boolean, false) = false`,
+			);
+		}
+		if (
+			providerCompliancePolicy !== undefined &&
+			zeroDataRetentionEnabled &&
+			retentionLevel === undefined
+		) {
+			updateConditions.push(eq(tables.organization.retentionLevel, "none"));
+		}
+
 		try {
 			// Cached client so gateway policy gates see compliance changes
 			// immediately instead of serving the previous organization row.
 			[updatedOrganization] = await cdb
 				.update(tables.organization)
 				.set(updateData)
-				.where(eq(tables.organization.id, id))
+				.where(and(...updateConditions))
 				.returning();
 		} catch (err) {
 			const code =
@@ -870,6 +934,11 @@ organization.openapi(updateOrganization, async (c) => {
 				});
 			}
 			throw err;
+		}
+		if (!updatedOrganization) {
+			throw new HTTPException(400, {
+				message: zdrRetentionConflictMessage,
+			});
 		}
 	}
 
@@ -1015,7 +1084,7 @@ organization.openapi(updateOrganization, async (c) => {
 
 	return c.json({
 		message: "Organization updated successfully",
-		organization: updatedOrganization,
+		organization: serializeOrganization(updatedOrganization),
 	});
 });
 

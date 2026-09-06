@@ -10,6 +10,7 @@ import {
 	findOrganizationById,
 	findProjectById,
 } from "@/lib/cached-queries.js";
+import { getEffectiveRetentionLevel } from "@/lib/compliance.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
@@ -224,6 +225,7 @@ async function extractImagesFromChatResponse(
 	chatResponse: any,
 	prompt: string,
 	model: string,
+	retainPayloadLogs: boolean,
 ): Promise<Array<{ b64_json: string; revised_prompt?: string }>> {
 	const imageObjects: Array<{
 		b64_json: string;
@@ -324,10 +326,12 @@ async function extractImagesFromChatResponse(
 			model,
 			hasContent: !!chatResponse.choices?.[0]?.message?.content,
 			hasImages: !!chatResponse.choices?.[0]?.message?.images,
-			contentPreview: chatResponse.choices?.[0]?.message?.content?.slice(
-				0,
-				200,
-			),
+			...(retainPayloadLogs && {
+				contentPreview: chatResponse.choices?.[0]?.message?.content?.slice(
+					0,
+					200,
+				),
+			}),
 		});
 		throw new HTTPException(500, {
 			message:
@@ -459,7 +463,7 @@ async function resolveImageClientErrorLogContext(
 		apiKey,
 		project,
 		requestId,
-		retentionLevel: organization?.retentionLevel ?? "none",
+		retentionLevel: getEffectiveRetentionLevel(organization),
 	};
 }
 
@@ -587,9 +591,12 @@ function assertImageModel(model: string): void {
 	}
 }
 
+// Provider error bodies can echo the prompt, so the message only reaches the
+// application log when the organization retains payloads.
 async function forwardToChatCompletions(
 	c: Context,
 	chatRequest: Record<string, unknown>,
+	retainPayloadLogs: boolean,
 ): Promise<any> {
 	const response = await app.request("/v1/chat/completions", {
 		method: "POST",
@@ -636,7 +643,7 @@ async function forwardToChatCompletions(
 				status,
 				originalStatus: response.status,
 				errorType,
-				message: errorMessage,
+				...(retainPayloadLogs && { message: errorMessage }),
 			});
 		} else {
 			logger.warn("Images API - chat completions request failed", {
@@ -744,18 +751,24 @@ images.openapi(generations, async (c): Promise<any> => {
 
 	logger.debug("Images API - forwarding to chat completions", {
 		model: request.model,
-		prompt: request.prompt.slice(0, 200),
 		size: request.size,
 		quality: normalizedQuality,
 		n: request.n,
 	});
 
-	const chatResponse = await forwardToChatCompletions(c, chatRequest);
+	const retainPayloadLogs =
+		(await getLogContext())?.retentionLevel === "retain";
+	const chatResponse = await forwardToChatCompletions(
+		c,
+		chatRequest,
+		retainPayloadLogs,
+	);
 
 	const imageObjects = await extractImagesFromChatResponse(
 		chatResponse,
 		request.prompt,
 		request.model,
+		retainPayloadLogs,
 	);
 
 	// Truncate to the requested number of images
@@ -1162,7 +1175,6 @@ async function processImageEdit(
 
 	logger.debug("Images Edit API - forwarding to chat completions", {
 		model,
-		prompt: request.prompt.slice(0, 200),
 		imageCount,
 		n: request.n,
 		size: request.size,
@@ -1171,12 +1183,19 @@ async function processImageEdit(
 		outputFormat: request.output_format,
 	});
 
-	const chatResponse = await forwardToChatCompletions(c, chatRequest);
+	const retainPayloadLogs =
+		(await getLogContext())?.retentionLevel === "retain";
+	const chatResponse = await forwardToChatCompletions(
+		c,
+		chatRequest,
+		retainPayloadLogs,
+	);
 
 	const imageObjects = await extractImagesFromChatResponse(
 		chatResponse,
 		request.prompt,
 		model,
+		retainPayloadLogs,
 	);
 
 	const imagesResponse: z.infer<typeof imageEditsResponseSchema> = {

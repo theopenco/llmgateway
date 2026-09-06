@@ -36,8 +36,10 @@ import {
 	complianceBlockMessage,
 	filterCompliantProviders,
 	getActiveCompliancePolicy,
+	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
+	isZeroDataRetentionEnabled,
 	logComplianceBlock,
 } from "@/lib/compliance.js";
 import {
@@ -132,7 +134,7 @@ function createProviderRoutingScoreMultiplierResolver() {
 	) => {
 		const [multiplier, airsideAdjustment] = await Promise.all([
 			findEffectiveRoutingScoreMultiplier(provider.providerId, modelId),
-			findAirsideRoutingAdjustment(provider.providerId),
+			findAirsideRoutingAdjustment(provider.providerId, modelId),
 		]);
 		return String(Number(multiplier.scoreMultiplier) + airsideAdjustment);
 	};
@@ -4306,7 +4308,7 @@ async function insertVideoClientErrorLog(options: {
 		cachedTokens: null,
 		cacheWriteTokens: null,
 		messages:
-			options.organization.retentionLevel === "retain"
+			getEffectiveRetentionLevel(options.organization) === "retain"
 				? [
 						{
 							role: "user",
@@ -4370,6 +4372,12 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		throw new HTTPException(403, {
 			message:
 				"Video generation is not available for coding plans. Coding plans only include text-based inference.",
+		});
+	}
+	if (isZeroDataRetentionEnabled(organization)) {
+		throw new HTTPException(400, {
+			message:
+				"Video generation is unavailable while zero data retention is active because video jobs require temporary output storage.",
 		});
 	}
 
@@ -4437,6 +4445,8 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 	// Enterprise provider compliance policy: restrict video routing to providers
 	// that meet the org's policy, and block before dispatch if none qualify.
 	const videoCompliancePolicy = getActiveCompliancePolicy(organization);
+	const retainVideoPayloads =
+		getEffectiveRetentionLevel(organization) === "retain";
 	let complianceModelInfo: ModelDefinition = modelInfo;
 	if (videoCompliancePolicy) {
 		// A pinned provider is dispatched directly, so block it explicitly even
@@ -4602,7 +4612,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		if (
 			isGoogleVertexVideoProvider(selectedProviderContext.providerId) &&
 			!getGoogleVertexVideoOutputBucket() &&
-			organization.retentionLevel === "none"
+			getEffectiveRetentionLevel(organization) === "none"
 		) {
 			const statusCode = 400;
 			routingAttempts.push({
@@ -4821,6 +4831,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 			: 0;
 	const airsideRoutingSnapshot = await getAirsideRoutingSnapshot(
 		selectedProviderContext.providerId,
+		normalizedModel,
 	);
 	const created = await db
 		.insert(tables.videoJob)
@@ -4846,7 +4857,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				selectedProviderContext.managedProviderKeyId ?? null,
 			providerKeyId: selectedProviderContext.providerKeyId ?? null,
 			upstreamId,
-			prompt: request.prompt,
+			prompt: retainVideoPayloads ? request.prompt : "",
 			status: initialStatus,
 			progress: extractProgress(upstreamResponse),
 			error: extractError(upstreamResponse),
@@ -4876,7 +4887,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				llmgateway_requested_duration_seconds: videoDurationSeconds,
 				llmgateway_input_image_count: inputImageCount,
 				llmgateway_reserved_spend_usd: reservedSpendUsd,
-				...(debugMode
+				...(debugMode && retainVideoPayloads
 					? {
 							llmgateway_raw_request: rawBody,
 							llmgateway_upstream_request: upstreamRequest,

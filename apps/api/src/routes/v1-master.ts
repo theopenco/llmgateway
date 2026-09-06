@@ -62,6 +62,11 @@ import {
 	withLegacyProviderCacheControl,
 } from "@/utils/provider-cache-control.js";
 import { timezoneQueryField } from "@/utils/timezone.js";
+import {
+	isZeroDataRetentionEnabled,
+	zdrCachingConflictMessage,
+	zdrProviderCachingConflictMessage,
+} from "@/utils/zdr-settings.js";
 
 import { encryptProviderKey, readProviderKey } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
@@ -508,6 +513,26 @@ v1Master.openapi(updateProject, async (c) => {
 		throw new HTTPException(404, {
 			message: "Project not found in this organization",
 		});
+	}
+
+	const providerCachingChanged =
+		providerCacheControlMode !== undefined &&
+		providerCacheControlMode !== existing.providerCacheControlMode;
+	if (
+		updates.cachingEnabled ||
+		(providerCachingChanged && providerCacheControlMode !== "off")
+	) {
+		const organization = await db.query.organization.findFirst({
+			columns: { id: true, plan: true, providerCompliancePolicy: true },
+			where: { id: { eq: existing.organizationId } },
+		});
+		if (isZeroDataRetentionEnabled(organization)) {
+			throw new HTTPException(400, {
+				message: updates.cachingEnabled
+					? zdrCachingConflictMessage
+					: zdrProviderCachingConflictMessage,
+			});
+		}
 	}
 
 	const [updated] = await cdb

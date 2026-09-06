@@ -6,6 +6,7 @@ import {
 	createTestUser,
 	deleteAll,
 } from "@/testing.js";
+import { serializeOrganization } from "@/utils/serialize-organization.js";
 
 import {
 	redisClient,
@@ -22,6 +23,56 @@ import {
 } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { randomInt } from "@llmgateway/shared/random";
+
+const internalOrganizationFields = [
+	"stripeCustomerId",
+	"stripeSubscriptionId",
+	"subscriptionCancelled",
+	"paymentFailureCount",
+	"lastPaymentFailureAt",
+	"paymentFailureStartedAt",
+	"trustTierOverride",
+	"devPlanStripeSubscriptionId",
+	"devPlanCancelled",
+	"devPlanPendingTier",
+	"devPlanCardFingerprint",
+	"devPlanCreditsFrozen",
+	"devPlanCreditsLimitBeforeFreeze",
+	"devPlanTierChangeClaimedAt",
+	"chatPlanStripeSubscriptionId",
+	"chatPlanCancelled",
+	"chatPlanCardFingerprint",
+	"lastTopUpAmount",
+	"endUserMarginBalance",
+	"stripeConnectAccountId",
+	"stripeConnectOnboarded",
+	"safetyIdentifier",
+	"riskFlagged",
+];
+
+async function expectPublicOrganization(
+	organization: { id: string },
+	listed = false,
+) {
+	const stored = await db.query.organization.findFirst({
+		where: { id: { eq: organization.id } },
+	});
+	expect(stored).toBeDefined();
+	const publicFields = Object.fromEntries(
+		Object.entries(stored!).filter(
+			([field]) => !internalOrganizationFields.includes(field),
+		),
+	);
+	const expected = JSON.parse(JSON.stringify(publicFields)) as Record<
+		string,
+		unknown
+	>;
+	if (listed) {
+		expected.role = "owner";
+		expected.enterpriseAccess = false;
+	}
+	expect(organization).toEqual(expected);
+}
 
 describe("organization route", () => {
 	let token: string;
@@ -47,6 +98,72 @@ describe("organization route", () => {
 
 	afterEach(async () => {
 		await deleteAll();
+	});
+
+	test.each([
+		{ method: "GET", path: "/orgs", body: undefined },
+		{ method: "POST", path: "/orgs", body: { name: "New Organization" } },
+		{
+			method: "PATCH",
+			path: "/orgs/test-org-id",
+			body: { name: "Updated Organization" },
+		},
+		{ method: "PATCH", path: "/orgs/test-org-id", body: {} },
+	])(
+		"$method $path returns only public organization fields ($body)",
+		async ({ method, path, body }) => {
+			const date = new Date("2026-01-01T00:00:00Z");
+			await db
+				.update(tables.organization)
+				.set({
+					riskFlagged: true,
+					trustTierOverride: 2,
+					stripeConnectAccountId: "test-connect-account",
+					stripeConnectOnboarded: true,
+					devPlanCardFingerprint: "test-card-fingerprint",
+					planStartedAt: date,
+					planExpiresAt: date,
+					trialStartDate: date,
+					trialEndDate: date,
+					devPlanPremiumWeekStart: date,
+					devPlanBillingCycleStart: date,
+					devPlanExpiresAt: date,
+					chatPlanBillingCycleStart: date,
+					chatPlanExpiresAt: date,
+				})
+				.where(eq(tables.organization.id, "test-org-id"));
+
+			const response = await app.request(path, {
+				method,
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: body === undefined ? undefined : JSON.stringify(body),
+			});
+			expect(response.status).toBe(200);
+			const result = (await response.json()) as {
+				organizations: Array<{ id: string }>;
+				organization: { id: string };
+			};
+			if (method === "GET") {
+				expect(result.organizations.map((org) => org.id)).toContain(
+					"test-org-id",
+				);
+				for (const org of result.organizations) {
+					await expectPublicOrganization(org, true);
+				}
+			} else {
+				await expectPublicOrganization(result.organization);
+			}
+		},
+	);
+
+	test("organization serialization ignores unknown row fields", async () => {
+		const stored = await db.query.organization.findFirst({
+			where: { id: { eq: "test-org-id" } },
+		});
+		const extended = { ...stored!, futureInternalField: "internal" };
+		expect(serializeOrganization(extended)).not.toHaveProperty(
+			"futureInternalField",
+		);
 	});
 
 	test("PATCH /orgs/{id} logs enabling auto top-up in audit log", async () => {
@@ -150,6 +267,7 @@ describe("organization route", () => {
 
 		const body = (await response.json()) as {
 			organizations: Array<{
+				id: string;
 				name: string;
 				kind: "default" | "chat" | "devpass";
 			}>;
@@ -158,6 +276,7 @@ describe("organization route", () => {
 		expect(body.organizations).toHaveLength(1);
 		expect(body.organizations[0]?.name).toBe("Default Organization");
 		expect(body.organizations[0]?.kind).toBe("default");
+		await expectPublicOrganization(body.organizations[0]!, true);
 
 		const afterOrganizations = await db.query.userOrganization.findMany({
 			with: {
@@ -370,6 +489,216 @@ describe("organization route", () => {
 		expect(await response.json()).toMatchObject({
 			error: true,
 			message: expect.stringContaining("requireGdpr"),
+		});
+	});
+
+	test("ZDR cannot be enabled while payload retention is active", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise", retentionLevel: "retain" })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			}),
+		});
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			message: expect.stringContaining("requires Metadata Only"),
+		});
+		const organization = await db.query.organization.findFirst({
+			where: { id: { eq: "test-org-id" } },
+		});
+		expect(organization?.retentionLevel).toBe("retain");
+		expect(organization?.providerCompliancePolicy?.enabled).not.toBe(true);
+	});
+
+	test("ZDR can be enabled when payload retention is disabled", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise", retentionLevel: "none" })
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		const organization = await db.query.organization.findFirst({
+			where: { id: { eq: "test-org-id" } },
+		});
+		expect(organization?.retentionLevel).toBe("none");
+		expect(organization?.providerCompliancePolicy).toEqual({
+			enabled: true,
+			zeroDataRetention: true,
+		});
+	});
+
+	test("legacy no prompt logging remains compatible with payload retention", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise", retentionLevel: "retain" })
+			.where(eq(tables.organization.id, "test-org-id"));
+		await db.insert(tables.project).values({
+			id: "test-project-id",
+			name: "Cached Project",
+			organizationId: "test-org-id",
+			cachingEnabled: true,
+		});
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockPromptLogging: true,
+				},
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		const organization = await db.query.organization.findFirst({
+			where: { id: { eq: "test-org-id" } },
+		});
+		expect(organization?.retentionLevel).toBe("retain");
+		expect(organization?.providerCompliancePolicy).toEqual({
+			enabled: true,
+			blockPromptLogging: true,
+		});
+		expect(
+			(
+				await db.query.project.findFirst({
+					where: { id: { eq: "test-project-id" } },
+				})
+			)?.cachingEnabled,
+		).toBe(true);
+	});
+
+	test("ZDR cannot be enabled while a project cache is active", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise", retentionLevel: "none" })
+			.where(eq(tables.organization.id, "test-org-id"));
+		await db.insert(tables.project).values({
+			id: "cached-project-id",
+			name: "Cached Project",
+			organizationId: "test-org-id",
+			cachingEnabled: true,
+		});
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			}),
+		});
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			message: expect.stringContaining("response caching"),
+		});
+		expect(
+			(
+				await db.query.organization.findFirst({
+					where: { id: { eq: "test-org-id" } },
+				})
+			)?.providerCompliancePolicy?.enabled,
+		).not.toBe(true);
+	});
+
+	test("payload retention stays blocked by stored ZDR after downgrade", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "free",
+				retentionLevel: "none",
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ retentionLevel: "retain" }),
+		});
+
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			message: expect.stringContaining("Zero data retention"),
+		});
+		expect(
+			(
+				await db.query.organization.findFirst({
+					where: { id: { eq: "test-org-id" } },
+				})
+			)?.retentionLevel,
+		).toBe("none");
+	});
+
+	test("payload retention can be enabled alongside a stored non-ZDR policy", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				retentionLevel: "none",
+				providerCompliancePolicy: { enabled: true, requireSoc2: true },
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const response = await app.request("/orgs/test-org-id", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ retentionLevel: "retain" }),
+		});
+
+		expect(response.status).toBe(200);
+		const organization = await db.query.organization.findFirst({
+			where: { id: { eq: "test-org-id" } },
+		});
+		expect(organization?.retentionLevel).toBe("retain");
+		expect(organization?.providerCompliancePolicy).toEqual({
+			enabled: true,
+			requireSoc2: true,
 		});
 	});
 

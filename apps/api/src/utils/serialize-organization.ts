@@ -1,0 +1,71 @@
+import type { Organization, SerializedOrganization } from "@llmgateway/db";
+
+export function serializeOrganization(
+	organization: Organization,
+): SerializedOrganization {
+	return {
+		id: organization.id,
+		createdAt: organization.createdAt.toISOString(),
+		updatedAt: organization.updatedAt.toISOString(),
+		name: organization.name,
+		logo: organization.logo,
+		billingEmail: organization.billingEmail,
+		billingCompany: organization.billingCompany,
+		billingAddress: organization.billingAddress,
+		billingTaxId: organization.billingTaxId,
+		billingNotes: organization.billingNotes,
+		credits: organization.credits,
+		plan: organization.plan,
+		planExpiresAt: organization.planExpiresAt?.toISOString() ?? null,
+		planStartedAt: organization.planStartedAt?.toISOString() ?? null,
+		isTrialActive: organization.isTrialActive,
+		trialStartDate: organization.trialStartDate?.toISOString() ?? null,
+		trialEndDate: organization.trialEndDate?.toISOString() ?? null,
+		seats: organization.seats,
+		apiKeyLimit: organization.apiKeyLimit,
+		projectLimit: organization.projectLimit,
+		retentionLevel: organization.retentionLevel,
+		providerCompliancePolicy: organization.providerCompliancePolicy,
+		ssoAutoJoinDomain: organization.ssoAutoJoinDomain,
+		status: organization.status,
+		autoTopUpEnabled: organization.autoTopUpEnabled,
+		autoTopUpThreshold: organization.autoTopUpThreshold,
+		autoTopUpAmount: organization.autoTopUpAmount,
+		referralEarnings: organization.referralEarnings,
+		referralBonusEnabled: organization.referralBonusEnabled,
+		referralBonusPercent: organization.referralBonusPercent,
+		kind: organization.kind,
+		devPlan: organization.devPlan,
+		devPlanCycle: organization.devPlanCycle,
+		devPlanCreditsUsed: organization.devPlanCreditsUsed,
+		devPlanCreditsLimit: organization.devPlanCreditsLimit,
+		devPlanPremiumCreditsUsed: organization.devPlanPremiumCreditsUsed,
+		devPlanPremiumWeekStart:
+			organization.devPlanPremiumWeekStart?.toISOString() ?? null,
+		devPlanResetPassesLite: organization.devPlanResetPassesLite,
+		devPlanResetPassesPro: organization.devPlanResetPassesPro,
+		devPlanResetPassesMax: organization.devPlanResetPassesMax,
+		devPlanIncludedResetPassesUsed: organization.devPlanIncludedResetPassesUsed,
+		devPlanBillingCycleStart:
+			organization.devPlanBillingCycleStart?.toISOString() ?? null,
+		devPlanExpiresAt: organization.devPlanExpiresAt?.toISOString() ?? null,
+		devPlanServiceTier: organization.devPlanServiceTier,
+		devPlanPaygEnabled: organization.devPlanPaygEnabled,
+		devPlanBillingOverride: organization.devPlanBillingOverride,
+		chatPlan: organization.chatPlan,
+		chatPlanCycle: organization.chatPlanCycle,
+		chatPlanCreditsUsed: organization.chatPlanCreditsUsed,
+		chatPlanCreditsLimit: organization.chatPlanCreditsLimit,
+		chatPlanBillingCycleStart:
+			organization.chatPlanBillingCycleStart?.toISOString() ?? null,
+		chatPlanExpiresAt: organization.chatPlanExpiresAt?.toISOString() ?? null,
+		defaultDeveloperMaxApiKeys: organization.defaultDeveloperMaxApiKeys,
+		defaultDeveloperUsageLimit: organization.defaultDeveloperUsageLimit,
+		defaultDeveloperPeriodUsageLimit:
+			organization.defaultDeveloperPeriodUsageLimit,
+		defaultDeveloperPeriodUsageDurationValue:
+			organization.defaultDeveloperPeriodUsageDurationValue,
+		defaultDeveloperPeriodUsageDurationUnit:
+			organization.defaultDeveloperPeriodUsageDurationUnit,
+	};
+}
