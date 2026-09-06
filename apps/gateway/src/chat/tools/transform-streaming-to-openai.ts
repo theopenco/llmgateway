@@ -1,4 +1,8 @@
-import { TOOL_SEARCH_TOOL_TYPE_PREFIX } from "@llmgateway/actions";
+import {
+	buildGoogleReasoningDetails,
+	type GoogleThoughtSignatureState,
+	TOOL_SEARCH_TOOL_TYPE_PREFIX,
+} from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -79,7 +83,10 @@ export function transformStreamingToOpenai(
 	supportsReasoning = true,
 	toolSearchState?: AnthropicToolSearchState,
 	toolCallChoiceIndices?: Set<number>,
-	options?: { cacheThoughtSignatures?: boolean },
+	options?: {
+		cacheThoughtSignatures?: boolean;
+		googleThoughtSignatureState?: Map<number, GoogleThoughtSignatureState>;
+	},
 ): any {
 	let transformedData = data;
 
@@ -619,6 +626,19 @@ export function transformStreamingToOpenai(
 					role: "assistant",
 				};
 
+				const candidateIndex = candidate.index ?? candidateIdx;
+				const signatureState = options?.googleThoughtSignatureState?.get(
+					candidateIndex,
+				) ?? { textOffset: 0, index: 0 };
+				options?.googleThoughtSignatureState?.set(
+					candidateIndex,
+					signatureState,
+				);
+				const details = buildGoogleReasoningDetails(parts, signatureState);
+				if (details.length > 0) {
+					delta.reasoning_details = details;
+				}
+
 				if (textParts.length) {
 					delta.content = textParts.map((p) => p.text as string).join("");
 				}
@@ -673,6 +693,9 @@ export function transformStreamingToOpenai(
 							// this is following the latest Google tool call schema
 							// as long as we need a response, sending back the signature is required
 							// it represents the thought process that led to the tool call
+							extra_content: sig
+								? { google: { thought_signature: sig } }
+								: undefined,
 							provider_extra: sig
 								? {
 										google: {

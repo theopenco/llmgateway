@@ -1,0 +1,478 @@
+import { createServer, type Server } from "node:http";
+
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
+
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
+import { redisClient } from "@llmgateway/cache";
+import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+
+import { app } from "./app.js";
+import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
+
+import type { GoogleTextPart } from "@llmgateway/actions";
+import type { ReasoningDetail } from "@llmgateway/models";
+
+interface MockGooglePart extends GoogleTextPart {
+	functionCall?: { name: string; args: Record<string, unknown> };
+}
+
+interface AssistantMessage {
+	role: "assistant";
+	content: string;
+	reasoning_details: ReasoningDetail[];
+}
+
+interface ChatChunk {
+	choices: Array<{ delta: Partial<AssistantMessage> }>;
+}
+
+function parseEvents(body: string): Array<Record<string, unknown>> {
+	return body
+		.split("\n")
+		.filter((line) => line.startsWith("data: ") && line !== "data: [DONE]")
+		.map((line) => JSON.parse(line.slice(6)) as Record<string, unknown>);
+}
+
+describe("Gemini thought signature replay", () => {
+	createGatewayApiTestHarness();
+	let server: Server;
+	let baseUrl = "";
+	let toolResponse = false;
+	let jsonResponse = false;
+	let captured: Array<{
+		contents: Array<{ role: string; parts: MockGooglePart[] }>;
+	}> = [];
+	const signature = "test-text-signature";
+	const signedThought = {
+		text: "I should look this up.",
+		thought: true,
+		thoughtSignature: "test-thought-signature",
+	};
+	const headers = {
+		"Content-Type": "application/json",
+		Authorization: "Bearer test-token",
+		"x-no-fallback": "true",
+		"x-no-cache": "true",
+	};
+	const model = "google-ai-studio/gemini-3.5-flash";
+
+	beforeAll(async () => {
+		server = createServer((req, res) => {
+			let body = "";
+			req.on("data", (chunk) => {
+				body += chunk;
+			});
+			req.on("end", () => {
+				captured.push(JSON.parse(body));
+				const response = (parts: MockGooglePart[], final = false) => ({
+					candidates: [
+						{
+							content: { role: "model", parts },
+							...(final ? { finishReason: "STOP" } : {}),
+						},
+					],
+					...(final
+						? {
+								usageMetadata: {
+									promptTokenCount: 10,
+									candidatesTokenCount: 5,
+									totalTokenCount: 15,
+								},
+							}
+						: {}),
+				});
+				if (toolResponse) {
+					const payload = response(
+						[
+							signedThought,
+							{
+								functionCall: { name: "lookup", args: {} },
+								thoughtSignature: signature,
+							},
+						],
+						true,
+					);
+					if (req.url?.includes("streamGenerateContent")) {
+						res.writeHead(200, { "Content-Type": "text/event-stream" });
+						res.write(`data: ${JSON.stringify(response([signedThought]))}\n\n`);
+						res.end(
+							`data: ${JSON.stringify(response(payload.candidates[0]!.content.parts.slice(1), true))}\n\n`,
+						);
+					} else {
+						res.writeHead(200, { "Content-Type": "application/json" });
+						res.end(JSON.stringify(payload));
+					}
+					return;
+				}
+				if (req.url?.includes("streamGenerateContent")) {
+					res.writeHead(200, { "Content-Type": "text/event-stream" });
+					for (const chunk of [
+						response([{ text: jsonResponse ? '{"answer":' : "Answer: " }]),
+						response([{ text: jsonResponse ? "42}}" : "42" }]),
+						response([{ text: "", thoughtSignature: signature }], true),
+					]) {
+						res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+					}
+					res.end();
+				} else {
+					res.writeHead(200, { "Content-Type": "application/json" });
+					res.end(
+						JSON.stringify(
+							response(
+								[
+									{ text: jsonResponse ? '{"answer":' : "Answer: " },
+									{
+										text: jsonResponse ? "42}}" : "42",
+										thoughtSignature: signature,
+									},
+								],
+								true,
+							),
+						),
+					);
+				}
+			});
+		});
+		await new Promise<void>((resolve) => {
+			server.listen(0, resolve);
+		});
+		const address = server.address();
+		if (!address || typeof address === "string") {
+			throw new Error("Missing mock server port");
+		}
+		baseUrl = `http://localhost:${address.port}`;
+	});
+
+	afterAll(async () => {
+		await new Promise<void>((resolve, reject) => {
+			server.close((error) => (error ? reject(error) : resolve()));
+		});
+	});
+
+	async function setup(retention: "retain" | "none") {
+		captured = [];
+		toolResponse = false;
+		jsonResponse = false;
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: retention })
+			.where(eq(tables.organization.id, "org-id"));
+		await db.insert(tables.apiKey).values({
+			id: "test-key",
+			...hashApiKeyForStorage("test-token"),
+			projectId: "project-id",
+			createdBy: "user-id",
+			description: "Signature replay",
+		});
+		await db.insert(tables.providerKey).values({
+			id: "google-test-key",
+			...encryptProviderKeyForStorage(
+				"test-provider-key",
+				"google-test-key",
+				"org-id",
+			),
+			provider: "google-ai-studio",
+			organizationId: "org-id",
+			baseUrl,
+		});
+	}
+
+	for (const { retention, json } of [
+		{ retention: "retain", json: false },
+		{ retention: "none", json: false },
+		{ retention: "none", json: true },
+	] as const) {
+		for (const stream of [false, true]) {
+			for (const endpoint of ["chat/completions", "responses"]) {
+				test(`${endpoint}: replays ${stream ? "streamed" : "non-streamed"} ${json ? "healed JSON" : "text"} with retention ${retention}`, async () => {
+					await setup(retention);
+					jsonResponse = json;
+					const initial = { role: "user", content: "What is the answer?" };
+					const isResponses = endpoint === "responses";
+					const res = await app.request(`/v1/${endpoint}`, {
+						method: "POST",
+						headers,
+						body: JSON.stringify({
+							model,
+							stream,
+							...(json
+								? isResponses
+									? { text: { format: { type: "json_object" } } }
+									: { response_format: { type: "json_object" } }
+								: {}),
+							...(isResponses
+								? { input: [initial], store: false }
+								: { messages: [initial] }),
+						}),
+					});
+					expect(res.status).toBe(200);
+					let replay: unknown[];
+					if (isResponses) {
+						const response = stream
+							? (parseEvents(await res.text()).find(
+									(event) => event.type === "response.completed",
+								)?.response as { output: Array<Record<string, unknown>> })
+							: ((await res.json()) as {
+									output: Array<Record<string, unknown>>;
+								});
+						const message = response.output.find(
+							(item) => item.type === "message",
+						);
+						expect(message?.content).toMatchObject([
+							{
+								type: "output_text",
+								text: json ? '{"answer":42}' : "Answer: 42",
+							},
+						]);
+						expect(message?.reasoning_details).toEqual(
+							expect.arrayContaining([
+								expect.objectContaining({
+									format: "google-gemini-v1",
+									signature,
+								}),
+							]),
+						);
+						replay = response.output;
+					} else {
+						let message: AssistantMessage;
+						if (stream) {
+							message = {
+								role: "assistant",
+								content: "",
+								reasoning_details: [],
+							};
+							for (const event of parseEvents(await res.text())) {
+								const delta = (event as unknown as ChatChunk).choices[0]?.delta;
+								message.content += delta?.content ?? "";
+								message.reasoning_details.push(
+									...(delta?.reasoning_details ?? []),
+								);
+							}
+						} else {
+							const response = (await res.json()) as {
+								choices: Array<{ message: AssistantMessage }>;
+							};
+							message = response.choices[0]!.message;
+						}
+						expect(message.content).toBe(json ? '{"answer":42}' : "Answer: 42");
+						expect(message.reasoning_details).toEqual(
+							expect.arrayContaining([
+								expect.objectContaining({
+									format: "google-gemini-v1",
+									signature,
+								}),
+							]),
+						);
+						replay = [message];
+					}
+					const history = [
+						initial,
+						...replay,
+						{ role: "user", content: "Explain further." },
+					];
+					const next = await app.request(`/v1/${endpoint}`, {
+						method: "POST",
+						headers,
+						body: JSON.stringify({
+							model,
+							...(isResponses
+								? { input: history, store: false }
+								: { messages: history }),
+						}),
+					});
+					expect(next.status).toBe(200);
+					await next.text();
+					expect(captured).toHaveLength(2);
+					expect(
+						captured[1]!.contents.find((item) => item.role === "model")?.parts,
+					).toEqual(
+						stream
+							? [
+									{ text: json ? '{"answer":42}}' : "Answer: 42" },
+									{ text: "", thoughtSignature: signature },
+								]
+							: [
+									{ text: json ? '{"answer":' : "Answer: " },
+									{ text: json ? "42}}" : "42", thoughtSignature: signature },
+								],
+					);
+				});
+			}
+		}
+	}
+	test("restores text from stored Responses history", async () => {
+		await setup("retain");
+		const first = await app.request("/v1/responses", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({ model, input: "What is the answer?" }),
+		});
+		expect(first.status).toBe(200);
+		const response = (await first.json()) as { id: string };
+		const next = await app.request("/v1/responses", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({
+				model,
+				input: "Explain further.",
+				previous_response_id: response.id,
+			}),
+		});
+		expect(next.status).toBe(200);
+		await next.text();
+		expect(
+			captured[1]!.contents.find((item) => item.role === "model")?.parts,
+		).toEqual([
+			{ text: "Answer: " },
+			{ text: "42", thoughtSignature: signature },
+		]);
+	});
+
+	test("preserves explicit text and tool signatures instead of a cached signature", async () => {
+		await setup("retain");
+		await redisClient.setex(
+			"thought_signature:call_test",
+			60,
+			"cached-test-signature",
+		);
+		const extra_content = { google: { thought_signature: signature } };
+		const response = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({
+				model,
+				messages: [
+					{ role: "user", content: "Look up the answer." },
+					{
+						role: "assistant",
+						content: [{ type: "text", text: "Looking it up.", extra_content }],
+						tool_calls: [
+							{
+								id: "call_test",
+								type: "function",
+								function: { name: "lookup", arguments: "{}" },
+								extra_content,
+							},
+						],
+					},
+					{ role: "tool", content: "42", tool_call_id: "call_test" },
+				],
+				tools: [
+					{
+						type: "function",
+						function: {
+							name: "lookup",
+							parameters: { type: "object", properties: {} },
+						},
+					},
+				],
+			}),
+		});
+		expect(response.status).toBe(200);
+		await response.text();
+		expect(
+			captured[0]!.contents.find((item) => item.role === "model")?.parts,
+		).toEqual([
+			{ text: "Looking it up.", thoughtSignature: signature },
+			{
+				functionCall: { name: "lookup", args: {} },
+				thoughtSignature: signature,
+			},
+		]);
+	});
+	for (const stream of [false, true]) {
+		for (const store of [false, true]) {
+			test(`Responses replays ${stream ? "streamed" : "non-streamed"} tools from ${store ? "stored history" : "retention-off history"} without Redis signatures`, async () => {
+				await setup(store ? "retain" : "none");
+				toolResponse = true;
+				const first = await app.request("/v1/responses", {
+					method: "POST",
+					headers,
+					body: JSON.stringify({
+						model,
+						input: "Look up the answer.",
+						stream,
+						store,
+						tools: [
+							{
+								type: "function",
+								name: "lookup",
+								parameters: { type: "object", properties: {} },
+							},
+						],
+					}),
+				});
+				expect(first.status).toBe(200);
+				const response = stream
+					? (parseEvents(await first.text()).find(
+							(event) => event.type === "response.completed",
+						)?.response as {
+							id: string;
+							output: Array<Record<string, unknown>>;
+						})
+					: ((await first.json()) as {
+							id: string;
+							output: Array<Record<string, unknown>>;
+						});
+				const call = response.output.find(
+					(item) => item.type === "function_call",
+				)!;
+				expect(call?.extra_content).toEqual({
+					google: { thought_signature: signature },
+				});
+				expect(
+					response.output.find((item) => item.type === "reasoning"),
+				).toMatchObject({
+					summary: [{ type: "summary_text", text: signedThought.text }],
+				});
+				expect(
+					response.output.find((item) => item.type === "message"),
+				).toMatchObject({
+					reasoning_details: [
+						{
+							format: "google-gemini-v1",
+							signature: signedThought.thoughtSignature,
+						},
+					],
+				});
+				const callId = String(call.call_id);
+				await redisClient.del(`thought_signature:${callId}`);
+				toolResponse = false;
+				const result = {
+					type: "function_call_output",
+					call_id: callId,
+					output: "42",
+				};
+				const next = await app.request("/v1/responses", {
+					method: "POST",
+					headers,
+					body: JSON.stringify({
+						model,
+						store,
+						...(store
+							? { previous_response_id: response.id, input: [result] }
+							: {
+									input: [
+										{ role: "user", content: "Look up the answer." },
+										...response.output,
+										result,
+									],
+								}),
+					}),
+				});
+				expect(next.status).toBe(200);
+				await next.text();
+				expect(
+					captured[1]!.contents.find((item) => item.role === "model")?.parts,
+				).toEqual([
+					signedThought,
+					{
+						functionCall: { name: "lookup", args: {} },
+						thoughtSignature: signature,
+					},
+				]);
+			});
+		}
+	}
+});
