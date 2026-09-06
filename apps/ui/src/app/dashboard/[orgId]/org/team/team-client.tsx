@@ -716,7 +716,19 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	const { user } = useUser();
 	const usageMode = useUsageMode();
 
-	const { data, isLoading } = useTeamMembers(organizationId, initialData);
+	// On ?tab=teams the member list is not rendered, so skip its fetch when the
+	// server-provided initialData already establishes the viewer as an admin
+	// (isAdmin below reads the same seeded data).
+	const initialRole = initialData?.members.find(
+		(member) => member.userId === user?.id,
+	)?.role;
+	const memberQueryEnabled = !(
+		searchParams.get("tab") === "teams" &&
+		(initialRole === "owner" || initialRole === "admin")
+	);
+	const { data, isLoading } = useTeamMembers(organizationId, initialData, {
+		enabled: memberQueryEnabled,
+	});
 	const addMemberMutation = useAddTeamMember(organizationId);
 	const removeMemberMutation = useRemoveTeamMember(organizationId);
 	const revokeInviteMutation = useRevokeTeamInvite(organizationId);
@@ -727,6 +739,9 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	const isAdmin = currentUserRole === "owner" || currentUserRole === "admin";
 	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const showUsage = isEnterprise && isAdmin;
+	// The Teams tab renders OrganizationTeamsClient instead (below), which reads
+	// none of the member-list queries, so don't fire them for that tab.
+	const teamsTabActive = searchParams.get("tab") === "teams" && isAdmin;
 
 	const [email, setEmail] = useState("");
 	const [role, setRole] = useState<MemberRole>("developer");
@@ -744,7 +759,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		"get",
 		"/orgs/{id}/projects",
 		{ params: { path: { id: organizationId } } },
-		{ enabled: !!organizationId && isAdmin },
+		{ enabled: !!organizationId && isAdmin && !teamsTabActive },
 	);
 	const orgProjects: OrgProject[] = (orgProjectsData?.projects ?? []).map(
 		(p) => ({ id: p.id, name: p.name }),
@@ -756,12 +771,12 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		"get",
 		"/sso/scim",
 		{ params: { query: { organizationId } } },
-		{ enabled: !!organizationId && isAdmin && isEnterprise },
+		{ enabled: !!organizationId && isAdmin && isEnterprise && !teamsTabActive },
 	);
 	const scimEnabled = scimStatus?.configured === true;
 
 	useEffect(() => {
-		if (!showUsage) {
+		if (!showUsage || teamsTabActive) {
 			return;
 		}
 		if (!shouldApplyDefaults(searchParams)) {
@@ -775,6 +790,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		router.replace(`${buildOrgUrl("org/team")}?${params2.toString()}` as Route);
 	}, [
 		showUsage,
+		teamsTabActive,
 		searchParams,
 		router,
 		buildOrgUrl,
@@ -800,7 +816,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 				},
 			},
 		},
-		{ enabled: !!organizationId && showUsage },
+		{ enabled: !!organizationId && showUsage && !teamsTabActive },
 	);
 
 	const usageByUserId = new Map(
@@ -916,7 +932,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		});
 	};
 
-	if (searchParams.get("tab") === "teams" && isAdmin) {
+	if (teamsTabActive) {
 		return (
 			<OrganizationTeamsClient
 				organizationId={organizationId}

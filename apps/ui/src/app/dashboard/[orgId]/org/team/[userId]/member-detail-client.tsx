@@ -143,9 +143,14 @@ export function MemberDetailClient() {
 		),
 	}));
 
-	const topModels = (data?.topModels ?? [])
-		.map((m) => applyUsageMode(m, usageMode))
-		.sort((a, b) => b.cost - a.cost);
+	// Only the costliest model is displayed, so track the max instead of sorting.
+	let topModel: { key: string; cost: number } | undefined;
+	for (const entry of data?.topModels ?? []) {
+		const row = applyUsageMode(entry, usageMode);
+		if (!topModel || row.cost > topModel.cost) {
+			topModel = row;
+		}
+	}
 	const topProviders = (data?.topProviders ?? [])
 		.map((p) => applyUsageMode(p, usageMode))
 		.sort((a, b) => b.cost - a.cost);
@@ -176,7 +181,7 @@ export function MemberDetailClient() {
 	const mostUsed = [
 		{
 			label: "Most used model",
-			value: topModels[0]?.key ?? "—",
+			value: topModel?.key ?? "—",
 			icon: Sparkles,
 		},
 		{
