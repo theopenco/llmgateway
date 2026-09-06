@@ -1082,6 +1082,64 @@ describe("RealtimeProxySession transcription sessions", () => {
 		session.shutdown(1000, "test_done");
 	});
 
+	it("drains live-transcribed audio when the client stops answering pings", async () => {
+		process.env.REALTIME_PING_INTERVAL_MS = "10";
+		try {
+			const { client, upstream, session, upstreamSends } = await openSession(
+				createTranscriptionSession(),
+			);
+
+			upstreamSends({
+				type: "conversation.item.input_audio_transcription.delta",
+				item_id: "item_live",
+				delta: "Hello",
+			});
+			await flush();
+			// The upstream keeps answering pings; the client never does.
+			const keepUpstreamAlive = setInterval(() => upstream.emit("pong"), 2);
+			try {
+				await new Promise((resolve) => setTimeout(resolve, 40));
+				await flush();
+			} finally {
+				clearInterval(keepUpstreamAlive);
+			}
+
+			// The client is closed for the ping timeout, but the live buffer is
+			// committed and the upstream stays open for its billable tail.
+			expect(client.closed).toEqual([{ code: 1011, reason: "ping_timeout" }]);
+			expect(
+				upstream.sent.some((m) => m.includes("input_audio_buffer.commit")),
+			).toBe(true);
+			expect(upstream.closed).toHaveLength(0);
+			expect(closeRealtimeSessionRecord).not.toHaveBeenCalled();
+
+			upstreamSends({
+				type: "input_audio_buffer.committed",
+				item_id: "item_live",
+			});
+			upstreamSends({
+				type: "conversation.item.input_audio_transcription.completed",
+				item_id: "item_live",
+				content_index: 0,
+				transcript: "Hello",
+				usage: { type: "duration", seconds: 2 },
+			});
+			await flush();
+
+			expect(recordRealtimeTranscription).toHaveBeenCalledTimes(1);
+			expect(closeRealtimeSessionRecord).toHaveBeenCalledWith(
+				"rts_1",
+				"closed",
+				"ping_timeout",
+				expect.anything(),
+			);
+
+			session.shutdown(1000, "test_done");
+		} finally {
+			delete process.env.REALTIME_PING_INTERVAL_MS;
+		}
+	});
+
 	it("commits live-transcribed audio ahead of a client clear", async () => {
 		const { upstream, session, clientSends, upstreamSends } = await openSession(
 			createTranscriptionSession(),

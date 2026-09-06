@@ -236,13 +236,10 @@ Transcripts arrive as standard
 
 - The provider's implicit default (e.g. `whisper-1`) is not available;
   omitting `transcription.model` is rejected with
-  `transcription_model_required`. Duration-billed transcription models cannot
-  be metered per token, so only token-metered models are supported.
+  `transcription_model_required`.
 - The transcription model is pinned for the session on first use and cannot
   be switched afterwards; disabling transcription (`"transcription": null`)
   is always allowed.
-- Transcription is billed separately from the realtime model, at the
-  transcription model's listed per-token rates.
 - Both the current nested form (`session.audio.input.transcription`) and the
   legacy top-level form (`session.input_audio_transcription`) are accepted.
 - Transcription models are billed the way their provider meters them, per

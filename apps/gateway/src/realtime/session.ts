@@ -318,8 +318,14 @@ export class RealtimeProxySession {
 		);
 
 		const ping = setInterval(() => {
-			if (!this.clientAlive || !this.upstreamAlive) {
+			if (!this.upstreamAlive) {
 				this.shutdown(1011, "ping_timeout");
+				return;
+			}
+			if (!this.clientAlive && !this.draining) {
+				// The client went silent while the upstream is healthy: drain so
+				// billable work already in flight still gets its terminal event.
+				this.drainOrShutdown(1011, "ping_timeout");
 				return;
 			}
 			this.clientAlive = false;
@@ -1737,6 +1743,14 @@ export class RealtimeProxySession {
 				if (this.backpressurePoller) {
 					clearInterval(this.backpressurePoller);
 					this.backpressurePoller = null;
+				}
+				if (destination === this.client) {
+					// The client stopped reading while the upstream is healthy: let
+					// upstream events flow again so the drain can capture the
+					// terminal events of billable work in flight.
+					source.resume();
+					this.drainOrShutdown(1011, "backpressure_timeout");
+					return;
 				}
 				this.shutdown(1011, "backpressure_timeout");
 			}
