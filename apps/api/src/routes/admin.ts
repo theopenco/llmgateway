@@ -562,6 +562,14 @@ const transactionSchema = z.object({
 	stripePaymentIntentId: z.string().nullable(),
 	stripeInvoiceId: z.string().nullable(),
 	stripeRefundId: z.string().nullable(),
+	refundability: z
+		.object({
+			refundable: z.boolean(),
+			reason: z.string().nullable(),
+			refundedAmount: z.string(),
+			refundableAmount: z.string(),
+		})
+		.nullable(),
 });
 
 const transactionsListSchema = z.object({
@@ -3322,6 +3330,14 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 		.limit(limit)
 		.offset(offset);
 
+	const refundedByTransactionId =
+		org.kind === "devpass"
+			? await sumRefundsByTransaction(
+					orgId,
+					transactions.map((t) => t.id),
+				)
+			: null;
+
 	return c.json({
 		organization: {
 			id: org.id,
@@ -3359,6 +3375,12 @@ admin.openapi(getOrganizationTransactions, async (c) => {
 			stripePaymentIntentId: t.stripePaymentIntentId,
 			stripeInvoiceId: t.stripeInvoiceId,
 			stripeRefundId: t.stripeRefundId,
+			refundability: refundedByTransactionId
+				? computeAdminRefundability({
+						transaction: t,
+						refundedAmount: refundedByTransactionId.get(t.id) ?? new Decimal(0),
+					})
+				: null,
 		})),
 		total,
 		limit,
