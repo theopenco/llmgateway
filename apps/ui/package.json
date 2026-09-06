@@ -98,7 +98,7 @@
 		"@playwright/test": "1.61.1",
 		"@tanstack/react-query-devtools": "5.90.2",
 		"@types/react": "^19.2.18",
-		"@types/react-dom": "^19.2.4",
+		"@types/react-dom": "^19.2.5",
 		"autoprefixer": "^10.4.21",
 		"openapi-typescript": "7.10.1",
 		"postcss": "^8.5.26",
