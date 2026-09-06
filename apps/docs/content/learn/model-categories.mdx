@@ -58,7 +58,7 @@ You don't have to wait out the window: redeeming a [**Reset Pass**](/learn/reset
 
 DevPass plans always use the gateway's [smart routing](/features/routing): request a model by its plain id (e.g. `claude-sonnet-5`) and the gateway picks the best provider in real time based on uptime, throughput, price, and prompt-cache support. [Sticky session routing](/features/routing#sticky-session-routing) still keeps each coding session on one provider automatically, so upstream prompt caches stay warm across a conversation.
 
-Both `auto` and `price` routing account for cached input costs using your project's recent model usage once enough history exists. This helps sessions that repeatedly reuse context choose providers with lower expected token costs. See [how routing learns your token mix](/features/routing#smart-routing-algorithm) for the sample requirements, defaults, and override behavior.
+Both `auto` and `price` routing account for cached input costs using your project's recent model usage once enough history exists, and assume an **85% cache-hit rate** before then. This helps sessions that repeatedly reuse context choose providers with lower expected token costs. See [how routing learns your token mix](/features/routing#smart-routing-algorithm) for the sample requirements, defaults, and override behavior.
 
 <Callout type="warn">
 	**Provider pinning is not available on DevPass.** Provider-prefixed model ids

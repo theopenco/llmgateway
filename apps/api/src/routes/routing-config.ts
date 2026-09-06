@@ -13,7 +13,9 @@ import {
 	DEFAULT_ROUTING_THRESHOLDS,
 	DEFAULT_ROUTING_TIMEOUTS,
 	DEFAULT_ROUTING_WEIGHTS,
+	getDefaultCacheHitRate,
 	resolveRoutingConfig,
+	type RoutingOrganizationKind,
 	ROUTING_HISTORY_MAX_WINDOW_MINUTES,
 } from "@llmgateway/shared/routing-config";
 
@@ -36,6 +38,7 @@ export async function checkProjectEnterpriseAccess(
 	projectId: string,
 ): Promise<{
 	project: { id: string; organizationId: string };
+	organizationKind: RoutingOrganizationKind;
 }> {
 	const project = await db.query.project.findFirst({
 		where: { id: { eq: projectId } },
@@ -80,6 +83,7 @@ export async function checkProjectEnterpriseAccess(
 
 	return {
 		project: { id: project.id, organizationId: project.organizationId },
+		organizationKind: userOrg.organization?.kind ?? "default",
 	};
 }
 
@@ -435,7 +439,10 @@ routingConfig.openapi(getResolved, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 	const { projectId } = c.req.param();
-	await checkProjectEnterpriseAccess(user.id, projectId);
+	const { organizationKind } = await checkProjectEnterpriseAccess(
+		user.id,
+		projectId,
+	);
 
 	const row = await db.query.routingConfig.findFirst({
 		where: { projectId: { eq: projectId } },
@@ -456,6 +463,7 @@ routingConfig.openapi(getResolved, async (c) => {
 				}
 			: null,
 		buildProviderPriorityDefaults(),
+		organizationKind,
 	);
 
 	return c.json(resolved);
@@ -531,11 +539,17 @@ routingConfig.openapi(getDefaults, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 	const { projectId } = c.req.param();
-	await checkProjectEnterpriseAccess(user.id, projectId);
+	const { organizationKind } = await checkProjectEnterpriseAccess(
+		user.id,
+		projectId,
+	);
 
 	return c.json({
 		weights: DEFAULT_ROUTING_WEIGHTS,
-		thresholds: DEFAULT_ROUTING_THRESHOLDS,
+		thresholds: {
+			...DEFAULT_ROUTING_THRESHOLDS,
+			cacheHitRate: getDefaultCacheHitRate(organizationKind),
+		},
 		retry: DEFAULT_ROUTING_RETRY,
 		timeouts: DEFAULT_ROUTING_TIMEOUTS,
 		history: DEFAULT_ROUTING_HISTORY,

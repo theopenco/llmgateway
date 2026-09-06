@@ -19,6 +19,7 @@ import {
 	buildProviderPriorityDefaults,
 	resolveRoutingConfig,
 	type ResolvedRoutingConfig,
+	type RoutingOrganizationKind,
 } from "@llmgateway/shared/routing-config";
 
 const routingConfigTableName = getTableName(routingConfig);
@@ -40,9 +41,10 @@ export async function getResolvedRoutingConfig(
 	projectId: string | undefined,
 	organizationId: string | undefined,
 	orgPlan: string | undefined,
+	orgKind?: RoutingOrganizationKind | null,
 ): Promise<ResolvedRoutingConfig> {
 	if (!projectId || !hasOrganizationEnterpriseAccess(organizationId, orgPlan)) {
-		return resolveRoutingConfig(null, providerPriorityDefaults);
+		return resolveRoutingConfig(null, providerPriorityDefaults, orgKind);
 	}
 
 	const overrides = await swrWrap(
@@ -73,7 +75,7 @@ export async function getResolvedRoutingConfig(
 		},
 	);
 
-	return resolveRoutingConfig(overrides, providerPriorityDefaults);
+	return resolveRoutingConfig(overrides, providerPriorityDefaults, orgKind);
 }
 
 export function getDefaultProviderPriorities(): ProviderPriorityOverrides {

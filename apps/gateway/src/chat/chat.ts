@@ -2635,6 +2635,7 @@ chat.openapi(completions, async (c) => {
 		project.id,
 		organization.id,
 		organization.plan,
+		organization.kind,
 	);
 	// Routing strategies only affect multi-provider selection. When the request
 	// pins a specific provider (e.g. `openai/gpt-4o`), the same routingCfg is
