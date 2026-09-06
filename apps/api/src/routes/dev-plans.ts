@@ -7,6 +7,10 @@ import { readApiKeyMask } from "@/lib/api-key-mask.js";
 import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import {
+	renewalPaymentResultSchema,
+	retryDevPlanRenewal,
+} from "@/lib/retry-dev-plan-renewal.js";
+import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
 	isSelfRefundCandidateType,
@@ -3318,6 +3322,7 @@ const updatePaymentMethod = createRoute({
 				"application/json": {
 					schema: z.object({
 						success: z.boolean(),
+						renewalPayment: renewalPaymentResultSchema,
 					}),
 				},
 			},
@@ -3442,7 +3447,7 @@ devPlans.openapi(updatePaymentMethod, async (c) => {
 		invoice_settings: { default_payment_method: paymentMethodId },
 	});
 
-	await getStripe().subscriptions.update(
+	const subscription = await getStripe().subscriptions.update(
 		personalOrg.devPlanStripeSubscriptionId,
 		{ default_payment_method: paymentMethodId },
 	);
@@ -3468,6 +3473,7 @@ devPlans.openapi(updatePaymentMethod, async (c) => {
 	return c.json(
 		{
 			success: true,
+			renewalPayment: await retryDevPlanRenewal(subscription, paymentMethodId),
 		},
 		200,
 	);

@@ -353,7 +353,12 @@ function formatCredits(creditAmount: string | null): string {
 
 export default function DevPassInvoices() {
 	const api = useApi();
-	const { data } = api.useQuery("get", "/dev-plans/invoices", {});
+	const { data } = api.useQuery(
+		"get",
+		"/dev-plans/invoices",
+		{},
+		{ refetchOnMount: "always" },
+	);
 	const [page, setPage] = useState(0);
 
 	if (!data || data.invoices.length === 0) {

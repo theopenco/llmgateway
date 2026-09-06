@@ -22,12 +22,14 @@ import {
 } from "@llmgateway/shared/api-key-hash";
 
 import type * as PaymentsModule from "@/routes/payments.js";
+import type * as StripeModule from "stripe";
 
 const stripeMock = vi.hoisted(() => ({
 	customers: {
 		update: vi.fn(),
 	},
 	paymentMethods: {
+		attach: vi.fn(),
 		list: vi.fn(),
 		retrieve: vi.fn(),
 		detach: vi.fn(),
@@ -40,11 +42,28 @@ const stripeMock = vi.hoisted(() => ({
 		update: vi.fn(),
 	},
 	invoices: {
+		retrieve: vi.fn(),
+		pay: vi.fn(),
 		list: vi.fn(),
 		finalizeInvoice: vi.fn(),
 		voidInvoice: vi.fn(),
 	},
+	invoicePayments: { list: vi.fn() },
+	paymentIntents: { retrieve: vi.fn() },
 }));
+
+vi.mock("stripe", async (importOriginal) => {
+	const original = await importOriginal<typeof StripeModule>();
+	return {
+		...original,
+		default: Object.assign(
+			vi.fn(function () {
+				return stripeMock;
+			}),
+			original.default,
+		),
+	};
+});
 
 vi.mock("@/routes/payments.js", async (importOriginal) => {
 	const original = await importOriginal<typeof PaymentsModule>();
@@ -93,6 +112,199 @@ function retrievedSubscription(
 		...overrides,
 	};
 }
+
+describe("dev plan renewal recovery after a card update", () => {
+	let token: string;
+	const invoice = {
+		id: "in_failed_renewal",
+		status: "open",
+		attempted: true,
+		billing_reason: "subscription_cycle",
+	};
+
+	beforeEach(async () => {
+		vi.resetAllMocks();
+		token = await createTestUser();
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Personal Org",
+			billingEmail: "admin@example.com",
+			kind: "devpass",
+			stripeCustomerId: "cus_dev_plan",
+			devPlan: "pro",
+			devPlanStripeSubscriptionId: SUBSCRIPTION_ID,
+			devPlanCreditsUsed: "237",
+			devPlanCreditsLimit: "237",
+			subscriptionPaymentStatus: "past_due",
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: ORG_ID,
+			role: "owner",
+		});
+		stripeMock.paymentMethods.retrieve.mockResolvedValue({
+			id: "pm_new_card",
+			type: "card",
+			customer: "cus_dev_plan",
+			card: { fingerprint: "fp_new_card", last4: "4242" },
+		});
+		stripeMock.subscriptions.update.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			status: "past_due",
+			latest_invoice: invoice.id,
+		});
+		stripeMock.invoices.retrieve.mockResolvedValue(invoice);
+		stripeMock.invoices.pay.mockResolvedValue({ ...invoice, status: "paid" });
+		stripeMock.invoicePayments.list.mockResolvedValue({ data: [] });
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	function updateCard() {
+		return app.request("/dev-plans/update-payment-method", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({ paymentMethodId: "pm_new_card" }),
+		});
+	}
+
+	it("immediately pays the failed renewal with the saved card", async () => {
+		const response = await updateCard();
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			success: true,
+			renewalPayment: { status: "paid" },
+		});
+		expect(stripeMock.subscriptions.update).toHaveBeenCalledWith(
+			SUBSCRIPTION_ID,
+			{ default_payment_method: "pm_new_card" },
+		);
+		expect(stripeMock.invoices.pay).toHaveBeenCalledWith(
+			invoice.id,
+			{ payment_method: "pm_new_card", off_session: false },
+			{ idempotencyKey: `dev-plan-renewal:${invoice.id}:pm_new_card` },
+		);
+		const org = await db.query.organization.findFirst({
+			where: { id: ORG_ID },
+		});
+		expect(org?.devPlanCreditsUsed).toBe("237");
+		expect(org?.subscriptionPaymentStatus).toBe("past_due");
+		expect(org?.devPlanCardFingerprint).toBe("fp_new_card");
+	});
+
+	it.each([
+		{ status: "paid" },
+		{ status: "draft" },
+		{ status: "void" },
+		{ attempted: false },
+		{ billing_reason: "subscription_update" },
+		{ billing_reason: "subscription_create" },
+	])("does not charge an ineligible invoice: %j", async (overrides) => {
+		stripeMock.invoices.retrieve.mockResolvedValue({
+			...invoice,
+			...overrides,
+		});
+		const response = await updateCard();
+		expect(await response.json()).toMatchObject({
+			renewalPayment: { status: "not_needed" },
+		});
+		expect(stripeMock.invoices.pay).not.toHaveBeenCalled();
+	});
+
+	it.each(["canceled", "incomplete_expired"])(
+		"does not pay an ended subscription: %s",
+		async (status) => {
+			stripeMock.subscriptions.update.mockResolvedValue({
+				id: SUBSCRIPTION_ID,
+				status,
+				latest_invoice: invoice.id,
+			});
+			await updateCard();
+			expect(stripeMock.invoices.pay).not.toHaveBeenCalled();
+		},
+	);
+
+	it("saves the card when no renewal invoice exists", async () => {
+		stripeMock.subscriptions.update.mockResolvedValue({
+			id: SUBSCRIPTION_ID,
+			status: "active",
+			latest_invoice: null,
+		});
+		const response = await updateCard();
+		expect(await response.json()).toMatchObject({
+			success: true,
+			renewalPayment: { status: "not_needed" },
+		});
+		expect(stripeMock.invoices.retrieve).not.toHaveBeenCalled();
+	});
+
+	it("reports a decline without losing the saved card or granting credits", async () => {
+		stripeMock.invoices.pay.mockRejectedValue({
+			type: "StripeCardError",
+			message: "Your card was declined.",
+		});
+		const response = await updateCard();
+		expect(await response.json()).toMatchObject({
+			success: true,
+			renewalPayment: { status: "failed", message: "Your card was declined." },
+		});
+		const org = await db.query.organization.findFirst({
+			where: { id: ORG_ID },
+		});
+		expect(org?.devPlanCreditsUsed).toBe("237");
+		expect(org?.devPlanCardFingerprint).toBe("fp_new_card");
+	});
+
+	it("returns bank authentication for the renewal payment", async () => {
+		stripeMock.invoices.pay.mockRejectedValue({
+			type: "StripeCardError",
+			message: "Authentication required.",
+		});
+		stripeMock.invoicePayments.list.mockResolvedValue({
+			data: [{ payment: { payment_intent: "pi_renewal" } }],
+		});
+		stripeMock.paymentIntents.retrieve.mockResolvedValue({
+			id: "pi_renewal",
+			object: "payment_intent",
+			status: "requires_action",
+			client_secret: "test_confirmation_secret",
+		});
+		const response = await updateCard();
+		expect(await response.json()).toMatchObject({
+			renewalPayment: {
+				status: "requires_action",
+				clientSecret: "test_confirmation_secret",
+			},
+		});
+	});
+
+	it("handles a Stripe retry paying the same invoice concurrently", async () => {
+		stripeMock.invoices.pay.mockRejectedValue({ code: "invoice_already_paid" });
+		stripeMock.invoices.retrieve
+			.mockResolvedValueOnce(invoice)
+			.mockResolvedValueOnce({ ...invoice, status: "paid" });
+		const response = await updateCard();
+		expect(await response.json()).toMatchObject({
+			renewalPayment: { status: "paid" },
+		});
+	});
+
+	it("reports processing without claiming payment succeeded", async () => {
+		stripeMock.invoices.pay.mockResolvedValue(invoice);
+		const response = await updateCard();
+		expect(await response.json()).toMatchObject({
+			renewalPayment: { status: "processing" },
+		});
+	});
+
+	it("propagates unexpected Stripe failures", async () => {
+		stripeMock.invoices.pay.mockRejectedValue(new Error("Stripe unavailable"));
+		const response = await updateCard();
+		expect(response.status).toBe(500);
+	});
+});
 
 describe("dev plan tier changes", () => {
 	let token: string;

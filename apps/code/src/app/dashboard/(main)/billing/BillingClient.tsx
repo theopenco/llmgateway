@@ -501,9 +501,9 @@ export default function BillingClient({
 					<div className="mt-5 flex gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3.5">
 						<AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
 						<p className="text-xs leading-relaxed text-destructive">
-							We could not collect your renewal payment. Update your payment
-							method below. The next renewal date appears only after Stripe
-							confirms the payment.
+							We could not collect your renewal payment. Update your card below
+							to retry payment now. Your allowance refreshes when payment
+							succeeds.
 						</p>
 					</div>
 				)}
@@ -536,7 +536,7 @@ export default function BillingClient({
 			/>
 
 			{/* Past invoices */}
-			<DevPassInvoices />
+			<DevPassInvoices key={devPlanStatus.devPlanBillingCycleStart} />
 
 			{/* Billing details (invoice details) */}
 			<DevPassBillingDetails />
