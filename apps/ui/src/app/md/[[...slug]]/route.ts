@@ -67,3 +67,10 @@ export async function POST(
 }
 
 export { POST as PUT, POST as PATCH, POST as DELETE };
+
+export function OPTIONS() {
+	return new Response(null, {
+		status: 204,
+		headers: { Allow: "GET, HEAD, OPTIONS" },
+	});
+}

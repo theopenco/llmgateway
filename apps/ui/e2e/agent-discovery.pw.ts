@@ -44,6 +44,9 @@ test("unknown routes give agents markdown recovery and browsers a real 404", asy
 	const existing = await request.post("/md/pricing");
 	expect(existing.status()).toBe(405);
 	expect(existing.headers().allow).toBe("GET, HEAD, OPTIONS");
+	const options = await request.fetch("/md/pricing", { method: "OPTIONS" });
+	expect(options.status()).toBe(204);
+	expect(options.headers().allow).toBe("GET, HEAD, OPTIONS");
 });
 
 test("homepage content and branding are available without JavaScript", async ({
