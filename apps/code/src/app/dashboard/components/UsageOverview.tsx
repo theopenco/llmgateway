@@ -6,7 +6,6 @@ import dynamic from "next/dynamic";
 import { usePostHog } from "posthog-js/react";
 import { useEffect } from "react";
 
-import { useRerenderAt } from "@/hooks/useRerenderAt";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 
@@ -16,6 +15,7 @@ import {
 	formatDayKey,
 	useDisplayTimeZone,
 } from "@llmgateway/shared";
+import { useRerenderAt } from "@llmgateway/shared/components";
 
 import AllowanceExhaustedCard from "./AllowanceExhaustedCard";
 import PayAsYouGoCard from "./PayAsYouGoCard";

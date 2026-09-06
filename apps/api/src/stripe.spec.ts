@@ -1383,6 +1383,42 @@ describe("handleSubscriptionUpdated — payment state", () => {
 		expect(org?.devPlanCancelled).toBe(false);
 	});
 
+	test("does not mark an org without an active plan past due", async () => {
+		// A churned org (or one that abandoned its first checkout) has no active
+		// subscription id for the superseded-id guard to compare against, so the
+		// abandoned subscription's `incomplete_expired` reaches the payment-state
+		// update. It must not leave an org with no plan past due.
+		stripeMock.subscriptions.retrieve.mockResolvedValue({
+			status: "incomplete_expired",
+		});
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Acme Co",
+			billingEmail: "billing@acme.test",
+			devPlan: "none",
+			devPlanStripeSubscriptionId: null,
+			subscriptionPaymentStatus: "current",
+		});
+
+		await handleSubscriptionUpdated(
+			makeUpdatedEvent({
+				cancelAtPeriodEnd: false,
+				status: "incomplete_expired",
+				subscriptionId: "sub_abandoned_checkout",
+				metadata: {
+					organizationId: ORG_ID,
+					subscriptionType: "dev_plan",
+				},
+			}),
+		);
+
+		const org = await db.query.organization.findFirst({
+			where: { id: { eq: ORG_ID } },
+		});
+		expect(org?.subscriptionPaymentStatus).toBe("current");
+		expect(stripeMock.subscriptions.retrieve).not.toHaveBeenCalled();
+	});
+
 	test("ignores a failed update from a superseded Pro subscription", async () => {
 		const paidThroughMs = SECONDS_IN_TWO_WEEKS * 1000;
 		const paidThrough = new Date(Date.now() + paidThroughMs);

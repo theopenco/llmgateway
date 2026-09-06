@@ -19,6 +19,7 @@ import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 
 import { getOrganizationTerm } from "@llmgateway/shared";
+import { useRerenderAt } from "@llmgateway/shared/components";
 
 const ENTERPRISE_FEATURES = [
 	"Dedicated support & SLA",
@@ -43,6 +44,15 @@ export function PlanManagement() {
 		{ params: { query: { organizationId } } },
 		{ enabled: organizationId !== "" },
 	);
+
+	// Resolved above the early returns so the boundary timer is an unconditional
+	// hook call. `renewalProcessing` below is clock-derived and the org/status
+	// queries keep returning the same row until the paid invoice advances it, so
+	// nothing else would re-render the card when the renewal moment passes.
+	const planExpiresAt = selectedOrganization?.planExpiresAt
+		? new Date(selectedOrganization.planExpiresAt)
+		: null;
+	useRerenderAt(planExpiresAt);
 
 	// Keep cancel/resume mutations for existing Pro subscribers (backward compatibility)
 	const cancelSubscriptionMutation = api.useMutation(
@@ -119,9 +129,6 @@ export function PlanManagement() {
 
 	// Legacy Pro subscribers may still exist
 	const isLegacyPro = selectedOrganization.plan === "pro";
-	const planExpiresAt = selectedOrganization.planExpiresAt
-		? new Date(selectedOrganization.planExpiresAt)
-		: null;
 	const paymentPastDue =
 		subscriptionStatus?.subscriptionPaymentStatus === "past_due";
 	const renewalProcessing =

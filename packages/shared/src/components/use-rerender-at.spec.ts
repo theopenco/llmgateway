@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { getRerenderDelay } from "./useRerenderAt";
+import { getRerenderDelay } from "./use-rerender-at";
 
 describe("getRerenderDelay", () => {
 	test("schedules elapsed boundaries immediately", () => {

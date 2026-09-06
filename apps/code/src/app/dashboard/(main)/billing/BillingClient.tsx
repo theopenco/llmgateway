@@ -24,13 +24,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useRerenderAt } from "@/hooks/useRerenderAt";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 import { useStripe } from "@/lib/stripe";
 import { cn } from "@/lib/utils";
 
 import { formatDateTime, useDisplayTimeZone } from "@llmgateway/shared";
+import { useRerenderAt } from "@llmgateway/shared/components";
 
 import type { TierChangeTiming } from "@/app/dashboard/components/ActivePlanChangeTier";
 import type { PlanTier } from "@/app/dashboard/types";

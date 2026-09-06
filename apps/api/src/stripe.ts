@@ -4798,8 +4798,24 @@ export async function handleSubscriptionUpdated(
 
 	// Check if subscription is active and organization was previously cancelled
 	const isSubscriptionActive = !cancelAtPeriodEnd;
+	// Only the org's currently active subscription may flip it past due. The
+	// superseded-id guards above need an active id to compare against; a churned
+	// org, or one that abandoned its first checkout, has none, so that abandoned
+	// subscription's `incomplete_expired` would otherwise mark an org with no
+	// plan past due — and nothing clears it until a later checkout. Mirrors the
+	// gate in handleInvoicePaymentFailed.
+	const isOrgActiveSubscription = isChatPlan
+		? organization.chatPlanStripeSubscriptionId === subscription.id &&
+			organization.chatPlan !== "none"
+		: isDevPlan
+			? organization.devPlanStripeSubscriptionId === subscription.id &&
+				organization.devPlan !== "none"
+			: organization.stripeSubscriptionId === subscription.id;
 	let confirmedPaymentFailure = false;
-	if (PAYMENT_FAILURE_STATUSES.includes(subscription.status)) {
+	if (
+		isOrgActiveSubscription &&
+		PAYMENT_FAILURE_STATUSES.includes(subscription.status)
+	) {
 		try {
 			const liveSubscription = await getStripe().subscriptions.retrieve(
 				subscription.id,
