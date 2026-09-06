@@ -275,6 +275,7 @@ import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
 import { parseTrailingUpstreamError } from "./tools/parse-trailing-upstream-error.js";
+import { pickAutoReasoningEffort } from "./tools/pick-auto-reasoning-effort.js";
 import {
 	exclusionReason,
 	getProviderFilterReasons,
@@ -5627,11 +5628,12 @@ chat.openapi(completions, async (c) => {
 		);
 
 		if (selectedModelSupportsReasoning) {
-			// Set reasoning_effort to "minimal" for gpt-5* models, "low" for others
-			if (usedInternalModel.startsWith("gpt-5")) {
-				reasoning_effort = "minimal";
-			} else {
-				reasoning_effort = "low";
+			const autoEffort = pickAutoReasoningEffort(
+				usedInternalModel,
+				getUsedProviderMapping()?.reasoningEfforts,
+			);
+			if (autoEffort) {
+				reasoning_effort = autoEffort;
 			}
 		}
 	}
