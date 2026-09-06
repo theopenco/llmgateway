@@ -914,7 +914,6 @@ function usesGoogleQueryToken(provider: string): boolean {
 	return (
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
-		provider === "iceberg" ||
 		provider === "google-vertex" ||
 		provider === "quartz"
 	);
@@ -924,7 +923,6 @@ function isGoogleCompatibleProvider(provider: string): boolean {
 	return (
 		provider === "google-ai-studio" ||
 		provider === "glacier" ||
-		provider === "iceberg" ||
 		provider === "google-vertex" ||
 		provider === "quartz"
 	);
@@ -10961,7 +10959,6 @@ chat.openapi(completions, async (c) => {
 								switch (streamFormatProvider) {
 									case "google-ai-studio":
 									case "glacier":
-									case "iceberg":
 									case "google-vertex":
 									case "quartz":
 										// Preserve original Google finish reason for logging

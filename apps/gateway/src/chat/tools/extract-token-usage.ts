@@ -107,7 +107,6 @@ export function extractTokenUsage(
 	switch (provider) {
 		case "google-ai-studio":
 		case "glacier":
-		case "iceberg":
 		case "google-vertex":
 		case "quartz":
 			if (data.usageMetadata) {

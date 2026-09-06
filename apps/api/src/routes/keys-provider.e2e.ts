@@ -122,7 +122,7 @@ describe(
 		// Stealth providers have no default base URL and are rejected by
 		// POST /keys/provider, so exclude them from the happy-path table (their
 		// rejection is asserted separately below). Otherwise a CI-provided stealth
-		// key (e.g. LLM_GRANITE_API_KEY) would make the 200 expectation fail.
+		// key would make the 200 expectation fail.
 		const testProviders = providers
 			.filter(
 				(provider) =>

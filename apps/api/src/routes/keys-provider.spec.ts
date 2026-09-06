@@ -385,8 +385,8 @@ describe("provider keys route", () => {
 				Cookie: token,
 			},
 			body: JSON.stringify({
-				provider: "granite",
-				token: "granite-test-token",
+				provider: "glacier",
+				token: "glacier-test-token",
 				organizationId: "test-org-id",
 			}),
 		});
@@ -398,7 +398,7 @@ describe("provider keys route", () => {
 		const providerKey = await db.query.providerKey.findFirst({
 			where: {
 				provider: {
-					eq: "granite",
+					eq: "glacier",
 				},
 			},
 		});
