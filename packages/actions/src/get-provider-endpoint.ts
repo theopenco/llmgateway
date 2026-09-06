@@ -189,13 +189,8 @@ export function getGoogleVertexPublisherModelPath(
 }
 
 /**
- * Static default base URLs for providers whose canonical upstream is a fixed
- * host. Single source of truth for "the provider's default base URL":
- * getProviderEndpoint falls back to these when no key base URL or env
- * override is configured, and service-tier key eligibility compares custom
- * base URLs against them. Providers absent from this map derive their
- * endpoint from env vars, key options (e.g. the Azure resource), or region
- * maps and have no static default.
+ * Static fallback URLs when no key or env override is configured. Providers
+ * absent from this map derive endpoints from env vars, key options, or regions.
  */
 const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	openai: "https://api.openai.com",

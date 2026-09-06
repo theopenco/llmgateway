@@ -215,6 +215,10 @@ describe("service-tier env credential eligibility", () => {
 	const originalBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
 	const originalRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
 
+	beforeEach(() => {
+		delete process.env.LLM_GOOGLE_VERTEX_REGION;
+	});
+
 	afterEach(() => {
 		if (originalKey === undefined) {
 			delete process.env.LLM_GOOGLE_VERTEX_API_KEY;
@@ -233,13 +237,13 @@ describe("service-tier env credential eligibility", () => {
 		}
 	});
 
-	it("flags only the env indices whose base URL is a custom proxy", () => {
+	it("accepts both custom and canonical base URLs", () => {
 		process.env.LLM_GOOGLE_VERTEX_API_KEY = "tok-a,tok-b";
 		process.env.LLM_GOOGLE_VERTEX_BASE_URL =
 			"https://vertex-proxy.invalid,https://aiplatform.googleapis.com";
 
 		const ineligible = getServiceTierIneligibleEnvIndices("google-vertex");
-		expect([...ineligible]).toEqual([0]);
+		expect([...ineligible]).toEqual([]);
 		expect(hasServiceTierEligibleEnvCredential("google-vertex")).toBe(true);
 	});
 
@@ -253,15 +257,15 @@ describe("service-tier env credential eligibility", () => {
 		expect(hasServiceTierEligibleEnvCredential("google-vertex")).toBe(true);
 	});
 
-	it("reports no eligible credential when every index is a custom proxy", () => {
+	it("accepts credentials when every index uses a custom proxy", () => {
 		process.env.LLM_GOOGLE_VERTEX_API_KEY = "tok-a,tok-b";
 		process.env.LLM_GOOGLE_VERTEX_BASE_URL =
 			"https://proxy-one.invalid,https://proxy-two.invalid";
 
-		expect([...getServiceTierIneligibleEnvIndices("google-vertex")]).toEqual([
-			0, 1,
-		]);
-		expect(hasServiceTierEligibleEnvCredential("google-vertex")).toBe(false);
+		expect([...getServiceTierIneligibleEnvIndices("google-vertex")]).toEqual(
+			[],
+		);
+		expect(hasServiceTierEligibleEnvCredential("google-vertex")).toBe(true);
 	});
 
 	it("flags a non-global Vertex region index as ineligible", () => {
@@ -275,17 +279,15 @@ describe("service-tier env credential eligibility", () => {
 		expect(hasServiceTierEligibleEnvCredential("google-vertex")).toBe(true);
 	});
 
-	it("rejects when the only base-URL-compliant index is a non-global region", () => {
-		// index 0: proxy base URL (global region); index 1: canonical upstream but
-		// us-central1 — neither can carry the tier, so the provider is ineligible.
+	it("accepts a global proxy while excluding a non-global canonical endpoint", () => {
 		process.env.LLM_GOOGLE_VERTEX_API_KEY = "tok-a,tok-b";
 		process.env.LLM_GOOGLE_VERTEX_BASE_URL =
 			"https://vertex-proxy.invalid,https://aiplatform.googleapis.com";
 		process.env.LLM_GOOGLE_VERTEX_REGION = "global,us-central1";
 
 		expect([...getServiceTierIneligibleEnvIndices("google-vertex")]).toEqual([
-			0, 1,
+			1,
 		]);
-		expect(hasServiceTierEligibleEnvCredential("google-vertex")).toBe(false);
+		expect(hasServiceTierEligibleEnvCredential("google-vertex")).toBe(true);
 	});
 });
