@@ -77,16 +77,16 @@ describe("normalizeClientErrorBody", () => {
 		});
 		const result = normalizeClientErrorBody(body, {
 			...ctx,
-			usedProvider: "granite",
-			requestedProvider: "granite",
+			usedProvider: "glacier",
+			requestedProvider: "glacier",
 		}) as { error: Record<string, unknown> };
 		expect(result.error.message).toBe(
-			"Error from provider granite: 400 Bad Request",
+			"Error from provider glacier: 400 Bad Request",
 		);
 		expect(result.error.responseText).toBe(
 			"Upstream provider error (400 Bad Request)",
 		);
-		expect(result.error.usedProvider).toBe("granite");
+		expect(result.error.usedProvider).toBe("glacier");
 		expect(JSON.stringify(result)).not.toContain("SecretVendor");
 	});
 });
