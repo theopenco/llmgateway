@@ -1,4 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
@@ -115,6 +124,20 @@ function retrievedSubscription(
 
 describe("dev plan renewal recovery after a card update", () => {
 	let token: string;
+	// ensureStripeCustomer reaches the real getStripe (the payments mock does
+	// not cover stripe.ts's own import of it), which refuses to construct the
+	// mocked `stripe` client without a key. CI has no .env, so set one here.
+	const originalStripeSecretKey = process.env.STRIPE_SECRET_KEY;
+	beforeAll(() => {
+		process.env.STRIPE_SECRET_KEY ||= "sk_test_renewal_recovery";
+	});
+	afterAll(() => {
+		if (originalStripeSecretKey === undefined) {
+			delete process.env.STRIPE_SECRET_KEY;
+		} else {
+			process.env.STRIPE_SECRET_KEY = originalStripeSecretKey;
+		}
+	});
 	const invoice = {
 		id: "in_failed_renewal",
 		status: "open",
