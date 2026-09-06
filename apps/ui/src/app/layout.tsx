@@ -97,6 +97,7 @@ export const metadata: Metadata = {
 const organizationSchema = {
 	"@context": "https://schema.org",
 	"@type": "Organization",
+	"@id": "https://llmgateway.io/#organization",
 	name: "LLM Gateway",
 	alternateName: "LLMGateway",
 	url: "https://llmgateway.io",
@@ -132,6 +133,8 @@ const organizationSchema = {
 const websiteSchema = {
 	"@context": "https://schema.org",
 	"@type": "WebSite",
+	"@id": "https://llmgateway.io/#website",
+	publisher: { "@id": "https://llmgateway.io/#organization" },
 	name: "LLM Gateway",
 	alternateName: ["LLMGateway", "llmgateway.io"],
 	url: "https://llmgateway.io",
@@ -160,6 +163,12 @@ export default async function RootLayout({
 			suppressHydrationWarning
 		>
 			<head>
+				<link
+					rel="service-desc"
+					type="application/vnd.oai.openapi+json"
+					href="/openapi.json"
+				/>
+				<link rel="service-doc" href="/developers" />
 				<link rel="preconnect" href="https://internal.llmgateway.io" />
 				<link rel="preconnect" href="https://docs.llmgateway.io" />
 				<script

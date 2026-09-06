@@ -11,6 +11,7 @@ import {
 	findProjectById,
 } from "@/lib/cached-queries.js";
 import { getEffectiveRetentionLevel } from "@/lib/compliance.js";
+import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
@@ -124,6 +125,7 @@ const generations = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: imageGenerationsResponseSchema,
@@ -895,6 +897,7 @@ const edits = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: imageEditsResponseSchema,
