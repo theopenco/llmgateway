@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 
 import { airsideListingToModelDefinition } from "@/chat/tools/resolve-airside-model.js";
 import { listAirsideModels } from "@/lib/cached-queries.js";
+import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { publicErrorResponses } from "@/lib/error-schemas.js";
 
 import { logger, toError } from "@llmgateway/logger";
@@ -183,6 +184,7 @@ const listModels = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: listModelsResponseSchema,

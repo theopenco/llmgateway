@@ -39,6 +39,10 @@ import {
 } from "@/lib/end-user-session.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { buildOpenAIErrorBody } from "@/lib/error-response.js";
+import {
+	rateLimitHeaders,
+	standardErrorResponses,
+} from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
@@ -173,15 +177,6 @@ const moderationResponseSchema = z
 		description: "Moderation response payload.",
 	});
 
-const moderationErrorSchema = z.object({
-	error: z.object({
-		message: z.string(),
-		type: z.string(),
-		param: z.string().nullable(),
-		code: z.string(),
-	}),
-});
-
 const moderationRequestSchema = z.object({
 	input: moderationInputSchema,
 	model: z
@@ -312,6 +307,7 @@ const createModeration = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: moderationResponseSchema,
@@ -319,94 +315,7 @@ const createModeration = createRoute({
 			},
 			description: "Moderation response.",
 		},
-		400: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Invalid request body or parameters.",
-		},
-		401: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Unauthorized request.",
-		},
-		402: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Payment required / insufficient credits.",
-		},
-		403: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Forbidden upstream response.",
-		},
-		404: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Not found upstream response.",
-		},
-		410: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Archived or unavailable project.",
-		},
-		429: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Rate limited upstream response.",
-		},
-		500: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Internal server error.",
-		},
-		502: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Failed to connect to the upstream provider.",
-		},
-		503: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Service unavailable upstream response.",
-		},
-		504: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Upstream provider timeout.",
-		},
+		...standardErrorResponses(),
 	},
 });
 

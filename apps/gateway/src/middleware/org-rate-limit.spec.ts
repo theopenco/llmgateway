@@ -16,6 +16,7 @@ vi.mock("@/lib/org-rate-limit.js", () => ({
 	resolvePathRateLimit: vi.fn(),
 	resolveOrganizationIdForToken: vi.fn(),
 	getPlanClass: vi.fn(),
+	getWindowSeconds: vi.fn(() => 60),
 	getOrganizationLifetimeSpend: vi.fn(),
 	getOrgSpendTier: vi.fn(),
 	checkOrgRateLimit: vi.fn(),
@@ -139,6 +140,12 @@ describe("orgRateLimitMiddleware", () => {
 
 		expect(c.header).toHaveBeenCalledWith("RateLimit-Limit", "600");
 		expect(c.header).toHaveBeenCalledWith("RateLimit-Remaining", "5");
+		expect(c.header).toHaveBeenCalledWith(
+			"RateLimit-Policy",
+			'"requests";q=600;w=60',
+		);
+		expect(c.header).toHaveBeenCalledWith("RateLimit", '"requests";r=5;t=60');
+		expect(c.header).toHaveBeenCalledWith("RateLimit-Reset", "60");
 	});
 
 	it("sets no budget headers when the limiter is bypassed (limit 0)", async () => {
@@ -180,6 +187,8 @@ describe("orgRateLimitMiddleware", () => {
 		expect(status).toBe(429);
 		expect(headers).toMatchObject({
 			"Retry-After": "12",
+			"RateLimit-Policy": '"requests";q=600;w=60',
+			RateLimit: '"requests";r=0;t=12',
 			"RateLimit-Limit": "600",
 			"RateLimit-Remaining": "0",
 			"RateLimit-Reset": "12",
@@ -247,6 +256,8 @@ describe("orgRateLimitMiddleware", () => {
 		expect(status).toBe(429);
 		expect(headers).toMatchObject({
 			"Retry-After": "1",
+			"RateLimit-Policy": '"concurrency";q=500;qu="concurrent-requests"',
+			RateLimit: '"concurrency";r=0;t=1',
 			"RateLimit-Limit": "500",
 			"RateLimit-Remaining": "0",
 			"RateLimit-Reset": "1",

@@ -4,8 +4,6 @@ import { MARKDOWN_PAGES } from "@/lib/markdown-pages";
 
 import type { NextRequest } from "next/server";
 
-const GATEWAY_URL = process.env.GATEWAY_URL ?? "http://localhost:4001";
-
 /**
  * True when the Accept header prefers text/markdown over text/html
  * (acceptmarkdown.com). Explicit text/html outranks markdown on a tie;
@@ -76,12 +74,18 @@ export function proxy(request: NextRequest) {
 	if (pathname === "/mcp") {
 		const accept = request.headers.get("accept") ?? "";
 		const isProtocolRequest =
-			request.method !== "GET" ||
-			(!accept.includes("text/html") &&
-				(accept.includes("application/json") ||
-					accept.includes("text/event-stream")));
+			(request.method !== "GET" && request.method !== "HEAD") ||
+			!accept.includes("text/html");
 		if (isProtocolRequest) {
-			return NextResponse.rewrite(new URL("/mcp", GATEWAY_URL));
+			const gatewayUrl = process.env.GATEWAY_URL;
+			if (!gatewayUrl && process.env.NODE_ENV === "production") {
+				throw new Error(
+					"GATEWAY_URL is required for MCP forwarding in production",
+				);
+			}
+			return NextResponse.rewrite(
+				new URL("/mcp", gatewayUrl || "http://localhost:4001"),
+			);
 		}
 	}
 
