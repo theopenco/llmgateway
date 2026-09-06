@@ -35,6 +35,11 @@ function distanceToOutline(x: number, y: number, points: Vector2[]) {
 	return Math.sqrt(distance) * (inside ? -1 : 1);
 }
 
+function smoothMinimum(a: number, b: number, radius: number) {
+	const blend = Math.max(radius - Math.abs(a - b), 0) / radius;
+	return Math.min(a, b) - blend * blend * radius * 0.25;
+}
+
 export function createJellyGeometry() {
 	const svg = new SVGLoader().parse(
 		`<svg xmlns="http://www.w3.org/2000/svg">${logoPaths.map((d) => `<path d="${d}" />`).join("")}</svg>`,
@@ -48,7 +53,7 @@ export function createJellyGeometry() {
 				),
 		),
 	);
-	const resolution = 96;
+	const resolution = 128;
 	const extent = 1.9;
 	const placeholder = new MeshBasicMaterial();
 	const surface = new MarchingCubes(
@@ -56,43 +61,56 @@ export function createJellyGeometry() {
 		placeholder,
 		false,
 		false,
-		140000,
+		250000,
 	);
 	surface.isolation = 0;
 	const footprint = new Float32Array(resolution * resolution);
+	const inset = new Float32Array(resolution * resolution);
 	for (let y = 0; y < resolution; y++) {
 		for (let x = 0; x < resolution; x++) {
 			const px = ((x / resolution) * 2 - 1) * extent;
 			const py = ((y / resolution) * 2 - 1) * extent;
 			const distance = Math.min(
-				...outlines.map((outline) => distanceToOutline(px, py, outline)),
+				distanceToOutline(px, py, outlines[0]),
+				distanceToOutline(px, py, outlines[2]),
 			);
-			footprint[x + y * resolution] = Math.exp(distance / 0.27);
+			const doorway = distanceToOutline(px, py, outlines[1]);
+			footprint[x + y * resolution] = Math.exp(
+				Math.min(distance, doorway - 0.16) / 0.17,
+			);
+			inset[x + y * resolution] = doorway;
 		}
 	}
 	// Smooth the footprint before inflating it into a pillowed surface.
 	for (let y = 0; y < resolution; y++) {
 		for (let x = 0; x < resolution; x++) {
 			let density = 0;
+			let insetDensity = 0;
 			let totalWeight = 0;
-			for (let dy = -2; dy <= 2; dy++) {
-				for (let dx = -2; dx <= 2; dx++) {
+			for (let dy = -4; dy <= 4; dy++) {
+				for (let dx = -4; dx <= 4; dx++) {
 					const sx = Math.max(0, Math.min(resolution - 1, x + dx));
 					const sy = Math.max(0, Math.min(resolution - 1, y + dy));
-					const weight = Math.exp(-(dx * dx + dy * dy) / 2);
+					const weight = Math.exp(-(dx * dx + dy * dy) / 6);
 					density += footprint[sx + sy * resolution] * weight;
+					insetDensity += inset[sx + sy * resolution] * weight;
 					totalWeight += weight;
 				}
 			}
 			density /= totalWeight;
+			insetDensity /= totalWeight;
 			const px = ((x / resolution) * 2 - 1) * extent;
 			const py = ((y / resolution) * 2 - 1) * extent;
 			const depth =
-				1.18 * Math.sqrt(Math.max(0.15, 1 - (px / 2) ** 2 - (py / 2.3) ** 2));
+				0.95 * Math.sqrt(Math.max(0.15, 1 - (px / 2) ** 2 - (py / 2.3) ** 2));
+			// Carve a cavity into the connected solid, keeping its back wall attached.
+			const insetDepth =
+				-0.22 - 0.15 * (1 - Math.exp(Math.min(0, insetDensity) / 0.22));
 			for (let z = 0; z < resolution; z++) {
-				const pz = Math.abs(((z / resolution) * 2 - 1) * extent);
+				const pz = ((z / resolution) * 2 - 1) * extent;
+				const cavity = -smoothMinimum(-insetDensity, pz - insetDepth, 0.12);
 				surface.field[x + y * resolution + z * resolution * resolution] =
-					1.12 - density - (pz / depth) ** 2;
+					smoothMinimum(1.12 - density - (pz / depth) ** 2, cavity, 0.08);
 			}
 		}
 	}
@@ -116,10 +134,12 @@ export function createJellyGeometry() {
 	const merged = mergeVertices(geometry);
 	const thickness = new Float32Array(merged.attributes.position.count);
 	for (let i = 0; i < thickness.length; i++) {
-		thickness[i] = Math.max(
-			0.12,
-			Math.abs(merged.attributes.position.getZ(i)) * 2,
-		);
+		const position = merged.attributes.position;
+		const inDoorway =
+			distanceToOutline(position.getX(i), position.getY(i), outlines[1]) < 0;
+		thickness[i] = inDoorway
+			? 0.6
+			: Math.max(0.12, Math.abs(position.getZ(i)) * 2);
 	}
 	merged.setAttribute("jellyThickness", new BufferAttribute(thickness, 1));
 	geometry.dispose();

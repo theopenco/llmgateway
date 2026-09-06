@@ -4,27 +4,14 @@ import { useEffect, useRef, useState } from "react";
 
 import { Logo } from "@/components/ui/logo";
 
-import { JellyControls } from "./jelly-controls";
 import { createJellyScene } from "./jelly-scene";
-import { defaultJellySettings } from "./jelly-settings";
 
 export function JellyLogo() {
 	const canvas = useRef<HTMLCanvasElement>(null);
 	const scene = useRef<ReturnType<typeof createJellyScene> | null>(null);
 	const [ready, setReady] = useState(false);
 	const [reduced, setReduced] = useState(false);
-	const [settings, setSettings] = useState(defaultJellySettings);
-	const interactive = ready && !reduced && !settings.paused;
-	const controls = (
-		<JellyControls
-			value={settings}
-			disabled={!ready}
-			reduced={reduced}
-			onChange={setSettings}
-			onNudge={() => scene.current?.bounce()}
-			onReset={() => scene.current?.reset()}
-		/>
-	);
+	const interactive = ready && !reduced;
 
 	useEffect(() => {
 		if (!canvas.current) {
@@ -89,70 +76,52 @@ export function JellyLogo() {
 		};
 	}, []);
 
-	useEffect(() => {
-		scene.current?.setSettings(settings);
-	}, [settings]);
-
 	return (
-		<div className="mx-auto grid w-full items-center gap-4 lg:grid-cols-[minmax(0,1fr)_260px] lg:gap-8">
-			<div>
-				<div className="relative aspect-square rounded-3xl has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring sm:aspect-[4/3]">
-					{!ready && (
-						<div
-							aria-hidden="true"
-							className="absolute inset-0 flex items-center justify-center"
-						>
-							<span className="absolute font-sans text-[clamp(140px,29vw,280px)] font-semibold tracking-tighter text-foreground/5">
-								404
-							</span>
-							<Logo className="relative w-[30%] text-foreground/30" />
-						</div>
-					)}
-					<canvas
-						ref={canvas}
-						className="absolute inset-0 h-full w-full outline-none"
-						style={{
-							opacity: ready ? 1 : 0,
-							touchAction: interactive ? "none" : "pan-y",
-							maskImage:
-								"radial-gradient(ellipse closest-side at 50% 48%, black 60%, transparent 100%)",
-						}}
-						role={interactive ? "button" : "img"}
-						tabIndex={interactive ? 0 : undefined}
-						aria-label={
-							interactive
-								? "Squish the jelly LLM Gateway logo"
-								: "LLM Gateway logo"
+		<div className="mx-auto w-full max-w-[760px]">
+			<div className="relative aspect-square rounded-3xl has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring sm:aspect-[4/3]">
+				{!ready && (
+					<div
+						aria-hidden="true"
+						className="absolute inset-0 flex items-center justify-center"
+					>
+						<span className="absolute font-sans text-[clamp(140px,29vw,280px)] font-semibold tracking-tighter text-foreground/5">
+							404
+						</span>
+						<Logo className="relative w-[30%] text-foreground/30" />
+					</div>
+				)}
+				<canvas
+					ref={canvas}
+					className="absolute inset-0 h-full w-full outline-none"
+					style={{
+						opacity: ready ? 1 : 0,
+						touchAction: interactive ? "none" : "pan-y",
+						maskImage:
+							"linear-gradient(to bottom, black 80%, transparent 100%)",
+					}}
+					role={interactive ? "button" : "img"}
+					tabIndex={interactive ? 0 : undefined}
+					aria-label={
+						interactive
+							? "Squish the jelly LLM Gateway logo"
+							: "LLM Gateway logo"
+					}
+					aria-describedby={interactive ? "jelly-hint" : undefined}
+					onKeyDown={(event) => {
+						if (interactive && (event.key === "Enter" || event.key === " ")) {
+							event.preventDefault();
+							scene.current?.bounce();
 						}
-						aria-describedby={interactive ? "jelly-hint" : undefined}
-						onKeyDown={(event) => {
-							if (interactive && (event.key === "Enter" || event.key === " ")) {
-								event.preventDefault();
-								scene.current?.bounce();
-							}
-						}}
-					/>
-				</div>
-				<p
-					id="jelly-hint"
-					className="h-5 text-center text-xs text-muted-foreground"
-					style={{ visibility: ready && !reduced ? "visible" : "hidden" }}
-				>
-					{settings.paused
-						? "Paused. Resume to keep playing."
-						: "Drag to stretch. Click or press Enter to squish."}
-				</p>
+					}}
+				/>
 			</div>
-			<div className="hidden lg:block">{controls}</div>
-			<details className="group w-full lg:hidden">
-				<summary className="mx-auto flex min-h-11 w-fit cursor-pointer list-none items-center gap-3 rounded-full border border-border px-5 text-xs text-muted-foreground outline-offset-4 hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
-					Jelly controls
-					<span aria-hidden="true" className="text-base group-open:rotate-45">
-						+
-					</span>
-				</summary>
-				<div className="mt-4">{controls}</div>
-			</details>
+			<p
+				id="jelly-hint"
+				className="h-5 text-center text-xs text-muted-foreground"
+				style={{ visibility: ready && !reduced ? "visible" : "hidden" }}
+			>
+				Drag to stretch. Click or press Enter to squish.
+			</p>
 		</div>
 	);
 }

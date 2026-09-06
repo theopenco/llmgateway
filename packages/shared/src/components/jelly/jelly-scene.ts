@@ -3,14 +3,12 @@
 import {
 	ACESFilmicToneMapping,
 	Color,
-	DirectionalLight,
+	DoubleSide,
 	Mesh,
-	MeshBasicMaterial,
 	MeshPhysicalMaterial,
 	PerspectiveCamera,
 	Plane,
 	PlaneGeometry,
-	VSMShadowMap,
 	Quaternion,
 	Raycaster,
 	Scene,
@@ -19,13 +17,13 @@ import {
 	Vector3,
 	WebGLRenderer,
 } from "three";
+import { Reflector } from "three/addons/objects/Reflector.js";
 
 import { createJellyGeometry } from "./jelly-geometry";
 import { JellyPhysics } from "./jelly-physics";
-import { defaultJellySettings, jellyFlavors } from "./jelly-settings";
 import { loadJellyStudio } from "./jelly-studio";
 
-import type { JellySettings } from "./jelly-settings";
+import type { ShaderMaterial } from "three";
 
 export function createJellyScene(canvas: HTMLCanvasElement) {
 	const renderer = new WebGLRenderer({
@@ -38,46 +36,33 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 	renderer.setClearColor(0x000000, 0);
 	renderer.toneMapping = ACESFilmicToneMapping;
 	renderer.toneMappingExposure = 1.12;
-	renderer.shadowMap.enabled = true;
-	renderer.shadowMap.type = VSMShadowMap;
 	const scene = new Scene();
 	const camera = new PerspectiveCamera(34, 1, 0.1, 40);
-	camera.position.set(0, 4.5, 9.2);
-	camera.zoom = 1.25;
+	camera.position.set(0, 3.5, 9.8);
+	camera.zoom = 1.35;
 	camera.lookAt(0, 0, 0);
-	const keyLight = new DirectionalLight(0xffffff, 0.001);
-	keyLight.position.set(-5, 8, 5);
-	keyLight.castShadow = true;
-	keyLight.shadow.mapSize.set(256, 256);
-	keyLight.shadow.camera.left = keyLight.shadow.camera.bottom = -5;
-	keyLight.shadow.camera.right = keyLight.shadow.camera.top = 5;
-	keyLight.shadow.normalBias = 0.025;
-	keyLight.shadow.radius = 5;
-	keyLight.shadow.blurSamples = 8;
-	scene.add(keyLight);
-	scene.environmentIntensity = 0.9;
+	let studio: Awaited<ReturnType<typeof loadJellyStudio>>;
+	scene.environmentRotation.set(0, 0.65, 0);
 	const geometry = createJellyGeometry();
 	const physics = new JellyPhysics(geometry);
 	const floorHeight = geometry.boundingBox!.min.y - 0.012;
+	const backdrop = { value: new Color(0.003, 0.003, 0.003) };
 	const material = new MeshPhysicalMaterial({
-		color: 0xffe0eb,
+		side: DoubleSide,
+		color: 0xffffff,
 		metalness: 0,
-		roughness: 0.075,
+		roughness: 0.065,
 		transmission: 1,
 		thickness: 1.8,
-		ior: 1.35,
-		dispersion: 0.025,
-		clearcoat: 0.42,
-		clearcoatRoughness: 0.05,
-		attenuationColor: new Color().setRGB(
-			Math.exp(-5 * 0.035),
-			Math.exp(-46 * 0.035),
-			Math.exp(-23 * 0.035),
-		),
-		attenuationDistance: 0.6,
-		envMapIntensity: 1.05,
+		ior: 1.335,
+		dispersion: 0.008,
+		clearcoat: 0,
+		attenuationColor: new Color(0xfcfcfc),
+		attenuationDistance: 4,
+		envMapIntensity: 0.85,
 	});
 	material.onBeforeCompile = (shader) => {
+		shader.uniforms.jellyBackdrop = backdrop;
 		shader.vertexShader = shader.vertexShader.replace(
 			"#include <common>",
 			"#include <common>\nattribute float jellyThickness;\nvarying float vJellyThickness;",
@@ -88,7 +73,28 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 		);
 		shader.fragmentShader = shader.fragmentShader.replace(
 			"#include <common>",
-			"#include <common>\nvarying float vJellyThickness;",
+			"#include <common>\nvarying float vJellyThickness;\nuniform vec3 jellyBackdrop;",
+		);
+		shader.fragmentShader = shader.fragmentShader.replace(
+			"#include <transmission_pars_fragment>",
+			ShaderChunk.transmission_pars_fragment
+				.replace("vec4 transmittedLight;", "vec4 transmittedLight = vec4(0.0);")
+				.replace(
+					"vec3 attenuatedColor = transmittance * transmittedLight.rgb;",
+					`#ifdef ENVMAP_TYPE_CUBE_UV
+					vec3 refractionDirection = normalize(refract(-v, n, 1.0 / ior));
+					vec3 studioLight = textureCubeUV(envMap, envMapRotation * refractionDirection, roughness).rgb * envMapIntensity;
+					float scattering = 1.0 - exp(-thickness * 0.055);
+					// Undo Three's half-opaque white transmission clear before compositing.
+					float coverage = clamp(transmittedLight.a * 2.0 - 1.0, 0.0, 1.0);
+					vec3 screenLight = max(vec3(0.0), transmittedLight.rgb - vec3(0.5) * (1.0 - coverage));
+					vec3 clearLight = mix(jellyBackdrop, studioLight, 0.14);
+					clearLight = mix(clearLight, vec3(0.18), scattering);
+					transmittedLight.rgb = clearLight * (1.0 - coverage) + screenLight;
+					transmittedLight.a = 1.0;
+				#endif
+				vec3 attenuatedColor = transmittance * transmittedLight.rgb;`,
+				),
 		);
 		shader.fragmentShader = shader.fragmentShader.replace(
 			"#include <transmission_fragment>",
@@ -101,83 +107,37 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 	const jelly = new Mesh(geometry, material);
 	jelly.rotation.set(0, -0.18, 0);
 	jelly.frustumCulled = false;
-	jelly.castShadow = true;
 	scene.add(jelly);
-	const wireMaterial = new MeshBasicMaterial({
-		color: 0x7a2048,
-		wireframe: true,
-		transparent: true,
-		opacity: 0.2,
-		depthWrite: false,
+	const glassGeometry = new PlaneGeometry(20, 20);
+	const glass = new Reflector(glassGeometry, {
+		textureWidth: 512,
+		textureHeight: 512,
+		clipBias: 0.003,
+		multisample: 0,
 	});
-	const wire = new Mesh(geometry, wireMaterial);
-	wire.visible = false;
-	wire.renderOrder = 2;
-	jelly.add(wire);
-	const floorGeometry = new PlaneGeometry(200, 200);
-	const floorMaterial = new MeshPhysicalMaterial({
-		color: 0x000000,
-		emissive: 0xffffff,
-		roughness: 1,
-		specularIntensity: 0,
-		envMapIntensity: 0,
-		toneMapped: false,
-	});
-	const gridColor = { value: new Color() };
-	const poolColor = { value: new Color() };
-	floorMaterial.onBeforeCompile = (shader) => {
-		shader.uniforms.gridColor = gridColor;
-		shader.uniforms.poolColor = poolColor;
-		shader.vertexShader = shader.vertexShader.replace(
-			"#include <common>",
-			"#include <common>\nvarying vec3 floorPosition;",
+	const glassMaterial = glass.material as ShaderMaterial;
+	glassMaterial.transparent = true;
+	glassMaterial.depthWrite = false;
+	glassMaterial.vertexShader = glassMaterial.vertexShader
+		.replace(
+			"varying vec4 vUv;",
+			"varying vec4 vUv;\nvarying vec2 vFloorPosition;",
+		)
+		.replace(
+			"vUv = textureMatrix",
+			"vFloorPosition = position.xy;\nvUv = textureMatrix",
 		);
-		shader.vertexShader = shader.vertexShader.replace(
-			"#include <begin_vertex>",
-			"#include <begin_vertex>\nfloorPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;",
-		);
-		shader.fragmentShader = shader.fragmentShader.replace(
-			"#include <common>",
-			"#include <common>\nvarying vec3 floorPosition;\nuniform vec3 gridColor;\nuniform vec3 poolColor;",
-		);
-		shader.fragmentShader = shader.fragmentShader.replace(
-			"#include <shadowmap_pars_fragment>",
-			"#include <shadowmap_pars_fragment>\n#include <shadowmask_pars_fragment>",
-		);
-		shader.fragmentShader = shader.fragmentShader.replace(
-			"#include <opaque_fragment>",
-			`
-			vec2 cell = floorPosition.xz / 0.6;
-			vec2 edge = abs(fract(cell - 0.5) - 0.5) / max(fwidth(cell), vec2(0.0001));
-			float grid = 1.0 - min(min(edge.x, edge.y), 1.0);
-			float fade = 1.0 - smoothstep(4.0, 16.0, length(floorPosition.xz));
-			float pool = 1.0 - smoothstep(2.0, 14.0, length(floorPosition.xz));
-			outgoingLight = mix(outgoingLight, poolColor, pool);
-			outgoingLight = mix(outgoingLight, gridColor, grid * fade * 0.25);
-			outgoingLight *= 0.78 + 0.22 * getShadowMask();
-			#include <opaque_fragment>
-		`,
-		);
-	};
-	const floor = new Mesh(floorGeometry, floorMaterial);
-	floor.rotation.x = -Math.PI / 2;
-	floor.position.y = floorHeight - 0.1;
-	floor.receiveShadow = true;
-	scene.add(floor);
-	const glassGeometry = new PlaneGeometry(200, 200);
-	const glassMaterial = new MeshPhysicalMaterial({
-		transmission: 1,
-		thickness: 0.08,
-		ior: 1.5,
-		roughness: 0.12,
-		envMapIntensity: 0.08,
-	});
-	const glass = new Mesh(glassGeometry, glassMaterial);
+	glassMaterial.fragmentShader = glassMaterial.fragmentShader.replace(
+		"varying vec4 vUv;",
+		"varying vec4 vUv;\nvarying vec2 vFloorPosition;",
+	);
+	glassMaterial.fragmentShader = glassMaterial.fragmentShader.replace(
+		"gl_FragColor = vec4( blendOverlay( base.rgb, color ), 1.0 );",
+		"gl_FragColor = vec4(base.rgb, base.a * 0.12 * (1.0 - smoothstep(0.5, 3.0, length(vFloorPosition))));",
+	);
 	glass.rotation.x = -Math.PI / 2;
 	glass.position.y = floorHeight;
 	scene.add(glass);
-	let studio: Awaited<ReturnType<typeof loadJellyStudio>> | undefined;
-	let darkTheme = false;
 
 	const pointer = new Vector2();
 	const raycaster = new Raycaster();
@@ -199,17 +159,13 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 	let reducedMotion = false;
 	let visible = true;
 	let disposed = false;
-	let settings = defaultJellySettings;
 
 	function render(time: number) {
 		frame = 0;
 		if (disposed || !visible || document.hidden) {
 			return;
 		}
-		const dt = settings.paused
-			? 0
-			: Math.min((time - previousTime) / 1000 || 1 / 60, 0.06) *
-				(settings.slow ? 0.25 : 1);
+		const dt = Math.min((time - previousTime) / 1000 || 1 / 60, 0.06);
 		previousTime = time;
 		// Small integration steps keep the spring stable after a slow frame.
 		const steps = Math.ceil(dt * 120);
@@ -228,7 +184,7 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 				}
 			}
 		}
-		if (!reducedMotion && !settings.paused) {
+		if (!reducedMotion) {
 			physics.update(dt);
 		}
 		jelly.position.y = height;
@@ -241,7 +197,6 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 		renderer.render(scene, camera);
 		if (
 			!reducedMotion &&
-			!settings.paused &&
 			(grabbed !== null || physics.active || time < activeUntil)
 		) {
 			frame = requestAnimationFrame(render);
@@ -257,11 +212,9 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 	}
 
 	function setTheme(dark: boolean) {
-		darkTheme = dark;
-		floorMaterial.emissive.set(dark ? 0x121214 : 0xffffff);
-		gridColor.value.set(dark ? 0x4e4e58 : 0xa3a3ad);
-		poolColor.value.set(dark ? 0x9797a1 : 0xffffff);
-		renderer.toneMappingExposure = 1.12;
+		backdrop.value.setScalar(dark ? 0.003 : 0.9);
+		material.envMapIntensity = dark ? 0.85 : 1.0;
+		renderer.toneMappingExposure = dark ? 1.1 : 1.0;
 		wake();
 	}
 
@@ -286,12 +239,7 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 	}
 
 	function pointerDown(event: PointerEvent) {
-		if (
-			reducedMotion ||
-			settings.paused ||
-			grabbed !== null ||
-			event.button !== 0
-		) {
+		if (reducedMotion || grabbed !== null || event.button !== 0) {
 			return;
 		}
 		updatePointer(event);
@@ -315,7 +263,7 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 	}
 
 	function pointerMove(event: PointerEvent) {
-		if (reducedMotion || settings.paused) {
+		if (reducedMotion) {
 			return;
 		}
 		updatePointer(event);
@@ -335,7 +283,7 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 	}
 
 	function bounce() {
-		if (!reducedMotion && !settings.paused) {
+		if (!reducedMotion) {
 			physics.squish();
 			heightVelocity = 2.8;
 			wake();
@@ -401,46 +349,17 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 		}
 	});
 	intersectionObserver.observe(canvas);
-	const ready = loadJellyStudio(renderer, () => disposed).then(
-		async (loaded) => {
-			if (!loaded) {
-				return;
-			}
+	const ready = loadJellyStudio(renderer, () => disposed).then((loaded) => {
+		if (loaded && !disposed) {
 			studio = loaded;
 			scene.environment = loaded.environment;
-			setTheme(darkTheme);
-			await renderer.compileAsync(scene, camera);
+			renderer.compile(scene, camera);
 			wake();
-		},
-	);
+		}
+	});
 
 	return {
 		ready,
-		setSettings(value: JellySettings) {
-			settings = value;
-			const flavor = jellyFlavors[value.flavor];
-			material.color.set(flavor.surface);
-			material.attenuationColor.setRGB(
-				Math.exp(-flavor.absorption[0] * 0.035),
-				Math.exp(-flavor.absorption[1] * 0.035),
-				Math.exp(-flavor.absorption[2] * 0.035),
-			);
-			wireMaterial.color.set(flavor.swatch);
-			wire.visible = value.wireframe;
-			physics.configure(value.firmness, value.damping);
-			if (value.paused) {
-				resetDrag();
-			}
-			wake();
-		},
-		reset() {
-			resetDrag();
-			physics.reset();
-			tilt.set(0, 0);
-			height = heightVelocity = 0;
-			jelly.rotation.set(0, -0.18, 0);
-			wake();
-		},
 		setTheme,
 		bounce,
 		setReducedMotion(value: boolean) {
@@ -473,12 +392,8 @@ export function createJellyScene(canvas: HTMLCanvasElement) {
 			canvas.removeEventListener("pointerleave", pointerLeave);
 			geometry.dispose();
 			material.dispose();
-			wireMaterial.dispose();
-			floorGeometry.dispose();
-			floorMaterial.dispose();
 			glassGeometry.dispose();
-			glassMaterial.dispose();
-			keyLight.shadow.dispose();
+			glass.dispose();
 			studio?.dispose();
 			renderer.dispose();
 		},
