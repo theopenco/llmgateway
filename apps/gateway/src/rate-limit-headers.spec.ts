@@ -11,9 +11,14 @@ import { readAll, waitForLogs } from "./test-utils/test-helpers.js";
 const upstreamHeaders = {
 	"Retry-After": "99999",
 	"retry-after-ms": "99999000",
+	"RateLimit-Policy": '"upstream";q=99999;w=99999',
+	RateLimit: '"upstream";r=0;t=99999',
 	"RateLimit-Limit": "99999",
 	"RateLimit-Remaining": "0",
 	"RateLimit-Reset": "99999",
+	"X-RateLimit-Limit": "99999",
+	"X-RateLimit-Remaining": "0",
+	"X-RateLimit-Reset": "99999",
 	"X-RateLimit-Limit-Requests": "99999",
 	"X-RateLimit-Remaining-Tokens": "0",
 	"anthropic-ratelimit-requests-reset": "2099-01-01T00:00:00Z",
@@ -37,6 +42,7 @@ describe("client rate-limit headers", () => {
 	beforeEach(async () => {
 		vi.stubEnv("GATEWAY_RATE_LIMITS_ENABLED", "true");
 		vi.stubEnv("GATEWAY_RATE_LIMIT_CHAT_COMPLETIONS_RPM", "600");
+		vi.stubEnv("GATEWAY_RATE_LIMIT_WINDOW_SECONDS", "60");
 		upstreamFailuresRemaining = 0;
 		upstreamCalls = 0;
 		await db.insert(tables.apiKey).values({
@@ -104,10 +110,23 @@ describe("client rate-limit headers", () => {
 	}
 
 	function expectGatewayHeaders(response: Response) {
-		expect(response.headers.get("RateLimit-Limit")).toBe("600");
-		expect(response.headers.get("RateLimit-Remaining")).toBe("599");
+		const gatewayHeaders = {
+			"RateLimit-Policy": '"requests";q=600;w=60',
+			RateLimit: '"requests";r=599;t=60',
+			"RateLimit-Limit": "600",
+			"RateLimit-Remaining": "599",
+			"RateLimit-Reset": "60",
+			"X-RateLimit-Limit": "600",
+			"X-RateLimit-Remaining": "599",
+		};
+		for (const [name, value] of Object.entries(gatewayHeaders)) {
+			expect(response.headers.get(name), name).toBe(value);
+		}
+		expect(Number(response.headers.get("X-RateLimit-Reset"))).toBeGreaterThan(
+			Date.now() / 1000,
+		);
 		for (const name of Object.keys(upstreamHeaders)) {
-			if (name === "RateLimit-Limit" || name === "RateLimit-Remaining") {
+			if (Object.hasOwn(gatewayHeaders, name) || name === "X-RateLimit-Reset") {
 				continue;
 			}
 			expect(response.headers.get(name), name).toBeNull();

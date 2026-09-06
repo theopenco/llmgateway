@@ -44,6 +44,10 @@ import {
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
+import {
+	rateLimitHeaders,
+	standardErrorResponses,
+} from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
@@ -69,6 +73,7 @@ import { shortid } from "@llmgateway/db";
 import { models as modelDefinitions, type Provider } from "@llmgateway/models";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
+import type { openAIErrorSchema } from "@/lib/error-schemas.js";
 import type { ServerTypes } from "@/vars.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
@@ -150,15 +155,6 @@ const rerankResponseSchema = z
 	.openapi({
 		description: "Cohere-compatible rerank response payload.",
 	});
-
-const rerankErrorSchema = z.object({
-	error: z.object({
-		message: z.string(),
-		type: z.string(),
-		param: z.string().nullable(),
-		code: z.string(),
-	}),
-});
 
 function findRerankMapping(modelId: string): {
 	mapping: ProviderModelMapping;
@@ -275,6 +271,7 @@ const createRerank = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: rerankResponseSchema,
@@ -282,94 +279,7 @@ const createRerank = createRoute({
 			},
 			description: "Rerank response with ranked results.",
 		},
-		400: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Invalid request body or parameters.",
-		},
-		401: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Unauthorized request.",
-		},
-		402: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Payment required / Insufficient credits.",
-		},
-		403: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Forbidden upstream response.",
-		},
-		404: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Not found upstream response.",
-		},
-		410: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Archived or unavailable project.",
-		},
-		429: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Rate limited upstream response.",
-		},
-		500: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Internal server error.",
-		},
-		502: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Bad gateway / Upstream fetch failure.",
-		},
-		503: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Service unavailable.",
-		},
-		504: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Gateway timeout.",
-		},
+		...standardErrorResponses(),
 	},
 });
 
@@ -595,7 +505,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 		| {
 				kind: "json_error";
 				status: 400 | 500;
-				body: z.infer<typeof rerankErrorSchema>;
+				body: z.infer<typeof openAIErrorSchema>;
 		  };
 
 	async function resolveAttempt(): Promise<ResolveResult> {

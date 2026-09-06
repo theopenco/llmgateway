@@ -39,6 +39,10 @@ import {
 	getEffectiveRetentionLevel,
 } from "@/lib/compliance.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
+import {
+	rateLimitHeaders,
+	standardErrorResponses,
+} from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
@@ -118,15 +122,6 @@ interface SpeechErrorBody {
 		code: string;
 	};
 }
-
-const speechErrorSchema = z.object({
-	error: z.object({
-		message: z.string(),
-		type: z.string(),
-		param: z.string().nullable(),
-		code: z.string(),
-	}),
-});
 
 /** Minimal shape of a Gemini `generateContent` response part. */
 interface GeminiPart {
@@ -417,6 +412,7 @@ const createSpeech = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"audio/wav": { schema: z.any() },
 				"audio/mpeg": { schema: z.any() },
@@ -424,34 +420,7 @@ const createSpeech = createRoute({
 			},
 			description: "Generated audio.",
 		},
-		400: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Invalid request body or parameters.",
-		},
-		401: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Unauthorized request.",
-		},
-		402: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Payment required / insufficient credits.",
-		},
-		403: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Forbidden.",
-		},
-		500: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Internal server error.",
-		},
-		502: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Failed to connect to the upstream provider.",
-		},
-		504: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Upstream provider timeout.",
-		},
+		...standardErrorResponses(),
 	},
 });
 

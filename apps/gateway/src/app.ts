@@ -60,14 +60,16 @@ export const config = {
 	openapi: "3.0.0",
 	info: {
 		version: "1.0.0",
-		title: "LLMGateway API",
-		description: `OpenAI-compatible LLM gateway: chat completions, embeddings, images, audio, video, moderation, OCR and rerank across 40+ providers with one API key.
+		title: "LLM Gateway API",
+		description: `OpenAI-compatible LLM gateway: chat completions, embeddings, images, audio, video, moderation, OCR and rerank across providers with one API key.
 
 **Authentication**: create an API key at https://llmgateway.io/dashboard and send it as \`Authorization: Bearer <key>\` (or \`x-api-key\`).
 
+**Deprecation policy**: https://docs.llmgateway.io/resources/api-versioning. No /v1 sunset is currently scheduled; notices describe the replacement and any retirement date. Deprecated endpoints use Deprecation and Link headers; scheduled retirements additionally use Sunset.
+
 **Versioning**: the API is versioned in the URL path (\`/v1/...\`). Backwards-incompatible changes only ship under a new path version. Model and provider deprecations are announced in the changelog (https://llmgateway.io/changelog) and deprecated entries remain listed in \`/v1/models\` with their deactivation date.
 
-**Rate limits**: requests are limited per organization and per endpoint. 429 responses carry \`Retry-After\`, \`RateLimit-Limit\`, \`RateLimit-Remaining\` and \`RateLimit-Reset\` headers (plus legacy \`X-RateLimit-*\`); back off until \`Retry-After\` elapses. Successful authenticated responses on limited endpoints also carry \`RateLimit-Limit\` and \`RateLimit-Remaining\` so clients can self-throttle. These headers describe only LLMGateway-enforced limits; upstream provider rate-limit and retry headers are never forwarded. Upstream throttling is treated as a provider error and is eligible for retries and fallback.
+**Rate limits**: requests are limited per organization and per endpoint. The structured \`RateLimit-Policy\` and \`RateLimit\` fields follow draft-ietf-httpapi-ratelimit-headers-11. 429 responses carry \`Retry-After\`, \`RateLimit-Limit\`, \`RateLimit-Remaining\` and \`RateLimit-Reset\` headers (plus legacy \`X-RateLimit-*\`); back off until \`Retry-After\` elapses. Successful authenticated responses carry the organization requests-per-minute (RPM) policy, remaining request quota, and reset delay only when they passed an RPM quota check. These headers describe only LLMGateway-enforced limits; upstream provider rate-limit and retry headers are never forwarded. Upstream throttling is treated as a provider error and is eligible for retries and fallback.
 
 **MCP**: a Model Context Protocol server (Streamable HTTP) is served at \`/mcp\`; OAuth metadata and scopes are published at \`/.well-known/oauth-authorization-server\` and \`/.well-known/oauth-protected-resource\`.
 
