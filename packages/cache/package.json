@@ -27,6 +27,6 @@
 		"ioredis": "5.7.0"
 	},
 	"devDependencies": {
-		"@types/node": "^26.2.0"
+		"@types/node": "^26.4.0"
 	}
 }
