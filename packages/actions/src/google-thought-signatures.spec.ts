@@ -266,3 +266,51 @@ describe("Gemini signed text parts", () => {
 		]);
 	});
 });
+
+describe("Gemini signed part metadata", () => {
+	it("stores a length and hash instead of copying answer text", () => {
+		const [answer, thought] = buildGoogleReasoningDetails([
+			{ text: "The answer is 42.", thoughtSignature: "answer-signature" },
+			{ text: "Reasoning.", thought: true, thoughtSignature: "thought-sig" },
+		]);
+		expect(answer).not.toHaveProperty("text");
+		expect(answer!.google_part).toEqual({
+			thought: false,
+			text_offset: 0,
+			text_length: 17,
+			text_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+		});
+		expect(thought).toMatchObject({
+			text: "Reasoning.",
+			google_part: { thought: true, text_offset: 17 },
+		});
+	});
+
+	it("does not reattach an answer signature to edited text of equal length", () => {
+		const details = buildGoogleReasoningDetails([
+			{ text: "Answer: 42", thoughtSignature: "answer-signature" },
+		]);
+		expect(
+			restoreGoogleReasoningDetails([{ text: "Answer: 43" }], details),
+		).toEqual([{ text: "Answer: 43" }]);
+		expect(
+			restoreGoogleReasoningDetails([{ text: "Answer: 42" }], details),
+		).toEqual([{ text: "Answer: 42", thoughtSignature: "answer-signature" }]);
+	});
+
+	it("skips malformed metadata instead of guessing a position", () => {
+		expect(
+			restoreGoogleReasoningDetails(
+				[{ text: "Answer" }],
+				[
+					{
+						type: "reasoning.text",
+						format: "google-gemini-v1",
+						signature: "bad-signature",
+						google_part: { thought: false, text_offset: 0 },
+					},
+				],
+			),
+		).toEqual([{ text: "Answer" }]);
+	});
+});

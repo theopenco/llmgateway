@@ -42,6 +42,9 @@ interface StreamingState {
 	// Phase announced (via a delta) for a message item that has not started
 	// streaming content yet.
 	pendingMessagePhase?: string;
+	// Gemini signature entries received while no message item is open. They
+	// attach to the next message item, or to a carrier item at completion.
+	pendingGoogleDetails?: Array<Record<string, unknown>>;
 	messageId: string;
 	reasoningId: string;
 	fullReasoning: string[];
@@ -478,14 +481,35 @@ export function processStreamChunk(
 		}
 	}
 
-	// Handle content and replayable Gemini signature deltas.
+	// Replayable Gemini signature entries ride on the message item carrying the
+	// text. Until one is open they wait in pendingGoogleDetails, so a signature
+	// streamed ahead of the text (or of a function call) never opens an empty
+	// message item or emits an empty text delta.
 	const googleDetails =
 		delta.reasoning_details?.filter(isGoogleReasoningDetail) ?? [];
-	if (delta.content || googleDetails.length > 0) {
-		let current = state.messageItems[state.messageItems.length - 1];
+	const openMessage = state.pendingNewMessage
+		? undefined
+		: state.messageItems[state.messageItems.length - 1];
+	if (googleDetails.length > 0) {
+		if (openMessage) {
+			openMessage.reasoningDetails = [
+				...(openMessage.reasoningDetails ?? []),
+				...googleDetails,
+			];
+		} else {
+			state.pendingGoogleDetails = [
+				...(state.pendingGoogleDetails ?? []),
+				...googleDetails,
+			];
+		}
+	}
+
+	// Handle content delta
+	if (delta.content) {
+		let current = openMessage;
 		// Start a new message item on first content, or when a boundary marker
 		// (or differing phase) announced that a new message item begins.
-		if (!current || state.pendingNewMessage) {
+		if (!current) {
 			// If reasoning was streamed, announce and close its item first
 			flushPendingReasoningItem(state, events);
 
@@ -504,11 +528,15 @@ export function processStreamChunk(
 					: {}),
 				parts: [],
 				contentPartStarted: false,
+				...(state.pendingGoogleDetails
+					? { reasoningDetails: state.pendingGoogleDetails }
+					: {}),
 				annotations: [],
 			};
 			state.messageItems.push(current);
 			state.pendingNewMessage = false;
 			state.pendingMessagePhase = undefined;
+			state.pendingGoogleDetails = undefined;
 			events.push(
 				emitEvent(state, "response.output_item.added", {
 					type: "response.output_item.added",
@@ -525,12 +553,6 @@ export function processStreamChunk(
 			);
 		}
 
-		if (googleDetails.length > 0) {
-			current.reasoningDetails = [
-				...(current.reasoningDetails ?? []),
-				...googleDetails,
-			];
-		}
 		if (!current.contentPartStarted) {
 			current.contentPartStarted = true;
 			events.push(
@@ -544,14 +566,14 @@ export function processStreamChunk(
 			);
 		}
 
-		current.parts.push(delta.content ?? "");
+		current.parts.push(delta.content);
 		events.push(
 			emitEvent(state, "response.output_text.delta", {
 				type: "response.output_text.delta",
 				item_id: current.id,
 				output_index: current.outputIndex,
 				content_index: 0,
-				delta: delta.content ?? "",
+				delta: delta.content,
 			}),
 		);
 	}
@@ -681,6 +703,33 @@ function buildReasoningOutputItems(
 }
 
 /**
+ * Move Gemini signature entries that never met a text message (e.g. a signed
+ * thought ahead of a function-call-only turn) onto an empty carrier message
+ * item so the turn stays replayable. Claims its output index at completion,
+ * after the tool calls, matching the non-streaming converter's order.
+ */
+function flushPendingGoogleDetails(
+	state: StreamingState,
+): MessageItemState | undefined {
+	const details = state.pendingGoogleDetails;
+	if (!details?.length) {
+		return undefined;
+	}
+	state.pendingGoogleDetails = undefined;
+	const message: MessageItemState = {
+		id:
+			state.messageItems.length === 0 ? state.messageId : `msg_${shortid(24)}`,
+		outputIndex: state.outputItemIndex++,
+		parts: [],
+		contentPartStarted: false,
+		reasoningDetails: details,
+		annotations: [],
+	};
+	state.messageItems.push(message);
+	return message;
+}
+
+/**
  * Build the complete final output array (reasoning, function calls, message)
  * including encrypted reasoning payloads. Used for response storage; wire
  * events strip encrypted_content unless the request opted in via
@@ -689,6 +738,7 @@ function buildReasoningOutputItems(
 export function buildFinalOutputItems(
 	state: StreamingState,
 ): Record<string, unknown>[] {
+	flushPendingGoogleDetails(state);
 	// Order items by the output index each claimed when it was announced, so
 	// the final array preserves the stream order (e.g. pre-tool commentary
 	// messages stay before the function calls that followed them).
@@ -716,7 +766,7 @@ export function buildFinalOutputItems(
 	}
 
 	for (const message of state.messageItems) {
-		if (message.parts.length === 0) {
+		if (message.parts.length === 0 && !message.reasoningDetails?.length) {
 			continue;
 		}
 		indexed.push({
@@ -757,6 +807,22 @@ export function createCompletionEvents(
 	// content/tool items) never triggered a flush; announce the item now so
 	// its done event below has a matching added.
 	flushPendingReasoningItem(state, events);
+	const carrier = flushPendingGoogleDetails(state);
+	if (carrier) {
+		events.push(
+			emitEvent(state, "response.output_item.added", {
+				type: "response.output_item.added",
+				output_index: carrier.outputIndex,
+				item: {
+					type: "message",
+					id: carrier.id,
+					role: "assistant",
+					content: [],
+					status: "in_progress",
+				},
+			}),
+		);
+	}
 
 	// Close the reasoning item(s) if started, reusing each item's own
 	// output_index from its added event. Encrypted payloads are only put on

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { ReasoningDetail } from "@llmgateway/models";
 
 export interface GoogleTextPart {
@@ -10,6 +12,65 @@ export interface GoogleTextPart {
 export interface GoogleThoughtSignatureState {
 	textOffset: number;
 	index: number;
+}
+
+// Signed-part metadata carried in `google_part`. Answer parts store only the
+// length and hash of their text (the client already has the text in
+// `content`); thought parts keep their text in the detail's `text` field.
+interface SignedPartMetadata {
+	thought: boolean;
+	offset: number;
+	length: number;
+	text?: string;
+	hash?: string;
+}
+
+function hashText(text: string): string {
+	return createHash("sha256").update(text).digest("hex");
+}
+
+function isOffset(value: unknown): value is number {
+	return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+function signedTextMatches(text: string, metadata: SignedPartMetadata) {
+	return metadata.thought
+		? text === (metadata.text ?? "")
+		: text.length === metadata.length && hashText(text) === metadata.hash;
+}
+
+/** `undefined` when the detail carries no metadata, `null` when it is invalid. */
+function readGooglePartMetadata(
+	detail: ReasoningDetail,
+): SignedPartMetadata | null | undefined {
+	const raw = detail.google_part;
+	if (raw === undefined) {
+		return undefined;
+	}
+	if (!raw || typeof raw !== "object") {
+		return null;
+	}
+	const {
+		thought,
+		text_offset: offset,
+		text_length: length,
+		text_hash: hash,
+	} = raw as Record<string, unknown>;
+	if (typeof thought !== "boolean" || !isOffset(offset)) {
+		return null;
+	}
+	if (thought) {
+		return {
+			thought,
+			offset,
+			length: 0,
+			text: typeof detail.text === "string" ? detail.text : "",
+		};
+	}
+	if (!isOffset(length) || typeof hash !== "string") {
+		return null;
+	}
+	return { thought, offset, length, hash };
 }
 
 export function isGoogleReasoningDetail(detail: ReasoningDetail): boolean {
@@ -52,17 +113,21 @@ export function buildGoogleReasoningDetails(
 	for (const part of parts) {
 		const signature = part.thoughtSignature ?? part.thought_signature;
 		if (signature && !part.functionCall && !part.inlineData) {
+			const text = part.text ?? "";
 			details.push({
 				type: "reasoning.text",
 				format: "google-gemini-v1",
 				signature,
 				index: state.index++,
-				...(part.thought && part.text ? { text: part.text } : {}),
-				google_part: {
-					text: part.text ?? "",
-					thought: part.thought ?? false,
-					text_offset: state.textOffset,
-				},
+				...(part.thought && text ? { text } : {}),
+				google_part: part.thought
+					? { thought: true, text_offset: state.textOffset }
+					: {
+							thought: false,
+							text_offset: state.textOffset,
+							text_length: text.length,
+							text_hash: hashText(text),
+						},
 			});
 		}
 		if (!part.thought) {
@@ -115,17 +180,17 @@ export function restoreGoogleReasoningDetails<T extends GoogleTextPart>(
 			continue;
 		}
 		const signature = detail.signature as string;
-		const metadata =
-			detail.google_part && typeof detail.google_part === "object"
-				? (detail.google_part as Record<string, unknown>)
-				: undefined;
+		const metadata = readGooglePartMetadata(detail);
+		if (metadata === null) {
+			continue;
+		}
 		const explicitIndex = explicitParts.findIndex(
 			({ part, offset }) =>
 				part.thoughtSignature === signature &&
 				(!metadata ||
-					(part.text === metadata.text &&
-						(part.thought ?? false) === metadata.thought &&
-						offset === metadata.text_offset)),
+					((part.thought ?? false) === metadata.thought &&
+						offset === metadata.offset &&
+						signedTextMatches(part.text ?? "", metadata))),
 		);
 		if (explicitIndex !== -1) {
 			explicitParts.splice(explicitIndex, 1);
@@ -135,16 +200,12 @@ export function restoreGoogleReasoningDetails<T extends GoogleTextPart>(
 			restored.push({ text: "", thoughtSignature: signature });
 			continue;
 		}
-		const { text, thought, text_offset: offset } = metadata;
-		if (
-			typeof text !== "string" ||
-			typeof thought !== "boolean" ||
-			typeof offset !== "number" ||
-			!Number.isInteger(offset) ||
-			offset < 0
-		) {
-			continue;
-		}
+		const { thought, offset, length } = metadata;
+		const signedPart = (text: string): GoogleTextPart => ({
+			text,
+			...(thought ? { thought: true } : {}),
+			thoughtSignature: signature,
+		});
 		let position = 0;
 		let inserted = false;
 		for (let i = 0; i < restored.length; i++) {
@@ -157,11 +218,10 @@ export function restoreGoogleReasoningDetails<T extends GoogleTextPart>(
 			if (relativeOffset < 0 || offset > position || part.thoughtSignature) {
 				continue;
 			}
-			const length = thought ? 0 : text.length;
-			if (
-				!thought &&
-				part.text.slice(relativeOffset, relativeOffset + length) !== text
-			) {
+			const signed = thought
+				? (metadata.text ?? "")
+				: part.text.slice(relativeOffset, relativeOffset + length);
+			if (!signedTextMatches(signed, metadata)) {
 				continue;
 			}
 			const before = part.text.slice(0, relativeOffset);
@@ -170,22 +230,17 @@ export function restoreGoogleReasoningDetails<T extends GoogleTextPart>(
 				i,
 				1,
 				...(before ? [{ ...part, text: before }] : []),
-				{
-					text,
-					...(thought ? { thought: true } : {}),
-					thoughtSignature: signature,
-				},
+				signedPart(signed),
 				...(after ? [{ ...part, text: after }] : []),
 			);
 			inserted = true;
 			break;
 		}
-		if (!inserted && offset === position && (thought || text === "")) {
-			restored.push({
-				text,
-				...(thought ? { thought: true } : {}),
-				thoughtSignature: signature,
-			});
+		if (!inserted && offset === position) {
+			const signed = thought ? (metadata.text ?? "") : "";
+			if (signedTextMatches(signed, metadata)) {
+				restored.push(signedPart(signed));
+			}
 		}
 	}
 	return restored;
