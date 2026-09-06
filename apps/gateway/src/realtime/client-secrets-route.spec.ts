@@ -114,6 +114,7 @@ describe("realtime client secrets route", () => {
 
 	it("rejects pinned instructions while ZDR is active", async () => {
 		mocks.runRealtimePreflight.mockResolvedValueOnce({
+			sessionType: "realtime",
 			match: {
 				modelId: "gpt-realtime-2.1-mini",
 				mapping: {
