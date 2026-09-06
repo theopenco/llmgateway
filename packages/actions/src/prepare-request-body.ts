@@ -1332,6 +1332,8 @@ export async function prepareRequestBody(
 	session_id?: string,
 	reasoning_context?: "auto" | "current_turn" | "all_turns",
 	safety_identifier?: string,
+	stop?: string | string[],
+	seed?: number,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 	// Anthropic's server-side tool search (`defer_loading` plus the tool search
@@ -1355,6 +1357,19 @@ export async function prepareRequestBody(
 		usedProvider,
 		usedRegion,
 	);
+	// `supportedParameters` lists are partial, so their silence never gates
+	// long-standing fields — but stop/seed were never forwarded before this
+	// existed, so when a mapping declares a non-empty list omitting them, keep
+	// the pre-existing omission instead of risking a 4xx from strict upstreams.
+	const stopSeedParams = providerMappingForOptions?.supportedParameters;
+	if (stopSeedParams && stopSeedParams.length > 0) {
+		if (!stopSeedParams.includes("stop")) {
+			stop = undefined;
+		}
+		if (!stopSeedParams.includes("seed")) {
+			seed = undefined;
+		}
+	}
 	const supportedServiceTier =
 		(service_tier === "flex" || service_tier === "priority") &&
 		supportsServiceTier(
@@ -2597,6 +2612,12 @@ export async function prepareRequestBody(
 				if (presence_penalty !== undefined) {
 					requestBody.presence_penalty = presence_penalty;
 				}
+				if (stop !== undefined) {
+					requestBody.stop = stop;
+				}
+				if (seed !== undefined) {
+					requestBody.seed = seed;
+				}
 				if (reasoning_effort !== undefined) {
 					if (usedProvider === "sakana") {
 						// Streaming Fugu uses Chat Completions, which (like its Responses
@@ -2675,6 +2696,12 @@ export async function prepareRequestBody(
 			}
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
+			}
+			if (stop !== undefined) {
+				requestBody.stop = stop;
+			}
+			if (seed !== undefined) {
+				requestBody.seed = seed;
 			}
 			// ZAI/GLM models use a `thinking` parameter instead of `reasoning_effort`.
 			// Mirror the OpenAI/Anthropic/Google contract: thinking is opt-in via
@@ -2758,6 +2785,12 @@ export async function prepareRequestBody(
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
 			}
+			if (stop !== undefined) {
+				requestBody.stop = stop;
+			}
+			if (seed !== undefined) {
+				requestBody.seed = seed;
+			}
 			// Moonshot's K2-era thinking models don't recognize `reasoning_effort`;
 			// they take a binary `thinking` parameter (`{ type: "enabled" |
 			// "disabled" }`) and think by default. Map `none`/`minimal` to an
@@ -2819,6 +2852,12 @@ export async function prepareRequestBody(
 			}
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
+			}
+			if (stop !== undefined) {
+				requestBody.stop = stop;
+			}
+			if (seed !== undefined) {
+				requestBody.seed = seed;
 			}
 			// DashScope doesn't recognize `reasoning_effort`; thinking is
 			// controlled via `enable_thinking` (boolean) and `thinking_budget`
@@ -2896,6 +2935,12 @@ export async function prepareRequestBody(
 			}
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
+			}
+			if (stop !== undefined) {
+				requestBody.stop = stop;
+			}
+			if (seed !== undefined) {
+				requestBody.seed = seed;
 			}
 			if (supportsReasoning) {
 				requestBody.extra_body = {
@@ -3355,7 +3400,10 @@ export async function prepareRequestBody(
 			if (top_p !== undefined) {
 				requestBody.top_p = top_p;
 			}
-			// Note: frequency_penalty and presence_penalty are NOT supported by Anthropic's Messages API
+			if (stop !== undefined) {
+				requestBody.stop_sequences = Array.isArray(stop) ? stop : [stop];
+			}
+			// Note: frequency_penalty, presence_penalty and seed are NOT supported by Anthropic's Messages API
 			if (effort !== undefined) {
 				requestBody.output_config ??= {};
 				requestBody.output_config.effort = effort;
@@ -3407,6 +3455,9 @@ export async function prepareRequestBody(
 				}
 				if (top_p !== undefined) {
 					requestBody.top_p = top_p;
+				}
+				if (stop !== undefined) {
+					requestBody.stop = stop;
 				}
 				if (reasoning_effort !== undefined) {
 					const reasoningEffort =
@@ -3860,6 +3911,9 @@ export async function prepareRequestBody(
 			if (top_p !== undefined) {
 				inferenceConfig.topP = top_p;
 			}
+			if (stop !== undefined) {
+				inferenceConfig.stopSequences = Array.isArray(stop) ? stop : [stop];
+			}
 
 			if (Object.keys(inferenceConfig).length > 0) {
 				requestBody.inferenceConfig = inferenceConfig;
@@ -4101,6 +4155,14 @@ export async function prepareRequestBody(
 			if (top_p !== undefined) {
 				requestBody.generationConfig.topP = top_p;
 			}
+			if (stop !== undefined) {
+				requestBody.generationConfig.stopSequences = Array.isArray(stop)
+					? stop
+					: [stop];
+			}
+			if (seed !== undefined) {
+				requestBody.generationConfig.seed = seed;
+			}
 			// Google's equivalent of OpenAI's n: candidateCount (1-8, non-streaming
 			// only). Gated upstream by the mapping's supportsN/maxN/supportsNStreaming.
 			if (n !== undefined && n > 1) {
@@ -4241,6 +4303,12 @@ export async function prepareRequestBody(
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
 			}
+			if (stop !== undefined) {
+				requestBody.stop = stop;
+			}
+			if (seed !== undefined) {
+				requestBody.seed = seed;
+			}
 
 			// Together AI is OpenAI-compatible on `reasoning_effort`, so graded
 			// tiers are forwarded verbatim (unsupported ones surface the provider's
@@ -4325,6 +4393,12 @@ export async function prepareRequestBody(
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
 			}
+			if (stop !== undefined) {
+				requestBody.stop = stop;
+			}
+			if (seed !== undefined) {
+				requestBody.seed = seed;
+			}
 			if (reasoning_effort !== undefined) {
 				requestBody.reasoning_effort = reasoning_effort;
 			}
@@ -4369,6 +4443,12 @@ export async function prepareRequestBody(
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
 			}
+			if (stop !== undefined) {
+				requestBody.stop = stop;
+			}
+			if (seed !== undefined) {
+				requestBody.seed = seed;
+			}
 			break;
 		}
 		case "xiaomi": {
@@ -4411,6 +4491,12 @@ export async function prepareRequestBody(
 			}
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
+			}
+			if (stop !== undefined) {
+				requestBody.stop = stop;
+			}
+			if (seed !== undefined) {
+				requestBody.seed = seed;
 			}
 			// Xiaomi natively accepts `reasoning_effort` low/medium/high (verified
 			// live: high consistently thinks longer than low) but rejects every
@@ -4460,6 +4546,12 @@ export async function prepareRequestBody(
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
 			}
+			if (stop !== undefined) {
+				requestBody.stop = stop;
+			}
+			if (seed !== undefined) {
+				requestBody.seed = seed;
+			}
 
 			// DeepSeek V4 models think by default. Translate reasoning_effort "none"
 			// to the documented binary disable (thinking: { type: "disabled" },
@@ -4504,6 +4596,12 @@ export async function prepareRequestBody(
 			}
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
+			}
+			if (stop !== undefined) {
+				requestBody.stop = stop;
+			}
+			if (seed !== undefined) {
+				requestBody.seed = seed;
 			}
 
 			// Gonka24 keeps thinking off by default, and only the binary `thinking`
@@ -4582,6 +4680,12 @@ export async function prepareRequestBody(
 			}
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
+			}
+			if (stop !== undefined) {
+				requestBody.stop = stop;
+			}
+			if (seed !== undefined) {
+				requestBody.seed = seed;
 			}
 			if (reasoning_effort !== undefined) {
 				// Check if the model supports reasoning_effort parameter

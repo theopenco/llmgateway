@@ -8222,3 +8222,138 @@ describe("prepareRequestBody - tool_choice with thinking disabled", () => {
 		expect(requestBody).toMatchObject({ tool_choice: "auto" });
 	});
 });
+
+describe("prepareRequestBody - stop and seed forwarding", () => {
+	async function buildBody(
+		provider: Parameters<typeof prepareRequestBody>[0],
+		model: string,
+		opts: {
+			stop?: string | string[];
+			seed?: number;
+			useResponsesApi?: boolean;
+		} = {},
+	) {
+		return (await prepareRequestBody(
+			provider,
+			model,
+			null,
+			model,
+			[{ role: "user", content: "hi" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			undefined, // tools
+			undefined, // tool_choice
+			undefined, // reasoning_effort
+			false, // supportsReasoning
+			false, // isProd
+			20, // maxImageSizeMB
+			null, // userPlan
+			undefined, // sensitive_word_check
+			undefined, // image_config
+			undefined, // effort
+			undefined, // imageGenerations
+			undefined, // webSearchTool
+			undefined, // reasoning_max_tokens
+			opts.useResponsesApi, // useResponsesApi
+			undefined, // prompt_cache_key
+			undefined, // prompt_cache_retention
+			"auto", // providerCacheControlMode
+			undefined, // n
+			undefined, // service_tier
+			undefined, // verbosity
+			undefined, // prompt_cache_options
+			undefined, // session_id
+			undefined, // reasoning_context
+			undefined, // safety_identifier
+			opts.stop,
+			opts.seed,
+		)) as Record<string, any>;
+	}
+
+	test("forwards stop and seed verbatim on the OpenAI chat completions path", async () => {
+		const body = await buildBody("openai", "gpt-4o", {
+			stop: ["END", "\n\n"],
+			seed: 42,
+			useResponsesApi: false,
+		});
+		expect(body.stop).toEqual(["END", "\n\n"]);
+		expect(body.seed).toBe(42);
+	});
+
+	test("forwards a single stop string without wrapping on OpenAI-compatible providers", async () => {
+		const body = await buildBody("deepseek", "deepseek-v4", {
+			stop: "END",
+			seed: 7,
+		});
+		expect(body.stop).toBe("END");
+		expect(body.seed).toBe(7);
+	});
+
+	test("omits stop and seed when not provided", async () => {
+		const body = await buildBody("openai", "gpt-4o", {
+			useResponsesApi: false,
+		});
+		expect("stop" in body).toBe(false);
+		expect("seed" in body).toBe(false);
+	});
+
+	test("omits stop and seed on the OpenAI Responses API path", async () => {
+		const body = await buildBody("openai", "gpt-4o", {
+			stop: ["END"],
+			seed: 42,
+			useResponsesApi: true,
+		});
+		expect("stop" in body).toBe(false);
+		expect("seed" in body).toBe(false);
+	});
+
+	test("maps stop to stop_sequences for Anthropic and omits seed", async () => {
+		const body = await buildBody("anthropic", "claude-3-5-sonnet-20241022", {
+			stop: "END",
+			seed: 42,
+		});
+		expect(body.stop_sequences).toEqual(["END"]);
+		expect("stop" in body).toBe(false);
+		expect("seed" in body).toBe(false);
+	});
+
+	test("keeps stop arrays intact for Anthropic stop_sequences", async () => {
+		const body = await buildBody("anthropic", "claude-3-5-sonnet-20241022", {
+			stop: ["END", "STOP"],
+		});
+		expect(body.stop_sequences).toEqual(["END", "STOP"]);
+	});
+
+	test("strips stop and seed when a non-empty supportedParameters omits them", async () => {
+		const body = await buildBody("cerebras", "gpt-oss-120b", {
+			stop: "END",
+			seed: 42,
+		});
+		expect("stop" in body).toBe(false);
+		expect("seed" in body).toBe(false);
+	});
+
+	test("forwards stop and seed when supportedParameters lists them", async () => {
+		const body = await buildBody("embercloud", "kimi-k2.5", {
+			stop: "END",
+			seed: 42,
+		});
+		expect(body.stop).toBe("END");
+		expect(body.seed).toBe(42);
+	});
+
+	test("maps stop and seed into Google generationConfig", async () => {
+		const body = await buildBody("google-ai-studio", "gemini-2.5-flash", {
+			stop: "END",
+			seed: 42,
+		});
+		expect(body.generationConfig.stopSequences).toEqual(["END"]);
+		expect(body.generationConfig.seed).toBe(42);
+		expect("stop" in body).toBe(false);
+	});
+});
