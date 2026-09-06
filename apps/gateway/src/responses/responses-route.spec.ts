@@ -175,3 +175,106 @@ describe("responses streaming lifecycle", () => {
 		expect(mocks.storeResponse).not.toHaveBeenCalled();
 	});
 });
+
+describe("responses header passthrough", () => {
+	it("forwards cache/session headers and copies x-llmgateway-cache back", async () => {
+		mocks.appRequest.mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					id: "chatcmpl_test",
+					object: "chat.completion",
+					created: 1,
+					model: "gpt-4o-mini",
+					choices: [
+						{
+							index: 0,
+							message: { role: "assistant", content: "hi" },
+							finish_reason: "stop",
+						},
+					],
+					usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+				}),
+				{
+					status: 200,
+					headers: {
+						"content-type": "application/json",
+						"x-llmgateway-cache": "HIT",
+					},
+				},
+			),
+		);
+
+		const response = await responses.request("/", {
+			method: "POST",
+			headers: {
+				authorization: "Bearer test-token",
+				"content-type": "application/json",
+				"x-no-cache": "true",
+				"x-no-fallback": "true",
+				"x-session-affinity": "session-abc",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				input: "hello",
+				store: false,
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("x-llmgateway-cache")).toBe("HIT");
+
+		const [, init] = mocks.appRequest.mock.calls.at(-1) as [
+			string,
+			{ headers: Record<string, string> },
+		];
+		expect(init.headers["x-no-cache"]).toBe("true");
+		expect(init.headers["x-no-fallback"]).toBe("true");
+		expect(init.headers["x-session-affinity"]).toBe("session-abc");
+	});
+
+	it("omits opt-out headers the caller did not send", async () => {
+		mocks.appRequest.mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					id: "chatcmpl_test",
+					object: "chat.completion",
+					created: 1,
+					model: "gpt-4o-mini",
+					choices: [
+						{
+							index: 0,
+							message: { role: "assistant", content: "hi" },
+							finish_reason: "stop",
+						},
+					],
+					usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+				}),
+				{ status: 200, headers: { "content-type": "application/json" } },
+			),
+		);
+
+		const response = await responses.request("/", {
+			method: "POST",
+			headers: {
+				authorization: "Bearer test-token",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				model: "gpt-4o-mini",
+				input: "hello",
+				store: false,
+			}),
+		});
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("x-llmgateway-cache")).toBeNull();
+
+		const [, init] = mocks.appRequest.mock.calls.at(-1) as [
+			string,
+			{ headers: Record<string, string> },
+		];
+		expect("x-no-cache" in init.headers).toBe(false);
+		expect("x-no-fallback" in init.headers).toBe(false);
+		expect("x-session-affinity" in init.headers).toBe(false);
+	});
+});

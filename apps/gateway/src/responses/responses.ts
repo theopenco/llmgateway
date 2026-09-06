@@ -58,11 +58,58 @@ import {
 import { extractAdditionalTools } from "./tools/tool-registry.js";
 
 import type { ServerTypes } from "@/vars.js";
+import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 const zstdDecompressAsync = promisify(zstdDecompress);
 
 export const responses = new Hono<ServerTypes>();
+
+/**
+ * Headers forwarded onto the internal chat completions call. Mirrors the
+ * `/v1/messages` and `/v4/ai` hops: presence-sensitive opt-outs (x-no-cache,
+ * x-no-fallback) and the sticky-session headers the chat handler reads are
+ * only set when the caller actually sent them.
+ */
+function forwardedHeaders(c: Context<ServerTypes>): Record<string, string> {
+	const optional = [
+		"x-no-fallback",
+		"x-no-cache",
+		"x-session-id",
+		"x-session-affinity",
+		"session_id",
+		"session-id",
+	];
+
+	return {
+		"Content-Type": "application/json",
+		Authorization: c.req.header("Authorization") ?? "",
+		"x-api-key": c.req.header("x-api-key") ?? "",
+		"User-Agent": c.req.header("User-Agent") ?? "",
+		"x-request-id": c.req.header("x-request-id") ?? "",
+		"x-source": c.req.header("x-source") ?? "",
+		"x-debug": c.req.header("x-debug") ?? "",
+		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
+		...internalApiOriginHeaders("responses"),
+		...Object.fromEntries(
+			optional
+				.map((name) => [name, c.req.header(name)])
+				.filter((entry): entry is [string, string] => entry[1] !== undefined),
+		),
+	};
+}
+
+/**
+ * Surface gateway response-cache replays: copy the inner handler's
+ * x-llmgateway-cache marker onto the outgoing response so callers can tell a
+ * replay from a fresh sample.
+ */
+function forwardCacheStatusHeader(c: Context<ServerTypes>, response: Response) {
+	const innerCacheStatus = response.headers.get("x-llmgateway-cache");
+	if (innerCacheStatus) {
+		c.header("x-llmgateway-cache", innerCacheStatus);
+	}
+}
 
 /**
  * Extract and validate the API token from request headers.
@@ -430,17 +477,7 @@ responses.post("/", async (c) => {
 	const state = createStreamingState(req.model, logId, req, toolRegistry);
 
 	// Make internal request to the existing chat completions endpoint
-	const internalHeaders: Record<string, string> = {
-		"Content-Type": "application/json",
-		Authorization: c.req.header("Authorization") ?? "",
-		"x-api-key": c.req.header("x-api-key") ?? "",
-		"User-Agent": c.req.header("User-Agent") ?? "",
-		"x-request-id": c.req.header("x-request-id") ?? "",
-		"x-source": c.req.header("x-source") ?? "",
-		"x-debug": c.req.header("x-debug") ?? "",
-		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
-		...internalApiOriginHeaders("responses"),
-	};
+	const internalHeaders: Record<string, string> = forwardedHeaders(c);
 
 	// Pass Responses API context via in-memory Map (not headers) so the chat
 	// handler logs this request under the resp_ id the client sees. Response
@@ -483,6 +520,8 @@ responses.post("/", async (c) => {
 			);
 		}
 	}
+
+	forwardCacheStatusHeader(c, response);
 
 	// Handle streaming response
 	if (req.stream) {
@@ -874,17 +913,7 @@ responses.post("/compact", async (c) => {
 
 	const compactionId = `resp_${shortid(24)}`;
 
-	const internalHeaders: Record<string, string> = {
-		"Content-Type": "application/json",
-		Authorization: c.req.header("Authorization") ?? "",
-		"x-api-key": c.req.header("x-api-key") ?? "",
-		"User-Agent": c.req.header("User-Agent") ?? "",
-		"x-request-id": c.req.header("x-request-id") ?? "",
-		"x-source": c.req.header("x-source") ?? "",
-		"x-debug": c.req.header("x-debug") ?? "",
-		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
-		...internalApiOriginHeaders("responses"),
-	};
+	const internalHeaders: Record<string, string> = forwardedHeaders(c);
 
 	const contextKey = compactionId;
 	setResponsesContext(contextKey, { logId: compactionId });
@@ -923,6 +952,8 @@ responses.post("/compact", async (c) => {
 			);
 		}
 	}
+
+	forwardCacheStatusHeader(c, response);
 
 	const chatJson = await response.json();
 	const createdAt = Math.floor(Date.now() / 1000);
