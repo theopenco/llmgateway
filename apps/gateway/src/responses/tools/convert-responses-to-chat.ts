@@ -132,6 +132,7 @@ export function convertResponsesInputToMessages(
 	// and attach to the next assistant message so the provider layer can replay
 	// the reasoning (encrypted payloads and/or text) on this turn.
 	const pendingReasoning: PendingReasoning = { texts: [], details: [] };
+	let pendingToolPhase: ChatMessage["phase"];
 	const pendingGeneratedImages: Array<Record<string, unknown>> = [];
 
 	let i = 0;
@@ -178,7 +179,8 @@ export function convertResponsesInputToMessages(
 			// Fold trailing assistant message content (if any) into this same
 			// assistant message rather than emitting it as a separate message.
 			let foldedContent: string | null = null;
-			let foldedPhase: ChatMessage["phase"];
+			let foldedPhase = pendingToolPhase;
+			pendingToolPhase = undefined;
 			while (i < input.length) {
 				const next = input[i] as Record<string, unknown> | undefined;
 				if (
@@ -322,6 +324,7 @@ export function convertResponsesInputToMessages(
 				!extractTextFromContent(content) &&
 				isToolCallItem(input[i + 1])
 			) {
+				pendingToolPhase = msg.phase;
 				i++;
 				continue;
 			}

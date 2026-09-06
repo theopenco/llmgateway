@@ -168,6 +168,13 @@ describe("Gemini signed text parts", () => {
 				buildGoogleReasoningDetails(parts),
 			),
 		).toEqual(parts);
+		// Details can describe only the parts not already signed explicitly.
+		expect(
+			restoreGoogleReasoningDetails(
+				[parts[0]!, { text: "second" }],
+				buildGoogleReasoningDetails(parts).slice(1),
+			),
+		).toEqual(parts);
 	});
 
 	it("restores a signed thought before tool calls without answer text", async () => {

@@ -559,6 +559,50 @@ describe("convertResponsesInputToMessages", () => {
 		expect(result[2]!.role).toBe("tool");
 	});
 
+	it.each(["commentary", "final_answer"] as const)(
+		"preserves %s on a signed message folded into a tool call",
+		(phase) => {
+			const details = [
+				{
+					type: "reasoning.text",
+					format: "google-gemini-v1",
+					signature: "test-signature",
+				},
+			];
+			const result = convertResponsesInputToMessages([
+				{
+					type: "message",
+					role: "assistant",
+					content: "",
+					phase,
+					reasoning_details: details,
+				},
+				{
+					type: "function_call",
+					call_id: "call_first",
+					name: "lookup",
+					arguments: "{}",
+				},
+				{ type: "function_call_output", call_id: "call_first", output: "42" },
+				{
+					type: "function_call",
+					call_id: "call_second",
+					name: "lookup",
+					arguments: "{}",
+				},
+			]);
+			expect(result).toHaveLength(3);
+			expect(result[0]).toMatchObject({
+				role: "assistant",
+				phase,
+				reasoning_details: details,
+				tool_calls: [{ id: "call_first" }],
+			});
+			expect(result[2]!.phase).toBeUndefined();
+			expect(result[2]!.reasoning_details).toBeUndefined();
+		},
+	);
+
 	it("preserves the phase of a folded trailing assistant message", () => {
 		const input = [
 			{
