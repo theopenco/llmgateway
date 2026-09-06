@@ -12,16 +12,14 @@ export interface RoutingWeightsConfig {
 export interface RoutingThresholdsConfig {
 	cachePromptTokens?: number;
 	/**
-	 * Assumed prompt-cache hit rate ([0,1]) used to blend cachedInputPrice into
-	 * the routing price once a request reaches cachePromptTokens. 0 ranks on
-	 * list prices only.
+	 * Prompt-cache hit rate ([0,1]). Explicit overrides take precedence over
+	 * observed project usage; otherwise the cold-start fallback depends on the
+	 * organization kind (DEFAULT_CACHE_HIT_RATE_BY_ORG_KIND).
 	 */
 	cacheHitRate?: number;
 	/**
-	 * Assumed output:input token ratio for cache-relevant (large-prompt)
-	 * requests. The default ranking weighs output at parity with input, which
-	 * buries cachedInputPrice differences for prompt-heavy traffic; 1 keeps
-	 * parity.
+	 * Output:input ratio for large prompts. Explicit overrides take precedence
+	 * over observed project usage; otherwise the default is a cold-start fallback.
 	 */
 	cacheOutputRatio?: number;
 	uptimePenalty?: number;
@@ -100,6 +98,11 @@ export interface RoutingConfigOverrides {
 export interface ResolvedRoutingConfig {
 	weights: Required<RoutingWeightsConfig>;
 	thresholds: Required<RoutingThresholdsConfig>;
+	/** Preserve explicit pricing assumptions when applying observed token usage. */
+	cachePricingOverrides?: Pick<
+		RoutingThresholdsConfig,
+		"cacheHitRate" | "cacheOutputRatio"
+	>;
 	retry: Required<RoutingRetryConfig>;
 	/**
 	 * Timeouts are intentionally kept as the raw project overrides (not
@@ -123,9 +126,30 @@ export const DEFAULT_ROUTING_WEIGHTS: Required<RoutingWeightsConfig> = {
 	cache: 0.2,
 };
 
+export type RoutingOrganizationKind = "default" | "devpass" | "chat";
+
+/**
+ * Cold-start cache-hit rate by organization kind. DevPass and Chat sessions
+ * replay most of their prompt on every turn; team workloads are mixed.
+ */
+export const DEFAULT_CACHE_HIT_RATE_BY_ORG_KIND: Record<
+	RoutingOrganizationKind,
+	number
+> = {
+	default: 0.5,
+	devpass: 0.85,
+	chat: 0.85,
+};
+
+export function getDefaultCacheHitRate(
+	orgKind?: RoutingOrganizationKind | null,
+): number {
+	return DEFAULT_CACHE_HIT_RATE_BY_ORG_KIND[orgKind ?? "default"];
+}
+
 export const DEFAULT_ROUTING_THRESHOLDS: Required<RoutingThresholdsConfig> = {
 	cachePromptTokens: 5000,
-	cacheHitRate: 0.7,
+	cacheHitRate: DEFAULT_CACHE_HIT_RATE_BY_ORG_KIND.default,
 	cacheOutputRatio: 0.2,
 	uptimePenalty: 95,
 	defaultUptime: 100,
@@ -280,6 +304,7 @@ function mergeGroup<T extends Record<string, number | boolean>>(
 export function resolveRoutingConfig(
 	overrides: RoutingConfigOverrides | null | undefined,
 	providerPriorityDefaults: ProviderPriorityOverrides,
+	orgKind?: RoutingOrganizationKind | null,
 ): ResolvedRoutingConfig {
 	const enabled = overrides?.enabled !== false;
 	const effectiveOverrides = enabled ? overrides : null;
@@ -313,9 +338,16 @@ export function resolveRoutingConfig(
 	return {
 		weights: mergeGroup(DEFAULT_ROUTING_WEIGHTS, effectiveOverrides?.weights),
 		thresholds: mergeGroup(
-			DEFAULT_ROUTING_THRESHOLDS,
+			{
+				...DEFAULT_ROUTING_THRESHOLDS,
+				cacheHitRate: getDefaultCacheHitRate(orgKind),
+			},
 			effectiveOverrides?.thresholds,
 		),
+		cachePricingOverrides: {
+			cacheHitRate: effectiveOverrides?.thresholds?.cacheHitRate,
+			cacheOutputRatio: effectiveOverrides?.thresholds?.cacheOutputRatio,
+		},
 		retry: mergeGroup(DEFAULT_ROUTING_RETRY, effectiveOverrides?.retry),
 		timeouts: timeoutOverrides,
 		history: clampHistory(
@@ -404,16 +436,24 @@ export function applyRoutingPreference(
 	};
 }
 
-let cachedDefaults: ResolvedRoutingConfig | null = null;
+const cachedDefaults = new Map<
+	RoutingOrganizationKind,
+	ResolvedRoutingConfig
+>();
 
-export function getDefaultRoutingConfig(): ResolvedRoutingConfig {
-	if (!cachedDefaults) {
-		cachedDefaults = resolveRoutingConfig(
+export function getDefaultRoutingConfig(
+	orgKind: RoutingOrganizationKind = "default",
+): ResolvedRoutingConfig {
+	let defaults = cachedDefaults.get(orgKind);
+	if (!defaults) {
+		defaults = resolveRoutingConfig(
 			null,
 			buildProviderPriorityDefaults(),
+			orgKind,
 		);
+		cachedDefaults.set(orgKind, defaults);
 	}
 	// Return a defensive deep clone so callers cannot mutate the cached
 	// constants and accidentally poison subsequent routing decisions.
-	return structuredClone(cachedDefaults);
+	return structuredClone(defaults);
 }

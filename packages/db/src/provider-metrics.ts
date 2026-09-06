@@ -5,6 +5,8 @@ export interface ProviderMetrics {
 	uptime?: number; // Percentage (0-100, undefined = no data)
 	averageLatency?: number; // Milliseconds (undefined = no data)
 	throughput?: number; // Tokens per second (undefined = no data)
+	cacheHitRate?: number;
+	cacheOutputRatio?: number;
 	totalRequests: number;
 }
 

@@ -8,6 +8,7 @@ import {
 	DEFAULT_ROUTING_THRESHOLDS,
 	DEFAULT_ROUTING_WEIGHTS,
 	buildProviderPriorityDefaults,
+	getDefaultRoutingConfig,
 	historyMatchesDefaults,
 	resolveRoutingConfig,
 	ROUTING_HISTORY_MAX_WINDOW_MINUTES,
@@ -17,6 +18,28 @@ import {
 
 describe("resolveRoutingConfig", () => {
 	const providerDefaults = buildProviderPriorityDefaults();
+
+	it.each([
+		[undefined, 0.5],
+		["default", 0.5],
+		["devpass", 0.85],
+		["chat", 0.85],
+	] as const)("defaults the cache-hit rate for org kind %s", (kind, rate) => {
+		const resolved = resolveRoutingConfig(null, providerDefaults, kind);
+		expect(resolved.thresholds.cacheHitRate).toBe(rate);
+		expect(resolved.cachePricingOverrides?.cacheHitRate).toBeUndefined();
+		expect(getDefaultRoutingConfig(kind).thresholds.cacheHitRate).toBe(rate);
+	});
+
+	it("keeps an explicit cache-hit rate over the org kind default", () => {
+		const resolved = resolveRoutingConfig(
+			{ thresholds: { cacheHitRate: 0.3 } },
+			providerDefaults,
+			"devpass",
+		);
+		expect(resolved.thresholds.cacheHitRate).toBe(0.3);
+		expect(resolved.cachePricingOverrides?.cacheHitRate).toBe(0.3);
+	});
 
 	it("returns defaults when overrides are null", () => {
 		const resolved = resolveRoutingConfig(null, providerDefaults);

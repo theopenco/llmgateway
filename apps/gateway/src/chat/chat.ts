@@ -2635,6 +2635,7 @@ chat.openapi(completions, async (c) => {
 		project.id,
 		organization.id,
 		organization.plan,
+		organization.kind,
 	);
 	// Routing strategies only affect multi-provider selection. When the request
 	// pins a specific provider (e.g. `openai/gpt-4o`), the same routingCfg is
@@ -4134,6 +4135,11 @@ chat.openapi(completions, async (c) => {
 			const metricsMap = await getProviderMetricsForRouting(
 				metricsCombinations,
 				routingCfg,
+				{
+					projectId: project.id,
+					promptTokens: routingPromptTokens,
+					session: sessionStickyEnabled,
+				},
 			);
 			providerAgnosticSelectedProviders =
 				await collapseProvidersToBestRegionPerProvider(
@@ -4434,6 +4440,11 @@ chat.openapi(completions, async (c) => {
 					const metricsMap = await getProviderMetricsForRouting(
 						metricsCombinations,
 						routingCfg,
+						{
+							projectId: project.id,
+							promptTokens: routingPromptTokens,
+							session: sessionStickyEnabled,
+						},
 					);
 					const bestRegionResult = await getCheapestFromAvailableProviders(
 						eligibleMappings,
@@ -4659,6 +4670,11 @@ chat.openapi(completions, async (c) => {
 						const allMetricsMap = await getProviderMetricsForRouting(
 							metricsCombinations,
 							routingCfg,
+							{
+								projectId: project.id,
+								promptTokens: routingPromptTokens,
+								session: sessionStickyEnabled,
+							},
 						);
 
 						const cheapestResult = await getCheapestFromAvailableProviders(
@@ -4839,6 +4855,11 @@ chat.openapi(completions, async (c) => {
 						const allMetricsMap = await getProviderMetricsForRouting(
 							metricsCombinations,
 							routingCfg,
+							{
+								projectId: project.id,
+								promptTokens: routingPromptTokens,
+								session: sessionStickyEnabled,
+							},
 						);
 						const providerAgnosticCandidates =
 							await collapseProvidersToBestRegionPerProvider(
@@ -5187,6 +5208,11 @@ chat.openapi(completions, async (c) => {
 				const metricsMap = await getProviderMetricsForRouting(
 					metricsCombinations,
 					routingCfg,
+					{
+						projectId: project.id,
+						promptTokens: routingPromptTokens,
+						session: sessionStickyEnabled,
+					},
 				);
 				const providerAgnosticCandidates =
 					await collapseProvidersToBestRegionPerProvider(
@@ -5448,6 +5474,11 @@ chat.openapi(completions, async (c) => {
 			metricsMap = await getProviderMetricsForRouting(
 				metricsCombinations,
 				routingCfg,
+				{
+					projectId: project.id,
+					promptTokens: routingPromptTokens,
+					session: sessionStickyEnabled,
+				},
 			);
 		}
 

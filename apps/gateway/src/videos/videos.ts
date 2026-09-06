@@ -932,6 +932,7 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		project.id,
 		organization.id,
 		organization.plan,
+		organization.kind,
 	);
 
 	return {
