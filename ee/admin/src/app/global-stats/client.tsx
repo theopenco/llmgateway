@@ -568,7 +568,15 @@ export function GlobalStatsClient() {
 		providerKeyId ? `Key ${providerKeyName}` : null,
 	].filter((part): part is string => part !== null);
 	const scopeSuffix = scopeParts.map((label) => ` · ${label}`).join("");
-	const scopeLabel = scopeParts.length > 0 ? scopeParts.join(" · ") : "Total";
+	// Stat-card headings are uppercase and narrow; name the key in the
+	// descriptions but keep it to "Key" here.
+	const statScopeParts = [
+		orgKind === "all" ? null : orgKindLabel(orgKind),
+		usageMode === "total" ? null : usageModeLabel(usageMode),
+		providerKeyId ? "Key" : null,
+	].filter((part): part is string => part !== null);
+	const scopeLabel =
+		statScopeParts.length > 0 ? statScopeParts.join(" · ") : "Total";
 
 	const breakdownTotalPages = Math.max(
 		1,
@@ -738,7 +746,7 @@ export function GlobalStatsClient() {
 					</Button>
 				</div>
 				<div className="rounded-xl border border-border/60 bg-card/70 p-3 shadow-sm">
-					<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[auto_auto_auto_minmax(0,1fr)_auto] xl:items-end">
+					<div className="flex flex-wrap items-end gap-x-5 gap-y-3">
 						<ToolbarGroup label="Traffic">
 							<UsageModeSelector
 								compact
@@ -783,7 +791,7 @@ export function GlobalStatsClient() {
 								})}
 							</div>
 						</ToolbarGroup>
-						<ToolbarGroup label="Range">
+						<ToolbarGroup label="Range" className="ml-auto">
 							<GlobalStatsRangePicker />
 						</ToolbarGroup>
 					</div>
