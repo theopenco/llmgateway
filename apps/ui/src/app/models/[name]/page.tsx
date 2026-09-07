@@ -73,21 +73,25 @@ export default async function ModelPage({ params }: PageProps) {
 	const decodedName = decodeURIComponent(name);
 
 	// Discounts, ratings and carrier branding do not depend on the model
-	// definition, so all four catalogue requests run in one round-trip.
-	const [modelDef, allDiscounts, ratingsData, apiProviders] = await Promise.all(
-		[
-			findPublicModelDefinition(decodedName),
-			fetchModelDiscounts(decodedName),
-			fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
-				params: { query: { modelId: decodedName } },
-			}),
-			fetchProviders(),
-		],
-	);
+	// definition, so all four catalogue requests start in one round-trip; the
+	// definition is awaited first so unknown models 404 without waiting for
+	// the rest. None of the batched fetchers reject — they log and return
+	// fallbacks — so abandoning the batch on notFound() is safe.
+	const modelDefPromise = findPublicModelDefinition(decodedName);
+	const pageDataPromise = Promise.all([
+		fetchModelDiscounts(decodedName),
+		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
+			params: { query: { modelId: decodedName } },
+		}),
+		fetchProviders(),
+	]);
+	const modelDef = await modelDefPromise;
 
 	if (!modelDef) {
 		notFound();
 	}
+
+	const [allDiscounts, ratingsData, apiProviders] = await pageDataPromise;
 
 	const getStabilityBadgeProps = (stability?: StabilityLevel) => {
 		switch (stability) {
