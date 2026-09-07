@@ -7102,16 +7102,13 @@ chat.openapi(completions, async (c) => {
 	// When the provider only supports streaming, force it even if the client didn't request it.
 	// The upstream request uses effectiveStream; the client response uses stream.
 	const forceStream = streamingSupport === "only" && !stream;
-	// Force upstream SSE for OpenAI/Azure gpt-image-* regardless of what the client
-	// requested. For image generation the upstream request is always non-streaming
-	// (effectiveStream is forced false above when faking streaming for the client),
-	// so partial_images=1 is needed in both cases to keep the connection alive past
-	// Azure's 122s synchronous wall and to use AI_STREAMING_TIMEOUT_MS (1200s default)
-	// instead of AI_TIMEOUT_MS (600s). The SSE response is collapsed back into the
-	// regular non-streaming JSON shape before being returned (or re-wrapped as fake
-	// SSE for clients that requested streaming).
+	// OpenAI/Azure image streaming only supports n=1. Force SSE for single-image
+	// requests to keep the connection alive past Azure's 122s synchronous wall
+	// and use AI_STREAMING_TIMEOUT_MS. Collapse the response to JSON (or fake
+	// client SSE); batches use the provider's non-streaming response.
 	let forceImageStreamUpstream =
 		isImageGeneration &&
+		(image_config?.n ?? 1) === 1 &&
 		(usedProvider === "openai" || usedProvider === "azure");
 	const effectiveStream = fakeStreamingForImageGen
 		? false
@@ -7597,6 +7594,7 @@ chat.openapi(completions, async (c) => {
 		isImageGeneration = ctx.isImageGeneration;
 		forceImageStreamUpstream =
 			isImageGeneration &&
+			(image_config?.n ?? 1) === 1 &&
 			(usedProvider === "openai" || usedProvider === "azure");
 		if (forceImageStreamUpstream) {
 			requestBody = injectImageStreamParams(requestBody);
