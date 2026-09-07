@@ -250,6 +250,7 @@ function buildEditedUserMessage(
 }
 
 interface ChatPageClientProps {
+	initiallySignedOut?: boolean;
 	models: ApiModel[];
 	providers: ApiProvider[];
 	organizations: Organization[];
@@ -292,6 +293,7 @@ function getSelectedMapping(
 }
 
 export default function ChatPageClient({
+	initiallySignedOut = false,
 	models,
 	providers,
 	organizations,
@@ -1134,7 +1136,7 @@ export default function ChatPageClient({
 	]);
 
 	const isAuthenticated = !isUserLoading && !!user;
-	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
+	const showAuthDialog = !user && (!isUserLoading || initiallySignedOut);
 
 	const returnUrl = useMemo(() => {
 		const search = searchParams.toString();

@@ -264,6 +264,10 @@ export async function renderPlaygroundShell({
 			) : null}
 			{isMember ? <PlaygroundSeoSection variant="chat" /> : null}
 			<ChatPageClient
+				initiallySignedOut={
+					!cookieStore.has("better-auth.session_token") &&
+					!cookieStore.has("__Secure-better-auth.session_token")
+				}
 				models={models.filter(
 					(m) =>
 						!m.output?.includes("embedding") && !m.output?.includes("rerank"),
