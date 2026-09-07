@@ -72,11 +72,22 @@ export default async function ModelPage({ params }: PageProps) {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
 
-	const modelDef = await findPublicModelDefinition(decodedName);
+	// Fetchers resolve to fallbacks, so an early notFound can leave them pending.
+	const modelDefPromise = findPublicModelDefinition(decodedName);
+	const pageDataPromise = Promise.all([
+		fetchModelDiscounts(decodedName),
+		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
+			params: { query: { modelId: decodedName } },
+		}),
+		fetchProviders(),
+	]);
+	const modelDef = await modelDefPromise;
 
 	if (!modelDef) {
 		notFound();
 	}
+
+	const [allDiscounts, ratingsData, apiProviders] = await pageDataPromise;
 
 	const getStabilityBadgeProps = (stability?: StabilityLevel) => {
 		switch (stability) {
@@ -107,15 +118,8 @@ export default async function ModelPage({ params }: PageProps) {
 		return stability && ["unstable", "experimental"].includes(stability);
 	};
 
-	const [allDiscounts, ratingsData] = await Promise.all([
-		fetchModelDiscounts(decodedName),
-		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
-			params: { query: { modelId: decodedName } },
-		}),
-	]);
 	// Carrier-uploaded branding (Airside claims) overlays the static provider
 	// info, and is the only provider info a DB-only carrier has.
-	const apiProviders = await fetchProviders();
 	const expandedProviders = expandAllProviderRegions(modelDef.providers);
 	const modelProviders = expandedProviders.map((provider) => {
 		const providerInfo = providerDefinitions.find(

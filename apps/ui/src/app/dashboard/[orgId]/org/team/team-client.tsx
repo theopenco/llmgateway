@@ -89,7 +89,10 @@ import { useApi } from "@/lib/fetch-client";
 import { applyUsageMode } from "@/lib/usage-mode";
 
 import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET, Time } from "@llmgateway/shared";
-import { isProjectScopedRole } from "@llmgateway/shared/organization-roles";
+import {
+	isOrganizationAdmin,
+	isProjectScopedRole,
+} from "@llmgateway/shared/organization-roles";
 
 import { OrganizationTeamsClient } from "./organization-teams-client";
 import { TeamTabs } from "./team-tabs";
@@ -725,15 +728,20 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 	const { user } = useUser();
 	const usageMode = useUsageMode();
 
-	const { data, isLoading } = useTeamMembers(organizationId, initialData);
+	const teamsTabRequested = searchParams.get("tab") === "teams";
+	const isMemberAdmin = (membersData: TeamMembersData | undefined) =>
+		isOrganizationAdmin(
+			membersData?.members.find((member) => member.userId === user?.id)?.role,
+		);
+	const { data, isLoading } = useTeamMembers(organizationId, initialData, {
+		enabled: (membersData) => !teamsTabRequested || !isMemberAdmin(membersData),
+	});
 	const addMemberMutation = useAddTeamMember(organizationId);
 	const removeMemberMutation = useRemoveTeamMember(organizationId);
 	const revokeInviteMutation = useRevokeTeamInvite(organizationId);
 
-	const currentUserRole = data?.members.find(
-		(member) => member.userId === user?.id,
-	)?.role;
-	const isAdmin = currentUserRole === "owner" || currentUserRole === "admin";
+	const isAdmin = isMemberAdmin(data);
+	const teamsTabActive = teamsTabRequested && isAdmin;
 	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const showUsage = isEnterprise && isAdmin;
 
@@ -753,7 +761,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		"get",
 		"/orgs/{id}/projects",
 		{ params: { path: { id: organizationId } } },
-		{ enabled: !!organizationId && isAdmin },
+		{ enabled: !!organizationId && isAdmin && !teamsTabActive },
 	);
 	const orgProjects: OrgProject[] = (orgProjectsData?.projects ?? []).map(
 		(p) => ({ id: p.id, name: p.name }),
@@ -765,12 +773,12 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		"get",
 		"/sso/scim",
 		{ params: { query: { organizationId } } },
-		{ enabled: !!organizationId && isAdmin && isEnterprise },
+		{ enabled: !!organizationId && isAdmin && isEnterprise && !teamsTabActive },
 	);
 	const scimEnabled = scimStatus?.configured === true;
 
 	useEffect(() => {
-		if (!showUsage) {
+		if (!showUsage || teamsTabActive) {
 			return;
 		}
 		if (!shouldApplyDefaults(searchParams)) {
@@ -784,6 +792,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		router.replace(`${buildOrgUrl("org/team")}?${params2.toString()}` as Route);
 	}, [
 		showUsage,
+		teamsTabActive,
 		searchParams,
 		router,
 		buildOrgUrl,
@@ -809,7 +818,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 				},
 			},
 		},
-		{ enabled: !!organizationId && showUsage },
+		{ enabled: !!organizationId && showUsage && !teamsTabActive },
 	);
 
 	const usageByUserId = new Map(
@@ -926,7 +935,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		});
 	};
 
-	if (searchParams.get("tab") === "teams" && isAdmin) {
+	if (teamsTabActive) {
 		return (
 			<OrganizationTeamsClient
 				organizationId={organizationId}
