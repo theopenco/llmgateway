@@ -2320,6 +2320,28 @@ async function seed() {
 		projectId: "enterprise-project-id",
 	});
 
+	await bulkInsert(
+		tables.projectHourlyStats,
+		Array.from({ length: 90 }, (_, day) => {
+			const hourTimestamp = daysAgo(day);
+			hourTimestamp.setUTCHours(0, 0, 0, 0);
+			return {
+				id: `enterprise-usage-${hourTimestamp.toISOString().slice(0, 10)}`,
+				projectId: "enterprise-project-id",
+				hourTimestamp,
+				requestCount: 100 + day,
+				creditsRequestCount: 100 + day,
+				inputTokens: "80000",
+				outputTokens: "20000",
+				totalTokens: "100000",
+				cost: 0.3,
+				creditsCost: 0.3,
+				inputCost: 0.1,
+				outputCost: 0.2,
+			};
+		}),
+	);
+
 	// A key the developer created, so their own-usage view has something to show.
 	await upsert(tables.apiKey, {
 		id: "enterprise-dev-api-key-id",
