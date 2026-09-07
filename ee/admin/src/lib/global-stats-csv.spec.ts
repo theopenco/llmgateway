@@ -132,6 +132,8 @@ describe("buildGlobalStatsReportCsv", () => {
 				organization: "All orgs",
 				groupBy: "By model",
 				modelView: "Providers",
+				providerKeyId: "pk_1",
+				providerKeyLabel: "openai · prod",
 				metric: "cost",
 			},
 			generatedAt: new Date("2026-09-07T00:00:00Z"),
@@ -172,6 +174,8 @@ describe("buildGlobalStatsReportCsv", () => {
 		]);
 		expect(sections[0]).toContain("modelView,Providers");
 		expect(sections[0]).toContain("traffic,Credits");
+		expect(sections[0]).toContain("providerKeyId,pk_1");
+		expect(sections[0]).toContain("providerKey,openai · prod");
 		expect(sections[0]).toContain("generated,2026-09-07T00:00:00.000Z");
 		expect(csv).not.toContain("Composition by billing mode");
 		expect(sections[4].split("\n")).toEqual([
@@ -189,6 +193,7 @@ describe("globalStatsExportFilename", () => {
 				start: "2026-09-01",
 				end: "2026-09-07",
 				allTime: false,
+				providerKeyId: null,
 			}),
 		).toBe("global-stats-timeseries-2026-09-01_2026-09-07.csv");
 		expect(
@@ -196,7 +201,8 @@ describe("globalStatsExportFilename", () => {
 				start: "2026-01-01",
 				end: "2026-09-07",
 				allTime: true,
+				providerKeyId: "pk_1",
 			}),
-		).toBe("global-stats-report-all-time.csv");
+		).toBe("global-stats-report-all-time-key-pk_1.csv");
 	});
 });

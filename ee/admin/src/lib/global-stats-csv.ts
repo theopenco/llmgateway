@@ -55,6 +55,8 @@ export interface GlobalStatsCsvScope {
 	organization: string;
 	groupBy: string;
 	modelView: string | null;
+	providerKeyId: string | null;
+	providerKeyLabel: string | null;
 	metric: GlobalStatsChartMetric;
 }
 
@@ -236,6 +238,12 @@ export function buildGlobalStatsReportCsv(
 					["organization", scope.organization],
 					["breakDownBy", scope.groupBy],
 					...(scope.modelView ? [["modelView", scope.modelView]] : []),
+					...(scope.providerKeyId
+						? [
+								["providerKeyId", scope.providerKeyId],
+								["providerKey", scope.providerKeyLabel ?? scope.providerKeyId],
+							]
+						: []),
 					["measure", GLOBAL_STATS_METRIC_LABELS[scope.metric]],
 				],
 				format,
@@ -300,8 +308,12 @@ export function buildGlobalStatsReportCsv(
 
 export function globalStatsExportFilename(
 	section: string,
-	scope: Pick<GlobalStatsCsvScope, "start" | "end" | "allTime">,
+	scope: Pick<
+		GlobalStatsCsvScope,
+		"start" | "end" | "allTime" | "providerKeyId"
+	>,
 ): string {
 	const range = scope.allTime ? "all-time" : `${scope.start}_${scope.end}`;
-	return `global-stats-${section}-${range}.csv`;
+	const key = scope.providerKeyId ? `-key-${scope.providerKeyId}` : "";
+	return `global-stats-${section}-${range}${key}.csv`;
 }

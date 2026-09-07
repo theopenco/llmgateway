@@ -37,6 +37,12 @@ import {
 	resolveGlobalStatsRange,
 } from "@/components/global-stats-range-picker";
 import { OrgKindSelector, useOrgKind } from "@/components/org-kind-selector";
+import {
+	ProviderKeySelector,
+	providerKeyLabel,
+	useGlobalStatsProviderKeys,
+	useProviderKeyId,
+} from "@/components/provider-key-selector";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -302,7 +308,11 @@ export function GlobalStatsClient() {
 	const { allTime, from, to } = resolveGlobalStatsRange(searchParams);
 	const usageMode = useUsageMode();
 	const orgKind = useOrgKind();
-	const groupBy = parseGroupBy(searchParams.get("groupBy"));
+	const providerKeyId = useProviderKeyId();
+	// The per-credential rollup has no x-source dimension (see the API).
+	const requestedGroupBy = parseGroupBy(searchParams.get("groupBy"));
+	const groupBy =
+		providerKeyId && requestedGroupBy === "source" ? "model" : requestedGroupBy;
 	const chartMetric = parseMetric(searchParams.get("metric"));
 	const modelView = parseModelView(searchParams.get("modelView"));
 	const showTimeseriesBreakdown = parseBreakdown(searchParams.get("breakdown"));
@@ -323,7 +333,7 @@ export function GlobalStatsClient() {
 	// The range picker and the mode/kind selectors write to the URL directly, so
 	// reset pagination during render when any of them changes (each also
 	// re-sorts the breakdown).
-	const viewKey = `${allTime ? "all" : `${from}|${to}`}|${usageMode}|${orgKind}`;
+	const viewKey = `${allTime ? "all" : `${from}|${to}`}|${usageMode}|${orgKind}|${providerKeyId ?? ""}`;
 	const [lastViewKey, setLastViewKey] = useState(viewKey);
 	if (viewKey !== lastViewKey) {
 		setLastViewKey(viewKey);
@@ -372,10 +382,18 @@ export function GlobalStatsClient() {
 					modelView,
 					mode: usageMode,
 					kind: orgKind,
+					...(providerKeyId ? { providerKeyId } : {}),
 				},
 			},
 		},
 	);
+	const { data: providerKeysData } = useGlobalStatsProviderKeys();
+	const selectedProviderKey = providerKeyId
+		? providerKeysData?.providerKeys.find((key) => key.id === providerKeyId)
+		: undefined;
+	const providerKeyName = selectedProviderKey
+		? providerKeyLabel(selectedProviderKey)
+		: providerKeyId;
 
 	const rangeLabel = useMemo(() => {
 		const start = from ?? data?.start;
@@ -540,10 +558,14 @@ export function GlobalStatsClient() {
 	const scopeNotes = [
 		usageModeDescription(usageMode),
 		orgKindDescription(orgKind),
+		providerKeyId
+			? `Only requests served by provider key ${providerKeyName}; traffic served by env-var credentials is never attributed to a key.`
+			: null,
 	].filter(Boolean);
 	const scopeParts = [
 		orgKind === "all" ? null : orgKindLabel(orgKind),
 		usageMode === "total" ? null : usageModeLabel(usageMode),
+		providerKeyId ? `Key ${providerKeyName}` : null,
 	].filter((part): part is string => part !== null);
 	const scopeSuffix = scopeParts.map((label) => ` · ${label}`).join("");
 	const scopeLabel = scopeParts.length > 0 ? scopeParts.join(" · ") : "Total";
@@ -581,6 +603,8 @@ export function GlobalStatsClient() {
 					? (MODEL_VIEW_OPTIONS.find((opt) => opt.value === modelView)?.label ??
 						modelView)
 					: null,
+			providerKeyId,
+			providerKeyLabel: providerKeyName,
 			metric: chartMetric,
 		}),
 		[
@@ -593,6 +617,8 @@ export function GlobalStatsClient() {
 			orgKind,
 			groupBy,
 			modelView,
+			providerKeyId,
+			providerKeyName,
 			chartMetric,
 		],
 	);
@@ -712,7 +738,7 @@ export function GlobalStatsClient() {
 					</Button>
 				</div>
 				<div className="rounded-xl border border-border/60 bg-card/70 p-3 shadow-sm">
-					<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[auto_auto_minmax(0,1fr)_auto] xl:items-end">
+					<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[auto_auto_auto_minmax(0,1fr)_auto] xl:items-end">
 						<ToolbarGroup label="Traffic">
 							<UsageModeSelector
 								compact
@@ -722,6 +748,9 @@ export function GlobalStatsClient() {
 						<ToolbarGroup label="Organization">
 							<OrgKindSelector compact className="w-fit max-w-full flex-wrap" />
 						</ToolbarGroup>
+						<ToolbarGroup label="Provider key">
+							<ProviderKeySelector />
+						</ToolbarGroup>
 						<ToolbarGroup label="Break down by">
 							<div
 								className="flex w-fit max-w-full flex-wrap items-center gap-1 rounded-md border border-border/60 bg-background p-1"
@@ -730,6 +759,8 @@ export function GlobalStatsClient() {
 							>
 								{GROUP_OPTIONS.map((opt) => {
 									const Icon = opt.icon;
+									const unavailable =
+										opt.value === "source" && providerKeyId !== null;
 									return (
 										<Button
 											key={opt.value}
@@ -737,6 +768,12 @@ export function GlobalStatsClient() {
 											size="sm"
 											className="h-7 gap-1.5 px-3 text-xs"
 											aria-pressed={groupBy === opt.value}
+											disabled={unavailable}
+											title={
+												unavailable
+													? "x-source is not tracked per provider key"
+													: undefined
+											}
 											onClick={() => setGroupBy(opt.value)}
 										>
 											<Icon className="h-3.5 w-3.5" aria-hidden />

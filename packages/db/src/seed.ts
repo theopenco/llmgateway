@@ -591,7 +591,36 @@ function generateApiKeys(projects: ProjectDef[]): ApiKeyDef[] {
 	return keys;
 }
 
-function generateLogs(projects: ProjectDef[], apiKeys: ApiKeyDef[]) {
+// BYOK credentials for the demo organizations, so api-keys traffic is
+// attributable to a provider key (provider-credential spend and the global
+// stats per-key filter). Credits traffic stays unattributed, like requests
+// served by env-var credentials.
+function generateProviderKeys(projects: ProjectDef[]) {
+	const keys: (typeof tables.providerKey.$inferInsert)[] = [];
+	const orgIds = new Set(
+		projects.filter((p) => p.mode !== "credits").map((p) => p.orgId),
+	);
+	for (const orgId of orgIds) {
+		for (const provider of ["openai", "anthropic"]) {
+			keys.push({
+				id: `seed-pk-${orgId}-${provider}`,
+				organizationId: orgId,
+				provider,
+				token: `sk-seed-${provider}-${orgId}`,
+				tokenMasked: `sk-...${orgId.slice(-4)}`,
+				description: `${provider} production key`,
+				usage: String(randomFloat(0, 200)),
+			});
+		}
+	}
+	return keys;
+}
+
+function generateLogs(
+	projects: ProjectDef[],
+	apiKeys: ApiKeyDef[],
+	providerKeys: (typeof tables.providerKey.$inferInsert)[],
+) {
 	const generatedLogs = [];
 	const keysByProject = new Map<string, ApiKeyDef[]>();
 	for (const key of apiKeys) {
@@ -599,6 +628,12 @@ function generateLogs(projects: ProjectDef[], apiKeys: ApiKeyDef[]) {
 		existing.push(key);
 		keysByProject.set(key.projectId, existing);
 	}
+	const providerKeyIds = new Map(
+		providerKeys.map((key) => [
+			`${key.organizationId}:${key.provider}`,
+			key.id,
+		]),
+	);
 
 	for (const proj of projects) {
 		const projKeys = keysByProject.get(proj.id);
@@ -682,6 +717,10 @@ function generateLogs(projects: ProjectDef[], apiKeys: ApiKeyDef[]) {
 					: undefined,
 				mode: proj.mode,
 				usedMode,
+				providerKeyId:
+					usedMode === "api-keys"
+						? providerKeyIds.get(`${proj.orgId}:${modelDef.provider}`)
+						: undefined,
 				streamed: isStreamed,
 				cached: isCached,
 				discount,
@@ -2836,7 +2875,12 @@ async function seed() {
 		});
 	}
 
-	const generatedLogs = generateLogs(projects, apiKeys);
+	const providerKeys = generateProviderKeys(projects);
+	for (const key of providerKeys) {
+		await upsert(tables.providerKey, key);
+	}
+
+	const generatedLogs = generateLogs(projects, apiKeys, providerKeys);
 	await bulkInsert(tables.log, generatedLogs);
 
 	const transactions = generateTransactions();
