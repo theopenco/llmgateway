@@ -45,7 +45,13 @@ import {
 } from "lucide-react";
 import Link from "next/link.js";
 import { usePathname, useRouter, useSearchParams } from "next/navigation.js";
-import React, { useMemo, useState, useCallback, useEffect } from "react";
+import React, {
+	useMemo,
+	useState,
+	useCallback,
+	useEffect,
+	useDeferredValue,
+} from "react";
 
 import { getProviderIcon } from "@/components/provider-icons";
 import { Badge } from "@/components/ui/badge";
@@ -843,7 +849,8 @@ const ModelTableRow = React.memo(
 	},
 );
 
-const MODELS_PER_PAGE = 50;
+const TABLE_ROWS_PER_PAGE = 50;
+const GRID_MODELS_PER_PAGE = 12;
 
 export function AllModels({
 	children,
@@ -886,6 +893,7 @@ export function AllModels({
 
 	// Search and filter states
 	const [searchQuery, setSearchQuery] = useState(searchParams.get("q") ?? "");
+	const deferredSearchQuery = useDeferredValue(searchQuery);
 	const [showFilters, setShowFilters] = useState(
 		searchParams.get("filters") === "1",
 	);
@@ -1022,7 +1030,8 @@ export function AllModels({
 
 	const updateUrlWithFilters = useCallback(
 		(newParams: Record<string, string | undefined>) => {
-			const params = new URLSearchParams(searchParams.toString());
+			const url = new URL(window.location.href);
+			const params = url.searchParams;
 			Object.entries(newParams).forEach(([key, value]) => {
 				if (value !== undefined && value !== "") {
 					params.set(key, value);
@@ -1030,9 +1039,10 @@ export function AllModels({
 					params.delete(key);
 				}
 			});
-			router.replace(`?${params.toString()}`, { scroll: false });
+			// Filtering is local; avoid refetching the catalogue on each keystroke.
+			window.history.replaceState(null, "", url);
 		},
-		[router, searchParams],
+		[],
 	);
 
 	const setStatusFilter = useCallback(
@@ -1125,7 +1135,7 @@ export function AllModels({
 
 		const filteredModels = preFilteredModels.filter((model) => {
 			// Improved fuzzy search: token-based, accent-insensitive, ignores punctuation
-			if (searchQuery) {
+			if (deferredSearchQuery) {
 				const normalize = (str: string) =>
 					str
 						.toLowerCase()
@@ -1133,7 +1143,7 @@ export function AllModels({
 						.replace(/[\u0300-\u036f]/g, "") // strip accents
 						.replace(/[^a-z0-9]/g, "");
 
-				const queryTokens = searchQuery
+				const queryTokens = deferredSearchQuery
 					.trim()
 					.toLowerCase()
 					.split(/\s+/)
@@ -1152,7 +1162,7 @@ export function AllModels({
 					...providerStrings,
 				];
 				const haystack = normalize(haystackParts.join(" "));
-				const normalizedQuery = normalize(searchQuery);
+				const normalizedQuery = normalize(deferredSearchQuery);
 
 				const containsAllTokens = queryTokens.every((t: string) =>
 					haystack.includes(t),
@@ -1432,7 +1442,7 @@ export function AllModels({
 			.sort((a, b) => compareSortValues(a.key, b.key, sortDirection))
 			.map(({ model }) => model);
 	}, [
-		searchQuery,
+		deferredSearchQuery,
 		filters,
 		priceUnit,
 		sortField,
@@ -1576,9 +1586,9 @@ export function AllModels({
 		1,
 		Math.floor(Number(searchParams.get("page")) || 1),
 	);
-	const totalTablePages = Math.ceil(flattenedRows.length / MODELS_PER_PAGE);
+	const totalTablePages = Math.ceil(flattenedRows.length / TABLE_ROWS_PER_PAGE);
 	const totalGridPages = Math.ceil(
-		modelsWithProviders.length / MODELS_PER_PAGE,
+		modelsWithProviders.length / GRID_MODELS_PER_PAGE,
 	);
 	const totalPages = viewMode === "table" ? totalTablePages : totalGridPages;
 	const safePage = Math.min(currentPage, Math.max(1, totalPages));
@@ -1592,13 +1602,13 @@ export function AllModels({
 	}, [currentPage, safePage, updateUrlWithFilters]);
 
 	const paginatedFlattenedRows = flattenedRows.slice(
-		(safePage - 1) * MODELS_PER_PAGE,
-		safePage * MODELS_PER_PAGE,
+		(safePage - 1) * TABLE_ROWS_PER_PAGE,
+		safePage * TABLE_ROWS_PER_PAGE,
 	);
 
 	const paginatedModels = modelsWithProviders.slice(
-		(safePage - 1) * MODELS_PER_PAGE,
-		safePage * MODELS_PER_PAGE,
+		(safePage - 1) * GRID_MODELS_PER_PAGE,
+		safePage * GRID_MODELS_PER_PAGE,
 	);
 
 	const goToPage = useCallback(
@@ -2637,7 +2647,7 @@ export function AllModels({
 											onChange={(e) => {
 												const value = e.target.value;
 												setSearchQuery(value);
-												updateUrlWithFilters({ q: value ?? undefined });
+												updateUrlWithFilters({ q: value, page: undefined });
 											}}
 											className="pl-8"
 										/>

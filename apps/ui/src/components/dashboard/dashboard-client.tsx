@@ -74,6 +74,7 @@ import type { ActivitT } from "@/types/activity";
 
 interface DashboardClientProps {
 	initialActivityData?: ActivitT;
+	initialActivityRange?: { from: string; to: string };
 	/** Zone the server fetched `initialActivityData` in, so the client can tell
 	 *  whether it still matches the zone it now wants to render. */
 	initialActivityTimeZone?: string;
@@ -222,6 +223,7 @@ function StatCell({
 
 export function DashboardClient({
 	initialActivityData,
+	initialActivityRange,
 	initialActivityTimeZone,
 }: DashboardClientProps) {
 	const router = useRouter();
@@ -285,13 +287,12 @@ export function DashboardClient({
 		},
 		{
 			enabled: !!selectedProject?.id,
-			// Only seed the server payload when it was bucketed in the zone this
-			// query asks for. The client can detect a different zone than the
-			// cookie held (first visit, or the machine moved), and a mismatched
-			// payload would sit there labelled as the new zone for the whole
-			// staleTime.
+			// Reuse the server payload for the matching range and time zone,
+			// including the default range before dates are added to the URL.
 			initialData:
-				searchParams.get("from") && initialActivityTimeZone === displayTimeZone
+				initialActivityRange?.from === fromStr &&
+				initialActivityRange.to === toStr &&
+				initialActivityTimeZone === displayTimeZone
 					? initialActivityData
 					: undefined,
 			refetchOnWindowFocus: false,
