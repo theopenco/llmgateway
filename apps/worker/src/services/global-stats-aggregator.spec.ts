@@ -7,6 +7,7 @@ import {
 	db,
 	eq,
 	globalModelStats,
+	globalProviderKeyModelStats,
 	globalSourceStats,
 	log,
 	organization,
@@ -46,6 +47,7 @@ describe("global stats aggregation", () => {
 		createdAt?: Date;
 		providerMarginPercent?: number;
 		cached?: boolean;
+		providerKeyId?: string;
 	}) =>
 		db.insert(log).values({
 			requestId: `global-stats-request-${randomUUID()}`,
@@ -57,6 +59,7 @@ describe("global stats aggregation", () => {
 			cost: values.cost,
 			providerMarginPercent: values.providerMarginPercent,
 			cached: values.cached ?? false,
+			providerKeyId: values.providerKeyId,
 			promptTokens: "10",
 			completionTokens: "20",
 			totalTokens: values.totalTokens ?? "30",
@@ -142,6 +145,9 @@ describe("global stats aggregation", () => {
 		await db
 			.delete(globalSourceStats)
 			.where(eq(globalSourceStats.source, ids.source));
+		await db
+			.delete(globalProviderKeyModelStats)
+			.where(eq(globalProviderKeyModelStats.usedModel, ids.model));
 		await db.delete(log).where(eq(log.organizationId, ids.paygOrgId));
 		await db.delete(log).where(eq(log.organizationId, ids.devpassOrgId));
 		await db.delete(log).where(eq(log.organizationId, `missing-${suffix}`));
@@ -368,5 +374,48 @@ describe("global stats aggregation", () => {
 					),
 				),
 		).toHaveLength(1);
+	});
+
+	test("splits the model stats by the credential that served the request", async () => {
+		const providerKeyId = `global-stats-provider-key-${suffix}`;
+		await insertLog({
+			organizationId: ids.paygOrgId,
+			projectId: ids.paygProjectId,
+			usedMode: "api-keys",
+			cost: 0.01,
+			providerKeyId,
+		});
+		await insertLog({
+			organizationId: ids.devpassOrgId,
+			projectId: ids.devpassProjectId,
+			usedMode: "credits",
+			cost: 0.02,
+			providerKeyId,
+		});
+		// Env-var credential: no providerKeyId, so it must not be attributed.
+		await insertLog({
+			organizationId: ids.paygOrgId,
+			projectId: ids.paygProjectId,
+			usedMode: "credits",
+			cost: 0.04,
+		});
+
+		await aggregate();
+
+		const rows = await db
+			.select()
+			.from(globalProviderKeyModelStats)
+			.where(eq(globalProviderKeyModelStats.usedModel, ids.model));
+		expect(rows).toHaveLength(2);
+		expect(rows.every((row) => row.providerKeyId === providerKeyId)).toBe(true);
+		expect(rows.map((row) => `${row.usedMode}/${row.orgKind}`).sort()).toEqual([
+			"api-keys/default",
+			"credits/devpass",
+		]);
+		expect(rows.reduce((sum, row) => sum + row.cost, 0)).toBeCloseTo(0.03, 6);
+		// The unattributed request still lands in the global table.
+		expect(
+			(await readModelStats()).reduce((sum, row) => sum + row.requestCount, 0),
+		).toBe(3);
 	});
 });

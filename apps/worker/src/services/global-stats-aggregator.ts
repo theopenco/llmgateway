@@ -5,12 +5,14 @@ import {
 	log,
 	organization,
 	globalModelStats,
+	globalProviderKeyModelStats,
 	globalSourceStats,
 	globalAggregationState,
 	sql,
 	and,
 	eq,
 	getTableColumns,
+	isNotNull,
 	type GlobalStatsOrgKind,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -129,6 +131,9 @@ const MODEL_ADD_SET = buildAddUpsertSet(globalModelStats, [
 	"providerMarginAmount",
 ]);
 const SOURCE_ADD_SET = buildAddUpsertSet(globalSourceStats);
+const PROVIDER_KEY_MODEL_ADD_SET = buildAddUpsertSet(
+	globalProviderKeyModelStats,
+);
 
 // Snap to the nearest bucket boundary at or below `d`. Works in UTC because
 // JS timestamps are unix-epoch milliseconds and bucketMs evenly divides a day.
@@ -251,6 +256,64 @@ export async function aggregateWindowIntoStats(
 				},
 			});
 	}
+
+	// Per-credential model split. Requests served by env-var credentials carry
+	// no providerKeyId and are skipped, exactly like providerKeyHourlyStats.
+	const providerKeyRows = await database
+		.select({
+			providerKeyId: sql<string>`${log.providerKeyId}`.as("providerKeyId"),
+			usedModel: log.usedModel,
+			usedProvider: log.usedProvider,
+			usedMode: log.usedMode,
+			orgKind: ORG_KIND_EXPR,
+			...getBaseAggregationFields(),
+		})
+		.from(log)
+		.leftJoin(organization, eq(log.organizationId, organization.id))
+		.where(and(window, isNotNull(log.providerKeyId)))
+		.groupBy(
+			log.providerKeyId,
+			log.usedModel,
+			log.usedProvider,
+			log.usedMode,
+			ORG_KIND_SQL,
+		);
+
+	for (const row of providerKeyRows) {
+		const {
+			providerKeyId,
+			usedModel,
+			usedProvider,
+			usedMode,
+			orgKind,
+			...stats
+		} = row;
+		await database
+			.insert(globalProviderKeyModelStats)
+			.values({
+				dayTimestamp: sql`${dayTimestamp}::timestamp`,
+				providerKeyId,
+				usedModel,
+				usedProvider,
+				usedMode,
+				orgKind,
+				...stats,
+			})
+			.onConflictDoUpdate({
+				target: [
+					globalProviderKeyModelStats.dayTimestamp,
+					globalProviderKeyModelStats.providerKeyId,
+					globalProviderKeyModelStats.usedModel,
+					globalProviderKeyModelStats.usedProvider,
+					globalProviderKeyModelStats.usedMode,
+					globalProviderKeyModelStats.orgKind,
+				],
+				set: {
+					...PROVIDER_KEY_MODEL_ADD_SET,
+					updatedAt: new Date(),
+				},
+			});
+	}
 }
 
 async function readState() {
@@ -301,6 +364,11 @@ async function recomputeDayFully(day: Date): Promise<boolean> {
 		await tx
 			.delete(globalSourceStats)
 			.where(sql`${globalSourceStats.dayTimestamp} = ${dayStr}::timestamp`);
+		await tx
+			.delete(globalProviderKeyModelStats)
+			.where(
+				sql`${globalProviderKeyModelStats.dayTimestamp} = ${dayStr}::timestamp`,
+			);
 	});
 
 	for (let h = 0; h < 24; h++) {

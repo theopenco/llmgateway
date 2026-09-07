@@ -96,6 +96,7 @@ import {
 	projectHourlyModelStats,
 	projectHourlySourceStats,
 	globalModelStats,
+	globalProviderKeyModelStats,
 	globalSourceStats,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -2260,6 +2261,7 @@ const globalStatsResponseSchema = z.object({
 	modelView: globalStatsModelViewSchema,
 	mode: globalStatsModeSchema,
 	kind: globalStatsKindSchema,
+	providerKeyId: z.string().nullable(),
 	totals: globalStatsMetricsSchema,
 	composition: z.object({
 		byMode: z.array(globalStatsCompositionItemSchema),
@@ -2299,6 +2301,10 @@ const getGlobalStats = createRoute({
 			modelView: globalStatsModelViewSchema.default("mapping").optional(),
 			mode: globalStatsModeSchema.default("total").optional(),
 			kind: globalStatsKindSchema.default("all").optional(),
+			// Narrows every metric to requests served by one provider credential.
+			// Reads the per-credential table, which has no x-source dimension, so
+			// `groupBy=source` falls back to `model`.
+			providerKeyId: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -2315,7 +2321,11 @@ const getGlobalStats = createRoute({
 
 admin.openapi(getGlobalStats, async (c) => {
 	const query = c.req.valid("query");
-	const groupBy = query.groupBy ?? "model";
+	const providerKeyId = query.providerKeyId || null;
+	const groupBy =
+		providerKeyId && query.groupBy === "source"
+			? "model"
+			: (query.groupBy ?? "model");
 	const modelView = query.modelView ?? "mapping";
 	const mode = query.mode ?? "total";
 	const kind = query.kind ?? "all";
@@ -2325,14 +2335,25 @@ admin.openapi(getGlobalStats, async (c) => {
 
 	// Only the model grouping needs the per-model table; source/mode/kind all
 	// read the (much smaller) source table, which covers the same requests.
-	const sourceTable =
-		groupBy === "model" ? globalModelStats : globalSourceStats;
+	// A credential filter reads the per-credential model table for every
+	// grouping, since it carries model, mode and kind alike.
+	const modelTable = providerKeyId
+		? globalProviderKeyModelStats
+		: globalModelStats;
+	const sourceTable = providerKeyId
+		? globalProviderKeyModelStats
+		: groupBy === "model"
+			? globalModelStats
+			: globalSourceStats;
 
 	// Narrowing happens in SQL, so every metric below — tokens, errors, cache,
 	// per-part costs — reflects exactly the selected slice.
 	const modeFilter = mode === "total" ? [] : [eq(sourceTable.usedMode, mode)];
 	const kindFilter = kind === "all" ? [] : [eq(sourceTable.orgKind, kind)];
-	const dimensionFilter = [...modeFilter, ...kindFilter];
+	const keyFilter = providerKeyId
+		? [eq(globalProviderKeyModelStats.providerKeyId, providerKeyId)]
+		: [];
+	const dimensionFilter = [...modeFilter, ...kindFilter, ...keyFilter];
 
 	// `all` means "all time": derive the span from the first/last recorded day
 	// so the card matches the dashboard's all-time totals instead of silently
@@ -2521,29 +2542,29 @@ admin.openapi(getGlobalStats, async (c) => {
 	// on the source table.
 	const breakdownColumn =
 		groupBy === "mode"
-			? globalSourceStats.usedMode
+			? sourceTable.usedMode
 			: groupBy === "kind"
-				? globalSourceStats.orgKind
+				? sourceTable.orgKind
 				: globalSourceStats.source;
 
 	const breakdownRows =
 		groupBy === "model"
 			? await db
 					.select({
-						usedModel: globalModelStats.usedModel,
-						usedProvider: globalModelStats.usedProvider,
+						usedModel: modelTable.usedModel,
+						usedProvider: modelTable.usedProvider,
 						...metricSums,
 					})
-					.from(globalModelStats)
+					.from(modelTable)
 					.where(scopeFilter)
-					.groupBy(globalModelStats.usedModel, globalModelStats.usedProvider)
+					.groupBy(modelTable.usedModel, modelTable.usedProvider)
 					.orderBy(desc(metricSums.requestCount))
 			: await db
 					.select({
 						dimension: breakdownColumn,
 						...metricSums,
 					})
-					.from(globalSourceStats)
+					.from(sourceTable)
 					.where(scopeFilter)
 					.groupBy(breakdownColumn)
 					.orderBy(desc(metricSums.requestCount));
@@ -2578,16 +2599,16 @@ admin.openapi(getGlobalStats, async (c) => {
 			? await db
 					.select({
 						date: dateExpr,
-						usedModel: globalModelStats.usedModel,
-						usedProvider: globalModelStats.usedProvider,
+						usedModel: modelTable.usedModel,
+						usedProvider: modelTable.usedProvider,
 						...metricSums,
 					})
-					.from(globalModelStats)
+					.from(modelTable)
 					.where(scopeFilter)
 					.groupBy(
-						globalModelStats.dayTimestamp,
-						globalModelStats.usedModel,
-						globalModelStats.usedProvider,
+						modelTable.dayTimestamp,
+						modelTable.usedModel,
+						modelTable.usedProvider,
 					)
 			: await db
 					.select({
@@ -2595,9 +2616,9 @@ admin.openapi(getGlobalStats, async (c) => {
 						dimension: breakdownColumn,
 						...metricSums,
 					})
-					.from(globalSourceStats)
+					.from(sourceTable)
 					.where(scopeFilter)
-					.groupBy(globalSourceStats.dayTimestamp, breakdownColumn);
+					.groupBy(sourceTable.dayTimestamp, breakdownColumn);
 
 	const timeseriesBreakdownMap = new Map<
 		string,
@@ -2654,13 +2675,13 @@ admin.openapi(getGlobalStats, async (c) => {
 		db
 			.select({ dimension: sourceTable.usedMode, ...compositionSums })
 			.from(sourceTable)
-			.where(and(rangeFilter, ...kindFilter))
+			.where(and(rangeFilter, ...kindFilter, ...keyFilter))
 			.groupBy(sourceTable.usedMode)
 			.orderBy(desc(compositionSums.requestCount)),
 		db
 			.select({ dimension: sourceTable.orgKind, ...compositionSums })
 			.from(sourceTable)
-			.where(and(rangeFilter, ...modeFilter))
+			.where(and(rangeFilter, ...modeFilter, ...keyFilter))
 			.groupBy(sourceTable.orgKind)
 			.orderBy(desc(compositionSums.requestCount)),
 	]);
@@ -2688,6 +2709,7 @@ admin.openapi(getGlobalStats, async (c) => {
 		modelView,
 		mode,
 		kind,
+		providerKeyId,
 		totals,
 		composition: {
 			byMode: byModeRows.map((row) => toCompositionItem("mode", row)),
@@ -2696,6 +2718,128 @@ admin.openapi(getGlobalStats, async (c) => {
 		timeseries,
 		timeseriesBreakdown,
 		breakdown,
+	});
+});
+
+const globalStatsProviderKeySchema = z
+	.object({
+		id: z.string(),
+		provider: z.string(),
+		name: z.string().nullable(),
+		description: z.string().nullable(),
+		comment: z.string().nullable(),
+		tokenMasked: z.string().nullable(),
+		managed: z.boolean(),
+		variant: z.string(),
+		region: z.string().nullable(),
+		status: z.string().nullable(),
+		organizationId: z.string().nullable(),
+		organizationName: z.string().nullable(),
+		requestCount: z.number(),
+		cost: z.number(),
+	})
+	.openapi({});
+
+const getGlobalStatsProviderKeys = createRoute({
+	method: "get",
+	path: "/global-stats/provider-keys",
+	request: {
+		query: z.object({
+			range: globalStatsRangeSchema.default("30d").optional(),
+			from: globalStatsDateSchema.optional(),
+			to: globalStatsDateSchema.optional(),
+			mode: globalStatsModeSchema.default("total").optional(),
+			kind: globalStatsKindSchema.default("all").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						providerKeys: z.array(globalStatsProviderKeySchema),
+					}),
+				},
+			},
+			description:
+				"Provider credentials that served attributed traffic in the range, highest spend first.",
+		},
+	},
+});
+
+admin.openapi(getGlobalStatsProviderKeys, async (c) => {
+	const query = c.req.valid("query");
+	const stats = globalProviderKeyModelStats;
+	const dayMs = 24 * 60 * 60 * 1000;
+
+	const filters = [];
+	if (query.from && query.to) {
+		const [start, end] = [query.from, query.to].sort();
+		filters.push(
+			gte(stats.dayTimestamp, new Date(start + "T00:00:00Z")),
+			lte(stats.dayTimestamp, new Date(end + "T00:00:00Z")),
+		);
+	} else if (query.range !== "all") {
+		const rangeDays: Record<"7d" | "30d" | "90d" | "365d", number> = {
+			"7d": 7,
+			"30d": 30,
+			"90d": 90,
+			"365d": 365,
+		};
+		const end = new Date();
+		end.setUTCHours(0, 0, 0, 0);
+		const start = new Date(
+			end.getTime() - (rangeDays[query.range ?? "30d"] - 1) * dayMs, // eslint-disable-line no-mixed-operators
+		);
+		filters.push(gte(stats.dayTimestamp, start));
+	}
+	if (query.mode && query.mode !== "total") {
+		filters.push(eq(stats.usedMode, query.mode));
+	}
+	if (query.kind && query.kind !== "all") {
+		filters.push(eq(stats.orgKind, query.kind));
+	}
+
+	const cost = sumMoney(stats.cost, "cost");
+	const rows = await db
+		.select({
+			id: tables.providerKey.id,
+			provider: tables.providerKey.provider,
+			name: tables.providerKey.name,
+			description: tables.providerKey.description,
+			comment: tables.providerKey.comment,
+			tokenMasked: tables.providerKey.tokenMasked,
+			managed: tables.providerKey.managed,
+			variant: tables.providerKey.variant,
+			region: tables.providerKey.region,
+			status: tables.providerKey.status,
+			organizationId: tables.providerKey.organizationId,
+			organizationName: tables.organization.name,
+			requestCount:
+				sql<number>`COALESCE(SUM(${stats.requestCount}), 0)::float8`.as(
+					"requestCount",
+				),
+			cost,
+		})
+		.from(stats)
+		.innerJoin(
+			tables.providerKey,
+			eq(stats.providerKeyId, tables.providerKey.id),
+		)
+		.leftJoin(
+			tables.organization,
+			eq(tables.providerKey.organizationId, tables.organization.id),
+		)
+		.where(filters.length ? and(...filters) : undefined)
+		.groupBy(tables.providerKey.id, tables.organization.name)
+		.orderBy(desc(cost));
+
+	return c.json({
+		providerKeys: rows.map((row) => ({
+			...row,
+			requestCount: Number(row.requestCount),
+			cost: Number(row.cost),
+		})),
 	});
 });
 
