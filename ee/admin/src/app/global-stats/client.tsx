@@ -6,6 +6,8 @@ import {
 	Building2,
 	Coins,
 	Cpu,
+	Download,
+	FileDown,
 	Layers,
 	Server,
 	Wallet,
@@ -52,11 +54,21 @@ import {
 	UsageModeSelector,
 	useUsageMode,
 } from "@/components/usage-mode-selector";
+import { downloadCsv } from "@/lib/download-csv";
 import { useApi } from "@/lib/fetch-client";
 import { buildGlobalStatsStackedChart } from "@/lib/global-stats-chart";
+import {
+	buildGlobalStatsBreakdownCsv,
+	buildGlobalStatsReportCsv,
+	buildGlobalStatsTimeseriesBreakdownCsv,
+	buildGlobalStatsTimeseriesCsv,
+	globalStatsExportFilename,
+} from "@/lib/global-stats-csv";
 import { orgKindDescription, orgKindLabel } from "@/lib/org-kind";
 import { usageModeDescription, usageModeLabel } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
+
+import { detectCsvFormat } from "@llmgateway/shared";
 
 import type { ChartConfig } from "@/components/ui/chart";
 import type { ReactNode } from "react";
@@ -547,23 +559,158 @@ export function GlobalStatsClient() {
 		breakdownStart + BREAKDOWN_PAGE_SIZE,
 	);
 
+	const exportDimension =
+		groupBy === "model"
+			? modelView === "provider"
+				? "provider"
+				: modelView === "canonical"
+					? "canonical model"
+					: "mapping"
+			: breakdownNounSingular.toLowerCase();
+	const exportScope = useMemo(
+		() => ({
+			start: from ?? data?.start ?? "",
+			end: to ?? data?.end ?? "",
+			allTime,
+			traffic: usageModeLabel(usageMode),
+			organization: orgKindLabel(orgKind),
+			groupBy:
+				GROUP_OPTIONS.find((opt) => opt.value === groupBy)?.label ?? groupBy,
+			modelView:
+				groupBy === "model"
+					? (MODEL_VIEW_OPTIONS.find((opt) => opt.value === modelView)?.label ??
+						modelView)
+					: null,
+			metric: chartMetric,
+		}),
+		[
+			from,
+			to,
+			data?.start,
+			data?.end,
+			allTime,
+			usageMode,
+			orgKind,
+			groupBy,
+			modelView,
+			chartMetric,
+		],
+	);
+	const canExport = !isLoading && !isError && !!data;
+
+	const exportTimeseries = useCallback(() => {
+		const format = detectCsvFormat();
+		const csv = showTimeseriesBreakdown
+			? buildGlobalStatsTimeseriesBreakdownCsv(
+					{
+						rankedBreakdown: sortedBreakdown,
+						timeseries,
+						timeseriesBreakdown,
+						metric: chartMetric,
+					},
+					format,
+				)
+			: buildGlobalStatsTimeseriesCsv(timeseries, format);
+		downloadCsv(
+			globalStatsExportFilename(
+				showTimeseriesBreakdown
+					? `daily-${chartMetric}-by-${exportDimension.replace(/\s+/g, "-")}`
+					: "daily",
+				exportScope,
+			),
+			csv,
+		);
+	}, [
+		showTimeseriesBreakdown,
+		sortedBreakdown,
+		timeseries,
+		timeseriesBreakdown,
+		chartMetric,
+		exportDimension,
+		exportScope,
+	]);
+
+	const exportBreakdown = useCallback(() => {
+		downloadCsv(
+			globalStatsExportFilename(
+				`by-${exportDimension.replace(/\s+/g, "-")}`,
+				exportScope,
+			),
+			buildGlobalStatsBreakdownCsv(
+				{
+					dimension: exportDimension,
+					breakdown: sortedBreakdown,
+					metric: chartMetric,
+				},
+				detectCsvFormat(),
+			),
+		);
+	}, [exportDimension, exportScope, sortedBreakdown, chartMetric]);
+
+	const exportReport = useCallback(() => {
+		if (!totals) {
+			return;
+		}
+		downloadCsv(
+			globalStatsExportFilename("report", exportScope),
+			buildGlobalStatsReportCsv(
+				{
+					scope: exportScope,
+					generatedAt: new Date(),
+					totals,
+					composition: {
+						byMode: modeComposition ?? null,
+						byKind: kindComposition ?? null,
+					},
+					timeseries,
+					timeseriesBreakdown,
+					breakdown: sortedBreakdown,
+					dimension: exportDimension,
+				},
+				detectCsvFormat(),
+			),
+		);
+	}, [
+		totals,
+		exportScope,
+		modeComposition,
+		kindComposition,
+		timeseries,
+		timeseriesBreakdown,
+		sortedBreakdown,
+		exportDimension,
+	]);
+
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
 			<header className="space-y-5">
-				<div className="max-w-4xl">
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Global Stats
-					</h1>
-					<p className="mt-1 text-sm text-muted-foreground">
-						Cross-organization usage aggregated by day, grouped by model,
-						x-source header, billing mode or organization kind.
-						{scopeNotes.length > 0 ? ` ${scopeNotes.join(" ")}` : ""}
-					</p>
-					{unattributedNote ? (
-						<p className="mt-1 text-xs text-muted-foreground">
-							{unattributedNote}
+				<div className="flex flex-wrap items-start justify-between gap-4">
+					<div className="max-w-4xl">
+						<h1 className="text-3xl font-semibold tracking-tight">
+							Global Stats
+						</h1>
+						<p className="mt-1 text-sm text-muted-foreground">
+							Cross-organization usage aggregated by day, grouped by model,
+							x-source header, billing mode or organization kind.
+							{scopeNotes.length > 0 ? ` ${scopeNotes.join(" ")}` : ""}
 						</p>
-					) : null}
+						{unattributedNote ? (
+							<p className="mt-1 text-xs text-muted-foreground">
+								{unattributedNote}
+							</p>
+						) : null}
+					</div>
+					<Button
+						variant="outline"
+						size="sm"
+						className="h-8 gap-1.5 px-3 text-xs"
+						disabled={!canExport}
+						onClick={exportReport}
+						title={`Download every section for ${rangeLabel} as one CSV report`}
+					>
+						<FileDown className="h-3.5 w-3.5" aria-hidden />
+						Generate report
+					</Button>
 				</div>
 				<div className="rounded-xl border border-border/60 bg-card/70 p-3 shadow-sm">
 					<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[auto_auto_minmax(0,1fr)_auto] xl:items-end">
@@ -778,6 +925,18 @@ export function GlobalStatsClient() {
 						</ToolbarGroup>
 						<ToolbarGroup label="Chart">
 							<ChartTypeToggle value={chartType} onValueChange={setChartType} />
+						</ToolbarGroup>
+						<ToolbarGroup label="Export" className="ml-auto">
+							<Button
+								variant="outline"
+								size="sm"
+								className="h-8 gap-1.5 px-3 text-xs"
+								disabled={!canExport || timeseries.length === 0}
+								onClick={exportTimeseries}
+							>
+								<Download className="h-3.5 w-3.5" aria-hidden />
+								CSV
+							</Button>
 						</ToolbarGroup>
 					</div>
 				</CardHeader>
@@ -1006,6 +1165,18 @@ export function GlobalStatsClient() {
 									),
 								)}
 							</div>
+						</ToolbarGroup>
+						<ToolbarGroup label="Export" className="ml-auto">
+							<Button
+								variant="outline"
+								size="sm"
+								className="h-8 gap-1.5 px-3 text-xs"
+								disabled={!canExport || sortedBreakdown.length === 0}
+								onClick={exportBreakdown}
+							>
+								<Download className="h-3.5 w-3.5" aria-hidden />
+								CSV
+							</Button>
 						</ToolbarGroup>
 					</div>
 				</CardHeader>
