@@ -2,77 +2,81 @@
 id: devpass-code
 slug: devpass-code
 title: DevPass Code Integration
-description: Set up DevPass Code, the open-source terminal coding agent built for LLM Gateway. Install from npm, log in once from your browser, and code with every model on the gateway.
-date: 2026-07-03
+seoTitle: Use DevPass Code with LLM Gateway
+description: Install DevPass Code, connect an LLM Gateway key, select a model, and verify a real coding task.
+date: 2026-09-07
 ---
 
-DevPass Code is an open-source terminal coding agent that talks only to LLM Gateway. It's a fork of opencode (MIT) trimmed down to a single upstream: one browser login, roughly 190 text models, and no per-provider API keys to juggle. Every request is tagged with `x-source: devpass-code`, so usage is attributed correctly in your dashboard and on your DevPass plan.
+[DevPass Code](https://github.com/theopenco/devpass-code) is a terminal coding agent built for LLM Gateway. This walkthrough was verified with DevPass Code 1.18.11.
 
-> **On a DevPass plan?** Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+## Video walkthrough
+
+<div className="relative aspect-video">
+  <iframe
+    className="absolute inset-0 h-full w-full rounded-lg border-0"
+    src="https://www.youtube-nocookie.com/embed/A_cILp7Klf8"
+    title="DevPass Code setup and coding demo with LLM Gateway"
+    loading="lazy"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    referrerPolicy="strict-origin-when-cross-origin"
+    allowFullScreen
+  ></iframe>
+</div>
 
 ## Install
 
-Install DevPass Code globally from npm:
-
 ```bash
-npm i -g devpass-code
+pnpm add -g devpass-code
+devpass-code --version
 ```
 
-Or with Homebrew:
+See the&nbsp;[project repository](https://github.com/theopenco/devpass-code) for other installation options.
+
+## Connect LLM Gateway
+
+The recorded walkthrough uses an existing gateway API key:
 
 ```bash
-brew install theopenco/tap/devpass-code
+export LLMGATEWAY_API_KEY="your_api_key"
 ```
 
-Other options: an install script (`curl -fsSL https://raw.githubusercontent.com/theopenco/devpass-code/main/install | bash`), an AUR package (`devpass-code-bin`), a Docker image (`ghcr.io/theopenco/devpass-code`), and Windows binaries on [GitHub releases](https://github.com/theopenco/devpass-code/releases).
+Create your key in the&nbsp;[dashboard](https://llmgateway.io/dashboard). Alternatively, run `devpass-code auth login`, choose **LLM Gateway** or **LLM Gateway DevPass**, and follow the browser-login or key-entry flow.
 
-## Setup
+Browser login creates a credential and returns it to the tool through a local callback. If you have reached your organization's active-key limit, manage your keys in the dashboard before retrying.
 
-### Step 1: Start the login flow
+## Choose a model
 
-DevPass Code supports one-click browser login, just like Claude Code:
+Place a `devpass-code.json` in your project:
 
-```bash
-devpass-code auth login
+```json
+{
+  "model": "llmgateway/deepseek-v4-flash"
+}
 ```
 
-### Step 2: Pick a provider
-
-Choose how your usage is billed. Both providers hit `https://api.llmgateway.io/v1` and expose the same models:
-
-| Provider                | Billing                                                                     |
-| ----------------------- | --------------------------------------------------------------------------- |
-| **LLM Gateway**         | Pay-as-you-go with credits or your own API key                              |
-| **LLM Gateway DevPass** | The [DevPass](/code) coding subscription — billing is handled automatically |
-
-### Step 3: Log in with your browser
-
-Select **"Log in with browser."** DevPass Code opens [llmgateway.io/connect/cli](https://llmgateway.io/connect/cli) and starts a local loopback server. Approve the request in the browser, and the API key is delivered straight back to your machine — nothing to copy or paste. Credentials are saved to `~/.local/share/devpass-code/auth.json`.
-
-Prefer to paste a key? Choose **"Paste an API key"** instead and use a key from your [dashboard](https://llmgateway.io/dashboard), or set the `LLMGATEWAY_API_KEY` environment variable to skip the prompt entirely.
-
-### Step 4: Start coding
-
-Launch the TUI in any project directory:
+Then launch the agent:
 
 ```bash
+cd your-project
 devpass-code
 ```
 
-Every text model on the gateway shows up in the model picker, and switching is a keystroke — no config change. All requests and their costs appear in your [dashboard](https://llmgateway.io/dashboard).
+You can also select the model with `--model llmgateway/deepseek-v4-flash` or use the model picker. Browse the&nbsp;[live catalogue](https://llmgateway.io/models?features=tools) for other coding models.
 
-## Configuration
+The `llmgateway/` prefix identifies the agent's provider. The remaining model ID is canonical, which is also the form required for&nbsp;[DevPass](https://devpass.llmgateway.io) plan routing.
 
-- **Config file** — Place a `devpass-code.json` in your project (or global config directory) to customize models and behavior.
-- **`LLMGATEWAY_API_KEY`** — Provide your LLM Gateway API key without running the login flow.
-- **`DEVPASS_APP_URL`** — Override the app URL used for browser login (defaults to `https://llmgateway.io`).
+## Verify the connection
 
-## Why Use DevPass Code
+Open a small project and ask the agent to read a file, make a change, and run its tests. Our recorded example fixes a TypeScript slugifier and passes all three tests with `deepseek-v4-flash` through LLM Gateway.
 
-- **~190 text models** — Claude, GPT, Gemini, Grok, DeepSeek, and more, all through one endpoint
-- **One-click login** — Approve in the browser, key delivered automatically
-- **DevPass billing** — A [DevPass subscription](/code) is applied automatically, with usage attributed per agent
-- **Cost tracking** — See exactly what each coding session costs
-- **Open source** — MIT licensed, on [GitHub](https://github.com/theopenco/devpass-code)
+`Hello, LLM Gateway!` becomes `hello-llm-gateway`; repeated separators collapse into one hyphen; empty and punctuation-only inputs stay empty. The demo uses Node.js 24 to run `node --test slugify.test.ts` directly.
 
-Read the [announcement post](/blog/devpass-code) for the full story, or the [docs guide](https://docs.llmgateway.io/guides/devpass-code) for reference details.
+Review the diff and test output, then check the request in your&nbsp;[LLM Gateway dashboard](https://llmgateway.io/dashboard). Choose other compatible models from the&nbsp;[live catalogue](https://llmgateway.io/models?features=tools).
+
+![DevPass Code completing the coding task through LLM Gateway](/images/guides/devpass-code/verified-session.png)
+
+## Troubleshooting
+
+Check that `LLMGATEWAY_API_KEY` is available to the process and that the model ID matches the picker. If a project opens with an unexpected model, check its `devpass-code.json` and pass `--model` explicitly.
+
+DevPass Code tags requests with `x-source: devpass-code` for attribution in your dashboard.
