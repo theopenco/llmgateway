@@ -336,6 +336,7 @@ const transactionSchema = z.object({
 		"end_user_refund",
 		"end_user_margin_payout",
 		"end_user_bonus",
+		"provider_margin_share",
 	]),
 	amount: z.string().nullable(),
 	creditAmount: z.string().nullable(),

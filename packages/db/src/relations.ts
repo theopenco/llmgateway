@@ -821,6 +821,12 @@ export const relations = defineRelations(schema, (r) => ({
 			to: r.providerCompany.id,
 		}),
 	},
+	organizationProviderMarginShare: {
+		organization: r.one.organization({
+			from: r.organizationProviderMarginShare.organizationId,
+			to: r.organization.id,
+		}),
+	},
 	providerRoutingFiling: {
 		providerCompany: r.one.providerCompany({
 			from: r.providerRoutingFiling.providerCompanyId,

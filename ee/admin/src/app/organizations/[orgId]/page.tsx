@@ -48,6 +48,7 @@ import {
 	manageOrganization,
 	releaseDevPlanCardFingerprint,
 	updateEnterpriseDeal,
+	updateProviderMarginShare,
 	updateReferralBonus,
 } from "@/lib/admin-organizations";
 import { KEY_STATUS_DEFAULT, parseKeyStatus } from "@/lib/key-status";
@@ -67,6 +68,7 @@ import { OrgMetricsSection } from "./org-metrics";
 import { OrgSettingsTab } from "./org-settings-tab";
 import { OrganizationTabs } from "./organization-tabs";
 import { ProviderKeysTable } from "./provider-keys-table";
+import { ProviderMarginShareDialog } from "./provider-margin-share-dialog";
 import { ReferralBonusDialog } from "./referral-bonus-dialog";
 import { SsoTab } from "./sso-tab";
 
@@ -558,6 +560,15 @@ export default async function OrganizationPage({
 										onSave={async (data) => {
 											"use server";
 											return await updateReferralBonus(orgId, data);
+										}}
+									/>
+									<ProviderMarginShareDialog
+										orgName={org.name}
+										percent={org.providerMarginSharePercent ?? 0}
+										accrued={org.providerMarginShareAccrued ?? "0"}
+										onSave={async (data) => {
+											"use server";
+											return await updateProviderMarginShare(orgId, data);
 										}}
 									/>
 								</div>
