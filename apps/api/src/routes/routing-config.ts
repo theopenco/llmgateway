@@ -2,8 +2,11 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { userHasProjectAccess } from "@/utils/authorization.js";
+
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+import { canManageProject } from "@llmgateway/shared/organization-roles";
 import {
 	buildProviderPriorityDefaults,
 	DEFAULT_ROUTING_HISTORY,
@@ -41,7 +44,7 @@ export async function checkProjectEnterpriseAccess(
 		where: { id: { eq: projectId } },
 	});
 
-	if (!project) {
+	if (!project || project.status === "deleted") {
 		throw new HTTPException(404, { message: "Project not found" });
 	}
 
@@ -61,9 +64,12 @@ export async function checkProjectEnterpriseAccess(
 		});
 	}
 
-	if (userOrg.role !== "owner" && userOrg.role !== "admin") {
+	if (
+		!canManageProject(userOrg.role) ||
+		!(await userHasProjectAccess(userId, projectId))
+	) {
 		throw new HTTPException(403, {
-			message: "Only owners and admins can manage routing configuration",
+			message: "Only project admins can manage routing configuration",
 		});
 	}
 

@@ -89,6 +89,7 @@ import { useApi } from "@/lib/fetch-client";
 import { applyUsageMode } from "@/lib/usage-mode";
 
 import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET, Time } from "@llmgateway/shared";
+import { isProjectScopedRole } from "@llmgateway/shared/organization-roles";
 
 import { OrganizationTeamsClient } from "./organization-teams-client";
 import { TeamTabs } from "./team-tabs";
@@ -137,9 +138,14 @@ const ROLE_PERMISSIONS = [
 			"Can manage team members, projects, and API keys, but cannot access billing settings or modify owners.",
 	},
 	{
+		role: "Project admin",
+		description:
+			"Manages assigned project settings, routing, guardrails, API keys, and project-wide usage. No organization administration.",
+	},
+	{
 		role: "Developer",
 		description:
-			"Can view and use projects and API keys, but cannot modify team or organization settings.",
+			"Can manage their own API keys and see their own usage in assigned projects. Cannot change project settings.",
 	},
 	{
 		role: "Restricted Access",
@@ -563,29 +569,32 @@ function DefaultDeveloperLimitsDialog({
 	);
 }
 
-type MemberRole = "owner" | "admin" | "developer";
+type MemberRole = "owner" | "admin" | "project_admin" | "developer";
 
-// Project-scoped developer access is an Enterprise feature: the option is
-// disabled (with a badge) off-plan.
-function DeveloperRoleItem({ isEnterprise }: { isEnterprise: boolean }) {
+// Project-scoped roles require Enterprise access.
+function ProjectRoleItems({ isEnterprise }: { isEnterprise: boolean }) {
 	return (
-		<SelectItem value="developer" disabled={!isEnterprise}>
-			<span className="flex w-full items-center gap-2">
-				Developer
-				{!isEnterprise && (
-					<Badge variant="outline" className="text-[10px] font-normal">
-						Enterprise
-					</Badge>
-				)}
-			</span>
-		</SelectItem>
+		<>
+			{(["developer", "project_admin"] as const).map((role) => (
+				<SelectItem key={role} value={role} disabled={!isEnterprise}>
+					<span className="flex w-full items-center gap-2">
+						{role === "developer" ? "Developer" : "Project admin"}
+						{!isEnterprise && (
+							<Badge variant="outline" className="text-[10px] font-normal">
+								Enterprise
+							</Badge>
+						)}
+					</span>
+				</SelectItem>
+			))}
+		</>
 	);
 }
 
-function EnterpriseDeveloperNote() {
+function EnterpriseProjectAccessNote() {
 	return (
 		<p className="text-muted-foreground text-xs">
-			Project-scoped developer access requires the Enterprise plan.{" "}
+			Project-scoped access requires the Enterprise plan.{" "}
 			<a href="mailto:contact@llmgateway.io" className="underline">
 				Contact sales
 			</a>
@@ -610,25 +619,24 @@ function ManageAccessDialog({
 	const updateMember = useUpdateTeamMember(organizationId);
 	const [role, setRole] = useState<MemberRole>(member.role);
 	const [projectIds, setProjectIds] = useState<string[]>(
-		member.projects ? member.projects.map((p) => p.id) : [],
+		(member.personalProjects ?? member.projects ?? []).map((p) => p.id),
 	);
 
 	const memberName = member.user.name ?? member.user.email;
 
 	const handleSave = async () => {
-		if (role === "developer" && !isEnterprise) {
+		if (isProjectScopedRole(role) && !isEnterprise) {
 			toast({
 				title: "Error",
-				description:
-					"Project-scoped developer access requires the Enterprise plan.",
+				description: "Project-scoped access requires the Enterprise plan.",
 				variant: "destructive",
 			});
 			return;
 		}
-		if (role === "developer" && projectIds.length === 0) {
+		if (isProjectScopedRole(role) && projectIds.length === 0) {
 			toast({
 				title: "Error",
-				description: "Select at least one project for a developer.",
+				description: "Select at least one project.",
 				variant: "destructive",
 			});
 			return;
@@ -638,7 +646,7 @@ function ManageAccessDialog({
 			params: { path: { organizationId, memberId: member.id } },
 			body: {
 				role,
-				...(role === "developer" ? { projectIds } : {}),
+				...(isProjectScopedRole(role) ? { projectIds } : {}),
 			},
 		});
 		toast({ title: "Success", description: "Access updated successfully" });
@@ -651,8 +659,9 @@ function ManageAccessDialog({
 				<DialogHeader>
 					<DialogTitle>Manage access</DialogTitle>
 					<DialogDescription>
-						Set {memberName}'s role. Developers are limited to the projects you
-						grant below; owners and admins can access the whole organization.
+						Set {memberName}'s role. Project admins and developers are limited
+						to the projects you grant below; owners and admins can access the
+						whole organization.
 					</DialogDescription>
 				</DialogHeader>
 				<div className="space-y-4 py-4">
@@ -666,15 +675,15 @@ function ManageAccessDialog({
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								<DeveloperRoleItem isEnterprise={isEnterprise} />
+								<ProjectRoleItems isEnterprise={isEnterprise} />
 								<SelectItem value="admin">Admin</SelectItem>
 								<SelectItem value="owner">Owner</SelectItem>
 							</SelectContent>
 						</Select>
-						{!isEnterprise && <EnterpriseDeveloperNote />}
+						{!isEnterprise && <EnterpriseProjectAccessNote />}
 					</div>
 
-					{role === "developer" && isEnterprise && (
+					{isProjectScopedRole(role) && isEnterprise && (
 						<div className="space-y-2">
 							<Label>Project access</Label>
 							<ProjectMultiSelect
@@ -827,20 +836,19 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 			return;
 		}
 
-		if (role === "developer" && !isEnterprise) {
+		if (isProjectScopedRole(role) && !isEnterprise) {
 			toast({
 				title: "Error",
-				description:
-					"Project-scoped developer access requires the Enterprise plan.",
+				description: "Project-scoped access requires the Enterprise plan.",
 				variant: "destructive",
 			});
 			return;
 		}
 
-		if (role === "developer" && newMemberProjectIds.length === 0) {
+		if (isProjectScopedRole(role) && newMemberProjectIds.length === 0) {
 			toast({
 				title: "Error",
-				description: "Select at least one project for a developer.",
+				description: "Select at least one project.",
 				variant: "destructive",
 			});
 			return;
@@ -855,7 +863,9 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 			body: {
 				email,
 				role,
-				...(role === "developer" ? { projectIds: newMemberProjectIds } : {}),
+				...(isProjectScopedRole(role)
+					? { projectIds: newMemberProjectIds }
+					: {}),
 			},
 		});
 		toast({
@@ -993,20 +1003,20 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 													<SelectValue placeholder="Select a role" />
 												</SelectTrigger>
 												<SelectContent>
-													<DeveloperRoleItem isEnterprise={isEnterprise} />
+													<ProjectRoleItems isEnterprise={isEnterprise} />
 													<SelectItem value="admin">Admin</SelectItem>
 													<SelectItem value="owner">Owner</SelectItem>
 												</SelectContent>
 											</Select>
-											{!isEnterprise && <EnterpriseDeveloperNote />}
+											{!isEnterprise && <EnterpriseProjectAccessNote />}
 										</div>
 
-										{role === "developer" && isEnterprise && (
+										{isProjectScopedRole(role) && isEnterprise && (
 											<div className="space-y-2">
 												<Label>Project access</Label>
 												<p className="text-muted-foreground text-xs">
-													Developers can only see and use the projects you
-													grant.
+													Project-scoped members can only access the projects
+													you grant.
 												</p>
 												<ProjectMultiSelect
 													orgProjects={orgProjects}
@@ -1195,7 +1205,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 														<TableCell>{member.user.email}</TableCell>
 														<TableCell>
 															<Badge variant="secondary" className="capitalize">
-																{member.role}
+																{member.role.replace("_", " ")}
 															</Badge>
 														</TableCell>
 														<TableCell>
@@ -1406,7 +1416,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 												<TableCell>{invite.email}</TableCell>
 												<TableCell>
 													<Badge variant="secondary" className="capitalize">
-														{invite.role}
+														{invite.role.replace("_", " ")}
 													</Badge>
 												</TableCell>
 												<TableCell>

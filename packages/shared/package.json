@@ -20,6 +20,11 @@
 			"import": "./dist/video-access.js",
 			"default": "./dist/video-access.js"
 		},
+		"./organization-roles": {
+			"types": "./dist/organization-roles.d.ts",
+			"import": "./dist/organization-roles.js",
+			"default": "./dist/organization-roles.js"
+		},
 		"./enterprise-license": {
 			"types": "./dist/enterprise-license.d.ts",
 			"import": "./dist/enterprise-license.js",
