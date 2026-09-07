@@ -55,7 +55,19 @@ export default async function ModelProviderPage({ params }: PageProps) {
 	const decodedName = decodeURIComponent(name);
 	const decodedProvider = decodeURIComponent(provider);
 
-	const modelDef = await findPublicModelDefinition(decodedName);
+	// Discounts and ratings only depend on the model id, so they load in
+	// parallel with the model definition instead of behind it.
+	const [modelDef, discountData, ratingsData] = await Promise.all([
+		findPublicModelDefinition(decodedName),
+		fetchServerData<{ discounts: DiscountData[] }>(
+			"GET",
+			"/public/discounts/model/{modelId}",
+			{ params: { path: { modelId: decodedName } } },
+		),
+		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
+			params: { query: { modelId: decodedName } },
+		}),
+	]);
 
 	if (!modelDef) {
 		notFound();
@@ -80,18 +92,6 @@ export default async function ModelProviderPage({ params }: PageProps) {
 		((await fetchProviders()).find(
 			(provider) => provider.id === decodedProvider,
 		) as unknown as (typeof providerDefinitions)[number] | undefined);
-
-	// Fetch global discounts and apply to provider
-	const [discountData, ratingsData] = await Promise.all([
-		fetchServerData<{ discounts: DiscountData[] }>(
-			"GET",
-			"/public/discounts/model/{modelId}",
-			{ params: { path: { modelId: decodedName } } },
-		),
-		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
-			params: { query: { modelId: decodedName } },
-		}),
-	]);
 	const discounts = discountData?.discounts ?? [];
 	// A provider whose mappings are all deactivated still renders this page, but
 	// nothing can be routed to it — so it must not advertise a discounted price.

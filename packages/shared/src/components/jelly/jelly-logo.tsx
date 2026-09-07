@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Logo } from "@/components/ui/logo";
 
-import { createJellyScene } from "./jelly-scene";
+import type { createJellyScene } from "./jelly-scene";
 
 export function JellyLogo() {
 	const canvas = useRef<HTMLCanvasElement>(null);
@@ -19,60 +19,76 @@ export function JellyLogo() {
 		}
 		const element = canvas.current;
 		let mounted = true;
-		let jelly: ReturnType<typeof createJellyScene>;
-		try {
-			jelly = createJellyScene(element);
-		} catch (error) {
-			// WebGL is optional; the static logo keeps the error page usable.
-			// eslint-disable-next-line no-console
-			console.warn("Could not initialize the 404 jelly", error);
-			return;
-		}
-		scene.current = jelly;
-		const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-		const updateMotion = () => {
-			jelly.setReducedMotion(motion.matches);
-			setReduced(motion.matches);
-		};
-		const updateTheme = () => {
-			jelly.setTheme(document.documentElement.classList.contains("dark"));
-		};
-		const theme = new MutationObserver(updateTheme);
-		theme.observe(document.documentElement, {
-			attributes: true,
-			attributeFilter: ["class"],
-		});
-		motion.addEventListener("change", updateMotion);
-		updateMotion();
-		updateTheme();
-		void jelly.ready
-			.then(() => {
-				if (mounted && scene.current === jelly) {
-					setReady(true);
+		let cleanup: (() => void) | undefined;
+		// The scene pulls in three.js, so it loads on demand to keep the 404
+		// page's initial chunk small; the static logo renders in the meantime.
+		void import("./jelly-scene")
+			.then(({ createJellyScene: create }) => {
+				if (!mounted) {
+					return;
 				}
+				let jelly: ReturnType<typeof create>;
+				try {
+					jelly = create(element);
+				} catch (error) {
+					// WebGL is optional; the static logo keeps the error page usable.
+					// eslint-disable-next-line no-console
+					console.warn("Could not initialize the 404 jelly", error);
+					return;
+				}
+				scene.current = jelly;
+				const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+				const updateMotion = () => {
+					jelly.setReducedMotion(motion.matches);
+					setReduced(motion.matches);
+				};
+				const updateTheme = () => {
+					jelly.setTheme(document.documentElement.classList.contains("dark"));
+				};
+				const theme = new MutationObserver(updateTheme);
+				theme.observe(document.documentElement, {
+					attributes: true,
+					attributeFilter: ["class"],
+				});
+				motion.addEventListener("change", updateMotion);
+				updateMotion();
+				updateTheme();
+				void jelly.ready
+					.then(() => {
+						if (mounted && scene.current === jelly) {
+							setReady(true);
+						}
+					})
+					.catch((error: unknown) => {
+						// eslint-disable-next-line no-console
+						console.warn("Could not load the 404 jelly studio", error);
+						jelly.dispose();
+						if (scene.current === jelly) {
+							scene.current = null;
+						}
+					});
+				const contextLost = (event: Event) => {
+					event.preventDefault();
+					jelly.dispose();
+					scene.current = null;
+					setReady(false);
+				};
+				element.addEventListener("webglcontextlost", contextLost);
+				cleanup = () => {
+					theme.disconnect();
+					motion.removeEventListener("change", updateMotion);
+					element.removeEventListener("webglcontextlost", contextLost);
+					jelly.dispose();
+					scene.current = null;
+				};
 			})
 			.catch((error: unknown) => {
 				// eslint-disable-next-line no-console
-				console.warn("Could not load the 404 jelly studio", error);
-				jelly.dispose();
-				if (scene.current === jelly) {
-					scene.current = null;
-				}
+				console.warn("Could not load the 404 jelly", error);
 			});
-		const contextLost = (event: Event) => {
-			event.preventDefault();
-			jelly.dispose();
-			scene.current = null;
-			setReady(false);
-		};
-		element.addEventListener("webglcontextlost", contextLost);
 		return () => {
 			mounted = false;
-			theme.disconnect();
-			motion.removeEventListener("change", updateMotion);
-			element.removeEventListener("webglcontextlost", contextLost);
-			jelly.dispose();
-			scene.current = null;
+			cleanup?.();
 		};
 	}, []);
 

@@ -47,14 +47,18 @@ export default async function ModelUptimePage({ params }: PageProps) {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
 
-	const modelDef = await findPublicModelDefinition(decodedName);
+	// Provider names do not depend on the model definition, so both catalogue
+	// requests run in one round-trip.
+	const [modelDef, apiProviders] = await Promise.all([
+		findPublicModelDefinition(decodedName),
+		fetchProviders(),
+	]);
 
 	if (!modelDef) {
 		notFound();
 	}
 
 	const expandedProviders = expandAllProviderRegions(modelDef.providers);
-	const apiProviders = await fetchProviders();
 	const providerNames = Array.from(
 		new Set(
 			expandedProviders.map((p) => {
