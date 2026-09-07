@@ -603,10 +603,10 @@ export function GlobalStatsClient() {
 		const csv = showTimeseriesBreakdown
 			? buildGlobalStatsTimeseriesBreakdownCsv(
 					{
+						dimension: exportDimension,
 						rankedBreakdown: sortedBreakdown,
 						timeseries,
 						timeseriesBreakdown,
-						metric: chartMetric,
 					},
 					format,
 				)
@@ -614,7 +614,7 @@ export function GlobalStatsClient() {
 		downloadCsv(
 			globalStatsExportFilename(
 				showTimeseriesBreakdown
-					? `daily-${chartMetric}-by-${exportDimension.replace(/\s+/g, "-")}`
+					? `daily-by-${exportDimension.replace(/\s+/g, "-")}`
 					: "daily",
 				exportScope,
 			),
@@ -625,7 +625,6 @@ export function GlobalStatsClient() {
 		sortedBreakdown,
 		timeseries,
 		timeseriesBreakdown,
-		chartMetric,
 		exportDimension,
 		exportScope,
 	]);

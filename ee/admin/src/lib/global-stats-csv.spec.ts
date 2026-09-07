@@ -45,8 +45,9 @@ describe("buildGlobalStatsTimeseriesCsv", () => {
 });
 
 describe("buildGlobalStatsTimeseriesBreakdownCsv", () => {
-	test("pivots every dimension into a column for the selected metric", () => {
+	test("emits one line per day and dimension with requests, tokens and cost", () => {
 		const csv = buildGlobalStatsTimeseriesBreakdownCsv({
+			dimension: "mapping",
 			rankedBreakdown: [
 				{ key: "openai/gpt-5.6", label: "openai/gpt-5.6" },
 				{ key: "anthropic/claude", label: "anthropic/claude" },
@@ -54,18 +55,25 @@ describe("buildGlobalStatsTimeseriesBreakdownCsv", () => {
 			timeseries: [{ date: "2026-09-01" }, { date: "2026-09-02" }],
 			timeseriesBreakdown: [
 				{
-					date: "2026-09-01",
-					key: "openai/gpt-5.6",
-					requestCount: 3,
-					cost: 1.5,
-					totalTokens: 30,
-				},
-				{
 					date: "2026-09-02",
 					key: "anthropic/claude",
 					requestCount: 4,
 					cost: 2.25,
 					totalTokens: 40,
+				},
+				{
+					date: "2026-09-01",
+					key: "anthropic/claude",
+					requestCount: 1,
+					cost: 0.5,
+					totalTokens: 10,
+				},
+				{
+					date: "2026-09-01",
+					key: "openai/gpt-5.6",
+					requestCount: 3,
+					cost: 1.5,
+					totalTokens: 30,
 				},
 				{
 					date: "2026-09-03",
@@ -75,26 +83,13 @@ describe("buildGlobalStatsTimeseriesBreakdownCsv", () => {
 					totalTokens: 9,
 				},
 			],
-			metric: "cost",
 		});
 		expect(csv.split("\n")).toEqual([
-			"date,openai/gpt-5.6,anthropic/claude",
-			"2026-09-01,1.5,0",
-			"2026-09-02,0,2.25",
+			"date,mapping,label,requestCount,totalTokens,cost",
+			"2026-09-01,openai/gpt-5.6,openai/gpt-5.6,3,30,1.5",
+			"2026-09-01,anthropic/claude,anthropic/claude,1,10,0.5",
+			"2026-09-02,anthropic/claude,anthropic/claude,4,40,2.25",
 		]);
-	});
-
-	test("disambiguates colliding labels with the key", () => {
-		const csv = buildGlobalStatsTimeseriesBreakdownCsv({
-			rankedBreakdown: [
-				{ key: "a", label: "Same" },
-				{ key: "b", label: "Same" },
-			],
-			timeseries: [],
-			timeseriesBreakdown: [],
-			metric: "requestCount",
-		});
-		expect(csv).toBe("date,Same (a),Same (b)");
 	});
 });
 
@@ -172,7 +167,7 @@ describe("buildGlobalStatsReportCsv", () => {
 			"Totals",
 			"Composition by organization kind",
 			"Daily timeseries",
-			"Daily cost by provider",
+			"Daily timeseries by provider",
 			"Breakdown by provider",
 		]);
 		expect(sections[0]).toContain("modelView,Providers");
@@ -180,9 +175,9 @@ describe("buildGlobalStatsReportCsv", () => {
 		expect(sections[0]).toContain("generated,2026-09-07T00:00:00.000Z");
 		expect(csv).not.toContain("Composition by billing mode");
 		expect(sections[4].split("\n")).toEqual([
-			"Daily cost by provider",
-			"date,openai",
-			"2026-09-01,1",
+			"Daily timeseries by provider",
+			"date,provider,label,requestCount,totalTokens,cost",
+			"2026-09-01,openai,openai,10,150,1",
 		]);
 	});
 });

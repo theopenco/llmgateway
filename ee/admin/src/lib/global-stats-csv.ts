@@ -99,55 +99,42 @@ export function buildGlobalStatsTimeseriesCsv(
 }
 
 /**
- * One column per dimension (in rank order, no "Other" bucket) holding the
- * selected metric per day — the stacked chart, un-truncated. Columns are
- * named by label, disambiguated with the key when two labels collide.
+ * One line per day and dimension, in rank order within each day, carrying
+ * requests, tokens and cost — the stacked chart without the "Other" bucket.
  */
 export function buildGlobalStatsTimeseriesBreakdownCsv(
 	{
+		dimension,
 		rankedBreakdown,
 		timeseries,
 		timeseriesBreakdown,
-		metric,
 	}: {
+		dimension: string;
 		rankedBreakdown: readonly { key: string; label: string }[];
 		timeseries: readonly { date: string }[];
 		timeseriesBreakdown: readonly GlobalStatsCsvTimeseriesBreakdownPoint[];
-		metric: GlobalStatsChartMetric;
 	},
 	format: CsvFormat = DEFAULT_CSV_FORMAT,
 ): string {
-	const labelCounts = new Map<string, number>();
-	for (const item of rankedBreakdown) {
-		labelCounts.set(item.label, (labelCounts.get(item.label) ?? 0) + 1);
-	}
-	const columns = rankedBreakdown.map((item) => ({
-		key: item.key,
-		header:
-			(labelCounts.get(item.label) ?? 0) > 1 && item.label !== item.key
-				? `${item.label} (${item.key})`
-				: item.label,
-	}));
-	const columnIndex = new Map(columns.map((column, i) => [column.key, i]));
-
-	const rows = new Map<string, number[]>();
-	for (const point of timeseries) {
-		rows.set(point.date, new Array<number>(columns.length).fill(0));
-	}
-	for (const point of timeseriesBreakdown) {
-		const row = rows.get(point.date);
-		const index = columnIndex.get(point.key);
-		if (!row || index === undefined) {
-			continue;
-		}
-		row[index] += point[metric];
-	}
-
+	const rank = new Map(rankedBreakdown.map((item, i) => [item.key, i]));
+	const label = new Map(rankedBreakdown.map((item) => [item.key, item.label]));
+	const dateOrder = new Map(timeseries.map((point, i) => [point.date, i]));
+	const rows = timeseriesBreakdown
+		.filter((point) => dateOrder.has(point.date) && rank.has(point.key))
+		.sort(
+			(a, b) =>
+				(dateOrder.get(a.date) ?? 0) - (dateOrder.get(b.date) ?? 0) ||
+				(rank.get(a.key) ?? 0) - (rank.get(b.key) ?? 0),
+		);
 	return buildCsv(
-		["date", ...columns.map((column) => column.header)],
-		Array.from(rows.entries()).map(([date, values]) => [
-			date,
-			...values.map((value) => formatCsvNumber(value, format)),
+		["date", dimension, "label", "requestCount", "totalTokens", "cost"],
+		rows.map((point) => [
+			point.date,
+			point.key,
+			label.get(point.key) ?? point.key,
+			formatCsvNumber(point.requestCount, format),
+			formatCsvNumber(point.totalTokens, format),
+			formatCsvNumber(point.cost, format),
 		]),
 		format,
 	);
@@ -284,13 +271,13 @@ export function buildGlobalStatsReportCsv(
 			csv: buildGlobalStatsTimeseriesCsv(timeseries, format),
 		},
 		{
-			title: `Daily ${GLOBAL_STATS_METRIC_LABELS[scope.metric].toLowerCase()} by ${dimension}`,
+			title: `Daily timeseries by ${dimension}`,
 			csv: buildGlobalStatsTimeseriesBreakdownCsv(
 				{
+					dimension,
 					rankedBreakdown: breakdown,
 					timeseries,
 					timeseriesBreakdown,
-					metric: scope.metric,
 				},
 				format,
 			),
