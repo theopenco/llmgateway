@@ -723,7 +723,7 @@ const providerKeysListSchema = z.object({
 const memberSchema = z.object({
 	id: z.string(),
 	userId: z.string(),
-	role: z.enum(["owner", "admin", "developer"]),
+	role: z.enum(["owner", "admin", "project_admin", "developer"]),
 	createdAt: z.string(),
 	teamAssignmentSource: z.enum(["manual", "sso", "default"]),
 	team: z

@@ -55,7 +55,7 @@ export const mcpAccountSchema = z.object({
 		kind: z.string(),
 	}),
 	project: z.object({ id: z.string(), name: z.string() }),
-	role: z.enum(["owner", "admin", "developer"]),
+	role: z.enum(["owner", "admin", "project_admin", "developer"]),
 	usageScope: mcpUsageScopeSchema,
 	apiKey: z.object({
 		id: z.string(),

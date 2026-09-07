@@ -1068,7 +1068,7 @@ export const userOrganization = pgTable(
 			.notNull()
 			.default("manual"),
 		role: text({
-			enum: ["owner", "admin", "developer"],
+			enum: ["owner", "admin", "project_admin", "developer"],
 		})
 			.notNull()
 			.default("owner"),
@@ -1123,7 +1123,7 @@ export const organizationInvite = pgTable(
 		// Stored lowercased; matched case-insensitively against the signup email.
 		email: text().notNull(),
 		role: text({
-			enum: ["owner", "admin", "developer"],
+			enum: ["owner", "admin", "project_admin", "developer"],
 		})
 			.notNull()
 			.default("developer"),
@@ -2841,7 +2841,7 @@ export const ssoRoleMapping = pgTable(
 			.references(() => organization.id, { onDelete: "cascade" }),
 		groupName: text().notNull(),
 		role: text({
-			enum: ["owner", "admin", "developer"],
+			enum: ["owner", "admin", "project_admin", "developer"],
 		}).notNull(),
 	},
 	(table) => [

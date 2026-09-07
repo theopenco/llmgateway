@@ -16,6 +16,7 @@ import {
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { canManageProject } from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderCacheControlMode } from "@llmgateway/models";
@@ -274,22 +275,11 @@ projects.openapi(updateProject, async (c) => {
 	const projectUserOrg = userOrgs.find(
 		(userOrg) => userOrg.organizationId === project.organizationId,
 	);
-	const isAdminOrOwner =
-		projectUserOrg?.role === "owner" || projectUserOrg?.role === "admin";
+	const isProjectAdmin = canManageProject(projectUserOrg?.role);
 
-	// Project settings are admin-only; project-scoped "developer" members cannot
-	// edit projects.
-	if (!isAdminOrOwner) {
+	if (!isProjectAdmin) {
 		throw new HTTPException(403, {
-			message:
-				"Only organization owners and admins can update project settings",
-		});
-	}
-
-	if (isUpdatingEndUserSettings && !isAdminOrOwner) {
-		throw new HTTPException(403, {
-			message:
-				"Only organization owners and admins can update Payments SDK settings",
+			message: "Only project admins can update project settings",
 		});
 	}
 
@@ -300,18 +290,6 @@ projects.openapi(updateProject, async (c) => {
 		throw new HTTPException(403, {
 			message:
 				"The Payments SDK is currently in preview and opt-in only. Contact us to enable it for your project.",
-		});
-	}
-
-	// Changing the billing mode (e.g. enabling BYOK "api-keys" mode) is a
-	// privileged operation: it controls whether tenant-supplied provider keys
-	// and base URLs are used for inference. Restrict it to owners/admins, but
-	// only when the value actually changes so clients that PATCH the full
-	// settings object with an unchanged mode are not rejected.
-	if (mode !== undefined && mode !== project.mode && !isAdminOrOwner) {
-		throw new HTTPException(403, {
-			message:
-				"Only organization owners and admins can change the project mode",
 		});
 	}
 

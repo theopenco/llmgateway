@@ -474,7 +474,7 @@ const EXTRA_ORGS: Array<{
 const USER_ORG_MAP: Array<{
 	userId: string;
 	orgId: string;
-	role: "owner" | "admin" | "developer";
+	role: "owner" | "admin" | "project_admin" | "developer";
 }> = [
 	{ userId: "user-alice", orgId: "org-techcorp", role: "owner" },
 	{ userId: "user-bob", orgId: "org-startup", role: "owner" },
@@ -2291,6 +2291,32 @@ async function seed() {
 	await upsert(tables.userProject, {
 		id: "enterprise-dev-user-project-id",
 		userOrganizationId: "enterprise-dev-user-org-id",
+		projectId: "enterprise-project-id",
+	});
+
+	await upsert(tables.user, {
+		id: "enterprise-project-admin-user-id",
+		name: "Project Admin",
+		email: "project-admin@example.com",
+		emailVerified: true,
+		onboardingCompleted: true,
+	});
+	await upsert(tables.account, {
+		id: "enterprise-project-admin-account-id",
+		providerId: "credential",
+		accountId: "enterprise-project-admin-account-id",
+		password: await hashPassword("project-admin@example.com"),
+		userId: "enterprise-project-admin-user-id",
+	});
+	await upsert(tables.userOrganization, {
+		id: "enterprise-project-admin-user-org-id",
+		userId: "enterprise-project-admin-user-id",
+		organizationId: "enterprise-org-id",
+		role: "project_admin",
+	});
+	await upsert(tables.userProject, {
+		id: "enterprise-project-admin-user-project-id",
+		userOrganizationId: "enterprise-project-admin-user-org-id",
 		projectId: "enterprise-project-id",
 	});
 

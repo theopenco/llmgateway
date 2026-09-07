@@ -11,6 +11,7 @@ import {
 } from "@/lib/self-refund.js";
 import {
 	getUserProjectIds,
+	getAdminOrganizationIds,
 	userHasOrganizationAccess,
 } from "@/utils/authorization.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
@@ -66,6 +67,7 @@ import {
 	spendMonthlyKey,
 } from "@llmgateway/shared";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -211,7 +213,7 @@ const organizationSchema = z.object({
 	// The authenticated user's role in this org. Populated by GET /orgs so the
 	// dashboard can gate org-level UI (e.g. hide org nav from project-scoped
 	// "developer" members). Omitted by single-org endpoints.
-	role: z.enum(["owner", "admin", "developer"]).optional(),
+	role: z.enum(["owner", "admin", "project_admin", "developer"]).optional(),
 	enterpriseAccess: z.boolean().optional(),
 });
 
@@ -697,6 +699,12 @@ organization.openapi(updateOrganization, async (c) => {
 		});
 	}
 
+	if (!isOrganizationAdmin(userOrganization.role)) {
+		throw new HTTPException(403, {
+			message: "Only owners and admins can update organization settings",
+		});
+	}
+
 	// Check if user is trying to update policies or billing settings
 	const isBillingOrPolicyUpdate =
 		billingEmail !== undefined ||
@@ -1163,6 +1171,12 @@ organization.openapi(deleteOrganization, async (c) => {
 		});
 	}
 
+	if (userOrganization.role !== "owner") {
+		throw new HTTPException(403, {
+			message: "Only owners can delete organizations",
+		});
+	}
+
 	// Block deletion of personal orgs - they are managed via dev plans
 	if (userOrganization.organization?.kind === "devpass") {
 		throw new HTTPException(403, {
@@ -1244,6 +1258,12 @@ organization.openapi(getTransactions, async (c) => {
 	if (!userOrganization?.organization) {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
+		});
+	}
+
+	if (!isOrganizationAdmin(userOrganization.role)) {
+		throw new HTTPException(403, {
+			message: "Only owners and admins can view transactions",
 		});
 	}
 
@@ -1408,7 +1428,7 @@ organization.openapi(downloadTransactionInvoice, async (c) => {
 
 	const { id, transactionId } = c.req.param();
 
-	const hasAccess = await userHasOrganizationAccess(user.id, id);
+	const hasAccess = (await getAdminOrganizationIds(user.id)).includes(id);
 	if (!hasAccess) {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
@@ -1500,7 +1520,7 @@ organization.openapi(getReferralStats, async (c) => {
 
 	const { id } = c.req.param();
 
-	const hasAccess = await userHasOrganizationAccess(user.id, id);
+	const hasAccess = (await getAdminOrganizationIds(user.id)).includes(id);
 	if (!hasAccess) {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
@@ -1566,7 +1586,7 @@ organization.openapi(getOrgDiscounts, async (c) => {
 
 	const { id } = c.req.param();
 
-	const hasAccess = await userHasOrganizationAccess(user.id, id);
+	const hasAccess = (await getAdminOrganizationIds(user.id)).includes(id);
 	if (!hasAccess) {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
@@ -1641,7 +1661,7 @@ organization.openapi(getCreditsRunway, async (c) => {
 	// Runway aggregates spend across every project in the org, including ones a
 	// developer was never granted, so it is owner/admin only. The dashboard hides
 	// the credits widget from developers anyway.
-	if (membership.role === "developer") {
+	if (!isOrganizationAdmin(membership.role)) {
 		throw new HTTPException(403, {
 			message: "Only organization owners and admins can view credits runway",
 		});
@@ -1792,7 +1812,7 @@ organization.openapi(getOrganizationLimits, async (c) => {
 	}
 	// Spend and org-wide caps are financial data, so developers (project-scoped
 	// members) are excluded, mirroring the credits-runway endpoint.
-	if (membership.role === "developer") {
+	if (!isOrganizationAdmin(membership.role)) {
 		throw new HTTPException(403, {
 			message: "Only organization owners and admins can view limits",
 		});

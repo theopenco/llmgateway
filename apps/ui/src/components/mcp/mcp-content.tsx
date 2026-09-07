@@ -187,7 +187,7 @@ Owners/admins see the connected project's usage. Developers see only their own k
 ## Available Tools
 
 ### get-account
-No parameters. Returns the connected user, organization, project, role, usage scope, API key usage/limits, and the organization credit balance (null for developers). No credentials are returned. Credit balance is not a DevPass plan allowance.
+No parameters. Returns the connected user, organization, project, role, usage scope, API key usage/limits, and the organization credit balance (available to organization owners and admins). No credentials are returned. Credit balance is not a DevPass plan allowance.
 
 ### get-usage
 Returns request/token totals, errors, cache hits, inference cost, credits/BYOK cost split, storage cost, trends, and most-used provider/model/app by request count.

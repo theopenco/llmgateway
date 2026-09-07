@@ -36,12 +36,13 @@ import {
 	type OrgDefaultDeveloperBudget,
 } from "@llmgateway/db";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+import { isProjectScopedRole } from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const team = new OpenAPIHono<ServerTypes>();
 
-const roleSchema = z.enum(["owner", "admin", "developer"]);
+const roleSchema = z.enum(["owner", "admin", "project_admin", "developer"]);
 
 const INVITE_EXPIRY_DAYS = 30;
 const INVITE_EXPIRY_MS = INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
@@ -94,14 +95,14 @@ const teamMemberSchema = z.object({
 	teamBudget: memberBudgetSchema.nullable(),
 	personalProjects: z.array(memberProjectSchema).nullable(),
 	// Project access: null = every project in the org (owner/admin); an array =
-	// the specific projects a project-scoped "developer" is limited to.
+	// the specific projects a project-scoped member is limited to.
 	projects: z.array(memberProjectSchema).nullable(),
 });
 
 const addMemberSchema = z.object({
 	email: z.string().email(),
 	role: roleSchema,
-	// Required (non-empty) when role is "developer": the projects the member is
+	// Required (non-empty) for project-scoped roles: the projects the member is
 	// granted access to. Ignored for owner/admin (they get the whole org).
 	projectIds: z.array(z.string()).optional(),
 });
@@ -112,7 +113,7 @@ const teamInviteSchema = z.object({
 	role: roleSchema,
 	createdAt: z.date(),
 	expiresAt: z.date(),
-	// Projects a "developer" invite will be granted at acceptance; null for
+	// Projects a project-scoped invite will be granted at acceptance; null for
 	// owner/admin invites (whole-org access).
 	projects: z.array(memberProjectSchema).nullable(),
 });
@@ -176,12 +177,11 @@ async function invitesWithProjects(
 		role: invite.role,
 		createdAt: invite.createdAt,
 		expiresAt: invite.expiresAt,
-		projects:
-			invite.role === "developer"
-				? (invite.projectIds ?? [])
-						.map((id) => projectById.get(id))
-						.filter((p): p is { id: string; name: string } => !!p)
-				: null,
+		projects: isProjectScopedRole(invite.role)
+			? (invite.projectIds ?? [])
+					.map((id) => projectById.get(id))
+					.filter((p): p is { id: string; name: string } => !!p)
+			: null,
 	}));
 }
 
@@ -399,28 +399,29 @@ async function computeMemberSpend(
 
 const updateMemberSchema = z.object({
 	role: roleSchema,
-	// When the (new) role is "developer", the projects the member is limited to.
+	// For project-scoped roles, the projects the member is limited to.
 	projectIds: z.array(z.string()).optional(),
 });
 
 /**
- * Validate a developer's requested project grants against the org and return the
+ * Validate a member's requested project grants against the org and return the
  * resolved {id,name} list. Throws 400 when the role/project combination is
  * invalid.
  */
-async function resolveDeveloperProjects(
+async function resolveMemberProjects(
 	organizationId: string,
 	role: z.infer<typeof roleSchema>,
 	projectIds: string[] | undefined,
 ): Promise<{ id: string; name: string }[]> {
-	if (role !== "developer") {
+	if (!isProjectScopedRole(role)) {
 		return [];
 	}
 
 	const unique = Array.from(new Set(projectIds ?? []));
 	if (unique.length === 0) {
 		throw new HTTPException(400, {
-			message: "Developers must be granted access to at least one project.",
+			message:
+				"Project-scoped members must be granted access to at least one project.",
 		});
 	}
 
@@ -443,27 +444,26 @@ async function resolveDeveloperProjects(
 }
 
 /**
- * Replace a membership's project grants with exactly `projectIds` (developers),
+ * Replace a membership's project grants with exactly `projectIds` (project-scoped roles),
  * or clear them entirely (owner/admin have implicit access to every project).
  */
 async function syncMemberProjects(
 	userOrganizationId: string,
 	projectIds: string[],
+	tx: Pick<typeof db, "insert" | "delete">,
 ): Promise<void> {
-	await cdb.transaction(async (tx) => {
-		await tx
-			.delete(tables.userProject)
-			.where(eq(tables.userProject.userOrganizationId, userOrganizationId));
+	await tx
+		.delete(tables.userProject)
+		.where(eq(tables.userProject.userOrganizationId, userOrganizationId));
 
-		if (projectIds.length) {
-			await tx.insert(tables.userProject).values(
-				projectIds.map((projectId) => ({
-					userOrganizationId,
-					projectId,
-				})),
-			);
-		}
-	});
+	if (projectIds.length) {
+		await tx.insert(tables.userProject).values(
+			projectIds.map((projectId) => ({
+				userOrganizationId,
+				projectId,
+			})),
+		);
+	}
 }
 
 const getMembers = createRoute({
@@ -592,12 +592,11 @@ team.openapi(getMembers, async (c) => {
 
 	return c.json({
 		members: members.map((m) => {
-			const personalProjects =
-				m.role === "developer"
-					? m.userProjects
-							.filter((up) => up.project && up.project.status !== "deleted")
-							.map((up) => ({ id: up.project!.id, name: up.project!.name }))
-					: null;
+			const personalProjects = isProjectScopedRole(m.role)
+				? m.userProjects
+						.filter((up) => up.project && up.project.status !== "deleted")
+						.map((up) => ({ id: up.project!.id, name: up.project!.name }))
+				: null;
 			const teamProjectIds = m.team
 				? new Set(
 						m.team.projects
@@ -622,7 +621,7 @@ team.openapi(getMembers, async (c) => {
 				teamBudget: isPrivileged && m.team ? budgetFromRow(m.team) : null,
 				personalProjects,
 				// Owner/admin members have implicit access to every project (null);
-				// developers are limited to their granted projects.
+				// project-scoped members are limited to their granted projects.
 				projects:
 					personalProjects && teamProjectIds
 						? personalProjects.filter((project) =>
@@ -806,21 +805,21 @@ team.openapi(addMember, async (c) => {
 		});
 	}
 
-	// Project-scoped "developer" access is an Enterprise feature.
+	// Project-scoped access is an Enterprise feature.
 	if (
-		role === "developer" &&
+		isProjectScopedRole(role) &&
 		!hasOrganizationEnterpriseAccess(
 			userOrganization.organization?.id,
 			userOrganization.organization?.plan,
 		)
 	) {
 		throw new HTTPException(403, {
-			message: "Project-scoped developer access requires the Enterprise plan.",
+			message: "Project-scoped access requires the Enterprise plan.",
 		});
 	}
 
 	// Developers must be granted a valid, non-empty set of org projects.
-	const grantedProjects = await resolveDeveloperProjects(
+	const grantedProjects = await resolveMemberProjects(
 		organizationId,
 		role,
 		projectIds,
@@ -887,8 +886,9 @@ team.openapi(addMember, async (c) => {
 				organizationId,
 				email: normalizedEmail,
 				role,
-				projectIds:
-					role === "developer" ? grantedProjects.map((p) => p.id) : null,
+				projectIds: isProjectScopedRole(role)
+					? grantedProjects.map((p) => p.id)
+					: null,
 				invitedBy: authUser.id,
 				expiresAt: new Date(Date.now() + INVITE_EXPIRY_MS),
 			})
@@ -900,7 +900,7 @@ team.openapi(addMember, async (c) => {
 
 		const text = `Hey!
 
-${inviterName} invited you to join the "${orgName}" organization on LLM Gateway as ${role === "admin" ? "an" : "a"} ${role}.
+${inviterName} invited you to join the "${orgName}" organization on LLM Gateway as ${role === "admin" ? "an" : "a"} ${role === "project_admin" ? "project admin" : role}.
 
 Create an account using this email address (${normalizedEmail}) and you'll be added to the organization automatically:
 
@@ -941,7 +941,7 @@ This invitation expires in ${INVITE_EXPIRY_DAYS} days. If you weren't expecting 
 				role: invite.role,
 				createdAt: invite.createdAt,
 				expiresAt: invite.expiresAt,
-				projects: role === "developer" ? grantedProjects : null,
+				projects: isProjectScopedRole(role) ? grantedProjects : null,
 			},
 		});
 	}
@@ -985,12 +985,17 @@ This invitation expires in ${INVITE_EXPIRY_DAYS} days. If you weren't expecting 
 		throw error;
 	}
 
-	if (role === "developer") {
-		await syncMemberProjects(
-			newMember.id,
-			grantedProjects.map((p) => p.id),
-		);
-		await recomputeUserTeam(targetUser.id, organizationId);
+	if (isProjectScopedRole(role)) {
+		await cdb.transaction(async (tx) => {
+			await syncMemberProjects(
+				newMember.id,
+				grantedProjects.map((p) => p.id),
+				tx,
+			);
+		});
+		if (role === "developer") {
+			await recomputeUserTeam(targetUser.id, organizationId);
+		}
 	}
 
 	await logAuditEvent({
@@ -1024,8 +1029,8 @@ This invitation expires in ${INVITE_EXPIRY_DAYS} days. If you weren't expecting 
 			spend: EMPTY_SPEND,
 			team: null,
 			teamBudget: null,
-			personalProjects: role === "developer" ? grantedProjects : null,
-			projects: role === "developer" ? grantedProjects : null,
+			personalProjects: isProjectScopedRole(role) ? grantedProjects : null,
+			projects: isProjectScopedRole(role) ? grantedProjects : null,
 		},
 		invite: null,
 	});
@@ -1212,21 +1217,21 @@ team.openapi(updateMember, async (c) => {
 		});
 	}
 
-	// Project-scoped "developer" access is an Enterprise feature.
+	// Project-scoped access is an Enterprise feature.
 	if (
-		role === "developer" &&
+		isProjectScopedRole(role) &&
 		!hasOrganizationEnterpriseAccess(
 			userOrganization.organization?.id,
 			userOrganization.organization?.plan,
 		)
 	) {
 		throw new HTTPException(403, {
-			message: "Project-scoped developer access requires the Enterprise plan.",
+			message: "Project-scoped access requires the Enterprise plan.",
 		});
 	}
 
-	// Developers need a valid, non-empty project grant list (validated up front).
-	const grantedProjects = await resolveDeveloperProjects(
+	// Validate project grants before updating membership.
+	const grantedProjects = await resolveMemberProjects(
 		organizationId,
 		role,
 		projectIds,
@@ -1289,26 +1294,24 @@ team.openapi(updateMember, async (c) => {
 		}
 	}
 
-	const [updatedMember] = await cdb
-		.update(tables.userOrganization)
-		// Privileged roles must never inherit team restrictions. Clear the team in
-		// the same write that promotes the member so no intermediate locked state
-		// can be observed.
-		.set({
-			role,
-			...(role === "developer"
-				? {}
-				: { teamId: null, teamAssignmentSource: "manual" as const }),
-		})
-		.where(eq(tables.userOrganization.id, memberId))
-		.returning();
-
-	// Sync project grants: developers keep exactly the granted set; owner/admin
-	// have implicit access to everything, so their grants are cleared.
-	await syncMemberProjects(
-		memberId,
-		role === "developer" ? grantedProjects.map((p) => p.id) : [],
-	);
+	const updatedMember = await cdb.transaction(async (tx) => {
+		const [member] = await tx
+			.update(tables.userOrganization)
+			.set({
+				role,
+				...(role === "developer"
+					? {}
+					: { teamId: null, teamAssignmentSource: "manual" as const }),
+			})
+			.where(eq(tables.userOrganization.id, memberId))
+			.returning();
+		await syncMemberProjects(
+			memberId,
+			isProjectScopedRole(role) ? grantedProjects.map((p) => p.id) : [],
+			tx,
+		);
+		return member;
+	});
 
 	// A demoted member starts team-less; pick up the SCIM-mapped or default
 	// team like any other newly joining developer.
@@ -1359,7 +1362,7 @@ team.openapi(updateMember, async (c) => {
 			? grantedProjects.filter((project) =>
 					teamPolicy.projectIds.has(project.id),
 				)
-			: role === "developer"
+			: isProjectScopedRole(role)
 				? grantedProjects
 				: null;
 
@@ -1376,7 +1379,7 @@ team.openapi(updateMember, async (c) => {
 			spend,
 			team: teamPolicy?.identity ?? null,
 			teamBudget: teamPolicy?.budget ?? null,
-			personalProjects: role === "developer" ? grantedProjects : null,
+			personalProjects: isProjectScopedRole(role) ? grantedProjects : null,
 			projects: effectiveProjects,
 		},
 	});
@@ -1587,17 +1590,16 @@ team.openapi(updateMemberBudget, async (c) => {
 		},
 	});
 
-	const memberProjects =
-		updatedMember.role === "developer"
-			? (
-					await db.query.userProject.findMany({
-						where: { userOrganizationId: { eq: updatedMember.id } },
-						with: { project: { columns: { id: true, name: true } } },
-					})
-				)
-					.filter((up) => up.project)
-					.map((up) => ({ id: up.project!.id, name: up.project!.name }))
-			: null;
+	const memberProjects = isProjectScopedRole(updatedMember.role)
+		? (
+				await db.query.userProject.findMany({
+					where: { userOrganizationId: { eq: updatedMember.id } },
+					with: { project: { columns: { id: true, name: true } } },
+				})
+			)
+				.filter((up) => up.project)
+				.map((up) => ({ id: up.project!.id, name: up.project!.name }))
+		: null;
 	const teamPolicy = await getMemberTeamPolicy(updatedMember.teamId);
 	const effectiveMemberBudget = effectiveBudgetFrom(
 		updatedMember,
