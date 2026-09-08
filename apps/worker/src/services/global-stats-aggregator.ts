@@ -443,6 +443,58 @@ const AGGREGATORS = {
 	"provider-key": aggregateProviderKeyWindowIntoStats,
 };
 
+// Seek once per distinct key using (provider_key_id, created_at). Ordering
+// only by created_at can scan the entire unattributed prefix of log history.
+export const providerKeyBackfillStartQuery = sql`
+	WITH RECURSIVE first_log_per_key AS (
+		(
+			SELECT provider_key_id, created_at
+			FROM ${log}
+			WHERE provider_key_id IS NOT NULL
+			ORDER BY provider_key_id, created_at
+			LIMIT 1
+		)
+		UNION ALL
+		SELECT next_key.provider_key_id, next_key.created_at
+		FROM first_log_per_key previous_key
+		CROSS JOIN LATERAL (
+			SELECT provider_key_id, created_at
+			FROM ${log}
+			WHERE provider_key_id IS NOT NULL
+				AND provider_key_id > previous_key.provider_key_id
+			ORDER BY provider_key_id, created_at
+			LIMIT 1
+		) next_key
+	)
+	SELECT extract(epoch FROM date_trunc('day', min(created_at))) * 1000 AS earliest_day_ms
+	FROM first_log_per_key
+`;
+
+async function initialProviderKeyBucket(tx: Tx): Promise<Date | undefined> {
+	logger.info(
+		"[global-provider-key] Locating backfill start using the provider-key index",
+	);
+	const previousTimeout = await tx.execute<{ statement_timeout: string }>(
+		sql`SHOW statement_timeout`,
+	);
+	await tx.execute(sql`SET LOCAL statement_timeout = '30s'`);
+	const oldest = await tx.execute<{ earliest_day_ms: string | null }>(
+		providerKeyBackfillStartQuery,
+	);
+	await tx.execute(
+		sql`SELECT set_config('statement_timeout', ${previousTimeout.rows[0].statement_timeout}, true)`,
+	);
+	const earliest = oldest.rows[0].earliest_day_ms;
+	if (earliest === null) {
+		return;
+	}
+	const bucket = new Date(Number(earliest));
+	logger.info(
+		`[global-provider-key] Backfilling from ${formatUTCTimestamp(bucket)}`,
+	);
+	return bucket;
+}
+
 async function processScopeClosedHours(
 	now: Date,
 	scope: AggregationScope,
@@ -453,36 +505,15 @@ async function processScopeClosedHours(
 	const latestSafeBucket = floorToBucket(new Date(cutoffMs), BUCKET_MS);
 
 	const state = await readState(scope);
-
-	let nextBucket: Date;
-	if (state?.lastProcessedHour) {
-		nextBucket = new Date(state.lastProcessedHour.getTime() + BUCKET_MS);
-	} else if (scope === "provider-key") {
-		// No existing rollup has the key/model dimensions together. Retention
-		// clears log payloads but preserves attribution and metering columns.
-		const [oldest] = await db
-			.select({ createdAt: log.createdAt })
-			.from(log)
-			.where(isNotNull(log.providerKeyId))
-			.orderBy(log.createdAt)
-			.limit(1);
-		if (!oldest) {
-			return false;
-		}
-		nextBucket = floorToDay(oldest.createdAt);
-		logger.info(
-			`[global-provider-key] Backfilling from ${formatUTCTimestamp(nextBucket)}`,
-		);
-	} else {
-		const lookbackMs = INITIAL_LOOKBACK_DAYS * DAY_MS;
-		nextBucket = floorToBucket(new Date(now.getTime() - lookbackMs), BUCKET_MS);
-		logger.info(
-			`[global-${scope}] No watermark, seeding from ${formatUTCTimestamp(nextBucket)}`,
-		);
-	}
-
+	let nextBucket = state?.lastProcessedHour
+		? new Date(state.lastProcessedHour.getTime() + BUCKET_MS)
+		: undefined;
+	let caughtUp = false;
 	let processed = 0;
-	while (nextBucket <= latestSafeBucket && processed < MAX_BUCKETS_PER_TICK) {
+	while (
+		(!nextBucket || nextBucket <= latestSafeBucket) &&
+		processed < MAX_BUCKETS_PER_TICK
+	) {
 		if (isStopRequested()) {
 			logger.info(
 				`[global-${scope}] Stop requested, processed ${processed} buckets`,
@@ -490,7 +521,6 @@ async function processScopeClosedHours(
 			break;
 		}
 
-		const bucket = nextBucket;
 		const lastProcessed = await db.transaction(async (tx) => {
 			await tx
 				.insert(globalAggregationState)
@@ -501,16 +531,27 @@ async function processScopeClosedHours(
 				.from(globalAggregationState)
 				.where(eq(globalAggregationState.id, STATE_ROW_IDS[scope]))
 				.for("update");
-			// Serialize replicas before touching ADD-style aggregates.
-			if (
-				currentState.lastProcessedHour &&
-				currentState.lastProcessedHour >= bucket
-			) {
-				return currentState.lastProcessedHour;
+
+			// Hold the cursor lock during discovery and the first bucket too,
+			// so replicas cannot issue duplicate startup lookups.
+			let bucket: Date | undefined;
+			if (currentState.lastProcessedHour) {
+				bucket = new Date(currentState.lastProcessedHour.getTime() + BUCKET_MS);
+			} else if (scope === "provider-key") {
+				bucket = await initialProviderKeyBucket(tx);
+			} else {
+				const lookbackMs = INITIAL_LOOKBACK_DAYS * DAY_MS;
+				bucket = floorToBucket(new Date(now.getTime() - lookbackMs), BUCKET_MS);
+				logger.info(
+					`[global-global] No watermark, seeding from ${formatUTCTimestamp(bucket)}`,
+				);
+			}
+			if (!bucket || bucket > latestSafeBucket) {
+				return;
 			}
 
-			// The previous deployment may already have populated part of this
-			// day. Clear it once before replaying; commit each hour with its cursor.
+			// No rollup has the key/model dimensions together. Log retention
+			// preserves the metering fields needed to rebuild each existing day.
 			if (
 				scope === "provider-key" &&
 				(!currentState.lastProcessedHour ||
@@ -527,18 +568,26 @@ async function processScopeClosedHours(
 			await setLastProcessedHour(tx, bucket, scope);
 			return bucket;
 		});
+		if (!lastProcessed) {
+			caughtUp = true;
+			break;
+		}
 
 		processed++;
 		nextBucket = new Date(lastProcessed.getTime() + BUCKET_MS);
 	}
 
-	if (processed >= MAX_BUCKETS_PER_TICK && nextBucket <= latestSafeBucket) {
+	if (
+		processed >= MAX_BUCKETS_PER_TICK &&
+		nextBucket &&
+		nextBucket <= latestSafeBucket
+	) {
 		logger.info(
 			`[global-${scope}] Hit per-tick cap (${MAX_BUCKETS_PER_TICK}), more buckets pending — will continue next tick`,
 		);
 	}
 
-	if (processed > 0) {
+	if (processed > 0 && nextBucket) {
 		const lastProcessed = new Date(nextBucket.getTime() - BUCKET_MS);
 		logger.info(
 			`[global-${scope}] Processed ${processed} closed bucket(s) in ${Date.now() - start}ms (watermark now ${formatUTCTimestamp(lastProcessed)})`,
@@ -560,7 +609,9 @@ async function processScopeClosedHours(
 			);
 		}
 	}
-	return nextBucket <= latestSafeBucket;
+	return (
+		!caughtUp && nextBucket !== undefined && nextBucket <= latestSafeBucket
+	);
 }
 
 export async function processClosedHours(): Promise<boolean> {

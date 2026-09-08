@@ -12,6 +12,7 @@ import {
 	globalProviderKeyModelStats,
 	globalSourceStats,
 	log,
+	sql,
 } from "@llmgateway/db";
 
 import {
@@ -228,11 +229,29 @@ describe("provider-key global stats backfill", () => {
 	test("waits for attributed traffic and skips earlier unattributed history", async () => {
 		await insertLog(new Date("2025-01-01T00:30:00Z"), null);
 		expect(await processClosedHours()).toBe(false);
-		expect(await readProviderState()).toBeUndefined();
+		expect((await readProviderState())?.lastProcessedHour).toBeNull();
 
 		await insertLog(new Date("2026-06-15T00:30:00Z"));
 		expect(await processClosedHours()).toBe(false);
 		expect((await readProviderStats())[0].requestCount).toBe(1);
+		expect((await readProviderState())?.lastProcessedHour).toEqual(LATEST_HOUR);
+	});
+
+	test("finds the oldest timestamp across keys, including removed credentials", async () => {
+		// Key order differs from timestamp order; none needs a provider_key row.
+		await insertLog(new Date("2026-06-15T00:30:00Z"), "a-key");
+		await insertLog(new Date("2026-06-14T00:30:00Z"), "m-key");
+		await insertLog(new Date("2026-06-13T00:30:00Z"), "z-removed-key");
+		await insertLog(new Date("2026-06-15T01:30:00Z"), "z-removed-key");
+
+		expect(await processClosedHours()).toBe(false);
+		const rows = await readProviderStats();
+		expect(rows[0]).toMatchObject({
+			dayTimestamp: new Date("2026-06-13T00:00:00Z"),
+			providerKeyId: "z-removed-key",
+			requestCount: 1,
+		});
+		expect(rows.reduce((sum, row) => sum + row.requestCount, 0)).toBe(4);
 		expect((await readProviderState())?.lastProcessedHour).toEqual(LATEST_HOUR);
 	});
 
@@ -247,6 +266,25 @@ describe("provider-key global stats backfill", () => {
 		]);
 		expect((await readProviderState())?.lastProcessedHour).toEqual(LATEST_HOUR);
 		expect((await readProviderState())?.lastSafetyNetDay).toEqual(YESTERDAY);
+	});
+
+	test("restores the transaction timeout after locating the backfill start", async () => {
+		await insertLog(new Date("2026-06-15T00:30:00Z"));
+		const transaction = db.transaction.bind(db);
+		vi.spyOn(db, "transaction").mockImplementationOnce((callback) =>
+			transaction(async (tx) => {
+				await tx.execute(sql`SET LOCAL statement_timeout = '7s'`);
+				const result = await callback(tx);
+				const timeout = await tx.execute<{ statement_timeout: string }>(
+					sql`SHOW statement_timeout`,
+				);
+				expect(timeout.rows[0].statement_timeout).toBe("7s");
+				return result;
+			}),
+		);
+
+		await processClosedHours();
+		expect((await readProviderStats())[0].requestCount).toBe(1);
 	});
 
 	test("preserves a complete day if the safety-net transaction fails", async () => {
