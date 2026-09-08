@@ -70,7 +70,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 								<SelectContent>
 									{companies.map((c) => (
 										<SelectItem key={c.id} value={c.id}>
-											{c.name}
+											{c.displayName}
 										</SelectItem>
 									))}
 								</SelectContent>
