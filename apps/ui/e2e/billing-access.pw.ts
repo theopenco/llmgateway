@@ -52,6 +52,32 @@ test("an owner can open billing and the top-up dialog", async ({ page }) => {
 	).toBeVisible();
 });
 
+for (const { email, isOwner } of [
+	{ email: "enterprise@example.com", isOwner: true },
+	{ email: "admin@example.com", isOwner: false },
+]) {
+	test(`${email} sees payment status and an appropriate auto top-up prompt`, async ({
+		page,
+	}) => {
+		await signIn(page, email);
+		await page.goto(`/dashboard/${orgId}/org/billing?success=true`);
+		await expect(
+			page.getByText("Payment successful", { exact: true }),
+		).toHaveCount(1);
+		const nudge = page.getByText("Never run out of credits", { exact: true });
+		if (isOwner) {
+			await expect(nudge).toBeVisible();
+			await page.getByRole("button", { name: "Dismiss", exact: true }).click();
+		}
+		await expect(nudge).toHaveCount(0);
+		await page.goto(`/dashboard/${orgId}/org/billing?canceled=true`);
+		await expect(
+			page.getByText("Payment canceled", { exact: true }),
+		).toHaveCount(1);
+		await expect(nudge).toHaveCount(0);
+	});
+}
+
 test("billing remains inaccessible without browser JavaScript", async ({
 	browser,
 	baseURL,

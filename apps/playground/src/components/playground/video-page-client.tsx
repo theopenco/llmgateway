@@ -855,6 +855,7 @@ export default function VideoPageClient({
 			updateGalleryModel,
 			someModelsRequireImage,
 			selectedOrganization?.id,
+			selectedOrganization?.role,
 			isChatPlanContext,
 			chatPlanSubscribed,
 		],

@@ -125,9 +125,11 @@ describe("billing authorization", () => {
 							? JSON.stringify({ ...body, organizationId })
 							: undefined,
 					});
-					expect(response.status).toBe(403);
+					expect(response.status).toBe(organizationId ? 403 : 404);
 					expect(await response.json()).toMatchObject({
-						message: "Only organization owners and admins can access billing",
+						message: organizationId
+							? "Only organization owners and admins can access billing"
+							: "Organization not found",
 					});
 				}
 				expect(stripeMock.setupIntents.create).not.toHaveBeenCalled();
@@ -256,6 +258,105 @@ describe("billing authorization", () => {
 			);
 		},
 	);
+
+	describe.each(["developer", "project_admin"] as const)(
+		"legacy requests with a %s membership",
+		(memberRole) => {
+			test.each(["owner", "admin"] as const)(
+				"select the organization where the user is %s",
+				async (adminRole) => {
+					await setRole(memberRole);
+					await db.insert(tables.organization).values({
+						id: "admin-org-id",
+						name: "Admin Organization",
+						billingEmail: "admin@example.com",
+						stripeCustomerId: "cus_test_admin",
+					});
+					await db.insert(tables.userOrganization).values({
+						userId: "test-user-id",
+						organizationId: "admin-org-id",
+						role: adminRole,
+					});
+					for (const path of [
+						"/payments/payment-methods",
+						"/subscriptions/status",
+					]) {
+						const implicitResponse = await app.request(path, {
+							headers: { Cookie: token },
+						});
+						expect(implicitResponse.status).toBe(200);
+						const explicitResponse = await app.request(
+							`${path}?organizationId=${orgId}`,
+							{ headers: { Cookie: token } },
+						);
+						expect(explicitResponse.status).toBe(403);
+					}
+					const response = await app.request(
+						"/payments/create-payment-intent",
+						{
+							method: "POST",
+							headers: { Cookie: token, "Content-Type": "application/json" },
+							body: JSON.stringify({ amount: 10 }),
+						},
+					);
+					expect(response.status).toBe(200);
+					expect(stripeMock.paymentIntents.create).toHaveBeenCalledWith(
+						expect.objectContaining({
+							customer: "cus_test_admin",
+							metadata: expect.objectContaining({
+								organizationId: "admin-org-id",
+							}),
+						}),
+					);
+				},
+			);
+		},
+	);
+
+	test("legacy requests select the earliest active administrative membership", async () => {
+		await db.insert(tables.organization).values([
+			{
+				id: "deleted-org-id",
+				name: "Deleted Organization",
+				billingEmail: "admin@example.com",
+				status: "deleted",
+			},
+			{
+				id: "older-org-id",
+				name: "Older Organization",
+				billingEmail: "admin@example.com",
+				stripeCustomerId: "cus_test_older",
+			},
+		]);
+		await db.insert(tables.userOrganization).values([
+			{
+				userId: "test-user-id",
+				organizationId: "older-org-id",
+				role: "admin",
+				createdAt: new Date("2025-01-02"),
+			},
+			{
+				userId: "test-user-id",
+				organizationId: "deleted-org-id",
+				role: "owner",
+				createdAt: new Date("2025-01-01"),
+			},
+		]);
+		const response = await app.request("/payments/create-setup-intent", {
+			method: "POST",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({}),
+		});
+		expect(response.status).toBe(200);
+		expect(stripeMock.setupIntents.create).toHaveBeenCalledWith(
+			expect.objectContaining({ customer: "cus_test_older" }),
+		);
+		const deletedResponse = await app.request(
+			"/payments/payment-methods?organizationId=deleted-org-id",
+			{ headers: { Cookie: token } },
+		);
+		expect(deletedResponse.status).toBe(404);
+	});
 
 	test("billing access follows each organization's role and a subsequent demotion", async () => {
 		await db.insert(tables.organization).values({

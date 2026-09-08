@@ -681,6 +681,7 @@ export default function ImagePageClient({
 			posthog,
 			requiresImageInput,
 			selectedOrganization?.id,
+			selectedOrganization?.role,
 			isChatPlanContext,
 			chatPlanSubscribed,
 		],

@@ -8,7 +8,14 @@ export async function getBillingOrganization(
 	organizationId?: string,
 ) {
 	const membership = await db.query.userOrganization.findFirst({
-		where: organizationId ? { userId, organizationId } : { userId },
+		where: organizationId
+			? { userId, organizationId }
+			: {
+					userId,
+					role: { in: ["owner", "admin"] },
+					organization: { status: { ne: "deleted" } },
+				},
+		orderBy: { createdAt: "asc", id: "asc" },
 		with: { organization: true, user: true },
 	});
 	if (
