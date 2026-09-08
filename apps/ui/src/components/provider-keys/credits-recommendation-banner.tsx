@@ -5,11 +5,15 @@ import { useState } from "react";
 
 import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { Button } from "@/lib/components/button";
+import { useDashboardState } from "@/lib/dashboard-state";
+
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 export function CreditsRecommendationBanner() {
+	const { selectedOrganization } = useDashboardState();
 	const [dismissed, setDismissed] = useState(false);
 
-	if (dismissed) {
+	if (dismissed || !isOrganizationAdmin(selectedOrganization?.role)) {
 		return null;
 	}
 

@@ -6,8 +6,8 @@ import { type ReactNode, useEffect } from "react";
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import { EnterpriseLicenseBanner } from "@/components/dashboard/enterprise-license-banner";
 import { MobileHeader } from "@/components/dashboard/mobile-header";
+import { OrganizationRouteGuard } from "@/components/dashboard/organization-route-guard";
 import { PlanExpiryBanner } from "@/components/dashboard/plan-expiry-banner";
-import { ProjectAdminRouteGuard } from "@/components/dashboard/project-admin-route-guard";
 import { TopBar } from "@/components/dashboard/top-bar";
 import { EmailVerificationBanner } from "@/components/email-verification-banner";
 import { DashboardProvider } from "@/lib/dashboard-context";
@@ -89,7 +89,7 @@ export function DashboardLayoutClient({
 						<EnterpriseLicenseBanner />
 						<PlanExpiryBanner />
 						<main className="bg-background relative w-full flex-1 overflow-y-auto overflow-x-hidden pt-10 pb-4 px-4 md:p-6 lg:p-8">
-							<ProjectAdminRouteGuard>{children}</ProjectAdminRouteGuard>
+							<OrganizationRouteGuard>{children}</OrganizationRouteGuard>
 						</main>
 					</div>
 				</div>
