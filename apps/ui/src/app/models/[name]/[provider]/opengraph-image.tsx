@@ -1,14 +1,12 @@
 import { ImageResponse } from "next/og";
 
 import { discountFraction, getEffectiveProviderDiscount } from "@/lib/discount";
-import { fetchModelDiscounts } from "@/lib/fetch-models";
 import Logo from "@/lib/icons/Logo";
+import { getModelOgData } from "@/lib/model-og";
 import { formatContextSize } from "@/lib/utils";
 
 import {
-	models as modelDefinitions,
 	providers as providerDefinitions,
-	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 import {
@@ -25,21 +23,7 @@ export const size = {
 	height: 630,
 };
 export const contentType = "image/png";
-// Keep image rendering out of requests; prices and discounts refresh on deploy.
-export const dynamic = "force-static";
-export const dynamicParams = false;
-export const revalidate = false;
-
-export function generateStaticParams() {
-	return modelDefinitions.flatMap((model) =>
-		Array.from(
-			new Set(model.providers.map((mapping) => mapping.providerId)),
-		).map((provider) => ({
-			name: encodeURIComponent(model.id),
-			provider: encodeURIComponent(provider),
-		})),
-	);
-}
+export const revalidate = 60;
 
 const getOgProviderIcon = (providerId: string) => {
 	if (providerId === "aws-bedrock" || providerId === "aws-mantle") {
@@ -107,9 +91,11 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 		const decodedName = decodeURIComponent(name);
 		const decodedProvider = decodeURIComponent(provider);
 
-		const model: ModelDefinition | undefined = modelDefinitions.find(
-			(candidate) => candidate.id === decodedName,
-		);
+		const {
+			model,
+			providers: apiProviders,
+			discounts,
+		} = await getModelOgData(decodedName, decodedProvider);
 
 		if (!model) {
 			return new ImageResponse(
@@ -161,10 +147,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 			);
 		}
 
-		const providerInfo = providerDefinitions.find(
-			(p) => p.id === selectedMapping.providerId,
-		);
-		const discounts = await fetchModelDiscounts(decodedName, false);
+		const providerInfo =
+			providerDefinitions.find((p) => p.id === selectedMapping.providerId) ??
+			apiProviders.find((p) => p.id === selectedMapping.providerId);
 		const ProviderIcon = selectedMapping
 			? getOgProviderIcon(selectedMapping.providerId)
 			: null;
@@ -272,7 +257,9 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 		const supportingProviders = uniqueProviderIds
 			.map((providerId) => {
 				const icon = getOgProviderIcon(providerId);
-				const info = providerDefinitions.find((p) => p.id === providerId);
+				const info =
+					providerDefinitions.find((p) => p.id === providerId) ??
+					apiProviders.find((p) => p.id === providerId);
 				return {
 					id: providerId,
 					name: info?.name ?? providerId,

@@ -45,7 +45,6 @@ import {
 } from "@/lib/discount";
 import { fetchModelDiscounts, fetchProviders } from "@/lib/fetch-models";
 import { buildFaqSchema, buildModelFaqs } from "@/lib/model-faq";
-import { getModelOgImageUrl } from "@/lib/model-og";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -751,7 +750,7 @@ export async function generateMetadata({
 			: (model.description ?? pitch);
 
 	const primaryProvider = model.providers[0]?.providerId || "default";
-	const ogImageUrl = getModelOgImageUrl(decodedName, primaryProvider);
+	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`;
 	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
 
 	return {

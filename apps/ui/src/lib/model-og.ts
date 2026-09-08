@@ -1,14 +1,33 @@
-import { models } from "@llmgateway/models";
+import { models, type ModelDefinition } from "@llmgateway/models";
 
-export function getModelOgImageUrl(
-	modelId: string,
-	providerId: string,
-): string {
-	const hasStaticMapping = models
-		.find((model) => model.id === modelId)
-		?.providers.some((mapping) => mapping.providerId === providerId);
+import { findPublicModelDefinition } from "./airside-model-fallback";
+import { fetchModelDiscounts, fetchProviders } from "./fetch-models";
+import { prerenderedModelOgMappings } from "./model-og-params";
 
-	return hasStaticMapping
-		? `/models/${encodeURIComponent(modelId)}/${encodeURIComponent(providerId)}/opengraph-image`
-		: "/opengraph.png";
+export function getModelOgStaticParams() {
+	return prerenderedModelOgMappings.map((mapping) => ({ ...mapping }));
+}
+
+export async function getModelOgData(modelId: string, providerId: string) {
+	const prerendered = prerenderedModelOgMappings.some(
+		(mapping) => mapping.name === modelId && mapping.provider === providerId,
+	);
+	const staticModel: ModelDefinition | undefined = prerendered
+		? models.find((model) => model.id === modelId)
+		: undefined;
+	const [model, providers, discounts] = await Promise.all([
+		prerendered ? staticModel : findPublicModelDefinition(modelId),
+		prerendered
+			? []
+			: fetchProviders().catch((error: unknown) => {
+					console.error(
+						"Failed to fetch providers for OpenGraph image:",
+						error,
+					);
+					return [];
+				}),
+		fetchModelDiscounts(modelId, prerendered ? false : 60),
+	]);
+
+	return { model, providers, discounts };
 }
