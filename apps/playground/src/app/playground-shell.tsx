@@ -10,6 +10,8 @@ import { CHAT_CONTEXT_COOKIE } from "@/lib/constants";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { fetchServerData } from "@/lib/server-api";
 
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
+
 import type { Organization, Project } from "@/lib/types";
 
 export interface GatewayModel {
@@ -109,13 +111,9 @@ export async function renderPlaygroundShell({
 
 	const organizations = allOrganizations.filter((o) => o.kind === "default");
 
-	// The Chat plan context is only the right default for subscribers (or users
-	// who topped up the Chat org). Unsubscribed users with a funded dashboard
-	// org land on that org instead; the Chat plan context stays the default only
-	// when no org has credits, so the plan upsell can take over. Runs before the
-	// chat-org fetch so redirected users never get a Chat org provisioned.
-	// Skipped when the user explicitly picked the Chat plan context in the org
-	// switcher (cookie) — this fallback must not override an explicit choice.
+	// Prefer an available team org when the user has no Chat plan. Member
+	// balances are private, so let the gateway decide whether they can spend.
+	// An explicitly selected Chat plan context skips this fallback.
 	if (shouldCheckChatPlan) {
 		const chatPlanStatus =
 			chatPlanStatusData &&
@@ -128,17 +126,17 @@ export async function renderPlaygroundShell({
 			chatPlanStatus.chatPlan !== "none" ||
 			Number(chatPlanStatus.regularCredits) > 0;
 		if (!hasChatPlanAccess) {
-			const fundedOrganization = organizations.find(
-				(o) => Number(o.credits) > 0,
+			const availableOrganization = organizations.find(
+				(o) => !isOrganizationAdmin(o.role) || Number(o.credits) > 0,
 			);
-			if (fundedOrganization) {
+			if (availableOrganization) {
 				const nextParams = new URLSearchParams();
 				for (const [key, value] of Object.entries(searchParams)) {
 					if (typeof value === "string") {
 						nextParams.set(key, value);
 					}
 				}
-				nextParams.set("orgId", fundedOrganization.id);
+				nextParams.set("orgId", availableOrganization.id);
 				redirect(`/?${nextParams.toString()}`);
 			}
 		}

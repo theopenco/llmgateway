@@ -28,6 +28,7 @@ export function PaymentStatusHandler({
 	const [saving, setSaving] = useState(false);
 	const updateOrganization = api.useMutation("patch", "/orgs/{id}");
 
+	const isOwner = selectedOrganization?.role === "owner";
 	const alreadyHasAutoTopUp = selectedOrganization?.autoTopUpEnabled ?? false;
 
 	useEffect(() => {
@@ -45,7 +46,7 @@ export function PaymentStatusHandler({
 				title: "Payment successful",
 				description: "Your payment has been processed successfully.",
 			});
-			if (!alreadyHasAutoTopUp) {
+			if (isOwner && !alreadyHasAutoTopUp) {
 				setShowNudge(true);
 				posthog.capture("auto_topup_nudge_shown");
 			}
@@ -56,7 +57,7 @@ export function PaymentStatusHandler({
 				variant: "destructive",
 			});
 		}
-	}, [paymentStatus, toast, alreadyHasAutoTopUp, posthog]);
+	}, [paymentStatus, toast, alreadyHasAutoTopUp, posthog, isOwner]);
 
 	const handleEnable = async () => {
 		if (!selectedOrganization) {

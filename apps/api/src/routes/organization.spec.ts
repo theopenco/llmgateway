@@ -161,10 +161,83 @@ describe("organization route", () => {
 			where: { id: { eq: "test-org-id" } },
 		});
 		const extended = { ...stored!, futureInternalField: "internal" };
-		expect(serializeOrganization(extended)).not.toHaveProperty(
+		expect(serializeOrganization(extended, "owner")).not.toHaveProperty(
 			"futureInternalField",
 		);
 	});
+
+	test.each(["developer", "project_admin"] as const)(
+		"GET /orgs omits billing fields for %s memberships",
+		async (role) => {
+			await db
+				.update(tables.userOrganization)
+				.set({ role })
+				.where(eq(tables.userOrganization.organizationId, "test-org-id"));
+			await db.insert(tables.organization).values({
+				id: "owned-org-id",
+				name: "Owned Organization",
+				billingEmail: "admin@example.com",
+			});
+			await db.insert(tables.userOrganization).values({
+				userId: "test-user-id",
+				organizationId: "owned-org-id",
+				role: "owner",
+			});
+			const response = await app.request(
+				"/orgs?includeChat=true&includePersonal=true",
+				{ headers: { Cookie: token } },
+			);
+			expect(response.status).toBe(200);
+			const { organizations } = (await response.json()) as {
+				organizations: Record<string, unknown>[];
+			};
+			const memberOrg = organizations.find((org) => org.id === "test-org-id");
+			expect(memberOrg).toMatchObject({
+				id: "test-org-id",
+				name: "Test Organization",
+				role,
+				plan: "free",
+			});
+			for (const field of [
+				"credits",
+				"billingEmail",
+				"billingCompany",
+				"billingAddress",
+				"billingTaxId",
+				"billingNotes",
+				"autoTopUpEnabled",
+				"autoTopUpThreshold",
+				"autoTopUpAmount",
+				"referralEarnings",
+				"referralBonusEnabled",
+				"referralBonusPercent",
+				"devPlanCycle",
+				"devPlanCreditsUsed",
+				"devPlanCreditsLimit",
+				"devPlanPremiumCreditsUsed",
+				"devPlanPremiumWeekStart",
+				"devPlanResetPassesLite",
+				"devPlanResetPassesPro",
+				"devPlanResetPassesMax",
+				"devPlanIncludedResetPassesUsed",
+				"devPlanBillingCycleStart",
+				"devPlanPaygEnabled",
+				"devPlanBillingOverride",
+				"chatPlanCycle",
+				"chatPlanCreditsUsed",
+				"chatPlanCreditsLimit",
+				"chatPlanBillingCycleStart",
+			]) {
+				expect(memberOrg).not.toHaveProperty(field);
+			}
+			expect(
+				organizations.find((org) => org.id === "owned-org-id"),
+			).toHaveProperty("credits");
+			expect(
+				organizations.find((org) => org.id === "owned-org-id"),
+			).toMatchObject({ role: "owner", billingEmail: "admin@example.com" });
+		},
+	);
 
 	test("PATCH /orgs/{id} logs enabling auto top-up in audit log", async () => {
 		const response = await app.request("/orgs/test-org-id", {
