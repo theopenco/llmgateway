@@ -157,12 +157,20 @@ const listModels = createRoute({
 	operationId: "v1_models",
 	summary: "Models",
 	description:
-		"List the public model catalogue without authentication. With an API key, return only models and provider mappings allowed by its organization compliance policy, IAM rules, and project access, including accessible custom models.",
+		"List the public model catalogue without authentication. With an API key, return only models and provider mappings allowed by its organization compliance policy, IAM rules, and project access, including accessible custom models. Set include_restricted=true to return the public catalogue regardless of these restrictions.",
 	security: modelsSecurity,
 	method: "get",
 	path: "/",
 	request: {
 		query: z.object({
+			include_restricted: z
+				.string()
+				.optional()
+				.transform((val) => val === "true")
+				.describe(
+					"Return the public catalogue instead of the authenticated caller's accessible models. Other query filters still apply. Does not grant permission to call restricted models or include private custom models.",
+				)
+				.openapi({ example: "false" }),
 			include_deactivated: z
 				.string()
 				.optional()
@@ -305,7 +313,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 					.filter((model) => model.providers.length > 0)
 			: deactivationFilteredModels;
 
-		if (access) {
+		if (access && !query.include_restricted) {
 			filteredModels = await filterAccessibleModels(filteredModels, access, {
 				mapped,
 				noTraining,

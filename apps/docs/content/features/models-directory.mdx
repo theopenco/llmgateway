@@ -63,6 +63,12 @@ The endpoint also accepts the `x-api-key` header. Without either authentication
 header, it returns the public catalogue. Invalid, inactive, or expired credentials
 return `401`.
 
+Set `?include_restricted=true` to return the full public catalogue even with an
+authenticated API key. This skips organization, team, member, key, project, and
+plan filtering for discovery. Private custom models are omitted. Other query
+filters still apply, and inference requests still enforce all access restrictions.
+The default is `false`, which keeps authenticated results filtered.
+
 Use `?mapped=true` for provider-prefixed entries. Existing query filters, including
 `no_training`, apply alongside access restrictions. Discovery reflects model
 permissions and project configuration; it does not check remaining credits,

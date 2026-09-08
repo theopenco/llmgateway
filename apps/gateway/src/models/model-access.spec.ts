@@ -102,6 +102,41 @@ describe("Authenticated model discovery", () => {
 		expect(
 			filtered[0].providers.map((provider) => provider.providerId),
 		).toEqual(["openai"]);
+		expect(await list("?include_restricted=false")).toEqual(filtered);
+	});
+
+	test.each([
+		"",
+		"mapped=true",
+		"include_deactivated=true&exclude_deprecated=true&no_training=true",
+	])(
+		"include_restricted returns the public catalogue with %s",
+		async (query) => {
+			await seedCustomModels();
+			await setPolicy({ enabled: true, allowedModels: ["gpt-4o-mini"] });
+			await addKeyRule("deny_models", { models: ["gpt-4o-mini"] });
+			expect(await list()).toEqual([]);
+			const publicModels = await list(query ? `?${query}` : "", {});
+			const credentials: Record<string, string>[] = [
+				headers,
+				{ "x-api-key": "test-token" },
+			];
+			for (const requestHeaders of credentials) {
+				expect(
+					await list(`?include_restricted=true&${query}`, requestHeaders),
+				).toEqual(publicModels);
+			}
+			expect(
+				publicModels.some((model) => model.id.includes("test-model")),
+			).toBe(false);
+		},
+	);
+
+	test("include_restricted still rejects invalid credentials", async () => {
+		const res = await app.request("/v1/models?include_restricted=true", {
+			headers: { Authorization: "Bearer invalid-token" },
+		});
+		expect(res.status).toBe(401);
 	});
 
 	test("prices and limits use only compliant mappings in both views", async () => {
@@ -126,7 +161,7 @@ describe("Authenticated model discovery", () => {
 		}
 	});
 
-	test("deny lists win and query flags cannot restore blocked models", async () => {
+	test("lifecycle filters do not bypass access restrictions", async () => {
 		await setPolicy({
 			enabled: true,
 			allowedModels: ["gpt-4o-mini"],
@@ -191,6 +226,7 @@ describe("Authenticated model discovery", () => {
 		]);
 		await setPolicy({ enabled: true, blockedProviders: ["openai"] });
 		expect(await list()).toEqual([]);
+		expect(await list("?include_restricted=true")).toEqual(await list("", {}));
 	});
 
 	test("honors IP and pricing rules using the request IP", async () => {
