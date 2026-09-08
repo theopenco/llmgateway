@@ -313,16 +313,6 @@ describe("shouldRetrySameKey", () => {
 		}
 	});
 
-	it("allows a verified provider-side 400 within the same retry budget", () => {
-		const opts = { ...defaultOpts, statusCode: 400, retryableBadRequest: true };
-		expect(shouldRetrySameKey(opts)).toBe(true);
-		expect(shouldRetrySameKey({ ...opts, retryCount: 2 })).toBe(false);
-		expect(shouldRetrySameKey({ ...opts, statusCode: 429 })).toBe(false);
-		expect(shouldRetrySameKey({ ...opts, errorType: "client_error" })).toBe(
-			false,
-		);
-	});
-
 	it("retries 5xx and network failures (statusCode 0)", () => {
 		for (const statusCode of [500, 502, 503, 529]) {
 			expect(

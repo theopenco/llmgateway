@@ -257,7 +257,6 @@ import {
 	preferProvidersWithKeys,
 } from "./tools/hybrid-provider-routing.js";
 import { isModelTrulyFree } from "./tools/is-model-truly-free.js";
-import { isRunwareThinkingError } from "./tools/is-runware-thinking-error.js";
 import { mapFinishReasonToOpenai } from "./tools/map-finish-reason-to-openai.js";
 import {
 	getAudioFormatsFromMessages,
@@ -8834,15 +8833,10 @@ chat.openapi(completions, async (c) => {
 							: null;
 
 						// Determine the finish reason for error handling
-						const retryableBadRequest = isRunwareThinkingError(
-							usedProvider,
+						const finishReason = getFinishReasonFromError(
 							res.status,
 							errorResponseText,
-							requestBody,
 						);
-						const finishReason = retryableBadRequest
-							? "upstream_error"
-							: getFinishReasonFromError(res.status, errorResponseText);
 
 						if (
 							finishReason !== "client_error" &&
@@ -8913,7 +8907,6 @@ chat.openapi(completions, async (c) => {
 								sessionSticky: sessionStickyEnabled,
 								errorType: finishReason,
 								statusCode: res.status,
-								retryableBadRequest,
 								envVarName,
 								envKeyCount: getEnvKeyCount(envVarName),
 								hasOtherProvider: (routingMetadata?.providerScores ?? []).some(
@@ -13179,15 +13172,10 @@ chat.openapi(completions, async (c) => {
 			}
 
 			// Determine the finish reason first
-			const retryableBadRequest = isRunwareThinkingError(
-				usedProvider,
+			const finishReason = getFinishReasonFromError(
 				res.status,
 				errorResponseText,
-				requestBody,
 			);
-			const finishReason = retryableBadRequest
-				? "upstream_error"
-				: getFinishReasonFromError(res.status, errorResponseText);
 
 			if (
 				finishReason !== "client_error" &&
@@ -13254,7 +13242,6 @@ chat.openapi(completions, async (c) => {
 					sessionSticky: sessionStickyEnabled,
 					errorType: finishReason,
 					statusCode: res.status,
-					retryableBadRequest,
 					envVarName,
 					envKeyCount: getEnvKeyCount(envVarName),
 					hasOtherProvider: (routingMetadata?.providerScores ?? []).some(
