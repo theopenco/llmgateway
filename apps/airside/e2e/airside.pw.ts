@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import type { paths } from "@/lib/api/v1";
 import type { Page, Route } from "@playwright/test";
 
 // Requires a freshly seeded local stack (`pnpm setup` + dev servers): the
@@ -50,6 +51,68 @@ test("seeded carrier sees operations and its claimed provider", async ({
 	await expect(operations).toContainText("Mistral");
 	// Seeded pending filings surface on the overview.
 	await expect(operations).toContainText("mistral-large-4");
+});
+
+test("dashboard labels follow approved provider branding", async ({ page }) => {
+	type CompaniesResponse =
+		paths["/airside/companies"]["get"]["responses"]["200"]["content"]["application/json"];
+	let providerName = "Approved Carrier";
+	let pendingBranding: { name: string } | null = { name: "Pending Carrier" };
+	let claimStatuses: ("active" | "pending" | "rejected")[] = [
+		"active",
+		"pending",
+		"rejected",
+	];
+	await page.route("**/airside/companies", async (route) => {
+		const response = await route.fetch();
+		const data = (await response.json()) as CompaniesResponse;
+		await route.fulfill({
+			response,
+			json: {
+				companies: data.companies.map((company) => ({
+					...company,
+					name: "Original Company",
+					claims: claimStatuses.map((status, index) => ({
+						...company.claims[0],
+						id: `branding-claim-${index}`,
+						providerId: `branding-provider-${index}`,
+						providerName,
+						pendingBranding,
+						status,
+					})),
+				})),
+			},
+		});
+	});
+	await login(page);
+	const heading = page.getByRole("heading", { level: 1 });
+	const selector = page.getByTestId("company-select");
+	await expect(heading).toHaveText("Approved Carrier");
+	await expect(selector).toHaveText("Approved Carrier");
+
+	providerName = "Updated Carrier";
+	pendingBranding = null;
+	await expect(heading).toHaveText("Updated Carrier", { timeout: 40_000 });
+	await expect(selector).toHaveText("Updated Carrier");
+	await selector.click();
+	await expect(
+		page.getByRole("option", { name: "Updated Carrier", exact: true }),
+	).toBeVisible();
+	await page.keyboard.press("Escape");
+	await page.reload();
+	await expect(heading).toHaveText("Updated Carrier");
+	await expect(selector).toHaveText("Updated Carrier");
+
+	for (const statuses of [
+		["active", "active"],
+		["pending", "rejected"],
+		[],
+	] as const) {
+		claimStatuses = [...statuses];
+		await page.reload();
+		await expect(heading).toHaveText("Original Company");
+		await expect(selector).toHaveText("Original Company");
+	}
 });
 
 test("fleet lists seeded models with their filing states", async ({ page }) => {

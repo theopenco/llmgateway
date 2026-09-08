@@ -115,7 +115,7 @@ export default function OperationsPage() {
 						Operations · last 30 days
 					</p>
 					<h1 className="font-display text-3xl font-black tracking-tight">
-						{company.name}
+						{company.displayName}
 					</h1>
 				</div>
 				<div className="flex flex-wrap gap-2">
