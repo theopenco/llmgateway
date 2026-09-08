@@ -45,6 +45,7 @@ import {
 } from "@/lib/discount";
 import { fetchModelDiscounts, fetchProviders } from "@/lib/fetch-models";
 import { buildFaqSchema, buildModelFaqs } from "@/lib/model-faq";
+import { getModelOgImageUrl } from "@/lib/model-og";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -750,12 +751,7 @@ export async function generateMetadata({
 			: (model.description ?? pitch);
 
 	const primaryProvider = model.providers[0]?.providerId || "default";
-	// Per-model OG cards are prerendered from the static catalogue only
-	// (dynamicParams=false keeps satori out of request time), so DB-only
-	// models advertise the site card instead of a 404ing image URL.
-	const ogImageUrl = modelDefinitions.some((m) => m.id === decodedName)
-		? `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`
-		: "/opengraph.png";
+	const ogImageUrl = getModelOgImageUrl(decodedName, primaryProvider);
 	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
 
 	return {

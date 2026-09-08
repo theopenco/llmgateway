@@ -33,6 +33,7 @@ import { Badge } from "@/lib/components/badge";
 import { findEffectiveProviderDiscount } from "@/lib/discount";
 import { fetchProviders } from "@/lib/fetch-models";
 import { serializeJsonLd } from "@/lib/json-ld";
+import { getModelOgImageUrl } from "@/lib/model-og";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -506,7 +507,7 @@ export async function generateMetadata({
 	const title = `${model.name ?? model.id} on ${providerName}`;
 	const description = `Pricing, latency, and capabilities for ${model.name ?? model.id} via ${providerName} on LLM Gateway.`;
 	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
-	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}/opengraph-image`;
+	const ogImageUrl = getModelOgImageUrl(decodedName, decodedProvider);
 
 	return {
 		title,
