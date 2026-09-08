@@ -15,7 +15,10 @@ import {
 	user,
 } from "@llmgateway/db";
 
-import { aggregateWindowIntoStats } from "./global-stats-aggregator.js";
+import {
+	aggregateProviderKeyWindowIntoStats,
+	aggregateWindowIntoStats,
+} from "./global-stats-aggregator.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -75,7 +78,10 @@ describe("global stats aggregation", () => {
 		});
 
 	const aggregate = () =>
-		db.transaction((tx) => aggregateWindowIntoStats(tx, WINDOW_START, HOUR_MS));
+		db.transaction(async (tx) => {
+			await aggregateWindowIntoStats(tx, WINDOW_START, HOUR_MS);
+			await aggregateProviderKeyWindowIntoStats(tx, WINDOW_START, HOUR_MS);
+		});
 
 	const readModelStats = () =>
 		db

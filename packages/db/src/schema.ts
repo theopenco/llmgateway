@@ -5894,7 +5894,8 @@ export const globalProviderKeyModelStats = pgTable(
 	],
 );
 
-// Singleton state row for the incremental global-stats aggregator.
+// Independent cursors for global stats ("singleton") and provider-key model
+// stats ("provider-key-model"), so adding a rollup cannot skip its history.
 // `lastProcessedHour` is the last UTC bucket that has been folded into the
 // daily stats. `lastSafetyNetDay` is the most recent UTC day that has been
 // fully recomputed by the safety-net pass.
