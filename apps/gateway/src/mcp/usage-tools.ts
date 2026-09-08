@@ -82,7 +82,7 @@ export function registerUsageTools(server: McpServer, apiKey: string) {
 		"get-account",
 		{
 			description:
-				"Get the connected user, project, organization, role, analytics scope, API key spend limits and organization credit balance (owners/admins only). No secrets are returned. Use this before interpreting 'my usage': owners/admins see the connected project; developers see their own keys in that project.",
+				"Get the connected user, project, organization, role, analytics scope, API key spend limits and organization credit balance (owners/admins only). No secrets are returned. Use this before interpreting 'my usage': owners, admins, and project admins see the connected project; developers see their own keys in that project.",
 			inputSchema: z.object({}).strict(),
 			outputSchema: mcpAccountSchema,
 			annotations,

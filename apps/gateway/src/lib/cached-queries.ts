@@ -53,6 +53,7 @@ import {
 	wallet as walletTable,
 } from "@llmgateway/db";
 import { getRegionScopedDefaultRegion } from "@llmgateway/models";
+import { isProjectScopedRole } from "@llmgateway/shared/organization-roles";
 
 import {
 	getApiKeyFingerprint,
@@ -1214,7 +1215,7 @@ export async function memberHasEffectiveProjectAccess(
 			if (!membership) {
 				return false;
 			}
-			if (membership.role !== "developer") {
+			if (!isProjectScopedRole(membership.role)) {
 				return true;
 			}
 

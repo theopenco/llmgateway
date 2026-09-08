@@ -12,7 +12,10 @@ import {
 	validateIamRuleInput,
 } from "@/lib/iam-rules.js";
 import { platformKeyMode } from "@/lib/platform-secret-auth.js";
-import { getUserProjectIds } from "@/utils/authorization.js";
+import {
+	getUserProjectIds,
+	userHasProjectAccess,
+} from "@/utils/authorization.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -35,6 +38,7 @@ import {
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { maskToken } from "@llmgateway/shared/mask-token";
+import { canManageProject } from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -501,9 +505,12 @@ async function assertPlatformKeyAdminAccess(
 		});
 	}
 
-	if (userOrg.role !== "owner" && userOrg.role !== "admin") {
+	if (
+		!canManageProject(userOrg.role) ||
+		!(await userHasProjectAccess(userId, projectId))
+	) {
 		throw new HTTPException(403, {
-			message: "Only organization owners and admins can manage platform keys",
+			message: "Only project admins can manage platform keys",
 		});
 	}
 
@@ -819,7 +826,7 @@ export interface CreateApiKeyInput {
 }
 
 interface MemberBudgetColumns {
-	role: "owner" | "admin" | "developer";
+	role: "owner" | "admin" | "project_admin" | "developer";
 	maxApiKeys: number | null;
 	usageLimit: string | null;
 	periodUsageLimit: string | null;
@@ -1273,7 +1280,7 @@ const list = createRoute({
 								plan: z.enum(["free", "pro", "enterprise"]),
 							})
 							.optional(),
-						userRole: z.enum(["owner", "admin", "developer"]),
+						userRole: z.enum(["owner", "admin", "project_admin", "developer"]),
 					}),
 				},
 			},
@@ -1314,11 +1321,7 @@ keysApi.openapi(list, async (c) => {
 	}
 
 	// Get all project IDs the user has access to
-	const projectIds = userOrgs.flatMap((org) =>
-		org
-			.organization!.projects.filter((project) => project.status !== "deleted")
-			.map((project) => project.id),
-	);
+	const projectIds = await getUserProjectIds(user.id);
 
 	if (projectId && !projectIds.includes(projectId)) {
 		throw new HTTPException(403, {
@@ -1341,7 +1344,7 @@ keysApi.openapi(list, async (c) => {
 	);
 
 	// Determine user's role for the relevant organization
-	let userRole: "owner" | "admin" | "developer" = "developer";
+	let userRole: "owner" | "admin" | "project_admin" | "developer" = "developer";
 	if (projectId) {
 		const project = await db.query.project.findFirst({
 			where: {
@@ -1356,7 +1359,8 @@ keysApi.openapi(list, async (c) => {
 				(org) => org.organizationId === project.organizationId,
 			);
 			if (userOrg) {
-				userRole = userOrg.role as "owner" | "admin" | "developer";
+				userRole = userOrg.role as
+					"owner" | "admin" | "project_admin" | "developer";
 			}
 		}
 	}
@@ -1528,11 +1532,7 @@ keysApi.openapi(deleteKey, async (c) => {
 	});
 
 	// Get all project IDs the user has access to
-	const projectIds = userOrgs.flatMap((org) =>
-		org
-			.organization!.projects.filter((project) => project.status !== "deleted")
-			.map((project) => project.id),
-	);
+	const projectIds = await getUserProjectIds(user.id);
 
 	// Find the API key
 	const apiKey = await db.query.apiKey.findFirst({
@@ -1572,7 +1572,8 @@ keysApi.openapi(deleteKey, async (c) => {
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
 	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
+	const userRole = userOrg?.role as
+		"owner" | "admin" | "project_admin" | "developer" | undefined;
 
 	// Developers can only delete their own API keys
 	// Owners and admins can delete any API key
@@ -1696,11 +1697,7 @@ keysApi.openapi(updateStatus, async (c) => {
 	});
 
 	// Get all project IDs the user has access to
-	const projectIds = userOrgs.flatMap((org) =>
-		org
-			.organization!.projects.filter((project) => project.status !== "deleted")
-			.map((project) => project.id),
-	);
+	const projectIds = await getUserProjectIds(user.id);
 
 	// Find the API key
 	const apiKey = await db.query.apiKey.findFirst({
@@ -1744,7 +1741,8 @@ keysApi.openapi(updateStatus, async (c) => {
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
 	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
+	const userRole = userOrg?.role as
+		"owner" | "admin" | "project_admin" | "developer" | undefined;
 
 	// Developers can only modify their own API keys
 	// Owners and admins can modify any API key
@@ -1920,11 +1918,7 @@ keysApi.openapi(roll, async (c) => {
 	});
 
 	// Get all project IDs the user has access to
-	const projectIds = userOrgs.flatMap((org) =>
-		org
-			.organization!.projects.filter((project) => project.status !== "deleted")
-			.map((project) => project.id),
-	);
+	const projectIds = await getUserProjectIds(user.id);
 
 	// Find the API key
 	const apiKey = await db.query.apiKey.findFirst({
@@ -1966,7 +1960,8 @@ keysApi.openapi(roll, async (c) => {
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
 	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
+	const userRole = userOrg?.role as
+		"owner" | "admin" | "project_admin" | "developer" | undefined;
 
 	// Developers can only modify their own API keys
 	// Owners and admins can modify any API key
@@ -2093,11 +2088,7 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 	});
 
 	// Get all project IDs the user has access to
-	const projectIds = userOrgs.flatMap((org) =>
-		org
-			.organization!.projects.filter((project) => project.status !== "deleted")
-			.map((project) => project.id),
-	);
+	const projectIds = await getUserProjectIds(user.id);
 
 	// Find the API key
 	const apiKey = await db.query.apiKey.findFirst({
@@ -2131,7 +2122,8 @@ keysApi.openapi(updateUsageLimit, async (c) => {
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
 	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
+	const userRole = userOrg?.role as
+		"owner" | "admin" | "project_admin" | "developer" | undefined;
 
 	// Developers can only modify their own API keys
 	// Owners and admins can modify any API key
@@ -2292,11 +2284,7 @@ keysApi.openapi(createIamRule, async (c) => {
 		},
 	});
 
-	const projectIds = userOrgs.flatMap((org) =>
-		org
-			.organization!.projects.filter((project) => project.status !== "deleted")
-			.map((project) => project.id),
-	);
+	const projectIds = await getUserProjectIds(user.id);
 
 	const apiKey = await db.query.apiKey.findFirst({
 		where: {
@@ -2333,7 +2321,8 @@ keysApi.openapi(createIamRule, async (c) => {
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
 	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
+	const userRole = userOrg?.role as
+		"owner" | "admin" | "project_admin" | "developer" | undefined;
 
 	// Developers can only manage IAM rules for their own API keys
 	// Owners and admins can manage IAM rules for any API key
@@ -2410,27 +2399,7 @@ keysApi.openapi(listIamRules, async (c) => {
 
 	const { id } = c.req.param();
 
-	// Verify user has access to the API key
-	const userOrgs = await db.query.userOrganization.findMany({
-		where: {
-			userId: {
-				eq: user.id,
-			},
-		},
-		with: {
-			organization: {
-				with: {
-					projects: true,
-				},
-			},
-		},
-	});
-
-	const projectIds = userOrgs.flatMap((org) =>
-		org
-			.organization!.projects.filter((project) => project.status !== "deleted")
-			.map((project) => project.id),
-	);
+	const projectIds = await getUserProjectIds(user.id);
 
 	const apiKey = await db.query.apiKey.findFirst({
 		where: {
@@ -2535,11 +2504,7 @@ keysApi.openapi(updateIamRule, async (c) => {
 		},
 	});
 
-	const projectIds = userOrgs.flatMap((org) =>
-		org
-			.organization!.projects.filter((project) => project.status !== "deleted")
-			.map((project) => project.id),
-	);
+	const projectIds = await getUserProjectIds(user.id);
 
 	const apiKey = await db.query.apiKey.findFirst({
 		where: {
@@ -2576,7 +2541,8 @@ keysApi.openapi(updateIamRule, async (c) => {
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
 	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
+	const userRole = userOrg?.role as
+		"owner" | "admin" | "project_admin" | "developer" | undefined;
 
 	// Developers can only manage IAM rules for their own API keys
 	// Owners and admins can manage IAM rules for any API key
@@ -2726,11 +2692,7 @@ keysApi.openapi(deleteIamRule, async (c) => {
 		},
 	});
 
-	const projectIds = userOrgs.flatMap((org) =>
-		org
-			.organization!.projects.filter((project) => project.status !== "deleted")
-			.map((project) => project.id),
-	);
+	const projectIds = await getUserProjectIds(user.id);
 
 	const apiKey = await db.query.apiKey.findFirst({
 		where: {
@@ -2763,7 +2725,8 @@ keysApi.openapi(deleteIamRule, async (c) => {
 	// Check user role and permissions
 	const projectOrgId = apiKey.project.organizationId;
 	const userOrg = userOrgs.find((org) => org.organizationId === projectOrgId);
-	const userRole = userOrg?.role as "owner" | "admin" | "developer" | undefined;
+	const userRole = userOrg?.role as
+		"owner" | "admin" | "project_admin" | "developer" | undefined;
 
 	// Developers can only manage IAM rules for their own API keys
 	// Owners and admins can manage IAM rules for any API key

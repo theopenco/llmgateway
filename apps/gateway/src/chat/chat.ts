@@ -61,6 +61,7 @@ import {
 	shouldBillCancelledRequests,
 	zeroInferenceCosts,
 } from "@/lib/costs.js";
+import { customModelToProviderMapping } from "@/lib/custom-model.js";
 import { getPublishedDynamicRoute } from "@/lib/dynamic-route-loader.js";
 import {
 	assertOriginAllowed,
@@ -402,41 +403,6 @@ function toDataStorageCostNumber(
 	);
 	const num = Number(str);
 	return Number.isFinite(num) ? num : null;
-}
-
-/**
- * Builds a synthetic provider mapping (providerId "custom") from an enterprise
- * custom model catalog entry. Used both to override the mock model info for
- * limit/capability enforcement and as the `customPricing` override threaded into
- * calculateCosts so custom-provider requests are billed at the catalog rates.
- */
-function customModelToProviderMapping(cm: CustomModel): ProviderModelMapping {
-	const streaming: boolean | "only" =
-		cm.streaming === "only" ? "only" : cm.streaming !== "false";
-	return {
-		providerId: "custom",
-		externalId: cm.modelName,
-		inputPrice: cm.inputPrice ?? undefined,
-		outputPrice: cm.outputPrice ?? undefined,
-		cachedInputPrice: cm.cachedInputPrice ?? undefined,
-		cacheReadInputPrice: cm.cacheReadInputPrice ?? undefined,
-		cacheWriteInputPrice: cm.cacheWriteInputPrice ?? undefined,
-		cacheWriteInputPrice1h: cm.cacheWriteInputPrice1h ?? undefined,
-		requestPrice: cm.requestPrice ?? undefined,
-		webSearchPrice: cm.webSearchPrice ?? undefined,
-		imageInputPrice: cm.imageInputPrice ?? undefined,
-		inputAudioPrice: cm.audioInputPrice ?? undefined,
-		contextSize: cm.contextSize ?? undefined,
-		maxOutput: cm.maxOutput ?? undefined,
-		vision: cm.vision ?? undefined,
-		tools: cm.tools ?? undefined,
-		reasoning: cm.reasoning ?? undefined,
-		jsonOutput: cm.jsonOutput ?? undefined,
-		jsonOutputSchema: cm.jsonOutput ?? undefined,
-		audio: cm.audio ?? undefined,
-		supportedParameters: cm.supportedParameters ?? undefined,
-		streaming,
-	};
 }
 
 type CustomAutoRoutingMapping = ProviderModelMapping & {
@@ -7102,16 +7068,13 @@ chat.openapi(completions, async (c) => {
 	// When the provider only supports streaming, force it even if the client didn't request it.
 	// The upstream request uses effectiveStream; the client response uses stream.
 	const forceStream = streamingSupport === "only" && !stream;
-	// Force upstream SSE for OpenAI/Azure gpt-image-* regardless of what the client
-	// requested. For image generation the upstream request is always non-streaming
-	// (effectiveStream is forced false above when faking streaming for the client),
-	// so partial_images=1 is needed in both cases to keep the connection alive past
-	// Azure's 122s synchronous wall and to use AI_STREAMING_TIMEOUT_MS (1200s default)
-	// instead of AI_TIMEOUT_MS (600s). The SSE response is collapsed back into the
-	// regular non-streaming JSON shape before being returned (or re-wrapped as fake
-	// SSE for clients that requested streaming).
+	// OpenAI/Azure image streaming only supports n=1. Force SSE for single-image
+	// requests to keep the connection alive past Azure's 122s synchronous wall
+	// and use AI_STREAMING_TIMEOUT_MS. Collapse the response to JSON (or fake
+	// client SSE); batches use the provider's non-streaming response.
 	let forceImageStreamUpstream =
 		isImageGeneration &&
+		(image_config?.n ?? 1) === 1 &&
 		(usedProvider === "openai" || usedProvider === "azure");
 	const effectiveStream = fakeStreamingForImageGen
 		? false
@@ -7597,6 +7560,7 @@ chat.openapi(completions, async (c) => {
 		isImageGeneration = ctx.isImageGeneration;
 		forceImageStreamUpstream =
 			isImageGeneration &&
+			(image_config?.n ?? 1) === 1 &&
 			(usedProvider === "openai" || usedProvider === "azure");
 		if (forceImageStreamUpstream) {
 			requestBody = injectImageStreamParams(requestBody);

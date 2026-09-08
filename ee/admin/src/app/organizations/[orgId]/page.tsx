@@ -23,6 +23,7 @@ import { EnterpriseDealDialog } from "@/components/enterprise-deal-dialog";
 import { GiftCreditsDialog } from "@/components/gift-credits-dialog";
 import { ManualCreditsDialog } from "@/components/manual-credits-dialog";
 import { PlanTermBadge } from "@/components/plan-term-badge";
+import { RefundPaymentDialog } from "@/components/refund-payment-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -39,6 +40,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { refundDevpassPayment } from "@/lib/admin-devpass";
 import {
 	addEnterpriseDealToOrganization,
 	addManualCreditsToOrganization,
@@ -789,6 +791,49 @@ export default async function OrganizationPage({
 														)}
 													</TableCell>
 													<TableCell className="text-right">
+														{transaction.refundability && (
+															<div className="flex items-center justify-end gap-2">
+																{parseFloat(
+																	transaction.refundability.refundedAmount,
+																) > 0 && (
+																	<Badge variant="outline">
+																		refunded{" "}
+																		{creditsFormatter.format(
+																			parseFloat(
+																				transaction.refundability
+																					.refundedAmount,
+																			),
+																		)}
+																	</Badge>
+																)}
+																<RefundPaymentDialog
+																	transactionId={transaction.id}
+																	transactionLabel={formatTransactionType(
+																		transaction.type,
+																	)}
+																	amount={transaction.amount ?? "0"}
+																	refundedAmount={
+																		transaction.refundability.refundedAmount
+																	}
+																	refundableAmount={
+																		transaction.refundability.refundableAmount
+																	}
+																	refundable={
+																		transaction.refundability.refundable
+																	}
+																	refundIneligibleReason={
+																		transaction.refundability.reason
+																	}
+																	onRefund={async (refundData) => {
+																		"use server";
+																		return await refundDevpassPayment(
+																			orgId,
+																			refundData,
+																		);
+																	}}
+																/>
+															</div>
+														)}
 														{transaction.type === "enterprise_license_fee" ? (
 															<EnterpriseDealDialog
 																orgName={org.name}

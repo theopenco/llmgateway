@@ -503,6 +503,7 @@ export const moonshotModels = [
 			{
 				providerId: "gonka24",
 				externalId: "kimi-k2.6",
+				deactivatedAt: new Date("2026-09-06"),
 				inputPrice: "0.22e-6",
 				cachedInputPrice: "0.048e-6",
 				outputPrice: "1.137e-6",

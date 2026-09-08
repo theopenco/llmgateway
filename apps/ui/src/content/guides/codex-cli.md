@@ -2,137 +2,89 @@
 id: codex-cli
 slug: codex-cli
 title: Codex CLI Integration
-seoTitle: "Codex CLI: Use 200+ Models, One Config"
-description: Point OpenAI's Codex CLI at Claude, Gemini, Kimi K3, or 200+ models through LLM Gateway. One config file entry, unified billing, full cost tracking.
-date: 2026-03-19
+seoTitle: Use Codex CLI with LLM Gateway
+description: Configure Codex CLI with an LLM Gateway provider, connect your API key, and verify file edits and test execution.
+date: 2026-09-07
 ---
 
-Codex CLI is OpenAI's open-source terminal coding agent. By default it connects to OpenAI's API, but with LLM Gateway you can route it through a single gateway—use GPT-5.3 Codex, Gemini, Claude, or any of 200+ models while keeping full cost visibility.
+[Codex CLI](https://github.com/openai/codex) can connect to LLM Gateway through a custom provider using the Responses API. This walkthrough was verified with Codex CLI 0.153.4.
 
-One config file. No code changes. Full cost tracking in your dashboard.
+## Video walkthrough
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+<div className="relative aspect-video">
+  <iframe
+    className="absolute inset-0 h-full w-full rounded-lg border-0"
+    src="https://www.youtube-nocookie.com/embed/kMlEJ9rktPY"
+    title="Codex CLI setup and coding demo with LLM Gateway"
+    loading="lazy"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    referrerPolicy="strict-origin-when-cross-origin"
+    allowFullScreen
+  ></iframe>
+</div>
 
-## Quick Start
-
-**1. Log out of ChatGPT** if you're logged in (stored sessions override custom config):
+## Install
 
 ```bash
-codex logout
+pnpm add -g @openai/codex
+codex --version
 ```
 
-**2. Create or edit** your Codex CLI config file at `~/.codex/config.toml`:
+## Configure LLM Gateway
+
+Create a key in your&nbsp;[dashboard](https://llmgateway.io/dashboard) and export it in the terminal where you launch Codex:
 
 ```bash
-model = "auto"
-model_reasoning_effort = "high"
-openai_base_url = "https://api.llmgateway.io/v1"
+export LLMGATEWAY_API_KEY="your_api_key"
 ```
 
-**3. Run Codex CLI:**
+Merge these settings into `~/.codex/config.toml`:
+
+```toml
+model = "deepseek-v4-flash"
+model_provider = "llmgateway"
+model_reasoning_effort = "low"
+web_search = "disabled"
+
+[model_providers.llmgateway]
+name = "LLM Gateway"
+base_url = "https://api.llmgateway.io/v1"
+env_key = "LLMGATEWAY_API_KEY"
+wire_api = "responses"
+```
+
+The named provider reads your gateway key from the environment. You can keep your existing ChatGPT login. Current Codex versions use `responses`; changing an environment variable cannot switch them to Chat Completions.
+
+Web search is disabled for this example because the selected model does not support native web search. Enable it only after selecting a model with that capability in the&nbsp;[catalogue](https://llmgateway.io/models?features=webSearch).
+
+## Start coding
 
 ```bash
+cd your-project
 codex
 ```
 
-On first launch, Codex will prompt you for authentication. Select **Provide your own API key**, then enter your LLM Gateway API key (starts with `llmgtwy_`).
-
-## Why This Works
-
-LLM Gateway's `/v1` endpoint is fully OpenAI-compatible. Codex CLI sends requests to our gateway instead of OpenAI directly, and we route them to the right provider behind the scenes. This means:
-
-- **Use any model** — GPT-5.3 Codex, Gemini, Claude, or 180+ others
-- **Keep your workflow** — Codex CLI doesn't know the difference
-- **Track costs** — Every request appears in your LLM Gateway dashboard
-- **Automatic caching** — Repeated requests hit cache, saving money
-
-## Configuration Explained
-
-### Base URL
-
-The `openai_base_url` field points Codex CLI to LLM Gateway instead of OpenAI:
+For a scripted task:
 
 ```bash
-openai_base_url = "https://api.llmgateway.io/v1"
+codex exec --sandbox workspace-write "Fix the failing test and run it again"
 ```
 
-### Model Selection
+## Verify the connection
 
-Use `auto` to let LLM Gateway pick the best model, or set a specific one from the [models page](https://llmgateway.io/models):
+Open a small project and ask the agent to read a file, make a change, and run its tests. Our recorded example fixes a TypeScript slugifier and passes all three tests with `deepseek-v4-flash` through LLM Gateway.
 
-```bash
-model = "auto"
-# or pick a specific model
-model = "gpt-5.3-codex"
-```
+`Hello, LLM Gateway!` becomes `hello-llm-gateway`; repeated separators collapse into one hyphen; empty and punctuation-only inputs stay empty. The demo uses Node.js 24 to run `node --test slugify.test.ts` directly.
 
-### Reasoning Effort
+Review the diff and test output, then check the request in your&nbsp;[LLM Gateway dashboard](https://llmgateway.io/dashboard). Choose other compatible models from the&nbsp;[live catalogue](https://llmgateway.io/models?features=tools).
 
-Control how much reasoning the model uses. Options are `low`, `medium`, and `high`:
-
-```bash
-model_reasoning_effort = "high"
-```
-
-## Choosing Models
-
-Use `auto` to let LLM Gateway pick the best model automatically, or choose a specific one from the [models page](https://llmgateway.io/models):
-
-```bash
-# let LLM Gateway pick the best model
-model = "auto"
-
-# or pick a specific model
-model = "gpt-5.3-codex"
-```
-
-## What You Get
-
-- **Any model in Codex CLI** — GPT-5.3 Codex for heavy lifting, lighter models for routine tasks
-- **Cost visibility** — See exactly what each coding session costs
-- **One bill** — Stop managing separate accounts for OpenAI, Anthropic, Google
-- **Response caching** — Repeated requests hit cache automatically
-- **Discounts** — Check [discounted models](/models?discounted=true) for savings up to 90%
+![Codex CLI completing the coding task through LLM Gateway](/images/guides/codex-cli/verified-session.png)
 
 ## Troubleshooting
 
-### Data retention required
+- **Authentication fails:** check that `model_provider` matches the provider table and that `LLMGATEWAY_API_KEY` is exported in the same shell.
+- **Native web search is unsupported:** set `web_search = "disabled"`, then start a new session.
+- **Model metadata or catalogue refresh warning:** Codex 0.153.4 can warn about missing metadata or the gateway's model-list response format. Our configured model still completed the task. Use an explicit model ID and verify the actual request result.
+- **Wrong endpoint:** the provider's `base_url` must end in `/v1`.
 
-If you see an error like:
-
-```
-The Responses API requires data retention to be enabled.
-```
-
-Codex CLI uses the OpenAI Responses API (`/v1/responses`), which requires data retention to be enabled. To fix this:
-
-1. Go to your [organization settings](https://llmgateway.io/dashboard) and navigate to **Settings > Policies**
-2. Select **Retain All Data** and click **Save Settings**
-
-If you prefer not to enable data retention, you can configure Codex CLI to use the Chat Completions API instead by setting the `OPENAI_CHAT_COMPLETIONS_PATH` environment variable, if supported by your Codex CLI version.
-
-### Authentication errors
-
-If you see `401 Unauthorized` or requests going to `api.openai.com` instead of LLM Gateway:
-
-1. Make sure you've run `codex logout` to clear any ChatGPT session
-2. Verify `openai_base_url` is set in `~/.codex/config.toml`
-3. When Codex prompts for authentication, select **Provide your own API key** and enter your LLM Gateway key (starts with `llmgtwy_`)
-
-### Model not found
-
-Verify the model ID matches exactly what's listed on the [models page](https://llmgateway.io/models). Model IDs are case-sensitive.
-
-### Connection issues
-
-Check that `openai_base_url` is set to `https://api.llmgateway.io/v1` (note the `/v1` at the end).
-
-## Get Started
-
-1. [Sign up free](https://llmgateway.io/signup) — no credit card required
-2. Create or roll an API key in the dashboard and copy the newly shown secret
-3. Run `codex logout` to clear any existing ChatGPT session
-4. Create the config file above
-5. Run `codex`, select **Provide your own API key** when prompted, and paste your LLM Gateway key
-
-Questions? Check [our docs](https://docs.llmgateway.io) or [join Discord](https://llmgateway.io/discord).
+See OpenAI's&nbsp;[custom-provider configuration](https://developers.openai.com/codex/config-advanced/) for configuration profiles and other options.

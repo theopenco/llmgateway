@@ -4,6 +4,7 @@ import {
 	findDefaultRealtimeTranscriptionMapping,
 	findRealtimeMapping,
 	findRealtimeTranscriptionMapping,
+	findTranscriptionSessionMapping,
 	listRealtimeTranscriptionMappings,
 } from "./catalog.js";
 
@@ -53,6 +54,10 @@ describe("findRealtimeMapping", () => {
 		expect(findRealtimeMapping("gpt-4o-mini")).toBeNull();
 	});
 
+	it("returns null for transcription-only models", () => {
+		expect(findRealtimeMapping("gpt-live-transcribe")).toBeNull();
+	});
+
 	it("returns null for unknown models", () => {
 		expect(findRealtimeMapping("not-a-model")).toBeNull();
 	});
@@ -94,6 +99,31 @@ describe("findRealtimeTranscriptionMapping", () => {
 			findRealtimeTranscriptionMapping("gpt-4o-mini", "openai"),
 		).toBeNull();
 		expect(findRealtimeTranscriptionMapping("whisper-1", "openai")).toBeNull();
+	});
+});
+
+describe("findTranscriptionSessionMapping", () => {
+	it("resolves a transcription model without a provider prefix", () => {
+		const match = findTranscriptionSessionMapping("gpt-live-transcribe");
+		expect(match?.modelId).toBe("gpt-live-transcribe");
+		expect(match?.mapping.providerId).toBe("openai");
+		expect(match?.mapping.realtimeTranscription).toBe(true);
+	});
+
+	it("resolves the provider-pinned form", () => {
+		const match = findTranscriptionSessionMapping("openai/gpt-4o-transcribe");
+		expect(match?.modelId).toBe("gpt-4o-transcribe");
+	});
+
+	it("rejects a provider without the mapping", () => {
+		expect(
+			findTranscriptionSessionMapping("anthropic/gpt-live-transcribe"),
+		).toBeNull();
+	});
+
+	it("rejects realtime speech models and unknown models", () => {
+		expect(findTranscriptionSessionMapping("gpt-realtime")).toBeNull();
+		expect(findTranscriptionSessionMapping("not-a-model")).toBeNull();
 	});
 });
 

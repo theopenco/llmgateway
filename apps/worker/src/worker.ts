@@ -2484,9 +2484,9 @@ async function runGlobalStatsLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
-				await processClosedHours();
+				const pending = await processClosedHours();
 
-				await interruptibleSleep(interval);
+				await interruptibleSleep(pending ? Math.min(interval, 5000) : interval);
 			} catch (error) {
 				logger.error(
 					"Error in global daily stats loop",

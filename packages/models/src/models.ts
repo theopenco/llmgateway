@@ -721,11 +721,21 @@ export interface ProviderModelMapping {
 	 * When true, the gateway's /v1/realtime proxy allows this mapping as the
 	 * `input_audio_transcription.model` of a realtime session and bills each
 	 * `conversation.item.input_audio_transcription.completed` event against
-	 * this mapping's token prices (inputPrice for text tokens, inputAudioPrice
-	 * for audio tokens, outputPrice for output tokens). Only token-metered ASR
-	 * mappings may set this; duration-billed models are not priceable here.
+	 * this mapping: token usage via inputPrice (text), inputAudioPrice (audio)
+	 * and outputPrice, or duration usage via inputAudioHourPrice. A mapping
+	 * must declare the prices matching the usage shape its provider reports.
+	 * Also makes the mapping connectable as a transcription-only session
+	 * (`/v1/realtime?intent=transcription`).
 	 */
 	realtimeTranscription?: boolean;
+	/**
+	 * Whether this mapping accepts a `turn_detection` config on a transcription
+	 * session. Streaming ASR deployments segment continuously on their own and
+	 * reject the field outright, so it is opt-in: without it, callers must
+	 * commit turns themselves (`turn_detection: null` plus
+	 * `input_audio_buffer.commit`).
+	 */
+	realtimeTranscriptionTurnDetection?: boolean;
 	/**
 	 * Whether this model uses a dedicated transcription (speech-to-text) API.
 	 * When true, requests are routed to the gateway's /v1/audio/transcriptions

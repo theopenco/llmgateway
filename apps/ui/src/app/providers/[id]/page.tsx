@@ -103,11 +103,12 @@ export default async function ProviderPage({ params }: ProviderPageProps) {
 		notFound();
 	}
 
-	const apiProviders = await fetchProviders();
+	const [apiProviders, apiModels] = await Promise.all([
+		fetchProviders(),
+		fetchModels(),
+	]);
 	const apiProvider = apiProviders.find((p) => p.id === id);
 	const uploadedLogo = apiProvider?.airsideLogoUrl ?? undefined;
-
-	const apiModels = await fetchModels();
 	const discountByModelId = new Map<string, string>();
 	for (const apiModel of apiModels) {
 		for (const mapping of apiModel.mappings) {
