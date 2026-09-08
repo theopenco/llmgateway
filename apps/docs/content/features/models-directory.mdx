@@ -46,6 +46,28 @@ With an enabled compliance policy (Enterprise), the directory evaluates every pr
 	active.
 </Callout>
 
+## Discover models with an API key
+
+Call `GET /v1/models` with your API key to list models available under your
+organization's compliance policy, inherited team and member IAM rules, and the
+key's own IAM rules. Blocked provider mappings are omitted; models with no
+remaining mappings are omitted too. Pricing and capabilities reflect the
+remaining mappings. Accessible custom models use `{customProvider}/{modelName}` IDs.
+
+```bash
+curl "https://api.llmgateway.io/v1/models" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY"
+```
+
+The endpoint also accepts the `x-api-key` header. Without either authentication
+header, it returns the public catalogue. Invalid, inactive, or expired credentials
+return `401`.
+
+Use `?mapped=true` for provider-prefixed entries. Existing query filters, including
+`no_training`, apply alongside access restrictions. Discovery reflects model
+permissions and project configuration; it does not check remaining credits,
+usage budgets, or current provider health.
+
 ## Related
 
 - [Knowledge base → Models](/learn/models) — a walkthrough of the page itself.

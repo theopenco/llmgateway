@@ -3,8 +3,14 @@ import { HTTPException } from "hono/http-exception";
 
 import { airsideListingToModelDefinition } from "@/chat/tools/resolve-airside-model.js";
 import { listAirsideModels } from "@/lib/cached-queries.js";
-import { rateLimitHeaders } from "@/lib/error-schemas.js";
-import { publicErrorResponses } from "@/lib/error-schemas.js";
+import {
+	rateLimitHeaders,
+	standardErrorResponses,
+} from "@/lib/error-schemas.js";
+import {
+	filterAccessibleModels,
+	getModelsAccess,
+} from "@/models/model-access.js";
 
 import { logger, toError } from "@llmgateway/logger";
 import {
@@ -15,6 +21,7 @@ import {
 } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
+import type { RouteConfig } from "@hono/zod-openapi";
 
 export const modelsApi = new OpenAPIHono<ServerTypes>();
 
@@ -144,10 +151,14 @@ const listModelsResponseSchema = z.object({
 	data: z.array(modelSchema),
 });
 
+const modelsSecurity: RouteConfig["security"] = [{}, { bearerAuth: [] }];
+
 const listModels = createRoute({
 	operationId: "v1_models",
 	summary: "Models",
-	description: "List all available models",
+	description:
+		"List the public model catalogue without authentication. With an API key, return only models and provider mappings allowed by its organization compliance policy, IAM rules, and project access, including accessible custom models.",
+	security: modelsSecurity,
 	method: "get",
 	path: "/",
 	request: {
@@ -192,12 +203,14 @@ const listModels = createRoute({
 			},
 			description: "List of available models",
 		},
-		...publicErrorResponses(),
+		...standardErrorResponses(),
 	},
 });
 
 modelsApi.openapi(listModels, async (c): Promise<any> => {
 	try {
+		c.header("Vary", "Authorization, x-api-key", { append: true });
+		const access = await getModelsAccess(c);
 		const query = c.req.valid("query");
 		const includeDeactivated = query.include_deactivated || false;
 		const excludeDeprecated = query.exclude_deprecated || false;
@@ -281,7 +294,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 
 		// When requested, keep only provider mappings whose provider does not
 		// train on API data, and drop models left with no eligible mappings.
-		const filteredModels = noTraining
+		let filteredModels = noTraining
 			? deactivationFilteredModels
 					.map((model: ModelDefinition) => ({
 						...model,
@@ -291,6 +304,16 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 					}))
 					.filter((model) => model.providers.length > 0)
 			: deactivationFilteredModels;
+
+		if (access) {
+			filteredModels = await filterAccessibleModels(filteredModels, access, {
+				mapped,
+				noTraining,
+				includeDeactivated,
+				excludeDeprecated,
+				currentDate,
+			});
+		}
 
 		// Mapped view: one entry per provider mapping, addressed the way the
 		// gateway accepts provider-pinned requests (`provider/model-id`). The
@@ -344,7 +367,10 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 						)[] = model.output ?? ["text"];
 
 						return {
-							id: `${provider.providerId}/${model.id}`,
+							id:
+								provider.providerId === "custom"
+									? model.id
+									: `${provider.providerId}/${model.id}`,
 							name,
 							display_name: name,
 							aliases: model.aliases?.map(
@@ -489,6 +515,9 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 
 		return c.json({ data: modelData });
 	} catch (error) {
+		if (error instanceof HTTPException) {
+			throw error;
+		}
 		logger.error("Error in models endpoint", toError(error));
 		throw new HTTPException(500, { message: "Internal server error" });
 	}
