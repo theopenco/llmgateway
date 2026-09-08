@@ -42,6 +42,7 @@ export function getModelImageConfig(model: string) {
 	const lower = model.toLowerCase();
 
 	const isGptImage = lower.includes("gpt-image");
+	const isGptImage25 = lower.includes("gpt-image-2.5-");
 	const isReve = lower.includes("reve");
 	const isMuseImage = lower.includes("muse-image");
 
@@ -91,11 +92,13 @@ export function getModelImageConfig(model: string) {
 					: "1K";
 
 	const supportsQuality = isGptImage || isGrokImagine20;
-	const availableQualities = isGptImage
-		? (["auto", "low", "medium", "high"] as const)
-		: isGrokImagine20
-			? (["low", "medium"] as const)
-			: ([] as readonly string[]);
+	const availableQualities = isGptImage25
+		? (["auto", "low", "medium", "high", "xhigh", "max"] as const)
+		: isGptImage
+			? (["auto", "low", "medium", "high"] as const)
+			: isGrokImagine20
+				? (["low", "medium"] as const)
+				: ([] as readonly string[]);
 	const defaultQuality: string | undefined = isGptImage
 		? "low"
 		: isGrokImagine20

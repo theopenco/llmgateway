@@ -47,7 +47,7 @@ import {
 } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
-type OpenAIImageQuality = "low" | "medium" | "high" | "auto";
+type OpenAIImageQuality = "low" | "medium" | "high" | "xhigh" | "max" | "auto";
 
 export { RequestError } from "./request-error.js";
 
@@ -188,7 +188,7 @@ interface OpenAIImageRequest {
 }
 
 /**
- * Narrow a free-form quality string to the values gpt-image-2 accepts.
+ * Narrow a free-form quality string to GPT Image quality values.
  * Returns undefined for unknown values so they get dropped from the request.
  */
 function normalizeImageQuality(
@@ -202,6 +202,8 @@ function normalizeImageQuality(
 		normalized === "low" ||
 		normalized === "medium" ||
 		normalized === "high" ||
+		normalized === "xhigh" ||
+		normalized === "max" ||
 		normalized === "auto"
 	) {
 		return normalized;

@@ -27,6 +27,7 @@ describe("image generation upstream streaming", () => {
 		n: number;
 		stream: unknown;
 		partialImages: unknown;
+		quality?: unknown;
 	}> = [];
 	let failOpenai = false;
 
@@ -77,6 +78,7 @@ describe("image generation upstream streaming", () => {
 				n,
 				stream: body.stream,
 				partialImages: body.partial_images,
+				quality: body.quality,
 			});
 			if (endpoint === "edits") {
 				expect(multipart).toBe(true);
@@ -190,6 +192,54 @@ describe("image generation upstream streaming", () => {
 		expect(Number(log.promptTokens)).toBe(usage.input_tokens);
 		expect(Number(log.completionTokens)).toBe(usage.output_tokens);
 	}
+
+	describe.each(["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
+		"%s quality",
+		(model) => {
+			describe.each(["generations", "edits", "chat"])("%s", (endpoint) => {
+				test.each(["xhigh", "max"])("forwards %s upstream", async (quality) => {
+					const requestId = randomUUID();
+					const res = await app.request(
+						endpoint === "chat"
+							? "/v1/chat/completions"
+							: `/v1/images/${endpoint}`,
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Authorization: "Bearer test-token",
+								"x-request-id": requestId,
+								"x-no-fallback": "true",
+							},
+							body: JSON.stringify({
+								model: `openai/${model}`,
+								...(endpoint === "chat"
+									? {
+											messages: [{ role: "user", content: "A blue circle" }],
+											image_config: { image_quality: quality },
+										}
+									: { prompt: "A blue circle", quality }),
+								...(endpoint === "edits" && {
+									images: [{ image_url: inputImage }],
+								}),
+							}),
+						},
+					);
+					const json = await res.json();
+					expect(res.status, JSON.stringify(json)).toBe(200);
+					expect(upstreamRequests).toHaveLength(1);
+					expect(upstreamRequests[0]).toMatchObject({
+						provider: "openai",
+						endpoint: endpoint === "edits" ? "edits" : "generations",
+						quality,
+					});
+					const log = await waitForLogByRequestId(requestId);
+					expect(log.hasError).toBe(false);
+					expect(Number(log.cost)).toBeCloseTo(0.01205, 10);
+				});
+			});
+		},
+	);
 
 	describe.each(["generations", "edits"] as const)("%s", (endpoint) => {
 		describe.each(["openai", "azure"])("%s", (provider) => {
