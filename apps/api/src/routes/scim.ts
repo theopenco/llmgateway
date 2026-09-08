@@ -92,6 +92,7 @@ async function logScimAudit(
 		resourceId: params.resourceId,
 		metadata: {
 			source: "scim",
+			actorType: "system",
 			...(params.targetUser
 				? {
 						targetUserId: params.targetUser.id,

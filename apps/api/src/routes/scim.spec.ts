@@ -153,6 +153,7 @@ describe("scim audit logging", () => {
 		expect(logs[0]?.userId).toBe("test-user-id");
 		expect(logs[0]?.resourceType).toBe("scim_user");
 		expect(logs[0]?.metadata?.source).toBe("scim");
+		expect(logs[0]?.metadata?.actorType).toBe("system");
 		expect(logs[0]?.metadata?.targetUserEmail).toBe("jane@example.com");
 	});
 
@@ -353,6 +354,7 @@ describe("scim audit logging", () => {
 
 		expect(logs).toHaveLength(1);
 		expect(logs[0]?.resourceType).toBe("scim_group");
+		expect(logs[0]?.metadata?.actorType).toBe("system");
 		expect(logs[0]?.metadata?.resourceName).toBe("Engineering");
 	});
 
