@@ -8,9 +8,8 @@ import { LoungeLandingSections } from "@/components/seo/lounge-landing-sections"
 import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { CHAT_CONTEXT_COOKIE } from "@/lib/constants";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
+import { findFallbackOrganization } from "@/lib/organization-fallback";
 import { fetchServerData } from "@/lib/server-api";
-
-import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { Organization, Project } from "@/lib/types";
 
@@ -111,8 +110,8 @@ export async function renderPlaygroundShell({
 
 	const organizations = allOrganizations.filter((o) => o.kind === "default");
 
-	// Prefer an available team org when the user has no Chat plan. Member
-	// balances are private, so let the gateway decide whether they can spend.
+	// Prefer a funded admin org when the user has no Chat plan, then fall back
+	// to memberships with private balances and let the gateway check spending.
 	// An explicitly selected Chat plan context skips this fallback.
 	if (shouldCheckChatPlan) {
 		const chatPlanStatus =
@@ -126,9 +125,7 @@ export async function renderPlaygroundShell({
 			chatPlanStatus.chatPlan !== "none" ||
 			Number(chatPlanStatus.regularCredits) > 0;
 		if (!hasChatPlanAccess) {
-			const availableOrganization = organizations.find(
-				(o) => !isOrganizationAdmin(o.role) || Number(o.credits) > 0,
-			);
+			const availableOrganization = findFallbackOrganization(organizations);
 			if (availableOrganization) {
 				const nextParams = new URLSearchParams();
 				for (const [key, value] of Object.entries(searchParams)) {
