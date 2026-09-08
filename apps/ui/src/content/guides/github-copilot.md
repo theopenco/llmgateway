@@ -47,6 +47,17 @@ LLM Gateway's `/v1` endpoint is fully OpenAI-compatible. The Copilot app fetches
 
 All models available to your account show up in the app's model picker; agent sessions work with models that support tool calling and streaming. Browse the [models page](https://llmgateway.io/models) to compare capabilities and pricing, or check [discounted models](/models?discounted=true) for savings up to 90%.
 
+## Reasoning Effort Levels
+
+The Copilot app discovers only model IDs from a BYOK provider — it cannot learn which reasoning effort levels a model supports, so the composer's reasoning control stays on the app default (Medium) and any level you pick reverts until you configure the model:
+
+1. In the app, open **Settings** → **Model Providers** and select your LLM Gateway provider
+2. Edit the model and set its **supported reasoning effort levels** (available since app v1.1.8)
+
+Enter only levels the model actually supports: the gateway forwards your selection to the provider as-is, and providers reject levels their model doesn't accept. To find the right values for a model, open it on the [models page](https://llmgateway.io/models) and check the **Reasoning Efforts** badges on the provider entry, or query the API — each entry in `GET https://api.llmgateway.io/v1/models` lists them under `providers[].reasoning_efforts`.
+
+While unconfigured, sessions still work: the app sends no reasoning effort and the provider uses its default.
+
 ## Good to Know
 
 - **Keys stay local** — the app stores your API key in the OS keychain and never reads it back into the UI.
