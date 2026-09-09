@@ -1528,6 +1528,13 @@ describe("airside provider portal", () => {
 				)
 			).status,
 		).toBe(200);
+		const catalogue = await app.request("/internal/models");
+		expect(catalogue.status).toBe(200);
+		expect(
+			(await catalogue.json()).models.some(
+				(entry: { id: string }) => entry.id === modelId,
+			),
+		).toBe(false);
 		const details = await app.request(`/public/discounts/model/${modelId}`);
 		expect((await details.json()).discounts).toEqual([]);
 		expect(

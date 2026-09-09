@@ -159,6 +159,16 @@ export function CodingModelsShowcase({
 					? activeTab.description
 					: "The latest open-weight-lab models — high performance on coding tasks with tool support and prompt caching."}
 			</p>
+			{visibleModels.length === 0 && (
+				<p
+					role="status"
+					className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground"
+				>
+					{models.length === 0
+						? "Models are currently unavailable. Please try again shortly."
+						: "No models in this category. Browse the full directory below."}
+				</p>
+			)}
 			<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 				{visibleModels.map((model) => {
 					const FamilyIcon = getModelFamilyIcon(model.family);
