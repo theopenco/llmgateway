@@ -1,7 +1,9 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
-import { and, db, desc, eq, gte, isNull, or, tables } from "@llmgateway/db";
+import { loadPublicDiscounts } from "@/lib/public-discounts.js";
+
+import { db } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -42,25 +44,21 @@ const getModelDiscounts = createRoute({
 publicDiscounts.openapi(getModelDiscounts, async (c) => {
 	const { modelId } = c.req.param();
 
+	const [getPublicDiscount, mappings] = await Promise.all([
+		loadPublicDiscounts(),
+		db.query.modelProviderMapping.findMany({
+			where: { modelId: { eq: modelId }, status: { eq: "active" } },
+		}),
+	]);
 	const now = new Date();
-	const notExpired = or(
-		isNull(tables.discount.expiresAt),
-		gte(tables.discount.expiresAt, now),
-	);
-
-	const discounts = await db
-		.select()
-		.from(tables.discount)
-		.where(
-			and(
-				isNull(tables.discount.organizationId),
-				or(isNull(tables.discount.model), eq(tables.discount.model, modelId)),
-				notExpired,
-			),
-		)
-		.orderBy(desc(tables.discount.createdAt));
+	const discounts = mappings
+		.filter((mapping) => !mapping.deactivatedAt || mapping.deactivatedAt > now)
+		.map((mapping) => getPublicDiscount(mapping.providerId, modelId))
+		.filter((discount) => discount !== null);
 
 	return c.json({
-		discounts,
+		discounts: Array.from(
+			new Map(discounts.map((discount) => [discount.id, discount])).values(),
+		),
 	});
 });

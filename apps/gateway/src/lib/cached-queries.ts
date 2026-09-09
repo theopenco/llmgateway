@@ -1294,16 +1294,7 @@ export interface EffectiveRoutingScoreMultiplier {
 	multiplierId?: string;
 }
 
-/**
- * Get the internal routing score adjustment for a provider/model combination.
- * The stable SQL shape is cached by Drizzle and the result is mirrored in SWR.
- */
-/**
- * The routing-price adjustment produced by a carrier's own Airside settings
- * (accepted gateway margin + traffic discount). Deliberately separate from
- * routing_score_multiplier, which stays an admin-only prioritization knob —
- * the two combine additively at the scoring seam.
- */
+/** Approved carrier discounts and margins, with model overrides. */
 export async function findAirsideRoutingSettings(
 	provider: string,
 	model?: string,
@@ -1353,7 +1344,8 @@ export async function findAirsideRoutingAdjustment(
 		return 0;
 	}
 	return computeAirsideAdjustment(
-		settings.discountPercent,
+		// The customer discount is already included in the selection price.
+		0,
 		settings.marginPercent,
 	);
 }

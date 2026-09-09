@@ -216,6 +216,12 @@ export function CodingModelsShowcase({
 								</button>
 							</div>
 
+							{model.discount > 0 && (
+								<span className="w-fit rounded-md border px-2 py-0.5 text-xs font-medium bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20">
+									{Math.round(model.discount * 100)}% off
+								</span>
+							)}
+
 							{(model.contextSize !== null ||
 								model.inputPrice !== null ||
 								model.outputPrice !== null) && (

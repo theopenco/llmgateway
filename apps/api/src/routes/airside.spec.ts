@@ -5,7 +5,14 @@ import { createTestUser, deleteAll } from "@/testing.js";
 import * as emailUtils from "@/utils/email.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, eq, inArray, sql, tables } from "@llmgateway/db";
+import {
+	db,
+	eq,
+	getEffectiveDiscount,
+	inArray,
+	sql,
+	tables,
+} from "@llmgateway/db";
 import {
 	models as catalogueModels,
 	type ModelDefinition,
@@ -1141,8 +1148,8 @@ describe("airside provider portal", () => {
 			json(cookie),
 		);
 		expect(approved.status).toBe(200);
-		// 0.2 (baseline) - 0.3 (margin) - 0.2 (discount) = -0.3
-		expect((await approved.json()).filing.routingAdjustment).toBeCloseTo(-0.3);
+		// The discounted price is adjusted by the accepted margin.
+		expect((await approved.json()).filing.routingAdjustment).toBeCloseTo(-0.28);
 
 		// The admin row is untouched, and no airside row was mirrored in.
 		const multipliers = await db.query.routingScoreMultiplier.findMany({
@@ -1239,7 +1246,7 @@ describe("airside provider portal", () => {
 		});
 
 		// Accepting a larger gateway margin + a discount → negative adjustment
-		// (routing boost): 0.2 − 0.3 − 0.1 = −0.2 — but only as a pending filing.
+		// (routing boost), but only as a pending filing.
 		const filed = await app.request(
 			"/airside/routing-settings/mistral",
 			json(
@@ -1255,7 +1262,7 @@ describe("airside provider portal", () => {
 		expect(filed.status).toBe(201);
 		const { filing } = await filed.json();
 		expect(filing.status).toBe("pending");
-		expect(filing.routingAdjustment).toBeCloseTo(-0.2);
+		expect(filing.routingAdjustment).toBeCloseTo(-0.19);
 
 		// Nothing is live yet, and the portal shows the pending filing.
 		expect(
@@ -1397,6 +1404,137 @@ describe("airside provider portal", () => {
 		expect(outOfBounds.status).toBe(400);
 	});
 
+	it("publishes only approved Airside discounts across catalogue and detail feeds", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const claim = await claimProvider(cookie, company.id);
+		expect(
+			(
+				await app.request(
+					`/admin/airside/claims/${claim.id}/approve`,
+					json(cookie),
+				)
+			).status,
+		).toBe(200);
+		const modelId = "airside-discount-model";
+		const created = await createModel(cookie, company.id, {
+			modelName: modelId,
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		expect(
+			(
+				await app.request(
+					`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+					json(cookie),
+				)
+			).status,
+		).toBe(200);
+
+		async function expectDiscount(expected: number) {
+			const catalogueResponse = await app.request("/internal/models");
+			expect(catalogueResponse.status).toBe(200);
+			const catalogue = (await catalogueResponse.json()).models.find(
+				(entry: { id: string }) => entry.id === modelId,
+			);
+			expect(Number(catalogue.mappings[0].discount)).toBeCloseTo(expected);
+			const detailsResponse = await app.request(
+				`/public/discounts/model/${modelId}`,
+			);
+			expect(detailsResponse.status).toBe(200);
+			const { discounts } = await detailsResponse.json();
+			if (expected === 0) {
+				expect(discounts).toEqual([]);
+			} else {
+				expect(discounts).toHaveLength(1);
+				expect(discounts[0]).toMatchObject({
+					provider: "mistral",
+					model: modelId,
+				});
+				expect(Number(discounts[0].discountPercent)).toBeCloseTo(expected);
+			}
+			expect(
+				Number((await getEffectiveDiscount(null, "mistral", modelId)).discount),
+			).toBeCloseTo(expected);
+		}
+
+		async function fileDiscount(discountPercent: number, override?: string) {
+			const response = await app.request(
+				"/airside/routing-settings/mistral",
+				json(
+					cookie,
+					{
+						providerCompanyId: company.id,
+						modelId: override,
+						discountPercent,
+						marginPercent: 0.2,
+					},
+					"PUT",
+				),
+			);
+			expect(response.status).toBe(201);
+			return (await response.json()).filing.id as string;
+		}
+
+		await expectDiscount(0);
+		const carrierFiling = await fileDiscount(0.2);
+		await expectDiscount(0);
+		expect(
+			(
+				await app.request(
+					`/admin/airside/routing-filings/${carrierFiling}/approve`,
+					json(cookie),
+				)
+			).status,
+		).toBe(200);
+		await expectDiscount(0.2);
+		const override = await fileDiscount(0.3, modelId);
+		await expectDiscount(0.2);
+		expect(
+			(
+				await app.request(
+					`/admin/airside/routing-filings/${override}/reject`,
+					json(cookie, {}),
+				)
+			).status,
+		).toBe(200);
+		await expectDiscount(0.2);
+		const zero = await fileDiscount(0, modelId);
+		expect(
+			(
+				await app.request(
+					`/admin/airside/routing-filings/${zero}/approve`,
+					json(cookie),
+				)
+			).status,
+		).toBe(200);
+		await expectDiscount(0);
+		const restored = await fileDiscount(0.3, modelId);
+		expect(
+			(
+				await app.request(
+					`/admin/airside/routing-filings/${restored}/approve`,
+					json(cookie),
+				)
+			).status,
+		).toBe(200);
+		await expectDiscount(0.3);
+		expect(
+			(
+				await app.request(
+					`/admin/airside/claims/${claim.id}/revoke`,
+					json(cookie, {}),
+				)
+			).status,
+		).toBe(200);
+		const details = await app.request(`/public/discounts/model/${modelId}`);
+		expect((await details.json()).discounts).toEqual([]);
+		expect(
+			Number((await getEffectiveDiscount(null, "mistral", modelId)).discount),
+		).toBe(0);
+	});
+
 	it("applies an approved fare override to one model", async () => {
 		process.env.ADMIN_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
@@ -1452,7 +1590,7 @@ describe("airside provider portal", () => {
 		const filing = (await filed.json()).filing;
 		expect(filing).toMatchObject({
 			modelId: "mistral-model-fare",
-			routingAdjustment: expect.closeTo(-0.05),
+			routingAdjustment: expect.closeTo(-0.055),
 		});
 
 		const whilePending = await app.request(
@@ -1508,7 +1646,7 @@ describe("airside provider portal", () => {
 			overridden: true,
 			discountPercent: 0.1,
 			marginPercent: 0.15,
-			routingAdjustment: expect.closeTo(-0.05),
+			routingAdjustment: expect.closeTo(-0.055),
 		});
 	});
 
@@ -1572,7 +1710,7 @@ describe("airside provider portal", () => {
 			});
 			expect(body.providers[0].discountPercent).toBeCloseTo(0.1);
 			expect(body.providers[0].marginPercent).toBeCloseTo(0.3);
-			expect(body.providers[0].routingAdjustment).toBeCloseTo(-0.2);
+			expect(body.providers[0].routingAdjustment).toBeCloseTo(-0.19);
 			expect(body.providers[0].marginAmount30d).toBeCloseTo(5);
 			expect(body.providers[0].marginAmountTotal).toBeCloseTo(12);
 		} finally {

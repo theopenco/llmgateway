@@ -430,6 +430,40 @@ describe("airside-listed models", () => {
 		expect(Number(log!.cost)).toBeCloseTo(0.007, 6);
 	});
 
+	test("bills an approved Airside discount once", async () => {
+		await setup("airside-discount-token");
+		await db.insert(tables.providerRoutingSettings).values({
+			providerCompanyId: "airside-discount-token-company",
+			providerId: "mistral",
+			modelId: "gpt-5.6-luna",
+			discountPercent: "0.2",
+			marginPercent: "0.2",
+		});
+		await clearCache();
+		const requestId = "airside-discount-request";
+		const response = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer airside-discount-token",
+				"x-no-fallback": "true",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "mistral/gpt-5.6-luna",
+				messages: [{ role: "user", content: "Say hi with a discount" }],
+			}),
+		});
+		expect(response.status).toBe(200);
+		const log = await waitForLogByRequestId(requestId);
+		expect(Number(log?.inputCost)).toBeCloseTo(0.0016, 6);
+		expect(Number(log?.outputCost)).toBeCloseTo(0.004, 6);
+		expect(Number(log?.cost)).toBeCloseTo(0.0056, 6);
+		await expect(
+			findAirsideRoutingAdjustment("mistral", "gpt-5.6-luna"),
+		).resolves.toBe(0);
+	});
+
 	test("lists the approved listing in /v1/models", async () => {
 		await setup("airside-v1models-token");
 		const res = await app.request("/v1/models");
@@ -673,7 +707,7 @@ describe("airside-listed models", () => {
 			).resolves.toBeCloseTo(0);
 			await expect(
 				findAirsideRoutingAdjustment("fare-provider", modelId),
-			).resolves.toBeCloseTo(-0.05);
+			).resolves.toBeCloseTo(0.05);
 			await expect(
 				findAirsideRoutingAdjustment("fare-provider", "another-model"),
 			).resolves.toBeCloseTo(0);
