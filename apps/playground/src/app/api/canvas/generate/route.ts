@@ -69,7 +69,7 @@ export async function POST(req: Request) {
 		model: llmgateway.chat(
 			selectedModel as Parameters<typeof llmgateway.chat>[0],
 		),
-		system: systemPrompt,
+		instructions: systemPrompt,
 		messages: [{ role: "user", content: prompt }],
 	});
 

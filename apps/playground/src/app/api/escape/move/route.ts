@@ -128,7 +128,7 @@ export async function POST(req: Request) {
 			model: llmgateway.chat(model as Parameters<typeof llmgateway.chat>[0], {
 				usage: { include: true },
 			}),
-			system: ESCAPE_SYSTEM_PROMPT,
+			instructions: ESCAPE_SYSTEM_PROMPT,
 			messages: [{ role: "user", content: buildTurnPrompt(state) }],
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 		});

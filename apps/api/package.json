@@ -16,6 +16,7 @@
 		"start": "node --enable-source-maps dist/serve.js"
 	},
 	"dependencies": {
+		"@ai-sdk/mcp": "2.0.47",
 		"@better-auth/passkey": "1.6.26",
 		"@better-auth/sso": "1.6.26",
 		"@hono/node-server": "^2.0.10",
@@ -24,7 +25,7 @@
 		"@hono/zod-validator": "^0.7.2",
 		"@kubiks/otel-better-auth": "2.0.2",
 		"@llmgateway/actions": "workspace:*",
-		"@llmgateway/ai-sdk-provider": "3.7.0",
+		"@llmgateway/ai-sdk-provider": "4.0.0",
 		"@llmgateway/audit": "workspace:*",
 		"@llmgateway/cache": "workspace:*",
 		"@llmgateway/db": "workspace:*",
@@ -33,9 +34,10 @@
 		"@llmgateway/logger": "workspace:*",
 		"@llmgateway/models": "workspace:*",
 		"@llmgateway/shared": "workspace:*",
+		"@modelcontextprotocol/sdk": "1.29.0",
 		"@opentelemetry/api": "1.9.0",
 		"@opentelemetry/sdk-node": "0.218.0",
-		"ai": "6.0.27",
+		"ai": "7.0.96",
 		"bcrypt-ts": "8.0.0",
 		"better-auth": "1.6.26",
 		"decimal.js": "10.5.0",
@@ -56,7 +58,7 @@
 		"tldts": "6.1.86",
 		"unpdf": "1.6.2",
 		"yaml": "2.8.3",
-		"zod": "3.25.75",
+		"zod": "3.25.76",
 		"zod-openapi": "^5.4.3"
 	}
 }

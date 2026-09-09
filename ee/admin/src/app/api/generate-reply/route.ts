@@ -137,7 +137,7 @@ export async function POST(req: Request) {
 	try {
 		const leadResearch = await generateText({
 			model: llmgateway("auto"),
-			system: `You are a lead research agent. Given a person's name or email address, research them thoroughly using your built-in web search capabilities.
+			instructions: `You are a lead research agent. Given a person's name or email address, research them thoroughly using your built-in web search capabilities.
 
 Produce a structured summary with the following sections:
 - **Name**: Full name
@@ -172,7 +172,7 @@ User details:
 		const emailDraft = await generateText({
 			model: llmgateway("auto"),
 			output: Output.object({ schema: emailSchema }),
-			system: `You are an email drafting assistant for LLM Gateway, an AI/LLM API gateway service that provides access to 300+ AI models through a single OpenAI-compatible API.
+			instructions: `You are an email drafting assistant for LLM Gateway, an AI/LLM API gateway service that provides access to 300+ AI models through a single OpenAI-compatible API.
 
 ${data.type === "enterprise" ? "Draft a professional reply to their enterprise inquiry." : "Draft a personalized welcome/outreach email to this new user."}
 

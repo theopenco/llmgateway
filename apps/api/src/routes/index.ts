@@ -17,6 +17,7 @@ import { chatPlans } from "./chat-plans.js";
 import { chatProjects } from "./chat-projects.js";
 import { chat } from "./chat.js";
 import { chats } from "./chats.js";
+import { connectors } from "./connectors.js";
 import { customModels } from "./custom-models.js";
 import { devPlanCancellationFeedback } from "./dev-plan-cancellation-feedback.js";
 import { devPlans } from "./dev-plans.js";
@@ -63,6 +64,7 @@ routes.use("/*", async (c, next) => {
 });
 
 routes.route("/user", user);
+routes.route("/connectors", connectors);
 
 routes.route("/logs", logs);
 

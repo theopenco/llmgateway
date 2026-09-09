@@ -1,0 +1,1 @@
+ALTER TABLE "lounge_connector_authorization" ADD COLUMN "consumed" boolean DEFAULT false NOT NULL;

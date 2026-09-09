@@ -1,9 +1,12 @@
-import { createMCPClient } from "@ai-sdk/mcp";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { createHmac } from "node:crypto";
+
 import {
 	streamText,
 	generateImage,
-	tool,
+	dynamicTool,
+	jsonSchema,
+	isStepCount,
+	type ToolSet,
 	type UIMessage,
 	convertToModelMessages,
 	JsonToSseTransformStream,
@@ -25,48 +28,18 @@ import {
 	readString,
 	type PlaygroundMessageMetadata,
 } from "@/lib/message-metadata";
-import { fetchServerData } from "@/lib/server-api";
+import { createServerApiClient, fetchServerData } from "@/lib/server-api";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
-import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 import {
-	assertSafeResolvedUserUrl,
-	fetchSafeUserUrl,
-} from "@llmgateway/shared/url-safety-node";
+	loungeConnectorIds,
+	type LoungeConnectorId,
+} from "@llmgateway/shared/lounge-connectors";
+import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 export const maxDuration = 300; // 5 minutes
-
-/**
- * MCP Content Types - Based on MCP SDK CallToolResult content types
- */
-interface McpTextContent {
-	type: "text";
-	text: string;
-}
-
-interface McpImageContent {
-	type: "image";
-	data: string;
-	mimeType: string;
-}
-
-interface McpResourceContent {
-	type: "resource";
-	resource: {
-		uri: string;
-		text?: string;
-		blob?: string;
-		mimeType?: string;
-	};
-}
-
-type McpContent = McpTextContent | McpImageContent | McpResourceContent;
-
-interface McpCallToolResult {
-	content: McpContent[];
-	isError?: boolean;
-}
 
 interface PlaygroundMetadataFinishStepPart {
 	type: "finish-step";
@@ -91,32 +64,6 @@ type GatewayResponseMetadata = Pick<
 	PlaygroundMessageMetadata,
 	"logId" | "organizationId" | "projectId" | "discount"
 >;
-
-/**
- * Type guard to check if a value is an MCP CallToolResult
- */
-function isMcpCallToolResult(value: unknown): value is McpCallToolResult {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		"content" in value &&
-		Array.isArray((value as McpCallToolResult).content)
-	);
-}
-
-/**
- * Type guard to check if an MCP content item is text content
- */
-function isMcpTextContent(value: unknown): value is McpTextContent {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		"type" in value &&
-		(value as McpTextContent).type === "text" &&
-		"text" in value &&
-		typeof (value as McpTextContent).text === "string"
-	);
-}
 
 function isPlaygroundMetadataFinishStepPart(
 	part: PlaygroundMetadataStreamPart,
@@ -330,39 +277,6 @@ function extractPlaygroundMessageMetadata(
 	return metadata;
 }
 
-/**
- * Type guard to check if an MCP content item is image content
- */
-function isMcpImageContent(value: unknown): value is McpImageContent {
-	return (
-		typeof value === "object" &&
-		value !== null &&
-		"type" in value &&
-		(value as McpImageContent).type === "image" &&
-		"data" in value &&
-		typeof (value as McpImageContent).data === "string" &&
-		"mimeType" in value &&
-		typeof (value as McpImageContent).mimeType === "string"
-	);
-}
-
-/**
- * MCP Tool type from client.tools() return value
- * The execute function is typed loosely to accommodate different MCP tool implementations
- */
-interface McpToolDefinition {
-	description?: string;
-	execute: (...args: unknown[]) => Promise<unknown> | unknown;
-}
-
-interface McpServerConfig {
-	id: string;
-	name: string;
-	url: string;
-	apiKey: string;
-	enabled: boolean;
-}
-
 interface ImageFilePart {
 	type: "file";
 	url: string;
@@ -426,7 +340,7 @@ interface ChatRequestBody {
 	};
 	reasoning_effort?: "minimal" | "low" | "medium" | "high";
 	web_search?: boolean;
-	mcp_servers?: McpServerConfig[];
+	connector_ids?: LoungeConnectorId[];
 	is_image_gen?: boolean;
 	temporary_chat?: boolean;
 	skill_instructions?: string;
@@ -446,11 +360,6 @@ interface ProjectRetrievalResponse {
 		fileName: string;
 	}[];
 	memories: string[];
-}
-
-interface McpClientWrapper {
-	client: Awaited<ReturnType<typeof createMCPClient>>;
-	name: string;
 }
 
 /**
@@ -525,7 +434,7 @@ export async function POST(req: Request) {
 		image_config,
 		reasoning_effort,
 		web_search,
-		mcp_servers,
+		connector_ids,
 		is_image_gen,
 		skill_instructions,
 		project_id,
@@ -845,303 +754,67 @@ export async function POST(req: Request) {
 		}
 	}
 
-	// Initialize MCP clients if servers are provided
-	const mcpClients: McpClientWrapper[] = [];
-	const enabledMcpServers =
-		mcp_servers?.filter((server) => server.enabled) ?? [];
-
-	try {
-		// Create MCP clients for all enabled servers in parallel (each with its
-		// own timeout) — the connections are independent, so connecting serially
-		// would stack the per-server latency ahead of the first token.
-		const connectionResults = await Promise.all(
-			enabledMcpServers.map(
-				async (server): Promise<McpClientWrapper | null> => {
-					try {
-						// SSRF Protection: Validate URL before creating transport
-						const serverUrl = await assertSafeResolvedUserUrl(server.url);
-						const allowedHosts = process.env.MCP_ALLOWED_HOSTS?.split(",").map(
-							(host) => host.trim().toLowerCase(),
-						);
-						if (
-							allowedHosts?.length &&
-							!allowedHosts.some(
-								(host) =>
-									serverUrl.hostname === host ||
-									serverUrl.hostname.endsWith(`.${host}`),
-							)
-						) {
-							return null;
-						}
-
-						// Use the official MCP SDK transport for better compatibility
-						const transport = new StreamableHTTPClientTransport(serverUrl, {
-							fetch: fetchSafeUserUrl,
-							requestInit: {
-								headers: server.apiKey
-									? { Authorization: `Bearer ${server.apiKey}` }
-									: undefined,
-							},
-						});
-
-						const clientPromise = createMCPClient({ transport });
-
-						// Add 10 second timeout to prevent hanging
-						let timeoutId: ReturnType<typeof setTimeout> | undefined;
-						const timeoutPromise = new Promise<never>((_, reject) => {
-							timeoutId = setTimeout(
-								() =>
-									reject(
-										new Error(`MCP connection timeout for ${server.name}`),
-									),
-								10000,
-							);
-						});
-
-						try {
-							const client = await Promise.race([
-								clientPromise,
-								timeoutPromise,
-							]);
-							return { client, name: server.name };
-						} catch {
-							// Timeout or connection failure: losing the race does not
-							// cancel the connection attempt, so tear down the transport
-							// and close a client that may still resolve later.
-							void transport.close().catch(() => {});
-							void clientPromise
-								.then((client) => client.close())
-								.catch(() => {});
-							return null;
-						} finally {
-							clearTimeout(timeoutId);
-						}
-					} catch {
-						// Continue with other servers
-						return null;
-					}
-				},
-			),
+	if ("mcp_servers" in body) {
+		return Response.json(
+			{ error: "Custom MCP servers are no longer supported. Use Connectors." },
+			{ status: 400 },
 		);
-		for (const wrapper of connectionResults) {
-			if (wrapper) {
-				mcpClients.push(wrapper);
+	}
+	const selectedConnectors = z
+		.array(z.enum(loungeConnectorIds))
+		.max(11)
+		.safeParse(connector_ids ?? []);
+	if (!selectedConnectors.success) {
+		return Response.json({ error: "Invalid connectors" }, { status: 400 });
+	}
+	try {
+		const allTools: ToolSet = {};
+		if (selectedConnectors.data.length) {
+			const client = await createServerApiClient();
+			const response = await client.POST("/connectors/tools", {
+				body: { connectors: selectedConnectors.data },
+				signal: req.signal,
+			});
+			if (!response.data) {
+				return Response.json(
+					{
+						error:
+							"Could not load your connectors. Reconnect or pause them and try again.",
+					},
+					{ status: response.response.status },
+				);
 			}
-		}
-
-		// Collect tools from all MCP clients and create typed wrappers
-		// Type assertion needed to allow heterogeneous tool schemas in a single record
-		const allTools: Record<string, ReturnType<typeof tool<any, any>>> = {};
-
-		// Helper to extract text from MCP result format using type guards
-		const extractMcpResult = (result: unknown): string => {
-			if (isMcpCallToolResult(result)) {
-				const textParts = result.content
-					.filter(isMcpTextContent)
-					.map((c) => c.text)
-					// Filter out structured data comments
-					.filter((text) => !text.startsWith("<!--STRUCTURED_DATA:"));
-				return textParts.join("\n");
-			}
-			return typeof result === "string" ? result : JSON.stringify(result);
-		};
-
-		// Helper to extract structured data from MCP result (embedded as HTML comment)
-		const extractStructuredData = (
-			result: unknown,
-		): { type: string; data: unknown } | null => {
-			if (isMcpCallToolResult(result)) {
-				for (const content of result.content) {
-					if (isMcpTextContent(content)) {
-						const match = content.text.match(
-							/<!--STRUCTURED_DATA:([\s\S]+?)-->/,
+			for (const definition of response.data.tools) {
+				const name = `${definition.connectorId.replaceAll("-", "_")}__${definition.name}`;
+				allTools[name] = dynamicTool({
+					description: `${definition.connectorId}: ${definition.description}`,
+					inputSchema: jsonSchema<Record<string, unknown>>(
+						definition.inputSchema,
+					),
+					execute: async (input) => {
+						const parsed = z.record(z.string(), z.unknown()).parse(input);
+						const result = await client.POST(
+							"/connectors/{connectorId}/tools/{toolName}",
+							{
+								params: {
+									path: {
+										connectorId: definition.connectorId,
+										toolName: definition.name,
+									},
+								},
+								body: { input: parsed },
+								signal: req.signal,
+							},
 						);
-						if (match) {
-							try {
-								return JSON.parse(match[1]);
-							} catch {
-								return null;
-							}
+						if (!result.data) {
+							throw new Error(
+								"The connector could not complete this request. Try reconnecting it.",
+							);
 						}
-					}
-				}
-			}
-			return null;
-		};
-
-		// Helper to extract images from MCP result format
-		// Returns array of image objects with base64 and mediaType for the Image component
-		const extractMcpImages = (
-			result: unknown,
-		): { images: { base64: string; mediaType: string }[]; text: string } => {
-			if (isMcpCallToolResult(result)) {
-				const images = result.content
-					.filter(isMcpImageContent)
-					.map((c) => ({ base64: c.data, mediaType: c.mimeType }));
-				const textParts = result.content
-					.filter(isMcpTextContent)
-					.map((c) => c.text);
-				return { images, text: textParts.join("\n") };
-			}
-			return { images: [], text: extractMcpResult(result) };
-		};
-
-		for (const { client, name } of mcpClients) {
-			try {
-				const mcpTools = await client.tools();
-
-				for (const [toolName, mcpTool] of Object.entries(mcpTools)) {
-					const prefixedName =
-						mcpClients.length > 1 ? `${name}_${toolName}` : toolName;
-					// Cast to McpToolDefinition - the MCP client returns tools with description and execute
-					const originalTool = mcpTool as McpToolDefinition;
-
-					// Create typed tool wrappers with explicit schemas
-					// This ensures the LLM knows exactly what parameters are required
-					if (toolName === "list-models") {
-						allTools[prefixedName] = tool({
-							description:
-								"List and discover available LLM models. Use this ONLY when the user asks to see what models are available, NOT when they want to actually use a model. For generating content or images, use the 'chat' tool instead.",
-							inputSchema: z.object({
-								include_deactivated: z
-									.boolean()
-									.optional()
-									.default(false)
-									.describe("Include deactivated models"),
-								exclude_deprecated: z
-									.boolean()
-									.optional()
-									.default(false)
-									.describe("Exclude deprecated models"),
-								limit: z
-									.number()
-									.optional()
-									.default(20)
-									.describe("Maximum number of models to return"),
-								family: z
-									.string()
-									.optional()
-									.describe(
-										"Filter by model family (e.g., 'openai', 'anthropic')",
-									),
-							}),
-							execute: async (args) => {
-								const result = await originalTool.execute(args);
-								const extracted = extractMcpResult(result);
-								const structured = extractStructuredData(result);
-								return {
-									text: extracted,
-									...(structured?.type === "models"
-										? { models: structured.data }
-										: {}),
-								};
-							},
-						});
-					} else if (toolName === "chat") {
-						// Chat tool - send a message to another LLM
-						// Rename to "generate_content" for better model understanding
-						const generateToolName =
-							mcpClients.length > 1
-								? `${name}_generate_content`
-								: "generate_content";
-
-						allTools[generateToolName] = tool({
-							description:
-								"Generate TEXT responses using a language model. Use this for text-based tasks like answering questions, writing, analysis, coding, etc. Do NOT use this for image generation - use 'generate-image' tool instead when the user wants to create, draw, or generate images.",
-							inputSchema: z.object({
-								model: z
-									.string()
-									.describe(
-										"The language model ID to use for text generation, e.g. 'gpt-4o', 'claude-sonnet-4-20250514', 'gemini-2.0-flash'",
-									),
-								prompt: z
-									.string()
-									.describe(
-										"The text prompt for the language model, e.g. 'explain quantum physics' or 'write a poem about nature'",
-									),
-							}),
-							execute: async (args) => {
-								// Convert simple prompt to messages array format for the MCP tool
-								const mcpArgs = {
-									model: args.model,
-									messages: [{ role: "user" as const, content: args.prompt }],
-								};
-								const result = await originalTool.execute(mcpArgs);
-								const extracted = extractMcpResult(result);
-								return { response: extracted };
-							},
-						});
-					} else if (toolName === "generate-image") {
-						// Generate image tool - requires prompt parameter
-						allTools[prefixedName] = tool({
-							description:
-								"CREATE AND GENERATE IMAGES from text descriptions. Use this tool whenever the user wants to create, draw, generate, make, or produce an image, picture, illustration, artwork, or visual content. This is the ONLY tool for image generation - do not use generate_content for images.",
-							inputSchema: z.object({
-								prompt: z
-									.string()
-									.describe(
-										"Detailed text description of the image to create, e.g. 'a futuristic city skyline at sunset with flying cars'",
-									),
-								model: z
-									.string()
-									.optional()
-									.default("qwen-image-plus")
-									.describe(
-										"Image generation model to use (e.g., 'qwen-image-plus', 'qwen-image-max')",
-									),
-								size: z
-									.string()
-									.optional()
-									.default("1024x1024")
-									.describe(
-										"Image size in WxH format (e.g., '1024x1024', '1024x768', '768x1024')",
-									),
-								n: z
-									.number()
-									.optional()
-									.default(1)
-									.describe("Number of images to generate (1-4)"),
-							}),
-							execute: async (args) => {
-								const result = await originalTool.execute(args);
-								const { images, text } = extractMcpImages(result);
-								return { images, text };
-							},
-						});
-					} else if (toolName === "list-image-models") {
-						// List image models tool - no required parameters
-						allTools[prefixedName] = tool({
-							description:
-								"List all available image generation models with their capabilities and pricing. Use this to discover which models can be used with generate-image.",
-							inputSchema: z.object({}),
-							execute: async (args) => {
-								const result = await originalTool.execute(args);
-								const extracted = extractMcpResult(result);
-								const structured = extractStructuredData(result);
-								return {
-									text: extracted,
-									...(structured?.type === "image-models"
-										? { imageModels: structured.data }
-										: {}),
-								};
-							},
-						});
-					} else {
-						// For unknown tools, use a permissive schema
-						allTools[prefixedName] = tool({
-							description:
-								originalTool.description ?? `MCP tool: ${prefixedName}`,
-							inputSchema: z.object({}).passthrough(),
-							execute: async (args) => {
-								const result = await originalTool.execute(args);
-								const extracted = extractMcpResult(result);
-								return { result: extracted };
-							},
-						});
-					}
-				}
-			} catch {
-				// Failed to get tools from MCP server
+						const output: unknown = JSON.parse(result.data.result);
+						return output;
+					},
+				});
 			}
 		}
 
@@ -1168,18 +841,21 @@ export async function POST(req: Request) {
 			messages: await convertToModelMessages(
 				messages.filter((m) => m.role !== "system"),
 			),
-			...(resolvedSystem ? { system: resolvedSystem } : {}),
-			...(hasTools ? { tools: allTools, maxSteps: 10 } : {}),
-			onFinish: async ({ text }) => {
-				// Clean up MCP clients when streaming is done
-				for (const { client } of mcpClients) {
-					try {
-						await client.close();
-					} catch {
-						// Ignore close errors
+			...(resolvedSystem ? { instructions: resolvedSystem } : {}),
+			...(hasTools
+				? {
+						tools: allTools,
+						stopWhen: isStepCount(10),
+						toolApproval: () => "user-approval" as const,
+						experimental_toolApprovalSecret: createHmac(
+							"sha256",
+							getApiKeyHashSecret(),
+						)
+							.update(`lounge-tools:${user.id}`)
+							.digest("hex"),
 					}
-				}
-
+				: {}),
+			onEnd: async ({ text }) => {
 				// Fire-and-forget memory extraction from this exchange; failures
 				// never affect the chat response.
 				if (
@@ -1206,6 +882,7 @@ export async function POST(req: Request) {
 		// Build the UI message stream and pipe through SSE formatting
 		let latestMessageMetadata: PlaygroundMessageMetadata | undefined;
 		const uiStream = result.toUIMessageStream({
+			originalMessages: messages,
 			sendReasoning: true,
 			sendSources: true,
 			messageMetadata: ({ part }) => {
@@ -1271,15 +948,6 @@ export async function POST(req: Request) {
 			},
 		});
 	} catch (error: unknown) {
-		// Clean up MCP clients on error
-		for (const { client } of mcpClients) {
-			try {
-				await client.close();
-			} catch {
-				// Ignore close errors
-			}
-		}
-
 		const message =
 			error instanceof Error ? error.message : "LLM Gateway request failed";
 		const status =

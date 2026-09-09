@@ -103,6 +103,11 @@
 			"types": "./dist/components/jelly/not-found-page.d.ts",
 			"import": "./dist/components/jelly/not-found-page.js",
 			"default": "./dist/components/jelly/not-found-page.js"
+		},
+		"./lounge-connectors": {
+			"types": "./dist/lounge-connectors.d.ts",
+			"import": "./dist/lounge-connectors.js",
+			"default": "./dist/lounge-connectors.js"
 		}
 	},
 	"module": "./dist/index.js",
@@ -160,7 +165,7 @@
 		"tailwind-merge": "3.4.0",
 		"three": "0.185.1",
 		"undici": "8.9.0",
-		"zod": "3.25.75"
+		"zod": "3.25.76"
 	},
 	"devDependencies": {
 		"@types/react": "^19.3.0",

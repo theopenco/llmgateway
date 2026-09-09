@@ -145,6 +145,7 @@ const forkChatResponseSchema = z.object({
 
 const createMessageSchema = z
 	.object({
+		id: z.string().min(1).max(128).optional(),
 		role: z.enum(["user", "assistant", "system"]),
 		content: z.string().optional(),
 		images: z.string().optional(), // JSON string
@@ -1761,6 +1762,43 @@ chats.openapi(addMessage, async (c) => {
 		throw new HTTPException(404, { message: "Chat not found" });
 	}
 
+	if (body.id && body.role === "assistant") {
+		const existing = await db.query.message.findFirst({
+			where: { id: body.id, chatId: id, role: "assistant" },
+		});
+		if (existing) {
+			const [updated] = await db
+				.update(tables.message)
+				.set({
+					content: body.content ?? null,
+					images: body.images ?? null,
+					audios: body.audios ?? null,
+					documents: body.documents ?? null,
+					reasoning: body.reasoning ?? null,
+					tools: body.tools ?? null,
+					sources: body.sources ?? null,
+					metadata: body.metadata ?? null,
+				})
+				.where(
+					and(
+						eq(tables.message.id, existing.id),
+						eq(tables.message.chatId, id),
+					),
+				)
+				.returning();
+			return c.json(
+				{
+					message: {
+						...updated,
+						role: "assistant" as const,
+						createdAt: updated.createdAt.toISOString(),
+					},
+				},
+				201,
+			);
+		}
+	}
+
 	// Check if user has unlimited access via API key
 	const isUnlimited = await hasActiveApiKey(user.id);
 
@@ -1792,6 +1830,7 @@ chats.openapi(addMessage, async (c) => {
 	const [newMessage] = await db
 		.insert(tables.message)
 		.values({
+			id: body.role === "assistant" ? body.id : undefined,
 			chatId: id,
 			role: body.role,
 			content: body.content ?? null,
