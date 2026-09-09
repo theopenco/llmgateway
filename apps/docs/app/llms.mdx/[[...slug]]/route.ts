@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
 
+import { docsBaseUrl } from "@/lib/base-url";
+import { marketingGuideCanonical } from "@/lib/guide-canonical";
 import { getLLMText, source } from "@/lib/source";
 
-export const revalidate = false;
+export const dynamic = "force-dynamic";
 
 export async function GET(
 	_req: Request,
@@ -20,6 +22,7 @@ export async function GET(
 			// Keep the raw-markdown mirrors fetchable for AI crawlers but out
 			// of search indexes (they duplicate the HTML docs pages).
 			"X-Robots-Tag": "noindex",
+			Link: `<${marketingGuideCanonical(page.url) ?? `${docsBaseUrl}${page.url}`}>; rel="canonical"`,
 		},
 	});
 }

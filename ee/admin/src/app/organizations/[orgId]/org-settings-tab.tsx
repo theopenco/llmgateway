@@ -49,14 +49,14 @@ const HIDDEN_PROVIDER_IDS = new Set(["llmgateway", "custom"]);
 const PROVIDER_COUNTRIES = getProviderCountries();
 
 const REQUIREMENTS: { key: RequirementKey; name: string }[] = [
+	{ key: "zeroDataRetention", name: "Zero data retention (ZDR)" },
+	{ key: "blockApiTraining", name: "No training on prompts" },
+	{ key: "blockStealthProviders", name: "No stealth providers" },
+	{ key: "requireGdpr", name: "GDPR compliant" },
 	{ key: "requireSoc2", name: "SOC 2 (Type 1 or 2)" },
 	{ key: "requireSoc2Type2", name: "SOC 2 Type 2" },
 	{ key: "requireIso27001", name: "ISO 27001" },
 	{ key: "requireSoc2OrIso27001", name: "SOC 2 Type 2 or ISO 27001" },
-	{ key: "requireGdpr", name: "GDPR compliant" },
-	{ key: "blockApiTraining", name: "No training on prompts" },
-	{ key: "blockPromptLogging", name: "No prompt logging" },
-	{ key: "blockStealthProviders", name: "No stealth providers" },
 ];
 
 type RequirementKey =
@@ -66,7 +66,7 @@ type RequirementKey =
 	| "requireSoc2OrIso27001"
 	| "requireGdpr"
 	| "blockApiTraining"
-	| "blockPromptLogging"
+	| "zeroDataRetention"
 	| "blockStealthProviders";
 
 function formatDate(dateString: string) {
@@ -450,6 +450,12 @@ export function OrgSettingsTab({
 											</div>
 										);
 									})}
+									{policy.blockPromptLogging ? (
+										<div className="flex items-center gap-2 text-sm">
+											<Check className="h-4 w-4 text-emerald-600" />
+											<span>No prompt logging (legacy, read-only)</span>
+										</div>
+									) : null}
 								</div>
 								<div className="space-y-1">
 									<p className="text-sm text-muted-foreground">

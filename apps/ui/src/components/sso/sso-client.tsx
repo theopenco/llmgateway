@@ -191,9 +191,9 @@ export function SsoClient() {
 	// domain stored on the organization, not a SAML connection.
 	const [googleEdit, setGoogleEdit] = useState<string | null>(null);
 	const [groupName, setGroupName] = useState("");
-	const [role, setRole] = useState<"owner" | "admin" | "developer">(
-		"developer",
-	);
+	const [role, setRole] = useState<
+		"owner" | "admin" | "project_admin" | "developer"
+	>("developer");
 	const [teamMappingGroup, setTeamMappingGroup] = useState("");
 	const [teamMappingTeamId, setTeamMappingTeamId] = useState("");
 	// Local edit buffer for the default-projects checklist. `null` = untouched, so
@@ -1116,7 +1116,9 @@ export function SsoClient() {
 										<div className="text-sm">
 											<span className="font-medium">{mapping.groupName}</span>
 											<span className="text-muted-foreground"> → </span>
-											<span className="capitalize">{mapping.role}</span>
+											<span className="capitalize">
+												{mapping.role.replace("_", " ")}
+											</span>
 										</div>
 										<Button
 											variant="outline"
@@ -1151,7 +1153,10 @@ export function SsoClient() {
 								<Select
 									value={role}
 									onValueChange={(value) =>
-										setRole(value as "owner" | "admin" | "developer")
+										setRole(
+											value as
+												"owner" | "admin" | "project_admin" | "developer",
+										)
 									}
 								>
 									<SelectTrigger id="mapping-role" className="sm:w-40">
@@ -1159,6 +1164,7 @@ export function SsoClient() {
 									</SelectTrigger>
 									<SelectContent>
 										<SelectItem value="developer">Developer</SelectItem>
+										<SelectItem value="project_admin">Project admin</SelectItem>
 										<SelectItem value="admin">Admin</SelectItem>
 										<SelectItem value="owner">Owner</SelectItem>
 									</SelectContent>

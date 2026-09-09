@@ -7,6 +7,17 @@ import { cn } from "@/lib/utils";
 
 const Popover = PopoverPrimitive.Root;
 
+/**
+ * Popover for use inside a modal Dialog. Its content is portaled to `body`, so
+ * a non-modal popover is treated as outside the dialog and its wheel events are
+ * blocked by the dialog's scroll lock.
+ */
+function DialogSafePopover(
+	props: Omit<React.ComponentProps<typeof PopoverPrimitive.Root>, "modal">,
+) {
+	return <PopoverPrimitive.Root {...props} modal />;
+}
+
 const PopoverTrigger = PopoverPrimitive.Trigger;
 
 const PopoverContent = React.forwardRef<
@@ -33,4 +44,4 @@ const PopoverContent = React.forwardRef<
 ));
 PopoverContent.displayName = PopoverPrimitive.Content.displayName;
 
-export { Popover, PopoverTrigger, PopoverContent };
+export { DialogSafePopover, Popover, PopoverTrigger, PopoverContent };

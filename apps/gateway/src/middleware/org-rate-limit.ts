@@ -12,11 +12,13 @@ import {
 	getOrgInflightLimit,
 	getOrgSpendTier,
 	getPlanClass,
+	getWindowSeconds,
 	INFLIGHT_LIMITED_KEYS,
 	isOrgRateLimitEnabled,
 	resolveOrganizationIdForToken,
 	resolvePathRateLimit,
 } from "@/lib/org-rate-limit.js";
+import { getRateLimitHeaders } from "@/lib/rate-limit-headers.js";
 import { runWithResponseCleanup } from "@/lib/response-cleanup.js";
 
 import { gatewayRequestsShedTotal } from "@llmgateway/instrumentation";
@@ -118,14 +120,12 @@ export async function orgRateLimitMiddleware(
 			const message = `Rate limit exceeded for ${c.req.path}. Please retry after ${retryAfter} seconds.`;
 			const headers: Record<string, string> = {
 				"Retry-After": String(retryAfter),
-				// Standard draft-ietf-httpapi-ratelimit-headers fields (RateLimit-Reset
-				// is delta-seconds) alongside the legacy X- variants (epoch reset).
-				"RateLimit-Limit": String(result.limit),
-				"RateLimit-Remaining": "0",
-				"RateLimit-Reset": String(retryAfter),
-				"X-RateLimit-Limit": String(result.limit),
-				"X-RateLimit-Remaining": "0",
-				"X-RateLimit-Reset": String(Math.floor(Date.now() / 1000) + retryAfter),
+				...getRateLimitHeaders({
+					limit: result.limit,
+					remaining: 0,
+					reset: retryAfter,
+					window: getWindowSeconds(),
+				}),
 			};
 
 			if (c.req.path.startsWith("/v1/messages")) {
@@ -146,8 +146,16 @@ export async function orgRateLimitMiddleware(
 		// clients can self-throttle before ever hitting a 429. `limit` is 0 on
 		// the disabled/error bypass paths, where there is nothing to report.
 		if (result.limit > 0) {
-			c.header("RateLimit-Limit", String(result.limit));
-			c.header("RateLimit-Remaining", String(result.remaining));
+			for (const [header, value] of Object.entries(
+				getRateLimitHeaders({
+					limit: result.limit,
+					remaining: result.remaining,
+					reset: getWindowSeconds(),
+					window: getWindowSeconds(),
+				}),
+			)) {
+				c.header(header, value);
+			}
 		}
 	}
 
@@ -179,12 +187,12 @@ export async function orgRateLimitMiddleware(
 			const message = `Too many concurrent requests for this organization (limit: ${acquisition.limit}). Retry shortly, or reduce request concurrency.`;
 			const headers: Record<string, string> = {
 				"Retry-After": "1",
-				"RateLimit-Limit": String(acquisition.limit),
-				"RateLimit-Remaining": "0",
-				"RateLimit-Reset": "1",
-				"X-RateLimit-Limit": String(acquisition.limit),
-				"X-RateLimit-Remaining": "0",
-				"X-RateLimit-Reset": String(Math.floor(Date.now() / 1000) + 1),
+				...getRateLimitHeaders({
+					policy: "concurrency",
+					limit: acquisition.limit,
+					remaining: 0,
+					reset: 1,
+				}),
 			};
 
 			if (c.req.path.startsWith("/v1/messages")) {

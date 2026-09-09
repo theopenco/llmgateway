@@ -1,7 +1,10 @@
+import { docsBaseUrl } from "@/lib/base-url";
+import { marketingGuideCanonical } from "@/lib/guide-canonical";
+
 import type { source } from "@/lib/source";
 import type { InferPageType } from "fumadocs-core/source";
 
-const DOCS_URL = "https://docs.llmgateway.io";
+const DOCS_URL = docsBaseUrl;
 
 // Navigation-card components whose target pages are already concatenated in
 // full elsewhere in llms-full.txt; interactive embeds have no text value and
@@ -38,6 +41,6 @@ export async function getLLMText(page: InferPageType<typeof source>) {
 	// absolute docs URLs.
 	const absolute = processed.replace(/\]\((\/[^)\s]*)\)/g, `](${DOCS_URL}$1)`);
 	return `# ${page.data.title}
-URL: ${DOCS_URL}${page.url}
+URL: ${marketingGuideCanonical(page.url) ?? `${DOCS_URL}${page.url}`}
 ${replaceMdxComponents(absolute)}`;
 }

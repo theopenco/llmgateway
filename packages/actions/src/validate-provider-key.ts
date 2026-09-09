@@ -7,16 +7,23 @@ import {
 	type BaseMessage,
 	type ProviderValidationResult,
 	providers,
+	resolveVertexTokenType,
 } from "@llmgateway/models";
+import { getModelImageConfig, getProviderModelKind } from "@llmgateway/shared";
 
 import { getGcpServiceAccountAccessToken } from "./gcp-access-token.js";
-import { getProviderEndpoint } from "./get-provider-endpoint.js";
+import {
+	getGoogleVertexPublisherModelPath,
+	getProviderDefaultBaseUrl,
+	getProviderEndpoint,
+} from "./get-provider-endpoint.js";
 import { getProviderHeaders } from "./get-provider-headers.js";
 import { prepareRequestBody } from "./prepare-request-body.js";
 import { describeNetworkFailure } from "./provider-key/network-error.js";
 import { redactToken } from "./provider-key/redact.js";
 
 import type { ProviderKeyOptions } from "@llmgateway/db";
+import type { ProviderModelKind } from "@llmgateway/shared";
 
 /**
  * Pick the cheapest candidate among the newer half of the provider's releases,
@@ -130,12 +137,7 @@ export function getValidationModel(
 				!isStable ||
 				isDeprecated ||
 				isDeactivated ||
-				providerMapping.imageGenerations ||
-				providerMapping.videoGenerations ||
-				providerMapping.embeddings ||
-				providerMapping.speechGenerations ||
-				providerMapping.transcriptions ||
-				providerMapping.ocr
+				getProviderModelKind(model, providerMapping) !== "text"
 			) {
 				return [];
 			}
@@ -177,11 +179,15 @@ export function getValidationModel(
 export interface PinnedValidationModel {
 	modelId: string;
 	externalId: string;
+	/** Request surface the verifier uses, or null when it has no probe yet. */
+	kind: ProviderModelKind | null;
+	/** Whether the mapping uses a dedicated image-generation endpoint. */
+	imageGenerations: boolean;
+	/** Whether its minimal image probe must include an input image. */
+	imageInputRequired: boolean;
 	/**
-	 * Whether the mapping can answer a minimal chat completion — the only probe
-	 * this validator knows how to send. Non-chat mappings (image, video,
-	 * embeddings, speech, transcription, OCR) pass the catalogue check but
-	 * cannot be live-tested here.
+	 * Whether the mapping can answer a minimal chat completion. Kept for callers
+	 * that choose a save-time chat probe independently of per-model verification.
 	 */
 	chatCapable: boolean;
 }
@@ -212,16 +218,80 @@ export function getPinnedValidationModel(
 		return null;
 	}
 
-	const chatCapable = !(
-		mapping.imageGenerations ||
-		mapping.videoGenerations ||
-		mapping.embeddings ||
-		mapping.speechGenerations ||
-		mapping.transcriptions ||
-		mapping.ocr
-	);
+	const kind = getProviderModelKind(modelDef, mapping);
 
-	return { modelId: modelDef.id, externalId: mapping.externalId, chatCapable };
+	return {
+		modelId: modelDef.id,
+		externalId: mapping.externalId,
+		kind,
+		imageGenerations: mapping.imageGenerations === true,
+		imageInputRequired:
+			(modelDef as { imageInputRequired?: boolean }).imageInputRequired ===
+			true,
+		chatCapable: kind === "text",
+	};
+}
+
+const VALIDATION_IMAGE_DATA_URL =
+	"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAAACXBIWXMAAAABAAAAAQBPJcTWAAAC0UlEQVR4nO3TsQnEQBDAQB+4/5bXJTgwzz5opgIlOjNzQdW9HQCbDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAO8OOdsJ3wyM9sJf80ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGIM0ApBmANAOQZgDSDECaAUgzAGkGeDEz2wn8kAFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0h72yQz4sw8iuwAAAABJRU5ErkJggg==";
+
+function trimSlashes(value: string, side: "leading" | "trailing"): string {
+	let start = 0;
+	let end = value.length;
+	if (side === "leading") {
+		while (start < end && value[start] === "/") {
+			start += 1;
+		}
+	} else {
+		while (end > start && value[end - 1] === "/") {
+			end -= 1;
+		}
+	}
+	return value.slice(start, end);
+}
+
+function appendPath(baseUrl: string, path: string): string {
+	return `${trimSlashes(baseUrl, "trailing")}/${trimSlashes(path, "leading")}`;
+}
+
+function getValidationBaseUrl(
+	provider: ProviderId,
+	baseUrl: string | undefined,
+	providerKeyOptions: ProviderKeyOptions | undefined,
+): string {
+	const resolved =
+		baseUrl ??
+		providerKeyOptions?.env_config?.baseUrl ??
+		getProviderDefaultBaseUrl(provider);
+	if (!resolved) {
+		throw new Error(`Provider ${provider} requires a base URL`);
+	}
+	return trimSlashes(resolved, "trailing");
+}
+
+function getImageValidationConfig(modelId: string) {
+	const config = getModelImageConfig(modelId);
+	const isLegacyGrokImagine =
+		modelId.toLowerCase().includes("grok-imagine-image") &&
+		!config.isGrokImagine20;
+	const imageSize = isLegacyGrokImagine
+		? undefined
+		: config.usesPixelDimensions
+			? config.isGptImage
+				? config.availableSizes.find((size) => size !== "auto")
+				: "1024x1024"
+			: config.availableSizes.find((size) => size !== "auto");
+	const imageQuality = config.availableQualities.find(
+		(quality) => quality !== "auto",
+	);
+	return {
+		...(config.supportedAspectRatios?.includes("1:1")
+			? { aspect_ratio: "1:1" }
+			: {}),
+		...(imageSize ? { image_size: imageSize } : {}),
+		...(imageQuality ? { image_quality: imageQuality } : {}),
+		n: 1,
+	};
 }
 
 /**
@@ -238,29 +308,43 @@ export async function validateProviderKey(
 	skipValidation = false,
 	providerKeyOptions?: ProviderKeyOptions,
 	pinnedModelId?: string,
+	abortSignal?: AbortSignal,
 ): Promise<ProviderValidationResult> {
 	// Skip validation if requested (e.g. in test environment)
 	if (skipValidation) {
 		return { valid: true };
 	}
 
-	// Skip validation for custom providers since they don't have predefined models
-	if (provider === "custom") {
+	// A custom provider can only be probed when the caller supplies both the
+	// OpenAI-compatible endpoint and the exact upstream model id.
+	if (provider === "custom" && (!baseUrl || !pinnedModelId)) {
 		return { valid: true };
 	}
 
-	let validationModel: { modelId: string; externalId: string } | undefined;
+	let validationModel:
+		| PinnedValidationModel
+		| { modelId: string; externalId: string; kind: "text" }
+		| undefined;
 	// Hoisted so the catch can name the host that could not be reached.
 	let endpoint: string | undefined;
 
 	try {
 		validationModel = pinnedModelId
-			? (getPinnedValidationModel(
-					provider,
-					pinnedModelId,
-					providerKeyOptions,
-				) ?? undefined)
-			: (getValidationModel(provider, providerKeyOptions) ?? undefined);
+			? provider === "custom"
+				? {
+						modelId: pinnedModelId,
+						externalId: pinnedModelId,
+						kind: "text" as const,
+					}
+				: (getPinnedValidationModel(
+						provider,
+						pinnedModelId,
+						providerKeyOptions,
+					) ?? undefined)
+			: (() => {
+					const selected = getValidationModel(provider, providerKeyOptions);
+					return selected ? { ...selected, kind: "text" as const } : undefined;
+				})();
 		if (!validationModel) {
 			if (pinnedModelId) {
 				return {
@@ -278,33 +362,22 @@ export async function validateProviderKey(
 			provider,
 			validationModel,
 		});
-
-		// Use prepareRequestBody to create the validation payload
-		const systemMessage: BaseMessage = {
-			role: "system",
-			content: "You are a helpful assistant.",
-		};
-		const minimalMessage: BaseMessage = {
-			role: "user",
-			content: "Hello",
-		};
-		const messages: BaseMessage[] = [systemMessage, minimalMessage];
+		if (!validationModel.kind || validationModel.kind === "video") {
+			return {
+				valid: false,
+				error: `Live validation is not supported for ${validationModel.kind ?? "this model type"}`,
+				model: validationModel.modelId,
+			};
+		}
 
 		// Vertex provider keys are service-account JSON blobs; the upstream API
 		// expects an OAuth access token, so exchange the key before building
 		// headers.
 		let requestToken = token;
 		if (provider === "vertex-anthropic" || provider === "vertex-openai") {
-			requestToken = await getGcpServiceAccountAccessToken(token);
+			requestToken = await getGcpServiceAccountAccessToken(token, abortSignal);
 		}
 
-		const headers = getProviderHeaders(provider, requestToken, {
-			providerKeyOptions,
-			skipEnvVars: true, // provider key validation is always BYOK context
-		});
-		headers["Content-Type"] = "application/json";
-
-		// Look up the model definition by canonical id.
 		const modelDef = models.find((m) => m.id === validationModel!.modelId);
 
 		// For Azure, if we have a custom validation model, use it directly as modelId
@@ -318,68 +391,159 @@ export async function validateProviderKey(
 			provider,
 			providerKeyOptions,
 		);
-
-		endpoint = getProviderEndpoint(
-			provider,
-			baseUrl,
-			effectiveModelId, // Pass model ID for providers that need it in the URL (e.g., aws-bedrock, azure)
-			provider === "google-ai-studio" ||
-				provider === "glacier" ||
-				provider === "iceberg" ||
-				provider === "google-vertex" ||
-				provider === "quartz" ||
-				provider === "vertex-anthropic"
-				? token
-				: undefined,
-			false, // validation doesn't need streaming
-			false, // supportsReasoning - disable for validation
-			false, // hasExistingToolCalls - disable for validation
-			providerKeyOptions,
-			undefined, // configIndex
-			undefined, // imageGenerations
-			validationRegion,
-			true, // skipEnvVars - provider key validation is always BYOK context
-		);
-
-		// Check if max_tokens is supported.
 		const providerMapping = modelDef
 			? findRegionAwareMapping(modelDef, provider, validationRegion)
 			: undefined;
-		const supportedParameters = providerMapping?.supportedParameters;
-		const supportsMaxTokens =
-			supportedParameters?.includes("max_tokens") &&
-			providerMapping?.providerId !== "azure";
+		let payload: unknown;
+		let vertexTokenType: ReturnType<typeof resolveVertexTokenType> | undefined;
 
-		const useResponsesApi = endpoint.includes("/responses");
+		if (validationModel.kind === "embedding") {
+			const resolvedBaseUrl = getValidationBaseUrl(
+				provider,
+				baseUrl,
+				providerKeyOptions,
+			);
+			if (provider === "google-ai-studio") {
+				endpoint = `${resolvedBaseUrl}/v1beta/models/${validationModel.externalId}:embedContent?key=${encodeURIComponent(token)}`;
+				payload = { content: { parts: [{ text: "Hello" }] } };
+			} else if (provider === "google-vertex") {
+				vertexTokenType = resolveVertexTokenType(
+					provider,
+					providerKeyOptions,
+					undefined,
+					true,
+				);
+				const projectId =
+					providerKeyOptions?.env_config?.project ??
+					providerKeyOptions?.google_vertex_project_id;
+				const region = providerKeyOptions?.env_config?.region ?? "global";
+				const authQuery =
+					vertexTokenType === "api-key"
+						? `?key=${encodeURIComponent(token)}`
+						: "";
+				endpoint = `${resolvedBaseUrl}${getGoogleVertexPublisherModelPath(
+					validationModel.externalId,
+					projectId,
+					region,
+				)}:predict${authQuery}`;
+				payload = { instances: [{ content: "Hello" }] };
+			} else {
+				endpoint = appendPath(
+					resolvedBaseUrl,
+					provider === "deepinfra" ? "embeddings" : "v1/embeddings",
+				);
+				payload = { input: "Hello", model: validationModel.externalId };
+			}
+		} else if (validationModel.kind === "ocr") {
+			endpoint = appendPath(
+				getValidationBaseUrl(provider, baseUrl, providerKeyOptions),
+				"v1/ocr",
+			);
+			payload = {
+				model: validationModel.externalId,
+				document: {
+					type: "image_url",
+					image_url: VALIDATION_IMAGE_DATA_URL,
+				},
+				include_image_base64: false,
+			};
+		} else {
+			const isImage = validationModel.kind === "image";
+			const imageInputRequired =
+				isImage &&
+				"imageInputRequired" in validationModel &&
+				validationModel.imageInputRequired;
+			const messages: BaseMessage[] = isImage
+				? [
+						{
+							role: "user",
+							content: imageInputRequired
+								? [
+										{ type: "text", text: "Keep this image unchanged." },
+										{
+											type: "image_url",
+											image_url: { url: VALIDATION_IMAGE_DATA_URL },
+										},
+									]
+								: "A black square centered on a white background.",
+						},
+					]
+				: [
+						{
+							role: "system",
+							content: "You are a helpful assistant.",
+						},
+						{ role: "user", content: "Hello" },
+					];
+			const imageGenerations =
+				isImage &&
+				"imageGenerations" in validationModel &&
+				validationModel.imageGenerations;
 
-		const payload = await prepareRequestBody(
-			provider,
-			validationModel.modelId,
-			validationRegion ?? null,
-			validationModel.externalId,
-			messages,
-			false, // stream
-			undefined, // temperature
-			supportsMaxTokens ? 10 : undefined, // max_tokens - minimal for validation, undefined if not supported
-			undefined, // top_p
-			undefined, // frequency_penalty
-			undefined, // presence_penalty
-			undefined, // response_format
-			undefined, // tools
-			undefined, // tool_choice
-			undefined, // reasoning_effort
-			false, // supportsReasoning - disable for validation
-			false, // isProd - allow http URLs for validation/testing
-			20, // maxImageSizeMB
-			null, // userPlan
-			undefined, // sensitive_word_check
-			undefined, // image_config
-			undefined, // effort
-			undefined, // imageGenerations
-			undefined, // webSearchTool
-			undefined, // reasoning_max_tokens
-			useResponsesApi,
-		);
+			endpoint = getProviderEndpoint(
+				provider,
+				baseUrl,
+				effectiveModelId,
+				provider === "google-ai-studio" ||
+					provider === "glacier" ||
+					provider === "iceberg" ||
+					provider === "google-vertex" ||
+					provider === "quartz" ||
+					provider === "vertex-anthropic"
+					? token
+					: undefined,
+				false,
+				false,
+				false,
+				providerKeyOptions,
+				undefined,
+				imageGenerations,
+				validationRegion,
+				true,
+			);
+
+			const supportsMaxTokens =
+				!isImage &&
+				providerMapping?.supportedParameters?.includes("max_tokens") &&
+				providerMapping.providerId !== "azure";
+			payload = await prepareRequestBody(
+				provider,
+				validationModel.modelId,
+				validationRegion ?? null,
+				validationModel.externalId,
+				messages,
+				false,
+				undefined,
+				supportsMaxTokens ? 10 : undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				false,
+				20,
+				null,
+				undefined,
+				isImage ? getImageValidationConfig(validationModel.modelId) : undefined,
+				undefined,
+				imageGenerations,
+				undefined,
+				undefined,
+				endpoint.includes("/responses"),
+			);
+		}
+
+		const headers = getProviderHeaders(provider, requestToken, {
+			providerKeyOptions,
+			skipEnvVars: true,
+			tokenType: vertexTokenType,
+		});
+		if (!(payload instanceof FormData)) {
+			headers["Content-Type"] = "application/json";
+		}
 
 		logger.debug("Sending provider key validation request", {
 			provider,
@@ -396,8 +560,9 @@ export async function validateProviderKey(
 			// SSRF: never follow redirects when validating a tenant-supplied baseUrl,
 			// which could 3xx to an internal host (and would leak the upstream token).
 			redirect: "error",
+			signal: abortSignal,
 			headers,
-			body: JSON.stringify(payload),
+			body: payload instanceof FormData ? payload : JSON.stringify(payload),
 		});
 
 		if (!response.ok) {
@@ -436,6 +601,15 @@ export async function validateProviderKey(
 				statusCode: response.status,
 				model: validationModel?.modelId,
 			};
+		}
+		try {
+			await response.body?.cancel();
+		} catch (error) {
+			logger.warn("Could not cancel provider key validation response body", {
+				provider,
+				model: validationModel.modelId,
+				error: error instanceof Error ? error.message : String(error),
+			});
 		}
 
 		logger.debug("Provider key validation succeeded", {

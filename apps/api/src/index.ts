@@ -20,8 +20,10 @@ import { redisClient } from "./auth/config.js";
 import { authHandler } from "./auth/handler.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { beacon } from "./routes/beacon.js";
+import { cliSkills } from "./routes/cli-skills.js";
 import { routes } from "./routes/index.js";
 import { internalModels } from "./routes/internal-models.js";
+import { mcp } from "./routes/mcp.js";
 import { platformConnect } from "./routes/platform-connect.js";
 import { platformCustomers } from "./routes/platform-customers.js";
 import { platformSessionRefresh } from "./routes/platform-session-refresh.js";
@@ -88,6 +90,7 @@ const corsAllowList = process.env.ORIGIN_URLS?.split(",") ?? [
 	"http://localhost:3004",
 	"http://localhost:3005",
 	"http://localhost:3006",
+	"http://localhost:3007",
 ];
 
 // LLM SDK endpoints are called cross-origin from arbitrary developer
@@ -334,6 +337,7 @@ app.get("/docs", swaggerUI({ url: "./json" }));
 app.route("/", authHandler);
 
 app.route("/v1/master", v1Master);
+app.route("/mcp", mcp);
 
 app.route("/v1", platformSessions);
 
@@ -352,5 +356,6 @@ app.route("/v1/config", publicConfig);
 // SCIM 2.0 provisioning (Okta → us). Bearer-token auth inside the router; mounted
 // before the session-guarded `routes` group so it stays outside session auth.
 app.route("/scim/v2", scim);
+app.route("/v1/skills", cliSkills);
 
 app.route("/", routes);

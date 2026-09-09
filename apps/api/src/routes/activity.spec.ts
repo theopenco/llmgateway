@@ -289,7 +289,6 @@ describe("activity endpoint", () => {
 	test("GET /activity should default to 7 days when no date params provided", async () => {
 		const res = await app.request("/activity", {
 			headers: {
-				Authorization: "Bearer test-token",
 				Cookie: token,
 			},
 		});

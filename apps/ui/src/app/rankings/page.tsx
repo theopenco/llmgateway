@@ -11,7 +11,10 @@ import {
 	type ModelDefinition,
 } from "@llmgateway/models";
 
-import type { RankingsModelMeta } from "@/components/rankings/rankings-content";
+import type {
+	RankingsAppStat,
+	RankingsModelMeta,
+} from "@/components/rankings/rankings-content";
 import type { Metadata } from "next";
 
 // The rankings list pulls in recharts; load it lazily so the chart library
@@ -26,7 +29,7 @@ export const revalidate = 300;
 
 const title = "LLM Rankings — Top Models by Real Usage";
 const description =
-	"Live LLM rankings from real traffic routed through LLM Gateway: top models by token volume, week-over-week trends, and provider market share.";
+	"Live LLM rankings from real traffic routed through LLM Gateway: top models and apps by token volume, usage trends, and provider market share.";
 
 export const metadata: Metadata = {
 	title,
@@ -47,6 +50,10 @@ export const metadata: Metadata = {
 
 interface PublicModelStats {
 	models: Array<{ modelId: string; totalTokens: number }>;
+}
+
+interface PublicApps {
+	apps: RankingsAppStat[];
 }
 
 export default async function RankingsPage() {
@@ -74,14 +81,18 @@ export default async function RankingsPage() {
 		};
 	}
 
-	// Server-side snapshot for structured data only; the interactive list
-	// fetches (the same cached) stats client-side per selected window.
-	const stats = await fetchServerData<PublicModelStats>(
-		"GET",
-		"/public/models/stats",
-		{ params: { query: { window: "7d" } } },
-	);
+	// The model snapshot feeds structured data while the app snapshot renders in
+	// the rankings sidebar. Interactive model stats are fetched client-side.
+	const [stats, apps] = await Promise.all([
+		fetchServerData<PublicModelStats>("GET", "/public/models/stats", {
+			params: { query: { window: "7d" } },
+		}),
+		fetchServerData<PublicApps>("GET", "/public/apps", {
+			params: { query: { limit: "5" } },
+		}),
+	]);
 	const topModels = (stats?.models ?? []).slice(0, 10);
+	const topApps = apps?.apps ?? [];
 
 	const breadcrumbSchema = {
 		"@context": "https://schema.org",
@@ -140,14 +151,15 @@ export default async function RankingsPage() {
 							LLM Rankings
 						</h1>
 						<p className="mt-4 text-muted-foreground md:text-lg">
-							Which models developers actually run in production. Ranked by real
-							token volume routed through LLM Gateway — not benchmarks, not
-							vibes.
+							Which models and apps developers actually use in production.
+							Ranked by real token volume routed through LLM Gateway — not
+							benchmarks, not vibes.
 						</p>
 					</div>
 					<RankingsContent
 						modelMeta={modelMeta}
 						providerNames={providerNames}
+						topApps={topApps}
 					/>
 				</div>
 			</div>

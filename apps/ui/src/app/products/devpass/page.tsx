@@ -23,7 +23,7 @@ const DEVPASS_URL = "https://devpass.llmgateway.io";
 
 const title = "DevPass — Flat-Price Dev Plans for AI Coding";
 const description =
-	"DevPass turns every dollar into $3 of model usage at provider rates. Fixed-price monthly plans for Claude Code, Cursor, Cline, and any OpenAI-compatible coding tool — 200+ models, one API key.";
+	"DevPass offers flat-price AI coding subscriptions with included model usage. Connect your coding tools with one API key and track usage in one dashboard.";
 
 export const metadata: Metadata = {
 	title,

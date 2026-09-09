@@ -3,10 +3,17 @@ import { LegalSummary } from "@/components/LegalSummary";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Privacy Policy — DevPass",
+	title: "Privacy Policy",
 	description:
-		"Supplemental DevPass Privacy Policy. It builds on the LLM Gateway Privacy Policy and covers DevPass-specific request retention, per-agent metadata, AI provider routing, and sub-processors.",
+		"Supplemental DevPass Privacy Policy covering request retention, per-agent metadata, AI provider routing, and sub-processors, on top of the LLM Gateway policy.",
 	alternates: { canonical: "/legal/privacy" },
+	openGraph: {
+		title: "DevPass Supplemental Privacy Policy",
+		description:
+			"How DevPass handles request retention, per-agent metadata, AI provider routing, and sub-processors.",
+		type: "article",
+		url: "https://devpass.llmgateway.io/legal/privacy",
+	},
 };
 
 export default function PrivacyPage() {

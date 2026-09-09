@@ -1,5 +1,6 @@
 "use server";
 
+import { apiErrorMessage } from "./api-error";
 import { createServerApiClient } from "./server-api";
 
 import type { TokenWindow } from "./types";
@@ -18,12 +19,17 @@ export async function loadProjectMetricsAction(
 	window: TokenWindow,
 ) {
 	const $api = await createServerApiClient();
-	const { data } = await $api.GET(
+	const { data, error, response } = await $api.GET(
 		"/admin/organizations/{orgId}/projects/{projectId}/metrics",
 		{
 			params: { path: { orgId, projectId }, query: { window } },
 		},
 	);
+	if (!response.ok) {
+		throw new Error(
+			apiErrorMessage(error, "Failed to load project metrics", response),
+		);
+	}
 	return data ?? null;
 }
 

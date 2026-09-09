@@ -1,7 +1,7 @@
 "use client";
 import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Alert, AlertDescription } from "@/lib/components/alert";
 import { Button } from "@/lib/components/button";
@@ -27,6 +27,16 @@ export function OrganizationRetentionSettings() {
 	const [retentionLevel, setRetentionLevel] = useState<"retain" | "none">(
 		selectedOrganization?.retentionLevel ?? "retain",
 	);
+	useEffect(() => {
+		setRetentionLevel(selectedOrganization?.retentionLevel ?? "retain");
+	}, [selectedOrganization?.id, selectedOrganization?.retentionLevel]);
+
+	const zeroDataRetentionEnabled =
+		selectedOrganization?.providerCompliancePolicy?.enabled === true &&
+		selectedOrganization.providerCompliancePolicy.zeroDataRetention === true;
+	const effectiveRetentionLevel = zeroDataRetentionEnabled
+		? "none"
+		: retentionLevel;
 
 	if (!selectedOrganization) {
 		return (
@@ -43,7 +53,7 @@ export function OrganizationRetentionSettings() {
 		try {
 			await updateOrganization.mutateAsync({
 				params: { path: { id: selectedOrganization.id } },
-				body: { retentionLevel },
+				body: { retentionLevel: effectiveRetentionLevel },
 			});
 
 			toast({
@@ -76,8 +86,26 @@ export function OrganizationRetentionSettings() {
 			<Separator />
 
 			<div className="space-y-4">
+				{zeroDataRetentionEnabled ? (
+					<Alert>
+						<AlertDescription>
+							<strong>Zero data retention is active.</strong> Prompt payloads
+							and Responses API state are not stored.{` `}
+							<span className="sm:whitespace-nowrap">
+								Disable ZDR in{` `}
+								<Link
+									href={`/dashboard/${selectedOrganization.id}/org/compliance`}
+									className="font-semibold underline hover:no-underline"
+								>
+									Compliance settings
+								</Link>
+								{` `}to enable retention.
+							</span>
+						</AlertDescription>
+					</Alert>
+				) : null}
 				<RadioGroup
-					value={retentionLevel}
+					value={effectiveRetentionLevel}
 					onValueChange={(value: "retain" | "none") => setRetentionLevel(value)}
 					className="space-y-2"
 				>
@@ -94,7 +122,11 @@ export function OrganizationRetentionSettings() {
 						},
 					].map(({ id, label, desc }) => (
 						<div key={id} className="flex items-start space-x-2">
-							<RadioGroupItem value={id} id={id} />
+							<RadioGroupItem
+								value={id}
+								id={id}
+								disabled={zeroDataRetentionEnabled && id === "retain"}
+							/>
 							<div className="space-y-1 flex-1">
 								<Label htmlFor={id} className="font-medium">
 									{label}
@@ -105,7 +137,7 @@ export function OrganizationRetentionSettings() {
 					))}
 				</RadioGroup>
 
-				{retentionLevel === "retain" && (
+				{effectiveRetentionLevel === "retain" && (
 					<>
 						<Alert>
 							<AlertDescription>

@@ -39,6 +39,11 @@ import {
 	providerKeyAllowsModel,
 	organization as organizationTable,
 	project as projectTable,
+	computeAirsideAdjustment,
+	model as modelTable,
+	modelProviderMapping as modelProviderMappingTable,
+	providerClaim as providerClaimTable,
+	providerRoutingSettings as providerRoutingSettingsTable,
 	providerKey as providerKeyTable,
 	routingScoreMultiplier as routingScoreMultiplierTable,
 	user as userTable,
@@ -48,6 +53,7 @@ import {
 	wallet as walletTable,
 } from "@llmgateway/db";
 import { getRegionScopedDefaultRegion } from "@llmgateway/models";
+import { isProjectScopedRole } from "@llmgateway/shared/organization-roles";
 
 import {
 	getApiKeyFingerprint,
@@ -88,6 +94,10 @@ export type CustomModel = InferSelectModel<typeof customModel>;
 type Organization = InferSelectModel<typeof organization>;
 type Project = InferSelectModel<typeof project>;
 type ProviderKey = InferSelectModel<typeof providerKey>;
+export interface AirsideListedModel {
+	model: InferSelectModel<typeof modelTable>;
+	mapping: InferSelectModel<typeof modelProviderMappingTable>;
+}
 type User = InferSelectModel<typeof user>;
 type UserOrganization = InferSelectModel<typeof userOrganization>;
 type Wallet = InferSelectModel<typeof wallet>;
@@ -108,6 +118,12 @@ const organizationTeamProjectTableName = getTableName(
 const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
 const customModelTableName = getTableName(customModelTable);
+const modelTableName = getTableName(modelTable);
+const modelProviderMappingTableName = getTableName(modelProviderMappingTable);
+const providerClaimTableName = getTableName(providerClaimTable);
+const providerRoutingSettingsTableName = getTableName(
+	providerRoutingSettingsTable,
+);
 const routingScoreMultiplierTableName = getTableName(
 	routingScoreMultiplierTable,
 );
@@ -510,6 +526,141 @@ export async function findCustomModel(
 				.limit(1),
 	);
 	return results[0];
+}
+
+/** Find an active Airside-owned canonical mapping. */
+export async function findAirsideModel(
+	providerId: string,
+	modelName: string,
+): Promise<AirsideListedModel | undefined> {
+	const results = await swrWrap(
+		`airsideModel:${providerId}:${modelName}`,
+		[modelTableName, modelProviderMappingTableName],
+		async () =>
+			await db
+				.select({
+					model: modelTable,
+					mapping: modelProviderMappingTable,
+				})
+				.from(modelProviderMappingTable)
+				.innerJoin(
+					modelTable,
+					eq(modelTable.id, modelProviderMappingTable.modelId),
+				)
+				.where(
+					and(
+						eq(modelProviderMappingTable.source, "airside"),
+						eq(modelProviderMappingTable.status, "active"),
+						eq(modelProviderMappingTable.providerId, providerId),
+						eq(modelProviderMappingTable.modelId, modelName),
+						isNull(modelProviderMappingTable.region),
+					),
+				)
+				.limit(1),
+	);
+	return results[0];
+}
+
+export interface AirsideCustomCarrier {
+	providerId: string;
+	name: string;
+	baseUrl: string;
+}
+
+/**
+ * The active custom-carrier registration behind a non-catalogue provider
+ * prefix, if any. Custom carriers exist only in the DB: their listings route
+ * to the OpenAI-compatible endpoint registered on the approved claim.
+ */
+export async function findAirsideCustomProvider(
+	providerId: string,
+): Promise<AirsideCustomCarrier | undefined> {
+	const rows = await swrWrap(
+		`airsideCustomProvider:${providerId}`,
+		[providerClaimTableName],
+		async () =>
+			await db
+				.select({
+					providerId: providerClaimTable.providerId,
+					customName: providerClaimTable.customName,
+					customBaseUrl: providerClaimTable.customBaseUrl,
+				})
+				.from(providerClaimTable)
+				.where(
+					and(
+						eq(providerClaimTable.providerId, providerId),
+						eq(providerClaimTable.kind, "custom"),
+						eq(providerClaimTable.status, "active"),
+					),
+				)
+				.limit(1),
+	);
+	const row = rows[0];
+	if (!row?.customBaseUrl) {
+		return undefined;
+	}
+	return {
+		providerId: row.providerId,
+		name: row.customName ?? row.providerId,
+		baseUrl: row.customBaseUrl,
+	};
+}
+
+/** Active Airside mappings for a bare model name across all carriers. */
+export async function findAirsideModelsByBareName(
+	modelName: string,
+): Promise<AirsideListedModel[]> {
+	const rows = await swrWrap(
+		`airsideModelByName:${modelName}`,
+		[modelTableName, modelProviderMappingTableName],
+		async () =>
+			await db
+				.select({
+					model: modelTable,
+					mapping: modelProviderMappingTable,
+				})
+				.from(modelProviderMappingTable)
+				.innerJoin(
+					modelTable,
+					eq(modelTable.id, modelProviderMappingTable.modelId),
+				)
+				.where(
+					and(
+						eq(modelProviderMappingTable.source, "airside"),
+						eq(modelProviderMappingTable.status, "active"),
+						eq(modelProviderMappingTable.modelId, modelName),
+						isNull(modelProviderMappingTable.region),
+					),
+				),
+	);
+	return rows;
+}
+
+/** Every active Airside-owned mapping for the /v1/models catalogue. */
+export async function listAirsideModels(): Promise<AirsideListedModel[]> {
+	const rows = await swrWrap(
+		"airsideModels:all",
+		[modelTableName, modelProviderMappingTableName],
+		async () =>
+			await db
+				.select({
+					model: modelTable,
+					mapping: modelProviderMappingTable,
+				})
+				.from(modelProviderMappingTable)
+				.innerJoin(
+					modelTable,
+					eq(modelTable.id, modelProviderMappingTable.modelId),
+				)
+				.where(
+					and(
+						eq(modelProviderMappingTable.source, "airside"),
+						eq(modelProviderMappingTable.status, "active"),
+						isNull(modelProviderMappingTable.region),
+					),
+				),
+	);
+	return rows;
 }
 
 /** Find every active custom model catalog entry for an organization. */
@@ -1064,7 +1215,7 @@ export async function memberHasEffectiveProjectAccess(
 			if (!membership) {
 				return false;
 			}
-			if (membership.role !== "developer") {
+			if (!isProjectScopedRole(membership.role)) {
 				return true;
 			}
 
@@ -1113,6 +1264,10 @@ export async function findEffectiveRateLimit(
 	provider: string,
 	model: string,
 ): Promise<EffectiveRateLimit> {
+	// An active listing now serves its pair even when the static catalogue
+	// still maps it (see resolveAirsideModel), so the carrier's own caps apply
+	// wherever a listing exists. getEffectiveRateLimit only reads them from
+	// active listings, and admin rate_limit rows still outrank them.
 	return await getEffectiveRateLimit(organizationId, provider, model);
 }
 
@@ -1139,10 +1294,62 @@ export interface EffectiveRoutingScoreMultiplier {
 	multiplierId?: string;
 }
 
-/**
- * Get the internal routing score adjustment for a provider/model combination.
- * The stable SQL shape is cached by Drizzle and the result is mirrored in SWR.
- */
+/** Approved carrier discounts and margins, with model overrides. */
+export async function findAirsideRoutingSettings(
+	provider: string,
+	model?: string,
+): Promise<{ discountPercent: number; marginPercent: number } | null> {
+	const rows = await swrWrap(
+		`airsideRouting:${JSON.stringify([provider, model])}`,
+		[providerRoutingSettingsTableName],
+		async () =>
+			await db
+				.select({
+					modelId: providerRoutingSettingsTable.modelId,
+					discountPercent: providerRoutingSettingsTable.discountPercent,
+					marginPercent: providerRoutingSettingsTable.marginPercent,
+				})
+				.from(providerRoutingSettingsTable)
+				.where(
+					and(
+						eq(providerRoutingSettingsTable.providerId, provider),
+						model
+							? or(
+									eq(providerRoutingSettingsTable.modelId, model),
+									isNull(providerRoutingSettingsTable.modelId),
+								)
+							: isNull(providerRoutingSettingsTable.modelId),
+					),
+				),
+	);
+	const row =
+		(model
+			? rows.find((candidate) => candidate.modelId === model)
+			: undefined) ?? rows.find((candidate) => candidate.modelId === null);
+	if (!row) {
+		return null;
+	}
+	return {
+		discountPercent: Number(row.discountPercent),
+		marginPercent: Number(row.marginPercent),
+	};
+}
+
+export async function findAirsideRoutingAdjustment(
+	provider: string,
+	model?: string,
+): Promise<number> {
+	const settings = await findAirsideRoutingSettings(provider, model);
+	if (!settings) {
+		return 0;
+	}
+	return computeAirsideAdjustment(
+		// The customer discount is already included in the selection price.
+		0,
+		settings.marginPercent,
+	);
+}
+
 export async function findEffectiveRoutingScoreMultiplier(
 	provider: string,
 	model: string,

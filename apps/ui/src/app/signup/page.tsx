@@ -2,7 +2,6 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -144,12 +143,7 @@ export default function Signup() {
 	}
 
 	return (
-		<motion.div
-			initial={{ opacity: 0, y: 12 }}
-			animate={{ opacity: 1, y: 0 }}
-			transition={{ duration: 0.4, ease: "easeOut" }}
-			className="mx-auto w-full max-w-[400px]"
-		>
+		<div className="mx-auto w-full max-w-[400px]">
 			{/* Mobile brand header */}
 			<div className="mb-6 lg:hidden">
 				<p className="text-sm font-medium uppercase tracking-widest text-primary">
@@ -296,6 +290,16 @@ export default function Signup() {
 					newUserCallbackPath="/dashboard"
 					requestSignUp
 				/>
+				<p className="text-center text-xs leading-relaxed text-muted-foreground">
+					By signing up, you agree to the{" "}
+					<Link
+						href="/legal/terms"
+						className="underline underline-offset-4 hover:text-foreground"
+					>
+						LLM Gateway Terms of Use
+					</Link>
+					.
+				</p>
 			</div>
 
 			<p className="mt-6 text-center text-sm text-muted-foreground">
@@ -306,6 +310,6 @@ export default function Signup() {
 					Already have an account? Sign in
 				</Link>
 			</p>
-		</motion.div>
+		</div>
 	);
 }

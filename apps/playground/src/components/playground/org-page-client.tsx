@@ -14,6 +14,16 @@ import { OrgSidebar } from "./org-sidebar";
 import type { Organization } from "@/lib/types";
 import type { UIMessage } from "ai";
 
+const sharedAtFormat = new Intl.DateTimeFormat("en", {
+	dateStyle: "medium",
+	timeStyle: "short",
+});
+const shareRowDateFormat = new Intl.DateTimeFormat("en", {
+	month: "short",
+	day: "numeric",
+	year: "numeric",
+});
+
 interface SharedMessage {
 	id: string;
 	role: "user" | "assistant" | "system";
@@ -158,10 +168,7 @@ function OrgSharedChatsPanel({
 								<span>·</span>
 								<span>
 									Shared{" "}
-									{new Intl.DateTimeFormat("en", {
-										dateStyle: "medium",
-										timeStyle: "short",
-									}).format(new Date(visibleShare.createdAt))}
+									{sharedAtFormat.format(new Date(visibleShare.createdAt))}
 								</span>
 							</div>
 						</>
@@ -224,11 +231,7 @@ function OrgSharedChatsPanel({
 									</span>
 								</span>
 								<span className="text-muted-foreground shrink-0 text-xs">
-									{new Intl.DateTimeFormat("en", {
-										month: "short",
-										day: "numeric",
-										year: "numeric",
-									}).format(new Date(share.updatedAt))}
+									{shareRowDateFormat.format(new Date(share.updatedAt))}
 								</span>
 							</button>
 						</li>

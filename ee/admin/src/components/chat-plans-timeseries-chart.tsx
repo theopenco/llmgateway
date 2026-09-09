@@ -2,8 +2,12 @@
 
 import { format, parseISO } from "date-fns";
 import { useState } from "react";
-import { CartesianGrid, Line, LineChart, XAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis } from "recharts";
 
+import {
+	ChartTypeToggle,
+	type ChartType,
+} from "@/components/chart-type-toggle";
 import {
 	Card,
 	CardContent,
@@ -60,6 +64,8 @@ export function ChatPlansTimeseriesChart({
 	to?: string;
 }) {
 	const [activeSeries, setActiveSeries] = useState<ActiveSeries>("revenue");
+	const [chartType, setChartType] = useState<ChartType>("line");
+	const ChartRoot = chartType === "line" ? LineChart : BarChart;
 	const $api = useApi();
 	const { data, isLoading, isError } = $api.useQuery(
 		"get",
@@ -76,7 +82,10 @@ export function ChatPlansTimeseriesChart({
 		<Card>
 			<CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
 				<div className="flex flex-1 flex-col justify-center gap-1 px-6 py-5 sm:py-6">
-					<CardTitle>Lounge (chat) plans revenue & usage</CardTitle>
+					<div className="flex flex-wrap items-center justify-between gap-3">
+						<CardTitle>Lounge (chat) plans revenue & usage</CardTitle>
+						<ChartTypeToggle value={chartType} onValueChange={setChartType} />
+					</div>
 					<CardDescription>
 						Daily revenue from Lounge (chat) plan transactions, real provider
 						cost across current and former subscribers, and the resulting
@@ -135,7 +144,11 @@ export function ChatPlansTimeseriesChart({
 						config={chartConfig}
 						className="aspect-auto h-[250px] w-full"
 					>
-						<LineChart data={chartData} margin={{ left: 12, right: 12 }}>
+						<ChartRoot
+							data={chartData}
+							accessibilityLayer
+							margin={{ left: 12, right: 12 }}
+						>
 							<CartesianGrid vertical={false} />
 							<XAxis
 								dataKey="date"
@@ -161,14 +174,23 @@ export function ChatPlansTimeseriesChart({
 									/>
 								}
 							/>
-							<Line
-								dataKey={activeSeries}
-								type="monotone"
-								stroke={`var(--color-${activeSeries})`}
-								strokeWidth={2}
-								dot={false}
-							/>
-						</LineChart>
+							{chartType === "line" ? (
+								<Line
+									dataKey={activeSeries}
+									type="monotone"
+									stroke={`var(--color-${activeSeries})`}
+									strokeWidth={2}
+									dot={false}
+								/>
+							) : (
+								<Bar
+									dataKey={activeSeries}
+									fill={`var(--color-${activeSeries})`}
+									maxBarSize={40}
+									radius={[3, 3, 0, 0]}
+								/>
+							)}
+						</ChartRoot>
 					</ChartContainer>
 				)}
 			</CardContent>

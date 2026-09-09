@@ -439,6 +439,10 @@ describe("logs route", () => {
 		});
 
 		test("should sign video content URLs without relying on a specific model id", async () => {
+			const contentUrl = new URL(
+				"/v1/videos/logs/test-log-id-video/content",
+				process.env.GATEWAY_URL ?? "http://localhost:4001",
+			).toString();
 			await db.insert(tables.log).values({
 				id: "test-log-id-video",
 				requestId: "test-log-id-video",
@@ -451,8 +455,7 @@ describe("logs route", () => {
 				usedModel: "future-video-model",
 				usedProvider: "example-video",
 				responseSize: 1000,
-				content:
-					"http://localhost:4001/v1/videos/logs/test-log-id-video/content",
+				content: contentUrl,
 				finishReason: "completed",
 				unifiedFinishReason: "completed",
 				videoOutputCost: 1.5,
@@ -476,9 +479,9 @@ describe("logs route", () => {
 					log.id === "test-log-id-video",
 			);
 
-			expect(videoLog?.content).toMatch(
-				/^http:\/\/localhost:4001\/v1\/videos\/logs\/test-log-id-video\/content\?token=/,
-			);
+			const signedUrl = new URL(videoLog.content);
+			expect(`${signedUrl.origin}${signedUrl.pathname}`).toBe(contentUrl);
+			expect(signedUrl.searchParams.get("token")).toBeTruthy();
 		});
 	});
 

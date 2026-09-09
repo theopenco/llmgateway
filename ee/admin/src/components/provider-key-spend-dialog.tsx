@@ -3,8 +3,20 @@
 import { format } from "date-fns";
 import { BarChart3 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import {
+	Area,
+	AreaChart,
+	Bar,
+	BarChart,
+	CartesianGrid,
+	XAxis,
+	YAxis,
+} from "recharts";
 
+import {
+	ChartTypeToggle,
+	type ChartType,
+} from "@/components/chart-type-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -67,6 +79,8 @@ export function ProviderKeySpendDialog({
 }) {
 	const [open, setOpen] = useState(false);
 	const [window, setWindow] = useState<SpendWindow>("7d");
+	const [chartType, setChartType] = useState<ChartType>("line");
+	const ChartRoot = chartType === "line" ? AreaChart : BarChart;
 	const $api = useApi();
 
 	const { data, isLoading } = $api.useQuery(
@@ -120,17 +134,25 @@ export function ProviderKeySpendDialog({
 					</DialogDescription>
 				</DialogHeader>
 
-				<div className="flex items-center gap-1">
-					{WINDOWS.map((entry) => (
-						<Button
-							key={entry.key}
-							variant={window === entry.key ? "secondary" : "ghost"}
-							size="sm"
-							onClick={() => setWindow(entry.key)}
-						>
-							{entry.label}
-						</Button>
-					))}
+				<div className="flex flex-wrap items-center justify-between gap-2">
+					<div
+						className="flex items-center gap-1"
+						role="group"
+						aria-label="Time range"
+					>
+						{WINDOWS.map((entry) => (
+							<Button
+								key={entry.key}
+								variant={window === entry.key ? "secondary" : "ghost"}
+								size="sm"
+								aria-pressed={window === entry.key}
+								onClick={() => setWindow(entry.key)}
+							>
+								{entry.label}
+							</Button>
+						))}
+					</div>
+					<ChartTypeToggle value={chartType} onValueChange={setChartType} />
 				</div>
 
 				{isLoading ? (
@@ -167,7 +189,7 @@ export function ProviderKeySpendDialog({
 							</p>
 						) : (
 							<ChartContainer config={chartConfig} className="h-64 w-full">
-								<AreaChart data={chartData}>
+								<ChartRoot data={chartData} accessibilityLayer>
 									<CartesianGrid vertical={false} />
 									<XAxis
 										dataKey="timestamp"
@@ -197,14 +219,23 @@ export function ProviderKeySpendDialog({
 											/>
 										}
 									/>
-									<Area
-										dataKey="cost"
-										type="monotone"
-										stroke="var(--color-cost)"
-										fill="var(--color-cost)"
-										fillOpacity={0.2}
-									/>
-								</AreaChart>
+									{chartType === "line" ? (
+										<Area
+											dataKey="cost"
+											type="monotone"
+											stroke="var(--color-cost)"
+											fill="var(--color-cost)"
+											fillOpacity={0.2}
+										/>
+									) : (
+										<Bar
+											dataKey="cost"
+											fill="var(--color-cost)"
+											maxBarSize={42}
+											radius={[3, 3, 0, 0]}
+										/>
+									)}
+								</ChartRoot>
 							</ChartContainer>
 						)}
 

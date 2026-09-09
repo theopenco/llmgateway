@@ -44,6 +44,7 @@ docker run -d \
   -p 3003:3003 \
   -p 3005:3005 \
   -p 3006:3006 \
+  -p 3007:3007 \
   -p 4001:4001 \
   -p 4002:4002 \
   -v llmgateway_postgres:/var/lib/postgresql/data \
@@ -95,10 +96,11 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
 - `apps/ui`: Next.js dashboard frontend
 - `apps/playground`: Lounge — consumer AI chat app (Next.js)
 - `apps/code`: Next.js Dev Plans + coding tools landing & dashboard
+- `apps/airside`: Airside — self-serve provider portal (Next.js)
 - `apps/api`: Hono backend
 - `apps/gateway`: API gateway for routing LLM requests
 - `apps/docs`: Documentation site
-- `apps/admin`: Internal admin dashboard
+- `ee/admin`: Internal admin dashboard
 - `packages/db`: Drizzle ORM schema and migrations
 - `packages/models`: Model and provider definitions
 - `packages/shared`: Shared types and utilities

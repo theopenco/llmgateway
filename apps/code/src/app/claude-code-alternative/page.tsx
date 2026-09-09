@@ -22,10 +22,10 @@ const BASE_URL = "https://devpass.llmgateway.io";
 const PAGE_PATH = "/claude-code-alternative";
 
 const TITLE = "Claude Code Alternative (2026): Keep the CLI, Skip the Caps";
-const DESCRIPTION = `Looking for a Claude Code alternative? DevPass keeps the Claude Code CLI and replaces the Max subscription: one key, 200+ models (Claude included) metered at provider rates, from $${DEV_PLAN_PRICES.lite}/mo. No weekly caps.`;
+const DESCRIPTION = `DevPass keeps the Claude Code CLI and replaces the Max subscription: one key, 200+ models (Claude included) at provider rates, from $${DEV_PLAN_PRICES.lite}/mo. No weekly caps.`;
 
 export const metadata: Metadata = {
-	title: TITLE,
+	title: { absolute: `${TITLE} | DevPass` },
 	description: DESCRIPTION,
 	alternates: { canonical: PAGE_PATH },
 	openGraph: {

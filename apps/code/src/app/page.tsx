@@ -18,7 +18,7 @@ import { FlickeringGrid } from "@/components/ui/flickering-grid";
 import { Marquee } from "@/components/ui/marquee";
 import { NumberTicker } from "@/components/ui/number-ticker";
 import { marqueeTools } from "@/lib/agent-tools";
-import { codingModelCards } from "@/lib/coding-models";
+import { getCodingModelCards } from "@/lib/coding-models";
 import { getConfig } from "@/lib/config-server";
 import { buildDevPassProductSchema } from "@/lib/product-schema";
 
@@ -96,7 +96,8 @@ const steps = [
 	},
 ];
 
-export default function LandingPage() {
+export default async function LandingPage() {
+	const codingModelCards = await getCodingModelCards();
 	const config = getConfig();
 	const credits = {
 		lite: getDevPlanCreditsLimit("lite"),

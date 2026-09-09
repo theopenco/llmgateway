@@ -129,8 +129,9 @@ const termsCards: SummaryCard[] = [
 		body: (
 			<>
 				There&apos;s a free plan with generous limits. You can buy credits that
-				are consumed as you make requests. Credits are non-refundable except
-				where the law requires otherwise.
+				are consumed as you make requests. Credits and fees are generally
+				non-refundable once usage begins because provider charges are incurred.
+				Any refund option is a limited goodwill exception.
 			</>
 		),
 	},

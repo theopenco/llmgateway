@@ -23,6 +23,7 @@ import { getModelAudioConfig } from "@/lib/audio-gen";
 import {
 	chatPlanCreditErrorMessage,
 	isInsufficientCreditsError,
+	organizationCreditErrorMessage,
 } from "@/lib/credit-error";
 import { useApi } from "@/lib/fetch-client";
 import { mapModels } from "@/lib/mapmodels";
@@ -32,6 +33,8 @@ import {
 	setModelPreferenceCookie,
 } from "@/lib/model-preferences";
 import { shouldDisableFallback } from "@/lib/no-fallback";
+
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { AudioFormat, AudioGalleryItem } from "@/lib/audio-gen";
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
@@ -480,7 +483,11 @@ export default function AudioPageClient({
 								isChatPlanContext &&
 									isInsufficientCreditsError(response.status, rawMessage)
 									? chatPlanCreditErrorMessage(chatPlanSubscribed, "audio")
-									: rawMessage,
+									: organizationCreditErrorMessage(
+											rawMessage,
+											selectedOrganization?.role,
+											response.status,
+										),
 							);
 						}
 
@@ -704,20 +711,22 @@ export default function AudioPageClient({
 						onComparisonModeChange={handleComparisonModeChange}
 						hideCompare={displayItems.length > 0}
 					/>
-					{isLowCredits && !isChatPlanContext && (
-						<div className="bg-yellow-50 dark:bg-yellow-900/20 border-b px-4 py-2 flex items-center justify-between">
-							<p className="text-sm text-yellow-800 dark:text-yellow-200">
-								Low credits remaining. Top up to continue generating audio.
-							</p>
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={() => setShowTopUp(true)}
-							>
-								Top Up
-							</Button>
-						</div>
-					)}
+					{isLowCredits &&
+						!isChatPlanContext &&
+						isOrganizationAdmin(selectedOrganization?.role) && (
+							<div className="bg-yellow-50 dark:bg-yellow-900/20 border-b px-4 py-2 flex items-center justify-between">
+								<p className="text-sm text-yellow-800 dark:text-yellow-200">
+									Low credits remaining. Top up to continue generating audio.
+								</p>
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={() => setShowTopUp(true)}
+								>
+									Top Up
+								</Button>
+							</div>
+						)}
 					<AudioControls
 						prompt={prompt}
 						setPrompt={setPrompt}

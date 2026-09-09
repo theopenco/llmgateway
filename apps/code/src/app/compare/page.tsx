@@ -11,7 +11,7 @@ import type { Comparison } from "content-collections";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "DevPass vs the Alternatives — Coding Plan Comparisons",
+	title: { absolute: "DevPass vs the Alternatives — Coding Plan Comparisons" },
 	description:
 		"How DevPass compares to Cursor, OpenCode, FirePass, the z.ai GLM Coding Plan, and Alibaba's Qwen plan. Pricing, model catalogs, and limits side by side.",
 	alternates: { canonical: "/compare" },

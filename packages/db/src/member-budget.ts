@@ -54,7 +54,7 @@ function defaultsToBudget(
  * its limit + duration must travel together).
  */
 export function resolveEffectiveMemberBudget(
-	role: "owner" | "admin" | "developer",
+	role: "owner" | "admin" | "project_admin" | "developer",
 	member: MemberBudgetFields,
 	orgDefaults: OrgDefaultDeveloperBudget,
 ): MemberBudgetFields {
@@ -83,7 +83,7 @@ export function resolveEffectiveMemberBudget(
  * adds a separate ceiling rather than replacing that policy.
  */
 export function resolveMemberBudgetPolicies(
-	role: "owner" | "admin" | "developer",
+	role: "owner" | "admin" | "project_admin" | "developer",
 	member: MemberBudgetFields,
 	orgDefaults: OrgDefaultDeveloperBudget,
 	team: MemberBudgetFields | null,

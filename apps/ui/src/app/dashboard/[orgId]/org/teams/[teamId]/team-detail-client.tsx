@@ -135,11 +135,13 @@ export function OrganizationTeamDetailClient() {
 		{ enabled: !!organizationId && isEnterprise },
 	);
 	const scimEnabled = scimStatus?.configured === true;
+	// Fetched in parallel with the SCIM status (the banner below still checks
+	// scimEnabled before rendering) instead of serially behind it.
 	const { data: teamMappingsData } = api.useQuery(
 		"get",
 		"/sso/team-mappings",
 		{ params: { query: { organizationId } } },
-		{ enabled: !!organizationId && isEnterprise && scimEnabled },
+		{ enabled: !!organizationId && isEnterprise },
 	);
 	const teamMappings = teamMappingsData?.mappings ?? [];
 	const mappedGroups = teamMappings

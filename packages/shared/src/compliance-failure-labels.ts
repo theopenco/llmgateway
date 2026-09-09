@@ -14,6 +14,7 @@ export const FAILURE_LABELS: Record<ComplianceFailureReason, string> = {
 	requireGdpr: "Not GDPR compliant",
 	blockApiTraining: "May train on API prompts",
 	blockPromptLogging: "May log prompts",
+	zeroDataRetention: "Does not support zero data retention",
 	blockStealthProviders: "Stealth provider",
 	allowedCountries: "Headquarters not in an allowed country",
 	blockedProviders: "On the blocked-providers list",

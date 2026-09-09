@@ -61,6 +61,7 @@ export default async function Dashboard({
 	return (
 		<DashboardClient
 			initialActivityData={initialActivityData ?? undefined}
+			initialActivityRange={{ from: fromParam, to: toParam }}
 			initialActivityTimeZone={timeZone}
 		/>
 	);

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
 	dateFormats,
@@ -15,6 +15,15 @@ import {
 	parseTimeZoneCookie,
 	serializeTimeZonePreference,
 } from "./timezone.js";
+
+function trackFormatterConstruction() {
+	const DateTimeFormat = Intl.DateTimeFormat;
+	return vi.spyOn(Intl, "DateTimeFormat").mockImplementation(function (
+		...args
+	) {
+		return new DateTimeFormat(...args);
+	});
+}
 
 describe("isNaiveDateTimeString", () => {
 	it("matches the bucket labels the analytics endpoints return", () => {
@@ -48,6 +57,35 @@ describe("formatBucketLabel", () => {
 
 describe("formatDateTime", () => {
 	const instant = "2026-08-12T04:00:00.000Z";
+
+	it("reuses a formatter across timezone casing variants", () => {
+		const constructor = trackFormatterConstruction();
+		try {
+			expect(formatDateTime(instant, "Australia/Darwin")).toBe("Aug 12, 13:30");
+			expect(formatDateTime(instant, "australia/darwin")).toBe("Aug 12, 13:30");
+			expect(constructor).toHaveBeenCalledTimes(1);
+		} finally {
+			constructor.mockRestore();
+		}
+	});
+
+	it("evicts older formatters after many distinct zones", () => {
+		const zone = "Antarctica/Troll";
+		const expected = formatDateTime(instant, zone);
+		const zones = Intl.supportedValuesOf("timeZone").slice(0, 100);
+		for (const timeZone of zones) {
+			formatDateTime(instant, timeZone);
+		}
+		const constructor = trackFormatterConstruction();
+		try {
+			formatDateTime(instant, zones[zones.length - 1]);
+			expect(constructor).not.toHaveBeenCalled();
+			expect(formatDateTime(instant, zone)).toBe(expected);
+			expect(constructor).toHaveBeenCalledTimes(1);
+		} finally {
+			constructor.mockRestore();
+		}
+	});
 
 	it("converts a real instant into the requested zone", () => {
 		expect(formatDateTime(instant, "UTC", "monthDayHourMinute")).toBe(

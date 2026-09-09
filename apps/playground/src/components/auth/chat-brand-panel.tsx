@@ -50,9 +50,9 @@ export function ChatBrandPanel({
 					transition={{ duration: 0.6, ease: "easeOut" }}
 				>
 					<ChatBrandBadge />
-					<h1 className="mt-6 font-display text-4xl font-semibold leading-tight tracking-tight text-white xl:text-5xl">
+					<p className="mt-6 font-display text-4xl font-semibold leading-tight tracking-tight text-white xl:text-5xl">
 						{headline}
-					</h1>
+					</p>
 					<p className="mt-4 max-w-md text-lg text-zinc-400">{subline}</p>
 				</motion.div>
 

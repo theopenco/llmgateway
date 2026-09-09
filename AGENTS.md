@@ -15,7 +15,7 @@ This file provides guidance to AI agents when working with code in this reposito
 
 NOTE: these commands can only be run in the root directory of the repository, not in individual app directories.
 
-- `pnpm dev` - Start all development servers (UI on :3002, Playground on :3003, Code on :3004, API on :4002, Gateway on :4001, Docs on :3005, Admin on :3006). Every one of these ports, plus Postgres/Redis, is overridable per worktree — see "Running an isolated stack per worktree".
+- `pnpm dev` - Start all development servers (UI on :3002, Playground on :3003, Code on :3004, API on :4002, Gateway on :4001, Docs on :3005, Admin on :3006, Airside on :3007). Every one of these ports, plus Postgres/Redis, is overridable per worktree — see "Running an isolated stack per worktree".
 - `pnpm build` - Build all applications for production. ALWAYS run this after finishing work on a feature. ALWAYS run a full build to make sure things fork.
 - `pnpm clean` - Clean build artifacts and cache directories
 
@@ -112,6 +112,7 @@ Pick a **slot** number per worktree (1, 2, 3 …) and offset every port by it:
 | Code                 | `CODE_PORT`          | 3004    | 3004 + N × 100  | 3104   |
 | Docs                 | `DOCS_PORT`          | 3005    | 3005 + N × 100  | 3105   |
 | Admin                | `ADMIN_PORT`         | 3006    | 3006 + N × 100  | 3106   |
+| Airside              | `AIRSIDE_PORT`       | 3007    | 3007 + N × 100  | 3107   |
 
 The Redis pair uses a ×1000 offset on purpose: with ×100, slot 1's Redis would land on 6479, which is the _default_ storage-Redis port of another worktree.
 
@@ -135,6 +136,7 @@ export PLAYGROUND_PORT=3103
 export CODE_PORT=3104
 export DOCS_PORT=3105
 export ADMIN_PORT=3106
+export AIRSIDE_PORT=3107
 
 # URLs the services hand to each other / render into pages
 export API_URL=http://localhost:4102
@@ -144,7 +146,8 @@ export GATEWAY_URL=http://localhost:4101
 export PLAYGROUND_URL=http://localhost:3103
 export DOCS_URL=http://localhost:3105
 export ADMIN_URL=http://localhost:3106
-export ORIGIN_URLS=http://localhost:3102,http://localhost:3103,http://localhost:3104,http://localhost:3105,http://localhost:3106,http://localhost:4102
+export AIRSIDE_URL=http://localhost:3107
+export ORIGIN_URLS=http://localhost:3102,http://localhost:3103,http://localhost:3104,http://localhost:3105,http://localhost:3106,http://localhost:3107,http://localhost:4102
 ```
 
 Then the normal commands just work, scoped to this worktree:
@@ -197,8 +200,6 @@ Running the built `dist/serve.js` gives no watch (rebuild + restart after code c
 
 `beforeAllHook` stamps each provider's `baseUrl` env var (`LLM_OPENAI_BASE_URL`, `LLM_ANTHROPIC_BASE_URL`, …) onto the provider key it seeds, so exporting that var plus the matching `LLM_*_API_KEY` is enough to run the whole suite through a proxy — no test changes needed. An `http://` base URL additionally needs `ALLOW_INSECURE_PROVIDER_URLS=true`.
 
-`chat-service-tier.e2e.ts` cannot pass in that setup: `providerKeyBaseUrlSupportsServiceTier` makes a key with a non-upstream base URL ineligible for Flex/Priority, so every case 400s by design. Exclude that file rather than treating the failures as a regression.
-
 #### E2E Test Structure
 
 Reserve `*.e2e.ts` for tests that make real upstream provider requests. Tests
@@ -242,6 +243,7 @@ Production domain mapping (counterintuitive — do not mix these up): `api.llmga
 - **UI** (`apps/ui`) - Frontend dashboard (Next.js App Router)
 - **Playground** (`apps/playground`) - Interactive LLM testing environment (Next.js App Router)
 - **Code** (`apps/code`) - Dev plans + coding tools landing & dashboard (Next.js App Router)
+- **Airside** (`apps/airside`) - Self-serve provider portal (Next.js App Router)
 - **Docs** (`apps/docs`) - Documentation site (Next.js + Fumadocs)
 
 ### Shared Packages
@@ -287,6 +289,7 @@ Production domain mapping (counterintuitive — do not mix these up): `api.llmga
 - For reads: Use `db().query.<table>.findMany()` or `db().query.<table>.findFirst()`
 - **For usage/analytics reads, ALWAYS query the aggregation tables, never the `log` table.** `log` is a high-volume, per-request table that also gets pruned by data retention, so scanning it for counts, costs, or "who used X" questions is slow and gives wrong answers for organizations with retention disabled. Use the hourly aggregation tables instead — `project_hourly_stats` (per project/hour totals), `project_hourly_model_stats` (adds `used_model` / `used_provider`), `project_hourly_source_stats` (adds `source`), `api_key_hourly_stats` and `api_key_hourly_model_stats` (per API key), `global_model_stats` and `global_source_stats` (cross-tenant rollups). Join up to `project` → `organization` when you need org-level fields such as `billing_email`. Only fall back to querying `log` when the data genuinely does not exist in any aggregation table (e.g. per-request payloads, `request_id` lookups, individual finish reasons), and say why when you do.
 - **NEVER query the `log` table from the gateway request path — no exceptions.** The gateway is latency-critical and extremely high-throughput; a per-request Postgres read against a per-request-volume table is unacceptable there no matter how narrow the predicate, how good the (partial) index, or how short the cache TTL in front of it. This holds for every hot-path signal: credit gates, spend/limit checks, routing. Derive such signals from Redis counters maintained on the write path (e.g. incremented at `insertLog`, settled by the billing worker) or from small already-cached rows — never by aggregating `log` at request time. Dashboards and API routes must not scan `log` either; use the aggregation tables above.
+- Never use PostgreSQL advisory locks such as `pg_advisory_xact_lock` to coordinate settings updates. Validate the current state at each write boundary and accept the normal cache propagation interval.
 - For schema changes: edit `packages/db/src/schema.ts`, then generate migration artifacts with `pnpm migrations`
 - If generated migration SQL needs adaptation, edit only the generated `.sql` file. Never manually edit snapshot JSON or journal files.
 - Always sync schema with `pnpm run setup` after table/column changes when local database state needs to be refreshed
@@ -312,8 +315,11 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Always use the internal api (`apps/api/`) for any backend operations, never use NextJS API routes.
 - In frontend apps (`apps/ui`, `apps/playground`, `apps/code`, `ee/admin`), always use the generated typed API client (`useFetchClient()` or `useApi()` from `@/lib/fetch-client`) to call the Hono API. Never use raw `fetch()` for API calls. The client is auto-generated from the OpenAPI spec (`pnpm --filter api generate && pnpm --filter <app> generate`). For non-hook contexts (e.g., utility functions), accept the fetch client as a parameter from the calling component.
 - Do not use useEffect for data fetching in the UI; instead, use TanStack Query for all data fetching and state management.
+- Never suppress errors with a silent `.catch(() => [])`, `.catch(() => ({}))`, or another empty/default fallback. Handle a deliberate recovery in the owning helper with explicit logging and last-known-good data when available; otherwise let the error propagate.
 - In frontend apps, always prefer Next.js `<Link>` (`next/link`) over raw `<a>` tags for internal navigation, and `next/navigation`'s router for programmatic navigation.
-- Always use top-level `import`, never use require or dynamic imports
+- Keep inline links in prose attached to nearby context with a non-breaking space or a short `whitespace-nowrap` wrapper so they never wrap onto an orphaned line.
+- Use the shared `DialogSafePopover` for portaled popovers opened inside a `Dialog`. A regular Radix popover is outside the dialog's scroll lock, which blocks wheel scrolling in long dropdowns.
+- Always use top-level `import`, never use `require`. Dynamic imports are allowed only for the optional Jelly scene in `packages/shared/src/components/jelly/jelly-logo.tsx` and the DevPass card form in `apps/code/src/app/dashboard/components/DevPassPaymentMethod.tsx`.
 - Use conventional commit message format and limit the commit message title to max 50 characters
 - NEVER put internal or private information into anything published to the public repository — commit titles and bodies, branch names, PR titles and descriptions, PR/issue comments, code comments, changelog entries, or docs. This repository is public. Specifically never include: real user or customer names, email addresses, customer/partner/company names, organization/project/user IDs, API keys, tokens, secrets or credentials (including partial or redacted-looking values), dollar amounts (revenue, credit balances, spend, invoice totals, contract values), internal dashboards, internal ticket/Slack/Linear links, or internal infrastructure hostnames. Describe the situation generically instead — "a customer organization", "an enterprise account", "a large credit balance", "the affected provider key". Seeded test fixtures that already live in the repo (`admin@example.com`, `test-token`, `Test Organization`) and public provider pricing from `packages/models` are fine
 - Do not --amend commits after pushing to remote
@@ -349,10 +355,10 @@ When creating a new package in `packages/`, include these config files. Copy the
 ### Testing and Quality Assurance
 
 - Run `pnpm test:unit` after adding features
-- NEVER run the full E2E suite across all models. Instead, scope `pnpm test:e2e` to the model(s) you changed with `TEST_MODELS`, e.g. `TEST_MODELS="granite/glm-5.2" FULL_MODE=true pnpm test:e2e`. This runs every e2e file (streaming, reasoning, tool calls, json, etc.) but only for the pinned mapping, so do NOT invoke the individual `*.e2e.ts` files one by one — let `TEST_MODELS` filter the whole suite in a single run.
+- For changes that only add or update specific model mappings, the only relevant e2e result is a local run scoped to exactly those mappings, e.g. `TEST_MODELS="granite/glm-5.2" FULL_MODE=true pnpm test:e2e`. This runs every e2e behavior file but filters its cases to the pinned mappings, so do NOT invoke individual `*.e2e.ts` files, run e2e without `TEST_MODELS`, or trigger the GitHub e2e workflow. Failures from other mappings or an accidentally triggered full run do not affect acceptance or auto-merge; once every changed mapping passes its scoped run, e2e has passed for the change.
 - Run `pnpm build` to ensure production builds work
 - Run `pnpm format` after code changes
-- The CI e2e workflow (`.github/workflows/e2e.yml`) does NOT run automatically on pull requests, because e2e runs spend real money on provider API calls. Trigger it on demand by commenting `/e2e` on the pull request (only for maintainers/collaborators, and only for branches in this repository, not forks), or via `workflow_dispatch`.
+- The CI e2e workflow (`.github/workflows/e2e.yml`) does NOT run automatically on pull requests because it tests all models and spends real money on provider API calls. Trigger it only for complex gateway or backend changes that can affect routing, stability, uptime, or provider integration. Start it by commenting `/e2e` on the pull request (only for maintainers/collaborators, and only for branches in this repository, not forks), or via `workflow_dispatch`.
 
 ### Service URLs (Development)
 
@@ -363,6 +369,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - Gateway: http://localhost:4001
 - Docs: http://localhost:3005
 - Admin: http://localhost:3006
+- Airside: http://localhost:3007
 - PostgreSQL: localhost:5432
 - Redis: localhost:6379
 - Storage Redis: localhost:6479 (only used when a `STORAGE_REDIS_*` var is set; otherwise the main Redis connection is reused)
@@ -372,6 +379,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - `apps/ui`: Next.js frontend
 - `apps/playground`: Interactive LLM testing environment
 - `apps/code`: Dev plans + coding tools landing & dashboard
+- `apps/airside`: Self-serve provider portal
 - `apps/api`: Hono backend
 - `apps/gateway`: API gateway for routing LLM requests
 - `apps/docs`: Documentation site

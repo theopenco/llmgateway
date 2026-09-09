@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 		"LLM Gateway is an open-source LLM API gateway routing requests across 40+ providers through one OpenAI-compatible API. Learn who builds it and why.",
 	alternates: { canonical: "/about" },
 	openGraph: {
-		title: "About | LLM Gateway",
+		title: "About LLM Gateway",
 		description:
 			"LLM Gateway is an open-source LLM API gateway routing requests across 40+ providers through one OpenAI-compatible API. Learn who builds it and why.",
 		url: "https://llmgateway.io/about",

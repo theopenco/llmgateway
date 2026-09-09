@@ -13,6 +13,10 @@ import {
 } from "recharts";
 
 import {
+	ChartTypeToggle,
+	type ChartType,
+} from "@/components/chart-type-toggle";
+import {
 	Card,
 	CardContent,
 	CardDescription,
@@ -100,6 +104,8 @@ export function RevenueChart({
 	totals: { credits: number; devpass: number; enterprise: number };
 }) {
 	const [activeView, setActiveView] = useState<ActiveView>("credits");
+	const [chartType, setChartType] = useState<ChartType>("line");
+	const MainChart = chartType === "line" ? LineChart : BarChart;
 
 	const dailyData = useMemo(
 		() =>
@@ -119,9 +125,12 @@ export function RevenueChart({
 		<Card>
 			<CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
 				<div className="flex flex-1 flex-col justify-center gap-1.5 px-6 py-5 sm:py-6">
-					<CardTitle className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-						Credits, DevPass & Enterprise Revenue
-					</CardTitle>
+					<div className="flex flex-wrap items-center justify-between gap-3">
+						<CardTitle className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+							Credits, DevPass & Enterprise Revenue
+						</CardTitle>
+						<ChartTypeToggle value={chartType} onValueChange={setChartType} />
+					</div>
 					<CardDescription className="text-xs">
 						{revenueViews[activeView].description}
 					</CardDescription>
@@ -149,7 +158,11 @@ export function RevenueChart({
 					config={chartConfig}
 					className="aspect-auto h-[250px] w-full"
 				>
-					<LineChart data={data} margin={{ left: 12, right: 12 }}>
+					<MainChart
+						data={data}
+						accessibilityLayer
+						margin={{ left: 12, right: 12 }}
+					>
 						<CartesianGrid vertical={false} />
 						<XAxis
 							dataKey="date"
@@ -184,17 +197,27 @@ export function RevenueChart({
 								/>
 							}
 						/>
-						{revenueViews[activeView].lines.map((key) => (
-							<Line
-								key={key}
-								dataKey={key}
-								type="monotone"
-								stroke={`var(--color-${key})`}
-								strokeWidth={2}
-								dot={false}
-							/>
-						))}
-					</LineChart>
+						{revenueViews[activeView].lines.map((key) =>
+							chartType === "line" ? (
+								<Line
+									key={key}
+									dataKey={key}
+									type="monotone"
+									stroke={`var(--color-${key})`}
+									strokeWidth={2}
+									dot={false}
+								/>
+							) : (
+								<Bar
+									key={key}
+									dataKey={key}
+									fill={`var(--color-${key})`}
+									maxBarSize={36}
+									radius={[2, 2, 0, 0]}
+								/>
+							),
+						)}
+					</MainChart>
 				</ChartContainer>
 				<div className="mt-2 px-2 sm:px-0">
 					<p className="mb-1 px-2 text-xs text-muted-foreground sm:px-3">

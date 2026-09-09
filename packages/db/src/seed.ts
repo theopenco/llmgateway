@@ -13,7 +13,7 @@ import {
 import { DEV_PLAN_PRICES, getDevPlanCreditsLimit } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
-import { closeDatabase, db, tables } from "./index.js";
+import { and, closeDatabase, db, eq, isNull, tables } from "./index.js";
 import { logs } from "./logs.js";
 
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
@@ -474,7 +474,7 @@ const EXTRA_ORGS: Array<{
 const USER_ORG_MAP: Array<{
 	userId: string;
 	orgId: string;
-	role: "owner" | "admin" | "developer";
+	role: "owner" | "admin" | "project_admin" | "developer";
 }> = [
 	{ userId: "user-alice", orgId: "org-techcorp", role: "owner" },
 	{ userId: "user-bob", orgId: "org-startup", role: "owner" },
@@ -591,7 +591,36 @@ function generateApiKeys(projects: ProjectDef[]): ApiKeyDef[] {
 	return keys;
 }
 
-function generateLogs(projects: ProjectDef[], apiKeys: ApiKeyDef[]) {
+// BYOK credentials for the demo organizations, so api-keys traffic is
+// attributable to a provider key (provider-credential spend and the global
+// stats per-key filter). Credits traffic stays unattributed, like requests
+// served by env-var credentials.
+function generateProviderKeys(projects: ProjectDef[]) {
+	const keys: (typeof tables.providerKey.$inferInsert)[] = [];
+	const orgIds = new Set(
+		projects.filter((p) => p.mode !== "credits").map((p) => p.orgId),
+	);
+	for (const orgId of orgIds) {
+		for (const provider of ["openai", "anthropic"]) {
+			keys.push({
+				id: `seed-pk-${orgId}-${provider}`,
+				organizationId: orgId,
+				provider,
+				token: `sk-seed-${provider}-${orgId}`,
+				tokenMasked: `sk-...${orgId.slice(-4)}`,
+				description: `${provider} production key`,
+				usage: String(randomFloat(0, 200)),
+			});
+		}
+	}
+	return keys;
+}
+
+function generateLogs(
+	projects: ProjectDef[],
+	apiKeys: ApiKeyDef[],
+	providerKeys: (typeof tables.providerKey.$inferInsert)[],
+) {
 	const generatedLogs = [];
 	const keysByProject = new Map<string, ApiKeyDef[]>();
 	for (const key of apiKeys) {
@@ -599,6 +628,12 @@ function generateLogs(projects: ProjectDef[], apiKeys: ApiKeyDef[]) {
 		existing.push(key);
 		keysByProject.set(key.projectId, existing);
 	}
+	const providerKeyIds = new Map(
+		providerKeys.map((key) => [
+			`${key.organizationId}:${key.provider}`,
+			key.id,
+		]),
+	);
 
 	for (const proj of projects) {
 		const projKeys = keysByProject.get(proj.id);
@@ -682,6 +717,10 @@ function generateLogs(projects: ProjectDef[], apiKeys: ApiKeyDef[]) {
 					: undefined,
 				mode: proj.mode,
 				usedMode,
+				providerKeyId:
+					usedMode === "api-keys"
+						? providerKeyIds.get(`${proj.orgId}:${modelDef.provider}`)
+						: undefined,
 				streamed: isStreamed,
 				cached: isCached,
 				discount,
@@ -2294,6 +2333,54 @@ async function seed() {
 		projectId: "enterprise-project-id",
 	});
 
+	await upsert(tables.user, {
+		id: "enterprise-project-admin-user-id",
+		name: "Project Admin",
+		email: "project-admin@example.com",
+		emailVerified: true,
+		onboardingCompleted: true,
+	});
+	await upsert(tables.account, {
+		id: "enterprise-project-admin-account-id",
+		providerId: "credential",
+		accountId: "enterprise-project-admin-account-id",
+		password: await hashPassword("project-admin@example.com"),
+		userId: "enterprise-project-admin-user-id",
+	});
+	await upsert(tables.userOrganization, {
+		id: "enterprise-project-admin-user-org-id",
+		userId: "enterprise-project-admin-user-id",
+		organizationId: "enterprise-org-id",
+		role: "project_admin",
+	});
+	await upsert(tables.userProject, {
+		id: "enterprise-project-admin-user-project-id",
+		userOrganizationId: "enterprise-project-admin-user-org-id",
+		projectId: "enterprise-project-id",
+	});
+
+	await bulkInsert(
+		tables.projectHourlyStats,
+		Array.from({ length: 90 }, (_, day) => {
+			const hourTimestamp = daysAgo(day);
+			hourTimestamp.setUTCHours(0, 0, 0, 0);
+			return {
+				id: `enterprise-usage-${hourTimestamp.toISOString().slice(0, 10)}`,
+				projectId: "enterprise-project-id",
+				hourTimestamp,
+				requestCount: 100 + day,
+				creditsRequestCount: 100 + day,
+				inputTokens: "80000",
+				outputTokens: "20000",
+				totalTokens: "100000",
+				cost: 0.3,
+				creditsCost: 0.3,
+				inputCost: 0.1,
+				outputCost: 0.2,
+			};
+		}),
+	);
+
 	// A key the developer created, so their own-usage view has something to show.
 	await upsert(tables.apiKey, {
 		id: "enterprise-dev-api-key-id",
@@ -2788,7 +2875,12 @@ async function seed() {
 		});
 	}
 
-	const generatedLogs = generateLogs(projects, apiKeys);
+	const providerKeys = generateProviderKeys(projects);
+	for (const key of providerKeys) {
+		await upsert(tables.providerKey, key);
+	}
+
+	const generatedLogs = generateLogs(projects, apiKeys, providerKeys);
 	await bulkInsert(tables.log, generatedLogs);
 
 	const transactions = generateTransactions();
@@ -2939,8 +3031,362 @@ async function seed() {
 			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
 	});
 
+	await seedAirside();
+
 	await closeDatabase();
 	await Promise.all([redisClient.quit(), storageRedisClient.quit()]);
+}
+
+// ── Airside (self-serve provider portal) demo data ──
+// A claimed "mistral" carrier with an active model, a drafted model awaiting
+// initial approval, and an active model with a pending price-update filing,
+// so both the portal and the admin approval queue have content.
+// Login: ops@mistral.ai / ops@mistral.ai (password == email).
+async function materializeSeedAirsideModel(options: {
+	modelName: string;
+	displayName: string;
+	description: string;
+	contextSize: number;
+	maxOutput: number;
+	inputPrice: string;
+	outputPrice: string;
+	reasoning?: boolean;
+}) {
+	await upsert(tables.model, {
+		id: options.modelName,
+		name: options.displayName,
+		description: options.description,
+		family: "mistral",
+		status: "active" as const,
+	});
+	const values = {
+		externalId: options.modelName,
+		source: "airside" as const,
+		inputPrice: options.inputPrice,
+		outputPrice: options.outputPrice,
+		contextSize: options.contextSize,
+		maxOutput: options.maxOutput,
+		streaming: true,
+		tools: true,
+		jsonOutput: true,
+		reasoning: options.reasoning ?? false,
+		status: "active" as const,
+		deactivatedAt: null,
+	};
+	const existing = await db
+		.select({ id: tables.modelProviderMapping.id })
+		.from(tables.modelProviderMapping)
+		.where(
+			and(
+				eq(tables.modelProviderMapping.modelId, options.modelName),
+				eq(tables.modelProviderMapping.providerId, "mistral"),
+				isNull(tables.modelProviderMapping.region),
+			),
+		)
+		.limit(1);
+	if (existing.length > 0) {
+		await db
+			.update(tables.modelProviderMapping)
+			.set(values)
+			.where(eq(tables.modelProviderMapping.id, existing[0].id));
+		return;
+	}
+	await db.insert(tables.modelProviderMapping).values({
+		id: `airside-mapping-${options.modelName}`,
+		modelId: options.modelName,
+		providerId: "mistral",
+		...values,
+	});
+}
+
+async function seedAirside() {
+	await upsert(tables.user, {
+		id: "airside-user-mistral",
+		name: "Mistral Ops",
+		email: "ops@mistral.ai",
+		emailVerified: true,
+	});
+
+	await upsert(tables.account, {
+		id: "airside-account-mistral",
+		providerId: "credential",
+		accountId: "airside-account-mistral",
+		password: await hashPassword("ops@mistral.ai"),
+		userId: "airside-user-mistral",
+	});
+
+	await upsert(tables.providerCompany, {
+		id: "airside-company-mistral",
+		name: "Mistral AI",
+		website: "https://mistral.ai",
+		paymentStatus: "paid",
+		paidAt: daysAgo(21),
+	});
+
+	await upsert(tables.providerCompanyMember, {
+		id: "airside-member-mistral",
+		providerCompanyId: "airside-company-mistral",
+		userId: "airside-user-mistral",
+		role: "owner",
+	});
+
+	await upsert(tables.providerClaim, {
+		id: "airside-claim-mistral",
+		providerCompanyId: "airside-company-mistral",
+		providerId: "mistral",
+		matchedDomain: "mistral.ai",
+		claimedBy: "airside-user-mistral",
+		status: "active",
+		reviewedBy: "test-user-id",
+		reviewedAt: daysAgo(20),
+	});
+
+	// A second carrier whose claim is still pending review, so the admin
+	// claims queue has content. Login: ops@moonshot.ai / ops@moonshot.ai.
+	await upsert(tables.user, {
+		id: "airside-user-moonshot",
+		name: "Moonshot Ops",
+		email: "ops@moonshot.ai",
+		emailVerified: true,
+	});
+
+	await upsert(tables.account, {
+		id: "airside-account-moonshot",
+		providerId: "credential",
+		accountId: "airside-account-moonshot",
+		password: await hashPassword("ops@moonshot.ai"),
+		userId: "airside-user-moonshot",
+	});
+
+	await upsert(tables.providerCompany, {
+		id: "airside-company-moonshot",
+		name: "Moonshot AI",
+		website: "https://moonshot.ai",
+		paymentStatus: "paid",
+		paidAt: daysAgo(2),
+	});
+
+	await upsert(tables.providerCompanyMember, {
+		id: "airside-member-moonshot",
+		providerCompanyId: "airside-company-moonshot",
+		userId: "airside-user-moonshot",
+		role: "owner",
+	});
+
+	await upsert(tables.providerClaim, {
+		id: "airside-claim-moonshot",
+		providerCompanyId: "airside-company-moonshot",
+		providerId: "moonshot",
+		matchedDomain: "moonshot.ai",
+		claimedBy: "airside-user-moonshot",
+		status: "pending",
+	});
+
+	// Accepting a larger gateway margin plus a small discount → routing boost
+	// (adjustment = baseline 0.2 − margin 0.3 − discount 0.05 = −0.15).
+	await upsert(tables.providerRoutingSettings, {
+		id: "airside-settings-mistral",
+		providerCompanyId: "airside-company-mistral",
+		providerId: "mistral",
+		discountPercent: "0.05",
+		marginPercent: "0.3",
+	});
+
+	await upsert(tables.providerDraftModel, {
+		id: "airside-model-medium",
+		providerCompanyId: "airside-company-mistral",
+		providerId: "mistral",
+		modelName: "mistral-medium-4",
+		externalId: "mistral-medium-4",
+		displayName: "Mistral Medium 4",
+		description: "Balanced flagship for everyday workloads.",
+		family: "mistral",
+		contextSize: 128000,
+		maxOutput: 16384,
+		streaming: true,
+		tools: true,
+		jsonOutput: true,
+		status: "active",
+		createdBy: "airside-user-mistral",
+	});
+
+	await upsert(tables.providerPriceFiling, {
+		id: "airside-filing-medium-initial",
+		draftModelId: "airside-model-medium",
+		providerCompanyId: "airside-company-mistral",
+		kind: "initial",
+		inputPrice: "4e-7",
+		outputPrice: "2e-6",
+		status: "approved",
+		requestedBy: "airside-user-mistral",
+		reviewedBy: "test-user-id",
+		reviewedAt: daysAgo(12),
+	});
+	await materializeSeedAirsideModel({
+		modelName: "mistral-medium-4",
+		displayName: "Mistral Medium 4",
+		description: "Balanced flagship for everyday workloads.",
+		contextSize: 128000,
+		maxOutput: 16384,
+		inputPrice: "4e-7",
+		outputPrice: "2e-6",
+	});
+
+	await upsert(tables.providerDraftModel, {
+		id: "airside-model-codestral",
+		providerCompanyId: "airside-company-mistral",
+		providerId: "mistral",
+		modelName: "codestral-3",
+		externalId: "codestral-3",
+		displayName: "Codestral 3",
+		description: "Code-specialized model tuned for agentic editing.",
+		family: "mistral",
+		contextSize: 256000,
+		maxOutput: 32768,
+		streaming: true,
+		tools: true,
+		jsonOutput: true,
+		reasoning: true,
+		status: "active",
+		createdBy: "airside-user-mistral",
+	});
+
+	await upsert(tables.providerPriceFiling, {
+		id: "airside-filing-codestral-initial",
+		draftModelId: "airside-model-codestral",
+		providerCompanyId: "airside-company-mistral",
+		kind: "initial",
+		inputPrice: "9e-7",
+		outputPrice: "3e-6",
+		status: "approved",
+		requestedBy: "airside-user-mistral",
+		reviewedBy: "test-user-id",
+		reviewedAt: daysAgo(9),
+	});
+	await materializeSeedAirsideModel({
+		modelName: "codestral-3",
+		displayName: "Codestral 3",
+		description: "Code-specialized model tuned for agentic editing.",
+		contextSize: 256000,
+		maxOutput: 32768,
+		inputPrice: "9e-7",
+		outputPrice: "3e-6",
+		reasoning: true,
+	});
+
+	// A pending price update for the admin queue's diff view.
+	await upsert(tables.providerPriceFiling, {
+		id: "airside-filing-codestral-update",
+		draftModelId: "airside-model-codestral",
+		providerCompanyId: "airside-company-mistral",
+		kind: "update",
+		inputPrice: "8e-7",
+		outputPrice: "2.7e-6",
+		status: "pending",
+		requestedBy: "airside-user-mistral",
+		note: "Price cut to win more agentic traffic.",
+	});
+
+	await upsert(tables.providerDraftModel, {
+		id: "airside-model-large",
+		providerCompanyId: "airside-company-mistral",
+		providerId: "mistral",
+		modelName: "mistral-large-4",
+		externalId: "mistral-large-4",
+		displayName: "Mistral Large 4",
+		description: "Next-generation flagship, pending listing approval.",
+		family: "mistral",
+		contextSize: 256000,
+		maxOutput: 32768,
+		streaming: true,
+		tools: true,
+		jsonOutput: true,
+		reasoning: true,
+		status: "draft",
+		createdBy: "airside-user-mistral",
+	});
+
+	// 30 days of hourly rollups for the claimed provider so the traffic pages
+	// have data (the generic stats generators only cover the first few MODELS
+	// entries, which don't include mistral).
+	const airsideStats: (typeof tables.projectHourlyModelStats.$inferInsert)[] =
+		[];
+	const airsideGlobalStats: (typeof tables.globalModelStats.$inferInsert)[] =
+		[];
+	const airsideModels = [
+		{ model: "mistral-medium-4", inputPrice: 4e-7, outputPrice: 2e-6 },
+		{ model: "codestral-3", inputPrice: 9e-7, outputPrice: 3e-6 },
+	];
+	// Matches the seeded mistral provider_routing_settings marginPercent.
+	const airsideMarginPercent = 0.3;
+	let airsideStatId = 0;
+	for (let day = 0; day < 30; day++) {
+		for (const entry of airsideModels) {
+			let dayRequestCount = 0;
+			let dayCost = 0;
+			for (const hour of [3, 9, 15, 21]) {
+				const bucket = daysAgo(day);
+				bucket.setHours(hour, 0, 0, 0);
+				const requestCount = randomInt(40, 400);
+				const inputTokens = requestCount * randomInt(800, 2000);
+				const outputTokens = requestCount * randomInt(300, 900);
+				const inputCost = inputTokens * entry.inputPrice;
+				const outputCost = outputTokens * entry.outputPrice;
+				const cost = inputCost + outputCost;
+				dayRequestCount += requestCount;
+				dayCost += cost;
+				airsideStats.push({
+					id: `airside-phms-${airsideStatId++}`,
+					projectId: "test-project-id",
+					hourTimestamp: bucket,
+					usedModel: entry.model,
+					usedProvider: "mistral",
+					requestCount,
+					errorCount: randomInt(0, Math.ceil(requestCount / 50)),
+					cacheCount: randomInt(0, Math.ceil(requestCount / 10)),
+					streamedCount: requestCount,
+					completedCount: requestCount,
+					inputTokens: String(inputTokens),
+					outputTokens: String(outputTokens),
+					totalTokens: String(inputTokens + outputTokens),
+					cost,
+					inputCost,
+					outputCost,
+					providerMarginAmount: cost * airsideMarginPercent,
+				});
+			}
+			// Daily cross-tenant rollup so the admin carriers page has accrued
+			// margin figures locally.
+			const dayBucket = daysAgo(day);
+			dayBucket.setHours(0, 0, 0, 0);
+			airsideGlobalStats.push({
+				id: `airside-gms-${day}-${entry.model}`,
+				dayTimestamp: dayBucket,
+				usedModel: entry.model,
+				usedProvider: "mistral",
+				usedMode: "credits",
+				orgKind: "default",
+				requestCount: dayRequestCount,
+				completedCount: dayRequestCount,
+				cost: dayCost,
+				providerMarginAmount: dayCost * airsideMarginPercent,
+			});
+		}
+	}
+	await bulkInsert(tables.projectHourlyModelStats, airsideStats);
+	await bulkInsert(tables.globalModelStats, airsideGlobalStats);
+
+	await upsert(tables.providerPriceFiling, {
+		id: "airside-filing-large-initial",
+		draftModelId: "airside-model-large",
+		providerCompanyId: "airside-company-mistral",
+		kind: "initial",
+		inputPrice: "2e-6",
+		outputPrice: "6e-6",
+		status: "pending",
+		requestedBy: "airside-user-mistral",
+		note: "Initial listing for our new flagship.",
+	});
 }
 
 void seed();

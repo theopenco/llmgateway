@@ -1,7 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
 import "dotenv/config";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
 
@@ -21,24 +17,13 @@ import { db, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
+import { readFixtureImageDataUrl } from "./test-utils/image-fixture.js";
 
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 
 const IMAGE_PROJECT_ID = "image-test-project-id";
 const IMAGE_API_KEY_ID = "image-test-api-key-id";
 const IMAGE_API_KEY_TOKEN = "real-token-image";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE_IMAGE_PATH = path.join(
-	__dirname,
-	"test-fixtures",
-	"test-image.png",
-);
-
-function readFixtureImageDataUrl(): string {
-	const bytes = fs.readFileSync(FIXTURE_IMAGE_PATH);
-	return `data:image/png;base64,${bytes.toString("base64")}`;
-}
 
 const imageTestCases = filteredModels
 	.filter((model) => {
@@ -100,7 +85,14 @@ const imageTestCases = filteredModels
 
 const testImageMode = process.env.TEST_IMAGE_MODE === "true";
 
-const ALLOWED_QUALITIES = ["low", "medium", "high", "auto"] as const;
+const ALLOWED_QUALITIES = [
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+	"max",
+	"auto",
+] as const;
 type ImageQuality = (typeof ALLOWED_QUALITIES)[number];
 const rawQualityOverride = process.env.TEST_IMAGE_QUALITY?.trim().toLowerCase();
 const qualityOverride: ImageQuality | undefined = (
@@ -195,6 +187,7 @@ describe("e2e image generation", getConcurrentTestOptions(), () => {
 					headers: {
 						"Content-Type": "application/json",
 						Authorization: `Bearer ${IMAGE_API_KEY_TOKEN}`,
+						"x-no-fallback": "true",
 					},
 					body: JSON.stringify({
 						model,
@@ -237,6 +230,7 @@ describe("e2e image generation", getConcurrentTestOptions(), () => {
 					headers: {
 						"Content-Type": "application/json",
 						Authorization: `Bearer ${IMAGE_API_KEY_TOKEN}`,
+						"x-no-fallback": "true",
 					},
 					body: JSON.stringify({
 						model,
@@ -285,6 +279,7 @@ describe("e2e image generation", getConcurrentTestOptions(), () => {
 					headers: {
 						"Content-Type": "application/json",
 						Authorization: `Bearer ${IMAGE_API_KEY_TOKEN}`,
+						"x-no-fallback": "true",
 					},
 					body: JSON.stringify({
 						model,

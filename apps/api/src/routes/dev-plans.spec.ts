@@ -1394,14 +1394,13 @@ describe("DevPass no-training settings", () => {
 		});
 	});
 
-	it("returns to standard routing by clearing the policy", async () => {
+	it("returns to standard routing by clearing a canonical policy", async () => {
 		await db
 			.update(tables.organization)
 			.set({
 				providerCompliancePolicy: {
 					enabled: true,
 					blockApiTraining: true,
-					requireGdpr: true,
 				},
 			})
 			.where(eq(tables.organization.id, ORG_ID));
@@ -1424,6 +1423,45 @@ describe("DevPass no-training settings", () => {
 				})
 			)?.providerCompliancePolicy,
 		).toBeNull();
+	});
+
+	it("preserves enterprise compliance settings when toggling", async () => {
+		// A devpass-kind org with enterprise access may hold a full policy; the
+		// toggle must only flip blockApiTraining, never wipe the other settings.
+		await db
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: {
+					enabled: true,
+					blockApiTraining: true,
+					requireGdpr: true,
+					allowedProviders: ["openai"],
+				},
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+
+		const response = await app.request("/dev-plans/settings", {
+			method: "PATCH",
+			headers: {
+				"Content-Type": "application/json",
+				Cookie: token,
+			},
+			body: JSON.stringify({ blockApiTraining: false }),
+		});
+
+		expect(response.status).toBe(200);
+		expect(
+			(
+				await db.query.organization.findFirst({
+					where: { id: { eq: ORG_ID } },
+				})
+			)?.providerCompliancePolicy,
+		).toEqual({
+			enabled: true,
+			blockApiTraining: false,
+			requireGdpr: true,
+			allowedProviders: ["openai"],
+		});
 	});
 
 	it("rejects updates without an active DevPass subscription", async () => {

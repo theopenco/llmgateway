@@ -203,6 +203,46 @@ export function Footer() {
 									</Link>
 								</li>
 								<li>
+									<Link
+										href="/claude-code-alternative"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										Claude Code Alternative
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/models"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										Model Directory
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/guides"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										Setup Guides
+									</Link>
+								</li>
+								<li>
+									<Link
+										href={`/data/${new Date().getUTCFullYear()}`}
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										Model Census
+									</Link>
+								</li>
+								<li>
+									<Link
+										href="/leaderboard"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										Leaderboard
+									</Link>
+								</li>
+								<li>
 									<a
 										href={`${config.uiUrl}/models?from=devpass`}
 										rel="noopener"

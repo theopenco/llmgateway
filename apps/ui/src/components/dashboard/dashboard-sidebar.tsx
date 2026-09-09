@@ -93,6 +93,8 @@ import {
 import Logo from "@/lib/icons/Logo";
 import { buildUrlWithParams } from "@/lib/navigation-utils";
 
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
+
 import { OrganizationSwitcher } from "./organization-switcher";
 
 import type { AnimatedIconProps } from "@/components/dashboard/animated-nav-icons";
@@ -220,6 +222,12 @@ const ORGANIZATION_NAVIGATION: readonly {
 		href: "org/analytics",
 		label: "Analytics",
 		icon: AnimatedChartArea,
+		enterpriseGated: true,
+	},
+	{
+		href: "org/skills",
+		label: "Skills",
+		icon: AnimatedTerminal,
 		enterpriseGated: true,
 	},
 	{
@@ -764,9 +772,7 @@ function OrganizationSection({
 	);
 }
 
-// Org-level entries visible to project-scoped "developer" members: the custom
-// models catalog is readable by every active member, so developers get a
-// read-only view of the providers and models their org makes available.
+// Organization resources available to project-scoped developers.
 function DeveloperOrgSection({
 	isActive,
 	isMobile,
@@ -795,6 +801,16 @@ function DeveloperOrgSection({
 						isMobile={isMobile}
 						toggleSidebar={toggleSidebar}
 					/>
+					{isEnterprise && (
+						<OrgNavItem
+							href={buildOrgUrl("org/skills")}
+							label="Skills"
+							icon={AnimatedTerminal}
+							isActive={isActive("org/skills")}
+							isMobile={isMobile}
+							toggleSidebar={toggleSidebar}
+						/>
+					)}
 				</SidebarMenu>
 			</SidebarGroupContent>
 		</SidebarGroup>
@@ -1252,6 +1268,7 @@ export function DashboardSidebar({
 	);
 
 	const isDeveloper = selectedOrganization?.role === "developer";
+	const isOrgAdmin = isOrganizationAdmin(selectedOrganization?.role);
 
 	// Flat index of every link the sidebar can show for the current role, used
 	// by the search box to filter across all sections at once.
@@ -1270,6 +1287,16 @@ export function DashboardSidebar({
 					section: "Organization",
 					icon: AnimatedBotMessageSquare,
 				},
+				...(selectedOrganization?.enterpriseAccess === true
+					? [
+							{
+								href: buildOrgUrl("org/skills"),
+								label: "Skills",
+								section: "Organization",
+								icon: AnimatedTerminal,
+							},
+						]
+					: []),
 			];
 		}
 
@@ -1286,14 +1313,19 @@ export function DashboardSidebar({
 				section: "Project Settings",
 				enterpriseGated: "enterpriseOnly" in item && item.enterpriseOnly,
 			})),
-			...ORGANIZATION_NAVIGATION.map((item) => ({
+			...ORGANIZATION_NAVIGATION.filter(
+				(item) =>
+					isOrgAdmin ||
+					item.href === "org/models" ||
+					item.href === "org/skills",
+			).map((item) => ({
 				href: buildOrgUrl(item.href),
 				label: item.label,
 				section: "Organization",
 				icon: item.icon,
 				enterpriseGated: item.enterpriseGated,
 			})),
-			...ORGANIZATION_SETTINGS.map((item) => ({
+			...ORGANIZATION_SETTINGS.filter(() => isOrgAdmin).map((item) => ({
 				href:
 					"search" in item
 						? buildUrlWithParams(
@@ -1314,7 +1346,15 @@ export function DashboardSidebar({
 				external: !item.internal,
 			})),
 		];
-	}, [isDeveloper, buildUrl, buildOrgUrl, searchParams, toolsResources]);
+	}, [
+		isDeveloper,
+		isOrgAdmin,
+		selectedOrganization?.enterpriseAccess,
+		buildUrl,
+		buildOrgUrl,
+		searchParams,
+		toolsResources,
+	]);
 
 	const searchMatches = useMemo(
 		() => filterSearchableLinks(searchableLinks, searchQuery),
@@ -1517,13 +1557,22 @@ export function DashboardSidebar({
 							</SidebarGroupContent>
 						</SidebarGroup>
 
-						<OrganizationSection
-							isActive={isActive}
-							isMobile={isMobile}
-							toggleSidebar={toggleSidebar}
-							searchParams={searchParams}
-							isEnterprise={selectedOrganization?.enterpriseAccess === true}
-						/>
+						{isOrgAdmin ? (
+							<OrganizationSection
+								isActive={isActive}
+								isMobile={isMobile}
+								toggleSidebar={toggleSidebar}
+								searchParams={searchParams}
+								isEnterprise={selectedOrganization?.enterpriseAccess === true}
+							/>
+						) : (
+							<DeveloperOrgSection
+								isActive={isActive}
+								isMobile={isMobile}
+								toggleSidebar={toggleSidebar}
+								isEnterprise={selectedOrganization?.enterpriseAccess === true}
+							/>
+						)}
 
 						<ToolsResourcesSection
 							toolsResources={toolsResources}
@@ -1538,7 +1587,7 @@ export function DashboardSidebar({
 			<SidebarFooter>
 				{/* Org credits + upgrade prompts are org-level; hide them from
 				    project-scoped developers. */}
-				{selectedOrganization?.role !== "developer" && (
+				{isOrgAdmin && (
 					<>
 						<CreditsDisplay selectedOrganization={selectedOrganization} />
 						<UpgradeCTA

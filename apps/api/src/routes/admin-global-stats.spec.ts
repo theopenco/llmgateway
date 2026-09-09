@@ -10,6 +10,7 @@ const MODEL = "openai/global-stats-model";
 // per-bucket rows above on (day, model, provider, mode, kind).
 const BULK_MODEL = "openai/global-stats-bulk-model";
 const SOURCE = "global-stats-source";
+const PROVIDER_KEY_ID = "global-stats-provider-key";
 
 const DAY = new Date();
 DAY.setUTCHours(0, 0, 0, 0);
@@ -89,6 +90,8 @@ interface GlobalStatsResponse {
 	};
 	breakdown: { key: string; label: string; requestCount: number }[];
 	timeseries: { date: string; requestCount: number; cost: number }[];
+	groupBy: string;
+	providerKeyId: string | null;
 }
 
 async function fetchStats(
@@ -117,6 +120,11 @@ const clearFixtures = async () => {
 	await db
 		.delete(tables.globalSourceStats)
 		.where(eq(tables.globalSourceStats.source, SOURCE));
+	await db
+		.delete(tables.globalProviderKeyModelStats)
+		.where(
+			eq(tables.globalProviderKeyModelStats.providerKeyId, PROVIDER_KEY_ID),
+		);
 };
 
 describe("admin — global stats mode/kind dimensions", () => {
@@ -163,6 +171,111 @@ describe("admin — global stats mode/kind dimensions", () => {
 	afterEach(async () => {
 		await clearFixtures();
 		await deleteAll();
+	});
+
+	describe("provider key filter", () => {
+		beforeEach(async () => {
+			// Only the credits/default bucket was served by the credential.
+			await db.insert(tables.globalProviderKeyModelStats).values({
+				dayTimestamp: DAY,
+				providerKeyId: PROVIDER_KEY_ID,
+				usedModel: MODEL,
+				usedProvider: "openai",
+				usedMode: "credits",
+				orgKind: "default",
+				requestCount: 4,
+				cost: 0.4,
+				totalTokens: "40",
+				inputTokens: "20",
+				outputTokens: "20",
+			});
+		});
+
+		test("narrows every section to the credential", async () => {
+			const body = await fetchStats(cookie, { providerKeyId: PROVIDER_KEY_ID });
+			expect(body.providerKeyId).toBe(PROVIDER_KEY_ID);
+			expect(body.totals.requestCount).toBe(4);
+			expect(body.totals.cost).toBeCloseTo(0.4, 6);
+			expect(body.totals.totalTokens).toBe(40);
+			expect(body.breakdown).toEqual([
+				expect.objectContaining({ key: MODEL, requestCount: 4 }),
+			]);
+			expect(body.composition.byMode).toEqual([
+				expect.objectContaining({ key: "credits", requestCount: 4 }),
+			]);
+		});
+
+		test("supports the provider view and the mode/kind groupings", async () => {
+			const byProvider = await fetchStats(cookie, {
+				providerKeyId: PROVIDER_KEY_ID,
+				modelView: "provider",
+			});
+			expect(byProvider.breakdown).toEqual([
+				expect.objectContaining({ key: "openai", requestCount: 4 }),
+			]);
+			const byKind = await fetchStats(cookie, {
+				providerKeyId: PROVIDER_KEY_ID,
+				groupBy: "kind",
+			});
+			expect(byKind.breakdown).toEqual([
+				expect.objectContaining({ key: "default", requestCount: 4 }),
+			]);
+		});
+
+		test("falls back to the model grouping for x-source", async () => {
+			const body = await fetchStats(cookie, {
+				providerKeyId: PROVIDER_KEY_ID,
+				groupBy: "source",
+			});
+			expect(body.groupBy).toBe("model");
+			expect(body.breakdown[0]?.key).toBe(MODEL);
+		});
+
+		test("composes with mode and kind filters", async () => {
+			const body = await fetchStats(cookie, {
+				providerKeyId: PROVIDER_KEY_ID,
+				mode: "api-keys",
+			});
+			expect(body.totals.requestCount).toBe(0);
+		});
+
+		test("lists credentials with traffic in the range", async () => {
+			await db.insert(tables.providerKey).values({
+				id: PROVIDER_KEY_ID,
+				provider: "openai",
+				token: "sk-global-stats",
+				managed: true,
+				comment: "Global stats fixture",
+			});
+			const res = await app.request(
+				`/admin/global-stats/provider-keys?from=${DATE}&to=${DATE}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as {
+				providerKeys: {
+					id: string;
+					comment: string | null;
+					requestCount: number;
+					cost: number;
+				}[];
+			};
+			const key = body.providerKeys.find((k) => k.id === PROVIDER_KEY_ID);
+			expect(key).toMatchObject({
+				comment: "Global stats fixture",
+				requestCount: 4,
+			});
+			expect(key?.cost).toBeCloseTo(0.4, 6);
+
+			const filtered = await app.request(
+				`/admin/global-stats/provider-keys?from=${DATE}&to=${DATE}&mode=api-keys`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(
+				((await filtered.json()) as { providerKeys: { id: string }[] })
+					.providerKeys,
+			).toEqual([]);
+		});
 	});
 
 	test("blends every bucket when unfiltered", async () => {

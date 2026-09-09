@@ -5,7 +5,10 @@ import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
-import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
+import {
+	getCredentialSetting,
+	resolvePlatformCredential,
+} from "@/chat/tools/resolve-platform-credential.js";
 import { shouldRetryAlternateKey } from "@/chat/tools/retry-with-fallback.js";
 import { validateSource } from "@/chat/tools/validate-source.js";
 import {
@@ -26,13 +29,20 @@ import {
 	findProviderKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
-import { assertProviderCompliant } from "@/lib/compliance.js";
+import {
+	assertProviderCompliant,
+	getEffectiveRetentionLevel,
+} from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { buildOpenAIErrorBody } from "@/lib/error-response.js";
+import {
+	rateLimitHeaders,
+	standardErrorResponses,
+} from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
@@ -41,7 +51,11 @@ import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
-import { getProviderHeaders, readProviderKey } from "@llmgateway/actions";
+import {
+	getProviderDefaultBaseUrl,
+	getProviderHeaders,
+	readProviderKey,
+} from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { models } from "@llmgateway/models";
 
@@ -162,15 +176,6 @@ const moderationResponseSchema = z
 	.openapi({
 		description: "Moderation response payload.",
 	});
-
-const moderationErrorSchema = z.object({
-	error: z.object({
-		message: z.string(),
-		type: z.string(),
-		param: z.string().nullable(),
-		code: z.string(),
-	}),
-});
 
 const moderationRequestSchema = z.object({
 	input: moderationInputSchema,
@@ -302,6 +307,7 @@ const createModeration = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: moderationResponseSchema,
@@ -309,94 +315,7 @@ const createModeration = createRoute({
 			},
 			description: "Moderation response.",
 		},
-		400: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Invalid request body or parameters.",
-		},
-		401: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Unauthorized request.",
-		},
-		402: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Payment required / insufficient credits.",
-		},
-		403: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Forbidden upstream response.",
-		},
-		404: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Not found upstream response.",
-		},
-		410: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Archived or unavailable project.",
-		},
-		429: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Rate limited upstream response.",
-		},
-		500: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Internal server error.",
-		},
-		502: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Failed to connect to the upstream provider.",
-		},
-		503: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Service unavailable upstream response.",
-		},
-		504: {
-			content: {
-				"application/json": {
-					schema: moderationErrorSchema,
-				},
-			},
-			description: "Upstream provider timeout.",
-		},
+		...standardErrorResponses(),
 	},
 });
 
@@ -568,7 +487,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		model: upstreamModel,
 	});
 
-	const retentionLevel = organization.retentionLevel ?? "none";
+	const retentionLevel = getEffectiveRetentionLevel(organization);
 
 	// Which env-var variant (`__ENTERPRISE` / `__PLANS` overrides) applies to
 	// this org's env-credential reads. Undefined = base vars only.
@@ -652,13 +571,25 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 		});
 	}
 
-	// Moderation has never honored LLM_OPENAI_BASE_URL, so only the credential's
-	// own base URL overrides the default here.
-	const resolvedBaseUrl =
-		providerKey?.baseUrl ??
-		managedKey?.config?.baseUrl ??
-		"https://api.openai.com";
-	const upstreamUrl = `${resolvedBaseUrl}/v1/moderations`;
+	// Resolved per attempt: a credential rotation below can switch to a
+	// managed key or env index with its own base URL.
+	const resolveUpstreamUrl = (): string => {
+		const resolvedBaseUrl =
+			providerKey?.baseUrl ??
+			getCredentialSetting(
+				"openai",
+				"baseUrl",
+				{ providerKey, managedKey },
+				{ configIndex, variant: envVariant },
+			) ??
+			getProviderDefaultBaseUrl("openai");
+		if (!resolvedBaseUrl) {
+			throw new HTTPException(500, {
+				message: "No base URL set for provider: openai",
+			});
+		}
+		return `${resolvedBaseUrl.replace(/\/+$/, "")}/v1/moderations`;
+	};
 	const requestBody = {
 		input,
 		model: upstreamModel,
@@ -757,7 +688,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 			try {
 				const fetchSignal = createCombinedSignal(controller);
-				upstreamResponse = await fetch(upstreamUrl, {
+				upstreamResponse = await fetch(resolveUpstreamUrl(), {
 					method: "POST",
 					// SSRF: never follow redirects on an authenticated provider request. A
 					// tenant-supplied baseUrl could 3xx to an internal host at request time,

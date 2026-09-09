@@ -23,6 +23,23 @@ export const RETENTION_SENSITIVE_LOG_FIELDS = [
 ] as const;
 
 /**
+ * Provider error bodies can echo submitted content, so non-retaining orgs keep
+ * only the status metadata of an error and lose the body.
+ */
+function redactErrorDetailsBody<
+	T extends LogInsertData["errorDetails"] | undefined,
+>(details: T): T {
+	if (!details) {
+		return details;
+	}
+	return {
+		statusCode: details.statusCode,
+		statusText: details.statusText,
+		responseText: "",
+	} as T;
+}
+
+/**
  * Return a copy of the log data with every retention-sensitive payload field
  * cleared. Used by the gateway so payloads for non-retaining orgs never travel
  * through Redis (or reach the database) in the first place — the gateway is the
@@ -44,5 +61,7 @@ export function stripRetentionSensitiveLogFields<T extends LogInsertData>(
 		rawResponse: null,
 		upstreamRequest: null,
 		upstreamResponse: null,
+		errorDetails: redactErrorDetailsBody(logData.errorDetails),
+		internalErrorDetails: redactErrorDetailsBody(logData.internalErrorDetails),
 	};
 }

@@ -13,6 +13,12 @@ export const PLAN_TERM_EXPIRING_DAYS = 30;
 /** A contract term with this many days left or fewer needs attention now. */
 export const PLAN_TERM_CRITICAL_DAYS = 7;
 
+/** A deployment license with this many days left or fewer is close to expiry. */
+export const ENTERPRISE_LICENSE_EXPIRING_DAYS = 90;
+
+/** A deployment license with this many days left or fewer needs attention now. */
+export const ENTERPRISE_LICENSE_CRITICAL_DAYS = 30;
+
 /**
  * Trials run 30 days, so the contract thresholds would paint one amber from
  * the very first day. These are scaled to the shorter window instead.
@@ -141,6 +147,20 @@ export function getPlanTerm(input: {
 	}
 
 	return { expiresAt, startedAt, daysLeft, status, totalDays, elapsedFraction };
+}
+
+export function getEnterpriseLicenseTerm(
+	expiresAt: Date | string | null | undefined,
+	now?: Date,
+): PlanTerm | null {
+	return getPlanTerm({
+		expiresAt,
+		now,
+		thresholds: {
+			expiring: ENTERPRISE_LICENSE_EXPIRING_DAYS,
+			critical: ENTERPRISE_LICENSE_CRITICAL_DAYS,
+		},
+	});
 }
 
 /** Sentence-style countdown, e.g. "12 days left" or "Expired 3 days ago". */

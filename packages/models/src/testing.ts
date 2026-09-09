@@ -11,6 +11,10 @@ export function getTestOptions(
 		completions: true,
 	},
 ): TestOptions {
+	if (!opts?.completions && process.env.TEST_MODELS) {
+		return { skip: true };
+	}
+
 	const hasTestOnly = models.some((model) =>
 		model.providers.some(
 			(provider: ProviderModelMapping) => provider.test === "only",

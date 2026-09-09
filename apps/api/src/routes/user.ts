@@ -58,6 +58,8 @@ const enterpriseLicenseSchema = z.object({
 	]),
 	enterpriseEnabled: z.boolean(),
 	whiteLabelEnabled: z.boolean(),
+	kind: z.enum(["enterprise", "white_label"]).nullable(),
+	organizationId: z.string().nullable(),
 	expiresAt: z.string().nullable(),
 	graceEndsAt: z.string().nullable(),
 });
@@ -193,6 +195,8 @@ user.openapi(get, async (c) => {
 			enterpriseEnabled: license.enterpriseEnabled,
 			whiteLabelEnabled:
 				license.enterpriseEnabled && license.kind === "white_label",
+			kind: license.kind,
+			organizationId: license.organizationId,
 			expiresAt: license.expiresAt,
 			graceEndsAt: license.graceEndsAt,
 		},

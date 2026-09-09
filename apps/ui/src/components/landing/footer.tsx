@@ -1,5 +1,4 @@
 "use client";
-import { DiscordLogoIcon } from "@radix-ui/react-icons";
 import { GithubIcon } from "lucide-react";
 import Link from "next/link";
 
@@ -47,7 +46,9 @@ export default function Footer() {
 								className="flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-card/40 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
 								aria-label="Discord"
 							>
-								<DiscordLogoIcon className="h-4 w-4" />
+								<svg className="h-4 w-4" viewBox="0 0 15 15" aria-hidden="true">
+									<use href="/landing-icons.svg#discord" />
+								</svg>
 							</a>
 						</div>
 						<a
@@ -291,6 +292,14 @@ export default function Footer() {
 									>
 										Documentation
 									</a>
+								</li>
+								<li>
+									<Link
+										href="/developers"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										Developer resources
+									</Link>
 								</li>
 								<li>
 									<Link

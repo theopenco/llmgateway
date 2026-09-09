@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { NotFoundPage } from "@llmgateway/shared/not-found";
+
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -7,15 +9,11 @@ export const metadata: Metadata = {
 };
 
 const linkClass =
-	"text-primary underline underline-offset-4 hover:text-primary/80";
+	"inline-flex min-h-11 items-center text-primary underline decoration-border underline-offset-4 transition-colors hover:decoration-current focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring";
 
 export default function NotFound() {
 	return (
-		<div className="flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
-			<h1 className="text-4xl font-bold">404</h1>
-			<p className="text-muted-foreground">
-				The page you&apos;re looking for doesn&apos;t exist.
-			</p>
+		<NotFoundPage>
 			<nav aria-label="Suggested pages">
 				<ul className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
 					<li>
@@ -55,6 +53,6 @@ export default function NotFound() {
 					</li>
 				</ul>
 			</nav>
-		</div>
+		</NotFoundPage>
 	);
 }

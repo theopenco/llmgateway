@@ -40,6 +40,10 @@ async function seedOtherMemberKey(budget: {
 		role: "developer",
 		...budget,
 	});
+	await db.insert(tables.userProject).values({
+		userOrganizationId: "other-user-org-id",
+		projectId: "test-project-id",
+	});
 	await db.insert(tables.apiKey).values({
 		id: "other-api-key-id",
 		...hashApiKeyForStorage("other-api-key-token"),
@@ -768,6 +772,15 @@ describe("keys route", () => {
 		const ids = json.apiKeys.map((key: { id: string }) => key.id);
 		expect(ids).toContain("other-api-key-id");
 		expect(ids).not.toContain("test-api-key-id");
+
+		await db
+			.delete(tables.userProject)
+			.where(eq(tables.userProject.userOrganizationId, "other-user-org-id"));
+		const revoked = await app.request("/keys/api", {
+			headers: { Cookie: devToken },
+		});
+		expect(revoked.status).toBe(200);
+		expect((await revoked.json()).apiKeys).toEqual([]);
 	});
 
 	test("POST /keys/api creates a period usage limit", async () => {

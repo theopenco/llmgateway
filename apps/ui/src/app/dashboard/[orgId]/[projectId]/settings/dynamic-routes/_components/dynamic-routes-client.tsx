@@ -31,6 +31,7 @@ import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
 import { Time } from "@llmgateway/shared";
+import { canManageProject } from "@llmgateway/shared/organization-roles";
 
 import { validateGraphText } from "./flow-graph";
 
@@ -144,8 +145,7 @@ export function DynamicRoutesClient({ projectId }: { projectId: string }) {
 
 	const role = teamData?.members.find((m) => m.userId === user?.id)?.role;
 	const canManage =
-		selectedOrganization?.enterpriseAccess === true &&
-		(role === "owner" || role === "admin");
+		selectedOrganization?.enterpriseAccess === true && canManageProject(role);
 
 	const [selectedName, setSelectedName] = useState<string | null>(null);
 	const [newName, setNewName] = useState("");

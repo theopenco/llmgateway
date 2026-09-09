@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import createFetchClient from "openapi-fetch";
 
 import { comparisons } from "@/lib/comparisons";
@@ -18,73 +19,79 @@ async function fetchPublicShares(): Promise<ShareListItem[]> {
 	const client = createFetchClient<paths>({
 		baseUrl: config.apiBackendUrl,
 	});
-	try {
-		const { data } = await client.GET("/public/chats/share", {
-			params: { query: { limit: 5000 } },
-			next: { revalidate: 3600 },
-		});
-		return data?.shares ?? [];
-	} catch {
-		return [];
+	const { data, error } = await client.GET("/public/chats/share", {
+		params: { query: { limit: 5000 } },
+		next: { revalidate: 3600 },
+	});
+	if (error || !data) {
+		throw new Error("Unable to load public chat shares for the sitemap");
 	}
+	return data.shares;
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+	await connection();
+
 	const baseUrl = "https://lounge.llmgateway.io";
-	const now = new Date();
 
 	const staticEntries: MetadataRoute.Sitemap = [
 		{
 			url: baseUrl,
-			lastModified: now,
 			changeFrequency: "daily",
 			priority: 1,
 		},
 		{
 			url: `${baseUrl}/image`,
-			lastModified: now,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/video`,
-			lastModified: now,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/audio`,
-			lastModified: now,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/group`,
-			lastModified: now,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/canvas`,
-			lastModified: now,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		{
 			url: `${baseUrl}/pricing`,
-			lastModified: now,
 			changeFrequency: "weekly",
 			priority: 0.7,
 		},
 		{
+			url: `${baseUrl}/realtime`,
+			changeFrequency: "weekly",
+			priority: 0.8,
+		},
+		{
+			url: `${baseUrl}/escape`,
+			changeFrequency: "weekly",
+			priority: 0.7,
+		},
+		{
+			url: `${baseUrl}/leaderboard`,
+			changeFrequency: "daily",
+			priority: 0.6,
+		},
+		{
 			url: `${baseUrl}/compare`,
-			lastModified: now,
 			changeFrequency: "weekly",
 			priority: 0.8,
 		},
 		...comparisons.map((comparison) => ({
 			url: `${baseUrl}/compare/${comparison.slug}`,
-			lastModified: now,
 			changeFrequency: "weekly" as const,
 			priority: 0.7,
 		})),

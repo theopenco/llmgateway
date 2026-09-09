@@ -1,11 +1,10 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
 	applyGoogleServiceTier,
 	assumeServedServiceTier,
 	isPremiumServiceTier,
 	providerCredentialSupportsServiceTier,
-	providerKeyBaseUrlSupportsServiceTier,
 	resolveServedServiceTier,
 } from "./apply-service-tier.js";
 
@@ -126,104 +125,6 @@ describe("isPremiumServiceTier", () => {
 	});
 });
 
-describe("providerKeyBaseUrlSupportsServiceTier", () => {
-	it("ignores trailing slashes when matching the canonical upstream", () => {
-		expect(
-			providerKeyBaseUrlSupportsServiceTier(
-				"google-vertex",
-				"https://aiplatform.googleapis.com///",
-			),
-		).toBe(true);
-	});
-
-	it("allows a key with no custom base URL (managed default)", () => {
-		expect(providerKeyBaseUrlSupportsServiceTier("google-vertex", null)).toBe(
-			true,
-		);
-		expect(
-			providerKeyBaseUrlSupportsServiceTier("google-ai-studio", undefined),
-		).toBe(true);
-	});
-
-	it("allows a key whose base URL matches the canonical upstream", () => {
-		expect(
-			providerKeyBaseUrlSupportsServiceTier(
-				"google-vertex",
-				"https://aiplatform.googleapis.com",
-			),
-		).toBe(true);
-		expect(
-			providerKeyBaseUrlSupportsServiceTier(
-				"google-ai-studio",
-				"https://generativelanguage.googleapis.com/",
-			),
-		).toBe(true);
-	});
-
-	it("rejects a custom (proxy) base URL on the google tier providers", () => {
-		expect(
-			providerKeyBaseUrlSupportsServiceTier(
-				"google-vertex",
-				"https://my-proxy.example.com",
-			),
-		).toBe(false);
-		expect(
-			providerKeyBaseUrlSupportsServiceTier(
-				"google-ai-studio",
-				"https://gateway.internal/v1",
-			),
-		).toBe(false);
-	});
-
-	it("rejects a proxy base URL on openai too", () => {
-		// OpenAI carries the tier as a body field, which an OpenAI-compatible
-		// proxy is free to ignore — the same exposure the Google providers have.
-		expect(
-			providerKeyBaseUrlSupportsServiceTier(
-				"openai",
-				"https://my-proxy.example.com",
-			),
-		).toBe(false);
-		expect(
-			providerKeyBaseUrlSupportsServiceTier("openai", "https://api.openai.com"),
-		).toBe(true);
-	});
-
-	it("ignores providers that declare no service tiers", () => {
-		expect(
-			providerKeyBaseUrlSupportsServiceTier(
-				"anthropic",
-				"https://my-proxy.example.com",
-			),
-		).toBe(true);
-	});
-
-	it("allows a custom base URL on glacier (no static default upstream)", () => {
-		expect(
-			providerKeyBaseUrlSupportsServiceTier(
-				"glacier",
-				"https://glacier.internal/v1beta",
-			),
-		).toBe(true);
-	});
-
-	it("rejects a proxy base URL on fireworks but allows its upstream", () => {
-		expect(
-			providerKeyBaseUrlSupportsServiceTier(
-				"fireworks",
-				"https://my-proxy.example.com/v1",
-			),
-		).toBe(false);
-		expect(
-			providerKeyBaseUrlSupportsServiceTier(
-				"fireworks",
-				"https://api.fireworks.ai/inference",
-			),
-		).toBe(true);
-		expect(providerKeyBaseUrlSupportsServiceTier("fireworks", null)).toBe(true);
-	});
-});
-
 describe("assumeServedServiceTier", () => {
 	it("attributes an accepted Fireworks request to the forwarded tier", () => {
 		expect(assumeServedServiceTier("fireworks", "priority", true)).toBe(
@@ -263,67 +164,9 @@ describe("providerCredentialSupportsServiceTier", () => {
 		).toBe(false);
 	});
 
-	it("still rejects a proxied base URL regardless of region", () => {
-		expect(
-			providerCredentialSupportsServiceTier("google-vertex", {
-				baseUrl: "https://my-proxy.example.com",
-				region: "global",
-			}),
-		).toBe(false);
-	});
-
 	it("ignores region for providers without an endpoint constraint", () => {
 		expect(
 			providerCredentialSupportsServiceTier("openai", { region: "us-east1" }),
 		).toBe(true);
-	});
-});
-
-describe("SERVICE_TIER_TRUSTED_BASE_URLS", () => {
-	const original = process.env.SERVICE_TIER_TRUSTED_BASE_URLS;
-
-	afterEach(() => {
-		if (original === undefined) {
-			delete process.env.SERVICE_TIER_TRUSTED_BASE_URLS;
-		} else {
-			process.env.SERVICE_TIER_TRUSTED_BASE_URLS = original;
-		}
-	});
-
-	it("accepts an explicitly trusted base URL", () => {
-		process.env.SERVICE_TIER_TRUSTED_BASE_URLS =
-			"https://mirror.example.com,https://other.example.com/";
-		expect(
-			providerKeyBaseUrlSupportsServiceTier(
-				"openai",
-				"https://mirror.example.com/",
-			),
-		).toBe(true);
-		expect(
-			providerKeyBaseUrlSupportsServiceTier(
-				"fireworks",
-				"https://other.example.com",
-			),
-		).toBe(true);
-	});
-
-	it("still rejects base URLs outside the allowlist", () => {
-		process.env.SERVICE_TIER_TRUSTED_BASE_URLS = "https://mirror.example.com";
-		expect(
-			providerKeyBaseUrlSupportsServiceTier(
-				"openai",
-				"https://elsewhere.example.com",
-			),
-		).toBe(false);
-	});
-
-	it("is strict when unset", () => {
-		delete process.env.SERVICE_TIER_TRUSTED_BASE_URLS;
-		expect(
-			providerKeyBaseUrlSupportsServiceTier(
-				"openai",
-				"https://mirror.example.com",
-			),
-		).toBe(false);
 	});
 });

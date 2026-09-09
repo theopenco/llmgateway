@@ -36,6 +36,11 @@ import { Overview } from "@/components/dashboard/overview";
 import { RecentActivityCard } from "@/components/dashboard/recent-activity-card";
 import { ReferralBanner } from "@/components/dashboard/referral-banner";
 import {
+	parseUsageComparisonMode,
+	resolveUsageComparisonRange,
+} from "@/components/dashboard/usage-comparison";
+import { UsageComparisonPicker } from "@/components/dashboard/usage-comparison-picker";
+import {
 	DateRangePicker,
 	getDateRangeFromParams,
 } from "@/components/date-range-picker";
@@ -59,11 +64,17 @@ import { applyUsageModeToDaily } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
 import { useDisplayTimeZone } from "@llmgateway/shared";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
+import type {
+	UsageComparisonMode,
+	UsageDateRange,
+} from "@/components/dashboard/usage-comparison";
 import type { ActivitT } from "@/types/activity";
 
 interface DashboardClientProps {
 	initialActivityData?: ActivitT;
+	initialActivityRange?: { from: string; to: string };
 	/** Zone the server fetched `initialActivityData` in, so the client can tell
 	 *  whether it still matches the zone it now wants to render. */
 	initialActivityTimeZone?: string;
@@ -135,6 +146,7 @@ function QuickActionsCard({
 	buildOrgUrl: (path?: string) => string;
 	className?: string;
 }) {
+	const { selectedOrganization } = useDashboardNavigation();
 	return (
 		<Card className={className}>
 			<CardHeader>
@@ -143,25 +155,31 @@ function QuickActionsCard({
 			</CardHeader>
 			<CardContent>
 				<div className="grid grid-cols-2 gap-2">
-					{quickActions.map((action) => (
-						<Link
-							key={action.href}
-							href={
-								action.href === "provider-keys"
-									? buildOrgUrl("org/provider-keys")
-									: buildUrl(action.href)
-							}
-							prefetch={true}
-							className="group flex items-center gap-3 rounded-lg border border-border/60 p-3 transition-colors hover:border-primary/40 hover:bg-accent/40"
-						>
-							<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground transition-colors group-hover:text-foreground">
-								<action.icon className="h-4 w-4" />
-							</div>
-							<span className="text-sm font-medium leading-tight">
-								{action.label}
-							</span>
-						</Link>
-					))}
+					{quickActions
+						.filter(
+							(action) =>
+								action.href !== "provider-keys" ||
+								isOrganizationAdmin(selectedOrganization?.role),
+						)
+						.map((action) => (
+							<Link
+								key={action.href}
+								href={
+									action.href === "provider-keys"
+										? buildOrgUrl("org/provider-keys")
+										: buildUrl(action.href)
+								}
+								prefetch={true}
+								className="group flex items-center gap-3 rounded-lg border border-border/60 p-3 transition-colors hover:border-primary/40 hover:bg-accent/40"
+							>
+								<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground transition-colors group-hover:text-foreground">
+									<action.icon className="h-4 w-4" />
+								</div>
+								<span className="text-sm font-medium leading-tight">
+									{action.label}
+								</span>
+							</Link>
+						))}
 				</div>
 			</CardContent>
 		</Card>
@@ -205,6 +223,7 @@ function StatCell({
 
 export function DashboardClient({
 	initialActivityData,
+	initialActivityRange,
 	initialActivityTimeZone,
 }: DashboardClientProps) {
 	const router = useRouter();
@@ -225,6 +244,17 @@ export function DashboardClient({
 	const metricParam = searchParams.get("metric");
 	const metric = (metricParam === "requests" ? "requests" : "costs") as
 		"costs" | "requests";
+	const costView =
+		searchParams.get("costView") === "breakdown" ? "breakdown" : "total";
+	const requestedComparisonMode = parseUsageComparisonMode(
+		searchParams.get("compare"),
+	);
+	const comparisonMode = rangeDays <= 366 ? requestedComparisonMode : "off";
+	const comparisonRange = resolveUsageComparisonRange(
+		comparisonMode,
+		{ from, to },
+		searchParams,
+	);
 
 	// If no from/to params exist, add them to the URL immediately
 	useEffect(() => {
@@ -239,6 +269,7 @@ export function DashboardClient({
 	}, [searchParams, router, buildUrl]);
 
 	const { selectedOrganization, selectedProject } = useDashboardNavigation();
+	const isOrgAdmin = isOrganizationAdmin(selectedOrganization?.role);
 	const api = useApi();
 
 	const { data, isLoading } = api.useQuery(
@@ -256,13 +287,12 @@ export function DashboardClient({
 		},
 		{
 			enabled: !!selectedProject?.id,
-			// Only seed the server payload when it was bucketed in the zone this
-			// query asks for. The client can detect a different zone than the
-			// cookie held (first visit, or the machine moved), and a mismatched
-			// payload would sit there labelled as the new zone for the whole
-			// staleTime.
+			// Reuse the server payload for the matching range and time zone,
+			// including the default range before dates are added to the URL.
 			initialData:
-				searchParams.get("from") && initialActivityTimeZone === displayTimeZone
+				initialActivityRange?.from === fromStr &&
+				initialActivityRange.to === toStr &&
+				initialActivityTimeZone === displayTimeZone
 					? initialActivityData
 					: undefined,
 			refetchOnWindowFocus: false,
@@ -293,6 +323,34 @@ export function DashboardClient({
 		},
 	);
 
+	const {
+		data: comparisonData,
+		isLoading: isComparisonLoading,
+		isError: isComparisonError,
+	} = api.useQuery(
+		"get",
+		"/activity",
+		{
+			params: {
+				query: {
+					from: comparisonRange
+						? format(comparisonRange.from, "yyyy-MM-dd")
+						: fromStr,
+					to: comparisonRange
+						? format(comparisonRange.to, "yyyy-MM-dd")
+						: toStr,
+					timezone: displayTimeZone,
+					...(selectedProject?.id ? { projectId: selectedProject.id } : {}),
+				},
+			},
+		},
+		{
+			enabled: !!selectedProject?.id && comparisonRange !== null,
+			refetchOnWindowFocus: false,
+			staleTime: 1000 * 60 * 5,
+		},
+	);
+
 	// Get API keys data to check plan limits
 	const { data: apiKeysData } = api.useQuery(
 		"get",
@@ -315,7 +373,45 @@ export function DashboardClient({
 	const updateMetricInUrl = (newMetric: "costs" | "requests") => {
 		const params = new URLSearchParams(searchParams.toString());
 		params.set("metric", newMetric);
-		router.push(`${buildUrl()}?${params.toString()}`);
+		router.push(`${buildUrl()}?${params.toString()}`, { scroll: false });
+	};
+
+	const updateCostViewInUrl = (newView: "total" | "breakdown") => {
+		const params = new URLSearchParams(searchParams.toString());
+		if (newView === "total") {
+			params.delete("costView");
+		} else {
+			params.set("costView", newView);
+		}
+		router.push(`${buildUrl()}?${params.toString()}`, { scroll: false });
+	};
+
+	const updateComparisonInUrl = (
+		newMode: UsageComparisonMode,
+		selectedRange?: UsageDateRange,
+	) => {
+		const params = new URLSearchParams(searchParams.toString());
+		if (newMode === "off") {
+			params.delete("compare");
+			params.delete("compareFrom");
+			params.delete("compareTo");
+		} else {
+			params.set("compare", newMode);
+			if (newMode === "custom" && selectedRange) {
+				params.set("compareFrom", format(selectedRange.from, "yyyy-MM-dd"));
+				params.set("compareTo", format(selectedRange.to, "yyyy-MM-dd"));
+			} else if (
+				(newMode === "previous-week" || newMode === "previous-month") &&
+				selectedRange
+			) {
+				params.set("compareFrom", format(selectedRange.from, "yyyy-MM-dd"));
+				params.delete("compareTo");
+			} else {
+				params.delete("compareFrom");
+				params.delete("compareTo");
+			}
+		}
+		router.push(`${buildUrl()}?${params.toString()}`, { scroll: false });
 	};
 
 	// Mode-normalized rows: cost/requestCount reflect the selected billing view
@@ -326,6 +422,9 @@ export function DashboardClient({
 		applyUsageModeToDaily(day, usageMode),
 	);
 	const prevActivityData = (prevData?.activity ?? []).map((day) =>
+		applyUsageModeToDaily(day, usageMode),
+	);
+	const comparisonActivityData = comparisonData?.activity.map((day) =>
 		applyUsageModeToDaily(day, usageMode),
 	);
 
@@ -517,10 +616,10 @@ export function DashboardClient({
 										Create API Key
 									</Button>
 								</CreateApiKeyDialog>
-								<TopUpCreditsButton />
+								{isOrgAdmin && <TopUpCreditsButton />}
 							</>
 						)}
-						{selectedOrganization && !selectedProject && <TopUpCreditsButton />}
+						{isOrgAdmin && !selectedProject && <TopUpCreditsButton />}
 					</div>
 				</div>
 
@@ -538,18 +637,25 @@ export function DashboardClient({
 				</div>
 
 				<div className="space-y-4">
-					<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
-						<MetricCard
-							label="Organization Credits"
-							value={`$${
-								selectedOrganization
-									? formatCredits(Number(selectedOrganization.credits))
-									: "0.00"
-							}`}
-							subtitle="Available balance"
-							icon={<CreditCard className="h-4 w-4" />}
-							accent="blue"
-						/>
+					<div
+						className={cn(
+							"grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4",
+							isOrgAdmin ? "lg:grid-cols-4" : "lg:grid-cols-3",
+						)}
+					>
+						{isOrgAdmin && (
+							<MetricCard
+								label="Organization Credits"
+								value={`$${
+									selectedOrganization
+										? formatCredits(Number(selectedOrganization.credits))
+										: "0.00"
+								}`}
+								subtitle="Available balance"
+								icon={<CreditCard className="h-4 w-4" />}
+								accent="blue"
+							/>
+						)}
 						<MetricCard
 							label="Total Requests"
 							value={totalRequests.toLocaleString()}
@@ -663,6 +769,7 @@ export function DashboardClient({
 									createdAtMs !== null &&
 									Date.now() - createdAtMs < 7 * 24 * 60 * 60 * 1000;
 								const needsTopUp =
+									isOrgAdmin &&
 									!Number.isNaN(credits) &&
 									credits <= 0 &&
 									totalRequests === 0 &&
@@ -727,7 +834,7 @@ export function DashboardClient({
 													</div>
 												</div>
 												<div className="flex flex-wrap gap-2">
-													<TopUpCreditsButton />
+													{isOrgAdmin && <TopUpCreditsButton />}
 													<Button asChild variant="outline" size="sm">
 														<a
 															href={
@@ -825,34 +932,70 @@ export function DashboardClient({
 											<CardTitle>Usage Overview</CardTitle>
 											<CardDescription>
 												{metric === "costs"
-													? "Daily inference spend (provider list price)"
+													? costView === "total"
+														? "Daily total inference spend (provider list price)"
+														: "Daily inference spend by token type"
 													: "Daily request volume"}
 											</CardDescription>
 										</div>
-										<div className="inline-flex items-center rounded-lg border border-border/60 bg-muted/40 p-0.5">
-											{(["costs", "requests"] as const).map((option) => (
-												<button
-													key={option}
-													type="button"
-													onClick={() => updateMetricInUrl(option)}
-													className={cn(
-														"rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
-														metric === option
-															? "bg-background text-foreground shadow-sm"
-															: "text-muted-foreground hover:text-foreground",
-													)}
-												>
-													{option}
-												</button>
-											))}
+										<div className="flex flex-wrap items-center justify-end gap-2">
+											<div className="inline-flex items-center rounded-lg border border-border/60 bg-muted/40 p-0.5">
+												{(["costs", "requests"] as const).map((option) => (
+													<button
+														key={option}
+														type="button"
+														onClick={() => updateMetricInUrl(option)}
+														className={cn(
+															"rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
+															metric === option
+																? "bg-background text-foreground shadow-sm"
+																: "text-muted-foreground hover:text-foreground",
+														)}
+													>
+														{option}
+													</button>
+												))}
+											</div>
+											{metric === "costs" && (
+												<div className="inline-flex items-center rounded-lg border border-border/60 bg-muted/40 p-0.5">
+													{(["total", "breakdown"] as const).map((option) => (
+														<button
+															key={option}
+															type="button"
+															onClick={() => updateCostViewInUrl(option)}
+															className={cn(
+																"rounded-md px-3 py-1 text-xs font-medium capitalize transition-colors",
+																costView === option
+																	? "bg-background text-foreground shadow-sm"
+																	: "text-muted-foreground hover:text-foreground",
+															)}
+														>
+															{option}
+														</button>
+													))}
+												</div>
+											)}
+											<UsageComparisonPicker
+												mode={comparisonMode}
+												currentRange={{ from, to }}
+												comparisonRange={comparisonRange}
+												disabled={rangeDays > 366}
+												onChange={updateComparisonInUrl}
+											/>
 										</div>
 									</div>
 								</CardHeader>
 								<CardContent className="pl-2">
 									<Overview
 										data={activityData}
+										comparisonData={comparisonActivityData}
+										comparisonRange={comparisonRange}
+										comparisonMode={comparisonMode}
 										isLoading={isLoading}
+										isComparisonLoading={isComparisonLoading}
+										isComparisonError={isComparisonError}
 										metric={metric}
+										costView={costView}
 									/>
 								</CardContent>
 							</Card>

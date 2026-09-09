@@ -5,7 +5,7 @@ set -euo pipefail
 BASE_URL="http://localhost:4001"
 API_KEY="${LLM_GATEWAY_API_KEY:-test-token}"
 PROVIDER="glacier"
-MODEL="gemini-3.1-flash-image-preview"
+MODEL="gemini-3.1-flash-image"
 ASPECT_RATIO="1:1"
 EDIT_SIZE="1K"
 MAX_JOBS="${MAX_JOBS:-10}"
@@ -23,7 +23,7 @@ Options:
   --local                 Use http://localhost:4001
   --base-url URL          Override the API base URL
   --provider NAME         Provider id (default: glacier)
-  --model NAME            Model id (default: gemini-3.1-flash-image-preview)
+  --model NAME            Model id (default: gemini-3.1-flash-image)
   --mapping P/M           Provider/model mapping shorthand
   --prompt TEXT           Prompt for generated images
   --edit-prompt TEXT      Prompt for the optional two-image edit
@@ -56,7 +56,7 @@ trap cleanup_background_jobs EXIT
 
 supported_sizes() {
 	case "$1" in
-		gemini-3.1-flash-image-preview)
+		gemini-3.1-flash-image | gemini-3.1-flash-image-preview)
 			printf '%s\n' "0.5K" "1K" "2K" "4K"
 			;;
 		gemini-3-pro-image | gemini-3-pro-image-preview)
@@ -64,7 +64,7 @@ supported_sizes() {
 			;;
 		*)
 			echo "Unsupported image model: $1" >&2
-			echo "Expected gemini-3.1-flash-image-preview or gemini-3-pro-image" >&2
+			echo "Expected gemini-3.1-flash-image, gemini-3.1-flash-image-preview, gemini-3-pro-image, or gemini-3-pro-image-preview" >&2
 			exit 1
 			;;
 	esac

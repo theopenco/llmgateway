@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
 	filterCompliantProviders,
 	getActiveCompliancePolicy,
+	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
+	isZeroDataRetentionEnabled,
 } from "./compliance.js";
 
 import type { ProviderCompliancePolicy } from "@llmgateway/models";
@@ -13,6 +15,64 @@ const POLICY: ProviderCompliancePolicy = {
 	enabled: true,
 	requireSoc2: true,
 };
+
+describe("zero data retention", () => {
+	it("overrides stored payload retention", () => {
+		const organization = {
+			id: "org-test",
+			plan: "enterprise",
+			retentionLevel: "retain" as const,
+			providerCompliancePolicy: {
+				enabled: true,
+				zeroDataRetention: true,
+			},
+		};
+
+		expect(isZeroDataRetentionEnabled(organization)).toBe(true);
+		expect(getEffectiveRetentionLevel(organization)).toBe("none");
+	});
+
+	it("does not treat legacy no-prompt-logging policies as ZDR", () => {
+		const organization = {
+			id: "org-test",
+			plan: "enterprise",
+			retentionLevel: "retain" as const,
+			providerCompliancePolicy: {
+				enabled: true,
+				blockPromptLogging: true,
+			},
+		};
+
+		expect(isZeroDataRetentionEnabled(organization)).toBe(false);
+		expect(getEffectiveRetentionLevel(organization)).toBe("retain");
+	});
+
+	it("uses the configured retention level without ZDR", () => {
+		expect(
+			getEffectiveRetentionLevel({
+				id: "org-test",
+				plan: "enterprise",
+				retentionLevel: "retain",
+				providerCompliancePolicy: { enabled: false },
+			}),
+		).toBe("retain");
+	});
+
+	it("enforces stored ZDR without enterprise access", () => {
+		const organization = {
+			id: "org-test",
+			plan: "pro",
+			retentionLevel: "retain" as const,
+			providerCompliancePolicy: {
+				enabled: true,
+				zeroDataRetention: true,
+			},
+		};
+
+		expect(isZeroDataRetentionEnabled(organization)).toBe(true);
+		expect(getEffectiveRetentionLevel(organization)).toBe("none");
+	});
+});
 
 describe("isProviderIdCompliant with custom providers", () => {
 	it("fails closed for custom without a compliance context", () => {
@@ -70,6 +130,41 @@ describe("isProviderIdCompliant with custom providers", () => {
 	});
 });
 
+describe("getActiveCompliancePolicy fails closed", () => {
+	const fullPolicy: ProviderCompliancePolicy = {
+		enabled: true,
+		blockStealthProviders: true,
+		allowedProviders: ["openai"],
+	};
+
+	it("enforces an enabled policy regardless of plan or license", () => {
+		// A lapsed enterprise plan (or a gateway without a valid license) must
+		// not silently drop an org's routing restrictions.
+		for (const plan of ["free", "pro", "enterprise"]) {
+			expect(
+				getActiveCompliancePolicy({
+					id: "org-test",
+					plan,
+					providerCompliancePolicy: fullPolicy,
+				}),
+			).toEqual(fullPolicy);
+		}
+	});
+
+	it("returns undefined when no policy is configured or enabled", () => {
+		expect(
+			getActiveCompliancePolicy({ id: "org-test", plan: "enterprise" }),
+		).toBeUndefined();
+		expect(
+			getActiveCompliancePolicy({
+				id: "org-test",
+				plan: "enterprise",
+				providerCompliancePolicy: { ...fullPolicy, enabled: false },
+			}),
+		).toBeUndefined();
+	});
+});
+
 describe("getActiveCompliancePolicy for DevPass", () => {
 	it("uses standard routing when the policy is disabled", () => {
 		expect(
@@ -85,35 +180,26 @@ describe("getActiveCompliancePolicy for DevPass", () => {
 		).toBeUndefined();
 	});
 
-	it("narrows enabled policies to no API training", () => {
+	it("enforces stored policies as-is, without narrowing by kind", () => {
+		// The DevPass write paths can only store {enabled, blockApiTraining}, so
+		// narrowing by kind is a no-op for well-formed devpass policies — and a
+		// fuller policy reaching a devpass org out-of-band must fail closed, not
+		// have its allow lists silently dropped. Enforce what is stored.
+		const fullPolicy: ProviderCompliancePolicy = {
+			enabled: true,
+			blockApiTraining: true,
+			requireGdpr: true,
+			blockPromptLogging: true,
+			allowedProviders: ["openai"],
+		};
 		expect(
 			getActiveCompliancePolicy({
 				id: "org-test",
 				kind: "devpass",
-				plan: "free",
-				providerCompliancePolicy: {
-					enabled: true,
-					blockApiTraining: true,
-					requireGdpr: true,
-					blockPromptLogging: true,
-				},
+				plan: "enterprise",
+				providerCompliancePolicy: fullPolicy,
 			}),
-		).toEqual({ enabled: true, blockApiTraining: true });
-	});
-
-	it("ignores unrelated policy fields", () => {
-		expect(
-			getActiveCompliancePolicy({
-				id: "org-test",
-				kind: "devpass",
-				plan: "free",
-				providerCompliancePolicy: {
-					enabled: true,
-					requireGdpr: true,
-					blockPromptLogging: true,
-				},
-			}),
-		).toBeUndefined();
+		).toEqual(fullPolicy);
 	});
 
 	it("fails closed on unknown training policies", () => {

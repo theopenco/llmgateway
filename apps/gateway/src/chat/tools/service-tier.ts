@@ -170,7 +170,6 @@ function providerKeyRegion(key: ProviderKeyRow): string | undefined {
  */
 export function providerKeySupportsServiceTier(key: ProviderKeyRow): boolean {
 	return providerCredentialSupportsServiceTier(key.provider as Provider, {
-		baseUrl: key.config?.baseUrl ?? key.baseUrl,
 		region: providerKeyRegion(key),
 	});
 }

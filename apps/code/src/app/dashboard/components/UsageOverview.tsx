@@ -127,7 +127,7 @@ function WeeklyAllowanceMeter({
 					</div>
 					<div className="mt-0.5 text-xs text-muted-foreground">
 						{resetsAt
-							? `Resets ${formatDateTime(resetsAt, displayTimeZone, "monthDay")}`
+							? `Resets ${formatDateTime(resetsAt, displayTimeZone, "monthDayHourMinuteZone")}`
 							: "Window starts with your first premium request"}
 					</div>
 				</div>
@@ -329,12 +329,15 @@ export default function UsageOverview({
 				})()
 			: null;
 
+	const renewWhen = renewAt
+		? formatDateTime(renewAt, displayTimeZone, "monthDayYearHourMinuteZone")
+		: null;
 	const cycleEndsHint = cancelledAtPeriodEnd
-		? renewAt
-			? `Cancels ${formatDateTime(renewAt, displayTimeZone, "monthDayYear")}`
+		? renewWhen
+			? `Cancels ${renewWhen}`
 			: "Cancels at period end"
 		: renewAt
-			? `Renews in ${formatDistanceToNowStrict(renewAt)}`
+			? `Renews ${renewWhen} (in ${formatDistanceToNowStrict(renewAt)})`
 			: "—";
 
 	return (

@@ -376,7 +376,10 @@ describe("v1/master cache invalidation", () => {
 		const res = await app.request(`/v1/master/projects/${projectId}`, {
 			method: "PATCH",
 			headers: authHeaders({ "Content-Type": "application/json" }),
-			body: JSON.stringify({ name: "Renamed Project" }),
+			body: JSON.stringify({
+				name: "Renamed Project",
+				cachingEnabled: true,
+			}),
 		});
 		expect(res.status).toBe(200);
 
@@ -386,6 +389,90 @@ describe("v1/master cache invalidation", () => {
 			.from(tables.project)
 			.where(eq(tables.project.id, projectId));
 		expect(fresh[0]?.name).toBe("Renamed Project");
+		expect(fresh[0]?.cachingEnabled).toBe(true);
+	});
+
+	test("PATCH /projects/{id} rejects caching while ZDR is active", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const res = await app.request("/v1/master/projects/test-project-id", {
+			method: "PATCH",
+			headers: authHeaders({ "Content-Type": "application/json" }),
+			body: JSON.stringify({ cachingEnabled: true }),
+		});
+
+		expect(res.status).toBe(400);
+		expect(await res.json()).toMatchObject({
+			message: expect.stringContaining("response caching"),
+		});
+		expect(
+			(
+				await db.query.project.findFirst({
+					where: { id: { eq: "test-project-id" } },
+				})
+			)?.cachingEnabled,
+		).toBe(false);
+	});
+
+	test("POST /projects rejects caching while ZDR is active", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+
+		const res = await app.request("/v1/master/projects", {
+			method: "POST",
+			headers: authHeaders({ "Content-Type": "application/json" }),
+			body: JSON.stringify({
+				name: "Cached Project",
+				cachingEnabled: true,
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		expect(await res.json()).toMatchObject({
+			message: expect.stringContaining("response caching"),
+		});
+	});
+
+	test("PATCH /projects/{id} rejects provider caching while ZDR is active", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+		await db
+			.update(tables.project)
+			.set({ providerCacheControlMode: "off" })
+			.where(eq(tables.project.id, "test-project-id"));
+
+		const res = await app.request("/v1/master/projects/test-project-id", {
+			method: "PATCH",
+			headers: authHeaders({ "Content-Type": "application/json" }),
+			body: JSON.stringify({ providerCacheControlMode: "passthrough" }),
+		});
+
+		expect(res.status).toBe(400);
+		expect(await res.json()).toMatchObject({
+			message: expect.stringContaining("Provider prompt caching"),
+		});
 	});
 
 	test("DELETE /projects/{id} invalidates the gateway project cache", async () => {

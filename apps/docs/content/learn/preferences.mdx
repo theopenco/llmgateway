@@ -8,7 +8,13 @@ import { ThemedImage } from "@/components/themed-image";
 
 The Preferences page contains project-level settings that control how your project behaves.
 
-<ThemedImage alt="Preferences" basePath="/learn/preferences" />
+<ThemedImage
+	alt="Preferences"
+	basePath="/learn/preferences"
+	width={1440}
+	height={1623}
+	darkHeight={1656}
+/>
 
 ## Project Name
 
@@ -21,6 +27,8 @@ Configure how your organization handles projects. This setting determines the ro
 ## Caching
 
 Enable or configure response caching for API requests. When enabled, identical requests will return cached responses instead of making new calls to the provider, saving both time and cost.
+
+Response caching must be disabled for every project before the organization can enable [zero data retention](/features/compliance). While ZDR is active, response caching cannot be enabled and provider prompt-cache markers are stripped.
 
 Learn more about caching in the [Caching feature docs](/features/caching).
 

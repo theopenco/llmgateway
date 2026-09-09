@@ -51,6 +51,7 @@ async function fetchProviderStats() {
 describe("public providers stats", () => {
 	beforeEach(async () => {
 		await deleteAll();
+		await db.delete(tables.modelProviderMappingHistory);
 		// The endpoint read-through caches on a stable per-window tag with
 		// autoInvalidate off, so a seeded row alone won't dislodge the previous
 		// test's result.

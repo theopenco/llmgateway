@@ -7,6 +7,17 @@ description: Generate, review, edit, apply, or resolve conflicts for Drizzle dat
 
 Use this workflow for database schema changes and migration conflicts.
 
+## Default: use generated SQL
+
+Assume Drizzle applies migrations cleanly, in order, and tracks which have run.
+Generate, review, and commit the migration without adapting its SQL by default.
+
+Do not add `IF NOT EXISTS`, `IF EXISTS`, existence probes, or duplicate-object
+handlers for hypothetical reruns, partial application, or schema drift.
+Regenerating an unmerged migration after syncing with `main` does not justify
+compatibility with its earlier branch version. A speculative review warning is
+not evidence that a migration ran outside the normal workflow.
+
 ## Generate migrations
 
 - Run all commands from the repository root.
@@ -21,13 +32,17 @@ Use this workflow for database schema changes and migration conflicts.
 ## Editing generated migrations
 
 - Do not write a migration by hand from scratch. Generate it first with `pnpm migrations`.
-- If the generated migration needs adaptation, edit only the generated `.sql` file.
+- The operational exception is avoiding locks on huge tables, especially when creating indexes. Treat all history tables as large when reviewing locking behavior.
+- If that requires adaptation, edit only the generated `.sql` file.
 - Never manually edit any `*_snapshot.json` file.
 - Never manually edit `packages/db/migrations/meta/_journal.json`.
 - If the TypeScript schema is wrong, fix `packages/db/src/schema.ts` and regenerate instead of patching snapshot or journal metadata.
 - Use snake_case column names in SQL because Drizzle maps camelCase TypeScript fields to snake_case database columns.
 
-Appropriate `.sql`-only edits include adding safe data backfills, adjusting a generated type cast, adding a `USING` clause, splitting statements for safer execution, or preserving data during a rename. Keep the generated snapshot and journal exactly as Drizzle wrote them.
+For a large-table index change, a staged rollout may require splitting the
+change into two generated migrations and running `CREATE INDEX CONCURRENTLY`
+manually between them, outside a transaction. Document the required order in
+the SQL. Keep the generated snapshot and journal exactly as Drizzle wrote them.
 
 ## Conflict resolution
 
@@ -38,7 +53,7 @@ When merging with `main` and migration conflicts appear:
 0. The reset in step 1 rewrites `packages/db/migrations/` from `origin/main`, and it acts on **tracked files only**. Two consequences:
 
 - An untracked `.sql` (one you just generated but have not committed) survives the reset and then collides with what step 2 regenerates. It is also invisible to `git diff`, so the capture below would miss it.
-- Any hand-adaptation of a generated `.sql` — a `USING` clause, a data backfill, a rename that preserves data — is reverted, and `pnpm migrations` emits vanilla SQL from the schema diff, so it will **not** come back on its own.
+- Any necessary locking adaptation of a generated `.sql` is reverted, and `pnpm migrations` emits vanilla SQL from the schema diff, so it will **not** come back on its own.
 
 Commit (or delete) everything under the directory first, so nothing is untracked and the capture sees all of it:
 
@@ -61,7 +76,7 @@ git restore --source=origin/main packages/db/migrations/
 pnpm migrations
 ```
 
-3. Review the regenerated SQL, then re-apply any adaptations you captured in step 0. Adapt only the generated `.sql` file.
+3. Review the regenerated SQL, then re-apply only still-required locking adaptations captured in step 0. Do not carry speculative fallbacks forward. Adapt only the generated `.sql` file.
 
 ## Validation
 

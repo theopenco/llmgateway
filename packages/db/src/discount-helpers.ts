@@ -1,10 +1,27 @@
-import { and, eq, getTableName, isNull, or } from "drizzle-orm";
+import { and, desc, eq, getTableName, isNull, or } from "drizzle-orm";
 
 import { swrWrap } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
 import { cdb } from "./cdb.js";
-import { discount as discountTable } from "./schema.js";
+import {
+	discount as discountTable,
+	providerRoutingSettings,
+} from "./schema.js";
+
+type DiscountRow = Pick<
+	typeof discountTable.$inferSelect,
+	| "id"
+	| "organizationId"
+	| "provider"
+	| "model"
+	| "discountPercent"
+	| "expiresAt"
+>;
+type AirsideDiscountRow = Pick<
+	typeof providerRoutingSettings.$inferSelect,
+	"id" | "providerId" | "modelId" | "discountPercent"
+>;
 
 /**
  * Result of discount lookup with precedence information
@@ -20,6 +37,9 @@ export interface EffectiveDiscount {
 		| "global_provider_model"
 		| "global_provider"
 		| "global_model"
+		| "global"
+		| "airside_provider_model"
+		| "airside_provider"
 		| "none";
 	/** The discount record ID if from database */
 	discountId?: string;
@@ -36,6 +56,8 @@ export interface EffectiveDiscount {
  * 4. Global + Provider + Model discount
  * 5. Global + Provider discount
  * 6. Global + Model discount
+ * 7. Fully global discount
+ * 8. Approved Airside model override, or carrier default
  *
  * Discounts are always keyed by the canonical model ID — provider-specific model
  * names are reserved for upstream requests and are never persisted as a
@@ -56,7 +78,7 @@ export async function getEffectiveDiscount(
 		// known discount is served instead of silently dropping to 0%.
 		return await swrWrap(
 			`discount:${organizationId ?? "global"}:${provider}:${model}`,
-			[getTableName(discountTable)],
+			[getTableName(discountTable), getTableName(providerRoutingSettings)],
 			() => queryEffectiveDiscount(organizationId, provider, model),
 		);
 	} catch (error) {
@@ -104,15 +126,52 @@ async function queryEffectiveDiscount(
 				),
 				or(eq(discountTable.model, model), isNull(discountTable.model)),
 			),
+		)
+		.orderBy(desc(discountTable.createdAt));
+	const airsideSettings = await cdb
+		.select({
+			id: providerRoutingSettings.id,
+			providerId: providerRoutingSettings.providerId,
+			modelId: providerRoutingSettings.modelId,
+			discountPercent: providerRoutingSettings.discountPercent,
+		})
+		.from(providerRoutingSettings)
+		.where(
+			and(
+				eq(providerRoutingSettings.providerId, provider),
+				or(
+					eq(providerRoutingSettings.modelId, model),
+					isNull(providerRoutingSettings.modelId),
+				),
+			),
 		);
+	return resolveEffectiveDiscount(
+		rows,
+		airsideSettings,
+		organizationId,
+		provider,
+		model,
+	);
+}
 
+export function resolveEffectiveDiscount(
+	rows: DiscountRow[],
+	airsideSettings: AirsideDiscountRow[],
+	organizationId: string | null,
+	provider: string,
+	model: string,
+): EffectiveDiscount {
 	const now = Date.now();
 	const discounts = rows.filter(
 		// expiresAt is a Date on both a fresh query and a Drizzle cache hit (the
 		// cache stores the raw pg result and re-applies the timestamp parser on
 		// restore). Wrap in new Date() defensively so the compare is robust even
 		// if a serialized value ever reaches here.
-		(d) => d.expiresAt === null || new Date(d.expiresAt).getTime() >= now,
+		(d) =>
+			Number.isFinite(Number(d.discountPercent)) &&
+			Number(d.discountPercent) >= 0 &&
+			Number(d.discountPercent) <= 1 &&
+			(d.expiresAt === null || new Date(d.expiresAt).getTime() >= now),
 	);
 
 	const modelMatches = (discountModel: string | null): boolean =>
@@ -206,6 +265,38 @@ async function queryEffectiveDiscount(
 			discount: globalModel.discountPercent,
 			source: "global_model",
 			discountId: globalModel.id,
+		};
+	}
+	const global = discounts.find(
+		(d) => d.organizationId === null && d.provider === null && d.model === null,
+	);
+	if (global) {
+		return {
+			discount: global.discountPercent,
+			source: "global",
+			discountId: global.id,
+		};
+	}
+
+	const airside =
+		airsideSettings.find(
+			(row) => row.providerId === provider && row.modelId === model,
+		) ??
+		airsideSettings.find(
+			(row) => row.providerId === provider && row.modelId === null,
+		);
+	if (
+		airside &&
+		Number(airside.discountPercent) > 0 &&
+		Number(airside.discountPercent) <= 1
+	) {
+		return {
+			discount: airside.discountPercent,
+			source:
+				airside.modelId === null
+					? "airside_provider"
+					: "airside_provider_model",
+			discountId: airside.id,
 		};
 	}
 

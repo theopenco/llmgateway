@@ -162,6 +162,16 @@ describe("model service tier support", () => {
 			),
 		).toEqual(["flex", "priority"]);
 		expect(
+			getSupportedServiceTiers("gemini-3.8-flash", "google-vertex").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["flex", "priority"]);
+		expect(
+			getSupportedServiceTiers("gemini-3.1-flash-image", "google-vertex").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["flex"]);
+		expect(
 			getSupportedServiceTiers("gemini-3-pro-image", "google-vertex").map(
 				(tier) => tier.id,
 			),
@@ -203,6 +213,11 @@ describe("model service tier support", () => {
 		).toEqual(["flex", "priority"]);
 		expect(
 			getSupportedServiceTiers("gemini-3.5-flash", "google-ai-studio").map(
+				(tier) => tier.id,
+			),
+		).toEqual(["flex", "priority"]);
+		expect(
+			getSupportedServiceTiers("gemini-3.8-flash", "google-ai-studio").map(
 				(tier) => tier.id,
 			),
 		).toEqual(["flex", "priority"]);
@@ -250,6 +265,9 @@ describe("model service tier support", () => {
 		expect(getSupportedServiceTiers("gpt-4o", "openai")).toEqual([]);
 		expect(
 			supportsServiceTier("gemini-3-pro-preview", "google-vertex", "priority"),
+		).toBe(false);
+		expect(
+			supportsServiceTier("gemini-3.1-flash-image", "google-ai-studio", "flex"),
 		).toBe(false);
 		expect(
 			supportsServiceTier(

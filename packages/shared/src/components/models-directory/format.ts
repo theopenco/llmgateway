@@ -1,3 +1,9 @@
+import {
+	discountedPriceValues,
+	effectiveUnitPrice,
+	roundPerUnit,
+} from "./pricing-schedule";
+
 /**
  * Formats a context size number into a human-readable string with k/M suffixes
  * @param contextSize - The context size in tokens
@@ -57,16 +63,48 @@ export function formatPerImagePriceRange(
 	perImagePrice: Record<string, string | number>,
 	discount?: string | null,
 ): string | null {
-	const discountNum = discount ? parseFloat(discount) : 0;
-	const values = Object.values(perImagePrice)
-		.map(Number)
-		.filter(Number.isFinite)
-		.map((v) => (discountNum > 0 ? v * (1 - discountNum) : v));
+	const values = discountedPriceValues(perImagePrice, discount);
 	if (values.length === 0) {
 		return null;
 	}
-	const fmt = (n: number) => `$${parseFloat(n.toFixed(4))}`;
 	const min = Math.min(...values);
 	const max = Math.max(...values);
-	return min === max ? fmt(min) : `${fmt(min)} – ${fmt(max)}`;
+	return min === max
+		? formatPerUnitPrice(min)
+		: `${formatPerUnitPrice(min)} – ${formatPerUnitPrice(max)}`;
+}
+
+/** Formats a per-unit (image/second/1K chars) price, e.g. "$0.0467". */
+export function formatPerUnitPrice(value: number): string {
+	return `$${roundPerUnit(value)}`;
+}
+
+/**
+ * Label for a per-second price map: the default_video/default_audio pair as
+ * "$a – $b", else the default tier as "$a". `original` is the label before
+ * discount. Callers add "/sec" and handle the null (no default tier) case.
+ */
+export function formatPerSecondPriceLabel(
+	perSecondPrice: Record<string, string | number>,
+	discount?: string | null,
+	multiplier = 1,
+): { value: string; original: string; tiers: string[] } | null {
+	const label = (tiers: string[], d?: string | null): string | null => {
+		const parts: string[] = [];
+		for (const tier of tiers) {
+			const price = effectiveUnitPrice(perSecondPrice[tier], d);
+			if (price === null) {
+				return null;
+			}
+			parts.push(formatPerUnitPrice(price * multiplier));
+		}
+		return parts.join(" – ");
+	};
+	for (const tiers of [["default_video", "default_audio"], ["default"]]) {
+		const value = label(tiers, discount);
+		if (value !== null) {
+			return { value, original: label(tiers) ?? value, tiers };
+		}
+	}
+	return null;
 }

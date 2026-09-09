@@ -22,12 +22,15 @@ export const fetchModels = cache(async (): Promise<ApiModel[]> => {
 });
 
 export const fetchModelDiscounts = cache(
-	async (modelId: string): Promise<DiscountData[]> => {
+	async (
+		modelId: string,
+		revalidate: number | false = 60,
+	): Promise<DiscountData[]> => {
 		const config = getConfig();
 		try {
 			const response = await fetch(
 				`${config.apiBackendUrl}/public/discounts/model/${encodeURIComponent(modelId)}`,
-				{ next: { revalidate: 60 } },
+				{ next: { revalidate } },
 			);
 			if (!response.ok) {
 				console.error("Failed to fetch discounts:", response.statusText);

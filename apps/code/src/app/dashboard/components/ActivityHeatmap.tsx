@@ -195,10 +195,13 @@ export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 	}
 
 	return (
-		<section className="rounded-2xl border bg-card overflow-hidden">
-			<div className="flex flex-col gap-1 border-b bg-gradient-to-br from-card to-card/40 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+		<section
+			className="rounded-2xl border bg-card overflow-hidden"
+			aria-busy={isLoading}
+		>
+			<div className="flex min-h-[132px] flex-col gap-1 border-b bg-gradient-to-br from-card to-card/40 px-6 py-5 sm:min-h-0 sm:flex-row sm:items-center sm:justify-between">
 				<div className="flex items-start gap-3">
-					<div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/20">
+					<div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/20">
 						<Activity className="h-4 w-4 text-emerald-500" />
 					</div>
 					<div>
@@ -223,23 +226,22 @@ export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 
 			<div className="overflow-x-auto px-6 py-6">
 				<div className="mx-auto flex w-fit flex-col gap-1.5">
+					<div className="flex h-3.5 gap-[3px] pl-7 text-[10px] text-muted-foreground">
+						{weeks.map((_, w) => {
+							const mark = monthMarks.find((m) => m.weekIndex === w);
+							return (
+								<div key={w} className="w-3 flex-shrink-0">
+									{mark?.label ?? ""}
+								</div>
+							);
+						})}
+					</div>
 					{isLoading ? (
-						<div className="flex h-[126px] items-center text-xs text-muted-foreground">
+						<div className="flex h-[131px] items-center justify-center text-xs text-muted-foreground">
 							Loading your activity…
 						</div>
 					) : (
 						<>
-							<div className="flex h-3.5 gap-[3px] pl-7 text-[10px] text-muted-foreground">
-								{weeks.map((_, w) => {
-									const mark = monthMarks.find((m) => m.weekIndex === w);
-									return (
-										<div key={w} className="w-3 flex-shrink-0">
-											{mark?.label ?? ""}
-										</div>
-									);
-								})}
-							</div>
-
 							<div className="flex gap-[3px]">
 								<div className="flex w-6 flex-shrink-0 flex-col gap-[3px] pr-1 text-[10px] text-muted-foreground">
 									<div className="h-3" />

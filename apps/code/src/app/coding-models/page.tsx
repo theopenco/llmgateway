@@ -6,7 +6,7 @@ import { Footer } from "@/components/Footer";
 import { GetDevPassButton } from "@/components/GetDevPassButton";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
-import { codingModelCards } from "@/lib/coding-models";
+import { getCodingModelCards } from "@/lib/coding-models";
 
 import type { Metadata } from "next";
 
@@ -15,9 +15,17 @@ export const metadata: Metadata = {
 	description:
 		"High-performance AI models optimized for coding tasks with tool support, JSON output, streaming, and prompt caching.",
 	alternates: { canonical: "/coding-models" },
+	openGraph: {
+		title: "AI Models for Coding | DevPass",
+		description:
+			"High-performance AI models optimized for coding tasks with tool support, JSON output, streaming, and prompt caching.",
+		type: "website",
+		url: "https://devpass.llmgateway.io/coding-models",
+	},
 };
 
-export default function CodingModelsPage() {
+export default async function CodingModelsPage() {
+	const codingModelCards = await getCodingModelCards();
 	return (
 		<div className="min-h-screen bg-background">
 			<Header />

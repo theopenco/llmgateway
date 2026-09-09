@@ -34,8 +34,15 @@ import {
 	findProviderKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
-import { assertProviderCompliant } from "@/lib/compliance.js";
+import {
+	assertProviderCompliant,
+	getEffectiveRetentionLevel,
+} from "@/lib/compliance.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
+import {
+	rateLimitHeaders,
+	standardErrorResponses,
+} from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
@@ -115,15 +122,6 @@ interface SpeechErrorBody {
 		code: string;
 	};
 }
-
-const speechErrorSchema = z.object({
-	error: z.object({
-		message: z.string(),
-		type: z.string(),
-		param: z.string().nullable(),
-		code: z.string(),
-	}),
-});
 
 /** Minimal shape of a Gemini `generateContent` response part. */
 interface GeminiPart {
@@ -414,6 +412,7 @@ const createSpeech = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"audio/wav": { schema: z.any() },
 				"audio/mpeg": { schema: z.any() },
@@ -421,34 +420,7 @@ const createSpeech = createRoute({
 			},
 			description: "Generated audio.",
 		},
-		400: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Invalid request body or parameters.",
-		},
-		401: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Unauthorized request.",
-		},
-		402: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Payment required / insufficient credits.",
-		},
-		403: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Forbidden.",
-		},
-		500: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Internal server error.",
-		},
-		502: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Failed to connect to the upstream provider.",
-		},
-		504: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Upstream provider timeout.",
-		},
+		...standardErrorResponses(),
 	},
 });
 
@@ -652,7 +624,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		});
 	}
 
-	const retentionLevel = organization.retentionLevel ?? "none";
+	const retentionLevel = getEffectiveRetentionLevel(organization);
 
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
@@ -880,15 +852,19 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			throw new HTTPException(500, { message: "No token" });
 		}
 
-		const envBaseUrl = getCredentialSetting(providerId, "baseUrl", managedKey, {
-			configIndex,
-			variant: envVariant,
-		});
+		const credential = { providerKey, managedKey };
 		const resolvedBaseUrl =
 			providerKey?.baseUrl ??
-			envBaseUrl ??
-			PROVIDER_BASE_URL_DEFAULTS[providerId] ??
-			"https://generativelanguage.googleapis.com";
+			getCredentialSetting(providerId, "baseUrl", credential, {
+				configIndex,
+				variant: envVariant,
+			}) ??
+			PROVIDER_BASE_URL_DEFAULTS[providerId];
+		if (!resolvedBaseUrl) {
+			throw new HTTPException(500, {
+				message: `No base URL set for provider: ${providerId}`,
+			});
+		}
 
 		const elevenLabsOutputFormat =
 			ELEVENLABS_OUTPUT_FORMATS[responseFormat] ?? "mp3_44100_128";
@@ -908,7 +884,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		} else if (isGoogleVertex) {
 			const vertexProjectId =
 				providerKey?.options?.google_vertex_project_id ??
-				getCredentialSetting("google-vertex", "project", managedKey, {
+				getCredentialSetting("google-vertex", "project", credential, {
 					configIndex,
 					variant: envVariant,
 				});
@@ -928,7 +904,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				});
 			}
 			const vertexRegion =
-				getCredentialSetting("google-vertex", "region", managedKey, {
+				getCredentialSetting("google-vertex", "region", credential, {
 					configIndex,
 					defaultValue: "global",
 					variant: envVariant,
@@ -1417,7 +1393,9 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						logger.warn("Speech API - no audio in SSE stream", {
 							requestId,
 							model: upstreamModel,
-							sseError: sseErrorMessage,
+							...(retentionLevel === "retain" && {
+								sseError: sseErrorMessage,
+							}),
 						});
 						routingAttempts.push(
 							buildRoutingAttempt(

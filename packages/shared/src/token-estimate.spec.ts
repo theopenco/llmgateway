@@ -92,9 +92,10 @@ describe("estimateChatMessageTokens", () => {
 });
 
 describe("estimateChatMessageTokens (multimodal-aware, with modelId)", () => {
-	// A real model id whose provider declares imageInputTokensByResolution: { default: 560 }
+	// A real model id whose provider declares imageInputTokensByResolution: { default: 1120 }
 	const IMAGE_MODEL = "gemini-3.1-flash-image-preview";
-	const TOKENS_PER_IMAGE = 560;
+	const TOKENS_PER_IMAGE = 1120;
+	const DEFAULT_TOKENS_PER_IMAGE = 560;
 
 	it("counts image-only content at the model's per-image rate", () => {
 		const messages = [
@@ -124,7 +125,7 @@ describe("estimateChatMessageTokens (multimodal-aware, with modelId)", () => {
 				],
 			},
 		];
-		// round(21/4)=5, + 560
+		// round(21/4)=5, + 1120
 		expect(estimateChatMessageTokens(messages, IMAGE_MODEL)).toBe(
 			5 + TOKENS_PER_IMAGE,
 		);
@@ -150,7 +151,7 @@ describe("estimateChatMessageTokens (multimodal-aware, with modelId)", () => {
 		];
 		// 560 is also the documented default fallback
 		expect(estimateChatMessageTokens(messages, "no-such-model-xyz")).toBe(
-			TOKENS_PER_IMAGE,
+			DEFAULT_TOKENS_PER_IMAGE,
 		);
 	});
 

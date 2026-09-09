@@ -34,6 +34,23 @@ describe("realtimeModelIdsMatch", () => {
 		).toBe(true);
 	});
 
+	it("matches transcription models by session kind", () => {
+		expect(
+			realtimeModelIdsMatch(
+				"gpt-live-transcribe",
+				"openai/gpt-live-transcribe",
+				"transcription",
+			),
+		).toBe(true);
+		// A transcription model never matches as a realtime session model.
+		expect(
+			realtimeModelIdsMatch(
+				"gpt-live-transcribe",
+				"openai/gpt-live-transcribe",
+			),
+		).toBe(false);
+	});
+
 	it("rejects different or unknown model ids", () => {
 		expect(
 			realtimeModelIdsMatch(

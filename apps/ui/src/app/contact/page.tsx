@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 		"Contact the LLM Gateway team: email support, Discord community, GitHub issues, and enterprise sales. Company details and postal address included.",
 	alternates: { canonical: "/contact" },
 	openGraph: {
-		title: "Contact | LLM Gateway",
+		title: "Contact LLM Gateway",
 		description:
 			"Contact the LLM Gateway team: email support, Discord community, GitHub issues, and enterprise sales.",
 		url: "https://llmgateway.io/contact",

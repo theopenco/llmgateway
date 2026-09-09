@@ -340,8 +340,10 @@ export async function logViolation(
 		apiKeyId?: string;
 		model?: string;
 		contentHash?: string;
+		retainSensitiveContent?: boolean;
 	},
 ): Promise<void> {
+	const retainSensitiveContent = metadata?.retainSensitiveContent !== false;
 	await db.insert(guardrailViolation).values({
 		organizationId,
 		ruleId: violation.ruleId,
@@ -353,8 +355,12 @@ export async function logViolation(
 				: violation.action === "redact"
 					? "redacted"
 					: "warned",
-		matchedPattern: violation.matchedPattern,
-		matchedContent: violation.matchedContent,
+		matchedPattern: retainSensitiveContent
+			? violation.matchedPattern
+			: undefined,
+		matchedContent: retainSensitiveContent
+			? violation.matchedContent
+			: undefined,
 		logId: metadata?.logId,
 		apiKeyId: metadata?.apiKeyId,
 		model: metadata?.model,

@@ -2,8 +2,12 @@
 
 import { format, parseISO } from "date-fns";
 import { useMemo, useState } from "react";
-import { CartesianGrid, Line, LineChart, XAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis } from "recharts";
 
+import {
+	ChartTypeToggle,
+	type ChartType,
+} from "@/components/chart-type-toggle";
 import {
 	Card,
 	CardContent,
@@ -82,6 +86,8 @@ export function DevpassTimeseriesChart({
 		"rawRevenue",
 	]);
 	const [cumulative, setCumulative] = useState(false);
+	const [chartType, setChartType] = useState<ChartType>("line");
+	const ChartRoot = chartType === "line" ? LineChart : BarChart;
 	const $api = useApi();
 	const { data, isLoading, isError } = $api.useQuery(
 		"get",
@@ -141,18 +147,21 @@ export function DevpassTimeseriesChart({
 						totals won&apos;t match the cycle-scoped KPI cards above.
 					</CardDescription>
 				</div>
-				<div className="flex shrink-0 items-center gap-2">
-					<Label
-						htmlFor="devpass-cumulative"
-						className="text-xs font-normal text-muted-foreground"
-					>
-						Cumulative
-					</Label>
-					<Switch
-						id="devpass-cumulative"
-						checked={cumulative}
-						onCheckedChange={setCumulative}
-					/>
+				<div className="flex shrink-0 flex-wrap items-center gap-3">
+					<div className="flex items-center gap-2">
+						<Label
+							htmlFor="devpass-cumulative"
+							className="text-xs font-normal text-muted-foreground"
+						>
+							Cumulative
+						</Label>
+						<Switch
+							id="devpass-cumulative"
+							checked={cumulative}
+							onCheckedChange={setCumulative}
+						/>
+					</div>
+					<ChartTypeToggle value={chartType} onValueChange={setChartType} />
 				</div>
 			</CardHeader>
 			<div className="grid grid-cols-2 border-y sm:grid-cols-5">
@@ -215,7 +224,11 @@ export function DevpassTimeseriesChart({
 						config={chartConfig}
 						className="aspect-auto h-[250px] w-full"
 					>
-						<LineChart data={chartData} margin={{ left: 12, right: 12 }}>
+						<ChartRoot
+							data={chartData}
+							accessibilityLayer
+							margin={{ left: 12, right: 12 }}
+						>
 							<CartesianGrid vertical={false} />
 							<XAxis
 								dataKey="date"
@@ -253,17 +266,27 @@ export function DevpassTimeseriesChart({
 									/>
 								}
 							/>
-							{activeSeries.map((key) => (
-								<Line
-									key={key}
-									dataKey={key}
-									type="monotone"
-									stroke={`var(--color-${key})`}
-									strokeWidth={2}
-									dot={false}
-								/>
-							))}
-						</LineChart>
+							{activeSeries.map((key) =>
+								chartType === "line" ? (
+									<Line
+										key={key}
+										dataKey={key}
+										type="monotone"
+										stroke={`var(--color-${key})`}
+										strokeWidth={2}
+										dot={false}
+									/>
+								) : (
+									<Bar
+										key={key}
+										dataKey={key}
+										fill={`var(--color-${key})`}
+										maxBarSize={32}
+										radius={[2, 2, 0, 0]}
+									/>
+								),
+							)}
+						</ChartRoot>
 					</ChartContainer>
 				)}
 			</CardContent>

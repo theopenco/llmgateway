@@ -2,6 +2,7 @@ import { HTTPException } from "hono/http-exception";
 
 import { db } from "@llmgateway/db";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 /**
  * Ensures the authenticated user is an owner/admin of an enterprise
@@ -25,7 +26,7 @@ export async function requireEnterpriseAdmin(
 		});
 	}
 
-	if (userOrganization.role === "developer") {
+	if (!isOrganizationAdmin(userOrganization.role)) {
 		throw new HTTPException(403, {
 			message: "Only organization owners and admins can view member usage",
 		});

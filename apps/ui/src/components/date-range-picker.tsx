@@ -17,11 +17,13 @@ import {
 	subWeeks,
 	subYears,
 } from "date-fns";
-import { ChevronDownIcon, ChevronLeftIcon } from "lucide-react";
+import { ChevronDownIcon } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { GENERATED_RANGE_PARAM } from "@/hooks/useZonedRangeDefaults";
+import { Button } from "@/lib/components/button";
+import { Calendar } from "@/lib/components/calendar";
 import { Input } from "@/lib/components/input";
 import {
 	Popover,
@@ -36,6 +38,8 @@ import {
 	useDisplayTimeZone,
 } from "@llmgateway/shared";
 
+import type { DateRange } from "react-day-picker";
+
 interface DatePreset {
 	label: string;
 	value: string;
@@ -46,21 +50,6 @@ interface DateRangePickerProps {
 	buildUrl: (path?: string) => string;
 	path?: string;
 }
-
-const MONTH_NAMES = [
-	"Jan",
-	"Feb",
-	"Mar",
-	"Apr",
-	"May",
-	"Jun",
-	"Jul",
-	"Aug",
-	"Sep",
-	"Oct",
-	"Nov",
-	"Dec",
-];
 
 function getQuarterLabel(date: Date): string {
 	return `Q${getQuarter(date)} ${format(date, "yyyy")}`;
@@ -227,132 +216,80 @@ function getDateRangeFromParams(
 	};
 }
 
-function compareMonth(a: Date, b: Date): number {
-	// eslint-disable-next-line no-mixed-operators
-	const aMonths = a.getFullYear() * 12 + a.getMonth();
-	// eslint-disable-next-line no-mixed-operators
-	const bMonths = b.getFullYear() * 12 + b.getMonth();
-	return aMonths - bMonths;
-}
-
-interface MonthRangePickerProps {
+interface DayRangePickerProps {
 	from: Date;
 	to: Date;
 	onSelect: (from: Date, to: Date) => void;
+	onCancel?: () => void;
+	applyLabel?: string;
 }
 
-function MonthRangePicker({ from, to, onSelect }: MonthRangePickerProps) {
+export function DayRangePicker({
+	from,
+	to,
+	onSelect,
+	onCancel,
+	applyLabel = "Apply range",
+}: DayRangePickerProps) {
 	const { timeZone } = useDisplayTimeZone();
-	// The display zone's calendar day, so "future month" is judged against the
-	// same clock the ranges are written in.
 	const today = new Date(`${formatDayKey(new Date(), timeZone)}T00:00:00`);
-	const [leftYear, setLeftYear] = useState(() => today.getFullYear() - 1);
-	const [pendingFrom, setPendingFrom] = useState<Date | null>(null);
-	const [hoverMonth, setHoverMonth] = useState<Date | null>(null);
-	const rightYear = leftYear + 1;
-
-	const handleMonthClick = (year: number, monthIdx: number) => {
-		if (
-			year > today.getFullYear() ||
-			(year === today.getFullYear() && monthIdx > today.getMonth())
-		) {
-			return;
-		}
-		const clicked = new Date(year, monthIdx, 1);
-		if (!pendingFrom) {
-			setPendingFrom(clicked);
-		} else {
-			const [start, end] =
-				clicked < pendingFrom ? [clicked, pendingFrom] : [pendingFrom, clicked];
-			onSelect(startOfMonth(start), endOfMonth(end));
-			setPendingFrom(null);
-			setHoverMonth(null);
-		}
-	};
-
-	const getEffectiveRange = (): { lo: Date; hi: Date } => {
-		if (pendingFrom && hoverMonth) {
-			return pendingFrom <= hoverMonth
-				? { lo: pendingFrom, hi: hoverMonth }
-				: { lo: hoverMonth, hi: pendingFrom };
-		}
-		return { lo: from, hi: to };
-	};
-
-	const isFutureMonth = (year: number, monthIdx: number) =>
-		year > today.getFullYear() ||
-		(year === today.getFullYear() && monthIdx > today.getMonth());
-
-	const renderYearPanel = (year: number) => {
-		const { lo, hi } = getEffectiveRange();
-		return (
-			<div className="flex-1 min-w-0">
-				<div className="mb-2 text-center text-sm font-medium">{year}</div>
-				<div className="grid grid-cols-3 gap-1">
-					{MONTH_NAMES.map((name, idx) => {
-						const d = new Date(year, idx, 1);
-						const disabled = isFutureMonth(year, idx);
-						const inRange =
-							!disabled && compareMonth(d, lo) >= 0 && compareMonth(d, hi) <= 0;
-						const isStart =
-							!disabled && year === lo.getFullYear() && idx === lo.getMonth();
-						const isEnd =
-							!disabled && year === hi.getFullYear() && idx === hi.getMonth();
-						return (
-							<button
-								key={name}
-								type="button"
-								disabled={disabled}
-								onClick={() => handleMonthClick(year, idx)}
-								onMouseEnter={() => {
-									if (pendingFrom) {
-										setHoverMonth(new Date(year, idx, 1));
-									}
-								}}
-								onMouseLeave={() => {
-									if (pendingFrom) {
-										setHoverMonth(null);
-									}
-								}}
-								className={cn(
-									"rounded px-2 py-1.5 text-sm transition-colors",
-									disabled
-										? "cursor-not-allowed opacity-30"
-										: "cursor-pointer hover:bg-accent",
-									inRange && "bg-accent/40",
-									(isStart || isEnd) &&
-										"bg-primary text-primary-foreground hover:bg-primary/90",
-								)}
-							>
-								{name}
-							</button>
-						);
-					})}
-				</div>
-			</div>
-		);
-	};
+	const [range, setRange] = useState<DateRange | undefined>({ from, to });
+	const canApply = Boolean(range?.from && range.to);
 
 	return (
-		<div>
-			<div className="flex items-start gap-3">
-				<button
-					type="button"
-					onClick={() => setLeftYear((y) => y - 1)}
-					className="mt-1 rounded p-1 hover:bg-accent"
-				>
-					<ChevronLeftIcon className="h-4 w-4" />
-				</button>
-				<div className="flex flex-1 gap-6">
-					{renderYearPanel(leftYear)}
-					{renderYearPanel(rightYear)}
+		<div className="space-y-3">
+			<div className="grid grid-cols-2 gap-2 px-3 pt-3 sm:px-0 sm:pt-0">
+				<div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2">
+					<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+						From
+					</p>
+					<p className="mt-0.5 text-sm font-medium tabular-nums">
+						{range?.from ? format(range.from, "MMM d, yyyy") : "Select a day"}
+					</p>
+				</div>
+				<div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2">
+					<p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+						To
+					</p>
+					<p className="mt-0.5 text-sm font-medium tabular-nums">
+						{range?.to ? format(range.to, "MMM d, yyyy") : "Select a day"}
+					</p>
 				</div>
 			</div>
-			{pendingFrom && (
-				<p className="mt-2 text-center text-xs text-muted-foreground">
-					Select end month
+			<Calendar
+				mode="range"
+				selected={range}
+				onSelect={setRange}
+				defaultMonth={range?.from}
+				disabled={{ after: today }}
+				numberOfMonths={2}
+				showOutsideDays={false}
+				className="p-0 max-sm:[&_.rdp-month~.rdp-month]:hidden"
+			/>
+			<div className="flex items-center justify-between border-t px-3 pt-3 sm:px-0">
+				<p className="text-xs text-muted-foreground">
+					Select a start and end day
 				</p>
-			)}
+				<div className="flex items-center gap-2">
+					{onCancel && (
+						<Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+							Cancel
+						</Button>
+					)}
+					<Button
+						type="button"
+						size="sm"
+						disabled={!canApply}
+						onClick={() => {
+							if (range?.from && range.to) {
+								onSelect(range.from, range.to);
+							}
+						}}
+					>
+						{applyLabel}
+					</Button>
+				</div>
+			</div>
 		</div>
 	);
 }
@@ -441,7 +378,12 @@ export function DateRangePicker({ buildUrl, path }: DateRangePickerProps) {
 				</button>
 			</PopoverTrigger>
 			<PopoverContent
-				className={cn("p-0", showCalendar ? "w-[500px]" : "w-72")}
+				className={cn(
+					"p-0",
+					showCalendar
+						? "max-h-[var(--radix-popover-content-available-height)] w-[calc(100vw-2rem)] overflow-y-auto p-3 sm:w-auto"
+						: "w-72",
+				)}
 				align="start"
 			>
 				{!showCalendar ? (
@@ -471,34 +413,13 @@ export function DateRangePicker({ buildUrl, path }: DateRangePickerProps) {
 						</div>
 					</div>
 				) : (
-					<div className="p-4">
-						<div className="mb-4 flex items-center gap-4">
-							<div>
-								<p className="text-xs text-muted-foreground">From</p>
-								<p className="text-sm font-medium">
-									{format(from, "MMM d, yyyy")}
-								</p>
-							</div>
-							<span className="text-muted-foreground">–</span>
-							<div>
-								<p className="text-xs text-muted-foreground">To</p>
-								<p className="text-sm font-medium">
-									{format(to, "MMM d, yyyy")}
-								</p>
-							</div>
-						</div>
-						<MonthRangePicker
+					<div>
+						<DayRangePicker
 							from={from}
 							to={to}
 							onSelect={handleCustomSelect}
+							onCancel={() => setShowCalendar(false)}
 						/>
-						<button
-							type="button"
-							onClick={() => setShowCalendar(false)}
-							className="mt-3 text-xs text-muted-foreground hover:text-foreground"
-						>
-							← Back to presets
-						</button>
 					</div>
 				)}
 			</PopoverContent>

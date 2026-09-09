@@ -241,6 +241,23 @@ export async function assertCustomProviderNameAvailable(
 			message: `A custom provider named '${name}' already exists for this organization`,
 		});
 	}
+
+	// Custom provider names share the "name/model" request-prefix namespace
+	// with Airside carrier ids. A collision would make the gateway resolve the
+	// carrier before this organization's key, so the namespaces stay disjoint
+	// (carrier registration enforces the mirror check).
+	const carrier = await db.query.providerClaim.findFirst({
+		where: {
+			providerId: { eq: name },
+			status: { in: ["pending", "active"] },
+		},
+		columns: { id: true },
+	});
+	if (carrier) {
+		throw new HTTPException(400, {
+			message: `'${name}' is a registered carrier on LLM Gateway — pick a different custom provider name`,
+		});
+	}
 }
 
 /**

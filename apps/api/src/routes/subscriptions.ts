@@ -2,11 +2,11 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { getBillingOrganization } from "@/lib/billing-organization.js";
 import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import { ensureStripeCustomer } from "@/stripe.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
-import { db } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 import { getStripe } from "./payments.js";
@@ -15,10 +15,13 @@ import type { ServerTypes } from "@/vars.js";
 
 export const subscriptions = new OpenAPIHono<ServerTypes>();
 
+const organizationQuery = z.object({ organizationId: z.string().optional() });
+
 const createProSubscription = createRoute({
 	method: "post",
 	path: "/create-pro-subscription",
 	request: {
+		query: organizationQuery,
 		body: {
 			content: {
 				"application/json": {
@@ -63,20 +66,11 @@ subscriptions.openapi(createProSubscription, async (c) => {
 		});
 	}
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	if (!userOrganization || !userOrganization.organization) {
-		throw new HTTPException(404, {
-			message: "Organization or user not found",
-		});
-	}
+	const { organizationId } = c.req.valid("query");
+	const userOrganization = await getBillingOrganization(
+		user.id,
+		organizationId,
+	);
 
 	// Only owners can manage subscriptions
 	if (userOrganization.role !== "owner") {
@@ -180,7 +174,7 @@ subscriptions.openapi(createProSubscription, async (c) => {
 const cancelProSubscription = createRoute({
 	method: "post",
 	path: "/cancel-pro-subscription",
-	request: {},
+	request: { query: organizationQuery },
 	responses: {
 		200: {
 			content: {
@@ -204,20 +198,11 @@ subscriptions.openapi(cancelProSubscription, async (c) => {
 		});
 	}
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	if (!userOrganization || !userOrganization.organization) {
-		throw new HTTPException(404, {
-			message: "Organization not found",
-		});
-	}
+	const { organizationId } = c.req.valid("query");
+	const userOrganization = await getBillingOrganization(
+		user.id,
+		organizationId,
+	);
 
 	// Only owners can manage subscriptions
 	if (userOrganization.role !== "owner") {
@@ -270,7 +255,7 @@ subscriptions.openapi(cancelProSubscription, async (c) => {
 const resumeProSubscription = createRoute({
 	method: "post",
 	path: "/resume-pro-subscription",
-	request: {},
+	request: { query: organizationQuery },
 	responses: {
 		200: {
 			content: {
@@ -294,20 +279,11 @@ subscriptions.openapi(resumeProSubscription, async (c) => {
 		});
 	}
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	if (!userOrganization || !userOrganization.organization) {
-		throw new HTTPException(404, {
-			message: "Organization not found",
-		});
-	}
+	const { organizationId } = c.req.valid("query");
+	const userOrganization = await getBillingOrganization(
+		user.id,
+		organizationId,
+	);
 
 	// Only owners can manage subscriptions
 	if (userOrganization.role !== "owner") {
@@ -371,7 +347,7 @@ subscriptions.openapi(resumeProSubscription, async (c) => {
 const upgradeToYearlyPlan = createRoute({
 	method: "post",
 	path: "/upgrade-to-yearly",
-	request: {},
+	request: { query: organizationQuery },
 	responses: {
 		200: {
 			content: {
@@ -395,20 +371,11 @@ subscriptions.openapi(upgradeToYearlyPlan, async (c) => {
 		});
 	}
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	if (!userOrganization || !userOrganization.organization) {
-		throw new HTTPException(404, {
-			message: "Organization not found",
-		});
-	}
+	const { organizationId } = c.req.valid("query");
+	const userOrganization = await getBillingOrganization(
+		user.id,
+		organizationId,
+	);
 
 	// Only owners can manage subscriptions
 	if (userOrganization.role !== "owner") {
@@ -486,7 +453,7 @@ subscriptions.openapi(upgradeToYearlyPlan, async (c) => {
 const getSubscriptionStatus = createRoute({
 	method: "get",
 	path: "/status",
-	request: {},
+	request: { query: organizationQuery },
 	responses: {
 		200: {
 			content: {
@@ -514,20 +481,11 @@ subscriptions.openapi(getSubscriptionStatus, async (c) => {
 		});
 	}
 
-	const userOrganization = await db.query.userOrganization.findFirst({
-		where: {
-			userId: user.id,
-		},
-		with: {
-			organization: true,
-		},
-	});
-
-	if (!userOrganization || !userOrganization.organization) {
-		throw new HTTPException(404, {
-			message: "Organization not found",
-		});
-	}
+	const { organizationId } = c.req.valid("query");
+	const userOrganization = await getBillingOrganization(
+		user.id,
+		organizationId,
+	);
 
 	const organization = userOrganization.organization;
 

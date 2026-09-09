@@ -15,10 +15,17 @@ import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Canvas — Build UIs from JSON Specs with Live Preview",
+	title: "Canvas — Build UIs from JSON Specs",
 	description:
 		"Build UIs from JSON specs with live preview, PDF and image export. Part of Lounge by LLM Gateway.",
 	alternates: { canonical: "/canvas" },
+	openGraph: {
+		title: "Canvas — Build UIs from JSON Specs | Lounge",
+		description:
+			"Build UIs from JSON specs with live preview, PDF and image export. Part of Lounge by LLM Gateway.",
+		type: "website",
+		url: "https://lounge.llmgateway.io/canvas",
+	},
 };
 
 export default async function CanvasPage({
@@ -76,6 +83,10 @@ export default async function CanvasPage({
 		organizations[0] ??
 		null;
 
+	if (!selectedOrganization) {
+		return <PlaygroundSeoSection variant="canvas" />;
+	}
+
 	if (!initialProjectsData && selectedOrganization?.id) {
 		try {
 			initialProjectsData = (await fetchServerData(
@@ -123,7 +134,6 @@ export default async function CanvasPage({
 					projectId={selectedProject.id}
 				/>
 			) : null}
-			<PlaygroundSeoSection variant="canvas" />
 			<CanvasPageClient
 				models={models}
 				providers={providers}

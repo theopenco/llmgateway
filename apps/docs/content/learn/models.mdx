@@ -9,7 +9,7 @@ import { ThemedImage } from "@/components/themed-image";
 
 The Models page shows every model available to your organization in one directory: the full LLM Gateway catalog plus any models defined for your own [custom providers](/features/custom-providers). When your organization enforces a [provider compliance policy](/features/compliance), the page also shows exactly which models are eligible to route to — and why the rest are blocked.
 
-<ThemedImage alt="Models" basePath="/learn/models" />
+<ThemedImage alt="Models" basePath="/learn/models" width={1440} height={3681} />
 
 Every organization member can browse this page, including project-scoped `developer` members, so your whole team can see which providers and models are available without needing admin access. Management actions are only visible to owners and admins.
 
@@ -30,7 +30,12 @@ Search matches model names, ids, aliases, and providers. The **Filters** panel o
 - **Source** — show **Catalog & custom** (default), only **Catalog models**, or only **Custom models**. The selector appears once your organization has custom models.
 - **Eligible only** — hide models blocked by your organization's compliance policy.
 
-<ThemedImage alt="Models filters" basePath="/learn/models-filters" />
+<ThemedImage
+	alt="Models filters"
+	basePath="/learn/models-filters"
+	width={1440}
+	height={900}
+/>
 
 ### Lifecycle status
 

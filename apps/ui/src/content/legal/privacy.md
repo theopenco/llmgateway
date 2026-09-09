@@ -3,7 +3,7 @@ id: "2"
 slug: "privacy"
 date: "2026-08-20"
 title: "Privacy Policy"
-description: "Read LLM Gateway’s Privacy Policy to understand how we collect, use, share, and protect your data, our roles as controller and processor, AI provider routing, your GDPR and CCPA rights, data retention, and international transfers."
+description: "How LLM Gateway collects, uses, shares, and protects your data: controller and processor roles, AI provider routing, GDPR and CCPA rights, and retention."
 ---
 
 # Privacy Policy

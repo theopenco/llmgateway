@@ -192,7 +192,10 @@ export function AuditLogsTab({
 										{formatDateTime(log.createdAt)}
 									</TableCell>
 									<TableCell>
-										{log.user ? (
+										{(log.metadata as Record<string, unknown> | null)
+											?.actorType === "system" ? (
+											<span className="font-medium">System</span>
+										) : log.user ? (
 											<div>
 												<p className="font-medium">
 													{log.user.name ?? log.user.email}

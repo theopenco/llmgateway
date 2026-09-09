@@ -3,7 +3,10 @@ import { and, eq, getTableName, isNull, or } from "drizzle-orm";
 import { swrWrap } from "@llmgateway/cache";
 
 import { cdb } from "./cdb.js";
-import { rateLimit as rateLimitTable } from "./schema.js";
+import {
+	providerDraftModel as providerDraftModelTable,
+	rateLimit as rateLimitTable,
+} from "./schema.js";
 
 export type RateLimitSource =
 	| "org_provider_model"
@@ -12,6 +15,9 @@ export type RateLimitSource =
 	| "global_provider_model"
 	| "global_provider"
 	| "global_model"
+	// Carrier-set caps on an Airside listing; lowest precedence — any admin
+	// rate_limit row for the window wins over these.
+	| "carrier_provider_model"
 	| "none";
 
 interface RateLimitMatch {
@@ -28,8 +34,9 @@ interface RateLimitMatch {
  * Result of rate limit lookup with precedence information.
  *
  * `rpmShared`/`rpdShared` are true when the matched limit is a global row
- * (organizationId = null) configured for shared enforcement, meaning the
- * counter is shared across all orgs rather than bucketed per-org.
+ * (organizationId = null) configured for shared enforcement, or a carrier cap
+ * whose listing chose "global" scope, meaning the counter is shared across all
+ * orgs rather than bucketed per-org.
  *
  * For shared limits, `rpmProvider`/`rpmModel` (and the rpd equivalents) carry
  * the matched row's target so callers can key the shared counter by what the
@@ -172,15 +179,34 @@ export async function getEffectiveRateLimit(
 	organizationId: string | null,
 	provider: string,
 	model: string,
+	options: {
+		/**
+		 * Whether carrier-set caps on an Airside listing may fill unconstrained
+		 * windows. The gateway passes false while the static catalogue still
+		 * actively maps the pair (e.g. imported listings), so a carrier cap
+		 * can never throttle traffic the listing does not serve.
+		 */
+		includeCarrierCaps?: boolean;
+	} = {},
 ): Promise<EffectiveRateLimit> {
+	const includeCarrierCaps = options.includeCarrierCaps ?? true;
 	// SWR mirror on top of the Drizzle cache, carried by the helper itself
 	// (like getEffectiveDiscount) so every caller gets the outage fallback and
 	// in-flight coalescing. Do NOT re-wrap call sites in swrWrap: nesting the
-	// same key would deadlock the coalescer.
+	// same key would deadlock the coalescer. The carrier-caps flag is part of
+	// the key so callers passing different flags can never poison each other.
 	return await swrWrap(
-		`rateLimit:${organizationId ?? "global"}:${provider}:${model}`,
-		[getTableName(rateLimitTable)],
-		() => queryEffectiveRateLimit(organizationId, provider, model),
+		`rateLimit:${organizationId ?? "global"}:${provider}:${model}:${
+			includeCarrierCaps ? "cc" : "nocc"
+		}`,
+		[getTableName(rateLimitTable), getTableName(providerDraftModelTable)],
+		() =>
+			queryEffectiveRateLimit(
+				organizationId,
+				provider,
+				model,
+				includeCarrierCaps,
+			),
 	);
 }
 
@@ -188,6 +214,7 @@ async function queryEffectiveRateLimit(
 	organizationId: string | null,
 	provider: string,
 	model: string,
+	includeCarrierCaps: boolean,
 ): Promise<EffectiveRateLimit> {
 	const rateLimits = await cdb
 		.select({
@@ -230,6 +257,46 @@ async function queryEffectiveRateLimit(
 		model,
 		(rateLimit) => rateLimit.maxRpd,
 	);
+
+	// Carrier-managed caps on Airside listings fill only the windows no admin
+	// row constrains — admin limits always take precedence. The carrier picks
+	// how its cap is bucketed: "global" is one counter across every org (what
+	// "my deployment takes 60 rpm" means), "per_org" gives each org its own.
+	if (includeCarrierCaps && (rpm.source === "none" || rpd.source === "none")) {
+		const carrierRows = await cdb
+			.select({
+				maxRpm: providerDraftModelTable.maxRpm,
+				maxRpd: providerDraftModelTable.maxRpd,
+				rateLimitScope: providerDraftModelTable.rateLimitScope,
+			})
+			.from(providerDraftModelTable)
+			.where(
+				and(
+					eq(providerDraftModelTable.status, "active"),
+					eq(providerDraftModelTable.providerId, provider),
+					eq(providerDraftModelTable.modelName, model),
+				),
+			)
+			.limit(1);
+		const carrier = carrierRows[0];
+		if (carrier) {
+			const shared = carrier.rateLimitScope === "global";
+			if (rpm.source === "none" && carrier.maxRpm !== null) {
+				rpm.limit = carrier.maxRpm;
+				rpm.source = "carrier_provider_model";
+				rpm.shared = shared;
+				rpm.provider = provider;
+				rpm.model = model;
+			}
+			if (rpd.source === "none" && carrier.maxRpd !== null) {
+				rpd.limit = carrier.maxRpd;
+				rpd.source = "carrier_provider_model";
+				rpd.shared = shared;
+				rpd.provider = provider;
+				rpd.model = model;
+			}
+		}
+	}
 
 	return {
 		maxRpm: rpm.limit,

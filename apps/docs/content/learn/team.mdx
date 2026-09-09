@@ -9,7 +9,12 @@ import { ThemedImage } from "@/components/themed-image";
 
 The Team page has two views: **Members** for organization membership and personal controls, and **Teams** for policy shared by groups of developers.
 
-<ThemedImage alt="Organization members" basePath="/learn/team" />
+<ThemedImage
+	alt="Organization members"
+	basePath="/learn/team"
+	width={1440}
+	height={1016}
+/>
 
 ## Members
 
@@ -27,21 +32,31 @@ Personal IAM rules apply to every key created by that member. A key can narrow t
 
 ### Roles
 
-| Role          | Permissions                                                                                               |
-| ------------- | --------------------------------------------------------------------------------------------------------- |
-| **Owner**     | Full access, including team management, billing, and organization settings                                |
-| **Admin**     | Can manage members, projects, and API keys, but cannot access billing or modify owners                    |
-| **Developer** | Can view and use assigned projects and API keys, but cannot manage the organization or other team members |
+| Role              | Permissions                                                                                                     |
+| ----------------- | --------------------------------------------------------------------------------------------------------------- |
+| **Owner**         | Full access, including team management, billing, and organization settings                                      |
+| **Admin**         | Can manage members, projects, and API keys, but cannot change billing controls or modify owners                 |
+| **Project admin** | Manages settings, routing, guardrails, keys, and usage in assigned projects; cannot administer the organization |
+| **Developer**     | Creates and manages their own API keys and views their own usage in assigned projects                           |
 
 ### Invite a member
 
-Click **Add Member**, enter an email address, and choose a role. A Developer requires Enterprise access and at least one project grant. The invitation remains under **Pending Invitations** until it is accepted or revoked.
+Click **Add Member**, enter an email address, and choose a role. Project admins and developers require Enterprise access and at least one project grant. The invitation remains under **Pending Invitations** until it is accepted or revoked.
+
+Use **Project admin** for someone who needs to manage a project's settings and all its API keys and usage. Use **Manage access** on an existing member to change their role or replace their project grants. Organization settings, billing controls, provider keys, and membership remain restricted to organization administrators. See [Project access](/features/project-access) for the complete permission model.
+
+<ThemedImage
+	alt="Assigning a project admin to selected projects"
+	basePath="/learn/team-project-admin"
+	width={1440}
+	height={900}
+/>
 
 Pending invitations reserve a seat. The Members card shows the current seat count and plan limit, and **Add Member** is disabled when the limit is reached.
 
 ## Organization teams
 
-Open **Teams** to group developers under a shared project, IAM, and budget policy. One developer can belong to one organization team; owners and admins cannot be assigned.
+Open **Teams** to group developers under a shared project, IAM, and budget policy. One developer can belong to one organization team; other roles cannot be assigned. Promoting a Developer to Project admin clears their team assignment.
 
 <Callout type="info">
 	Creating teams and changing team policy requires the [**Enterprise
@@ -50,13 +65,23 @@ Open **Teams** to group developers under a shared project, IAM, and budget polic
 	unassigned, and empty teams can be deleted.
 </Callout>
 
-<ThemedImage alt="Organization teams" basePath="/learn/team-teams" />
+<ThemedImage
+	alt="Organization teams"
+	basePath="/learn/team-teams"
+	width={1440}
+	height={900}
+/>
 
 Click **Create team**, give it a unique name, then click **Open** to configure it. The list shows the number of developers, project ceiling, and IAM rule count for every team.
 
 ## Configure team policy
 
-<ThemedImage alt="Shared team policy" basePath="/learn/team-policy" />
+<ThemedImage
+	alt="Shared team policy"
+	basePath="/learn/team-policy"
+	width={1440}
+	height={900}
+/>
 
 | Control                           | Behavior                                                                                                                                     |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -81,7 +106,7 @@ Microsoft Entra groups reach LLM Gateway through SCIM group provisioning:
 3. In LLM Gateway, open **SSO**, then map the exact Entra group name to an existing organization team.
 4. When Entra sends the group and membership update, matching Developers are assigned to that team. Removing a user from the Entra group removes the synced assignment.
 
-The team detail page identifies assignments managed by directory sync. Manually unassigning a synced developer lasts only until the next SCIM update; an explicit manual assignment to another team is preserved. If several mapped groups apply, the first group name alphabetically wins. Owners and admins never inherit team policy.
+The team detail page identifies assignments managed by directory sync. Manually unassigning a synced developer lasts only until the next SCIM update; an explicit manual assignment to another team is preserved. If several mapped groups apply, the first group name alphabetically wins. Only developers inherit team policy.
 
 Follow [Configure Microsoft Entra ID](/features/sso/entra) for the complete Entra application and SCIM setup. For other identity providers, see [Single Sign-On](/features/sso).
 

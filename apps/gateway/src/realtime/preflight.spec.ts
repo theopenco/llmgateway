@@ -30,10 +30,15 @@ afterEach(() => {
 });
 
 async function expectConnectError(
-	requestedModel: string,
+	requestedModel: string | undefined,
+	intent?: string,
 ): Promise<RealtimeConnectError> {
 	try {
-		await runRealtimePreflight({ token: "llmgtwy_test", requestedModel });
+		await runRealtimePreflight({
+			token: "llmgtwy_test",
+			requestedModel,
+			intent,
+		});
 	} catch (error) {
 		return error as RealtimeConnectError;
 	}
@@ -64,5 +69,40 @@ describe("runRealtimePreflight Gemini kill switch", () => {
 			"gemini-2.5-flash-native-audio-preview-12-2025",
 		);
 		expect(error.code).toBe("invalid_api_key");
+	});
+});
+
+describe("runRealtimePreflight transcription sessions", () => {
+	// Model resolution runs before the API key lookup, so a resolved model
+	// fails on the unknown key while an unresolved one fails on the model.
+	it("resolves a transcription model with intent=transcription", async () => {
+		const error = await expectConnectError(
+			"gpt-live-transcribe",
+			"transcription",
+		);
+		expect(error.code).toBe("invalid_api_key");
+	});
+
+	it("resolves a transcription model without the intent parameter", async () => {
+		const error = await expectConnectError("gpt-live-transcribe");
+		expect(error.code).toBe("invalid_api_key");
+	});
+
+	it("rejects a speech model under intent=transcription", async () => {
+		const error = await expectConnectError("gpt-realtime", "transcription");
+		expect(error.status).toBe(400);
+		expect(error.code).toBe("model_not_found");
+	});
+
+	it("requires a model for transcription sessions", async () => {
+		const error = await expectConnectError(undefined, "transcription");
+		expect(error.code).toBe("missing_model");
+		expect(error.message).toContain("intent=transcription");
+	});
+
+	it("rejects unknown intents", async () => {
+		const error = await expectConnectError("gpt-realtime", "chat");
+		expect(error.status).toBe(400);
+		expect(error.code).toBe("invalid_intent");
 	});
 });

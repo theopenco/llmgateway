@@ -378,10 +378,22 @@ function getFinishReasonLabel(reason: string): string {
 	}
 }
 
+const tokenCountFormat = new Intl.NumberFormat("en-US");
+const smallCostFormat = new Intl.NumberFormat("en-US", {
+	style: "currency",
+	currency: "USD",
+	minimumFractionDigits: 6,
+	maximumFractionDigits: 6,
+});
+const costFormat = new Intl.NumberFormat("en-US", {
+	style: "currency",
+	currency: "USD",
+	minimumFractionDigits: 2,
+	maximumFractionDigits: 4,
+});
+
 function formatTokenCount(value?: number): string {
-	return value === undefined
-		? "-"
-		: new Intl.NumberFormat("en-US").format(value);
+	return value === undefined ? "-" : tokenCountFormat.format(value);
 }
 
 function formatCost(value?: number): string {
@@ -391,12 +403,7 @@ function formatCost(value?: number): string {
 	if (value > 0 && value < 0.000001) {
 		return "<$0.000001";
 	}
-	return new Intl.NumberFormat("en-US", {
-		style: "currency",
-		currency: "USD",
-		minimumFractionDigits: value < 0.01 ? 6 : 2,
-		maximumFractionDigits: value < 0.01 ? 6 : 4,
-	}).format(value);
+	return (value < 0.01 ? smallCostFormat : costFormat).format(value);
 }
 
 function getMessageImageGridClass(imageCount: number, alignEnd = false) {

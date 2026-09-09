@@ -15,7 +15,7 @@ const BASE_URL = "https://devpass.llmgateway.io";
 export const revalidate = 300;
 
 export const metadata: Metadata = {
-	title: "DevPass Leaderboard — Developers ranked by tokens routed",
+	title: { absolute: "DevPass Leaderboard — Top Developers by Tokens Routed" },
 	description:
 		"See which developers route the most tokens through DevPass — one key, every model. Make your profile public to claim your spot.",
 	alternates: { canonical: "/leaderboard" },

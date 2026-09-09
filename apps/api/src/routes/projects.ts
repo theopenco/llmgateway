@@ -8,9 +8,15 @@ import {
 	providerCacheControlModeSchema,
 	resolveProviderCacheControlMode,
 } from "@/utils/provider-cache-control.js";
+import {
+	isZeroDataRetentionEnabled,
+	zdrCachingConflictMessage,
+	zdrProviderCachingConflictMessage,
+} from "@/utils/zdr-settings.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { canManageProject } from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderCacheControlMode } from "@llmgateway/models";
@@ -269,22 +275,11 @@ projects.openapi(updateProject, async (c) => {
 	const projectUserOrg = userOrgs.find(
 		(userOrg) => userOrg.organizationId === project.organizationId,
 	);
-	const isAdminOrOwner =
-		projectUserOrg?.role === "owner" || projectUserOrg?.role === "admin";
+	const isProjectAdmin = canManageProject(projectUserOrg?.role);
 
-	// Project settings are admin-only; project-scoped "developer" members cannot
-	// edit projects.
-	if (!isAdminOrOwner) {
+	if (!isProjectAdmin) {
 		throw new HTTPException(403, {
-			message:
-				"Only organization owners and admins can update project settings",
-		});
-	}
-
-	if (isUpdatingEndUserSettings && !isAdminOrOwner) {
-		throw new HTTPException(403, {
-			message:
-				"Only organization owners and admins can update Payments SDK settings",
+			message: "Only project admins can update project settings",
 		});
 	}
 
@@ -295,18 +290,6 @@ projects.openapi(updateProject, async (c) => {
 		throw new HTTPException(403, {
 			message:
 				"The Payments SDK is currently in preview and opt-in only. Contact us to enable it for your project.",
-		});
-	}
-
-	// Changing the billing mode (e.g. enabling BYOK "api-keys" mode) is a
-	// privileged operation: it controls whether tenant-supplied provider keys
-	// and base URLs are used for inference. Restrict it to owners/admins, but
-	// only when the value actually changes so clients that PATCH the full
-	// settings object with an unchanged mode are not rejected.
-	if (mode !== undefined && mode !== project.mode && !isAdminOrOwner) {
-		throw new HTTPException(403, {
-			message:
-				"Only organization owners and admins can change the project mode",
 		});
 	}
 
@@ -383,6 +366,21 @@ projects.openapi(updateProject, async (c) => {
 	// cached project lookups (Drizzle cache + SWR mirror) for the project table.
 	// Otherwise settings like defaultRoutingStrategy/mode/caching would keep
 	// using the previous value until the cache expires (up to the SWR TTL).
+	const providerCachingChanged =
+		providerCacheControlMode !== undefined &&
+		providerCacheControlMode !== project.providerCacheControlMode;
+	if (
+		(cachingEnabled ||
+			(providerCachingChanged && providerCacheControlMode !== "off")) &&
+		isZeroDataRetentionEnabled(projectUserOrg?.organization)
+	) {
+		throw new HTTPException(400, {
+			message: cachingEnabled
+				? zdrCachingConflictMessage
+				: zdrProviderCachingConflictMessage,
+		});
+	}
+
 	const [updatedProject] = await cdb
 		.update(tables.project)
 		.set(updateData)
@@ -559,6 +557,10 @@ export async function createProjectForOrg(
 	} = input;
 	const providerCacheControlMode =
 		resolveProviderCacheControlMode(input) ?? "auto";
+	const providerCachingExplicitlyEnabled =
+		(input.providerCacheControlMode !== undefined ||
+			input.providerCacheControlEnabled !== undefined) &&
+		providerCacheControlMode !== "off";
 
 	if (!options.skipAccessCheck) {
 		const userOrganization = await db.query.userOrganization.findFirst({
@@ -615,6 +617,17 @@ export async function createProjectForOrg(
 	if (existingProjects.length >= projectLimit) {
 		throw new HTTPException(403, {
 			message: `You have reached the limit of ${projectLimit} projects. Contact us at contact@llmgateway.io to unlock more.`,
+		});
+	}
+
+	if (
+		(cachingEnabled || providerCachingExplicitlyEnabled) &&
+		isZeroDataRetentionEnabled(organizationRow)
+	) {
+		throw new HTTPException(400, {
+			message: cachingEnabled
+				? zdrCachingConflictMessage
+				: zdrProviderCachingConflictMessage,
 		});
 	}
 

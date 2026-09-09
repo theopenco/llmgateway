@@ -161,6 +161,14 @@ export function adaptProviderMapping(
 			website: p.providerInfo?.website ?? null,
 			announcement: null,
 			modelCardBadge: p.providerInfo?.modelCardBadge ?? null,
+			// Carrier-uploaded branding (Airside), overlaid on the static info
+			// by the model page.
+			airsideLogoUrl:
+				(p.providerInfo as { airsideLogoUrl?: string | null } | undefined)
+					?.airsideLogoUrl ?? null,
+			airsideIconUrl:
+				(p.providerInfo as { airsideIconUrl?: string | null } | undefined)
+					?.airsideIconUrl ?? null,
 			serviceTiers,
 			status: "active" as const,
 		},

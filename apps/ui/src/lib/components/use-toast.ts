@@ -166,6 +166,7 @@ function useToast() {
 
 	React.useEffect(() => {
 		listeners.push(setState);
+		setState(memoryState);
 		return () => {
 			const index = listeners.indexOf(setState);
 			if (index > -1) {

@@ -31,6 +31,8 @@ const ENTERPRISE_FEATURES = [
 
 export function PlanManagement() {
 	const { selectedOrganization } = useDashboardState();
+	const organizationId = selectedOrganization?.id;
+	const isOwner = selectedOrganization?.role === "owner";
 	const { toast } = useToast();
 	const queryClient = useQueryClient();
 	const api = useApi();
@@ -39,6 +41,8 @@ export function PlanManagement() {
 	const { data: subscriptionStatus } = api.useQuery(
 		"get",
 		"/subscriptions/status",
+		{ params: { query: { organizationId } } },
+		{ enabled: Boolean(organizationId) },
 	);
 
 	// Keep cancel/resume mutations for existing Pro subscribers (backward compatibility)
@@ -63,9 +67,13 @@ export function PlanManagement() {
 
 		posthog.capture("subscription_cancel_initiated");
 
-		await cancelSubscriptionMutation.mutateAsync({});
+		await cancelSubscriptionMutation.mutateAsync({
+			params: { query: { organizationId } },
+		});
 		await queryClient.invalidateQueries({
-			queryKey: api.queryOptions("get", "/subscriptions/status").queryKey,
+			queryKey: api.queryOptions("get", "/subscriptions/status", {
+				params: { query: { organizationId } },
+			}).queryKey,
 		});
 		toast({
 			title: "Subscription Canceled",
@@ -85,9 +93,13 @@ export function PlanManagement() {
 
 		posthog.capture("subscription_resume_initiated");
 
-		await resumeSubscriptionMutation.mutateAsync({});
+		await resumeSubscriptionMutation.mutateAsync({
+			params: { query: { organizationId } },
+		});
 		await queryClient.invalidateQueries({
-			queryKey: api.queryOptions("get", "/subscriptions/status").queryKey,
+			queryKey: api.queryOptions("get", "/subscriptions/status", {
+				params: { query: { organizationId } },
+			}).queryKey,
 		});
 		toast({
 			title: "Subscription Resumed",
@@ -253,7 +265,7 @@ export function PlanManagement() {
 							<Button
 								variant="outline"
 								onClick={handleCancelSubscription}
-								disabled={cancelSubscriptionMutation.isPending}
+								disabled={!isOwner || cancelSubscriptionMutation.isPending}
 							>
 								{cancelSubscriptionMutation.isPending
 									? "Canceling..."
@@ -266,7 +278,7 @@ export function PlanManagement() {
 								<Button
 									variant="default"
 									onClick={handleResumeSubscription}
-									disabled={resumeSubscriptionMutation.isPending}
+									disabled={!isOwner || resumeSubscriptionMutation.isPending}
 								>
 									{resumeSubscriptionMutation.isPending
 										? "Resuming..."

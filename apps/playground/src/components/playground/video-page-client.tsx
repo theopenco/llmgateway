@@ -23,6 +23,7 @@ import { useAppConfig } from "@/lib/config";
 import {
 	chatPlanCreditErrorMessage,
 	isInsufficientCreditsError,
+	organizationCreditErrorMessage,
 } from "@/lib/credit-error";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 import { mapModels } from "@/lib/mapmodels";
@@ -41,6 +42,8 @@ import {
 	supportsVideoReferenceVideoInput,
 	supportsVideoReferenceAudioInput,
 } from "@/lib/video-gen";
+
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { ComboboxModel, Organization, Project } from "@/lib/types";
@@ -766,7 +769,11 @@ export default function VideoPageClient({
 								isChatPlanContext &&
 									isInsufficientCreditsError(response.status, rawMessage)
 									? chatPlanCreditErrorMessage(chatPlanSubscribed, "videos")
-									: rawMessage,
+									: organizationCreditErrorMessage(
+											rawMessage,
+											selectedOrganization?.role,
+											response.status,
+										),
 							);
 						}
 
@@ -848,6 +855,7 @@ export default function VideoPageClient({
 			updateGalleryModel,
 			someModelsRequireImage,
 			selectedOrganization?.id,
+			selectedOrganization?.role,
 			isChatPlanContext,
 			chatPlanSubscribed,
 		],
@@ -997,20 +1005,22 @@ export default function VideoPageClient({
 						onComparisonModeChange={handleComparisonModeChange}
 						hideCompare={displayItems.length > 0}
 					/>
-					{isLowCredits && !isChatPlanContext && (
-						<div className="bg-yellow-50 dark:bg-yellow-900/20 border-b px-4 py-2 flex items-center justify-between">
-							<p className="text-sm text-yellow-800 dark:text-yellow-200">
-								Low credits remaining. Top up to continue generating videos.
-							</p>
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={() => setShowTopUp(true)}
-							>
-								Top Up
-							</Button>
-						</div>
-					)}
+					{isLowCredits &&
+						!isChatPlanContext &&
+						isOrganizationAdmin(selectedOrganization?.role) && (
+							<div className="bg-yellow-50 dark:bg-yellow-900/20 border-b px-4 py-2 flex items-center justify-between">
+								<p className="text-sm text-yellow-800 dark:text-yellow-200">
+									Low credits remaining. Top up to continue generating videos.
+								</p>
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={() => setShowTopUp(true)}
+								>
+									Top Up
+								</Button>
+							</div>
+						)}
 					<VideoControls
 						prompt={prompt}
 						setPrompt={setPrompt}

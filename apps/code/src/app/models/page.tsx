@@ -21,9 +21,11 @@ const PREMIUM_INPUT_PER_M = HIGH_COST_INPUT_PRICE * 1e6;
 const PREMIUM_OUTPUT_PER_M = HIGH_COST_OUTPUT_PRICE * 1e6;
 
 export const metadata: Metadata = {
-	title: "Coding Models on DevPass — Full Directory",
+	title: {
+		absolute: "Coding Models on DevPass — Full Directory | LLM Gateway",
+	},
 	description:
-		"Browse the coding models available on DevPass — search, filter by pricing tier, capabilities, provider, price, and context size. Premium models are marked exactly as the gateway classifies them.",
+		"Browse every coding model on DevPass — search and filter by pricing tier, capabilities, provider, price, and context size. Premium models marked.",
 	alternates: { canonical: "/models" },
 	openGraph: {
 		title: "Coding Models on DevPass — Full Directory",

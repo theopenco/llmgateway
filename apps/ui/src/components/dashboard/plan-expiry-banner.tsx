@@ -9,6 +9,7 @@ import { useDashboardState } from "@/lib/dashboard-state";
 import { cn } from "@/lib/utils";
 
 import { formatPlanTermLabel, getOrganizationTerm } from "@llmgateway/shared";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 /**
  * Quiet countdown strip for enterprise agreements and trials that are close to
@@ -53,7 +54,7 @@ export function PlanExpiryBanner() {
 	}
 
 	// Billing is an owner/admin concern; project-scoped developers can't act on it.
-	if (selectedOrganization?.role === "developer") {
+	if (!isOrganizationAdmin(selectedOrganization?.role)) {
 		return null;
 	}
 

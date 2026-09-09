@@ -1,0 +1,63 @@
+{{- if .Values.airside.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "llmgateway.fullname" . }}-airside
+  labels:
+    {{- include "llmgateway.componentLabels" (dict "context" . "component" "airside") | nindent 4 }}
+spec:
+  replicas: {{ .Values.airside.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "llmgateway.componentSelectorLabels" (dict "context" . "component" "airside") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "llmgateway.componentSelectorLabels" (dict "context" . "component" "airside") | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+    spec:
+      {{- include "llmgateway.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: airside
+          image: {{ include "llmgateway.image" (dict "context" . "image" .Values.airside.image) }}
+          imagePullPolicy: {{ .Values.airside.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "llmgateway.configMapName" . }}
+            - secretRef:
+                name: {{ include "llmgateway.secretName" . }}
+          {{- with .Values.airside.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.airside.resources | nindent 12 }}
+      {{- with .Values.airside.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.airside.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

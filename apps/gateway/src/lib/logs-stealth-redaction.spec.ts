@@ -54,6 +54,7 @@ describe("insertLog stealth provider error redaction", () => {
 				usedProvider: "granite",
 				errorDetails: { ...rawErrorDetails },
 			}),
+			{ retentionLevel: "retain" },
 		);
 
 		expect(publishToQueue).toHaveBeenCalledTimes(1);
@@ -75,6 +76,7 @@ describe("insertLog stealth provider error redaction", () => {
 				usedProvider: "openai",
 				errorDetails: { ...rawErrorDetails },
 			}),
+			{ retentionLevel: "retain" },
 		);
 
 		const published = publishToQueue.mock.calls[0][1] as LogInsertData;
@@ -90,6 +92,7 @@ describe("insertLog stealth provider error redaction", () => {
 				finishReason: "stop",
 				errorDetails: null,
 			}),
+			{ retentionLevel: "retain" },
 		);
 
 		const published = publishToQueue.mock.calls[0][1] as LogInsertData;

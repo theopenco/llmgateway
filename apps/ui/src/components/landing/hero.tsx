@@ -1,5 +1,3 @@
-"use client";
-
 import { ArrowRight, ChevronRight } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -8,45 +6,44 @@ import { AuthLink } from "@/components/shared/auth-link";
 import { ShimmerButton } from "@/lib/components/shimmer-button";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
-import {
-	GitHubCopilotIcon,
-	providerLogoUrls,
-} from "@llmgateway/shared/components";
+import { GitHubCopilotIcon } from "@llmgateway/shared/components";
 
 import { Navbar } from "./navbar";
+import { ProviderLogo } from "./provider-logo";
 
-import type { ProviderId } from "@llmgateway/models";
+import type dimensions from "@/lib/provider-logo-dimensions.json";
 
 // Provider logos configuration
-const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
-	{ name: "OpenAI", providerId: "openai" },
-	{ name: "Anthropic", providerId: "anthropic" },
-	{ name: "Together AI", providerId: "together-ai" },
-	{ name: "Groq", providerId: "groq" },
-	{ name: "xAI", providerId: "xai" },
-	{ name: "DeepSeek", providerId: "deepseek" },
-	{ name: "Perplexity", providerId: "perplexity" },
-	{ name: "Ai Studio", providerId: "google-ai-studio" },
-	{ name: "Moonshot", providerId: "moonshot" },
-	{ name: "Novita", providerId: "novita" },
-	{ name: "Nebius", providerId: "nebius" },
-	{ name: "Zai", providerId: "zai" },
-	{ name: "NanoGPT", providerId: "nanogpt" },
-	{ name: "Canopywave", providerId: "canopywave" },
-	{ name: "AWS Bedrock", providerId: "aws-bedrock" },
-	{ name: "Azure", providerId: "azure" },
-	{ name: "Inference.net", providerId: "inference.net" },
-	{ name: "Mistral", providerId: "mistral" },
-	{ name: "Alibaba", providerId: "alibaba" },
-	{ name: "ByteDance", providerId: "bytedance" },
-	{ name: "Cerebras", providerId: "cerebras" },
-	{ name: "Google Vertex", providerId: "google-vertex" },
-	{ name: "MiniMax", providerId: "minimax" },
-	{ name: "SCX.ai", providerId: "scx-ai" },
-	{ name: "Gonka24", providerId: "gonka24" },
-	{ name: "Runware", providerId: "runware" },
-	{ name: "Fireworks", providerId: "fireworks" },
-];
+const PROVIDER_LOGOS: { name: string; providerId: keyof typeof dimensions }[] =
+	[
+		{ name: "OpenAI", providerId: "openai" },
+		{ name: "Anthropic", providerId: "anthropic" },
+		{ name: "Together AI", providerId: "together-ai" },
+		{ name: "Groq", providerId: "groq" },
+		{ name: "xAI", providerId: "xai" },
+		{ name: "DeepSeek", providerId: "deepseek" },
+		{ name: "Perplexity", providerId: "perplexity" },
+		{ name: "Ai Studio", providerId: "google-ai-studio" },
+		{ name: "Moonshot", providerId: "moonshot" },
+		{ name: "Novita", providerId: "novita" },
+		{ name: "Nebius", providerId: "nebius" },
+		{ name: "Zai", providerId: "zai" },
+		{ name: "NanoGPT", providerId: "nanogpt" },
+		{ name: "Canopywave", providerId: "canopywave" },
+		{ name: "AWS Bedrock", providerId: "aws-bedrock" },
+		{ name: "Azure", providerId: "azure" },
+		{ name: "Inference.net", providerId: "inference.net" },
+		{ name: "Mistral", providerId: "mistral" },
+		{ name: "Alibaba", providerId: "alibaba" },
+		{ name: "ByteDance", providerId: "bytedance" },
+		{ name: "Cerebras", providerId: "cerebras" },
+		{ name: "Google Vertex", providerId: "google-vertex" },
+		{ name: "MiniMax", providerId: "minimax" },
+		{ name: "SCX.ai", providerId: "scx-ai" },
+		{ name: "Gonka24", providerId: "gonka24" },
+		{ name: "Runware", providerId: "runware" },
+		{ name: "Fireworks", providerId: "fireworks" },
+	];
 
 interface MigrationData {
 	slug: string;
@@ -136,7 +133,7 @@ export function Hero({
 
 								{/* Centered hero content - optimized for conversion */}
 								<div className="text-center max-w-4xl mx-auto">
-									<div className="animate-hero-enter">
+									<div>
 										<h1 className="text-balance text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight text-foreground">
 											LLM Gateway — One API for {MARKETING_STATS.providers}{" "}
 											providers, including OpenAI, Anthropic, and Google
@@ -310,17 +307,11 @@ export function Hero({
 								</Link>
 							</div>
 							<div className="group-hover:blur-xs mx-auto mt-12 grid max-w-3xl grid-cols-5 gap-x-10 gap-y-6 transition-all duration-500 group-hover:opacity-50 sm:grid-cols-6 sm:gap-x-12 sm:gap-y-10 lg:grid-cols-8">
-								{PROVIDER_LOGOS.map((provider) => {
-									const LogoComponent = providerLogoUrls[provider.providerId];
-
-									return (
-										<div key={provider.name} className="flex">
-											{LogoComponent && (
-												<LogoComponent className="mx-auto h-16 w-fit object-contain" />
-											)}
-										</div>
-									);
-								})}
+								{PROVIDER_LOGOS.map((provider) => (
+									<div key={provider.name} className="flex">
+										<ProviderLogo provider={provider.providerId} />
+									</div>
+								))}
 							</div>
 						</div>
 					</section>

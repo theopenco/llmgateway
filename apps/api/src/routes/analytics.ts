@@ -40,7 +40,7 @@ import type { ServerTypes } from "@/vars.js";
 
 export const analytics = new OpenAPIHono<ServerTypes>();
 
-const roleSchema = z.enum(["owner", "admin", "developer"]);
+const roleSchema = z.enum(["owner", "admin", "project_admin", "developer"]);
 
 const dateRangeQuery = {
 	organizationId: z.string(),

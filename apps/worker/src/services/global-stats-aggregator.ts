@@ -5,12 +5,14 @@ import {
 	log,
 	organization,
 	globalModelStats,
+	globalProviderKeyModelStats,
 	globalSourceStats,
 	globalAggregationState,
 	sql,
 	and,
 	eq,
 	getTableColumns,
+	isNotNull,
 	type GlobalStatsOrgKind,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -18,6 +20,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	formatUTCTimestamp,
 	getBaseAggregationFields,
+	providerMarginAmountField,
 } from "./project-stats-aggregator.js";
 
 export const GLOBAL_STATS_INTERVAL_SECONDS =
@@ -57,7 +60,12 @@ if (DAY_MS % BUCKET_MS !== 0) {
 	);
 }
 
-const STATE_ROW_ID = "singleton";
+type AggregationScope = "global" | "provider-key";
+
+const STATE_ROW_IDS = {
+	global: "singleton",
+	"provider-key": "provider-key-model",
+} as const;
 
 // Columns the aggregator sums into the daily totals. Excludes id / createdAt
 // / updatedAt / dimension columns.
@@ -109,13 +117,13 @@ function toSnakeCase(s: string): string {
 // Build the SET clause for an ADD-style upsert: each metric column becomes
 // `col = "table"."col" + excluded.col`, so each hour's aggregated values
 // accumulate into the daily totals.
-function buildAddUpsertSet(table: AnyTable) {
+function buildAddUpsertSet(table: AnyTable, extraKeys: string[] = []) {
 	const cols = getTableColumns(table) as Record<
 		string,
 		{ name: string } & object
 	>;
 	const set: Record<string, ReturnType<typeof sql>> = {};
-	for (const key of AGGREGATE_KEYS) {
+	for (const key of [...AGGREGATE_KEYS, ...extraKeys]) {
 		const col = cols[key];
 		const snakeName = toSnakeCase(key);
 		set[key] = sql`${col} + excluded.${sql.identifier(snakeName)}`;
@@ -123,8 +131,14 @@ function buildAddUpsertSet(table: AnyTable) {
 	return set;
 }
 
-const MODEL_ADD_SET = buildAddUpsertSet(globalModelStats);
+// Only the model table carries the provider-keyed margin column.
+const MODEL_ADD_SET = buildAddUpsertSet(globalModelStats, [
+	"providerMarginAmount",
+]);
 const SOURCE_ADD_SET = buildAddUpsertSet(globalSourceStats);
+const PROVIDER_KEY_MODEL_ADD_SET = buildAddUpsertSet(
+	globalProviderKeyModelStats,
+);
 
 // Snap to the nearest bucket boundary at or below `d`. Works in UTC because
 // JS timestamps are unix-epoch milliseconds and bucketMs evenly divides a day.
@@ -170,6 +184,7 @@ export async function aggregateWindowIntoStats(
 			usedMode: log.usedMode,
 			orgKind: ORG_KIND_EXPR,
 			...getBaseAggregationFields(),
+			providerMarginAmount: providerMarginAmountField(),
 		})
 		.from(log)
 		// LEFT, not INNER: log.organizationId has no foreign key, so an inner
@@ -248,169 +263,366 @@ export async function aggregateWindowIntoStats(
 	}
 }
 
-async function readState() {
-	const [row] = await db
-		.select()
-		.from(globalAggregationState)
-		.where(eq(globalAggregationState.id, STATE_ROW_ID))
-		.limit(1);
-	return row;
+export async function aggregateProviderKeyWindowIntoStats(
+	database: Tx,
+	windowStart: Date,
+	windowMs: number,
+): Promise<void> {
+	const startTimestamp = formatUTCTimestamp(windowStart);
+	const endTimestamp = formatUTCTimestamp(
+		new Date(windowStart.getTime() + windowMs),
+	);
+	const dayTimestamp = formatUTCTimestamp(floorToDay(windowStart));
+	const window = and(
+		sql`${log.createdAt} >= ${startTimestamp}::timestamp`,
+		sql`${log.createdAt} < ${endTimestamp}::timestamp`,
+	);
+
+	// Per-credential model split. Requests served by env-var credentials carry
+	// no providerKeyId and are skipped, exactly like providerKeyHourlyStats.
+	const providerKeyRows = await database
+		.select({
+			providerKeyId: sql<string>`${log.providerKeyId}`.as("providerKeyId"),
+			usedModel: log.usedModel,
+			usedProvider: log.usedProvider,
+			usedMode: log.usedMode,
+			orgKind: ORG_KIND_EXPR,
+			...getBaseAggregationFields(),
+		})
+		.from(log)
+		.leftJoin(organization, eq(log.organizationId, organization.id))
+		.where(and(window, isNotNull(log.providerKeyId)))
+		.groupBy(
+			log.providerKeyId,
+			log.usedModel,
+			log.usedProvider,
+			log.usedMode,
+			ORG_KIND_SQL,
+		);
+
+	for (const row of providerKeyRows) {
+		const {
+			providerKeyId,
+			usedModel,
+			usedProvider,
+			usedMode,
+			orgKind,
+			...stats
+		} = row;
+		await database
+			.insert(globalProviderKeyModelStats)
+			.values({
+				dayTimestamp: sql`${dayTimestamp}::timestamp`,
+				providerKeyId,
+				usedModel,
+				usedProvider,
+				usedMode,
+				orgKind,
+				...stats,
+			})
+			.onConflictDoUpdate({
+				target: [
+					globalProviderKeyModelStats.dayTimestamp,
+					globalProviderKeyModelStats.providerKeyId,
+					globalProviderKeyModelStats.usedModel,
+					globalProviderKeyModelStats.usedProvider,
+					globalProviderKeyModelStats.usedMode,
+					globalProviderKeyModelStats.orgKind,
+				],
+				set: {
+					...PROVIDER_KEY_MODEL_ADD_SET,
+					updatedAt: new Date(),
+				},
+			});
+	}
 }
 
-async function setLastProcessedHour(database: Tx, hour: Date): Promise<void> {
+async function readState(scope: AggregationScope) {
+	return await db.query.globalAggregationState.findFirst({
+		where: { id: STATE_ROW_IDS[scope] },
+	});
+}
+
+async function setLastProcessedHour(
+	database: Tx,
+	hour: Date,
+	scope: AggregationScope,
+): Promise<void> {
 	await database
 		.insert(globalAggregationState)
-		.values({ id: STATE_ROW_ID, lastProcessedHour: hour })
+		.values({ id: STATE_ROW_IDS[scope], lastProcessedHour: hour })
 		.onConflictDoUpdate({
 			target: globalAggregationState.id,
 			set: { lastProcessedHour: hour, updatedAt: new Date() },
 		});
 }
 
-async function setLastSafetyNetDay(day: Date): Promise<void> {
-	await db
+async function setLastSafetyNetDay(
+	database: Tx,
+	day: Date,
+	scope: AggregationScope,
+): Promise<void> {
+	await database
 		.insert(globalAggregationState)
-		.values({ id: STATE_ROW_ID, lastSafetyNetDay: day })
+		.values({ id: STATE_ROW_IDS[scope], lastSafetyNetDay: day })
 		.onConflictDoUpdate({
 			target: globalAggregationState.id,
 			set: { lastSafetyNetDay: day, updatedAt: new Date() },
 		});
 }
 
-// Recompute a closed day from scratch: wipe its rows, then re-aggregate each
-// of its 24 hours into the now-empty bucket. Catches late-arriving logs that
-// the incremental path missed. Walks in 1-hour chunks regardless of the
-// configured BUCKET_MS so the safety net keeps a bounded number of queries
-// (24/day) even when small dev buckets are in use.
-//
-// Returns true on full completion. Returns false if stop was requested
-// mid-walk; the caller must NOT mark the day as recomputed in that case so the
-// next worker start retries from the partially-recomputed state.
-async function recomputeDayFully(day: Date): Promise<boolean> {
-	const dayStr = formatUTCTimestamp(day);
+class AggregationStoppedError extends Error {}
 
-	await db.transaction(async (tx) => {
+// Keep replacement and its checkpoint atomic, including shutdown mid-day.
+async function recomputeDayFully(
+	tx: Tx,
+	day: Date,
+	scope: AggregationScope,
+): Promise<void> {
+	const dayStr = formatUTCTimestamp(day);
+	if (scope === "global") {
 		await tx
 			.delete(globalModelStats)
 			.where(sql`${globalModelStats.dayTimestamp} = ${dayStr}::timestamp`);
 		await tx
 			.delete(globalSourceStats)
 			.where(sql`${globalSourceStats.dayTimestamp} = ${dayStr}::timestamp`);
-	});
+	} else {
+		await tx
+			.delete(globalProviderKeyModelStats)
+			.where(
+				sql`${globalProviderKeyModelStats.dayTimestamp} = ${dayStr}::timestamp`,
+			);
+	}
 
 	for (let h = 0; h < 24; h++) {
 		if (isStopRequested()) {
-			logger.info(
-				`[global-safety-net] Stop requested mid-recompute of ${dayStr}, leaving lastSafetyNetDay unchanged so next start retries`,
-			);
-			return false;
+			throw new AggregationStoppedError();
 		}
 		const hour = new Date(day.getTime() + h * HOUR_MS); // eslint-disable-line no-mixed-operators
-		await db.transaction(async (tx) => {
-			await aggregateWindowIntoStats(tx, hour, HOUR_MS);
-		});
+		await AGGREGATORS[scope](tx, hour, HOUR_MS);
 	}
-
-	return true;
 }
 
-async function runSafetyNetIfNeeded(now: Date): Promise<void> {
+async function runSafetyNetIfNeeded(
+	now: Date,
+	scope: AggregationScope,
+): Promise<void> {
 	const todayStart = floorToDay(now);
-
 	const yesterdayStart = new Date(todayStart.getTime() - DAY_MS);
+	const needsSafetyNet = (state: Awaited<ReturnType<typeof readState>>) =>
+		state?.lastProcessedHour &&
+		state.lastProcessedHour >= todayStart &&
+		(!state.lastSafetyNetDay || state.lastSafetyNetDay < yesterdayStart);
 
-	const state = await readState();
-	if (state?.lastSafetyNetDay && state.lastSafetyNetDay >= yesterdayStart) {
+	// Each scope must finish yesterday before its safety net can replace it.
+	if (!needsSafetyNet(await readState(scope))) {
 		return;
 	}
 
-	// Defer the safety net while the incremental walker is still catching up.
-	// If we wiped + recomputed yesterday now and the walker reached yesterday
-	// later, its ADD-upserts would double the row. The walker has finished
-	// yesterday once its watermark crosses todayStart.
-	if (!state?.lastProcessedHour || state.lastProcessedHour < todayStart) {
-		logger.debug(
-			`[global-safety-net] Walker has not reached today yet (watermark=${state?.lastProcessedHour ? formatUTCTimestamp(state.lastProcessedHour) : "none"}), deferring`,
+	await db.transaction(async (tx) => {
+		const [state] = await tx
+			.select()
+			.from(globalAggregationState)
+			.where(eq(globalAggregationState.id, STATE_ROW_IDS[scope]))
+			.for("update");
+		if (!needsSafetyNet(state)) {
+			return;
+		}
+
+		logger.info(
+			`[global-${scope}-safety-net] Recomputing ${formatUTCTimestamp(yesterdayStart)} from logs`,
 		);
-		return;
-	}
-
-	logger.info(
-		`[global-safety-net] Recomputing ${formatUTCTimestamp(yesterdayStart)} from logs`,
-	);
-
-	const completed = await recomputeDayFully(yesterdayStart);
-	if (!completed) {
-		return;
-	}
-
-	await setLastSafetyNetDay(yesterdayStart);
-
-	logger.info(
-		`[global-safety-net] Recompute complete for ${formatUTCTimestamp(yesterdayStart)}`,
-	);
+		await recomputeDayFully(tx, yesterdayStart, scope);
+		await setLastSafetyNetDay(tx, yesterdayStart, scope);
+	});
 }
 
-export async function processClosedHours(): Promise<void> {
+const AGGREGATORS = {
+	global: aggregateWindowIntoStats,
+	"provider-key": aggregateProviderKeyWindowIntoStats,
+};
+
+// Seek once per distinct key using (provider_key_id, created_at). Ordering
+// only by created_at can scan the entire unattributed prefix of log history.
+export const providerKeyBackfillStartQuery = sql`
+	WITH RECURSIVE first_log_per_key AS (
+		(
+			SELECT provider_key_id, created_at
+			FROM ${log}
+			WHERE provider_key_id IS NOT NULL
+			ORDER BY provider_key_id, created_at
+			LIMIT 1
+		)
+		UNION ALL
+		SELECT next_key.provider_key_id, next_key.created_at
+		FROM first_log_per_key previous_key
+		CROSS JOIN LATERAL (
+			SELECT provider_key_id, created_at
+			FROM ${log}
+			WHERE provider_key_id IS NOT NULL
+				AND provider_key_id > previous_key.provider_key_id
+			ORDER BY provider_key_id, created_at
+			LIMIT 1
+		) next_key
+	)
+	SELECT extract(epoch FROM date_trunc('day', min(created_at))) * 1000 AS earliest_day_ms
+	FROM first_log_per_key
+`;
+
+async function initialProviderKeyBucket(tx: Tx): Promise<Date | undefined> {
+	logger.info(
+		"[global-provider-key] Locating backfill start using the provider-key index",
+	);
+	const previousTimeout = await tx.execute<{ statement_timeout: string }>(
+		sql`SHOW statement_timeout`,
+	);
+	await tx.execute(sql`SET LOCAL statement_timeout = '30s'`);
+	const oldest = await tx.execute<{ earliest_day_ms: string | null }>(
+		providerKeyBackfillStartQuery,
+	);
+	await tx.execute(
+		sql`SELECT set_config('statement_timeout', ${previousTimeout.rows[0].statement_timeout}, true)`,
+	);
+	const earliest = oldest.rows[0].earliest_day_ms;
+	if (earliest === null) {
+		return;
+	}
+	const bucket = new Date(Number(earliest));
+	logger.info(
+		`[global-provider-key] Backfilling from ${formatUTCTimestamp(bucket)}`,
+	);
+	return bucket;
+}
+
+async function processScopeClosedHours(
+	now: Date,
+	scope: AggregationScope,
+): Promise<boolean> {
 	const start = Date.now();
-	const now = new Date();
 	const settlingMs = SETTLING_BUFFER_MINUTES * 60 * 1000;
 	const cutoffMs = now.getTime() - BUCKET_MS - settlingMs;
 	const latestSafeBucket = floorToBucket(new Date(cutoffMs), BUCKET_MS);
 
-	const state = await readState();
-
-	let nextBucket: Date;
-	if (state?.lastProcessedHour) {
-		nextBucket = new Date(state.lastProcessedHour.getTime() + BUCKET_MS);
-	} else {
-		const lookbackMs = INITIAL_LOOKBACK_DAYS * DAY_MS;
-		nextBucket = floorToBucket(new Date(now.getTime() - lookbackMs), BUCKET_MS);
-		logger.info(
-			`[global] No watermark, seeding from ${formatUTCTimestamp(nextBucket)}`,
-		);
-	}
-
+	const state = await readState(scope);
+	let nextBucket = state?.lastProcessedHour
+		? new Date(state.lastProcessedHour.getTime() + BUCKET_MS)
+		: undefined;
+	let caughtUp = false;
 	let processed = 0;
-	while (nextBucket <= latestSafeBucket && processed < MAX_BUCKETS_PER_TICK) {
+	while (
+		(!nextBucket || nextBucket <= latestSafeBucket) &&
+		processed < MAX_BUCKETS_PER_TICK
+	) {
 		if (isStopRequested()) {
-			logger.info(`[global] Stop requested, processed ${processed} buckets`);
+			logger.info(
+				`[global-${scope}] Stop requested, processed ${processed} buckets`,
+			);
 			break;
 		}
 
-		const bucket = nextBucket;
-		await db.transaction(async (tx) => {
-			await aggregateWindowIntoStats(tx, bucket, BUCKET_MS);
-			await setLastProcessedHour(tx, bucket);
+		const lastProcessed = await db.transaction(async (tx) => {
+			await tx
+				.insert(globalAggregationState)
+				.values({ id: STATE_ROW_IDS[scope] })
+				.onConflictDoNothing();
+			const [currentState] = await tx
+				.select()
+				.from(globalAggregationState)
+				.where(eq(globalAggregationState.id, STATE_ROW_IDS[scope]))
+				.for("update");
+
+			// Hold the cursor lock during discovery and the first bucket too,
+			// so replicas cannot issue duplicate startup lookups.
+			let bucket: Date | undefined;
+			if (currentState.lastProcessedHour) {
+				bucket = new Date(currentState.lastProcessedHour.getTime() + BUCKET_MS);
+			} else if (scope === "provider-key") {
+				bucket = await initialProviderKeyBucket(tx);
+			} else {
+				const lookbackMs = INITIAL_LOOKBACK_DAYS * DAY_MS;
+				bucket = floorToBucket(new Date(now.getTime() - lookbackMs), BUCKET_MS);
+				logger.info(
+					`[global-global] No watermark, seeding from ${formatUTCTimestamp(bucket)}`,
+				);
+			}
+			if (!bucket || bucket > latestSafeBucket) {
+				return;
+			}
+
+			// No rollup has the key/model dimensions together. Log retention
+			// preserves the metering fields needed to rebuild each existing day.
+			if (
+				scope === "provider-key" &&
+				(!currentState.lastProcessedHour ||
+					bucket.getTime() === floorToDay(bucket).getTime())
+			) {
+				const dayStr = formatUTCTimestamp(floorToDay(bucket));
+				await tx
+					.delete(globalProviderKeyModelStats)
+					.where(
+						sql`${globalProviderKeyModelStats.dayTimestamp} = ${dayStr}::timestamp`,
+					);
+			}
+			await AGGREGATORS[scope](tx, bucket, BUCKET_MS);
+			await setLastProcessedHour(tx, bucket, scope);
+			return bucket;
 		});
+		if (!lastProcessed) {
+			caughtUp = true;
+			break;
+		}
 
 		processed++;
-		nextBucket = new Date(bucket.getTime() + BUCKET_MS);
+		nextBucket = new Date(lastProcessed.getTime() + BUCKET_MS);
 	}
 
-	if (processed >= MAX_BUCKETS_PER_TICK && nextBucket <= latestSafeBucket) {
+	if (
+		processed >= MAX_BUCKETS_PER_TICK &&
+		nextBucket &&
+		nextBucket <= latestSafeBucket
+	) {
 		logger.info(
-			`[global] Hit per-tick cap (${MAX_BUCKETS_PER_TICK}), more buckets pending — will continue next tick`,
+			`[global-${scope}] Hit per-tick cap (${MAX_BUCKETS_PER_TICK}), more buckets pending — will continue next tick`,
 		);
 	}
 
-	if (processed > 0) {
+	if (processed > 0 && nextBucket) {
 		const lastProcessed = new Date(nextBucket.getTime() - BUCKET_MS);
 		logger.info(
-			`[global] Processed ${processed} closed bucket(s) in ${Date.now() - start}ms (watermark now ${formatUTCTimestamp(lastProcessed)})`,
+			`[global-${scope}] Processed ${processed} closed bucket(s) in ${Date.now() - start}ms (watermark now ${formatUTCTimestamp(lastProcessed)})`,
 		);
 	} else {
-		logger.debug("[global] No new closed buckets to process");
+		logger.debug(`[global-${scope}] No new closed buckets to process`);
 	}
 
 	if (!isStopRequested()) {
 		try {
-			await runSafetyNetIfNeeded(now);
+			await runSafetyNetIfNeeded(now, scope);
 		} catch (error) {
+			if (error instanceof AggregationStoppedError) {
+				return false;
+			}
 			logger.error(
-				"[global-safety-net] Failed",
+				`[global-${scope}-safety-net] Failed`,
 				error instanceof Error ? error : new Error(String(error)),
 			);
 		}
 	}
+	return (
+		!caughtUp && nextBucket !== undefined && nextBucket <= latestSafeBucket
+	);
+}
+
+export async function processClosedHours(): Promise<boolean> {
+	const now = new Date();
+	const globalPending = await processScopeClosedHours(now, "global");
+	if (!isStopRequested()) {
+		const providerKeyPending = await processScopeClosedHours(
+			now,
+			"provider-key",
+		);
+		return globalPending || providerKeyPending;
+	}
+	return globalPending;
 }

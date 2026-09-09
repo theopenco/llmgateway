@@ -7,6 +7,7 @@ import {
 	db,
 	eq,
 	globalModelStats,
+	globalProviderKeyModelStats,
 	globalSourceStats,
 	log,
 	organization,
@@ -14,7 +15,10 @@ import {
 	user,
 } from "@llmgateway/db";
 
-import { aggregateWindowIntoStats } from "./global-stats-aggregator.js";
+import {
+	aggregateProviderKeyWindowIntoStats,
+	aggregateWindowIntoStats,
+} from "./global-stats-aggregator.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -44,6 +48,9 @@ describe("global stats aggregation", () => {
 		cost: number;
 		totalTokens?: string;
 		createdAt?: Date;
+		providerMarginPercent?: number;
+		cached?: boolean;
+		providerKeyId?: string;
 	}) =>
 		db.insert(log).values({
 			requestId: `global-stats-request-${randomUUID()}`,
@@ -53,6 +60,9 @@ describe("global stats aggregation", () => {
 			apiKeyId: `global-stats-api-key-${suffix}`,
 			source: ids.source,
 			cost: values.cost,
+			providerMarginPercent: values.providerMarginPercent,
+			cached: values.cached ?? false,
+			providerKeyId: values.providerKeyId,
 			promptTokens: "10",
 			completionTokens: "20",
 			totalTokens: values.totalTokens ?? "30",
@@ -68,7 +78,10 @@ describe("global stats aggregation", () => {
 		});
 
 	const aggregate = () =>
-		db.transaction((tx) => aggregateWindowIntoStats(tx, WINDOW_START, HOUR_MS));
+		db.transaction(async (tx) => {
+			await aggregateWindowIntoStats(tx, WINDOW_START, HOUR_MS);
+			await aggregateProviderKeyWindowIntoStats(tx, WINDOW_START, HOUR_MS);
+		});
 
 	const readModelStats = () =>
 		db
@@ -138,6 +151,9 @@ describe("global stats aggregation", () => {
 		await db
 			.delete(globalSourceStats)
 			.where(eq(globalSourceStats.source, ids.source));
+		await db
+			.delete(globalProviderKeyModelStats)
+			.where(eq(globalProviderKeyModelStats.usedModel, ids.model));
 		await db.delete(log).where(eq(log.organizationId, ids.paygOrgId));
 		await db.delete(log).where(eq(log.organizationId, ids.devpassOrgId));
 		await db.delete(log).where(eq(log.organizationId, `missing-${suffix}`));
@@ -278,6 +294,62 @@ describe("global stats aggregation", () => {
 		expect(Number(rows[0].cost)).toBeCloseTo(0.03, 6);
 	});
 
+	test("rolls the snapshotted provider margin into providerMarginAmount", async () => {
+		await insertLog({
+			organizationId: ids.paygOrgId,
+			projectId: ids.paygProjectId,
+			usedMode: "credits",
+			cost: 0.1,
+			providerMarginPercent: 0.3,
+		});
+		await insertLog({
+			organizationId: ids.paygOrgId,
+			projectId: ids.paygProjectId,
+			usedMode: "credits",
+			cost: 0.2,
+			providerMarginPercent: 0.25,
+		});
+		// No snapshot (provider without routing settings) → contributes nothing.
+		await insertLog({
+			organizationId: ids.paygOrgId,
+			projectId: ids.paygProjectId,
+			usedMode: "credits",
+			cost: 0.5,
+		});
+		// Cache hits do not incur a second provider charge, even if a malformed
+		// historical row carries a non-zero cost and margin snapshot.
+		await insertLog({
+			organizationId: ids.paygOrgId,
+			projectId: ids.paygProjectId,
+			usedMode: "credits",
+			cost: 0.6,
+			providerMarginPercent: 0.5,
+			cached: true,
+		});
+		// BYOK pays the provider directly, so it cannot earn gateway margin.
+		await insertLog({
+			organizationId: ids.paygOrgId,
+			projectId: ids.paygProjectId,
+			usedMode: "api-keys",
+			cost: 0.4,
+			providerMarginPercent: 0.5,
+		});
+
+		await aggregate();
+
+		const rows = await readModelStats();
+		expect(rows).toHaveLength(2);
+		const credits = rows.find((row) => row.usedMode === "credits");
+		const byok = rows.find((row) => row.usedMode === "api-keys");
+		expect(Number(credits?.cost)).toBeCloseTo(1.4, 6);
+		expect(Number(credits?.providerMarginAmount)).toBeCloseTo(
+			0.1 * 0.3 + 0.2 * 0.25, // eslint-disable-line no-mixed-operators
+			6,
+		);
+		expect(Number(byok?.cost)).toBeCloseTo(0.4, 6);
+		expect(Number(byok?.providerMarginAmount)).toBe(0);
+	});
+
 	test("applies the same dimensions to source stats", async () => {
 		await insertLog({
 			organizationId: ids.paygOrgId,
@@ -308,5 +380,48 @@ describe("global stats aggregation", () => {
 					),
 				),
 		).toHaveLength(1);
+	});
+
+	test("splits the model stats by the credential that served the request", async () => {
+		const providerKeyId = `global-stats-provider-key-${suffix}`;
+		await insertLog({
+			organizationId: ids.paygOrgId,
+			projectId: ids.paygProjectId,
+			usedMode: "api-keys",
+			cost: 0.01,
+			providerKeyId,
+		});
+		await insertLog({
+			organizationId: ids.devpassOrgId,
+			projectId: ids.devpassProjectId,
+			usedMode: "credits",
+			cost: 0.02,
+			providerKeyId,
+		});
+		// Env-var credential: no providerKeyId, so it must not be attributed.
+		await insertLog({
+			organizationId: ids.paygOrgId,
+			projectId: ids.paygProjectId,
+			usedMode: "credits",
+			cost: 0.04,
+		});
+
+		await aggregate();
+
+		const rows = await db
+			.select()
+			.from(globalProviderKeyModelStats)
+			.where(eq(globalProviderKeyModelStats.usedModel, ids.model));
+		expect(rows).toHaveLength(2);
+		expect(rows.every((row) => row.providerKeyId === providerKeyId)).toBe(true);
+		expect(rows.map((row) => `${row.usedMode}/${row.orgKind}`).sort()).toEqual([
+			"api-keys/default",
+			"credits/devpass",
+		]);
+		expect(rows.reduce((sum, row) => sum + row.cost, 0)).toBeCloseTo(0.03, 6);
+		// The unattributed request still lands in the global table.
+		expect(
+			(await readModelStats()).reduce((sum, row) => sum + row.requestCount, 0),
+		).toBe(3);
 	});
 });

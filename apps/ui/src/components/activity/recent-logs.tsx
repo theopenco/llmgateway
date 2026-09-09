@@ -48,8 +48,11 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/lib/components/select";
+import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
+
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { paths } from "@/lib/api/v1";
 import type { Log } from "@llmgateway/db";
@@ -125,6 +128,7 @@ function setCookie(name: string, value: string, days = 365) {
 }
 
 function FirstLogTopUpPrompt() {
+	const { selectedOrganization } = useDashboardState();
 	const [dismissed, setDismissed] = useState(true);
 
 	useEffect(() => {
@@ -134,7 +138,7 @@ function FirstLogTopUpPrompt() {
 		}
 	}, []);
 
-	if (dismissed) {
+	if (dismissed || !isOrganizationAdmin(selectedOrganization?.role)) {
 		return null;
 	}
 

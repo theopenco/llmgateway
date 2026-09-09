@@ -40,7 +40,7 @@ const BASE_URL = "https://llmgateway.io";
 
 const title = "Partners — Infrastructure Behind LLM Gateway";
 const description =
-	"Meet the inference partners powering LLM Gateway, starting with launch partner SCX.ai — Australian sovereign AI serving open models from renewable-powered infrastructure in Sydney.";
+	"Meet the inference partners powering LLM Gateway, starting with launch partner SCX.ai — Australian sovereign AI serving open models from Sydney.";
 
 export const metadata: Metadata = {
 	title,

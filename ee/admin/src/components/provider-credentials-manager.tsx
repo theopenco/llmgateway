@@ -1,7 +1,9 @@
 "use client";
 
 import {
+	CheckCheck,
 	CheckCircle2,
+	ChevronDown,
 	ClipboardPaste,
 	Loader2,
 	MinusCircle,
@@ -30,6 +32,13 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuShortcut,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -54,7 +63,7 @@ import { formatUsd, isInRotation } from "@/lib/provider-key-spend";
 import { parseProviderModelList } from "@/lib/provider-model-list";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon } from "@llmgateway/shared";
+import { getProviderIcon, PROVIDER_MODEL_KINDS } from "@llmgateway/shared";
 import {
 	MultiModelIdSelector,
 	ReorderableItem,
@@ -69,6 +78,7 @@ import type {
 	ProviderCredentialModelVerification,
 	ProviderCredentialSelfTestResult,
 } from "@/lib/admin-provider-credentials";
+import type { ProviderModelKind } from "@llmgateway/shared";
 
 type Variant = "default" | "enterprise" | "plans";
 
@@ -108,6 +118,24 @@ const NO_CREDENTIALS: VariantCounts = {
 	default: 0,
 	enterprise: 0,
 	plans: 0,
+};
+
+const NO_MODELS: string[] = [];
+
+const NO_MODELS_BY_KIND: Record<ProviderModelKind, string[]> = {
+	text: [],
+	image: [],
+	ocr: [],
+	embedding: [],
+	video: [],
+};
+
+const MODEL_KIND_LABELS: Record<ProviderModelKind, string> = {
+	text: "Text models",
+	image: "Image models",
+	ocr: "OCR models",
+	embedding: "Embedding models",
+	video: "Video models",
 };
 
 function totalOf(counts: VariantCounts): number {
@@ -1265,11 +1293,21 @@ function CredentialDialog({
 	const [verifyOutcome, setVerifyOutcome] = useState<
 		{ result?: ProviderCredentialModelVerification; error?: string } | undefined
 	>();
+	const selfTestRequestId = useRef(0);
+	const verifyRequestId = useRef(0);
 
-	const clearProbeResults = useCallback(() => {
-		setSelfTestOutcome(undefined);
+	const clearVerifyResults = useCallback(() => {
+		verifyRequestId.current += 1;
+		setVerifyLoading(false);
 		setVerifyOutcome(undefined);
 	}, []);
+
+	const clearProbeResults = useCallback(() => {
+		selfTestRequestId.current += 1;
+		setSelfTestLoading(false);
+		setSelfTestOutcome(undefined);
+		clearVerifyResults();
+	}, [clearVerifyResults]);
 
 	/**
 	 * The credential the test endpoints should probe: the stored one (its token
@@ -1287,25 +1325,37 @@ function CredentialDialog({
 	);
 
 	async function handleSelfTest() {
+		const requestId = selfTestRequestId.current + 1;
+		selfTestRequestId.current = requestId;
 		setSelfTestLoading(true);
 		setSelfTestOutcome(undefined);
 		try {
 			const outcome = await onSelfTest(credentialUnderTest());
+			if (selfTestRequestId.current !== requestId) {
+				return;
+			}
 			setSelfTestOutcome(
 				outcome.success
 					? { result: outcome.result }
 					: { error: outcome.error ?? "Failed to test credential" },
 			);
 		} catch (cause) {
+			if (selfTestRequestId.current !== requestId) {
+				return;
+			}
 			setSelfTestOutcome({
 				error: thrownErrorMessage(cause, "Failed to test credential"),
 			});
 		} finally {
-			setSelfTestLoading(false);
+			if (selfTestRequestId.current === requestId) {
+				setSelfTestLoading(false);
+			}
 		}
 	}
 
 	async function handleVerifyModels() {
+		const requestId = verifyRequestId.current + 1;
+		verifyRequestId.current = requestId;
 		setVerifyLoading(true);
 		setVerifyOutcome(undefined);
 		try {
@@ -1313,23 +1363,43 @@ function CredentialDialog({
 				...credentialUnderTest(),
 				models: allowedModels,
 			});
+			if (verifyRequestId.current !== requestId) {
+				return;
+			}
 			setVerifyOutcome(
 				outcome.success
 					? { result: outcome.result }
 					: { error: outcome.error ?? "Failed to verify models" },
 			);
 		} catch (cause) {
+			if (verifyRequestId.current !== requestId) {
+				return;
+			}
 			setVerifyOutcome({
 				error: thrownErrorMessage(cause, "Failed to verify models"),
 			});
 		} finally {
-			setVerifyLoading(false);
+			if (verifyRequestId.current === requestId) {
+				setVerifyLoading(false);
+			}
 		}
 	}
 
 	const selectedEntry =
 		catalogEntry ?? catalog.find((entry) => entry.id === provider);
 	const isRegionScoped = (selectedEntry?.regions.length ?? 0) > 0;
+	const availableModels = selectedEntry?.models ?? NO_MODELS;
+	const modelsByKind = selectedEntry?.modelsByKind ?? NO_MODELS_BY_KIND;
+	const allAvailableModelsSelected = useMemo(() => {
+		if (availableModels.length === 0) {
+			return false;
+		}
+		const selected = new Set(allowedModels);
+		return availableModels.every((modelId) => selected.has(modelId));
+	}, [allowedModels, availableModels]);
+	const exactAvailableModelSelection =
+		allAvailableModelsSelected &&
+		allowedModels.length === availableModels.length;
 
 	// Settings where exactly one member may be filled (e.g. Azure's resource vs
 	// base URL). Filling one disables its siblings, so the invalid combination
@@ -1709,25 +1779,80 @@ function CredentialDialog({
 					</div>
 
 					<div className="flex flex-col gap-3 rounded-md border border-border/60 p-3">
-						<div className="flex items-center justify-between gap-2">
+						<div className="flex flex-wrap items-center justify-between gap-2">
 							<p className="text-sm font-medium">Allowed models</p>
-							<PasteAllowedModelsDialog
-								availableIds={selectedEntry?.models ?? []}
-								providerName={selectedEntry?.name ?? "this provider"}
-								value={allowedModels}
-								onChange={(next) => {
-									setAllowedModels(next);
-									setVerifyOutcome(undefined);
-								}}
-							/>
+							<div className="flex flex-wrap gap-2">
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									onClick={() => {
+										setAllowedModels((current) =>
+											Array.from(new Set([...current, ...availableModels])),
+										);
+										clearVerifyResults();
+									}}
+									disabled={
+										availableModels.length === 0 || allAvailableModelsSelected
+									}
+									title="Explicitly selects every catalogue model so they can all be tested."
+								>
+									<CheckCheck />
+									{availableModels.length === 0
+										? "No models available"
+										: allAvailableModelsSelected
+											? `All ${availableModels.length} selected`
+											: `Select all ${availableModels.length}`}
+								</Button>
+								<DropdownMenu>
+									<DropdownMenuTrigger asChild>
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											disabled={availableModels.length === 0}
+											title="Replace the restriction with one model type."
+										>
+											Select by kind
+											<ChevronDown />
+										</Button>
+									</DropdownMenuTrigger>
+									<DropdownMenuContent align="end" className="z-[60] min-w-52">
+										{PROVIDER_MODEL_KINDS.map((kind) => (
+											<DropdownMenuItem
+												key={kind}
+												disabled={modelsByKind[kind].length === 0}
+												onSelect={() => {
+													setAllowedModels([...modelsByKind[kind]]);
+													clearVerifyResults();
+												}}
+											>
+												Only {MODEL_KIND_LABELS[kind].toLowerCase()}
+												<DropdownMenuShortcut>
+													{modelsByKind[kind].length}
+												</DropdownMenuShortcut>
+											</DropdownMenuItem>
+										))}
+									</DropdownMenuContent>
+								</DropdownMenu>
+								<PasteAllowedModelsDialog
+									availableIds={availableModels}
+									providerName={selectedEntry?.name ?? "this provider"}
+									value={allowedModels}
+									onChange={(next) => {
+										setAllowedModels(next);
+										clearVerifyResults();
+									}}
+								/>
+							</div>
 						</div>
 						<MultiModelIdSelector
-							availableIds={selectedEntry?.models ?? []}
+							availableIds={availableModels}
 							value={allowedModels}
 							onChange={(next) => {
 								setAllowedModels(next);
 								// A changed list invalidates the last verification report.
-								setVerifyOutcome(undefined);
+								clearVerifyResults();
 							}}
 							placeholder="All models (no restriction)"
 						/>
@@ -1768,13 +1893,17 @@ function CredentialDialog({
 									!provider ||
 									(!isEdit && !token)
 								}
-								title="Probes every listed model through the key and reports which ones the account can actually serve."
+								title="Probes supported model types through the key and reports which ones the account can actually serve. Video generation is skipped."
 								aria-busy={verifyLoading}
 							>
 								{verifyLoading ? (
 									<Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
 								) : null}
-								Verify models
+								{allowedModels.length === 0
+									? "No models selected"
+									: exactAvailableModelSelection
+										? `Test all ${allowedModels.length} models`
+										: `Test ${allowedModels.length} selected model${allowedModels.length === 1 ? "" : "s"}`}
 							</Button>
 						</div>
 						{/* Live region so the async probe results are announced to
@@ -1810,36 +1939,16 @@ function CredentialDialog({
 								</p>
 							) : null}
 							{verifyOutcome?.result ? (
-								<div className="flex flex-col gap-1 rounded-md bg-muted/40 p-2">
-									<p
-										className={cn(
-											"text-xs font-medium",
-											verifyOutcome.result.allValid
-												? "text-green-600"
-												: "text-destructive",
-										)}
-									>
-										{verifyOutcome.result.allValid
-											? "All listed models verified."
-											: "Some models failed verification — save anyway if you know better, or remove them."}
-									</p>
-									<ul className="flex flex-col gap-1">
-										{verifyOutcome.result.results.map((entry) => (
-											<li
-												key={entry.model}
-												className="flex items-start gap-1.5 text-xs"
-											>
-												<ModelVerificationIcon entry={entry} />
-												<span className="font-mono">{entry.model}</span>
-												{entry.error ? (
-													<span className="text-muted-foreground">
-														— {entry.error}
-													</span>
-												) : null}
-											</li>
-										))}
-									</ul>
-								</div>
+								<ModelVerificationReport
+									verification={verifyOutcome.result}
+									onUseSuccessfulModels={(models) => {
+										setAllowedModels(models);
+										clearVerifyResults();
+										toast.success(
+											`${models.length} successful model${models.length === 1 ? "" : "s"} selected`,
+										);
+									}}
+								/>
 							) : null}
 						</div>
 					</div>
@@ -1937,8 +2046,8 @@ function CredentialDialog({
 
 /**
  * Status icon for one row of the verify-models report: green = probed and
- * served, red = probed and rejected (or unknown to the catalogue), gray =
- * listed but not probeable (image, embedding and other non-chat models).
+ * served, red = probed and rejected, gray = listed but not probeable (unknown,
+ * models whose request surface is not enabled for verification).
  */
 function ModelVerificationIcon({ entry }: { entry: ModelVerificationEntry }) {
 	if (entry.valid === true) {
@@ -1946,10 +2055,71 @@ function ModelVerificationIcon({ entry }: { entry: ModelVerificationEntry }) {
 			<CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0 text-green-600" />
 		);
 	}
-	if (entry.valid === false || !entry.inCatalog) {
+	if (entry.valid === false) {
 		return <XCircle className="mt-px h-3.5 w-3.5 shrink-0 text-destructive" />;
 	}
 	return (
 		<MinusCircle className="mt-px h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+	);
+}
+
+function ModelVerificationReport({
+	verification,
+	onUseSuccessfulModels,
+}: {
+	verification: ProviderCredentialModelVerification;
+	onUseSuccessfulModels: (models: string[]) => void;
+}) {
+	const successfulModels = verification.results
+		.filter((entry) => entry.valid === true)
+		.map((entry) => entry.model);
+	const failedCount = verification.results.filter(
+		(entry) => entry.valid === false,
+	).length;
+	const untestedCount =
+		verification.results.length - successfulModels.length - failedCount;
+	const hasModelsToRemove = failedCount > 0 || untestedCount > 0;
+
+	return (
+		<div className="flex flex-col gap-2 rounded-md bg-muted/40 p-2">
+			<div className="flex flex-wrap items-center justify-between gap-2">
+				<p
+					className={cn(
+						"text-xs font-medium",
+						failedCount > 0
+							? "text-destructive"
+							: untestedCount > 0
+								? "text-muted-foreground"
+								: "text-green-600",
+					)}
+				>
+					{successfulModels.length} succeeded · {failedCount} failed ·{" "}
+					{untestedCount} not testable
+				</p>
+				{hasModelsToRemove && successfulModels.length > 0 ? (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						onClick={() => onUseSuccessfulModels(successfulModels)}
+						title="Replaces the restriction list with only the models that returned a successful live response."
+					>
+						<CheckCheck />
+						Use {successfulModels.length} successful
+					</Button>
+				) : null}
+			</div>
+			<ul className="flex max-h-64 flex-col gap-1 overflow-y-auto pr-1">
+				{verification.results.map((entry) => (
+					<li key={entry.model} className="flex items-start gap-1.5 text-xs">
+						<ModelVerificationIcon entry={entry} />
+						<span className="font-mono">{entry.model}</span>
+						{entry.error ? (
+							<span className="text-muted-foreground">— {entry.error}</span>
+						) : null}
+					</li>
+				))}
+			</ul>
+		</div>
 	);
 }
