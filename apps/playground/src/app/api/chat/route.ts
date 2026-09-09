@@ -762,7 +762,7 @@ export async function POST(req: Request) {
 	}
 	const selectedConnectors = z
 		.array(z.enum(loungeConnectorIds))
-		.max(11)
+		.max(loungeConnectorIds.length)
 		.safeParse(connector_ids ?? []);
 	if (!selectedConnectors.success) {
 		return Response.json({ error: "Invalid connectors" }, { status: 400 });

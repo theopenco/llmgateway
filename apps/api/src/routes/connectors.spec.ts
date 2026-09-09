@@ -192,12 +192,22 @@ describe("Lounge connector routes", () => {
 		});
 		expect(chatResponse.status).toBe(201);
 		const { chat } = await chatResponse.json();
+		const retained = {
+			content: "I found some context.",
+			reasoning: "Check the connected source.",
+			images: "[]",
+			audios: "[]",
+			documents: "[]",
+			sources: "[]",
+			metadata: { source: "fixture" },
+		};
 		for (const state of ["approval-requested", "output-available"]) {
 			const response = await app.request(`/chats/${chat.id}/messages`, {
 				method: "POST",
 				headers: { Cookie: cookie, "Content-Type": "application/json" },
 				body: JSON.stringify({
 					id: "fixture-assistant-message",
+					...(state === "approval-requested" ? retained : {}),
 					role: "assistant",
 					tools: JSON.stringify([
 						{
@@ -216,6 +226,7 @@ describe("Lounge connector routes", () => {
 		});
 		expect(messages).toHaveLength(1);
 		expect(messages[0].tools).toContain("output-available");
+		expect(messages[0]).toMatchObject(retained);
 	});
 
 	it("returns to the chat after consent and rejects external return URLs", async () => {

@@ -142,115 +142,131 @@ test("pauses and disconnects a connection with visible status", async ({
 	).toBeVisible();
 });
 
-test("approves a connector call and persists one assistant message", async ({
-	page,
-}) => {
-	const assistantId = `connector-${Date.now()}`;
-	await page.route("**/connectors", (route) =>
-		route.fulfill({
-			json: {
-				connectors: loungeConnectorIds.map((id) => ({
-					id,
-					...loungeConnectors[id],
-					available: true,
-					connected: id === "gmail",
-					enabled: id === "gmail",
-				})),
-			},
-		}),
-	);
-	let turns = 0;
-	await page.route("**/api/chat", async (route) => {
-		turns++;
-		const body = route.request().postDataJSON();
-		expect(body.connector_ids).toEqual(["gmail"]);
-		const first = turns === 1;
-		if (!first) {
-			const last = body.messages.at(-1);
-			expect(
-				last.parts.find(
+for (const approvalCount of [1, 2]) {
+	test(`approves ${approvalCount} connector calls and persists one assistant message`, async ({
+		page,
+	}) => {
+		const assistantId = `connector-${Date.now()}`;
+		await page.route("**/connectors", (route) =>
+			route.fulfill({
+				json: {
+					connectors: loungeConnectorIds.map((id) => ({
+						id,
+						...loungeConnectors[id],
+						available: true,
+						connected: id === "gmail",
+						enabled: id === "gmail",
+					})),
+				},
+			}),
+		);
+		let turns = 0;
+		await page.route("**/api/chat", async (route) => {
+			turns++;
+			const body = route.request().postDataJSON();
+			expect(body.connector_ids).toEqual(["gmail"]);
+			const first = turns === 1;
+			if (!first) {
+				const last = body.messages.at(-1);
+				const tools = last.parts.filter(
 					(part: { type: string }) => part.type === "dynamic-tool",
-				).approval.approved,
-			).toBe(true);
-		}
-		const chunks = first
-			? [
-					{ type: "start", messageId: assistantId },
-					{ type: "start-step" },
-					{
-						type: "tool-input-available",
-						toolCallId: "browser-call",
-						toolName: "gmail__search_messages",
-						input: { query: "test" },
-						dynamic: true,
-					},
-					{
-						type: "tool-approval-request",
-						approvalId: "browser-approval",
-						toolCallId: "browser-call",
-						signature: "browser-fixture",
-					},
-					{ type: "finish-step" },
-					{ type: "finish", finishReason: "tool-calls" },
-				]
-			: [
-					{ type: "start", messageId: assistantId },
-					{ type: "start-step" },
-					{
-						type: "tool-output-available",
-						toolCallId: "browser-call",
-						output: { text: "Fixture email" },
-					},
-					{ type: "text-start", id: "browser-answer" },
-					{
-						type: "text-delta",
-						id: "browser-answer",
-						delta: "Here is the email summary.",
-					},
-					{ type: "text-end", id: "browser-answer" },
-					{ type: "finish-step" },
-					{ type: "finish", finishReason: "stop" },
-				];
-		await route.fulfill({
-			headers: {
-				"Content-Type": "text/event-stream",
-				"x-vercel-ai-ui-message-stream": "v1",
-			},
-			body: `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`,
+				);
+				expect(tools).toHaveLength(approvalCount);
+				for (const tool of tools) {
+					expect(tool.approval.approved).toBe(true);
+				}
+			}
+			const chunks = first
+				? [
+						{ type: "start", messageId: assistantId },
+						{ type: "start-step" },
+						...Array.from({ length: approvalCount }, (_, index) => [
+							{
+								type: "tool-input-available",
+								toolCallId: `browser-call-${index}`,
+								toolName: "gmail__search_messages",
+								input: { query: "test" },
+								dynamic: true,
+							},
+							{
+								type: "tool-approval-request",
+								approvalId: `browser-approval-${index}`,
+								toolCallId: `browser-call-${index}`,
+								signature: "browser-fixture",
+							},
+						]).flat(),
+						{ type: "finish-step" },
+						{ type: "finish", finishReason: "tool-calls" },
+					]
+				: [
+						{ type: "start", messageId: assistantId },
+						{ type: "start-step" },
+						...Array.from({ length: approvalCount }, (_, index) => ({
+							type: "tool-output-available",
+							toolCallId: `browser-call-${index}`,
+							output: { text: "Fixture email" },
+						})),
+						{ type: "text-start", id: "browser-answer" },
+						{
+							type: "text-delta",
+							id: "browser-answer",
+							delta: "Here is the email summary.",
+						},
+						{ type: "text-end", id: "browser-answer" },
+						{ type: "finish-step" },
+						{ type: "finish", finishReason: "stop" },
+					];
+			await route.fulfill({
+				headers: {
+					"Content-Type": "text/event-stream",
+					"x-vercel-ai-ui-message-stream": "v1",
+				},
+				body: `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`,
+			});
 		});
+		await page.reload();
+		await expect(
+			page.getByRole("button", { name: "Connectors", exact: true }),
+		).toContainText("1");
+		await expect(
+			page.getByRole("button", { name: "Submit", exact: true }),
+		).toBeEnabled();
+		await page
+			.locator('textarea[name="message"]')
+			.fill("Search my email for the connector test");
+		await page.getByRole("button", { name: "Submit", exact: true }).click();
+		await expect(
+			page.getByRole("button", { name: "Allow once", exact: true }),
+		).toHaveCount(approvalCount);
+		await expect(page).toHaveURL(/[?&]id=[^&]+/);
+		const saved = page.waitForResponse(
+			(response) =>
+				response.url().includes("/messages") &&
+				response.request().method() === "POST" &&
+				response
+					.request()
+					.postData()
+					?.includes("Here is the email summary.") === true,
+		);
+		await page
+			.getByRole("button", { name: "Allow once", exact: true })
+			.evaluateAll((buttons) => {
+				for (const button of buttons) {
+					(button as HTMLButtonElement).click();
+				}
+			});
+		await expect(
+			page.getByText("Here is the email summary.", { exact: true }),
+		).toBeVisible();
+		expect(turns).toBe(2);
+		expect((await saved).ok()).toBe(true);
+		await expect(page).toHaveURL(/[?&]id=[^&]+/);
+		await page.reload();
+		await expect(
+			page.getByText("Here is the email summary.", { exact: true }),
+		).toHaveCount(1);
+		await expect(
+			page.getByRole("button", { name: "Allow once", exact: true }),
+		).toHaveCount(0);
 	});
-	await page.reload();
-	await expect(
-		page.getByRole("button", { name: "Connectors", exact: true }),
-	).toContainText("1");
-	await expect(
-		page.getByRole("button", { name: "Submit", exact: true }),
-	).toBeEnabled();
-	await page
-		.locator('textarea[name="message"]')
-		.fill("Search my email for the connector test");
-	await page.getByRole("button", { name: "Submit", exact: true }).click();
-	await expect(
-		page.getByRole("button", { name: "Allow once", exact: true }),
-	).toBeVisible();
-	const saved = page.waitForResponse(
-		(response) =>
-			response.url().includes("/messages") &&
-			response.request().method() === "POST" &&
-			response.request().postData()?.includes("Here is the email summary.") ===
-				true,
-	);
-	await page.getByRole("button", { name: "Allow once", exact: true }).click();
-	await expect(
-		page.getByText("Here is the email summary.", { exact: true }),
-	).toBeVisible();
-	expect(turns).toBe(2);
-	expect((await saved).ok()).toBe(true);
-	await page.reload();
-	await expect(
-		page.getByText("Here is the email summary.", { exact: true }),
-	).toHaveCount(1);
-	await expect(
-		page.getByRole("button", { name: "Allow once", exact: true }),
-	).toHaveCount(0);
-});
+}

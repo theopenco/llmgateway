@@ -221,7 +221,9 @@ describe("Lounge connector chat", () => {
 				],
 			}),
 		);
-		await response.text();
+		expect(response.status).toBe(200);
+		const content = await response.text();
+		expect(content).not.toContain("tool-output-available");
 		expect(
 			fixture.api.mock.calls.filter(
 				([path]) => path === "/connectors/{connectorId}/tools/{toolName}",

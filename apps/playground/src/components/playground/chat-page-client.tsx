@@ -871,23 +871,44 @@ export default function ChatPageClient({
 		[sendMessage, buildRequestOptions],
 	);
 
+	const answeringApprovals = useRef(new Set<string>());
+	const answeredApprovals = useRef(new Set<string>());
+	const continuedApprovals = useRef(new Set<string>());
 	const handleToolApproval = useCallback(
 		async (id: string, approved: boolean) => {
+			if (answeringApprovals.current.has(id)) {
+				return;
+			}
+			answeringApprovals.current.add(id);
 			await addToolApprovalResponse({ id, approved });
-			const hasOtherPending = messages
-				.at(-1)
-				?.parts.some(
-					(part) =>
+			answeredApprovals.current.add(id);
+			const pendingIds =
+				messages
+					.at(-1)
+					?.parts.flatMap((part) =>
 						(part.type === "dynamic-tool" || part.type.startsWith("tool-")) &&
 						"state" in part &&
 						part.state === "approval-requested" &&
 						"approval" in part &&
-						part.approval?.id !== id,
-				);
-			if (!hasOtherPending) {
-				streamingChatIdRef.current = chatIdRef.current;
-				await sendMessage(undefined, buildRequestOptions(false));
+						part.approval
+							? [part.approval.id]
+							: [],
+					) ?? [];
+			if (
+				pendingIds.some(
+					(pendingId) =>
+						!answeredApprovals.current.has(pendingId) ||
+						continuedApprovals.current.has(pendingId),
+				)
+			) {
+				return;
 			}
+			// Claim continuation before yielding so simultaneous answers send only once.
+			for (const pendingId of [...pendingIds, id]) {
+				continuedApprovals.current.add(pendingId);
+			}
+			streamingChatIdRef.current = chatIdRef.current;
+			await sendMessage(undefined, buildRequestOptions(false));
 		},
 		[addToolApprovalResponse, messages, sendMessage, buildRequestOptions],
 	);

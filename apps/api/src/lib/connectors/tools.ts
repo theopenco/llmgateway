@@ -1,9 +1,14 @@
+import { randomUUID } from "node:crypto";
+import { setTimeout } from "node:timers/promises";
+
 import { createMCPClient } from "@ai-sdk/mcp";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { HTTPException } from "hono/http-exception";
 
+import { redisClient } from "@llmgateway/cache";
 import { and, db, eq, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
 
 import { mcpEndpoints, nativeOAuth } from "./catalogue.js";
 import { openConnector, sealConnector } from "./crypto.js";
@@ -25,25 +30,33 @@ export interface ConnectorTool {
 	inputSchema: Record<string, unknown>;
 }
 
+async function activeConnection(userId: string, id: LoungeConnectorId) {
+	const connection = await db.query.loungeConnection.findFirst({
+		where: { userId, connectorId: id, enabled: true },
+	});
+	if (!connection) {
+		throw new HTTPException(409, {
+			message: "This connector is disconnected or paused",
+		});
+	}
+	return connection;
+}
+
 async function refreshConnection(userId: string, id: LoungeConnectorId) {
-	return await db.transaction(async (tx) => {
-		// Only token refresh holds the row lock; tool calls run outside it.
-		const [connection] = await tx
-			.select()
-			.from(tables.loungeConnection)
-			.where(
-				and(
-					eq(tables.loungeConnection.userId, userId),
-					eq(tables.loungeConnection.connectorId, id),
-					eq(tables.loungeConnection.enabled, true),
-				),
-			)
-			.for("update");
-		if (!connection) {
+	// Serialize rotating refresh tokens across API instances without holding a DB connection.
+	const key = `lounge:refresh:${userId}:${id}`;
+	const owner = randomUUID();
+	const deadline = Date.now() + 60_000;
+	while ((await redisClient.set(key, owner, "PX", 120_000, "NX")) !== "OK") {
+		if (Date.now() >= deadline) {
 			throw new HTTPException(409, {
-				message: "This connector is disconnected or paused",
+				message: "Connector is refreshing. Try again.",
 			});
 		}
+		await setTimeout(100);
+	}
+	try {
+		const connection = await activeConnection(userId, id);
 		const credentials = credentialsSchema.parse(
 			openConnector(connection.credentials, userId, id),
 		);
@@ -53,8 +66,9 @@ async function refreshConnection(userId: string, id: LoungeConnectorId) {
 		) {
 			return connection;
 		}
+		const signal = AbortSignal.timeout(60_000);
 		if (nativeOAuth(id, credentials.shop)) {
-			await exchangeNativeToken(id, credentials);
+			await exchangeNativeToken(id, credentials, undefined, signal);
 		} else {
 			const endpoint = mcpEndpoints[id];
 			if (!endpoint) {
@@ -71,19 +85,51 @@ async function refreshConnection(userId: string, id: LoungeConnectorId) {
 						});
 					},
 				),
-				{ serverUrl: endpoint, fetchFn: connectorFetch },
+				{
+					serverUrl: endpoint,
+					fetchFn: (url, init) =>
+						connectorFetch(url, {
+							...init,
+							signal: init?.signal
+								? AbortSignal.any([signal, init.signal])
+								: signal,
+						}),
+				},
 			);
 		}
-		const [updated] = await tx
+		signal.throwIfAborted();
+		const [updated] = await db
 			.update(tables.loungeConnection)
 			.set({
 				credentials: sealConnector(credentials, userId, id),
 				updatedAt: new Date(),
 			})
-			.where(eq(tables.loungeConnection.id, connection.id))
+			.where(
+				and(
+					eq(tables.loungeConnection.id, connection.id),
+					eq(tables.loungeConnection.credentials, connection.credentials),
+					eq(tables.loungeConnection.enabled, true),
+				),
+			)
 			.returning();
-		return updated;
-	});
+		if (updated) {
+			return updated;
+		}
+		throw new HTTPException(409, {
+			message: "The connector changed. Try your request again.",
+		});
+	} finally {
+		try {
+			await redisClient.eval(
+				'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end',
+				1,
+				key,
+				owner,
+			);
+		} catch {
+			logger.warn("Could not release connector refresh lease; it will expire");
+		}
+	}
 }
 
 async function withConnection<T>(
@@ -94,14 +140,7 @@ async function withConnection<T>(
 		executeNative: (name: string, input: unknown) => Promise<unknown>;
 	}) => Promise<T>,
 ): Promise<T> {
-	let connection = await db.query.loungeConnection.findFirst({
-		where: { userId, connectorId: id, enabled: true },
-	});
-	if (!connection) {
-		throw new HTTPException(409, {
-			message: "This connector is disconnected or paused",
-		});
-	}
+	let connection = await activeConnection(userId, id);
 	let credentials = credentialsSchema.parse(
 		openConnector(connection.credentials, userId, id),
 	);
@@ -140,6 +179,9 @@ async function withConnection<T>(
 	if (!endpoint) {
 		return await run({ executeNative });
 	}
+	if (id === "github" && !credentials.tokens?.access_token) {
+		throw new HTTPException(409, { message: "Reconnect this connector" });
+	}
 	const transport = new StreamableHTTPClientTransport(new URL(endpoint), {
 		fetch: connectorFetch,
 		...(id === "github"
@@ -163,9 +205,14 @@ async function withConnection<T>(
 		client = await createMCPClient({ transport });
 		return await run({ client, executeNative });
 	} finally {
-		await transport.close();
-		if (client) {
-			await client.close();
+		try {
+			if (client) {
+				await client.close();
+			} else {
+				await transport.close();
+			}
+		} catch {
+			logger.warn("Could not close connector transport");
 		}
 	}
 }
@@ -183,6 +230,7 @@ export async function listConnectorTools(
 				do {
 					const result = await client.listTools({
 						params: cursor ? { cursor } : undefined,
+						options: { timeout: 60_000 },
 					});
 					for (const definition of result.tools) {
 						if (!/^[a-zA-Z0-9_-]{1,48}$/.test(definition.name)) {

@@ -1770,14 +1770,14 @@ chats.openapi(addMessage, async (c) => {
 			const [updated] = await db
 				.update(tables.message)
 				.set({
-					content: body.content ?? null,
-					images: body.images ?? null,
-					audios: body.audios ?? null,
-					documents: body.documents ?? null,
-					reasoning: body.reasoning ?? null,
-					tools: body.tools ?? null,
-					sources: body.sources ?? null,
-					metadata: body.metadata ?? null,
+					content: body.content,
+					images: body.images,
+					audios: body.audios,
+					documents: body.documents,
+					reasoning: body.reasoning,
+					tools: body.tools,
+					sources: body.sources,
+					metadata: body.metadata,
 				})
 				.where(
 					and(

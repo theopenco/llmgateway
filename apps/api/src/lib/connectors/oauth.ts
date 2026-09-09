@@ -211,6 +211,7 @@ export async function exchangeNativeToken(
 	id: LoungeConnectorId,
 	credentials: ConnectorCredentials,
 	code?: string,
+	signal?: AbortSignal,
 ) {
 	const native = nativeOAuth(id, credentials.shop);
 	const { clientId, clientSecret } = connectorClient(id);
@@ -236,6 +237,7 @@ export async function exchangeNativeToken(
 		throw new HTTPException(409, { message: "Reconnect this connector" });
 	}
 	const response = await connectorFetch(native.token, {
+		signal,
 		method: "POST",
 		headers: {
 			Accept: "application/json",
