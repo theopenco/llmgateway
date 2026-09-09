@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { findArenaMatch, getArenaBenchmarks } from "@/lib/arena-benchmarks.js";
+import { loadPublicDiscounts } from "@/lib/public-discounts.js";
 
 import {
 	and,
@@ -12,9 +13,7 @@ import {
 	eq,
 	excludeRegionalMappingRows,
 	gte,
-	isNull,
 	modelProviderMappingHistory,
-	or,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -187,7 +186,7 @@ const getModelsRoute = createRoute({
 internalModels.openapi(getModelsRoute, async (c) => {
 	const now = new Date();
 
-	const [models, activeMappings, globalDiscounts] = await Promise.all([
+	const [models, activeMappings, getPublicDiscount] = await Promise.all([
 		db.query.model.findMany({
 			where: {
 				status: { eq: "active" },
@@ -204,22 +203,7 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				createdAt: "desc",
 			},
 		}),
-		db
-			.select({
-				provider: tables.discount.provider,
-				model: tables.discount.model,
-				discountPercent: tables.discount.discountPercent,
-			})
-			.from(tables.discount)
-			.where(
-				and(
-					isNull(tables.discount.organizationId),
-					or(
-						isNull(tables.discount.expiresAt),
-						gte(tables.discount.expiresAt, now),
-					),
-				),
-			),
+		loadPublicDiscounts(),
 	]);
 
 	const mappingsByModelId = new Map<string, typeof activeMappings>();
@@ -231,45 +215,6 @@ internalModels.openapi(getModelsRoute, async (c) => {
 			mappingsByModelId.set(mapping.modelId, [mapping]);
 		}
 	}
-
-	// Find the best global discount for a given provider+model. Discounts are
-	// always keyed by the canonical model ID.
-	const getGlobalDiscount = (
-		providerId: string,
-		modelId: string,
-	): string | null => {
-		// Precedence: provider+model > provider > model
-		const providerModel = globalDiscounts.find(
-			(d) => d.provider === providerId && d.model === modelId,
-		);
-		if (providerModel) {
-			return providerModel.discountPercent;
-		}
-
-		const providerOnly = globalDiscounts.find(
-			(d) => d.provider === providerId && d.model === null,
-		);
-		if (providerOnly) {
-			return providerOnly.discountPercent;
-		}
-
-		const modelOnly = globalDiscounts.find(
-			(d) => d.provider === null && d.model === modelId,
-		);
-		if (modelOnly) {
-			return modelOnly.discountPercent;
-		}
-
-		// Fully global (null provider + null model)
-		const fullyGlobal = globalDiscounts.find(
-			(d) => d.provider === null && d.model === null,
-		);
-		if (fullyGlobal) {
-			return fullyGlobal.discountPercent;
-		}
-
-		return null;
-	};
 
 	// Transform and apply effective discount
 	const transformedModels = models.map((model) => ({
@@ -283,7 +228,11 @@ internalModels.openapi(getModelsRoute, async (c) => {
 					) ?? null;
 			return {
 				...mapping,
-				discount: getGlobalDiscount(mapping.providerId, model.id),
+				discount:
+					mapping.deactivatedAt && mapping.deactivatedAt <= now
+						? null
+						: (getPublicDiscount(mapping.providerId, model.id)
+								?.discountPercent ?? null),
 				quantization: sharedMapping?.quantization ?? null,
 				// Airside-materialized mappings carry their own efforts in the DB
 				// row; static rows are served from the shared definition.

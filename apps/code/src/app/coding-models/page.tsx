@@ -6,7 +6,7 @@ import { Footer } from "@/components/Footer";
 import { GetDevPassButton } from "@/components/GetDevPassButton";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
-import { codingModelCards } from "@/lib/coding-models";
+import { getCodingModelCards } from "@/lib/coding-models";
 
 import type { Metadata } from "next";
 
@@ -24,7 +24,8 @@ export const metadata: Metadata = {
 	},
 };
 
-export default function CodingModelsPage() {
+export default async function CodingModelsPage() {
+	const codingModelCards = await getCodingModelCards();
 	return (
 		<div className="min-h-screen bg-background">
 			<Header />
