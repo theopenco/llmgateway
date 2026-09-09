@@ -83,7 +83,7 @@ The limit covers dashboard top-ups (card and hosted checkout), auto top-up, and 
 
 Organizations on a **Dev plan** (also called devpass) or a **Chat plan** have their own, tighter per-endpoint limits and do not receive the spend-based multiplier.
 
-Dev plans cover text inference only: **chat completions, messages, responses, the models list, and moderations**, each at a flat 120 requests-per-minute floor. The other endpoints (embeddings, rerank, OCR, images, speech, transcriptions, videos) return a `403` on Dev plans and are marked **—** below.
+Dev plans cover text inference only: **chat completions (including the AI SDK protocol), messages, responses, the models list, and moderations**, plus the key and credits endpoints, each at a flat 120 requests-per-minute floor. The other endpoints (embeddings, rerank, OCR, images, speech, transcriptions, videos, realtime) return a `403` on Dev plans and are marked **—** below; realtime is unavailable on Chat plans too.
 
 | Endpoint             | Dev plan / min | Chat plan / min |
 | -------------------- | -------------- | --------------- |
@@ -99,6 +99,10 @@ Dev plans cover text inference only: **chat completions, messages, responses, th
 | Speech               | —              | 30              |
 | Transcriptions       | —              | 30              |
 | Videos               | —              | 12              |
+| Realtime (mint)      | —              | —               |
+| Key                  | 120            | 120             |
+| Credits              | 120            | 30              |
+| AI SDK protocol      | 120            | 60              |
 
 ### Enterprise
 
@@ -193,7 +197,7 @@ Organization throttles return 429 with `Retry-After` in seconds, zero remaining 
 
 The legacy `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` fields remain available. `RateLimit-Reset` is a delay in seconds; `X-RateLimit-Reset` is a Unix timestamp. These fields also remain available as `X-RateLimit-Limit` and `X-RateLimit-Remaining`. Browser clients on allowed CORS origins can read these headers.
 
-Other `429` sources carry their own header subsets: free-model limits set `RateLimit-Limit` / `RateLimit-Remaining` on every free-model request (plus `Retry-After` and reset headers when limited) without the structured fields, and a provider-cap rejection under `X-No-Fallback` may arrive without the full set.
+Other `429` sources carry their own header subsets. Free-model limits overwrite `RateLimit-Limit` / `RateLimit-Remaining` (and the `X-RateLimit-*` equivalents) with the free-model budget on every free-model request, adding `Retry-After` and reset headers when limited, while any `RateLimit-Policy` / `RateLimit` structured fields on that response still describe the organization RPM quota. A provider-cap rejection under `X-No-Fallback` may arrive without the full set.
 
 Other gates, such as spending limits and upstream throttles, can reject requests independently of the advertised organization quota. Honor `Retry-After` when supplied; otherwise use exponential backoff with jitter. Inspect the error body to distinguish a temporary throttle from a spending limit that needs account action.
 

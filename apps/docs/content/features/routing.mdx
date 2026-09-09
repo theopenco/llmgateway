@@ -241,7 +241,7 @@ An established pin yields only when its provider can no longer serve the session
 - Drops below the session uptime threshold (default 85%), or
 - Is filtered out of the candidate set (health or compatibility filtering).
 
-Sticky requests never enter the cross-provider [automatic retry & fallback](#automatic-retry--fallback) loop — a transient failure is retried against the pinned provider only, on another configured key when several exist, or on the same key when the provider has just one. The failure still degrades that provider's uptime metrics, which is what triggers re-pinning on a subsequent request once the uptime threshold is crossed.
+Sticky requests never enter the cross-provider [automatic retry & fallback](#automatic-retry--fallback) loop — a transient failure is retried against the pinned provider only, on another configured key when several exist, or on the same platform key when only one is configured. The failure still degrades that provider's uptime metrics, which is what triggers re-pinning on a subsequent request once the uptime threshold is crossed.
 
 Re-pinning runs the same weighted algorithm again, so the replacement is the best currently available provider — not an arbitrary one.
 
@@ -413,7 +413,7 @@ Automatic retry to a different provider is disabled when:
 - A specific provider is requested (e.g., `openai/gpt-4o`)
 - The request carries a session id and [sticky session routing](#sticky-session-routing) is enabled — the session stays pinned to its provider
 - No alternative providers are available for the requested model
-- The maximum retry count (2) has been exhausted
+- The maximum retry count (default 2) has been exhausted
 
 Retries can still happen within the same provider when multiple keys are
 configured and the current key fails with a retryable error.

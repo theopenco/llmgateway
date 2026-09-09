@@ -6,7 +6,7 @@ icon: Zap
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-Gateway caching serves a previously-seen request entirely from LLM Gateway without forwarding it to the upstream provider. Requests are matched on the parsed [cache-key fields](#cache-key-generation) — formatting differences like whitespace, and parameters outside the cache key, do not create a separate entry. Repeated identical calls cost **$0** — there is no inference and no provider charge. It is most useful for API workloads with deterministic inputs (classification, batch jobs, FAQ lookups, retries) rather than free-form chat.
+Gateway caching serves a previously-seen request entirely from LLM Gateway without forwarding it to the upstream provider. Requests are matched on the parsed [cache-key fields](#cache-key-generation) — JSON formatting outside string values, and parameters outside the cache key, do not create a separate entry; the text of your messages and the key order of message and tool objects do. Repeated identical calls cost **$0** — there is no inference and no provider charge. It is most useful for API workloads with deterministic inputs (classification, batch jobs, FAQ lookups, retries) rather than free-form chat.
 
 <Callout type="info">
 	If you want to reduce the cost of long, partially-shared prompts in chat apps
@@ -60,8 +60,9 @@ To use caching:
 3. Make requests as normal—caching is automatic
 
 <Callout type="warning">
-	Gateway caching is not available on DevPass coding-plan organizations — the
-	project setting is ignored there and every request goes upstream.
+	Gateway caching is not available on DevPass coding-plan organizations or while
+	a [zero data retention](/features/compliance) policy is active — the project
+	setting is ignored there and every request goes upstream.
 </Callout>
 
 ## Cache Key Generation
@@ -100,7 +101,7 @@ When a cache hit occurs:
 When a cache miss occurs:
 
 - Request is forwarded to the LLM provider
-- A successful response is stored in cache — errored, client-cancelled, or incomplete responses are never stored
+- A successful response is stored in cache — errored, client-cancelled, or empty responses are never stored (a response truncated by `max_tokens` is cached like any other)
 - Normal inference costs apply
 - Future identical requests will hit the cache
 

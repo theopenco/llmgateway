@@ -80,7 +80,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 ## Supported Features
 
-Custom providers serve **chat completions** — `/v1/chat/completions` and the endpoints that proxy through it (`/v1/responses` and `/v1/messages`). Gateway features that apply to that path (caching, routing, IAM, logging, cost tracking via the custom model catalog) work as usual. Embeddings, images, audio, video, rerank, OCR, and moderations do not route to custom providers.
+Custom providers serve **chat completions** — `/v1/chat/completions` and the endpoints that proxy through it (`/v1/responses`, `/v1/messages`, and the AI SDK gateway endpoints under `/v*/ai`). Gateway features that apply to that path (caching, routing, IAM, logging, cost tracking via the custom model catalog) work as usual. Embeddings, images, audio, video, rerank, OCR, and moderations do not route to custom providers.
 
 ## Custom Model Catalog
 
