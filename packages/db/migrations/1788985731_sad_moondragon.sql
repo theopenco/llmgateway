@@ -12,6 +12,7 @@ CREATE TABLE "lounge_connector_authorization" (
 	"id" text PRIMARY KEY,
 	"user_id" text NOT NULL,
 	"session_id" text NOT NULL,
+	"consumed" boolean DEFAULT false NOT NULL,
 	"connector_id" text NOT NULL,
 	"credentials" text NOT NULL,
 	"expires_at" timestamp NOT NULL

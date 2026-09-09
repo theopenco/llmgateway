@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "99c98b24-cd67-4fee-a53e-b0976a0fbb02",
+  "id": "2812d3cb-8d0c-4899-a46d-1ca1f589dafc",
   "prevId": "4f04cdf3-7035-4ab1-a27e-c46a268b17f1",
   "ddl": [
     {
@@ -10890,6 +10890,22 @@
       "generated": null,
       "identity": null,
       "name": "session_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "lounge_connector_authorization"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "consumed",
       "entityType": "columns",
       "schema": "public",
       "table": "lounge_connector_authorization"
