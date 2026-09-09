@@ -3,6 +3,32 @@ import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ImageObject } from "./types.js";
 
+/**
+ * Deadline for fetching a provider-returned image before converting it to a
+ * base64 data URL. These URLs come from the upstream provider response, which
+ * the SSRF guard below already treats as untrusted user-influenced input (a
+ * BYOK/custom-baseUrl tenant controls what the "provider" returns), and this
+ * fetch has no other timeout, so an unresponsive host would otherwise hang the
+ * request indefinitely across every retry.
+ */
+const DEFAULT_IMAGE_FETCH_TIMEOUT_MS = 15_000;
+// Largest delay AbortSignal.timeout accepts; a bigger (or non-finite) value
+// throws and would break the retry loop, so we clamp to a safe range.
+const MAX_IMAGE_FETCH_TIMEOUT_MS = 2_147_483_647;
+
+/**
+ * Resolves the fetch deadline from IMAGE_FETCH_TIMEOUT_MS, guarding against
+ * values that would make AbortSignal.timeout throw. Only a finite integer in
+ * [0, 2_147_483_647] is honoured; anything else (NaN, negative, fractional,
+ * Infinity) falls back to the default.
+ */
+export function resolveImageFetchTimeoutMs(): number {
+	const raw = Number(process.env.IMAGE_FETCH_TIMEOUT_MS);
+	return Number.isInteger(raw) && raw >= 0 && raw <= MAX_IMAGE_FETCH_TIMEOUT_MS
+		? raw
+		: DEFAULT_IMAGE_FETCH_TIMEOUT_MS;
+}
+
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
@@ -21,7 +47,12 @@ async function fetchImageWithRetry(
 
 	for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
 		try {
-			const response = await fetch(url, { redirect: "error" });
+			const response = await fetch(url, {
+				redirect: "error",
+				// Bounds the whole download, headers and body. undici's bodyTimeout is
+				// refreshed on every chunk, so a host that trickles bytes never trips it.
+				signal: AbortSignal.timeout(resolveImageFetchTimeoutMs()),
+			});
 			if (response.ok) {
 				const contentType = response.headers.get("content-type") ?? "image/png";
 				const arrayBuffer = await response.arrayBuffer();
