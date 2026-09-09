@@ -221,7 +221,12 @@ export {
 	LOUNGE_SOURCE,
 } from "./lounge-source.js";
 
-export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
+export {
+	getActiveProviderPromo,
+	MARKETING_STATS,
+	RUNWARE_PROMO,
+	SCX_PROMO,
+} from "./marketing.js";
 
 export {
 	deriveStabilityMetrics,
