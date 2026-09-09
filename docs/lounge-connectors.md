@@ -20,6 +20,9 @@ credentials and signs tool approvals. Rotation uses the existing keyring.
 | GitHub                                  | Set `LOUNGE_GITHUB_CLIENT_ID` and `LOUNGE_GITHUB_CLIENT_SECRET` for an OAuth app. Requests `repo read:org` and uses the official GitHub MCP endpoint.                                                                                                                                                                                                   |
 | Shopify                                 | Set `LOUNGE_SHOPIFY_CLIENT_ID` and `LOUNGE_SHOPIFY_CLIENT_SECRET`. Configure a standalone app with `read_products,read_orders`. Users enter their `myshopify.com` domain; callbacks are HMAC-verified. Online tokens respect the authorizing staff member’s permissions and require reconnection when their Shopify session expires (at most 24 hours). |
 
+Docker Compose forwards these variables from its environment. For Helm, add the
+OAuth variables through `api.extraEnv` using Secret references or `existingSecret`.
+
 Apps without required deployment configuration remain visible but cannot start
 a connection. Connectors using provider MCP tools retain the provider's granted
 permissions. Gmail and Drive tools read data; Shopify tools query products and
