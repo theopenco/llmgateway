@@ -1194,6 +1194,87 @@ describe("airside provider portal", () => {
 		expect(duplicate.status).toBe(400);
 	});
 
+	it("drops a region immediately without a review cycle", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id, {
+			pricing: {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				regionPrices: [
+					{ region: "au", inputPrice: "3e-6", outputPrice: "8e-6" },
+					{ region: "eu-frankfurt", inputPrice: "4e-6", outputPrice: "9e-6" },
+				],
+			},
+		});
+		const { model } = await created.json();
+		const dropRegion = (region: string) =>
+			app.request(`/airside/models/${model.id}/regions/${region}`, {
+				method: "DELETE",
+				headers: { Cookie: cookie },
+			});
+
+		// Drafts have no effective pricing to drop a region from.
+		expect((await dropRegion("au")).status).toBe(409);
+
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+
+		expect((await dropRegion("mars")).status).toBe(404);
+
+		const removed = await dropRegion("au");
+		expect(removed.status).toBe(200);
+		const removedModel = (await removed.json()).model;
+		expect(removedModel.currentPricing.regionPrices).toEqual([
+			{
+				region: "eu-frankfurt",
+				inputPrice: "4e-6",
+				outputPrice: "9e-6",
+				cachedInputPrice: null,
+				requestPrice: null,
+			},
+		]);
+		expect(removedModel.pendingFiling).toBeNull();
+		const mappings = await db.query.modelProviderMapping.findMany({
+			where: { modelId: { eq: "mistral-large-3" } },
+		});
+		expect(mappings.map((mapping) => mapping.region).sort()).toEqual([
+			"eu-frankfurt",
+			null,
+		]);
+
+		// Removing the last region leaves default-only pricing.
+		const last = await dropRegion("eu-frankfurt");
+		expect(last.status).toBe(200);
+		expect((await last.json()).model.currentPricing.regionPrices).toBeNull();
+		expect(
+			(
+				await db.query.modelProviderMapping.findMany({
+					where: { modelId: { eq: "mistral-large-3" } },
+				})
+			).map((mapping) => mapping.region),
+		).toEqual([null]);
+
+		// A pending filing blocks removal so approval cannot resurrect the region.
+		const pendingUpdate = await app.request(
+			`/airside/models/${model.id}/price-filings`,
+			json(cookie, {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				regionPrices: [
+					{ region: "au", inputPrice: "3e-6", outputPrice: "8e-6" },
+				],
+			}),
+		);
+		expect(pendingUpdate.status).toBe(201);
+		expect((await dropRegion("au")).status).toBe(409);
+	});
+
 	it("refuses listings that shadow the static catalogue", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);

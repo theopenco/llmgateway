@@ -9,6 +9,7 @@ import {
 	materializeAirsideModel,
 	staticCatalogueHasActiveMapping,
 	syncAirsideModelMetadata,
+	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
 import { domainPublishesToken } from "@/lib/airside-dns.js";
 import {
@@ -2916,6 +2917,88 @@ airside.openapi(deleteModel, async (c) => {
 		await dematerializeAirsideModel(model.providerId, model.modelName, tx);
 	});
 	return c.json({ status: "delisted" as const });
+});
+
+const deleteModelRegion = createRoute({
+	method: "delete",
+	path: "/models/{id}/regions/{region}",
+	request: {
+		params: z.object({ id: z.string(), region: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ model: modelSchema }),
+				},
+			},
+			description:
+				"The model with the region dropped. Removing an offered region changes no price, so — like delisting — it applies immediately: an auto-approved filing carrying the remaining regions becomes the effective pricing.",
+		},
+	},
+});
+
+airside.openapi(deleteModelRegion, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id, region } = c.req.valid("param");
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!model) {
+		throw new HTTPException(404, { message: "Model not found" });
+	}
+	await requireCompanyMembership(user.id, model.providerCompanyId);
+	if (model.status !== "active") {
+		throw new HTTPException(409, {
+			message:
+				"Only active listings can drop a region — edit the pending filing instead.",
+		});
+	}
+	const filings = await db.query.providerPriceFiling.findMany({
+		where: { draftModelId: { eq: id } },
+		orderBy: { createdAt: "desc" },
+	});
+	if (filings.some((filing) => filing.status === "pending")) {
+		throw new HTTPException(409, {
+			message: "A filing for this model is already pending review.",
+		});
+	}
+	const current = filings.find((filing) => filing.status === "approved");
+	const remaining = (current?.regionPrices ?? []).filter(
+		(entry) => entry.region !== region,
+	);
+	if (!current || remaining.length === (current.regionPrices ?? []).length) {
+		throw new HTTPException(404, {
+			message: "This region is not part of the listing's pricing.",
+		});
+	}
+	// cdb: the gateway caches these tables for listing resolution.
+	await cdb.transaction(async (tx) => {
+		const [filing] = await tx
+			.insert(tables.providerPriceFiling)
+			.values({
+				draftModelId: id,
+				providerCompanyId: model.providerCompanyId,
+				kind: "update",
+				inputPrice: current.inputPrice,
+				outputPrice: current.outputPrice,
+				cachedInputPrice: current.cachedInputPrice,
+				requestPrice: current.requestPrice,
+				regionPrices: remaining.length > 0 ? remaining : null,
+				requestedBy: user.id,
+				status: "approved",
+				reviewNote: `Auto-approved: region '${region}' removed by the carrier`,
+				reviewedAt: new Date(),
+			})
+			.returning();
+		await updateAirsideMappingPrices(model, filing, tx);
+	});
+	const updatedFilings = await db.query.providerPriceFiling.findMany({
+		where: { draftModelId: { eq: id } },
+	});
+	return c.json({
+		model: serializeModel({ ...model, priceFilings: updatedFilings }),
+	});
 });
 
 const createPriceFiling = createRoute({
