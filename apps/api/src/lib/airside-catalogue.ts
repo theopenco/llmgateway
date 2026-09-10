@@ -100,6 +100,7 @@ export async function materializeAirsideModel(
 			outputPrice: filing.outputPrice,
 			cachedInputPrice: filing.cachedInputPrice,
 			requestPrice: filing.requestPrice,
+			quantization: model.quantization,
 			contextSize: model.contextSize,
 			maxOutput: model.maxOutput,
 			streaming: model.streaming,
@@ -187,11 +188,7 @@ export async function materializeAirsideModel(
 	await cdb.transaction(upsert);
 }
 
-/**
- * Non-pricing edits to an ACTIVE listing apply to the materialized catalogue
- * rows immediately — capabilities, context, reasoning efforts and display
- * metadata are carrier-editable, only pricing waits for an approved filing.
- */
+/** Apply approved metadata to the live catalogue mappings. */
 export async function syncAirsideModelMetadata(
 	model: DraftModelRow,
 	transaction?: CatalogueTransaction,
@@ -216,6 +213,7 @@ export async function syncAirsideModelMetadata(
 		await tx
 			.update(tables.modelProviderMapping)
 			.set({
+				quantization: model.quantization,
 				contextSize: model.contextSize,
 				maxOutput: model.maxOutput,
 				streaming: model.streaming,
@@ -287,6 +285,7 @@ function staticMappingValues(mapping: ProviderModelMapping) {
 		cacheWriteInputPrice1h: mapping.cacheWriteInputPrice1h?.toString() ?? null,
 		imageInputPrice: mapping.imageInputPrice?.toString() ?? null,
 		requestPrice: mapping.requestPrice?.toString() ?? null,
+		quantization: mapping.quantization ?? null,
 		contextSize: mapping.contextSize ?? null,
 		maxOutput: mapping.maxOutput ?? null,
 		streaming: mapping.streaming !== false,

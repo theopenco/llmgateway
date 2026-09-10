@@ -40,6 +40,55 @@ import { perMillionToPerToken, perTokenToPerMillion } from "@/lib/format";
 import type { AirsideModel } from "@/app/dashboard/fleet/page";
 import type { ReactNode } from "react";
 
+function QuantizationField({
+	id,
+	value,
+	onChange,
+}: {
+	id: string;
+	value: AirsideModel["quantization"];
+	onChange: (value: AirsideModel["quantization"]) => void;
+}) {
+	return (
+		<div className="space-y-2">
+			<Label htmlFor={id}>Quantization</Label>
+			<Select
+				value={value ?? "unknown"}
+				onValueChange={(value) =>
+					onChange(
+						value === "unknown"
+							? null
+							: (value as AirsideModel["quantization"]),
+					)
+				}
+			>
+				<SelectTrigger id={id}>
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value="unknown">Unknown</SelectItem>
+					{(
+						[
+							"int4",
+							"int8",
+							"fp4",
+							"fp6",
+							"fp8",
+							"fp16",
+							"bf16",
+							"fp32",
+						] as const
+					).map((quantization) => (
+						<SelectItem key={quantization} value={quantization}>
+							{quantization.toUpperCase()}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</div>
+	);
+}
+
 function useInvalidateModels(providerCompanyId: string) {
 	const api = useApi();
 	const queryClient = useQueryClient();
@@ -396,6 +445,8 @@ export function RegisterModelDialog({
 	const [contextSize, setContextSize] = useState("128000");
 	const [description, setDescription] = useState("");
 	const [family, setFamily] = useState("");
+	const [quantization, setQuantization] =
+		useState<AirsideModel["quantization"]>(null);
 	const [maxOutput, setMaxOutput] = useState("");
 	const [inputPrice, setInputPrice] = useState("");
 	const [outputPrice, setOutputPrice] = useState("");
@@ -548,6 +599,7 @@ export function RegisterModelDialog({
 								displayName: displayName || undefined,
 								description: description || undefined,
 								family,
+								quantization,
 								contextSize: Number(contextSize) || undefined,
 								maxOutput: Number(maxOutput) || undefined,
 								...capabilities,
@@ -686,6 +738,11 @@ export function RegisterModelDialog({
 								placeholder="optional"
 							/>
 						</div>
+						<QuantizationField
+							id="model-quantization"
+							value={quantization}
+							onChange={setQuantization}
+						/>
 						<div className="space-y-2 sm:col-span-2">
 							<Label htmlFor="model-family">Family</Label>
 							<Input
@@ -1059,6 +1116,7 @@ export function EditModelDialog({
 		proposed.contextSize ? String(proposed.contextSize) : "",
 	);
 	const [family, setFamily] = useState(proposed.family ?? "");
+	const [quantization, setQuantization] = useState(proposed.quantization);
 	const [maxOutput, setMaxOutput] = useState(
 		proposed.maxOutput ? String(proposed.maxOutput) : "",
 	);
@@ -1093,6 +1151,7 @@ export function EditModelDialog({
 		setDescription(proposed.description ?? "");
 		setContextSize(proposed.contextSize ? String(proposed.contextSize) : "");
 		setFamily(proposed.family ?? "");
+		setQuantization(proposed.quantization);
 		setMaxOutput(proposed.maxOutput ? String(proposed.maxOutput) : "");
 		setCapabilities({
 			streaming: proposed.streaming,
@@ -1147,7 +1206,7 @@ export function EditModelDialog({
 			}}
 		>
 			<DialogTrigger asChild>{children}</DialogTrigger>
-			<DialogContent className="sm:max-w-lg">
+			<DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
 				<DialogHeader>
 					<DialogTitle className="font-display">
 						Edit {model.modelName}
@@ -1170,6 +1229,7 @@ export function EditModelDialog({
 								displayName: displayName || null,
 								description: description || null,
 								family,
+								quantization,
 								contextSize: contextSize ? Number(contextSize) : null,
 								maxOutput: maxOutput ? Number(maxOutput) : null,
 								...capabilities,
@@ -1227,6 +1287,11 @@ export function EditModelDialog({
 								min={1}
 							/>
 						</div>
+						<QuantizationField
+							id="edit-quantization"
+							value={quantization}
+							onChange={setQuantization}
+						/>
 						<div className="space-y-2">
 							<Label htmlFor="edit-family">Family</Label>
 							<Input

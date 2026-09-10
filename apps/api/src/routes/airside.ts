@@ -27,6 +27,7 @@ import {
 	type AirsideModelMetadataInput,
 	diffMetadataChanges,
 	pickMetadataChanges,
+	quantizationValue,
 	REASONING_EFFORT_VALUES,
 } from "@/lib/airside-metadata.js";
 import { notifyAirsideCrewInvite } from "@/utils/discord.js";
@@ -310,6 +311,7 @@ const modelVerificationSchema = z.object({
 });
 
 const modelSchema = z.object({
+	quantization: quantizationValue.nullable(),
 	id: z.string(),
 	providerCompanyId: z.string(),
 	providerId: z.string(),
@@ -660,6 +662,7 @@ function serializeModel(
 		apiFormat: row.apiFormat,
 		displayName: row.displayName,
 		description: row.description,
+		quantization: row.quantization,
 		family: row.family,
 		contextSize: row.contextSize,
 		maxOutput: row.maxOutput,
@@ -2359,6 +2362,7 @@ const createModel = createRoute({
 						apiFormat: providerApiFormatValue.optional(),
 						displayName: z.string().max(200).optional(),
 						description: z.string().max(2000).optional(),
+						quantization: quantizationValue.nullish(),
 						family: z.string().min(1).max(100),
 						contextSize: z.number().int().positive().optional(),
 						maxOutput: z.number().int().positive().optional(),
@@ -2482,6 +2486,7 @@ airside.openapi(createModel, async (c) => {
 					apiFormat: body.apiFormat ?? "openai-chat-completions",
 					displayName: body.displayName ?? null,
 					description: body.description ?? null,
+					quantization: body.quantization ?? null,
 					family: body.family,
 					contextSize: body.contextSize ?? null,
 					maxOutput: body.maxOutput ?? null,
@@ -2672,6 +2677,7 @@ airside.openapi(importCatalogueModels, async (c) => {
 					externalId: mapping.externalId,
 					apiFormat: mapping.apiFormat ?? "provider-native",
 					displayName: model.name ?? null,
+					quantization: mapping.quantization ?? null,
 					family: model.family,
 					contextSize: mapping.contextSize ?? null,
 					maxOutput: mapping.maxOutput ?? null,

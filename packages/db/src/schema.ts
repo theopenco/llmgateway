@@ -20,6 +20,7 @@ import { customAlphabet } from "nanoid";
 import type { gatewayContentFilterResponseSchema } from "./log-payloads.js";
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type {
+	Quantization,
 	ProviderApiFormat,
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
@@ -3389,6 +3390,7 @@ export const modelProviderMapping = pgTable(
 		cacheWriteInputPrice1h: decimal(),
 		imageInputPrice: decimal(),
 		requestPrice: decimal(),
+		quantization: text().$type<Quantization>(),
 		contextSize: integer(),
 		maxOutput: integer(),
 		streaming: boolean().notNull().default(false),
@@ -4757,6 +4759,7 @@ export const providerClaim = pgTable(
 // filing. A newly added model stays `draft` until its initial filing is
 // approved. Prices are text to preserve exponent notation (see customModel).
 export interface AirsideModelMetadataChanges {
+	quantization?: Quantization | null;
 	displayName?: string | null;
 	description?: string | null;
 	family?: string;
@@ -4815,6 +4818,7 @@ export const providerDraftModel = pgTable(
 		displayName: text(),
 		description: text(),
 		family: text(),
+		quantization: text().$type<Quantization>(),
 		contextSize: integer(),
 		maxOutput: integer(),
 		streaming: boolean().notNull().default(true),

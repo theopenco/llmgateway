@@ -473,6 +473,11 @@ export default function FleetPage() {
 															? "Vertex API"
 															: "Carrier default"}
 											</span>
+											{model.quantization ? (
+												<span className="font-mono">
+													Quant: {model.quantization.toUpperCase()}
+												</span>
+											) : null}
 											{model.contextSize ? (
 												<span className="font-mono">
 													{Math.round(model.contextSize / 1000)}k ctx
