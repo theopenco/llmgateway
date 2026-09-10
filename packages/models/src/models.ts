@@ -774,6 +774,14 @@ export interface ProviderModelMapping {
 	 */
 	regions?: ProviderRegion[];
 	/**
+	 * The region-less root of this mapping is itself a real, routable
+	 * deployment (the provider's default endpoint) rather than a synthetic
+	 * aggregate of its regions, so routing keeps it as a candidate alongside
+	 * the regional variants. Set on Airside listings, whose regional fares are
+	 * add-ons to the default deployment.
+	 */
+	routableRoot?: boolean;
+	/**
 	 * Whether this model uses a dedicated video generation API.
 	 * When true, requests are routed to a provider-specific video generation endpoint.
 	 */

@@ -6,6 +6,7 @@ import {
 
 import {
 	expandAllProviderRegions,
+	expandProviderRegions,
 	models,
 	providers,
 } from "@llmgateway/models";
@@ -106,9 +107,20 @@ export async function resolveAirsideModel(
 		return await buildResolution(listings[0]);
 	}
 	const providerCandidate = modelInput.slice(0, slash);
-	const modelName = modelInput.slice(slash + 1);
-	if (!modelName || modelName.includes(":")) {
-		// Region suffixes only exist for catalogue mappings.
+	let modelName = modelInput.slice(slash + 1);
+	let requestedRegion: string | undefined;
+	const colonIdx = modelName.indexOf(":");
+	if (colonIdx !== -1) {
+		// A region suffix resolves here only when the listing filed that region;
+		// otherwise fall through to the static parse, which owns catalogue
+		// regions.
+		requestedRegion = modelName.slice(colonIdx + 1);
+		modelName = modelName.slice(0, colonIdx);
+		if (!requestedRegion || requestedRegion.includes(":")) {
+			return null;
+		}
+	}
+	if (!modelName) {
 		return null;
 	}
 	// Prefixes the parser treats specially can never be carriers — guard here
@@ -143,13 +155,22 @@ export async function resolveAirsideModel(
 	if (!listed) {
 		return null;
 	}
-	return await buildResolution(listed, customBaseUrl);
+	if (
+		requestedRegion &&
+		!(listed.regionMappings ?? []).some(
+			(regionRow) => regionRow.region === requestedRegion,
+		)
+	) {
+		return null;
+	}
+	return await buildResolution(listed, customBaseUrl, requestedRegion);
 }
 
 /** The synthesized parse/model-info results for one resolved listing. */
 async function buildResolution(
 	listed: AirsideListedModel,
 	knownCustomBaseUrl?: string,
+	requestedRegion?: string,
 ): Promise<AirsideResolution> {
 	const providerId = listed.mapping.providerId;
 	let customBaseUrl = knownCustomBaseUrl;
@@ -167,7 +188,7 @@ async function buildResolution(
 			requestedModel: listed.model.id as Model,
 			requestedProvider: providerId as Provider,
 			customProviderName: undefined,
-			requestedRegion: undefined,
+			requestedRegion,
 		},
 		modelInfoResult: {
 			modelInfo,
@@ -175,7 +196,7 @@ async function buildResolution(
 			allModelProviders: [mapping],
 			requestedProvider: providerId as Provider,
 		},
-		pricingMappings: [mapping],
+		pricingMappings: expandProviderRegions(mapping),
 		customBaseUrl,
 	};
 }
@@ -189,17 +210,20 @@ export function mergeAirsideListingsIntoModel(
 	allModelProviders: ProviderModelMapping[];
 	pricingMappings: ProviderModelMapping[];
 } {
-	const pricingMappings = listings.map(
+	const listingMappings = listings.map(
 		(listed) => airsideListingToModelDefinition(listed).mapping,
 	);
+	const pricingMappings = listingMappings.flatMap((mapping) =>
+		expandProviderRegions(mapping),
+	);
 	const ownedProviderIds = new Set(
-		pricingMappings.map((mapping) => mapping.providerId),
+		listingMappings.map((mapping) => mapping.providerId),
 	);
 	const allModelProviders = [
 		...staticModel.providers.filter(
 			(mapping) => !ownedProviderIds.has(mapping.providerId),
 		),
-		...pricingMappings,
+		...listingMappings,
 	];
 	const now = new Date();
 	const activeProviders = allModelProviders.filter(
@@ -233,12 +257,34 @@ export function airsideListingToModelDefinition(listed: AirsideListedModel): {
 					candidate.region === undefined,
 			)
 		: undefined;
+	const regionRows = listed.regionMappings ?? [];
 	const mapping: ProviderModelMapping = {
 		...staticMapping,
 		// A filing carries one flat price pair; inherited context-length tiers
 		// or peak windows would override it in calculateCosts.
 		pricingTiers: undefined,
 		peakPricing: undefined,
+		// Filed regional prices; expandProviderRegions turns these into
+		// routable, billable `(providerId, region)` candidates. The canonical
+		// row stays routable next to them — it is the carrier's real default
+		// deployment, not a synthetic root.
+		routableRoot: regionRows.length > 0 ? true : undefined,
+		regions:
+			regionRows.length > 0
+				? regionRows.flatMap((row) =>
+						row.region
+							? [
+									{
+										id: row.region,
+										inputPrice: row.inputPrice ?? undefined,
+										outputPrice: row.outputPrice ?? undefined,
+										cachedInputPrice: row.cachedInputPrice ?? undefined,
+										requestPrice: row.requestPrice ?? undefined,
+									},
+								]
+							: [],
+					)
+				: undefined,
 		providerId: listed.mapping.providerId as Provider,
 		externalId: listed.mapping.externalId,
 		apiFormat:

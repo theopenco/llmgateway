@@ -4945,6 +4945,16 @@ export const providerModelVerification = pgTable(
 	],
 );
 
+// Per-region price override carried by a price filing. Missing optional
+// fields inherit the filing's flat (default-region) values.
+export interface AirsideRegionPrice {
+	region: string;
+	inputPrice: string;
+	outputPrice: string;
+	cachedInputPrice?: string | null;
+	requestPrice?: string | null;
+}
+
 // A pricing proposal ("tariff filing") for a provider-listed model. Admins
 // approve or reject filings in the admin dashboard; the model's effective
 // pricing is its most recently approved filing. `kind: "initial"` filings
@@ -4974,6 +4984,9 @@ export const providerPriceFiling = pgTable(
 		outputPrice: text().notNull(),
 		cachedInputPrice: text(),
 		requestPrice: text(),
+		// Per-region price overrides; an approved filing's set fully replaces the
+		// listing's regional pricing. Null/empty = default-region pricing only.
+		regionPrices: jsonb().$type<AirsideRegionPrice[]>(),
 		metadata: jsonb().$type<AirsideModelMetadataChanges>(),
 		status: text({ enum: ["pending", "approved", "rejected"] })
 			.notNull()

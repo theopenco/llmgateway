@@ -1,10 +1,19 @@
-import { and, cdb, eq, isNull, tables } from "@llmgateway/db";
+import {
+	and,
+	cdb,
+	eq,
+	isNotNull,
+	isNull,
+	notInArray,
+	tables,
+} from "@llmgateway/db";
 import {
 	expandAllProviderRegions,
 	models as catalogueModels,
 	staticCatalogueMapsModel,
 } from "@llmgateway/models";
 
+import type { AirsideRegionPrice } from "@llmgateway/db";
 import type { ProviderModelMapping } from "@llmgateway/models";
 
 type DraftModelRow = typeof tables.providerDraftModel.$inferSelect;
@@ -17,6 +26,7 @@ interface FilingPrices {
 	outputPrice: string;
 	cachedInputPrice: string | null;
 	requestPrice: string | null;
+	regionPrices?: AirsideRegionPrice[] | null;
 }
 
 /**
@@ -52,11 +62,15 @@ export async function materializeAirsideModel(
 				description: "",
 			})
 			.onConflictDoNothing();
+		// Existence reads gate FK-dependent writes: a cached answer (cdb caches
+		// select-builder queries) can outlive an uncached delete and skip the
+		// insert the mapping rows depend on.
 		const existingModel = await tx
 			.select({ id: tables.model.id })
 			.from(tables.model)
 			.where(eq(tables.model.id, model.modelName))
-			.limit(1);
+			.limit(1)
+			.$withCache(false);
 		if (existingModel.length === 0) {
 			await tx.insert(tables.model).values({
 				id: model.modelName,
@@ -76,7 +90,8 @@ export async function materializeAirsideModel(
 					isNull(tables.modelProviderMapping.region),
 				),
 			)
-			.limit(1);
+			.limit(1)
+			.$withCache(false);
 		const mappingValues = {
 			externalId: model.externalId,
 			apiFormat: model.apiFormat,
@@ -112,6 +127,58 @@ export async function materializeAirsideModel(
 				...mappingValues,
 			});
 		}
+		// The listing owns every row of the pair: upsert one row per filed
+		// region and drop the rest — regions no longer filed as well as stale
+		// catalogue-sourced regional leftovers from before the takeover.
+		const regionPrices = filing.regionPrices ?? [];
+		for (const regionPrice of regionPrices) {
+			const regionValues = {
+				...mappingValues,
+				inputPrice: regionPrice.inputPrice,
+				outputPrice: regionPrice.outputPrice,
+				cachedInputPrice:
+					regionPrice.cachedInputPrice ?? filing.cachedInputPrice,
+				requestPrice: regionPrice.requestPrice ?? filing.requestPrice,
+			};
+			const existingRegion = await tx
+				.select({ id: tables.modelProviderMapping.id })
+				.from(tables.modelProviderMapping)
+				.where(
+					and(
+						eq(tables.modelProviderMapping.modelId, model.modelName),
+						eq(tables.modelProviderMapping.providerId, model.providerId),
+						eq(tables.modelProviderMapping.region, regionPrice.region),
+					),
+				)
+				.limit(1)
+				.$withCache(false);
+			if (existingRegion.length > 0) {
+				await tx
+					.update(tables.modelProviderMapping)
+					.set(regionValues)
+					.where(eq(tables.modelProviderMapping.id, existingRegion[0].id));
+			} else {
+				await tx.insert(tables.modelProviderMapping).values({
+					modelId: model.modelName,
+					providerId: model.providerId,
+					region: regionPrice.region,
+					...regionValues,
+				});
+			}
+		}
+		const filedRegions = regionPrices.map((regionPrice) => regionPrice.region);
+		await tx
+			.delete(tables.modelProviderMapping)
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, model.modelName),
+					eq(tables.modelProviderMapping.providerId, model.providerId),
+					isNotNull(tables.modelProviderMapping.region),
+					...(filedRegions.length > 0
+						? [notInArray(tables.modelProviderMapping.region, filedRegions)]
+						: []),
+				),
+			);
 	};
 	if (transaction) {
 		await upsert(transaction);
@@ -166,7 +233,6 @@ export async function syncAirsideModelMetadata(
 				and(
 					eq(tables.modelProviderMapping.modelId, model.modelName),
 					eq(tables.modelProviderMapping.providerId, model.providerId),
-					isNull(tables.modelProviderMapping.region),
 					eq(tables.modelProviderMapping.source, "airside"),
 				),
 			);
@@ -189,16 +255,24 @@ export async function updateAirsideMappingPrices(
 
 /** Exact canonical id only: a listing keyed by an alias has no catalogue row
  *  to restore, so it is DB-only and removed on delist. */
-function findStaticMapping(providerId: string, modelName: string) {
+function findStaticMappings(providerId: string, modelName: string) {
 	const definition = catalogueModels.find((model) => model.id === modelName);
 	if (!definition) {
 		return null;
 	}
-	const mapping = expandAllProviderRegions(definition.providers).find(
-		(candidate) =>
-			candidate.providerId === providerId && candidate.region === undefined,
-	) as ProviderModelMapping | undefined;
-	return mapping ? { definition, mapping } : null;
+	const mappings = expandAllProviderRegions(definition.providers).filter(
+		(candidate) => candidate.providerId === providerId,
+	) as ProviderModelMapping[];
+	const base = mappings.find((candidate) => candidate.region === undefined);
+	return base
+		? {
+				definition,
+				mapping: base,
+				regionMappings: mappings.filter(
+					(candidate) => candidate.region !== undefined,
+				),
+			}
+		: null;
 }
 
 function staticMappingValues(mapping: ProviderModelMapping) {
@@ -237,14 +311,26 @@ function staticMappingValues(mapping: ProviderModelMapping) {
 	};
 }
 
-/** Restore the static mapping, or remove a DB-only mapping, on delist. */
+/** Restore the static mapping(s), or remove a DB-only mapping, on delist. */
 export async function dematerializeAirsideModel(
 	providerId: string,
 	modelName: string,
 	transaction?: CatalogueTransaction,
 ): Promise<void> {
-	const staticEntry = findStaticMapping(providerId, modelName);
+	const staticEntry = findStaticMappings(providerId, modelName);
 	const remove = async (tx: CatalogueTransaction) => {
+		// Regional rows carry filed regional prices; the static catalogue is
+		// the only source of regional variants once the listing is gone.
+		await tx
+			.delete(tables.modelProviderMapping)
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, modelName),
+					eq(tables.modelProviderMapping.providerId, providerId),
+					isNotNull(tables.modelProviderMapping.region),
+					eq(tables.modelProviderMapping.source, "airside"),
+				),
+			);
 		const mappingWhere = and(
 			eq(tables.modelProviderMapping.modelId, modelName),
 			eq(tables.modelProviderMapping.providerId, providerId),
@@ -256,6 +342,24 @@ export async function dematerializeAirsideModel(
 				.update(tables.modelProviderMapping)
 				.set(staticMappingValues(staticEntry.mapping))
 				.where(mappingWhere);
+			for (const regionMapping of staticEntry.regionMappings) {
+				await tx
+					.insert(tables.modelProviderMapping)
+					.values({
+						modelId: modelName,
+						providerId,
+						region: regionMapping.region,
+						...staticMappingValues(regionMapping),
+					})
+					.onConflictDoUpdate({
+						target: [
+							tables.modelProviderMapping.modelId,
+							tables.modelProviderMapping.providerId,
+							tables.modelProviderMapping.region,
+						],
+						set: staticMappingValues(regionMapping),
+					});
+			}
 		} else {
 			await tx.delete(tables.modelProviderMapping).where(mappingWhere);
 		}
@@ -264,7 +368,8 @@ export async function dematerializeAirsideModel(
 			.select({ id: tables.modelProviderMapping.id })
 			.from(tables.modelProviderMapping)
 			.where(eq(tables.modelProviderMapping.modelId, modelName))
-			.limit(1);
+			.limit(1)
+			.$withCache(false);
 		if (remaining.length === 0) {
 			await tx.delete(tables.model).where(eq(tables.model.id, modelName));
 		}
