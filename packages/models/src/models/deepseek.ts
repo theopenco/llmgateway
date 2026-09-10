@@ -604,6 +604,9 @@ export const deepseekModels = [
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-v4-flash",
+				// Retired by DeepSeek on 2026-09-10; the slug now serves V4.1 Flash
+				// at V4.1 rates, so it must not be billed at this schedule.
+				deactivatedAt: new Date("2026-09-10"),
 				// Peak hours (01:00-04:00 and 06:00-10:00 UTC) bill at the peak
 				// rates below. All other hours and Beijing-time weekends bill at
 				// the off-peak rates.
@@ -1011,6 +1014,9 @@ export const deepseekModels = [
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-v4-flash-vision-exp",
+				// Retired by DeepSeek on 2026-09-10; the slug now serves V4.1 Flash
+				// at V4.1 rates, so it must not be billed at this schedule.
+				deactivatedAt: new Date("2026-09-10"),
 				inputPrice: "0.14e-6",
 				outputPrice: "0.28e-6",
 				cachedInputPrice: "0.0028e-6",
