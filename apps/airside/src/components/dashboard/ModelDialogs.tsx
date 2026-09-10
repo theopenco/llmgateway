@@ -1046,73 +1046,84 @@ export function EditModelDialog({
 	const api = useApi();
 	const invalidate = useInvalidateModels(model.providerCompanyId);
 	const [open, setOpen] = useState(false);
-	const [displayName, setDisplayName] = useState(model.displayName ?? "");
-	const [description, setDescription] = useState(model.description ?? "");
+	// A pending change is what the listing becomes once approved, so the form
+	// starts from it; saving replaces that filing.
+	const hasPendingChange = model.pendingFiling?.kind === "metadata";
+	const proposed = {
+		...model,
+		...(hasPendingChange ? (model.pendingFiling?.metadata ?? {}) : {}),
+	};
+	const [displayName, setDisplayName] = useState(proposed.displayName ?? "");
+	const [description, setDescription] = useState(proposed.description ?? "");
 	const [contextSize, setContextSize] = useState(
-		model.contextSize ? String(model.contextSize) : "",
+		proposed.contextSize ? String(proposed.contextSize) : "",
 	);
-	const [family, setFamily] = useState(model.family ?? "");
+	const [family, setFamily] = useState(proposed.family ?? "");
 	const [maxOutput, setMaxOutput] = useState(
-		model.maxOutput ? String(model.maxOutput) : "",
+		proposed.maxOutput ? String(proposed.maxOutput) : "",
 	);
 	const [capabilities, setCapabilities] = useState<
 		Record<CapabilityKey, boolean>
 	>({
-		streaming: model.streaming,
-		tools: model.tools,
-		vision: model.vision,
-		audio: model.audio,
-		jsonOutput: model.jsonOutput,
-		jsonOutputSchema: model.jsonOutputSchema,
-		reasoning: model.reasoning,
-		reasoningMaxTokens: model.reasoningMaxTokens,
-		webSearch: model.webSearch,
+		streaming: proposed.streaming,
+		tools: proposed.tools,
+		vision: proposed.vision,
+		audio: proposed.audio,
+		jsonOutput: proposed.jsonOutput,
+		jsonOutputSchema: proposed.jsonOutputSchema,
+		reasoning: proposed.reasoning,
+		reasoningMaxTokens: proposed.reasoningMaxTokens,
+		webSearch: proposed.webSearch,
 	});
 	const [reasoningEfforts, setReasoningEfforts] = useState<
 		ReasoningEffortOption[]
-	>((model.reasoningEfforts ?? []) as ReasoningEffortOption[]);
+	>((proposed.reasoningEfforts ?? []) as ReasoningEffortOption[]);
 	const [maxRpm, setMaxRpm] = useState(
-		model.maxRpm ? String(model.maxRpm) : "",
+		proposed.maxRpm ? String(proposed.maxRpm) : "",
 	);
 	const [maxRpd, setMaxRpd] = useState(
-		model.maxRpd ? String(model.maxRpd) : "",
+		proposed.maxRpd ? String(proposed.maxRpd) : "",
 	);
 	const [rateLimitScope, setRateLimitScope] = useState<RateLimitScope>(
-		model.rateLimitScope,
+		proposed.rateLimitScope,
 	);
 
 	function resetFromModel() {
-		setDisplayName(model.displayName ?? "");
-		setDescription(model.description ?? "");
-		setContextSize(model.contextSize ? String(model.contextSize) : "");
-		setFamily(model.family ?? "");
-		setMaxOutput(model.maxOutput ? String(model.maxOutput) : "");
+		setDisplayName(proposed.displayName ?? "");
+		setDescription(proposed.description ?? "");
+		setContextSize(proposed.contextSize ? String(proposed.contextSize) : "");
+		setFamily(proposed.family ?? "");
+		setMaxOutput(proposed.maxOutput ? String(proposed.maxOutput) : "");
 		setCapabilities({
-			streaming: model.streaming,
-			tools: model.tools,
-			vision: model.vision,
-			audio: model.audio,
-			jsonOutput: model.jsonOutput,
-			jsonOutputSchema: model.jsonOutputSchema,
-			reasoning: model.reasoning,
-			reasoningMaxTokens: model.reasoningMaxTokens,
-			webSearch: model.webSearch,
+			streaming: proposed.streaming,
+			tools: proposed.tools,
+			vision: proposed.vision,
+			audio: proposed.audio,
+			jsonOutput: proposed.jsonOutput,
+			jsonOutputSchema: proposed.jsonOutputSchema,
+			reasoning: proposed.reasoning,
+			reasoningMaxTokens: proposed.reasoningMaxTokens,
+			webSearch: proposed.webSearch,
 		});
 		setReasoningEfforts(
-			(model.reasoningEfforts ?? []) as ReasoningEffortOption[],
+			(proposed.reasoningEfforts ?? []) as ReasoningEffortOption[],
 		);
-		setMaxRpm(model.maxRpm ? String(model.maxRpm) : "");
-		setMaxRpd(model.maxRpd ? String(model.maxRpd) : "");
-		setRateLimitScope(model.rateLimitScope);
+		setMaxRpm(proposed.maxRpm ? String(proposed.maxRpm) : "");
+		setMaxRpd(proposed.maxRpd ? String(proposed.maxRpd) : "");
+		setRateLimitScope(proposed.rateLimitScope);
 	}
 
 	const updateModel = api.useMutation("patch", "/airside/models/{id}", {
-		onSuccess: async () => {
+		onSuccess: async (data) => {
 			await invalidate();
 			toast.success(
-				model.status === "active"
-					? "Change filed for review."
-					: "Model updated.",
+				model.status !== "active"
+					? "Model updated."
+					: !hasPendingChange
+						? "Change filed for review."
+						: data.model.pendingFiling
+							? "Pending change replaced."
+							: "Pending change withdrawn.",
 			);
 			setOpen(false);
 		},
@@ -1142,9 +1153,11 @@ export function EditModelDialog({
 						Edit {model.modelName}
 					</DialogTitle>
 					<DialogDescription>
-						{model.status === "active"
-							? "Changes to a live listing are filed for review and apply once we approve them. Pricing goes through a separate fare filing."
-							: "Everything here applies to the draft immediately; the initial fare filing covers it. Pricing only changes through a fare filing."}
+						{model.status !== "active"
+							? "Everything here applies to the draft immediately; the initial fare filing covers it. Pricing only changes through a fare filing."
+							: hasPendingChange
+								? "A change is already awaiting review, so the form shows those values. Saving replaces that filing; saving the live values back withdraws it. Pricing goes through a separate fare filing."
+								: "Changes to a live listing are filed for review and apply once we approve them. Pricing goes through a separate fare filing."}
 					</DialogDescription>
 				</DialogHeader>
 				<form
