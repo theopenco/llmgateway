@@ -66,7 +66,7 @@ test("model search palette pages by month, loads on scroll and ranks matches", a
 	const target = await items.first().locator("span").nth(1).innerText();
 	await items.first().click();
 	await expect(page).toHaveURL(
-		new RegExp(`/models/${encodeURIComponent(target)}$`),
+		(url) => url.pathname === `/models/${encodeURIComponent(target)}`,
 	);
 
 	expect(catalogueRequests).toEqual([]);

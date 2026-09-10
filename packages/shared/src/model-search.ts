@@ -122,10 +122,16 @@ interface IndexedEntry {
 	primaryTexts: string[];
 	primaryWords: string[];
 	secondaryText: string;
+	secondaryWords: string[];
 }
 
 function indexEntry(entry: ModelSearchEntry): IndexedEntry {
 	const primaryLabels = [entry.name, entry.id, ...entry.aliases];
+	const secondaryLabels = [
+		entry.family,
+		...entry.providerNames,
+		...entry.providerIds,
+	];
 	const addedAtMs = entry.addedAt ? new Date(entry.addedAt).getTime() : NaN;
 	return {
 		entry,
@@ -133,9 +139,8 @@ function indexEntry(entry: ModelSearchEntry): IndexedEntry {
 		addedAtMs: Number.isNaN(addedAtMs) ? -Infinity : addedAtMs,
 		primaryTexts: primaryLabels.map(normalizeSearchText).filter(Boolean),
 		primaryWords: Array.from(new Set(primaryLabels.flatMap(searchWords))),
-		secondaryText: normalizeSearchText(
-			[entry.family, ...entry.providerNames, ...entry.providerIds].join(" "),
-		),
+		secondaryText: normalizeSearchText(secondaryLabels.join(" ")),
+		secondaryWords: Array.from(new Set(secondaryLabels.flatMap(searchWords))),
 	};
 }
 
@@ -145,7 +150,17 @@ const TOKEN_SCORE = {
 	primarySubstring: 20,
 	secondary: 10,
 	fuzzy: 6,
+	fuzzySecondary: 3,
 } as const;
+
+// One typo per token, but only for tokens long enough that an edit is
+// unlikely to turn them into a different word.
+function matchesFuzzyWord(token: string, words: string[]): boolean {
+	return (
+		token.length >= FUZZY_MIN_TOKEN_LENGTH &&
+		words.some((word) => word[0] === token[0] && withinOneEdit(word, token))
+	);
+}
 
 function scoreToken(token: string, indexed: IndexedEntry): number {
 	if (indexed.primaryWords.includes(token)) {
@@ -160,13 +175,11 @@ function scoreToken(token: string, indexed: IndexedEntry): number {
 	if (indexed.secondaryText.includes(token)) {
 		return TOKEN_SCORE.secondary;
 	}
-	if (
-		token.length >= FUZZY_MIN_TOKEN_LENGTH &&
-		indexed.primaryWords.some(
-			(word) => word[0] === token[0] && withinOneEdit(word, token),
-		)
-	) {
+	if (matchesFuzzyWord(token, indexed.primaryWords)) {
 		return TOKEN_SCORE.fuzzy;
+	}
+	if (matchesFuzzyWord(token, indexed.secondaryWords)) {
+		return TOKEN_SCORE.fuzzySecondary;
 	}
 	return 0;
 }
@@ -390,8 +403,12 @@ export function searchModelProviders(
 		return [];
 	}
 	return providers.filter((provider) => {
-		const text = normalizeSearchText(`${provider.name} ${provider.id}`);
-		return tokens.every((token) => text.includes(token));
+		const label = `${provider.name} ${provider.id}`;
+		const text = normalizeSearchText(label);
+		const words = searchWords(label);
+		return tokens.every(
+			(token) => text.includes(token) || matchesFuzzyWord(token, words),
+		);
 	});
 }
 

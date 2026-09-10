@@ -129,6 +129,20 @@ describe("scoreModelSearchEntry", () => {
 		expect(scoreModelSearchEntry(sonnet, "sonnttt")).toBe(0);
 	});
 
+	it("tolerates a typo in provider and family tokens too", () => {
+		expect(scoreModelSearchEntry(sonnet, "anthropc")).toBeGreaterThan(0);
+		expect(scoreModelSearchEntry(sonnet, "anthropc sonnet")).toBeGreaterThan(0);
+		expect(scoreModelSearchEntry(gemini, "vertx gemini")).toBeGreaterThan(0);
+		expect(scoreModelSearchEntry(gpt5, "opnai")).toBeGreaterThan(0);
+		expect(scoreModelSearchEntry(sonnet, "anthropc")).toBeLessThan(
+			scoreModelSearchEntry(sonnet, "anthropic"),
+		);
+		expect(scoreModelSearchEntry(sonnet, "anthropc")).toBeLessThan(
+			scoreModelSearchEntry(sonnet, "sonet"),
+		);
+		expect(scoreModelSearchEntry(gpt5, "anthropc")).toBe(0);
+	});
+
 	it("scores fuzzy hits below real hits and empty queries as no match", () => {
 		expect(scoreModelSearchEntry(sonnet, "sonet")).toBeLessThan(
 			scoreModelSearchEntry(sonnet, "sonnet"),
@@ -295,6 +309,16 @@ describe("searchModelProviders", () => {
 		expect(searchModelProviders(providers, "open ai")).toEqual([providers[0]]);
 		expect(searchModelProviders(providers, "open vertex")).toEqual([]);
 		expect(searchModelProviders(providers, "")).toEqual([]);
+	});
+
+	it("tolerates one typo per token", () => {
+		expect(searchModelProviders(providers, "vertx")).toEqual([providers[1]]);
+		expect(searchModelProviders(providers, "opnai")).toEqual([providers[0]]);
+		expect(searchModelProviders(providers, "googel vertx")).toEqual([
+			providers[1],
+		]);
+		expect(searchModelProviders(providers, "vrtx")).toEqual([]);
+		expect(searchModelProviders(providers, "ope")).toEqual([providers[0]]);
 	});
 });
 
