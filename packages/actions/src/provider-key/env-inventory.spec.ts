@@ -62,6 +62,16 @@ describe("collectProviderEnvCredentials", () => {
 		expect(entry.tokenHash).toBe(getApiKeyFingerprint("sk-secret-value"));
 	});
 
+	it("distinguishes keys with the same prefix by their last four characters", () => {
+		vi.stubEnv(BASE, "sk-shared-prefix-1234,sk-shared-prefix-5678");
+
+		expect(
+			collectProviderEnvCredentials("alibaba").map(
+				(entry) => entry.maskedToken,
+			),
+		).toEqual(["sk-s•••••1234", "sk-s•••••5678"]);
+	});
+
 	it("covers variant and regional override slots", () => {
 		vi.stubEnv(BASE, "sk-base");
 		vi.stubEnv(ENTERPRISE, "sk-ent");
