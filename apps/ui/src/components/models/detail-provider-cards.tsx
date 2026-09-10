@@ -15,6 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+	getDefaultProviderMapping,
 	getProviderIcon,
 	isMappingDeactivated,
 } from "@llmgateway/shared/components";
@@ -77,8 +78,8 @@ function effectivePrice(
 	return priceNum * (1 - (Number.isFinite(discountNum) ? discountNum : 0));
 }
 
-// Sort values mirror what each card displays by default: the first (default
-// region) mapping, at peak pricing for mappings with a time-based schedule.
+// Sort values mirror the card's default mapping, at peak pricing for mappings
+// with a time-based schedule.
 // Sorting on a cheaper secondary region or off-peak price would contradict the
 // numbers the visitor sees.
 function groupSortValue(
@@ -86,7 +87,7 @@ function groupSortValue(
 	sort: SortKey,
 	throughputByProvider: Map<string, number>,
 ): number | null {
-	const mapping = group.mappings[0];
+	const mapping = getDefaultProviderMapping(group.mappings);
 	switch (sort) {
 		case "input-price":
 			return effectivePrice(
