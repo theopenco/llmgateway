@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
 
-import { cdb, tables } from "@llmgateway/db";
+import { cdb, eq, tables } from "@llmgateway/db";
 import { models as modelsList, providers } from "@llmgateway/models";
 
 import type { ProviderModelMapping } from "@llmgateway/models";
@@ -15,6 +15,23 @@ describe("Models API", () => {
 		// cleanup must invalidate it too.
 		await cdb.delete(tables.providerPriceFiling);
 		await cdb.delete(tables.providerDraftModel);
+		const airsideModelIds = await cdb
+			.select({ modelId: tables.modelProviderMapping.modelId })
+			.from(tables.modelProviderMapping)
+			.where(eq(tables.modelProviderMapping.source, "airside"));
+		await cdb
+			.delete(tables.modelProviderMapping)
+			.where(eq(tables.modelProviderMapping.source, "airside"));
+		for (const modelId of new Set(airsideModelIds.map((row) => row.modelId))) {
+			const remaining = await cdb
+				.select({ id: tables.modelProviderMapping.id })
+				.from(tables.modelProviderMapping)
+				.where(eq(tables.modelProviderMapping.modelId, modelId))
+				.limit(1);
+			if (remaining.length === 0) {
+				await cdb.delete(tables.model).where(eq(tables.model.id, modelId));
+			}
+		}
 	});
 
 	test("GET /v1/models should return a list of models", async () => {
@@ -600,23 +617,24 @@ describe("Models API", () => {
 		expect(mistralProvider.pricing.ocr_page).toBe("0.004");
 	});
 
-	test("GET /v1/models should include proper output modalities for gemini-3.1-flash-image-preview", async () => {
+	test("GET /v1/models should include proper output modalities for Gemini 3.1 Flash Image", async () => {
 		const res = await app.request("/v1/models?include_deactivated=true");
 		expect(res.status).toBe(200);
 
 		const json = await res.json();
 
-		const imageModel = json.data.find(
-			(model: any) => model.id === "gemini-3.1-flash-image-preview",
-		);
+		for (const modelId of [
+			"gemini-3.1-flash-image",
+			"gemini-3.1-flash-image-preview",
+		]) {
+			const imageModel = json.data.find((model: any) => model.id === modelId);
 
-		expect(imageModel).toBeDefined();
-		expect(imageModel.architecture.output_modalities).toContain("text");
-		expect(imageModel.architecture.output_modalities).toContain("image");
-		expect(imageModel.architecture.output_modalities).toEqual([
-			"text",
-			"image",
-		]);
+			expect(imageModel).toBeDefined();
+			expect(imageModel.architecture.output_modalities).toEqual([
+				"text",
+				"image",
+			]);
+		}
 	});
 
 	test("GET /v1/models should include proper output modalities for Gemini 3 Pro Image", async () => {
@@ -682,6 +700,7 @@ describe("Models API", () => {
 		const json = await res.json();
 
 		for (const modelId of [
+			"gemini-3.1-flash-image",
 			"gemini-3.1-flash-image-preview",
 			"gemini-3.1-pro-preview",
 			"gemini-3-pro-image",
@@ -730,6 +749,7 @@ describe("Models API", () => {
 			"gemini-2.5-flash-image",
 			"gemini-3-pro-image",
 			"gemini-3-pro-image-preview",
+			"gemini-3.1-flash-image",
 			"gemini-3.1-flash-image-preview",
 		]);
 	});

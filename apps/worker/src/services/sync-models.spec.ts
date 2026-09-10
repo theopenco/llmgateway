@@ -161,6 +161,40 @@ describe("sync-models", () => {
 		expect(updatedMapping[0]?.updatedAt).not.toBeNull();
 	});
 
+	it("preserves Airside-owned model-provider mappings", async () => {
+		await syncProvidersAndModels();
+		const mapping = await db.query.modelProviderMapping.findFirst({
+			where: {
+				modelId: { eq: "gpt-4o" },
+				providerId: { eq: "openai" },
+				region: { isNull: true },
+			},
+		});
+		expect(mapping).toBeTruthy();
+		await db
+			.update(modelProviderMapping)
+			.set({
+				source: "airside",
+				externalId: "carrier-gpt-4o",
+				inputPrice: "9e-6",
+				audio: true,
+			})
+			.where(eq(modelProviderMapping.id, mapping!.id));
+
+		await syncProvidersAndModels();
+
+		const [preserved] = await db
+			.select()
+			.from(modelProviderMapping)
+			.where(eq(modelProviderMapping.id, mapping!.id));
+		expect(preserved).toMatchObject({
+			source: "airside",
+			externalId: "carrier-gpt-4o",
+			audio: true,
+		});
+		expect(Number(preserved!.inputPrice)).toBeCloseTo(9e-6);
+	});
+
 	it("should create new model-provider mappings for new models", async () => {
 		// First, create just providers
 		await syncProvidersAndModels();

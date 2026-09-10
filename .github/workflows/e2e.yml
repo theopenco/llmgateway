@@ -1,11 +1,24 @@
 name: e2e
 on:
   workflow_dispatch:
+    inputs:
+      test_models:
+        description: Comma-separated provider/model mappings (empty runs all models)
+        type: string
+        default: ""
+      full_mode:
+        description: Include all declared reasoning efforts and free models
+        type: boolean
+        default: false
   issue_comment:
     types: [created]
 
 permissions:
   contents: read
+
+env:
+  TEST_MODELS: ${{ inputs.test_models || '' }}
+  FULL_MODE: ${{ inputs.full_mode && 'true' || '' }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.issue.number || github.ref }}

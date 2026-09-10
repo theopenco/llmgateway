@@ -15,14 +15,14 @@ import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "AI Video Generator — Veo, Wan & More",
+	title: "AI Video Generator — Create Short Videos",
 	description:
-		"Generate videos with Veo, Wan, and other AI video models. Preview results and compare providers in Lounge.",
+		"Generate short videos from text prompts. Explore supported video models, preview results, and download your creations in Lounge.",
 	alternates: { canonical: "/video" },
 	openGraph: {
-		title: "AI Video Generator — Veo, Wan & More | Lounge",
+		title: "AI Video Generator — Create Short Videos | Lounge",
 		description:
-			"Generate videos with Veo, Wan, and other AI video models. Preview results and compare providers in Lounge.",
+			"Generate short videos from text prompts. Explore supported video models, preview results, and download your creations in Lounge.",
 		type: "website",
 		url: "https://lounge.llmgateway.io/video",
 	},
@@ -97,6 +97,10 @@ export default async function VideoPage({
 		organizations[0] ??
 		null;
 
+	if (!selectedOrganization) {
+		return <PlaygroundSeoSection variant="video" />;
+	}
+
 	if (!initialProjectsData && selectedOrganization?.id) {
 		try {
 			initialProjectsData = (await fetchServerData(
@@ -144,7 +148,6 @@ export default async function VideoPage({
 					projectId={selectedProject.id}
 				/>
 			) : null}
-			<PlaygroundSeoSection variant="video" />
 			<VideoPageClient
 				models={models}
 				providers={providers}

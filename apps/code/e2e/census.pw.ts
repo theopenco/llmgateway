@@ -89,3 +89,29 @@ test("public census page lists methodology and CTA", async ({ page }) => {
 		page.getByRole("link", { name: /File your entry/ }),
 	).toBeVisible();
 });
+
+test("public census registry sorts and filters from the URL", async ({
+	page,
+}) => {
+	const year = new Date().getUTCFullYear();
+	await page.goto(`/data/${year}`);
+
+	await expect(page.getByRole("table")).toBeVisible();
+	await page.getByRole("button", { name: "Quality" }).click();
+	await expect(page).toHaveURL(/sort=quality/);
+	await expect(
+		page.getByRole("columnheader", { name: /Quality/ }),
+	).toHaveAttribute("aria-sort", "descending");
+
+	await page
+		.getByRole("group", { name: "Vendor" })
+		.getByRole("button")
+		.first()
+		.click();
+	await expect(page).toHaveURL(/vendor=/);
+	await expect(page.getByText(/filters applied/)).toBeVisible();
+
+	await page.getByRole("button", { name: "Reset filters" }).click();
+	await expect(page).not.toHaveURL(/vendor=/);
+	await expect(page.getByText(/filters applied/)).toHaveCount(0);
+});

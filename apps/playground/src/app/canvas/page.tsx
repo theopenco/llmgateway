@@ -83,6 +83,10 @@ export default async function CanvasPage({
 		organizations[0] ??
 		null;
 
+	if (!selectedOrganization) {
+		return <PlaygroundSeoSection variant="canvas" />;
+	}
+
 	if (!initialProjectsData && selectedOrganization?.id) {
 		try {
 			initialProjectsData = (await fetchServerData(
@@ -130,7 +134,6 @@ export default async function CanvasPage({
 					projectId={selectedProject.id}
 				/>
 			) : null}
-			<PlaygroundSeoSection variant="canvas" />
 			<CanvasPageClient
 				models={models}
 				providers={providers}

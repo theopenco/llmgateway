@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
 	filterCompliantProviders,
 	getActiveCompliancePolicy,
+	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
+	isZeroDataRetentionEnabled,
 } from "./compliance.js";
 
 import type { ProviderCompliancePolicy } from "@llmgateway/models";
@@ -13,6 +15,64 @@ const POLICY: ProviderCompliancePolicy = {
 	enabled: true,
 	requireSoc2: true,
 };
+
+describe("zero data retention", () => {
+	it("overrides stored payload retention", () => {
+		const organization = {
+			id: "org-test",
+			plan: "enterprise",
+			retentionLevel: "retain" as const,
+			providerCompliancePolicy: {
+				enabled: true,
+				zeroDataRetention: true,
+			},
+		};
+
+		expect(isZeroDataRetentionEnabled(organization)).toBe(true);
+		expect(getEffectiveRetentionLevel(organization)).toBe("none");
+	});
+
+	it("does not treat legacy no-prompt-logging policies as ZDR", () => {
+		const organization = {
+			id: "org-test",
+			plan: "enterprise",
+			retentionLevel: "retain" as const,
+			providerCompliancePolicy: {
+				enabled: true,
+				blockPromptLogging: true,
+			},
+		};
+
+		expect(isZeroDataRetentionEnabled(organization)).toBe(false);
+		expect(getEffectiveRetentionLevel(organization)).toBe("retain");
+	});
+
+	it("uses the configured retention level without ZDR", () => {
+		expect(
+			getEffectiveRetentionLevel({
+				id: "org-test",
+				plan: "enterprise",
+				retentionLevel: "retain",
+				providerCompliancePolicy: { enabled: false },
+			}),
+		).toBe("retain");
+	});
+
+	it("enforces stored ZDR without enterprise access", () => {
+		const organization = {
+			id: "org-test",
+			plan: "pro",
+			retentionLevel: "retain" as const,
+			providerCompliancePolicy: {
+				enabled: true,
+				zeroDataRetention: true,
+			},
+		};
+
+		expect(isZeroDataRetentionEnabled(organization)).toBe(true);
+		expect(getEffectiveRetentionLevel(organization)).toBe("none");
+	});
+});
 
 describe("isProviderIdCompliant with custom providers", () => {
 	it("fails closed for custom without a compliance context", () => {

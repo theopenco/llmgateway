@@ -6,8 +6,6 @@ icon: Database
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-# Provider Cache Control
-
 Most modern LLM providers offer **prompt caching**: when a request reuses a long prefix from a previous request (for example, a multi-thousand-token system prompt or a growing conversation history), the provider stores that prefix and serves it back at a steep discount on subsequent calls. Only the cached portion is discounted — new input tokens and all output tokens are still billed at the normal rate.
 
 This is the behavior you see surfaced as `cached_tokens` in your usage payloads, and it is what makes chat apps, assistants, and coding tools (Cursor, Cline, Claude Code, etc.) economically viable on long contexts.

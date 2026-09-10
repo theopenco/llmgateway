@@ -35,12 +35,19 @@ import {
 } from "@/lib/cached-queries.js";
 import { raceClientAbort } from "@/lib/client-abort.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
-import { assertProviderCompliant } from "@/lib/compliance.js";
+import {
+	assertProviderCompliant,
+	getEffectiveRetentionLevel,
+} from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
+import {
+	rateLimitHeaders,
+	standardErrorResponses,
+} from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
@@ -66,6 +73,7 @@ import { shortid } from "@llmgateway/db";
 import { models as modelDefinitions, type Provider } from "@llmgateway/models";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
+import type { openAIErrorSchema } from "@/lib/error-schemas.js";
 import type { ServerTypes } from "@/vars.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
@@ -147,15 +155,6 @@ const rerankResponseSchema = z
 	.openapi({
 		description: "Cohere-compatible rerank response payload.",
 	});
-
-const rerankErrorSchema = z.object({
-	error: z.object({
-		message: z.string(),
-		type: z.string(),
-		param: z.string().nullable(),
-		code: z.string(),
-	}),
-});
 
 function findRerankMapping(modelId: string): {
 	mapping: ProviderModelMapping;
@@ -272,6 +271,7 @@ const createRerank = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: rerankResponseSchema,
@@ -279,94 +279,7 @@ const createRerank = createRoute({
 			},
 			description: "Rerank response with ranked results.",
 		},
-		400: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Invalid request body or parameters.",
-		},
-		401: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Unauthorized request.",
-		},
-		402: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Payment required / Insufficient credits.",
-		},
-		403: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Forbidden upstream response.",
-		},
-		404: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Not found upstream response.",
-		},
-		410: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Archived or unavailable project.",
-		},
-		429: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Rate limited upstream response.",
-		},
-		500: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Internal server error.",
-		},
-		502: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Bad gateway / Upstream fetch failure.",
-		},
-		503: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Service unavailable.",
-		},
-		504: {
-			content: {
-				"application/json": {
-					schema: rerankErrorSchema,
-				},
-			},
-			description: "Gateway timeout.",
-		},
+		...standardErrorResponses(),
 	},
 });
 
@@ -482,7 +395,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 		baseOrganization,
 	);
 
-	const retentionLevel = organization.retentionLevel ?? "none";
+	const retentionLevel = getEffectiveRetentionLevel(organization);
 
 	// 2. Resolve model → provider mapping
 	const result = findRerankMapping(requestedModel);
@@ -592,7 +505,7 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 		| {
 				kind: "json_error";
 				status: 400 | 500;
-				body: z.infer<typeof rerankErrorSchema>;
+				body: z.infer<typeof openAIErrorSchema>;
 		  };
 
 	async function resolveAttempt(): Promise<ResolveResult> {
@@ -689,20 +602,20 @@ rerank.openapi(createRerank, async (c): Promise<any> => {
 			});
 		}
 
-		// Base URL of the platform credential serving the attempt: the managed
-		// credential's own config when one is active, the provider's env var
-		// otherwise. A BYOK key's base URL still wins when set.
-		const envBaseUrl = getCredentialSetting(
-			providerId as Provider,
-			"baseUrl",
-			managedKeyInner,
-			{ configIndex, variant: envVariant },
-		);
 		const resolvedBaseUrl =
 			providerKeyInner?.baseUrl ??
-			envBaseUrl ??
-			getProviderDefaultBaseUrl(providerId) ??
-			"https://api.openai.com";
+			getCredentialSetting(
+				providerId as Provider,
+				"baseUrl",
+				{ providerKey: providerKeyInner, managedKey: managedKeyInner },
+				{ configIndex, variant: envVariant },
+			) ??
+			getProviderDefaultBaseUrl(providerId);
+		if (!resolvedBaseUrl) {
+			throw new HTTPException(500, {
+				message: `No base URL set for provider: ${providerId}`,
+			});
+		}
 
 		let upstreamUrl: string;
 		let requestBody: Record<string, unknown>;

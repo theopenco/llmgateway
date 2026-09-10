@@ -8,6 +8,7 @@ import { LoungeLandingSections } from "@/components/seo/lounge-landing-sections"
 import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { CHAT_CONTEXT_COOKIE } from "@/lib/constants";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
+import { findFallbackOrganization } from "@/lib/organization-fallback";
 import { fetchServerData } from "@/lib/server-api";
 
 import type { Organization, Project } from "@/lib/types";
@@ -109,13 +110,9 @@ export async function renderPlaygroundShell({
 
 	const organizations = allOrganizations.filter((o) => o.kind === "default");
 
-	// The Chat plan context is only the right default for subscribers (or users
-	// who topped up the Chat org). Unsubscribed users with a funded dashboard
-	// org land on that org instead; the Chat plan context stays the default only
-	// when no org has credits, so the plan upsell can take over. Runs before the
-	// chat-org fetch so redirected users never get a Chat org provisioned.
-	// Skipped when the user explicitly picked the Chat plan context in the org
-	// switcher (cookie) — this fallback must not override an explicit choice.
+	// Prefer a funded admin org when the user has no Chat plan, then fall back
+	// to memberships with private balances and let the gateway check spending.
+	// An explicitly selected Chat plan context skips this fallback.
 	if (shouldCheckChatPlan) {
 		const chatPlanStatus =
 			chatPlanStatusData &&
@@ -128,17 +125,15 @@ export async function renderPlaygroundShell({
 			chatPlanStatus.chatPlan !== "none" ||
 			Number(chatPlanStatus.regularCredits) > 0;
 		if (!hasChatPlanAccess) {
-			const fundedOrganization = organizations.find(
-				(o) => Number(o.credits) > 0,
-			);
-			if (fundedOrganization) {
+			const availableOrganization = findFallbackOrganization(organizations);
+			if (availableOrganization) {
 				const nextParams = new URLSearchParams();
 				for (const [key, value] of Object.entries(searchParams)) {
 					if (typeof value === "string") {
 						nextParams.set(key, value);
 					}
 				}
-				nextParams.set("orgId", fundedOrganization.id);
+				nextParams.set("orgId", availableOrganization.id);
 				redirect(`/?${nextParams.toString()}`);
 			}
 		}
@@ -264,6 +259,10 @@ export async function renderPlaygroundShell({
 			) : null}
 			{isMember ? <PlaygroundSeoSection variant="chat" /> : null}
 			<ChatPageClient
+				initiallySignedOut={
+					!cookieStore.has("better-auth.session_token") &&
+					!cookieStore.has("__Secure-better-auth.session_token")
+				}
 				models={models.filter(
 					(m) =>
 						!m.output?.includes("embedding") && !m.output?.includes("rerank"),

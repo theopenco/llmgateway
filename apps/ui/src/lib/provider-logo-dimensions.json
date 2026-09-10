@@ -1,0 +1,143 @@
+{
+	"atlascloud": {
+		"viewBox": "0 0 24 24"
+	},
+	"anthropic": {
+		"viewBox": "0 0 512 509.64"
+	},
+	"elevenlabs": {
+		"viewBox": "0 0 512 512"
+	},
+	"bytedance": {
+		"viewBox": "0 0 24 24"
+	},
+	"deepseek": {
+		"viewBox": "0 0 57.86 43.38"
+	},
+	"google-ai-studio": {
+		"viewBox": "0 0 192 192"
+	},
+	"glacier": {
+		"viewBox": "0 0 192 192"
+	},
+	"iceberg": {
+		"viewBox": "0 0 192 192"
+	},
+	"google-vertex": {
+		"viewBox": "0 0 24 24"
+	},
+	"vertex-anthropic": {
+		"viewBox": "0 0 24 24"
+	},
+	"vertex-openai": {
+		"viewBox": "0 0 24 24"
+	},
+	"quartz": {
+		"viewBox": "0 0 24 24"
+	},
+	"groq": {
+		"viewBox": "0 0 200.18 69.76"
+	},
+	"inference.net": {
+		"viewBox": "0 0 256 235.039"
+	},
+	"meta": {
+		"viewBox": "0 0 24 24"
+	},
+	"mistral": {
+		"viewBox": "0 0 41 29"
+	},
+	"openai": {
+		"viewBox": "0 0 512 509.639"
+	},
+	"perplexity": {
+		"viewBox": "0 0 400 400"
+	},
+	"together-ai": {
+		"viewBox": "0 0 623.76 633.66"
+	},
+	"xai": {
+		"viewBox": "0 0 759 290.2"
+	},
+	"moonshot": {
+		"viewBox": "0 0 24 24"
+	},
+	"novita": {
+		"viewBox": "0 0 24 24"
+	},
+	"alibaba": {
+		"viewBox": "0 0 24 24"
+	},
+	"nebius": {
+		"viewBox": "0 0 24 24"
+	},
+	"zai": {
+		"viewBox": "0 0 161 129"
+	},
+	"nanogpt": {
+		"viewBox": "0 0 181.45 186.88"
+	},
+	"aws-bedrock": {
+		"viewBox": "0 0 304 182"
+	},
+	"aws-mantle": {
+		"viewBox": "0 0 304 182"
+	},
+	"azure": {
+		"viewBox": "0 0 96 96"
+	},
+	"azure-ai-foundry": {
+		"viewBox": "0 0 96 96"
+	},
+	"azure-anthropic": {
+		"viewBox": "0 0 96 96"
+	},
+	"canopywave": {
+		"viewBox": "0 0 1628 1561"
+	},
+	"cerebras": {
+		"viewBox": "0 0 533 533"
+	},
+	"minimax": {
+		"viewBox": "0 0 24 24"
+	},
+	"xiaomi": {
+		"viewBox": "0 0 512 512"
+	},
+	"embercloud": {
+		"viewBox": "0 0 141 89"
+	},
+	"deepinfra": {
+		"viewBox": "0 9 28 32"
+	},
+	"reve": {
+		"viewBox": "0 0 182 148"
+	},
+	"sakana": {
+		"viewBox": "0 0 1289 1289"
+	},
+	"scx-ai": {
+		"viewBox": "107.5 18.8 760 277.2"
+	},
+	"scx-ai-gp": {
+		"viewBox": "107.5 18.8 760 277.2"
+	},
+	"gonka24": {
+		"viewBox": "0 0 1080 1080"
+	},
+	"fireworks": {
+		"viewBox": "0 0 88 44"
+	},
+	"runware": {
+		"viewBox": "0 0 50 51"
+	},
+	"ranoai": {
+		"viewBox": "0 0 512 512"
+	},
+	"baidu": {
+		"viewBox": "0 0 24 24"
+	},
+	"consensusprotocol": {
+		"viewBox": "0 0 24 24"
+	}
+}

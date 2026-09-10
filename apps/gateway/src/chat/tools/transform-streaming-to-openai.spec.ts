@@ -2,16 +2,17 @@ import { describe, expect, it, vi } from "vitest";
 
 import { transformStreamingToOpenai } from "./transform-streaming-to-openai.js";
 
-const { warn, error } = vi.hoisted(() => ({
+const { warn, error, setexMock } = vi.hoisted(() => ({
 	warn: vi.fn(),
 	error: vi.fn(),
+	setexMock: vi.fn(() => Promise.resolve("OK")),
 }));
 
 vi.mock("@llmgateway/cache", () => ({
 	redisClient: {
 		get: vi.fn(),
 		// The caller chains .catch() on this, so it must be thenable.
-		setex: vi.fn(() => Promise.resolve("OK")),
+		setex: setexMock,
 	},
 }));
 
@@ -137,6 +138,39 @@ describe("transformStreamingToOpenai", () => {
 		for (const id of ids) {
 			expect(id.startsWith("read_file_")).toBe(true);
 		}
+	});
+
+	it("keeps streamed thought signatures inline without caching them", () => {
+		setexMock.mockClear();
+		const result = transformStreamingToOpenai(
+			"google-ai-studio",
+			"gemini-3.5-flash",
+			{
+				candidates: [
+					{
+						content: {
+							parts: [
+								{
+									functionCall: { name: "read_file", args: {} },
+									thoughtSignature: "sig-private",
+								},
+							],
+						},
+					},
+				],
+			},
+			[],
+			undefined,
+			true,
+			undefined,
+			undefined,
+			{ cacheThoughtSignatures: false },
+		);
+
+		expect(result.choices[0].delta.tool_calls[0].provider_extra).toEqual({
+			google: { thought_signature: "sig-private" },
+		});
+		expect(setexMock).not.toHaveBeenCalled();
 	});
 
 	it("transforms azure-anthropic streaming events like anthropic", () => {

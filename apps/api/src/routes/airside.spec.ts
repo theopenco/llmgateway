@@ -2,8 +2,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
+import * as emailUtils from "@/utils/email.js";
 
-import { db, eq, inArray, tables } from "@llmgateway/db";
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
+import {
+	db,
+	eq,
+	getEffectiveDiscount,
+	inArray,
+	sql,
+	tables,
+} from "@llmgateway/db";
+import {
+	models as catalogueModels,
+	type ModelDefinition,
+	type ProviderApiFormat,
+} from "@llmgateway/models";
 
 // Website verification resolves a real TXT record; the zone under test is
 // this map. An unlisted name behaves like NXDOMAIN, which is what an
@@ -95,6 +109,7 @@ async function setRoutingSettings(
 		})
 		.onConflictDoUpdate({
 			target: tables.providerRoutingSettings.providerId,
+			targetWhere: sql`model_id IS NULL`,
 			set: {
 				providerCompanyId,
 				discountPercent: String(discountPercent),
@@ -134,18 +149,55 @@ async function createModel(
 	providerCompanyId: string,
 	overrides: Record<string, unknown> = {},
 ) {
+	const body: Record<string, unknown> = {
+		providerCompanyId,
+		providerId: "mistral",
+		modelName: "mistral-large-3",
+		displayName: "Mistral Large 3",
+		family: "mistral",
+		contextSize: 256000,
+		streaming: true,
+		tools: true,
+		pricing: { inputPrice: "2e-6", outputPrice: "6e-6" },
+		...overrides,
+	};
+	const verificationId = `verification-${crypto.randomUUID()}`;
+	await db.insert(tables.providerModelVerification).values({
+		id: verificationId,
+		providerCompanyId,
+		requestedBy: "test-user-id",
+		target: {
+			providerId: String(body.providerId),
+			modelName: String(body.modelName),
+			externalId: String(body.externalId ?? body.modelName),
+			apiFormat:
+				typeof body.apiFormat === "string"
+					? (body.apiFormat as ProviderApiFormat)
+					: "openai-chat-completions",
+			streaming: body.streaming !== false,
+			vision: body.vision === true,
+			audio: body.audio === true,
+			tools: body.tools === true,
+			jsonOutput: body.jsonOutput === true,
+			jsonOutputSchema: body.jsonOutputSchema === true,
+			reasoning: body.reasoning === true,
+			reasoningMaxTokens: body.reasoningMaxTokens === true,
+			reasoningEfforts: Array.isArray(body.reasoningEfforts)
+				? body.reasoningEfforts.filter(
+						(effort): effort is string => typeof effort === "string",
+					)
+				: null,
+			webSearch: body.webSearch === true,
+		},
+		checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
+		status: "passed",
+		completedAt: new Date(),
+	});
 	const res = await app.request(
 		"/airside/models",
 		json(cookie, {
-			providerCompanyId,
-			providerId: "mistral",
-			modelName: "mistral-large-3",
-			displayName: "Mistral Large 3",
-			contextSize: 256000,
-			streaming: true,
-			tools: true,
-			pricing: { inputPrice: "2e-6", outputPrice: "6e-6" },
-			...overrides,
+			...body,
+			verificationId,
 		}),
 	);
 	return res;
@@ -155,10 +207,12 @@ describe("airside provider portal", () => {
 	let cookie: string;
 
 	beforeEach(async () => {
+		vi.spyOn(emailUtils, "sendTransactionalEmail").mockResolvedValue(undefined);
 		cookie = await createTestUser();
 	});
 
 	afterEach(async () => {
+		vi.restoreAllMocks();
 		if (originalAdminEmails === undefined) {
 			delete process.env.ADMIN_EMAILS;
 		} else {
@@ -169,19 +223,28 @@ describe("airside provider portal", () => {
 		} else {
 			process.env.AIRSIDE_LISTING_PRICE_ID = originalListingPriceId;
 		}
-		// Only remove catalogue rows this spec materialized (family "airside"
-		// models, plus the provider rows its lifecycles create) — a blanket
-		// delete could race another spec sharing the database.
-		const airsideModels = await db.query.model.findMany({
-			where: { family: { eq: "airside" } },
-			columns: { id: true },
+		// Only remove catalogue rows this spec materialized. Mapping source is
+		// the ownership marker; family remains the model's real taxonomy.
+		const airsideMappings = await db.query.modelProviderMapping.findMany({
+			where: { source: { eq: "airside" } },
+			columns: { modelId: true },
 		});
-		if (airsideModels.length > 0) {
-			const ids = airsideModels.map((m) => m.id);
+		if (airsideMappings.length > 0) {
+			const ids = [
+				...new Set(airsideMappings.map((mapping) => mapping.modelId)),
+			];
 			await db
 				.delete(tables.modelProviderMapping)
-				.where(inArray(tables.modelProviderMapping.modelId, ids));
-			await db.delete(tables.model).where(inArray(tables.model.id, ids));
+				.where(eq(tables.modelProviderMapping.source, "airside"));
+			for (const id of ids) {
+				const remaining = await db.query.modelProviderMapping.findFirst({
+					where: { modelId: { eq: id } },
+					columns: { id: true },
+				});
+				if (!remaining) {
+					await db.delete(tables.model).where(eq(tables.model.id, id));
+				}
+			}
 		}
 		await db
 			.delete(tables.provider)
@@ -353,6 +416,175 @@ describe("airside provider portal", () => {
 		expect(settings).toBeTruthy();
 	});
 
+	it("queues capability checks and gates a new mapping on their result", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const mapping = {
+			providerCompanyId: company.id,
+			providerId: "mistral",
+			modelName: "mistral-verified-x",
+			externalId: "mistral-verified-upstream",
+			streaming: true,
+			tools: true,
+			jsonOutput: true,
+			jsonOutputSchema: true,
+			reasoning: true,
+			reasoningMaxTokens: true,
+			reasoningEfforts: ["low" as const],
+			webSearch: true,
+		};
+		const queueAttempts = await Promise.all(
+			Array.from({ length: 4 }, () =>
+				app.request(
+					"/airside/model-verifications",
+					json(cookie, { ...mapping, apiKey: "provider-secret-for-test" }),
+				),
+			),
+		);
+		const queued = queueAttempts.find((response) => response.status === 202);
+		const conflicts = queueAttempts.filter(
+			(response) => response.status === 409,
+		);
+		expect(queued).toBeDefined();
+		expect(conflicts).toHaveLength(3);
+		for (const conflict of conflicts) {
+			expect((await conflict.json()).message).toContain("already in progress");
+		}
+		if (!queued) {
+			throw new Error("Expected one verification to be queued.");
+		}
+		const queuedBody = await queued.json();
+		expect(JSON.stringify(queuedBody)).not.toContain(
+			"provider-secret-for-test",
+		);
+		expect(queuedBody.verification).toMatchObject({
+			status: "queued",
+			checks: expect.arrayContaining([
+				expect.objectContaining({ id: "basic", status: "queued" }),
+				expect.objectContaining({ id: "streaming" }),
+				expect.objectContaining({ id: "tools" }),
+				expect.objectContaining({ id: "structured_json" }),
+				expect.objectContaining({ id: "reasoning_budget" }),
+				expect.objectContaining({ id: "web_search" }),
+			]),
+		});
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: queuedBody.verification.id } },
+		});
+		expect(stored?.credentialCiphertext).toMatch(/^llmgw:v2:/);
+		expect(stored?.credentialCiphertext).not.toContain(
+			"provider-secret-for-test",
+		);
+		const activeVerifications =
+			await db.query.providerModelVerification.findMany({
+				where: {
+					providerCompanyId: { eq: company.id },
+					status: { in: ["queued", "running"] },
+				},
+			});
+		expect(activeVerifications).toHaveLength(1);
+		const otherTarget = await app.request(
+			"/airside/model-verifications",
+			json(cookie, {
+				...mapping,
+				modelName: "mistral-verified-y",
+				apiKey: "provider-secret-for-test",
+			}),
+		);
+		expect(otherTarget.status).toBe(202);
+
+		const submission = {
+			...mapping,
+			verificationId: queuedBody.verification.id as string,
+			family: "mistral",
+			pricing: { inputPrice: "2e-6", outputPrice: "6e-6" },
+		};
+		const impending = await app.request(
+			"/airside/models",
+			json(cookie, submission),
+		);
+		expect(impending.status).toBe(409);
+		expect((await impending.json()).message).toContain("must pass");
+
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				status: "passed",
+				checks: stored!.checks.map((check) => ({
+					...check,
+					status: "passed" as const,
+					feedback: "Passed",
+				})),
+				completedAt: new Date(),
+				credentialCiphertext: null,
+			})
+			.where(eq(tables.providerModelVerification.id, stored!.id));
+		const created = await app.request(
+			"/airside/models",
+			json(cookie, submission),
+		);
+		expect(created.status).toBe(201);
+		const createdBody = await created.json();
+		expect(createdBody.model).toMatchObject({
+			modelName: "mistral-verified-x",
+			jsonOutputSchema: true,
+			reasoningMaxTokens: true,
+			webSearch: true,
+			latestVerification: expect.objectContaining({ status: "passed" }),
+		});
+		const patched = await app.request(
+			`/airside/models/${createdBody.model.id}`,
+			json(cookie, { displayName: "Mistral Verified X" }, "PATCH"),
+		);
+		expect(patched.status).toBe(200);
+		expect((await patched.json()).model.latestVerification).toMatchObject({
+			status: "passed",
+		});
+		const consumed = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: stored!.id } },
+		});
+		expect(consumed?.draftModelId).toBe(createdBody.model.id);
+		expect(consumed?.submittedAt).toBeInstanceOf(Date);
+	});
+
+	it("matches managed credentials against upstream model IDs", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const providerKeyId = `verification-key-${crypto.randomUUID()}`;
+		await db.insert(tables.providerKey).values({
+			id: providerKeyId,
+			provider: "mistral",
+			...encryptProviderKeyForStorage(
+				"managed-provider-test-key",
+				providerKeyId,
+				null,
+			),
+			managed: true,
+			allowedModels: ["mistral-upstream-id"],
+		});
+
+		const queued = await app.request(
+			"/airside/model-verifications",
+			json(cookie, {
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				modelName: "mistral-public-id",
+				externalId: "mistral-upstream-id",
+			}),
+		);
+
+		expect(queued.status).toBe(202);
+		const queuedBody = await queued.json();
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: queuedBody.verification.id } },
+		});
+		expect(stored?.credentialSource).toBe("managed");
+	});
+
 	it("drafts a model with an initial price filing and blocks price edits", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
@@ -381,6 +613,24 @@ describe("airside provider portal", () => {
 		expect((await patched.json()).model.displayName).toBe(
 			"Mistral Large 3 Turbo",
 		);
+		const verificationGated = await app.request(
+			`/airside/models/${model.id}`,
+			json(
+				cookie,
+				{
+					jsonOutputSchema: true,
+					reasoningMaxTokens: true,
+					webSearch: true,
+				},
+				"PATCH",
+			),
+		);
+		expect(verificationGated.status).toBe(200);
+		expect((await verificationGated.json()).model).toMatchObject({
+			jsonOutputSchema: false,
+			reasoningMaxTokens: false,
+			webSearch: false,
+		});
 
 		// A second filing can't be submitted while one is pending.
 		const doubleFiling = await app.request(
@@ -684,20 +934,94 @@ describe("airside provider portal", () => {
 		expect(mapping).toMatchObject({
 			providerId: "mistral",
 			externalId: "mistral-large-3",
+			source: "airside",
 			status: "active",
 		});
 		expect(Number(mapping!.inputPrice)).toBeCloseTo(2e-6);
 		const catalogueModel = await db.query.model.findFirst({
 			where: { id: { eq: "mistral-large-3" } },
 		});
-		expect(catalogueModel).toMatchObject({ family: "airside" });
+		expect(catalogueModel).toMatchObject({ family: "mistral" });
+		const publicModels = await app.request("/internal/models");
+		expect(publicModels.status).toBe(200);
+		const published = (await publicModels.json()).models.find(
+			(entry: { id: string }) => entry.id === "mistral-large-3",
+		);
+		expect(published).toMatchObject({
+			name: "Mistral Large 3",
+			mappings: [
+				expect.objectContaining({
+					providerId: "mistral",
+					audio: false,
+					tools: true,
+				}),
+			],
+		});
+		expect(Number(published.mappings[0].inputPrice)).toBeCloseTo(2e-6);
 
-		// A price-update approval rewrites the mapping's prices.
+		// Metadata edits on a live listing are filed, not applied.
+		const filed = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { contextSize: 128000, tools: false }, "PATCH"),
+		);
+		expect(filed.status).toBe(200);
+		const metadataFiling = (await filed.json()).model.pendingFiling;
+		expect(metadataFiling).toMatchObject({
+			kind: "metadata",
+			metadata: { contextSize: 128000, tools: false },
+		});
+		const beforeApproval = (
+			await (await app.request("/internal/models")).json()
+		).models.find((entry: { id: string }) => entry.id === "mistral-large-3");
+		expect(beforeApproval.mappings[0]).toMatchObject({
+			contextSize: 256000,
+			tools: true,
+		});
+		// A second edit waits for the first review.
+		const second = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { maxOutput: 4096 }, "PATCH"),
+		);
+		expect(second.status).toBe(409);
+		const queued = await app.request("/admin/airside/filings?status=pending", {
+			headers: { Cookie: cookie },
+		});
+		const queuedFiling = (await queued.json()).filings.find(
+			(entry: { id: string }) => entry.id === metadataFiling.id,
+		);
+		expect(queuedFiling).toMatchObject({
+			kind: "metadata",
+			currentMetadata: { contextSize: 256000, tools: true },
+		});
+		await app.request(
+			`/admin/airside/filings/${metadataFiling.id}/approve`,
+			json(cookie),
+		);
+		const afterMetadataUpdate = await app.request("/internal/models");
+		const updatedMetadata = (await afterMetadataUpdate.json()).models.find(
+			(entry: { id: string }) => entry.id === "mistral-large-3",
+		);
+		expect(updatedMetadata.mappings[0]).toMatchObject({
+			contextSize: 128000,
+			tools: false,
+		});
+		// Saving the current values again is a no-op, not another filing.
+		const unchanged = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { contextSize: 128000, tools: false }, "PATCH"),
+		);
+		expect(unchanged.status).toBe(200);
+		expect((await unchanged.json()).model.pendingFiling).toBeNull();
+
+		// A price-update approval upserts the mapping and its prices.
 		const update = await app.request(
 			`/airside/models/${model.id}/price-filings`,
 			json(cookie, { inputPrice: "4e-6", outputPrice: "9e-6" }),
 		);
 		const updateFiling = (await update.json()).filing;
+		await db
+			.delete(tables.modelProviderMapping)
+			.where(eq(tables.modelProviderMapping.id, mapping!.id));
 		await app.request(
 			`/admin/airside/filings/${updateFiling.id}/approve`,
 			json(cookie),
@@ -706,6 +1030,11 @@ describe("airside provider portal", () => {
 			where: { modelId: { eq: "mistral-large-3" } },
 		});
 		expect(Number(repriced!.inputPrice)).toBeCloseTo(4e-6);
+		const afterPriceUpdate = await app.request("/internal/models");
+		const updatedPrice = (await afterPriceUpdate.json()).models.find(
+			(entry: { id: string }) => entry.id === "mistral-large-3",
+		);
+		expect(Number(updatedPrice.mappings[0].inputPrice)).toBeCloseTo(4e-6);
 
 		// Delisting removes the materialized rows again.
 		await app.request(`/airside/models/${model.id}`, {
@@ -724,6 +1053,294 @@ describe("airside provider portal", () => {
 		).toBeFalsy();
 	});
 
+	it("materializes and replaces per-region fares", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id, {
+			pricing: {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				regionPrices: [
+					{ region: "au", inputPrice: "3e-6", outputPrice: "8e-6" },
+				],
+			},
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		expect(model.pendingFiling.regionPrices).toEqual([
+			{
+				region: "au",
+				inputPrice: "3e-6",
+				outputPrice: "8e-6",
+				cachedInputPrice: null,
+				requestPrice: null,
+			},
+		]);
+
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		const mappings = await db.query.modelProviderMapping.findMany({
+			where: { modelId: { eq: "mistral-large-3" } },
+		});
+		expect(mappings).toHaveLength(2);
+		const auRow = mappings.find((mapping) => mapping.region === "au");
+		expect(auRow).toMatchObject({ source: "airside", status: "active" });
+		expect(Number(auRow!.inputPrice)).toBeCloseTo(3e-6);
+		expect(Number(auRow!.outputPrice)).toBeCloseTo(8e-6);
+
+		// A stale catalogue-sourced regional leftover is swept on the next
+		// approved filing, and the filed set replaces the previous regions.
+		await db.insert(tables.modelProviderMapping).values({
+			modelId: "mistral-large-3",
+			providerId: "mistral",
+			region: "us",
+			externalId: "mistral-large-3",
+			source: "catalogue",
+			inputPrice: "9e-6",
+			outputPrice: "9e-6",
+			streaming: true,
+			status: "active",
+		});
+		const update = await app.request(
+			`/airside/models/${model.id}/price-filings`,
+			json(cookie, {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				regionPrices: [
+					{
+						region: "eu-frankfurt",
+						inputPrice: "4e-6",
+						outputPrice: "9e-6",
+						cachedInputPrice: "1e-6",
+					},
+				],
+			}),
+		);
+		expect(update.status).toBe(201);
+		const updateFiling = (await update.json()).filing;
+		await app.request(
+			`/admin/airside/filings/${updateFiling.id}/approve`,
+			json(cookie),
+		);
+		const replaced = await db.query.modelProviderMapping.findMany({
+			where: { modelId: { eq: "mistral-large-3" } },
+		});
+		expect(replaced.map((mapping) => mapping.region).sort()).toEqual([
+			"eu-frankfurt",
+			null,
+		]);
+		const euRow = replaced.find((mapping) => mapping.region === "eu-frankfurt");
+		expect(Number(euRow!.inputPrice)).toBeCloseTo(4e-6);
+		expect(Number(euRow!.cachedInputPrice)).toBeCloseTo(1e-6);
+
+		// Filing without regions drops every regional row.
+		const flat = await app.request(
+			`/airside/models/${model.id}/price-filings`,
+			json(cookie, { inputPrice: "2e-6", outputPrice: "6e-6" }),
+		);
+		const flatFiling = (await flat.json()).filing;
+		await app.request(
+			`/admin/airside/filings/${flatFiling.id}/approve`,
+			json(cookie),
+		);
+		const flatMappings = await db.query.modelProviderMapping.findMany({
+			where: { modelId: { eq: "mistral-large-3" } },
+		});
+		expect(flatMappings).toHaveLength(1);
+		expect(flatMappings[0].region).toBeNull();
+
+		// Delisting removes everything.
+		await app.request(`/airside/models/${model.id}`, {
+			method: "DELETE",
+			headers: { Cookie: cookie },
+		});
+		expect(
+			await db.query.modelProviderMapping.findFirst({
+				where: { modelId: { eq: "mistral-large-3" } },
+			}),
+		).toBeFalsy();
+	});
+
+	it("keeps regions consistent under a concurrent drop and filing", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id, {
+			pricing: {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				regionPrices: [
+					{ region: "au", inputPrice: "3e-6", outputPrice: "8e-6" },
+					{ region: "eu-frankfurt", inputPrice: "4e-6", outputPrice: "9e-6" },
+				],
+			},
+		});
+		const { model } = await created.json();
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+
+		// The model-row lock serializes these; whichever lands second sees the
+		// first's write instead of interleaving with it.
+		const [dropRes, filingRes] = await Promise.all([
+			app.request(`/airside/models/${model.id}/regions/au`, {
+				method: "DELETE",
+				headers: { Cookie: cookie },
+			}),
+			app.request(
+				`/airside/models/${model.id}/price-filings`,
+				json(cookie, {
+					inputPrice: "2e-6",
+					outputPrice: "6e-6",
+					regionPrices: [
+						{ region: "au", inputPrice: "3e-6", outputPrice: "8e-6" },
+					],
+				}),
+			),
+		]);
+		// Legal outcomes: drop first (filing then queues as pending) or filing
+		// first (drop rejected while it is pending). Never both rejected.
+		expect(dropRes.status === 200 || filingRes.status === 201).toBe(true);
+
+		// The materialized regional rows always mirror the effective (latest
+		// approved) filing — a drop can never resurrect or orphan a region.
+		const approvedFilings = await db.query.providerPriceFiling.findMany({
+			where: { draftModelId: { eq: model.id }, status: { eq: "approved" } },
+			orderBy: { createdAt: "desc" },
+		});
+		const effectiveRegions = (approvedFilings[0].regionPrices ?? [])
+			.map((entry) => entry.region)
+			.sort();
+		const mappings = await db.query.modelProviderMapping.findMany({
+			where: { modelId: { eq: "mistral-large-3" } },
+		});
+		const materializedRegions = mappings
+			.map((mapping) => mapping.region)
+			.filter(
+				(mappingRegion): mappingRegion is string => mappingRegion !== null,
+			)
+			.sort();
+		expect(materializedRegions).toEqual(effectiveRegions);
+	});
+
+	it("rejects malformed regional fares", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const badId = await createModel(cookie, company.id, {
+			pricing: {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				regionPrices: [
+					{ region: "AU!", inputPrice: "3e-6", outputPrice: "8e-6" },
+				],
+			},
+		});
+		expect(badId.status).toBe(400);
+		const duplicate = await createModel(cookie, company.id, {
+			pricing: {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				regionPrices: [
+					{ region: "au", inputPrice: "3e-6", outputPrice: "8e-6" },
+					{ region: "au", inputPrice: "4e-6", outputPrice: "9e-6" },
+				],
+			},
+		});
+		expect(duplicate.status).toBe(400);
+	});
+
+	it("drops a region immediately without a review cycle", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id, {
+			pricing: {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				regionPrices: [
+					{ region: "au", inputPrice: "3e-6", outputPrice: "8e-6" },
+					{ region: "eu-frankfurt", inputPrice: "4e-6", outputPrice: "9e-6" },
+				],
+			},
+		});
+		const { model } = await created.json();
+		const dropRegion = (region: string) =>
+			app.request(`/airside/models/${model.id}/regions/${region}`, {
+				method: "DELETE",
+				headers: { Cookie: cookie },
+			});
+
+		// Drafts have no effective pricing to drop a region from.
+		expect((await dropRegion("au")).status).toBe(409);
+
+		const approveRes = await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		expect(approveRes.status).toBe(200);
+
+		expect((await dropRegion("mars")).status).toBe(404);
+
+		const removed = await dropRegion("au");
+		expect(removed.status).toBe(200);
+		const removedModel = (await removed.json()).model;
+		expect(removedModel.currentPricing.regionPrices).toEqual([
+			{
+				region: "eu-frankfurt",
+				inputPrice: "4e-6",
+				outputPrice: "9e-6",
+				cachedInputPrice: null,
+				requestPrice: null,
+			},
+		]);
+		expect(removedModel.pendingFiling).toBeNull();
+		const mappings = await db.query.modelProviderMapping.findMany({
+			where: { modelId: { eq: "mistral-large-3" } },
+		});
+		expect(mappings.map((mapping) => mapping.region).sort()).toEqual([
+			"eu-frankfurt",
+			null,
+		]);
+
+		// Removing the last region leaves default-only pricing.
+		const last = await dropRegion("eu-frankfurt");
+		expect(last.status).toBe(200);
+		expect((await last.json()).model.currentPricing.regionPrices).toBeNull();
+		expect(
+			(
+				await db.query.modelProviderMapping.findMany({
+					where: { modelId: { eq: "mistral-large-3" } },
+				})
+			).map((mapping) => mapping.region),
+		).toEqual([null]);
+
+		// A pending filing blocks removal so approval cannot resurrect the region.
+		const pendingUpdate = await app.request(
+			`/airside/models/${model.id}/price-filings`,
+			json(cookie, {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				regionPrices: [
+					{ region: "au", inputPrice: "3e-6", outputPrice: "8e-6" },
+				],
+			}),
+		);
+		expect(pendingUpdate.status).toBe(201);
+		expect((await dropRegion("au")).status).toBe(409);
+	});
+
 	it("refuses listings that shadow the static catalogue", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
@@ -733,6 +1350,43 @@ describe("airside provider portal", () => {
 			modelName: "mistral-large-latest",
 		});
 		expect(res.status).toBe(409);
+	});
+
+	it("publishes a new provider mapping on an existing model", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const existingModel = (catalogueModels as readonly ModelDefinition[]).find(
+			(model) =>
+				!model.providers.some((mapping) => mapping.providerId === "mistral"),
+		);
+		expect(existingModel).toBeTruthy();
+
+		const created = await createModel(cookie, company.id, {
+			modelName: existingModel!.id,
+			displayName: existingModel!.name ?? existingModel!.id,
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+
+		const publicModels = await app.request("/internal/models");
+		const published = (await publicModels.json()).models.find(
+			(entry: { id: string }) => entry.id === existingModel!.id,
+		);
+		const publishedMapping = published.mappings.find(
+			(mapping: { providerId: string }) => mapping.providerId === "mistral",
+		);
+		expect(publishedMapping).toMatchObject({
+			providerId: "mistral",
+			externalId: existingModel!.id,
+		});
+		expect(Number(publishedMapping.inputPrice)).toBeCloseTo(2e-6);
 	});
 
 	it("rejects malformed price strings", async () => {
@@ -782,8 +1436,8 @@ describe("airside provider portal", () => {
 			json(cookie),
 		);
 		expect(approved.status).toBe(200);
-		// 0.2 (baseline) - 0.3 (margin) - 0.2 (discount) = -0.3
-		expect((await approved.json()).filing.routingAdjustment).toBeCloseTo(-0.3);
+		// The discounted price is adjusted by the accepted margin.
+		expect((await approved.json()).filing.routingAdjustment).toBeCloseTo(-0.28);
 
 		// The admin row is untouched, and no airside row was mirrored in.
 		const multipliers = await db.query.routingScoreMultiplier.findMany({
@@ -880,7 +1534,7 @@ describe("airside provider portal", () => {
 		});
 
 		// Accepting a larger gateway margin + a discount → negative adjustment
-		// (routing boost): 0.2 − 0.3 − 0.1 = −0.2 — but only as a pending filing.
+		// (routing boost), but only as a pending filing.
 		const filed = await app.request(
 			"/airside/routing-settings/mistral",
 			json(
@@ -896,7 +1550,7 @@ describe("airside provider portal", () => {
 		expect(filed.status).toBe(201);
 		const { filing } = await filed.json();
 		expect(filing.status).toBe("pending");
-		expect(filing.routingAdjustment).toBeCloseTo(-0.2);
+		expect(filing.routingAdjustment).toBeCloseTo(-0.19);
 
 		// Nothing is live yet, and the portal shows the pending filing.
 		expect(
@@ -1038,6 +1692,259 @@ describe("airside provider portal", () => {
 		expect(outOfBounds.status).toBe(400);
 	});
 
+	it("publishes only approved Airside discounts across catalogue and detail feeds", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const claim = await claimProvider(cookie, company.id);
+		expect(
+			(
+				await app.request(
+					`/admin/airside/claims/${claim.id}/approve`,
+					json(cookie),
+				)
+			).status,
+		).toBe(200);
+		const modelId = "airside-discount-model";
+		const created = await createModel(cookie, company.id, {
+			modelName: modelId,
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		expect(
+			(
+				await app.request(
+					`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+					json(cookie),
+				)
+			).status,
+		).toBe(200);
+
+		async function expectDiscount(expected: number) {
+			const catalogueResponse = await app.request("/internal/models");
+			expect(catalogueResponse.status).toBe(200);
+			const catalogue = (await catalogueResponse.json()).models.find(
+				(entry: { id: string }) => entry.id === modelId,
+			);
+			expect(Number(catalogue.mappings[0].discount)).toBeCloseTo(expected);
+			const detailsResponse = await app.request(
+				`/public/discounts/model/${modelId}`,
+			);
+			expect(detailsResponse.status).toBe(200);
+			const { discounts } = await detailsResponse.json();
+			if (expected === 0) {
+				expect(discounts).toEqual([]);
+			} else {
+				expect(discounts).toHaveLength(1);
+				expect(discounts[0]).toMatchObject({
+					provider: "mistral",
+					model: modelId,
+				});
+				expect(Number(discounts[0].discountPercent)).toBeCloseTo(expected);
+			}
+			expect(
+				Number((await getEffectiveDiscount(null, "mistral", modelId)).discount),
+			).toBeCloseTo(expected);
+		}
+
+		async function fileDiscount(discountPercent: number, override?: string) {
+			const response = await app.request(
+				"/airside/routing-settings/mistral",
+				json(
+					cookie,
+					{
+						providerCompanyId: company.id,
+						modelId: override,
+						discountPercent,
+						marginPercent: 0.2,
+					},
+					"PUT",
+				),
+			);
+			expect(response.status).toBe(201);
+			return (await response.json()).filing.id as string;
+		}
+
+		await expectDiscount(0);
+		const carrierFiling = await fileDiscount(0.2);
+		await expectDiscount(0);
+		expect(
+			(
+				await app.request(
+					`/admin/airside/routing-filings/${carrierFiling}/approve`,
+					json(cookie),
+				)
+			).status,
+		).toBe(200);
+		await expectDiscount(0.2);
+		const override = await fileDiscount(0.3, modelId);
+		await expectDiscount(0.2);
+		expect(
+			(
+				await app.request(
+					`/admin/airside/routing-filings/${override}/reject`,
+					json(cookie, {}),
+				)
+			).status,
+		).toBe(200);
+		await expectDiscount(0.2);
+		const zero = await fileDiscount(0, modelId);
+		expect(
+			(
+				await app.request(
+					`/admin/airside/routing-filings/${zero}/approve`,
+					json(cookie),
+				)
+			).status,
+		).toBe(200);
+		await expectDiscount(0);
+		const restored = await fileDiscount(0.3, modelId);
+		expect(
+			(
+				await app.request(
+					`/admin/airside/routing-filings/${restored}/approve`,
+					json(cookie),
+				)
+			).status,
+		).toBe(200);
+		await expectDiscount(0.3);
+		expect(
+			(
+				await app.request(
+					`/admin/airside/claims/${claim.id}/revoke`,
+					json(cookie, {}),
+				)
+			).status,
+		).toBe(200);
+		const catalogue = await app.request("/internal/models");
+		expect(catalogue.status).toBe(200);
+		expect(
+			(await catalogue.json()).models.some(
+				(entry: { id: string }) => entry.id === modelId,
+			),
+		).toBe(false);
+		const details = await app.request(`/public/discounts/model/${modelId}`);
+		expect((await details.json()).discounts).toEqual([]);
+		expect(
+			Number((await getEffectiveDiscount(null, "mistral", modelId)).discount),
+		).toBe(0);
+	});
+
+	it("applies an approved fare override to one model", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		await setRoutingSettings(company.id, "mistral", 0, 0.2);
+
+		const created = await createModel(cookie, company.id, {
+			modelName: "mistral-model-fare",
+			displayName: "Mistral Model Fare",
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		const modelApproved = await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		expect(modelApproved.status).toBe(200);
+
+		const initial = await app.request(
+			`/airside/routing-settings?providerCompanyId=${company.id}`,
+			{ headers: { Cookie: cookie } },
+		);
+		const initialSettings = (await initial.json()).settings[0];
+		expect(initialSettings).toMatchObject({
+			discountPercent: 0,
+			marginPercent: 0.2,
+		});
+		expect(initialSettings.modelOverrides).toEqual([
+			expect.objectContaining({
+				modelId: "mistral-model-fare",
+				discountPercent: 0,
+				marginPercent: 0.2,
+				overridden: false,
+			}),
+		]);
+
+		const filed = await app.request(
+			"/airside/routing-settings/mistral",
+			json(
+				cookie,
+				{
+					providerCompanyId: company.id,
+					modelId: "mistral-model-fare",
+					discountPercent: 0.1,
+					marginPercent: 0.15,
+				},
+				"PUT",
+			),
+		);
+		expect(filed.status).toBe(201);
+		const filing = (await filed.json()).filing;
+		expect(filing).toMatchObject({
+			modelId: "mistral-model-fare",
+			routingAdjustment: expect.closeTo(-0.055),
+		});
+
+		const whilePending = await app.request(
+			`/airside/routing-settings?providerCompanyId=${company.id}`,
+			{ headers: { Cookie: cookie } },
+		);
+		const pendingSettings = (await whilePending.json()).settings[0];
+		expect(pendingSettings).toMatchObject({
+			discountPercent: 0,
+			marginPercent: 0.2,
+		});
+		expect(pendingSettings.modelOverrides[0]).toMatchObject({
+			overridden: false,
+			discountPercent: 0,
+			marginPercent: 0.2,
+			pendingFiling: expect.objectContaining({ id: filing.id }),
+		});
+
+		const queue = await app.request("/admin/airside/filings?status=pending", {
+			headers: { Cookie: cookie },
+		});
+		expect((await queue.json()).routingFilings[0]).toMatchObject({
+			id: filing.id,
+			modelId: "mistral-model-fare",
+			currentDiscountPercent: 0,
+			currentMarginPercent: 0.2,
+		});
+
+		const approved = await app.request(
+			`/admin/airside/routing-filings/${filing.id}/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+		const stored = await db.query.providerRoutingSettings.findFirst({
+			where: {
+				providerId: { eq: "mistral" },
+				modelId: { eq: "mistral-model-fare" },
+			},
+		});
+		expect(Number(stored?.discountPercent)).toBeCloseTo(0.1);
+		expect(Number(stored?.marginPercent)).toBeCloseTo(0.15);
+
+		const final = await app.request(
+			`/airside/routing-settings?providerCompanyId=${company.id}`,
+			{ headers: { Cookie: cookie } },
+		);
+		const finalSettings = (await final.json()).settings[0];
+		expect(finalSettings).toMatchObject({
+			discountPercent: 0,
+			marginPercent: 0.2,
+		});
+		expect(finalSettings.modelOverrides[0]).toMatchObject({
+			overridden: true,
+			discountPercent: 0.1,
+			marginPercent: 0.15,
+			routingAdjustment: expect.closeTo(-0.055),
+		});
+	});
+
 	it("lists every carrier's settings and accrued margin for admins", async () => {
 		process.env.ADMIN_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
@@ -1060,6 +1967,18 @@ describe("airside provider portal", () => {
 				requestCount: 10,
 				cost: 20,
 				providerMarginAmount: 5,
+			},
+			{
+				dayTimestamp: new Date(now - 2 * dayMs), // eslint-disable-line no-mixed-operators
+				usedModel: "mistral-medium-4",
+				usedProvider: "mistral",
+				usedMode: "api-keys",
+				orgKind: "default",
+				requestCount: 10,
+				cost: 20,
+				// Historical BYOK rows may contain margin from the old aggregation
+				// formula; admin totals must exclude them defensively.
+				providerMarginAmount: 99,
 			},
 			{
 				dayTimestamp: new Date(now - 60 * dayMs), // eslint-disable-line no-mixed-operators
@@ -1086,7 +2005,7 @@ describe("airside provider portal", () => {
 			});
 			expect(body.providers[0].discountPercent).toBeCloseTo(0.1);
 			expect(body.providers[0].marginPercent).toBeCloseTo(0.3);
-			expect(body.providers[0].routingAdjustment).toBeCloseTo(-0.2);
+			expect(body.providers[0].routingAdjustment).toBeCloseTo(-0.19);
 			expect(body.providers[0].marginAmount30d).toBeCloseTo(5);
 			expect(body.providers[0].marginAmountTotal).toBeCloseTo(12);
 		} finally {
@@ -1095,6 +2014,24 @@ describe("airside provider portal", () => {
 				.delete(tables.globalModelStats)
 				.where(eq(tables.globalModelStats.usedProvider, "mistral"));
 		}
+	});
+
+	it("stores a model's selected upstream API format", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const res = await createModel(cookie, company.id, {
+			modelName: "responses-only-model",
+			apiFormat: "openai-responses",
+		});
+		expect(res.status).toBe(201);
+		const { model } = await res.json();
+		expect(model.apiFormat).toBe("openai-responses");
+		const stored = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: model.id } },
+		});
+		expect(stored?.apiFormat).toBe("openai-responses");
 	});
 
 	it("stores reasoning efforts and audio on a listing", async () => {
@@ -1149,7 +2086,8 @@ describe("airside provider portal", () => {
 		expect(mapping?.reasoningEfforts).toEqual(["medium", "max"]);
 	});
 
-	it("edits claim branding but never claim identity", async () => {
+	it("files branding edits on a live claim for review", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		const claim = await claimProvider(cookie, company.id);
@@ -1165,10 +2103,32 @@ describe("airside provider portal", () => {
 			),
 		);
 		expect(res.status).toBe(200);
-		const updated = (await res.json()).claim;
+		const filed = (await res.json()).claim;
+		// Live branding waits for review; the API endpoint stays fixed.
+		expect(filed.logoUrl).toBeNull();
+		expect(filed.pendingBranding).toEqual({ logoUrl: svg });
+		expect(filed.customBaseUrl).toBeNull();
+		const rejected = await app.request(
+			`/airside/claims/${claim.id}/branding/reject`.replace(
+				"/airside/",
+				"/admin/airside/",
+			),
+			json(cookie),
+		);
+		expect(rejected.status).toBe(200);
+		expect((await rejected.json()).claim.pendingBranding).toBeNull();
+		await app.request(
+			`/airside/claims/${claim.id}`,
+			json(cookie, { logoUrl: svg }, "PATCH"),
+		);
+		const approved = await app.request(
+			`/admin/airside/claims/${claim.id}/branding/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+		const updated = (await approved.json()).claim;
 		expect(updated.logoUrl).toBe(svg);
-		// Identity fields are not editable; unknown keys are stripped.
-		expect(updated.customBaseUrl).toBeNull();
+		expect(updated.pendingBranding).toBeNull();
 
 		// Non-SVG branding is rejected; null clears the logo.
 		const png = await app.request(
@@ -1184,7 +2144,125 @@ describe("airside provider portal", () => {
 			`/airside/claims/${claim.id}`,
 			json(cookie, { logoUrl: null }, "PATCH"),
 		);
-		expect((await cleared.json()).claim.logoUrl).toBeNull();
+		expect((await cleared.json()).claim.pendingBranding).toEqual({
+			logoUrl: null,
+		});
+		await app.request(
+			`/admin/airside/claims/${claim.id}/branding/approve`,
+			json(cookie),
+		);
+		const claims = await app.request("/admin/airside/claims?status=active", {
+			headers: { Cookie: cookie },
+		});
+		const live = (await claims.json()).claims.find(
+			(entry: { id: string }) => entry.id === claim.id,
+		);
+		expect(live).toMatchObject({ logoUrl: null, pendingBranding: null });
+	});
+
+	it.each(["catalogue", "custom"])(
+		"requires admin approval to rename a %s carrier",
+		async (kind) => {
+			const email = kind === "custom" ? "ops@acme-sky.ai" : "ops@mistral.ai";
+			await setUserEmail(email);
+			const company = await createCompany(cookie);
+			const claim =
+				kind === "custom"
+					? (await (await registerCarrier(cookie, company.id)).json()).claim
+					: await claimProvider(cookie, company.id);
+			await db
+				.insert(tables.provider)
+				.values({
+					id: claim.providerId,
+					name: kind === "custom" ? "Acme Sky" : "Mistral AI",
+					description: "",
+				})
+				.onConflictDoNothing();
+			await activateClaim(claim.providerId);
+			const currentName = kind === "custom" ? "Acme Sky" : "Mistral AI";
+			const name = "Updated Carrier";
+			const publicName = async () => {
+				const response = await app.request("/internal/providers");
+				return (await response.json()).providers.find(
+					(provider: { id: string }) => provider.id === claim.providerId,
+				)?.name;
+			};
+			const file = () =>
+				app.request(
+					`/airside/claims/${claim.id}`,
+					json(cookie, { name: `  ${name}  ` }, "PATCH"),
+				);
+			const filed = await file();
+			expect(filed.status).toBe(200);
+			expect((await filed.json()).claim).toMatchObject({
+				providerId: claim.providerId,
+				providerName: currentName,
+				pendingBranding: { name },
+			});
+			expect(await publicName()).toBe(currentName);
+			const approve = () =>
+				app.request(
+					`/admin/airside/claims/${claim.id}/branding/approve`,
+					json(cookie),
+				);
+			expect((await approve()).status).toBe(403);
+			expect(await publicName()).toBe(currentName);
+			process.env.ADMIN_EMAILS = email;
+			const rejected = await app.request(
+				`/admin/airside/claims/${claim.id}/branding/reject`,
+				json(cookie),
+			);
+			expect(rejected.status).toBe(200);
+			expect((await rejected.json()).claim.pendingBranding).toBeNull();
+			expect(await publicName()).toBe(currentName);
+			await file();
+			const approved = await approve();
+			expect(approved.status).toBe(200);
+			expect((await approved.json()).claim).toMatchObject({
+				providerId: claim.providerId,
+				providerName: name,
+				pendingBranding: null,
+			});
+			expect(await publicName()).toBe(name);
+			const companies = await app.request("/airside/companies", {
+				headers: { Cookie: cookie },
+			});
+			expect((await companies.json()).companies[0].claims[0].providerName).toBe(
+				name,
+			);
+			const invalid = await app.request(
+				`/airside/claims/${claim.id}`,
+				json(cookie, { name: "  " }, "PATCH"),
+			);
+			expect(invalid.status).toBe(400);
+		},
+	);
+
+	it("includes a pending carrier rename in its initial approval", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		process.env.ADMIN_EMAILS = "ops@acme-sky.ai";
+		const company = await createCompany(cookie);
+		const registered = await registerCarrier(cookie, company.id);
+		const { claim } = await registered.json();
+		const renamed = await app.request(
+			`/airside/claims/${claim.id}`,
+			json(cookie, { name: "Updated Carrier" }, "PATCH"),
+		);
+		expect(renamed.status).toBe(200);
+		expect((await renamed.json()).claim).toMatchObject({
+			status: "pending",
+			providerName: "Updated Carrier",
+			pendingBranding: null,
+		});
+		const approved = await app.request(
+			`/admin/airside/claims/${claim.id}/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+		const provider = await db.query.provider.findFirst({
+			where: { id: { eq: claim.providerId } },
+		});
+		expect(provider?.name).toBe("Updated Carrier");
 	});
 
 	it("carries cache and per-request pricing through filings", async () => {
@@ -1239,6 +2317,14 @@ describe("airside provider portal", () => {
 			(f: { status: string }) => f.status === "approved",
 		);
 		expect(approved?.reviewNote).toBe("Imported from the catalogue");
+		const canonicalMapping = await db.query.modelProviderMapping.findFirst({
+			where: {
+				modelId: { eq: "mistral-large-latest" },
+				providerId: { eq: "mistral" },
+				region: { isNull: true },
+			},
+		});
+		expect(canonicalMapping?.source).toBe("airside");
 
 		// Re-importing skips everything already listed.
 		const again = await app.request(
@@ -1248,6 +2334,123 @@ describe("airside provider portal", () => {
 		const secondBody = await again.json();
 		expect(secondBody.imported).toEqual([]);
 		expect(secondBody.skipped).toContain("mistral-large-latest");
+
+		await app.request(`/airside/models/${row!.id}`, {
+			method: "DELETE",
+			headers: { Cookie: cookie },
+		});
+		const restored = await db.query.modelProviderMapping.findFirst({
+			where: {
+				modelId: { eq: "mistral-large-latest" },
+				providerId: { eq: "mistral" },
+				region: { isNull: true },
+			},
+		});
+		expect(restored).toMatchObject({
+			source: "catalogue",
+			externalId: "mistral-large-latest",
+		});
+	});
+
+	it("preserves catalogue upstream IDs during import", async () => {
+		process.env.ADMIN_EMAILS = "ops@groq.com";
+		await setUserEmail("ops@groq.com");
+		const company = await createCompany(cookie, "Groq Ops");
+		await claimProvider(cookie, company.id, "groq");
+		await activateClaim("groq");
+
+		const res = await app.request(
+			"/airside/models/import",
+			json(cookie, { providerCompanyId: company.id, providerId: "groq" }),
+		);
+		expect(res.status).toBe(200);
+		expect((await res.json()).imported).toContain("gpt-oss-120b");
+
+		const mapping = await db.query.modelProviderMapping.findFirst({
+			where: {
+				modelId: { eq: "gpt-oss-120b" },
+				providerId: { eq: "groq" },
+				region: { isNull: true },
+			},
+		});
+		expect(mapping).toMatchObject({
+			externalId: "openai/gpt-oss-120b",
+			source: "airside",
+		});
+
+		const listing = await db.query.providerDraftModel.findFirst({
+			where: {
+				modelName: { eq: "gpt-oss-120b" },
+				providerId: { eq: "groq" },
+			},
+		});
+		const filed = await app.request(
+			`/airside/models/${listing!.id}/price-filings`,
+			json(cookie, { inputPrice: "0.2e-6", outputPrice: "0.8e-6" }),
+		);
+		const filing = (await filed.json()).filing;
+		const approved = await app.request(
+			`/admin/airside/filings/${filing.id}/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+		const repriced = await db.query.modelProviderMapping.findFirst({
+			where: { id: { eq: mapping!.id } },
+		});
+		expect(repriced?.externalId).toBe("openai/gpt-oss-120b");
+		expect(Number(repriced?.inputPrice)).toBeCloseTo(0.2e-6);
+	});
+
+	it("materializes the registered upstream id, not the retired one", async () => {
+		// The carrier states the id its API serves; the retired catalogue
+		// deployment's upstream id must not leak into the new listing.
+		process.env.ADMIN_EMAILS = "ops@groq.com";
+		await setUserEmail("ops@groq.com");
+		const company = await createCompany(cookie, "Groq Ops");
+		await claimProvider(cookie, company.id, "groq");
+		await activateClaim("groq");
+		const now = new Date();
+		const retired = (catalogueModels as readonly ModelDefinition[]).find(
+			(model) => {
+				const groq = model.providers.filter((p) => p.providerId === "groq");
+				return (
+					groq.length > 0 &&
+					groq.every(
+						(p) =>
+							p.deactivatedAt && p.deactivatedAt <= now && !p.regions?.length,
+					) &&
+					groq[0].externalId !== model.id
+				);
+			},
+		);
+		expect(retired).toBeTruthy();
+
+		const created = await createModel(cookie, company.id, {
+			providerId: "groq",
+			modelName: retired!.id,
+			externalId: `${retired!.id}-2026`,
+			displayName: retired!.name ?? retired!.id,
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		expect(model.externalId).toBe(`${retired!.id}-2026`);
+		const approved = await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+
+		const mapping = await db.query.modelProviderMapping.findFirst({
+			where: {
+				modelId: { eq: retired!.id },
+				providerId: { eq: "groq" },
+				region: { isNull: true },
+			},
+		});
+		expect(mapping).toMatchObject({
+			source: "airside",
+			externalId: `${retired!.id}-2026`,
+		});
 	});
 
 	it("skips catalogue mappings a flat listing cannot represent", async () => {
@@ -1609,6 +2812,37 @@ describe("airside provider portal", () => {
 		expect(afterRevoke.status).toBe(400);
 	});
 
+	it.each([false, true])(
+		"rolls back a failed crew email and allows retry (existing account: %s)",
+		async (existing) => {
+			await setUserEmail("ops@mistral.ai");
+			const company = await createCompany(cookie);
+			const email = "copilot@mistral.ai";
+			if (existing) {
+				await createSecondUser(email);
+			}
+			vi.mocked(emailUtils.sendTransactionalEmail).mockRejectedValueOnce(
+				new Error("Delivery failed"),
+			);
+			const invite = () =>
+				app.request(
+					`/airside/companies/${company.id}/members`,
+					json(cookie, { email }),
+				);
+			const failed = await invite();
+			expect(failed.status).toBe(503);
+			const crew = await app.request(
+				`/airside/companies/${company.id}/members`,
+				{ headers: { Cookie: cookie } },
+			);
+			const body = await crew.json();
+			expect(body.members).toHaveLength(1);
+			expect(body.invites).toHaveLength(0);
+			expect((await invite()).status).toBe(201);
+			expect(emailUtils.sendTransactionalEmail).toHaveBeenCalledTimes(2);
+		},
+	);
+
 	it("manages the crew: invites, cap, domain rule, removal", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
@@ -1627,6 +2861,13 @@ describe("airside provider portal", () => {
 			role: "member",
 		});
 		expect(directBody.invite).toBeNull();
+		expect(emailUtils.sendTransactionalEmail).toHaveBeenCalledWith(
+			expect.objectContaining({
+				to: "pilot@mistral.ai",
+				strict: true,
+				text: expect.stringContaining("/login"),
+			}),
+		);
 
 		// The teammate sees the company; a stranger's crew endpoints 404.
 		const theirCompanies = await app.request("/airside/companies", {
@@ -1657,6 +2898,15 @@ describe("airside provider portal", () => {
 		const invitedBody = await invited.json();
 		expect(invitedBody.member).toBeNull();
 		expect(invitedBody.invite).toMatchObject({ email: "copilot@mistral.ai" });
+		expect(emailUtils.sendTransactionalEmail).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				to: "copilot@mistral.ai",
+				strict: true,
+				subject: "You've been invited to Mistral Ops on AirSide",
+				text: expect.stringContaining("/signup"),
+			}),
+		);
+		expect(emailUtils.sendTransactionalEmail).toHaveBeenCalledTimes(2);
 		// …and inviting the same address twice conflicts.
 		expect(
 			(

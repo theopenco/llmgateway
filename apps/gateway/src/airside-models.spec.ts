@@ -7,11 +7,22 @@ import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
+import {
+	airsideListingToModelDefinition,
+	resolveAirsideModel,
+} from "./chat/tools/resolve-airside-model.js";
+import {
+	findAirsideModel,
+	findAirsideRoutingAdjustment,
+} from "./lib/cached-queries.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
 import {
 	clearCache,
 	waitForLogByRequestId,
 } from "./test-utils/test-helpers.js";
+
+import type { ProviderApiFormat } from "@llmgateway/models";
+import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 
 interface CapturedRequest {
 	url: string;
@@ -20,10 +31,9 @@ interface CapturedRequest {
 }
 
 /**
- * Airside carrier listings: an active provider_draft_model with an approved
- * price filing is routable as "<provider>/<modelName>" even though it has no
- * static catalogue entry, and is billed at the filed prices. These tests
- * stand up a mock OpenAI-compatible upstream and point the carrier's
+ * Airside carrier listings are routable from their canonical
+ * model_provider_mapping rows and billed at the materialized prices. These
+ * tests stand up a mock OpenAI-compatible upstream and point the carrier's
  * provider key at it.
  */
 describe("airside-listed models", () => {
@@ -44,6 +54,98 @@ describe("airside-listed models", () => {
 					headers: req.headers,
 					body: parsed,
 				});
+				if (req.url?.startsWith("/v1/responses")) {
+					if (parsed.stream === true) {
+						const response = {
+							id: "resp-luna-1",
+							object: "response",
+							created_at: 1,
+							model: "gpt-5.6-luna",
+						};
+						res.writeHead(200, { "content-type": "text/event-stream" });
+						for (const event of [
+							{
+								type: "response.created",
+								response: { ...response, status: "in_progress" },
+							},
+							{
+								type: "response.output_text.delta",
+								item_id: "msg-luna-1",
+								output_index: 0,
+								content_index: 0,
+								delta: "Hello from Luna",
+							},
+							{
+								type: "response.output_text.done",
+								item_id: "msg-luna-1",
+								output_index: 0,
+								content_index: 0,
+								text: "Hello from Luna",
+							},
+							{
+								type: "response.completed",
+								response: {
+									...response,
+									status: "completed",
+									usage: {
+										input_tokens: 1000,
+										output_tokens: 500,
+										total_tokens: 1500,
+									},
+								},
+							},
+						]) {
+							res.write(`data: ${JSON.stringify(event)}\n\n`);
+						}
+						res.end();
+						return;
+					}
+					res.writeHead(200, { "content-type": "application/json" });
+					res.end(
+						JSON.stringify({
+							id: "resp-luna-1",
+							object: "response",
+							model: "gpt-5.6-luna",
+							status: "completed",
+							output: [
+								{
+									type: "message",
+									role: "assistant",
+									content: [{ type: "output_text", text: "Hello from Luna" }],
+								},
+							],
+							usage: {
+								input_tokens: 1000,
+								output_tokens: 500,
+								total_tokens: 1500,
+							},
+						}),
+					);
+					return;
+				}
+				if (req.url?.includes(":generateContent")) {
+					res.writeHead(200, { "content-type": "application/json" });
+					res.end(
+						JSON.stringify({
+							candidates: [
+								{
+									content: {
+										parts: [{ text: "Hello from Luna" }],
+										role: "model",
+									},
+									finishReason: "STOP",
+									index: 0,
+								},
+							],
+							usageMetadata: {
+								promptTokenCount: 1000,
+								candidatesTokenCount: 500,
+								totalTokenCount: 1500,
+							},
+						}),
+					);
+					return;
+				}
 				res.writeHead(200, { "content-type": "application/json" });
 				res.end(
 					JSON.stringify({
@@ -82,13 +184,127 @@ describe("airside-listed models", () => {
 		});
 	});
 
+	async function materializeTestMapping(options: {
+		providerId: string;
+		modelId: string;
+		inputPrice: string;
+		outputPrice: string;
+		externalId?: string;
+		providerName?: string;
+		modelName?: string;
+		contextSize?: number;
+		maxOutput?: number;
+		tools?: boolean;
+		vision?: boolean;
+		apiFormat?: ProviderApiFormat;
+	}) {
+		await db
+			.insert(tables.provider)
+			.values({
+				id: options.providerId,
+				name: options.providerName ?? options.providerId,
+				description: "",
+			})
+			.onConflictDoNothing();
+		await db
+			.insert(tables.model)
+			.values({
+				id: options.modelId,
+				name: options.modelName ?? options.modelId,
+				family: options.providerId,
+			})
+			.onConflictDoNothing();
+		const mappingValues = {
+			externalId: options.externalId ?? options.modelId,
+			apiFormat: options.apiFormat ?? null,
+			source: "airside" as const,
+			inputPrice: options.inputPrice,
+			outputPrice: options.outputPrice,
+			contextSize: options.contextSize ?? null,
+			maxOutput: options.maxOutput ?? null,
+			streaming: true,
+			tools: options.tools ?? false,
+			vision: options.vision ?? false,
+			status: "active" as const,
+			deactivatedAt: null,
+		};
+		const existing = await db.query.modelProviderMapping.findFirst({
+			where: {
+				modelId: { eq: options.modelId },
+				providerId: { eq: options.providerId },
+				region: { isNull: true },
+			},
+		});
+		if (existing) {
+			await db
+				.update(tables.modelProviderMapping)
+				.set(mappingValues)
+				.where(eq(tables.modelProviderMapping.id, existing.id));
+		} else {
+			await db.insert(tables.modelProviderMapping).values({
+				modelId: options.modelId,
+				providerId: options.providerId,
+				...mappingValues,
+			});
+		}
+		await clearCache();
+	}
+
+	test("retains static-only metadata on imported mappings", async () => {
+		await materializeTestMapping({
+			providerId: "anthropic",
+			modelId: "claude-fable-5-1",
+			externalId: "claude-fable-5-1",
+			inputPrice: "10e-6",
+			outputPrice: "50e-6",
+		});
+		const listed = await findAirsideModel("anthropic", "claude-fable-5-1");
+		expect(listed).toBeTruthy();
+
+		const { mapping } = airsideListingToModelDefinition(listed!);
+		expect(mapping).toMatchObject({
+			cacheWriteInputPrice: "12.5e-6",
+			cacheWriteInputPrice1h: "20.0e-6",
+			minCacheableTokens: 512,
+			reasoningMode: "adaptive",
+			supportedParameters: ["max_tokens", "effort"],
+		});
+	});
+
+	test("resolves an Airside listing registered under a static alias", async () => {
+		await materializeTestMapping({
+			providerId: "iceberg",
+			modelId: "nano banana pro",
+			externalId: "gemini-3-pro-image-carrier",
+			inputPrice: "2e-6",
+			outputPrice: "12e-6",
+		});
+
+		const resolution = await resolveAirsideModel("nano banana pro");
+
+		expect(resolution).toBeTruthy();
+		expect(resolution?.parseResult).toMatchObject({
+			requestedModel: "nano banana pro",
+			requestedProvider: "iceberg",
+		});
+		expect(resolution?.pricingMappings).toHaveLength(1);
+		expect(resolution?.pricingMappings[0]).toMatchObject({
+			providerId: "iceberg",
+			externalId: "gemini-3-pro-image-carrier",
+		});
+	});
+
 	async function setup(
 		token: string,
 		options: {
 			modelStatus?: "active" | "draft" | "delisted";
 			filingStatus?: "approved" | "pending";
+			modelName?: string;
+			maxOutput?: number;
+			vision?: boolean;
 		} = {},
 	) {
+		const modelName = options.modelName ?? "gpt-5.6-luna";
 		captured = [];
 		await clearCache();
 		await db.insert(tables.apiKey).values({
@@ -117,11 +333,13 @@ describe("airside-listed models", () => {
 			id: `${token}-model`,
 			providerCompanyId: `${token}-company`,
 			providerId: "mistral",
-			modelName: "gpt-5.6-luna",
+			externalId: modelName,
+			modelName,
 			displayName: "GPT 5.6 Luna",
 			contextSize: 128000,
 			streaming: true,
 			tools: true,
+			vision: options.vision ?? true,
 			status: options.modelStatus ?? "active",
 		});
 		await db.insert(tables.providerPriceFiling).values({
@@ -133,6 +351,40 @@ describe("airside-listed models", () => {
 			outputPrice: "1e-5",
 			status: options.filingStatus ?? "approved",
 		});
+		if (
+			(options.modelStatus ?? "active") === "active" &&
+			(options.filingStatus ?? "approved") === "approved"
+		) {
+			await materializeTestMapping({
+				providerId: "mistral",
+				modelId: modelName,
+				inputPrice: "2e-6",
+				outputPrice: "1e-5",
+				providerName: "Mistral AI",
+				modelName: "GPT 5.6 Luna",
+				contextSize: 128000,
+				maxOutput: options.maxOutput,
+				tools: true,
+				vision: options.vision ?? true,
+			});
+		} else {
+			const materializedMapping = await db.query.modelProviderMapping.findFirst(
+				{
+					where: {
+						modelId: { eq: modelName },
+						providerId: { eq: "mistral" },
+						region: { isNull: true },
+						source: { eq: "airside" },
+					},
+				},
+			);
+			if (materializedMapping) {
+				await db
+					.delete(tables.modelProviderMapping)
+					.where(eq(tables.modelProviderMapping.id, materializedMapping.id));
+			}
+			await clearCache();
+		}
 	}
 
 	test("routes an approved listing and bills the filed prices", async () => {
@@ -176,6 +428,115 @@ describe("airside-listed models", () => {
 		expect(Number(log!.inputCost)).toBeCloseTo(0.002, 6);
 		expect(Number(log!.outputCost)).toBeCloseTo(0.005, 6);
 		expect(Number(log!.cost)).toBeCloseTo(0.007, 6);
+	});
+
+	test("routes a region-pinned listing and bills its regional fare", async () => {
+		await setup("airside-region-token");
+		await db.insert(tables.modelProviderMapping).values({
+			modelId: "gpt-5.6-luna",
+			providerId: "mistral",
+			region: "au",
+			externalId: "gpt-5.6-luna",
+			source: "airside",
+			inputPrice: "4e-6",
+			outputPrice: "2e-5",
+			contextSize: 128000,
+			streaming: true,
+			tools: true,
+			vision: true,
+			status: "active",
+		});
+		await clearCache();
+
+		const resolution = await resolveAirsideModel("mistral/gpt-5.6-luna:au");
+		expect(resolution).toBeTruthy();
+		expect(resolution?.parseResult.requestedRegion).toBe("au");
+		const regionalPricing = resolution?.pricingMappings.find(
+			(mapping) => mapping.region === "au",
+		);
+		expect(Number(regionalPricing?.inputPrice)).toBeCloseTo(4e-6);
+		expect(Number(regionalPricing?.outputPrice)).toBeCloseTo(2e-5);
+		// An unfiled region falls through to the (throwing) static parse.
+		await expect(
+			resolveAirsideModel("mistral/gpt-5.6-luna:mars"),
+		).resolves.toBeNull();
+
+		// Unpinned traffic routes to the cheaper default deployment and pays
+		// the default fare.
+		const defaultRequestId = "airside-region-req-1";
+		const defaultRes = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer airside-region-token",
+				"x-no-fallback": "true",
+				"x-request-id": defaultRequestId,
+			},
+			body: JSON.stringify({
+				model: "mistral/gpt-5.6-luna",
+				messages: [{ role: "user", content: "Say hi at the default fare" }],
+			}),
+		});
+		expect(defaultRes.status).toBe(200);
+		const defaultLog = await waitForLogByRequestId(defaultRequestId);
+		expect(defaultLog!.usedModel).toBe("mistral/gpt-5.6-luna");
+		expect(Number(defaultLog!.inputCost)).toBeCloseTo(0.002, 6);
+		expect(Number(defaultLog!.outputCost)).toBeCloseTo(0.005, 6);
+
+		const requestId = "airside-region-req-2";
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer airside-region-token",
+				"x-no-fallback": "true",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "mistral/gpt-5.6-luna:au",
+				messages: [{ role: "user", content: "Say hi from down under" }],
+			}),
+		});
+		expect(res.status).toBe(200);
+		// 1000 tokens at $4/M in + 500 tokens at $20/M out.
+		const log = await waitForLogByRequestId(requestId);
+		expect(log!.usedProvider).toBe("mistral");
+		expect(Number(log!.inputCost)).toBeCloseTo(0.004, 6);
+		expect(Number(log!.outputCost)).toBeCloseTo(0.01, 6);
+	});
+
+	test("bills an approved Airside discount once", async () => {
+		await setup("airside-discount-token");
+		await db.insert(tables.providerRoutingSettings).values({
+			providerCompanyId: "airside-discount-token-company",
+			providerId: "mistral",
+			modelId: "gpt-5.6-luna",
+			discountPercent: "0.2",
+			marginPercent: "0.2",
+		});
+		await clearCache();
+		const requestId = "airside-discount-request";
+		const response = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer airside-discount-token",
+				"x-no-fallback": "true",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "mistral/gpt-5.6-luna",
+				messages: [{ role: "user", content: "Say hi with a discount" }],
+			}),
+		});
+		expect(response.status).toBe(200);
+		const log = await waitForLogByRequestId(requestId);
+		expect(Number(log?.inputCost)).toBeCloseTo(0.0016, 6);
+		expect(Number(log?.outputCost)).toBeCloseTo(0.004, 6);
+		expect(Number(log?.cost)).toBeCloseTo(0.0056, 6);
+		await expect(
+			findAirsideRoutingAdjustment("mistral", "gpt-5.6-luna"),
+		).resolves.toBe(0);
 	});
 
 	test("lists the approved listing in /v1/models", async () => {
@@ -233,11 +594,7 @@ describe("airside-listed models", () => {
 		// serves and prices the pair, so the mapping can be retired later
 		// without a routing gap.
 		const token = "airside-override-token";
-		await setup(token);
-		await db
-			.update(tables.providerDraftModel)
-			.set({ modelName: "mistral-small-2506" })
-			.where(eq(tables.providerDraftModel.id, `${token}-model`));
+		await setup(token, { modelName: "mistral-small-2506" });
 		await clearCache();
 
 		const requestId = "airside-override-req-1";
@@ -267,10 +624,274 @@ describe("airside-listed models", () => {
 		expect(Number(log!.outputCost)).toBeCloseTo(0.005, 6);
 	});
 
+	test("validates requests against the carrier's canonical mapping", async () => {
+		// The static mapping has no maxOutput; the carrier's row does, and it
+		// is the one /v1/models advertises, so it must be the one enforced.
+		const token = "airside-limits-token";
+		await setup(token, { modelName: "mistral-small-2506", maxOutput: 1000 });
+		await clearCache();
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "mistral-small-2506",
+				max_tokens: 2000,
+				messages: [{ role: "user", content: "Say hi" }],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		expect((await res.json()).error.message).toContain("(1000)");
+		expect(captured).toHaveLength(0);
+	});
+
+	async function createDynamicRoute(token: string) {
+		await db
+			.update(tables.organization)
+			.set({ plan: "enterprise" })
+			.where(eq(tables.organization.id, "org-id"));
+		const graph = {
+			entry: "m",
+			nodes: [
+				{
+					id: "m",
+					type: "model" as const,
+					model: "mistral-small-2506",
+					providers: ["mistral"],
+				},
+			],
+		} as DynamicRouteGraph;
+		await db.insert(tables.dynamicRoute).values({
+			id: `${token}-route`,
+			projectId: "project-id",
+			name: "airside-owned",
+			enabled: true,
+			draftGraph: graph,
+		});
+		await db.insert(tables.dynamicRouteVersion).values({
+			id: `${token}-route-v1`,
+			routeId: `${token}-route`,
+			version: 1,
+			graph,
+		});
+		await db
+			.update(tables.dynamicRoute)
+			.set({ publishedVersionId: `${token}-route-v1` })
+			.where(eq(tables.dynamicRoute.id, `${token}-route`));
+		await clearCache();
+	}
+
+	test("bills an Airside-owned pair reached through a dynamic route", async () => {
+		// Dynamic routes (like auto and cross-model fallback) pick their target
+		// from the static catalogue; the served pair is still Airside-owned.
+		const token = "airside-dynamic-token";
+		await setup(token, { modelName: "mistral-small-2506" });
+		await createDynamicRoute(token);
+
+		const requestId = "airside-dynamic-req-1";
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+				"x-no-fallback": "true",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "dynamic/airside-owned",
+				messages: [{ role: "user", content: "Say hi" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(captured).toHaveLength(1);
+		const log = await waitForLogByRequestId(requestId);
+		expect(log).toBeTruthy();
+		expect(Number(log!.inputCost)).toBeCloseTo(0.002, 6);
+		expect(Number(log!.outputCost)).toBeCloseTo(0.005, 6);
+	});
+
+	test("filters dynamic routes by Airside-owned capabilities", async () => {
+		const token = "airside-dynamic-capabilities-token";
+		await setup(token, {
+			modelName: "mistral-small-2506",
+			vision: false,
+		});
+		await createDynamicRoute(token);
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "dynamic/airside-owned",
+				messages: [
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: "Describe this image" },
+							{
+								type: "image_url",
+								image_url: { url: "data:image/png;base64,A" },
+							},
+						],
+					},
+				],
+			}),
+		});
+
+		expect(res.status).toBe(400);
+		expect(captured).toHaveLength(0);
+	});
+
+	test.each(["gpt-5.6-luna", "all"])(
+		"uses fare overrides for %s without changing the provider default",
+		async (modelId) => {
+			await db.insert(tables.providerCompany).values({
+				id: "fare-company",
+				name: "Fare Company",
+			});
+			await db.insert(tables.providerRoutingSettings).values([
+				{
+					providerCompanyId: "fare-company",
+					providerId: "fare-provider",
+					modelId: null,
+					discountPercent: "0",
+					marginPercent: "0.2",
+				},
+				{
+					providerCompanyId: "fare-company",
+					providerId: "fare-provider",
+					modelId,
+					discountPercent: "0.1",
+					marginPercent: "0.15",
+				},
+			]);
+			await clearCache();
+
+			await expect(
+				findAirsideRoutingAdjustment("fare-provider"),
+			).resolves.toBeCloseTo(0);
+			await expect(
+				findAirsideRoutingAdjustment("fare-provider", modelId),
+			).resolves.toBeCloseTo(0.05);
+			await expect(
+				findAirsideRoutingAdjustment("fare-provider", "another-model"),
+			).resolves.toBeCloseTo(0);
+			await expect(
+				findAirsideRoutingAdjustment("fare-provider"),
+			).resolves.toBeCloseTo(0);
+		},
+	);
+
+	async function setRoutingUptime(
+		modelId: string,
+		providerId: string,
+		uptimePercent: number,
+	) {
+		// Routing reads uptime from recent credits-mode history rows.
+		const totalRequests = 100;
+		const uptimeFraction = uptimePercent / 100;
+		const errorsCount = Math.round(totalRequests * (1 - uptimeFraction));
+		await db.insert(tables.modelProviderMappingHistory).values({
+			modelId,
+			providerId,
+			modelProviderMappingId: `${modelId}::${providerId}`,
+			usedMode: "credits",
+			minuteTimestamp: new Date(Math.floor(Date.now() / 60000) * 60000),
+			logsCount: totalRequests,
+			errorsCount,
+			clientErrorsCount: 0,
+			gatewayErrorsCount: 0,
+			upstreamErrorsCount: errorsCount,
+			cachedCount: 0,
+			totalOutputTokens: 100,
+			totalDuration: 1000,
+			totalTimeToFirstToken: 100 * totalRequests,
+			totalTimeToFirstReasoningToken: 0,
+			timeToFirstTokenCount: totalRequests,
+			timeToFirstReasoningTokenCount: 0,
+		});
+	}
+
+	test("bills an Airside-owned pair reached by cross-provider fallback", async () => {
+		// A provider-pinned request only settles Airside ownership for the
+		// pinned pair. When routing moves it to a sibling provider whose pair
+		// is Airside-owned, the served request is billed at the filed prices.
+		const token = "airside-fallback-token";
+		captured = [];
+		await clearCache();
+		await db.insert(tables.apiKey).values({
+			id: `${token}-id`,
+			...hashApiKeyForStorage(token),
+			projectId: "project-id",
+			description: "Airside fallback test key",
+			createdBy: "user-id",
+		});
+		await db.insert(tables.providerKey).values(
+			(["deepinfra", "novita"] as const).map((provider) => ({
+				id: `${token}-${provider}-key`,
+				...encryptProviderKeyForStorage(
+					`mock-${provider}-key`,
+					`${token}-${provider}-key`,
+					"org-id",
+				),
+				provider,
+				organizationId: "org-id",
+				baseUrl: upstreamUrl,
+			})),
+		);
+		await setRoutingUptime("ling-3.0-flash", "deepinfra", 0);
+		await setRoutingUptime("ling-3.0-flash", "novita", 100);
+		await materializeTestMapping({
+			providerId: "novita",
+			modelId: "ling-3.0-flash",
+			inputPrice: "2e-6",
+			outputPrice: "1e-5",
+			contextSize: 128000,
+		});
+
+		const requestId = "airside-fallback-req-1";
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "deepinfra/ling-3.0-flash",
+				messages: [{ role: "user", content: "Say hi" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(captured).toHaveLength(1);
+		const log = await waitForLogByRequestId(requestId);
+		expect(log).toBeTruthy();
+		expect(log!.usedProvider).toBe("novita");
+		expect(log!.routingMetadata?.selectionReason).toBe("low-uptime-fallback");
+		expect(Number(log!.inputCost)).toBeCloseTo(0.002, 6);
+		expect(Number(log!.outputCost)).toBeCloseTo(0.005, 6);
+	});
+
 	async function setupCustomCarrier(
 		token: string,
-		options: { managedCredential?: boolean } = {},
+		options: {
+			managedCredential?: boolean;
+			apiFormat?: ProviderApiFormat;
+			modelId?: string;
+		} = {},
 	) {
+		const modelId = options.modelId ?? "sky-large";
 		captured = [];
 		await clearCache();
 		await db.insert(tables.apiKey).values({
@@ -304,8 +925,10 @@ describe("airside-listed models", () => {
 			id: `${token}-model`,
 			providerCompanyId: `${token}-company`,
 			providerId: "acme-sky",
-			modelName: "sky-large",
-			displayName: "Sky Large",
+			modelName: modelId,
+			externalId: modelId,
+			apiFormat: options.apiFormat ?? "openai-chat-completions",
+			displayName: modelId === "gpt-5.6-luna" ? "GPT 5.6 Luna" : "Sky Large",
 			contextSize: 64000,
 			streaming: true,
 			status: "active",
@@ -318,6 +941,16 @@ describe("airside-listed models", () => {
 			inputPrice: "3e-6",
 			outputPrice: "9e-6",
 			status: "approved",
+		});
+		await materializeTestMapping({
+			providerId: "acme-sky",
+			modelId,
+			apiFormat: options.apiFormat ?? "openai-chat-completions",
+			inputPrice: "3e-6",
+			outputPrice: "9e-6",
+			providerName: "Acme Sky",
+			modelName: "Sky Large",
+			contextSize: 64000,
 		});
 		if (options.managedCredential !== false) {
 			await db.insert(tables.providerKey).values({
@@ -333,6 +966,80 @@ describe("airside-listed models", () => {
 			});
 		}
 	}
+
+	test("routes a streaming Airside model through OpenAI Responses", async () => {
+		await setupCustomCarrier("airside-responses-token", {
+			apiFormat: "openai-responses",
+			modelId: "gpt-5.6-luna",
+		});
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer airside-responses-token",
+				"x-no-fallback": "true",
+				"x-request-id": "airside-responses-req-1",
+			},
+			body: JSON.stringify({
+				model: "acme-sky/gpt-5.6-luna",
+				stream: true,
+				messages: [{ role: "user", content: "Say hi" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const body = await res.text();
+		expect(body).toContain("Hello from Luna");
+		expect(body).toContain("[DONE]");
+		expect(captured).toHaveLength(1);
+		expect(captured[0].url).toBe("/v1/responses");
+		expect(captured[0].body).toMatchObject({
+			model: "gpt-5.6-luna",
+			stream: true,
+			input: expect.any(Array),
+		});
+		expect(captured[0].body).not.toHaveProperty("messages");
+		const log = await waitForLogByRequestId("airside-responses-req-1");
+		expect(log?.unifiedFinishReason).toBe("completed");
+	});
+
+	test("routes an Airside model through Google Vertex", async () => {
+		await setupCustomCarrier("airside-vertex-token", {
+			apiFormat: "google-vertex",
+			modelId: "gpt-5.6-luna",
+		});
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer airside-vertex-token",
+				"x-no-fallback": "true",
+				"x-request-id": "airside-vertex-req-1",
+			},
+			body: JSON.stringify({
+				model: "acme-sky/gpt-5.6-luna",
+				messages: [{ role: "user", content: "Say hi" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as {
+			choices: { message: { content: string }; finish_reason: string }[];
+		};
+		expect(body.choices[0].message.content).toBe("Hello from Luna");
+		expect(body.choices[0].finish_reason).toBe("stop");
+		expect(captured).toHaveLength(1);
+		expect(captured[0].url).toBe(
+			"/v1/publishers/google/models/gpt-5.6-luna:generateContent?key=mock-acme-key",
+		);
+		expect(captured[0].body).toMatchObject({
+			contents: expect.any(Array),
+		});
+		expect(captured[0].body).not.toHaveProperty("messages");
+		expect(captured[0].headers.authorization).toBeUndefined();
+		const log = await waitForLogByRequestId("airside-vertex-req-1");
+		expect(log?.unifiedFinishReason).toBe("completed");
+	});
 
 	test("routes a custom carrier to its registered endpoint on the managed credential", async () => {
 		await setupCustomCarrier("airside-custom-token");
@@ -445,6 +1152,7 @@ describe("airside-listed models", () => {
 			providerCompanyId: `${token}-company`,
 			providerId: "nebius",
 			modelName: "llama-3.1-8b-instruct",
+			externalId: "llama-3.1-8b-instruct",
 			streaming: true,
 			status: "active",
 		});
@@ -456,6 +1164,13 @@ describe("airside-listed models", () => {
 			inputPrice: "1e-6",
 			outputPrice: "4e-6",
 			status: "approved",
+		});
+		await materializeTestMapping({
+			providerId: "nebius",
+			modelId: "llama-3.1-8b-instruct",
+			inputPrice: "1e-6",
+			outputPrice: "4e-6",
+			providerName: "Nebius",
 		});
 
 		const res = await app.request("/v1/chat/completions", {
@@ -490,15 +1205,15 @@ describe("airside-listed models", () => {
 			id: "merge-company",
 			name: "Merge Co",
 		});
-		// An imported listing shadowed by an ACTIVE static mapping must not
-		// duplicate the model entry; a listing for a retired static mapping
-		// (nebius) joins the existing entry as an extra provider.
+		// Airside-owned rows replace their provider mapping without duplicating
+		// the static model entry.
 		await db.insert(tables.providerDraftModel).values([
 			{
 				id: "merge-static-model",
 				providerCompanyId: "merge-company",
 				providerId: "mistral",
 				modelName: "mistral-large-latest",
+				externalId: "mistral-large-latest",
 				streaming: true,
 				status: "active",
 			},
@@ -507,6 +1222,7 @@ describe("airside-listed models", () => {
 				providerCompanyId: "merge-company",
 				providerId: "nebius",
 				modelName: "llama-3.1-8b-instruct",
+				externalId: "llama-3.1-8b-instruct",
 				streaming: true,
 				status: "active",
 			},
@@ -531,6 +1247,17 @@ describe("airside-listed models", () => {
 				status: "approved",
 			},
 		]);
+		for (const [modelId, providerId, inputPrice, outputPrice] of [
+			["mistral-large-latest", "mistral", "2e-6", "6e-6"],
+			["llama-3.1-8b-instruct", "nebius", "1e-6", "4e-6"],
+		] as const) {
+			await materializeTestMapping({
+				providerId,
+				modelId,
+				inputPrice,
+				outputPrice,
+			});
+		}
 
 		const res = await app.request("/v1/models?include_deactivated=true");
 		expect(res.status).toBe(200);

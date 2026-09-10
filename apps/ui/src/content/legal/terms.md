@@ -1,7 +1,7 @@
 ---
 id: "1"
 slug: "terms"
-date: "2026-08-18"
+date: "2026-09-04"
 title: "Terms Of Use"
 description: "Terms of Use for LLM Gateway: account eligibility, billing and credits, AI outputs, acceptable use, warranties, liability, and dispute resolution."
 ---
@@ -9,7 +9,7 @@ description: "Terms of Use for LLM Gateway: account eligibility, billing and cre
 # Terms of Use
 
 **Effective Date:** June 11, 2026  
-**Last Updated:** August 18, 2026
+**Last Updated:** September 4, 2026
 
 Welcome to **LLM Gateway** (“we”, “our”, or “us”), operated by **Polar Lights LLC**, 16192 Coastal Highway, Lewes, DE 19958, United States. These Terms of Use (“Terms”) form a binding legal agreement between you (“you” or “Customer”) and LLM Gateway and govern your access to and use of the LLM Gateway platform, including our website **[llmgateway.io](https://llmgateway.io)**, APIs, SDKs, dashboards, and any related products or services (collectively, the “Service”).
 
@@ -66,7 +66,7 @@ LLM Gateway offers free and paid plans, including pay-as-you-go (“PAYG”) usa
 
 You agree to the following billing terms:
 
-- **Credits and fees are non-refundable** and are consumed as you use the Service, except where a refund is required by applicable law. Unused credits may expire as described at the point of purchase.
+- **Credits and fees are generally non-refundable**, except where a refund is required by applicable law or we expressly make a limited product-specific refund option available. Because AI providers charge us when requests are processed, starting to consume credits or included usage does not entitle you to a refund. Any voluntary refund option is a goodwill exception, is subject to its stated eligibility requirements, and does not create a general right to a refund. Unused credits may expire as described at the point of purchase.
 - Billing is processed by **Stripe**. You authorize us (and our payment processor) to **charge your payment method** for all applicable fees, including recurring and usage-based charges, and to **automatically replenish credits** if you enable auto-recharge.
 - All fees are **exclusive of taxes**. You are responsible for all applicable taxes, duties, and similar charges, other than taxes based on our net income.
 - You are responsible for all charges incurred under your account, including charges resulting from unauthorized use of your credentials or API keys.
@@ -154,7 +154,7 @@ The organization is responsible for its users' compliance with these Terms and f
 
 ## 11. Suspension and Termination
 
-You may cancel your account at any time through the dashboard. Cancellation does not entitle you to a refund of any prepaid fees or credits.
+You may cancel your account at any time through the dashboard. Cancellation does not entitle you to a refund of any prepaid fees or credits. Any limited refund option is governed by Section 4 and the supplemental terms for the applicable product.
 
 We may **suspend or terminate** your access to all or part of the Service, with or without notice, if:
 
@@ -195,7 +195,7 @@ Your use of the Service and any AI outputs is **entirely at your own risk**. Som
 
 These limitations apply regardless of whether the claim is based in contract, tort (including negligence), strict liability, or any other theory, and apply even if any remedy fails of its essential purpose. The parties agree these limitations reflect a reasonable allocation of risk and are an essential basis of the bargain. Some jurisdictions do not allow certain limitations, so some of the above may not apply to you.
 
-**Exclusive remedy.** To the fullest extent permitted by law, your **sole and exclusive remedy** for any dissatisfaction with, or loss or damage arising from, the Service is to stop using the Service and, where applicable, terminate your account. Any refund, where one is required by law, is limited as set out in Section 4 and is your only monetary remedy.
+**Exclusive remedy.** To the fullest extent permitted by law, your **sole and exclusive remedy** for any dissatisfaction with, or loss or damage arising from, the Service is to stop using the Service and, where applicable, terminate your account. Any refund required by law or expressly made available under Section 4 is your only monetary remedy.
 
 ---
 

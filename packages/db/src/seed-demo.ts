@@ -15,35 +15,20 @@
  */
 /* eslint-disable no-console -- a seed script's output is its user interface */
 /* eslint-disable no-mixed-operators -- arithmetic-heavy synthetic data shaping */
-import {
-	createHmac,
-	randomBytes,
-	randomInt as cryptoRandomInt,
-	scrypt,
-} from "crypto";
+import { randomBytes, randomInt as cryptoRandomInt, scrypt } from "crypto";
 
 import { eq, inArray } from "drizzle-orm";
 
-import { maskToken } from "@llmgateway/shared/mask-token";
+import {
+	getApiKeyFingerprint,
+	hashApiKeyForStorage,
+} from "@llmgateway/shared/api-key-hash";
 
 import { closeDatabase, db, tables } from "./index.js";
 
 import type { PgTable } from "drizzle-orm/pg-core";
 
 const ORG_ID = "ed-demo-org";
-
-/**
- * Mirrors `getApiKeyFingerprint` from @llmgateway/shared. Inlined rather than
- * imported because that package's entrypoint pulls in React components, which
- * a plain `node` seed process cannot resolve.
- */
-function apiKeyFingerprint(token: string): string {
-	const secret =
-		(process.env.GATEWAY_API_KEY_HASH_SECRET ?? "").split(",")[0].trim() ||
-		"llmgateway-dev-api-key-hash-secret";
-	// lgtm[js/insufficient-password-hash]
-	return createHmac("sha256", secret).update(token).digest("hex");
-}
 
 /**
  * Upsert on the `id` primary key. Rows are written one at a time because the
@@ -566,8 +551,7 @@ async function seedDemo() {
 		const { note: _note, token, ...row } = k;
 		await upsertById(tables.apiKey, {
 			...row,
-			tokenHash: apiKeyFingerprint(token),
-			tokenMasked: maskToken(token),
+			...hashApiKeyForStorage(token),
 			status: "active",
 			keyType: "user",
 		});
@@ -607,7 +591,7 @@ async function seedDemo() {
 	const masterToken = "llmgmkdev_enterprise_demo_master_key";
 	await upsertById(tables.masterKey, {
 		id: "ed-master-key",
-		tokenHash: apiKeyFingerprint(masterToken),
+		tokenHash: getApiKeyFingerprint(masterToken),
 		maskedToken: `${masterToken.slice(0, 14)}...${masterToken.slice(-4)}`,
 		description: "Team onboarding automation",
 		status: "active",

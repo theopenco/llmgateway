@@ -49,8 +49,6 @@ export function OnboardingWizard() {
 	const config = useAppConfig();
 	const { data: project } = useDefaultProject();
 
-	const [apiKey, setApiKey] = useState<string | null>(null);
-	const [apiKeyLoading, setApiKeyLoading] = useState(true);
 	const [copied, setCopied] = useState(false);
 	const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
 	const [tryLoading, setTryLoading] = useState(false);
@@ -73,35 +71,14 @@ export function OnboardingWizard() {
 		}
 	}, [posthog]);
 
-	// Fetch API key
-	useEffect(() => {
-		if (!project?.id) {
-			return;
-		}
-
-		const fetchKey = async () => {
-			try {
-				const res = await fetch(`${config.apiUrl}/playground/ensure-key`, {
-					method: "POST",
-					credentials: "include",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ projectId: project.id }),
-				});
-				if (res.ok) {
-					const data = (await res.json()) as { ok: boolean; token: string };
-					if (data.token) {
-						setApiKey(data.token);
-					}
-				}
-			} catch {
-				// Key fetch failed silently
-			} finally {
-				setApiKeyLoading(false);
-			}
-		};
-
-		void fetchKey();
-	}, [project?.id, config.apiUrl]);
+	const ensureKey = api.useQuery(
+		"post",
+		"/playground/ensure-key",
+		{ body: { projectId: project?.id ?? "" } },
+		{ enabled: !!project?.id, staleTime: Infinity },
+	);
+	const apiKey = ensureKey.data?.token ?? null;
+	const apiKeyLoading = ensureKey.isPending;
 
 	const handleCopyKey = () => {
 		if (!apiKey) {

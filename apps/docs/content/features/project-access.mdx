@@ -1,0 +1,40 @@
+---
+title: Project access
+description: Delegate project administration without granting organization-wide access
+icon: ShieldCheck
+---
+
+Use **Project admin** to let someone manage specific projects without giving them organization administration. Owners and admins assign the role and its project grants from [Team → Members](/learn/team).
+
+| Role          | Scope                     | Permissions                                                                                                                                  |
+| ------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Owner         | All organization projects | Organization administration, billing settings, membership, and project management                                                            |
+| Admin         | All organization projects | Organization and project management; cannot change billing settings or modify owners                                                         |
+| Project admin | Assigned projects         | Project settings, routing, dynamic routes, guardrails, Payments SDK settings and platform keys, all project API keys, and project-wide usage |
+| Developer     | Assigned projects         | Own API keys and own usage; cannot change project settings                                                                                   |
+
+Project admin and Developer assignments require Enterprise access and at least one project grant. Existing feature and preview requirements still apply. Project admins cannot create or archive projects, change organization settings or provider keys, manage membership, or access organization billing controls. Archiving projects and deleting organizations require an Owner.
+
+## Assign project access
+
+In **Team → Members**, choose **Add Member** or an existing member's **Manage access** action. Select **Project admin**, choose the allowed projects, and save. Invitations carry the selected grants through acceptance. Removing a grant removes access to that project's settings, keys, and usage; the gateway also checks the creator's project access when a key is used, subject to normal cache propagation.
+
+For an authenticated management API session, use `project_admin` with `projectIds` when adding a member:
+
+```json
+{
+	"email": "member@example.com",
+	"role": "project_admin",
+	"projectIds": ["your-project-id"]
+}
+```
+
+Send this body to `POST /team/{organizationId}/members`. Use `PATCH /team/{organizationId}/members/{memberId}` with `role` and the complete `projectIds` list to replace an existing member's access.
+
+## Budgets, teams, and SSO
+
+Personal member budgets and IAM rules still apply to the member's keys. Organization teams and default developer budgets apply only to Developers; promoting a Developer clears their team assignment.
+
+[SSO group mappings](/features/sso) can assign `project_admin`. Role priority is Owner, Admin, Project admin, then Developer. Project-scoped roles still require explicit project grants: a role mapping does not grant every project.
+
+Project guardrails can display the organization policy they inherit, while changes to that policy remain restricted to organization administrators.

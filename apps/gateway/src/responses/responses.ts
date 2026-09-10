@@ -17,12 +17,14 @@ import {
 	findOrganizationById,
 } from "@/lib/cached-queries.js";
 import { logGatewayClientError } from "@/lib/client-error-log.js";
+import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 import { streamSSE } from "@/lib/pending-work.js";
 import {
 	setResponsesContext,
 	deleteResponsesContext,
 } from "@/lib/responses-context.js";
+import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -190,7 +192,7 @@ responses.post("/", async (c) => {
 	if (!validation.success) {
 		const message = `Invalid request: ${formatValidationError(validation.error)}`;
 		logger.warn("Invalid Responses API request", {
-			issues: validation.error.issues,
+			issues: summarizeZodIssues(validation.error.issues),
 			path: c.req.path,
 			method: c.req.method,
 		});
@@ -229,8 +231,22 @@ responses.post("/", async (c) => {
 		);
 	}
 
-	const { project } = authResult;
+	const { project, organization } = authResult;
 
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(organization);
+	if (zeroDataRetentionEnabled && req.store !== false) {
+		return c.json(
+			{
+				error: {
+					message:
+						"Responses API storage is unavailable while zero data retention is active. Set store to false.",
+					type: "invalid_request_error",
+					code: "zdr_storage_conflict",
+				},
+			},
+			400,
+		);
+	}
 	const shouldStore = req.store !== false;
 	const includeEncryptedReasoning =
 		req.include?.includes("reasoning.encrypted_content") ?? false;
@@ -737,7 +753,7 @@ responses.post("/compact", async (c) => {
 	if (!validation.success) {
 		const message = `Invalid request: ${formatValidationError(validation.error)}`;
 		logger.warn("Invalid Responses compact request", {
-			issues: validation.error.issues,
+			issues: summarizeZodIssues(validation.error.issues),
 			path: c.req.path,
 			method: c.req.method,
 		});
@@ -775,7 +791,8 @@ responses.post("/compact", async (c) => {
 		);
 	}
 
-	const { project } = authResult;
+	const { project, organization } = authResult;
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(organization);
 
 	let inputItems: unknown[] = [];
 	if (typeof req.input === "string") {
@@ -924,20 +941,22 @@ responses.post("/compact", async (c) => {
 			? chatJson.model
 			: req.model;
 
-	await storeResponse(
-		compactionId,
-		{
-			id: compactionId,
-			input: inputItems,
-			output: compactionResponse.output,
-			instructions: req.instructions,
-			model: responseModel,
-			status: "completed",
-			usage: compactionResponse.usage as unknown as Record<string, unknown>,
-			created_at: createdAt,
-		},
-		project.id,
-	);
+	if (!zeroDataRetentionEnabled) {
+		await storeResponse(
+			compactionId,
+			{
+				id: compactionId,
+				input: inputItems,
+				output: compactionResponse.output,
+				instructions: req.instructions,
+				model: responseModel,
+				status: "completed",
+				usage: compactionResponse.usage as unknown as Record<string, unknown>,
+				created_at: createdAt,
+			},
+			project.id,
+		);
+	}
 
 	return c.json(compactionResponse);
 });

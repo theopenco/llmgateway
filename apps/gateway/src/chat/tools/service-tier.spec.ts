@@ -105,16 +105,21 @@ describe("providerKeySupportsServiceTier", () => {
 		expect(providerKeySupportsServiceTier(providerKey({}))).toBe(true);
 	});
 
-	test("rejects a proxied key for upstream-only tier providers", () => {
-		expect(
-			providerKeySupportsServiceTier(
-				providerKey({
-					provider: "google-ai-studio",
-					baseUrl: "https://proxy.example.com",
-				}),
-			),
-		).toBe(false);
-	});
+	test.each(["openai", "google-ai-studio", "google-vertex", "fireworks"])(
+		"accepts custom base URLs for %s keys",
+		(provider) => {
+			for (const overrides of [
+				{ baseUrl: "https://proxy.example.com" },
+				{ config: { baseUrl: "https://proxy.example.com" } },
+			]) {
+				expect(
+					providerKeySupportsServiceTier(
+						providerKey({ provider, ...overrides }),
+					),
+				).toBe(true);
+			}
+		},
+	);
 
 	test("rejects a Vertex credential pinned to a regional endpoint", () => {
 		expect(

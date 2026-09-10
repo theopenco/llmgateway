@@ -25,10 +25,30 @@ const GATEWAY_TEST_DB_LOCK_ID = 41001;
 
 async function resetGatewayTestData() {
 	await db.delete(tables.log);
+	// Routing reads uptime/latency from a 60-minute history window, so metric
+	// rows a test seeds (e.g. a 0%-uptime provider) must not leak into later
+	// tests' provider selection — or collide with a re-seed in the same minute.
+	await db.delete(tables.modelProviderMappingHistory);
 	await db.delete(tables.webhookDeliveryLog);
 	await db.delete(tables.videoJob);
 	await db.delete(tables.apiKey);
 	await db.delete(tables.providerKey);
+	const airsideModelIds = await db
+		.select({ modelId: tables.modelProviderMapping.modelId })
+		.from(tables.modelProviderMapping)
+		.where(eq(tables.modelProviderMapping.source, "airside"));
+	await db
+		.delete(tables.modelProviderMapping)
+		.where(eq(tables.modelProviderMapping.source, "airside"));
+	for (const modelId of new Set(airsideModelIds.map((row) => row.modelId))) {
+		const remaining = await db.query.modelProviderMapping.findFirst({
+			where: { modelId: { eq: modelId } },
+			columns: { id: true },
+		});
+		if (!remaining) {
+			await db.delete(tables.model).where(eq(tables.model.id, modelId));
+		}
+	}
 	await db.delete(tables.providerPriceFiling);
 	await db.delete(tables.providerDraftModel);
 	await db.delete(tables.providerClaim);
@@ -132,14 +152,9 @@ export function createGatewayApiTestHarness() {
 
 	beforeAll(async () => {
 		mockServerUrl = await startMockServer();
-		// The mock stands in for every provider upstream, so service-tier requests
-		// would otherwise be rejected for not targeting the catalogue's real
-		// endpoint. Trusting it here keeps the positive tier paths exercisable.
-		process.env.SERVICE_TIER_TRUSTED_BASE_URLS = mockServerUrl;
 	});
 
 	afterAll(() => {
-		delete process.env.SERVICE_TIER_TRUSTED_BASE_URLS;
 		stopMockServer();
 	});
 

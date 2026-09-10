@@ -6,6 +6,8 @@ import {
 	Building2,
 	Coins,
 	Cpu,
+	Download,
+	FileDown,
 	Layers,
 	Server,
 	Wallet,
@@ -18,6 +20,8 @@ import {
 	CartesianGrid,
 	Cell,
 	Legend,
+	Line,
+	LineChart,
 	Pie,
 	PieChart,
 	XAxis,
@@ -25,10 +29,20 @@ import {
 } from "recharts";
 
 import {
+	ChartTypeToggle,
+	type ChartType,
+} from "@/components/chart-type-toggle";
+import {
 	GlobalStatsRangePicker,
 	resolveGlobalStatsRange,
 } from "@/components/global-stats-range-picker";
 import { OrgKindSelector, useOrgKind } from "@/components/org-kind-selector";
+import {
+	ProviderKeySelector,
+	providerKeyLabel,
+	useGlobalStatsProviderKeys,
+	useProviderKeyId,
+} from "@/components/provider-key-selector";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -39,8 +53,6 @@ import {
 } from "@/components/ui/card";
 import {
 	ChartContainer,
-	ChartLegend,
-	ChartLegendContent,
 	ChartTooltip,
 	ChartTooltipContent,
 } from "@/components/ui/chart";
@@ -48,12 +60,24 @@ import {
 	UsageModeSelector,
 	useUsageMode,
 } from "@/components/usage-mode-selector";
+import { downloadCsv } from "@/lib/download-csv";
 import { useApi } from "@/lib/fetch-client";
+import { buildGlobalStatsStackedChart } from "@/lib/global-stats-chart";
+import {
+	buildGlobalStatsBreakdownCsv,
+	buildGlobalStatsReportCsv,
+	buildGlobalStatsTimeseriesBreakdownCsv,
+	buildGlobalStatsTimeseriesCsv,
+	globalStatsExportFilename,
+} from "@/lib/global-stats-csv";
 import { orgKindDescription, orgKindLabel } from "@/lib/org-kind";
 import { usageModeDescription, usageModeLabel } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
+import { detectCsvFormat } from "@llmgateway/shared";
+
 import type { ChartConfig } from "@/components/ui/chart";
+import type { ReactNode } from "react";
 
 type GroupBy = "model" | "source" | "mode" | "kind";
 type ModelView = "mapping" | "canonical" | "provider";
@@ -143,7 +167,6 @@ const BREAKDOWN_PAGE_SIZE = 25;
 
 // Max distinct series in the stacked bar chart before the rest collapse into "Other".
 const TIMESERIES_STACK_LIMIT = 8;
-const OTHER_KEY = "__other__";
 const OTHER_COLOR = "hsl(215 16% 47%)";
 
 function parseGroupBy(value: string | null): GroupBy {
@@ -215,6 +238,29 @@ function StatCard({
 	);
 }
 
+function ToolbarGroup({
+	label,
+	children,
+	className,
+}: {
+	label: string;
+	children: ReactNode;
+	className?: string;
+}) {
+	return (
+		<div
+			className={cn("flex min-w-0 flex-col gap-1.5", className)}
+			role="group"
+			aria-label={label}
+		>
+			<span className="font-mono text-[9px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+				{label}
+			</span>
+			{children}
+		</div>
+	);
+}
+
 /**
  * "PAYG: $12.30 · DevPass: $4.10" from a composition slice, skipping empty
  * buckets. Null when there is nothing to compare against, so the caller can
@@ -262,10 +308,16 @@ export function GlobalStatsClient() {
 	const { allTime, from, to } = resolveGlobalStatsRange(searchParams);
 	const usageMode = useUsageMode();
 	const orgKind = useOrgKind();
-	const groupBy = parseGroupBy(searchParams.get("groupBy"));
+	const providerKeyId = useProviderKeyId();
+	// The per-credential rollup has no x-source dimension (see the API).
+	const requestedGroupBy = parseGroupBy(searchParams.get("groupBy"));
+	const groupBy =
+		providerKeyId && requestedGroupBy === "source" ? "model" : requestedGroupBy;
 	const chartMetric = parseMetric(searchParams.get("metric"));
 	const modelView = parseModelView(searchParams.get("modelView"));
 	const showTimeseriesBreakdown = parseBreakdown(searchParams.get("breakdown"));
+	const [chartType, setChartType] = useState<ChartType>("bar");
+	const TimeseriesChart = chartType === "bar" ? BarChart : LineChart;
 
 	const updateParam = useCallback(
 		(key: string, value: string) => {
@@ -281,7 +333,7 @@ export function GlobalStatsClient() {
 	// The range picker and the mode/kind selectors write to the URL directly, so
 	// reset pagination during render when any of them changes (each also
 	// re-sorts the breakdown).
-	const viewKey = `${allTime ? "all" : `${from}|${to}`}|${usageMode}|${orgKind}`;
+	const viewKey = `${allTime ? "all" : `${from}|${to}`}|${usageMode}|${orgKind}|${providerKeyId ?? ""}`;
 	const [lastViewKey, setLastViewKey] = useState(viewKey);
 	if (viewKey !== lastViewKey) {
 		setLastViewKey(viewKey);
@@ -330,10 +382,18 @@ export function GlobalStatsClient() {
 					modelView,
 					mode: usageMode,
 					kind: orgKind,
+					...(providerKeyId ? { providerKeyId } : {}),
 				},
 			},
 		},
 	);
+	const { data: providerKeysData } = useGlobalStatsProviderKeys();
+	const selectedProviderKey = providerKeyId
+		? providerKeysData?.providerKeys.find((key) => key.id === providerKeyId)
+		: undefined;
+	const providerKeyName = selectedProviderKey
+		? providerKeyLabel(selectedProviderKey)
+		: providerKeyId;
 
 	const rangeLabel = useMemo(() => {
 		const start = from ?? data?.start;
@@ -398,17 +458,23 @@ export function GlobalStatsClient() {
 	// Pie data: top 10 by the selected metric, the rest collapsed into "Other".
 	const pieData = useMemo(() => {
 		if (breakdown.length === 0) {
-			return [] as { name: string; value: number; key: string }[];
+			return [] as {
+				name: string;
+				value: number;
+				key: string;
+				chartKey: string;
+			}[];
 		}
 		const sorted = [...breakdown].sort(
 			(a, b) => b[chartMetric] - a[chartMetric],
 		);
 		const top = sorted.slice(0, 10);
 		const rest = sorted.slice(10);
-		const items = top.map((b) => ({
+		const items = top.map((b, index) => ({
 			name: b.label,
 			value: b[chartMetric],
 			key: b.key,
+			chartKey: `slice_${index}`,
 		}));
 		if (rest.length > 0) {
 			const otherValue = rest.reduce((sum, b) => sum + b[chartMetric], 0);
@@ -417,6 +483,7 @@ export function GlobalStatsClient() {
 					name: `Other (${rest.length})`,
 					value: otherValue,
 					key: "__other__",
+					chartKey: "slice_other",
 				});
 			}
 		}
@@ -426,7 +493,7 @@ export function GlobalStatsClient() {
 	const pieChartConfig = useMemo<ChartConfig>(() => {
 		const config: ChartConfig = {};
 		pieData.forEach((slice, idx) => {
-			config[slice.key] = {
+			config[slice.chartKey] = {
 				label: slice.name,
 				color: PIE_COLORS[idx % PIE_COLORS.length],
 			};
@@ -441,51 +508,31 @@ export function GlobalStatsClient() {
 		[breakdown, chartMetric],
 	);
 
-	// Top dimensions (by the selected metric) shown as their own stacked series;
-	// everything else collapses into a single "Other" bucket.
-	const stackSeries = useMemo(() => {
-		const top = sortedBreakdown.slice(0, TIMESERIES_STACK_LIMIT);
-		const restCount = Math.max(0, sortedBreakdown.length - top.length);
-		const keys = top.map((b) => b.key);
-		if (restCount > 0) {
-			keys.push(OTHER_KEY);
-		}
-		return { top, topKeys: new Set(top.map((b) => b.key)), restCount, keys };
-	}, [sortedBreakdown]);
+	const stackedChart = useMemo(
+		() =>
+			buildGlobalStatsStackedChart({
+				rankedBreakdown: sortedBreakdown,
+				timeseries,
+				timeseriesBreakdown,
+				metric: chartMetric,
+				limit: TIMESERIES_STACK_LIMIT,
+			}),
+		[sortedBreakdown, timeseries, timeseriesBreakdown, chartMetric],
+	);
 
 	const stackChartConfig = useMemo<ChartConfig>(() => {
 		const config: ChartConfig = {};
-		stackSeries.top.forEach((b, idx) => {
-			config[b.key] = {
-				label: b.label,
-				color: PIE_COLORS[idx % PIE_COLORS.length],
+		stackedChart.series.forEach((entry, index) => {
+			config[entry.chartKey] = {
+				label: entry.label,
+				color:
+					entry.sourceKey === null
+						? OTHER_COLOR
+						: PIE_COLORS[index % PIE_COLORS.length],
 			};
 		});
-		if (stackSeries.restCount > 0) {
-			config[OTHER_KEY] = {
-				label: `Other (${stackSeries.restCount})`,
-				color: OTHER_COLOR,
-			};
-		}
 		return config;
-	}, [stackSeries]);
-
-	const stackedTimeseries = useMemo(() => {
-		const byDate = new Map<string, Record<string, number | string>>();
-		for (const point of timeseries) {
-			byDate.set(point.date, { date: point.date });
-		}
-		for (const row of timeseriesBreakdown) {
-			const entry = byDate.get(row.date);
-			if (!entry) {
-				continue;
-			}
-			const seriesKey = stackSeries.topKeys.has(row.key) ? row.key : OTHER_KEY;
-			entry[seriesKey] =
-				((entry[seriesKey] as number | undefined) ?? 0) + row[chartMetric];
-		}
-		return Array.from(byDate.values());
-	}, [timeseries, timeseriesBreakdown, stackSeries, chartMetric]);
+	}, [stackedChart.series]);
 
 	const breakdownNoun =
 		groupBy === "model"
@@ -511,13 +558,25 @@ export function GlobalStatsClient() {
 	const scopeNotes = [
 		usageModeDescription(usageMode),
 		orgKindDescription(orgKind),
+		providerKeyId
+			? `Only requests served by provider key ${providerKeyName}; traffic served by env-var credentials is never attributed to a key.`
+			: null,
 	].filter(Boolean);
 	const scopeParts = [
 		orgKind === "all" ? null : orgKindLabel(orgKind),
 		usageMode === "total" ? null : usageModeLabel(usageMode),
+		providerKeyId ? `Key ${providerKeyName}` : null,
 	].filter((part): part is string => part !== null);
 	const scopeSuffix = scopeParts.map((label) => ` · ${label}`).join("");
-	const scopeLabel = scopeParts.length > 0 ? scopeParts.join(" · ") : "Total";
+	// Stat-card headings are uppercase and narrow; name the key in the
+	// descriptions but keep it to "Key" here.
+	const statScopeParts = [
+		orgKind === "all" ? null : orgKindLabel(orgKind),
+		usageMode === "total" ? null : usageModeLabel(usageMode),
+		providerKeyId ? "Key" : null,
+	].filter((part): part is string => part !== null);
+	const scopeLabel =
+		statScopeParts.length > 0 ? statScopeParts.join(" · ") : "Total";
 
 	const breakdownTotalPages = Math.max(
 		1,
@@ -530,45 +589,212 @@ export function GlobalStatsClient() {
 		breakdownStart + BREAKDOWN_PAGE_SIZE,
 	);
 
+	const exportDimension =
+		groupBy === "model"
+			? modelView === "provider"
+				? "provider"
+				: modelView === "canonical"
+					? "canonical model"
+					: "mapping"
+			: breakdownNounSingular.toLowerCase();
+	const exportScope = useMemo(
+		() => ({
+			start: from ?? data?.start ?? "",
+			end: to ?? data?.end ?? "",
+			allTime,
+			traffic: usageModeLabel(usageMode),
+			organization: orgKindLabel(orgKind),
+			groupBy:
+				GROUP_OPTIONS.find((opt) => opt.value === groupBy)?.label ?? groupBy,
+			modelView:
+				groupBy === "model"
+					? (MODEL_VIEW_OPTIONS.find((opt) => opt.value === modelView)?.label ??
+						modelView)
+					: null,
+			providerKeyId,
+			providerKeyLabel: providerKeyName,
+			metric: chartMetric,
+		}),
+		[
+			from,
+			to,
+			data?.start,
+			data?.end,
+			allTime,
+			usageMode,
+			orgKind,
+			groupBy,
+			modelView,
+			providerKeyId,
+			providerKeyName,
+			chartMetric,
+		],
+	);
+	const canExport = !isLoading && !isError && !!data;
+
+	const exportTimeseries = useCallback(() => {
+		const format = detectCsvFormat();
+		const csv = showTimeseriesBreakdown
+			? buildGlobalStatsTimeseriesBreakdownCsv(
+					{
+						dimension: exportDimension,
+						rankedBreakdown: sortedBreakdown,
+						timeseries,
+						timeseriesBreakdown,
+					},
+					format,
+				)
+			: buildGlobalStatsTimeseriesCsv(timeseries, format);
+		downloadCsv(
+			globalStatsExportFilename(
+				showTimeseriesBreakdown
+					? `daily-by-${exportDimension.replace(/\s+/g, "-")}`
+					: "daily",
+				exportScope,
+			),
+			csv,
+		);
+	}, [
+		showTimeseriesBreakdown,
+		sortedBreakdown,
+		timeseries,
+		timeseriesBreakdown,
+		exportDimension,
+		exportScope,
+	]);
+
+	const exportBreakdown = useCallback(() => {
+		downloadCsv(
+			globalStatsExportFilename(
+				`by-${exportDimension.replace(/\s+/g, "-")}`,
+				exportScope,
+			),
+			buildGlobalStatsBreakdownCsv(
+				{
+					dimension: exportDimension,
+					breakdown: sortedBreakdown,
+					metric: chartMetric,
+				},
+				detectCsvFormat(),
+			),
+		);
+	}, [exportDimension, exportScope, sortedBreakdown, chartMetric]);
+
+	const exportReport = useCallback(() => {
+		if (!totals) {
+			return;
+		}
+		downloadCsv(
+			globalStatsExportFilename("report", exportScope),
+			buildGlobalStatsReportCsv(
+				{
+					scope: exportScope,
+					generatedAt: new Date(),
+					totals,
+					composition: {
+						byMode: modeComposition ?? null,
+						byKind: kindComposition ?? null,
+					},
+					timeseries,
+					timeseriesBreakdown,
+					breakdown: sortedBreakdown,
+					dimension: exportDimension,
+				},
+				detectCsvFormat(),
+			),
+		);
+	}, [
+		totals,
+		exportScope,
+		modeComposition,
+		kindComposition,
+		timeseries,
+		timeseriesBreakdown,
+		sortedBreakdown,
+		exportDimension,
+	]);
+
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
-			<header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-				<div>
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Global Stats
-					</h1>
-					<p className="mt-1 text-sm text-muted-foreground">
-						Cross-organization usage aggregated by day, grouped by model,
-						x-source header, billing mode or organization kind.
-						{scopeNotes.length > 0 ? ` ${scopeNotes.join(" ")}` : ""}
-					</p>
-					{unattributedNote ? (
-						<p className="mt-1 text-xs text-muted-foreground">
-							{unattributedNote}
+			<header className="space-y-5">
+				<div className="flex flex-wrap items-start justify-between gap-4">
+					<div className="max-w-4xl">
+						<h1 className="text-3xl font-semibold tracking-tight">
+							Global Stats
+						</h1>
+						<p className="mt-1 text-sm text-muted-foreground">
+							Cross-organization usage aggregated by day, grouped by model,
+							x-source header, billing mode or organization kind.
+							{scopeNotes.length > 0 ? ` ${scopeNotes.join(" ")}` : ""}
 						</p>
-					) : null}
-				</div>
-				<div className="flex flex-wrap items-center gap-3">
-					<UsageModeSelector compact />
-					<OrgKindSelector compact />
-					<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1">
-						{GROUP_OPTIONS.map((opt) => {
-							const Icon = opt.icon;
-							return (
-								<Button
-									key={opt.value}
-									variant={groupBy === opt.value ? "default" : "ghost"}
-									size="sm"
-									className="h-7 gap-1.5 px-3 text-xs"
-									onClick={() => setGroupBy(opt.value)}
-								>
-									<Icon className="h-3.5 w-3.5" />
-									{opt.label}
-								</Button>
-							);
-						})}
+						{unattributedNote ? (
+							<p className="mt-1 text-xs text-muted-foreground">
+								{unattributedNote}
+							</p>
+						) : null}
 					</div>
-					<GlobalStatsRangePicker />
+					<Button
+						variant="outline"
+						size="sm"
+						className="h-8 gap-1.5 px-3 text-xs"
+						disabled={!canExport}
+						onClick={exportReport}
+						title={`Download every section for ${rangeLabel} as one CSV report`}
+					>
+						<FileDown className="h-3.5 w-3.5" aria-hidden />
+						Generate report
+					</Button>
+				</div>
+				<div className="rounded-xl border border-border/60 bg-card/70 p-3 shadow-sm">
+					<div className="flex flex-wrap items-end gap-x-5 gap-y-3">
+						<ToolbarGroup label="Traffic">
+							<UsageModeSelector
+								compact
+								className="w-fit max-w-full flex-wrap"
+							/>
+						</ToolbarGroup>
+						<ToolbarGroup label="Organization">
+							<OrgKindSelector compact className="w-fit max-w-full flex-wrap" />
+						</ToolbarGroup>
+						<ToolbarGroup label="Provider key">
+							<ProviderKeySelector />
+						</ToolbarGroup>
+						<ToolbarGroup label="Break down by">
+							<div
+								className="flex w-fit max-w-full flex-wrap items-center gap-1 rounded-md border border-border/60 bg-background p-1"
+								role="group"
+								aria-label="Break down by"
+							>
+								{GROUP_OPTIONS.map((opt) => {
+									const Icon = opt.icon;
+									const unavailable =
+										opt.value === "source" && providerKeyId !== null;
+									return (
+										<Button
+											key={opt.value}
+											variant={groupBy === opt.value ? "default" : "ghost"}
+											size="sm"
+											className="h-7 gap-1.5 px-3 text-xs"
+											aria-pressed={groupBy === opt.value}
+											disabled={unavailable}
+											title={
+												unavailable
+													? "x-source is not tracked per provider key"
+													: undefined
+											}
+											onClick={() => setGroupBy(opt.value)}
+										>
+											<Icon className="h-3.5 w-3.5" aria-hidden />
+											{opt.label}
+										</Button>
+									);
+								})}
+							</div>
+						</ToolbarGroup>
+						<ToolbarGroup label="Range" className="ml-auto">
+							<GlobalStatsRangePicker />
+						</ToolbarGroup>
+					</div>
 				</div>
 			</header>
 
@@ -645,8 +871,8 @@ export function GlobalStatsClient() {
 			</section>
 
 			<Card>
-				<CardHeader className="flex flex-col items-stretch space-y-2 border-b p-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0 sm:p-6">
-					<div>
+				<CardHeader className="gap-0 space-y-0 border-b p-0">
+					<div className="p-4 sm:p-6">
 						<CardTitle>Daily timeseries</CardTitle>
 						<CardDescription>
 							Aggregate{" "}
@@ -670,58 +896,92 @@ export function GlobalStatsClient() {
 							.{scopeParts.length > 0 ? ` ${scopeLabel} traffic only.` : ""}
 						</CardDescription>
 					</div>
-					<div className="flex flex-wrap items-center gap-2">
-						<Button
-							variant={showTimeseriesBreakdown ? "default" : "outline"}
-							size="sm"
-							className="h-7 gap-1.5 px-3 text-xs"
-							onClick={toggleTimeseriesBreakdown}
-						>
-							{groupBy === "model" ? (
-								<Cpu className="h-3.5 w-3.5" />
-							) : groupBy === "mode" ? (
-								<Wallet className="h-3.5 w-3.5" />
-							) : groupBy === "kind" ? (
-								<Building2 className="h-3.5 w-3.5" />
-							) : (
-								<Layers className="h-3.5 w-3.5" />
-							)}
-							Breakdown
-						</Button>
+					<div className="flex flex-wrap items-end gap-3 border-t border-border/60 bg-muted/20 px-4 py-3 sm:px-6">
+						<ToolbarGroup label="Display">
+							<Button
+								variant={showTimeseriesBreakdown ? "secondary" : "outline"}
+								size="sm"
+								className="h-8 gap-1.5 px-3 text-xs"
+								aria-pressed={showTimeseriesBreakdown}
+								onClick={toggleTimeseriesBreakdown}
+							>
+								{groupBy === "model" ? (
+									<Cpu className="h-3.5 w-3.5" aria-hidden />
+								) : groupBy === "mode" ? (
+									<Wallet className="h-3.5 w-3.5" aria-hidden />
+								) : groupBy === "kind" ? (
+									<Building2 className="h-3.5 w-3.5" aria-hidden />
+								) : (
+									<Layers className="h-3.5 w-3.5" aria-hidden />
+								)}
+								Breakdown
+							</Button>
+						</ToolbarGroup>
 						{showTimeseriesBreakdown && groupBy === "model" ? (
-							<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1">
-								{MODEL_VIEW_OPTIONS.map((opt) => {
-									const Icon = opt.icon;
-									return (
-										<Button
-											key={opt.value}
-											variant={modelView === opt.value ? "default" : "ghost"}
-											size="sm"
-											className="h-7 gap-1.5 px-3 text-xs"
-											onClick={() => setModelView(opt.value)}
-										>
-											<Icon className="h-3.5 w-3.5" />
-											{opt.label}
-										</Button>
-									);
-								})}
-							</div>
+							<ToolbarGroup label="Model view">
+								<div
+									className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5"
+									role="group"
+									aria-label="Model view"
+								>
+									{MODEL_VIEW_OPTIONS.map((opt) => {
+										const Icon = opt.icon;
+										return (
+											<Button
+												key={opt.value}
+												variant={
+													modelView === opt.value ? "secondary" : "ghost"
+												}
+												size="sm"
+												className="h-7 gap-1.5 px-3 text-xs shadow-none"
+												aria-pressed={modelView === opt.value}
+												onClick={() => setModelView(opt.value)}
+											>
+												<Icon className="h-3.5 w-3.5" aria-hidden />
+												{opt.label}
+											</Button>
+										);
+									})}
+								</div>
+							</ToolbarGroup>
 						) : null}
-						<div className="flex items-center gap-1">
-							{(Object.keys(timeseriesChartConfig) as TimeseriesMetric[]).map(
-								(m) => (
-									<Button
-										key={m}
-										variant={chartMetric === m ? "default" : "outline"}
-										size="sm"
-										className="h-7 px-3 text-xs"
-										onClick={() => setChartMetric(m)}
-									>
-										{timeseriesChartConfig[m].label as string}
-									</Button>
-								),
-							)}
-						</div>
+						<ToolbarGroup label="Measure">
+							<div
+								className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5"
+								role="group"
+								aria-label="Measure"
+							>
+								{(Object.keys(timeseriesChartConfig) as TimeseriesMetric[]).map(
+									(m) => (
+										<Button
+											key={m}
+											variant={chartMetric === m ? "secondary" : "ghost"}
+											size="sm"
+											className="h-7 px-3 text-xs shadow-none"
+											aria-pressed={chartMetric === m}
+											onClick={() => setChartMetric(m)}
+										>
+											{timeseriesChartConfig[m].label as string}
+										</Button>
+									),
+								)}
+							</div>
+						</ToolbarGroup>
+						<ToolbarGroup label="Chart">
+							<ChartTypeToggle value={chartType} onValueChange={setChartType} />
+						</ToolbarGroup>
+						<ToolbarGroup label="Export" className="ml-auto">
+							<Button
+								variant="outline"
+								size="sm"
+								className="h-8 gap-1.5 px-3 text-xs"
+								disabled={!canExport || timeseries.length === 0}
+								onClick={exportTimeseries}
+							>
+								<Download className="h-3.5 w-3.5" aria-hidden />
+								CSV
+							</Button>
+						</ToolbarGroup>
 					</div>
 				</CardHeader>
 				<CardContent className="px-2 pb-4 sm:p-6">
@@ -730,114 +990,163 @@ export function GlobalStatsClient() {
 							No data for this range.
 						</div>
 					) : (
-						<ChartContainer
-							config={
-								showTimeseriesBreakdown
-									? stackChartConfig
-									: timeseriesChartConfig
-							}
-							className="aspect-auto h-[320px] w-full"
-						>
-							<BarChart
-								data={showTimeseriesBreakdown ? stackedTimeseries : timeseries}
-								margin={{ left: 12, right: 12 }}
+						<>
+							<ChartContainer
+								config={
+									showTimeseriesBreakdown
+										? stackChartConfig
+										: timeseriesChartConfig
+								}
+								className="aspect-auto h-[320px] w-full"
 							>
-								<CartesianGrid vertical={false} strokeDasharray="3 3" />
-								<XAxis
-									dataKey="date"
-									tickLine={false}
-									axisLine={false}
-									tickMargin={8}
-									minTickGap={32}
-									tickFormatter={(value) => {
-										if (typeof value !== "string" || !value) {
-											return "";
-										}
-										const date = parseISO(value);
-										if (Number.isNaN(date.getTime())) {
-											return value;
-										}
-										return format(date, "MMM d");
-									}}
-								/>
-								<YAxis
-									tickLine={false}
-									axisLine={false}
-									width={56}
-									tickFormatter={compactMetricFormatter(chartMetric)}
-								/>
-								<ChartTooltip
-									content={
-										<ChartTooltipContent
-											className="w-[220px]"
-											sortByValue={showTimeseriesBreakdown}
-											labelFormatter={(value) => {
-												if (typeof value !== "string" || !value) {
-													return "";
-												}
-												const date = parseISO(value);
-												if (Number.isNaN(date.getTime())) {
-													return value;
-												}
-												return format(date, "MMM d, yyyy");
-											}}
-											formatter={(value, name, item) =>
-												showTimeseriesBreakdown ? (
-													<div className="flex w-full items-center gap-2">
-														<span
-															className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
-															style={{
-																backgroundColor:
-																	(item as { fill?: string })?.fill ??
-																	item?.color,
-															}}
-														/>
-														<span className="flex-1 text-muted-foreground">
-															{(stackChartConfig[name as string]
-																?.label as string) ?? String(name)}
-														</span>
-														<span className="font-mono font-medium tabular-nums text-foreground">
-															{metricFormatter(chartMetric)(Number(value))}
-														</span>
-													</div>
-												) : (
-													metricFormatter(chartMetric)(Number(value))
-												)
-											}
-										/>
+								<TimeseriesChart
+									data={
+										showTimeseriesBreakdown ? stackedChart.data : timeseries
 									}
-								/>
-								{showTimeseriesBreakdown ? (
-									stackSeries.keys.map((key) => (
+									accessibilityLayer
+									margin={{ left: 12, right: 12, top: 8 }}
+								>
+									<CartesianGrid vertical={false} strokeDasharray="3 3" />
+									<XAxis
+										dataKey="date"
+										tickLine={false}
+										axisLine={false}
+										tickMargin={8}
+										minTickGap={32}
+										tickFormatter={(value) => {
+											if (typeof value !== "string" || !value) {
+												return "";
+											}
+											const date = parseISO(value);
+											if (Number.isNaN(date.getTime())) {
+												return value;
+											}
+											return format(date, "MMM d");
+										}}
+									/>
+									<YAxis
+										tickLine={false}
+										axisLine={false}
+										width={56}
+										tickFormatter={compactMetricFormatter(chartMetric)}
+									/>
+									<ChartTooltip
+										content={
+											<ChartTooltipContent
+												className="w-[220px]"
+												sortByValue={showTimeseriesBreakdown}
+												labelFormatter={(value) => {
+													if (typeof value !== "string" || !value) {
+														return "";
+													}
+													const date = parseISO(value);
+													if (Number.isNaN(date.getTime())) {
+														return value;
+													}
+													return format(date, "MMM d, yyyy");
+												}}
+												formatter={(value, name, item) =>
+													showTimeseriesBreakdown ? (
+														<div className="flex w-full items-center gap-2">
+															<span
+																className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+																style={{
+																	backgroundColor:
+																		stackChartConfig[name as string]?.color ??
+																		item?.color,
+																}}
+															/>
+															<span className="flex-1 text-muted-foreground">
+																{(stackChartConfig[name as string]
+																	?.label as string) ?? String(name)}
+															</span>
+															<span className="font-mono font-medium tabular-nums text-foreground">
+																{metricFormatter(chartMetric)(Number(value))}
+															</span>
+														</div>
+													) : (
+														metricFormatter(chartMetric)(Number(value))
+													)
+												}
+											/>
+										}
+									/>
+									{showTimeseriesBreakdown ? (
+										stackedChart.series.map((entry) =>
+											chartType === "bar" ? (
+												<Bar
+													key={entry.chartKey}
+													dataKey={entry.chartKey}
+													stackId="timeseries"
+													fill={`var(--color-${entry.chartKey})`}
+													maxBarSize={88}
+												/>
+											) : (
+												<Line
+													key={entry.chartKey}
+													dataKey={entry.chartKey}
+													type="monotone"
+													stroke={`var(--color-${entry.chartKey})`}
+													strokeWidth={2}
+													dot={false}
+													connectNulls
+												/>
+											),
+										)
+									) : chartType === "bar" ? (
 										<Bar
-											key={key}
-											dataKey={key}
-											stackId="timeseries"
-											fill={`var(--color-${key})`}
+											dataKey={chartMetric}
+											fill={`var(--color-${chartMetric})`}
+											maxBarSize={88}
+											radius={[4, 4, 0, 0]}
 										/>
-									))
-								) : (
-									<Bar
-										dataKey={chartMetric}
-										fill={`var(--color-${chartMetric})`}
-										radius={[4, 4, 0, 0]}
-									/>
-								)}
-								{showTimeseriesBreakdown ? (
-									<ChartLegend
-										verticalAlign="bottom"
-										content={<ChartLegendContent />}
-									/>
-								) : null}
-							</BarChart>
-						</ChartContainer>
+									) : (
+										<Line
+											dataKey={chartMetric}
+											type="monotone"
+											stroke={`var(--color-${chartMetric})`}
+											strokeWidth={2.5}
+											dot={false}
+											connectNulls
+										/>
+									)}
+								</TimeseriesChart>
+							</ChartContainer>
+							{showTimeseriesBreakdown ? (
+								<div
+									className="mt-4 flex flex-wrap gap-x-4 gap-y-2 px-3 sm:px-0"
+									role="list"
+									aria-label="Chart legend"
+								>
+									{stackedChart.series.map((entry, index) => (
+										<div
+											key={entry.chartKey}
+											className="flex min-w-0 max-w-full items-center gap-1.5 text-xs text-muted-foreground"
+											role="listitem"
+											title={entry.label}
+										>
+											<span
+												className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+												style={{
+													backgroundColor:
+														entry.sourceKey === null
+															? OTHER_COLOR
+															: PIE_COLORS[index % PIE_COLORS.length],
+												}}
+											/>
+											<span className="max-w-72 truncate">{entry.label}</span>
+										</div>
+									))}
+								</div>
+							) : null}
+						</>
 					)}
 				</CardContent>
 			</Card>
 
 			<Card>
-				<CardHeader className="flex flex-col items-stretch space-y-2 border-b p-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0 sm:p-6">
-					<div>
+				<CardHeader className="gap-0 space-y-0 border-b p-0">
+					<div className="p-4 sm:p-6">
 						<CardTitle>
 							{timeseriesChartConfig[chartMetric].label as string} share —{" "}
 							{breakdownNoun}
@@ -850,41 +1159,69 @@ export function GlobalStatsClient() {
 							{scopeParts.length > 0 ? ` ${scopeLabel} traffic only.` : ""}
 						</CardDescription>
 					</div>
-					<div className="flex flex-wrap items-center gap-3">
+					<div className="flex flex-wrap items-end gap-3 border-t border-border/60 bg-muted/20 px-4 py-3 sm:px-6">
 						{groupBy === "model" ? (
-							<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1">
-								{MODEL_VIEW_OPTIONS.map((opt) => {
-									const Icon = opt.icon;
-									return (
-										<Button
-											key={opt.value}
-											variant={modelView === opt.value ? "default" : "ghost"}
-											size="sm"
-											className="h-7 gap-1.5 px-3 text-xs"
-											onClick={() => setModelView(opt.value)}
-										>
-											<Icon className="h-3.5 w-3.5" />
-											{opt.label}
-										</Button>
-									);
-								})}
-							</div>
+							<ToolbarGroup label="Model view">
+								<div
+									className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5"
+									role="group"
+									aria-label="Model view"
+								>
+									{MODEL_VIEW_OPTIONS.map((opt) => {
+										const Icon = opt.icon;
+										return (
+											<Button
+												key={opt.value}
+												variant={
+													modelView === opt.value ? "secondary" : "ghost"
+												}
+												size="sm"
+												className="h-7 gap-1.5 px-3 text-xs shadow-none"
+												aria-pressed={modelView === opt.value}
+												onClick={() => setModelView(opt.value)}
+											>
+												<Icon className="h-3.5 w-3.5" aria-hidden />
+												{opt.label}
+											</Button>
+										);
+									})}
+								</div>
+							</ToolbarGroup>
 						) : null}
-						<div className="flex items-center gap-1">
-							{(Object.keys(timeseriesChartConfig) as TimeseriesMetric[]).map(
-								(m) => (
-									<Button
-										key={m}
-										variant={chartMetric === m ? "default" : "outline"}
-										size="sm"
-										className="h-7 px-3 text-xs"
-										onClick={() => setChartMetric(m)}
-									>
-										{timeseriesChartConfig[m].label as string}
-									</Button>
-								),
-							)}
-						</div>
+						<ToolbarGroup label="Measure">
+							<div
+								className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5"
+								role="group"
+								aria-label="Measure"
+							>
+								{(Object.keys(timeseriesChartConfig) as TimeseriesMetric[]).map(
+									(m) => (
+										<Button
+											key={m}
+											variant={chartMetric === m ? "secondary" : "ghost"}
+											size="sm"
+											className="h-7 px-3 text-xs shadow-none"
+											aria-pressed={chartMetric === m}
+											onClick={() => setChartMetric(m)}
+										>
+											{timeseriesChartConfig[m].label as string}
+										</Button>
+									),
+								)}
+							</div>
+						</ToolbarGroup>
+						<ToolbarGroup label="Export" className="ml-auto">
+							<Button
+								variant="outline"
+								size="sm"
+								className="h-8 gap-1.5 px-3 text-xs"
+								disabled={!canExport || sortedBreakdown.length === 0}
+								onClick={exportBreakdown}
+							>
+								<Download className="h-3.5 w-3.5" aria-hidden />
+								CSV
+							</Button>
+						</ToolbarGroup>
 					</div>
 				</CardHeader>
 				<CardContent className="grid gap-6 p-4 sm:p-6 lg:grid-cols-2">
@@ -928,7 +1265,7 @@ export function GlobalStatsClient() {
 									>
 										{pieData.map((slice, idx) => (
 											<Cell
-												key={slice.key}
+												key={slice.chartKey}
 												fill={PIE_COLORS[idx % PIE_COLORS.length]}
 											/>
 										))}

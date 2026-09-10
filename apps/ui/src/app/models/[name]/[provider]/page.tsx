@@ -28,9 +28,11 @@ import { ModelCtaButton } from "@/components/models/model-cta-button";
 import { ModelRating } from "@/components/models/model-rating";
 import { ModelStatusBadgeAuto } from "@/components/models/model-status-badge-auto";
 import { ProviderTabs } from "@/components/models/provider-tabs";
-import { findDynamicModelDefinition } from "@/lib/airside-model-fallback";
+import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
 import { findEffectiveProviderDiscount } from "@/lib/discount";
+import { fetchProviders } from "@/lib/fetch-models";
+import { serializeJsonLd } from "@/lib/json-ld";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -39,7 +41,6 @@ import {
 	providers as providerDefinitions,
 	expandAllProviderRegions,
 	type StabilityLevel,
-	type ModelDefinition,
 } from "@llmgateway/models";
 import { isMappingDeactivated } from "@llmgateway/shared/components";
 
@@ -54,12 +55,18 @@ export default async function ModelProviderPage({ params }: PageProps) {
 	const decodedName = decodeURIComponent(name);
 	const decodedProvider = decodeURIComponent(provider);
 
-	// Static catalogue first; Airside listings (materialized into the DB
-	// catalogue only) resolve through the API-backed fallback.
-	const modelDef =
-		(modelDefinitions.find((m) => m.id === decodedName) as
-			ModelDefinition | undefined) ??
-		(await findDynamicModelDefinition(decodedName));
+	// fetchServerData resolves to null on failure, including after an early 404.
+	const modelDataPromise = Promise.all([
+		fetchServerData<{ discounts: DiscountData[] }>(
+			"GET",
+			"/public/discounts/model/{modelId}",
+			{ params: { path: { modelId: decodedName } } },
+		),
+		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
+			params: { query: { modelId: decodedName } },
+		}),
+	]);
+	const modelDef = await findPublicModelDefinition(decodedName);
 
 	if (!modelDef) {
 		notFound();
@@ -79,21 +86,12 @@ export default async function ModelProviderPage({ params }: PageProps) {
 
 	const staticProviderMapping = providerMappings[0];
 
-	const providerInfo = providerDefinitions.find(
-		(p) => p.id === decodedProvider,
-	);
-
-	// Fetch global discounts and apply to provider
-	const [discountData, ratingsData] = await Promise.all([
-		fetchServerData<{ discounts: DiscountData[] }>(
-			"GET",
-			"/public/discounts/model/{modelId}",
-			{ params: { path: { modelId: decodedName } } },
-		),
-		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
-			params: { query: { modelId: decodedName } },
-		}),
-	]);
+	const providerInfo =
+		providerDefinitions.find((p) => p.id === decodedProvider) ??
+		((await fetchProviders()).find(
+			(provider) => provider.id === decodedProvider,
+		) as unknown as (typeof providerDefinitions)[number] | undefined);
+	const [discountData, ratingsData] = await modelDataPromise;
 	const discounts = discountData?.discounts ?? [];
 	// A provider whose mappings are all deactivated still renders this page, but
 	// nothing can be routed to it — so it must not advertise a discounted price.
@@ -216,14 +214,14 @@ export default async function ModelProviderPage({ params }: PageProps) {
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(breadcrumbSchema),
+					__html: serializeJsonLd(breadcrumbSchema),
 				}}
 			/>
 			<script
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(productSchema),
+					__html: serializeJsonLd(productSchema),
 				}}
 			/>
 			<Navbar />
@@ -492,28 +490,23 @@ export async function generateMetadata({
 	const decodedName = decodeURIComponent(name);
 	const decodedProvider = decodeURIComponent(provider);
 
-	const model =
-		(modelDefinitions.find((m) => m.id === decodedName) as
-			ModelDefinition | undefined) ??
-		(await findDynamicModelDefinition(decodedName));
+	const model = await findPublicModelDefinition(decodedName);
 
 	if (!model) {
 		return {};
 	}
 
-	const providerInfo = providerDefinitions.find(
-		(p) => p.id === decodedProvider,
-	);
+	const providerInfo =
+		providerDefinitions.find((p) => p.id === decodedProvider) ??
+		((await fetchProviders()).find(
+			(candidate) => candidate.id === decodedProvider,
+		) as unknown as (typeof providerDefinitions)[number] | undefined);
 	const providerName = providerInfo?.name ?? decodedProvider;
 
 	const title = `${model.name ?? model.id} on ${providerName}`;
 	const description = `Pricing, latency, and capabilities for ${model.name ?? model.id} via ${providerName} on LLM Gateway.`;
 	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
-	// The OG card route only prerenders static-catalogue pairs
-	// (dynamicParams=false); DB-only pages advertise the site card instead.
-	const ogImageUrl = modelDefinitions.some((m) => m.id === decodedName)
-		? `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}/opengraph-image`
-		: "/opengraph.png";
+	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(decodedProvider)}/opengraph-image`;
 
 	return {
 		title,

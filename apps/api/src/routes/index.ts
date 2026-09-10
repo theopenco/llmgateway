@@ -30,6 +30,7 @@ import { lounge } from "./lounge.js";
 import masterKeys from "./master-keys.js";
 import { modelRatings } from "./model-ratings.js";
 import { modelSurvey } from "./model-survey.js";
+import { organizationSkills } from "./organization-skills.js";
 import { organizationTeams } from "./organization-teams.js";
 import organization from "./organization.js";
 import { payments } from "./payments.js";
@@ -86,6 +87,7 @@ routes.route("/projects", projects);
 routes.route("/playground", playground);
 
 routes.route("/orgs", organization);
+routes.route("/orgs", organizationSkills);
 routes.route("/team", team);
 routes.route("/team", organizationTeams);
 routes.route("/payments", payments);

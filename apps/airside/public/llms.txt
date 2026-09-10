@@ -1,6 +1,6 @@
 # Airside by LLM Gateway
 
-> Airside is the self-serve carrier console for LLM providers on LLM Gateway. Providers claim their carrier by verifying an email on their API endpoint's domain, register their model fleet, file fares (pricing) for review, watch their routed traffic, and tune the discount and gateway margin that feed the smart routing election.
+> Airside is the self-service provider portal for LLM Gateway. LLM API providers can verify their domain, submit models and pricing for approval, and track routed traffic. Providers control their routing discount and the gateway margin they accept.
 
 ## How it works
 

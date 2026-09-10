@@ -1,5 +1,7 @@
 import { cache } from "react";
 
+import { fetchModelsResponseFromApi } from "@llmgateway/shared/components";
+
 export interface ApiProvider {
 	id: string;
 	createdAt: string;
@@ -38,6 +40,7 @@ export interface ApiModelProviderMapping {
 	cachedInputAudioPrice: string | null;
 	outputAudioPrice: string | null;
 	requestPrice: string | null;
+	inputAudioHourPrice: string | null;
 	contextSize: number | null;
 	maxOutput: number | null;
 	streaming: boolean;
@@ -52,6 +55,8 @@ export interface ApiModelProviderMapping {
 	jsonOutputSchema: boolean | null;
 	webSearch: boolean | null;
 	realtime: boolean | null;
+	realtimeTranscription: boolean | null;
+	realtimeTranscriptionTurnDetection: boolean | null;
 	supportedVoices: string[] | null;
 	discount: string | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;
@@ -89,12 +94,7 @@ const API_URL =
 
 export const fetchModels = cache(async (): Promise<ApiModel[]> => {
 	try {
-		// The models payload exceeds Next's 2MB fetch-cache entry limit, so a
-		// revalidate cache can never refresh — a stale disk entry would be
-		// served forever. Fetch fresh; React cache() still dedupes per render.
-		const response = await fetch(`${API_URL}/internal/models`, {
-			cache: "no-store",
-		});
+		const response = await fetchModelsResponseFromApi(API_URL);
 		if (!response.ok) {
 			console.error("Failed to fetch models:", response.statusText);
 			return [];

@@ -64,6 +64,7 @@ interface ManageOrgDialogProps {
 		trialStartDate: string | null;
 		trialEndDate: string | null;
 	}) => Promise<{ success: boolean; error?: string }>;
+	primaryTrigger?: boolean;
 }
 
 const PLAN_DEFAULT_SEATS: Record<Plan, number> = {
@@ -126,6 +127,7 @@ export function ManageOrgDialog({
 	trialStartDate,
 	trialEndDate,
 	onSave,
+	primaryTrigger = false,
 }: ManageOrgDialogProps) {
 	const router = useRouter();
 	const [open, setOpen] = useState(false);
@@ -329,7 +331,7 @@ export function ManageOrgDialog({
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
 			<DialogTrigger asChild>
-				<Button variant="outline" size="sm">
+				<Button variant={primaryTrigger ? "default" : "outline"} size="sm">
 					<Settings2 className="mr-1.5 h-4 w-4" />
 					Manage org
 				</Button>

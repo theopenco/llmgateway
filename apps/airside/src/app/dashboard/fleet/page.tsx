@@ -7,9 +7,11 @@ import {
 	Loader2,
 	Pencil,
 	Plus,
+	ShieldCheck,
 	Stamp,
 	TriangleAlert,
 	Trash2,
+	X,
 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -20,6 +22,7 @@ import {
 	EditModelDialog,
 	FileFareDialog,
 	RegisterModelDialog,
+	VerifyModelDialog,
 } from "@/components/dashboard/ModelDialogs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,6 +49,92 @@ const STATUS_META: Record<
 	rejected: { label: "Rejected", variant: "destructive" },
 	delisted: { label: "Delisted", variant: "secondary" },
 };
+
+type RegionPrice = NonNullable<
+	NonNullable<AirsideModel["currentPricing"]>["regionPrices"]
+>[number];
+
+function RegionFareChip({
+	model,
+	entry,
+}: {
+	model: AirsideModel;
+	entry: RegionPrice;
+}) {
+	const api = useApi();
+	const queryClient = useQueryClient();
+	const [confirming, setConfirming] = useState(false);
+
+	const removeRegion = api.useMutation(
+		"delete",
+		"/airside/models/{id}/regions/{region}",
+		{
+			onSuccess: async () => {
+				await queryClient.invalidateQueries({
+					queryKey: api.queryOptions("get", "/airside/models", {
+						params: {
+							query: { providerCompanyId: model.providerCompanyId },
+						},
+					}).queryKey,
+				});
+				// Removal lands as an auto-approved filing in the filings history.
+				await queryClient.invalidateQueries({
+					queryKey: api.queryOptions("get", "/airside/filings", {
+						params: {
+							query: { providerCompanyId: model.providerCompanyId },
+						},
+					}).queryKey,
+				});
+				toast.success(`Region '${entry.region}' removed.`);
+			},
+			onError: (error) => {
+				toast.error(
+					(error as { message?: string })?.message ??
+						"Failed to remove the region",
+				);
+			},
+		},
+	);
+
+	const removable = model.status === "active" && !model.pendingFiling;
+
+	return (
+		<span
+			className="border-border inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-xs"
+			title={`${formatPerMillion(entry.inputPrice)} in · ${formatPerMillion(entry.outputPrice)} out`}
+		>
+			{entry.region}
+			{removable ? (
+				confirming ? (
+					<button
+						type="button"
+						className="text-destructive font-semibold"
+						disabled={removeRegion.isPending}
+						data-testid={`confirm-remove-region-${model.modelName}-${entry.region}`}
+						onBlur={() => setConfirming(false)}
+						onClick={() =>
+							removeRegion.mutate({
+								params: { path: { id: model.id, region: entry.region } },
+							})
+						}
+					>
+						remove?
+					</button>
+				) : (
+					<button
+						type="button"
+						aria-label={`Remove region ${entry.region}`}
+						className="text-muted-foreground hover:text-destructive"
+						data-testid={`remove-region-${model.modelName}-${entry.region}`}
+						onClick={() => setConfirming(true)}
+					>
+						<X className="size-3" />
+					</button>
+				)
+			) : null}
+		</span>
+	);
+}
 
 function DeleteModelButton({ model }: { model: AirsideModel }) {
 	const api = useApi();
@@ -122,7 +211,17 @@ export default function FleetPage() {
 		{
 			params: { query: { providerCompanyId: company?.id ?? "" } },
 		},
-		{ enabled: !!company },
+		{
+			enabled: !!company,
+			refetchInterval: (query) =>
+				query.state.data?.models.some(
+					(model) =>
+						model.latestVerification?.status === "queued" ||
+						model.latestVerification?.status === "running",
+				)
+					? 1_000
+					: false,
+		},
 	);
 
 	const importModels = api.useMutation("post", "/airside/models/import", {
@@ -331,7 +430,24 @@ export default function FleetPage() {
 													<Stamp className="size-3" />
 													{model.pendingFiling.kind === "initial"
 														? "Awaiting clearance"
-														: "Fare filed"}
+														: model.pendingFiling.kind === "metadata"
+															? "Change filed"
+															: "Fare filed"}
+												</Badge>
+											) : null}
+											{model.latestVerification ? (
+												<Badge
+													variant={
+														model.latestVerification.status === "passed"
+															? "success"
+															: model.latestVerification.status === "failed"
+																? "destructive"
+																: "pending"
+													}
+													title={model.latestVerification.summary ?? undefined}
+												>
+													<ShieldCheck className="size-3" />
+													Verification {model.latestVerification.status}
 												</Badge>
 											) : null}
 										</div>
@@ -340,6 +456,23 @@ export default function FleetPage() {
 												<span>{model.displayName}</span>
 											) : null}
 											<span className="font-mono">{model.providerId}</span>
+											{model.externalId !== model.modelName ? (
+												<span
+													className="font-mono"
+													title="Upstream model ID sent to your API"
+												>
+													↗ {model.externalId}
+												</span>
+											) : null}
+											<span className="font-mono">
+												{model.apiFormat === "openai-chat-completions"
+													? "Chat Completions"
+													: model.apiFormat === "openai-responses"
+														? "Responses API"
+														: model.apiFormat === "google-vertex"
+															? "Vertex API"
+															: "Carrier default"}
+											</span>
 											{model.contextSize ? (
 												<span className="font-mono">
 													{Math.round(model.contextSize / 1000)}k ctx
@@ -362,10 +495,30 @@ export default function FleetPage() {
 													out
 												</span>
 											</div>
+											{model.currentPricing?.regionPrices?.length ? (
+												<div className="mt-1 flex flex-wrap justify-end gap-1">
+													{model.currentPricing.regionPrices.map((entry) => (
+														<RegionFareChip
+															key={entry.region}
+															model={model}
+															entry={entry}
+														/>
+													))}
+												</div>
+											) : null}
 										</div>
 										<div className="flex items-center gap-1">
 											{model.status !== "delisted" ? (
 												<>
+													<VerifyModelDialog model={model}>
+														<Button
+															size="sm"
+															variant="outline"
+															data-testid={`verify-${model.modelName}`}
+														>
+															<ShieldCheck className="size-3.5" /> Verify
+														</Button>
+													</VerifyModelDialog>
 													<FileFareDialog model={model}>
 														<Button
 															size="sm"

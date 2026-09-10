@@ -7,6 +7,7 @@ import {
 	projectHourlySourceStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
+	apiKeyHourlySourceStats,
 	providerKeyHourlyStats,
 	apiKey,
 	sql,
@@ -62,14 +63,15 @@ function sumLogMoney(column: AnyColumn, alias: string) {
 }
 
 /**
- * Gateway margin earned on Airside-carrier traffic: SUM(cost * the margin
- * percent snapshotted onto the log row at request time). Rows without a
- * snapshot (provider has no routing settings) contribute nothing. Only the
- * provider-keyed stats tables carry this column, so it is not part of
+ * Gateway margin earned on platform-paid Airside traffic: SUM(cost * the
+ * margin percent snapshotted onto the log row at request time). BYOK requests
+ * pay the provider directly, cache hits incur no second provider charge, and
+ * rows without a snapshot contribute nothing.
+ * Only the provider-keyed stats tables carry this column, so it is not part of
  * getBaseAggregationFields().
  */
 export function providerMarginAmountField() {
-	return sql<number>`coalesce(sum(cast(${log.cost} as double precision) * ${log.providerMarginPercent}), 0)`.as(
+	return sql<number>`coalesce(sum(case when ${log.usedMode} = 'credits' and ${log.cached} is not true then cast(${log.cost} as double precision) * ${log.providerMarginPercent} else 0 end), 0)`.as(
 		"providerMarginAmount",
 	);
 }
@@ -473,6 +475,55 @@ async function recalculateApiKeyHourlyModelStats(
 	}
 }
 
+export async function recalculateApiKeyHourlySourceStats(
+	projectId: string,
+	hourTimestamp: string,
+) {
+	const database = db;
+
+	const apiKeySourceStats = await database
+		.select({
+			apiKeyId: log.apiKeyId,
+			source: sql<string>`coalesce(${log.source}, 'unknown')`.as("source"),
+			...getCommonAggregationFields(),
+		})
+		.from(log)
+		.innerJoin(apiKey, eq(apiKey.id, log.apiKeyId))
+		.where(
+			and(
+				sql`${log.projectId} = ${projectId}`,
+				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
+				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+				inArray(apiKey.keyType, ["user", "end_user_customer"]),
+			),
+		)
+		.groupBy(log.apiKeyId, sql`coalesce(${log.source}, 'unknown')`);
+
+	for (const stat of apiKeySourceStats) {
+		const { apiKeyId, source, ...statsFields } = stat;
+		await database
+			.insert(apiKeyHourlySourceStats)
+			.values({
+				apiKeyId,
+				projectId,
+				hourTimestamp: sql`${hourTimestamp}::timestamp`,
+				source,
+				...statsFields,
+			})
+			.onConflictDoUpdate({
+				target: [
+					apiKeyHourlySourceStats.apiKeyId,
+					apiKeyHourlySourceStats.hourTimestamp,
+					apiKeyHourlySourceStats.source,
+				],
+				set: {
+					...statsFields,
+					updatedAt: new Date(),
+				},
+			});
+	}
+}
+
 /**
  * Aggregation fields for provider-key spend. Deliberately a small subset of
  * {@link getCommonAggregationFields}: this table exists to answer "what did
@@ -579,6 +630,7 @@ async function recalculateBucket(projectId: string, hourTimestamp: string) {
 	await recalculateProjectHourlySourceStats(projectId, hourTimestamp);
 	await recalculateApiKeyHourlyStats(projectId, hourTimestamp);
 	await recalculateApiKeyHourlyModelStats(projectId, hourTimestamp);
+	await recalculateApiKeyHourlySourceStats(projectId, hourTimestamp);
 	await recalculateProviderKeyHourlyStats(projectId, hourTimestamp);
 }
 

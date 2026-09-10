@@ -14,7 +14,6 @@ import { swrWrap } from "@llmgateway/cache";
 import {
 	and,
 	asc,
-	desc,
 	eq,
 	getTableName,
 	gte,
@@ -41,10 +40,10 @@ import {
 	organization as organizationTable,
 	project as projectTable,
 	computeAirsideAdjustment,
+	model as modelTable,
+	modelProviderMapping as modelProviderMappingTable,
 	providerClaim as providerClaimTable,
-	providerDraftModel as providerDraftModelTable,
 	providerRoutingSettings as providerRoutingSettingsTable,
-	providerPriceFiling as providerPriceFilingTable,
 	providerKey as providerKeyTable,
 	routingScoreMultiplier as routingScoreMultiplierTable,
 	user as userTable,
@@ -54,6 +53,7 @@ import {
 	wallet as walletTable,
 } from "@llmgateway/db";
 import { getRegionScopedDefaultRegion } from "@llmgateway/models";
+import { isProjectScopedRole } from "@llmgateway/shared/organization-roles";
 
 import {
 	getApiKeyFingerprint,
@@ -95,8 +95,12 @@ type Organization = InferSelectModel<typeof organization>;
 type Project = InferSelectModel<typeof project>;
 type ProviderKey = InferSelectModel<typeof providerKey>;
 export interface AirsideListedModel {
-	model: InferSelectModel<typeof providerDraftModelTable>;
-	pricing: InferSelectModel<typeof providerPriceFilingTable>;
+	model: InferSelectModel<typeof modelTable>;
+	/** The canonical region-NULL row. */
+	mapping: InferSelectModel<typeof modelProviderMappingTable>;
+	/** Regional price rows of the same pair. Optional so cache entries written
+	 *  before regional pricing existed stay readable. */
+	regionMappings?: InferSelectModel<typeof modelProviderMappingTable>[];
 }
 type User = InferSelectModel<typeof user>;
 type UserOrganization = InferSelectModel<typeof userOrganization>;
@@ -118,12 +122,12 @@ const organizationTeamProjectTableName = getTableName(
 const projectTableName = getTableName(projectTable);
 const providerKeyTableName = getTableName(providerKeyTable);
 const customModelTableName = getTableName(customModelTable);
+const modelTableName = getTableName(modelTable);
+const modelProviderMappingTableName = getTableName(modelProviderMappingTable);
 const providerClaimTableName = getTableName(providerClaimTable);
 const providerRoutingSettingsTableName = getTableName(
 	providerRoutingSettingsTable,
 );
-const providerDraftModelTableName = getTableName(providerDraftModelTable);
-const providerPriceFilingTableName = getTableName(providerPriceFilingTable);
 const routingScoreMultiplierTableName = getTableName(
 	routingScoreMultiplierTable,
 );
@@ -528,45 +532,64 @@ export async function findCustomModel(
 	return results[0];
 }
 
-/**
- * Find an active Airside-listed model for a catalogue provider, together with
- * its latest approved price filing. This is what makes approved carrier
- * listings routable: a "provider/model" request that misses the static
- * catalogue is resolved here instead.
- */
+/** Group airside mapping rows into listings keyed by their canonical
+ *  region-NULL row; regional price rows ride along on `regionMappings`. */
+function groupAirsideRows(
+	rows: {
+		model: InferSelectModel<typeof modelTable>;
+		mapping: InferSelectModel<typeof modelProviderMappingTable>;
+	}[],
+): AirsideListedModel[] {
+	const listings: AirsideListedModel[] = [];
+	const byPair = new Map<string, AirsideListedModel>();
+	for (const row of rows) {
+		if (row.mapping.region !== null) {
+			continue;
+		}
+		const listing: AirsideListedModel = { ...row, regionMappings: [] };
+		byPair.set(`${row.mapping.modelId}:${row.mapping.providerId}`, listing);
+		listings.push(listing);
+	}
+	for (const row of rows) {
+		if (row.mapping.region === null) {
+			continue;
+		}
+		byPair
+			.get(`${row.mapping.modelId}:${row.mapping.providerId}`)
+			?.regionMappings?.push(row.mapping);
+	}
+	return listings;
+}
+
+/** Find an active Airside-owned canonical mapping. */
 export async function findAirsideModel(
 	providerId: string,
 	modelName: string,
 ): Promise<AirsideListedModel | undefined> {
 	const results = await swrWrap(
 		`airsideModel:${providerId}:${modelName}`,
-		[providerDraftModelTableName, providerPriceFilingTableName],
+		[modelTableName, modelProviderMappingTableName],
 		async () =>
-			await db
-				.select({
-					model: providerDraftModelTable,
-					pricing: providerPriceFilingTable,
-				})
-				.from(providerDraftModelTable)
-				.innerJoin(
-					providerPriceFilingTable,
-					and(
-						eq(
-							providerPriceFilingTable.draftModelId,
-							providerDraftModelTable.id,
+			groupAirsideRows(
+				await db
+					.select({
+						model: modelTable,
+						mapping: modelProviderMappingTable,
+					})
+					.from(modelProviderMappingTable)
+					.innerJoin(
+						modelTable,
+						eq(modelTable.id, modelProviderMappingTable.modelId),
+					)
+					.where(
+						and(
+							eq(modelProviderMappingTable.source, "airside"),
+							eq(modelProviderMappingTable.status, "active"),
+							eq(modelProviderMappingTable.providerId, providerId),
+							eq(modelProviderMappingTable.modelId, modelName),
 						),
-						eq(providerPriceFilingTable.status, "approved"),
 					),
-				)
-				.where(
-					and(
-						eq(providerDraftModelTable.status, "active"),
-						eq(providerDraftModelTable.providerId, providerId),
-						eq(providerDraftModelTable.modelName, modelName),
-					),
-				)
-				.orderBy(desc(providerPriceFilingTable.createdAt))
-				.limit(1),
+			),
 	);
 	return results[0];
 }
@@ -616,87 +639,63 @@ export async function findAirsideCustomProvider(
 	};
 }
 
-/**
- * Active Airside listings for a bare model name across all carriers, newest
- * filing first per listing. /v1/models advertises listings under their bare
- * id, so a prefix-less request must resolve when it is unambiguous.
- */
+/** Active Airside mappings for a bare model name across all carriers. */
 export async function findAirsideModelsByBareName(
 	modelName: string,
 ): Promise<AirsideListedModel[]> {
 	const rows = await swrWrap(
 		`airsideModelByName:${modelName}`,
-		[providerDraftModelTableName, providerPriceFilingTableName],
+		[modelTableName, modelProviderMappingTableName],
 		async () =>
-			await db
-				.select({
-					model: providerDraftModelTable,
-					pricing: providerPriceFilingTable,
-				})
-				.from(providerDraftModelTable)
-				.innerJoin(
-					providerPriceFilingTable,
-					and(
-						eq(
-							providerPriceFilingTable.draftModelId,
-							providerDraftModelTable.id,
+			groupAirsideRows(
+				await db
+					.select({
+						model: modelTable,
+						mapping: modelProviderMappingTable,
+					})
+					.from(modelProviderMappingTable)
+					.innerJoin(
+						modelTable,
+						eq(modelTable.id, modelProviderMappingTable.modelId),
+					)
+					.where(
+						and(
+							eq(modelProviderMappingTable.source, "airside"),
+							eq(modelProviderMappingTable.status, "active"),
+							eq(modelProviderMappingTable.modelId, modelName),
 						),
-						eq(providerPriceFilingTable.status, "approved"),
 					),
-				)
-				.where(
-					and(
-						eq(providerDraftModelTable.status, "active"),
-						eq(providerDraftModelTable.modelName, modelName),
-					),
-				)
-				.orderBy(desc(providerPriceFilingTable.createdAt)),
+			),
 	);
-	// One row per listing: the newest approved filing wins.
-	const byListing = new Map<string, AirsideListedModel>();
-	for (const row of rows) {
-		if (!byListing.has(row.model.id)) {
-			byListing.set(row.model.id, row);
-		}
-	}
-	return Array.from(byListing.values());
+	return rows;
 }
 
-/** Every active Airside listing with its latest approved filing, for the
- *  /v1/models catalogue. Deduped to one row per listing. */
+/** Every active Airside-owned mapping for the /v1/models catalogue. */
 export async function listAirsideModels(): Promise<AirsideListedModel[]> {
 	const rows = await swrWrap(
 		"airsideModels:all",
-		[providerDraftModelTableName, providerPriceFilingTableName],
+		[modelTableName, modelProviderMappingTableName],
 		async () =>
-			await db
-				.select({
-					model: providerDraftModelTable,
-					pricing: providerPriceFilingTable,
-				})
-				.from(providerDraftModelTable)
-				.innerJoin(
-					providerPriceFilingTable,
-					and(
-						eq(
-							providerPriceFilingTable.draftModelId,
-							providerDraftModelTable.id,
+			groupAirsideRows(
+				await db
+					.select({
+						model: modelTable,
+						mapping: modelProviderMappingTable,
+					})
+					.from(modelProviderMappingTable)
+					.innerJoin(
+						modelTable,
+						eq(modelTable.id, modelProviderMappingTable.modelId),
+					)
+					.where(
+						and(
+							eq(modelProviderMappingTable.source, "airside"),
+							eq(modelProviderMappingTable.status, "active"),
 						),
-						eq(providerPriceFilingTable.status, "approved"),
 					),
-				)
-				.where(eq(providerDraftModelTable.status, "active"))
-				.orderBy(desc(providerPriceFilingTable.createdAt)),
+			),
 	);
-	const seen = new Set<string>();
-	const deduped: AirsideListedModel[] = [];
-	for (const row of rows) {
-		if (!seen.has(row.model.id)) {
-			seen.add(row.model.id);
-			deduped.push(row);
-		}
-	}
-	return deduped;
+	return rows;
 }
 
 /** Find every active custom model catalog entry for an organization. */
@@ -1251,7 +1250,7 @@ export async function memberHasEffectiveProjectAccess(
 			if (!membership) {
 				return false;
 			}
-			if (membership.role !== "developer") {
+			if (!isProjectScopedRole(membership.role)) {
 				return true;
 			}
 
@@ -1330,33 +1329,38 @@ export interface EffectiveRoutingScoreMultiplier {
 	multiplierId?: string;
 }
 
-/**
- * Get the internal routing score adjustment for a provider/model combination.
- * The stable SQL shape is cached by Drizzle and the result is mirrored in SWR.
- */
-/**
- * The routing-price adjustment produced by a carrier's own Airside settings
- * (accepted gateway margin + traffic discount). Deliberately separate from
- * routing_score_multiplier, which stays an admin-only prioritization knob —
- * the two combine additively at the scoring seam.
- */
+/** Approved carrier discounts and margins, with model overrides. */
 export async function findAirsideRoutingSettings(
 	provider: string,
+	model?: string,
 ): Promise<{ discountPercent: number; marginPercent: number } | null> {
 	const rows = await swrWrap(
-		`airsideRouting:${provider}`,
+		`airsideRouting:${JSON.stringify([provider, model])}`,
 		[providerRoutingSettingsTableName],
 		async () =>
 			await db
 				.select({
+					modelId: providerRoutingSettingsTable.modelId,
 					discountPercent: providerRoutingSettingsTable.discountPercent,
 					marginPercent: providerRoutingSettingsTable.marginPercent,
 				})
 				.from(providerRoutingSettingsTable)
-				.where(eq(providerRoutingSettingsTable.providerId, provider))
-				.limit(1),
+				.where(
+					and(
+						eq(providerRoutingSettingsTable.providerId, provider),
+						model
+							? or(
+									eq(providerRoutingSettingsTable.modelId, model),
+									isNull(providerRoutingSettingsTable.modelId),
+								)
+							: isNull(providerRoutingSettingsTable.modelId),
+					),
+				),
 	);
-	const row = rows[0];
+	const row =
+		(model
+			? rows.find((candidate) => candidate.modelId === model)
+			: undefined) ?? rows.find((candidate) => candidate.modelId === null);
 	if (!row) {
 		return null;
 	}
@@ -1368,13 +1372,15 @@ export async function findAirsideRoutingSettings(
 
 export async function findAirsideRoutingAdjustment(
 	provider: string,
+	model?: string,
 ): Promise<number> {
-	const settings = await findAirsideRoutingSettings(provider);
+	const settings = await findAirsideRoutingSettings(provider, model);
 	if (!settings) {
 		return 0;
 	}
 	return computeAirsideAdjustment(
-		settings.discountPercent,
+		// The customer discount is already included in the selection price.
+		0,
 		settings.marginPercent,
 	);
 }

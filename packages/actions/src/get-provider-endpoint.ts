@@ -5,6 +5,7 @@ import {
 	type EnvVarVariant,
 	type ProviderDefinition,
 	type ProviderModelMapping,
+	type ProviderApiFormat,
 	type ProviderId,
 	type VertexTokenType,
 	getProviderEnvValue,
@@ -188,13 +189,8 @@ export function getGoogleVertexPublisherModelPath(
 }
 
 /**
- * Static default base URLs for providers whose canonical upstream is a fixed
- * host. Single source of truth for "the provider's default base URL":
- * getProviderEndpoint falls back to these when no key base URL or env
- * override is configured, and service-tier key eligibility compares custom
- * base URLs against them. Providers absent from this map derive their
- * endpoint from env vars, key options (e.g. the Azure resource), or region
- * maps and have no static default.
+ * Static fallback URLs when no key or env override is configured. Providers
+ * absent from this map derive endpoints from env vars, key options, or regions.
  */
 const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	openai: "https://api.openai.com",
@@ -215,6 +211,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	runware: "https://api.runware.ai",
 	moonshot: "https://api.moonshot.ai",
 	meta: "https://api.meta.ai",
+	"meta-contributor": "https://api.meta.ai",
 	nebius: "https://api.tokenfactory.nebius.com",
 	zai: "https://api.z.ai",
 	nanogpt: "https://nano-gpt.com/api",
@@ -267,6 +264,7 @@ export function getProviderEndpoint(
 	modelId?: string,
 	vertexTokenType?: VertexTokenType,
 	variant?: EnvVarVariant,
+	apiFormat?: ProviderApiFormat,
 ): string {
 	let externalId = model;
 	let providerMapping: ProviderModelMapping | undefined;
@@ -649,6 +647,39 @@ export function getProviderEndpoint(
 		throw new Error(`Failed to determine base URL for provider ${provider}`);
 	}
 
+	if (
+		provider === "aws-bedrock" &&
+		(apiFormat === "openai-chat-completions" ||
+			((!apiFormat || apiFormat === "provider-native") &&
+				providerMapping?.apiFormat === "openai-chat-completions"))
+	) {
+		return appendPath(
+			getBedrockMantleBaseUrl(url, region),
+			"/chat/completions",
+		);
+	}
+
+	if (apiFormat === "openai-chat-completions") {
+		return appendPath(url, "/v1/chat/completions");
+	}
+	if (apiFormat === "openai-responses") {
+		return appendPath(url, "/v1/responses");
+	}
+	if (apiFormat === "google-vertex") {
+		return buildVertexCompatibleEndpoint(
+			"google-vertex",
+			url,
+			externalId,
+			token,
+			stream,
+			configIndex,
+			providerKeyOptions,
+			skipEnvVars,
+			vertexTokenType ?? (provider === "google-vertex" ? undefined : "api-key"),
+			variant,
+		);
+	}
+
 	switch (provider) {
 		case "anthropic":
 			return `${url}/v1/messages`;
@@ -807,11 +838,6 @@ export function getProviderEndpoint(
 			}
 			return `${url}/api/paas/v4/chat/completions`;
 		case "aws-bedrock": {
-			if (providerMapping?.apiFormat === "openai-chat-completions") {
-				const mantleBaseUrl = getBedrockMantleBaseUrl(url, region);
-				return appendPath(mantleBaseUrl, "/chat/completions");
-			}
-
 			const awsRegionPrefix = region
 				? (
 						providers.find((p) => p.id === "aws-bedrock") as
@@ -993,13 +1019,14 @@ export function getProviderEndpoint(
 		case "llmgateway":
 		case "groq":
 		case "cerebras":
+		case "meta-contributor":
 		case "meta": {
 			// Muse Spark only exposes reasoning (as summaries) through the
 			// Responses API — Chat Completions redacts reasoning_content entirely.
 			if (model) {
 				const modelDef = models.find((m) => m.id === (modelId ?? model));
 				const providerMapping = modelDef?.providers.find(
-					(p) => p.providerId === "meta",
+					(p) => p.providerId === provider,
 				);
 				const supportsResponsesApi =
 					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===

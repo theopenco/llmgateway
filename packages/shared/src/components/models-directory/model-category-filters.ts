@@ -35,6 +35,7 @@ export const curatedCategoryModelIds: Record<
 		"deepseek-v3.2",
 		"deepseek-v4-pro",
 		"deepseek-v4-flash",
+		"deepseek-v4.1-flash",
 		"grok-4-1-fast-non-reasoning",
 		"grok-4-3",
 		"kimi-k2",
@@ -86,6 +87,7 @@ export const curatedCategoryModelIds: Record<
 		"devstral-2512",
 		"devstral-small-2507",
 		"deepseek-v4-pro",
+		"deepseek-v4.1-flash",
 		"deepseek-v3.2",
 		"glm-5.2",
 		"glm-5.1",
@@ -128,6 +130,7 @@ export const curatedCategoryModelIds: Record<
 		"qwen3.7-plus",
 		"qwen3-235b-a22b-instruct-2507",
 		"deepseek-v4-flash",
+		"deepseek-v4.1-flash",
 		"mistral-large-2512",
 		"seed-1-8-251228",
 		"gemma-4-31b-it",
@@ -204,6 +207,9 @@ export const OPEN_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 export const CLOSED_SOURCE_MODEL_IDS: ReadonlySet<string> = new Set([
 	"muse-spark-1.1",
 	"muse-spark-1.2",
+	"muse-spark-1.2-contributor",
+	"muse-spark-1.3",
+	"muse-spark-1.3-contributor",
 	// API-only at launch; no open weights published (unlike the K2 family)
 	"kimi-k3",
 ]);

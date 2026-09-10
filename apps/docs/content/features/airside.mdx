@@ -6,8 +6,6 @@ icon: PlaneTakeoff
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-# Airside for Providers
-
 [Airside](https://airside.llmgateway.io) is the self-serve console for the companies behind the models — the [providers](https://llmgateway.io/providers) LLM Gateway routes to. It runs on an airport metaphor: LLM Gateway is the airport, developers are passengers, and providers are **carriers**. As a carrier you claim your provider, register your fleet of models, file your fares, and watch traffic arrive.
 
 ## Claiming your carrier
@@ -39,7 +37,7 @@ Listed prices are what developers are billed, so pricing never changes silently:
 - The **initial** filing sets the launch pricing and activates the model on approval.
 - Every later price change is an **update** filing — drafted by you, approved by the LLM Gateway team, and only then in effect.
 
-A filing covers input, output, optional cached-input, and optional per-request prices (USD per token, decimal or exponent notation), plus a note for the reviewer. The latest approved filing is the model's effective price; pending and rejected filings are tracked under **Filings**.
+A filing covers input, output, optional cached-input, and optional per-request prices (USD per token, decimal or exponent notation), plus a note for the reviewer. It can also carry **regional fares** — per-region price overrides developers reach with `<provider>/<model>:<region>`, while all other traffic pays the default fares. Each approved filing's regional set fully replaces the previous one, and while no filing is pending a region can be dropped from the Fleet page — removing an offering changes no price, so it applies immediately without review. The latest approved filing is the model's effective price; pending and rejected filings are tracked under **Filings**.
 
 ## Routing and billing
 

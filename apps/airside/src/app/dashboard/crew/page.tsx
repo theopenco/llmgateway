@@ -56,8 +56,8 @@ export default function CrewPage() {
 			setEmail("");
 			toast.success(
 				data.member
-					? `${data.member.email} joined the crew.`
-					: `Invite recorded — ${data.invite?.email} joins the crew the first time they sign in here.`,
+					? `${data.member.email} joined the crew and was notified by email.`
+					: `Invitation sent to ${data.invite?.email}.`,
 			);
 		},
 		onError: (error) => {
@@ -154,7 +154,8 @@ export default function CrewPage() {
 						<CardDescription>
 							Invites are limited to your team's domains. Teammates with an
 							account join instantly; anyone else joins the first time they sign
-							in here with the invited address.
+							in here with the invited address. Everyone receives an invitation
+							email.
 						</CardDescription>
 					</CardHeader>
 					<CardContent>

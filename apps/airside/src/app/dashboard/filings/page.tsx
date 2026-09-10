@@ -110,7 +110,11 @@ export default function FilingsPage() {
 											{filing.modelName}
 										</TableCell>
 										<TableCell>
-											{filing.kind === "initial" ? "Listing" : "Fare change"}
+											{filing.kind === "initial"
+												? "Listing"
+												: filing.kind === "metadata"
+													? "Metadata change"
+													: "Fare change"}
 										</TableCell>
 										<TableCell className="text-right font-mono">
 											{formatPerMillion(filing.inputPrice)}

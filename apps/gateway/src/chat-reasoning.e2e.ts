@@ -16,6 +16,8 @@ import {
 	validateResponse,
 } from "@/chat-helpers.e2e.js";
 
+import { createReasoningVerificationRequest } from "@llmgateway/actions";
+
 import type { ProviderModelMapping } from "@llmgateway/models";
 
 describe("e2e", getConcurrentTestOptions(), () => {
@@ -40,20 +42,12 @@ describe("e2e", getConcurrentTestOptions(), () => {
 					"x-no-fallback": "true",
 					Authorization: `Bearer real-token`,
 				},
-				body: JSON.stringify({
-					model: model,
-					messages: [
-						{
-							role: "system",
-							content: "You are a helpful assistant.",
-						},
-						{
-							role: "user",
-							content: "What is 2/3 + 1/4 + 5/6?",
-						},
-					],
-					reasoning_effort: getSupportedReasoningEffort(providers),
-				}),
+				body: JSON.stringify(
+					createReasoningVerificationRequest(
+						model,
+						getSupportedReasoningEffort(providers),
+					),
+				),
 			});
 
 			const json = await res.json();

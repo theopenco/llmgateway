@@ -15,14 +15,14 @@ import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "AI Image Generator — DALL·E, Flux, Stable Diffusion",
+	title: "AI Image Generator — Compare Models",
 	description:
-		"Generate images with DALL-E, Stable Diffusion, Flux, and other AI models. Compare outputs across providers in one playground.",
+		"Generate images from text prompts, compare supported image models, and save results in Lounge. One account for image generation and AI chat.",
 	alternates: { canonical: "/image" },
 	openGraph: {
-		title: "AI Image Generator — DALL·E, Flux, Stable Diffusion | Lounge",
+		title: "AI Image Generator — Compare Models | Lounge",
 		description:
-			"Generate images with DALL-E, Stable Diffusion, Flux, and other AI models. Compare outputs across providers in one playground.",
+			"Generate images from text prompts, compare supported image models, and save results in Lounge. One account for image generation and AI chat.",
 		type: "website",
 		url: "https://lounge.llmgateway.io/image",
 	},
@@ -97,6 +97,10 @@ export default async function ImagePage({
 		organizations[0] ??
 		null;
 
+	if (!selectedOrganization) {
+		return <PlaygroundSeoSection variant="image" />;
+	}
+
 	if (!initialProjectsData && selectedOrganization?.id) {
 		try {
 			initialProjectsData = (await fetchServerData(
@@ -144,7 +148,6 @@ export default async function ImagePage({
 					projectId={selectedProject.id}
 				/>
 			) : null}
-			<PlaygroundSeoSection variant="image" />
 			<ImagePageClient
 				models={models}
 				providers={providers}

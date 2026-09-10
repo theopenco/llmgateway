@@ -3,7 +3,14 @@ import { HTTPException } from "hono/http-exception";
 
 import { airsideListingToModelDefinition } from "@/chat/tools/resolve-airside-model.js";
 import { listAirsideModels } from "@/lib/cached-queries.js";
-import { publicErrorResponses } from "@/lib/error-schemas.js";
+import {
+	rateLimitHeaders,
+	standardErrorResponses,
+} from "@/lib/error-schemas.js";
+import {
+	filterAccessibleModels,
+	getModelsAccess,
+} from "@/models/model-access.js";
 
 import { logger, toError } from "@llmgateway/logger";
 import {
@@ -14,6 +21,7 @@ import {
 } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
+import type { RouteConfig } from "@hono/zod-openapi";
 
 export const modelsApi = new OpenAPIHono<ServerTypes>();
 
@@ -143,14 +151,26 @@ const listModelsResponseSchema = z.object({
 	data: z.array(modelSchema),
 });
 
+const modelsSecurity: RouteConfig["security"] = [{}, { bearerAuth: [] }];
+
 const listModels = createRoute({
 	operationId: "v1_models",
 	summary: "Models",
-	description: "List all available models",
+	description:
+		"List the public model catalogue without authentication. With an API key, return only models and provider mappings allowed by its organization compliance policy, IAM rules, and project access, including accessible custom models. Set include_restricted=true to return the public catalogue regardless of these restrictions.",
+	security: modelsSecurity,
 	method: "get",
 	path: "/",
 	request: {
 		query: z.object({
+			include_restricted: z
+				.string()
+				.optional()
+				.transform((val) => val === "true")
+				.describe(
+					"Return the public catalogue instead of the authenticated caller's accessible models. Other query filters still apply. Does not grant permission to call restricted models or include private custom models.",
+				)
+				.openapi({ example: "false" }),
 			include_deactivated: z
 				.string()
 				.optional()
@@ -183,6 +203,7 @@ const listModels = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: listModelsResponseSchema,
@@ -190,12 +211,14 @@ const listModels = createRoute({
 			},
 			description: "List of available models",
 		},
-		...publicErrorResponses(),
+		...standardErrorResponses(),
 	},
 });
 
 modelsApi.openapi(listModels, async (c): Promise<any> => {
 	try {
+		c.header("Vary", "Authorization, x-api-key", { append: true });
+		const access = await getModelsAccess(c);
 		const query = c.req.valid("query");
 		const includeDeactivated = query.include_deactivated || false;
 		const excludeDeprecated = query.exclude_deprecated || false;
@@ -210,11 +233,8 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 				.map((p) => p.id),
 		);
 
-		// Approved Airside listings join the catalogue dynamically, merged by
-		// model id so a listing never duplicates a static entry. An ACTIVE
-		// static mapping for the same provider wins (mirroring the routing
-		// rule); with only deactivated static mappings, the Airside mapping is
-		// appended to the existing model — the catalogue → DB migration case.
+		// Airside-owned canonical mappings join the static model metadata. The
+		// materialized row is authoritative for its provider/model pair.
 		const airsideDefinitions = (await listAirsideModels()).map(
 			(listed) => airsideListingToModelDefinition(listed).modelInfo,
 		);
@@ -238,22 +258,15 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 			}
 			const existing = allCatalogueModels[existingIndex];
 			const airsideMapping = airsideModel.providers[0];
-			const staticHasActive = existing.providers.some((provider) => {
-				if (provider.providerId !== airsideMapping.providerId) {
-					return false;
-				}
-				const deactivatedAt =
-					"deactivatedAt" in provider
-						? (provider.deactivatedAt as Date | string | undefined)
-						: undefined;
-				return !(deactivatedAt && new Date(deactivatedAt) <= currentDate);
-			});
-			if (!staticHasActive) {
-				allCatalogueModels[existingIndex] = {
-					...existing,
-					providers: [...existing.providers, airsideMapping],
-				} as ModelDefinition;
-			}
+			allCatalogueModels[existingIndex] = {
+				...existing,
+				providers: [
+					...existing.providers.filter(
+						(provider) => provider.providerId !== airsideMapping.providerId,
+					),
+					airsideMapping,
+				],
+			} as ModelDefinition;
 		}
 
 		// Filter models based on deactivation and deprecation status of their provider mappings
@@ -289,7 +302,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 
 		// When requested, keep only provider mappings whose provider does not
 		// train on API data, and drop models left with no eligible mappings.
-		const filteredModels = noTraining
+		let filteredModels = noTraining
 			? deactivationFilteredModels
 					.map((model: ModelDefinition) => ({
 						...model,
@@ -299,6 +312,16 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 					}))
 					.filter((model) => model.providers.length > 0)
 			: deactivationFilteredModels;
+
+		if (access && !query.include_restricted) {
+			filteredModels = await filterAccessibleModels(filteredModels, access, {
+				mapped,
+				noTraining,
+				includeDeactivated,
+				excludeDeprecated,
+				currentDate,
+			});
+		}
 
 		// Mapped view: one entry per provider mapping, addressed the way the
 		// gateway accepts provider-pinned requests (`provider/model-id`). The
@@ -352,7 +375,10 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 						)[] = model.output ?? ["text"];
 
 						return {
-							id: `${provider.providerId}/${model.id}`,
+							id:
+								provider.providerId === "custom"
+									? model.id
+									: `${provider.providerId}/${model.id}`,
 							name,
 							display_name: name,
 							aliases: model.aliases?.map(
@@ -497,6 +523,9 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 
 		return c.json({ data: modelData });
 	} catch (error) {
+		if (error instanceof HTTPException) {
+			throw error;
+		}
 		logger.error("Error in models endpoint", toError(error));
 		throw new HTTPException(500, { message: "Internal server error" });
 	}

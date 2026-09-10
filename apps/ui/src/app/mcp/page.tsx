@@ -3,13 +3,13 @@ import { HeroRSC } from "@/components/landing/hero-rsc";
 import { McpContent } from "@/components/mcp/mcp-content";
 
 export const metadata = {
-	title: "MCP Server — 200+ Models for Claude Code & Cursor",
+	title: "MCP Server — Usage, Costs & Model Access",
 	description:
-		"Use LLM Gateway as an MCP server for Claude Code, Cursor, and other AI assistants. Access 200+ models from OpenAI, Anthropic, Google, and more.",
+		"Connect your AI assistant to LLM Gateway. Track usage and costs, find your most-used models, providers and coding apps, and generate text or images.",
 	openGraph: {
-		title: "MCP Server — 200+ Models for Claude Code & Cursor",
+		title: "LLM Gateway MCP Server — Usage, Costs & Model Access",
 		description:
-			"Use LLM Gateway as an MCP server for Claude Code, Cursor, and other AI assistants. Access 200+ models from OpenAI, Anthropic, Google, and more.",
+			"Connect your AI assistant to LLM Gateway. Track usage and costs, find your most-used models, providers and coding apps, and generate text or images.",
 	},
 };
 
@@ -21,12 +21,12 @@ export default function McpPage() {
 				<div className="container mx-auto px-4 sm:px-6 lg:px-8">
 					<div className="mx-auto max-w-2xl text-center mb-16">
 						<h1 className="mb-4 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
-							MCP Server
+							LLM Gateway MCP Server
 						</h1>
 						<p className="text-lg text-muted-foreground leading-relaxed">
-							Connect your AI assistant to 200+ LLM models through the Model
-							Context Protocol. Works with Claude Code, Cursor, and any
-							MCP-compatible client.
+							Ask your AI assistant about your usage, costs, and most-used
+							models, providers, and coding apps. Generate text and images
+							through the same MCP connection.
 						</p>
 					</div>
 					<McpContent />

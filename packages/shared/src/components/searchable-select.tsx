@@ -14,7 +14,11 @@ import {
 	CommandItem,
 	CommandList,
 } from "./ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import {
+	DialogSafePopover,
+	PopoverContent,
+	PopoverTrigger,
+} from "./ui/popover";
 
 import type { ReactNode } from "react";
 
@@ -55,8 +59,8 @@ export interface SearchableSelectProps {
  * the dialog's scroll lock. `react-remove-scroll` then calls `preventDefault`
  * on every wheel event over the list and the options cannot be scrolled at all
  * — only keyboard navigation and search work, which is easy to miss in review.
- * Passing `modal` to the Popover gives it its own scroll lock that whitelists
- * its content, and that is baked in here so every caller gets it.
+ * `DialogSafePopover` gives it its own scroll lock that whitelists its content,
+ * and that is baked in here so every caller gets it.
  */
 export function SearchableSelect({
 	value,
@@ -75,7 +79,7 @@ export function SearchableSelect({
 	const selected = options.find((option) => option.value === value);
 
 	return (
-		<Popover open={open} onOpenChange={setOpen} modal>
+		<DialogSafePopover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger asChild>
 				<Button
 					id={id}
@@ -137,6 +141,6 @@ export function SearchableSelect({
 					</CommandList>
 				</Command>
 			</PopoverContent>
-		</Popover>
+		</DialogSafePopover>
 	);
 }

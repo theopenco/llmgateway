@@ -99,7 +99,26 @@ export async function syncProvidersAndModels() {
 
 			if (modelDef.providers && modelDef.providers.length > 0) {
 				const expandedProviders = expandAllProviderRegions(modelDef.providers);
+				// An Airside listing owns every row of its (model, provider) pair —
+				// regional variants included — so sync must not re-create catalogue
+				// rows next to it.
+				const airsideOwnedProviderIds = new Set(
+					(
+						await database
+							.select({ providerId: modelProviderMapping.providerId })
+							.from(modelProviderMapping)
+							.where(
+								and(
+									eq(modelProviderMapping.modelId, modelDef.id),
+									eq(modelProviderMapping.source, "airside"),
+								),
+							)
+					).map((row) => row.providerId),
+				);
 				for (const mapping of expandedProviders) {
+					if (airsideOwnedProviderIds.has(mapping.providerId)) {
+						continue;
+					}
 					const mappingRegion = mapping.region;
 					const existingMapping = (
 						await database
@@ -118,12 +137,19 @@ export async function syncProvidersAndModels() {
 					)[0];
 
 					if (existingMapping) {
+						// An approved Airside filing owns this canonical row until the
+						// listing is delisted. Catalogue sync must not overwrite it.
+						if (existingMapping.source === "airside") {
+							continue;
+						}
 						// Use null (not undefined) for missing fields to ensure DB is updated
 						// undefined in Drizzle means "don't update", null means "set to NULL"
 						await database
 							.update(modelProviderMapping)
 							.set({
 								externalId: mapping.externalId,
+								apiFormat:
+									"apiFormat" in mapping ? (mapping.apiFormat ?? null) : null,
 								region: mappingRegion ?? null,
 								inputPrice:
 									"inputPrice" in mapping && mapping.inputPrice !== undefined
@@ -163,6 +189,7 @@ export async function syncProvidersAndModels() {
 								maxOutput: "maxOutput" in mapping ? mapping.maxOutput : null,
 								streaming: mapping.streaming === false ? false : true,
 								vision: "vision" in mapping ? mapping.vision : null,
+								audio: "audio" in mapping ? mapping.audio : null,
 								reasoning: "reasoning" in mapping ? mapping.reasoning : null,
 								reasoningMaxTokens:
 									"reasoningMaxTokens" in mapping
@@ -214,6 +241,7 @@ export async function syncProvidersAndModels() {
 							modelId: modelDef.id,
 							providerId: mapping.providerId,
 							externalId: mapping.externalId,
+							apiFormat: "apiFormat" in mapping ? mapping.apiFormat : undefined,
 							region: mappingRegion ?? undefined,
 							inputPrice:
 								"inputPrice" in mapping && mapping.inputPrice !== undefined
@@ -252,6 +280,7 @@ export async function syncProvidersAndModels() {
 							maxOutput: "maxOutput" in mapping ? mapping.maxOutput : undefined,
 							streaming: mapping.streaming === false ? false : true,
 							vision: "vision" in mapping ? mapping.vision : undefined,
+							audio: "audio" in mapping ? mapping.audio : undefined,
 							reasoning: "reasoning" in mapping ? mapping.reasoning : undefined,
 							reasoningMaxTokens:
 								"reasoningMaxTokens" in mapping

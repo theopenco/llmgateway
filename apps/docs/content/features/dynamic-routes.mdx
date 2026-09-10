@@ -6,8 +6,6 @@ icon: Workflow
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-# Dynamic Routes
-
 Dynamic routes let you move routing logic out of your application code and into the gateway. Instead of hardcoding a model, you define a named decision graph — conditions on the request, percentage-based traffic splits, and model targets — and invoke it by putting `dynamic/<name>` in the `model` field of any OpenAI-compatible request:
 
 ```bash

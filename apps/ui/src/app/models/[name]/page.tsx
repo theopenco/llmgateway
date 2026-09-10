@@ -35,7 +35,7 @@ import { ModelUsageStats } from "@/components/models/model-usage-stats";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { RelatedModels } from "@/components/models/related-models";
 import { JsonLd } from "@/components/seo/json-ld";
-import { findDynamicModelDefinition } from "@/lib/airside-model-fallback";
+import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
 import {
 	applyDiscount,
@@ -53,7 +53,6 @@ import {
 	providers as providerDefinitions,
 	expandAllProviderRegions,
 	type StabilityLevel,
-	type ModelDefinition,
 } from "@llmgateway/models";
 import {
 	formatPerUnitPrice,
@@ -73,15 +72,22 @@ export default async function ModelPage({ params }: PageProps) {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
 
-	// Static catalogue first; Airside listings are DB-only, so fall back to
-	// the API-backed catalogue before 404ing.
-	const modelDef =
-		(modelDefinitions.find((m) => m.id === decodedName) as ModelDefinition) ??
-		(await findDynamicModelDefinition(decodedName));
+	// Fetchers resolve to fallbacks, so an early notFound can leave them pending.
+	const modelDefPromise = findPublicModelDefinition(decodedName);
+	const pageDataPromise = Promise.all([
+		fetchModelDiscounts(decodedName),
+		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
+			params: { query: { modelId: decodedName } },
+		}),
+		fetchProviders(),
+	]);
+	const modelDef = await modelDefPromise;
 
 	if (!modelDef) {
 		notFound();
 	}
+
+	const [allDiscounts, ratingsData, apiProviders] = await pageDataPromise;
 
 	const getStabilityBadgeProps = (stability?: StabilityLevel) => {
 		switch (stability) {
@@ -112,15 +118,8 @@ export default async function ModelPage({ params }: PageProps) {
 		return stability && ["unstable", "experimental"].includes(stability);
 	};
 
-	const [allDiscounts, ratingsData] = await Promise.all([
-		fetchModelDiscounts(decodedName),
-		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
-			params: { query: { modelId: decodedName } },
-		}),
-	]);
 	// Carrier-uploaded branding (Airside claims) overlays the static provider
 	// info, and is the only provider info a DB-only carrier has.
-	const apiProviders = await fetchProviders().catch(() => []);
 	const expandedProviders = expandAllProviderRegions(modelDef.providers);
 	const modelProviders = expandedProviders.map((provider) => {
 		const providerInfo = providerDefinitions.find(
@@ -737,10 +736,7 @@ export async function generateMetadata({
 }: PageProps): Promise<Metadata> {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
-	const model =
-		modelDefinitions.find((m) => m.id === decodedName) ??
-		((await findDynamicModelDefinition(decodedName)) as
-			ModelDefinition | undefined);
+	const model = await findPublicModelDefinition(decodedName);
 
 	if (!model) {
 		return {};
@@ -754,12 +750,7 @@ export async function generateMetadata({
 			: (model.description ?? pitch);
 
 	const primaryProvider = model.providers[0]?.providerId || "default";
-	// Per-model OG cards are prerendered from the static catalogue only
-	// (dynamicParams=false keeps satori out of request time), so DB-only
-	// models advertise the site card instead of a 404ing image URL.
-	const ogImageUrl = modelDefinitions.some((m) => m.id === decodedName)
-		? `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`
-		: "/opengraph.png";
+	const ogImageUrl = `/models/${encodeURIComponent(decodedName)}/${encodeURIComponent(primaryProvider)}/opengraph-image`;
 	const canonical = `https://llmgateway.io/models/${encodeURIComponent(decodedName)}`;
 
 	return {

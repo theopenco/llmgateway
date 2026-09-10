@@ -107,7 +107,7 @@ const JSON_LD = [
 		name: "Airside by LLM Gateway",
 		url: SITE_URL,
 		description:
-			"The self-serve console for LLM providers. Claim your carrier, register your fleet, file your fares, and win traffic on LLM Gateway.",
+			"Airside is the self-service provider portal for LLM Gateway. Verify your domain, submit models and pricing for approval, and track routed traffic.",
 		inLanguage: "en",
 		publisher: { "@id": "https://llmgateway.io#organization" },
 	},
@@ -168,9 +168,9 @@ export default function LandingPage() {
 								Put your models on the departure board.
 							</h1>
 							<p className="text-muted-foreground mt-6 max-w-xl text-lg text-pretty">
-								LLM Gateway routes developer traffic across model providers.
-								Airside is where providers run the airline: claim your carrier,
-								register your fleet, file your fares — and win routes.
+								Airside is the self-service provider portal for LLM Gateway.
+								List your LLM API, submit models and pricing for approval, and
+								track the developer traffic routed to your service.
 							</p>
 							<div className="mt-8 flex flex-wrap items-center gap-3">
 								<Button asChild size="lg" className="font-semibold">

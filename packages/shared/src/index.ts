@@ -177,9 +177,21 @@ export {
 } from "./random.js";
 
 export {
+	createEmptyProviderModelsByKind,
 	getModelIdsByProvider,
+	getModelIdsByProviderAndKind,
+	getProviderModelKind,
 	getProviderModelIds,
+	PROVIDER_MODEL_KINDS,
+	type ProviderModelKind,
+	type ProviderModelsByKind,
 } from "./provider-model-ids.js";
+
+export {
+	getModelImageConfig,
+	GPT_IMAGE_SIZES,
+	type AspectRatio,
+} from "./image-generation-config.js";
 
 export {
 	addCalendarDays,
@@ -209,7 +221,12 @@ export {
 	LOUNGE_SOURCE,
 } from "./lounge-source.js";
 
-export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
+export {
+	getActiveProviderPromo,
+	MARKETING_STATS,
+	RUNWARE_PROMO,
+	SCX_PROMO,
+} from "./marketing.js";
 
 export {
 	deriveStabilityMetrics,
@@ -362,3 +379,13 @@ export {
 
 export * from "./components/ui/index.js";
 export { discountFraction, isValidDiscount } from "./lib/discount.js";
+export {
+	mcpAccountSchema,
+	mcpUsageInputSchema,
+	mcpUsageBreakdownInputSchema,
+	mcpUsageSchema,
+	mcpUsageBreakdownSchema,
+	type McpUsageInput,
+	type McpUsageBreakdownInput,
+	type McpUsageScope,
+} from "./mcp-usage.js";

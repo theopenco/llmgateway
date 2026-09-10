@@ -6,6 +6,7 @@ import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import { listedProviders } from "@/lib/providers-catalog";
 
 import { providers as providerDefinitions } from "@llmgateway/models";
+import { isMappingDeactivated } from "@llmgateway/shared/components";
 
 import type { ExtraGridProvider } from "@/components/providers/providers-grid";
 import type { Metadata } from "next";
@@ -65,14 +66,28 @@ const breadcrumbSchema = {
 export default async function ProvidersPage() {
 	// Carrier-uploaded branding (Airside claims) overlays the built-in marks.
 	const [apiProviders, apiModels] = await Promise.all([
-		fetchProviders().catch(() => []),
-		fetchModels().catch(() => []),
+		fetchProviders(),
+		fetchModels(),
 	]);
 	const uploadedLogos = Object.fromEntries(
 		apiProviders
 			.filter((p) => p.airsideLogoUrl)
 			.map((p) => [p.id, p.airsideLogoUrl as string]),
 	);
+	const modelCounts: Record<string, number> = {};
+	for (const model of apiModels) {
+		const providerIds = new Set(
+			model.mappings
+				.filter(
+					(mapping) =>
+						mapping.status === "active" && !isMappingDeactivated(mapping),
+				)
+				.map((mapping) => mapping.providerId),
+		);
+		for (const providerId of Array.from(providerIds)) {
+			modelCounts[providerId] = (modelCounts[providerId] ?? 0) + 1;
+		}
+	}
 
 	// DB-only providers (custom Airside carriers) join the static grid; every
 	// static catalogue id — listed or not — stays owned by the static config.
@@ -87,7 +102,9 @@ export default async function ProvidersPage() {
 			modelsCount: apiModels.filter((model) =>
 				model.mappings.some(
 					(mapping) =>
-						mapping.providerId === p.id && mapping.status === "active",
+						mapping.providerId === p.id &&
+						mapping.status === "active" &&
+						!isMappingDeactivated(mapping),
 				),
 			).length,
 		}))
@@ -101,6 +118,7 @@ export default async function ProvidersPage() {
 				<ProvidersGrid
 					uploadedLogos={uploadedLogos}
 					extraProviders={extraProviders}
+					modelCounts={modelCounts}
 				/>
 			</main>
 			<Footer />

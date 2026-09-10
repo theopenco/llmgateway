@@ -1,16 +1,15 @@
 "use client";
 
-import { ChevronDownIcon } from "lucide-react";
+import { Check, ChevronDownIcon, Clock3 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 
-import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import {
 	Popover,
 	PopoverContent,
 	PopoverTrigger,
 } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
 
 import type { TokenWindow } from "@/lib/types";
 
@@ -34,38 +33,12 @@ export function TokenTimeRangeToggle({ initial }: TimeRangeToggleProps) {
 	const router = useRouter();
 	const pathname = usePathname();
 	const [open, setOpen] = useState(false);
-	const [search, setSearch] = useState("");
-	const [current, setCurrent] = useState<TokenWindow>(initial);
-
-	useEffect(() => {
-		const param = searchParams.get("window");
-		if (
-			param === "1h" ||
-			param === "4h" ||
-			param === "12h" ||
-			param === "1d" ||
-			param === "7d" ||
-			param === "30d" ||
-			param === "90d" ||
-			param === "365d"
-		) {
-			setCurrent(param);
-		} else {
-			setCurrent("1d");
-		}
-	}, [searchParams]);
+	const param = searchParams.get("window");
+	const current = windowOptions.some((option) => option.value === param)
+		? (param as TokenWindow)
+		: initial;
 
 	const selected = windowOptions.find((o) => o.value === current);
-
-	const filteredOptions = useMemo(
-		() =>
-			search.trim()
-				? windowOptions.filter((o) =>
-						o.label.toLowerCase().includes(search.toLowerCase()),
-					)
-				: windowOptions,
-		[search],
-	);
 
 	function setWindow(value: TokenWindow) {
 		const params = new URLSearchParams(searchParams.toString());
@@ -74,52 +47,46 @@ export function TokenTimeRangeToggle({ initial }: TimeRangeToggleProps) {
 		} else {
 			params.set("window", value);
 		}
-		setCurrent(value);
 		const query = params.toString();
-		router.push(query ? `${pathname}?${query}` : pathname);
+		router.replace(query ? `${pathname}?${query}` : pathname, {
+			scroll: false,
+		});
 		setOpen(false);
 	}
 
 	return (
-		<Popover
-			open={open}
-			onOpenChange={(isOpen) => {
-				setOpen(isOpen);
-				if (!isOpen) {
-					setSearch("");
-				}
-			}}
-		>
+		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger asChild>
-				<button
+				<Button
 					type="button"
-					className="border-input hover:bg-accent hover:text-accent-foreground flex h-9 items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors"
+					variant="outline"
+					size="sm"
+					className="min-w-36 justify-between gap-3 bg-background"
 				>
-					{selected?.label ?? "Select window"}
+					<span className="inline-flex items-center gap-2">
+						<Clock3 className="h-3.5 w-3.5 text-muted-foreground" />
+						{selected?.label ?? "Select window"}
+					</span>
 					<ChevronDownIcon className="h-4 w-4 opacity-50" />
-				</button>
+				</Button>
 			</PopoverTrigger>
 			<PopoverContent className="w-52 p-0" align="end">
-				<div className="px-3 pb-2 pt-3">
-					<Input
-						autoFocus
-						value={search}
-						onChange={(e) => setSearch(e.target.value)}
-						className="h-8 rounded-none border-0 border-b-2 border-primary bg-transparent px-0 shadow-none focus-visible:ring-0"
-					/>
+				<div className="border-b px-3 py-2.5">
+					<p className="text-sm font-medium">Usage window</p>
+					<p className="text-xs text-muted-foreground">
+						Choose the aggregation range
+					</p>
 				</div>
-				<div className="max-h-72 overflow-y-auto pb-1">
-					{filteredOptions.map((option) => (
+				<div className="p-1">
+					{windowOptions.map((option) => (
 						<button
 							key={option.value}
 							type="button"
 							onClick={() => setWindow(option.value)}
-							className={cn(
-								"w-full px-3 py-2 text-left text-sm transition-colors hover:bg-accent",
-								current === option.value && "bg-accent/50",
-							)}
+							className="flex w-full items-center justify-between rounded-sm px-2 py-2 text-left text-sm transition-colors hover:bg-accent"
 						>
 							{option.label}
+							{current === option.value ? <Check className="h-4 w-4" /> : null}
 						</button>
 					))}
 				</div>

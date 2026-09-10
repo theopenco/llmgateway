@@ -6,8 +6,6 @@ icon: Zap
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-# Gateway Caching
-
 Gateway caching serves a previously-seen, byte-identical request entirely from LLM Gateway without forwarding it to the upstream provider. Repeated identical calls cost **$0** — there is no inference and no provider charge. It is most useful for API workloads with deterministic inputs (classification, batch jobs, FAQ lookups, retries) rather than free-form chat.
 
 <Callout type="info">
