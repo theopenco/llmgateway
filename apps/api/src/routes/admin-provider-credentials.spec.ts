@@ -163,7 +163,7 @@ describe("admin provider credentials", () => {
 		const credentials = await list();
 		expect(
 			credentials.map((credential) => credential.maskedToken).sort(),
-		).toEqual(["sk-s•••••1234", "sk-s•••••5678"]);
+		).toEqual(["sk-sha•••••1234", "sk-sha•••••5678"]);
 		expect(JSON.stringify(credentials)).not.toContain("sk-shared-prefix-");
 	});
 

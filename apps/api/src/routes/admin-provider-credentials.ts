@@ -217,7 +217,7 @@ function toCredential(row: CredentialRow) {
 		config: row.config ?? {},
 		usageLimit: row.usageLimit,
 		usage: row.usage,
-		maskedToken: maskToken(readProviderKey(row), 4, 4),
+		maskedToken: maskToken(readProviderKey(row), 6, 4),
 		tokenHash: row.tokenHash,
 		allowedModels: row.allowedModels,
 	};
@@ -1056,7 +1056,7 @@ adminProviderCredentials.openapi(getSpendOverview, async (c) => {
 					variant: key.variant,
 					region: key.region,
 					comment: key.comment,
-					maskedToken: maskToken(readProviderKey(key), 4, 4),
+					maskedToken: maskToken(readProviderKey(key), 6, 4),
 					status: key.status,
 					usage: key.usage,
 					usageLimit: key.usageLimit,

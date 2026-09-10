@@ -69,7 +69,7 @@ describe("collectProviderEnvCredentials", () => {
 			collectProviderEnvCredentials("alibaba").map(
 				(entry) => entry.maskedToken,
 			),
-		).toEqual(["sk-s•••••1234", "sk-s•••••5678"]);
+		).toEqual(["sk-sha•••••1234", "sk-sha•••••5678"]);
 	});
 
 	it("covers variant and regional override slots", () => {
