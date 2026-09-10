@@ -208,6 +208,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	deepseek: "https://api.deepseek.com",
 	perplexity: "https://api.perplexity.ai",
 	novita: "https://api.novita.ai/v3/openai",
+	runpod: "https://api.runpod.ai/v2/moonshot-kimi/openai",
 	runware: "https://api.runware.ai",
 	moonshot: "https://api.moonshot.ai",
 	meta: "https://api.meta.ai",
@@ -1041,6 +1042,7 @@ export function getProviderEndpoint(
 		case "baidu":
 		case "deepseek":
 		case "moonshot":
+		case "runpod":
 		case "nebius":
 		case "nanogpt":
 		case "canopywave":

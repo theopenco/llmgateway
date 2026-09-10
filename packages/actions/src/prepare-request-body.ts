@@ -1959,8 +1959,11 @@ export async function prepareRequestBody(
 		});
 	}
 
-	if (usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") {
-		// Novita rejects empty text blocks alongside otherwise valid image input.
+	if (
+		(usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") ||
+		usedProvider === "runpod"
+	) {
+		// These deployments reject empty text blocks in otherwise valid messages.
 		processedMessages = processedMessages.map((message) => {
 			if (!Array.isArray(message.content)) {
 				return message;

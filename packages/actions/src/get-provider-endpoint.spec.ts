@@ -102,6 +102,19 @@ afterEach(() => {
 });
 
 describe("getProviderEndpoint", () => {
+	it("routes Runpod through its serverless OpenAI endpoint", () => {
+		expect(getProviderEndpoint("runpod", undefined, "kimi-k3")).toBe(
+			"https://api.runpod.ai/v2/moonshot-kimi/openai/v1/chat/completions",
+		);
+		expect(
+			getProviderEndpoint(
+				"runpod",
+				"https://proxy.example.com/openai",
+				"kimi-k3",
+			),
+		).toBe("https://proxy.example.com/openai/v1/chat/completions");
+	});
+
 	function getCustomEndpoint(
 		apiFormat: "openai-chat-completions" | "openai-responses" | "google-vertex",
 		options: { stream?: boolean; token?: string } = {},

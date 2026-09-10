@@ -867,6 +867,28 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "runpod",
+		name: "Runpod",
+		forwardsSafetyIdentifier: false,
+		description: "Runpod's serverless public inference endpoints",
+		env: {
+			required: {
+				apiKey: "LLM_RUNPOD_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_RUNPOD_BASE_URL",
+			},
+		},
+		streaming: true,
+		website: "https://www.runpod.io",
+		termsUrl: "https://www.runpod.io/legal/terms-of-service",
+		privacyPolicyUrl: "https://www.runpod.io/legal/privacy-policy",
+		usagePolicyUrl: "https://www.runpod.io/legal/terms-of-service",
+		legalEntity: "Runpod, Inc.",
+		headquarters: "US",
+		dataPolicy: null,
+	},
+	{
 		id: "novita",
 		name: "NovitaAI",
 		forwardsSafetyIdentifier: false,
