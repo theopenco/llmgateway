@@ -391,3 +391,25 @@ export {
 	type McpUsageBreakdownInput,
 	type McpUsageScope,
 } from "./mcp-usage.js";
+
+export {
+	formatMonthLabel,
+	MODEL_SEARCH_MAX_PAGE_SIZE,
+	MODEL_SEARCH_MAX_QUERY_LENGTH,
+	MODEL_SEARCH_PAGE_SIZE,
+	type ModelSearchEntry,
+	type ModelSearchHit,
+	type ModelSearchOptions,
+	type ModelSearchPage,
+	type ModelSearchProvider,
+	monthKeyOf,
+	normalizeSearchText,
+	scoreModelSearchEntry,
+	searchMatchRanges,
+	searchModelEntries,
+	searchModelProviders,
+	searchWords,
+	tokenizeSearchQuery,
+	UNKNOWN_MONTH_KEY,
+	withinOneEdit,
+} from "./model-search.js";
