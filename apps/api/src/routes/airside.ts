@@ -59,6 +59,10 @@ import {
 	PROVIDER_API_FORMATS,
 	providers as catalogueProviders,
 } from "@llmgateway/models";
+import {
+	PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
+	providerBaseUrlHasEndpointPath,
+} from "@llmgateway/shared";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import { getStripe } from "./payments.js";
@@ -1940,6 +1944,11 @@ airside.openapi(registerCarrier, async (c) => {
 		throw new HTTPException(409, { message: "This carrier id is taken." });
 	}
 
+	if (providerBaseUrlHasEndpointPath(body.baseUrl)) {
+		throw new HTTPException(400, {
+			message: PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
+		});
+	}
 	// The same anti-squatting rule as claiming: the registered endpoint must
 	// live on a domain the registrant proved — their verified email's domain,
 	// or one their company published our TXT token on. The SSRF guard keeps
@@ -2730,7 +2739,7 @@ const updateModel = createRoute({
 				},
 			},
 			description:
-				"The model. Drafts are edited in place; on an active listing the change is filed for admin approval and surfaces as `pendingFiling`. Pricing is not editable here — file a price change instead.",
+				"The model. Drafts are edited in place; on an active listing the change is filed for admin approval and surfaces as `pendingFiling`. Filing again replaces a pending change, and saving the live values back withdraws it. Pricing is not editable here — file a price change instead.",
 		},
 	},
 });
@@ -2754,16 +2763,8 @@ airside.openapi(updateModel, async (c) => {
 			message: "Delisted models cannot be edited.",
 		});
 	}
-	const updates = diffMetadataChanges(model, pickMetadataChanges(body));
-	// An empty diff is a no-op, not a drizzle "No values to set" 500.
-	if (Object.keys(updates).length === 0) {
-		const unchangedFilings = await db.query.providerPriceFiling.findMany({
-			where: { draftModelId: { eq: id } },
-		});
-		return c.json({
-			model: serializeModel({ ...model, priceFilings: unchangedFilings }),
-		});
-	}
+	const changes = pickMetadataChanges(body);
+	const updates = diffMetadataChanges(model, changes);
 	if (model.status === "active") {
 		// Live listings only change through review: file the diff alongside
 		// the current prices so the filing row is self-describing.
@@ -2771,15 +2772,72 @@ airside.openapi(updateModel, async (c) => {
 			where: { draftModelId: { eq: id } },
 			orderBy: { createdAt: "desc" },
 		});
-		if (filings.some((f) => f.status === "pending")) {
+		const pending = filings.find((f) => f.status === "pending");
+		if (pending && pending.kind !== "metadata") {
 			throw new HTTPException(409, {
-				message: "A filing for this model is already pending review.",
+				message: "A fare filing for this model is already pending review.",
+			});
+		}
+		// A new save replaces the pending change rather than queueing behind
+		// it; saving the live values back withdraws it.
+		if (Object.keys(updates).length === 0) {
+			if (pending && Object.keys(changes).length > 0) {
+				const withdrawn = await db
+					.delete(tables.providerPriceFiling)
+					.where(
+						and(
+							eq(tables.providerPriceFiling.id, pending.id),
+							eq(tables.providerPriceFiling.status, "pending"),
+						),
+					)
+					.returning({ id: tables.providerPriceFiling.id });
+				if (withdrawn.length === 0) {
+					throw new HTTPException(409, {
+						message:
+							"The pending change was reviewed in the meantime — reload and edit again.",
+					});
+				}
+				return c.json({
+					model: serializeModel({
+						...model,
+						priceFilings: filings.filter((f) => f.id !== pending.id),
+					}),
+				});
+			}
+			return c.json({
+				model: serializeModel({ ...model, priceFilings: filings }),
 			});
 		}
 		const current = filings.find((f) => f.status === "approved");
 		if (!current) {
 			throw new HTTPException(409, {
 				message: "This listing has no approved pricing to file against.",
+			});
+		}
+		if (pending) {
+			const [replaced] = await db
+				.update(tables.providerPriceFiling)
+				.set({ metadata: updates, requestedBy: user.id })
+				.where(
+					and(
+						eq(tables.providerPriceFiling.id, pending.id),
+						eq(tables.providerPriceFiling.status, "pending"),
+					),
+				)
+				.returning();
+			if (!replaced) {
+				throw new HTTPException(409, {
+					message:
+						"The pending change was reviewed in the meantime — reload and edit again.",
+				});
+			}
+			return c.json({
+				model: serializeModel({
+					...model,
+					priceFilings: filings.map((f) =>
+						f.id === replaced.id ? replaced : f,
+					),
+				}),
 			});
 		}
 		const filing = await db
@@ -2810,6 +2868,15 @@ airside.openapi(updateModel, async (c) => {
 				...model,
 				priceFilings: [...filings, ...filing],
 			}),
+		});
+	}
+	// An empty diff is a no-op, not a drizzle "No values to set" 500.
+	if (Object.keys(updates).length === 0) {
+		const unchangedFilings = await db.query.providerPriceFiling.findMany({
+			where: { draftModelId: { eq: id } },
+		});
+		return c.json({
+			model: serializeModel({ ...model, priceFilings: unchangedFilings }),
 		});
 	}
 	const updated = await cdb.transaction(async (tx) => {

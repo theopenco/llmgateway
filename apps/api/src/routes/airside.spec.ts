@@ -977,12 +977,21 @@ describe("airside provider portal", () => {
 			contextSize: 256000,
 			tools: true,
 		});
-		// A second edit waits for the first review.
+		// A second edit replaces the pending change instead of queueing.
 		const second = await app.request(
 			`/airside/models/${model.id}`,
-			json(cookie, { maxOutput: 4096 }, "PATCH"),
+			json(
+				cookie,
+				{ contextSize: 128000, tools: false, maxOutput: 4096 },
+				"PATCH",
+			),
 		);
-		expect(second.status).toBe(409);
+		expect(second.status).toBe(200);
+		expect((await second.json()).model.pendingFiling).toMatchObject({
+			id: metadataFiling.id,
+			kind: "metadata",
+			metadata: { contextSize: 128000, tools: false, maxOutput: 4096 },
+		});
 		const queued = await app.request("/admin/airside/filings?status=pending", {
 			headers: { Cookie: cookie },
 		});
@@ -1004,6 +1013,7 @@ describe("airside provider portal", () => {
 		expect(updatedMetadata.mappings[0]).toMatchObject({
 			contextSize: 128000,
 			tools: false,
+			maxOutput: 4096,
 		});
 		// Saving the current values again is a no-op, not another filing.
 		const unchanged = await app.request(
@@ -1051,6 +1061,77 @@ describe("airside provider portal", () => {
 				where: { id: { eq: "mistral-large-3" } },
 			}),
 		).toBeFalsy();
+	});
+
+	it("replaces or withdraws a pending change and waits behind a fare filing", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const { model } = await (await createModel(cookie, company.id)).json();
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+
+		const filed = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { contextSize: 128000 }, "PATCH"),
+		);
+		const first = (await filed.json()).model.pendingFiling;
+		expect(first).toMatchObject({
+			kind: "metadata",
+			metadata: { contextSize: 128000 },
+		});
+
+		// Re-filing replaces the pending change wholesale, on the same row.
+		const replaced = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { tools: false }, "PATCH"),
+		);
+		expect(replaced.status).toBe(200);
+		expect((await replaced.json()).model.pendingFiling).toMatchObject({
+			id: first.id,
+			metadata: { tools: false },
+		});
+		expect(
+			await db.query.providerPriceFiling.findMany({
+				where: { draftModelId: { eq: model.id }, status: { eq: "pending" } },
+			}),
+		).toHaveLength(1);
+
+		// An empty save keeps it; saving the live values back withdraws it.
+		const empty = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, {}, "PATCH"),
+		);
+		expect((await empty.json()).model.pendingFiling).toMatchObject({
+			id: first.id,
+		});
+		const withdrawn = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { tools: true }, "PATCH"),
+		);
+		expect(withdrawn.status).toBe(200);
+		expect((await withdrawn.json()).model.pendingFiling).toBeNull();
+		expect(
+			await db.query.providerPriceFiling.findFirst({
+				where: { id: { eq: first.id } },
+			}),
+		).toBeFalsy();
+
+		// A pending fare filing still fences metadata edits.
+		const fare = await app.request(
+			`/airside/models/${model.id}/price-filings`,
+			json(cookie, { inputPrice: "4e-6", outputPrice: "9e-6" }),
+		);
+		expect(fare.status).toBe(201);
+		const fenced = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { tools: false }, "PATCH"),
+		);
+		expect(fenced.status).toBe(409);
 	});
 
 	it("materializes and replaces per-region fares", async () => {
@@ -2628,6 +2709,27 @@ describe("airside provider portal", () => {
 		});
 		const claimableBody = await claimableRes.json();
 		expect(claimableBody.emailDomainIsFreemail).toBe(true);
+	});
+
+	it("rejects a base URL that already carries the endpoint path", async () => {
+		await setUserEmail("ops@acme-sky.ai");
+		const company = await createCompany(cookie, "Acme Sky");
+		for (const baseUrl of [
+			"https://api.acme-sky.ai/v1",
+			"https://api.acme-sky.ai/v1/chat/completions",
+			"https://api.acme-sky.ai/openai/chat/completions",
+		]) {
+			const res = await registerCarrier(cookie, company.id, { baseUrl });
+			expect(res.status).toBe(400);
+			expect((await res.json()).message).toContain("base URL only");
+		}
+		expect(
+			(
+				await registerCarrier(cookie, company.id, {
+					baseUrl: "https://api.acme-sky.ai/openai",
+				})
+			).status,
+		).toBe(201);
 	});
 
 	it("rejects a registration off the verified email domain", async () => {
