@@ -1212,6 +1212,9 @@ function generateSeedModels() {
 		output: m.output ?? ["text"],
 		imageInputRequired: m.imageInputRequired ?? false,
 		stability: m.stability ?? ("stable" as const),
+		// Dev only: the worker sync stamps createdAt on first insert in prod, so
+		// a fresh seed would otherwise land every model in the current month.
+		createdAt: m.releasedAt ?? new Date(),
 		releasedAt: m.releasedAt ?? new Date(),
 		status: "active" as const,
 		logsCount: randomInt(100, 30000),
