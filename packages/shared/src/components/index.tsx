@@ -9,6 +9,7 @@ export * from "./model-mapping-selector";
 export * from "./model-selector";
 export * from "./models-directory/all-models";
 export * from "./models-directory/api-types";
+export * from "./models-directory/default-provider-mapping";
 export * from "./models-directory/format";
 export * from "./models-directory/model-card";
 export * from "./models-directory/model-category-filters";
