@@ -4,7 +4,7 @@
 // billed to the platform's provider account. Leaving it to the caller — or to
 // "auto", whose candidates are frontier models — would let a signup decide how
 // much we pay. Keep it cheap: it is paid for on every signup.
-export const ONBOARDING_MODEL = "deepseek/deepseek-v4-flash";
+export const ONBOARDING_MODEL = "deepseek/deepseek-v4.1-flash";
 
 // Onboarding answers are two sentences, and that one call is on us, so cap the
 // output. Applied server-side, and only to the calls we actually pay for.
