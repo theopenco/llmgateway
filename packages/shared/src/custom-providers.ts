@@ -25,10 +25,22 @@ export function providerBaseUrlHasEndpointPath(rawUrl: string): boolean {
 	} catch {
 		return false;
 	}
-	const segments = pathname.toLowerCase().split("/").filter(Boolean);
+	// URL.pathname keeps percent-encoding; the upstream decodes it.
+	const segments = decodePathname(pathname)
+		.toLowerCase()
+		.split("/")
+		.filter(Boolean);
 	return segments.some(
 		(segment, index) =>
 			segment === "v1" ||
 			(segment === "chat" && segments[index + 1] === "completions"),
 	);
+}
+
+function decodePathname(pathname: string): string {
+	try {
+		return decodeURIComponent(pathname);
+	} catch {
+		return pathname;
+	}
 }

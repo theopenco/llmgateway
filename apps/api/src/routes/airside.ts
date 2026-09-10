@@ -2782,14 +2782,21 @@ airside.openapi(updateModel, async (c) => {
 		// it; saving the live values back withdraws it.
 		if (Object.keys(updates).length === 0) {
 			if (pending && Object.keys(changes).length > 0) {
-				await db
+				const withdrawn = await db
 					.delete(tables.providerPriceFiling)
 					.where(
 						and(
 							eq(tables.providerPriceFiling.id, pending.id),
 							eq(tables.providerPriceFiling.status, "pending"),
 						),
-					);
+					)
+					.returning({ id: tables.providerPriceFiling.id });
+				if (withdrawn.length === 0) {
+					throw new HTTPException(409, {
+						message:
+							"The pending change was reviewed in the meantime — reload and edit again.",
+					});
+				}
 				return c.json({
 					model: serializeModel({
 						...model,

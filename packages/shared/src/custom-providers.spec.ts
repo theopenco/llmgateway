@@ -24,6 +24,21 @@ describe("providerBaseUrlHasEndpointPath", () => {
 		).toBe(true);
 	});
 
+	it("sees through percent-encoded paths", () => {
+		expect(providerBaseUrlHasEndpointPath("https://api.acme.ai/%76%31")).toBe(
+			true,
+		);
+		expect(
+			providerBaseUrlHasEndpointPath("https://api.acme.ai/chat%2Fcompletions"),
+		).toBe(true);
+		expect(providerBaseUrlHasEndpointPath("https://api.acme.ai/%zz/v1")).toBe(
+			true,
+		);
+		expect(providerBaseUrlHasEndpointPath("https://api.acme.ai/%zz")).toBe(
+			false,
+		);
+	});
+
 	it("leaves unparsable input to the URL validator", () => {
 		expect(providerBaseUrlHasEndpointPath("not a url")).toBe(false);
 	});
