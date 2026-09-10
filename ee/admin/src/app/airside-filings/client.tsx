@@ -673,13 +673,47 @@ export function AirsideFilingsClient() {
 															: ""}
 														{formatPerMillion(filing.outputPrice)}
 													</div>
-													{filing.regionPrices?.map((entry) => (
-														<div key={entry.region}>
-															{entry.region}:{" "}
-															{formatPerMillion(entry.inputPrice)} in ·{" "}
-															{formatPerMillion(entry.outputPrice)} out
-														</div>
-													))}
+													{(() => {
+														const current = new Map(
+															(filing.currentPricing?.regionPrices ?? []).map(
+																(entry) => [entry.region, entry],
+															),
+														);
+														const filed = new Map(
+															(filing.regionPrices ?? []).map((entry) => [
+																entry.region,
+																entry,
+															]),
+														);
+														const fares = (
+															entry:
+																| { inputPrice: string; outputPrice: string }
+																| undefined,
+														) =>
+															entry
+																? `${formatPerMillion(entry.inputPrice)} in · ${formatPerMillion(entry.outputPrice)} out`
+																: null;
+														// Approving replaces the whole regional set, so a
+														// region absent from the filing is removed — show it.
+														return Array.from(
+															new Set([
+																...Array.from(current.keys()),
+																...Array.from(filed.keys()),
+															]),
+														).map((region) => {
+															const before = fares(current.get(region));
+															const after = fares(filed.get(region));
+															return (
+																<div key={region}>
+																	{region}:{" "}
+																	{before && before !== after
+																		? `${before} → `
+																		: ""}
+																	{after ?? "removed"}
+																</div>
+															);
+														});
+													})()}
 												</>
 											)}
 										</TableCell>

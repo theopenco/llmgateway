@@ -2158,7 +2158,9 @@ airside.openapi(queueNewModelVerification, async (c) => {
 				.select({ id: tables.providerCompany.id })
 				.from(tables.providerCompany)
 				.where(eq(tables.providerCompany.id, body.providerCompanyId))
-				.for("update");
+				.for("update")
+				// A cached read would skip the row lock entirely.
+				.$withCache(false);
 			const activeVerifications =
 				await tx.query.providerModelVerification.findMany({
 					where: {
@@ -2948,37 +2950,49 @@ airside.openapi(deleteModelRegion, async (c) => {
 		throw new HTTPException(404, { message: "Model not found" });
 	}
 	await requireCompanyMembership(user.id, model.providerCompanyId);
-	if (model.status !== "active") {
-		throw new HTTPException(409, {
-			message:
-				"Only active listings can drop a region — edit the pending filing instead.",
-		});
-	}
-	const filings = await db.query.providerPriceFiling.findMany({
-		where: { draftModelId: { eq: id } },
-		orderBy: { createdAt: "desc" },
-	});
-	if (filings.some((filing) => filing.status === "pending")) {
-		throw new HTTPException(409, {
-			message: "A filing for this model is already pending review.",
-		});
-	}
-	const current = filings.find((filing) => filing.status === "approved");
-	const remaining = (current?.regionPrices ?? []).filter(
-		(entry) => entry.region !== region,
-	);
-	if (!current || remaining.length === (current.regionPrices ?? []).length) {
-		throw new HTTPException(404, {
-			message: "This region is not part of the listing's pricing.",
-		});
-	}
-	// cdb: the gateway caches these tables for listing resolution.
+	// cdb: the gateway caches these tables for listing resolution. The model
+	// row is locked so a concurrent filing or second region removal serializes
+	// behind this write instead of resurrecting the removed region from a
+	// stale read of the approved filing.
 	await cdb.transaction(async (tx) => {
+		const [locked] = await tx
+			.select()
+			.from(tables.providerDraftModel)
+			.where(eq(tables.providerDraftModel.id, id))
+			.for("update")
+			// A cached read would skip the row lock entirely.
+			.$withCache(false);
+		if (!locked || locked.status !== "active") {
+			throw new HTTPException(409, {
+				message:
+					"Only active listings can drop a region — edit the pending filing instead.",
+			});
+		}
+		const filings = await tx
+			.select()
+			.from(tables.providerPriceFiling)
+			.where(eq(tables.providerPriceFiling.draftModelId, id))
+			.orderBy(desc(tables.providerPriceFiling.createdAt))
+			.$withCache(false);
+		if (filings.some((filing) => filing.status === "pending")) {
+			throw new HTTPException(409, {
+				message: "A filing for this model is already pending review.",
+			});
+		}
+		const current = filings.find((filing) => filing.status === "approved");
+		const remaining = (current?.regionPrices ?? []).filter(
+			(entry) => entry.region !== region,
+		);
+		if (!current || remaining.length === (current.regionPrices ?? []).length) {
+			throw new HTTPException(404, {
+				message: "This region is not part of the listing's pricing.",
+			});
+		}
 		const [filing] = await tx
 			.insert(tables.providerPriceFiling)
 			.values({
 				draftModelId: id,
-				providerCompanyId: model.providerCompanyId,
+				providerCompanyId: locked.providerCompanyId,
 				kind: "update",
 				inputPrice: current.inputPrice,
 				outputPrice: current.outputPrice,
@@ -2991,7 +3005,7 @@ airside.openapi(deleteModelRegion, async (c) => {
 				reviewedAt: new Date(),
 			})
 			.returning();
-		await updateAirsideMappingPrices(model, filing, tx);
+		await updateAirsideMappingPrices(locked, filing, tx);
 	});
 	const updatedFilings = await db.query.providerPriceFiling.findMany({
 		where: { draftModelId: { eq: id } },
@@ -3039,22 +3053,40 @@ airside.openapi(createPriceFiling, async (c) => {
 		throw new HTTPException(404, { message: "Model not found" });
 	}
 	await requireCompanyMembership(user.id, model.providerCompanyId);
-	if (model.status === "delisted") {
-		throw new HTTPException(409, {
-			message: "Delisted models cannot receive price filings.",
-		});
-	}
-	const pending = await db.query.providerPriceFiling.findFirst({
-		where: { draftModelId: { eq: id }, status: { eq: "pending" } },
-	});
-	if (pending) {
-		throw new HTTPException(409, {
-			message: "A filing for this model is already pending review.",
-		});
-	}
-	const kind = model.status === "active" ? "update" : "initial";
+	// The model row lock serializes filing creation against a concurrent
+	// region removal, whose auto-approved write must not interleave with a
+	// new filing's pending check.
 	const filing = await cdb.transaction(async (tx) => {
-		if (model.status === "rejected") {
+		const [locked] = await tx
+			.select()
+			.from(tables.providerDraftModel)
+			.where(eq(tables.providerDraftModel.id, id))
+			.for("update")
+			// A cached read would skip the row lock entirely.
+			.$withCache(false);
+		if (!locked || locked.status === "delisted") {
+			throw new HTTPException(409, {
+				message: "Delisted models cannot receive price filings.",
+			});
+		}
+		const pending = await tx
+			.select({ id: tables.providerPriceFiling.id })
+			.from(tables.providerPriceFiling)
+			.where(
+				and(
+					eq(tables.providerPriceFiling.draftModelId, id),
+					eq(tables.providerPriceFiling.status, "pending"),
+				),
+			)
+			.limit(1)
+			.$withCache(false);
+		if (pending.length > 0) {
+			throw new HTTPException(409, {
+				message: "A filing for this model is already pending review.",
+			});
+		}
+		const kind = locked.status === "active" ? "update" : "initial";
+		if (locked.status === "rejected") {
 			await tx
 				.update(tables.providerDraftModel)
 				.set({ status: "draft" })
@@ -3064,7 +3096,7 @@ airside.openapi(createPriceFiling, async (c) => {
 			.insert(tables.providerPriceFiling)
 			.values({
 				draftModelId: id,
-				providerCompanyId: model.providerCompanyId,
+				providerCompanyId: locked.providerCompanyId,
 				kind,
 				inputPrice: body.inputPrice,
 				outputPrice: body.outputPrice,

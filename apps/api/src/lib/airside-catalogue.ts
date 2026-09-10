@@ -62,11 +62,15 @@ export async function materializeAirsideModel(
 				description: "",
 			})
 			.onConflictDoNothing();
+		// Existence reads gate FK-dependent writes: a cached answer (cdb caches
+		// select-builder queries) can outlive an uncached delete and skip the
+		// insert the mapping rows depend on.
 		const existingModel = await tx
 			.select({ id: tables.model.id })
 			.from(tables.model)
 			.where(eq(tables.model.id, model.modelName))
-			.limit(1);
+			.limit(1)
+			.$withCache(false);
 		if (existingModel.length === 0) {
 			await tx.insert(tables.model).values({
 				id: model.modelName,
@@ -86,7 +90,8 @@ export async function materializeAirsideModel(
 					isNull(tables.modelProviderMapping.region),
 				),
 			)
-			.limit(1);
+			.limit(1)
+			.$withCache(false);
 		const mappingValues = {
 			externalId: model.externalId,
 			apiFormat: model.apiFormat,
@@ -145,7 +150,8 @@ export async function materializeAirsideModel(
 						eq(tables.modelProviderMapping.region, regionPrice.region),
 					),
 				)
-				.limit(1);
+				.limit(1)
+				.$withCache(false);
 			if (existingRegion.length > 0) {
 				await tx
 					.update(tables.modelProviderMapping)
@@ -362,7 +368,8 @@ export async function dematerializeAirsideModel(
 			.select({ id: tables.modelProviderMapping.id })
 			.from(tables.modelProviderMapping)
 			.where(eq(tables.modelProviderMapping.modelId, modelName))
-			.limit(1);
+			.limit(1)
+			.$withCache(false);
 		if (remaining.length === 0) {
 			await tx.delete(tables.model).where(eq(tables.model.id, modelName));
 		}

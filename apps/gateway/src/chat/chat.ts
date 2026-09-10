@@ -708,7 +708,16 @@ function filterEligibleModelProviders(
 		const lockedRegion = options.providerLockedRegions?.get(
 			provider.providerId,
 		);
-		if (lockedRegion && provider.region && provider.region !== lockedRegion) {
+		// A routable root has concrete regional siblings that can satisfy the
+		// lock, so it must not slip locked traffic onto the default deployment.
+		// Region-less mappings without regional variants keep passing — for
+		// them the lock is applied at endpoint resolution, not candidate level.
+		if (
+			lockedRegion &&
+			(provider.region
+				? provider.region !== lockedRegion
+				: provider.routableRoot === true)
+		) {
 			if (filteredOut) {
 				recordFilteredProvider(filteredOut, provider.providerId, [
 					exclusionReason("locked_region"),

@@ -1166,6 +1166,71 @@ describe("airside provider portal", () => {
 		).toBeFalsy();
 	});
 
+	it("keeps regions consistent under a concurrent drop and filing", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id, {
+			pricing: {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				regionPrices: [
+					{ region: "au", inputPrice: "3e-6", outputPrice: "8e-6" },
+					{ region: "eu-frankfurt", inputPrice: "4e-6", outputPrice: "9e-6" },
+				],
+			},
+		});
+		const { model } = await created.json();
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+
+		// The model-row lock serializes these; whichever lands second sees the
+		// first's write instead of interleaving with it.
+		const [dropRes, filingRes] = await Promise.all([
+			app.request(`/airside/models/${model.id}/regions/au`, {
+				method: "DELETE",
+				headers: { Cookie: cookie },
+			}),
+			app.request(
+				`/airside/models/${model.id}/price-filings`,
+				json(cookie, {
+					inputPrice: "2e-6",
+					outputPrice: "6e-6",
+					regionPrices: [
+						{ region: "au", inputPrice: "3e-6", outputPrice: "8e-6" },
+					],
+				}),
+			),
+		]);
+		// Legal outcomes: drop first (filing then queues as pending) or filing
+		// first (drop rejected while it is pending). Never both rejected.
+		expect(dropRes.status === 200 || filingRes.status === 201).toBe(true);
+
+		// The materialized regional rows always mirror the effective (latest
+		// approved) filing — a drop can never resurrect or orphan a region.
+		const approvedFilings = await db.query.providerPriceFiling.findMany({
+			where: { draftModelId: { eq: model.id }, status: { eq: "approved" } },
+			orderBy: { createdAt: "desc" },
+		});
+		const effectiveRegions = (approvedFilings[0].regionPrices ?? [])
+			.map((entry) => entry.region)
+			.sort();
+		const mappings = await db.query.modelProviderMapping.findMany({
+			where: { modelId: { eq: "mistral-large-3" } },
+		});
+		const materializedRegions = mappings
+			.map((mapping) => mapping.region)
+			.filter(
+				(mappingRegion): mappingRegion is string => mappingRegion !== null,
+			)
+			.sort();
+		expect(materializedRegions).toEqual(effectiveRegions);
+	});
+
 	it("rejects malformed regional fares", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
@@ -1220,10 +1285,11 @@ describe("airside provider portal", () => {
 		// Drafts have no effective pricing to drop a region from.
 		expect((await dropRegion("au")).status).toBe(409);
 
-		await app.request(
+		const approveRes = await app.request(
 			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
 			json(cookie),
 		);
+		expect(approveRes.status).toBe(200);
 
 		expect((await dropRegion("mars")).status).toBe(404);
 

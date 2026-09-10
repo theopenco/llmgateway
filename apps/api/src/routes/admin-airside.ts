@@ -103,6 +103,17 @@ const adminFilingSchema = z.object({
 		.object({
 			inputPrice: z.string(),
 			outputPrice: z.string(),
+			// Live regional fares, so a filing that changes or drops a region
+			// shows the reviewer what it replaces.
+			regionPrices: z
+				.array(
+					z.object({
+						region: z.string(),
+						inputPrice: z.string(),
+						outputPrice: z.string(),
+					}),
+				)
+				.nullable(),
 		})
 		.nullable(),
 });
@@ -233,7 +244,17 @@ function serializeAdminFiling(row: FilingWithRelations) {
 			website: row.providerCompany.website,
 		},
 		currentPricing: approved
-			? { inputPrice: approved.inputPrice, outputPrice: approved.outputPrice }
+			? {
+					inputPrice: approved.inputPrice,
+					outputPrice: approved.outputPrice,
+					regionPrices: approved.regionPrices
+						? approved.regionPrices.map((entry) => ({
+								region: entry.region,
+								inputPrice: entry.inputPrice,
+								outputPrice: entry.outputPrice,
+							}))
+						: null,
+				}
 			: null,
 	};
 }
