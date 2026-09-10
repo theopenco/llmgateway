@@ -408,6 +408,22 @@ export default function FleetPage() {
 													out
 												</span>
 											</div>
+											{model.currentPricing?.regionPrices?.length ? (
+												<div
+													className="text-muted-foreground text-xs"
+													title={model.currentPricing.regionPrices
+														.map(
+															(entry) =>
+																`${entry.region}: ${formatPerMillion(entry.inputPrice)} in · ${formatPerMillion(entry.outputPrice)} out`,
+														)
+														.join("\n")}
+												>
+													+
+													{model.currentPricing.regionPrices
+														.map((entry) => entry.region)
+														.join(", ")}
+												</div>
+											) : null}
 										</div>
 										<div className="flex items-center gap-1">
 											{model.status !== "delisted" ? (

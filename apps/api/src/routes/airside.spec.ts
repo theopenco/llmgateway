@@ -1053,6 +1053,147 @@ describe("airside provider portal", () => {
 		).toBeFalsy();
 	});
 
+	it("materializes and replaces per-region fares", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id, {
+			pricing: {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				regionPrices: [
+					{ region: "au", inputPrice: "3e-6", outputPrice: "8e-6" },
+				],
+			},
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		expect(model.pendingFiling.regionPrices).toEqual([
+			{
+				region: "au",
+				inputPrice: "3e-6",
+				outputPrice: "8e-6",
+				cachedInputPrice: null,
+				requestPrice: null,
+			},
+		]);
+
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		const mappings = await db.query.modelProviderMapping.findMany({
+			where: { modelId: { eq: "mistral-large-3" } },
+		});
+		expect(mappings).toHaveLength(2);
+		const auRow = mappings.find((mapping) => mapping.region === "au");
+		expect(auRow).toMatchObject({ source: "airside", status: "active" });
+		expect(Number(auRow!.inputPrice)).toBeCloseTo(3e-6);
+		expect(Number(auRow!.outputPrice)).toBeCloseTo(8e-6);
+
+		// A stale catalogue-sourced regional leftover is swept on the next
+		// approved filing, and the filed set replaces the previous regions.
+		await db.insert(tables.modelProviderMapping).values({
+			modelId: "mistral-large-3",
+			providerId: "mistral",
+			region: "us",
+			externalId: "mistral-large-3",
+			source: "catalogue",
+			inputPrice: "9e-6",
+			outputPrice: "9e-6",
+			streaming: true,
+			status: "active",
+		});
+		const update = await app.request(
+			`/airside/models/${model.id}/price-filings`,
+			json(cookie, {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				regionPrices: [
+					{
+						region: "eu-frankfurt",
+						inputPrice: "4e-6",
+						outputPrice: "9e-6",
+						cachedInputPrice: "1e-6",
+					},
+				],
+			}),
+		);
+		expect(update.status).toBe(201);
+		const updateFiling = (await update.json()).filing;
+		await app.request(
+			`/admin/airside/filings/${updateFiling.id}/approve`,
+			json(cookie),
+		);
+		const replaced = await db.query.modelProviderMapping.findMany({
+			where: { modelId: { eq: "mistral-large-3" } },
+		});
+		expect(replaced.map((mapping) => mapping.region).sort()).toEqual([
+			"eu-frankfurt",
+			null,
+		]);
+		const euRow = replaced.find((mapping) => mapping.region === "eu-frankfurt");
+		expect(Number(euRow!.inputPrice)).toBeCloseTo(4e-6);
+		expect(Number(euRow!.cachedInputPrice)).toBeCloseTo(1e-6);
+
+		// Filing without regions drops every regional row.
+		const flat = await app.request(
+			`/airside/models/${model.id}/price-filings`,
+			json(cookie, { inputPrice: "2e-6", outputPrice: "6e-6" }),
+		);
+		const flatFiling = (await flat.json()).filing;
+		await app.request(
+			`/admin/airside/filings/${flatFiling.id}/approve`,
+			json(cookie),
+		);
+		const flatMappings = await db.query.modelProviderMapping.findMany({
+			where: { modelId: { eq: "mistral-large-3" } },
+		});
+		expect(flatMappings).toHaveLength(1);
+		expect(flatMappings[0].region).toBeNull();
+
+		// Delisting removes everything.
+		await app.request(`/airside/models/${model.id}`, {
+			method: "DELETE",
+			headers: { Cookie: cookie },
+		});
+		expect(
+			await db.query.modelProviderMapping.findFirst({
+				where: { modelId: { eq: "mistral-large-3" } },
+			}),
+		).toBeFalsy();
+	});
+
+	it("rejects malformed regional fares", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const badId = await createModel(cookie, company.id, {
+			pricing: {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				regionPrices: [
+					{ region: "AU!", inputPrice: "3e-6", outputPrice: "8e-6" },
+				],
+			},
+		});
+		expect(badId.status).toBe(400);
+		const duplicate = await createModel(cookie, company.id, {
+			pricing: {
+				inputPrice: "2e-6",
+				outputPrice: "6e-6",
+				regionPrices: [
+					{ region: "au", inputPrice: "3e-6", outputPrice: "8e-6" },
+					{ region: "au", inputPrice: "4e-6", outputPrice: "9e-6" },
+				],
+			},
+		});
+		expect(duplicate.status).toBe(400);
+	});
+
 	it("refuses listings that shadow the static catalogue", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);

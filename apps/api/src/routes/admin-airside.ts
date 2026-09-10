@@ -57,6 +57,19 @@ const adminFilingSchema = z.object({
 	outputPrice: z.string(),
 	cachedInputPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
+	// Per-region overrides carried by the filing; approving replaces the
+	// listing's regional pricing with exactly this set.
+	regionPrices: z
+		.array(
+			z.object({
+				region: z.string(),
+				inputPrice: z.string(),
+				outputPrice: z.string(),
+				cachedInputPrice: z.string().nullable(),
+				requestPrice: z.string().nullable(),
+			}),
+		)
+		.nullable(),
 	// "metadata" filings: the proposed changes and the listing's current
 	// values for the same keys, for diffing.
 	metadata: airsideModelMetadataSchema.nullable(),
@@ -183,6 +196,15 @@ function serializeAdminFiling(row: FilingWithRelations) {
 		outputPrice: row.outputPrice,
 		cachedInputPrice: row.cachedInputPrice,
 		requestPrice: row.requestPrice,
+		regionPrices: row.regionPrices
+			? row.regionPrices.map((entry) => ({
+					region: entry.region,
+					inputPrice: entry.inputPrice,
+					outputPrice: entry.outputPrice,
+					cachedInputPrice: entry.cachedInputPrice ?? null,
+					requestPrice: entry.requestPrice ?? null,
+				}))
+			: null,
 		metadata: (row.metadata ?? null) as AirsideModelMetadataInput | null,
 		currentMetadata: row.metadata
 			? (currentMetadataFor(

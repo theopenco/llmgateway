@@ -140,11 +140,42 @@ const pendingBrandingSchema = z.object({
 	iconUrl: z.string().nullable().optional(),
 });
 
+// Region ids surface after ":" in "provider/model:region" requests and in the
+// mapping's region column — lowercase slugs only, none of the parser's
+// separators.
+const REGION_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const AIRSIDE_REGION_PRICES_MAX = 10;
+
+const regionPriceSchema = z.object({
+	region: z
+		.string()
+		.regex(
+			REGION_ID_PATTERN,
+			"Region must be a lowercase slug (e.g. 'au', 'eu-frankfurt')",
+		),
+	inputPrice: priceValue,
+	outputPrice: priceValue,
+	// Missing optional prices inherit the filing's default-region values.
+	cachedInputPrice: priceValue.optional(),
+	requestPrice: priceValue.optional(),
+});
+
+const regionPricesValue = z
+	.array(regionPriceSchema)
+	.max(AIRSIDE_REGION_PRICES_MAX)
+	.refine(
+		(entries) => new Set(entries.map((e) => e.region)).size === entries.length,
+		{ message: "Region ids must be unique" },
+	);
+
 const pricingSchema = z.object({
 	inputPrice: priceValue,
 	outputPrice: priceValue,
 	cachedInputPrice: priceValue.optional(),
 	requestPrice: priceValue.optional(),
+	// Per-region overrides. Each filing's set fully replaces the listing's
+	// regional pricing; omitted/empty keeps default-region pricing only.
+	regionPrices: regionPricesValue.optional(),
 });
 
 const verificationMappingSchema = z.object({
@@ -236,6 +267,17 @@ const filingSchema = z.object({
 	outputPrice: z.string(),
 	cachedInputPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
+	regionPrices: z
+		.array(
+			z.object({
+				region: z.string(),
+				inputPrice: z.string(),
+				outputPrice: z.string(),
+				cachedInputPrice: z.string().nullable(),
+				requestPrice: z.string().nullable(),
+			}),
+		)
+		.nullable(),
 	// Proposed non-price changes; set on "metadata" filings only.
 	metadata: airsideModelMetadataSchema.nullable(),
 	status: z.enum(["pending", "approved", "rejected"]),
@@ -563,6 +605,15 @@ function serializeFiling(row: PriceFilingRow) {
 		outputPrice: row.outputPrice,
 		cachedInputPrice: row.cachedInputPrice,
 		requestPrice: row.requestPrice,
+		regionPrices: row.regionPrices
+			? row.regionPrices.map((entry) => ({
+					region: entry.region,
+					inputPrice: entry.inputPrice,
+					outputPrice: entry.outputPrice,
+					cachedInputPrice: entry.cachedInputPrice ?? null,
+					requestPrice: entry.requestPrice ?? null,
+				}))
+			: null,
 		metadata: (row.metadata ?? null) as AirsideModelMetadataInput | null,
 		status: row.status,
 		note: row.note,
@@ -2448,6 +2499,9 @@ airside.openapi(createModel, async (c) => {
 					outputPrice: body.pricing.outputPrice,
 					cachedInputPrice: body.pricing.cachedInputPrice ?? null,
 					requestPrice: body.pricing.requestPrice ?? null,
+					regionPrices: body.pricing.regionPrices?.length
+						? body.pricing.regionPrices
+						: null,
 					requestedBy: user.id,
 					note: body.note ?? null,
 				})
@@ -2735,6 +2789,7 @@ airside.openapi(updateModel, async (c) => {
 				outputPrice: current.outputPrice,
 				cachedInputPrice: current.cachedInputPrice,
 				requestPrice: current.requestPrice,
+				regionPrices: current.regionPrices,
 				metadata: updates,
 				requestedBy: user.id,
 			})
@@ -2932,6 +2987,7 @@ airside.openapi(createPriceFiling, async (c) => {
 				outputPrice: body.outputPrice,
 				cachedInputPrice: body.cachedInputPrice ?? null,
 				requestPrice: body.requestPrice ?? null,
+				regionPrices: body.regionPrices?.length ? body.regionPrices : null,
 				requestedBy: user.id,
 				note: body.note ?? null,
 			})

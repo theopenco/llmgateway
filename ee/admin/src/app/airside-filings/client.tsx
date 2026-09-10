@@ -673,6 +673,13 @@ export function AirsideFilingsClient() {
 															: ""}
 														{formatPerMillion(filing.outputPrice)}
 													</div>
+													{filing.regionPrices?.map((entry) => (
+														<div key={entry.region}>
+															{entry.region}:{" "}
+															{formatPerMillion(entry.inputPrice)} in ·{" "}
+															{formatPerMillion(entry.outputPrice)} out
+														</div>
+													))}
 												</>
 											)}
 										</TableCell>
