@@ -1071,6 +1071,9 @@ export const deepseekModels = [
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-flash",
+				// DeepSeek fetches remote image URLs itself and fails on hosts it
+				// cannot reach, while the same bytes inline as a data URL work.
+				requiresBase64Images: true,
 				// Peak hours (01:00-04:00 and 06:00-10:00 UTC) bill at the peak
 				// rates below. All other hours and Beijing-time weekends bill at
 				// the off-peak rates.
