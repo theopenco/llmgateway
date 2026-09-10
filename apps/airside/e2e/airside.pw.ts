@@ -136,6 +136,49 @@ test("fleet lists seeded models with their filing states", async ({ page }) => {
 	await expect(page.getByTestId("file-fare-codestral-3")).toBeDisabled();
 });
 
+test("quantization edits persist on draft cards and stay pending on live models", async ({
+	page,
+}) => {
+	await login(page);
+	await page.goto("/dashboard/fleet");
+	const draft = page.getByTestId("model-strip-mistral-large-4");
+	for (const quantization of ["FP8", "Unknown"]) {
+		await page.getByTestId("edit-mistral-large-4").click();
+		await page.getByLabel("Quantization", { exact: true }).click();
+		await page.getByRole("option", { name: quantization, exact: true }).click();
+		await page.getByTestId("edit-model-submit").click();
+		await expect(page.getByRole("dialog")).not.toBeVisible();
+		await page.reload();
+		if (quantization === "Unknown") {
+			await expect(draft).not.toContainText("Quant:");
+		} else {
+			await expect(draft).toContainText(`Quant: ${quantization}`);
+		}
+		await page.getByTestId("edit-mistral-large-4").click();
+		await expect(page.getByLabel("Quantization", { exact: true })).toHaveText(
+			quantization,
+		);
+		await page.keyboard.press("Escape");
+	}
+	await page.getByTestId("edit-mistral-medium-4").click();
+	await page.getByLabel("Quantization", { exact: true }).click();
+	await page.getByRole("option", { name: "BF16", exact: true }).click();
+	await page.getByTestId("edit-model-submit").click();
+	await expect(page.getByRole("dialog")).not.toBeVisible();
+	await page.reload();
+	const active = page.getByTestId("model-strip-mistral-medium-4");
+	await expect(active).toContainText("Change filed");
+	await expect(active).not.toContainText("Quant: BF16");
+	await page.getByTestId("edit-mistral-medium-4").click();
+	await expect(page.getByLabel("Quantization", { exact: true })).toHaveText(
+		"BF16",
+	);
+	await page.getByLabel("Quantization", { exact: true }).click();
+	await page.getByRole("option", { name: "Unknown", exact: true }).click();
+	await page.getByTestId("edit-model-submit").click();
+	await expect(active).not.toContainText("Change filed");
+});
+
 test("registering a model requires provider preflight", async ({ page }) => {
 	let statusReads = 0;
 	await page.route("**/airside/model-verifications**", async (route) => {
@@ -182,6 +225,8 @@ test("registering a model requires provider preflight", async ({ page }) => {
 	await page.getByTestId("register-model-button").click();
 	await page.getByTestId("model-name-input").fill("pw-preflight-model");
 	await page.getByLabel("Family").fill("playwright");
+	await page.getByLabel("Quantization", { exact: true }).click();
+	await page.getByRole("option", { name: "FP8", exact: true }).click();
 	// Prices are entered as dollars per million tokens.
 	await page.getByTestId("input-price").fill("1");
 	await page.getByTestId("output-price").fill("3");

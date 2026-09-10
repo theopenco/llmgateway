@@ -242,7 +242,10 @@ internalModels.openapi(getModelsRoute, async (c) => {
 						? null
 						: (getPublicDiscount(mapping.providerId, model.id)
 								?.discountPercent ?? null),
-				quantization: sharedMapping?.quantization ?? null,
+				quantization:
+					mapping.source === "airside"
+						? mapping.quantization
+						: (sharedMapping?.quantization ?? null),
 				// Airside-materialized mappings carry their own efforts in the DB
 				// row; static rows are served from the shared definition.
 				reasoningEfforts:

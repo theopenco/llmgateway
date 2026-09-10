@@ -908,6 +908,81 @@ describe("airside provider portal", () => {
 		});
 	});
 
+	it("reviews quantization changes before publishing them", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id, {
+			quantization: "fp8",
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		expect(model.quantization).toBe("fp8");
+		const patch = (body: Record<string, unknown>) =>
+			app.request(`/airside/models/${model.id}`, json(cookie, body, "PATCH"));
+		const publicQuantization = async () => {
+			const response = await app.request("/internal/models");
+			expect(response.status).toBe(200);
+			const { models } = await response.json();
+			return models.find(
+				(entry: { id: string }) => entry.id === model.modelName,
+			).mappings[0].quantization;
+		};
+		const draft = await patch({ quantization: "bf16" });
+		expect(draft.status).toBe(200);
+		expect((await draft.json()).model.quantization).toBe("bf16");
+		expect((await patch({ quantization: "invalid" })).status).toBe(400);
+		const outsider = await createSecondUser("outsider@example.com");
+		expect(
+			(
+				await app.request(
+					`/airside/models/${model.id}`,
+					json(outsider, { quantization: "fp4" }, "PATCH"),
+				)
+			).status,
+		).toBe(404);
+		const approved = await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+		expect(await publicQuantization()).toBe("bf16");
+		const filed = await patch({ quantization: "fp4" });
+		const pending = (await filed.json()).model;
+		expect(pending).toMatchObject({
+			quantization: "bf16",
+			pendingFiling: { kind: "metadata", metadata: { quantization: "fp4" } },
+		});
+		expect(await publicQuantization()).toBe("bf16");
+		const rejected = await app.request(
+			`/admin/airside/filings/${pending.pendingFiling.id}/reject`,
+			json(cookie, {}),
+		);
+		expect(rejected.status).toBe(200);
+		expect(await publicQuantization()).toBe("bf16");
+		for (const quantization of ["fp4", null]) {
+			const filed = await patch({ quantization });
+			expect(filed.status).toBe(200);
+			const { model: next } = await filed.json();
+			const approved = await app.request(
+				`/admin/airside/filings/${next.pendingFiling.id}/approve`,
+				json(cookie),
+			);
+			expect(approved.status).toBe(200);
+			expect(await publicQuantization()).toBe(quantization);
+			const listed = await app.request(
+				`/airside/models?providerCompanyId=${company.id}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect((await listed.json()).models[0].quantization).toBe(quantization);
+		}
+		expect(
+			(await (await patch({ quantization: null })).json()).model.pendingFiling,
+		).toBeNull();
+	});
+
 	it("materializes approved listings into the DB catalogue", async () => {
 		process.env.ADMIN_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
@@ -1141,6 +1216,7 @@ describe("airside provider portal", () => {
 		await claimProvider(cookie, company.id);
 		await activateClaim();
 		const created = await createModel(cookie, company.id, {
+			quantization: "fp8",
 			pricing: {
 				inputPrice: "2e-6",
 				outputPrice: "6e-6",
@@ -1169,6 +1245,9 @@ describe("airside provider portal", () => {
 			where: { modelId: { eq: "mistral-large-3" } },
 		});
 		expect(mappings).toHaveLength(2);
+		expect(mappings.every((mapping) => mapping.quantization === "fp8")).toBe(
+			true,
+		);
 		const auRow = mappings.find((mapping) => mapping.region === "au");
 		expect(auRow).toMatchObject({ source: "airside", status: "active" });
 		expect(Number(auRow!.inputPrice)).toBeCloseTo(3e-6);
@@ -1215,6 +1294,9 @@ describe("airside provider portal", () => {
 			"eu-frankfurt",
 			null,
 		]);
+		expect(replaced.every((mapping) => mapping.quantization === "fp8")).toBe(
+			true,
+		);
 		const euRow = replaced.find((mapping) => mapping.region === "eu-frankfurt");
 		expect(Number(euRow!.inputPrice)).toBeCloseTo(4e-6);
 		expect(Number(euRow!.cachedInputPrice)).toBeCloseTo(1e-6);
@@ -2431,6 +2513,52 @@ describe("airside provider portal", () => {
 			source: "catalogue",
 			externalId: "mistral-large-latest",
 		});
+	});
+
+	it("preserves imported quantization and restores it on delist", async () => {
+		process.env.ADMIN_EMAILS = "ops@deepinfra.com";
+		await setUserEmail("ops@deepinfra.com");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id, "deepinfra");
+		await activateClaim("deepinfra");
+		const imported = await app.request(
+			"/airside/models/import",
+			json(cookie, { providerCompanyId: company.id, providerId: "deepinfra" }),
+		);
+		expect(imported.status).toBe(200);
+		const listing = await db.query.providerDraftModel.findFirst({
+			where: {
+				providerId: { eq: "deepinfra" },
+				quantization: { isNotNull: true },
+			},
+		});
+		expect(listing).toBeDefined();
+		const publicQuantization = async () => {
+			const { models } = await (await app.request("/internal/models")).json();
+			return models
+				.find((entry: { id: string }) => entry.id === listing!.modelName)
+				.mappings.find(
+					(entry: { providerId: string }) => entry.providerId === "deepinfra",
+				).quantization;
+		};
+		expect(await publicQuantization()).toBe(listing!.quantization);
+		const changed = await app.request(
+			`/airside/models/${listing!.id}`,
+			json(cookie, { quantization: null }, "PATCH"),
+		);
+		const { model } = await changed.json();
+		const approved = await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		expect(approved.status).toBe(200);
+		expect(await publicQuantization()).toBeNull();
+		const delisted = await app.request(`/airside/models/${listing!.id}`, {
+			method: "DELETE",
+			headers: { Cookie: cookie },
+		});
+		expect(delisted.status).toBe(200);
+		expect(await publicQuantization()).toBe(listing!.quantization);
 	});
 
 	it("preserves catalogue upstream IDs during import", async () => {
