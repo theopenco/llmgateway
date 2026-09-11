@@ -476,8 +476,7 @@ const getMembers = createRoute({
 				"application/json": {
 					schema: z.object({
 						members: z.array(teamMemberSchema).openapi({}),
-						// Pending invitations to people without an account yet; they join
-						// automatically when they sign up (or are SCIM-provisioned).
+						// Pending invitations are accepted on verified sign-in or provisioning.
 						invites: z.array(teamInviteSchema),
 						// The org-wide default developer budget (owner/admin only).
 						defaultDeveloperBudget: memberBudgetSchema.nullable(),
@@ -899,7 +898,7 @@ ${inviterName} invited you to join the "${orgName}" organization on LLM Gateway 
 
 Sign in using this email address (${normalizedEmail}) to join the organization automatically:
 
-${uiUrl}/login
+${uiUrl}/login?reauthenticate=true
 
 If you do not have an account yet, create one and verify this email address:
 

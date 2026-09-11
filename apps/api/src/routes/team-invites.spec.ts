@@ -34,10 +34,13 @@ async function createAccountFor(userId: string, email: string) {
 
 // Signing in creates a new session, which runs the auth after-hook that
 // auto-accepts pending invites.
-async function signInAs(email: string) {
+async function signInAs(email: string, cookie?: string) {
 	return await app.request("/auth/sign-in/email", {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: {
+			"Content-Type": "application/json",
+			...(cookie ? { Cookie: cookie } : {}),
+		},
 		body: JSON.stringify({ email, password: PASSWORD }),
 	});
 }
@@ -136,7 +139,7 @@ describe("team invites", () => {
 					organizationId: ORG_ID,
 					subject:
 						"You've been invited to Invite Test Organization on LLM Gateway",
-					text: expect.stringContaining("Sign in using this email address"),
+					text: expect.stringContaining("/login?reauthenticate=true"),
 				},
 			);
 
@@ -315,6 +318,34 @@ describe("team invites", () => {
 			expect(auditLogs).toHaveLength(1);
 		},
 	);
+
+	test("an existing session accepts an invitation only after signing in again", async () => {
+		await createAccountFor("invited-user-id", INVITED_EMAIL);
+		const initialSignIn = await signInAs(INVITED_EMAIL);
+		expect(initialSignIn.status).toBe(200);
+		const cookie = initialSignIn.headers.get("set-cookie")!;
+		await addMember({ email: INVITED_EMAIL, role: "admin" });
+
+		const session = await app.request("/auth/get-session", {
+			headers: { Cookie: cookie },
+		});
+		expect(session.status).toBe(200);
+		expect((await session.json()).user.email).toBe(INVITED_EMAIL);
+		const pending = await db.query.organizationInvite.findFirst({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(pending?.status).toBe("pending");
+
+		const signIn = await signInAs(INVITED_EMAIL, cookie);
+		expect(signIn.status).toBe(200);
+		const accepted = await db.query.organizationInvite.findFirst({
+			where: { organizationId: { eq: ORG_ID } },
+		});
+		expect(accepted).toMatchObject({
+			status: "accepted",
+			acceptedByUserId: "invited-user-id",
+		});
+	});
 
 	test("developer invite grants the invited projects at acceptance", async () => {
 		await db.insert(tables.project).values({

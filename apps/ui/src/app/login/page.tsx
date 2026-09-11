@@ -58,11 +58,13 @@ export default function Login() {
 
 	const searchParams = useSearchParams();
 	const redirectTarget = getAuthRedirect(searchParams.get("redirect"));
+	const reauthenticate = searchParams.get("reauthenticate") === "true";
+	const loginPath = reauthenticate ? "/login?reauthenticate=true" : "/login";
 
 	const { isAuthenticated } = useSessionStatus();
 
 	useUser({
-		redirectTo: redirectTarget,
+		redirectTo: reauthenticate ? undefined : redirectTarget,
 		redirectWhen: "authenticated",
 		checkOnboarding: !isCliAuthRedirect(redirectTarget),
 		enabled: isAuthenticated,
@@ -192,6 +194,9 @@ export default function Login() {
 			// email — clearer than the full email+password form when SSO only needs
 			// the email. Carry over whatever they've already typed.
 			const query = new URLSearchParams({ redirect: redirectTarget });
+			if (reauthenticate) {
+				query.set("reauthenticate", "true");
+			}
 			if (email) {
 				query.set("email", email);
 			}
@@ -208,7 +213,7 @@ export default function Login() {
 			// Carry the validated `?redirect=` target through the error path too, so a
 			// failed SSO attempt returns to /login with the intended destination and a
 			// retry still lands the user there.
-			const errorUrl = new URL("/login", origin);
+			const errorUrl = new URL(loginPath, origin);
 			if (redirectTarget !== "/dashboard") {
 				errorUrl.searchParams.set("redirect", redirectTarget);
 			}
@@ -354,7 +359,7 @@ export default function Login() {
 					isLoading={isLoading}
 					setIsLoading={setIsLoading}
 					callbackPath={redirectTarget}
-					errorCallbackPath="/login"
+					errorCallbackPath={loginPath}
 					newUserCallbackPath={redirectTarget}
 				/>
 
