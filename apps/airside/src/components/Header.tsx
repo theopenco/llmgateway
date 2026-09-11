@@ -14,7 +14,7 @@ export function Header() {
 
 	return (
 		<header className="border-border/60 bg-background sticky top-0 z-40 border-b">
-			<div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
+			<div className="mx-auto flex min-h-16 max-w-6xl flex-wrap items-center justify-between gap-x-4 px-4 py-3 sm:px-6 xl:h-16 xl:flex-nowrap xl:py-0">
 				<div className="flex items-center gap-3">
 					<Link
 						href="/"
@@ -34,7 +34,10 @@ export function Header() {
 					</a>
 				</div>
 
-				<nav className="text-muted-foreground hidden items-center gap-4 text-sm xl:flex">
+				<nav
+					aria-label="Main navigation"
+					className="text-muted-foreground order-last flex w-full flex-wrap items-center justify-center gap-x-4 gap-y-2 pt-3 text-sm xl:order-none xl:w-auto xl:pt-0"
+				>
 					<Link href="/#how-it-works" className="hover:text-foreground">
 						How it works
 					</Link>

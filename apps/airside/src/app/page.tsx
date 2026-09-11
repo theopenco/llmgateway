@@ -319,7 +319,7 @@ export default function LandingPage() {
 								{
 									icon: BadgeCheck,
 									title: "You control the fleet",
-									body: "Add models, edit capabilities, delist retired aircraft — instantly, no review needed.",
+									body: "Add models, edit capabilities, delist retired aircraft. New listings and active model metadata changes require review.",
 								},
 								{
 									icon: FileCheck2,

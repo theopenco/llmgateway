@@ -14,6 +14,21 @@ export interface AppConfig {
 
 export function getConfig(): AppConfig {
 	const apiUrl = process.env.API_URL ?? "http://localhost:4002";
+	const posthogHost = process.env.POSTHOG_HOST;
+	if (posthogHost !== undefined) {
+		const url = new URL(posthogHost);
+		const localDevelopment =
+			process.env.NODE_ENV === "development" &&
+			["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+		if (
+			url.protocol !== "https:" &&
+			!(url.protocol === "http:" && localDevelopment)
+		) {
+			throw new Error(
+				"POSTHOG_HOST must use HTTPS, except for local HTTP during development.",
+			);
+		}
+	}
 	return {
 		hosted: process.env.HOSTED === "true",
 		apiUrl,
@@ -26,6 +41,6 @@ export function getConfig(): AppConfig {
 		githubAuth: !!process.env.GITHUB_CLIENT_ID,
 		googleAuth: !!process.env.GOOGLE_CLIENT_ID,
 		posthogKey: process.env.POSTHOG_KEY,
-		posthogHost: process.env.POSTHOG_HOST,
+		posthogHost,
 	};
 }
