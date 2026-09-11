@@ -2104,6 +2104,72 @@ airside.openapi(updateClaimBranding, async (c) => {
 // Models (fleet)
 // ---------------------------------------------------------------------------
 
+const getCatalogue = createRoute({
+	method: "get",
+	path: "/catalogue",
+	responses: {
+		200: {
+			description:
+				"Canonical model metadata and available flat catalogue prices.",
+			content: {
+				"application/json": {
+					schema: z.object({
+						models: z.array(
+							z.object({
+								id: z.string(),
+								family: z.string(),
+								prices: z.array(
+									z.object({
+										providerId: z.string(),
+										inputPrice: z.string(),
+										outputPrice: z.string(),
+										cachedInputPrice: z.string().optional(),
+										requestPrice: z.string().optional(),
+									}),
+								),
+							}),
+						),
+					}),
+				},
+			},
+		},
+	},
+});
+
+airside.openapi(getCatalogue, (c) => {
+	const now = new Date();
+	return c.json({
+		models: catalogueModels.map((model) => ({
+			id: model.id,
+			family: model.family,
+			prices: model.providers.flatMap((entry) => {
+				const mapping: ProviderModelMapping = entry;
+				if (
+					(mapping.deactivatedAt && new Date(mapping.deactivatedAt) <= now) ||
+					mapping.inputPrice === undefined ||
+					mapping.outputPrice === undefined ||
+					mapping.pricingTiers?.length ||
+					mapping.regions?.length ||
+					mapping.peakPricing ||
+					mapping.perImagePrice ||
+					mapping.perSecondPrice
+				) {
+					return [];
+				}
+				return [
+					{
+						providerId: mapping.providerId,
+						inputPrice: mapping.inputPrice,
+						outputPrice: mapping.outputPrice,
+						cachedInputPrice: mapping.cachedInputPrice,
+						requestPrice: mapping.requestPrice,
+					},
+				];
+			}),
+		})),
+	});
+});
+
 const queueNewModelVerification = createRoute({
 	method: "post",
 	path: "/model-verifications",
