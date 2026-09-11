@@ -16,9 +16,13 @@ export function Header() {
 		<header className="border-border/60 bg-background sticky top-0 z-40 border-b">
 			<div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
 				<div className="flex items-center gap-3">
-					<Link href="/" className="flex items-center gap-2.5">
+					<Link
+						href="/"
+						aria-label="Airside home"
+						className="flex items-center gap-2.5"
+					>
 						<Logo />
-						<span className="font-display text-lg font-black tracking-tight">
+						<span className="font-display hidden text-lg font-black tracking-tight sm:inline">
 							AIRSIDE
 						</span>
 					</Link>
@@ -30,7 +34,7 @@ export function Header() {
 					</a>
 				</div>
 
-				<nav className="text-muted-foreground hidden items-center gap-6 text-sm md:flex">
+				<nav className="text-muted-foreground hidden items-center gap-4 text-sm xl:flex">
 					<Link href="/#how-it-works" className="hover:text-foreground">
 						How it works
 					</Link>
@@ -40,6 +44,15 @@ export function Header() {
 					<Link href="/#faq" className="hover:text-foreground">
 						FAQ
 					</Link>
+					<Link href="/resources" className="hover:text-foreground">
+						Guides & tools
+					</Link>
+					<a
+						href={`${config.uiUrl}/rankings`}
+						className="hover:text-foreground"
+					>
+						Model rankings
+					</a>
 				</nav>
 
 				<div className="flex items-center gap-2">
@@ -54,7 +67,12 @@ export function Header() {
 								<Link href="/login">Sign in</Link>
 							</Button>
 							<Button asChild size="sm">
-								<Link href="/signup">Claim your carrier code</Link>
+								<Link href="/signup">
+									<span className="sm:hidden">List API</span>
+									<span className="hidden sm:inline">
+										Claim your carrier code
+									</span>
+								</Link>
 							</Button>
 						</>
 					)}

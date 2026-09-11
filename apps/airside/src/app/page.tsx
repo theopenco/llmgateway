@@ -35,7 +35,7 @@ const STEPS = [
 	{
 		icon: ShieldCheck,
 		title: "Verify your domain",
-		body: "Sign up with your company email. When its domain matches your API endpoint's domain, your carrier code unlocks. Settle the one-time $2,500 listing fee — or a partner invite code — and you're cleared to claim. No sales call, no paperwork.",
+		body: "Sign up with your company email. Verify ownership through your API or website domain, then submit your carrier claim for review. Settle the one-time $2,500 listing fee — or a partner invite code — before claim approval.",
 	},
 	{
 		icon: PlaneTakeoff,
@@ -50,7 +50,7 @@ const STEPS = [
 	{
 		icon: Radar,
 		title: "Win traffic",
-		body: "Watch your routes fill. File a landing fee or discount change, and once cleared, dispatch routes more passengers through your gates.",
+		body: "Watch your routes fill. File a landing fee or discount change, and once cleared, the updated settings affect how dispatch evaluates your routes.",
 	},
 ];
 
@@ -73,7 +73,7 @@ const DISPATCH_WEIGHTS = [
 const FAQ = [
 	{
 		q: "Who can claim a carrier?",
-		a: "Anyone with a verified email address on the provider's own domain. If your API is served from api.acme.ai, an @acme.ai address claims the acme carrier — that's the whole check, enforced server-side.",
+		a: "Anyone with a verified email address on the provider's own domain. If your API is served from api.acme.ai, an @acme.ai address claims the acme carrier — domain verification establishes ownership. Claims are reviewed before activation.",
 	},
 	{
 		q: "What does listing cost?",
@@ -85,7 +85,7 @@ const FAQ = [
 	},
 	{
 		q: "Why can't we edit prices directly?",
-		a: "Because your listed price is what developers are billed. Prices enter service only through an approved tariff filing, so nobody's bill jumps because of a typo at 2am. Everything else about a model you can edit freely.",
+		a: "Because your listed price is what developers are billed. Prices enter service only through an approved tariff filing, so nobody's bill jumps because of a typo at 2am. Changes to active model metadata also go through review.",
 	},
 	{
 		q: "How do we get routed more traffic?",
@@ -397,6 +397,21 @@ export default function LandingPage() {
 				</section>
 			</main>
 
+			<section className="border-border mx-auto w-full max-w-6xl border-t px-4 py-12 sm:px-6">
+				<h2 className="font-display text-2xl font-bold">
+					Prepare your API for its first route.
+				</h2>
+				<p className="text-muted-foreground mt-3">
+					Work through the listing guide, estimate token costs and check request
+					capacity.
+				</p>
+				<Link
+					href="/resources"
+					className="text-primary mt-5 inline-block font-semibold hover:underline"
+				>
+					Explore provider guides and free tools →
+				</Link>
+			</section>
 			<Footer />
 		</div>
 	);

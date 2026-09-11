@@ -13,6 +13,11 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 
+import {
+	CataloguePriceButton,
+	FamilyField,
+	useCatalogue,
+} from "@/components/dashboard/CatalogueFields";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -436,11 +441,15 @@ export function RegisterModelDialog({
 	const api = useApi();
 	const invalidate = useInvalidateModels(providerCompanyId);
 	const [open, setOpen] = useState(false);
+	const catalogue = useCatalogue(open);
 	const [modelName, setModelName] = useState("");
-	const [externalId, setExternalId] = useState("");
-	const [apiFormat, setApiFormat] = useState<AirsideModel["apiFormat"]>(
-		"openai-chat-completions",
+	const canonicalModel = catalogue.data?.models.find(
+		(entry) => entry.id === modelName.trim(),
 	);
+
+	const [externalId, setExternalId] = useState("");
+	const [apiFormat, setApiFormat] =
+		useState<AirsideModel["apiFormat"]>("provider-native");
 	const [displayName, setDisplayName] = useState("");
 	const [contextSize, setContextSize] = useState("128000");
 	const [description, setDescription] = useState("");
@@ -528,8 +537,12 @@ export function RegisterModelDialog({
 			setOpen(false);
 			setModelName("");
 			setExternalId("");
-			setApiFormat("openai-chat-completions");
+			setApiFormat("provider-native");
 			setDisplayName("");
+			setDescription("");
+			setFamily("");
+			setCachedInputPrice("");
+			setRequestPrice("");
 			setInputPrice("");
 			setOutputPrice("");
 			setRegionFares([]);
@@ -550,7 +563,7 @@ export function RegisterModelDialog({
 	const verificationMapping = {
 		providerCompanyId,
 		providerId: effectiveProviderId,
-		modelName,
+		modelName: modelName.trim(),
 		externalId: externalId || undefined,
 		apiFormat,
 		...capabilities,
@@ -575,10 +588,32 @@ export function RegisterModelDialog({
 						are in dollars per million tokens.
 					</DialogDescription>
 				</DialogHeader>
+				{catalogue.isError && (
+					<div role="alert" className="text-destructive text-sm">
+						Could not load the catalogue.{" "}
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => catalogue.refetch()}
+						>
+							Retry
+						</Button>
+					</div>
+				)}
+				{canonicalModel && (
+					<p className="text-muted-foreground text-sm">
+						Display name, description and family come from the existing
+						catalogue model.
+					</p>
+				)}
 				<form
 					className="space-y-4"
 					onSubmit={(e) => {
 						e.preventDefault();
+						if (!catalogue.isSuccess) {
+							toast.error("Load the catalogue before saving.");
+							return;
+						}
 						if (verification?.status !== "passed") {
 							queueVerification.mutate({
 								body: {
@@ -593,12 +628,16 @@ export function RegisterModelDialog({
 								verificationId: verification.id,
 								providerCompanyId,
 								providerId: effectiveProviderId,
-								modelName,
+								modelName: modelName.trim(),
 								externalId: externalId || undefined,
 								apiFormat,
-								displayName: displayName || undefined,
-								description: description || undefined,
-								family,
+								displayName: canonicalModel
+									? undefined
+									: displayName || undefined,
+								description: canonicalModel
+									? undefined
+									: description || undefined,
+								family: canonicalModel?.family ?? family,
 								quantization,
 								contextSize: Number(contextSize) || undefined,
 								maxOutput: Number(maxOutput) || undefined,
@@ -680,15 +719,17 @@ export function RegisterModelDialog({
 								The id your API expects. Fixed once listed.
 							</p>
 						</div>
-						<div className="space-y-2">
-							<Label htmlFor="model-display">Display name</Label>
-							<Input
-								id="model-display"
-								value={displayName}
-								onChange={(e) => setDisplayName(e.target.value)}
-								placeholder="Acme Large 2"
-							/>
-						</div>
+						{catalogue.isSuccess && !canonicalModel && (
+							<div className="space-y-2">
+								<Label htmlFor="model-display">Display name</Label>
+								<Input
+									id="model-display"
+									value={displayName}
+									onChange={(e) => setDisplayName(e.target.value)}
+									placeholder="Acme Large 2"
+								/>
+							</div>
+						)}
 						<div className="space-y-2 sm:col-span-2">
 							<Label htmlFor="model-api-format">Upstream API</Label>
 							<Select
@@ -743,28 +784,28 @@ export function RegisterModelDialog({
 							value={quantization}
 							onChange={setQuantization}
 						/>
-						<div className="space-y-2 sm:col-span-2">
-							<Label htmlFor="model-family">Family</Label>
-							<Input
+						{catalogue.isSuccess && !canonicalModel && (
+							<FamilyField
 								id="model-family"
 								value={family}
-								onChange={(e) => setFamily(e.target.value)}
-								placeholder="e.g. acme (groups related models)"
-								required
+								onChange={setFamily}
+								models={catalogue.data.models}
 							/>
-						</div>
+						)}
 					</div>
 
-					<div className="space-y-2">
-						<Label htmlFor="model-description">Description</Label>
-						<Textarea
-							id="model-description"
-							value={description}
-							onChange={(e) => setDescription(e.target.value)}
-							placeholder="What is this model good at?"
-							rows={2}
-						/>
-					</div>
+					{catalogue.isSuccess && !canonicalModel && (
+						<div className="space-y-2">
+							<Label htmlFor="model-description">Description</Label>
+							<Textarea
+								id="model-description"
+								value={description}
+								onChange={(e) => setDescription(e.target.value)}
+								placeholder="What is this model good at?"
+								rows={2}
+							/>
+						</div>
+					)}
 
 					<div className="space-y-2">
 						<Label>Capabilities</Label>
@@ -861,6 +902,21 @@ export function RegisterModelDialog({
 						<div className="text-primary font-mono text-[0.65rem] tracking-[0.25em] uppercase">
 							Initial tariff — requires approval
 						</div>
+						{canonicalModel && (
+							<CataloguePriceButton
+								model={canonicalModel}
+								providerId={effectiveProviderId}
+								onSelect={(price) => {
+									setInputPrice(perTokenToPerMillion(price.inputPrice));
+									setOutputPrice(perTokenToPerMillion(price.outputPrice));
+									setCachedInputPrice(
+										perTokenToPerMillion(price.cachedInputPrice),
+									);
+									setRequestPrice(price.requestPrice ?? "");
+								}}
+							/>
+						)}
+
 						<div className="grid gap-4 sm:grid-cols-2">
 							<div className="space-y-2">
 								<Label htmlFor="model-input-price">Input $/1M tokens</Label>
@@ -1110,6 +1166,10 @@ export function EditModelDialog({
 		...model,
 		...(hasPendingChange ? (model.pendingFiling?.metadata ?? {}) : {}),
 	};
+	const catalogue = useCatalogue(open);
+	const canonicalModel = catalogue.data?.models.find(
+		(entry) => entry.id === model.modelName,
+	);
 	const [displayName, setDisplayName] = useState(proposed.displayName ?? "");
 	const [description, setDescription] = useState(proposed.description ?? "");
 	const [contextSize, setContextSize] = useState(
@@ -1219,16 +1279,38 @@ export function EditModelDialog({
 								: "Changes to a live listing are filed for review and apply once we approve them. Pricing goes through a separate fare filing."}
 					</DialogDescription>
 				</DialogHeader>
+				{catalogue.isError && (
+					<div role="alert" className="text-destructive text-sm">
+						Could not load the catalogue.{" "}
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => catalogue.refetch()}
+						>
+							Retry
+						</Button>
+					</div>
+				)}
+				{canonicalModel && (
+					<p className="text-muted-foreground text-sm">
+						Display name, description and family come from the existing
+						catalogue model.
+					</p>
+				)}
 				<form
 					className="space-y-4"
 					onSubmit={(e) => {
 						e.preventDefault();
+						if (!catalogue.isSuccess) {
+							toast.error("Load the catalogue before saving.");
+							return;
+						}
 						updateModel.mutate({
 							params: { path: { id: model.id } },
 							body: {
-								displayName: displayName || null,
-								description: description || null,
-								family,
+								displayName: canonicalModel ? undefined : displayName || null,
+								description: canonicalModel ? undefined : description || null,
+								family: canonicalModel?.family ?? family,
 								quantization,
 								contextSize: contextSize ? Number(contextSize) : null,
 								maxOutput: maxOutput ? Number(maxOutput) : null,
@@ -1258,15 +1340,17 @@ export function EditModelDialog({
 								The id sent to your API. Delist and re-register to change it.
 							</p>
 						</div>
-						<div className="space-y-2">
-							<Label htmlFor="edit-display">Display name</Label>
-							<Input
-								id="edit-display"
-								data-testid="edit-display-name"
-								value={displayName}
-								onChange={(e) => setDisplayName(e.target.value)}
-							/>
-						</div>
+						{catalogue.isSuccess && !canonicalModel && (
+							<div className="space-y-2">
+								<Label htmlFor="edit-display">Display name</Label>
+								<Input
+									id="edit-display"
+									data-testid="edit-display-name"
+									value={displayName}
+									onChange={(e) => setDisplayName(e.target.value)}
+								/>
+							</div>
+						)}
 						<div className="space-y-2">
 							<Label htmlFor="edit-context">Context size</Label>
 							<Input
@@ -1292,25 +1376,26 @@ export function EditModelDialog({
 							value={quantization}
 							onChange={setQuantization}
 						/>
-						<div className="space-y-2">
-							<Label htmlFor="edit-family">Family</Label>
-							<Input
+						{catalogue.isSuccess && !canonicalModel && (
+							<FamilyField
 								id="edit-family"
 								value={family}
-								onChange={(e) => setFamily(e.target.value)}
-								required
+								onChange={setFamily}
+								models={catalogue.data.models}
+							/>
+						)}
+					</div>
+					{catalogue.isSuccess && !canonicalModel && (
+						<div className="space-y-2">
+							<Label htmlFor="edit-description">Description</Label>
+							<Textarea
+								id="edit-description"
+								value={description}
+								onChange={(e) => setDescription(e.target.value)}
+								rows={2}
 							/>
 						</div>
-					</div>
-					<div className="space-y-2">
-						<Label htmlFor="edit-description">Description</Label>
-						<Textarea
-							id="edit-description"
-							value={description}
-							onChange={(e) => setDescription(e.target.value)}
-							rows={2}
-						/>
-					</div>
+					)}
 					<div className="space-y-2">
 						<Label>Capabilities</Label>
 						<div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -1423,6 +1508,10 @@ export function FileFareDialog({
 	const api = useApi();
 	const invalidate = useInvalidateModels(model.providerCompanyId);
 	const [open, setOpen] = useState(false);
+	const catalogue = useCatalogue(open);
+	const canonicalModel = catalogue.data?.models.find(
+		(entry) => entry.id === model.modelName,
+	);
 	const [inputPrice, setInputPrice] = useState(
 		perTokenToPerMillion(model.currentPricing?.inputPrice),
 	);
@@ -1509,6 +1598,20 @@ export function FileFareDialog({
 						});
 					}}
 				>
+					{canonicalModel && (
+						<CataloguePriceButton
+							model={canonicalModel}
+							providerId={model.providerId}
+							onSelect={(price) => {
+								setInputPrice(perTokenToPerMillion(price.inputPrice));
+								setOutputPrice(perTokenToPerMillion(price.outputPrice));
+								setCachedInputPrice(
+									perTokenToPerMillion(price.cachedInputPrice),
+								);
+								setRequestPrice(price.requestPrice ?? "");
+							}}
+						/>
+					)}
 					<div className="grid gap-4 sm:grid-cols-2">
 						<div className="space-y-2">
 							<Label htmlFor="fare-input">Input $/1M tokens</Label>

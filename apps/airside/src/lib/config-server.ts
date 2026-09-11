@@ -8,6 +8,8 @@ export interface AppConfig {
 	discordUrl: string;
 	githubAuth: boolean;
 	googleAuth: boolean;
+	posthogKey?: string;
+	posthogHost?: string;
 }
 
 export function getConfig(): AppConfig {
@@ -23,5 +25,7 @@ export function getConfig(): AppConfig {
 		discordUrl: process.env.DISCORD_URL ?? "https://llmgateway.io/discord",
 		githubAuth: !!process.env.GITHUB_CLIENT_ID,
 		googleAuth: !!process.env.GOOGLE_CLIENT_ID,
+		posthogKey: process.env.POSTHOG_KEY,
+		posthogHost: process.env.POSTHOG_HOST,
 	};
 }

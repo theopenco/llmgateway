@@ -245,6 +245,9 @@ importers:
       openapi-react-query:
         specifier: 0.5.1
         version: 0.5.1(@tanstack/react-query@5.90.5(react@19.3.0))(openapi-fetch@0.15.0)
+      posthog-js:
+        specifier: 1.372.1
+        version: 1.372.1
       react:
         specifier: 19.3.0
         version: 19.3.0
