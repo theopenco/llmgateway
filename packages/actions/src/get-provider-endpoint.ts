@@ -208,7 +208,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	deepseek: "https://api.deepseek.com",
 	perplexity: "https://api.perplexity.ai",
 	novita: "https://api.novita.ai/v3/openai",
-	runpod: "https://api.runpod.ai/v2/moonshot-kimi/openai",
+	runpod: "https://api.runpod.ai",
 	runware: "https://api.runware.ai",
 	moonshot: "https://api.moonshot.ai",
 	meta: "https://api.meta.ai",
@@ -339,6 +339,7 @@ export function getProviderEndpoint(
 			case "google-ai-studio":
 			case "google-vertex":
 			case "xiaomi":
+			case "runpod":
 				url =
 					envValueOrDefault(
 						provider,
@@ -833,6 +834,18 @@ export function getProviderEndpoint(
 			return `${url}/chat/completions`;
 		case "novita":
 			return `${url}/chat/completions`;
+		case "runpod": {
+			const endpointId = providerMapping?.runpodEndpointId;
+			if (!endpointId) {
+				throw new Error(
+					`Runpod model "${model}" requires a serverless endpoint ID`,
+				);
+			}
+			return appendPath(
+				url,
+				`/v2/${encodeURIComponent(endpointId)}/openai/v1/chat/completions`,
+			);
+		}
 		case "zai":
 			if (imageGenerations) {
 				return `${url}/api/paas/v4/images/generations`;
@@ -1042,7 +1055,6 @@ export function getProviderEndpoint(
 		case "baidu":
 		case "deepseek":
 		case "moonshot":
-		case "runpod":
 		case "nebius":
 		case "nanogpt":
 		case "canopywave":

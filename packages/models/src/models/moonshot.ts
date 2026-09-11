@@ -724,8 +724,35 @@ export const moonshotModels = [
 		releasedAt: new Date("2026-07-16"),
 		providers: [
 			{
+				providerId: "moonshot",
+				externalId: "kimi-k3",
+				inputPrice: "3.0e-6",
+				cachedInputPrice: "0.3e-6",
+				outputPrice: "15.0e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 1048576,
+				reasoning: true,
+				// K3 always thinks; the effort level is set via the native
+				// top-level `reasoning_effort` field (no K2-era `thinking`
+				// toggle), which accepts low, high, and max (default max).
+				reasoningEfforts: ["low", "high", "max"],
+				streaming: true,
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"tools",
+					"tool_choice",
+					"reasoning_effort",
+				],
+			},
+			{
 				providerId: "runpod",
 				externalId: "kimi-k3",
+				runpodEndpointId: "moonshot-kimi",
 				inputPrice: "3.0e-6",
 				cachedInputPrice: "0.3e-6",
 				outputPrice: "15.0e-6",
@@ -751,32 +778,6 @@ export const moonshotModels = [
 				jsonOutput: true,
 				jsonOutputSchema: true,
 				supportsDeveloperRole: false,
-				supportedParameters: [
-					"max_tokens",
-					"response_format",
-					"tools",
-					"tool_choice",
-					"reasoning_effort",
-				],
-			},
-			{
-				providerId: "moonshot",
-				externalId: "kimi-k3",
-				inputPrice: "3.0e-6",
-				cachedInputPrice: "0.3e-6",
-				outputPrice: "15.0e-6",
-				requestPrice: "0",
-				contextSize: 1048576,
-				maxOutput: 1048576,
-				reasoning: true,
-				// K3 always thinks; the effort level is set via the native
-				// top-level `reasoning_effort` field (no K2-era `thinking`
-				// toggle), which accepts low, high, and max (default max).
-				reasoningEfforts: ["low", "high", "max"],
-				streaming: true,
-				vision: true,
-				tools: true,
-				jsonOutput: true,
 				supportedParameters: [
 					"max_tokens",
 					"response_format",

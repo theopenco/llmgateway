@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { getProviderEndpoint } from "./get-provider-endpoint.js";
+import {
+	getProviderDefaultBaseUrl,
+	getProviderEndpoint,
+} from "./get-provider-endpoint.js";
 
 const originalAiStudioBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
 const originalGlacierBaseUrl = process.env.LLM_GLACIER_BASE_URL;
@@ -12,6 +15,7 @@ const originalAzureFoundryResource = process.env.LLM_AZURE_AI_FOUNDRY_RESOURCE;
 const originalAzureFoundryApiVersion =
 	process.env.LLM_AZURE_AI_FOUNDRY_API_VERSION;
 const originalXiaomiBaseUrl = process.env.LLM_XIAOMI_BASE_URL;
+const originalRunpodBaseUrl = process.env.LLM_RUNPOD_BASE_URL;
 const originalOpenaiBaseUrl = process.env.LLM_OPENAI_BASE_URL;
 const originalBedrockBaseUrl = process.env.LLM_AWS_BEDROCK_BASE_URL;
 const originalBedrockRegion = process.env.LLM_AWS_BEDROCK_REGION;
@@ -76,6 +80,12 @@ afterEach(() => {
 		process.env.LLM_XIAOMI_BASE_URL = originalXiaomiBaseUrl;
 	}
 
+	if (originalRunpodBaseUrl === undefined) {
+		delete process.env.LLM_RUNPOD_BASE_URL;
+	} else {
+		process.env.LLM_RUNPOD_BASE_URL = originalRunpodBaseUrl;
+	}
+
 	if (originalOpenaiBaseUrl === undefined) {
 		delete process.env.LLM_OPENAI_BASE_URL;
 	} else {
@@ -103,16 +113,37 @@ afterEach(() => {
 
 describe("getProviderEndpoint", () => {
 	it("routes Runpod through its serverless OpenAI endpoint", () => {
+		delete process.env.LLM_RUNPOD_BASE_URL;
+
+		expect(getProviderDefaultBaseUrl("runpod")).toBe("https://api.runpod.ai");
 		expect(getProviderEndpoint("runpod", undefined, "kimi-k3")).toBe(
 			"https://api.runpod.ai/v2/moonshot-kimi/openai/v1/chat/completions",
+		);
+	});
+
+	it("uses the Runpod base URL override unless a key URL is provided", () => {
+		process.env.LLM_RUNPOD_BASE_URL = "https://runpod-override.example";
+
+		expect(getProviderEndpoint("runpod", undefined, "kimi-k3")).toBe(
+			"https://runpod-override.example/v2/moonshot-kimi/openai/v1/chat/completions",
 		);
 		expect(
 			getProviderEndpoint(
 				"runpod",
-				"https://proxy.example.com/openai",
+				"https://proxy.example.com/runpod/",
 				"kimi-k3",
 			),
-		).toBe("https://proxy.example.com/openai/v1/chat/completions");
+		).toBe(
+			"https://proxy.example.com/runpod/v2/moonshot-kimi/openai/v1/chat/completions",
+		);
+	});
+
+	it("requires a model-specific Runpod endpoint", () => {
+		expect(() =>
+			getProviderEndpoint("runpod", undefined, "unregistered-model"),
+		).toThrow(
+			'Runpod model "unregistered-model" requires a serverless endpoint ID',
+		);
 	});
 
 	function getCustomEndpoint(
