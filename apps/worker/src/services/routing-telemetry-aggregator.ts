@@ -34,17 +34,12 @@ const UPSERT_CHUNK_SIZE = 1000;
 // does not carry.
 const usedBaseModelSql = sql<string>`split_part(split_part(${log.usedModel}, '/', 2), ':', 1)`;
 
-// routingMetadata is a `json` column, so every operator below needs an explicit
-// jsonb cast — `->` on `json` returns `json`, which has no containment or
-// array-element support.
-const routingMetadataJsonb = sql`(${log.routingMetadata}::jsonb)`;
-
 const selectionReasonSql = sql<string>`coalesce(
 	case
-		when ${routingMetadataJsonb} ->> 'selectionReason' = any(${sql.raw(
+		when metadata."selectionReason" = any(${sql.raw(
 			`array[${ROUTING_SELECTION_REASONS.map((reason) => `'${reason}'`).join(",")}]`,
 		)})
-		then ${routingMetadataJsonb} ->> 'selectionReason'
+		then metadata."selectionReason"
 	end,
 	'unknown'
 )`;
@@ -54,9 +49,7 @@ const selectionReasonSql = sql<string>`coalesce(
 // `routingMetadata.serviceTierSource` is the only thing that separates the two,
 // so the implicit count reads it; a row without the field predates it and counts
 // as an explicit request.
-const serviceTierSourceSql = sql<
-	string | null
->`(${routingMetadataJsonb} ->> 'serviceTierSource')`;
+const serviceTierSourceSql = sql<string | null>`metadata."serviceTierSource"`;
 const explicitTierSql = sql<number>`sum(case when ${log.requestedServiceTier} is not null and coalesce(${serviceTierSourceSql}, 'request') = 'request' then 1 else 0 end)::int`;
 const implicitTierSql = sql<number>`sum(case when ${log.requestedServiceTier} is not null and ${serviceTierSourceSql} = 'coding-plan-default' then 1 else 0 end)::int`;
 
@@ -95,13 +88,23 @@ async function aggregateElections(tx: Tx, targetHour: Date) {
 			selectionReason: selectionReasonSql.as("selectionReason"),
 			requestCount: sql<number>`count(*)::int`.as("requestCount"),
 			candidateCount:
-				sql<number>`coalesce(sum(coalesce(jsonb_array_length(${routingMetadataJsonb} -> 'availableProviders'), 0)), 0)::int`.as(
+				sql<number>`coalesce(sum(coalesce(json_array_length(metadata."availableProviders"), 0)), 0)::int`.as(
 					"candidateCount",
 				),
 			serviceTierExplicitCount: explicitTierSql.as("serviceTierExplicitCount"),
 			serviceTierImplicitCount: implicitTierSql.as("serviceTierImplicitCount"),
 		})
 		.from(log)
+		// Extract the needed fields once instead of repeatedly converting the
+		// entire routing metadata document to jsonb for each aggregate.
+		.innerJoin(
+			sql`lateral json_to_record(${log.routingMetadata}) as metadata(
+				"selectionReason" text,
+				"serviceTierSource" text,
+				"availableProviders" json
+			)`,
+			sql`true`,
+		)
 		.where(
 			and(
 				gte(log.createdAt, start),
@@ -166,9 +169,8 @@ async function aggregateExclusions(tx: Tx, targetHour: Date) {
 		`array[${ROUTING_EXCLUSION_REASONS.map((reason) => `'${reason}'`).join(",")}]`,
 	);
 
-	// One row per (model, provider, reason) with the exclusion count, plus a
-	// separate pass for the candidate denominator. Both are computed in SQL so the
-	// worker never materializes per-request rows in memory.
+	// Deduplicate each decision before the hourly aggregation so repeated
+	// provider entries and reasons never inflate either count.
 	const rows = await tx.execute<{
 		model_id: string | null;
 		provider_id: string | null;
@@ -179,133 +181,83 @@ async function aggregateExclusions(tx: Tx, targetHour: Date) {
 	}>(sql`
 			with hour_logs as (
 				select
-					${log.id} as log_id,
-					split_part(split_part(${log.usedModel}, '/', 2), ':', 1) as model_id,
-					${log.routingMetadata}::jsonb as metadata
+					${usedBaseModelSql} as model_id,
+					metadata.*
 				from ${log}
+				cross join lateral json_to_record(${log.routingMetadata}) as metadata(
+					"filteredProviders" jsonb,
+					"contentFilterExcludedProviders" jsonb,
+					"providerScores" jsonb,
+					"availableProviders" jsonb
+				)
 				where ${log.createdAt} >= ${startUtc}::timestamp
 					and ${log.createdAt} < ${startUtc}::timestamp + interval '1 hour'
 					and ${log.routingMetadata} is not null
 					and ${excludeRecoveredSameProviderRegionRetry()}
 			),
-			exclusions as (
-				-- filteredProviders[].codes: the gateway's own exclusion record
-				select
-					hour_logs.log_id,
-					hour_logs.model_id,
-					entry ->> 'providerId' as provider_id,
-					case when code = any(${reasonAllowlist}) then code else 'other' end as reason
+			decisions as materialized (
+				select hour_logs.model_id, decision.provider_id, decision.reasons
 				from hour_logs
-				cross join lateral jsonb_array_elements(
-					coalesce(hour_logs.metadata -> 'filteredProviders', '[]'::jsonb)
-				) as entry
-				cross join lateral jsonb_array_elements_text(
-					coalesce(entry -> 'codes', '[]'::jsonb)
-				) as code
-				union all
-				-- content-filter rerouting, recorded in its own metadata field
-				select
-					hour_logs.log_id,
-					hour_logs.model_id,
-					provider_id,
-					'content_filter' as reason
-				from hour_logs
-				cross join lateral jsonb_array_elements_text(
-					coalesce(hour_logs.metadata -> 'contentFilterExcludedProviders', '[]'::jsonb)
-				) as provider_id
-				union all
-				-- fail-open or retry-time rate limits, annotated on score entries
-				select
-					hour_logs.log_id,
-					hour_logs.model_id,
-					score ->> 'providerId' as provider_id,
-					'rate_limited' as reason
-				from hour_logs
-				cross join lateral jsonb_array_elements(
-					coalesce(hour_logs.metadata -> 'providerScores', '[]'::jsonb)
-				) as score
-				where (score ->> 'rate_limited')::boolean is true
+				cross join lateral (
+					select provider_id,
+						array_agg(distinct reason) filter (where reason is not null) as reasons
+					from (
+						select provider_id, null::text as reason
+						from jsonb_array_elements_text(
+							coalesce(hour_logs."availableProviders", '[]'::jsonb)
+						) as provider_id
+						union all
+						select entry ->> 'providerId' as provider_id,
+							case
+								when codes.position is null then null
+								when code = any(${reasonAllowlist}) then code
+								else 'other'
+							end as reason
+						from jsonb_array_elements(
+							coalesce(hour_logs."filteredProviders", '[]'::jsonb)
+						) as entry
+						-- Legacy entries without codes still count as candidates.
+						left join lateral jsonb_array_elements_text(
+							coalesce(entry -> 'codes', '[]'::jsonb)
+						) with ordinality as codes(code, position) on true
+						union all
+						select provider_id, 'content_filter' as reason
+						from jsonb_array_elements_text(
+							coalesce(hour_logs."contentFilterExcludedProviders", '[]'::jsonb)
+						) as provider_id
+						union all
+						select score ->> 'providerId' as provider_id,
+							case when (score ->> 'rate_limited')::boolean is true
+								then 'rate_limited' end as reason
+						from jsonb_array_elements(
+							coalesce(hour_logs."providerScores", '[]'::jsonb)
+						) as score
+					) as appearances
+					where provider_id is not null
+					group by provider_id
+				) as decision
 			),
-			-- Every provider this model saw in a routing decision, whether it was
-			-- kept or dropped. This is the denominator: without it an exclusion count
-			-- cannot be turned into a rate.
-			--
-			-- Deduplicated per decision, because the branches below overlap: a
-			-- rate-limited mapping is annotated on providerScores *and* may still be
-			-- listed in availableProviders, and counting it twice would halve its
-			-- exclusion rate. providerScores is unioned in because a mapping dropped
-			-- for rate limiting is sometimes only ever recorded there — without this
-			-- branch it has no denominator at all and every such mapping reports a
-			-- flat 100% exclusion rate.
-			candidates as (
-				select distinct log_id, model_id, provider_id
-				from (
-					select hour_logs.log_id, hour_logs.model_id, provider_id
-					from hour_logs
-					cross join lateral jsonb_array_elements_text(
-						coalesce(hour_logs.metadata -> 'availableProviders', '[]'::jsonb)
-					) as provider_id
-					union all
-					select hour_logs.log_id, hour_logs.model_id, entry ->> 'providerId' as provider_id
-					from hour_logs
-					cross join lateral jsonb_array_elements(
-						coalesce(hour_logs.metadata -> 'filteredProviders', '[]'::jsonb)
-					) as entry
-					union all
-					select hour_logs.log_id, hour_logs.model_id, provider_id
-					from hour_logs
-					cross join lateral jsonb_array_elements_text(
-						coalesce(hour_logs.metadata -> 'contentFilterExcludedProviders', '[]'::jsonb)
-					) as provider_id
-					union all
-					select hour_logs.log_id, hour_logs.model_id, score ->> 'providerId' as provider_id
-					from hour_logs
-					cross join lateral jsonb_array_elements(
-						coalesce(hour_logs.metadata -> 'providerScores', '[]'::jsonb)
-					) as score
-				) as all_candidates
-			),
-			candidate_counts as (
-				select model_id, provider_id, count(*)::int as candidate_count
-				from candidates
-				where provider_id is not null
+			provider_counts as (
+				select model_id, provider_id, count(*)::int as candidate_count,
+					count(*) filter (where reasons is not null)::int as excluded_decision_count
+				from decisions
 				group by model_id, provider_id
 			),
 			exclusion_counts as (
-				-- distinct log_id per reason: a mapping listed twice for the same
-				-- reason in one decision was still only excluded once.
-				select model_id, provider_id, reason, count(distinct log_id)::int as excluded_count
-				from exclusions
-				where provider_id is not null
+				select model_id, provider_id, reason, count(*)::int as excluded_count
+				from decisions
+				cross join lateral unnest(reasons) as reason
 				group by model_id, provider_id, reason
-			),
-			-- Decisions the mapping was dropped from for any reason, counted once
-			-- each. This is the eligibility numerator: summing the per-reason counts
-			-- above double-counts a decision that fired several reasons at once, and
-			-- would report a mapping as never eligible when it in fact served.
-			excluded_decision_counts as (
-				select model_id, provider_id, count(distinct log_id)::int as excluded_decision_count
-				from exclusions
-				where provider_id is not null
-				group by model_id, provider_id
 			)
 			select
 				exclusion_counts.model_id,
 				exclusion_counts.provider_id,
 				exclusion_counts.reason,
 				exclusion_counts.excluded_count,
-				coalesce(
-					candidate_counts.candidate_count,
-					excluded_decision_counts.excluded_decision_count
-				) as candidate_count,
-				excluded_decision_counts.excluded_decision_count
+				provider_counts.candidate_count,
+				provider_counts.excluded_decision_count
 			from exclusion_counts
-			join excluded_decision_counts
-				on excluded_decision_counts.model_id = exclusion_counts.model_id
-				and excluded_decision_counts.provider_id = exclusion_counts.provider_id
-			left join candidate_counts
-				on candidate_counts.model_id = exclusion_counts.model_id
-				and candidate_counts.provider_id = exclusion_counts.provider_id
+			join provider_counts using (model_id, provider_id)
 		`);
 
 	const values = rows.rows
@@ -349,7 +301,7 @@ async function aggregateExclusions(tx: Tx, targetHour: Date) {
  *
  * Reading `log` is deliberate and safe here despite the table's volume: the
  * fields used (routingMetadata, the service-tier columns) survive retention
- * stripping, this runs once per hour over a single hour's rows rather than per
+ * stripping, each pass scans a single hour's rows rather than running per
  * dashboard request, and the resulting hourly rows are what the admin dashboard
  * queries. Backfilling an hour whose logs have already been pruned simply
  * produces no rows and leaves any existing ones untouched.
