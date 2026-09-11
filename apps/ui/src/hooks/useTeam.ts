@@ -13,7 +13,9 @@ export type MyMemberBudgetData =
 export function useTeamMembers(
 	organizationId: string | undefined,
 	initialData?: TeamMembersData,
-	options?: { enabled?: boolean },
+	options?: {
+		enabled?: boolean | ((data: TeamMembersData | undefined) => boolean);
+	},
 ) {
 	const api = useApi();
 
@@ -29,7 +31,11 @@ export function useTeamMembers(
 		},
 		{
 			...(initialData ? { initialData } : {}),
-			enabled: (options?.enabled ?? true) && !!organizationId,
+			enabled: (query) =>
+				!!organizationId &&
+				(typeof options?.enabled === "function"
+					? options.enabled(query.state.data)
+					: (options?.enabled ?? true)),
 		},
 	);
 }

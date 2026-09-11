@@ -649,6 +649,55 @@ describe("fallback and error status code handling", () => {
 	});
 
 	describe("error status code classification", () => {
+		test.each([false, true])(
+			"retains upstream error text with retention disabled (stream=%s)",
+			async (stream) => {
+				await setupCustomKeys();
+				await db
+					.update(tables.organization)
+					.set({ retentionLevel: "none" })
+					.where(eq(tables.organization.id, "org-id"));
+
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+						"x-no-fallback": "true",
+						"x-debug": "true",
+					},
+					body: JSON.stringify({
+						model: "llmgateway/custom",
+						messages: [{ role: "user", content: "TRIGGER_STATUS_400" }],
+						stream,
+					}),
+				});
+
+				expect(res.status).toBe(stream ? 200 : 400);
+				expect(await res.text()).toContain("Invalid request: malformed input.");
+
+				const logs = await waitForLogs(1);
+				expect(logs).toHaveLength(1);
+				const log = logs[0];
+				expect(log.finishReason).toBe("client_error");
+				expect(log.errorDetails?.statusCode).toBe(400);
+				expect(JSON.parse(log.errorDetails?.responseText ?? "")).toEqual({
+					error: {
+						message: "Invalid request: malformed input.",
+						type: "invalid_request_error",
+						param: null,
+						code: "invalid_request",
+					},
+				});
+				expect(log.messages).toBeNull();
+				expect(log.content).toBeNull();
+				expect(log.rawRequest).toBeNull();
+				expect(log.rawResponse).toBeNull();
+				expect(log.upstreamRequest).toBeNull();
+				expect(log.upstreamResponse).toBeNull();
+			},
+		);
+
 		test("500 upstream error is classified as upstream_error with correct metadata in response and DB log", async () => {
 			await setupCustomKeys();
 
@@ -2414,6 +2463,87 @@ describe("fallback and error status code handling", () => {
 	});
 
 	describe("retry with fallback to alternate provider", () => {
+		test.each([false, true])(
+			"retries Anthropic account access restrictions (stream: %s)",
+			async (stream) => {
+				await setupMultiProviderKeys();
+
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "glm-4.7",
+						stream,
+						messages: [
+							{ role: "user", content: "TRIGGER_FAIL_ONCE_ANTHROPIC_ACCESS" },
+						],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				if (stream) {
+					expect(await readAll(res.body)).toMatchObject({
+						hasError: false,
+						hasContent: true,
+					});
+				} else {
+					expect(await res.json()).toHaveProperty([
+						"choices",
+						0,
+						"message",
+						"content",
+					]);
+				}
+
+				const logs = await waitForLogs(2);
+				const failedLog = logs.find((log) => log.hasError);
+				const successLog = logs.find((log) => !log.hasError);
+				expect(successLog).toBeDefined();
+				expect(failedLog).toMatchObject({
+					finishReason: "upstream_error",
+					unifiedFinishReason: "upstream_error",
+					errorDetails: { statusCode: 400 },
+					retried: true,
+					retriedByLogId: successLog?.id,
+				});
+				expect(successLog?.usedProvider).not.toBe(failedLog?.usedProvider);
+			},
+		);
+
+		test("returns an upstream error for Anthropic account restrictions when fallback is disabled", async () => {
+			await setupMultiProviderKeys();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"X-No-Fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "glm-4.7",
+					messages: [
+						{ role: "user", content: "TRIGGER_FAIL_ONCE_ANTHROPIC_ACCESS" },
+					],
+				}),
+			});
+
+			expect(res.status).toBe(500);
+			expect(await res.json()).toMatchObject({
+				error: { type: "upstream_error" },
+			});
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0]).toMatchObject({
+				finishReason: "upstream_error",
+				errorDetails: { statusCode: 400 },
+				retried: false,
+			});
+		});
+
 		test("non-streaming: retries on 500 and succeeds on fallback provider with failed_attempts in metadata", async () => {
 			await setupMultiProviderKeys();
 

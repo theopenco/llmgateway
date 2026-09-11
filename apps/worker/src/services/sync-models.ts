@@ -135,7 +135,26 @@ export async function syncProvidersAndModels() {
 
 			if (modelDef.providers && modelDef.providers.length > 0) {
 				const expandedProviders = expandAllProviderRegions(modelDef.providers);
+				// An Airside listing owns every row of its (model, provider) pair —
+				// regional variants included — so sync must not re-create catalogue
+				// rows next to it.
+				const airsideOwnedProviderIds = new Set(
+					(
+						await database
+							.select({ providerId: modelProviderMapping.providerId })
+							.from(modelProviderMapping)
+							.where(
+								and(
+									eq(modelProviderMapping.modelId, modelDef.id),
+									eq(modelProviderMapping.source, "airside"),
+								),
+							)
+					).map((row) => row.providerId),
+				);
 				for (const mapping of expandedProviders) {
+					if (airsideOwnedProviderIds.has(mapping.providerId)) {
+						continue;
+					}
 					const mappingRegion = mapping.region;
 					const existingMapping = (
 						await database

@@ -47,6 +47,7 @@ import {
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
+import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
@@ -534,6 +535,7 @@ const createVideo = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: videoResponseSchema,
@@ -563,6 +565,7 @@ const getVideo = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: videoResponseSchema,
@@ -593,6 +596,7 @@ const getVideoContent = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"video/mp4": {
 					schema: z.any(),
@@ -603,6 +607,8 @@ const getVideoContent = createRoute({
 			},
 			description: "Video bytes.",
 		},
+
+		...standardErrorResponses(),
 	},
 });
 
@@ -623,6 +629,7 @@ const getVideoLogContent = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"video/mp4": {
 					schema: z.any(),
@@ -633,6 +640,8 @@ const getVideoLogContent = createRoute({
 			},
 			description: "Video bytes.",
 		},
+
+		...standardErrorResponses(),
 	},
 });
 

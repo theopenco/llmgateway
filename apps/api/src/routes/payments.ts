@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { z } from "zod";
 
 import { assertOrganizationNotHighRisk } from "@/lib/account-risk.js";
+import { getBillingOrganization } from "@/lib/billing-organization.js";
 import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import { computeReferralBonus } from "@/lib/referral-bonus.js";
 import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
@@ -75,25 +76,6 @@ const creditTopUpAmountSchema = z
 	)
 	.max(CREDIT_TOP_UP_MAX_AMOUNT, "Maximum top-up amount is $5000.");
 
-/**
- * Resolves the organization a payment operation should target.
- *
- * When an `organizationId` is provided (e.g. the user is acting within a
- * non-default organization they switched to in the dashboard), it is looked up
- * scoped to the user's memberships so a user can only ever target an org they
- * belong to. When omitted, it falls back to the user's first organization for
- * backward compatibility.
- */
-async function findUserOrganization(userId: string, organizationId?: string) {
-	return await db.query.userOrganization.findFirst({
-		where: organizationId ? { userId, organizationId } : { userId },
-		with: {
-			organization: true,
-			user: true,
-		},
-	});
-}
-
 const getTopUpLimit = createRoute({
 	method: "get",
 	path: "/top-up-limit",
@@ -125,10 +107,10 @@ payments.openapi(getTopUpLimit, async (c) => {
 	}
 
 	const { organizationId } = c.req.valid("query");
-	const userOrganization = await findUserOrganization(user.id, organizationId);
-	if (!userOrganization?.organization) {
-		throw new HTTPException(404, { message: "Organization not found" });
-	}
+	const userOrganization = await getBillingOrganization(
+		user.id,
+		organizationId,
+	);
 
 	const allowance = await getTopUpVelocityAllowance(
 		userOrganization.organization,
@@ -210,16 +192,10 @@ payments.openapi(createPaymentIntent, async (c) => {
 		organizationId: requestedOrganizationId,
 	} = c.req.valid("json");
 
-	const userOrganization = await findUserOrganization(
+	const userOrganization = await getBillingOrganization(
 		user.id,
 		requestedOrganizationId,
 	);
-
-	if (!userOrganization || !userOrganization.organization) {
-		throw new HTTPException(404, {
-			message: "Organization not found",
-		});
-	}
 
 	const organizationId = userOrganization.organization.id;
 
@@ -404,16 +380,10 @@ payments.openapi(createSetupIntent, async (c) => {
 
 	const { organizationId: requestedOrganizationId } = c.req.valid("json") ?? {};
 
-	const userOrganization = await findUserOrganization(
+	const userOrganization = await getBillingOrganization(
 		user.id,
 		requestedOrganizationId,
 	);
-
-	if (!userOrganization || !userOrganization.organization) {
-		throw new HTTPException(404, {
-			message: "Organization not found",
-		});
-	}
 
 	const organizationId = userOrganization.organization.id;
 
@@ -485,16 +455,10 @@ payments.openapi(getPaymentMethods, async (c) => {
 
 	const { organizationId: requestedOrganizationId } = c.req.valid("query");
 
-	const userOrganization = await findUserOrganization(
+	const userOrganization = await getBillingOrganization(
 		user.id,
 		requestedOrganizationId,
 	);
-
-	if (!userOrganization || !userOrganization.organization) {
-		throw new HTTPException(404, {
-			message: "Organization not found",
-		});
-	}
 
 	const organizationId = userOrganization.organization.id;
 
@@ -573,16 +537,10 @@ payments.openapi(setDefaultPaymentMethod, async (c) => {
 	const { paymentMethodId, organizationId: requestedOrganizationId } =
 		c.req.valid("json");
 
-	const userOrganization = await findUserOrganization(
+	const userOrganization = await getBillingOrganization(
 		user.id,
 		requestedOrganizationId,
 	);
-
-	if (!userOrganization || !userOrganization.organization) {
-		throw new HTTPException(404, {
-			message: "Organization not found",
-		});
-	}
 
 	const organizationId = userOrganization.organization.id;
 
@@ -663,16 +621,10 @@ payments.openapi(deletePaymentMethod, async (c) => {
 	const { id } = c.req.valid("param");
 	const { organizationId: requestedOrganizationId } = c.req.valid("query");
 
-	const userOrganization = await findUserOrganization(
+	const userOrganization = await getBillingOrganization(
 		user.id,
 		requestedOrganizationId,
 	);
-
-	if (!userOrganization || !userOrganization.organization) {
-		throw new HTTPException(404, {
-			message: "Organization not found",
-		});
-	}
 
 	const organizationId = userOrganization.organization.id;
 
@@ -787,6 +739,11 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		organizationId?: string;
 	} = c.req.valid("json");
 
+	const userOrganization = await getBillingOrganization(
+		user.id,
+		requestedOrganizationId,
+	);
+
 	const paymentMethod = await db.query.paymentMethod.findFirst({
 		where: {
 			id: paymentMethodId,
@@ -799,16 +756,7 @@ payments.openapi(topUpWithSavedMethod, async (c) => {
 		});
 	}
 
-	const userOrganization = await findUserOrganization(
-		user.id,
-		requestedOrganizationId,
-	);
-
-	if (
-		!userOrganization ||
-		!userOrganization.organization ||
-		userOrganization.organization.id !== paymentMethod.organizationId
-	) {
+	if (userOrganization.organization.id !== paymentMethod.organizationId) {
 		throw new HTTPException(403, {
 			message: "Unauthorized access to payment method",
 		});
@@ -1012,16 +960,10 @@ payments.openapi(createCheckoutSession, async (c) => {
 		organizationId: requestedOrganizationId,
 	} = c.req.valid("json");
 
-	const userOrganization = await findUserOrganization(
+	const userOrganization = await getBillingOrganization(
 		user.id,
 		requestedOrganizationId,
 	);
-
-	if (!userOrganization || !userOrganization.organization) {
-		throw new HTTPException(404, {
-			message: "Organization not found",
-		});
-	}
 
 	const organizationId = userOrganization.organization.id;
 
@@ -1210,16 +1152,10 @@ payments.openapi(calculateFeesRoute, async (c) => {
 		organizationId?: string;
 	} = c.req.valid("json");
 
-	const userOrganization = await findUserOrganization(
+	const userOrganization = await getBillingOrganization(
 		user.id,
 		requestedOrganizationId,
 	);
-
-	if (!userOrganization || !userOrganization.organization) {
-		throw new HTTPException(404, {
-			message: "Organization not found",
-		});
-	}
 
 	let isInternational = false;
 	if (paymentMethodId) {

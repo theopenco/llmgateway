@@ -358,6 +358,7 @@ describe("AWS Bedrock Anthropic regions", () => {
 	});
 
 	const expectedRegionsByModelId = new Map<string, string[]>([
+		["claude-fable-5-1", ["global", "us"]],
 		["claude-sonnet-4-5", ["global", "us", "eu", "au", "jp"]],
 		["claude-sonnet-4-5-20250929", ["global", "us", "eu", "au", "jp"]],
 		["claude-sonnet-4-6", ["global", "us", "eu", "au", "jp", "eu-west-2"]],

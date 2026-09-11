@@ -61,6 +61,7 @@ import {
 	shouldBillCancelledRequests,
 	zeroInferenceCosts,
 } from "@/lib/costs.js";
+import { customModelToProviderMapping } from "@/lib/custom-model.js";
 import { getPublishedDynamicRoute } from "@/lib/dynamic-route-loader.js";
 import {
 	assertOriginAllowed,
@@ -74,6 +75,7 @@ import {
 	getLicensedOrganizationPlan,
 	hasOrganizationEnterpriseAccess,
 } from "@/lib/enterprise.js";
+import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import {
@@ -191,6 +193,7 @@ import {
 	type VertexTokenType,
 	type WebSearchTool,
 	expandAllProviderRegions,
+	expandProviderRegions,
 	getProviderDefinition,
 	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
@@ -403,41 +406,6 @@ function toDataStorageCostNumber(
 	return Number.isFinite(num) ? num : null;
 }
 
-/**
- * Builds a synthetic provider mapping (providerId "custom") from an enterprise
- * custom model catalog entry. Used both to override the mock model info for
- * limit/capability enforcement and as the `customPricing` override threaded into
- * calculateCosts so custom-provider requests are billed at the catalog rates.
- */
-function customModelToProviderMapping(cm: CustomModel): ProviderModelMapping {
-	const streaming: boolean | "only" =
-		cm.streaming === "only" ? "only" : cm.streaming !== "false";
-	return {
-		providerId: "custom",
-		externalId: cm.modelName,
-		inputPrice: cm.inputPrice ?? undefined,
-		outputPrice: cm.outputPrice ?? undefined,
-		cachedInputPrice: cm.cachedInputPrice ?? undefined,
-		cacheReadInputPrice: cm.cacheReadInputPrice ?? undefined,
-		cacheWriteInputPrice: cm.cacheWriteInputPrice ?? undefined,
-		cacheWriteInputPrice1h: cm.cacheWriteInputPrice1h ?? undefined,
-		requestPrice: cm.requestPrice ?? undefined,
-		webSearchPrice: cm.webSearchPrice ?? undefined,
-		imageInputPrice: cm.imageInputPrice ?? undefined,
-		inputAudioPrice: cm.audioInputPrice ?? undefined,
-		contextSize: cm.contextSize ?? undefined,
-		maxOutput: cm.maxOutput ?? undefined,
-		vision: cm.vision ?? undefined,
-		tools: cm.tools ?? undefined,
-		reasoning: cm.reasoning ?? undefined,
-		jsonOutput: cm.jsonOutput ?? undefined,
-		jsonOutputSchema: cm.jsonOutput ?? undefined,
-		audio: cm.audio ?? undefined,
-		supportedParameters: cm.supportedParameters ?? undefined,
-		streaming,
-	};
-}
-
 type CustomAutoRoutingMapping = ProviderModelMapping & {
 	customProviderKeyId: string;
 	customProviderName: string;
@@ -544,7 +512,9 @@ function preferConcreteRegionalMappings(
 
 	return providers.filter(
 		(mapping) =>
-			!providersWithRegions.has(mapping.providerId) || Boolean(mapping.region),
+			!providersWithRegions.has(mapping.providerId) ||
+			Boolean(mapping.region) ||
+			mapping.routableRoot === true,
 	);
 }
 
@@ -738,7 +708,16 @@ function filterEligibleModelProviders(
 		const lockedRegion = options.providerLockedRegions?.get(
 			provider.providerId,
 		);
-		if (lockedRegion && provider.region && provider.region !== lockedRegion) {
+		// A routable root has concrete regional siblings that can satisfy the
+		// lock, so it must not slip locked traffic onto the default deployment.
+		// Region-less mappings without regional variants keep passing — for
+		// them the lock is applied at endpoint resolution, not candidate level.
+		if (
+			lockedRegion &&
+			(provider.region
+				? provider.region !== lockedRegion
+				: provider.routableRoot === true)
+		) {
 			if (filteredOut) {
 				recordFilteredProvider(filteredOut, provider.providerId, [
 					exclusionReason("locked_region"),
@@ -1411,6 +1390,7 @@ const completions = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: z.object({
@@ -2396,14 +2376,7 @@ chat.openapi(completions, async (c) => {
 	// this org's env-credential reads. Undefined = base vars only.
 	const envVariant = getLicensedOrganizationEnvVariant(organization);
 
-	// Dev-plan (DevPass) orgs can default routing to cheaper flex processing via
-	// their dashboard settings to save on plan credits. Applied softly, and only
-	// when the request itself doesn't specify a service_tier: the tier kicks in
-	// only if at least one candidate mapping supports flex AND has a credential
-	// that reaches the provider's real upstream (mirroring the service-tier key
-	// eligibility enforced below), so requests to models without flex support
-	// stay on standard processing instead of failing the explicit-tier
-	// validation and eligibility checks below.
+	// Apply the dev-plan flex default only when a mapping and credential support it.
 	if (
 		isDevPlan &&
 		organization.devPlanServiceTier === "flex" &&
@@ -3436,13 +3409,7 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Flex/Priority is only honored when the request reaches the provider's real
-	// upstream endpoint — a provider key with a custom base URL (proxy) may
-	// silently drop the tier and be billed/reported as standard. Exclude
-	// providers that have no upstream-eligible credential from service-tier
-	// routing (mirroring the compliance policy): auto/model-id routing drops
-	// them, and only fails when none remain; a pinned provider with no eligible
-	// key returns a clear 400 instead of silently downgrading.
+	// Exclude providers without a credential in a tier-capable region.
 	let serviceTierOrgKeys:
 		InferSelectModel<typeof tables.providerKey>[] | undefined;
 	const isProviderServiceTierEligible = (providerId: string): boolean => {
@@ -3450,11 +3417,6 @@ chat.openapi(completions, async (c) => {
 			(key) => key.provider === providerId,
 		);
 		const hasCompliantDbKey = dbKeys.some(providerKeySupportsServiceTier);
-		// An env credential is eligible only when at least one of its (possibly
-		// comma-indexed) base URLs targets the managed upstream — a custom base URL
-		// on every env index is just as ineligible as a custom DB key. In hybrid
-		// mode env is used only when no DB key is picked, which the
-		// serviceTierKeyFilter guarantees for a custom base URL.
 		const envEligible =
 			(project.mode === "credits" || project.mode === "hybrid") &&
 			hasServiceTierEligibleEnvCredential(providerId as Provider);
@@ -3491,7 +3453,7 @@ chat.openapi(completions, async (c) => {
 			!isProviderServiceTierEligible(usedProvider);
 		if (iamFilteredModelProviders.length === 0 || pinnedIneligible) {
 			throw new HTTPException(400, {
-				message: `Service tier '${service_tier}' requires a provider key that targets the original upstream endpoint. Remove the custom base URL from the ${pinnedIneligible ? `${usedProvider} ` : ""}provider key or omit service_tier.`,
+				message: `No provider key is available in a region that supports service tier '${service_tier}'${pinnedIneligible ? ` for ${usedProvider}` : ""}.`,
 			});
 		}
 	};
@@ -3526,7 +3488,6 @@ chat.openapi(completions, async (c) => {
 			(usedInternalModel === airsideCheckedModel &&
 				(airsideCheckedProvider === undefined ||
 					usedProvider === airsideCheckedProvider)) ||
-			usedRegion !== undefined ||
 			!usedProvider ||
 			usedProvider === "custom" ||
 			usedProvider === "llmgateway"
@@ -3534,7 +3495,20 @@ chat.openapi(completions, async (c) => {
 			return fromResolution;
 		}
 		const listed = await findAirsideModel(usedProvider, usedInternalModel);
-		return listed ? airsideListingToModelDefinition(listed).mapping : undefined;
+		if (!listed) {
+			return undefined;
+		}
+		// The owner's filed prices govern the whole pair: bill a served region
+		// at its filed regional price, and anything else at the canonical
+		// default-region price.
+		const expanded = expandProviderRegions(
+			airsideListingToModelDefinition(listed).mapping,
+		);
+		return (
+			expanded.find(
+				(mapping) => (mapping.region ?? null) === (usedRegion ?? null),
+			) ?? expanded.find((mapping) => mapping.region === undefined)
+		);
 	};
 	let customPricingMapping: ProviderModelMapping | undefined =
 		findAirsidePricingMapping();
@@ -4379,13 +4353,14 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 		}
-		const sameProviderRegionalMappings = sameProviderMappings.filter(
+		// A routable root (an Airside listing's default deployment) stays a
+		// candidate next to its regional variants; only synthetic roots are
+		// dropped in favor of concrete regions.
+		const sameProviderRoutingMappings = sameProviderMappings.some(
 			(p) => p.region,
-		);
-		const sameProviderRoutingMappings =
-			sameProviderRegionalMappings.length > 0
-				? sameProviderRegionalMappings
-				: sameProviderMappings;
+		)
+			? sameProviderMappings.filter((p) => p.region || p.routableRoot === true)
+			: sameProviderMappings;
 
 		if (sameProviderMappings.length > 1) {
 			let lockedRegion = usedRegion;
@@ -4480,7 +4455,14 @@ chat.openapi(completions, async (c) => {
 			usedRegion ??= (sameProviderMappings[0] as ProviderModelMapping).region;
 		}
 
-		if (!usedRegion) {
+		if (
+			!usedRegion &&
+			// Only force a region when every candidate is regional — a selected
+			// region-less routable root legitimately serves without one.
+			!sameProviderRoutingMappings.some(
+				(p) => !(p as ProviderModelMapping).region,
+			)
+		) {
 			const firstRegionalMatch = sameProviderRoutingMappings.find(
 				(p) => (p as ProviderModelMapping).region,
 			) as ProviderModelMapping | undefined;
@@ -5176,9 +5158,14 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 
-			const rawModelWithPricing = models.find(
-				(m) => m.id === usedInternalModel,
-			);
+			// Airside-only models have no static entry; their synthesized
+			// definition carries the filed (regional) prices so selection can
+			// still score candidates instead of taking the first one.
+			const rawModelWithPricing =
+				models.find((m) => m.id === usedInternalModel) ??
+				(airsideResolution?.parseResult.requestedModel === usedInternalModel
+					? airsideResolution.modelInfoResult.modelInfo
+					: undefined);
 			const modelWithPricing = rawModelWithPricing
 				? {
 						...rawModelWithPricing,
@@ -5408,10 +5395,10 @@ chat.openapi(completions, async (c) => {
 				{ explicitLocks: providerLockedRegions, requestedRegion },
 			);
 			const directProviderRegionalMappings = directProviderMappings.filter(
-				(provider) => provider.region,
+				(provider) => provider.region || provider.routableRoot === true,
 			);
 			routingMetadataProviders = filterEligibleModelProviders(
-				directProviderRegionalMappings.length > 0
+				directProviderMappings.some((provider) => provider.region)
 					? directProviderRegionalMappings
 					: directProviderMappings,
 				{
@@ -5696,11 +5683,7 @@ chat.openapi(completions, async (c) => {
 			providerKeyLabel: providerKeyLabel(providerKey),
 		};
 	}
-	// Flex/Priority is only honored when the request reaches the provider's real
-	// upstream endpoint on a tier-capable location. Skip provider keys whose
-	// custom base URL (proxy) may silently drop the tier, and Vertex keys pinned
-	// to a regional endpoint, so a compliant key (or the managed env credential
-	// in hybrid mode) is used instead.
+	// Skip Vertex credentials pinned to a region that cannot serve the tier.
 	const serviceTierKeyFilter = isRequestedServiceTier(service_tier)
 		? providerKeySupportsServiceTier
 		: undefined;
@@ -6057,44 +6040,6 @@ chat.openapi(completions, async (c) => {
 			usedProvider,
 			modelInfo.id,
 		);
-
-		const providerRateLimitEntries = Object.entries(
-			providerRateLimitResult.limits,
-		) as Array<
-			[
-				keyof typeof providerRateLimitWindows,
-				(typeof providerRateLimitResult.limits)[keyof typeof providerRateLimitResult.limits],
-			]
-		>;
-		const primaryProviderRateLimit = providerRateLimitEntries.find(
-			([, limit]) => limit.limit > 0,
-		);
-
-		if (primaryProviderRateLimit) {
-			c.header(
-				"X-RateLimit-Limit-Provider",
-				primaryProviderRateLimit[1].limit.toString(),
-			);
-			c.header(
-				"X-RateLimit-Remaining-Provider",
-				primaryProviderRateLimit[1].remaining.toString(),
-			);
-		}
-
-		for (const [window, limit] of providerRateLimitEntries) {
-			if (limit.limit === 0) {
-				continue;
-			}
-
-			c.header(
-				`X-RateLimit-Limit-Provider-${providerRateLimitWindows[window].headerSuffix}`,
-				limit.limit.toString(),
-			);
-			c.header(
-				`X-RateLimit-Remaining-Provider-${providerRateLimitWindows[window].headerSuffix}`,
-				limit.remaining.toString(),
-			);
-		}
 
 		// Race condition: between peek and consume, the window may have filled.
 		// Only hard-block if the user explicitly requested this provider with no-fallback.
@@ -7120,16 +7065,13 @@ chat.openapi(completions, async (c) => {
 	// When the provider only supports streaming, force it even if the client didn't request it.
 	// The upstream request uses effectiveStream; the client response uses stream.
 	const forceStream = streamingSupport === "only" && !stream;
-	// Force upstream SSE for OpenAI/Azure gpt-image-* regardless of what the client
-	// requested. For image generation the upstream request is always non-streaming
-	// (effectiveStream is forced false above when faking streaming for the client),
-	// so partial_images=1 is needed in both cases to keep the connection alive past
-	// Azure's 122s synchronous wall and to use AI_STREAMING_TIMEOUT_MS (1200s default)
-	// instead of AI_TIMEOUT_MS (600s). The SSE response is collapsed back into the
-	// regular non-streaming JSON shape before being returned (or re-wrapped as fake
-	// SSE for clients that requested streaming).
+	// OpenAI/Azure image streaming only supports n=1. Force SSE for single-image
+	// requests to keep the connection alive past Azure's 122s synchronous wall
+	// and use AI_STREAMING_TIMEOUT_MS. Collapse the response to JSON (or fake
+	// client SSE); batches use the provider's non-streaming response.
 	let forceImageStreamUpstream =
 		isImageGeneration &&
+		(image_config?.n ?? 1) === 1 &&
 		(usedProvider === "openai" || usedProvider === "azure");
 	const effectiveStream = fakeStreamingForImageGen
 		? false
@@ -7615,6 +7557,7 @@ chat.openapi(completions, async (c) => {
 		isImageGeneration = ctx.isImageGeneration;
 		forceImageStreamUpstream =
 			isImageGeneration &&
+			(image_config?.n ?? 1) === 1 &&
 			(usedProvider === "openai" || usedProvider === "azure");
 		if (forceImageStreamUpstream) {
 			requestBody = injectImageStreamParams(requestBody);

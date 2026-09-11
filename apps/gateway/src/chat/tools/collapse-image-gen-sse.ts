@@ -2,9 +2,9 @@
  * Collapses an OpenAI / Azure image-generation SSE stream into the same
  * non-streaming JSON shape the providers return when stream=false.
  *
- * The gateway forces stream=true&partial_images=1 upstream for openai/azure
- * gpt-image-* even when the client requested non-streaming, so that the
- * connection stays alive past Azure's 122s synchronous wall and we can rely
+ * The gateway forces stream=true&partial_images=1 for single-image OpenAI/Azure
+ * requests even when the client requested non-streaming. This keeps the
+ * connection alive past Azure's 122s synchronous wall and lets us rely
  * on AI_STREAMING_TIMEOUT_MS instead of AI_TIMEOUT_MS. The forced partial is
  * discarded here; only the final completed event is used.
  *

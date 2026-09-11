@@ -9,7 +9,12 @@ import { ThemedImage } from "@/components/themed-image";
 
 The Dynamic Routes page in your project settings lets you define named routing flows — conditions on the request, percentage-based A/B splits, and model targets with provider fallback — and invoke them by putting `dynamic/<name>` in the `model` field instead of a concrete model. Routing logic moves out of your application code: change the flow in the dashboard and every client picks it up on the next request, no deploy needed.
 
-<ThemedImage alt="Dynamic Routes" basePath="/learn/dynamic-routes" />
+<ThemedImage
+	alt="Dynamic Routes"
+	basePath="/learn/dynamic-routes"
+	width={1440}
+	height={1286}
+/>
 
 <Callout type="info">
 	Dynamic routes are available on the [**Enterprise
@@ -42,7 +47,12 @@ See the [dynamic routes feature docs](/features/dynamic-routes) for the full con
 
 The **JSON** tab edits the same graph as raw JSON — useful for copy-pasting flows between projects or generating them programmatically. Both tabs stay in sync, and both validate against the full schema before saving: unknown models, unwired branches, cycles, and invalid conditions are listed under **Fix before saving** and block the save until resolved, so an invalid graph can never serve traffic.
 
-<ThemedImage alt="JSON editor" basePath="/learn/dynamic-routes-json" />
+<ThemedImage
+	alt="JSON editor"
+	basePath="/learn/dynamic-routes-json"
+	width={1440}
+	height={900}
+/>
 
 ## Publishing and Rolling Back
 

@@ -34,6 +34,16 @@ export function getFinishReasonFromError(
 		return "upstream_error";
 	}
 
+	// This restriction belongs to the upstream account, even on a 4xx response.
+	if (
+		errorText &&
+		/access to anthropic models is not allowed for this account/i.test(
+			errorText,
+		)
+	) {
+		return "upstream_error";
+	}
+
 	// 402 Payment Required indicates the gateway's provider account is out of
 	// funds (e.g. DeepSeek "Insufficient Balance"). This is a gateway-side
 	// account problem, not a client error, so classify as gateway_error to allow
