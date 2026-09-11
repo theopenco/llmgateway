@@ -1,4 +1,5 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
+import { APIError } from "better-auth/api";
 import { Decimal } from "decimal.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -8,6 +9,10 @@ import {
 	deleteResendContact,
 	updateResendContact,
 } from "@/auth/config.js";
+import {
+	MAX_PASSWORD_LENGTH,
+	MIN_PASSWORD_LENGTH,
+} from "@/auth/password-policy.js";
 import {
 	findSoleMemberOrganizations,
 	tearDownSoleMemberOrganizations,
@@ -236,8 +241,35 @@ const completeOnboardingSchema = z.object({});
 
 const updatePasswordSchema = z.object({
 	currentPassword: z.string().min(1, "Current password is required"),
-	newPassword: z.string().min(8, "Password must be at least 8 characters"),
+	newPassword: z
+		.string()
+		.min(
+			MIN_PASSWORD_LENGTH,
+			`Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+		)
+		.max(
+			MAX_PASSWORD_LENGTH,
+			`Password must be at most ${MAX_PASSWORD_LENGTH} characters`,
+		),
 });
+
+function handlePasswordChangeError(error: unknown): never {
+	if (error instanceof APIError) {
+		switch (error.body?.code) {
+			case "INVALID_PASSWORD":
+			case "CREDENTIAL_ACCOUNT_NOT_FOUND":
+				throw new HTTPException(401, {
+					message: "Current password is incorrect",
+				});
+			case "PASSWORD_TOO_SHORT":
+			case "PASSWORD_TOO_LONG":
+				throw new HTTPException(400, {
+					message: `Password must be between ${MIN_PASSWORD_LENGTH} and ${MAX_PASSWORD_LENGTH} characters`,
+				});
+		}
+	}
+	throw error;
+}
 
 const deletePasskey = createRoute({
 	method: "delete",
@@ -481,6 +513,14 @@ const updatePassword = createRoute({
 			},
 			description: "Password updated successfully.",
 		},
+		400: {
+			content: {
+				"application/json": {
+					schema: z.object({ message: z.string() }),
+				},
+			},
+			description: `Invalid request or new password outside ${MIN_PASSWORD_LENGTH}-${MAX_PASSWORD_LENGTH} characters.`,
+		},
 		401: {
 			content: {
 				"application/json": {
@@ -515,13 +555,15 @@ user.openapi(updatePassword, async (c) => {
 
 	const { currentPassword, newPassword } = c.req.valid("json");
 
-	await auth.api.changePassword({
-		body: {
-			currentPassword,
-			newPassword,
-		},
-		headers: c.req.raw.headers,
-	});
+	await auth.api
+		.changePassword({
+			body: {
+				currentPassword,
+				newPassword,
+			},
+			headers: c.req.raw.headers,
+		})
+		.catch(handlePasswordChangeError);
 
 	return c.json({
 		message: "Password updated successfully",
