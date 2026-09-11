@@ -173,6 +173,7 @@ export default function Login() {
 				});
 				return;
 			}
+			queryClient.clear();
 			posthog.capture("user_logged_in", { method: "passkey" });
 			toast({ title: "Login successful" });
 			router.push(redirectTarget as Route);
