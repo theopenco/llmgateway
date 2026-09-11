@@ -2,7 +2,15 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import {
+	cancelOrganizationSubscriptions,
+	getCancelledOrganizationPlanState,
+} from "@/lib/account-deletion.js";
 import { isUserHighRisk } from "@/lib/account-risk.js";
+import {
+	getOrganizationDeletionBlockers,
+	ORGANIZATION_DELETE_IDLE_HOURS,
+} from "@/lib/organization-deletion.js";
 import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
@@ -1131,6 +1139,16 @@ const deleteOrganization = createRoute({
 			},
 			description: "Unauthorized.",
 		},
+		403: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Only owners can delete a regular organization.",
+		},
 		404: {
 			content: {
 				"application/json": {
@@ -1140,6 +1158,17 @@ const deleteOrganization = createRoute({
 				},
 			},
 			description: "Organization not found.",
+		},
+		409: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description:
+				"Organization still holds credits or served requests recently.",
 		},
 	},
 });
@@ -1199,10 +1228,31 @@ organization.openapi(deleteOrganization, async (c) => {
 		});
 	}
 
+	const org = userOrganization.organization!;
+	const blockers = await getOrganizationDeletionBlockers(org);
+
+	if (blockers.positiveCredits) {
+		throw new HTTPException(409, {
+			message:
+				"This organization still has a positive credit balance and cannot be deleted. Please contact support instead.",
+		});
+	}
+
+	if (blockers.recentRequests) {
+		throw new HTTPException(409, {
+			message: `This organization served requests within the last ${ORGANIZATION_DELETE_IDLE_HOURS} hours and cannot be deleted yet. Stop all traffic and try again later.`,
+		});
+	}
+
+	// Stripe first: a failed cancel aborts the delete instead of leaving a
+	// subscription billing an organization nobody can reach anymore.
+	const cancelledSubscriptionIds = await cancelOrganizationSubscriptions(org);
+
 	await db
 		.update(tables.organization)
 		.set({
 			status: "deleted",
+			...getCancelledOrganizationPlanState(),
 		})
 		.where(eq(tables.organization.id, id));
 
@@ -1212,11 +1262,96 @@ organization.openapi(deleteOrganization, async (c) => {
 		action: "organization.delete",
 		resourceType: "organization",
 		resourceId: id,
-		metadata: { resourceName: userOrganization.organization?.name },
+		metadata: { resourceName: org.name, cancelledSubscriptionIds },
 	});
 
 	return c.json({
 		message: "Organization deleted successfully",
+	});
+});
+
+const getDeletionEligibility = createRoute({
+	method: "get",
+	path: "/{id}/deletion-eligibility",
+	request: {
+		params: z.object({
+			id: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						canDelete: z.boolean(),
+						positiveCredits: z.boolean(),
+						recentRequests: z.boolean(),
+						idleHours: z.number(),
+					}),
+				},
+			},
+			description: "Whether the organization can currently be deleted.",
+		},
+		401: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Unauthorized.",
+		},
+		404: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Organization not found.",
+		},
+	},
+});
+
+organization.openapi(getDeletionEligibility, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, {
+			message: "Unauthorized",
+		});
+	}
+
+	const { id } = c.req.valid("param");
+
+	const userOrganization = await db.query.userOrganization.findFirst({
+		where: {
+			userId: { eq: user.id },
+			organizationId: { eq: id },
+		},
+		with: {
+			organization: true,
+		},
+	});
+
+	if (
+		!userOrganization ||
+		userOrganization.organization?.status === "deleted"
+	) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	const blockers = await getOrganizationDeletionBlockers(
+		userOrganization.organization!,
+	);
+
+	return c.json({
+		canDelete: !blockers.positiveCredits && !blockers.recentRequests,
+		...blockers,
+		idleHours: ORGANIZATION_DELETE_IDLE_HOURS,
 	});
 });
 
