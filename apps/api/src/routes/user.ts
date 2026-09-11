@@ -240,7 +240,9 @@ const updateUserSchema = z.object({
 const completeOnboardingSchema = z.object({});
 
 const updatePasswordSchema = z.object({
-	currentPassword: z.string().min(1, "Current password is required"),
+	currentPassword: z
+		.string({ required_error: "Current password is required" })
+		.min(1, "Current password is required"),
 	newPassword: z
 		.string()
 		.min(
@@ -544,31 +546,47 @@ const updatePassword = createRoute({
 	},
 });
 
-user.openapi(updatePassword, async (c) => {
-	const authUser = c.get("user");
+user.openapi(
+	updatePassword,
+	async (c) => {
+		const authUser = c.get("user");
 
-	if (!authUser) {
-		throw new HTTPException(401, {
-			message: "Unauthorized",
+		if (!authUser) {
+			throw new HTTPException(401, {
+				message: "Unauthorized",
+			});
+		}
+
+		const { currentPassword, newPassword } = c.req.valid("json");
+
+		await auth.api
+			.changePassword({
+				body: {
+					currentPassword,
+					newPassword,
+				},
+				headers: c.req.raw.headers,
+			})
+			.catch(handlePasswordChangeError);
+
+		return c.json({
+			message: "Password updated successfully",
 		});
-	}
-
-	const { currentPassword, newPassword } = c.req.valid("json");
-
-	await auth.api
-		.changePassword({
-			body: {
-				currentPassword,
-				newPassword,
-			},
-			headers: c.req.raw.headers,
-		})
-		.catch(handlePasswordChangeError);
-
-	return c.json({
-		message: "Password updated successfully",
-	});
-});
+	},
+	(result, c) => {
+		if (!result.success) {
+			return c.json(
+				{
+					message:
+						result.error.issues[0]?.message ??
+						"Invalid password change request",
+				},
+				400,
+			);
+		}
+		return undefined;
+	},
+);
 
 const soleMemberOrganizationSchema = z.object({
 	id: z.string(),

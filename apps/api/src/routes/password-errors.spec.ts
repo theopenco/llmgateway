@@ -73,6 +73,12 @@ describe("password change validation", () => {
 			const response = await changePassword("a".repeat(length));
 
 			expect(response.status).toBe(400);
+			expect(await response.json()).toEqual({
+				message:
+					length < 12
+						? "Password must be at least 12 characters"
+						: "Password must be at most 128 characters",
+			});
 			expect(change).not.toHaveBeenCalled();
 			await expectPasswordUnchanged();
 		},
@@ -132,6 +138,9 @@ describe("password change validation", () => {
 		});
 
 		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual({
+			message: "Current password is required",
+		});
 		await expectPasswordUnchanged();
 	});
 
