@@ -38,7 +38,6 @@ export function PlanManagement() {
 	const queryClient = useQueryClient();
 	const api = useApi();
 	const posthog = usePostHog();
-	const organizationId = selectedOrganization?.id ?? "";
 
 	const { data: subscriptionStatus } = api.useQuery(
 		"get",
