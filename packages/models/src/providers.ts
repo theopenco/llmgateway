@@ -1976,8 +1976,8 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "GB",
 		dataPolicy: {
 			apiTraining: false,
-			promptLogging: true,
-			retentionPeriod: "30 days",
+			promptLogging: false,
+			retentionPeriod: "0 days",
 		},
 	},
 	{

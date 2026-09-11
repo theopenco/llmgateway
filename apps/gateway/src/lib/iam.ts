@@ -58,6 +58,25 @@ const scopeDenialSuffix = {
 
 type IamRuleScope = keyof typeof scopeDenialSuffix;
 
+type RequestIamRules = Record<IamRuleScope, IamRule[]>;
+
+/** Load once when checking access to multiple models in one request. */
+export async function findRequestIamRules(
+	apiKey: GatewayApiKey,
+	organizationId: string,
+): Promise<RequestIamRules> {
+	const [key, member, team] = await Promise.all([
+		findActiveIamRules(apiKey.id),
+		apiKey.keyType === "user"
+			? findActiveUserIamRules(apiKey.createdBy, organizationId)
+			: [],
+		apiKey.keyType === "user"
+			? findActiveTeamIamRules(apiKey.createdBy, organizationId)
+			: [],
+	]);
+	return { key, member, team };
+}
+
 // Whether a rule's provider entry matches a provider id. Custom providers all
 // share the provider id "custom", so rules can address one of them
 // individually with a `custom:<name>` entry; the plain "custom" entry keeps
@@ -265,6 +284,7 @@ export async function validateRequestModelAccess(params: {
 	// (moderations): model/pricing allowlists can never name that model, so
 	// evaluating them would deny with no way to allowlist it.
 	applicableRuleTypes?: readonly IamRule["ruleType"][];
+	iamRules?: RequestIamRules;
 }): Promise<IamValidationResult> {
 	const {
 		apiKey,
@@ -276,6 +296,7 @@ export async function validateRequestModelAccess(params: {
 		clientIp,
 		autoRouting,
 		applicableRuleTypes,
+		iamRules,
 	} = params;
 
 	const filterRules = (rules: IamRule[]) =>
@@ -316,13 +337,15 @@ export async function validateRequestModelAccess(params: {
 	// infrastructure whose `createdBy` is merely whoever clicked create, and
 	// end-user sessions were already handled above.
 	const memberRules =
-		apiKey.keyType === "user"
+		iamRules?.member ??
+		(apiKey.keyType === "user"
 			? await findActiveUserIamRules(apiKey.createdBy, organizationId)
-			: [];
+			: []);
 	const teamRules =
-		apiKey.keyType === "user"
+		iamRules?.team ??
+		(apiKey.keyType === "user"
 			? await findActiveTeamIamRules(apiKey.createdBy, organizationId)
-			: [];
+			: []);
 
 	const teamResult = await evaluateIamRuleSet(
 		filterRules(teamRules),
@@ -350,7 +373,7 @@ export async function validateRequestModelAccess(params: {
 		return memberResult;
 	}
 
-	const keyRules = await findActiveIamRules(apiKey.id);
+	const keyRules = iamRules?.key ?? (await findActiveIamRules(apiKey.id));
 	return await evaluateIamRuleSet(
 		filterRules(keyRules),
 		modelDef,

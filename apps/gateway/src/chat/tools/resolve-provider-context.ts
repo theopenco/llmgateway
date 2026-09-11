@@ -12,6 +12,7 @@ import { posthog } from "@/posthog.js";
 
 import {
 	getGcpServiceAccountAccessToken,
+	getProviderApiTransport,
 	getProviderEndpoint,
 	getProviderHeaders,
 	isPremiumServiceTier,
@@ -33,6 +34,7 @@ import {
 	type PromptCacheOptions,
 	type PromptCacheRetention,
 	type Provider,
+	type ProviderApiFormat,
 	type ProviderCacheControlMode,
 	type ProviderRequestBody,
 	providers,
@@ -60,6 +62,7 @@ import type { InferSelectModel, tables } from "@llmgateway/db";
 
 export interface ProviderContext {
 	usedProvider: Provider;
+	transportProvider: Provider;
 	/**
 	 * Canonical LLM Gateway model id. Used for everything internal: pricing,
 	 * discounts, rate limits, IAM, key selection, logging display. Never the
@@ -543,7 +546,12 @@ export async function resolveEligibleProviderKeys(args: {
  * Used by the retry loop to quickly set up a new provider context on fallback.
  */
 export async function resolveProviderContext(
-	providerMapping: { providerId: string; externalId: string; region?: string },
+	providerMapping: {
+		providerId: string;
+		externalId: string;
+		region?: string;
+		apiFormat?: ProviderApiFormat;
+	},
 	project: ProjectInfo,
 	organization: OrgInfo,
 	modelInfo: ModelDefinition,
@@ -579,12 +587,7 @@ export async function resolveProviderContext(
 	// this org's env-credential reads. Undefined = base vars only.
 	const envVariant = getLicensedOrganizationEnvVariant(organization);
 
-	// Flex/Priority is only honored when the request reaches the provider's real
-	// upstream endpoint on a tier-capable location. Skip provider keys whose
-	// custom base URL (proxy) may silently drop the tier, and Vertex keys pinned
-	// to a regional endpoint, so a compliant key (or the managed env credential)
-	// is used instead. This is what keeps an alternate-key retry from rotating a
-	// Flex request onto a credential that would serve it as standard.
+	// Skip Vertex credentials pinned to a region that cannot serve the tier.
 	const serviceTierKeyFilter = isPremiumServiceTier(options.service_tier)
 		? providerKeySupportsServiceTier
 		: undefined;
@@ -710,6 +713,8 @@ export async function resolveProviderContext(
 		usedProvider,
 		usedRegion,
 	);
+	const apiFormat = providerMappingForSelected?.apiFormat;
+	const transportProvider = getProviderApiTransport(usedProvider, apiFormat);
 
 	// --- Region validation ---
 	// Validate against the expanded model-provider mapping (which contains per-model region info)
@@ -809,15 +814,17 @@ export async function resolveProviderContext(
 	// credentials (the override above only runs when neither is set), so
 	// `usesDatabaseCredential` correctly reflects whether the DB key is active.
 	const vertexTokenType: VertexTokenType | undefined =
-		usedProvider === "google-vertex"
-			? resolveVertexTokenType(
-					usedProvider,
-					credentialOptions,
-					configIndex,
-					usesDatabaseCredential,
-					envVariant,
-				)
-			: undefined;
+		transportProvider === "google-vertex" && usedProvider !== "google-vertex"
+			? "api-key"
+			: usedProvider === "google-vertex"
+				? resolveVertexTokenType(
+						usedProvider,
+						credentialOptions,
+						configIndex,
+						usesDatabaseCredential,
+						envVariant,
+					)
+				: undefined;
 	const url = getProviderEndpoint(
 		options.airsideCustomBaseUrl ? "custom" : (usedProvider as Provider),
 		options.airsideCustomBaseUrl ?? credentialBaseUrl,
@@ -827,7 +834,8 @@ export async function resolveProviderContext(
 			usedProvider === "iceberg" ||
 			usedProvider === "google-vertex" ||
 			usedProvider === "quartz" ||
-			usedProvider === "vertex-anthropic"
+			usedProvider === "vertex-anthropic" ||
+			transportProvider === "google-vertex"
 			? usedToken
 			: undefined,
 		options.stream,
@@ -841,6 +849,7 @@ export async function resolveProviderContext(
 		usedInternalModel,
 		vertexTokenType,
 		envVariant,
+		apiFormat,
 	);
 
 	if (!url) {
@@ -894,9 +903,9 @@ export async function resolveProviderContext(
 
 	// Anthropic does not allow temperature and top_p simultaneously
 	if (
-		usedProvider === "anthropic" ||
-		usedProvider === "vertex-anthropic" ||
-		usedProvider === "azure-anthropic"
+		transportProvider === "anthropic" ||
+		transportProvider === "vertex-anthropic" ||
+		transportProvider === "azure-anthropic"
 	) {
 		if (temperature !== undefined && top_p !== undefined) {
 			top_p = undefined;
@@ -955,7 +964,7 @@ export async function resolveProviderContext(
 
 	// --- Request body preparation ---
 	const requestBody: ProviderRequestBody | FormData = await prepareRequestBody(
-		usedProvider as Provider,
+		transportProvider,
 		usedInternalModel,
 		providerMapping.region ?? null,
 		upstreamModelName,
@@ -1032,13 +1041,13 @@ export async function resolveProviderContext(
 	}
 
 	// --- Headers ---
-	const headers = getProviderHeaders(usedProvider as Provider, usedToken, {
+	const headers = getProviderHeaders(transportProvider, usedToken, {
 		requestId: options.requestId,
 		tokenType: vertexTokenType,
 	});
 	headers["Content-Type"] = "application/json";
 
-	if (usedProvider === "anthropic" && options.effort !== undefined) {
+	if (transportProvider === "anthropic" && options.effort !== undefined) {
 		const currentBeta = headers["anthropic-beta"];
 		headers["anthropic-beta"] = currentBeta
 			? `${currentBeta},effort-2025-11-24`
@@ -1046,7 +1055,7 @@ export async function resolveProviderContext(
 	}
 
 	if (
-		usedProvider === "anthropic" &&
+		transportProvider === "anthropic" &&
 		options.response_format?.type === "json_schema"
 	) {
 		const currentBeta = headers["anthropic-beta"];
@@ -1057,6 +1066,7 @@ export async function resolveProviderContext(
 
 	return {
 		usedProvider,
+		transportProvider,
 		usedInternalModel,
 		usedExternalId,
 		usedModelFormatted,

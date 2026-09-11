@@ -60,6 +60,7 @@ import {
 	shouldBillCancelledRequests,
 	zeroInferenceCosts,
 } from "@/lib/costs.js";
+import { customModelToProviderMapping } from "@/lib/custom-model.js";
 import { getPublishedDynamicRoute } from "@/lib/dynamic-route-loader.js";
 import {
 	assertOriginAllowed,
@@ -73,6 +74,7 @@ import {
 	getLicensedOrganizationPlan,
 	hasOrganizationEnterpriseAccess,
 } from "@/lib/enterprise.js";
+import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import {
@@ -129,6 +131,7 @@ import {
 	getCheapestFromAvailableProviders,
 	getDiscountedProviderSelectionPrice,
 	getGcpServiceAccountAccessToken,
+	getProviderApiTransport,
 	getProviderEndpoint,
 	getProviderHeaders,
 	isPremiumServiceTier,
@@ -189,6 +192,7 @@ import {
 	type VertexTokenType,
 	type WebSearchTool,
 	expandAllProviderRegions,
+	expandProviderRegions,
 	getProviderDefinition,
 	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
@@ -402,41 +406,6 @@ function toDataStorageCostNumber(
 	return Number.isFinite(num) ? num : null;
 }
 
-/**
- * Builds a synthetic provider mapping (providerId "custom") from an enterprise
- * custom model catalog entry. Used both to override the mock model info for
- * limit/capability enforcement and as the `customPricing` override threaded into
- * calculateCosts so custom-provider requests are billed at the catalog rates.
- */
-function customModelToProviderMapping(cm: CustomModel): ProviderModelMapping {
-	const streaming: boolean | "only" =
-		cm.streaming === "only" ? "only" : cm.streaming !== "false";
-	return {
-		providerId: "custom",
-		externalId: cm.modelName,
-		inputPrice: cm.inputPrice ?? undefined,
-		outputPrice: cm.outputPrice ?? undefined,
-		cachedInputPrice: cm.cachedInputPrice ?? undefined,
-		cacheReadInputPrice: cm.cacheReadInputPrice ?? undefined,
-		cacheWriteInputPrice: cm.cacheWriteInputPrice ?? undefined,
-		cacheWriteInputPrice1h: cm.cacheWriteInputPrice1h ?? undefined,
-		requestPrice: cm.requestPrice ?? undefined,
-		webSearchPrice: cm.webSearchPrice ?? undefined,
-		imageInputPrice: cm.imageInputPrice ?? undefined,
-		inputAudioPrice: cm.audioInputPrice ?? undefined,
-		contextSize: cm.contextSize ?? undefined,
-		maxOutput: cm.maxOutput ?? undefined,
-		vision: cm.vision ?? undefined,
-		tools: cm.tools ?? undefined,
-		reasoning: cm.reasoning ?? undefined,
-		jsonOutput: cm.jsonOutput ?? undefined,
-		jsonOutputSchema: cm.jsonOutput ?? undefined,
-		audio: cm.audio ?? undefined,
-		supportedParameters: cm.supportedParameters ?? undefined,
-		streaming,
-	};
-}
-
 type CustomAutoRoutingMapping = ProviderModelMapping & {
 	customProviderKeyId: string;
 	customProviderName: string;
@@ -543,7 +512,9 @@ function preferConcreteRegionalMappings(
 
 	return providers.filter(
 		(mapping) =>
-			!providersWithRegions.has(mapping.providerId) || Boolean(mapping.region),
+			!providersWithRegions.has(mapping.providerId) ||
+			Boolean(mapping.region) ||
+			mapping.routableRoot === true,
 	);
 }
 
@@ -565,7 +536,7 @@ function createProviderRoutingScoreMultiplierResolver() {
 	) => {
 		const [multiplier, airsideAdjustment] = await Promise.all([
 			findEffectiveRoutingScoreMultiplier(provider.providerId, modelId),
-			findAirsideRoutingAdjustment(provider.providerId),
+			findAirsideRoutingAdjustment(provider.providerId, modelId),
 		]);
 		return String(Number(multiplier.scoreMultiplier) + airsideAdjustment);
 	};
@@ -737,7 +708,16 @@ function filterEligibleModelProviders(
 		const lockedRegion = options.providerLockedRegions?.get(
 			provider.providerId,
 		);
-		if (lockedRegion && provider.region && provider.region !== lockedRegion) {
+		// A routable root has concrete regional siblings that can satisfy the
+		// lock, so it must not slip locked traffic onto the default deployment.
+		// Region-less mappings without regional variants keep passing — for
+		// them the lock is applied at endpoint resolution, not candidate level.
+		if (
+			lockedRegion &&
+			(provider.region
+				? provider.region !== lockedRegion
+				: provider.routableRoot === true)
+		) {
 			if (filteredOut) {
 				recordFilteredProvider(filteredOut, provider.providerId, [
 					exclusionReason("locked_region"),
@@ -1412,6 +1392,7 @@ const completions = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: z.object({
@@ -2397,14 +2378,7 @@ chat.openapi(completions, async (c) => {
 	// this org's env-credential reads. Undefined = base vars only.
 	const envVariant = getLicensedOrganizationEnvVariant(organization);
 
-	// Dev-plan (DevPass) orgs can default routing to cheaper flex processing via
-	// their dashboard settings to save on plan credits. Applied softly, and only
-	// when the request itself doesn't specify a service_tier: the tier kicks in
-	// only if at least one candidate mapping supports flex AND has a credential
-	// that reaches the provider's real upstream (mirroring the service-tier key
-	// eligibility enforced below), so requests to models without flex support
-	// stay on standard processing instead of failing the explicit-tier
-	// validation and eligibility checks below.
+	// Apply the dev-plan flex default only when a mapping and credential support it.
 	if (
 		isDevPlan &&
 		organization.devPlanServiceTier === "flex" &&
@@ -3437,13 +3411,7 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Flex/Priority is only honored when the request reaches the provider's real
-	// upstream endpoint — a provider key with a custom base URL (proxy) may
-	// silently drop the tier and be billed/reported as standard. Exclude
-	// providers that have no upstream-eligible credential from service-tier
-	// routing (mirroring the compliance policy): auto/model-id routing drops
-	// them, and only fails when none remain; a pinned provider with no eligible
-	// key returns a clear 400 instead of silently downgrading.
+	// Exclude providers without a credential in a tier-capable region.
 	let serviceTierOrgKeys:
 		InferSelectModel<typeof tables.providerKey>[] | undefined;
 	const isProviderServiceTierEligible = (providerId: string): boolean => {
@@ -3451,11 +3419,6 @@ chat.openapi(completions, async (c) => {
 			(key) => key.provider === providerId,
 		);
 		const hasCompliantDbKey = dbKeys.some(providerKeySupportsServiceTier);
-		// An env credential is eligible only when at least one of its (possibly
-		// comma-indexed) base URLs targets the managed upstream — a custom base URL
-		// on every env index is just as ineligible as a custom DB key. In hybrid
-		// mode env is used only when no DB key is picked, which the
-		// serviceTierKeyFilter guarantees for a custom base URL.
 		const envEligible =
 			(project.mode === "credits" || project.mode === "hybrid") &&
 			hasServiceTierEligibleEnvCredential(providerId as Provider);
@@ -3492,7 +3455,7 @@ chat.openapi(completions, async (c) => {
 			!isProviderServiceTierEligible(usedProvider);
 		if (iamFilteredModelProviders.length === 0 || pinnedIneligible) {
 			throw new HTTPException(400, {
-				message: `Service tier '${service_tier}' requires a provider key that targets the original upstream endpoint. Remove the custom base URL from the ${pinnedIneligible ? `${usedProvider} ` : ""}provider key or omit service_tier.`,
+				message: `No provider key is available in a region that supports service tier '${service_tier}'${pinnedIneligible ? ` for ${usedProvider}` : ""}.`,
 			});
 		}
 	};
@@ -3527,7 +3490,6 @@ chat.openapi(completions, async (c) => {
 			(usedInternalModel === airsideCheckedModel &&
 				(airsideCheckedProvider === undefined ||
 					usedProvider === airsideCheckedProvider)) ||
-			usedRegion !== undefined ||
 			!usedProvider ||
 			usedProvider === "custom" ||
 			usedProvider === "llmgateway"
@@ -3535,7 +3497,20 @@ chat.openapi(completions, async (c) => {
 			return fromResolution;
 		}
 		const listed = await findAirsideModel(usedProvider, usedInternalModel);
-		return listed ? airsideListingToModelDefinition(listed).mapping : undefined;
+		if (!listed) {
+			return undefined;
+		}
+		// The owner's filed prices govern the whole pair: bill a served region
+		// at its filed regional price, and anything else at the canonical
+		// default-region price.
+		const expanded = expandProviderRegions(
+			airsideListingToModelDefinition(listed).mapping,
+		);
+		return (
+			expanded.find(
+				(mapping) => (mapping.region ?? null) === (usedRegion ?? null),
+			) ?? expanded.find((mapping) => mapping.region === undefined)
+		);
 	};
 	let customPricingMapping: ProviderModelMapping | undefined =
 		findAirsidePricingMapping();
@@ -4380,13 +4355,14 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 		}
-		const sameProviderRegionalMappings = sameProviderMappings.filter(
+		// A routable root (an Airside listing's default deployment) stays a
+		// candidate next to its regional variants; only synthetic roots are
+		// dropped in favor of concrete regions.
+		const sameProviderRoutingMappings = sameProviderMappings.some(
 			(p) => p.region,
-		);
-		const sameProviderRoutingMappings =
-			sameProviderRegionalMappings.length > 0
-				? sameProviderRegionalMappings
-				: sameProviderMappings;
+		)
+			? sameProviderMappings.filter((p) => p.region || p.routableRoot === true)
+			: sameProviderMappings;
 
 		if (sameProviderMappings.length > 1) {
 			let lockedRegion = usedRegion;
@@ -4481,7 +4457,14 @@ chat.openapi(completions, async (c) => {
 			usedRegion ??= (sameProviderMappings[0] as ProviderModelMapping).region;
 		}
 
-		if (!usedRegion) {
+		if (
+			!usedRegion &&
+			// Only force a region when every candidate is regional — a selected
+			// region-less routable root legitimately serves without one.
+			!sameProviderRoutingMappings.some(
+				(p) => !(p as ProviderModelMapping).region,
+			)
+		) {
 			const firstRegionalMatch = sameProviderRoutingMappings.find(
 				(p) => (p as ProviderModelMapping).region,
 			) as ProviderModelMapping | undefined;
@@ -5177,9 +5160,14 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 
-			const rawModelWithPricing = models.find(
-				(m) => m.id === usedInternalModel,
-			);
+			// Airside-only models have no static entry; their synthesized
+			// definition carries the filed (regional) prices so selection can
+			// still score candidates instead of taking the first one.
+			const rawModelWithPricing =
+				models.find((m) => m.id === usedInternalModel) ??
+				(airsideResolution?.parseResult.requestedModel === usedInternalModel
+					? airsideResolution.modelInfoResult.modelInfo
+					: undefined);
 			const modelWithPricing = rawModelWithPricing
 				? {
 						...rawModelWithPricing,
@@ -5409,10 +5397,10 @@ chat.openapi(completions, async (c) => {
 				{ explicitLocks: providerLockedRegions, requestedRegion },
 			);
 			const directProviderRegionalMappings = directProviderMappings.filter(
-				(provider) => provider.region,
+				(provider) => provider.region || provider.routableRoot === true,
 			);
 			routingMetadataProviders = filterEligibleModelProviders(
-				directProviderRegionalMappings.length > 0
+				directProviderMappings.some((provider) => provider.region)
 					? directProviderRegionalMappings
 					: directProviderMappings,
 				{
@@ -5612,6 +5600,10 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 	const imageGenProviderMapping = getUsedProviderMapping();
+	let transportProvider = getProviderApiTransport(
+		usedProvider,
+		imageGenProviderMapping?.apiFormat,
+	);
 	let isImageGeneration = imageGenProviderMapping?.imageGenerations === true;
 	const usesAwsBedrockConverse = () =>
 		usedProvider === "aws-bedrock" &&
@@ -5693,11 +5685,7 @@ chat.openapi(completions, async (c) => {
 			providerKeyLabel: providerKeyLabel(providerKey),
 		};
 	}
-	// Flex/Priority is only honored when the request reaches the provider's real
-	// upstream endpoint on a tier-capable location. Skip provider keys whose
-	// custom base URL (proxy) may silently drop the tier, and Vertex keys pinned
-	// to a regional endpoint, so a compliant key (or the managed env credential
-	// in hybrid mode) is used instead.
+	// Skip Vertex credentials pinned to a region that cannot serve the tier.
 	const serviceTierKeyFilter = isRequestedServiceTier(service_tier)
 		? providerKeySupportsServiceTier
 		: undefined;
@@ -6394,8 +6382,11 @@ chat.openapi(completions, async (c) => {
 	// apply and env-based resolution should win. Hence we gate on
 	// `trackedKeyHealthId`, not `providerKey`.
 	function resolveActiveVertexTokenType(): VertexTokenType | undefined {
-		if (usedProvider !== "google-vertex") {
+		if (transportProvider !== "google-vertex") {
 			return undefined;
+		}
+		if (usedProvider !== "google-vertex") {
+			return "api-key";
 		}
 		const dbKeyIsActiveCredential = trackedKeyHealthId !== undefined;
 		return resolveVertexTokenType(
@@ -6421,7 +6412,7 @@ chat.openapi(completions, async (c) => {
 			airsideResolution?.customBaseUrl ? "custom" : usedProvider,
 			airsideResolution?.customBaseUrl ?? credentialBaseUrl,
 			upstreamModelName,
-			usesGoogleQueryToken(usedProvider) ? usedToken : undefined,
+			usesGoogleQueryToken(transportProvider) ? usedToken : undefined,
 			stream,
 			supportsReasoning,
 			hasExistingToolCalls,
@@ -6433,6 +6424,7 @@ chat.openapi(completions, async (c) => {
 			usedInternalModel,
 			resolveActiveVertexTokenType(),
 			envVariant,
+			getUsedProviderMapping()?.apiFormat,
 		);
 
 		// If region is still unset but the provider supports regions, resolve the
@@ -7113,16 +7105,13 @@ chat.openapi(completions, async (c) => {
 	// When the provider only supports streaming, force it even if the client didn't request it.
 	// The upstream request uses effectiveStream; the client response uses stream.
 	const forceStream = streamingSupport === "only" && !stream;
-	// Force upstream SSE for OpenAI/Azure gpt-image-* regardless of what the client
-	// requested. For image generation the upstream request is always non-streaming
-	// (effectiveStream is forced false above when faking streaming for the client),
-	// so partial_images=1 is needed in both cases to keep the connection alive past
-	// Azure's 122s synchronous wall and to use AI_STREAMING_TIMEOUT_MS (1200s default)
-	// instead of AI_TIMEOUT_MS (600s). The SSE response is collapsed back into the
-	// regular non-streaming JSON shape before being returned (or re-wrapped as fake
-	// SSE for clients that requested streaming).
+	// OpenAI/Azure image streaming only supports n=1. Force SSE for single-image
+	// requests to keep the connection alive past Azure's 122s synchronous wall
+	// and use AI_STREAMING_TIMEOUT_MS. Collapse the response to JSON (or fake
+	// client SSE); batches use the provider's non-streaming response.
 	let forceImageStreamUpstream =
 		isImageGeneration &&
+		(image_config?.n ?? 1) === 1 &&
 		(usedProvider === "openai" || usedProvider === "azure");
 	const effectiveStream = fakeStreamingForImageGen
 		? false
@@ -7231,7 +7220,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Anthropic does not allow temperature and top_p to be set simultaneously
-	if (isAnthropicMessagesProvider(usedProvider)) {
+	if (isAnthropicMessagesProvider(transportProvider)) {
 		if (temperature !== undefined && top_p !== undefined) {
 			top_p = undefined;
 		}
@@ -7261,7 +7250,10 @@ chat.openapi(completions, async (c) => {
 
 	// For Google providers, enrich messages with cached thought_signatures
 	// This is needed for multi-turn tool call conversations with Gemini 3+
-	if (isGoogleCompatibleProvider(usedProvider) && !zeroDataRetentionEnabled) {
+	if (
+		isGoogleCompatibleProvider(transportProvider) &&
+		!zeroDataRetentionEnabled
+	) {
 		const { redisClient } = await import("@llmgateway/cache");
 		for (const message of messages) {
 			if (
@@ -7319,7 +7311,7 @@ chat.openapi(completions, async (c) => {
 	let requestBody: ProviderRequestBody | FormData;
 	try {
 		requestBody = await prepareRequestBody(
-			usedProvider,
+			transportProvider,
 			usedInternalModel,
 			usedRegion ?? null,
 			upstreamModelName,
@@ -7578,6 +7570,7 @@ chat.openapi(completions, async (c) => {
 		ctx: Awaited<ReturnType<typeof resolveProviderContext>>,
 	): Promise<void> {
 		usedProvider = ctx.usedProvider;
+		transportProvider = ctx.transportProvider;
 		usedRegion = ctx.usedRegion;
 		usedInternalModel = ctx.usedInternalModel;
 		if (usedProvider !== "custom") {
@@ -7604,6 +7597,7 @@ chat.openapi(completions, async (c) => {
 		isImageGeneration = ctx.isImageGeneration;
 		forceImageStreamUpstream =
 			isImageGeneration &&
+			(image_config?.n ?? 1) === 1 &&
 			(usedProvider === "openai" || usedProvider === "azure");
 		if (forceImageStreamUpstream) {
 			requestBody = injectImageStreamParams(requestBody);
@@ -8213,7 +8207,7 @@ chat.openapi(completions, async (c) => {
 						// that fails before fetch returns (timeout/connection error)
 						// logs no served tier instead of the prior provider's.
 						servedServiceTier = null;
-						const headers = getProviderHeaders(usedProvider, usedToken, {
+						const headers = getProviderHeaders(transportProvider, usedToken, {
 							requestId,
 							// Same resolved token type as the endpoint so header auth and
 							// the `?key=` query param never disagree.
@@ -8226,7 +8220,9 @@ chat.openapi(completions, async (c) => {
 						// Anthropic's effort-based reasoning fields — triggered by the
 						// explicit `effort` param or by a `reasoning_effort` mapped onto an
 						// adaptive model (Opus 4.7+).
-						if (anthropicRequestNeedsEffortBeta(usedProvider, requestBody)) {
+						if (
+							anthropicRequestNeedsEffortBeta(transportProvider, requestBody)
+						) {
 							const currentBeta = headers["anthropic-beta"];
 							headers["anthropic-beta"] = currentBeta
 								? `${currentBeta},effort-2025-11-24`
@@ -8235,7 +8231,7 @@ chat.openapi(completions, async (c) => {
 
 						// Add structured outputs beta header for Anthropic if json_schema response_format is specified
 						if (
-							usedProvider === "anthropic" &&
+							transportProvider === "anthropic" &&
 							response_format?.type === "json_schema"
 						) {
 							const currentBeta = headers["anthropic-beta"];
@@ -8248,7 +8244,7 @@ chat.openapi(completions, async (c) => {
 						// field; Vertex uses a header set above in getProviderHeaders.
 						applyGoogleServiceTier(
 							requestBody,
-							usedProvider,
+							transportProvider,
 							forwardedServiceTier,
 						);
 
@@ -9674,7 +9670,7 @@ chat.openapi(completions, async (c) => {
 				const streamFormatProvider: Provider =
 					usedProvider === "aws-bedrock" && !isAwsBedrock
 						? "openai"
-						: (usedProvider as Provider);
+						: transportProvider;
 				const taggedReasoningStreamState = {
 					inReasoning: false,
 					pending: "",
@@ -9701,7 +9697,7 @@ chat.openapi(completions, async (c) => {
 					!healingDisabledByN &&
 					streamingIsJsonResponseFormat &&
 					(streamingResponseHealingEnabled === true ||
-						(isAnthropicMessagesProvider(usedProvider) &&
+						(isAnthropicMessagesProvider(transportProvider) &&
 							response_format?.type === "json_object") ||
 						(usesAwsBedrockConverse() &&
 							response_format?.type === "json_object") ||
@@ -10588,7 +10584,7 @@ chat.openapi(completions, async (c) => {
 
 								// For Anthropic, if we have partial usage data, complete it
 								if (
-									isAnthropicMessagesProvider(usedProvider) &&
+									isAnthropicMessagesProvider(transportProvider) &&
 									transformedData.usage
 								) {
 									const usage = transformedData.usage;
@@ -10622,7 +10618,7 @@ chat.openapi(completions, async (c) => {
 								}
 
 								// For Google providers, add usage information when available
-								if (isGoogleCompatibleProvider(usedProvider)) {
+								if (isGoogleCompatibleProvider(transportProvider)) {
 									const usage = extractTokenUsage(
 										data,
 										usedProvider,
@@ -10689,7 +10685,7 @@ chat.openapi(completions, async (c) => {
 
 								// For Anthropic streaming tool calls, enrich delta chunks with id/type/name
 								// from the initial content_block_start event. This ensures OpenAI SDK compatibility.
-								if (isAnthropicMessagesProvider(usedProvider)) {
+								if (isAnthropicMessagesProvider(transportProvider)) {
 									const toolCalls =
 										transformedData.choices?.[0]?.delta?.tool_calls;
 									if (toolCalls && toolCalls.length > 0) {
@@ -10832,11 +10828,11 @@ chat.openapi(completions, async (c) => {
 								// For providers with custom extraction logic (google-ai-studio, anthropic),
 								// use raw data. For others (like aws-bedrock), use transformed OpenAI format.
 								const contentChunk = extractContent(
-									isGoogleCompatibleProvider(usedProvider) ||
-										isAnthropicMessagesProvider(usedProvider)
+									isGoogleCompatibleProvider(transportProvider) ||
+										isAnthropicMessagesProvider(transportProvider)
 										? data
 										: transformedData,
-									usedProvider,
+									streamFormatProvider,
 								);
 								if (contentChunk) {
 									fullContent += contentChunk;
@@ -10849,7 +10845,7 @@ chat.openapi(completions, async (c) => {
 								}
 
 								// Track image data size for Google providers (for token estimation)
-								if (isGoogleCompatibleProvider(usedProvider)) {
+								if (isGoogleCompatibleProvider(transportProvider)) {
 									const parts = data.candidates?.[0]?.content?.parts ?? [];
 									for (const part of parts) {
 										if (part.inlineData?.data) {
@@ -10864,7 +10860,7 @@ chat.openapi(completions, async (c) => {
 
 								// Track web search calls for cost calculation
 								// Check for web search results based on provider-specific data
-								if (isAnthropicMessagesProvider(usedProvider)) {
+								if (isAnthropicMessagesProvider(transportProvider)) {
 									// For Anthropic, count web_search_tool_result blocks
 									if (
 										data.type === "content_block_start" &&
@@ -10872,7 +10868,7 @@ chat.openapi(completions, async (c) => {
 									) {
 										webSearchCount++;
 									}
-								} else if (isGoogleCompatibleProvider(usedProvider)) {
+								} else if (isGoogleCompatibleProvider(transportProvider)) {
 									// For Google, count when grounding metadata is present
 									if (data.candidates?.[0]?.groundingMetadata) {
 										const groundingMetadata =
@@ -10904,11 +10900,11 @@ chat.openapi(completions, async (c) => {
 								// For providers with custom extraction logic (google-ai-studio, anthropic),
 								// use raw data. For others, use transformed OpenAI format.
 								const reasoningContentChunk = extractReasoning(
-									isGoogleCompatibleProvider(usedProvider) ||
-										isAnthropicMessagesProvider(usedProvider)
+									isGoogleCompatibleProvider(transportProvider) ||
+										isAnthropicMessagesProvider(transportProvider)
 										? data
 										: transformedData,
-									usedProvider,
+									streamFormatProvider,
 								);
 								if (reasoningContentChunk) {
 									fullReasoningContent += reasoningContentChunk;
@@ -10933,7 +10929,7 @@ chat.openapi(completions, async (c) => {
 
 										// For Anthropic content_block_delta events, match by content block index
 										if (
-											isAnthropicMessagesProvider(usedProvider) &&
+											isAnthropicMessagesProvider(transportProvider) &&
 											newCall._contentBlockIndex !== undefined
 										) {
 											existingCall =
@@ -11467,14 +11463,14 @@ chat.openapi(completions, async (c) => {
 					// Exclude content filter responses as they are intentionally empty.
 					const isContentFilterStreamingResponse = isContentFilterFinishReason(
 						finishReason,
-						usedProvider,
+						transportProvider,
 					);
 					// A length-limit finish reason (e.g. a tiny `max_tokens`) can
 					// legitimately produce no content, so treat an empty response in
 					// that case as expected rather than an upstream error.
 					const isLengthLimitStreamingResponse = isLengthLimitFinishReason(
 						finishReason,
-						usedProvider,
+						transportProvider,
 					);
 					const hasEmptyResponse =
 						!streamingError &&
@@ -11684,7 +11680,7 @@ chat.openapi(completions, async (c) => {
 						// produced content is billed normally.
 						if (
 							streamingCostsEarly.totalCost !== null &&
-							isRefusalFinishReason(finishReason, usedProvider) &&
+							isRefusalFinishReason(finishReason, transportProvider) &&
 							!hasMeaningfulAssistantOutput({
 								completionTokens: calculatedCompletionTokens,
 								reasoningTokens,
@@ -11714,7 +11710,7 @@ chat.openapi(completions, async (c) => {
 									// Only add image input tokens for providers that
 									// exclude them from upstream usage (Google)
 									const providerExcludesImageInput =
-										isGoogleCompatibleProvider(usedProvider);
+										isGoogleCompatibleProvider(transportProvider);
 									const imageInputAdj = providerExcludesImageInput
 										? inputImageCount * 560
 										: 0;
@@ -12133,7 +12129,7 @@ chat.openapi(completions, async (c) => {
 					);
 
 					// Enhanced logging for Google models streaming to debug missing responses
-					if (isGoogleCompatibleProvider(usedProvider)) {
+					if (isGoogleCompatibleProvider(transportProvider)) {
 						logger.debug("Google model streaming response completed", {
 							usedProvider,
 							usedInternalModel,
@@ -12177,6 +12173,10 @@ chat.openapi(completions, async (c) => {
 						content: fullContent,
 						reasoningContent: fullReasoningContent || null,
 						finishReason: canceled ? "canceled" : finishReason,
+						unifiedFinishReason: getUnifiedFinishReason(
+							canceled ? "canceled" : finishReason,
+							transportProvider,
+						),
 						promptTokens: shouldIncludeTokensForBilling
 							? (calculatedPromptTokens?.toString() ?? null)
 							: null,
@@ -12633,7 +12633,7 @@ chat.openapi(completions, async (c) => {
 		});
 
 		try {
-			const headers = getProviderHeaders(usedProvider, usedToken, {
+			const headers = getProviderHeaders(transportProvider, usedToken, {
 				requestId,
 				// Same resolved token type as the endpoint so header auth and the
 				// `?key=` query param never disagree.
@@ -12647,7 +12647,7 @@ chat.openapi(completions, async (c) => {
 			// Add the effort beta header whenever the outgoing body uses Anthropic's
 			// effort-based reasoning fields — triggered by the explicit `effort` param
 			// or by a `reasoning_effort` mapped onto an adaptive model (Opus 4.7+).
-			if (anthropicRequestNeedsEffortBeta(usedProvider, requestBody)) {
+			if (anthropicRequestNeedsEffortBeta(transportProvider, requestBody)) {
 				const currentBeta = headers["anthropic-beta"];
 				headers["anthropic-beta"] = currentBeta
 					? `${currentBeta},effort-2025-11-24`
@@ -12656,7 +12656,7 @@ chat.openapi(completions, async (c) => {
 
 			// Add structured outputs beta header for Anthropic if json_schema response_format is specified
 			if (
-				usedProvider === "anthropic" &&
+				transportProvider === "anthropic" &&
 				response_format?.type === "json_schema"
 			) {
 				const currentBeta = headers["anthropic-beta"];
@@ -12681,7 +12681,11 @@ chat.openapi(completions, async (c) => {
 
 			// For the Gemini Developer API the processing tier is a body field;
 			// Vertex uses a header set above in getProviderHeaders.
-			applyGoogleServiceTier(requestBody, usedProvider, forwardedServiceTier);
+			applyGoogleServiceTier(
+				requestBody,
+				transportProvider,
+				forwardedServiceTier,
+			);
 
 			res = await fetch(url, {
 				method: "POST",
@@ -14165,7 +14169,7 @@ chat.openapi(completions, async (c) => {
 
 	// Extract content and token usage based on provider
 	const parsedResponse = parseProviderResponse(
-		usedProvider,
+		transportProvider,
 		usedInternalModel,
 		json,
 		messages,
@@ -14217,7 +14221,7 @@ chat.openapi(completions, async (c) => {
 	const shouldHealNonStreaming =
 		isJsonResponseFormat &&
 		(responseHealingEnabled === true ||
-			(isAnthropicMessagesProvider(usedProvider) &&
+			(isAnthropicMessagesProvider(transportProvider) &&
 				response_format?.type === "json_object") ||
 			(usesAwsBedrockConverse() && response_format?.type === "json_object") ||
 			usedProvider === "novita" ||
@@ -14244,7 +14248,7 @@ chat.openapi(completions, async (c) => {
 	}
 
 	// Enhanced logging for Google models to debug missing responses
-	if (isGoogleCompatibleProvider(usedProvider)) {
+	if (isGoogleCompatibleProvider(transportProvider)) {
 		logger.debug("Google model response parsed", {
 			usedProvider,
 			usedInternalModel,
@@ -14288,7 +14292,7 @@ chat.openapi(completions, async (c) => {
 
 	// Estimate tokens if not provided by the API
 	const estimatedTokens = estimateTokens(
-		usedProvider,
+		transportProvider,
 		messages,
 		content,
 		promptTokens,
@@ -14353,7 +14357,7 @@ chat.openapi(completions, async (c) => {
 	// applied before transformResponseToOpenai so the cost echoed back to the
 	// client also reflects the zeroed charge.
 	if (
-		isRefusalFinishReason(finishReason, usedProvider) &&
+		isRefusalFinishReason(finishReason, transportProvider) &&
 		!hasMeaningfulAssistantOutput({
 			completionTokens: calculatedCompletionTokens,
 			reasoningTokens: calculatedReasoningTokens,
@@ -14369,14 +14373,14 @@ chat.openapi(completions, async (c) => {
 	// calls). Exclude content filter responses as they are intentionally empty.
 	const isContentFilterResponse = isContentFilterFinishReason(
 		finishReason,
-		usedProvider,
+		transportProvider,
 	);
 	// A length-limit finish reason (e.g. a tiny `max_tokens`) can legitimately
 	// produce no content at all, so an empty response in that case is expected
 	// behavior rather than an upstream error.
 	const isLengthLimitResponse = isLengthLimitFinishReason(
 		finishReason,
-		usedProvider,
+		transportProvider,
 	);
 	const hasEmptyNonStreamingResponse =
 		!!finishReason &&
@@ -14479,6 +14483,7 @@ chat.openapi(completions, async (c) => {
 		audioInputTokens,
 		echoedServiceTier,
 		{ cacheThoughtSignatures: !zeroDataRetentionEnabled },
+		transportProvider,
 	);
 	// Attach opaque reasoning payloads (e.g. OpenAI encrypted reasoning) to the
 	// assistant message so clients can replay them on later turns to preserve
@@ -14633,6 +14638,10 @@ chat.openapi(completions, async (c) => {
 		finishReason: hasEmptyNonStreamingResponse
 			? "upstream_error"
 			: finishReason,
+		unifiedFinishReason: getUnifiedFinishReason(
+			hasEmptyNonStreamingResponse ? "upstream_error" : finishReason,
+			transportProvider,
+		),
 		promptTokens: calculatedPromptTokens?.toString() ?? null,
 		completionTokens: calculatedCompletionTokens?.toString() ?? null,
 		totalTokens:

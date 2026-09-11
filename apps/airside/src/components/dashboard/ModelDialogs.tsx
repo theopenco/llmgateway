@@ -1,6 +1,15 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
+import {
+	CheckCircle2,
+	Clock3,
+	Loader2,
+	Plus,
+	ShieldCheck,
+	X,
+	XCircle,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -31,6 +40,55 @@ import { perMillionToPerToken, perTokenToPerMillion } from "@/lib/format";
 import type { AirsideModel } from "@/app/dashboard/fleet/page";
 import type { ReactNode } from "react";
 
+function QuantizationField({
+	id,
+	value,
+	onChange,
+}: {
+	id: string;
+	value: AirsideModel["quantization"];
+	onChange: (value: AirsideModel["quantization"]) => void;
+}) {
+	return (
+		<div className="space-y-2">
+			<Label htmlFor={id}>Quantization</Label>
+			<Select
+				value={value ?? "unknown"}
+				onValueChange={(value) =>
+					onChange(
+						value === "unknown"
+							? null
+							: (value as AirsideModel["quantization"]),
+					)
+				}
+			>
+				<SelectTrigger id={id}>
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value="unknown">Unknown</SelectItem>
+					{(
+						[
+							"int4",
+							"int8",
+							"fp4",
+							"fp6",
+							"fp8",
+							"fp16",
+							"bf16",
+							"fp32",
+						] as const
+					).map((quantization) => (
+						<SelectItem key={quantization} value={quantization}>
+							{quantization.toUpperCase()}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</div>
+	);
+}
+
 function useInvalidateModels(providerCompanyId: string) {
 	const api = useApi();
 	const queryClient = useQueryClient();
@@ -54,8 +112,248 @@ const CAPABILITIES = [
 	{ key: "vision", label: "Vision" },
 	{ key: "audio", label: "Audio input" },
 	{ key: "jsonOutput", label: "JSON output" },
+	{ key: "jsonOutputSchema", label: "Structured JSON" },
 	{ key: "reasoning", label: "Reasoning" },
+	{ key: "reasoningMaxTokens", label: "Reasoning budget" },
+	{ key: "webSearch", label: "Web search" },
 ] as const;
+
+type Verification = NonNullable<AirsideModel["latestVerification"]>;
+
+function VerificationResults({ verification }: { verification: Verification }) {
+	const statusLabel =
+		verification.status === "queued"
+			? "Queued"
+			: verification.status === "running"
+				? "Running"
+				: verification.status === "passed"
+					? "Passed"
+					: "Failed";
+	return (
+		<div
+			className="border-border bg-muted/25 space-y-3 rounded-lg border p-3"
+			aria-live="polite"
+			data-testid="verification-results"
+		>
+			<div className="flex items-center justify-between gap-3">
+				<div className="flex items-center gap-2 text-sm font-semibold">
+					<ShieldCheck className="text-primary size-4" aria-hidden="true" />
+					Preflight verification
+				</div>
+				<span className="text-muted-foreground font-mono text-[0.65rem] tracking-wider uppercase">
+					{statusLabel}
+				</span>
+			</div>
+			<ul className="divide-border divide-y">
+				{verification.checks.map((check) => (
+					<li key={check.id} className="flex items-start gap-2 py-2 text-xs">
+						{check.status === "passed" ? (
+							<CheckCircle2 className="text-signal mt-0.5 size-3.5 shrink-0" />
+						) : check.status === "failed" ? (
+							<XCircle className="text-destructive mt-0.5 size-3.5 shrink-0" />
+						) : check.status === "running" ? (
+							<Loader2 className="text-primary mt-0.5 size-3.5 shrink-0 animate-spin" />
+						) : (
+							<Clock3 className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
+						)}
+						<div>
+							<p className="font-medium">{check.label}</p>
+							{check.feedback ? (
+								<p className="text-muted-foreground mt-0.5">{check.feedback}</p>
+							) : null}
+						</div>
+					</li>
+				))}
+			</ul>
+			{verification.summary ? (
+				<p className="text-muted-foreground text-xs">{verification.summary}</p>
+			) : null}
+		</div>
+	);
+}
+
+interface RegionFareRow {
+	region: string;
+	inputPrice: string;
+	outputPrice: string;
+	cachedInputPrice: string;
+	requestPrice: string;
+}
+
+const EMPTY_REGION_FARE: RegionFareRow = {
+	region: "",
+	inputPrice: "",
+	outputPrice: "",
+	cachedInputPrice: "",
+	requestPrice: "",
+};
+
+type RegionPriceEntry = NonNullable<
+	NonNullable<AirsideModel["currentPricing"]>["regionPrices"]
+>[number];
+
+function regionFaresFromPricing(
+	regionPrices: RegionPriceEntry[] | null | undefined,
+): RegionFareRow[] {
+	return (regionPrices ?? []).map((entry) => ({
+		region: entry.region,
+		inputPrice: perTokenToPerMillion(entry.inputPrice),
+		outputPrice: perTokenToPerMillion(entry.outputPrice),
+		cachedInputPrice: perTokenToPerMillion(entry.cachedInputPrice),
+		requestPrice: entry.requestPrice ?? "",
+	}));
+}
+
+function regionFaresToBody(rows: RegionFareRow[]) {
+	if (rows.length === 0) {
+		return undefined;
+	}
+	return rows.map((row) => ({
+		region: row.region.trim(),
+		inputPrice: perMillionToPerToken(row.inputPrice),
+		outputPrice: perMillionToPerToken(row.outputPrice),
+		cachedInputPrice: row.cachedInputPrice
+			? perMillionToPerToken(row.cachedInputPrice)
+			: undefined,
+		requestPrice: row.requestPrice.trim() || undefined,
+	}));
+}
+
+/**
+ * Optional per-region fares filed alongside the default ones. Riders pin a
+ * region with `provider/model:region`; every other request pays the default
+ * fares.
+ */
+function RegionFaresEditor({
+	idPrefix,
+	rows,
+	onChange,
+}: {
+	idPrefix: string;
+	rows: RegionFareRow[];
+	onChange: (rows: RegionFareRow[]) => void;
+}) {
+	const setRow = (index: number, patch: Partial<RegionFareRow>) => {
+		onChange(
+			rows.map((row, rowIndex) =>
+				rowIndex === index ? { ...row, ...patch } : row,
+			),
+		);
+	};
+	return (
+		<div className="space-y-3">
+			<div>
+				<Label>Regional fares (optional)</Label>
+				<p className="text-muted-foreground mt-1 text-xs">
+					Riders pin a region with{" "}
+					<span className="font-mono">model:region</span>; everything else pays
+					the default fares above.
+				</p>
+			</div>
+			{rows.map((row, index) => (
+				<div
+					key={index}
+					className="border-border space-y-3 rounded-md border p-3"
+					data-testid={`${idPrefix}-region-fare-${index}`}
+				>
+					<div className="flex items-end gap-2">
+						<div className="flex-1 space-y-2">
+							<Label htmlFor={`${idPrefix}-region-${index}`}>Region</Label>
+							<Input
+								id={`${idPrefix}-region-${index}`}
+								data-testid={`${idPrefix}-region-${index}`}
+								className="font-mono"
+								value={row.region}
+								onChange={(e) =>
+									setRow(index, {
+										region: e.target.value.toLowerCase(),
+									})
+								}
+								placeholder="au"
+								required
+							/>
+						</div>
+						<Button
+							type="button"
+							size="icon"
+							variant="ghost"
+							aria-label="Remove region"
+							data-testid={`${idPrefix}-remove-region-${index}`}
+							onClick={() =>
+								onChange(rows.filter((_, rowIndex) => rowIndex !== index))
+							}
+						>
+							<X className="size-4" />
+						</Button>
+					</div>
+					<div className="grid gap-3 sm:grid-cols-2">
+						<div className="space-y-2">
+							<Label htmlFor={`${idPrefix}-region-input-${index}`}>
+								Input $/1M tokens
+							</Label>
+							<Input
+								id={`${idPrefix}-region-input-${index}`}
+								data-testid={`${idPrefix}-region-input-${index}`}
+								value={row.inputPrice}
+								onChange={(e) => setRow(index, { inputPrice: e.target.value })}
+								placeholder="2"
+								required
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor={`${idPrefix}-region-output-${index}`}>
+								Output $/1M tokens
+							</Label>
+							<Input
+								id={`${idPrefix}-region-output-${index}`}
+								data-testid={`${idPrefix}-region-output-${index}`}
+								value={row.outputPrice}
+								onChange={(e) => setRow(index, { outputPrice: e.target.value })}
+								placeholder="6"
+								required
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor={`${idPrefix}-region-cached-${index}`}>
+								Cached input $/1M tokens
+							</Label>
+							<Input
+								id={`${idPrefix}-region-cached-${index}`}
+								value={row.cachedInputPrice}
+								onChange={(e) =>
+									setRow(index, { cachedInputPrice: e.target.value })
+								}
+								placeholder="same as default"
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor={`${idPrefix}-region-request-${index}`}>
+								Per-request $
+							</Label>
+							<Input
+								id={`${idPrefix}-region-request-${index}`}
+								value={row.requestPrice}
+								onChange={(e) =>
+									setRow(index, { requestPrice: e.target.value })
+								}
+								placeholder="same as default"
+							/>
+						</div>
+					</div>
+				</div>
+			))}
+			<Button
+				type="button"
+				size="sm"
+				variant="outline"
+				data-testid={`${idPrefix}-add-region-fare`}
+				onClick={() => onChange([...rows, EMPTY_REGION_FARE])}
+			>
+				<Plus className="size-4" /> Add region
+			</Button>
+		</div>
+	);
+}
 
 // Unified reasoning_effort tiers a deployment can accept, in ascending order.
 const REASONING_EFFORTS = [
@@ -72,6 +370,16 @@ type ReasoningEffortOption = (typeof REASONING_EFFORTS)[number];
 type CapabilityKey = (typeof CAPABILITIES)[number]["key"];
 
 type RateLimitScope = "global" | "per_org";
+
+const API_FORMATS: Array<{
+	value: AirsideModel["apiFormat"];
+	label: string;
+}> = [
+	{ value: "provider-native", label: "Carrier default" },
+	{ value: "openai-chat-completions", label: "OpenAI Chat Completions" },
+	{ value: "openai-responses", label: "OpenAI Responses" },
+	{ value: "google-vertex", label: "Google Vertex generateContent" },
+];
 
 /**
  * How a carrier's own caps are counted. Most carriers mean "my deployment
@@ -130,16 +438,24 @@ export function RegisterModelDialog({
 	const [open, setOpen] = useState(false);
 	const [modelName, setModelName] = useState("");
 	const [externalId, setExternalId] = useState("");
+	const [apiFormat, setApiFormat] = useState<AirsideModel["apiFormat"]>(
+		"openai-chat-completions",
+	);
 	const [displayName, setDisplayName] = useState("");
 	const [contextSize, setContextSize] = useState("128000");
 	const [description, setDescription] = useState("");
 	const [family, setFamily] = useState("");
+	const [quantization, setQuantization] =
+		useState<AirsideModel["quantization"]>(null);
 	const [maxOutput, setMaxOutput] = useState("");
 	const [inputPrice, setInputPrice] = useState("");
 	const [outputPrice, setOutputPrice] = useState("");
 	const [cachedInputPrice, setCachedInputPrice] = useState("");
 	const [requestPrice, setRequestPrice] = useState("");
+	const [regionFares, setRegionFares] = useState<RegionFareRow[]>([]);
 	const [note, setNote] = useState("");
+	const [apiKey, setApiKey] = useState("");
+	const [verificationId, setVerificationId] = useState("");
 	const [maxRpm, setMaxRpm] = useState("");
 	const [maxRpd, setMaxRpd] = useState("");
 	const [rateLimitScope, setRateLimitScope] =
@@ -152,7 +468,10 @@ export function RegisterModelDialog({
 		vision: false,
 		audio: false,
 		jsonOutput: false,
+		jsonOutputSchema: false,
 		reasoning: false,
+		reasoningMaxTokens: false,
+		webSearch: false,
 	});
 	const [reasoningEfforts, setReasoningEfforts] = useState<
 		ReasoningEffortOption[]
@@ -162,6 +481,43 @@ export function RegisterModelDialog({
 	const effectiveProviderId = sortedProviderIds.includes(providerId)
 		? providerId
 		: (sortedProviderIds[0] ?? "");
+	const verificationQuery = api.useQuery(
+		"get",
+		"/airside/model-verifications/{id}",
+		{ params: { path: { id: verificationId } } },
+		{
+			enabled: Boolean(verificationId),
+			refetchInterval: (query) => {
+				const status = query.state.data?.verification.status;
+				return status === "queued" || status === "running" ? 1_000 : false;
+			},
+		},
+	);
+	const verification = verificationQuery.data?.verification;
+	const verificationInProgress =
+		verification?.status === "queued" || verification?.status === "running";
+	const resetVerification = () => {
+		if (verificationId) {
+			setVerificationId("");
+		}
+	};
+	const queueVerification = api.useMutation(
+		"post",
+		"/airside/model-verifications",
+		{
+			onSuccess: (data) => {
+				setVerificationId(data.verification.id);
+				setApiKey("");
+				toast.success("Preflight queued. Results will update here.");
+			},
+			onError: (error) => {
+				toast.error(
+					(error as { message?: string })?.message ??
+						"Failed to queue verification",
+				);
+			},
+		},
+	);
 
 	const createModel = api.useMutation("post", "/airside/models", {
 		onSuccess: async () => {
@@ -172,17 +528,37 @@ export function RegisterModelDialog({
 			setOpen(false);
 			setModelName("");
 			setExternalId("");
+			setApiFormat("openai-chat-completions");
 			setDisplayName("");
 			setInputPrice("");
 			setOutputPrice("");
+			setRegionFares([]);
 			setNote("");
+			setApiKey("");
+			setVerificationId("");
 		},
 		onError: (error) => {
-			toast.error(
-				(error as { message?: string })?.message ?? "Failed to add the model",
-			);
+			const message =
+				(error as { message?: string })?.message ?? "Failed to add the model";
+			if (message.includes("changed after verification")) {
+				setVerificationId("");
+			}
+			toast.error(message);
 		},
 	});
+
+	const verificationMapping = {
+		providerCompanyId,
+		providerId: effectiveProviderId,
+		modelName,
+		externalId: externalId || undefined,
+		apiFormat,
+		...capabilities,
+		reasoningEfforts:
+			capabilities.reasoning && reasoningEfforts.length > 0
+				? reasoningEfforts
+				: undefined,
+	};
 
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
@@ -203,15 +579,27 @@ export function RegisterModelDialog({
 					className="space-y-4"
 					onSubmit={(e) => {
 						e.preventDefault();
+						if (verification?.status !== "passed") {
+							queueVerification.mutate({
+								body: {
+									...verificationMapping,
+									apiKey: apiKey || undefined,
+								},
+							});
+							return;
+						}
 						createModel.mutate({
 							body: {
+								verificationId: verification.id,
 								providerCompanyId,
 								providerId: effectiveProviderId,
 								modelName,
 								externalId: externalId || undefined,
+								apiFormat,
 								displayName: displayName || undefined,
 								description: description || undefined,
 								family,
+								quantization,
 								contextSize: Number(contextSize) || undefined,
 								maxOutput: Number(maxOutput) || undefined,
 								...capabilities,
@@ -229,6 +617,7 @@ export function RegisterModelDialog({
 										? perMillionToPerToken(cachedInputPrice)
 										: undefined,
 									requestPrice: requestPrice || undefined,
+									regionPrices: regionFaresToBody(regionFares),
 								},
 								note: note || undefined,
 							},
@@ -246,7 +635,11 @@ export function RegisterModelDialog({
 										size="sm"
 										variant={id === effectiveProviderId ? "default" : "outline"}
 										className="font-mono"
-										onClick={() => setProviderId(id)}
+										disabled={verificationInProgress}
+										onClick={() => {
+											setProviderId(id);
+											resetVerification();
+										}}
 									>
 										{id}
 									</Button>
@@ -261,7 +654,11 @@ export function RegisterModelDialog({
 								id="model-name"
 								data-testid="model-name-input"
 								value={modelName}
-								onChange={(e) => setModelName(e.target.value)}
+								onChange={(e) => {
+									setModelName(e.target.value);
+									resetVerification();
+								}}
+								disabled={verificationInProgress}
 								placeholder="acme-large-2"
 								required
 							/>
@@ -272,7 +669,11 @@ export function RegisterModelDialog({
 								id="model-external-id"
 								data-testid="model-external-id-input"
 								value={externalId}
-								onChange={(e) => setExternalId(e.target.value)}
+								onChange={(e) => {
+									setExternalId(e.target.value);
+									resetVerification();
+								}}
+								disabled={verificationInProgress}
 								placeholder={modelName || "same as model ID"}
 							/>
 							<p className="text-muted-foreground text-xs">
@@ -287,6 +688,34 @@ export function RegisterModelDialog({
 								onChange={(e) => setDisplayName(e.target.value)}
 								placeholder="Acme Large 2"
 							/>
+						</div>
+						<div className="space-y-2 sm:col-span-2">
+							<Label htmlFor="model-api-format">Upstream API</Label>
+							<Select
+								value={apiFormat}
+								onValueChange={(value) => {
+									setApiFormat(value as AirsideModel["apiFormat"]);
+									resetVerification();
+								}}
+								disabled={verificationInProgress}
+							>
+								<SelectTrigger
+									id="model-api-format"
+									data-testid="model-api-format"
+								>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{API_FORMATS.map((format) => (
+										<SelectItem key={format.value} value={format.value}>
+											{format.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<p className="text-muted-foreground text-xs">
+								Used for preflight and every gateway request. Fixed once listed.
+							</p>
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor="model-context">Context size</Label>
@@ -309,6 +738,11 @@ export function RegisterModelDialog({
 								placeholder="optional"
 							/>
 						</div>
+						<QuantizationField
+							id="model-quantization"
+							value={quantization}
+							onChange={setQuantization}
+						/>
 						<div className="space-y-2 sm:col-span-2">
 							<Label htmlFor="model-family">Family</Label>
 							<Input
@@ -343,12 +777,14 @@ export function RegisterModelDialog({
 									{cap.label}
 									<Switch
 										checked={capabilities[cap.key]}
-										onCheckedChange={(checked) =>
+										disabled={verificationInProgress}
+										onCheckedChange={(checked) => {
 											setCapabilities((prev) => ({
 												...prev,
 												[cap.key]: checked,
-											}))
-										}
+											}));
+											resetVerification();
+										}}
 									/>
 								</label>
 							))}
@@ -366,14 +802,16 @@ export function RegisterModelDialog({
 												key={effort}
 												type="button"
 												aria-pressed={active}
+												disabled={verificationInProgress}
 												data-testid={`effort-${effort}`}
-												onClick={() =>
+												onClick={() => {
 													setReasoningEfforts((prev) =>
 														prev.includes(effort)
 															? prev.filter((e) => e !== effort)
 															: [...prev, effort],
-													)
-												}
+													);
+													resetVerification();
+												}}
 												className={
 													active
 														? "bg-primary/15 text-primary border-primary/40 rounded-full border px-2.5 py-1 font-mono text-xs"
@@ -469,6 +907,11 @@ export function RegisterModelDialog({
 								/>
 							</div>
 						</div>
+						<RegionFaresEditor
+							idPrefix="register"
+							rows={regionFares}
+							onChange={setRegionFares}
+						/>
 						<div className="space-y-2">
 							<Label htmlFor="model-note">Note to the regulator</Label>
 							<Textarea
@@ -481,17 +924,170 @@ export function RegisterModelDialog({
 						</div>
 					</div>
 
+					<div className="border-border space-y-2 rounded-lg border p-3">
+						<Label htmlFor="verification-api-key">
+							Provider API key{" "}
+							<span className="text-muted-foreground">(if needed)</span>
+						</Label>
+						<Input
+							id="verification-api-key"
+							type="password"
+							autoComplete="off"
+							value={apiKey}
+							onChange={(event) => setApiKey(event.target.value)}
+							placeholder="Uses the managed carrier key when left blank"
+							disabled={verificationInProgress}
+						/>
+						<p className="text-muted-foreground text-xs">
+							Used only by the queued preflight and erased when it finishes.
+						</p>
+					</div>
+
+					{verification ? (
+						<VerificationResults verification={verification} />
+					) : null}
+
 					<DialogFooter>
 						<Button
 							type="submit"
-							disabled={createModel.isPending || !effectiveProviderId}
+							disabled={
+								createModel.isPending ||
+								queueVerification.isPending ||
+								verificationInProgress ||
+								!effectiveProviderId
+							}
 							data-testid="register-model-submit"
 							className="font-semibold"
 						>
-							{createModel.isPending ? "Filing…" : "File for approval"}
+							{createModel.isPending
+								? "Filing…"
+								: queueVerification.isPending
+									? "Queueing…"
+									: verification?.status === "passed"
+										? "File for approval"
+										: verification?.status === "failed"
+											? "Run preflight again"
+											: "Run preflight"}
 						</Button>
 					</DialogFooter>
 				</form>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+export function VerifyModelDialog({
+	model,
+	children,
+}: {
+	model: AirsideModel;
+	children: ReactNode;
+}) {
+	const api = useApi();
+	const invalidate = useInvalidateModels(model.providerCompanyId);
+	const [open, setOpen] = useState(false);
+	const [apiKey, setApiKey] = useState("");
+	const [verificationId, setVerificationId] = useState(
+		model.latestVerification?.id ?? "",
+	);
+	const verificationQuery = api.useQuery(
+		"get",
+		"/airside/model-verifications/{id}",
+		{ params: { path: { id: verificationId } } },
+		{
+			enabled: open && Boolean(verificationId),
+			refetchInterval: (query) => {
+				const status = query.state.data?.verification.status;
+				return status === "queued" || status === "running" ? 1_000 : false;
+			},
+		},
+	);
+	const verification = verificationQuery.data?.verification;
+	const queueVerification = api.useMutation(
+		"post",
+		"/airside/models/{id}/verifications",
+		{
+			onSuccess: async (data) => {
+				setVerificationId(data.verification.id);
+				setApiKey("");
+				await invalidate();
+				toast.success("Mapping verification queued.");
+			},
+			onError: (error) => {
+				toast.error(
+					(error as { message?: string })?.message ??
+						"Failed to queue verification",
+				);
+			},
+		},
+	);
+
+	return (
+		<Dialog
+			open={open}
+			onOpenChange={(next) => {
+				setOpen(next);
+				if (next) {
+					setVerificationId(model.latestVerification?.id ?? "");
+				} else {
+					void invalidate();
+				}
+			}}
+		>
+			<DialogTrigger asChild>{children}</DialogTrigger>
+			<DialogContent className="sm:max-w-lg">
+				<DialogHeader>
+					<DialogTitle className="font-display">
+						Verify {model.modelName}
+					</DialogTitle>
+					<DialogDescription>
+						Run the declared capabilities against the upstream model. Checks run
+						in the background and do not change the listing.
+					</DialogDescription>
+				</DialogHeader>
+				<div className="space-y-4">
+					<div className="space-y-2">
+						<Label htmlFor={`verify-api-key-${model.id}`}>
+							Provider API key{" "}
+							<span className="text-muted-foreground">(if needed)</span>
+						</Label>
+						<Input
+							id={`verify-api-key-${model.id}`}
+							type="password"
+							autoComplete="off"
+							value={apiKey}
+							onChange={(event) => setApiKey(event.target.value)}
+							placeholder="Uses the managed carrier key when left blank"
+						/>
+						<p className="text-muted-foreground text-xs">
+							The key is scoped to this run and erased at completion.
+						</p>
+					</div>
+					{verification ? (
+						<VerificationResults verification={verification} />
+					) : model.latestVerification ? (
+						<VerificationResults verification={model.latestVerification} />
+					) : null}
+				</div>
+				<DialogFooter>
+					<Button
+						type="button"
+						disabled={
+							queueVerification.isPending ||
+							verification?.status === "queued" ||
+							verification?.status === "running"
+						}
+						onClick={() =>
+							queueVerification.mutate({
+								params: { path: { id: model.id } },
+								body: { apiKey: apiKey || undefined },
+							})
+						}
+					>
+						<ShieldCheck className="size-4" />
+						{queueVerification.isPending ? "Queueing…" : "Run verification"}
+					</Button>
+				</DialogFooter>
 			</DialogContent>
 		</Dialog>
 	);
@@ -507,67 +1103,86 @@ export function EditModelDialog({
 	const api = useApi();
 	const invalidate = useInvalidateModels(model.providerCompanyId);
 	const [open, setOpen] = useState(false);
-	const [displayName, setDisplayName] = useState(model.displayName ?? "");
-	const [description, setDescription] = useState(model.description ?? "");
+	// A pending change is what the listing becomes once approved, so the form
+	// starts from it; saving replaces that filing.
+	const hasPendingChange = model.pendingFiling?.kind === "metadata";
+	const proposed = {
+		...model,
+		...(hasPendingChange ? (model.pendingFiling?.metadata ?? {}) : {}),
+	};
+	const [displayName, setDisplayName] = useState(proposed.displayName ?? "");
+	const [description, setDescription] = useState(proposed.description ?? "");
 	const [contextSize, setContextSize] = useState(
-		model.contextSize ? String(model.contextSize) : "",
+		proposed.contextSize ? String(proposed.contextSize) : "",
 	);
-	const [family, setFamily] = useState(model.family ?? "");
+	const [family, setFamily] = useState(proposed.family ?? "");
+	const [quantization, setQuantization] = useState(proposed.quantization);
 	const [maxOutput, setMaxOutput] = useState(
-		model.maxOutput ? String(model.maxOutput) : "",
+		proposed.maxOutput ? String(proposed.maxOutput) : "",
 	);
 	const [capabilities, setCapabilities] = useState<
 		Record<CapabilityKey, boolean>
 	>({
-		streaming: model.streaming,
-		tools: model.tools,
-		vision: model.vision,
-		audio: model.audio,
-		jsonOutput: model.jsonOutput,
-		reasoning: model.reasoning,
+		streaming: proposed.streaming,
+		tools: proposed.tools,
+		vision: proposed.vision,
+		audio: proposed.audio,
+		jsonOutput: proposed.jsonOutput,
+		jsonOutputSchema: proposed.jsonOutputSchema,
+		reasoning: proposed.reasoning,
+		reasoningMaxTokens: proposed.reasoningMaxTokens,
+		webSearch: proposed.webSearch,
 	});
 	const [reasoningEfforts, setReasoningEfforts] = useState<
 		ReasoningEffortOption[]
-	>((model.reasoningEfforts ?? []) as ReasoningEffortOption[]);
+	>((proposed.reasoningEfforts ?? []) as ReasoningEffortOption[]);
 	const [maxRpm, setMaxRpm] = useState(
-		model.maxRpm ? String(model.maxRpm) : "",
+		proposed.maxRpm ? String(proposed.maxRpm) : "",
 	);
 	const [maxRpd, setMaxRpd] = useState(
-		model.maxRpd ? String(model.maxRpd) : "",
+		proposed.maxRpd ? String(proposed.maxRpd) : "",
 	);
 	const [rateLimitScope, setRateLimitScope] = useState<RateLimitScope>(
-		model.rateLimitScope,
+		proposed.rateLimitScope,
 	);
 
 	function resetFromModel() {
-		setDisplayName(model.displayName ?? "");
-		setDescription(model.description ?? "");
-		setContextSize(model.contextSize ? String(model.contextSize) : "");
-		setFamily(model.family ?? "");
-		setMaxOutput(model.maxOutput ? String(model.maxOutput) : "");
+		setDisplayName(proposed.displayName ?? "");
+		setDescription(proposed.description ?? "");
+		setContextSize(proposed.contextSize ? String(proposed.contextSize) : "");
+		setFamily(proposed.family ?? "");
+		setQuantization(proposed.quantization);
+		setMaxOutput(proposed.maxOutput ? String(proposed.maxOutput) : "");
 		setCapabilities({
-			streaming: model.streaming,
-			tools: model.tools,
-			vision: model.vision,
-			audio: model.audio,
-			jsonOutput: model.jsonOutput,
-			reasoning: model.reasoning,
+			streaming: proposed.streaming,
+			tools: proposed.tools,
+			vision: proposed.vision,
+			audio: proposed.audio,
+			jsonOutput: proposed.jsonOutput,
+			jsonOutputSchema: proposed.jsonOutputSchema,
+			reasoning: proposed.reasoning,
+			reasoningMaxTokens: proposed.reasoningMaxTokens,
+			webSearch: proposed.webSearch,
 		});
 		setReasoningEfforts(
-			(model.reasoningEfforts ?? []) as ReasoningEffortOption[],
+			(proposed.reasoningEfforts ?? []) as ReasoningEffortOption[],
 		);
-		setMaxRpm(model.maxRpm ? String(model.maxRpm) : "");
-		setMaxRpd(model.maxRpd ? String(model.maxRpd) : "");
-		setRateLimitScope(model.rateLimitScope);
+		setMaxRpm(proposed.maxRpm ? String(proposed.maxRpm) : "");
+		setMaxRpd(proposed.maxRpd ? String(proposed.maxRpd) : "");
+		setRateLimitScope(proposed.rateLimitScope);
 	}
 
 	const updateModel = api.useMutation("patch", "/airside/models/{id}", {
-		onSuccess: async () => {
+		onSuccess: async (data) => {
 			await invalidate();
 			toast.success(
-				model.status === "active"
-					? "Change filed for review."
-					: "Model updated.",
+				model.status !== "active"
+					? "Model updated."
+					: !hasPendingChange
+						? "Change filed for review."
+						: data.model.pendingFiling
+							? "Pending change replaced."
+							: "Pending change withdrawn.",
 			);
 			setOpen(false);
 		},
@@ -591,15 +1206,17 @@ export function EditModelDialog({
 			}}
 		>
 			<DialogTrigger asChild>{children}</DialogTrigger>
-			<DialogContent className="sm:max-w-lg">
+			<DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
 				<DialogHeader>
 					<DialogTitle className="font-display">
 						Edit {model.modelName}
 					</DialogTitle>
 					<DialogDescription>
-						{model.status === "active"
-							? "Changes to a live listing are filed for review and apply once we approve them. Pricing goes through a separate fare filing."
-							: "Everything here applies to the draft immediately; the initial fare filing covers it. Pricing only changes through a fare filing."}
+						{model.status !== "active"
+							? "Everything here applies to the draft immediately; the initial fare filing covers it. Pricing only changes through a fare filing."
+							: hasPendingChange
+								? "A change is already awaiting review, so the form shows those values. Saving replaces that filing; saving the live values back withdraws it. Pricing goes through a separate fare filing."
+								: "Changes to a live listing are filed for review and apply once we approve them. Pricing goes through a separate fare filing."}
 					</DialogDescription>
 				</DialogHeader>
 				<form
@@ -612,6 +1229,7 @@ export function EditModelDialog({
 								displayName: displayName || null,
 								description: description || null,
 								family,
+								quantization,
 								contextSize: contextSize ? Number(contextSize) : null,
 								maxOutput: maxOutput ? Number(maxOutput) : null,
 								...capabilities,
@@ -669,6 +1287,11 @@ export function EditModelDialog({
 								min={1}
 							/>
 						</div>
+						<QuantizationField
+							id="edit-quantization"
+							value={quantization}
+							onChange={setQuantization}
+						/>
 						<div className="space-y-2">
 							<Label htmlFor="edit-family">Family</Label>
 							<Input
@@ -812,6 +1435,9 @@ export function FileFareDialog({
 	const [requestPrice, setRequestPrice] = useState(
 		model.currentPricing?.requestPrice ?? "",
 	);
+	const [regionFares, setRegionFares] = useState<RegionFareRow[]>(
+		regionFaresFromPricing(model.currentPricing?.regionPrices),
+	);
 	const [note, setNote] = useState("");
 
 	function resetFromModel() {
@@ -821,6 +1447,7 @@ export function FileFareDialog({
 			perTokenToPerMillion(model.currentPricing?.cachedInputPrice),
 		);
 		setRequestPrice(model.currentPricing?.requestPrice ?? "");
+		setRegionFares(regionFaresFromPricing(model.currentPricing?.regionPrices));
 		setNote("");
 	}
 
@@ -853,7 +1480,7 @@ export function FileFareDialog({
 			}}
 		>
 			<DialogTrigger asChild>{children}</DialogTrigger>
-			<DialogContent className="sm:max-w-md">
+			<DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
 				<DialogHeader>
 					<DialogTitle className="font-display">
 						File a fare for {model.modelName}
@@ -876,6 +1503,7 @@ export function FileFareDialog({
 									? perMillionToPerToken(cachedInputPrice)
 									: undefined,
 								requestPrice: requestPrice || undefined,
+								regionPrices: regionFaresToBody(regionFares),
 								note: note || undefined,
 							},
 						});
@@ -925,6 +1553,11 @@ export function FileFareDialog({
 							/>
 						</div>
 					</div>
+					<RegionFaresEditor
+						idPrefix="fare"
+						rows={regionFares}
+						onChange={setRegionFares}
+					/>
 					<div className="space-y-2">
 						<Label htmlFor="fare-note">Note</Label>
 						<Textarea

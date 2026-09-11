@@ -78,7 +78,8 @@ export interface Organization {
 	updatedAt: string;
 	name: string;
 	kind: "default" | "chat" | "devpass";
-	credits: string;
+	role?: "owner" | "admin" | "project_admin" | "developer";
+	credits?: string;
 	chatPlan?: "none" | "starter" | "plus" | "pro";
 	chatPlanCreditsLimit?: string | null;
 	chatPlanCreditsUsed?: string | null;
@@ -88,7 +89,7 @@ export interface Organization {
 	planExpiresAt: string | null;
 	retentionLevel: "retain" | "none";
 	status: "active" | "inactive" | "deleted" | null;
-	autoTopUpEnabled: boolean;
-	autoTopUpThreshold: string | null;
-	autoTopUpAmount: string | null;
+	autoTopUpEnabled?: boolean;
+	autoTopUpThreshold?: string | null;
+	autoTopUpAmount?: string | null;
 }

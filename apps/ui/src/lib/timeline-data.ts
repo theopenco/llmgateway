@@ -159,16 +159,25 @@ export function buildTimelineStats(
 
 	const families = new Set(models.map((m) => m.family));
 
-	const released = models
-		.map((m) => m.releasedAt)
-		.filter((d): d is string => Boolean(d))
-		.sort();
+	// Only the earliest and latest dates are needed; ISO strings compare
+	// lexicographically, so a single pass replaces the full sort.
+	let firstReleasedAt: string | null = null;
+	let latestReleasedAt: string | null = null;
+	for (const m of models) {
+		const d = m.releasedAt;
+		if (!d) {
+			continue;
+		}
+		if (firstReleasedAt === null || d < firstReleasedAt) {
+			firstReleasedAt = d;
+		}
+		if (latestReleasedAt === null || d > latestReleasedAt) {
+			latestReleasedAt = d;
+		}
+	}
 
-	const firstYear = released.length
-		? new Date(released[0]).getUTCFullYear()
-		: null;
-	const latestReleasedAt = released.length
-		? released[released.length - 1]
+	const firstYear = firstReleasedAt
+		? new Date(firstReleasedAt).getUTCFullYear()
 		: null;
 	const latestModelName =
 		models.find((m) => m.releasedAt === latestReleasedAt)?.name ?? null;

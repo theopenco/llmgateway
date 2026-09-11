@@ -4,7 +4,12 @@ import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { McpError } from "@modelcontextprotocol/sdk/types.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import {
+	LATEST_PROTOCOL_VERSION,
+	McpError,
+	SUPPORTED_PROTOCOL_VERSIONS,
+} from "@modelcontextprotocol/sdk/types.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -22,6 +27,7 @@ import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { assertMcpHttpsUrl } from "@/mcp/request-url.js";
 import { registerUsageTools } from "@/mcp/usage-tools.js";
+import { isAllowedOrigin, parseAllowedOrigins } from "@/middleware/cors.js";
 
 import { parseDataUrl } from "@llmgateway/actions";
 import { logger, toError } from "@llmgateway/logger";
@@ -1152,6 +1158,58 @@ function sendSseEvent(
  */
 export async function mcpHandler(c: Context): Promise<Response> {
 	const method = c.req.method;
+	const accept = c.req.header("Accept") ?? "";
+	const gatewayUrl = process.env.GATEWAY_URL ?? "https://api.llmgateway.io";
+	const origin = c.req.header("Origin");
+	const allowedOrigins = [
+		...(URL.canParse(gatewayUrl) ? [new URL(gatewayUrl).origin] : []),
+		process.env.UI_URL ?? "https://llmgateway.io",
+		...parseAllowedOrigins(process.env.GATEWAY_CORS_ORIGINS),
+	];
+	if (origin && !isAllowedOrigin(allowedOrigins, origin)) {
+		return c.json(
+			{
+				jsonrpc: "2.0",
+				id: null,
+				error: { code: -32000, message: "Origin not allowed" },
+			},
+			403,
+		);
+	}
+	c.header("Cache-Control", "no-store");
+	c.header("Vary", "Accept, Origin");
+	const protocolVersion = c.req.header("MCP-Protocol-Version");
+	if (
+		protocolVersion &&
+		!SUPPORTED_PROTOCOL_VERSIONS.includes(protocolVersion)
+	) {
+		return c.json(
+			{
+				jsonrpc: "2.0",
+				id: null,
+				error: { code: -32600, message: "Unsupported MCP protocol version" },
+			},
+			400,
+		);
+	}
+
+	if (
+		(method === "GET" || method === "HEAD") &&
+		!protocolVersion &&
+		!accept.includes("text/event-stream")
+	) {
+		return c.json({
+			name: "llmgateway",
+			version: "1.0.0",
+			description:
+				"LLM Gateway MCP server: generation, model discovery, and usage analytics.",
+			protocolVersion: LATEST_PROTOCOL_VERSION,
+			transport: "streamable-http",
+			endpoint: new URL("/mcp", gatewayUrl).href,
+			documentation: "https://docs.llmgateway.io/developers/mcp",
+			capabilities: { tools: {} },
+		});
+	}
 
 	logger.debug("MCP request received", {
 		method,
@@ -1166,6 +1224,10 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	// Extract API key for authentication
 	const apiKey = parseApiToken(c);
 	if (!apiKey) {
+		c.header(
+			"WWW-Authenticate",
+			`Bearer resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", gatewayUrl).href}"`,
+		);
 		return c.json(
 			{
 				jsonrpc: "2.0",
@@ -1191,6 +1253,10 @@ export async function mcpHandler(c: Context): Promise<Response> {
 			apiKeyRecord.expiresAt &&
 			apiKeyRecord.expiresAt <= new Date())
 	) {
+		c.header(
+			"WWW-Authenticate",
+			`Bearer error="invalid_token", resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", gatewayUrl).href}"`,
+		);
 		return c.json(
 			{
 				jsonrpc: "2.0",
@@ -1232,6 +1298,86 @@ export async function mcpHandler(c: Context): Promise<Response> {
 			},
 			status,
 		);
+	}
+
+	// Keep the legacy bridge for clients using the original HTTP+SSE protocol.
+	const streamableHttp =
+		Boolean(protocolVersion) ||
+		(accept.includes("application/json") &&
+			accept.includes("text/event-stream"));
+	if (streamableHttp) {
+		if (method !== "POST") {
+			c.header("Allow", "POST");
+			return c.json(
+				{
+					jsonrpc: "2.0",
+					id: null,
+					error: {
+						code: -32000,
+						message: "This stateless MCP endpoint accepts POST messages.",
+					},
+				},
+				405,
+			);
+		}
+		const clientHeaders: Record<string, string> = {};
+		for (const header of [
+			"x-source",
+			"user-agent",
+			"http-referer",
+			"x-title",
+			"x-openrouter-title",
+		]) {
+			const value = c.req.header(header);
+			if (value) {
+				clientHeaders[header] = value;
+			}
+		}
+		const server = createMcpServer(
+			apiKey,
+			apiKeyRecord,
+			clientHeaders,
+			zeroDataRetentionEnabled,
+		);
+		const transport = new WebStandardStreamableHTTPServerTransport({
+			sessionIdGenerator: undefined,
+			enableJsonResponse: true,
+		});
+		await server.connect(transport);
+		try {
+			let parsedBody: unknown;
+			try {
+				parsedBody = await c.req.json();
+			} catch (error) {
+				if (!(error instanceof SyntaxError)) {
+					throw error;
+				}
+				return c.json(
+					{
+						jsonrpc: "2.0",
+						id: null,
+						error: { code: -32700, message: "Invalid JSON" },
+					},
+					400,
+				);
+			}
+			if (Array.isArray(parsedBody)) {
+				return c.json(
+					{
+						jsonrpc: "2.0",
+						id: null,
+						error: {
+							code: -32600,
+							message: "Send one JSON-RPC message per request.",
+						},
+					},
+					400,
+				);
+			}
+			return await transport.handleRequest(c.req.raw, { parsedBody });
+		} finally {
+			await server.close();
+		}
 	}
 
 	// Get or create session ID

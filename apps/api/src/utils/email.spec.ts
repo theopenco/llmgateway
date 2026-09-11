@@ -64,4 +64,17 @@ describe("sendTransactionalEmail", () => {
 
 		expect(resendSendMock).toHaveBeenCalledOnce();
 	});
+
+	test("rejects when Resend exceeds timeoutMs", async () => {
+		resendSendMock.mockReturnValue(new Promise(() => {}));
+		await expect(
+			sendTransactionalEmail({
+				to: "user@llmgateway.io",
+				subject: "Crew invite",
+				text: "Join the crew",
+				strict: true,
+				timeoutMs: 10,
+			}),
+		).rejects.toThrow("Resend did not respond within 10ms");
+	});
 });

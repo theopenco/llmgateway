@@ -38,6 +38,11 @@ const promptCachingModels = filteredModels
 		const testCases = [];
 
 		for (const provider of model.providers as ProviderModelMapping[]) {
+			// Dedicated image endpoints do not receive this test's system prompt.
+			if (provider.imageGenerations) {
+				continue;
+			}
+
 			// Skip providers without cachedInputPrice (no prompt caching support)
 			if (provider.cachedInputPrice === undefined) {
 				continue;
@@ -91,7 +96,7 @@ describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 		expect(true).toBe(true);
 	});
 
-	describe("cacheable models", () => {
+	describe.skipIf(promptCachingModels.length === 0)("cacheable models", () => {
 		test.each(promptCachingModels)(
 			"prompt caching works for $model",
 			getTestOptions(),

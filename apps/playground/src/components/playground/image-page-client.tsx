@@ -24,6 +24,7 @@ import { useAppConfig } from "@/lib/config";
 import {
 	chatPlanCreditErrorMessage,
 	isInsufficientCreditsError,
+	organizationCreditErrorMessage,
 } from "@/lib/credit-error";
 import { useApi } from "@/lib/fetch-client";
 import {
@@ -38,6 +39,8 @@ import {
 	setModelPreferenceCookie,
 } from "@/lib/model-preferences";
 import { shouldDisableFallback } from "@/lib/no-fallback";
+
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { AspectRatio, GalleryItem } from "@/lib/image-gen";
@@ -592,7 +595,11 @@ export default function ImagePageClient({
 									isChatPlanContext &&
 										isInsufficientCreditsError(error.status, error.message)
 										? chatPlanCreditErrorMessage(chatPlanSubscribed, "images")
-										: error.message,
+										: organizationCreditErrorMessage(
+												error.message,
+												selectedOrganization?.role,
+												error.status,
+											),
 								);
 							}
 							throw error;
@@ -674,6 +681,7 @@ export default function ImagePageClient({
 			posthog,
 			requiresImageInput,
 			selectedOrganization?.id,
+			selectedOrganization?.role,
 			isChatPlanContext,
 			chatPlanSubscribed,
 		],
@@ -835,20 +843,22 @@ export default function ImagePageClient({
 						onComparisonModeChange={handleComparisonModeChange}
 						hideCompare={displayItems.length > 0}
 					/>
-					{isLowCredits && !isChatPlanContext && (
-						<div className="bg-yellow-50 dark:bg-yellow-900/20 border-b px-4 py-2 flex items-center justify-between">
-							<p className="text-sm text-yellow-800 dark:text-yellow-200">
-								Low credits remaining. Top up to continue generating images.
-							</p>
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={() => setShowTopUp(true)}
-							>
-								Top Up
-							</Button>
-						</div>
-					)}
+					{isLowCredits &&
+						!isChatPlanContext &&
+						isOrganizationAdmin(selectedOrganization?.role) && (
+							<div className="bg-yellow-50 dark:bg-yellow-900/20 border-b px-4 py-2 flex items-center justify-between">
+								<p className="text-sm text-yellow-800 dark:text-yellow-200">
+									Low credits remaining. Top up to continue generating images.
+								</p>
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={() => setShowTopUp(true)}
+								>
+									Top Up
+								</Button>
+							</div>
+						)}
 					<ImageControls
 						prompt={prompt}
 						setPrompt={setPrompt}

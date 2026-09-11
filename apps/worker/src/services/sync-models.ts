@@ -99,7 +99,26 @@ export async function syncProvidersAndModels() {
 
 			if (modelDef.providers && modelDef.providers.length > 0) {
 				const expandedProviders = expandAllProviderRegions(modelDef.providers);
+				// An Airside listing owns every row of its (model, provider) pair —
+				// regional variants included — so sync must not re-create catalogue
+				// rows next to it.
+				const airsideOwnedProviderIds = new Set(
+					(
+						await database
+							.select({ providerId: modelProviderMapping.providerId })
+							.from(modelProviderMapping)
+							.where(
+								and(
+									eq(modelProviderMapping.modelId, modelDef.id),
+									eq(modelProviderMapping.source, "airside"),
+								),
+							)
+					).map((row) => row.providerId),
+				);
 				for (const mapping of expandedProviders) {
+					if (airsideOwnedProviderIds.has(mapping.providerId)) {
+						continue;
+					}
 					const mappingRegion = mapping.region;
 					const existingMapping = (
 						await database
@@ -129,6 +148,8 @@ export async function syncProvidersAndModels() {
 							.update(modelProviderMapping)
 							.set({
 								externalId: mapping.externalId,
+								apiFormat:
+									"apiFormat" in mapping ? (mapping.apiFormat ?? null) : null,
 								region: mappingRegion ?? null,
 								inputPrice:
 									"inputPrice" in mapping && mapping.inputPrice !== undefined
@@ -220,6 +241,7 @@ export async function syncProvidersAndModels() {
 							modelId: modelDef.id,
 							providerId: mapping.providerId,
 							externalId: mapping.externalId,
+							apiFormat: "apiFormat" in mapping ? mapping.apiFormat : undefined,
 							region: mappingRegion ?? undefined,
 							inputPrice:
 								"inputPrice" in mapping && mapping.inputPrice !== undefined

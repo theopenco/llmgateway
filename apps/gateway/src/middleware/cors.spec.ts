@@ -104,6 +104,17 @@ describe("corsMiddleware", () => {
 			"https://cloud.typingmind.com",
 		);
 		expect(res.headers.get("Access-Control-Allow-Credentials")).toBeNull();
+		for (const header of [
+			"RateLimit",
+			"RateLimit-Policy",
+			"RateLimit-Reset",
+			"Retry-After",
+			"WWW-Authenticate",
+		]) {
+			expect(res.headers.get("Access-Control-Expose-Headers")).toContain(
+				header,
+			);
+		}
 	});
 
 	it("omits the header for an origin outside the allowlist", async () => {
@@ -137,5 +148,8 @@ describe("corsMiddleware", () => {
 			"Authorization",
 		);
 		expect(res.headers.get("Access-Control-Allow-Methods")).toContain("POST");
+		expect(res.headers.get("Access-Control-Allow-Headers")).toContain(
+			"MCP-Protocol-Version",
+		);
 	});
 });

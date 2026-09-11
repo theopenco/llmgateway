@@ -2,6 +2,8 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { userHasProjectAccess } from "@/utils/authorization.js";
+
 import {
 	and,
 	db,
@@ -18,6 +20,10 @@ import {
 } from "@llmgateway/db";
 import { checkGuardrails } from "@llmgateway/guardrails";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+import {
+	canManageProject,
+	isOrganizationAdmin,
+} from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
 import type {
@@ -41,6 +47,7 @@ interface GuardrailScopeContext {
 async function checkEnterpriseAccess(
 	userId: string,
 	organizationId: string,
+	projectId?: string,
 ): Promise<{
 	userOrg: { role: string; organization: { plan: string } | null };
 }> {
@@ -60,9 +67,14 @@ async function checkEnterpriseAccess(
 		});
 	}
 
-	if (userOrg.role !== "owner" && userOrg.role !== "admin") {
+	if (
+		projectId
+			? !canManageProject(userOrg.role) ||
+				!(await userHasProjectAccess(userId, projectId))
+			: !isOrganizationAdmin(userOrg.role)
+	) {
 		throw new HTTPException(403, {
-			message: "Only owners and admins can manage guardrails",
+			message: "Only admins of this scope can manage guardrails",
 		});
 	}
 
@@ -88,12 +100,6 @@ async function requireOrgScope(
 	return { organizationId, projectId: null };
 }
 
-/**
- * Project guardrails are administered by the project's owners and admins.
- * Roles are organization-level, so this reuses the organization check against
- * the project's owning organization — project-scoped "developer" members are
- * excluded there.
- */
 async function requireProjectScope(
 	userId: string,
 	projectId: string,
@@ -106,7 +112,7 @@ async function requireProjectScope(
 		throw new HTTPException(404, { message: "Project not found" });
 	}
 
-	await checkEnterpriseAccess(userId, project.organizationId);
+	await checkEnterpriseAccess(userId, project.organizationId, projectId);
 
 	return { organizationId: project.organizationId, projectId };
 }
@@ -282,6 +288,43 @@ guardrails.openapi(getProjectConfig, async (c) => {
 
 	return c.json((await findScopedConfig(scope)) ?? null);
 });
+
+guardrails.openapi(
+	createRoute({
+		method: "get",
+		path: "/projects/{projectId}/inherited",
+		request: { params: z.object({ projectId: z.string() }) },
+		responses: {
+			200: {
+				description: "Organization guardrails inherited by this project",
+				content: {
+					"application/json": {
+						schema: z.object({
+							config: guardrailConfigSchema.nullable(),
+							rules: z.array(guardrailRuleSchema),
+						}),
+					},
+				},
+			},
+		},
+	}),
+	async (c) => {
+		const user = c.get("user");
+		if (!user) {
+			throw new HTTPException(401, { message: "Unauthorized" });
+		}
+		const projectScope = await requireProjectScope(
+			user.id,
+			c.req.param("projectId"),
+		);
+		const orgScope = { ...projectScope, projectId: null };
+		const [config, rules] = await Promise.all([
+			findScopedConfig(orgScope),
+			findScopedRules(orgScope),
+		]);
+		return c.json({ config: config ?? null, rules });
+	},
+);
 
 const updateConfigBodySchema = z.object({
 	enabled: z.boolean().optional(),

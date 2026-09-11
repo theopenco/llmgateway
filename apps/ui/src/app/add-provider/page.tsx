@@ -1,7 +1,6 @@
 import { AddProviderForm } from "@/components/add-provider/add-provider-form";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
-import { getConfig } from "@/lib/config-server";
 
 import type { Metadata } from "next";
 
@@ -27,16 +26,12 @@ export default async function AddProviderPage({
 	const { payment } = await searchParams;
 	const initialPayment =
 		payment === "success" || payment === "canceled" ? payment : null;
-	const { airsideUrl } = getConfig();
 
 	return (
 		<div className="min-h-screen bg-white text-black dark:bg-black dark:text-white">
 			<main>
 				<HeroRSC navbarOnly />
-				<AddProviderForm
-					initialPayment={initialPayment}
-					airsideUrl={airsideUrl}
-				/>
+				<AddProviderForm initialPayment={initialPayment} />
 			</main>
 			<Footer />
 		</div>

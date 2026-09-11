@@ -54,7 +54,8 @@ describe("getValidationModel", () => {
 		expect(usesOcr).toBeFalsy();
 	});
 
-	it("selects a model from the newer half of the provider's releases", () => {
+	it("selects a model from the newer half of the provider's text releases", () => {
+		const now = new Date();
 		const selected = getValidationModel("openai");
 		expect(selected).not.toBeNull();
 
@@ -71,8 +72,13 @@ describe("getValidationModel", () => {
 				m.providers.some(
 					(p) =>
 						p.providerId === "openai" &&
-						!("deprecatedAt" in p && p.deprecatedAt) &&
-						!("deactivatedAt" in p && p.deactivatedAt),
+						getProviderModelKind(m, p) === "text" &&
+						!("deprecatedAt" in p && p.deprecatedAt && now >= p.deprecatedAt) &&
+						!(
+							"deactivatedAt" in p &&
+							p.deactivatedAt &&
+							now >= p.deactivatedAt
+						),
 				),
 			)
 			.map((m) => (m.releasedAt as Date).getTime());

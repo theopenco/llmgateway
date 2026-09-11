@@ -222,10 +222,10 @@ async function setupTestData(opts: {
 
 	if (opts.includeCatalogProviderKey) {
 		await db.insert(tables.providerKey).values({
-			id: "provider-key-openai",
+			id: "custom-provider-key-openai",
 			...encryptProviderKeyForStorage(
 				"sk-openai-test-key",
-				"provider-key-openai",
+				"custom-provider-key-openai",
 				"custom-org",
 			),
 			provider: "openai",
