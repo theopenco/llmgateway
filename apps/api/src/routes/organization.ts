@@ -1348,11 +1348,14 @@ organization.openapi(getDeletionEligibility, async (c) => {
 		userOrganization.organization!,
 	);
 
-	return c.json({
-		canDelete: !blockers.positiveCredits && !blockers.recentRequests,
-		...blockers,
-		idleHours: ORGANIZATION_DELETE_IDLE_HOURS,
-	});
+	return c.json(
+		{
+			canDelete: !blockers.positiveCredits && !blockers.recentRequests,
+			...blockers,
+			idleHours: ORGANIZATION_DELETE_IDLE_HOURS,
+		},
+		200,
+	);
 });
 
 const getTransactions = createRoute({
