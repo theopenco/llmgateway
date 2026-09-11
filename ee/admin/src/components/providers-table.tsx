@@ -136,7 +136,7 @@ function ProviderRow({
 	const [expanded, setExpanded] = useState(false);
 	const stability = deriveStabilityMetrics(
 		provider.logsCount,
-		provider.errorsCount + provider.clientErrorsCount,
+		provider.errorsCount,
 		provider.clientErrorsCount,
 	);
 	const errorRate = (stability.errorRate ?? 0).toFixed(1);

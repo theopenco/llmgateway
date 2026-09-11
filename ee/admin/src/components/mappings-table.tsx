@@ -141,7 +141,7 @@ function MappingRow({
 	const ProviderIcon = getProviderIcon(mapping.providerId);
 	const stability = deriveStabilityMetrics(
 		mapping.logsCount,
-		mapping.errorsCount + mapping.clientErrorsCount,
+		mapping.errorsCount,
 		mapping.clientErrorsCount,
 	);
 	const errorRate = (stability.errorRate ?? 0).toFixed(1);
