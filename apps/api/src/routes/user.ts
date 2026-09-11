@@ -515,13 +515,25 @@ user.openapi(updatePassword, async (c) => {
 
 	const { currentPassword, newPassword } = c.req.valid("json");
 
-	await auth.api.changePassword({
+	const result = await auth.api.changePassword({
 		body: {
 			currentPassword,
 			newPassword,
 		},
 		headers: c.req.raw.headers,
+		returnHeaders: true,
 	});
+
+	for (const cookie of result.headers.getSetCookie()) {
+		c.header("set-cookie", cookie, { append: true });
+	}
+	const token = result.headers.get("set-auth-token");
+	if (token) {
+		c.header("set-auth-token", token);
+		c.header("Access-Control-Expose-Headers", "set-auth-token", {
+			append: true,
+		});
+	}
 
 	return c.json({
 		message: "Password updated successfully",

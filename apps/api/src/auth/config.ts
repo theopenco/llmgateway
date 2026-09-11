@@ -769,6 +769,7 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 			],
 			emailAndPassword: {
 				enabled: true,
+				revokeSessionsOnPasswordReset: true,
 				// Enforced on sign-up/reset/change/set-password only, never on
 				// sign-in, so existing accounts with shorter passwords keep working.
 				minPasswordLength: 12,
@@ -962,6 +963,15 @@ The LLM Gateway Team`.trim();
 					},
 			hooks: {
 				before: createAuthMiddleware(async (ctx) => {
+					if (
+						ctx.path === "/change-password" &&
+						ctx.body &&
+						typeof ctx.body === "object"
+					) {
+						const body = ctx.body as { revokeOtherSessions?: boolean };
+						body.revokeOtherSessions = true;
+					}
+
 					if (ctx.path.startsWith("/sign-in")) {
 						const body = ctx.body as { email?: string } | undefined;
 						const email = body?.email?.trim().toLowerCase();
