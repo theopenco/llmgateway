@@ -1,0 +1,61 @@
+name: test-playwright
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      STACK_SUFFIX: -playwright
+      API_URL: http://localhost:4002
+      UI_URL: http://localhost:3002
+      APP_URL: http://localhost:3002
+      GATEWAY_URL: http://localhost:4001
+      PLAYGROUND_URL: http://localhost:3003
+      CODE_URL: http://localhost:3004
+      DOCS_URL: http://localhost:3005
+      AIRSIDE_URL: http://localhost:3007
+      SSO_ENABLED: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Build apps for the local stack
+        # Next.js rewrites embed these URLs at build time. Do not restore
+        # remote build artifacts made with the production URL defaults.
+        run: pnpm build --env-mode=loose --cache=local:rw
+
+      - name: Seed the database
+        run: pnpm run setup
+
+      - name: Run browser tests
+        run: |
+          export ONBOARDING_SPONSOR_SECRET="$(openssl rand -hex 32)"
+          pnpm test:browser
+
+      - name: Upload Playwright results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-results
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Stop services
+        if: always()
+        run: docker compose down -v
