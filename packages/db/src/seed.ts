@@ -11,7 +11,12 @@ import {
 	providers as allProviders,
 } from "@llmgateway/models";
 import { DEV_PLAN_PRICES, getDevPlanCreditsLimit } from "@llmgateway/shared";
-import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import {
+	getApiKeyFingerprint,
+	hashApiKeyForStorage,
+} from "@llmgateway/shared/api-key-hash";
+import { maskToken } from "@llmgateway/shared/mask-token";
+import { encryptProviderKey } from "@llmgateway/shared/provider-key-crypto";
 
 import { and, closeDatabase, db, eq, isNull, tables } from "./index.js";
 import { logs } from "./logs.js";
@@ -602,12 +607,15 @@ function generateProviderKeys(projects: ProjectDef[]) {
 	);
 	for (const orgId of orgIds) {
 		for (const provider of ["openai", "anthropic"]) {
+			const id = `seed-pk-${orgId}-${provider}`;
+			const token = `sk-seed-${provider}-${orgId}`;
 			keys.push({
-				id: `seed-pk-${orgId}-${provider}`,
+				id,
 				organizationId: orgId,
 				provider,
-				token: `sk-seed-${provider}-${orgId}`,
-				tokenMasked: `sk-...${orgId.slice(-4)}`,
+				tokenCiphertext: encryptProviderKey(token, id, orgId),
+				tokenMasked: maskToken(token),
+				tokenHash: getApiKeyFingerprint(token),
 				description: `${provider} production key`,
 				usage: String(randomFloat(0, 200)),
 			});
