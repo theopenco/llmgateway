@@ -12,10 +12,11 @@ import {
 	findSoleMemberOrganizations,
 	tearDownSoleMemberOrganizations,
 } from "@/lib/account-deletion.js";
+import { requestEmailChange } from "@/lib/email-change.js";
 import { notifyUserAccountDeleted } from "@/utils/discord.js";
 import { computeProfileData, profileSchema } from "@/utils/profile.js";
 
-import { and, db, eq, ne, sql, tables } from "@llmgateway/db";
+import { and, db, eq, tables } from "@llmgateway/db";
 import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
 import type { ServerTypes } from "@/vars.js";
@@ -204,6 +205,7 @@ user.openapi(get, async (c) => {
 });
 
 const updateUserSchema = z.object({
+	currentPassword: z.string().min(1).optional(),
 	name: z.string().optional(),
 	// Lowercased to match better-auth, which stores emails lowercase and looks
 	// them up lowercased on sign-in — a mixed-case stored email is unloginable.
@@ -349,7 +351,7 @@ user.openapi(updateUser, async (c) => {
 		});
 	}
 
-	const updateData = c.req.valid("json");
+	const { email, currentPassword, ...updateData } = c.req.valid("json");
 
 	const userRecord = await db.query.user.findFirst({
 		where: {
@@ -366,7 +368,7 @@ user.openapi(updateUser, async (c) => {
 	const authInfo = await getUserAuthInfo(authUser.id);
 
 	// Block email changes for users without password authentication
-	if (updateData.email && !authInfo.hasCredentialAccount) {
+	if (email && !authInfo.hasCredentialAccount) {
 		throw new HTTPException(400, {
 			message:
 				"Email cannot be changed for accounts without password authentication",
@@ -374,33 +376,7 @@ user.openapi(updateUser, async (c) => {
 	}
 
 	const emailChanged =
-		updateData.email !== undefined &&
-		updateData.email !== userRecord.email.toLowerCase();
-
-	// A new address is unproven until the owner clicks the verification link, so
-	// reject it if another account already holds it (clean 400 instead of a DB
-	// constraint 500) and drop `emailVerified` below. Skipping this let an
-	// attacker point their account at an invited/admin address and inherit its
-	// authority, since invite auto-accept and admin checks key on email.
-	// Compared via lower() to also catch legacy mixed-case rows the DB's
-	// case-sensitive unique constraint would treat as distinct.
-	if (emailChanged) {
-		const [existing] = await db
-			.select({ id: tables.user.id })
-			.from(tables.user)
-			.where(
-				and(
-					sql`lower(${tables.user.email}) = ${updateData.email}`,
-					ne(tables.user.id, authUser.id),
-				),
-			)
-			.limit(1);
-		if (existing) {
-			throw new HTTPException(400, {
-				message: "That email address is already in use",
-			});
-		}
-	}
+		email !== undefined && email !== userRecord.email.toLowerCase();
 
 	// Resolve the final state. `username` is only present in updateData when the
 	// client explicitly sends it (including null to clear it); otherwise the
@@ -433,15 +409,13 @@ user.openapi(updateUser, async (c) => {
 		}
 	}
 
+	if (emailChanged) {
+		await requestEmailChange(userRecord, email, currentPassword);
+	}
+
 	const [updatedUser] = await db
 		.update(tables.user)
-		.set({
-			...updateData,
-			// A changed address must be re-proven before it grants any authority.
-			// On self-hosted deployments the next sign-in re-verifies it (see
-			// auth/config.ts); on hosted the verification banner prompts the user.
-			...(emailChanged ? { emailVerified: false } : {}),
-		})
+		.set({ ...updateData, updatedAt: new Date() })
 		.where(eq(tables.user.id, authUser.id))
 		.returning();
 
@@ -454,7 +428,9 @@ user.openapi(updateUser, async (c) => {
 
 	return c.json({
 		user: toPublicUser(updatedUser, authInfo, isAdmin),
-		message: "User updated successfully",
+		message: emailChanged
+			? "Check your new email address to confirm the change. Your current address remains active until then."
+			: "User updated successfully",
 	});
 });
 

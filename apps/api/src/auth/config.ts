@@ -447,7 +447,7 @@ export async function checkRateLimit(
 	}
 }
 
-async function createResendContact(
+export async function createResendContact(
 	email: string,
 	name?: string,
 	attributes?: Record<string, string | number | boolean>,
