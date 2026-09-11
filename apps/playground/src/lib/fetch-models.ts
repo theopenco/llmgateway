@@ -40,6 +40,7 @@ export interface ApiModelProviderMapping {
 	cachedInputAudioPrice: string | null;
 	outputAudioPrice: string | null;
 	requestPrice: string | null;
+	inputAudioHourPrice: string | null;
 	contextSize: number | null;
 	maxOutput: number | null;
 	streaming: boolean;
@@ -54,6 +55,8 @@ export interface ApiModelProviderMapping {
 	jsonOutputSchema: boolean | null;
 	webSearch: boolean | null;
 	realtime: boolean | null;
+	realtimeTranscription: boolean | null;
+	realtimeTranscriptionTurnDetection: boolean | null;
 	supportedVoices: string[] | null;
 	discount: string | null;
 	stability: "stable" | "beta" | "unstable" | "experimental" | null;

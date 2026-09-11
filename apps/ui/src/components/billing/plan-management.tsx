@@ -32,6 +32,8 @@ const ENTERPRISE_FEATURES = [
 
 export function PlanManagement() {
 	const { selectedOrganization } = useDashboardState();
+	const organizationId = selectedOrganization?.id;
+	const isOwner = selectedOrganization?.role === "owner";
 	const { toast } = useToast();
 	const queryClient = useQueryClient();
 	const api = useApi();
@@ -42,7 +44,7 @@ export function PlanManagement() {
 		"get",
 		"/subscriptions/status",
 		{ params: { query: { organizationId } } },
-		{ enabled: organizationId !== "" },
+		{ enabled: Boolean(organizationId) },
 	);
 
 	// Resolved above the early returns so the boundary timer is an unconditional
@@ -296,7 +298,7 @@ export function PlanManagement() {
 							<Button
 								variant="outline"
 								onClick={handleCancelSubscription}
-								disabled={cancelSubscriptionMutation.isPending}
+								disabled={!isOwner || cancelSubscriptionMutation.isPending}
 							>
 								{cancelSubscriptionMutation.isPending
 									? "Canceling..."
@@ -309,7 +311,7 @@ export function PlanManagement() {
 								<Button
 									variant="default"
 									onClick={handleResumeSubscription}
-									disabled={resumeSubscriptionMutation.isPending}
+									disabled={!isOwner || resumeSubscriptionMutation.isPending}
 								>
 									{resumeSubscriptionMutation.isPending
 										? "Resuming..."

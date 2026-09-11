@@ -2,6 +2,8 @@ import { join } from "path";
 
 import { withContentCollections } from "@content-collections/next";
 
+import { prerenderedModelOgMappings } from "./src/lib/model-og-params";
+
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
@@ -427,6 +429,10 @@ const nextConfig: NextConfig = {
 	},
 	async rewrites() {
 		return {
+			beforeFiles: prerenderedModelOgMappings.map(({ name, provider }) => ({
+				source: `/models/${name}/${provider}/opengraph-image`,
+				destination: `/model-og/${name}/${provider}/opengraph-image`,
+			})),
 			afterFiles: [
 				// /llms.txt is served as a static file from public/ (which takes
 				// precedence over rewrites), so it is intentionally not proxied here.

@@ -1,6 +1,6 @@
 "use client";
 
-import { addDays, differenceInCalendarDays, format, parseISO } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { useSearchParams } from "next/navigation";
 import {
 	Bar,
@@ -16,6 +16,8 @@ import { formatUsageDateRange } from "@/components/dashboard/usage-comparison";
 import { getDateRangeFromParams } from "@/components/date-range-picker";
 
 import { useDisplayTimeZone } from "@llmgateway/shared";
+
+import { buildUsageChartData, type ChartPoint } from "./overview-data";
 
 import type {
 	UsageComparisonMode,
@@ -35,22 +37,6 @@ interface OverviewProps {
 	costView?: "total" | "breakdown";
 }
 
-interface ChartPoint {
-	index: number;
-	currentDate?: string;
-	comparisonDate?: string;
-	currentCost?: number;
-	comparisonCost?: number;
-	currentRequests?: number;
-	comparisonRequests?: number;
-	currentInputCost?: number;
-	comparisonInputCost?: number;
-	currentOutputCost?: number;
-	comparisonOutputCost?: number;
-	currentCachedInputCost?: number;
-	comparisonCachedInputCost?: number;
-}
-
 const COLORS = {
 	current: "#3b82f6",
 	comparison: "#94a3b8",
@@ -58,13 +44,6 @@ const COLORS = {
 	output: "#f59e0b",
 	cached: "#10b981",
 } as const;
-
-function dateKeys(range: UsageDateRange): string[] {
-	const days = differenceInCalendarDays(range.to, range.from) + 1;
-	return Array.from({ length: days }, (_, index) =>
-		format(addDays(range.from, index), "yyyy-MM-dd"),
-	);
-}
 
 function formatCost(value: number): string {
 	return `$${value.toLocaleString("en-US", {
@@ -293,46 +272,11 @@ export function Overview({
 		);
 	}
 
-	const currentKeys = dateKeys(currentRange);
-	const comparisonKeys = comparisonRange ? dateKeys(comparisonRange) : [];
-	const currentByDate = new Map(data.map((day) => [day.date, day]));
-	const comparisonByDate = new Map(
-		(comparisonData ?? []).map((day) => [day.date, day]),
-	);
-	const pointCount = Math.max(currentKeys.length, comparisonKeys.length);
-	const chartData: ChartPoint[] = Array.from(
-		{ length: pointCount },
-		(_, index) => {
-			const currentDate = currentKeys[index];
-			const comparisonDate = comparisonKeys[index];
-			const current = currentDate ? currentByDate.get(currentDate) : undefined;
-			const comparison = comparisonDate
-				? comparisonByDate.get(comparisonDate)
-				: undefined;
-			return {
-				index,
-				currentDate,
-				comparisonDate,
-				currentCost: current?.cost ?? 0,
-				comparisonCost: comparisonData ? (comparison?.cost ?? 0) : undefined,
-				currentRequests: current?.requestCount ?? 0,
-				comparisonRequests: comparisonData
-					? (comparison?.requestCount ?? 0)
-					: undefined,
-				currentInputCost: current?.inputCost ?? 0,
-				comparisonInputCost: comparisonData
-					? (comparison?.inputCost ?? 0)
-					: undefined,
-				currentOutputCost: current?.outputCost ?? 0,
-				comparisonOutputCost: comparisonData
-					? (comparison?.outputCost ?? 0)
-					: undefined,
-				currentCachedInputCost: current?.cachedInputCost ?? 0,
-				comparisonCachedInputCost: comparisonData
-					? (comparison?.cachedInputCost ?? 0)
-					: undefined,
-			};
-		},
+	const chartData = buildUsageChartData(
+		currentRange,
+		data,
+		comparisonRange,
+		comparisonData,
 	);
 
 	const comparisonLabel = comparisonRange

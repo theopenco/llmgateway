@@ -179,7 +179,7 @@ export type LogInsertData = Omit<
 	id?: string;
 };
 
-export type SerializedOrganization = Omit<
+type SerializedOrganizationBase = Omit<
 	Organization,
 	| "createdAt"
 	| "updatedAt"
@@ -233,6 +233,46 @@ export type SerializedOrganization = Omit<
 	chatPlanBillingCycleStart: string | null;
 	chatPlanExpiresAt: string | null;
 };
+
+// Omitted from organization responses for non-admin members.
+export const organizationBillingFields = {
+	billingEmail: true,
+	billingCompany: true,
+	billingAddress: true,
+	billingTaxId: true,
+	billingNotes: true,
+	credits: true,
+	autoTopUpEnabled: true,
+	autoTopUpThreshold: true,
+	autoTopUpAmount: true,
+	referralEarnings: true,
+	referralBonusEnabled: true,
+	referralBonusPercent: true,
+	devPlanCycle: true,
+	devPlanCreditsUsed: true,
+	devPlanCreditsLimit: true,
+	devPlanPremiumCreditsUsed: true,
+	devPlanPremiumWeekStart: true,
+	devPlanResetPassesLite: true,
+	devPlanResetPassesPro: true,
+	devPlanResetPassesMax: true,
+	devPlanIncludedResetPassesUsed: true,
+	devPlanBillingCycleStart: true,
+	devPlanPaygEnabled: true,
+	devPlanBillingOverride: true,
+	chatPlanCycle: true,
+	chatPlanCreditsUsed: true,
+	chatPlanCreditsLimit: true,
+	chatPlanBillingCycleStart: true,
+} as const;
+
+export type SerializedOrganization = Omit<
+	SerializedOrganizationBase,
+	keyof typeof organizationBillingFields
+> &
+	Partial<
+		Pick<SerializedOrganizationBase, keyof typeof organizationBillingFields>
+	>;
 
 export type SerializedProject = Omit<Project, "createdAt" | "updatedAt"> & {
 	createdAt: string;

@@ -1,9 +1,13 @@
+import { organizationBillingFields } from "@llmgateway/db";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
+
 import type { Organization, SerializedOrganization } from "@llmgateway/db";
 
 export function serializeOrganization(
 	organization: Organization,
+	role: string | undefined,
 ): SerializedOrganization {
-	return {
+	const serialized: SerializedOrganization = {
 		id: organization.id,
 		createdAt: organization.createdAt.toISOString(),
 		updatedAt: organization.updatedAt.toISOString(),
@@ -68,4 +72,13 @@ export function serializeOrganization(
 		defaultDeveloperPeriodUsageDurationUnit:
 			organization.defaultDeveloperPeriodUsageDurationUnit,
 	};
+
+	if (isOrganizationAdmin(role)) {
+		return serialized;
+	}
+	return Object.fromEntries(
+		Object.entries(serialized).filter(
+			([field]) => !Object.hasOwn(organizationBillingFields, field),
+		),
+	) as SerializedOrganization;
 }

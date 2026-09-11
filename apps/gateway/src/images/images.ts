@@ -46,7 +46,7 @@ const imageGenerationsRequestSchema = z.object({
 		example: "1024x1024",
 	}),
 	quality: z
-		.enum(["standard", "hd", "low", "medium", "high", "auto"])
+		.enum(["standard", "hd", "low", "medium", "high", "xhigh", "max", "auto"])
 		.optional()
 		.openapi({
 			description:
@@ -139,12 +139,11 @@ const generations = createRoute({
 
 /**
  * Normalize OpenAI's legacy DALL-E quality values ("standard", "hd") into the
- * gpt-image-2 vocabulary ("low" | "medium" | "high" | "auto") so downstream
- * provider request preparation only ever sees supported strings.
+ * GPT Image quality values for downstream provider request preparation.
  */
 function normalizeQuality(
 	quality: string | undefined,
-): "low" | "medium" | "high" | "auto" | undefined {
+): "low" | "medium" | "high" | "xhigh" | "max" | "auto" | undefined {
 	if (!quality) {
 		return undefined;
 	}
@@ -156,6 +155,8 @@ function normalizeQuality(
 		case "low":
 		case "medium":
 		case "high":
+		case "xhigh":
+		case "max":
 		case "auto":
 			return quality;
 		default:
@@ -832,10 +833,13 @@ const imageEditsRequestSchema = z.object({
 		description: "Output image format.",
 		example: "png",
 	}),
-	quality: z.enum(["low", "medium", "high", "auto"]).optional().openapi({
-		description: "Output quality for image models.",
-		example: "high",
-	}),
+	quality: z
+		.enum(["low", "medium", "high", "xhigh", "max", "auto"])
+		.optional()
+		.openapi({
+			description: "Output quality for image models.",
+			example: "high",
+		}),
 	size: z.string().optional().openapi({
 		description:
 			"Requested output image size. Supported values depend on the model and provider.",
@@ -853,7 +857,7 @@ type ImageEditsRequest = z.infer<typeof imageEditsRequestSchema>;
 const imageEditsResponseSchema = imageGenerationsResponseSchema.extend({
 	background: z.enum(["transparent", "opaque"]).optional(),
 	output_format: z.enum(["png", "webp", "jpeg"]).optional(),
-	quality: z.enum(["low", "medium", "high"]).optional(),
+	quality: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
 	size: z.string().optional(),
 	usage: z
 		.object({

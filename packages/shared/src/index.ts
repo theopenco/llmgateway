@@ -221,7 +221,12 @@ export {
 	LOUNGE_SOURCE,
 } from "./lounge-source.js";
 
-export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
+export {
+	getActiveProviderPromo,
+	MARKETING_STATS,
+	RUNWARE_PROMO,
+	SCX_PROMO,
+} from "./marketing.js";
 
 export {
 	deriveStabilityMetrics,
@@ -248,6 +253,8 @@ export {
 export {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
 	CUSTOM_PROVIDER_NAME_REGEX,
+	PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
+	providerBaseUrlHasEndpointPath,
 	RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
 	RESERVED_CUSTOM_PROVIDER_NAMES,
 } from "./custom-providers.js";
@@ -384,3 +391,25 @@ export {
 	type McpUsageBreakdownInput,
 	type McpUsageScope,
 } from "./mcp-usage.js";
+
+export {
+	formatMonthLabel,
+	MODEL_SEARCH_MAX_PAGE_SIZE,
+	MODEL_SEARCH_MAX_QUERY_LENGTH,
+	MODEL_SEARCH_PAGE_SIZE,
+	type ModelSearchEntry,
+	type ModelSearchHit,
+	type ModelSearchOptions,
+	type ModelSearchPage,
+	type ModelSearchProvider,
+	monthKeyOf,
+	normalizeSearchText,
+	scoreModelSearchEntry,
+	searchMatchRanges,
+	searchModelEntries,
+	searchModelProviders,
+	searchWords,
+	tokenizeSearchQuery,
+	UNKNOWN_MONTH_KEY,
+	withinOneEdit,
+} from "./model-search.js";

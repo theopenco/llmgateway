@@ -13,6 +13,7 @@ import {
 	mcpUsageBreakdownSchema,
 } from "@llmgateway/shared";
 import { getApiKeyFingerprints } from "@llmgateway/shared/api-key-hash";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { z } from "zod";
 
@@ -92,8 +93,9 @@ mcp.use("*", async (c, next) => {
 			periodStartedAt: period.startedAt?.toISOString() ?? null,
 			expiresAt: key.expiresAt?.toISOString() ?? null,
 		},
-		creditsBalanceUsd:
-			member.role === "developer" ? null : Number(organization.credits),
+		creditsBalanceUsd: isOrganizationAdmin(member.role)
+			? Number(organization.credits)
+			: null,
 	});
 	await next();
 });

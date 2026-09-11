@@ -2,155 +2,120 @@
 id: opencode
 slug: opencode
 title: OpenCode Integration
-seoTitle: "OpenCode Setup: Run 200+ Models in the CLI"
-description: Connect OpenCode to 200+ models via LLM Gateway's built-in provider. No config files — select, authenticate, and code. Kimi K3, GPT-5 and Claude included.
-date: 2026-01-09
+seoTitle: "Connect OpenCode to LLM Gateway"
+description: Use OpenCode's built-in LLM Gateway provider, choose a model, and verify your connection with a coding task.
+date: 2026-09-07
 ---
 
-OpenCode is an open-source AI coding agent for your terminal, IDE, or desktop. LLM Gateway is built in, so setup takes under a minute — no config files or npm adapters required. You get access to 200+ models from 40+ providers, all tracked in one dashboard.
+[OpenCode](https://opencode.ai) is an open-source coding agent for your terminal, desktop, and editor. LLM Gateway is a built-in provider, with usage tracked in your gateway dashboard.
 
-## Two Built-In Providers
+This walkthrough was verified with OpenCode 1.18.27, including a file edit and a successful test run.
 
-OpenCode ships two LLM Gateway entries. They share the same endpoint and the same API key — only the model IDs differ:
+## Video walkthrough
 
-| Provider in OpenCode      | Model IDs                          | Use it for                                                                                                                       |
-| ------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| **LLM Gateway**           | `anthropic/claude-opus-5` (pinned) | Pay-as-you-go keys. One entry per upstream deployment, carrying that deployment's own pricing, context limits, and capabilities. |
-| **DevPass (LLM Gateway)** | `claude-opus-5` (canonical)        | [DevPass](https://devpass.llmgateway.io) plan keys, and pay-as-you-go when you want the gateway to pick the provider for you.    |
+<div className="relative aspect-video">
+  <iframe
+    className="absolute inset-0 h-full w-full rounded-lg border-0"
+    src="https://www.youtube-nocookie.com/embed/OZzcmjzkCNo"
+    title="OpenCode setup and coding demo with LLM Gateway"
+    loading="lazy"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    referrerPolicy="strict-origin-when-cross-origin"
+    allowFullScreen
+  ></iframe>
+</div>
 
-Because pinned entries name the serving provider — "GPT-5.5 (Azure)" versus "GPT-5.5 (OpenAI)" — you can tell duplicate deployments of the same model apart and pick on price or region.
+## Install
 
-> **Using DevPass?** Pick **DevPass (LLM Gateway)**. Provider-pinned routing is not available on coding plans, so canonical model IDs are the ones that work.
-
-## Prerequisites
-
-Before starting, you need to install OpenCode. Visit the [OpenCode download page](https://opencode.ai/download) to install OpenCode for your platform (Windows, macOS, or Linux).
-
-After installation, verify it works by running:
+Use the&nbsp;[OpenCode download page](https://opencode.ai/download) for your platform, or install the CLI:
 
 ```bash
+pnpm add -g opencode-ai
 opencode --version
 ```
 
-## Setup
+## Connect your API key
 
-### Step 1: Launch OpenCode
-
-Start OpenCode from your terminal:
+Start OpenCode in your project:
 
 ```bash
 opencode
 ```
 
-**In VS Code/Cursor:**
+Run `/connect`, search for **LLM Gateway**, and enter a key from your&nbsp;[LLM Gateway dashboard](https://llmgateway.io/dashboard). OpenCode saves credentials for later sessions.
 
-1. Install the OpenCode extension from the marketplace
-2. Open Command Palette (Ctrl+Shift+P or Cmd+Shift+P)
-3. Type "OpenCode" and select "Open opencode"
+Open `/models` to choose a model. Browse the&nbsp;[live catalogue](https://llmgateway.io/models) for current capabilities and pricing.
 
-### Step 2: Open the Provider List
+> **Using DevPass?** Select a canonical model ID without an upstream provider prefix. Provider-pinned routing is not available on coding plans.
 
-Once OpenCode launches, run the `/providers` or `/connect` command to open the provider selection screen:
+## Configure with an environment variable
 
-![OpenCode Connect Command](/images/guides/opencode/connect-command.png)
+For scripts or a project-specific configuration, set your key:
 
-### Step 3: Select LLM Gateway
+```bash
+export LLMGATEWAY_API_KEY="your_api_key"
+```
 
-Both LLM Gateway entries are listed as built-in providers. Select **LLM Gateway** for pay-as-you-go, or **DevPass (LLM Gateway)** if you have a DevPass plan key:
-
-![Select LLM Gateway Provider](/images/guides/opencode/select-provider.png)
-
-You can connect both — they take the same key, and each contributes its models to the picker.
-
-### Step 4: Enter Your API Key
-
-OpenCode will prompt you for your API key. Enter your LLM Gateway API key and press Enter:
-
-![Enter API Key](/images/guides/opencode/enter-api-key.png)
-
-OpenCode will automatically save your credentials securely.
-
-**Where to get your API key:**
-
-[Sign up for LLM Gateway](/signup) and create an API key from your dashboard.
-
-### Step 5: Start Using OpenCode
-
-You're all set! OpenCode is now connected to LLM Gateway. You can start asking questions and building with AI:
-
-![OpenCode Ready](/images/guides/opencode/ready-to-use.png)
-
-Try asking OpenCode about your project or request help with coding tasks:
-
-![OpenCode in Action](/images/guides/opencode/opencode-usage.png)
-
-## Why Use LLM Gateway with OpenCode?
-
-- **200+ models** — GPT-5, Claude, Gemini, Llama, and more from 40+ providers
-- **One API key** — Stop juggling credentials for every provider
-- **Pin a provider** — Choose the exact upstream deployment, with its own pricing and limits, or let the gateway route for you
-- **Cost tracking** — See what each coding session costs in your dashboard
-- **Response caching** — Repeated requests hit cache automatically
-- **Volume discounts** — The more you use, the more you save
-
-## Adding Custom Models
-
-The built-in providers cover the standard LLM Gateway catalog. If you want to add custom model aliases or a model not yet listed, you can create a `config.json` in your OpenCode configuration directory:
-
-**macOS/Linux:** `~/.config/opencode/config.json`
-
-**Windows:** `C:\Users\YourUsername\.config\opencode\config.json`
+Add an `opencode.json` in the project root:
 
 ```json
 {
   "provider": {
-    "llmgateway-providers": {
-      "models": {
-        "deepseek/deepseek-v3.2": {
-          "name": "DeepSeek V3.2 (DeepSeek)"
-        }
+    "llmgateway": {
+      "options": {
+        "apiKey": "{env:LLMGATEWAY_API_KEY}"
       }
     }
-  }
+  },
+  "model": "llmgateway/deepseek-v4-flash"
 }
 ```
 
-Both entries are built-in providers, so you only specify what you're adding — OpenCode merges your config with the built-in definition, and `npm`, `name`, and `baseURL` don't need to be repeated. Use `llmgateway-providers` for pinned `provider/model` IDs and `llmgateway` for canonical ones.
+`llmgateway` is OpenCode's provider ID. The rest of the `model` string is the gateway model ID. The example uses the model tested in this walkthrough; replace it with one from the live catalogue.
 
-After updating `config.json`, restart OpenCode to see the new models.
+The provider already defines the gateway endpoint, so this configuration only supplies the key and model. For a custom endpoint override, use `provider.llmgateway.options.baseURL` with `https://api.llmgateway.io/v1`.
 
-## Switching Models
+## Verify a coding task
 
-Select a different model directly in the OpenCode interface, or update the `model` field in your configuration:
+Ask OpenCode to fix a specific file and run its tests:
 
-```json
-{
-  "model": "llmgateway-providers/anthropic/claude-opus-5"
-}
+```text
+Fix slugify.ts so all tests pass. Read the files, make the smallest fix,
+run node --test slugify.test.ts, and summarize. Do not edit the tests.
 ```
 
-Canonical routing uses the other provider instead — `llmgateway/claude-opus-5`, which lets the gateway choose the upstream provider.
+Review the diff, approve commands as needed, and check the test output. Then confirm the request's model, tokens, and cost in your&nbsp;[dashboard](https://llmgateway.io/dashboard).
+
+You can also run a one-shot task:
+
+```bash
+opencode run --model llmgateway/deepseek-v4-flash "Explain this project"
+```
+
+## Switching models
+
+Use `/models` in the terminal, or list the provider's available IDs:
+
+```bash
+opencode models llmgateway
+```
+
+Copy an exact ID from that output into the `model` field or the `--model` option. Canonical IDs let the gateway choose the upstream provider; provider-prefixed IDs select a specific deployment when your account supports pinned routing.
+
+![OpenCode completing the coding task through LLM Gateway](/images/guides/opencode/verified-session.png)
 
 ## Troubleshooting
 
-### Connection timeout
+### Provider not found
 
-Check that you have an active internet connection and that your API key is valid from the [dashboard](/dashboard).
+Check `opencode --version` and run `opencode models llmgateway`. The verified version uses `llmgateway`; older instructions referring to `llmgateway-providers` may not match your installed release.
 
-### Custom models not showing up
+### Authentication error
 
-After editing `config.json`, restart OpenCode completely for changes to take effect.
+Check that the key is active and available in the shell that launches OpenCode. The environment reference uses OpenCode's `{env:VARIABLE_NAME}` syntax.
 
-### 404 Not Found errors with custom config
+### Model missing
 
-If you are using a custom `config.json`, verify your `baseURL` is set to `https://api.llmgateway.io/v1` (note the `/v1` at the end).
+Refresh the model picker or restart OpenCode. Copy the exact ID from `opencode models llmgateway` and compare it with the&nbsp;[gateway catalogue](https://llmgateway.io/models).
 
-## Configuration Tips
-
-- **Global configuration**: Use `~/.config/opencode/config.json` to apply settings across all projects
-- **Project-specific**: Place `opencode.json` in your project root to override global settings for that project
-- **Model selection**: You can specify different models for different types of tasks using OpenCode's agent configuration
-
-## Get Started
-
-Ready to enhance your OpenCode experience? [Sign up for LLM Gateway](/signup) and get your API key today.
+See&nbsp;[OpenCode's provider documentation](https://opencode.ai/docs/providers/#llm-gateway) for additional configuration options.

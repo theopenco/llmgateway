@@ -46,6 +46,7 @@ import {
 	SidebarTrigger,
 	useSidebar,
 } from "@/components/ui/sidebar";
+import { WhiteLabelSeatWarning } from "@/components/white-label-seat-warning";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 
@@ -339,6 +340,9 @@ export function AdminShell({ children, signedIn }: AdminShellProps) {
 			</Sidebar>
 			<SidebarInset>
 				<MobileHeader />
+				{user?.isAdmin && license?.kind === "white_label" && (
+					<WhiteLabelSeatWarning />
+				)}
 				{whiteLabelExpiryTerm && (
 					<Alert
 						className={

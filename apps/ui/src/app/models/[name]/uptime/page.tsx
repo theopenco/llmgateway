@@ -47,14 +47,16 @@ export default async function ModelUptimePage({ params }: PageProps) {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
 
+	// fetchProviders resolves to a fallback, including after an early 404.
+	const providersPromise = fetchProviders();
 	const modelDef = await findPublicModelDefinition(decodedName);
 
 	if (!modelDef) {
 		notFound();
 	}
 
+	const apiProviders = await providersPromise;
 	const expandedProviders = expandAllProviderRegions(modelDef.providers);
-	const apiProviders = await fetchProviders();
 	const providerNames = Array.from(
 		new Set(
 			expandedProviders.map((p) => {

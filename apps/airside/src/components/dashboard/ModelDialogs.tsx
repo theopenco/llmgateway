@@ -5,7 +5,9 @@ import {
 	CheckCircle2,
 	Clock3,
 	Loader2,
+	Plus,
 	ShieldCheck,
+	X,
 	XCircle,
 } from "lucide-react";
 import { useState } from "react";
@@ -37,6 +39,55 @@ import { perMillionToPerToken, perTokenToPerMillion } from "@/lib/format";
 
 import type { AirsideModel } from "@/app/dashboard/fleet/page";
 import type { ReactNode } from "react";
+
+function QuantizationField({
+	id,
+	value,
+	onChange,
+}: {
+	id: string;
+	value: AirsideModel["quantization"];
+	onChange: (value: AirsideModel["quantization"]) => void;
+}) {
+	return (
+		<div className="space-y-2">
+			<Label htmlFor={id}>Quantization</Label>
+			<Select
+				value={value ?? "unknown"}
+				onValueChange={(value) =>
+					onChange(
+						value === "unknown"
+							? null
+							: (value as AirsideModel["quantization"]),
+					)
+				}
+			>
+				<SelectTrigger id={id}>
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value="unknown">Unknown</SelectItem>
+					{(
+						[
+							"int4",
+							"int8",
+							"fp4",
+							"fp6",
+							"fp8",
+							"fp16",
+							"bf16",
+							"fp32",
+						] as const
+					).map((quantization) => (
+						<SelectItem key={quantization} value={quantization}>
+							{quantization.toUpperCase()}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</div>
+	);
+}
 
 function useInvalidateModels(providerCompanyId: string) {
 	const api = useApi();
@@ -117,6 +168,189 @@ function VerificationResults({ verification }: { verification: Verification }) {
 			{verification.summary ? (
 				<p className="text-muted-foreground text-xs">{verification.summary}</p>
 			) : null}
+		</div>
+	);
+}
+
+interface RegionFareRow {
+	region: string;
+	inputPrice: string;
+	outputPrice: string;
+	cachedInputPrice: string;
+	requestPrice: string;
+}
+
+const EMPTY_REGION_FARE: RegionFareRow = {
+	region: "",
+	inputPrice: "",
+	outputPrice: "",
+	cachedInputPrice: "",
+	requestPrice: "",
+};
+
+type RegionPriceEntry = NonNullable<
+	NonNullable<AirsideModel["currentPricing"]>["regionPrices"]
+>[number];
+
+function regionFaresFromPricing(
+	regionPrices: RegionPriceEntry[] | null | undefined,
+): RegionFareRow[] {
+	return (regionPrices ?? []).map((entry) => ({
+		region: entry.region,
+		inputPrice: perTokenToPerMillion(entry.inputPrice),
+		outputPrice: perTokenToPerMillion(entry.outputPrice),
+		cachedInputPrice: perTokenToPerMillion(entry.cachedInputPrice),
+		requestPrice: entry.requestPrice ?? "",
+	}));
+}
+
+function regionFaresToBody(rows: RegionFareRow[]) {
+	if (rows.length === 0) {
+		return undefined;
+	}
+	return rows.map((row) => ({
+		region: row.region.trim(),
+		inputPrice: perMillionToPerToken(row.inputPrice),
+		outputPrice: perMillionToPerToken(row.outputPrice),
+		cachedInputPrice: row.cachedInputPrice
+			? perMillionToPerToken(row.cachedInputPrice)
+			: undefined,
+		requestPrice: row.requestPrice.trim() || undefined,
+	}));
+}
+
+/**
+ * Optional per-region fares filed alongside the default ones. Riders pin a
+ * region with `provider/model:region`; every other request pays the default
+ * fares.
+ */
+function RegionFaresEditor({
+	idPrefix,
+	rows,
+	onChange,
+}: {
+	idPrefix: string;
+	rows: RegionFareRow[];
+	onChange: (rows: RegionFareRow[]) => void;
+}) {
+	const setRow = (index: number, patch: Partial<RegionFareRow>) => {
+		onChange(
+			rows.map((row, rowIndex) =>
+				rowIndex === index ? { ...row, ...patch } : row,
+			),
+		);
+	};
+	return (
+		<div className="space-y-3">
+			<div>
+				<Label>Regional fares (optional)</Label>
+				<p className="text-muted-foreground mt-1 text-xs">
+					Riders pin a region with{" "}
+					<span className="font-mono">model:region</span>; everything else pays
+					the default fares above.
+				</p>
+			</div>
+			{rows.map((row, index) => (
+				<div
+					key={index}
+					className="border-border space-y-3 rounded-md border p-3"
+					data-testid={`${idPrefix}-region-fare-${index}`}
+				>
+					<div className="flex items-end gap-2">
+						<div className="flex-1 space-y-2">
+							<Label htmlFor={`${idPrefix}-region-${index}`}>Region</Label>
+							<Input
+								id={`${idPrefix}-region-${index}`}
+								data-testid={`${idPrefix}-region-${index}`}
+								className="font-mono"
+								value={row.region}
+								onChange={(e) =>
+									setRow(index, {
+										region: e.target.value.toLowerCase(),
+									})
+								}
+								placeholder="au"
+								required
+							/>
+						</div>
+						<Button
+							type="button"
+							size="icon"
+							variant="ghost"
+							aria-label="Remove region"
+							data-testid={`${idPrefix}-remove-region-${index}`}
+							onClick={() =>
+								onChange(rows.filter((_, rowIndex) => rowIndex !== index))
+							}
+						>
+							<X className="size-4" />
+						</Button>
+					</div>
+					<div className="grid gap-3 sm:grid-cols-2">
+						<div className="space-y-2">
+							<Label htmlFor={`${idPrefix}-region-input-${index}`}>
+								Input $/1M tokens
+							</Label>
+							<Input
+								id={`${idPrefix}-region-input-${index}`}
+								data-testid={`${idPrefix}-region-input-${index}`}
+								value={row.inputPrice}
+								onChange={(e) => setRow(index, { inputPrice: e.target.value })}
+								placeholder="2"
+								required
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor={`${idPrefix}-region-output-${index}`}>
+								Output $/1M tokens
+							</Label>
+							<Input
+								id={`${idPrefix}-region-output-${index}`}
+								data-testid={`${idPrefix}-region-output-${index}`}
+								value={row.outputPrice}
+								onChange={(e) => setRow(index, { outputPrice: e.target.value })}
+								placeholder="6"
+								required
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor={`${idPrefix}-region-cached-${index}`}>
+								Cached input $/1M tokens
+							</Label>
+							<Input
+								id={`${idPrefix}-region-cached-${index}`}
+								value={row.cachedInputPrice}
+								onChange={(e) =>
+									setRow(index, { cachedInputPrice: e.target.value })
+								}
+								placeholder="same as default"
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor={`${idPrefix}-region-request-${index}`}>
+								Per-request $
+							</Label>
+							<Input
+								id={`${idPrefix}-region-request-${index}`}
+								value={row.requestPrice}
+								onChange={(e) =>
+									setRow(index, { requestPrice: e.target.value })
+								}
+								placeholder="same as default"
+							/>
+						</div>
+					</div>
+				</div>
+			))}
+			<Button
+				type="button"
+				size="sm"
+				variant="outline"
+				data-testid={`${idPrefix}-add-region-fare`}
+				onClick={() => onChange([...rows, EMPTY_REGION_FARE])}
+			>
+				<Plus className="size-4" /> Add region
+			</Button>
 		</div>
 	);
 }
@@ -211,11 +445,14 @@ export function RegisterModelDialog({
 	const [contextSize, setContextSize] = useState("128000");
 	const [description, setDescription] = useState("");
 	const [family, setFamily] = useState("");
+	const [quantization, setQuantization] =
+		useState<AirsideModel["quantization"]>(null);
 	const [maxOutput, setMaxOutput] = useState("");
 	const [inputPrice, setInputPrice] = useState("");
 	const [outputPrice, setOutputPrice] = useState("");
 	const [cachedInputPrice, setCachedInputPrice] = useState("");
 	const [requestPrice, setRequestPrice] = useState("");
+	const [regionFares, setRegionFares] = useState<RegionFareRow[]>([]);
 	const [note, setNote] = useState("");
 	const [apiKey, setApiKey] = useState("");
 	const [verificationId, setVerificationId] = useState("");
@@ -295,6 +532,7 @@ export function RegisterModelDialog({
 			setDisplayName("");
 			setInputPrice("");
 			setOutputPrice("");
+			setRegionFares([]);
 			setNote("");
 			setApiKey("");
 			setVerificationId("");
@@ -361,6 +599,7 @@ export function RegisterModelDialog({
 								displayName: displayName || undefined,
 								description: description || undefined,
 								family,
+								quantization,
 								contextSize: Number(contextSize) || undefined,
 								maxOutput: Number(maxOutput) || undefined,
 								...capabilities,
@@ -378,6 +617,7 @@ export function RegisterModelDialog({
 										? perMillionToPerToken(cachedInputPrice)
 										: undefined,
 									requestPrice: requestPrice || undefined,
+									regionPrices: regionFaresToBody(regionFares),
 								},
 								note: note || undefined,
 							},
@@ -498,6 +738,11 @@ export function RegisterModelDialog({
 								placeholder="optional"
 							/>
 						</div>
+						<QuantizationField
+							id="model-quantization"
+							value={quantization}
+							onChange={setQuantization}
+						/>
 						<div className="space-y-2 sm:col-span-2">
 							<Label htmlFor="model-family">Family</Label>
 							<Input
@@ -662,6 +907,11 @@ export function RegisterModelDialog({
 								/>
 							</div>
 						</div>
+						<RegionFaresEditor
+							idPrefix="register"
+							rows={regionFares}
+							onChange={setRegionFares}
+						/>
 						<div className="space-y-2">
 							<Label htmlFor="model-note">Note to the regulator</Label>
 							<Textarea
@@ -853,73 +1103,86 @@ export function EditModelDialog({
 	const api = useApi();
 	const invalidate = useInvalidateModels(model.providerCompanyId);
 	const [open, setOpen] = useState(false);
-	const [displayName, setDisplayName] = useState(model.displayName ?? "");
-	const [description, setDescription] = useState(model.description ?? "");
+	// A pending change is what the listing becomes once approved, so the form
+	// starts from it; saving replaces that filing.
+	const hasPendingChange = model.pendingFiling?.kind === "metadata";
+	const proposed = {
+		...model,
+		...(hasPendingChange ? (model.pendingFiling?.metadata ?? {}) : {}),
+	};
+	const [displayName, setDisplayName] = useState(proposed.displayName ?? "");
+	const [description, setDescription] = useState(proposed.description ?? "");
 	const [contextSize, setContextSize] = useState(
-		model.contextSize ? String(model.contextSize) : "",
+		proposed.contextSize ? String(proposed.contextSize) : "",
 	);
-	const [family, setFamily] = useState(model.family ?? "");
+	const [family, setFamily] = useState(proposed.family ?? "");
+	const [quantization, setQuantization] = useState(proposed.quantization);
 	const [maxOutput, setMaxOutput] = useState(
-		model.maxOutput ? String(model.maxOutput) : "",
+		proposed.maxOutput ? String(proposed.maxOutput) : "",
 	);
 	const [capabilities, setCapabilities] = useState<
 		Record<CapabilityKey, boolean>
 	>({
-		streaming: model.streaming,
-		tools: model.tools,
-		vision: model.vision,
-		audio: model.audio,
-		jsonOutput: model.jsonOutput,
-		jsonOutputSchema: model.jsonOutputSchema,
-		reasoning: model.reasoning,
-		reasoningMaxTokens: model.reasoningMaxTokens,
-		webSearch: model.webSearch,
+		streaming: proposed.streaming,
+		tools: proposed.tools,
+		vision: proposed.vision,
+		audio: proposed.audio,
+		jsonOutput: proposed.jsonOutput,
+		jsonOutputSchema: proposed.jsonOutputSchema,
+		reasoning: proposed.reasoning,
+		reasoningMaxTokens: proposed.reasoningMaxTokens,
+		webSearch: proposed.webSearch,
 	});
 	const [reasoningEfforts, setReasoningEfforts] = useState<
 		ReasoningEffortOption[]
-	>((model.reasoningEfforts ?? []) as ReasoningEffortOption[]);
+	>((proposed.reasoningEfforts ?? []) as ReasoningEffortOption[]);
 	const [maxRpm, setMaxRpm] = useState(
-		model.maxRpm ? String(model.maxRpm) : "",
+		proposed.maxRpm ? String(proposed.maxRpm) : "",
 	);
 	const [maxRpd, setMaxRpd] = useState(
-		model.maxRpd ? String(model.maxRpd) : "",
+		proposed.maxRpd ? String(proposed.maxRpd) : "",
 	);
 	const [rateLimitScope, setRateLimitScope] = useState<RateLimitScope>(
-		model.rateLimitScope,
+		proposed.rateLimitScope,
 	);
 
 	function resetFromModel() {
-		setDisplayName(model.displayName ?? "");
-		setDescription(model.description ?? "");
-		setContextSize(model.contextSize ? String(model.contextSize) : "");
-		setFamily(model.family ?? "");
-		setMaxOutput(model.maxOutput ? String(model.maxOutput) : "");
+		setDisplayName(proposed.displayName ?? "");
+		setDescription(proposed.description ?? "");
+		setContextSize(proposed.contextSize ? String(proposed.contextSize) : "");
+		setFamily(proposed.family ?? "");
+		setQuantization(proposed.quantization);
+		setMaxOutput(proposed.maxOutput ? String(proposed.maxOutput) : "");
 		setCapabilities({
-			streaming: model.streaming,
-			tools: model.tools,
-			vision: model.vision,
-			audio: model.audio,
-			jsonOutput: model.jsonOutput,
-			jsonOutputSchema: model.jsonOutputSchema,
-			reasoning: model.reasoning,
-			reasoningMaxTokens: model.reasoningMaxTokens,
-			webSearch: model.webSearch,
+			streaming: proposed.streaming,
+			tools: proposed.tools,
+			vision: proposed.vision,
+			audio: proposed.audio,
+			jsonOutput: proposed.jsonOutput,
+			jsonOutputSchema: proposed.jsonOutputSchema,
+			reasoning: proposed.reasoning,
+			reasoningMaxTokens: proposed.reasoningMaxTokens,
+			webSearch: proposed.webSearch,
 		});
 		setReasoningEfforts(
-			(model.reasoningEfforts ?? []) as ReasoningEffortOption[],
+			(proposed.reasoningEfforts ?? []) as ReasoningEffortOption[],
 		);
-		setMaxRpm(model.maxRpm ? String(model.maxRpm) : "");
-		setMaxRpd(model.maxRpd ? String(model.maxRpd) : "");
-		setRateLimitScope(model.rateLimitScope);
+		setMaxRpm(proposed.maxRpm ? String(proposed.maxRpm) : "");
+		setMaxRpd(proposed.maxRpd ? String(proposed.maxRpd) : "");
+		setRateLimitScope(proposed.rateLimitScope);
 	}
 
 	const updateModel = api.useMutation("patch", "/airside/models/{id}", {
-		onSuccess: async () => {
+		onSuccess: async (data) => {
 			await invalidate();
 			toast.success(
-				model.status === "active"
-					? "Change filed for review."
-					: "Model updated.",
+				model.status !== "active"
+					? "Model updated."
+					: !hasPendingChange
+						? "Change filed for review."
+						: data.model.pendingFiling
+							? "Pending change replaced."
+							: "Pending change withdrawn.",
 			);
 			setOpen(false);
 		},
@@ -943,15 +1206,17 @@ export function EditModelDialog({
 			}}
 		>
 			<DialogTrigger asChild>{children}</DialogTrigger>
-			<DialogContent className="sm:max-w-lg">
+			<DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
 				<DialogHeader>
 					<DialogTitle className="font-display">
 						Edit {model.modelName}
 					</DialogTitle>
 					<DialogDescription>
-						{model.status === "active"
-							? "Changes to a live listing are filed for review and apply once we approve them. Pricing goes through a separate fare filing."
-							: "Everything here applies to the draft immediately; the initial fare filing covers it. Pricing only changes through a fare filing."}
+						{model.status !== "active"
+							? "Everything here applies to the draft immediately; the initial fare filing covers it. Pricing only changes through a fare filing."
+							: hasPendingChange
+								? "A change is already awaiting review, so the form shows those values. Saving replaces that filing; saving the live values back withdraws it. Pricing goes through a separate fare filing."
+								: "Changes to a live listing are filed for review and apply once we approve them. Pricing goes through a separate fare filing."}
 					</DialogDescription>
 				</DialogHeader>
 				<form
@@ -964,6 +1229,7 @@ export function EditModelDialog({
 								displayName: displayName || null,
 								description: description || null,
 								family,
+								quantization,
 								contextSize: contextSize ? Number(contextSize) : null,
 								maxOutput: maxOutput ? Number(maxOutput) : null,
 								...capabilities,
@@ -1021,6 +1287,11 @@ export function EditModelDialog({
 								min={1}
 							/>
 						</div>
+						<QuantizationField
+							id="edit-quantization"
+							value={quantization}
+							onChange={setQuantization}
+						/>
 						<div className="space-y-2">
 							<Label htmlFor="edit-family">Family</Label>
 							<Input
@@ -1164,6 +1435,9 @@ export function FileFareDialog({
 	const [requestPrice, setRequestPrice] = useState(
 		model.currentPricing?.requestPrice ?? "",
 	);
+	const [regionFares, setRegionFares] = useState<RegionFareRow[]>(
+		regionFaresFromPricing(model.currentPricing?.regionPrices),
+	);
 	const [note, setNote] = useState("");
 
 	function resetFromModel() {
@@ -1173,6 +1447,7 @@ export function FileFareDialog({
 			perTokenToPerMillion(model.currentPricing?.cachedInputPrice),
 		);
 		setRequestPrice(model.currentPricing?.requestPrice ?? "");
+		setRegionFares(regionFaresFromPricing(model.currentPricing?.regionPrices));
 		setNote("");
 	}
 
@@ -1205,7 +1480,7 @@ export function FileFareDialog({
 			}}
 		>
 			<DialogTrigger asChild>{children}</DialogTrigger>
-			<DialogContent className="sm:max-w-md">
+			<DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
 				<DialogHeader>
 					<DialogTitle className="font-display">
 						File a fare for {model.modelName}
@@ -1228,6 +1503,7 @@ export function FileFareDialog({
 									? perMillionToPerToken(cachedInputPrice)
 									: undefined,
 								requestPrice: requestPrice || undefined,
+								regionPrices: regionFaresToBody(regionFares),
 								note: note || undefined,
 							},
 						});
@@ -1277,6 +1553,11 @@ export function FileFareDialog({
 							/>
 						</div>
 					</div>
+					<RegionFaresEditor
+						idPrefix="fare"
+						rows={regionFares}
+						onChange={setRegionFares}
+					/>
 					<div className="space-y-2">
 						<Label htmlFor="fare-note">Note</Label>
 						<Textarea

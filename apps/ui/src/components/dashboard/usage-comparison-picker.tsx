@@ -1,6 +1,5 @@
 "use client";
 
-import { addDays, differenceInCalendarDays, subDays } from "date-fns";
 import { Check, ChevronDown, ChevronLeft, GitCompare } from "lucide-react";
 import { useState } from "react";
 
@@ -16,6 +15,7 @@ import { cn } from "@/lib/utils";
 
 import {
 	formatUsageDateRange,
+	namedUsageComparisonRange,
 	resolveUsageComparisonRange,
 	type UsageComparisonMode,
 	type UsageDateRange,
@@ -44,12 +44,12 @@ const OPTIONS: {
 	{
 		value: "previous-week",
 		label: "Week over week",
-		description: "The selected dates shifted back 7 days",
+		description: "A full week starting on the date you choose",
 	},
 	{
 		value: "previous-month",
 		label: "Month over month",
-		description: "The selected dates shifted back one month",
+		description: "A full month starting on the date you choose",
 	},
 ];
 
@@ -95,15 +95,8 @@ function ComparisonStartPicker({
 	onBack: () => void;
 	onSelect: (range: UsageDateRange) => void;
 }) {
-	const rangeDays = differenceInCalendarDays(
-		currentRange.to,
-		currentRange.from,
-	);
-	const selectedRange = {
-		from: start,
-		to: addDays(start, rangeDays),
-	};
-	const latestStart = subDays(currentRange.from, rangeDays + 1);
+	const selectedRange = namedUsageComparisonRange(mode, start);
+	const overlapsCurrent = selectedRange.to >= currentRange.from;
 
 	return (
 		<div className="space-y-3">
@@ -123,7 +116,8 @@ function ComparisonStartPicker({
 						{mode === "previous-week" ? "Week" : "Month"} comparison
 					</p>
 					<p className="text-xs text-muted-foreground">
-						Choose a start date for the {rangeDays + 1}-day comparison
+						Choose a start date for the{" "}
+						{mode === "previous-week" ? "7-day" : "one-month"} comparison
 					</p>
 				</div>
 			</div>
@@ -144,13 +138,20 @@ function ComparisonStartPicker({
 					}
 				}}
 				defaultMonth={start}
-				disabled={{ after: latestStart }}
+				disabled={(day) =>
+					namedUsageComparisonRange(mode, day).to >= currentRange.from
+				}
 				showOutsideDays={false}
 				className="relative p-0"
 			/>
 			<div className="flex items-center justify-between border-t px-3 pt-3 sm:px-0">
 				<p className="text-xs text-muted-foreground">Ends automatically</p>
-				<Button type="button" size="sm" onClick={() => onSelect(selectedRange)}>
+				<Button
+					type="button"
+					size="sm"
+					disabled={overlapsCurrent}
+					onClick={() => onSelect(selectedRange)}
+				>
 					Compare
 				</Button>
 			</div>

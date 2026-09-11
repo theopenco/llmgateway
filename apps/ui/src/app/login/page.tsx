@@ -3,7 +3,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { WebAuthnAbortService } from "@simplewebauthn/browser";
 import { useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
 import {
 	Loader2,
 	KeySquare,
@@ -239,12 +238,7 @@ export default function Login() {
 	}
 
 	return (
-		<motion.div
-			initial={{ opacity: 0, y: 12 }}
-			animate={{ opacity: 1, y: 0 }}
-			transition={{ duration: 0.4, ease: "easeOut" }}
-			className="mx-auto w-full max-w-[400px]"
-		>
+		<div className="mx-auto w-full max-w-[400px]">
 			{/* Mobile brand header */}
 			<div className="mb-6 lg:hidden">
 				<p className="text-sm font-medium uppercase tracking-widest text-primary">
@@ -403,6 +397,6 @@ export default function Login() {
 					Don&apos;t have an account? Sign up
 				</Link>
 			</p>
-		</motion.div>
+		</div>
 	);
 }

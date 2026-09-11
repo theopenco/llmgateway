@@ -28,6 +28,7 @@ function AutoTopUpSettings() {
 
 	const { selectedOrganization } = useDashboardState();
 	const organizationId = selectedOrganization?.id;
+	const isOwner = selectedOrganization?.role === "owner";
 	const { data: paymentMethods } = api.useQuery(
 		"get",
 		"/payments/payment-methods",
@@ -150,6 +151,11 @@ function AutoTopUpSettings() {
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-4">
+				{!isOwner && (
+					<p className="text-sm text-muted-foreground">
+						Only organization owners can change auto top-up settings.
+					</p>
+				)}
 				<div className="flex items-center justify-between">
 					<div className="space-y-0.5">
 						<Label htmlFor="auto-topup-enabled">Enable</Label>
@@ -162,7 +168,7 @@ function AutoTopUpSettings() {
 						id="auto-topup-enabled"
 						checked={enabled}
 						onCheckedChange={(checked) => setEnabled(!!checked)}
-						disabled={!hasDefaultPaymentMethod}
+						disabled={!isOwner || !hasDefaultPaymentMethod}
 					/>
 				</div>
 
@@ -191,7 +197,7 @@ function AutoTopUpSettings() {
 							min={5}
 							value={threshold}
 							onChange={(e) => setThreshold(Number(e.target.value))}
-							disabled={!enabled}
+							disabled={!isOwner || !enabled}
 						/>
 						<p className="text-xs text-muted-foreground">
 							Minimum $5. Top-up when credits fall below this amount.
@@ -207,7 +213,7 @@ function AutoTopUpSettings() {
 							step={1}
 							value={amount}
 							onChange={(e) => setAmount(Number(e.target.value))}
-							disabled={!enabled}
+							disabled={!isOwner || !enabled}
 						/>
 						<p className="text-xs text-muted-foreground">
 							Minimum $10. Maximum $
@@ -266,6 +272,7 @@ function AutoTopUpSettings() {
 					<Button
 						onClick={handleSave}
 						disabled={
+							!isOwner ||
 							Boolean(updateOrganization.isPending) ||
 							threshold < 5 ||
 							amount < 10 ||

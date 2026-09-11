@@ -213,7 +213,8 @@ function FareEditor({
 	);
 
 	const pending = setting.pendingFiling;
-	const adjustment = baselineMargin - margin - discount;
+	const adjustedPrice = (1 - discount) * (1 + baselineMargin - margin);
+	const adjustment = adjustedPrice - 1;
 	const dirty =
 		discount !== setting.discountPercent || margin !== setting.marginPercent;
 
@@ -277,8 +278,8 @@ function FareEditor({
 					onValueChange={([value]) => setDiscount(value / 100)}
 				/>
 				<p className="text-muted-foreground mt-1.5 text-xs">
-					A fare sale: dispatch prices you this much cheaper when electing a
-					carrier. It never changes what you're paid per token.
+					Once approved, this lowers customer prices and appears on model cards.
+					Explicit customer or platform discounts take precedence.
 				</p>
 			</div>
 

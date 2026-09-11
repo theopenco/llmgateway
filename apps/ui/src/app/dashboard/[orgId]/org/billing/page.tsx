@@ -2,6 +2,7 @@ import { AutoTopUpSettings } from "@/components/billing/auto-topup-settings";
 import { PlanManagement } from "@/components/billing/plan-management";
 import { PaymentMethodsManagement } from "@/components/credits/payment-methods-management";
 import { TopUpCreditsButton } from "@/components/credits/top-up-credits-dialog";
+import { UnauthorizedView } from "@/components/dashboard/unauthorized-view";
 import { OrganizationBillingEmailSettings } from "@/components/settings/organization-billing-email-settings";
 import {
 	Card,
@@ -10,6 +11,9 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+import { getOrganizations } from "@/lib/server-api";
+
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import { CreditsBalance } from "./credits-balance";
 import { PaymentStatusHandler } from "./payment-status-handler";
@@ -24,8 +28,22 @@ interface BillingPageProps {
 	}>;
 }
 
-export default async function BillingPage({ searchParams }: BillingPageProps) {
-	const { success, canceled } = await searchParams;
+export default async function BillingPage({
+	params,
+	searchParams,
+}: BillingPageProps) {
+	const [{ orgId }, { success, canceled }, data] = await Promise.all([
+		params,
+		searchParams,
+		getOrganizations(),
+	]);
+	if (
+		!isOrganizationAdmin(
+			data?.organizations.find((org) => org.id === orgId)?.role,
+		)
+	) {
+		return <UnauthorizedView resource="organization" />;
+	}
 
 	const paymentStatus = success ? "success" : canceled ? "canceled" : undefined;
 

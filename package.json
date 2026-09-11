@@ -29,6 +29,7 @@
 		"setup": "pnpm build:core && docker compose down -v && docker compose up -d && pnpm wait-for-services && pnpm push-test && pnpm push-dev && pnpm seed",
 		"sync": "pnpm push-dev; pnpm push-test",
 		"stripe:listen": "stripe listen --api-key \"$(grep -E '^STRIPE_SECRET_KEY=' .env | head -1 | cut -d= -f2-)\" --forward-to localhost:4002/stripe/webhook",
+		"test:browser": "playwright test",
 		"test:e2e": "pnpm build:core && E2E_TEST=true vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism",
 		"test:unit": "pnpm build:core && vitest run --no-file-parallelism",
 		"wait-for-services": "./scripts/wait-for-services.sh"
@@ -39,6 +40,7 @@
 	"prettier": "@steebchen/prettier-config",
 	"devDependencies": {
 		"@abinnovision/eslint-config-react": "3.1.1",
+		"@playwright/test": "1.61.1",
 		"@semantic-release/exec": "^7.1.0",
 		"@semantic-release/npm": "^13.1.5",
 		"@steebchen/commitlint-config": "^1.7.0",
@@ -111,7 +113,7 @@
 			"body-parser@>=2 <2.3.0": "^2.3.0",
 			"brace-expansion@<5.0.9": "5.0.9",
 			"mermaid@>=11 <11.16.1": "^11.16.1",
-			"js-yaml@<4.3.1": "^4.3.1",
+			"js-yaml@<4.3.2": "^4.3.2",
 			"mdast-util-to-hast@>=13 <13.2.1": "^13.2.1",
 			"ajv@>=6 <6.14.0": "^6.14.0",
 			"@tootallnate/once@<2.0.1": "^2.0.1",
@@ -123,7 +125,7 @@
 			"undici@<6.27.0": "^6.27.0",
 			"@opentelemetry/core@<2.8.0": "^2.8.0",
 			"@opentelemetry/propagator-jaeger@<2.9.0": "^2.9.0",
-			"sharp@<0.35.0": "^0.35.0",
+			"sharp@<0.35.4": "^0.35.4",
 			"@babel/core@<=7.29.0": "^7.29.6",
 			"@hono/node-server@<2.0.5": "^2.0.5",
 			"@humanfs/node@<0.16.8": "^0.16.8",
