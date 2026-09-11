@@ -1529,7 +1529,7 @@ describe("api", () => {
 		expect(log.finishReason).toBe("client_error");
 		expect(log.apiOrigin).toBe("chat-completions");
 		expect(log.errorDetails?.cause).toBe("invalid_parameters");
-		expect(log.source).toBe("unknown");
+		expect(log.source).toBeNull();
 	});
 
 	test("/v1/responses logs invalid message roles", async () => {
