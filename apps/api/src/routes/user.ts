@@ -335,6 +335,12 @@ const updateUser = createRoute({
 			},
 			description: "Too many email change requests.",
 		},
+		503: {
+			content: {
+				"application/json": { schema: z.object({ message: z.string() }) },
+			},
+			description: "Email delivery is not configured.",
+		},
 		404: {
 			content: {
 				"application/json": {
@@ -416,7 +422,12 @@ user.openapi(updateUser, async (c) => {
 	}
 
 	if (emailChanged) {
-		await requestEmailChange(userRecord, email, currentPassword);
+		await requestEmailChange(
+			userRecord,
+			email,
+			currentPassword,
+			c.req.raw.headers,
+		);
 	}
 
 	const [updatedUser] = await db

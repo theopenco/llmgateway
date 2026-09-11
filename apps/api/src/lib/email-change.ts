@@ -11,6 +11,7 @@ import {
 	redisClient,
 } from "@/auth/config.js";
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
+import { getClientIpFromHeaders } from "@/lib/client-ip.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
 import { and, db, eq, gt, like, ne, sql, tables } from "@llmgateway/db";
@@ -35,6 +36,17 @@ export function getEmailChangeRateLimitKeys(userId: string, email: string) {
 	];
 }
 
+export function getEmailChangeProofRateLimitKeys(
+	userId: string,
+	headers: Headers,
+) {
+	const ip = getClientIpFromHeaders(headers);
+	return [
+		`email-change:proof:user:${userId}`,
+		...(ip ? [`email-change:proof:ip:${hashIdentifier(ip)}`] : []),
+	];
+}
+
 const RESERVE_EMAIL_CHANGE = `
 for _, key in ipairs(KEYS) do
 	if tonumber(redis.call('get', key) or '0') >= tonumber(ARGV[1]) then return 0 end
@@ -51,10 +63,25 @@ export async function requestEmailChange(
 	user: typeof tables.user.$inferSelect,
 	newEmail: string,
 	currentPassword: string | undefined,
+	headers: Headers,
 ): Promise<void> {
 	if (!currentPassword) {
 		throw new HTTPException(400, {
 			message: "Your current password is required to change your email address",
+		});
+	}
+	const proofKeys = getEmailChangeProofRateLimitKeys(user.id, headers);
+	if (
+		(await redisClient.eval(
+			RESERVE_EMAIL_CHANGE,
+			proofKeys.length,
+			...proofKeys,
+			10,
+			60 * 60,
+		)) !== 1
+	) {
+		throw new HTTPException(429, {
+			message: "Too many password attempts. Try again in an hour.",
 		});
 	}
 	const account = await db.query.account.findFirst({
@@ -83,6 +110,13 @@ export async function requestEmailChange(
 	if (existing) {
 		throw new HTTPException(400, {
 			message: "That email address is already in use",
+		});
+	}
+
+	if (process.env.NODE_ENV === "production" && !process.env.RESEND_API_KEY) {
+		throw new HTTPException(503, {
+			message:
+				"Email changes require email delivery. Contact your administrator to configure it.",
 		});
 	}
 
@@ -176,6 +210,11 @@ export async function confirmEmailChange(
 					message: "This email change link is no longer valid",
 				});
 			}
+			const [user] = await tx
+				.select()
+				.from(tables.user)
+				.where(eq(tables.user.id, change.userId))
+				.for("update");
 			const [account] = await tx
 				.select()
 				.from(tables.account)
@@ -185,11 +224,6 @@ export async function confirmEmailChange(
 						eq(tables.account.providerId, "credential"),
 					),
 				)
-				.for("update");
-			const [user] = await tx
-				.select()
-				.from(tables.user)
-				.where(eq(tables.user.id, change.userId))
 				.for("update");
 			if (
 				!user ||

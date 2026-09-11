@@ -1,13 +1,21 @@
+import * as crypto from "better-auth/crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { apiAuth, redisClient } from "@/auth/config.js";
 import { app } from "@/index.js";
-import { getEmailChangeRateLimitKeys } from "@/lib/email-change.js";
+import {
+	getEmailChangeRateLimitKeys,
+	getEmailChangeProofRateLimitKeys,
+} from "@/lib/email-change.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 import * as abuseIp from "@/utils/abuse-ip.js";
 import * as email from "@/utils/email.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, sql, tables } from "@llmgateway/db";
+
+vi.mock("better-auth/crypto", async (importOriginal) => ({
+	...(await importOriginal<typeof crypto>()),
+}));
 
 const currentPassword = "admin@example.com1A";
 const newEmail = "changed@example.com";
@@ -20,15 +28,23 @@ function patch(
 	body: Record<string, unknown>,
 	session = cookie,
 	userId = "test-user-id",
+	headers: Record<string, string> = {},
 ) {
 	if (typeof body.email === "string") {
-		for (const key of getEmailChangeRateLimitKeys(userId, body.email)) {
+		for (const key of [
+			...getEmailChangeRateLimitKeys(userId, body.email),
+			...getEmailChangeProofRateLimitKeys(userId, new Headers(headers)),
+		]) {
 			rateLimitKeys.add(key);
 		}
 	}
 	return app.request("/user/me", {
 		method: "PATCH",
-		headers: { Cookie: session, "Content-Type": "application/json" },
+		headers: {
+			Cookie: session,
+			"Content-Type": "application/json",
+			...headers,
+		},
 		body: JSON.stringify(body),
 	});
 }
@@ -66,6 +82,48 @@ async function storedUser() {
 	return await db.query.user.findFirst({ where: { id: "test-user-id" } });
 }
 
+function deferred() {
+	let resolve!: () => void;
+	const promise = new Promise<void>((done) => {
+		resolve = done;
+	});
+	return { promise, resolve };
+}
+
+async function waitForDatabaseLock() {
+	await vi.waitFor(
+		async () => {
+			const waiting =
+				await db.execute(sql`select count(*)::int as count from pg_stat_activity
+			where datname = current_database() and wait_event_type = 'Lock' and pid <> pg_backend_pid()`);
+			expect(waiting.rows[0]?.count).toBeGreaterThan(0);
+		},
+		{ timeout: 5000 },
+	);
+}
+
+async function requestReset() {
+	const response = await app.request("/auth/request-password-reset", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ email: "admin@example.com" }),
+	});
+	expect(response.status).toBe(200);
+	expect((await response.json()).status).toBe(true);
+	const record = await db.query.verification.findFirst({
+		where: { value: "test-user-id" },
+	});
+	return record!.identifier.slice("reset-password:".length);
+}
+
+function resetPassword(token: string, newPassword = "new-test-password1A") {
+	return app.request("/auth/reset-password", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ token, newPassword }),
+	});
+}
+
 describe("email change confirmation", () => {
 	beforeEach(async () => {
 		sendEmail.mockReset().mockResolvedValue();
@@ -74,6 +132,7 @@ describe("email change confirmation", () => {
 	});
 
 	afterEach(async () => {
+		vi.unstubAllEnvs();
 		if (rateLimitKeys.size) {
 			await redisClient.del(...rateLimitKeys);
 			rateLimitKeys.clear();
@@ -177,6 +236,227 @@ describe("email change confirmation", () => {
 		expect(
 			(await db.query.verification.findMany()).map((row) => row.id).sort(),
 		).toEqual(["other-reset", "other-verification"]);
+	});
+
+	it("serializes an in-flight password reset before email confirmation", async () => {
+		const token = await requestReset();
+		await patch({ email: newEmail, currentPassword });
+		const emailToken = confirmationToken();
+		const context = await apiAuth.$context;
+		const hash = context.password.hash;
+		const entered = deferred();
+		const release = deferred();
+		const spy = vi
+			.spyOn(context.password, "hash")
+			.mockImplementationOnce(async (value) => {
+				entered.resolve();
+				await release.promise;
+				return await hash(value);
+			});
+		const resetting = resetPassword(token);
+		await entered.promise;
+		const confirming = confirm(emailToken);
+		try {
+			await waitForDatabaseLock();
+			expect(
+				await db.query.verification.findFirst({
+					where: { identifier: `reset-password:${token}` },
+				}),
+			).toBeDefined();
+		} finally {
+			release.resolve();
+			await Promise.all([resetting, confirming]);
+			spy.mockRestore();
+		}
+		expect((await resetting).status).toBe(200);
+		expect((await confirming).status).toBe(400);
+		expect((await storedUser())?.email).toBe("admin@example.com");
+	});
+
+	it("serializes email confirmation before an in-flight password reset", async () => {
+		const token = await requestReset();
+		await patch({ email: newEmail, currentPassword });
+		const verify = crypto.verifyPassword;
+		const entered = deferred();
+		const release = deferred();
+		const spy = vi
+			.spyOn(crypto, "verifyPassword")
+			.mockImplementationOnce(async (value) => {
+				entered.resolve();
+				await release.promise;
+				return await verify(value);
+			});
+		const confirming = confirm(confirmationToken());
+		await entered.promise;
+		const resetting = resetPassword(token);
+		try {
+			await waitForDatabaseLock();
+		} finally {
+			release.resolve();
+			await Promise.all([confirming, resetting]);
+			spy.mockRestore();
+		}
+		expect((await confirming).status).toBe(200);
+		expect((await resetting).status).toBe(400);
+		expect((await signIn(newEmail)).status).toBe(200);
+	});
+
+	it("serializes reset token issuance with email confirmation", async () => {
+		await patch({ email: newEmail, currentPassword });
+		const emailToken = confirmationToken();
+		const context = await apiAuth.$context;
+		const create = context.internalAdapter.createVerificationValue;
+		const entered = deferred();
+		const release = deferred();
+		const spy = vi
+			.spyOn(context.internalAdapter, "createVerificationValue")
+			.mockImplementationOnce(async (...args) => {
+				entered.resolve();
+				await release.promise;
+				return await create(...args);
+			});
+		const issuing = app.request("/auth/request-password-reset", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ email: "admin@example.com" }),
+		});
+		await entered.promise;
+		const confirming = confirm(emailToken);
+		try {
+			await waitForDatabaseLock();
+		} finally {
+			release.resolve();
+			await Promise.all([issuing, confirming]);
+			spy.mockRestore();
+		}
+		expect((await issuing).status).toBe(200);
+		expect((await confirming).status).toBe(200);
+		expect(await db.query.verification.findMany()).toHaveLength(0);
+	});
+
+	it("rolls back consumed reset tokens when the native reset hook fails", async () => {
+		const token = await requestReset();
+		const context = await apiAuth.$context;
+		const options = context.options.emailAndPassword!;
+		const original = options.onPasswordReset;
+		options.onPasswordReset = async () => {
+			throw new Error("Reset hook unavailable");
+		};
+		try {
+			expect((await resetPassword(token)).status).toBe(500);
+		} finally {
+			options.onPasswordReset = original;
+		}
+		expect((await signIn("admin@example.com")).status).toBe(200);
+		expect((await resetPassword(token)).status).toBe(200);
+	});
+
+	it("retains native reset session revocation", async () => {
+		const token = await requestReset();
+		const context = await apiAuth.$context;
+		const options = context.options.emailAndPassword!;
+		const original = options.revokeSessionsOnPasswordReset;
+		options.revokeSessionsOnPasswordReset = true;
+		try {
+			const response = await resetPassword(token);
+			expect(response.status).toBe(200);
+			expect(await response.json()).toEqual({ status: true });
+		} finally {
+			options.revokeSessionsOnPasswordReset = original;
+		}
+		expect(
+			await db.query.session.findMany({ where: { userId: "test-user-id" } }),
+		).toHaveLength(0);
+	});
+
+	it("retains native reset token and password errors", async () => {
+		const token = await requestReset();
+		for (const [value, password, code] of [
+			["", "new-test-password1A", "INVALID_TOKEN"],
+			["unknown", "new-test-password1A", "INVALID_TOKEN"],
+			[token, "short", "PASSWORD_TOO_SHORT"],
+			[token, "a".repeat(129), "PASSWORD_TOO_LONG"],
+		]) {
+			const response = await resetPassword(value, password);
+			expect(response.status).toBe(400);
+			expect((await response.json()).code).toBe(code);
+		}
+		expect((await resetPassword(token)).status).toBe(200);
+	});
+
+	it("limits failed password proofs before hashing without consuming mail quota", async () => {
+		const context = await apiAuth.$context;
+		const verify = vi.spyOn(context.password, "verify");
+		try {
+			for (let attempt = 0; attempt < 10; attempt++) {
+				expect(
+					(await patch({ email: newEmail, currentPassword: "incorrect" }))
+						.status,
+				).toBe(401);
+			}
+			expect(
+				(
+					await patch(
+						{ email: "another@example.com", currentPassword },
+						cookie,
+						"test-user-id",
+						{ "x-forwarded-for": "198.51.100.10" },
+					)
+				).status,
+			).toBe(429);
+			expect(verify).toHaveBeenCalledTimes(10);
+		} finally {
+			verify.mockRestore();
+		}
+		for (const key of getEmailChangeRateLimitKeys("test-user-id", newEmail)) {
+			expect(await redisClient.get(key)).toBeNull();
+		}
+		expect(sendEmail).not.toHaveBeenCalled();
+	});
+
+	it("limits password proofs by client IP as well as user", async () => {
+		const headers = { "x-forwarded-for": "198.51.100.11" };
+		const [actorKey, ipKey] = getEmailChangeProofRateLimitKeys(
+			"test-user-id",
+			new Headers(headers),
+		);
+		for (let attempt = 0; attempt < 10; attempt++) {
+			await redisClient.del(actorKey);
+			expect(
+				(
+					await patch(
+						{ email: newEmail, currentPassword: "incorrect" },
+						cookie,
+						"test-user-id",
+						headers,
+					)
+				).status,
+			).toBe(401);
+		}
+		await redisClient.del(actorKey);
+		expect(
+			(
+				await patch(
+					{ email: newEmail, currentPassword },
+					cookie,
+					"test-user-id",
+					headers,
+				)
+			).status,
+		).toBe(429);
+		expect(await redisClient.ttl(ipKey)).toBeGreaterThan(0);
+		expect(sendEmail).not.toHaveBeenCalled();
+	});
+
+	it("explains missing email delivery without changing identity", async () => {
+		vi.stubEnv("NODE_ENV", "production");
+		vi.stubEnv("RESEND_API_KEY", "");
+		const response = await patch({ email: newEmail, currentPassword });
+		expect(response.status).toBe(503);
+		expect((await response.json()).message).toContain("configure");
+		expect((await storedUser())?.email).toBe("admin@example.com");
+		expect(await db.query.verification.findMany()).toHaveLength(0);
+		expect(sendEmail).not.toHaveBeenCalled();
 	});
 
 	it("applies the hosted verification risk check to the confirmation IP", async () => {
