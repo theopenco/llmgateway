@@ -123,20 +123,40 @@ function renderWallClock(wall: WallClock, pattern: string): string {
 	});
 }
 
+// Cookie-provided zones include casing variants, aliases, and fixed offsets.
+const WALL_CLOCK_FORMATTERS_MAX_ENTRIES = 64;
+const wallClockFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function wallClockFormatter(timeZone: string): Intl.DateTimeFormat {
+	const key = timeZone.toLowerCase();
+	let formatter = wallClockFormatters.get(key);
+	if (!formatter) {
+		formatter = new Intl.DateTimeFormat("en-US", {
+			timeZone,
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+			weekday: "short",
+			timeZoneName: "short",
+			hourCycle: "h23",
+		});
+		wallClockFormatters.set(key, formatter);
+		if (wallClockFormatters.size > WALL_CLOCK_FORMATTERS_MAX_ENTRIES) {
+			const oldest = wallClockFormatters.keys().next().value;
+			if (oldest !== undefined) {
+				wallClockFormatters.delete(oldest);
+			}
+		}
+	}
+	return formatter;
+}
+
 /** The wall-clock fields an instant maps to in `timeZone`. */
 function wallClockInTimeZone(date: Date, timeZone: string): WallClock {
-	const parts = new Intl.DateTimeFormat("en-US", {
-		timeZone,
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-		hour: "2-digit",
-		minute: "2-digit",
-		second: "2-digit",
-		weekday: "short",
-		timeZoneName: "short",
-		hourCycle: "h23",
-	}).formatToParts(date);
+	const parts = wallClockFormatter(timeZone).formatToParts(date);
 	const read = (type: string) =>
 		Number(parts.find((part) => part.type === type)?.value ?? 0);
 	const weekdayName =

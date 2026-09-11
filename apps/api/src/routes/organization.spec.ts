@@ -6,6 +6,7 @@ import {
 	createTestUser,
 	deleteAll,
 } from "@/testing.js";
+import { serializeOrganization } from "@/utils/serialize-organization.js";
 
 import {
 	redisClient,
@@ -22,6 +23,56 @@ import {
 } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { randomInt } from "@llmgateway/shared/random";
+
+const internalOrganizationFields = [
+	"stripeCustomerId",
+	"stripeSubscriptionId",
+	"subscriptionCancelled",
+	"paymentFailureCount",
+	"lastPaymentFailureAt",
+	"paymentFailureStartedAt",
+	"trustTierOverride",
+	"devPlanStripeSubscriptionId",
+	"devPlanCancelled",
+	"devPlanPendingTier",
+	"devPlanCardFingerprint",
+	"devPlanCreditsFrozen",
+	"devPlanCreditsLimitBeforeFreeze",
+	"devPlanTierChangeClaimedAt",
+	"chatPlanStripeSubscriptionId",
+	"chatPlanCancelled",
+	"chatPlanCardFingerprint",
+	"lastTopUpAmount",
+	"endUserMarginBalance",
+	"stripeConnectAccountId",
+	"stripeConnectOnboarded",
+	"safetyIdentifier",
+	"riskFlagged",
+];
+
+async function expectPublicOrganization(
+	organization: { id: string },
+	listed = false,
+) {
+	const stored = await db.query.organization.findFirst({
+		where: { id: { eq: organization.id } },
+	});
+	expect(stored).toBeDefined();
+	const publicFields = Object.fromEntries(
+		Object.entries(stored!).filter(
+			([field]) => !internalOrganizationFields.includes(field),
+		),
+	);
+	const expected = JSON.parse(JSON.stringify(publicFields)) as Record<
+		string,
+		unknown
+	>;
+	if (listed) {
+		expected.role = "owner";
+		expected.enterpriseAccess = false;
+	}
+	expect(organization).toEqual(expected);
+}
 
 describe("organization route", () => {
 	let token: string;
@@ -48,6 +99,145 @@ describe("organization route", () => {
 	afterEach(async () => {
 		await deleteAll();
 	});
+
+	test.each([
+		{ method: "GET", path: "/orgs", body: undefined },
+		{ method: "POST", path: "/orgs", body: { name: "New Organization" } },
+		{
+			method: "PATCH",
+			path: "/orgs/test-org-id",
+			body: { name: "Updated Organization" },
+		},
+		{ method: "PATCH", path: "/orgs/test-org-id", body: {} },
+	])(
+		"$method $path returns only public organization fields ($body)",
+		async ({ method, path, body }) => {
+			const date = new Date("2026-01-01T00:00:00Z");
+			await db
+				.update(tables.organization)
+				.set({
+					riskFlagged: true,
+					trustTierOverride: 2,
+					stripeConnectAccountId: "test-connect-account",
+					stripeConnectOnboarded: true,
+					devPlanCardFingerprint: "test-card-fingerprint",
+					planStartedAt: date,
+					planExpiresAt: date,
+					trialStartDate: date,
+					trialEndDate: date,
+					devPlanPremiumWeekStart: date,
+					devPlanBillingCycleStart: date,
+					devPlanExpiresAt: date,
+					chatPlanBillingCycleStart: date,
+					chatPlanExpiresAt: date,
+				})
+				.where(eq(tables.organization.id, "test-org-id"));
+
+			const response = await app.request(path, {
+				method,
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: body === undefined ? undefined : JSON.stringify(body),
+			});
+			expect(response.status).toBe(200);
+			const result = (await response.json()) as {
+				organizations: Array<{ id: string }>;
+				organization: { id: string };
+			};
+			if (method === "GET") {
+				expect(result.organizations.map((org) => org.id)).toContain(
+					"test-org-id",
+				);
+				for (const org of result.organizations) {
+					await expectPublicOrganization(org, true);
+				}
+			} else {
+				await expectPublicOrganization(result.organization);
+			}
+		},
+	);
+
+	test("organization serialization ignores unknown row fields", async () => {
+		const stored = await db.query.organization.findFirst({
+			where: { id: { eq: "test-org-id" } },
+		});
+		const extended = { ...stored!, futureInternalField: "internal" };
+		expect(serializeOrganization(extended, "owner")).not.toHaveProperty(
+			"futureInternalField",
+		);
+	});
+
+	test.each(["developer", "project_admin"] as const)(
+		"GET /orgs omits billing fields for %s memberships",
+		async (role) => {
+			await db
+				.update(tables.userOrganization)
+				.set({ role })
+				.where(eq(tables.userOrganization.organizationId, "test-org-id"));
+			await db.insert(tables.organization).values({
+				id: "owned-org-id",
+				name: "Owned Organization",
+				billingEmail: "admin@example.com",
+			});
+			await db.insert(tables.userOrganization).values({
+				userId: "test-user-id",
+				organizationId: "owned-org-id",
+				role: "owner",
+			});
+			const response = await app.request(
+				"/orgs?includeChat=true&includePersonal=true",
+				{ headers: { Cookie: token } },
+			);
+			expect(response.status).toBe(200);
+			const { organizations } = (await response.json()) as {
+				organizations: Record<string, unknown>[];
+			};
+			const memberOrg = organizations.find((org) => org.id === "test-org-id");
+			expect(memberOrg).toMatchObject({
+				id: "test-org-id",
+				name: "Test Organization",
+				role,
+				plan: "free",
+			});
+			for (const field of [
+				"credits",
+				"billingEmail",
+				"billingCompany",
+				"billingAddress",
+				"billingTaxId",
+				"billingNotes",
+				"autoTopUpEnabled",
+				"autoTopUpThreshold",
+				"autoTopUpAmount",
+				"referralEarnings",
+				"referralBonusEnabled",
+				"referralBonusPercent",
+				"devPlanCycle",
+				"devPlanCreditsUsed",
+				"devPlanCreditsLimit",
+				"devPlanPremiumCreditsUsed",
+				"devPlanPremiumWeekStart",
+				"devPlanResetPassesLite",
+				"devPlanResetPassesPro",
+				"devPlanResetPassesMax",
+				"devPlanIncludedResetPassesUsed",
+				"devPlanBillingCycleStart",
+				"devPlanPaygEnabled",
+				"devPlanBillingOverride",
+				"chatPlanCycle",
+				"chatPlanCreditsUsed",
+				"chatPlanCreditsLimit",
+				"chatPlanBillingCycleStart",
+			]) {
+				expect(memberOrg).not.toHaveProperty(field);
+			}
+			expect(
+				organizations.find((org) => org.id === "owned-org-id"),
+			).toHaveProperty("credits");
+			expect(
+				organizations.find((org) => org.id === "owned-org-id"),
+			).toMatchObject({ role: "owner", billingEmail: "admin@example.com" });
+		},
+	);
 
 	test("PATCH /orgs/{id} logs enabling auto top-up in audit log", async () => {
 		const response = await app.request("/orgs/test-org-id", {
@@ -150,6 +340,7 @@ describe("organization route", () => {
 
 		const body = (await response.json()) as {
 			organizations: Array<{
+				id: string;
 				name: string;
 				kind: "default" | "chat" | "devpass";
 			}>;
@@ -158,6 +349,7 @@ describe("organization route", () => {
 		expect(body.organizations).toHaveLength(1);
 		expect(body.organizations[0]?.name).toBe("Default Organization");
 		expect(body.organizations[0]?.kind).toBe("default");
+		await expectPublicOrganization(body.organizations[0]!, true);
 
 		const afterOrganizations = await db.query.userOrganization.findMany({
 			with: {

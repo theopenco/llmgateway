@@ -16,6 +16,7 @@ import {
 	buildAnthropicErrorBody,
 	getAnthropicErrorType,
 } from "@/lib/error-response.js";
+import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import {
 	anthropicErrorSchema,
 	standardErrorResponses,
@@ -574,6 +575,7 @@ const messages = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: anthropicResponseSchema,

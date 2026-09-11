@@ -1,10 +1,11 @@
 import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
 
-import { perMillion } from "@/lib/discount";
+import { Badge } from "@/lib/components/badge";
+import { applyDiscount, discountFraction, perMillion } from "@/lib/discount";
+import { fetchModels, type ApiModel } from "@/lib/fetch-models";
 
 import {
-	models as modelDefinitions,
 	providers as providerDefinitions,
 	type ModelDefinition,
 } from "@llmgateway/models";
@@ -12,32 +13,42 @@ import { isMappingDeactivated } from "@llmgateway/shared/components";
 
 const RELATED_MODELS_LIMIT = 6;
 
-function activeMappings(model: ModelDefinition) {
-	return model.providers.filter((p) => !isMappingDeactivated(p));
+function activeMappings(model: ApiModel) {
+	return model.mappings.filter(
+		(p) => p.status === "active" && !isMappingDeactivated(p),
+	);
 }
 
 function startingPrice(
-	model: ModelDefinition,
+	model: ApiModel,
 	field: "inputPrice" | "outputPrice",
 ): number | null {
 	const prices = activeMappings(model)
-		.map((p) => perMillion(p[field]))
+		.map((p) => {
+			const price = perMillion(p[field]);
+			return price === null ? null : applyDiscount(price, p.discount);
+		})
 		.filter((n): n is number => n !== null && Number.isFinite(n));
 	return prices.length > 0 ? Math.min(...prices) : null;
 }
 
-// Internal-linking block: other active models from the same family, newest
-// first, computed straight from the catalogue at render time.
-export function RelatedModels({ modelDef }: { modelDef: ModelDefinition }) {
-	const related = (modelDefinitions as readonly ModelDefinition[])
+export async function RelatedModels({
+	modelDef,
+}: {
+	modelDef: ModelDefinition;
+}) {
+	const related = (await fetchModels())
 		.filter(
 			(m) =>
 				m.family === modelDef.family &&
 				m.id !== modelDef.id &&
+				m.status === "active" &&
 				activeMappings(m).length > 0,
 		)
 		.sort(
-			(a, b) => (b.releasedAt?.getTime() ?? 0) - (a.releasedAt?.getTime() ?? 0),
+			(a, b) =>
+				new Date(b.releasedAt ?? b.createdAt).getTime() -
+				new Date(a.releasedAt ?? a.createdAt).getTime(),
 		)
 		.slice(0, RELATED_MODELS_LIMIT);
 
@@ -72,6 +83,9 @@ export function RelatedModels({ modelDef }: { modelDef: ModelDefinition }) {
 					);
 					const minInput = startingPrice(model, "inputPrice");
 					const minOutput = startingPrice(model, "outputPrice");
+					const discount = Math.max(
+						...activeMappings(model).map((p) => discountFraction(p.discount)),
+					);
 					return (
 						<Link
 							key={model.id}
@@ -81,6 +95,11 @@ export function RelatedModels({ modelDef }: { modelDef: ModelDefinition }) {
 							<p className="font-medium truncate group-hover:underline group-hover:underline-offset-4">
 								{model.name ?? model.id}
 							</p>
+							{discount > 0 && (
+								<Badge className="mt-2 bg-green-500/10 text-green-700 dark:text-green-400 border-green-500/20">
+									Up to {Math.round(discount * 100)}% off
+								</Badge>
+							)}
 							<p className="mt-2 text-xs text-muted-foreground space-x-2">
 								{maxContext > 0 && (
 									<span>{maxContext.toLocaleString()} context</span>

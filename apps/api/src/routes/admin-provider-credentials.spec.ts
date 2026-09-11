@@ -143,6 +143,30 @@ describe("admin provider credentials", () => {
 		expect(body).not.toContain("sk-secret-value-here");
 	});
 
+	test("shows distinct suffixes for existing keys with the same stored mask", async () => {
+		await db.insert(tables.providerKey).values(
+			["1234", "5678"].map((suffix) => {
+				const id = `managed-mask-${suffix}`;
+				return {
+					id,
+					provider: "openai",
+					managed: true,
+					...encryptProviderKeyForStorage(
+						`sk-shared-prefix-${suffix}`,
+						id,
+						null,
+					),
+				};
+			}),
+		);
+
+		const credentials = await list();
+		expect(
+			credentials.map((credential) => credential.maskedToken).sort(),
+		).toEqual(["sk-sha•••••1234", "sk-sha•••••5678"]);
+		expect(JSON.stringify(credentials)).not.toContain("sk-shared-prefix-");
+	});
+
 	test("encrypts the token under the managed scope", async () => {
 		await create({ provider: "openai", token: "sk-encrypt-me" });
 

@@ -44,6 +44,10 @@ import {
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
+import {
+	rateLimitHeaders,
+	standardErrorResponses,
+} from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
@@ -75,6 +79,7 @@ import {
 } from "@llmgateway/models";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
+import type { openAIErrorSchema } from "@/lib/error-schemas.js";
 import type { ServerTypes } from "@/vars.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
@@ -143,15 +148,6 @@ const embeddingResponseSchema = z
 	.openapi({
 		description: "OpenAI-compatible embeddings response payload.",
 	});
-
-const embeddingErrorSchema = z.object({
-	error: z.object({
-		message: z.string(),
-		type: z.string(),
-		param: z.string().nullable(),
-		code: z.string(),
-	}),
-});
 
 function normalizeEmbeddingInputToMessages(input: unknown) {
 	const previewItem = (item: unknown) => {
@@ -369,6 +365,7 @@ const createEmbeddings = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: embeddingResponseSchema,
@@ -376,94 +373,7 @@ const createEmbeddings = createRoute({
 			},
 			description: "Embeddings response.",
 		},
-		400: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Invalid request body or parameters.",
-		},
-		401: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Unauthorized request.",
-		},
-		402: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Payment required / Insufficient credits or retention.",
-		},
-		403: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Forbidden upstream response.",
-		},
-		404: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Not found upstream response.",
-		},
-		410: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Archived or unavailable project.",
-		},
-		429: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Rate limited upstream response.",
-		},
-		500: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Internal server error.",
-		},
-		502: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Failed to connect to the upstream provider.",
-		},
-		503: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Service unavailable upstream response.",
-		},
-		504: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Upstream provider timeout.",
-		},
+		...standardErrorResponses(),
 	},
 });
 
@@ -738,7 +648,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		| {
 				kind: "json_error";
 				status: 400 | 500;
-				body: z.infer<typeof embeddingErrorSchema>;
+				body: z.infer<typeof openAIErrorSchema>;
 		  };
 
 	// Resolves the token, upstream URL, and request body for one attempt,
@@ -1426,12 +1336,12 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 								param: null,
 								code: "upstream_error",
 							},
-						} satisfies z.infer<typeof embeddingErrorSchema>,
+						} satisfies z.infer<typeof openAIErrorSchema>,
 						status as 400 | 401 | 403 | 404 | 410 | 429 | 500 | 502 | 503 | 504,
 					);
 				}
 
-				const normalizedUpstreamError: z.infer<typeof embeddingErrorSchema> = {
+				const normalizedUpstreamError: z.infer<typeof openAIErrorSchema> = {
 					error: {
 						message:
 							typeof upstreamJson === "string"

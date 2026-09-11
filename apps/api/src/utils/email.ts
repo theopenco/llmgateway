@@ -53,6 +53,23 @@ export interface TransactionalEmailOptions {
 	 * such as the email-verification and password-reset emails.
 	 */
 	organizationId?: string;
+	/**
+	 * Upper bound for the Resend request. When exceeded the send rejects, so a
+	 * caller holding a transaction open is not pinned by a slow provider.
+	 */
+	timeoutMs?: number;
+}
+
+function withTimeout<T>(
+	promise: Promise<T>,
+	ms: number,
+	message: string,
+): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error(message)), ms);
+	});
+	return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 function isReservedEmailAddress(email: string): boolean {
@@ -86,6 +103,7 @@ export async function sendTransactionalEmail({
 	strict = false,
 	logSafe = false,
 	organizationId,
+	timeoutMs,
 }: TransactionalEmailOptions): Promise<void> {
 	if (process.env.NODE_ENV === "production" && isReservedEmailAddress(to)) {
 		logger.info("Skipping transactional email to reserved domain", {
@@ -149,9 +167,16 @@ export async function sendTransactionalEmail({
 			})),
 		};
 
-		const { data, error } = await client.emails.send(
+		const send = client.emails.send(
 			text ? { ...emailPayload, text } : { ...emailPayload, html: html ?? "" },
 		);
+		const { data, error } = await (timeoutMs
+			? withTimeout(
+					send,
+					timeoutMs,
+					`Resend did not respond within ${timeoutMs}ms`,
+				)
+			: send);
 
 		if (error) {
 			throw new Error(`Resend API error: ${error.message}`);

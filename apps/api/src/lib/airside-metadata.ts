@@ -16,9 +16,21 @@ export const reasoningEffortsValue = z
 	.array(z.enum(REASONING_EFFORT_VALUES))
 	.max(7);
 
+export const quantizationValue = z.enum([
+	"int4",
+	"int8",
+	"fp4",
+	"fp6",
+	"fp8",
+	"fp16",
+	"bf16",
+	"fp32",
+]);
+
 /** Non-price fields a carrier may change on a listing. On an active listing
  *  the diff is filed for admin approval instead of applied. */
 export const airsideModelMetadataSchema = z.object({
+	quantization: quantizationValue.nullish(),
 	displayName: z.string().max(200).nullish(),
 	description: z.string().max(2000).nullish(),
 	family: z.string().min(1).max(100).optional(),

@@ -46,3 +46,6 @@ jobs:
   test:
     uses: ./.github/workflows/test-unit.yml
     secrets: inherit
+
+  playwright:
+    uses: ./.github/workflows/test-playwright.yml

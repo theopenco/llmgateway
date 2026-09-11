@@ -200,8 +200,6 @@ Running the built `dist/serve.js` gives no watch (rebuild + restart after code c
 
 `beforeAllHook` stamps each provider's `baseUrl` env var (`LLM_OPENAI_BASE_URL`, `LLM_ANTHROPIC_BASE_URL`, …) onto the provider key it seeds, so exporting that var plus the matching `LLM_*_API_KEY` is enough to run the whole suite through a proxy — no test changes needed. An `http://` base URL additionally needs `ALLOW_INSECURE_PROVIDER_URLS=true`.
 
-`chat-service-tier.e2e.ts` cannot pass in that setup: `providerKeyBaseUrlSupportsServiceTier` makes a key with a non-upstream base URL ineligible for Flex/Priority, so every case 400s by design. Exclude that file rather than treating the failures as a regression.
-
 #### E2E Test Structure
 
 Reserve `*.e2e.ts` for tests that make real upstream provider requests. Tests
@@ -321,7 +319,7 @@ When creating a new package in `packages/`, include these config files. Copy the
 - In frontend apps, always prefer Next.js `<Link>` (`next/link`) over raw `<a>` tags for internal navigation, and `next/navigation`'s router for programmatic navigation.
 - Keep inline links in prose attached to nearby context with a non-breaking space or a short `whitespace-nowrap` wrapper so they never wrap onto an orphaned line.
 - Use the shared `DialogSafePopover` for portaled popovers opened inside a `Dialog`. A regular Radix popover is outside the dialog's scroll lock, which blocks wheel scrolling in long dropdowns.
-- Always use top-level `import`, never use require or dynamic imports
+- Always use top-level `import`, never use `require`. Dynamic imports are allowed only for the optional Jelly scene in `packages/shared/src/components/jelly/jelly-logo.tsx` and the DevPass card form in `apps/code/src/app/dashboard/components/DevPassPaymentMethod.tsx`.
 - Use conventional commit message format and limit the commit message title to max 50 characters
 - NEVER put internal or private information into anything published to the public repository — commit titles and bodies, branch names, PR titles and descriptions, PR/issue comments, code comments, changelog entries, or docs. This repository is public. Specifically never include: real user or customer names, email addresses, customer/partner/company names, organization/project/user IDs, API keys, tokens, secrets or credentials (including partial or redacted-looking values), dollar amounts (revenue, credit balances, spend, invoice totals, contract values), internal dashboards, internal ticket/Slack/Linear links, or internal infrastructure hostnames. Describe the situation generically instead — "a customer organization", "an enterprise account", "a large credit balance", "the affected provider key". Seeded test fixtures that already live in the repo (`admin@example.com`, `test-token`, `Test Organization`) and public provider pricing from `packages/models` are fine
 - Do not --amend commits after pushing to remote

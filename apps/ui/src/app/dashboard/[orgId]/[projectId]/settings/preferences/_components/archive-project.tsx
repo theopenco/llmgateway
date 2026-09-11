@@ -40,6 +40,14 @@ export const ArchiveProjectSettings = async ({
 		);
 	}
 
+	if (organization.role !== "owner") {
+		return (
+			<p className="text-muted-foreground text-sm">
+				Only organization owners can archive projects.
+			</p>
+		);
+	}
+
 	return (
 		<ArchiveProjectSettingsClient
 			orgId={orgId}

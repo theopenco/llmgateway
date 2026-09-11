@@ -39,6 +39,11 @@ import {
 import { Switch } from "@/lib/components/switch";
 import { useApi } from "@/lib/fetch-client";
 
+import {
+	canManageProject,
+	isOrganizationAdmin,
+} from "@llmgateway/shared/organization-roles";
+
 import type {
 	GuardrailConfig,
 	GuardrailRule,
@@ -141,7 +146,9 @@ export function GuardrailsSettings({ scope }: { scope: GuardrailsScope }) {
 	const isEnterprise = selectedOrganization?.enterpriseAccess === true;
 	const canManageGuardrails =
 		isEnterprise &&
-		(currentUserRole === "owner" || currentUserRole === "admin");
+		(scope.kind === "project"
+			? canManageProject(currentUserRole)
+			: isOrganizationAdmin(currentUserRole));
 
 	const configQuery = useGuardrailConfig(scope, {
 		enabled: canManageGuardrails,
@@ -150,16 +157,16 @@ export function GuardrailsSettings({ scope }: { scope: GuardrailsScope }) {
 
 	// A project shows the organization settings it inherits, so both scopes are
 	// loaded when the current scope is a project.
-	const orgScope: GuardrailsScope = {
-		kind: "organization",
-		organizationId: scope.organizationId,
-	};
-	const orgConfigQuery = useGuardrailConfig(orgScope, {
-		enabled: canManageGuardrails && scope.kind === "project",
-	});
-	const orgRulesQuery = useGuardrailRules(orgScope, {
-		enabled: canManageGuardrails && scope.kind === "project",
-	});
+	const inheritedQuery = api.useQuery(
+		"get",
+		"/guardrails/projects/{projectId}/inherited",
+		{
+			params: {
+				path: { projectId: scope.kind === "project" ? scope.projectId : "" },
+			},
+		},
+		{ enabled: canManageGuardrails && scope.kind === "project" },
+	);
 
 	// Naming the project in the banners is what stops "this project" and the
 	// organization page's override list from reading as contradictory.
@@ -188,7 +195,7 @@ export function GuardrailsSettings({ scope }: { scope: GuardrailsScope }) {
 		);
 	}
 
-	if (currentUserRole !== "owner" && currentUserRole !== "admin") {
+	if (!canManageGuardrails) {
 		return (
 			<Card>
 				<CardHeader>
@@ -204,10 +211,7 @@ export function GuardrailsSettings({ scope }: { scope: GuardrailsScope }) {
 	}
 
 	const isLoading =
-		configQuery.isLoading ||
-		rulesQuery.isLoading ||
-		orgConfigQuery.isLoading ||
-		orgRulesQuery.isLoading;
+		configQuery.isLoading || rulesQuery.isLoading || inheritedQuery.isLoading;
 
 	if (isLoading) {
 		return (
@@ -221,10 +225,7 @@ export function GuardrailsSettings({ scope }: { scope: GuardrailsScope }) {
 	// back to an empty list there would show an inheriting project as having no
 	// custom rules while the gateway keeps enforcing them.
 	const loadError =
-		configQuery.error ||
-		rulesQuery.error ||
-		orgConfigQuery.error ||
-		orgRulesQuery.error;
+		configQuery.error || rulesQuery.error || inheritedQuery.error;
 
 	if (loadError) {
 		return (
@@ -241,8 +242,8 @@ export function GuardrailsSettings({ scope }: { scope: GuardrailsScope }) {
 			scope={scope}
 			config={configQuery.data ?? null}
 			rules={rulesQuery.data ?? []}
-			organizationConfig={orgConfigQuery.data ?? null}
-			organizationRules={orgRulesQuery.data ?? []}
+			organizationConfig={inheritedQuery.data?.config ?? null}
+			organizationRules={inheritedQuery.data?.rules ?? []}
 			projectName={projectName}
 		/>
 	);
@@ -263,6 +264,19 @@ function GuardrailsForm({
 	organizationRules: GuardrailRule[];
 	projectName: string | null;
 }) {
+	const { selectedOrganization } = useDashboardNavigation();
+	const organizationGuardrails = isOrganizationAdmin(
+		selectedOrganization?.role,
+	) ? (
+		<Link
+			href={`/dashboard/${scope.organizationId}/org/guardrails`}
+			className="underline underline-offset-4 whitespace-nowrap"
+		>
+			organization guardrails
+		</Link>
+	) : (
+		"organization guardrails"
+	);
 	const isProject = scope.kind === "project";
 	const [draft, setDraft] = useState<DraftConfig>(() => toDraft(config));
 	const [success, setSuccess] = useState<string | null>(null);
@@ -477,37 +491,20 @@ function GuardrailsForm({
 						{inherits ? (
 							<span>
 								Requests from {projectName} are checked against the{" "}
-								<Link
-									href={`/dashboard/${scope.organizationId}/org/guardrails`}
-									className="underline underline-offset-4"
-								>
-									organization guardrails
-								</Link>
-								, shown read-only below. Changes made there apply here too.
+								{organizationGuardrails}, shown read-only below. Changes made
+								there apply here too.
 							</span>
 						) : overridePending ? (
 							<span>
-								The{" "}
-								<Link
-									href={`/dashboard/${scope.organizationId}/org/guardrails`}
-									className="underline underline-offset-4"
-								>
-									organization guardrails
-								</Link>{" "}
-								stay in force until you click Save Changes. The settings below
-								start as a copy of them — save to switch {projectName} over.
+								The {organizationGuardrails} stay in force until you click Save
+								Changes. The settings below start as a copy of them — save to
+								switch {projectName} over.
 							</span>
 						) : (
 							<span>
-								The{" "}
-								<Link
-									href={`/dashboard/${scope.organizationId}/org/guardrails`}
-									className="underline underline-offset-4"
-								>
-									organization guardrails
-								</Link>{" "}
-								do not apply to {projectName} — only the settings and custom
-								rules below are enforced. Other projects are unaffected.
+								The {organizationGuardrails} do not apply to {projectName} —
+								only the settings and custom rules below are enforced. Other
+								projects are unaffected.
 							</span>
 						)}
 					</AlertDescription>

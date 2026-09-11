@@ -1,5 +1,7 @@
 // Shared icon components for the guides OpenGraph images (index + [slug] routes).
 
+import { Terminal } from "lucide-react";
+
 interface OgIconProps {
 	size?: number;
 }
@@ -357,6 +359,7 @@ export function getIconForGuide(slug: string) {
 		"kilo-code": KiloCodeIcon,
 		"devpass-code": DevPassCodeIcon,
 		empryo: EmpryoIcon,
+		reasonix: ({ size }) => <Terminal size={size} color="#ffffff" />,
 		"github-copilot": GitHubCopilotIcon,
 		mcp: McpIcon,
 	};

@@ -46,6 +46,7 @@ import {
 	CREDIT_TOP_UP_MIN_AMOUNT,
 	isCreditTopUpAmountInRange,
 } from "@llmgateway/shared";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type React from "react";
 
@@ -64,7 +65,17 @@ interface TopUpCreditsDialogProps {
 	children: React.ReactNode;
 }
 
-export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
+export function TopUpCreditsDialog(props: TopUpCreditsDialogProps) {
+	const { selectedOrganization } = useDashboardState();
+	if (!isOrganizationAdmin(selectedOrganization?.role)) {
+		return null;
+	}
+	return (
+		<BillingTopUpCreditsDialog key={selectedOrganization?.id} {...props} />
+	);
+}
+
+function BillingTopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 	const [open, setOpen] = useState(false);
 	const [step, setStep] = useState<
 		"amount" | "payment" | "select-payment" | "confirm-payment" | "success"
@@ -261,6 +272,7 @@ function AmountStep({
 	alreadyHasAutoTopUp: boolean;
 	onNext: () => void;
 }) {
+	const { selectedOrganization } = useDashboardState();
 	const presets: { value: number; badge?: string }[] = [
 		{ value: 10 },
 		{ value: 25 },
@@ -567,7 +579,7 @@ function AmountStep({
 				) : null}
 
 				{/* Auto-reload toggle */}
-				{!alreadyHasAutoTopUp ? (
+				{selectedOrganization?.role === "owner" && !alreadyHasAutoTopUp ? (
 					<div className="flex items-center justify-between rounded-lg border border-dashed p-3">
 						<div className="space-y-0.5 pr-3">
 							<p className="text-sm font-medium">Never run out of credits</p>
@@ -906,7 +918,10 @@ function SuccessStep({
 	const [saving, setSaving] = useState(false);
 	const [autoTopUpApplied, setAutoTopUpApplied] = useState(false);
 
-	const shouldOfferAutoTopUp = !alreadyHasAutoTopUp && autoTopUpIntent;
+	const shouldOfferAutoTopUp =
+		selectedOrganization?.role === "owner" &&
+		!alreadyHasAutoTopUp &&
+		autoTopUpIntent;
 
 	useEffect(() => {
 		const duration = 2000;
