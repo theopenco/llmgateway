@@ -45,12 +45,14 @@ import {
 } from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
+import { fetchProvider } from "@/lib/fetch-provider.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
+import { fetchNoRedirect, RedirectError } from "@llmgateway/actions";
 import {
 	getGoogleVertexPublisherModelPath,
 	getProviderHeaders,
@@ -1003,7 +1005,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			let fetchError: Error | null = null;
 			try {
 				const fetchSignal = createCombinedSignal(controller);
-				upstreamResponse = await fetch(attempt.upstreamUrl, {
+				upstreamResponse = await fetchProvider(attempt.upstreamUrl, {
 					method: "POST",
 					// SSRF: never follow redirects on an authenticated provider request. A
 					// tenant-supplied baseUrl could 3xx to an internal host at request
@@ -1613,9 +1615,10 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				const audioUrl = dashScopeJson.output?.audio?.url;
 				let out: Buffer | null = null;
 				let downloadError: string | null = null;
+				let redirectBlocked = false;
 				if (typeof audioUrl === "string" && audioUrl) {
 					try {
-						const audioResponse = await fetch(audioUrl, {
+						const audioResponse = await fetchNoRedirect(audioUrl, {
 							// The download URL is provider-issued; still never follow
 							// redirects so the response can't be bounced elsewhere.
 							redirect: "error",
@@ -1627,6 +1630,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 							downloadError = `Audio download failed with status ${audioResponse.status}`;
 						}
 					} catch (error) {
+						redirectBlocked = error instanceof RedirectError;
 						downloadError =
 							error instanceof Error ? error.message : String(error);
 					}
@@ -1642,8 +1646,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						buildRoutingAttempt(
 							providerId,
 							modelDefId,
-							upstreamResponse.status,
-							"upstream_error",
+							redirectBlocked ? 400 : upstreamResponse.status,
+							redirectBlocked ? "client_error" : "upstream_error",
 							false,
 							{
 								apiKeyHash: usedApiKeyHash,
@@ -1668,7 +1672,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						responseSize: upstreamText.length,
 						content: null,
 						reasoningContent: null,
-						finishReason: "upstream_error",
+						finishReason: redirectBlocked ? "client_error" : "upstream_error",
 						promptTokens: null,
 						completionTokens: null,
 						totalTokens: null,
@@ -1678,8 +1682,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						streamed: false,
 						canceled: false,
 						errorDetails: {
-							statusCode: upstreamResponse.status,
-							statusText: "no_audio",
+							statusCode: redirectBlocked ? 400 : upstreamResponse.status,
+							statusText: redirectBlocked ? "Bad Request" : "no_audio",
 							responseText: (downloadError ?? upstreamText).slice(0, 2000),
 						},
 						inputCost: 0,
@@ -1713,12 +1717,12 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 										? `Failed to download synthesized audio: ${downloadError}`
 										: (dashScopeJson.message ??
 											"The model did not return any audio. The content may have been filtered."),
-								type: "upstream_error",
+								type: redirectBlocked ? "client_error" : "upstream_error",
 								param: null,
-								code: "no_audio",
+								code: redirectBlocked ? "unexpected_redirect" : "no_audio",
 							},
 						} satisfies SpeechErrorBody,
-						502,
+						redirectBlocked ? 400 : 502,
 					);
 				}
 
