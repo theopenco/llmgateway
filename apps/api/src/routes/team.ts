@@ -3,10 +3,6 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
-	EnterpriseSeatLimitError,
-	withEnterpriseSeatForOrganization,
-} from "@/lib/enterprise-seats.js";
-import {
 	assertEnterpriseForIpCidrRule,
 	createIamRuleSchema,
 	iamRuleStatusEnum,
@@ -750,15 +746,14 @@ const addMember = createRoute({
 				"application/json": {
 					schema: z.object({
 						message: z.string(),
-						// Set when the email already had an account and was added directly.
+						// Kept for compatibility; invitations do not activate membership.
 						member: teamMemberSchema.nullable(),
-						// Set when the email has no account yet: a pending invitation that
-						// is auto-accepted when they sign up (email, SSO, or SCIM).
+						// Pending until the recipient signs in with a verified email.
 						invite: teamInviteSchema.nullable(),
 					}),
 				},
 			},
-			description: "Member added or invitation sent",
+			description: "Invitation sent",
 		},
 	},
 });
@@ -831,6 +826,7 @@ team.openapi(addMember, async (c) => {
 				eq: organizationId,
 			},
 		},
+		with: { user: { columns: { email: true } } },
 	});
 
 	// Pending invites reserve a seat so accepted invites can't blow the cap.
@@ -862,47 +858,50 @@ team.openapi(addMember, async (c) => {
 
 	const normalizedEmail = email.trim().toLowerCase();
 
-	const targetUser = await db.query.user.findFirst({
-		where: {
-			email: {
-				eq: normalizedEmail,
-			},
-		},
-	});
+	if (
+		currentMembers.some(
+			(member) => member.user?.email.trim().toLowerCase() === normalizedEmail,
+		)
+	) {
+		throw new HTTPException(400, {
+			message: "User is already a member of this organization",
+		});
+	}
 
-	// No account with this email yet: create a pending invitation that is
-	// auto-accepted when they sign up (email/social/SSO) or are provisioned via
-	// SCIM, and email them a signup link.
-	if (!targetUser) {
-		if (pendingInvites.some((invite) => invite.email === normalizedEmail)) {
-			throw new HTTPException(400, {
-				message: "An invitation for this email is already pending",
-			});
-		}
+	// Use the same invitation flow regardless of whether an account exists.
+	if (pendingInvites.some((invite) => invite.email === normalizedEmail)) {
+		throw new HTTPException(400, {
+			message: "An invitation for this email is already pending",
+		});
+	}
 
-		const [invite] = await db
-			.insert(tables.organizationInvite)
-			.values({
-				organizationId,
-				email: normalizedEmail,
-				role,
-				projectIds: isProjectScopedRole(role)
-					? grantedProjects.map((p) => p.id)
-					: null,
-				invitedBy: authUser.id,
-				expiresAt: new Date(Date.now() + INVITE_EXPIRY_MS),
-			})
-			.returning();
+	const [invite] = await db
+		.insert(tables.organizationInvite)
+		.values({
+			organizationId,
+			email: normalizedEmail,
+			role,
+			projectIds: isProjectScopedRole(role)
+				? grantedProjects.map((p) => p.id)
+				: null,
+			invitedBy: authUser.id,
+			expiresAt: new Date(Date.now() + INVITE_EXPIRY_MS),
+		})
+		.returning();
 
-		const orgName = userOrganization.organization?.name ?? "an organization";
-		const inviterName = authUser.name?.trim() || authUser.email;
-		const uiUrl = process.env.UI_URL ?? "http://localhost:3002";
+	const orgName = userOrganization.organization?.name ?? "an organization";
+	const inviterName = authUser.name?.trim() || authUser.email;
+	const uiUrl = process.env.UI_URL ?? "http://localhost:3002";
 
-		const text = `Hey!
+	const text = `Hey!
 
 ${inviterName} invited you to join the "${orgName}" organization on LLM Gateway as ${role === "admin" ? "an" : "a"} ${role === "project_admin" ? "project admin" : role}.
 
-Create an account using this email address (${normalizedEmail}) and you'll be added to the organization automatically:
+Sign in using this email address (${normalizedEmail}) to join the organization automatically:
+
+${uiUrl}/login
+
+If you do not have an account yet, create one and verify this email address:
 
 ${uiUrl}/signup
 
@@ -912,127 +911,37 @@ This invitation expires in ${INVITE_EXPIRY_DAYS} days. If you weren't expecting 
 
 — The LLM Gateway Team`.trim();
 
-		await sendTransactionalEmail({
-			to: normalizedEmail,
-			subject: `You've been invited to ${orgName} on LLM Gateway`,
-			text,
-			organizationId,
-		});
-
-		await logAuditEvent({
-			organizationId,
-			userId: authUser.id,
-			action: "team_member.invite",
-			resourceType: "team_invite",
-			resourceId: invite.id,
-			metadata: {
-				targetUserEmail: normalizedEmail,
-				role,
-				projectIds: grantedProjects.map((p) => p.id),
-			},
-		});
-
-		return c.json({
-			message: "Invitation sent",
-			member: null,
-			invite: {
-				id: invite.id,
-				email: invite.email,
-				role: invite.role,
-				createdAt: invite.createdAt,
-				expiresAt: invite.expiresAt,
-				projects: isProjectScopedRole(role) ? grantedProjects : null,
-			},
-		});
-	}
-
-	const existingMember = await db.query.userOrganization.findFirst({
-		where: {
-			userId: {
-				eq: targetUser.id,
-			},
-			organizationId: {
-				eq: organizationId,
-			},
-		},
+	await sendTransactionalEmail({
+		to: normalizedEmail,
+		subject: `You've been invited to ${orgName} on LLM Gateway`,
+		text,
+		organizationId,
 	});
-
-	if (existingMember) {
-		throw new HTTPException(400, {
-			message: "User is already a member of this organization",
-		});
-	}
-
-	let newMember: typeof tables.userOrganization.$inferSelect;
-	try {
-		[newMember] = await withEnterpriseSeatForOrganization(
-			organizationId,
-			targetUser.id,
-			async (tx) =>
-				await tx
-					.insert(tables.userOrganization)
-					.values({
-						userId: targetUser.id,
-						organizationId,
-						role,
-					})
-					.returning(),
-		);
-	} catch (error) {
-		if (error instanceof EnterpriseSeatLimitError) {
-			throw new HTTPException(403, { message: error.message });
-		}
-		throw error;
-	}
-
-	if (isProjectScopedRole(role)) {
-		await cdb.transaction(async (tx) => {
-			await syncMemberProjects(
-				newMember.id,
-				grantedProjects.map((p) => p.id),
-				tx,
-			);
-		});
-		if (role === "developer") {
-			await recomputeUserTeam(targetUser.id, organizationId);
-		}
-	}
 
 	await logAuditEvent({
 		organizationId,
 		userId: authUser.id,
-		action: "team_member.add",
-		resourceType: "team_member",
-		resourceId: newMember.id,
+		action: "team_member.invite",
+		resourceType: "team_invite",
+		resourceId: invite.id,
 		metadata: {
-			targetUserId: targetUser.id,
-			targetUserEmail: email,
+			targetUserEmail: normalizedEmail,
 			role,
 			projectIds: grantedProjects.map((p) => p.id),
 		},
 	});
 
 	return c.json({
-		message: "Member added successfully",
-		member: {
-			id: newMember.id,
-			userId: newMember.userId,
-			role: newMember.role,
-			createdAt: newMember.createdAt,
-			user: {
-				id: targetUser.id,
-				email: targetUser.email,
-				name: targetUser.name,
-			},
-			budget: budgetFromRow(newMember),
-			effectiveBudget: budgetFromRow(newMember),
-			spend: EMPTY_SPEND,
-			team: null,
-			teamBudget: null,
-			personalProjects: isProjectScopedRole(role) ? grantedProjects : null,
+		message: "Invitation sent",
+		member: null,
+		invite: {
+			id: invite.id,
+			email: invite.email,
+			role: invite.role,
+			createdAt: invite.createdAt,
+			expiresAt: invite.expiresAt,
 			projects: isProjectScopedRole(role) ? grantedProjects : null,
 		},
-		invite: null,
 	});
 });
 
