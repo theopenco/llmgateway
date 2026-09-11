@@ -2414,6 +2414,87 @@ describe("fallback and error status code handling", () => {
 	});
 
 	describe("retry with fallback to alternate provider", () => {
+		test.each([false, true])(
+			"retries Anthropic account access restrictions (stream: %s)",
+			async (stream) => {
+				await setupMultiProviderKeys();
+
+				const res = await app.request("/v1/chat/completions", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer real-token",
+					},
+					body: JSON.stringify({
+						model: "glm-4.7",
+						stream,
+						messages: [
+							{ role: "user", content: "TRIGGER_FAIL_ONCE_ANTHROPIC_ACCESS" },
+						],
+					}),
+				});
+
+				expect(res.status).toBe(200);
+				if (stream) {
+					expect(await readAll(res.body)).toMatchObject({
+						hasError: false,
+						hasContent: true,
+					});
+				} else {
+					expect(await res.json()).toHaveProperty([
+						"choices",
+						0,
+						"message",
+						"content",
+					]);
+				}
+
+				const logs = await waitForLogs(2);
+				const failedLog = logs.find((log) => log.hasError);
+				const successLog = logs.find((log) => !log.hasError);
+				expect(successLog).toBeDefined();
+				expect(failedLog).toMatchObject({
+					finishReason: "upstream_error",
+					unifiedFinishReason: "upstream_error",
+					errorDetails: { statusCode: 400 },
+					retried: true,
+					retriedByLogId: successLog?.id,
+				});
+				expect(successLog?.usedProvider).not.toBe(failedLog?.usedProvider);
+			},
+		);
+
+		test("returns an upstream error for Anthropic account restrictions when fallback is disabled", async () => {
+			await setupMultiProviderKeys();
+
+			const res = await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"X-No-Fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "glm-4.7",
+					messages: [
+						{ role: "user", content: "TRIGGER_FAIL_ONCE_ANTHROPIC_ACCESS" },
+					],
+				}),
+			});
+
+			expect(res.status).toBe(500);
+			expect(await res.json()).toMatchObject({
+				error: { type: "upstream_error" },
+			});
+			const logs = await waitForLogs(1);
+			expect(logs).toHaveLength(1);
+			expect(logs[0]).toMatchObject({
+				finishReason: "upstream_error",
+				errorDetails: { statusCode: 400 },
+				retried: false,
+			});
+		});
+
 		test("non-streaming: retries on 500 and succeeds on fallback provider with failed_attempts in metadata", async () => {
 			await setupMultiProviderKeys();
 

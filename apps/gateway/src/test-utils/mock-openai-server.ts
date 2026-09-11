@@ -841,6 +841,20 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 			});
 		}
 		// Subsequent requests succeed - fall through to normal response
+	} else if (userMessage.includes("TRIGGER_FAIL_ONCE_ANTHROPIC_ACCESS")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			return c.json(
+				{
+					error: {
+						message:
+							"Access to Anthropic models is not allowed for this account",
+						type: "invalid_request_error",
+					},
+				},
+				400,
+			);
+		}
 	} else if (userMessage.includes("TRIGGER_FAIL_ONCE_INVALID_KEY")) {
 		failOnceCounter++;
 		if (failOnceCounter === 1) {
