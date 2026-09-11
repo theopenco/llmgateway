@@ -1,6 +1,8 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 
+import { redisClient } from "@/auth/config.js";
 import { app } from "@/index.js";
+import { getEmailChangeRateLimitKeys } from "@/lib/email-change.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
@@ -175,12 +177,18 @@ describe("user account deletion", () => {
 
 describe("user accounts and email editability", () => {
 	let token: string;
+	const emailRateLimitKeys = [
+		...getEmailChangeRateLimitKeys("test-user-id", "changed@example.com"),
+		...getEmailChangeRateLimitKeys("test-user-id", "mixed.case@example.com"),
+	];
 
 	beforeEach(async () => {
+		await redisClient.del(...emailRateLimitKeys);
 		token = await createTestUser();
 	});
 
 	afterEach(async () => {
+		await redisClient.del(...emailRateLimitKeys);
 		await db.delete(tables.passkey);
 		await db.delete(tables.ssoProvider);
 		await deleteAll();

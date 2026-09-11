@@ -329,6 +329,12 @@ const updateUser = createRoute({
 			},
 			description: "Unauthorized.",
 		},
+		429: {
+			content: {
+				"application/json": { schema: z.object({ message: z.string() }) },
+			},
+			description: "Too many email change requests.",
+		},
 		404: {
 			content: {
 				"application/json": {

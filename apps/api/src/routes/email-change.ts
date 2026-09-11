@@ -34,7 +34,7 @@ emailChange.openapi(
 		},
 	}),
 	async (c) => {
-		await confirmEmailChange(c.req.valid("json").token);
+		await confirmEmailChange(c.req.valid("json").token, c.req.raw.headers);
 		return c.json({
 			message: "Email updated. Sign in with your new email address.",
 		});

@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
+import { hashPassword, verifyPassword } from "better-auth/crypto";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
@@ -7,10 +8,12 @@ import {
 	apiAuth,
 	createResendContact,
 	deleteResendContact,
+	redisClient,
 } from "@/auth/config.js";
+import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
-import { and, db, eq, gt, ne, sql, tables } from "@llmgateway/db";
+import { and, db, eq, gt, like, ne, sql, tables } from "@llmgateway/db";
 
 const EMAIL_CHANGE_TTL_MS = 60 * 60 * 1000;
 
@@ -18,12 +21,31 @@ const pendingEmailSchema = z.object({
 	userId: z.string(),
 	email: z.string(),
 	newEmail: z.string().email(),
-	passwordFingerprint: z.string(),
+	credentialProof: z.string().regex(/^[a-f0-9]{32}:[a-f0-9]{128}$/),
 });
 
-function fingerprint(value: string): string {
+function hashIdentifier(value: string): string {
 	return createHash("sha256").update(value).digest("hex");
 }
+
+export function getEmailChangeRateLimitKeys(userId: string, email: string) {
+	return [
+		`email-change:rate:user:${userId}`,
+		`email-change:rate:recipient:${hashIdentifier(email.trim().toLowerCase())}`,
+	];
+}
+
+const RESERVE_EMAIL_CHANGE = `
+for _, key in ipairs(KEYS) do
+	if tonumber(redis.call('get', key) or '0') >= tonumber(ARGV[1]) then return 0 end
+end
+for _, key in ipairs(KEYS) do
+	if redis.call('incr', key) == 1 then
+		redis.call('expire', key, ARGV[2])
+	end
+end
+return 1
+`;
 
 export async function requestEmailChange(
 	user: typeof tables.user.$inferSelect,
@@ -64,15 +86,28 @@ export async function requestEmailChange(
 		});
 	}
 
+	const reserved = await redisClient.eval(
+		RESERVE_EMAIL_CHANGE,
+		2,
+		...getEmailChangeRateLimitKeys(user.id, newEmail),
+		3,
+		60 * 60,
+	);
+	if (reserved !== 1) {
+		throw new HTTPException(429, {
+			message: "Too many email change requests. Try again in an hour.",
+		});
+	}
+
 	const token = randomBytes(32).toString("hex");
-	const identifier = `email-change:${fingerprint(token)}`;
+	const identifier = `email-change:${hashIdentifier(token)}`;
 	const pending = {
 		identifier,
 		value: JSON.stringify({
 			userId: user.id,
 			email: user.email,
 			newEmail,
-			passwordFingerprint: fingerprint(account.password),
+			credentialProof: await hashPassword(account.password),
 		}),
 		expiresAt: new Date(Date.now() + EMAIL_CHANGE_TTL_MS),
 	};
@@ -110,7 +145,10 @@ export async function requestEmailChange(
 	}
 }
 
-export async function confirmEmailChange(token: string): Promise<void> {
+export async function confirmEmailChange(
+	token: string,
+	headers: Headers,
+): Promise<void> {
 	const updated = await db
 		.transaction(async (tx) => {
 			const [pending] = await tx
@@ -119,7 +157,7 @@ export async function confirmEmailChange(token: string): Promise<void> {
 					and(
 						eq(
 							tables.verification.identifier,
-							`email-change:${fingerprint(token)}`,
+							`email-change:${hashIdentifier(token)}`,
 						),
 						gt(tables.verification.expiresAt, new Date()),
 					),
@@ -130,7 +168,14 @@ export async function confirmEmailChange(token: string): Promise<void> {
 					message: "This email change link is invalid or expired",
 				});
 			}
-			const change = pendingEmailSchema.parse(JSON.parse(pending.value));
+			let change: z.infer<typeof pendingEmailSchema>;
+			try {
+				change = pendingEmailSchema.parse(JSON.parse(pending.value));
+			} catch {
+				throw new HTTPException(400, {
+					message: "This email change link is no longer valid",
+				});
+			}
 			const [account] = await tx
 				.select()
 				.from(tables.account)
@@ -150,7 +195,10 @@ export async function confirmEmailChange(token: string): Promise<void> {
 				!user ||
 				user.email !== change.email ||
 				!account?.password ||
-				fingerprint(account.password) !== change.passwordFingerprint
+				!(await verifyPassword({
+					hash: change.credentialProof,
+					password: account.password,
+				}))
 			) {
 				throw new HTTPException(400, {
 					message: "This email change link is no longer valid",
@@ -178,6 +226,14 @@ export async function confirmEmailChange(token: string): Promise<void> {
 			await tx
 				.delete(tables.session)
 				.where(eq(tables.session.userId, change.userId));
+			await tx
+				.delete(tables.verification)
+				.where(
+					and(
+						eq(tables.verification.value, change.userId),
+						like(tables.verification.identifier, "reset-password:%"),
+					),
+				);
 			return { user, newEmail: change.newEmail };
 		})
 		.catch((error: unknown) => {
@@ -196,6 +252,11 @@ export async function confirmEmailChange(token: string): Promise<void> {
 			throw error;
 		});
 	if (process.env.HOSTED === "true") {
+		await flagUserIfAbusiveIp({
+			userId: updated.user.id,
+			source: "email_verification",
+			headers,
+		});
 		await deleteResendContact(updated.user.email);
 		await createResendContact(
 			updated.newEmail,
