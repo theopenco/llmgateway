@@ -2823,17 +2823,8 @@ export async function prepareRequestBody(
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
 			}
-			// DashScope doesn't recognize `reasoning_effort`; thinking is
-			// controlled via `enable_thinking` (boolean) and `thinking_budget`
-			// (max thinking tokens), and thinking models think by default.
-			// Mappings whose thinking is budget-controlled declare
-			// `reasoningMaxTokens`, so translate the unified reasoning parameters
-			// only for them: `none` becomes an explicit disable, every other tier
-			// becomes an explicit enable with a native budget (mirroring the
-			// Google tier-to-budget mapping), and an explicit
-			// `reasoning.max_tokens` is forwarded as the budget verbatim. When no
-			// reasoning parameter is set, send nothing and keep the provider
-			// default.
+			// Budget-controlled mappings use enable_thinking and thinking_budget;
+			// mappings declaring native reasoning_effort receive it directly.
 			if (
 				supportsReasoning &&
 				providerMappingForOptions?.reasoningMaxTokens === true &&
@@ -2871,6 +2862,14 @@ export async function prepareRequestBody(
 					requestBody.enable_thinking = true;
 					requestBody.thinking_budget = thinkingBudget;
 				}
+			} else if (
+				supportsReasoning &&
+				reasoning_effort !== undefined &&
+				providerMappingForOptions?.supportedParameters?.includes(
+					"reasoning_effort",
+				)
+			) {
+				requestBody.reasoning_effort = reasoning_effort;
 			}
 			break;
 		}
