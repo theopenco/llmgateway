@@ -246,11 +246,23 @@ describe("project admin access", () => {
 			projectIds: [projectId],
 		});
 		expect(add.status).toBe(200);
-		const { member } = await add.json();
-		expect(member.projects).toEqual([{ id: projectId, name: projectId }]);
+		const { invite } = await add.json();
+		expect(invite.projects).toEqual([{ id: projectId, name: projectId }]);
+		expect(await getUserProjectIds("project-peer")).toEqual([]);
+		await acceptPendingInvitesForUser({
+			id: "project-peer",
+			email: "project-peer@example.com",
+		});
+		const member = await db.query.userOrganization.findFirst({
+			where: {
+				userId: { eq: "project-peer" },
+				organizationId: { eq: orgId },
+			},
+		});
+		expect(member).toBeDefined();
 		expect(await getUserProjectIds("project-peer")).toEqual([projectId]);
 		const change = await request(
-			`/team/${orgId}/members/${member.id}`,
+			`/team/${orgId}/members/${member!.id}`,
 			"PATCH",
 			{
 				role: "project_admin",
@@ -260,7 +272,7 @@ describe("project admin access", () => {
 		expect(change.status).toBe(200);
 		expect(await getUserProjectIds("project-peer")).toEqual([otherProjectId]);
 		expect(
-			(await request(`/team/${orgId}/members/${member.id}`, "DELETE")).status,
+			(await request(`/team/${orgId}/members/${member!.id}`, "DELETE")).status,
 		).toBe(200);
 		expect(await getUserProjectIds("project-peer")).toEqual([]);
 	});
