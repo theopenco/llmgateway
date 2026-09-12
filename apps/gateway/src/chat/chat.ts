@@ -10728,7 +10728,7 @@ chat.openapi(completions, async (c) => {
 									}
 									const bufferedDelta = chunkWithoutContent.choices?.[0]?.delta;
 									if (
-										isGoogleCompatibleProvider(usedProvider) &&
+										isGoogleCompatibleProvider(transportProvider) &&
 										bufferedContentChunks.length > 0 &&
 										bufferedDelta?.reasoning_details
 									) {
