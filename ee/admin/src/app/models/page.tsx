@@ -142,7 +142,7 @@ export default async function ModelsPage({
 						{data.total} models found — click a row to view details
 					</p>
 				</div>
-				<div className="flex items-center gap-3">
+				<div className="flex w-full items-center gap-3 sm:w-auto">
 					<form
 						action={handleSearch}
 						className="flex w-full items-center gap-2 sm:w-auto"
