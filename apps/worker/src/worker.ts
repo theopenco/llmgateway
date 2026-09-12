@@ -878,6 +878,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						userAgent: null,
 						gatewayContentFilterResponse: null,
 						responsesApiData: null,
+						routingMetadata: null,
 						dataRetentionCleanedUp: true,
 					})
 					// Use `= ANY($1)` with a single array parameter instead of
