@@ -26,6 +26,36 @@ function corsHeaders(route: Route) {
 	};
 }
 
+async function openModelEditor(page: Page, modelName: string) {
+	await page.getByTestId(`edit-${modelName}`).click();
+	const dialog = page.getByRole("dialog", {
+		name: `Edit ${modelName}`,
+		exact: true,
+		includeHidden: true,
+	});
+	await expect(dialog).toBeVisible();
+	return dialog;
+}
+
+async function waitForModelEditorClosed(page: Page, modelName: string) {
+	// Radix restores focus after its exit animation and portal teardown.
+	await expect(page.getByRole("dialog", { includeHidden: true })).toHaveCount(
+		0,
+	);
+	await expect(page.getByTestId(`edit-${modelName}`)).toBeFocused();
+}
+
+async function saveModelEditor(page: Page, modelName: string) {
+	const response = page.waitForResponse(
+		(response) =>
+			response.request().method() === "PATCH" &&
+			/\/airside\/models\/[^/]+$/.test(new URL(response.url()).pathname),
+	);
+	await page.getByTestId("edit-model-submit").click();
+	expect((await response).status()).toBe(200);
+	await waitForModelEditorClosed(page, modelName);
+}
+
 test("landing page shows the departure board and CTA", async ({ page }) => {
 	await page.goto("/");
 	await expect(page.getByText("Departures — model traffic")).toBeVisible();
@@ -136,46 +166,53 @@ test("fleet lists seeded models with their filing states", async ({ page }) => {
 	await expect(page.getByTestId("file-fare-codestral-3")).toBeDisabled();
 });
 
-test("quantization edits persist on draft cards and stay pending on live models", async ({
-	page,
-}) => {
+test("quantization edits persist on draft cards", async ({ page }) => {
 	await login(page);
 	await page.goto("/dashboard/fleet");
 	const draft = page.getByTestId("model-strip-mistral-large-4");
 	for (const quantization of ["FP8", "Unknown"]) {
-		await page.getByTestId("edit-mistral-large-4").click();
-		await page.getByLabel("Quantization", { exact: true }).click();
+		const dialog = await openModelEditor(page, "mistral-large-4");
+		await dialog.getByLabel("Quantization", { exact: true }).click();
 		await page.getByRole("option", { name: quantization, exact: true }).click();
-		await page.getByTestId("edit-model-submit").click();
-		await expect(page.getByRole("dialog")).not.toBeVisible();
+		await saveModelEditor(page, "mistral-large-4");
 		await page.reload();
+		await expect(draft).toBeVisible();
 		if (quantization === "Unknown") {
 			await expect(draft).not.toContainText("Quant:");
 		} else {
 			await expect(draft).toContainText(`Quant: ${quantization}`);
 		}
-		await page.getByTestId("edit-mistral-large-4").click();
-		await expect(page.getByLabel("Quantization", { exact: true })).toHaveText(
+		await openModelEditor(page, "mistral-large-4");
+		await expect(dialog.getByLabel("Quantization", { exact: true })).toHaveText(
 			quantization,
 		);
 		await page.keyboard.press("Escape");
+		await waitForModelEditorClosed(page, "mistral-large-4");
 	}
-	await page.getByTestId("edit-mistral-medium-4").click();
-	await page.getByLabel("Quantization", { exact: true }).click();
+});
+
+test("quantization edits stay pending on live models and can be withdrawn", async ({
+	page,
+}) => {
+	await login(page);
+	await page.goto("/dashboard/fleet");
+	const dialog = await openModelEditor(page, "mistral-medium-4");
+	await dialog.getByLabel("Quantization", { exact: true }).click();
 	await page.getByRole("option", { name: "BF16", exact: true }).click();
-	await page.getByTestId("edit-model-submit").click();
-	await expect(page.getByRole("dialog")).not.toBeVisible();
+	await saveModelEditor(page, "mistral-medium-4");
 	await page.reload();
 	const active = page.getByTestId("model-strip-mistral-medium-4");
 	await expect(active).toContainText("Change filed");
 	await expect(active).not.toContainText("Quant: BF16");
-	await page.getByTestId("edit-mistral-medium-4").click();
-	await expect(page.getByLabel("Quantization", { exact: true })).toHaveText(
+	await openModelEditor(page, "mistral-medium-4");
+	await expect(dialog.getByLabel("Quantization", { exact: true })).toHaveText(
 		"BF16",
 	);
-	await page.getByLabel("Quantization", { exact: true }).click();
+	await dialog.getByLabel("Quantization", { exact: true }).click();
 	await page.getByRole("option", { name: "Unknown", exact: true }).click();
-	await page.getByTestId("edit-model-submit").click();
+	await saveModelEditor(page, "mistral-medium-4");
+	await page.reload();
+	await expect(active).toContainText("In service");
 	await expect(active).not.toContainText("Change filed");
 });
 

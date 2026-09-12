@@ -1513,6 +1513,14 @@ export function transformStreamingToOpenai(
 			break;
 		}
 
+		case "runpod":
+			transformedData = transformOpenaiStreaming(
+				{ ...data, usage: data.usage ?? data.choices?.[0]?.usage },
+				usedModel,
+				supportsReasoning,
+			);
+			break;
+
 		case "mistral":
 		case "novita":
 		case "zai":

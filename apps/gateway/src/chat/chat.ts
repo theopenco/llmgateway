@@ -78,6 +78,7 @@ import {
 import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
+import { fetchProvider } from "@/lib/fetch-provider.js";
 import {
 	getGcpAccessToken,
 	getVertexAnthropicProjectId,
@@ -8214,7 +8215,7 @@ chat.openapi(completions, async (c) => {
 							routingCfg,
 						);
 
-						res = await fetch(url, {
+						res = await fetchProvider(url, {
 							method: "POST",
 							// SSRF: never follow redirects on an authenticated provider
 							// request. A tenant-supplied baseUrl (validated at registration)
@@ -12646,7 +12647,7 @@ chat.openapi(completions, async (c) => {
 				forwardedServiceTier,
 			);
 
-			res = await fetch(url, {
+			res = await fetchProvider(url, {
 				method: "POST",
 				// SSRF: never follow redirects on an authenticated provider request
 				// (see streaming path above).

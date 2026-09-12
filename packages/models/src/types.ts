@@ -447,7 +447,7 @@ export interface OpenAIResponsesRequestBody {
 	safety_identifier?: string;
 	reasoning: {
 		effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-		summary: "detailed";
+		summary: "auto" | "detailed";
 		context?: "auto" | "current_turn" | "all_turns";
 	};
 	/**

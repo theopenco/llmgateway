@@ -17,6 +17,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
 	Dialog,
 	DialogContent,
@@ -149,7 +150,9 @@ export function ShareChatDialog({
 	const [orgShareMap, setOrgShareMap] = useState<Record<string, string>>(() =>
 		Object.fromEntries(orgShares.map((s) => [s.organizationId, s.id])),
 	);
-	const [shareMode, setShareMode] = useState<ShareMode>("public");
+	const [shareMode, setShareMode] = useState<ShareMode | null>(null);
+	const [allowDiscovery, setAllowDiscovery] = useState(false);
+	const [allowForking, setAllowForking] = useState(false);
 	const [selectedOrgId, setSelectedOrgId] = useState<string>("");
 	const [deletingOrgId, setDeletingOrgId] = useState<string | null>(null);
 	const wasOpenRef = useRef(false);
@@ -218,7 +221,9 @@ export function ShareChatDialog({
 	useEffect(() => {
 		if (open && !wasOpenRef.current) {
 			setCopied(false);
-			setShareMode("public");
+			setShareMode(null);
+			setAllowDiscovery(false);
+			setAllowForking(false);
 			setSelectedOrgId("");
 		}
 		wasOpenRef.current = open;
@@ -226,7 +231,7 @@ export function ShareChatDialog({
 
 	useEffect(() => {
 		if (organizations.length === 0 && shareMode === "organization") {
-			setShareMode("public");
+			setShareMode(null);
 		}
 	}, [organizations.length, shareMode]);
 
@@ -243,7 +248,7 @@ export function ShareChatDialog({
 	const createShare = async () => {
 		const data = await shareChat.mutateAsync({
 			params: { path: { id: currentChatId } },
-			body: {},
+			body: { visibility: "public", allowDiscovery, allowForking },
 		});
 		const url = `${window.location.origin}${data.share.url}`;
 		setCreatedShareUrl(url);
@@ -258,7 +263,11 @@ export function ShareChatDialog({
 
 		const data = await shareChat.mutateAsync({
 			params: { path: { id: currentChatId } },
-			body: { organizationId: selectedOrgId },
+			body: {
+				visibility: "organization",
+				organizationId: selectedOrgId,
+				allowForking,
+			},
 		});
 		setOrgShareMap((prev) => ({ ...prev, [selectedOrgId]: data.share.id }));
 		setSelectedOrgId("");
@@ -360,6 +369,7 @@ export function ShareChatDialog({
 								"flex w-full min-w-0 items-center gap-3 px-4 py-3 text-left transition-colors",
 								shareMode === "public" ? "bg-muted/60" : "hover:bg-muted/40",
 							].join(" ")}
+							aria-pressed={shareMode === "public"}
 							onClick={() => setShareMode("public")}
 						>
 							<Globe2 className="text-muted-foreground size-4 shrink-0" />
@@ -374,6 +384,7 @@ export function ShareChatDialog({
 						<button
 							type="button"
 							disabled={organizations.length === 0}
+							aria-pressed={shareMode === "organization"}
 							className={[
 								"flex w-full min-w-0 items-center gap-3 border-t px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50",
 								shareMode === "organization"
@@ -397,6 +408,33 @@ export function ShareChatDialog({
 						</button>
 					</div>
 				</div>
+				{shareMode && !(shareMode === "public" && isPublicShared) ? (
+					<div className="space-y-3 px-4 pb-4 sm:px-6">
+						{shareMode === "public" ? (
+							<label className="flex items-start gap-3 text-sm">
+								<Checkbox
+									checked={allowDiscovery}
+									onCheckedChange={(checked) =>
+										setAllowDiscovery(checked === true)
+									}
+								/>
+								<span>List publicly and allow search engine indexing</span>
+							</label>
+						) : null}
+						<label className="flex items-start gap-3 text-sm">
+							<Checkbox
+								checked={allowForking}
+								onCheckedChange={(checked) => setAllowForking(checked === true)}
+							/>
+							<span>
+								Allow viewers to fork a permanent copy
+								<span className="text-muted-foreground block text-xs">
+									Forks remain after you delete the share or original chat.
+								</span>
+							</span>
+						</label>
+					</div>
+				) : null}
 				{shareMode === "public" && isPublicShared && activeShareUrl ? (
 					<div className="min-w-0 space-y-5 px-4 pb-5 sm:px-6 sm:pb-6">
 						<div className="bg-muted/60 border-border/60 relative overflow-hidden rounded-2xl border p-4 sm:p-5">
@@ -466,9 +504,9 @@ export function ShareChatDialog({
 						<div className="text-muted-foreground flex gap-2 text-xs leading-relaxed">
 							<Info className="mt-0.5 size-3.5 shrink-0" />
 							<p className="min-w-0">
-								Anyone with this link can open the snapshot. Avoid sharing
-								private details, and remove the link when it should no longer be
-								available.
+								Anyone with this link can read and copy the snapshot. Deleting
+								the link cannot remove copies already made. To change discovery
+								or fork permissions, delete this link and create a new one.
 							</p>
 						</div>
 						<div className="flex justify-center">
@@ -561,12 +599,12 @@ export function ShareChatDialog({
 							<Info className="mt-0.5 size-3.5 shrink-0" />
 							<p>
 								Only messages up to this point will be shared. Members of the
-								selected organization can view the snapshot and fork it to
-								continue privately.
+								selected organization can view and copy the snapshot. Forking
+								requires your permission above.
 							</p>
 						</div>
 					</div>
-				) : (
+				) : shareMode === "public" ? (
 					<div className="min-w-0 space-y-4 px-5 pb-5 sm:px-6 sm:pb-6">
 						<p className="text-muted-foreground text-sm">
 							Only messages up to this point will be shared. Anyone with the
@@ -575,8 +613,9 @@ export function ShareChatDialog({
 						<div className="text-muted-foreground flex gap-2 text-xs leading-relaxed">
 							<Info className="mt-0.5 size-3.5 shrink-0" />
 							<p className="min-w-0">
-								Avoid sharing private details — once the link is created you can
-								copy it and share it on X, LinkedIn, or Reddit.
+								Anyone with the link can read and copy this snapshot. Deleting
+								the share cannot remove copies already made. It stays unlisted
+								unless you allow public discovery above.
 							</p>
 						</div>
 						<div className="flex justify-end">
@@ -592,6 +631,10 @@ export function ShareChatDialog({
 							</Button>
 						</div>
 					</div>
+				) : (
+					<p className="text-muted-foreground px-4 pb-5 text-sm sm:px-6">
+						Choose who can view this chat before sharing.
+					</p>
 				)}
 			</DialogContent>
 		</Dialog>

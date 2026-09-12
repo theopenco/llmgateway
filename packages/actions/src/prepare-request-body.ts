@@ -4,6 +4,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	type ModelDefinition,
 	models,
+	getProviderDefinition,
 	expandAllProviderRegions,
 	type ProviderModelMapping,
 	type ProviderId,
@@ -36,9 +37,10 @@ import {
 	toAnthropicToolSearchTool,
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
+import { fetchNoRedirect } from "./fetch-no-redirect.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
-import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
+import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 import { mappingSupportsToolChoice } from "./tool-choice-support.js";
 import {
@@ -239,7 +241,7 @@ async function fetchImageAsBlob(
 	// SSRF: the URL comes from the request body, so validate it does not resolve
 	// to an internal host and refuse redirects before fetching.
 	await assertSafeUserContentUrl(url);
-	const response = await fetch(url, { redirect: "error" });
+	const response = await fetchNoRedirect(url);
 	if (!response.ok) {
 		throw new Error(
 			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,
@@ -1958,8 +1960,11 @@ export async function prepareRequestBody(
 		});
 	}
 
-	if (usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") {
-		// Novita rejects empty text blocks alongside otherwise valid image input.
+	if (
+		(usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") ||
+		usedProvider === "runpod"
+	) {
+		// These deployments reject empty text blocks in otherwise valid messages.
 		processedMessages = processedMessages.map((message) => {
 			if (!Array.isArray(message.content)) {
 				return message;
@@ -2251,11 +2256,13 @@ export async function prepareRequestBody(
 									...(reasoning_effort !== undefined && {
 										effort: reasoning_effort,
 									}),
-									summary: "detailed",
+									summary:
+										providerMappingForOptions?.reasoningSummary ?? "detailed",
 								}
 							: {
 									effort: responsesReasoningEffort,
-									summary: "detailed",
+									summary:
+										providerMappingForOptions?.reasoningSummary ?? "detailed",
 									// reasoning.context is only documented on OpenAI's
 									// Responses API surface; other providers reject
 									// unknown reasoning fields.
@@ -2282,6 +2289,13 @@ export async function prepareRequestBody(
 					// provider-stored responses, so opt out to keep the provider's
 					// zero-retention data policy accurate.
 					responsesBody.store = false;
+					const prefix = usedRegion
+						? getProviderDefinition(usedProvider)?.regionConfig
+								?.modelPrefixMap?.[usedRegion]
+						: undefined;
+					if (prefix) {
+						responsesBody.model = `${prefix}${usedExternalId}`;
+					}
 				}
 
 				if (usedProvider === "openai") {
@@ -2821,17 +2835,8 @@ export async function prepareRequestBody(
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
 			}
-			// DashScope doesn't recognize `reasoning_effort`; thinking is
-			// controlled via `enable_thinking` (boolean) and `thinking_budget`
-			// (max thinking tokens), and thinking models think by default.
-			// Mappings whose thinking is budget-controlled declare
-			// `reasoningMaxTokens`, so translate the unified reasoning parameters
-			// only for them: `none` becomes an explicit disable, every other tier
-			// becomes an explicit enable with a native budget (mirroring the
-			// Google tier-to-budget mapping), and an explicit
-			// `reasoning.max_tokens` is forwarded as the budget verbatim. When no
-			// reasoning parameter is set, send nothing and keep the provider
-			// default.
+			// Budget-controlled mappings use enable_thinking and thinking_budget;
+			// mappings declaring native reasoning_effort receive it directly.
 			if (
 				supportsReasoning &&
 				providerMappingForOptions?.reasoningMaxTokens === true &&
@@ -2869,6 +2874,14 @@ export async function prepareRequestBody(
 					requestBody.enable_thinking = true;
 					requestBody.thinking_budget = thinkingBudget;
 				}
+			} else if (
+				supportsReasoning &&
+				reasoning_effort !== undefined &&
+				providerMappingForOptions?.supportedParameters?.includes(
+					"reasoning_effort",
+				)
+			) {
+				requestBody.reasoning_effort = reasoning_effort;
 			}
 			break;
 		}
@@ -3717,10 +3730,10 @@ export async function prepareRequestBody(
 									},
 								});
 							} catch (error) {
-								// A size rejection is the user's to act on: degrading to a
+								// A client rejection is the user's to act on: degrading to a
 								// placeholder would return a 200 that silently ignores the
 								// image and still bills for the turn.
-								if (error instanceof ImageSizeLimitError) {
+								if (error instanceof RequestError) {
 									throw error;
 								}
 								logger.error("Failed to process image for Bedrock", {
