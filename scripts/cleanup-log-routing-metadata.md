@@ -5,8 +5,10 @@ backfill also clears expired rows already marked `data_retention_cleaned_up`.
 It changes only `routing_metadata`; it does not reset retention flags or delete
 logs. Installing the SQL does not run the backfill.
 
-Ensure any required historical routing rollups are complete first: cleared
-routing details cannot be reconstructed. Existing aggregation rows are retained.
+Existing routing elections, exclusions, and service-tier counters remain in their
+aggregation tables. Log-based rollups skip periods outside the 30-day retention
+window to avoid rebuilding incomplete routing data. Cleared details cannot be
+reconstructed; hourly summaries built from minute history remain available.
 
 Install using a database connection selected explicitly for this operation:
 

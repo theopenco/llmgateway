@@ -49,7 +49,9 @@ import {
 import {
 	API_ORIGIN_LABELS,
 	CredentialSourceBadge,
+	RoutingMetadataExpired,
 } from "@llmgateway/shared/components";
+import { isRoutingMetadataExpired } from "@llmgateway/shared/log-retention";
 
 import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
@@ -678,6 +680,13 @@ export function LogDetailClient({
 							</div>
 						</Section>
 
+						{isRoutingMetadataExpired(log) && (
+							<Section title="Routing">
+								<div className="rounded-lg border bg-card p-4">
+									<RoutingMetadataExpired />
+								</div>
+							</Section>
+						)}
 						{log.routingMetadata && (
 							<Section title="Routing">
 								<div className="rounded-lg border bg-card p-4">

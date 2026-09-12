@@ -51,6 +51,10 @@ import {
 	isPremiumWeekExpired,
 	isPrivateOrReservedIp,
 } from "@llmgateway/shared";
+import {
+	getLogRetentionCutoff,
+	LOG_RETENTION_DAYS,
+} from "@llmgateway/shared/log-retention";
 
 import { posthog } from "./posthog.js";
 import {
@@ -814,17 +818,8 @@ export async function cleanupExpiredLogData(): Promise<void> {
 	try {
 		logger.info("Starting data retention cleanup...");
 
-		// Unified retention period - 30 days for all users
-		const RETENTION_DAYS = 30;
 		const CLEANUP_BATCH_SIZE = 10000;
-
-		const now = new Date();
-
-		// Calculate cutoff date (30 days ago)
-		const cutoffDate = new Date(
-			// eslint-disable-next-line no-mixed-operators
-			now.getTime() - RETENTION_DAYS * 24 * 60 * 60 * 1000,
-		);
+		const cutoffDate = getLogRetentionCutoff();
 
 		let totalCleaned = 0;
 
@@ -906,7 +901,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 
 		if (totalCleaned > 0) {
 			logger.info(
-				`Total cleaned up verbose data from ${totalCleaned} logs (older than ${RETENTION_DAYS} days)`,
+				`Total cleaned up verbose data from ${totalCleaned} logs (older than ${LOG_RETENTION_DAYS} days)`,
 			);
 		}
 
