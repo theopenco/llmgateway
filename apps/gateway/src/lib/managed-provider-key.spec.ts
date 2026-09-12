@@ -2,6 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
 
+import {
+	encryptProviderKeyForStorage,
+	readProviderKey,
+} from "@llmgateway/actions";
 import { redisClient, waitForSwrMirrorWrites } from "@llmgateway/cache";
 import {
 	cdb,
@@ -35,8 +39,8 @@ async function insertManaged(
 		provider: "openai",
 		managed: true,
 		organizationId: null,
-		token: `token-${values.id}`,
 		...values,
+		...encryptProviderKeyForStorage(`token-${values.id}`, values.id, null),
 	});
 }
 
@@ -70,7 +74,7 @@ describe("findManagedProviderKey", () => {
 		await db.insert(providerKey).values({
 			id: "byok-key",
 			provider: "openai",
-			token: "sk-byok",
+			...encryptProviderKeyForStorage("sk-byok", "byok-key", ORG_ID),
 			organizationId: ORG_ID,
 		});
 
@@ -545,14 +549,18 @@ describe("allowedModels restriction", () => {
 		await db.insert(providerKey).values({
 			id: "byok-restricted",
 			provider: "openai",
-			token: "sk-byok-restricted",
+			...encryptProviderKeyForStorage(
+				"sk-byok-restricted",
+				"byok-restricted",
+				ORG_ID,
+			),
 			organizationId: ORG_ID,
 			allowedModels: ["gpt-5.2"],
 		});
 		await db.insert(providerKey).values({
 			id: "byok-open",
 			provider: "openai",
-			token: "sk-byok-open",
+			...encryptProviderKeyForStorage("sk-byok-open", "byok-open", ORG_ID),
 			organizationId: ORG_ID,
 		});
 
@@ -611,7 +619,11 @@ describe("managed credential cache invalidation", () => {
 			provider: "openai",
 			managed: true,
 			organizationId: null,
-			token: "sk-written-through-cdb",
+			...encryptProviderKeyForStorage(
+				"sk-written-through-cdb",
+				"cdb-written-key",
+				null,
+			),
 		});
 		await waitForSwrMirrorWrites();
 
@@ -621,9 +633,8 @@ describe("managed credential cache invalidation", () => {
 		expect((await findManagedProviderAvailability()).usable).toContain(
 			"openai",
 		);
-		expect((await findManagedProviderKeyById("cdb-written-key"))?.token).toBe(
-			"sk-written-through-cdb",
-		);
+		const stored = await findManagedProviderKeyById("cdb-written-key");
+		expect(stored && readProviderKey(stored)).toBe("sk-written-through-cdb");
 	});
 
 	it("stops serving a credential deactivated through cdb", async () => {
@@ -632,7 +643,11 @@ describe("managed credential cache invalidation", () => {
 			provider: "openai",
 			managed: true,
 			organizationId: null,
-			token: "sk-deactivate-me",
+			...encryptProviderKeyForStorage(
+				"sk-deactivate-me",
+				"to-deactivate",
+				null,
+			),
 		});
 		await waitForSwrMirrorWrites();
 		expect((await findManagedProviderKey("openai"))?.id).toBe("to-deactivate");

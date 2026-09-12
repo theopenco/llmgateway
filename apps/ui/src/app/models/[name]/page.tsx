@@ -35,6 +35,7 @@ import { ModelUsageStats } from "@/components/models/model-usage-stats";
 import { ProviderTabs } from "@/components/models/provider-tabs";
 import { RelatedModels } from "@/components/models/related-models";
 import { JsonLd } from "@/components/seo/json-ld";
+import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
 import {
 	applyDiscount,
@@ -42,7 +43,7 @@ import {
 	getEffectiveProviderDiscount,
 	perMillion,
 } from "@/lib/discount";
-import { fetchModelDiscounts } from "@/lib/fetch-models";
+import { fetchModelDiscounts, fetchProviders } from "@/lib/fetch-models";
 import { buildFaqSchema, buildModelFaqs } from "@/lib/model-faq";
 import { buildRatingSchema, type ModelRatingsData } from "@/lib/rating-schema";
 import { fetchServerData } from "@/lib/server-api";
@@ -52,9 +53,12 @@ import {
 	providers as providerDefinitions,
 	expandAllProviderRegions,
 	type StabilityLevel,
-	type ModelDefinition,
 } from "@llmgateway/models";
-import { isMappingDeactivated } from "@llmgateway/shared/components";
+import {
+	formatPerUnitPrice,
+	getMinPerSecondPrice,
+	isMappingDeactivated,
+} from "@llmgateway/shared/components";
 
 import type { Metadata } from "next";
 
@@ -68,13 +72,22 @@ export default async function ModelPage({ params }: PageProps) {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
 
-	const modelDef = modelDefinitions.find(
-		(m) => m.id === decodedName,
-	) as ModelDefinition;
+	// Fetchers resolve to fallbacks, so an early notFound can leave them pending.
+	const modelDefPromise = findPublicModelDefinition(decodedName);
+	const pageDataPromise = Promise.all([
+		fetchModelDiscounts(decodedName),
+		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
+			params: { query: { modelId: decodedName } },
+		}),
+		fetchProviders(),
+	]);
+	const modelDef = await modelDefPromise;
 
 	if (!modelDef) {
 		notFound();
 	}
+
+	const [allDiscounts, ratingsData, apiProviders] = await pageDataPromise;
 
 	const getStabilityBadgeProps = (stability?: StabilityLevel) => {
 		switch (stability) {
@@ -105,25 +118,31 @@ export default async function ModelPage({ params }: PageProps) {
 		return stability && ["unstable", "experimental"].includes(stability);
 	};
 
-	const [allDiscounts, ratingsData] = await Promise.all([
-		fetchModelDiscounts(decodedName),
-		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
-			params: { query: { modelId: decodedName } },
-		}),
-	]);
+	// Carrier-uploaded branding (Airside claims) overlays the static provider
+	// info, and is the only provider info a DB-only carrier has.
 	const expandedProviders = expandAllProviderRegions(modelDef.providers);
 	const modelProviders = expandedProviders.map((provider) => {
 		const providerInfo = providerDefinitions.find(
 			(p) => p.id === provider.providerId,
 		);
+		const apiProvider = apiProviders.find((p) => p.id === provider.providerId);
 		const globalDiscount = getEffectiveProviderDiscount(
 			allDiscounts,
 			provider.providerId,
 			decodedName,
 		);
+		const baseInfo = providerInfo ?? apiProvider;
 		return {
 			...provider,
-			providerInfo,
+			// Downstream consumers only read display fields, so the merged
+			// object stays typed as the static definition.
+			providerInfo: baseInfo
+				? ({
+						...baseInfo,
+						airsideLogoUrl: apiProvider?.airsideLogoUrl ?? null,
+						airsideIconUrl: apiProvider?.airsideIconUrl ?? null,
+					} as unknown as NonNullable<typeof providerInfo>)
+				: undefined,
 			discount: globalDiscount,
 		};
 	});
@@ -422,24 +441,11 @@ export default async function ModelPage({ params }: PageProps) {
 								<div>
 									Starting at{" "}
 									{(() => {
-										let minPrice: number | undefined;
-										for (const p of visibleProviders) {
-											if (!p.perSecondPrice) {
-												continue;
-											}
-											for (const v of Object.values(p.perSecondPrice)) {
-												const n =
-													typeof v === "number" ? v : parseFloat(String(v));
-												if (
-													Number.isFinite(n) &&
-													(minPrice === undefined || n < minPrice)
-												) {
-													minPrice = n;
-												}
-											}
-										}
-										return minPrice !== undefined
-											? `$${minPrice}/sec`
+										const prices = visibleProviders
+											.map((p) => getMinPerSecondPrice(p))
+											.filter((v): v is number => v !== null);
+										return prices.length > 0
+											? `${formatPerUnitPrice(Math.min(...prices))}/sec`
 											: "Unknown";
 									})()}{" "}
 									video generation
@@ -730,8 +736,7 @@ export async function generateMetadata({
 }: PageProps): Promise<Metadata> {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
-	const model = modelDefinitions.find((m) => m.id === decodedName) as
-		ModelDefinition | undefined;
+	const model = await findPublicModelDefinition(decodedName);
 
 	if (!model) {
 		return {};

@@ -12,7 +12,11 @@ import {
 	CommandItem,
 	CommandList,
 } from "./ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import {
+	DialogSafePopover,
+	PopoverContent,
+	PopoverTrigger,
+} from "./ui/popover";
 
 interface MultiModelIdSelectorProps {
 	/** Canonical model ids offered for selection. */
@@ -102,7 +106,7 @@ export function MultiModelIdSelector({
 				</div>
 			) : null}
 
-			<Popover open={open} onOpenChange={setOpen}>
+			<DialogSafePopover open={open} onOpenChange={setOpen}>
 				<PopoverTrigger asChild>
 					<Button
 						type="button"
@@ -158,7 +162,7 @@ export function MultiModelIdSelector({
 						</CommandList>
 					</Command>
 				</PopoverContent>
-			</Popover>
+			</DialogSafePopover>
 		</div>
 	);
 }

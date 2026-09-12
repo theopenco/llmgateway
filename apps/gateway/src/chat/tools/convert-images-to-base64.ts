@@ -1,4 +1,5 @@
 import { logger } from "@llmgateway/logger";
+import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
 import type { ImageObject } from "./types.js";
 
@@ -8,9 +9,19 @@ const RETRY_DELAY_MS = 1000;
 async function fetchImageWithRetry(
 	url: string,
 ): Promise<{ contentType: string; base64: string } | null> {
+	try {
+		await assertSafeUserContentUrl(url);
+	} catch (error) {
+		logger.warn("Refusing unsafe image URL from provider response", {
+			url,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return null;
+	}
+
 	for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
 		try {
-			const response = await fetch(url);
+			const response = await fetch(url, { redirect: "error" });
 			if (response.ok) {
 				const contentType = response.headers.get("content-type") ?? "image/png";
 				const arrayBuffer = await response.arrayBuffer();

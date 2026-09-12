@@ -4,7 +4,9 @@ import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 describe("transcriptions", () => {
 	const harness = createGatewayApiTestHarness();
@@ -12,14 +14,18 @@ describe("transcriptions", () => {
 	async function seedKeys(token: string, apiKeyId: string) {
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token,
+			...hashApiKeyForStorage(token),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
 		});
 		await db.insert(tables.providerKey).values({
 			id: `provider-key-xai-${apiKeyId}`,
-			token: "xai-test-key",
+			...encryptProviderKeyForStorage(
+				"xai-test-key",
+				`provider-key-xai-${apiKeyId}`,
+				"org-id",
+			),
 			provider: "xai",
 			organizationId: "org-id",
 			baseUrl: harness.mockServerUrl,

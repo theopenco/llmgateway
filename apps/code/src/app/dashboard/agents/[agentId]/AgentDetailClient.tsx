@@ -12,12 +12,12 @@ import {
 	Terminal,
 	Zap,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { notFound, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { AgentModelUsageChart } from "@/app/dashboard/components/AgentModelUsageChart";
 import {
 	type AgentDefinition,
 	AGENTS,
@@ -29,7 +29,17 @@ import {
 import { useUser } from "@/hooks/useUser";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
-import { buildAgentLogsCsv } from "@llmgateway/shared";
+import { Time, buildAgentLogsCsv } from "@llmgateway/shared";
+
+// The model usage chart pulls in recharts and renders below the fold, so
+// keep it out of the agent detail page's initial bundle.
+const AgentModelUsageChart = dynamic(
+	() =>
+		import("@/app/dashboard/components/AgentModelUsageChart").then(
+			(mod) => mod.AgentModelUsageChart,
+		),
+	{ ssr: false, loading: () => <div className="h-[280px]" /> },
+);
 
 type ModelSortColumn =
 	| "id"
@@ -270,7 +280,7 @@ function RequestRow({ log }: { log: ApiLog }) {
 					{log.usedModel ?? log.requestedModel ?? "—"}
 				</p>
 				<p className="text-xs text-muted-foreground/70">
-					{new Date(log.createdAt).toLocaleString()}
+					<Time date={log.createdAt} format="monthDayYearHourMinuteZone" />
 				</p>
 			</div>
 			<div className="flex items-center gap-3 text-xs text-muted-foreground tabular-nums">

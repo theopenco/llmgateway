@@ -2,224 +2,80 @@
 id: claude-code
 slug: claude-code
 title: Claude Code Integration
-seoTitle: "Run Kimi K3 or 200+ Models in Claude Code"
-description: Point Claude Code at Kimi K3, GPT-5, Gemini, or 200+ models with three environment variables. Works with a DevPass plan key or pay-as-you-go credits.
-date: 2026-01-02
+seoTitle: Use Claude Code with LLM Gateway
+description: Connect Claude Code to LLM Gateway with environment variables and verify a real file edit and test run.
+date: 2026-09-07
 ---
 
-Claude Code is locked to Anthropic's API by default. With LLM Gateway, you can point it at any model—GPT-5, Gemini, Llama, or 180+ others—while keeping the same Anthropic API format Claude Code expects.
+Claude Code can use LLM Gateway's Anthropic-compatible endpoint while the gateway routes requests to your selected model. This walkthrough was verified with Claude Code 2.1.263.
 
-Three environment variables. No code changes. Full cost tracking in your dashboard.
+## Video walkthrough
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+<div className="relative aspect-video">
+  <iframe
+    className="absolute inset-0 h-full w-full rounded-lg border-0"
+    src="https://www.youtube-nocookie.com/embed/arip9L7LAPY"
+    title="Claude Code setup and coding demo with LLM Gateway"
+    loading="lazy"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    referrerPolicy="strict-origin-when-cross-origin"
+    allowFullScreen
+  ></iframe>
+</div>
 
-## Video Tutorial
+## Install
 
-Set up Claude Code with LLM Gateway in under 2 minutes:
+Install Claude Code using the&nbsp;[official instructions](https://code.claude.com/docs/en/setup), then check `claude --version`.
 
-<iframe width="560" height="315" src="https://www.youtube.com/embed/FrNDDSER768" title="Claude Code with LLM Gateway" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+## Configure the connection
 
-## Quick Start
-
-Configure Claude Code to use LLM Gateway with these environment variables:
+Create a key in your&nbsp;[dashboard](https://llmgateway.io/dashboard), then set these variables in the terminal where you launch Claude Code:
 
 ```bash
 export ANTHROPIC_BASE_URL=https://api.llmgateway.io
-export ANTHROPIC_AUTH_TOKEN=llmgtwy_your_api_key_here
-# optional: specify a model, otherwise it uses the default Claude model
-export ANTHROPIC_MODEL=gpt-5  # or any model from our catalog
-
-# now run claude!
+export ANTHROPIC_AUTH_TOKEN="your_api_key"
+export ANTHROPIC_MODEL=deepseek-v4-flash
 claude
 ```
 
-## Why This Works
+Use the base URL exactly as shown. Claude Code adds `/v1/messages` itself. If an existing `ANTHROPIC_API_KEY` causes an authentication conflict, unset it in this shell before starting.
 
-LLM Gateway's `/v1/messages` endpoint speaks Anthropic's API format natively. We handle the translation to each provider behind the scenes. This means:
+The example model supports the tool calls needed to read, edit, and test code. Find other compatible choices in the&nbsp;[live model catalogue](https://llmgateway.io/models?features=tools).
 
-- **Use any model** — GPT-5, Gemini, Llama, or Claude itself
-- **Keep your workflow** — Claude Code doesn't know the difference
-- **Track costs** — Every request appears in your LLM Gateway dashboard
-- **Automatic caching** — Repeated requests hit cache, saving money
+## Choose a model
 
-## Choosing Models
-
-You can use any model from the [models page](https://llmgateway.io/models). Popular options for Claude Code include:
-
-### Use OpenAI's Latest Models
+Set `ANTHROPIC_MODEL` before launch, or override it for one session:
 
 ```bash
-# Use the latest GPT model
-export ANTHROPIC_MODEL=gpt-5
-
-# Use a cost-effective alternative
-export ANTHROPIC_MODEL=gpt-5-mini
+claude --model deepseek-v4-flash
 ```
 
-### Use Google's Gemini
+Claude Code's picker and model-discovery behavior vary by version. An explicit `--model` value is useful when your model is absent from the picker.
+
+To add a custom picker option, current Claude Code also supports:
 
 ```bash
-export ANTHROPIC_MODEL=gemini-3.1-pro-preview
+export ANTHROPIC_CUSTOM_MODEL_OPTION=deepseek-v4-flash
+export ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="DeepSeek V4 Flash"
 ```
 
-### Use Anthropic's Claude Models
+To discover the gateway models supported by Claude Code's picker, set `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` before launch. Discovery is subject to the client's model filtering; it does not guarantee that every gateway model appears.
 
-```bash
-export ANTHROPIC_MODEL=anthropic/claude-3-5-sonnet-20241022
-```
+## Verify the connection
 
-## Predefining Models in a Settings File
+Open a small project and ask the agent to read a file, make a change, and run its tests. Our recorded example fixes a TypeScript slugifier and passes all three tests with `deepseek-v4-flash` through LLM Gateway.
 
-Environment variables are read once at startup, so changing `ANTHROPIC_MODEL` means restarting Claude Code. To switch models mid-session instead, put the configuration in `~/.claude/settings.json` (user-wide) or `.claude/settings.json` (per project) and use `/model` to switch on the fly:
+`Hello, LLM Gateway!` becomes `hello-llm-gateway`; repeated separators collapse into one hyphen; empty and punctuation-only inputs stay empty. The demo uses Node.js 24 to run `node --test slugify.test.ts` directly.
 
-```json
-{
-  "env": {
-    "ANTHROPIC_BASE_URL": "https://api.llmgateway.io",
-    "ANTHROPIC_AUTH_TOKEN": "llmgtwy_your_api_key_here"
-  },
-  "model": "claude-sonnet-5"
-}
-```
+Review the diff and test output, then check the request in your&nbsp;[LLM Gateway dashboard](https://llmgateway.io/dashboard). Choose other compatible models from the&nbsp;[live catalogue](https://llmgateway.io/models?features=tools).
 
-`model` sets the model a new session starts on. `/model` overrides it for the running session and saves your choice as the new default.
+![Claude Code completing the coding task through LLM Gateway](/images/guides/claude-code/verified-session.png)
 
-### Restricting the Model List
+## Troubleshooting
 
-`availableModels` limits which models the `/model` picker offers — useful for keeping a team on an approved, budget-appropriate set:
+- **Requests use the wrong endpoint:** check `ANTHROPIC_BASE_URL` in the shell that starts Claude Code and restart the agent after changing it.
+- **Authentication fails:** verify the gateway key and resolve conflicting Anthropic authentication variables.
+- **A model is missing from the picker:** launch with an explicit `--model` ID from the catalogue.
+- **An optional tool is unsupported:** use a model with the required capability, or disable the tool for that session.
 
-```json
-{
-  "availableModels": ["claude-sonnet-5", "claude-haiku-4-5"],
-  "fallbackModel": ["claude-haiku-4-5"]
-}
-```
-
-`fallbackModel` names the models to try when the primary one is unavailable, capped at three.
-
-`availableModels` only filters the rows Claude Code already has — it never creates new ones. To put a non-Claude model in the picker, see [Adding Non-Claude Models to the Picker](#adding-non-claude-models-to-the-picker) below.
-
-## Fetching Models From LLM Gateway
-
-Claude Code can populate its `/model` picker directly from our catalog instead of you hardcoding IDs. Set the discovery flag alongside the base URL:
-
-```bash
-export ANTHROPIC_BASE_URL=https://api.llmgateway.io
-export ANTHROPIC_AUTH_TOKEN=llmgtwy_your_api_key_here
-export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1
-```
-
-On startup Claude Code calls our `/v1/models` endpoint and adds what it returns to the picker, labeled **From gateway**. Entries are cached in `~/.claude/cache/gateway-models.json` and refreshed on each launch, so a failed lookup falls back to the previous list rather than breaking your session. Requires Claude Code v2.1.129 or later.
-
-The [LLM Gateway CLI](https://docs.llmgateway.io/developers/cli#configure) can apply this whole setup (base URL, auth token, and the discovery flag) to your `~/.claude/settings.json` in one command:
-
-```bash
-npx @llmgateway/cli configure claude
-```
-
-> **Heads up:** Claude Code drops discovered models whose ID does not start with `claude` or `anthropic`, before they ever reach the picker — the cache it writes to `~/.claude/cache/gateway-models.json` contains only the surviving entries. Discovery therefore surfaces just the Claude models in our catalog. GPT-5, Gemini, and custom models are filtered out by the client, not by the gateway.
-
-### Adding Non-Claude Models to the Picker
-
-The `/model` picker is a Claude-model list. Its own header says so: _"Switch between Claude models… For other/previous model names, specify with `--model`."_ Neither gateway discovery nor `availableModels` adds a non-Claude row — `availableModels` filters the rows Claude Code already has rather than creating new ones.
-
-`ANTHROPIC_CUSTOM_MODEL_OPTION` is the one setting that adds a non-Claude row:
-
-```bash
-export ANTHROPIC_CUSTOM_MODEL_OPTION=gemini-3.5-flash
-export ANTHROPIC_CUSTOM_MODEL_OPTION_NAME="Gemini 3.5 Flash"
-export ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION="Routed through LLM Gateway"
-```
-
-The entry appears at the bottom of the picker under your chosen name. Only one is supported at a time, so it suits a single alternate model rather than a menu. If you also set `availableModels`, include this ID there or it will be filtered back out.
-
-### Selecting Any Other Model
-
-For everything else — including custom models — name the model directly. These paths accept any ID our gateway routes, with no picker row involved:
-
-```bash
-export ANTHROPIC_MODEL=gemini-3.5-flash   # session default
-claude --model gemini-3.5-flash           # single session
-```
-
-To rotate between several non-Claude models, keep a per-project `.claude/settings.json` with the `model` you want for that repo.
-
-## Environment Variables
-
-When configuring Claude Code, you can use these environment variables:
-
-### ANTHROPIC_MODEL
-
-Specifies the main model to use for primary requests.
-
-```bash
-export ANTHROPIC_MODEL=gpt-5
-```
-
-### Complete Configuration Example
-
-```bash
-export ANTHROPIC_BASE_URL=https://api.llmgateway.io
-export ANTHROPIC_AUTH_TOKEN=llmgtwy_your_api_key_here
-export ANTHROPIC_MODEL=gpt-5
-export ANTHROPIC_SMALL_FAST_MODEL=gpt-5-nano
-```
-
-## Making Manual API Requests
-
-If you want to test the endpoint directly, you can make manual requests:
-
-```bash
-curl -X POST "https://api.llmgateway.io/v1/messages" \
-  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-5",
-    "messages": [
-      {"role": "user", "content": "Hello, how are you?"}
-    ],
-    "max_tokens": 100
-  }'
-```
-
-### Response Format
-
-The endpoint returns responses in Anthropic's message format:
-
-```json
-{
-  "id": "msg_abc123",
-  "type": "message",
-  "role": "assistant",
-  "model": "gpt-5",
-  "content": [
-    {
-      "type": "text",
-      "text": "Hello! I'm doing well, thank you for asking. How can I help you today?"
-    }
-  ],
-  "stop_reason": "end_turn",
-  "stop_sequence": null,
-  "usage": {
-    "input_tokens": 13,
-    "output_tokens": 20
-  }
-}
-```
-
-## What You Get
-
-- **Any model in Claude Code** — GPT-5 for heavy lifting, GPT-4o Mini for routine tasks
-- **Cost visibility** — See exactly what each coding session costs
-- **One bill** — Stop managing separate accounts for OpenAI, Anthropic, Google
-- **Response caching** — Repeated requests (like linting the same file) hit cache
-- **Discounts** — Check [discounted models](/models?discounted=true) for savings up to 90%
-
-## Get Started
-
-1. [Sign up free](https://llmgateway.io/signup) — no credit card required
-2. Copy your API key from the dashboard
-3. Set the environment variables above, or drop them into `~/.claude/settings.json`
-4. Run `claude` and start coding — switch models any time with `/model`
-
-Questions? Check [our docs](https://docs.llmgateway.io) or [join Discord](https://llmgateway.io/discord).
+A&nbsp;[DevPass](https://devpass.llmgateway.io) plan key can also be used. Use canonical model IDs for plan routing.

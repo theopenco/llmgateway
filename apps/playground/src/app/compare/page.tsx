@@ -8,7 +8,7 @@ import { comparisons, US } from "@/lib/comparisons";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Compare Lounge — vs ChatGPT, Claude, Gemini & more",
+	title: "Compare Lounge vs ChatGPT, Claude & Gemini",
 	description:
 		"Compare Lounge to ChatGPT, Claude, Gemini, Poe, Perplexity and OpenRouter — every frontier model on one $19/mo subscription.",
 	alternates: { canonical: "/compare" },

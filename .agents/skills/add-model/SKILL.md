@@ -105,9 +105,13 @@ Probe the deployment. The same model differs between providers, and an
   on a 400.
 - `serviceTiers` — declaring one narrows routing pre-flight.
 - `stability: "unstable"` / `test: "skip"` for flaky, paid-per-call or
-  region-locked mappings; comment why.
+  region-locked mappings.
 - `releasedAt`, plus an `output` entry per capability flag — both enforced by
   `model-metadata.spec.ts`.
+
+Follow the catalogue comment rule in `AGENTS.md`: do not annotate pricing
+choices, probe results, or restrictions already expressed by metadata. Put that
+evidence in the PR body.
 
 A new provider also needs a `providers.ts` entry, endpoint wiring in
 `get-provider-endpoint.ts`, and possibly a `completionIncludesReasoning` entry.
@@ -137,7 +141,7 @@ only on mappings where it works.
 ## 6. Image, video, and other endpoints
 
 Probe the size/quality/duration grid; rate cards list tiers deployments refuse.
-Leave rejected values off the mapping with a comment.
+Leave rejected values off the mapping and record the accepted grid in the PR.
 
 **Video** — `supportedVideoSizes`, `supportedVideoDurationsSeconds`,
 `supportedVideoDurationsSecondsImageToVideo`, `supportsVideoAudio`,
@@ -199,10 +203,18 @@ TEST_MODELS="<provider>/<model>" FULL_MODE=true pnpm test:e2e
 Add the relevant action and Playground specs when those files changed. Run all
 tests against the isolated database required by `AGENTS.md`.
 
-- Scope e2e with `TEST_MODELS` — never run the full suite, and don't invoke the
-  `*.e2e.ts` files one by one. It overrides `test: "skip"`, takes regions as
-  `provider/model:region`, and fails loudly when an entry matches no mapping.
+- For mapping-only changes, the scoped local run is the only relevant e2e
+  result. Never run e2e without `TEST_MODELS` or trigger the GitHub e2e
+  workflow. Failures outside the selected mappings, including failures from an
+  accidentally triggered full run, do not affect acceptance or auto-merge.
+  Once every selected mapping passes, e2e has passed for the change.
+- Scope e2e with `TEST_MODELS`, and don't invoke the `*.e2e.ts` files one by
+  one. It overrides `test: "skip"`, takes regions as `provider/model:region`,
+  and fails loudly when an entry matches no mapping.
 - `FULL_MODE=true` expands the per-effort cases and includes free models.
+- `pnpm test:e2e` loads `.env` automatically. Use credentials already
+  configured in `.envrc` or `.env`; never inspect or invoke password managers
+  or other credential stores, and never retrieve provider secrets manually.
 - API key env names aren't derivable from the provider id — read
   `env.required` from `providers.ts`. Vertex provider variants use different
   credentials, and keys can be region-scoped; do not infer either from the

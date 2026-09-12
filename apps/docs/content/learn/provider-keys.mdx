@@ -9,7 +9,13 @@ import { ThemedImage } from "@/components/themed-image";
 
 The Provider Keys page lets you add your own API keys from LLM providers (OpenAI, Anthropic, Google, etc.) to route requests directly through your accounts without additional gateway fees. The only optional charge is [data storage](/features/data-retention#storage-pricing): if your organization enables full data retention, stored requests are billed at $0.01 per 1M tokens from your credits.
 
-<ThemedImage alt="Provider Keys" basePath="/learn/provider-keys" />
+<ThemedImage
+	alt="Provider Keys"
+	basePath="/learn/provider-keys"
+	width={1440}
+	height={3323}
+	darkHeight={3341}
+/>
 
 ## Adding a Provider Key
 
@@ -33,6 +39,13 @@ Each configured key shows:
 | **Status**      | Active, inactive, or deleted                       |
 | **Base URL**    | Custom endpoint if configured                      |
 | **Token**       | Masked key with only the last 4 characters visible |
+
+<Callout type="info">
+	Provider credentials are encrypted at rest because LLM Gateway must decrypt
+	them to call the upstream provider. Gateway API keys work differently: new and
+	rolled secrets are retained only as keyed HMAC-SHA-256 fingerprints, and
+	authentication compares fingerprints instead of recovering the secret.
+</Callout>
 
 ## Actions
 

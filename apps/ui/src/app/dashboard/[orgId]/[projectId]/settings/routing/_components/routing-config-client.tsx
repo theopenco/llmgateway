@@ -20,6 +20,8 @@ import { Label } from "@/lib/components/label";
 import { Switch } from "@/lib/components/switch";
 import { useFetchClient } from "@/lib/fetch-client";
 
+import { canManageProject } from "@llmgateway/shared/organization-roles";
+
 import { RoutingContactSalesCard } from "./routing-contact-sales-card";
 import { RoutingStrategyCard } from "./routing-strategy-card";
 
@@ -96,6 +98,16 @@ const THRESHOLD_FIELDS: { key: string; label: string; help: string }[] = [
 		key: "cachePromptTokens",
 		label: "Cache Prompt Tokens",
 		help: "Minimum prompt size to factor in prompt caching",
+	},
+	{
+		key: "cacheHitRate",
+		label: "Cache Hit Rate",
+		help: "Assumed cache-hit rate (0-1) used to price cached input into ranking",
+	},
+	{
+		key: "cacheOutputRatio",
+		label: "Cache Output Ratio",
+		help: "Assumed output:input token ratio for large-prompt requests (1 = parity)",
 	},
 	{
 		key: "uptimePenalty",
@@ -311,8 +323,7 @@ export function RoutingConfigClient({
 
 	const role = teamData?.members.find((m) => m.userId === user?.id)?.role;
 	const canManage =
-		selectedOrganization?.enterpriseAccess === true &&
-		(role === "owner" || role === "admin");
+		selectedOrganization?.enterpriseAccess === true && canManageProject(role);
 
 	const [state, setState] = useState<RoutingConfigState>(emptyState());
 	const [defaults, setDefaults] = useState<DefaultsResponse | null>(null);

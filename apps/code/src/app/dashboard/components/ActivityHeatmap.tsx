@@ -5,6 +5,13 @@ import { useMemo } from "react";
 
 import { useApi } from "@/lib/fetch-client";
 
+import {
+	formatDateTime,
+	formatDayKey,
+	UTC_TIME_ZONE,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
+
 interface ActivityHeatmapProps {
 	projectId: string | null;
 }
@@ -56,19 +63,15 @@ function dateKey(d: Date): string {
 	return `${yyyy}-${mm}-${dd}`;
 }
 
-function formatDateLong(iso: string): string {
-	const d = new Date(iso + "T00:00:00Z");
-	return d.toLocaleDateString(undefined, {
-		weekday: "short",
-		month: "short",
-		day: "numeric",
-		year: "numeric",
-		timeZone: "UTC",
-	});
+function formatDateLong(day: string): string {
+	// Already a calendar day in the display zone — render it literally rather
+	// than re-projecting it and landing on the neighbouring day.
+	return formatDateTime(day, UTC_TIME_ZONE, "weekdayMonthDayYear");
 }
 
 export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 	const api = useApi();
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 
 	const { data, isLoading } = api.useQuery(
 		"get",
@@ -76,8 +79,12 @@ export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 		{
 			params: {
 				query: projectId
-					? { projectId, timeRange: "365d" as const }
-					: { timeRange: "365d" as const },
+					? {
+							projectId,
+							timeRange: "365d" as const,
+							timezone: displayTimeZone,
+						}
+					: { timeRange: "365d" as const, timezone: displayTimeZone },
 			},
 		},
 		{
@@ -89,8 +96,12 @@ export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 
 	const { weeks, totalRequests, activeDays, currentStreak, max, monthMarks } =
 		useMemo(() => {
-			const today = new Date();
-			today.setUTCHours(0, 0, 0, 0);
+			// Anchor on "today" in the display zone, then walk the calendar in
+			// UTC. The API buckets into the same zone, so the day keys line up;
+			// anchoring on the UTC day would offset the whole grid by one.
+			const today = new Date(
+				`${formatDayKey(new Date(), displayTimeZone)}T00:00:00Z`,
+			);
 
 			const start = new Date(today);
 			start.setUTCDate(start.getUTCDate() - 364);
@@ -177,17 +188,20 @@ export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 				max: maxCount,
 				monthMarks: marks,
 			};
-		}, [data]);
+		}, [data, displayTimeZone]);
 
 	if (!projectId) {
 		return null;
 	}
 
 	return (
-		<section className="rounded-2xl border bg-card overflow-hidden">
-			<div className="flex flex-col gap-1 border-b bg-gradient-to-br from-card to-card/40 px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
+		<section
+			className="rounded-2xl border bg-card overflow-hidden"
+			aria-busy={isLoading}
+		>
+			<div className="flex min-h-[132px] flex-col gap-1 border-b bg-gradient-to-br from-card to-card/40 px-6 py-5 sm:min-h-0 sm:flex-row sm:items-center sm:justify-between">
 				<div className="flex items-start gap-3">
-					<div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/20">
+					<div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/20">
 						<Activity className="h-4 w-4 text-emerald-500" />
 					</div>
 					<div>
@@ -212,23 +226,22 @@ export default function ActivityHeatmap({ projectId }: ActivityHeatmapProps) {
 
 			<div className="overflow-x-auto px-6 py-6">
 				<div className="mx-auto flex w-fit flex-col gap-1.5">
+					<div className="flex h-3.5 gap-[3px] pl-7 text-[10px] text-muted-foreground">
+						{weeks.map((_, w) => {
+							const mark = monthMarks.find((m) => m.weekIndex === w);
+							return (
+								<div key={w} className="w-3 flex-shrink-0">
+									{mark?.label ?? ""}
+								</div>
+							);
+						})}
+					</div>
 					{isLoading ? (
-						<div className="flex h-[126px] items-center text-xs text-muted-foreground">
+						<div className="flex h-[131px] items-center justify-center text-xs text-muted-foreground">
 							Loading your activity…
 						</div>
 					) : (
 						<>
-							<div className="flex h-3.5 gap-[3px] pl-7 text-[10px] text-muted-foreground">
-								{weeks.map((_, w) => {
-									const mark = monthMarks.find((m) => m.weekIndex === w);
-									return (
-										<div key={w} className="w-3 flex-shrink-0">
-											{mark?.label ?? ""}
-										</div>
-									);
-								})}
-							</div>
-
 							<div className="flex gap-[3px]">
 								<div className="flex w-6 flex-shrink-0 flex-col gap-[3px] pr-1 text-[10px] text-muted-foreground">
 									<div className="h-3" />

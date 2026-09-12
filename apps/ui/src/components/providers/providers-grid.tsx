@@ -38,7 +38,10 @@ import {
 	MIN_REQUESTS_FOR_STATS,
 	type ProviderWindowStats,
 } from "@/lib/provider-stats";
-import { activeModelCounts, listedProviders } from "@/lib/providers-catalog";
+import {
+	activeModelCounts,
+	publicProviderDefinitions,
+} from "@/lib/providers-catalog";
 
 import {
 	countryCodeToFlag,
@@ -47,11 +50,19 @@ import {
 	type ProviderCompliancePolicy,
 	type ProviderId,
 } from "@llmgateway/models";
-import { providerLogoUrls } from "@llmgateway/shared/components";
+import { CarrierMark, providerLogoUrls } from "@llmgateway/shared/components";
 
 type SortKey = "fastest" | "slowest" | "popular" | "name" | "uptime";
 
-const getProviderLogo = (providerId: ProviderId) => {
+const getProviderLogo = (providerId: ProviderId, uploadedLogo?: string) => {
+	// A carrier-uploaded logo (Airside claim) wins over the built-in mark.
+	if (uploadedLogo) {
+		return (
+			<div className="flex size-12 shrink-0 items-center justify-center overflow-hidden">
+				<CarrierMark src={uploadedLogo} className="size-12 object-contain" />
+			</div>
+		);
+	}
 	const LogoComponent = providerLogoUrls[providerId];
 	if (LogoComponent) {
 		return (
@@ -70,14 +81,14 @@ type ComplianceFilterKey =
 	| "requireIso27001"
 	| "requireGdpr"
 	| "blockApiTraining"
-	| "blockPromptLogging";
+	| "zeroDataRetention";
 
 const COMPLIANCE_FILTERS: { key: ComplianceFilterKey; label: string }[] = [
 	{ key: "requireSoc2", label: "SOC 2" },
 	{ key: "requireIso27001", label: "ISO 27001" },
 	{ key: "requireGdpr", label: "GDPR" },
 	{ key: "blockApiTraining", label: "No training" },
-	{ key: "blockPromptLogging", label: "No logging" },
+	{ key: "zeroDataRetention", label: "ZDR" },
 ];
 
 function formatTtft(ms: number | null | undefined): string {
@@ -97,6 +108,16 @@ function formatUptime(pct: number | null | undefined): string {
 	return `${pct.toFixed(2)}%`;
 }
 
+/** A DB-only provider (custom Airside carrier) appended to the static grid.
+ *  Carries its own model count since the static counts don't know it, and no
+ *  compliance metadata — so compliance/country filters exclude it. */
+export interface ExtraGridProvider {
+	id: string;
+	name: string;
+	description: string | null;
+	modelsCount: number;
+}
+
 interface ProvidersGridProps {
 	/** When set, only providers headquartered in this ISO 3166-1 alpha-2 code are shown. */
 	countryCode?: string;
@@ -104,12 +125,35 @@ interface ProvidersGridProps {
 	heading?: string;
 	/** Overrides the default page subheading. */
 	subheading?: string;
+	/** providerId → uploaded logo data URL (Airside carrier branding). */
+	uploadedLogos?: Record<string, string>;
+	/** DB-only providers (custom Airside carriers) to list alongside the
+	 *  static catalogue. */
+	extraProviders?: ExtraGridProvider[];
+	/** API-backed counts, including approved Airside listings. */
+	modelCounts?: Record<string, number>;
+}
+
+type GridProvider =
+	(typeof publicProviderDefinitions)[number] | ExtraGridProvider;
+
+function modelsCountOf(
+	p: GridProvider,
+	modelCounts?: Record<string, number>,
+): number {
+	return (
+		modelCounts?.[p.id] ??
+		("modelsCount" in p ? p.modelsCount : activeModelCounts[p.id] || 0)
+	);
 }
 
 export function ProvidersGrid({
 	countryCode,
 	heading,
 	subheading,
+	uploadedLogos,
+	extraProviders,
+	modelCounts,
 }: ProvidersGridProps = {}) {
 	const router = useRouter();
 	const api = useApi();
@@ -130,17 +174,21 @@ export function ProvidersGrid({
 		});
 	};
 
-	const visibleProviders = useMemo(
-		() =>
-			countryCode
-				? listedProviders.filter((p) => p.headquarters === countryCode)
-				: listedProviders,
-		[countryCode],
-	);
+	const visibleProviders = useMemo<GridProvider[]>(() => {
+		const listedProviders = publicProviderDefinitions.filter(
+			(provider) => modelsCountOf(provider, modelCounts) > 0,
+		);
+		// Country pages only list catalogue providers — custom carriers carry
+		// no headquarters metadata.
+		if (countryCode) {
+			return listedProviders.filter((p) => p.headquarters === countryCode);
+		}
+		return [...listedProviders, ...(extraProviders ?? [])];
+	}, [countryCode, extraProviders, modelCounts]);
 
 	const totalProviders = visibleProviders.length;
 	const totalModels = visibleProviders.reduce(
-		(sum, p) => sum + (activeModelCounts[p.id] || 0),
+		(sum, p) => sum + modelsCountOf(p, modelCounts),
 		0,
 	);
 
@@ -181,7 +229,7 @@ export function ProvidersGrid({
 			return {
 				...provider,
 				stats,
-				modelsCount: activeModelCounts[provider.id] || 0,
+				modelsCount: modelsCountOf(provider, modelCounts),
 			};
 		});
 
@@ -196,7 +244,15 @@ export function ProvidersGrid({
 		}
 		const complianceFiltered =
 			reqs.size > 0 || activeCountry
-				? enriched.filter((p) => isProviderCompliant(p, compliancePolicy))
+				? enriched.filter((p) =>
+						// Custom carriers carry no compliance metadata, so any active
+						// requirement excludes them — matching how the helper treats a
+						// missing dataPolicy.
+						isProviderCompliant(
+							p as Parameters<typeof isProviderCompliant>[0],
+							compliancePolicy,
+						),
+					)
 				: enriched;
 
 		const filtered = query
@@ -243,6 +299,7 @@ export function ProvidersGrid({
 		statsByProvider,
 		visibleProviders,
 		country,
+		modelCounts,
 		reqs,
 		countryCode,
 	]);
@@ -378,6 +435,14 @@ export function ProvidersGrid({
 			) : (
 				<div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 					{filteredAndSorted.map((provider) => {
+						// Static-catalogue-only card decorations; absent on custom
+						// carriers appended via extraProviders.
+						const headquarters =
+							"headquarters" in provider ? provider.headquarters : undefined;
+						const dataPolicy =
+							"dataPolicy" in provider ? provider.dataPolicy : undefined;
+						const website =
+							"website" in provider ? provider.website : undefined;
 						return (
 							<Card
 								key={provider.id}
@@ -390,7 +455,10 @@ export function ProvidersGrid({
 								/>
 								<CardHeader className="flex flex-1 flex-col gap-4">
 									<div className="flex items-start justify-between gap-3">
-										{getProviderLogo(provider.id as ProviderId)}
+										{getProviderLogo(
+											provider.id as ProviderId,
+											uploadedLogos?.[provider.id],
+										)}
 										<span className="inline-flex shrink-0 items-center gap-1 text-sm text-muted-foreground transition-colors group-hover:text-primary">
 											View models
 											<ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5" />
@@ -453,28 +521,28 @@ export function ProvidersGrid({
 											</span>
 										</div>
 										<div className="flex flex-wrap items-center justify-end gap-1.5">
-											{provider.headquarters && (
+											{headquarters && (
 												<Link
-													href={`/providers/country/${provider.headquarters.toLowerCase()}`}
+													href={`/providers/country/${headquarters.toLowerCase()}`}
 													onClick={(e) => e.stopPropagation()}
 													className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-border/60 bg-muted/30 px-2 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
 												>
 													<span className="leading-none">
-														{countryCodeToFlag(provider.headquarters)}
+														{countryCodeToFlag(headquarters)}
 													</span>
 													<MapPin className="h-3 w-3" />
-													{provider.headquarters}
+													{headquarters}
 												</Link>
 											)}
-											{provider.dataPolicy?.apiTraining === false && (
+											{dataPolicy?.apiTraining === false && (
 												<span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
 													<ShieldCheck className="h-3 w-3" />
 													No training
 												</span>
 											)}
-											{provider.website && (
+											{website && (
 												<a
-													href={provider.website}
+													href={website}
 													target="_blank"
 													rel="noopener noreferrer"
 													onClick={(e) => e.stopPropagation()}

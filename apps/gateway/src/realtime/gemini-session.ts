@@ -128,6 +128,16 @@ export interface GeminiRealtimeProxySessionOptions {
 	lease: RealtimeLease;
 	source: string | null;
 	userAgent: string | undefined;
+	/**
+	 * Instructions pinned by the client secret, applied to
+	 * setup.systemInstruction and locked against a client-supplied one.
+	 */
+	pinnedInstructions: string | null;
+	/**
+	 * Output voice pinned by the client secret, applied as the session default
+	 * (setup.generationConfig.speechConfig) when the client did not choose one.
+	 */
+	pinnedVoice: string | null;
 	onClosed: (session: GeminiRealtimeProxySession) => void;
 }
 
@@ -149,6 +159,8 @@ export class GeminiRealtimeProxySession {
 	private readonly lease: RealtimeLease;
 	private readonly source: string | null;
 	private readonly userAgent: string | undefined;
+	private readonly pinnedInstructions: string | null;
+	private readonly pinnedVoice: string | null;
 	private readonly onClosed: (session: GeminiRealtimeProxySession) => void;
 
 	private readonly openedAt = Date.now();
@@ -220,6 +232,8 @@ export class GeminiRealtimeProxySession {
 		this.lease = options.lease;
 		this.source = options.source;
 		this.userAgent = options.userAgent;
+		this.pinnedInstructions = options.pinnedInstructions;
+		this.pinnedVoice = options.pinnedVoice;
 		this.onClosed = options.onClosed;
 
 		this.client.on("message", (data, isBinary) => {
@@ -497,14 +511,74 @@ export class GeminiRealtimeProxySession {
 			return;
 		}
 
+		// Rejected rather than overwritten, so a caller that believes it
+		// configured the prompt learns that it did not.
+		if (
+			this.pinnedInstructions !== null &&
+			rawSetup.systemInstruction !== undefined
+		) {
+			this.sendToClientRaw(
+				buildGeminiError(
+					"instructions_locked",
+					"The session instructions were pinned when this session's client secret was created and cannot be changed via setup.systemInstruction.",
+				),
+			);
+			return;
+		}
+
 		// The model is pinned at connection time; whatever the caller sent is
 		// replaced with the mapping's upstream id.
-		const setup = {
+		const setup: Record<string, unknown> = {
 			...rawSetup,
 			model: `models/${this.preflight.match.mapping.externalId}`,
 		};
+		if (this.pinnedInstructions !== null) {
+			setup.systemInstruction = {
+				parts: [{ text: this.pinnedInstructions }],
+			};
+		}
+		if (this.pinnedVoice !== null) {
+			setup.generationConfig = this.withPinnedVoice(rawSetup.generationConfig);
+		}
 		this.setupSent = true;
 		this.forwardToUpstream(JSON.stringify({ setup }));
+	}
+
+	/**
+	 * Merge the pinned voice into setup.generationConfig.speechConfig. The voice
+	 * is a default rather than a lock, so an explicit client voiceName wins.
+	 */
+	private withPinnedVoice(
+		rawGenerationConfig: unknown,
+	): Record<string, unknown> {
+		const generationConfig: Record<string, unknown> = isPlainObject(
+			rawGenerationConfig,
+		)
+			? { ...rawGenerationConfig }
+			: {};
+		const speechConfig: Record<string, unknown> = isPlainObject(
+			generationConfig.speechConfig,
+		)
+			? { ...generationConfig.speechConfig }
+			: {};
+		const voiceConfig: Record<string, unknown> = isPlainObject(
+			speechConfig.voiceConfig,
+		)
+			? { ...speechConfig.voiceConfig }
+			: {};
+		const prebuiltVoiceConfig: Record<string, unknown> = isPlainObject(
+			voiceConfig.prebuiltVoiceConfig,
+		)
+			? { ...voiceConfig.prebuiltVoiceConfig }
+			: {};
+		if (typeof prebuiltVoiceConfig.voiceName === "string") {
+			return generationConfig;
+		}
+		prebuiltVoiceConfig.voiceName = this.pinnedVoice;
+		voiceConfig.prebuiltVoiceConfig = prebuiltVoiceConfig;
+		speechConfig.voiceConfig = voiceConfig;
+		generationConfig.speechConfig = speechConfig;
+		return generationConfig;
 	}
 
 	/**

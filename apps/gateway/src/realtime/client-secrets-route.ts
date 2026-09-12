@@ -2,13 +2,19 @@ import { OpenAPIHono, z } from "@hono/zod-openapi";
 
 import { validateSource } from "@/chat/tools/validate-source.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
+import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 
 import { logger } from "@llmgateway/logger";
+import { estimateTokensFromText } from "@llmgateway/shared";
 
 import { findRealtimeTranscriptionMapping } from "./catalog.js";
-import { clampClientSecretTtl, createClientSecret } from "./client-secrets.js";
+import {
+	clampClientSecretTtl,
+	createClientSecret,
+	MAX_CLIENT_SECRET_INSTRUCTIONS_TOKENS,
+} from "./client-secrets.js";
 import { RealtimeConnectError } from "./errors.js";
 import { runRealtimePreflight } from "./preflight.js";
 
@@ -48,19 +54,48 @@ const sessionAudioInputSchema = z
 	})
 	.strict();
 
-const sessionAudioSchema = z
+const sessionAudioOutputSchema = z
 	.object({
-		input: sessionAudioInputSchema.optional(),
+		voice: z.string().min(1).optional(),
 	})
 	.strict();
 
-const clientSecretSessionSchema = z
+const sessionAudioSchema = z
+	.object({
+		input: sessionAudioInputSchema.optional(),
+		output: sessionAudioOutputSchema.optional(),
+	})
+	.strict();
+
+const realtimeSessionSchema = z
 	.object({
 		type: z.literal("realtime"),
 		model: z.string().min(1),
+		// Locked for the session's lifetime once set; see instructions_locked in
+		// session.ts.
+		instructions: z.string().min(1).optional(),
 		audio: sessionAudioSchema.optional(),
 	})
 	.strict();
+
+// A transcription session's only model is its transcription model; the rest
+// of the transcription config (delay, keywords, languages, prompt, VAD) is
+// set by the client via session.update once connected.
+const transcriptionSessionSchema = z
+	.object({
+		type: z.literal("transcription"),
+		audio: z
+			.object({
+				input: z.object({ transcription: transcriptionSchema }).strict(),
+			})
+			.strict(),
+	})
+	.strict();
+
+const clientSecretSessionSchema = z.discriminatedUnion("type", [
+	realtimeSessionSchema,
+	transcriptionSessionSchema,
+]);
 
 const expiresAfterSchema = z
 	.object({
@@ -136,6 +171,11 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 		validateSource(c.req.header("x-source"), c.req.header("http-referer")) ??
 		null;
 
+	const requestedModel =
+		body.session.type === "transcription"
+			? body.session.audio.input.transcription.model
+			: body.session.model;
+
 	// Full preflight at mint time so deterministic failures (auth, plan,
 	// credits, model, IAM, compliance) surface as normal HTTP errors before
 	// any WebSocket attempt.
@@ -143,7 +183,9 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 	try {
 		preflight = await runRealtimePreflight({
 			token,
-			requestedModel: body.session.model,
+			requestedModel,
+			intent:
+				body.session.type === "transcription" ? "transcription" : undefined,
 			clientIp: getClientIpFromRequest(c),
 		});
 	} catch (error) {
@@ -151,6 +193,62 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 			return errorResponse(c, error.status, error.code, error.message);
 		}
 		throw error;
+	}
+
+	const responseModel = formatUsedModelForDisplay(
+		preflight.match.mapping.providerId,
+		preflight.match.modelId,
+		undefined,
+		preflight.match.mapping.region,
+	);
+	const ttlSeconds = clampClientSecretTtl(body.expires_after?.seconds);
+
+	if (body.session.type === "transcription") {
+		let secret;
+		try {
+			secret = await createClientSecret({
+				token,
+				model: responseModel,
+				sessionType: "transcription",
+				transcriptionModel: null,
+				instructions: null,
+				voice: null,
+				source,
+				ttlSeconds,
+			});
+		} catch (error) {
+			if (error instanceof RealtimeConnectError) {
+				return errorResponse(c, error.status, error.code, error.message);
+			}
+			throw error;
+		}
+
+		logger.info("Realtime client secret minted", {
+			organizationId: preflight.project.organizationId,
+			model: preflight.match.modelId,
+			sessionType: "transcription",
+			ttlSeconds,
+		});
+
+		return c.json({
+			value: secret.value,
+			expires_at: secret.expiresAt,
+			session: {
+				type: "transcription" as const,
+				audio: { input: { transcription: { model: responseModel } } },
+			},
+		});
+	}
+
+	// A transcription-only model is not a realtime session model, even though
+	// the preflight fallback would connect it as a transcription session.
+	if (preflight.sessionType !== "realtime") {
+		return errorResponse(
+			c,
+			400,
+			"model_not_found",
+			`Realtime model not found: ${requestedModel}. Use session.type "transcription" for transcription models.`,
+		);
 	}
 
 	const requestedTranscription = body.session.audio?.input?.transcription;
@@ -184,20 +282,49 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 		);
 	}
 
-	const ttlSeconds = clampClientSecretTtl(body.expires_after?.seconds);
-	const responseModel = formatUsedModelForDisplay(
-		preflight.match.mapping.providerId,
-		preflight.match.modelId,
-		undefined,
-		preflight.match.mapping.region,
-	);
+	const instructions = body.session.instructions ?? null;
+	if (instructions !== null) {
+		if (isZeroDataRetentionEnabled(preflight.organization)) {
+			return errorResponse(
+				c,
+				400,
+				"zdr_storage_conflict",
+				"Pinned realtime session instructions are unavailable while zero data retention is active. Omit session.instructions.",
+			);
+		}
+		const estimatedTokens = estimateTokensFromText(instructions);
+		if (estimatedTokens > MAX_CLIENT_SECRET_INSTRUCTIONS_TOKENS) {
+			return errorResponse(
+				c,
+				400,
+				"instructions_too_large",
+				`Session instructions are too large for a realtime session: roughly ${estimatedTokens} tokens, limit ${MAX_CLIENT_SECRET_INSTRUCTIONS_TOKENS}.`,
+			);
+		}
+	}
+
+	const voice = body.session.audio?.output?.voice ?? null;
+	if (voice !== null) {
+		const supportedVoices = preflight.match.mapping.supportedVoices ?? [];
+		if (supportedVoices.length > 0 && !supportedVoices.includes(voice)) {
+			return errorResponse(
+				c,
+				400,
+				"voice_not_supported",
+				`Unsupported voice '${voice}' for model ${preflight.match.modelId}. Supported voices: ${supportedVoices.join(", ")}.`,
+			);
+		}
+	}
 
 	let secret;
 	try {
 		secret = await createClientSecret({
 			token,
 			model: responseModel,
+			sessionType: "realtime",
 			transcriptionModel,
+			instructions,
+			voice,
 			source,
 			ttlSeconds,
 		});
@@ -211,6 +338,7 @@ realtimeClientSecretsRoute.post("/client_secrets", async (c) => {
 	logger.info("Realtime client secret minted", {
 		organizationId: preflight.project.organizationId,
 		model: preflight.match.modelId,
+		sessionType: "realtime",
 		ttlSeconds,
 	});
 

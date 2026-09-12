@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { adminMiddleware } from "@/middleware/admin.js";
 import { getStripe } from "@/routes/payments.js";
+import { findDevPlanCardFingerprintOwner } from "@/utils/dev-plan-card-fingerprints.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
 import {
@@ -203,6 +204,7 @@ const compliancePolicySchema = z.object({
 	requireGdpr: z.boolean().optional(),
 	blockApiTraining: z.boolean().optional(),
 	blockPromptLogging: z.boolean().optional(),
+	zeroDataRetention: z.boolean().optional(),
 	blockStealthProviders: z.boolean().optional(),
 	allowedCountries: z.array(z.string()).optional(),
 	blockedProviders: z.array(z.string()).optional(),
@@ -367,6 +369,7 @@ const adminPaymentMethodSchema = z.object({
 	type: z.string(),
 	createdAt: z.string(),
 	isDefault: z.boolean(),
+	canReleaseDevPlanCardFingerprint: z.boolean(),
 	card: z
 		.object({
 			brand: z.string(),
@@ -377,12 +380,21 @@ const adminPaymentMethodSchema = z.object({
 		.nullable(),
 });
 
+const adminDevPlanCardFingerprintSchema = z.object({
+	id: z.string(),
+	createdAt: z.string(),
+	fingerprint: z.string(),
+	isCurrent: z.boolean(),
+	canRelease: z.boolean(),
+});
+
 type PaymentMethodOrganization = Pick<
 	typeof tables.organization.$inferSelect,
 	| "id"
 	| "stripeCustomerId"
 	| "stripeSubscriptionId"
 	| "devPlanStripeSubscriptionId"
+	| "devPlanCardFingerprint"
 	| "chatPlanStripeSubscriptionId"
 >;
 
@@ -546,6 +558,7 @@ const getOrganizationPaymentMethods = createRoute({
 				"application/json": {
 					schema: z.object({
 						paymentMethods: z.array(adminPaymentMethodSchema),
+						devPlanCardFingerprints: z.array(adminDevPlanCardFingerprintSchema),
 					}),
 				},
 			},
@@ -560,14 +573,25 @@ const getOrganizationPaymentMethods = createRoute({
 adminOrgDetails.openapi(getOrganizationPaymentMethods, async (c) => {
 	const { orgId } = c.req.valid("param");
 	const org = await requireOrganization(orgId);
+	const fingerprints = await db.query.devPlanCardFingerprintHistory.findMany({
+		where: { organizationId: { eq: orgId } },
+		orderBy: { createdAt: "desc" },
+	});
+	const devPlanCardFingerprints = fingerprints.map((entry) => ({
+		id: entry.id,
+		createdAt: entry.createdAt.toISOString(),
+		fingerprint: entry.fingerprint,
+		isCurrent: entry.fingerprint === org.devPlanCardFingerprint,
+		canRelease: !org.devPlanStripeSubscriptionId,
+	}));
 
 	if (!org.stripeCustomerId) {
-		return c.json({ paymentMethods: [] });
+		return c.json({ paymentMethods: [], devPlanCardFingerprints });
 	}
 
 	const state = await getOrganizationPaymentMethodState(org);
 	if (!state) {
-		return c.json({ paymentMethods: [] });
+		return c.json({ paymentMethods: [], devPlanCardFingerprints });
 	}
 
 	return c.json({
@@ -576,6 +600,11 @@ adminOrgDetails.openapi(getOrganizationPaymentMethods, async (c) => {
 			type: paymentMethod.type,
 			createdAt: new Date(paymentMethod.created * 1000).toISOString(),
 			isDefault: state.defaultPaymentMethodIds.has(paymentMethod.id),
+			canReleaseDevPlanCardFingerprint: Boolean(
+				!org.devPlanStripeSubscriptionId &&
+				paymentMethod.card?.fingerprint &&
+				paymentMethod.card.fingerprint === org.devPlanCardFingerprint,
+			),
 			card: paymentMethod.card
 				? {
 						brand: paymentMethod.card.brand,
@@ -585,7 +614,78 @@ adminOrgDetails.openapi(getOrganizationPaymentMethods, async (c) => {
 					}
 				: null,
 		})),
+		devPlanCardFingerprints,
 	});
+});
+
+const releaseDevPlanCardFingerprint = createRoute({
+	method: "delete",
+	path: "/organizations/{orgId}/dev-plan-card-fingerprints/{fingerprintId}",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			fingerprintId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ success: z.boolean() }),
+				},
+			},
+			description: "DevPass card fingerprint released.",
+		},
+		404: { description: "Organization or fingerprint not found." },
+		409: { description: "An active DevPass subscription still uses the card." },
+	},
+});
+
+adminOrgDetails.openapi(releaseDevPlanCardFingerprint, async (c) => {
+	const { orgId, fingerprintId } = c.req.valid("param");
+	const org = await requireOrganization(orgId);
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(404, { message: "Fingerprint not found" });
+	}
+	if (org.devPlanStripeSubscriptionId) {
+		throw new HTTPException(409, {
+			message:
+				"End the DevPass subscription before releasing its card fingerprint.",
+		});
+	}
+
+	const fingerprint = await db.query.devPlanCardFingerprintHistory.findFirst({
+		where: {
+			id: { eq: fingerprintId },
+			organizationId: { eq: orgId },
+		},
+	});
+	if (!fingerprint) {
+		throw new HTTPException(404, { message: "Fingerprint not found" });
+	}
+
+	await db.transaction(async (tx) => {
+		await tx
+			.delete(tables.devPlanCardFingerprintHistory)
+			.where(eq(tables.devPlanCardFingerprintHistory.id, fingerprintId));
+		if (org.devPlanCardFingerprint === fingerprint.fingerprint) {
+			await tx
+				.update(tables.organization)
+				.set({ devPlanCardFingerprint: null })
+				.where(eq(tables.organization.id, orgId));
+		}
+	});
+
+	await logAuditEvent({
+		organizationId: orgId,
+		userId: user.id,
+		action: "dev_plan.release_card_fingerprint",
+		resourceType: "dev_plan",
+		resourceId: fingerprintId,
+	});
+
+	return c.json({ success: true });
 });
 
 const deleteOrganizationPaymentMethod = createRoute({
@@ -601,6 +701,7 @@ const deleteOrganizationPaymentMethod = createRoute({
 				"application/json": {
 					schema: z.object({
 						replacementPaymentMethodId: z.string().optional(),
+						releaseDevPlanCardFingerprint: z.boolean().optional(),
 					}),
 				},
 			},
@@ -629,7 +730,8 @@ const deleteOrganizationPaymentMethod = createRoute({
 
 adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 	const { orgId, paymentMethodId } = c.req.valid("param");
-	const { replacementPaymentMethodId } = c.req.valid("json");
+	const { replacementPaymentMethodId, releaseDevPlanCardFingerprint } =
+		c.req.valid("json");
 	const org = await requireOrganization(orgId);
 	const user = c.get("user");
 
@@ -666,6 +768,19 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 		stripeCustomerId === null && Boolean(localPaymentMethod);
 	if (!attachedToOrganization && !hasDetachedLocalMethod) {
 		throw new HTTPException(404, { message: "Payment method not found" });
+	}
+
+	const paymentMethodFingerprint = paymentMethod?.card?.fingerprint ?? null;
+	const canReleaseDevPlanCardFingerprint = Boolean(
+		!org.devPlanStripeSubscriptionId &&
+		paymentMethodFingerprint &&
+		paymentMethodFingerprint === org.devPlanCardFingerprint,
+	);
+	if (releaseDevPlanCardFingerprint && !canReleaseDevPlanCardFingerprint) {
+		throw new HTTPException(400, {
+			message:
+				"This payment method cannot release the retained DevPass card fingerprint.",
+		});
 	}
 
 	const state = await getOrganizationPaymentMethodState(org);
@@ -762,12 +877,10 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 	}
 
 	if (replacementFingerprint && updateDevPlanFingerprint) {
-		const conflictingOrganization = await db.query.organization.findFirst({
-			where: {
-				devPlanCardFingerprint: { eq: replacementFingerprint },
-				id: { ne: orgId },
-			},
-		});
+		const conflictingOrganization = await findDevPlanCardFingerprintOwner(
+			replacementFingerprint,
+			orgId,
+		);
 		if (conflictingOrganization) {
 			throw new HTTPException(409, {
 				message: "Replacement card is already used by another organization.",
@@ -820,6 +933,30 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 			state.customerDefaultId === replacementId);
 
 	await db.transaction(async (tx) => {
+		if (releaseDevPlanCardFingerprint && paymentMethodFingerprint) {
+			await tx
+				.delete(tables.devPlanCardFingerprintHistory)
+				.where(
+					and(
+						eq(tables.devPlanCardFingerprintHistory.organizationId, orgId),
+						eq(
+							tables.devPlanCardFingerprintHistory.fingerprint,
+							paymentMethodFingerprint,
+						),
+					),
+				);
+		}
+
+		if (updateDevPlanFingerprint && replacementFingerprint) {
+			await tx
+				.insert(tables.devPlanCardFingerprintHistory)
+				.values({
+					organizationId: orgId,
+					fingerprint: replacementFingerprint,
+				})
+				.onConflictDoNothing();
+		}
+
 		if (shouldReconcileLocalDefault) {
 			await tx
 				.update(tables.paymentMethod)
@@ -844,15 +981,18 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 		if (
 			disableAutoTopUp ||
 			updateDevPlanFingerprint ||
-			updateChatPlanFingerprint
+			updateChatPlanFingerprint ||
+			releaseDevPlanCardFingerprint
 		) {
 			await tx
 				.update(tables.organization)
 				.set({
 					...(disableAutoTopUp ? { autoTopUpEnabled: false } : {}),
-					...(updateDevPlanFingerprint
-						? { devPlanCardFingerprint: replacementFingerprint }
-						: {}),
+					...(releaseDevPlanCardFingerprint
+						? { devPlanCardFingerprint: null }
+						: updateDevPlanFingerprint
+							? { devPlanCardFingerprint: replacementFingerprint }
+							: {}),
 					...(updateChatPlanFingerprint
 						? { chatPlanCardFingerprint: replacementFingerprint }
 						: {}),
@@ -880,6 +1020,7 @@ adminOrgDetails.openapi(deleteOrganizationPaymentMethod, async (c) => {
 			cardLast4: paymentMethod?.card?.last4,
 			replacementPaymentMethodId: replacementId,
 			autoTopUpDisabled: disableAutoTopUp && org.autoTopUpEnabled,
+			devPlanCardFingerprintReleased: releaseDevPlanCardFingerprint === true,
 		},
 	});
 

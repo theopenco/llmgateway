@@ -7,8 +7,10 @@ import { getAdminUser } from "@/lib/getUser";
 import { getSessionCookieHeader } from "@/lib/session-cookie";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 
 const COOKIE_NAME = "llmgateway_admin_key";
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 90;
 
 const emailSchema = z.object({
 	subject: z.string().describe("A concise, professional email subject line"),
@@ -127,15 +129,9 @@ export async function POST(req: Request) {
 		);
 	}
 
-	const gatewayUrl =
-		process.env.GATEWAY_URL ??
-		(process.env.NODE_ENV === "development"
-			? "http://localhost:4001/v1"
-			: "https://api.llmgateway.io/v1");
-
 	const llmgateway = createLLMGateway({
 		apiKey: keyResult.token,
-		baseURL: gatewayUrl,
+		baseURL: getGatewayApiBaseUrl(),
 	});
 
 	try {
@@ -207,7 +203,7 @@ ${leadResearch.text}`,
 		if (keyResult.setCookie) {
 			response.headers.append(
 				"Set-Cookie",
-				`${keyResult.setCookie.name}=${keyResult.setCookie.value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${60 * 60 * 24 * 30}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`,
+				`${keyResult.setCookie.name}=${keyResult.setCookie.value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${COOKIE_MAX_AGE}${process.env.NODE_ENV === "production" ? "; Secure" : ""}`,
 			);
 		}
 

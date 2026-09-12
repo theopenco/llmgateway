@@ -4,15 +4,30 @@ import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import {
+	LATEST_PROTOCOL_VERSION,
+	McpError,
+	SUPPORTED_PROTOCOL_VERSIONS,
+} from "@modelcontextprotocol/sdk/types.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
-import { findApiKeyByToken, findProjectById } from "@/lib/cached-queries.js";
+import {
+	findApiKeyByToken,
+	findOrganizationById,
+	findProjectById,
+} from "@/lib/cached-queries.js";
+import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
+import { assertMcpHttpsUrl } from "@/mcp/request-url.js";
+import { registerUsageTools } from "@/mcp/usage-tools.js";
+import { isAllowedOrigin, parseAllowedOrigins } from "@/middleware/cors.js";
 
 import { parseDataUrl } from "@llmgateway/actions";
 import { logger, toError } from "@llmgateway/logger";
@@ -24,6 +39,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 import type { OpenAPIHono } from "@hono/zod-openapi";
+import type { ApiKey } from "@llmgateway/db";
 import type { Context } from "hono";
 
 // Define Zod schemas for MCP tool inputs
@@ -139,11 +155,33 @@ type GenerateNanoBananaInput = z.infer<typeof generateNanoBananaInputSchema>;
 /**
  * Creates an MCP server instance with tools for LLM Gateway
  */
-function createMcpServer(apiKey: string): McpServer {
+function createMcpServer(
+	apiKey: string,
+	apiKeyRecord: ApiKey,
+	clientHeaders: Record<string, string>,
+	zeroDataRetentionEnabled: boolean,
+): McpServer {
 	const server = new McpServer({
 		name: "llmgateway",
 		version: "1.0.0",
 	});
+	registerUsageTools(server, apiKey);
+	const generationHeaders = {
+		...clientHeaders,
+		"Content-Type": "application/json",
+		Authorization: `Bearer ${apiKey}`,
+	};
+
+	async function assertGenerationAllowed() {
+		const project = await findProjectById(apiKeyRecord.projectId);
+		if (project) {
+			await assertMemberWithinBudget(
+				apiKeyRecord.createdBy,
+				project.organizationId,
+			);
+		}
+		assertApiKeyWithinUsageLimits(apiKeyRecord);
+	}
 
 	// Register the chat tool
 	server.tool(
@@ -152,19 +190,20 @@ function createMcpServer(apiKey: string): McpServer {
 		chatInputSchema.shape,
 		async (input: ChatInput) => {
 			try {
+				await assertGenerationAllowed();
 				// Call the internal chat completions endpoint
 				const gatewayUrl =
 					process.env.MCP_GATEWAY_URL ??
+					process.env.GATEWAY_URL ??
 					(process.env.NODE_ENV === "production"
 						? "https://api.llmgateway.io"
 						: "http://localhost:4001");
+				assertMcpHttpsUrl(gatewayUrl);
 
 				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
 					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						Authorization: `Bearer ${apiKey}`,
-					},
+					redirect: "error",
+					headers: generationHeaders,
 					body: JSON.stringify({
 						model: input.model,
 						messages: input.messages,
@@ -419,19 +458,20 @@ function createMcpServer(apiKey: string): McpServer {
 		generateImageInputSchema.shape,
 		async (input: GenerateImageInput) => {
 			try {
+				await assertGenerationAllowed();
 				const gatewayUrl =
 					process.env.MCP_GATEWAY_URL ??
+					process.env.GATEWAY_URL ??
 					(process.env.NODE_ENV === "production"
 						? "https://api.llmgateway.io"
 						: "http://localhost:4001");
+				assertMcpHttpsUrl(gatewayUrl);
 
 				// Call the chat completions endpoint with image generation model
 				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
 					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						Authorization: `Bearer ${apiKey}`,
-					},
+					redirect: "error",
+					headers: generationHeaders,
 					body: JSON.stringify({
 						model: input.model,
 						messages: [
@@ -555,18 +595,21 @@ function createMcpServer(apiKey: string): McpServer {
 	// Register the generate-nano-banana tool
 	server.tool(
 		"generate-nano-banana",
-		`Generate an image using Gemini 3 Pro Image Preview (Nano Banana). Tailored for AI coding agents - always returns an inline image preview.${process.env.UPLOAD_DIR ? " Also saves images to disk and returns file paths." : " Set UPLOAD_DIR to enable saving images to disk."}`,
+		`Generate an image using Gemini 3 Pro Image (Nano Banana Pro). Tailored for AI coding agents - always returns an inline image preview.${zeroDataRetentionEnabled ? "" : process.env.UPLOAD_DIR ? " Also saves images to disk and returns file paths." : " Set UPLOAD_DIR to enable saving images to disk."}`,
 		generateNanoBananaInputSchema.shape,
 		async (input: GenerateNanoBananaInput) => {
 			try {
+				await assertGenerationAllowed();
 				const gatewayUrl =
 					process.env.MCP_GATEWAY_URL ??
+					process.env.GATEWAY_URL ??
 					(process.env.NODE_ENV === "production"
 						? "https://api.llmgateway.io"
 						: "http://localhost:4001");
+				assertMcpHttpsUrl(gatewayUrl);
 
 				const body: Record<string, unknown> = {
-					model: "gemini-3-pro-image-preview",
+					model: "gemini-3-pro-image",
 					messages: [
 						{
 							role: "user",
@@ -582,11 +625,9 @@ function createMcpServer(apiKey: string): McpServer {
 
 				const response = await fetch(`${gatewayUrl}/v1/chat/completions`, {
 					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						Authorization: `Bearer ${apiKey}`,
-					},
+					headers: generationHeaders,
 					body: JSON.stringify(body),
+					redirect: "error",
 				});
 
 				if (!response.ok) {
@@ -626,7 +667,9 @@ function createMcpServer(apiKey: string): McpServer {
 					};
 				}
 
-				const uploadDir = process.env.UPLOAD_DIR;
+				const uploadDir = zeroDataRetentionEnabled
+					? undefined
+					: process.env.UPLOAD_DIR;
 				const contentBlocks: Array<
 					| { type: "text"; text: string }
 					| { type: "image"; data: string; mimeType: string }
@@ -1065,6 +1108,23 @@ async function processMcpRequest(
 					},
 				};
 		}
+	} catch (error) {
+		if (error instanceof McpError && error.code === -32001) {
+			logger.warn("MCP request timeout", {
+				message: error.message,
+				data: error.data,
+			});
+			return {
+				jsonrpc: "2.0",
+				id: request.id ?? null,
+				error: {
+					code: error.code,
+					message: "Request timed out",
+					data: error.data,
+				},
+			};
+		}
+		throw error;
 	} finally {
 		await client.close();
 	}
@@ -1098,6 +1158,58 @@ function sendSseEvent(
  */
 export async function mcpHandler(c: Context): Promise<Response> {
 	const method = c.req.method;
+	const accept = c.req.header("Accept") ?? "";
+	const gatewayUrl = process.env.GATEWAY_URL ?? "https://api.llmgateway.io";
+	const origin = c.req.header("Origin");
+	const allowedOrigins = [
+		...(URL.canParse(gatewayUrl) ? [new URL(gatewayUrl).origin] : []),
+		process.env.UI_URL ?? "https://llmgateway.io",
+		...parseAllowedOrigins(process.env.GATEWAY_CORS_ORIGINS),
+	];
+	if (origin && !isAllowedOrigin(allowedOrigins, origin)) {
+		return c.json(
+			{
+				jsonrpc: "2.0",
+				id: null,
+				error: { code: -32000, message: "Origin not allowed" },
+			},
+			403,
+		);
+	}
+	c.header("Cache-Control", "no-store");
+	c.header("Vary", "Accept, Origin");
+	const protocolVersion = c.req.header("MCP-Protocol-Version");
+	if (
+		protocolVersion &&
+		!SUPPORTED_PROTOCOL_VERSIONS.includes(protocolVersion)
+	) {
+		return c.json(
+			{
+				jsonrpc: "2.0",
+				id: null,
+				error: { code: -32600, message: "Unsupported MCP protocol version" },
+			},
+			400,
+		);
+	}
+
+	if (
+		(method === "GET" || method === "HEAD") &&
+		!protocolVersion &&
+		!accept.includes("text/event-stream")
+	) {
+		return c.json({
+			name: "llmgateway",
+			version: "1.0.0",
+			description:
+				"LLM Gateway MCP server: generation, model discovery, and usage analytics.",
+			protocolVersion: LATEST_PROTOCOL_VERSION,
+			transport: "streamable-http",
+			endpoint: new URL("/mcp", gatewayUrl).href,
+			documentation: "https://docs.llmgateway.io/developers/mcp",
+			capabilities: { tools: {} },
+		});
+	}
 
 	logger.debug("MCP request received", {
 		method,
@@ -1112,6 +1224,10 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	// Extract API key for authentication
 	const apiKey = parseApiToken(c);
 	if (!apiKey) {
+		c.header(
+			"WWW-Authenticate",
+			`Bearer resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", gatewayUrl).href}"`,
+		);
 		return c.json(
 			{
 				jsonrpc: "2.0",
@@ -1130,7 +1246,17 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	// endpoint. Without this, any arbitrary string was accepted as a valid key
 	// (GHSA-8h26-h6v8-f9cg).
 	const apiKeyRecord = await findApiKeyByToken(apiKey);
-	if (!apiKeyRecord || apiKeyRecord.status !== "active") {
+	if (
+		!apiKeyRecord ||
+		apiKeyRecord.status !== "active" ||
+		(apiKeyRecord.keyType === "user" &&
+			apiKeyRecord.expiresAt &&
+			apiKeyRecord.expiresAt <= new Date())
+	) {
+		c.header(
+			"WWW-Authenticate",
+			`Bearer error="invalid_token", resource_metadata="${new URL("/.well-known/oauth-protected-resource/mcp", gatewayUrl).href}"`,
+		);
 		return c.json(
 			{
 				jsonrpc: "2.0",
@@ -1145,22 +1271,18 @@ export async function mcpHandler(c: Context): Promise<Response> {
 		);
 	}
 
+	let zeroDataRetentionEnabled = false;
 	try {
-		// User-level limits take priority: enforce the per-member budget (set on
-		// the Teams page; fails open on read errors) before the per-key usage
-		// limits, so a member who is over budget is denied even if the key itself
-		// is within limits. Resolve the project so the org is known for the lookup.
 		const mcpProject = await findProjectById(apiKeyRecord.projectId);
 		if (mcpProject) {
-			await assertMemberWithinBudget(
-				apiKeyRecord.createdBy,
+			const mcpOrganization = await findOrganizationById(
 				mcpProject.organizationId,
 			);
+			zeroDataRetentionEnabled = isZeroDataRetentionEnabled(mcpOrganization);
+			await assertMemberProjectAccess(apiKeyRecord, mcpProject.organizationId);
 		}
-		assertApiKeyWithinUsageLimits(apiKeyRecord);
 	} catch (error) {
-		// Preserve the thrown status: assertMemberWithinBudget uses 403 for a
-		// budget breach, which must not be flattened into a 401 (invalid key).
+		// Preserve project-access denials as 403 rather than invalid-key errors.
 		const status = error instanceof HTTPException ? error.status : 401;
 		return c.json(
 			{
@@ -1178,6 +1300,86 @@ export async function mcpHandler(c: Context): Promise<Response> {
 		);
 	}
 
+	// Keep the legacy bridge for clients using the original HTTP+SSE protocol.
+	const streamableHttp =
+		Boolean(protocolVersion) ||
+		(accept.includes("application/json") &&
+			accept.includes("text/event-stream"));
+	if (streamableHttp) {
+		if (method !== "POST") {
+			c.header("Allow", "POST");
+			return c.json(
+				{
+					jsonrpc: "2.0",
+					id: null,
+					error: {
+						code: -32000,
+						message: "This stateless MCP endpoint accepts POST messages.",
+					},
+				},
+				405,
+			);
+		}
+		const clientHeaders: Record<string, string> = {};
+		for (const header of [
+			"x-source",
+			"user-agent",
+			"http-referer",
+			"x-title",
+			"x-openrouter-title",
+		]) {
+			const value = c.req.header(header);
+			if (value) {
+				clientHeaders[header] = value;
+			}
+		}
+		const server = createMcpServer(
+			apiKey,
+			apiKeyRecord,
+			clientHeaders,
+			zeroDataRetentionEnabled,
+		);
+		const transport = new WebStandardStreamableHTTPServerTransport({
+			sessionIdGenerator: undefined,
+			enableJsonResponse: true,
+		});
+		await server.connect(transport);
+		try {
+			let parsedBody: unknown;
+			try {
+				parsedBody = await c.req.json();
+			} catch (error) {
+				if (!(error instanceof SyntaxError)) {
+					throw error;
+				}
+				return c.json(
+					{
+						jsonrpc: "2.0",
+						id: null,
+						error: { code: -32700, message: "Invalid JSON" },
+					},
+					400,
+				);
+			}
+			if (Array.isArray(parsedBody)) {
+				return c.json(
+					{
+						jsonrpc: "2.0",
+						id: null,
+						error: {
+							code: -32600,
+							message: "Send one JSON-RPC message per request.",
+						},
+					},
+					400,
+				);
+			}
+			return await transport.handleRequest(c.req.raw, { parsedBody });
+		} finally {
+			await server.close();
+		}
+	}
+
 	// Get or create session ID
 	let sessionId = c.req.header("mcp-session-id");
 	sessionId ??= crypto.randomUUID();
@@ -1193,7 +1395,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 				name: "llmgateway",
 				version: "1.0.0",
 				description:
-					"LLM Gateway MCP Server - Access multiple LLM providers through a unified API",
+					"LLM Gateway MCP Server - Generate text and images, inspect usage and costs, and rank models, providers and coding apps.",
 				protocolVersion: "2024-11-05",
 				capabilities: {
 					tools: {},
@@ -1219,9 +1421,7 @@ export async function mcpHandler(c: Context): Promise<Response> {
 		}
 
 		// Build absolute URL for the endpoint event
-		const requestUrl = new URL(c.req.url);
-		const baseUrl = `${requestUrl.protocol}//${requestUrl.host}`;
-		const mcpEndpointUrl = `${baseUrl}/mcp`;
+		const mcpEndpointUrl = `${resolveRequestBaseUrl(c)}/mcp`;
 
 		// SSE endpoint for server-to-client messages
 		const stream = new ReadableStream({
@@ -1249,7 +1449,25 @@ export async function mcpHandler(c: Context): Promise<Response> {
 	}
 
 	if (method === "POST") {
-		const server = createMcpServer(apiKey);
+		const clientHeaders: Record<string, string> = {};
+		for (const header of [
+			"x-source",
+			"user-agent",
+			"http-referer",
+			"x-title",
+			"x-openrouter-title",
+		]) {
+			const value = c.req.header(header);
+			if (value) {
+				clientHeaders[header] = value;
+			}
+		}
+		const server = createMcpServer(
+			apiKey,
+			apiKeyRecord,
+			clientHeaders,
+			zeroDataRetentionEnabled,
+		);
 		try {
 			const rawBody = await c.req.json();
 
@@ -1898,12 +2116,49 @@ async function oauthRegisterHandler(c: Context): Promise<Response> {
 }
 
 /**
+ * Base URL of this deployment as the client sees it. TLS terminates at the
+ * load balancer, so `c.req.url` reports `http:` in production — trust
+ * `x-forwarded-proto` when present or the published metadata advertises
+ * plain-http endpoints.
+ */
+function resolveRequestBaseUrl(c: Context): string {
+	const url = new URL(c.req.url);
+	// x-forwarded-proto may be a comma-separated chain when multiple proxies
+	// are involved; only the first (client-facing) value is meaningful, and
+	// anything but http/https would produce an invalid URL.
+	const forwarded = (c.req.header("x-forwarded-proto") ?? "")
+		.split(",")[0]!
+		.trim()
+		.toLowerCase();
+	const proto =
+		forwarded === "http" || forwarded === "https"
+			? forwarded
+			: url.protocol.slice(0, -1);
+	return `${proto}://${url.host}`;
+}
+
+/**
  * OAuth metadata endpoint handler
  */
 function oauthMetadataHandler(c: Context): Response {
-	const url = new URL(c.req.url);
-	const baseUrl = `${url.protocol}//${url.host}`;
-	return c.json(getOAuthMetadata(baseUrl));
+	return c.json(getOAuthMetadata(resolveRequestBaseUrl(c)));
+}
+
+/**
+ * OAuth 2.0 Protected Resource Metadata (RFC 9728) for the MCP endpoint, so
+ * agents can discover the authorization server and supported scopes
+ * machine-readably.
+ */
+function protectedResourceMetadataHandler(c: Context): Response {
+	const baseUrl = resolveRequestBaseUrl(c);
+	return c.json({
+		resource: `${baseUrl}/mcp`,
+		authorization_servers: [baseUrl],
+		scopes_supported: ["mcp:tools", "mcp:resources", "mcp:prompts"],
+		bearer_methods_supported: ["header"],
+		resource_name: "LLM Gateway MCP server",
+		resource_documentation: "https://llmgateway.io/mcp",
+	});
 }
 
 /**
@@ -1916,6 +2171,17 @@ export function registerMcpOAuthRoutes(app: OpenAPIHono<ServerTypes>): void {
 
 	// Also serve at the MCP-relative path
 	app.get("/.well-known/oauth-authorization-server/mcp", oauthMetadataHandler);
+
+	// OAuth 2.0 Protected Resource Metadata (RFC 9728), plus the
+	// path-suffixed variant RFC 9728 defines for resources under a path
+	app.get(
+		"/.well-known/oauth-protected-resource",
+		protectedResourceMetadataHandler,
+	);
+	app.get(
+		"/.well-known/oauth-protected-resource/mcp",
+		protectedResourceMetadataHandler,
+	);
 
 	// OAuth endpoints
 	app.get("/oauth/authorize", oauthAuthorizeHandler);

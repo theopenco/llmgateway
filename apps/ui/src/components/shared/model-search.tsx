@@ -1,7 +1,7 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { keepPreviousData } from "@tanstack/react-query";
+import { Loader2, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -18,88 +18,114 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/lib/components/popover";
-import { useAppConfig } from "@/lib/config";
+import { useApi } from "@/lib/fetch-client";
+import { cn } from "@/lib/utils";
 
+import {
+	formatMonthLabel,
+	MODEL_SEARCH_PAGE_SIZE,
+	searchMatchRanges,
+} from "@llmgateway/shared";
 import {
 	getModelFamilyIcon,
 	getProviderIcon,
 } from "@llmgateway/shared/components";
 
-import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
+import type { paths } from "@/lib/api/v1";
+import type { ReactNode } from "react";
 
-interface ModelSearchEntry {
-	id: string;
-	name: string;
-	family: string;
-	createdAt?: Date;
-	free?: boolean;
-	searchText: string;
+type ModelSearchResponse =
+	paths["/internal/models/search"]["get"]["responses"][200]["content"]["application/json"];
+type ModelSearchResult = ModelSearchResponse["models"][number];
+
+interface ModelSearchGroup {
+	key: string;
+	heading: string;
+	models: ModelSearchResult[];
 }
 
-function normalizeForSearch(value: string) {
-	return value.toLowerCase().replace(/[-_\s]+/g, "");
+const SEARCH_DEBOUNCE_MS = 150;
+
+function useDebouncedValue(value: string, delay: number) {
+	const [debouncedValue, setDebouncedValue] = useState(value);
+
+	useEffect(() => {
+		const timeout = window.setTimeout(() => setDebouncedValue(value), delay);
+		return () => window.clearTimeout(timeout);
+	}, [delay, value]);
+
+	return debouncedValue;
 }
 
-function formatMonthLabel(date?: Date) {
-	if (!date) {
-		return "Unknown date";
+export function SearchHighlight({
+	text,
+	query,
+}: {
+	text: string;
+	query: string;
+}) {
+	const ranges = useMemo(() => searchMatchRanges(text, query), [text, query]);
+	if (ranges.length === 0) {
+		return <>{text}</>;
 	}
-	return date.toLocaleDateString(undefined, {
-		year: "numeric",
-		month: "long",
-	});
+	const parts: ReactNode[] = [];
+	let last = 0;
+	for (const [start, end] of ranges) {
+		if (start > last) {
+			parts.push(text.slice(last, start));
+		}
+		parts.push(
+			<mark
+				key={start}
+				className="rounded-sm bg-primary/15 px-0.5 text-inherit"
+			>
+				{text.slice(start, end)}
+			</mark>,
+		);
+		last = end;
+	}
+	if (last < text.length) {
+		parts.push(text.slice(last));
+	}
+	return <>{parts}</>;
 }
 
-interface ModelSearchProps {
-	models?: ApiModel[];
-	providers?: ApiProvider[];
-}
-
-export function ModelSearch({
-	models: propModels,
-	providers: propProviders,
-}: ModelSearchProps) {
+export function ModelSearch() {
 	const router = useRouter();
-	const config = useAppConfig();
+	const api = useApi();
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");
+	const query = useDebouncedValue(search.trim(), SEARCH_DEBOUNCE_MS);
 	const listRef = useRef<HTMLDivElement>(null);
+	const sentinelRef = useRef<HTMLDivElement>(null);
 
-	// Fetch models/providers via React Query if not provided as props. The
-	// fetch is deferred until the palette is opened so pages don't pay for the
-	// full catalogue (~700KB JSON) on load.
-	const { data: fetchedModels = [], isLoading: isLoadingModels } = useQuery<
-		ApiModel[]
-	>({
-		queryKey: ["internal-models"],
-		queryFn: async () => {
-			const response = await fetch(`${config.apiUrl}/internal/models`);
-			if (!response.ok) {
-				throw new Error("Failed to fetch models");
-			}
-			const data = await response.json();
-			return data.models ?? [];
+	// One page at a time: the palette walks the catalogue month by month (or
+	// by relevance while typing) and loads the next page as the list scrolls,
+	// so opening it never downloads the full catalogue.
+	const {
+		data,
+		isPending,
+		isPlaceholderData,
+		isFetchingNextPage,
+		hasNextPage,
+		fetchNextPage,
+	} = api.useInfiniteQuery(
+		"get",
+		"/internal/models/search",
+		{
+			params: {
+				query: { q: query || undefined, limit: MODEL_SEARCH_PAGE_SIZE },
+			},
 		},
-		staleTime: 60 * 1000,
-		enabled: propModels === undefined && open,
-	});
-
-	const { data: fetchedProviders = [] } = useQuery<ApiProvider[]>({
-		queryKey: ["internal-providers"],
-		queryFn: async () => {
-			const response = await fetch(`${config.apiUrl}/internal/providers`);
-			if (!response.ok) {
-				throw new Error("Failed to fetch providers");
-			}
-			const data = await response.json();
-			return data.providers ?? [];
+		{
+			enabled: open,
+			initialPageParam: "",
+			pageParamName: "cursor",
+			getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
+			placeholderData: keepPreviousData,
+			staleTime: 60 * 1000,
 		},
-		staleTime: 60 * 1000,
-		enabled: propProviders === undefined && open,
-	});
-
-	const models = propModels ?? fetchedModels;
-	const providers = propProviders ?? fetchedProviders;
+	);
 
 	useEffect(() => {
 		const handleKeyDown = (event: KeyboardEvent) => {
@@ -126,127 +152,73 @@ export function ModelSearch({
 		if (listRef.current) {
 			listRef.current.scrollTop = 0;
 		}
-	}, [search]);
+	}, [query]);
 
-	const entries = useMemo<ModelSearchEntry[]>(() => {
-		const now = new Date();
-		const map = new Map<string, ModelSearchEntry>();
-
-		for (const model of models) {
-			if (model.id === "custom") {
-				continue;
-			}
-
-			// Use createdAt from API (when added to LLM Gateway), fallback to releasedAt
-			const createdAt = model.createdAt
-				? new Date(model.createdAt)
-				: model.releasedAt
-					? new Date(model.releasedAt)
-					: undefined;
-
-			const activeMappings = model.mappings.filter((mapping) => {
-				const isDeactivated =
-					mapping.deactivatedAt &&
-					new Date(mapping.deactivatedAt).getTime() <= now.getTime();
-				return !isDeactivated;
-			});
-
-			if (activeMappings.length === 0) {
-				continue;
-			}
-
-			const key = String(model.id);
-			if (map.has(key)) {
-				continue;
-			}
-
-			const entryName = model.name ?? String(model.id);
-			const providerNames = activeMappings.map(
-				(mapping) =>
-					providers.find((p) => p.id === mapping.providerId)?.name ??
-					String(mapping.providerId),
-			);
-			map.set(key, {
-				id: String(model.id),
-				name: entryName,
-				family: model.family,
-				createdAt,
-				searchText: normalizeForSearch(
-					[
-						...providerNames,
-						entryName,
-						String(model.id),
-						model.family ?? "",
-						model.aliases?.join(" ") ?? "",
-					].join(" "),
-				),
-				free:
-					model.free === true &&
-					activeMappings.some(
-						(mapping) =>
-							mapping.requestPrice === undefined ||
-							mapping.requestPrice === null ||
-							parseFloat(mapping.requestPrice) === 0,
-					),
-			});
-		}
-
-		const list = Array.from(map.values());
-
-		list.sort((a, b) => {
-			const aTime = a.createdAt?.getTime() ?? 0;
-			const bTime = b.createdAt?.getTime() ?? 0;
-			if (bTime !== aTime) {
-				return bTime - aTime;
-			}
-			return a.name.localeCompare(b.name);
-		});
-
-		return list;
-	}, [models, providers]);
-
-	const searchTokens = useMemo(
-		() =>
-			search
-				.toLowerCase()
-				.split(/[-_\s]+/)
-				.filter(Boolean),
-		[search],
+	const models = useMemo(
+		() => data?.pages.flatMap((page) => page?.models ?? []) ?? [],
+		[data],
 	);
+	const firstPage = data?.pages[0];
+	const providers = firstPage?.providers ?? [];
+	const total = firstPage?.total ?? 0;
+	const groupedByMonth = firstPage?.groupedByMonth ?? true;
 
-	const filteredEntries = useMemo(() => {
-		if (searchTokens.length === 0) {
-			return entries;
+	const groups = useMemo<ModelSearchGroup[]>(() => {
+		if (!groupedByMonth) {
+			return models.length > 0
+				? [
+						{
+							key: "matches",
+							heading: total === 1 ? "1 match" : `${total} matches`,
+							models,
+						},
+					]
+				: [];
 		}
-		return entries.filter((entry) =>
-			searchTokens.every((token) => entry.searchText.includes(token)),
+		const byMonth: ModelSearchGroup[] = [];
+		for (const model of models) {
+			const last = byMonth[byMonth.length - 1];
+			if (last && last.key === model.monthKey) {
+				last.models.push(model);
+			} else {
+				byMonth.push({
+					key: model.monthKey,
+					heading: model.monthLabel,
+					models: [model],
+				});
+			}
+		}
+		return byMonth;
+	}, [groupedByMonth, models, total]);
+
+	// Load the next page once the end of the list scrolls into view. The list
+	// is the scroll root, so this also fires when arrow keys walk past the
+	// last loaded item.
+	useEffect(() => {
+		const root = listRef.current;
+		const target = sentinelRef.current;
+		if (!open || !root || !target || !hasNextPage) {
+			return;
+		}
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((entry) => entry.isIntersecting)) {
+					void fetchNextPage();
+				}
+			},
+			{ root, rootMargin: "0px 0px 160px 0px" },
 		);
-	}, [entries, searchTokens]);
+		observer.observe(target);
+		return () => observer.disconnect();
+	}, [open, hasNextPage, fetchNextPage, groups.length]);
 
-	const filteredProviders = useMemo(() => {
-		if (searchTokens.length === 0) {
-			return [];
-		}
-		return providers.filter((p) => {
-			if (p.name === "LLM Gateway") {
-				return false;
-			}
-			const text = normalizeForSearch(`${p.name ?? p.id} ${p.id}`);
-			return searchTokens.every((token) => text.includes(token));
-		});
-	}, [providers, searchTokens]);
-
-	const groups: [string, ModelSearchEntry[]][] = useMemo(() => {
-		const byMonth = new Map<string, ModelSearchEntry[]>();
-		for (const entry of filteredEntries) {
-			const label = formatMonthLabel(entry.createdAt);
-			if (!byMonth.has(label)) {
-				byMonth.set(label, []);
-			}
-			byMonth.get(label)!.push(entry);
-		}
-		return Array.from(byMonth.entries());
-	}, [filteredEntries]);
+	const status = isFetchingNextPage
+		? "loading"
+		: hasNextPage
+			? "more"
+			: models.length > 0
+				? "done"
+				: null;
 
 	return (
 		<Popover
@@ -283,13 +255,20 @@ export function ModelSearch({
 						value={search}
 						onValueChange={setSearch}
 					/>
-					<CommandList ref={listRef} className="max-h-[400px]">
+					<CommandList
+						ref={listRef}
+						data-testid="model-search-list"
+						className={cn(
+							"max-h-[400px] transition-opacity",
+							isPlaceholderData && "opacity-60",
+						)}
+					>
 						<CommandEmpty>
-							{isLoadingModels ? "Loading models…" : "No results found."}
+							{isPending ? "Loading models…" : "No results found."}
 						</CommandEmpty>
-						{filteredProviders.length > 0 && (
+						{providers.length > 0 && (
 							<CommandGroup heading="Providers">
-								{filteredProviders.map((p) => {
+								{providers.map((p) => {
 									const ProviderIcon = getProviderIcon(p.id);
 									return (
 										<CommandItem
@@ -306,13 +285,13 @@ export function ModelSearch({
 														<ProviderIcon className="h-5 w-5" />
 													) : (
 														<span className="text-xs font-medium uppercase text-muted-foreground">
-															{(p.name ?? p.id).charAt(0)}
+															{p.name.charAt(0)}
 														</span>
 													)}
 												</div>
 												<div className="flex flex-col items-start">
 													<span className="text-sm font-medium">
-														{p.name ?? p.id}
+														<SearchHighlight text={p.name} query={query} />
 													</span>
 													<span className="text-xs text-muted-foreground">
 														{p.id}
@@ -324,31 +303,43 @@ export function ModelSearch({
 								})}
 							</CommandGroup>
 						)}
-						{groups.map(([label, items]) => (
-							<CommandGroup key={label} heading={label}>
-								{items.map((entry) => {
-									const FamilyIcon = getModelFamilyIcon(entry.family);
+						{groups.map((group) => (
+							<CommandGroup key={group.key} heading={group.heading}>
+								{group.models.map((model) => {
+									const FamilyIcon = getModelFamilyIcon(model.family);
 
 									return (
 										<CommandItem
-											key={entry.id}
-											value={entry.id}
+											key={model.id}
+											value={model.id}
 											onSelect={() => {
-												router.push(`/models/${encodeURIComponent(entry.id)}`);
+												router.push(`/models/${encodeURIComponent(model.id)}`);
 												setOpen(false);
 											}}
 										>
-											<div className="flex items-center gap-3">
-												<div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
+											<div className="flex w-full min-w-0 items-center gap-3">
+												<div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted">
 													<FamilyIcon className="h-5 w-5" />
 												</div>
-												<div className="flex flex-col items-start">
-													<span className="text-sm font-medium">
-														{entry.name}
+												<div className="flex min-w-0 flex-col items-start">
+													<span className="max-w-full truncate text-sm font-medium">
+														<SearchHighlight text={model.name} query={query} />
 													</span>
-													<span className="text-xs text-muted-foreground">
-														{entry.id}
+													<span className="max-w-full truncate text-xs text-muted-foreground">
+														<SearchHighlight text={model.id} query={query} />
 													</span>
+												</div>
+												<div className="ml-auto flex shrink-0 items-center gap-1.5">
+													{model.free && (
+														<span className="rounded border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+															Free
+														</span>
+													)}
+													{!groupedByMonth && (
+														<span className="text-[10px] text-muted-foreground">
+															{formatMonthLabel(model.monthKey, "short")}
+														</span>
+													)}
 												</div>
 											</div>
 										</CommandItem>
@@ -356,6 +347,24 @@ export function ModelSearch({
 								})}
 							</CommandGroup>
 						))}
+						{status && (
+							<div
+								ref={sentinelRef}
+								data-testid="model-search-status"
+								className="px-2 py-2 text-center text-[11px] text-muted-foreground"
+							>
+								{status === "loading" ? (
+									<span className="inline-flex items-center gap-1.5">
+										<Loader2 className="h-3 w-3 animate-spin" />
+										Loading more…
+									</span>
+								) : status === "more" ? (
+									`${models.length} of ${total} models · scroll for more`
+								) : (
+									`All ${total} models`
+								)}
+							</div>
+						)}
 					</CommandList>
 				</Command>
 			</PopoverContent>

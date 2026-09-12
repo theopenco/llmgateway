@@ -595,7 +595,8 @@ describe("worker", () => {
 				.values({
 					id: retentionTestIds.apiKeyId,
 					projectId: testProject.id,
-					token: "retention-test-token",
+					tokenHash: "retention-test-token",
+					tokenMasked: "retention-test-token",
 					description: "Retention Test API Key",
 					createdBy: testUser.id,
 				})

@@ -281,6 +281,41 @@ export function assertSafeProviderBaseUrl(rawUrl: string): URL {
 	return url;
 }
 
+function assertSafeHttpsUrl(rawUrl: string, label: string): URL {
+	let url: URL;
+	try {
+		url = new URL(rawUrl);
+	} catch {
+		throw new Error(`Invalid ${label[0].toLowerCase()}${label.slice(1)}`);
+	}
+
+	if (url.protocol !== "https:") {
+		throw new Error(`${label} must use https`);
+	}
+
+	const host = url.hostname.toLowerCase();
+
+	if (
+		BLOCKED_HOSTS.has(host) ||
+		BLOCKED_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix))
+	) {
+		throw new Error(`${label} points at a disallowed internal host`);
+	}
+
+	const isIpLiteral =
+		IPV4_RE.test(host) || host.includes(":") || rawUrl.includes("[");
+	if (isIpLiteral && isPrivateOrReservedIp(host)) {
+		throw new Error(`${label} points at a private or reserved address`);
+	}
+
+	return url;
+}
+
+/** Validate any user-controlled server-side fetch target before DNS lookup. */
+export function assertSafeUserUrl(rawUrl: string): URL {
+	return assertSafeHttpsUrl(rawUrl, "User-provided URL");
+}
+
 /**
  * Validate a user-supplied content URL (an image/video/document URL embedded in
  * a chat-completion, image, or video request) that the gateway will fetch
@@ -292,31 +327,5 @@ export function assertSafeProviderBaseUrl(rawUrl: string): URL {
  * internal address is also rejected.
  */
 export function assertSafeContentUrl(rawUrl: string): URL {
-	let url: URL;
-	try {
-		url = new URL(rawUrl);
-	} catch {
-		throw new Error("Invalid content URL");
-	}
-
-	if (url.protocol !== "https:") {
-		throw new Error("Content URL must use https");
-	}
-
-	const host = url.hostname.toLowerCase();
-
-	if (
-		BLOCKED_HOSTS.has(host) ||
-		BLOCKED_HOST_SUFFIXES.some((s) => host.endsWith(s))
-	) {
-		throw new Error("Content URL points at a disallowed internal host");
-	}
-
-	const isIpLiteral =
-		IPV4_RE.test(host) || host.includes(":") || rawUrl.includes("[");
-	if (isIpLiteral && isPrivateOrReservedIp(host)) {
-		throw new Error("Content URL points at a private or reserved address");
-	}
-
-	return url;
+	return assertSafeHttpsUrl(rawUrl, "Content URL");
 }

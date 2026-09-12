@@ -6,6 +6,8 @@ import {
 	findOrganizationById,
 	findProjectById,
 } from "@/lib/cached-queries.js";
+import { rateLimitHeaders } from "@/lib/error-schemas.js";
+import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 
@@ -69,6 +71,7 @@ const getKey = createRoute({
 	request: {},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: keyResponseSchema,
@@ -76,10 +79,11 @@ const getKey = createRoute({
 			},
 			description: "Status of the API key and its organization's dev plan.",
 		},
+		...standardErrorResponses(),
 	},
 });
 
-key.openapi(getKey, async (c) => {
+key.openapi(getKey, async (c): Promise<any> => {
 	const token = extractApiToken(c);
 	const apiKey = await findApiKeyByToken(token);
 

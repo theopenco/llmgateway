@@ -59,7 +59,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [api, gateway, playground, ui, docs, worker, admin, code]
+        app: [api, gateway, playground, ui, docs, worker, admin, code, airside]
         platform: ${{ github.event_name == 'pull_request' && fromJSON('["linux/amd64"]') || fromJSON('["linux/amd64", "linux/arm64"]') }}
     permissions:
       contents: read
@@ -74,7 +74,7 @@ jobs:
         uses: actions/checkout@v7.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.2.0
+        uses: docker/setup-buildx-action@v4.3.0
 
       - name: Login to GitHub Container Registry (main branch only)
         if: github.event_name != 'pull_request'
@@ -130,7 +130,7 @@ jobs:
     if: needs.setup.result == 'success' && github.event_name != 'pull_request'
     strategy:
       matrix:
-        app: [api, gateway, playground, ui, docs, worker, admin, code]
+        app: [api, gateway, playground, ui, docs, worker, admin, code, airside]
     permissions:
       contents: read
       packages: write
@@ -150,7 +150,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.2.0
+        uses: docker/setup-buildx-action@v4.3.0
 
       - name: Docker meta
         id: meta
@@ -194,7 +194,7 @@ jobs:
         uses: actions/checkout@v7.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.2.0
+        uses: docker/setup-buildx-action@v4.3.0
 
       - name: Login to GitHub Container Registry (main branch only)
         if: github.event_name != 'pull_request'
@@ -266,7 +266,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.2.0
+        uses: docker/setup-buildx-action@v4.3.0
 
       - name: Docker meta
         id: meta

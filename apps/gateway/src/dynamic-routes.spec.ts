@@ -1,6 +1,8 @@
 import { beforeAll, describe, expect, test } from "vitest";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
@@ -29,7 +31,7 @@ describe("dynamic routes request path", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: `token-dyn-${suffix}`,
-			token: `real-token-dyn-${suffix}`,
+			...hashApiKeyForStorage(`real-token-dyn-${suffix}`),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -39,7 +41,11 @@ describe("dynamic routes request path", () => {
 			await db.insert(tables.providerKey).values(
 				providers.map((provider) => ({
 					id: `pk-dyn-${provider}-${suffix}`,
-					token: `sk-${provider}-test-key`,
+					...encryptProviderKeyForStorage(
+						`sk-${provider}-test-key`,
+						`pk-dyn-${provider}-${suffix}`,
+						"org-id",
+					),
 					provider,
 					organizationId: "org-id",
 					baseUrl: mockServerUrl,
@@ -284,7 +290,11 @@ describe("dynamic routes request path", () => {
 		const token = await seedBase("custom", []);
 		await db.insert(tables.providerKey).values({
 			id: "pk-dyn-custom",
-			token: "sk-custom-test-key",
+			...encryptProviderKeyForStorage(
+				"sk-custom-test-key",
+				"pk-dyn-custom",
+				"org-id",
+			),
 			provider: "custom",
 			name: "private-provider",
 			organizationId: "org-id",

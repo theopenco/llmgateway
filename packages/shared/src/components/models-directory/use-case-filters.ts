@@ -27,6 +27,70 @@ export function isUseCaseCategory(
 	);
 }
 
+// Capability toggle keys every model matching the Use Case already satisfies,
+// making the toggle a guaranteed no-op while that category is active. Each
+// entry mirrors a clause of applyUseCaseFilter / mappingSupportsCoding below;
+// the spec pins them together so a predicate change breaks a test here.
+const IMPLIED_CAPABILITY_KEYS_BY_USE_CASE: Partial<
+	Record<UseCaseCategory, readonly string[]>
+> = {
+	code: ["tools", "streaming"],
+	chat: ["streaming"],
+	reasoning: ["reasoning"],
+	creative: ["streaming"],
+	image: ["imageGeneration"],
+	multimodal: ["vision"],
+};
+
+// Same idea for the category pages (`categoryFilter` prop): entries only for
+// filters whose applyCategoryFilter predicate is identical to the matching
+// capability toggle. Curated-list and price-based filters imply nothing.
+const IMPLIED_CAPABILITY_KEYS_BY_CATEGORY_FILTER: Partial<
+	Record<ModelCategoryFilter, readonly string[]>
+> = {
+	"text-to-image": ["imageGeneration"],
+	"image-to-image": ["imageGeneration", "vision"],
+	video: ["videoGeneration"],
+	embedding: ["embedding"],
+	"web-search": ["webSearch"],
+	vision: ["vision"],
+	reasoning: ["reasoning"],
+	tools: ["tools"],
+	discounted: ["discounted"],
+};
+
+// Toggles the Use Case makes unsatisfiable: pressing them can only produce an
+// empty directory, so they are disabled like the implied ones.
+const EXCLUDED_CAPABILITY_KEYS_BY_USE_CASE: Partial<
+	Record<UseCaseCategory, readonly string[]>
+> = {
+	// isCodingModel rejects free models outright.
+	code: ["free"],
+	// creative rejects image-output models, which is exactly what the
+	// imageGeneration toggle requires.
+	creative: ["imageGeneration"],
+};
+
+export function getImpliedCapabilityKeys(
+	category: string | null,
+	categoryFilter?: ModelCategoryFilter,
+): string[] {
+	return [
+		...(isUseCaseCategory(category)
+			? (IMPLIED_CAPABILITY_KEYS_BY_USE_CASE[category] ?? [])
+			: []),
+		...(categoryFilter
+			? (IMPLIED_CAPABILITY_KEYS_BY_CATEGORY_FILTER[categoryFilter] ?? [])
+			: []),
+	];
+}
+
+export function getExcludedCapabilityKeys(category: string | null): string[] {
+	return isUseCaseCategory(category)
+		? [...(EXCLUDED_CAPABILITY_KEYS_BY_USE_CASE[category] ?? [])]
+		: [];
+}
+
 export function applyUseCaseFilter(
 	category: string,
 	model: ApiModel,

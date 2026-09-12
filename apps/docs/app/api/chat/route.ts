@@ -11,6 +11,7 @@ import { z } from "zod";
 import { source } from "@/lib/source";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -96,7 +97,19 @@ export type ChatUIMessage = UIMessage<
 	}
 >;
 
-const searchServer = createSearchServer();
+// Built lazily on first search: indexing reads every docs page, which should
+// not run at import time (nor when the route only ever answers 503 because
+// Ask AI is unconfigured). An eager module-scope promise would also be an
+// unhandled rejection if indexing fails before the first request.
+let searchServerPromise: Promise<Document<CustomDocument>> | undefined;
+
+function getSearchServer(): Promise<Document<CustomDocument>> {
+	searchServerPromise ??= createSearchServer().catch((error: unknown) => {
+		searchServerPromise = undefined;
+		throw error;
+	});
+	return searchServerPromise;
+}
 
 async function createSearchServer() {
 	const search = new Document<CustomDocument>({
@@ -107,20 +120,18 @@ async function createSearchServer() {
 		},
 	});
 
-	const docs = await chunkedAll(
-		source.getPages().map(async (page) => {
-			if (!("getText" in page.data)) {
-				return null;
-			}
+	const docs = await chunkedAll(source.getPages(), async (page) => {
+		if (!("getText" in page.data)) {
+			return null;
+		}
 
-			return {
-				title: page.data.title,
-				description: page.data.description,
-				url: page.url,
-				content: await page.data.getText("processed"),
-			} as CustomDocument;
-		}),
-	);
+		return {
+			title: page.data.title,
+			description: page.data.description,
+			url: page.url,
+			content: await page.data.getText("processed"),
+		} as CustomDocument;
+	});
 
 	for (const doc of docs) {
 		if (doc) {
@@ -131,11 +142,17 @@ async function createSearchServer() {
 	return search;
 }
 
-async function chunkedAll<O>(promises: Promise<O>[]): Promise<O[]> {
+// Chunks the inputs, not pre-started promises — mapping to promises up front
+// would put the whole corpus in flight at once and the chunking would only
+// stagger the awaits.
+async function chunkedAll<I, O>(
+	items: I[],
+	fn: (item: I) => Promise<O>,
+): Promise<O[]> {
 	const SIZE = 50;
 	const out: O[] = [];
-	for (let i = 0; i < promises.length; i += SIZE) {
-		out.push(...(await Promise.all(promises.slice(i, i + SIZE))));
+	for (let i = 0; i < items.length; i += SIZE) {
+		out.push(...(await Promise.all(items.slice(i, i + SIZE).map(fn))));
 	}
 	return out;
 }
@@ -158,7 +175,7 @@ const searchTool = tool({
 		limit: z.number().int().min(1).max(100).default(10),
 	}),
 	async execute({ query, limit }: { query: string; limit: number }) {
-		const search = await searchServer;
+		const search = await getSearchServer();
 		return await search.searchAsync(query, {
 			limit,
 			merge: true,
@@ -206,7 +223,7 @@ export async function POST(req: Request) {
 
 	const llmgateway = createLLMGateway({
 		apiKey,
-		baseURL: process.env.GATEWAY_URL ?? "https://api.llmgateway.io/v1",
+		baseURL: getGatewayApiBaseUrl(),
 		headers: {
 			"x-source": "docs-ask-ai",
 		},

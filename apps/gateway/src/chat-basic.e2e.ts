@@ -13,9 +13,11 @@ import {
 	validateResponse,
 } from "@/chat-helpers.e2e.js";
 
+import { createBasicVerificationRequest } from "@llmgateway/actions";
 import { uniqueId } from "@llmgateway/shared/random";
 
 import { app } from "./app.js";
+import { readFixtureImageDataUrl } from "./test-utils/image-fixture.js";
 
 // Helper function to generate unique request IDs for tests
 export function generateTestRequestId(): string {
@@ -41,19 +43,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				"x-no-fallback": "true",
 				Authorization: `Bearer real-token`,
 			},
-			body: JSON.stringify({
-				model: model,
-				messages: [
-					{
-						role: "system",
-						content: "You are a helpful assistant.",
-					},
-					{
-						role: "user",
-						content: "Hello, just reply 'OK'!",
-					},
-				],
-			}),
+			body: JSON.stringify(createBasicVerificationRequest(model)),
 		});
 
 		const json = await res.json();
@@ -89,7 +79,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 		// expect(log.cost).not.toBeNull();
 	});
 
-	if (process.env.EXPERIMENTAL) {
+	describe("extended coverage", () => {
 		test.each(providerModels)(
 			"complex $model",
 			getTestOptions(),
@@ -105,13 +95,18 @@ describe("e2e", getConcurrentTestOptions(), () => {
 					},
 					body: JSON.stringify({
 						model: model,
+						...(provider.imageGenerations && {
+							image_config: { image_size: "1024x1024", image_quality: "low" },
+						}),
 						messages: [
 							{
 								role: "user",
 								content: [
 									{
 										type: "text",
-										text: "<task>\ndescribe this image\n</task>",
+										text: provider.imageGenerations
+											? "Add a blue circle to the top left of this image."
+											: "<task>\ndescribe this image\n</task>",
 									},
 									{
 										type: "text",
@@ -123,7 +118,9 @@ describe("e2e", getConcurrentTestOptions(), () => {
 												{
 													type: "image_url",
 													image_url: {
-														url: "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://google.com&size=128",
+														url: provider.imageGenerations
+															? readFixtureImageDataUrl()
+															: "https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://google.com&size=128",
 													},
 												},
 											]
@@ -159,9 +156,7 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				expect(json.usage.completion_tokens).toBeGreaterThan(0);
 				expect(json.usage.total_tokens).toBeGreaterThan(0);
 				expect(json.usage.total_tokens).toEqual(
-					json.usage.prompt_tokens +
-						json.usage.completion_tokens +
-						(json.usage.reasoning_tokens ?? 0),
+					json.usage.prompt_tokens + json.usage.completion_tokens,
 				);
 			},
 		);
@@ -219,5 +214,5 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				expect(json.usage.total_tokens).toBeGreaterThan(0);
 			},
 		);
-	}
+	});
 });

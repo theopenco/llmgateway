@@ -4,7 +4,6 @@ import { getProviderEndpoint } from "./get-provider-endpoint.js";
 
 const originalAiStudioBaseUrl = process.env.LLM_GOOGLE_AI_STUDIO_BASE_URL;
 const originalGlacierBaseUrl = process.env.LLM_GLACIER_BASE_URL;
-const originalPermafrostBaseUrl = process.env.LLM_PERMAFROST_BASE_URL;
 const originalVertexBaseUrl = process.env.LLM_GOOGLE_VERTEX_BASE_URL;
 const originalVertexProject = process.env.LLM_GOOGLE_CLOUD_PROJECT;
 const originalVertexRegion = process.env.LLM_GOOGLE_VERTEX_REGION;
@@ -32,12 +31,6 @@ afterEach(() => {
 		delete process.env.LLM_GLACIER_BASE_URL;
 	} else {
 		process.env.LLM_GLACIER_BASE_URL = originalGlacierBaseUrl;
-	}
-
-	if (originalPermafrostBaseUrl === undefined) {
-		delete process.env.LLM_PERMAFROST_BASE_URL;
-	} else {
-		process.env.LLM_PERMAFROST_BASE_URL = originalPermafrostBaseUrl;
 	}
 
 	if (originalVertexBaseUrl === undefined) {
@@ -109,6 +102,53 @@ afterEach(() => {
 });
 
 describe("getProviderEndpoint", () => {
+	function getCustomEndpoint(
+		apiFormat: "openai-chat-completions" | "openai-responses" | "google-vertex",
+		options: { stream?: boolean; token?: string } = {},
+	) {
+		return getProviderEndpoint(
+			"custom",
+			"https://carrier.example/api",
+			"gpt-5.6-luna",
+			options.token,
+			options.stream ?? false,
+			false,
+			false,
+			undefined,
+			undefined,
+			false,
+			undefined,
+			true,
+			"gpt-5.6-luna",
+			apiFormat === "google-vertex" ? "api-key" : undefined,
+			undefined,
+			apiFormat,
+		);
+	}
+
+	it("honors an explicit OpenAI Chat Completions format", () => {
+		expect(getCustomEndpoint("openai-chat-completions")).toBe(
+			"https://carrier.example/api/v1/chat/completions",
+		);
+	});
+
+	it("honors an explicit OpenAI Responses format", () => {
+		expect(getCustomEndpoint("openai-responses")).toBe(
+			"https://carrier.example/api/v1/responses",
+		);
+	});
+
+	it("honors an explicit Google Vertex format", () => {
+		expect(
+			getCustomEndpoint("google-vertex", {
+				stream: true,
+				token: "provider-key",
+			}),
+		).toBe(
+			"https://carrier.example/api/v1/publishers/google/models/gpt-5.6-luna:streamGenerateContent?key=provider-key&alt=sse",
+		);
+	});
+
 	it("builds Glacier endpoints from env base URL", () => {
 		process.env.LLM_GLACIER_BASE_URL = "https://glacier.example.com";
 
@@ -130,22 +170,6 @@ describe("getProviderEndpoint", () => {
 
 		expect(() => getProviderEndpoint("glacier")).toThrow(
 			"Glacier provider requires LLM_GLACIER_BASE_URL environment variable",
-		);
-	});
-
-	it("builds Permafrost endpoints from env base URL", () => {
-		process.env.LLM_PERMAFROST_BASE_URL = "https://permafrost.example.com";
-
-		expect(getProviderEndpoint("permafrost", undefined, "kimi-k3")).toBe(
-			"https://permafrost.example.com/v1/chat/completions",
-		);
-	});
-
-	it("requires Permafrost base URL when no override is provided", () => {
-		delete process.env.LLM_PERMAFROST_BASE_URL;
-
-		expect(() => getProviderEndpoint("permafrost")).toThrow(
-			"Permafrost provider requires LLM_PERMAFROST_BASE_URL environment variable",
 		);
 	});
 
@@ -303,6 +327,43 @@ describe("getProviderEndpoint", () => {
 	});
 
 	describe("vertex oauth token type", () => {
+		it.each(["environment", "provider options", "managed credential"])(
+			"preserves OAuth from %s with an explicit Vertex format",
+			(source) => {
+				process.env.LLM_GOOGLE_CLOUD_PROJECT = "project-a";
+				process.env.LLM_GOOGLE_VERTEX_REGION = "global";
+				process.env.LLM_GOOGLE_VERTEX_TOKEN_TYPE =
+					source === "environment" ? "oauth" : "api-key";
+
+				const endpoint = getProviderEndpoint(
+					"google-vertex",
+					"https://aiplatform.googleapis.com",
+					"gemini-2.5-pro",
+					"provider-token",
+					true,
+					undefined,
+					undefined,
+					source === "provider options"
+						? { google_vertex_token_type: "oauth" }
+						: source === "managed credential"
+							? { env_config: { tokenType: "oauth" } }
+							: undefined,
+					undefined,
+					undefined,
+					undefined,
+					false,
+					undefined,
+					undefined,
+					undefined,
+					"google-vertex",
+				);
+
+				expect(endpoint).toBe(
+					"https://aiplatform.googleapis.com/v1/projects/project-a/locations/global/publishers/google/models/gemini-2.5-pro:streamGenerateContent?alt=sse",
+				);
+			},
+		);
+
 		it("omits ?key= when token type is oauth via env var", () => {
 			process.env.LLM_GOOGLE_CLOUD_PROJECT = "project-a";
 			process.env.LLM_GOOGLE_VERTEX_REGION = "us-central1";
@@ -457,6 +518,104 @@ describe("getProviderEndpoint", () => {
 					"grok-4-1-fast-non-reasoning",
 				),
 			).toThrow(/Azure AI Foundry resource (is invalid|is required)/);
+		});
+	});
+
+	describe("azure-anthropic", () => {
+		it("builds the Microsoft Foundry Anthropic Messages endpoint", () => {
+			process.env.LLM_AZURE_ANTHROPIC_RESOURCE = "llmg-us-east-2";
+
+			const endpoint = getProviderEndpoint(
+				"azure-anthropic",
+				undefined,
+				"claude-opus-4-8",
+			);
+
+			expect(endpoint).toBe(
+				"https://llmg-us-east-2.services.ai.azure.com/anthropic/v1/messages",
+			);
+		});
+
+		it("uses the same messages endpoint for streaming requests", () => {
+			process.env.LLM_AZURE_ANTHROPIC_RESOURCE = "llmg-us-east-2";
+
+			const endpoint = getProviderEndpoint(
+				"azure-anthropic",
+				undefined,
+				"claude-sonnet-5",
+				undefined,
+				true,
+			);
+
+			expect(endpoint).toBe(
+				"https://llmg-us-east-2.services.ai.azure.com/anthropic/v1/messages",
+			);
+		});
+
+		it("prefers the resource from provider key options", () => {
+			process.env.LLM_AZURE_ANTHROPIC_RESOURCE = "env-resource";
+
+			const endpoint = getProviderEndpoint(
+				"azure-anthropic",
+				undefined,
+				"claude-opus-5",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				{ azure_anthropic_resource: "byok-resource" },
+			);
+
+			expect(endpoint).toBe(
+				"https://byok-resource.services.ai.azure.com/anthropic/v1/messages",
+			);
+		});
+
+		it("uses the managed credential resource", () => {
+			delete process.env.LLM_AZURE_ANTHROPIC_RESOURCE;
+
+			const endpoint = getProviderEndpoint(
+				"azure-anthropic",
+				undefined,
+				"claude-sonnet-5",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				{ env_config: { resource: "managed-resource" } },
+				undefined,
+				undefined,
+				undefined,
+				true,
+			);
+
+			expect(endpoint).toBe(
+				"https://managed-resource.services.ai.azure.com/anthropic/v1/messages",
+			);
+		});
+
+		it("throws when no resource is configured", () => {
+			delete process.env.LLM_AZURE_ANTHROPIC_RESOURCE;
+
+			expect(() =>
+				getProviderEndpoint("azure-anthropic", undefined, "claude-opus-4-8"),
+			).toThrow(/Azure Anthropic resource is required/);
+		});
+
+		it.each([
+			"evil.com/path",
+			"resource.evil.com",
+			"resource:8080",
+			"https://evil.com",
+			"a/b",
+			"a b",
+			"",
+		])("rejects an invalid resource name (%s)", (resource) => {
+			process.env.LLM_AZURE_ANTHROPIC_RESOURCE = resource;
+
+			expect(() =>
+				getProviderEndpoint("azure-anthropic", undefined, "claude-opus-4-8"),
+			).toThrow(/Azure Anthropic resource (is invalid|is required)/);
 		});
 	});
 
@@ -674,6 +833,34 @@ describe("getProviderEndpoint", () => {
 	});
 
 	describe("aws-bedrock regions", () => {
+		it.each([undefined, "https://carrier.example/openai/v1"])(
+			"preserves Mantle routing with an explicit Chat Completions format and base URL %s",
+			(baseUrl) => {
+				const endpoint = getProviderEndpoint(
+					"aws-bedrock",
+					baseUrl,
+					"grok-4-3",
+					undefined,
+					false,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					"us-west-2",
+					true,
+					"grok-4-3",
+					undefined,
+					undefined,
+					"openai-chat-completions",
+				);
+
+				expect(endpoint).toBe(
+					`${baseUrl ?? "https://bedrock-mantle.us-west-2.api.aws/openai/v1"}/chat/completions`,
+				);
+			},
+		);
+
 		it("defaults to us-east-1 endpoint with global. prefix when no region is set", () => {
 			const endpoint = getProviderEndpoint(
 				"aws-bedrock",
@@ -918,6 +1105,28 @@ describe("getProviderEndpoint", () => {
 			const endpoint = getProviderEndpoint(
 				"aws-bedrock",
 				"https://bedrock-proxy.internal/openai/v1",
+				"grok-4-3",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				"us-west-2",
+				true,
+				"grok-4-3",
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-proxy.internal/openai/v1/chat/completions",
+			);
+		});
+
+		it("normalizes a long run of trailing base URL slashes", () => {
+			const endpoint = getProviderEndpoint(
+				"aws-bedrock",
+				`https://bedrock-proxy.internal/openai/v1${"/".repeat(100_000)}`,
 				"grok-4-3",
 				undefined,
 				false,

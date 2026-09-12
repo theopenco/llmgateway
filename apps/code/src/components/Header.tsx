@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { ThemeToggle } from "@/components/landing/theme-toggle";
-import { RunwarePromoBanner } from "@/components/RunwarePromoBanner";
+import { ProviderPromoBanner } from "@/components/ProviderPromoBanner";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
 import { useUser } from "@/hooks/useUser";
@@ -19,7 +19,7 @@ export function Header() {
 
 	return (
 		<header className="border-b border-border/50">
-			<RunwarePromoBanner />
+			<ProviderPromoBanner />
 			<div className="container mx-auto px-4 py-4 flex items-center justify-between">
 				<div className="flex items-center gap-2">
 					<Link href="/" className="flex items-center gap-2">

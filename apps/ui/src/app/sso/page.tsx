@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { motion } from "framer-motion";
 import { ArrowLeft, ArrowRight, Building2, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -13,6 +13,7 @@ import { z } from "zod";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { getAuthErrorMessage } from "@/lib/auth-errors";
+import { getAuthRedirect, isCliAuthRedirect } from "@/lib/auth-redirect";
 import { Button } from "@/lib/components/button";
 import {
 	Form,
@@ -41,37 +42,22 @@ export default function Sso() {
 	const { signIn } = useAuth();
 	const { ssoEnabled } = useAppConfig();
 
-	// Support a post-login `?redirect=` target (e.g. the CLI connect flow). Only
-	// same-origin relative paths are honored to avoid open-redirects.
-	const [redirectTarget] = useState(() => {
-		if (typeof window === "undefined") {
-			return "/dashboard";
-		}
-		const target = new URLSearchParams(window.location.search).get("redirect");
-		return target && target.startsWith("/") && !target.startsWith("//")
-			? target
-			: "/dashboard";
-	});
+	const searchParams = useSearchParams();
+	const redirectTarget = getAuthRedirect(searchParams.get("redirect"));
 
-	// Prefill the email the user may have already typed on the login page.
-	const [defaultEmail] = useState(() => {
-		if (typeof window === "undefined") {
-			return "";
-		}
-		return new URLSearchParams(window.location.search).get("email") ?? "";
-	});
+	const defaultEmail = searchParams.get("email") ?? "";
 
 	useUser({
 		redirectTo: redirectTarget,
 		redirectWhen: "authenticated",
-		checkOnboarding: true,
+		checkOnboarding: !isCliAuthRedirect(redirectTarget),
 	});
 
 	useEffect(() => {
 		if (!ssoEnabled) {
-			router.replace("/login");
+			router.replace(`/login?redirect=${encodeURIComponent(redirectTarget)}`);
 		}
-	}, [ssoEnabled, router]);
+	}, [ssoEnabled, router, redirectTarget]);
 
 	useEffect(() => {
 		posthog.capture("page_viewed_sso");
@@ -101,10 +87,13 @@ export default function Sso() {
 	async function onSubmit(values: z.infer<typeof formSchema>) {
 		setIsLoading(true);
 		try {
+			const errorUrl = new URL("/sso", location.origin);
+			errorUrl.searchParams.set("redirect", redirectTarget);
+			errorUrl.searchParams.set("email", values.email);
 			const res = await signIn.sso({
 				email: values.email,
 				callbackURL: location.protocol + "//" + location.host + redirectTarget,
-				errorCallbackURL: location.protocol + "//" + location.host + "/sso",
+				errorCallbackURL: errorUrl.toString(),
 			});
 			if (res?.error) {
 				toast({
@@ -183,7 +172,11 @@ export default function Sso() {
 				</Form>
 
 				<Button asChild variant="ghost" className="w-full">
-					<Link href={"/login" as Route}>
+					<Link
+						href={
+							`/login?redirect=${encodeURIComponent(redirectTarget)}` as Route
+						}
+					>
 						<ArrowLeft className="mr-2 h-4 w-4" />
 						Back to login
 					</Link>

@@ -1,4 +1,5 @@
 import { db } from "@llmgateway/db";
+import { isProjectScopedRole } from "@llmgateway/shared/organization-roles";
 
 /**
  * Get all organization IDs that a user belongs to
@@ -26,7 +27,7 @@ export async function getUserOrganizationIds(
  *
  * - owner/admin members have implicit access to every non-deleted project in
  *   their org.
- * - "developer" members are limited to the projects explicitly granted to them
+ * - Project admins and developers are limited to the projects explicitly granted to them
  *   via the user_project table.
  *
  * @param userId - The user ID to check
@@ -46,20 +47,31 @@ export async function getUserProjectIds(userId: string): Promise<string[]> {
 				},
 			},
 			userProjects: true,
+			team: { with: { projects: true } },
 		},
 	});
 
 	const projectIds = new Set<string>();
 	for (const membership of userOrgs) {
+		if (membership.organization?.status === "deleted") {
+			continue;
+		}
 		const projects = (membership.organization?.projects ?? []).filter(
 			(project) => project.status !== "deleted",
 		);
-		if (membership.role === "developer") {
+		if (isProjectScopedRole(membership.role)) {
 			const granted = new Set(
 				membership.userProjects.map((grant) => grant.projectId),
 			);
+			const teamGranted =
+				membership.role === "developer" && membership.team
+					? new Set(membership.team.projects.map((grant) => grant.projectId))
+					: null;
 			for (const project of projects) {
-				if (granted.has(project.id)) {
+				if (
+					granted.has(project.id) &&
+					(!teamGranted || teamGranted.has(project.id))
+				) {
 					projectIds.add(project.id);
 				}
 			}

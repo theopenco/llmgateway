@@ -99,11 +99,6 @@ export function getProviderHeaders(
 				...requestIdHeader,
 				Authorization: `Bearer ${token}`,
 			};
-		case "avalanche":
-			return {
-				...requestIdHeader,
-				Authorization: `Bearer ${token}`,
-			};
 		case "aws-bedrock":
 		case "aws-mantle":
 			return {
@@ -117,17 +112,26 @@ export function getProviderHeaders(
 				...requestIdHeader,
 				"api-key": token,
 			};
+		case "azure-anthropic":
+			// Microsoft Foundry fronts the Anthropic Messages API, so it expects
+			// Anthropic's own auth header rather than Azure's `api-key`.
+			return {
+				...requestIdHeader,
+				"x-api-key": token,
+				"anthropic-version": "2023-06-01",
+			};
 		case "elevenlabs":
 			return {
 				...requestIdHeader,
 				"xi-api-key": token,
 			};
 		case "ranoai":
+		case "runware":
 			return {
 				...requestIdHeader,
 				Authorization: `Bearer ${token}`,
-				// RanoAI serves Brotli responses that Node leaves compressed when the
-				// gateway's production upstream dispatcher is installed.
+				// These providers serve compressed responses that Node can receive as raw
+				// bytes, so request an uncompressed body for reliable JSON/SSE parsing.
 				"Accept-Encoding": "identity",
 			};
 		case "openai":
@@ -139,15 +143,16 @@ export function getProviderHeaders(
 		case "novita":
 		case "moonshot":
 		case "meta":
+		case "meta-contributor":
 		case "alibaba":
 		case "nebius":
 		case "fireworks":
 		case "zai":
 		case "canopywave":
 		case "embercloud":
+		case "consensusprotocol":
 		case "deepinfra":
 		case "custom":
-		case "runware":
 		default:
 			return {
 				...requestIdHeader,

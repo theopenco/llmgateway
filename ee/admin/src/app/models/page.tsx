@@ -7,6 +7,7 @@ import { ModelsTable } from "@/components/models-table";
 import { TimeWindowSelector } from "@/components/time-window-selector";
 import { TokenBreakdown } from "@/components/token-breakdown";
 import { Button } from "@/components/ui/button";
+import { UsageModeSelector } from "@/components/usage-mode-selector";
 import {
 	CATALOG_PAGE_WINDOW_DEFAULT,
 	pageWindowOptionsWithMinutes,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/page-window";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
+import { parseUsageMode } from "@/lib/usage-mode";
 
 import type { paths } from "@/lib/api/v1";
 
@@ -71,6 +73,7 @@ export default async function ModelsPage({
 		sortBy?: string;
 		sortOrder?: string;
 		window?: string;
+		mode?: string;
 	}>;
 }) {
 	await requireSession();
@@ -84,6 +87,7 @@ export default async function ModelsPage({
 		params?.window,
 		CATALOG_PAGE_WINDOW_DEFAULT,
 	);
+	const usageMode = parseUsageMode(params?.mode);
 	const { from, to } = windowToFromTo(pageWindow);
 	const limit = 50;
 	const offset = (page - 1) * limit;
@@ -99,6 +103,7 @@ export default async function ModelsPage({
 				sortOrder,
 				from,
 				to,
+				mode: usageMode,
 			},
 		},
 	});
@@ -115,13 +120,18 @@ export default async function ModelsPage({
 		const sortByValue = formData.get("sortBy") as string;
 		const sortOrderValue = formData.get("sortOrder") as string;
 		const windowValue = formData.get("window") as string;
+		const modeValue = formData.get("mode") as string;
 		const searchParam = searchValue
 			? `&search=${encodeURIComponent(searchValue)}`
 			: "";
 		const sortParam = `&sortBy=${sortByValue}&sortOrder=${sortOrderValue}`;
 		const windowParam = windowValue ? `&window=${windowValue}` : "";
-		redirect(`/models?page=1${searchParam}${sortParam}${windowParam}`);
+		const modeParam = modeValue === "total" ? "" : `&mode=${modeValue}`;
+		redirect(
+			`/models?page=1${searchParam}${sortParam}${windowParam}${modeParam}`,
+		);
 	}
+	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
 
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 overflow-hidden px-4 py-8 md:px-8">
@@ -140,6 +150,7 @@ export default async function ModelsPage({
 						<input type="hidden" name="sortBy" value={sortBy} />
 						<input type="hidden" name="sortOrder" value={sortOrder} />
 						<input type="hidden" name="window" value={pageWindow} />
+						<input type="hidden" name="mode" value={usageMode} />
 						<div className="relative flex-1 sm:flex-initial">
 							<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 							<input
@@ -182,10 +193,13 @@ export default async function ModelsPage({
 					</div>
 				</div>
 				<Suspense>
-					<TimeWindowSelector
-						current={pageWindow}
-						options={pageWindowOptionsWithMinutes}
-					/>
+					<div className="flex flex-wrap items-center gap-2">
+						<UsageModeSelector compact extraParams={{ page: null }} />
+						<TimeWindowSelector
+							current={pageWindow}
+							options={pageWindowOptionsWithMinutes}
+						/>
+					</div>
 				</Suspense>
 			</div>
 
@@ -196,6 +210,7 @@ export default async function ModelsPage({
 					sortOrder={sortOrder}
 					search={search}
 					pageWindow={pageWindow}
+					usageMode={usageMode}
 				/>
 			</div>
 
@@ -208,7 +223,7 @@ export default async function ModelsPage({
 					<div className="flex items-center gap-2">
 						<Button variant="outline" size="sm" asChild disabled={page <= 1}>
 							<Link
-								href={`/models?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}`}
+								href={`/models?page=${page - 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}${modeParam}`}
 								className={page <= 1 ? "pointer-events-none opacity-50" : ""}
 							>
 								<ChevronLeft className="h-4 w-4" />
@@ -225,7 +240,7 @@ export default async function ModelsPage({
 							disabled={page >= totalPages}
 						>
 							<Link
-								href={`/models?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}`}
+								href={`/models?page=${page + 1}${search ? `&search=${encodeURIComponent(search)}` : ""}&sortBy=${sortBy}&sortOrder=${sortOrder}&window=${pageWindow}${modeParam}`}
 								className={
 									page >= totalPages ? "pointer-events-none opacity-50" : ""
 								}

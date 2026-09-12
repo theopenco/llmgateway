@@ -24,6 +24,7 @@ import {
 } from "@/lib/api-key-health.js";
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import {
@@ -33,14 +34,22 @@ import {
 	findProviderKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
-import { assertProviderCompliant } from "@/lib/compliance.js";
+import {
+	assertProviderCompliant,
+	getEffectiveRetentionLevel,
+} from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
+import {
+	rateLimitHeaders,
+	standardErrorResponses,
+} from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
+import { fetchProvider } from "@/lib/fetch-provider.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
@@ -49,6 +58,7 @@ import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
 import {
+	getProviderDefaultBaseUrl,
 	getProviderHeaders,
 	providerKeyLabel,
 	readProviderKey,
@@ -128,15 +138,6 @@ const transcriptionResponseSchema = z
 		description:
 			"Transcription payload: full transcript text, detected language, audio duration in seconds and word-level timestamps.",
 	});
-
-const transcriptionErrorSchema = z.object({
-	error: z.object({
-		message: z.string(),
-		type: z.string(),
-		param: z.string().nullable(),
-		code: z.string(),
-	}),
-});
 
 interface TranscriptionErrorBody {
 	error: {
@@ -273,6 +274,7 @@ const createTranscription = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: transcriptionResponseSchema,
@@ -280,50 +282,7 @@ const createTranscription = createRoute({
 			},
 			description: "Transcription response.",
 		},
-		400: {
-			content: { "application/json": { schema: transcriptionErrorSchema } },
-			description: "Invalid request body or parameters.",
-		},
-		401: {
-			content: { "application/json": { schema: transcriptionErrorSchema } },
-			description: "Unauthorized request.",
-		},
-		402: {
-			content: { "application/json": { schema: transcriptionErrorSchema } },
-			description: "Payment required / insufficient credits.",
-		},
-		403: {
-			content: { "application/json": { schema: transcriptionErrorSchema } },
-			description: "Forbidden.",
-		},
-		410: {
-			content: { "application/json": { schema: transcriptionErrorSchema } },
-			description: "Archived or unavailable project.",
-		},
-		413: {
-			content: { "application/json": { schema: transcriptionErrorSchema } },
-			description: "Audio file too large.",
-		},
-		429: {
-			content: { "application/json": { schema: transcriptionErrorSchema } },
-			description: "Rate limited upstream response.",
-		},
-		500: {
-			content: { "application/json": { schema: transcriptionErrorSchema } },
-			description: "Internal server error.",
-		},
-		502: {
-			content: { "application/json": { schema: transcriptionErrorSchema } },
-			description: "Failed to connect to the upstream provider.",
-		},
-		503: {
-			content: { "application/json": { schema: transcriptionErrorSchema } },
-			description: "Service unavailable upstream response.",
-		},
-		504: {
-			content: { "application/json": { schema: transcriptionErrorSchema } },
-			description: "Upstream provider timeout.",
-		},
+		...standardErrorResponses(),
 	},
 });
 
@@ -504,6 +463,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 	// User-level limits take priority: enforce the per-member budget (set on the
 	// Teams page; fails open on read errors) before the per-key usage limits, so a
 	// member who is over budget is denied even if the key itself is within limits.
+	await assertMemberProjectAccess(apiKey, baseProject.organizationId);
 	await assertMemberWithinBudget(apiKey.createdBy, baseProject.organizationId);
 	assertApiKeyWithinUsageLimits(apiKey);
 
@@ -539,7 +499,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 		});
 	}
 
-	const retentionLevel = organization.retentionLevel ?? "none";
+	const retentionLevel = getEffectiveRetentionLevel(organization);
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
 		organizationId: project.organizationId,
@@ -739,12 +699,20 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 			});
 		}
 
-		const envBaseUrl = getCredentialSetting(providerId, "baseUrl", managedKey, {
-			configIndex,
-			variant: envVariant,
-		});
 		const resolvedBaseUrl =
-			providerKey?.baseUrl ?? envBaseUrl ?? "https://api.x.ai";
+			providerKey?.baseUrl ??
+			getCredentialSetting(
+				providerId,
+				"baseUrl",
+				{ providerKey, managedKey },
+				{ configIndex, variant: envVariant },
+			) ??
+			getProviderDefaultBaseUrl(providerId);
+		if (!resolvedBaseUrl) {
+			throw new HTTPException(500, {
+				message: `No base URL set for provider: ${providerId}`,
+			});
+		}
 
 		return {
 			providerKey,
@@ -832,7 +800,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				const fetchSignal = createCombinedSignal(controller);
 				// No explicit Content-Type: fetch derives the multipart boundary
 				// from the FormData body.
-				upstreamResponse = await fetch(attempt.upstreamUrl, {
+				upstreamResponse = await fetchProvider(attempt.upstreamUrl, {
 					method: "POST",
 					// SSRF: never follow redirects on an authenticated provider request. A
 					// tenant-supplied baseUrl could 3xx to an internal host at request

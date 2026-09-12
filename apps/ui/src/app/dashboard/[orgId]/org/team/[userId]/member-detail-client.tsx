@@ -1,6 +1,5 @@
 "use client";
 
-import { format, subDays } from "date-fns";
 import { ArrowLeftIcon, Boxes, Mail, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -17,6 +16,7 @@ import {
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
+import { useZonedRangeDefaults } from "@/hooks/useZonedRangeDefaults";
 import { Button } from "@/lib/components/button";
 import {
 	Card,
@@ -34,7 +34,6 @@ import {
 	TableRow,
 } from "@/lib/components/table";
 import { useApi } from "@/lib/fetch-client";
-import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageMode, pickCost, pickRequests } from "@/lib/usage-mode";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
@@ -53,6 +52,13 @@ export function MemberDetailClient() {
 	const searchParams = useSearchParams();
 	const { buildOrgUrl, selectedOrganization } = useDashboardNavigation();
 	const api = useApi();
+	const {
+		from: defaultFrom,
+		to: defaultTo,
+		timeZone: displayTimeZone,
+		markGenerated,
+		shouldApplyDefaults,
+	} = useZonedRangeDefaults();
 	const { user } = useUser();
 	const usageMode = useUsageMode();
 	const { data: teamData } = useTeamMembers(organizationId);
@@ -62,6 +68,11 @@ export function MemberDetailClient() {
 	);
 	const budget = teamMember?.budget ?? null;
 	const spend = teamMember?.spend ?? null;
+	const periodSpend = spend?.currentPeriods.find(
+		(period) =>
+			period.durationValue === budget?.periodUsageDurationValue &&
+			period.durationUnit === budget.periodUsageDurationUnit,
+	)?.usage;
 	const currentUserRole = teamData?.members.find(
 		(member) => member.userId === user?.id,
 	)?.role;
@@ -73,21 +84,31 @@ export function MemberDetailClient() {
 		if (!showUsage) {
 			return;
 		}
-		if (!searchParams.get("from") || !searchParams.get("to")) {
-			const params2 = new URLSearchParams(searchParams.toString());
-			params2.delete("days");
-			const today = new Date();
-			params2.set("from", format(subDays(today, 6), "yyyy-MM-dd"));
-			params2.set("to", format(today, "yyyy-MM-dd"));
-			router.replace(
-				`${buildOrgUrl(`org/team/${userId}`)}?${params2.toString()}` as Route,
-			);
+		if (!shouldApplyDefaults(searchParams)) {
+			return;
 		}
-	}, [showUsage, searchParams, router, buildOrgUrl, userId]);
+		const params2 = new URLSearchParams(searchParams.toString());
+		params2.delete("days");
+		params2.set("from", defaultFrom);
+		params2.set("to", defaultTo);
+		markGenerated(params2);
+		router.replace(
+			`${buildOrgUrl(`org/team/${userId}`)}?${params2.toString()}` as Route,
+		);
+	}, [
+		showUsage,
+		searchParams,
+		router,
+		buildOrgUrl,
+		userId,
+		defaultFrom,
+		defaultTo,
+		markGenerated,
+		shouldApplyDefaults,
+	]);
 
-	const fromStr =
-		searchParams.get("from") ?? format(subDays(new Date(), 6), "yyyy-MM-dd");
-	const toStr = searchParams.get("to") ?? format(new Date(), "yyyy-MM-dd");
+	const fromStr = searchParams.get("from") ?? defaultFrom;
+	const toStr = searchParams.get("to") ?? defaultTo;
 
 	const { data, isLoading } = api.useQuery(
 		"get",
@@ -99,7 +120,7 @@ export function MemberDetailClient() {
 					organizationId,
 					from: fromStr,
 					to: toStr,
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 				},
 			},
 		},
@@ -122,9 +143,14 @@ export function MemberDetailClient() {
 		),
 	}));
 
-	const topModels = (data?.topModels ?? [])
-		.map((m) => applyUsageMode(m, usageMode))
-		.sort((a, b) => b.cost - a.cost);
+	// Only the costliest model is displayed, so track the max instead of sorting.
+	let topModel: { key: string; cost: number } | undefined;
+	for (const entry of data?.topModels ?? []) {
+		const row = applyUsageMode(entry, usageMode);
+		if (!topModel || row.cost > topModel.cost) {
+			topModel = row;
+		}
+	}
 	const topProviders = (data?.topProviders ?? [])
 		.map((p) => applyUsageMode(p, usageMode))
 		.sort((a, b) => b.cost - a.cost);
@@ -155,7 +181,7 @@ export function MemberDetailClient() {
 	const mostUsed = [
 		{
 			label: "Most used model",
-			value: topModels[0]?.key ?? "—",
+			value: topModel?.key ?? "—",
 			icon: Sparkles,
 		},
 		{
@@ -254,8 +280,8 @@ export function MemberDetailClient() {
 										Period spend
 									</div>
 									<div className="text-lg font-semibold">
-										{spend.currentPeriod !== null
-											? currencyFormatter.format(spend.currentPeriod)
+										{periodSpend !== undefined
+											? currencyFormatter.format(periodSpend)
 											: "—"}
 										{budget.periodUsageLimit !== null && (
 											<span className="text-muted-foreground text-sm font-normal">

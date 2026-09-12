@@ -15,6 +15,7 @@ import {
 } from "@/chat-helpers.e2e.js";
 
 import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 
@@ -53,7 +54,7 @@ async function ocrBeforeAllHook() {
 		.insert(tables.apiKey)
 		.values({
 			id: OCR_API_KEY_ID,
-			token: OCR_API_KEY_TOKEN,
+			...hashApiKeyForStorage(OCR_API_KEY_TOKEN),
 			projectId: OCR_PROJECT_ID,
 			description: "OCR E2E API Key",
 			createdBy: "user-id",

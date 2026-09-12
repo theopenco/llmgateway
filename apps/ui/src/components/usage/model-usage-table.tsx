@@ -18,8 +18,9 @@ import {
 } from "@/lib/components/table";
 import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
-import { getBrowserTimeZone } from "@/lib/timezone";
 import { applyUsageMode } from "@/lib/usage-mode";
+
+import { useDisplayTimeZone } from "@llmgateway/shared";
 
 import type { ActivityModelUsage, ActivitT } from "@/types/activity";
 
@@ -43,7 +44,8 @@ export function ModelUsageTable({
 	const { selectedProject } = useDashboardState();
 	const usageMode = useUsageMode();
 
-	const { from, to } = getDateRangeFromParams(searchParams);
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
+	const { from, to } = getDateRangeFromParams(searchParams, displayTimeZone);
 	const fromStr = format(from, "yyyy-MM-dd");
 	const toStr = format(to, "yyyy-MM-dd");
 
@@ -56,7 +58,7 @@ export function ModelUsageTable({
 				query: {
 					from: fromStr,
 					to: toStr,
-					timezone: getBrowserTimeZone(),
+					timezone: displayTimeZone,
 					...(projectId ? { projectId: projectId } : {}),
 					...(apiKeyId ? { apiKeyId } : {}),
 				},

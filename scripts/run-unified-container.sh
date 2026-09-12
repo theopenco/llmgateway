@@ -39,6 +39,7 @@ docker run -d \
     -p 3003:3003 \
     -p 3005:3005 \
     -p 3006:3006 \
+    -p 3007:3007 \
     -p 4001:4001 \
     -p 4002:4002 \
     -v "$POSTGRES_VOLUME:/var/lib/postgresql/data" \

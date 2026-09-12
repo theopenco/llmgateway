@@ -2,6 +2,33 @@ import { describe, it, expect } from "vitest";
 
 import { completionsRequestSchema } from "./completions.js";
 
+describe("completionsRequestSchema message roles", () => {
+	it("accepts every Chat Completions message role", () => {
+		for (const role of [
+			"developer",
+			"system",
+			"user",
+			"assistant",
+			"tool",
+			"function",
+		]) {
+			const result = completionsRequestSchema.safeParse({
+				model: "gpt-5",
+				messages: [{ role, content: "hi" }],
+			});
+			expect(result.success).toBe(true);
+		}
+	});
+
+	it("rejects unknown message roles", () => {
+		const result = completionsRequestSchema.safeParse({
+			model: "gpt-5",
+			messages: [{ role: "invalid", content: "hi" }],
+		});
+		expect(result.success).toBe(false);
+	});
+});
+
 describe("completionsRequestSchema reasoning_effort", () => {
 	it('preserves top-level reasoning_effort "max" (Anthropic honors it natively; providers without a max tier alias it to high downstream)', () => {
 		const result = completionsRequestSchema.safeParse({

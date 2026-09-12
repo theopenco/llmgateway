@@ -12,6 +12,7 @@ export const nousresearchModels = [
 			{
 				providerId: "nebius",
 				externalId: "NousResearch/Hermes-4-405B",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "1.0e-6",
 				outputPrice: "3.0e-6",
 				requestPrice: "0",

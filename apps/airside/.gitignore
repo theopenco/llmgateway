@@ -1,0 +1,26 @@
+# dependencies
+/node_modules
+
+# testing
+/coverage
+/test-results
+/playwright-report
+
+# next.js
+/.next/
+/.next-dev/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts

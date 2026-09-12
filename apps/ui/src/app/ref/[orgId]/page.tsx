@@ -48,7 +48,12 @@ export async function generateMetadata({
 		title,
 		description,
 		robots: { index: false, follow: false },
-		openGraph: { title, description, type: "website" },
+		openGraph: {
+			title,
+			description,
+			type: "website",
+			images: ["/opengraph.png?v=2"],
+		},
 		twitter: { card: "summary_large_image", title, description },
 	};
 }

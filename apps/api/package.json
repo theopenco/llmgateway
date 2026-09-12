@@ -44,7 +44,7 @@
 		"drizzle-zod": "0.8.3",
 		"exceljs": "4.4.0",
 		"gateway": "workspace:*",
-		"hono": "^4.12.34",
+		"hono": "^4.13.5",
 		"hono-openapi": "^1.1.1",
 		"ioredis": "5.7.0",
 		"ipaddr.js": "2.2.0",
@@ -53,7 +53,9 @@
 		"posthog-node": "5.10.4",
 		"resend": "6.8.0",
 		"stripe": "18.1.1",
+		"tldts": "6.1.86",
 		"unpdf": "1.6.2",
+		"yaml": "2.8.3",
 		"zod": "3.25.75",
 		"zod-openapi": "^5.4.3"
 	}

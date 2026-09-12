@@ -29,7 +29,7 @@ export const adminAuthMiddleware = createMiddleware<ServerTypes>(
 			});
 		}
 
-		if (!isAdminEmail(authUser.email)) {
+		if (!isAdminEmail(authUser.email) || !authUser.emailVerified) {
 			throw new HTTPException(403, {
 				message: "Admin access required",
 			});
@@ -47,7 +47,7 @@ export const adminMiddleware = createMiddleware<ServerTypes>(
 			throw new HTTPException(401, { message: "Unauthorized" });
 		}
 
-		if (!isAdminEmail(authUser.email)) {
+		if (!isAdminEmail(authUser.email) || !authUser.emailVerified) {
 			throw new HTTPException(403, { message: "Admin access required" });
 		}
 

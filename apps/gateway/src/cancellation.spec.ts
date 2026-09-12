@@ -8,7 +8,9 @@ import {
 	test,
 } from "vitest";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { randomToken } from "@llmgateway/shared/random";
 
 import { app } from "./app.js";
@@ -72,7 +74,7 @@ describe("client cancellation logging", () => {
 			.insert(tables.apiKey)
 			.values({
 				id: "token-id",
-				token: "real-token",
+				...hashApiKeyForStorage("real-token"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -84,7 +86,11 @@ describe("client cancellation logging", () => {
 			.insert(tables.providerKey)
 			.values({
 				id: "provider-key-id",
-				token: "sk-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-test-key",
+					"provider-key-id",
+					"org-id",
+				),
 				provider: "llmgateway",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,

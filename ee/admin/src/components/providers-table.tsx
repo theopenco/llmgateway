@@ -24,6 +24,7 @@ import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
 import type { ProviderStats } from "@/lib/types";
+import type { UsageMode } from "@/lib/usage-mode";
 
 function toHistoryWindow(pageWindow: PageWindow): HistoryWindow {
 	const map: Record<PageWindow, HistoryWindow> = {
@@ -65,18 +66,21 @@ function SortableHeader({
 	currentSortBy,
 	currentSortOrder,
 	pageWindow,
+	usageMode,
 }: {
 	label: string;
 	sortKey: ProviderSortBy;
 	currentSortBy: ProviderSortBy;
 	currentSortOrder: SortOrder;
 	pageWindow?: PageWindow;
+	usageMode: UsageMode;
 }) {
 	const isActive = currentSortBy === sortKey;
 	const nextOrder = isActive && currentSortOrder === "desc" ? "asc" : "desc";
 
 	const windowParam = pageWindow ? `&window=${pageWindow}` : "";
-	const href = `/providers?sortBy=${sortKey}&sortOrder=${nextOrder}${windowParam}`;
+	const modeParam = usageMode === "total" ? "" : `&mode=${usageMode}`;
+	const href = `/providers?sortBy=${sortKey}&sortOrder=${nextOrder}${windowParam}${modeParam}`;
 
 	return (
 		<Link
@@ -123,9 +127,11 @@ function formatDate(dateString: string) {
 function ProviderRow({
 	provider,
 	externalWindow,
+	usageMode,
 }: {
 	provider: ProviderStats;
 	externalWindow?: HistoryWindow;
+	usageMode: UsageMode;
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const stability = deriveStabilityMetrics(
@@ -139,9 +145,9 @@ function ProviderRow({
 
 	const fetchData = useCallback(
 		async (window: HistoryWindow) => {
-			return await getProviderHistory(provider.id, window);
+			return await getProviderHistory(provider.id, window, usageMode);
 		},
-		[provider.id],
+		[provider.id, usageMode],
 	);
 
 	return (
@@ -235,11 +241,13 @@ export function ProvidersTable({
 	sortBy = "logsCount",
 	sortOrder = "desc",
 	pageWindow,
+	usageMode = "total",
 }: {
 	providers: ProviderStats[];
 	sortBy?: ProviderSortBy;
 	sortOrder?: SortOrder;
 	pageWindow?: PageWindow;
+	usageMode?: UsageMode;
 }) {
 	const externalWindow = pageWindow ? toHistoryWindow(pageWindow) : undefined;
 
@@ -251,6 +259,7 @@ export function ProvidersTable({
 				currentSortBy={sortBy}
 				currentSortOrder={sortOrder}
 				pageWindow={pageWindow}
+				usageMode={usageMode}
 			/>
 		</TableHead>
 	);
@@ -290,6 +299,7 @@ export function ProvidersTable({
 							key={p.id}
 							provider={p}
 							externalWindow={externalWindow}
+							usageMode={usageMode}
 						/>
 					))
 				)}

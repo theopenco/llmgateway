@@ -20,6 +20,8 @@ import { customAlphabet } from "nanoid";
 import type { gatewayContentFilterResponseSchema } from "./log-payloads.js";
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type {
+	Quantization,
+	ProviderApiFormat,
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
@@ -217,6 +219,23 @@ export const verification = pgTable("verification", {
 	createdAt: timestamp(),
 	updatedAt: timestamp().$onUpdate(() => new Date()),
 });
+
+export const deviceCode = pgTable(
+	"device_code",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		deviceCode: text().notNull().unique(),
+		userCode: text().notNull().unique(),
+		userId: text().references(() => user.id, { onDelete: "cascade" }),
+		expiresAt: timestamp().notNull(),
+		status: text().notNull(),
+		lastPolledAt: timestamp(),
+		pollingInterval: integer(),
+		clientId: text(),
+		scope: text(),
+	},
+	(table) => [index("device_code_expires_at_idx").on(table.expiresAt)],
+);
 
 export const organization = pgTable(
 	"organization",
@@ -460,6 +479,64 @@ export const organization = pgTable(
 	],
 );
 
+// Stable Stripe card identifiers retained after the card itself is detached.
+// This preserves the one-card-per-DevPass-account rule without storing card
+// details locally.
+export const devPlanCardFingerprintHistory = pgTable(
+	"dev_plan_card_fingerprint_history",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		fingerprint: text().notNull().unique(),
+	},
+	(table) => [
+		index("dev_plan_card_fingerprint_history_organization_id_idx").on(
+			table.organizationId,
+		),
+	],
+);
+
+// Enterprise developer teams. Team policies are evaluated dynamically so
+// membership changes take effect without copying settings onto each member.
+export const organizationTeam = pgTable(
+	"organization_team",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		// The org's fallback team: developers joining without an explicit or
+		// SCIM-mapped team are assigned here (see lib/sso-teams.ts).
+		isDefault: boolean().notNull().default(false),
+		maxApiKeys: integer(),
+		usageLimit: decimal(),
+		periodUsageLimit: decimal(),
+		periodUsageDurationValue: integer(),
+		periodUsageDurationUnit: text({
+			enum: ["hour", "day", "week", "month"],
+		}),
+	},
+	(table) => [
+		index("organization_team_organization_id_idx").on(table.organizationId),
+		uniqueIndex("organization_team_org_name_uidx").on(
+			table.organizationId,
+			sql`lower(${table.name})`,
+		),
+		uniqueIndex("organization_team_org_default_uidx")
+			.on(table.organizationId)
+			.where(sql`${table.isDefault}`),
+	],
+);
+
 export const referral = pgTable(
 	"referral",
 	{
@@ -513,6 +590,10 @@ export const transaction = pgTable(
 				// received) and `creditAmount` (credits granted) are set and the row
 				// counts toward revenue. `paymentMethod` records the channel.
 				"credit_manual_payment",
+				// Revenue from a negotiated enterprise contract. This is accounting
+				// only: `amount` records the payment while `creditAmount` stays null,
+				// so the deal never changes the organization's credit balance.
+				"enterprise_license_fee",
 				"dev_plan_start",
 				"dev_plan_upgrade",
 				"dev_plan_downgrade",
@@ -569,15 +650,15 @@ export const transaction = pgTable(
 		description: text(),
 		relatedTransactionId: text(),
 		refundReason: text(),
-		// Off-Stripe payment channel, set only on `credit_manual_payment` rows so
-		// manually credited revenue can be reconciled per channel. Stripe-settled
-		// rows leave this null — the payment method lives in Stripe.
+		// Off-Stripe payment channel, set on `credit_manual_payment` and
+		// `enterprise_license_fee` rows so revenue can be reconciled per channel.
+		// Stripe-settled rows leave this null — the payment method lives in Stripe.
 		paymentMethod: text({
 			enum: ["wire", "crypto", "paypal", "other"],
 		}),
 		// Free-form identifier for the payment on its own channel — a bank wire
 		// reference, an on-chain transaction hash, a PayPal transaction id. Set
-		// only on `credit_manual_payment` rows, so a credit can be traced back to
+		// only on manually recorded payment rows, so revenue can be traced back to
 		// the money that paid for it without digging through the description.
 		externalReference: text(),
 	},
@@ -977,8 +1058,18 @@ export const userOrganization = pgTable(
 		organizationId: text()
 			.notNull()
 			.references(() => organization.id, { onDelete: "cascade" }),
+		teamId: text().references(() => organizationTeam.id, {
+			onDelete: "restrict",
+		}),
+		// "default" marks an assignment inherited from the org's default team;
+		// like "sso" it is recomputed on sync, while "manual" assignments stick.
+		teamAssignmentSource: text({
+			enum: ["manual", "sso", "default"],
+		})
+			.notNull()
+			.default("manual"),
 		role: text({
-			enum: ["owner", "admin", "developer"],
+			enum: ["owner", "admin", "project_admin", "developer"],
 		})
 			.notNull()
 			.default("owner"),
@@ -1000,6 +1091,11 @@ export const userOrganization = pgTable(
 	(table) => [
 		index("user_organization_user_id_idx").on(table.userId),
 		index("user_organization_organization_id_idx").on(table.organizationId),
+		index("user_organization_team_id_idx").on(table.teamId),
+		check(
+			"user_organization_team_developer_check",
+			sql`${table.teamId} IS NULL OR ${table.role} = 'developer'`,
+		),
 		index("user_organization_scim_external_id_idx").on(
 			table.organizationId,
 			table.scimExternalId,
@@ -1028,7 +1124,7 @@ export const organizationInvite = pgTable(
 		// Stored lowercased; matched case-insensitively against the signup email.
 		email: text().notNull(),
 		role: text({
-			enum: ["owner", "admin", "developer"],
+			enum: ["owner", "admin", "project_admin", "developer"],
 		})
 			.notNull()
 			.default("developer"),
@@ -1151,6 +1247,28 @@ export const project = pgTable(
 	(table) => [index("project_organization_id_idx").on(table.organizationId)],
 );
 
+export const organizationTeamProject = pgTable(
+	"organization_team_project",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		teamId: text()
+			.notNull()
+			.references(() => organizationTeam.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		uniqueIndex("organization_team_project_team_project_uidx").on(
+			table.teamId,
+			table.projectId,
+		),
+		index("organization_team_project_team_id_idx").on(table.teamId),
+		index("organization_team_project_project_id_idx").on(table.projectId),
+	],
+);
+
 // The developer's own end-users (the "customers" in the embeddable SDK). Scoped
 // to one project; `externalId` is the developer's own user id in their system.
 export const endCustomer = pgTable(
@@ -1259,7 +1377,10 @@ export const endUserSession = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		token: text().notNull().unique(),
+		// Legacy plaintext column. New sessions store only tokenHash; backfilled
+		// rows retain plaintext during the staged rollout.
+		token: text().unique(),
+		tokenHash: text().unique(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		})
@@ -1441,14 +1562,19 @@ export const apiKey = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		token: text().notNull().unique(),
+		// Legacy plaintext column. New writes store only tokenHash + tokenMasked;
+		// backfilled rows retain plaintext during the staged rollout.
+		token: text().unique(),
+		tokenHash: text().unique(),
+		tokenMasked: text(),
 		description: text().notNull(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
 		// Discriminates normal developer keys from embeddable-SDK principals.
-		// `platform_secret`/`platform_publishable` are long-lived keys on a hidden
-		// per-org project. `end_user_customer` is a hidden per-customer aggregate
+		// `platform_secret` is a long-lived secret on a hidden per-org project.
+		// `platform_publishable` is an intentionally public browser identifier and
+		// remains retrievable. `end_user_customer` is a hidden per-customer aggregate
 		// key used as the stable log/api-key stats principal for browser sessions.
 		keyType: text({
 			enum: [
@@ -1460,6 +1586,10 @@ export const apiKey = pgTable(
 		})
 			.notNull()
 			.default("user"),
+		// Separates user-managed keys from automatically managed playground keys.
+		kind: text({ enum: ["regular", "playground"] })
+			.notNull()
+			.default("regular"),
 		// Browser-session wallet binding now lives on end_user_session.wallet_id.
 		endCustomerWalletId: text().references(() => wallet.id, {
 			onDelete: "cascade",
@@ -1598,6 +1728,53 @@ export const userIamRule = pgTable(
 	],
 );
 
+export const organizationTeamIamRule = pgTable(
+	"organization_team_iam_rule",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		teamId: text()
+			.notNull()
+			.references(() => organizationTeam.id, { onDelete: "cascade" }),
+		ruleType: text({
+			enum: [
+				"allow_models",
+				"deny_models",
+				"allow_pricing",
+				"deny_pricing",
+				"allow_providers",
+				"deny_providers",
+				"allow_ip_cidrs",
+				"deny_ip_cidrs",
+			],
+		}).notNull(),
+		ruleValue: json()
+			.$type<{
+				models?: string[];
+				providers?: string[];
+				pricingType?: "free" | "paid";
+				maxInputPrice?: number;
+				maxOutputPrice?: number;
+				ipCidrs?: string[];
+			}>()
+			.notNull(),
+		status: text({ enum: ["active", "inactive"] })
+			.notNull()
+			.default("active"),
+	},
+	(table) => [
+		index("organization_team_iam_rule_team_id_idx").on(table.teamId),
+		index("organization_team_iam_rule_team_id_status_idx").on(
+			table.teamId,
+			table.status,
+		),
+	],
+);
+
 export const masterKey = pgTable(
 	"master_key",
 	{
@@ -1650,6 +1827,7 @@ export interface ProviderKeyOptions {
 	azure_deployment_name?: string;
 	azure_ai_foundry_resource?: string;
 	azure_ai_foundry_api_version?: string;
+	azure_anthropic_resource?: string;
 	alibaba_region?: "singapore" | "eu-frankfurt" | "us-virginia" | "cn-beijing";
 	/**
 	 * Model Studio workspace id, required for regions served only by the
@@ -1996,6 +2174,14 @@ export const log = pgTable(
 		lastVideoDownloadedAt: timestamp(),
 		estimatedCost: boolean().default(false),
 		discount: real(),
+		// Snapshot of the used provider's Airside routing settings
+		// (`provider_routing_settings`) at request time, as fractions. Null when
+		// the provider has no settings row. Stamped so margin revenue can be
+		// reconstructed historically even after the carrier changes its settings;
+		// the hourly aggregators roll credits-mode, non-cached requests into
+		// `providerMarginAmount`.
+		providerMarginPercent: real(),
+		providerDiscountPercent: real(),
 		pricingTier: text(),
 		// The processing tier the gateway requested upstream (e.g. "flex" /
 		// "priority"), which is also the tier that narrows routing to tier-capable
@@ -2305,6 +2491,11 @@ export const videoJob = pgTable(
 		requestedProvider: text(),
 		usedProvider: text().notNull(),
 		usedModel: text().notNull(),
+		// Airside routing settings at submission time. Finalization can happen
+		// hours later, so the worker copies these snapshots to the log instead of
+		// reading whichever settings happen to be live then.
+		providerMarginPercent: real(),
+		providerDiscountPercent: real(),
 		providerConfigIndex: integer(),
 		// Managed provider credential that created the job, when one served it.
 		// Polling, cancellation and content retrieval happen minutes to hours
@@ -2651,7 +2842,7 @@ export const ssoRoleMapping = pgTable(
 			.references(() => organization.id, { onDelete: "cascade" }),
 		groupName: text().notNull(),
 		role: text({
-			enum: ["owner", "admin", "developer"],
+			enum: ["owner", "admin", "project_admin", "developer"],
 		}).notNull(),
 	},
 	(table) => [
@@ -2659,6 +2850,35 @@ export const ssoRoleMapping = pgTable(
 			table.organizationId,
 			table.groupName,
 		),
+	],
+);
+
+// Admin-defined mapping from a SCIM/IdP group name to an organization team.
+// One developer can inherit one team; when several mapped groups apply, the
+// alphabetically first group name wins (see lib/sso-teams.ts).
+export const ssoTeamMapping = pgTable(
+	"sso_team_mapping",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		groupName: text().notNull(),
+		teamId: text()
+			.notNull()
+			.references(() => organizationTeam.id, { onDelete: "cascade" }),
+	},
+	(table) => [
+		uniqueIndex("sso_team_mapping_org_group_unique").on(
+			table.organizationId,
+			table.groupName,
+		),
+		index("sso_team_mapping_team_id_idx").on(table.teamId),
 	],
 );
 
@@ -3151,7 +3371,18 @@ export const modelProviderMapping = pgTable(
 			.notNull()
 			.references(() => provider.id, { onDelete: "cascade" }),
 		externalId: text().notNull(),
+		apiFormat: text({
+			enum: [
+				"provider-native",
+				"openai-chat-completions",
+				"openai-responses",
+				"google-vertex",
+			],
+		}).$type<ProviderApiFormat>(),
 		region: text(),
+		source: text({ enum: ["catalogue", "airside"] })
+			.notNull()
+			.default("catalogue"),
 		inputPrice: decimal(),
 		outputPrice: decimal(),
 		cachedInputPrice: decimal(),
@@ -3159,13 +3390,18 @@ export const modelProviderMapping = pgTable(
 		cacheWriteInputPrice1h: decimal(),
 		imageInputPrice: decimal(),
 		requestPrice: decimal(),
+		quantization: text().$type<Quantization>(),
 		contextSize: integer(),
 		maxOutput: integer(),
 		streaming: boolean().notNull().default(false),
 		vision: boolean(),
+		audio: boolean(),
 		reasoning: boolean(),
 		reasoningMaxTokens: boolean().notNull().default(false),
 		reasoningOutput: text(),
+		// Populated for Airside-materialized mappings; static-catalogue rows
+		// keep null and are served from the shared mapping definition instead.
+		reasoningEfforts: json().$type<string[]>(),
 		tools: boolean(),
 		jsonOutput: boolean().default(false).notNull(),
 		jsonOutputSchema: boolean().default(false).notNull(),
@@ -3203,6 +3439,10 @@ export const modelProviderMapping = pgTable(
 			table.status,
 			table.modelId,
 		),
+		index("model_provider_mapping_source_status_idx").on(
+			table.source,
+			table.status,
+		),
 	],
 );
 
@@ -3218,6 +3458,11 @@ export const modelProviderMappingHistory = pgTable(
 		modelId: text().notNull(), // LLMGateway model name (e.g., "gpt-4")
 		providerId: text().notNull(), // Provider ID (e.g., "openai")
 		modelProviderMappingId: text().notNull(), // Reference to the exact model_provider_mapping.id
+		// Billing mode is part of the history grain so admin usage views can
+		// narrow every metric, not only request counts and spend.
+		usedMode: text({ enum: ["credits", "api-keys", "unknown"] })
+			.notNull()
+			.default("unknown"),
 		// Unique timestamp key for one-minute intervals (rounded down to the minute)
 		minuteTimestamp: timestamp().notNull(),
 		logsCount: integer().notNull().default(0),
@@ -3274,7 +3519,11 @@ export const modelProviderMappingHistory = pgTable(
 	},
 	(table) => [
 		// Unique constraint ensures one record per mapping-minute combination
-		unique().on(table.modelProviderMappingId, table.minuteTimestamp),
+		unique("mpm_history_mapping_minute_mode_unique").on(
+			table.modelProviderMappingId,
+			table.minuteTimestamp,
+			table.usedMode,
+		),
 		// Index for ORDER BY minuteTimestamp DESC queries
 		index("model_provider_mapping_history_minute_timestamp_idx").on(
 			table.minuteTimestamp,
@@ -3308,8 +3557,9 @@ export const modelProviderMappingHistory = pgTable(
 		// build the replacement CONCURRENTLY before this migration runs — a
 		// rebuild under the same name would lock a table the worker writes to
 		// every minute for the duration of the scan.
-		index("model_provider_mapping_history_provider_stats_v3_idx").on(
+		index("model_provider_mapping_history_provider_stats_v4_idx").on(
 			table.minuteTimestamp,
+			table.usedMode,
 			table.providerId,
 			table.logsCount,
 			table.errorsCount,
@@ -3333,6 +3583,9 @@ export const modelHistory = pgTable(
 			.defaultNow()
 			.$onUpdate(() => new Date()),
 		modelId: text().notNull(),
+		usedMode: text({ enum: ["credits", "api-keys", "unknown"] })
+			.notNull()
+			.default("unknown"),
 		// Unique timestamp key for one-minute intervals (rounded down to the minute)
 		minuteTimestamp: timestamp().notNull(),
 		logsCount: integer().notNull().default(0),
@@ -3374,7 +3627,11 @@ export const modelHistory = pgTable(
 	},
 	(table) => [
 		// Unique constraint ensures one record per model-minute combination
-		unique().on(table.modelId, table.minuteTimestamp),
+		unique("model_history_model_minute_mode_unique").on(
+			table.modelId,
+			table.minuteTimestamp,
+			table.usedMode,
+		),
 		// Index for ORDER BY minuteTimestamp DESC queries
 		index("model_history_minute_timestamp_idx").on(table.minuteTimestamp),
 		// Index for admin model history queries (filter by model + time range)
@@ -3400,6 +3657,9 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		modelId: text().notNull(), // LLMGateway model name (e.g., "gpt-4")
 		providerId: text().notNull(), // Provider ID (e.g., "openai")
 		modelProviderMappingId: text().notNull(), // Reference to the exact model_provider_mapping.id
+		usedMode: text({ enum: ["credits", "api-keys", "unknown"] })
+			.notNull()
+			.default("unknown"),
 		// Unique timestamp key for one-hour intervals (rounded down to the hour)
 		hourTimestamp: timestamp().notNull(),
 		logsCount: integer().notNull().default(0),
@@ -3441,7 +3701,11 @@ export const modelProviderMappingHistoryHourly = pgTable(
 	},
 	(table) => [
 		// Unique constraint ensures one record per mapping-hour combination
-		unique().on(table.modelProviderMappingId, table.hourTimestamp),
+		unique("mpm_history_mapping_hour_mode_unique").on(
+			table.modelProviderMappingId,
+			table.hourTimestamp,
+			table.usedMode,
+		),
 		// Index for ORDER BY hourTimestamp DESC queries
 		index("mpm_history_hourly_ts_idx").on(table.hourTimestamp),
 		// Composite index for aggregation queries by providerId
@@ -3463,8 +3727,9 @@ export const modelProviderMappingHistoryHourly = pgTable(
 		// (filter by hourTimestamp range, group by providerId, sum metrics).
 		// See model_provider_mapping_history_provider_stats_v3_idx for why this is
 		// a new name rather than a rebuild in place.
-		index("mpm_history_hourly_provider_stats_v3_idx").on(
+		index("mpm_history_hourly_provider_stats_v4_idx").on(
 			table.hourTimestamp,
+			table.usedMode,
 			table.providerId,
 			table.logsCount,
 			table.errorsCount,
@@ -3490,6 +3755,9 @@ export const modelHistoryHourly = pgTable(
 			.defaultNow()
 			.$onUpdate(() => new Date()),
 		modelId: text().notNull(),
+		usedMode: text({ enum: ["credits", "api-keys", "unknown"] })
+			.notNull()
+			.default("unknown"),
 		// Unique timestamp key for one-hour intervals (rounded down to the hour)
 		hourTimestamp: timestamp().notNull(),
 		logsCount: integer().notNull().default(0),
@@ -3531,7 +3799,11 @@ export const modelHistoryHourly = pgTable(
 	},
 	(table) => [
 		// Unique constraint ensures one record per model-hour combination
-		unique().on(table.modelId, table.hourTimestamp),
+		unique("model_history_model_hour_mode_unique").on(
+			table.modelId,
+			table.hourTimestamp,
+			table.usedMode,
+		),
 		// Index for ORDER BY hourTimestamp DESC queries
 		index("model_history_hourly_ts_idx").on(table.hourTimestamp),
 		// Index for admin model history queries (filter by model + time range)
@@ -3676,6 +3948,16 @@ export const auditLogActions = [
 	"team_member.iam_rule.create",
 	"team_member.iam_rule.update",
 	"team_member.iam_rule.delete",
+	"organization_team.create",
+	"organization_team.update",
+	"organization_team.delete",
+	"organization_team.member_assign",
+	"organization_team.member_unassign",
+	"organization_team.projects_update",
+	"organization_team.budget_update",
+	"organization_team.iam_rule.create",
+	"organization_team.iam_rule.update",
+	"organization_team.iam_rule.delete",
 	// API Key
 	"api_key.create",
 	"api_key.roll",
@@ -3699,6 +3981,9 @@ export const auditLogActions = [
 	"custom_model.create",
 	"custom_model.update",
 	"custom_model.delete",
+	"organization_skill.create",
+	"organization_skill.update",
+	"organization_skill.delete",
 	// Subscription
 	"subscription.create",
 	"subscription.cancel",
@@ -3716,6 +4001,9 @@ export const auditLogActions = [
 	// Credits
 	"credits.gift",
 	"credits.manual_payment",
+	// Enterprise license fees
+	"enterprise_license_fee.create",
+	"enterprise_license_fee.update",
 	// Referral
 	"referral_bonus.update",
 	// Dev Plan
@@ -3728,6 +4016,8 @@ export const auditLogActions = [
 	"dev_plan.update_billing_details",
 	"dev_plan.rotate_api_key",
 	"dev_plan.update_payment_method",
+	"dev_plan.remove_payment_method",
+	"dev_plan.release_card_fingerprint",
 	"dev_plan.reset_pass_purchase",
 	"dev_plan.reset_pass_redeem",
 	// Free Reset Pass granted for a quarterly model-survey response.
@@ -3746,6 +4036,9 @@ export const auditLogActions = [
 	"sso_provider.delete",
 	"sso_role_mapping.create",
 	"sso_role_mapping.delete",
+	"sso_team_mapping.create",
+	"sso_team_mapping.update",
+	"sso_team_mapping.delete",
 	"sso_default_projects.update",
 	"sso.sign_in",
 	// SCIM
@@ -3758,6 +4051,7 @@ export const auditLogActions = [
 	"scim.user.deactivate",
 	"scim.user.deprovision",
 	"scim.user.role_change",
+	"scim.user.team_change",
 	"scim.group.create",
 	"scim.group.update",
 	"scim.group.delete",
@@ -3768,18 +4062,22 @@ export const auditLogResourceTypes = [
 	"project",
 	"team_member",
 	"team_invite",
+	"organization_team",
 	"api_key",
 	"master_key",
 	"iam_rule",
 	"provider_key",
 	"custom_model",
+	"organization_skill",
 	"subscription",
 	"payment_method",
 	"payment",
+	"transaction",
 	"dev_plan",
 	"chat_plan",
 	"sso_provider",
 	"sso_role_mapping",
+	"sso_team_mapping",
 	"sso_default_project",
 	"sso_session",
 	"scim_token",
@@ -4010,6 +4308,8 @@ export interface RoutingWeightsConfig {
 
 export interface RoutingThresholdsConfig {
 	cachePromptTokens?: number;
+	cacheHitRate?: number;
+	cacheOutputRatio?: number;
 	uptimePenalty?: number;
 	defaultUptime?: number;
 	defaultLatency?: number;
@@ -4276,6 +4576,513 @@ export const ignoredErrorMatcher = pgTable(
 	],
 );
 
+// ===== Airside (self-serve provider portal) =====
+
+// A company operating one or more catalogue providers ("carriers"). Kept
+// separate from `organization`: provider companies are gateway suppliers, not
+// gateway customers, and must never gain billing/plan semantics.
+export const providerCompany = pgTable("provider_company", {
+	id: text().primaryKey().notNull().$defaultFn(shortid),
+	createdAt: timestamp().notNull().defaultNow(),
+	updatedAt: timestamp()
+		.notNull()
+		.defaultNow()
+		.$onUpdate(() => new Date()),
+	name: text().notNull(),
+	website: text(),
+	// DNS ownership proof for `website`. The company publishes the token as a
+	// TXT record on the site's registrable domain; once resolved, that domain
+	// counts alongside the verified email domain when matching carrier claims,
+	// so a company whose staff mail is on a different domain can still claim.
+	websiteVerificationToken: text(),
+	// The registrable domain the TXT record was found on, lowercase. Stored
+	// separately from `website` so editing the URL cannot silently carry an
+	// old proof over to a new domain.
+	websiteVerifiedDomain: text(),
+	websiteVerifiedAt: timestamp(),
+	// One-time listing fee. Claims are gated on "paid" whenever the Stripe
+	// price id is configured; self-hosted installs without it skip the gate.
+	paymentStatus: text({ enum: ["unpaid", "paid"] })
+		.notNull()
+		.default("unpaid"),
+	stripeCheckoutSessionId: text(),
+	paidAt: timestamp(),
+	// Set when the fee was waived with a listing invite code instead of paid
+	// through Stripe — `paymentStatus` still flips to "paid" so every gate
+	// keeps working, and this records which code cleared it.
+	listingInviteCode: text(),
+});
+
+export const providerCompanyMember = pgTable(
+	"provider_company_member",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		role: text({ enum: ["owner", "member"] })
+			.notNull()
+			.default("owner"),
+	},
+	(table) => [
+		uniqueIndex("provider_company_member_company_user_uidx").on(
+			table.providerCompanyId,
+			table.userId,
+		),
+		index("provider_company_member_user_idx").on(table.userId),
+	],
+);
+
+// Listing invite codes waive the Airside listing fee for providers we already
+// work with. Admins generate them in the admin dashboard; a company redeems
+// one instead of paying through Stripe.
+export const airsideInviteCode = pgTable(
+	"airside_invite_code",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		// Canonical uppercase form (AIR-XXXX-XXXX); redemption normalizes input.
+		code: text().notNull(),
+		// Who the code was minted for — free-form, shown only to admins.
+		note: text(),
+		maxUses: integer().notNull().default(1),
+		usedCount: integer().notNull().default(0),
+		createdBy: text().references(() => user.id, { onDelete: "set null" }),
+		revokedAt: timestamp(),
+	},
+	(table) => [uniqueIndex("airside_invite_code_code_uidx").on(table.code)],
+);
+
+// A crew invite: an owner invites a teammate by email. If no account with
+// that email exists yet, the row waits; the invitee is attached as a member
+// the first time they open the portal with that (verified) email.
+export const providerCompanyInvite = pgTable(
+	"provider_company_invite",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		email: text().notNull(),
+		invitedBy: text().references(() => user.id, { onDelete: "set null" }),
+		status: text({ enum: ["pending", "accepted"] })
+			.notNull()
+			.default("pending"),
+		acceptedAt: timestamp(),
+	},
+	(table) => [
+		uniqueIndex("provider_company_invite_pending_uidx")
+			.on(table.providerCompanyId, table.email)
+			.where(sql`status = 'pending'`),
+		index("provider_company_invite_email_idx").on(table.email),
+	],
+);
+
+// A claim of a catalogue provider id by a provider company. Claims can only
+// be filed when the claimer's verified email domain matches the provider's
+// API endpoint (or website) registrable domain, and only become operational
+// once an admin approves them. `providerId` deliberately has no FK — the
+// catalogue is code-defined in packages/models.
+export const providerClaim = pgTable(
+	"provider_claim",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		providerId: text().notNull(),
+		// "catalogue" claims an existing catalogue provider; "custom" registers
+		// a brand-new provider whose OpenAI-compatible endpoint lives on the
+		// registrant's email domain. Custom carriers only exist in the DB.
+		kind: text({ enum: ["catalogue", "custom"] })
+			.notNull()
+			.default("catalogue"),
+		// The registrable email domain that satisfied the match, lowercase.
+		matchedDomain: text().notNull(),
+		// Submitted display name; active claims hold the approved override.
+		customName: text(),
+		// Custom carriers only: domain-matched API base URL and blurb.
+		customBaseUrl: text(),
+		customDescription: text(),
+		// Carrier branding, uploaded at claim time as size-capped data URLs and
+		// surfaced on the public catalogue pages.
+		logoUrl: text(),
+		iconUrl: text(),
+		// Branding edits on an active claim wait here for admin approval.
+		// null = nothing pending; a null value inside clears that image.
+		pendingBranding: jsonb().$type<AirsidePendingBranding>(),
+		claimedBy: text().references(() => user.id, { onDelete: "set null" }),
+		status: text({ enum: ["pending", "active", "rejected", "revoked"] })
+			.notNull()
+			.default("pending"),
+		reviewedBy: text(),
+		reviewNote: text(),
+		reviewedAt: timestamp(),
+		revokedAt: timestamp(),
+	},
+	(table) => [
+		// Only one live claim (pending or approved) per catalogue provider;
+		// rejecting or revoking frees it up.
+		uniqueIndex("provider_claim_active_provider_uidx")
+			.on(table.providerId)
+			.where(sql`status IN ('pending', 'active')`),
+		index("provider_claim_company_idx").on(table.providerCompanyId),
+		index("provider_claim_status_idx").on(table.status),
+	],
+);
+
+// A model listed by a provider company for one of its claimed providers.
+// Non-pricing fields are provider-editable in place; pricing lives in
+// `provider_price_filing` rows and only ever changes through an approved
+// filing. A newly added model stays `draft` until its initial filing is
+// approved. Prices are text to preserve exponent notation (see customModel).
+export interface AirsideModelMetadataChanges {
+	quantization?: Quantization | null;
+	displayName?: string | null;
+	description?: string | null;
+	family?: string;
+	contextSize?: number | null;
+	maxOutput?: number | null;
+	streaming?: boolean;
+	vision?: boolean;
+	audio?: boolean;
+	tools?: boolean;
+	jsonOutput?: boolean;
+	jsonOutputSchema?: boolean;
+	reasoning?: boolean;
+	reasoningMaxTokens?: boolean;
+	reasoningEfforts?: string[] | null;
+	webSearch?: boolean;
+	maxRpm?: number | null;
+	maxRpd?: number | null;
+	rateLimitScope?: "global" | "per_org";
+}
+
+export interface AirsidePendingBranding {
+	name?: string;
+	logoUrl?: string | null;
+	iconUrl?: string | null;
+}
+
+export const providerDraftModel = pgTable(
+	"provider_draft_model",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		providerId: text().notNull(),
+		// The public catalogue id (e.g. "glm-5.2-air").
+		modelName: text().notNull(),
+		// The id the provider's API expects; set once at registration or
+		// copied from the catalogue on import, never edited afterwards.
+		externalId: text().notNull(),
+		apiFormat: text({
+			enum: [
+				"provider-native",
+				"openai-chat-completions",
+				"openai-responses",
+				"google-vertex",
+			],
+		})
+			.$type<ProviderApiFormat>()
+			.notNull()
+			.default("provider-native"),
+		displayName: text(),
+		description: text(),
+		family: text(),
+		quantization: text().$type<Quantization>(),
+		contextSize: integer(),
+		maxOutput: integer(),
+		streaming: boolean().notNull().default(true),
+		vision: boolean().notNull().default(false),
+		audio: boolean().notNull().default(false),
+		tools: boolean().notNull().default(false),
+		jsonOutput: boolean().notNull().default(false),
+		jsonOutputSchema: boolean().notNull().default(false),
+		reasoning: boolean().notNull().default(false),
+		reasoningMaxTokens: boolean().notNull().default(false),
+		// Which unified reasoning_effort tiers the deployment accepts
+		// (subset of ReasoningEffort); null = parameter unsupported.
+		reasoningEfforts: jsonb().$type<string[]>(),
+		webSearch: boolean().notNull().default(false),
+		// Carrier-managed request caps. Admin `rate_limit` rows for the same
+		// provider/model always take precedence over these.
+		maxRpm: integer(),
+		maxRpd: integer(),
+		// How the carrier's own caps are bucketed. "global" is a single counter
+		// across every organization — what a carrier means by "my deployment
+		// takes 60 rpm" — and is the default. "per_org" gives each organization
+		// its own counter, so total upstream load scales with tenant count.
+		rateLimitScope: text({ enum: ["global", "per_org"] })
+			.notNull()
+			.default("global"),
+		status: text({ enum: ["draft", "active", "rejected", "delisted"] })
+			.notNull()
+			.default("draft"),
+		createdBy: text().references(() => user.id, { onDelete: "set null" }),
+		delistedAt: timestamp(),
+	},
+	(table) => [
+		// Uniqueness applies only to live rows so a delisted model name can be
+		// re-listed later.
+		uniqueIndex("provider_draft_model_provider_name_uidx")
+			.on(table.providerId, table.modelName)
+			.where(sql`status <> 'delisted'`),
+		index("provider_draft_model_company_idx").on(table.providerCompanyId),
+		index("provider_draft_model_status_idx").on(table.status),
+	],
+);
+
+export type ProviderModelVerificationStatus =
+	"queued" | "running" | "passed" | "failed";
+
+export type ProviderModelVerificationCheckStatus =
+	"queued" | "running" | "passed" | "failed" | "skipped";
+
+export interface ProviderModelVerificationCheck {
+	id: string;
+	label: string;
+	status: ProviderModelVerificationCheckStatus;
+	feedback?: string;
+}
+
+export interface ProviderModelVerificationTarget {
+	providerId: string;
+	modelName: string;
+	externalId: string;
+	apiFormat?: ProviderApiFormat;
+	streaming: boolean;
+	vision: boolean;
+	audio: boolean;
+	tools: boolean;
+	jsonOutput: boolean;
+	jsonOutputSchema: boolean;
+	reasoning: boolean;
+	reasoningMaxTokens: boolean;
+	reasoningEfforts: string[] | null;
+	webSearch: boolean;
+}
+
+// One queued verification of an Airside mapping. The target is frozen when
+// queued so an edit cannot change what a completed run proved. A supplied
+// credential is encrypted for this row only and erased on terminal status.
+export const providerModelVerification = pgTable(
+	"provider_model_verification",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		// Null for an unsubmitted new mapping; populated for an existing mapping
+		// and when a successful new-mapping verification is consumed.
+		draftModelId: text().references(() => providerDraftModel.id, {
+			onDelete: "cascade",
+		}),
+		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
+		target: jsonb().$type<ProviderModelVerificationTarget>().notNull(),
+		checks: jsonb().$type<ProviderModelVerificationCheck[]>().notNull(),
+		status: text({ enum: ["queued", "running", "passed", "failed"] })
+			.notNull()
+			.default("queued"),
+		credentialCiphertext: text(),
+		credentialSource: text({ enum: ["supplied", "managed", "environment"] })
+			.notNull()
+			.default("supplied"),
+		summary: text(),
+		attempts: integer().notNull().default(0),
+		startedAt: timestamp(),
+		completedAt: timestamp(),
+		// Set when a passed new-mapping verification creates the draft model.
+		submittedAt: timestamp(),
+	},
+	(table) => [
+		index("provider_model_verification_company_idx").on(
+			table.providerCompanyId,
+			table.createdAt,
+		),
+		index("provider_model_verification_model_idx").on(
+			table.draftModelId,
+			table.createdAt,
+		),
+		index("provider_model_verification_queue_idx").on(
+			table.status,
+			table.createdAt,
+		),
+		uniqueIndex("provider_model_verification_active_model_uidx")
+			.on(table.draftModelId)
+			.where(
+				sql`draft_model_id IS NOT NULL AND status IN ('queued', 'running')`,
+			),
+	],
+);
+
+// Per-region price override carried by a price filing. Missing optional
+// fields inherit the filing's flat (default-region) values.
+export interface AirsideRegionPrice {
+	region: string;
+	inputPrice: string;
+	outputPrice: string;
+	cachedInputPrice?: string | null;
+	requestPrice?: string | null;
+}
+
+// A pricing proposal ("tariff filing") for a provider-listed model. Admins
+// approve or reject filings in the admin dashboard; the model's effective
+// pricing is its most recently approved filing. `kind: "initial"` filings
+// activate the model itself on approval.
+export const providerPriceFiling = pgTable(
+	"provider_price_filing",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		draftModelId: text()
+			.notNull()
+			.references(() => providerDraftModel.id, { onDelete: "cascade" }),
+		// Denormalized for company-scoped listings without a join through the model.
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		// "metadata" filings carry the proposed non-price changes in `metadata`
+		// and copy the current prices so the row stays self-describing.
+		kind: text({ enum: ["initial", "update", "metadata"] })
+			.notNull()
+			.default("update"),
+		inputPrice: text().notNull(),
+		outputPrice: text().notNull(),
+		cachedInputPrice: text(),
+		requestPrice: text(),
+		// Per-region price overrides; an approved filing's set fully replaces the
+		// listing's regional pricing. Null/empty = default-region pricing only.
+		regionPrices: jsonb().$type<AirsideRegionPrice[]>(),
+		metadata: jsonb().$type<AirsideModelMetadataChanges>(),
+		status: text({ enum: ["pending", "approved", "rejected"] })
+			.notNull()
+			.default("pending"),
+		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
+		note: text(),
+		reviewedBy: text(),
+		reviewNote: text(),
+		reviewedAt: timestamp(),
+	},
+	(table) => [
+		// One filing can be in flight per model at a time.
+		uniqueIndex("provider_price_filing_pending_model_uidx")
+			.on(table.draftModelId)
+			.where(sql`status = 'pending'`),
+		index("provider_price_filing_company_idx").on(table.providerCompanyId),
+		index("provider_price_filing_status_idx").on(table.status),
+	],
+);
+
+// Provider-wide routing knobs, optionally overridden for one model: a traffic
+// discount and the gateway margin the carrier accepts. Deliberately separate from
+// `routing_score_multiplier` (the admin-only prioritization knob): the gateway
+// reads this table directly and adds both signals at the scoring seam.
+// Both values are fractions (0.1 = 10%), like `discount.discountPercent`.
+export const providerRoutingSettings = pgTable(
+	"provider_routing_settings",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		providerId: text().notNull(),
+		modelId: text(),
+		discountPercent: decimal().notNull().default("0"),
+		marginPercent: decimal().notNull().default("0.2"),
+	},
+	(table) => [
+		uniqueIndex("provider_routing_settings_provider_default_uidx")
+			.on(table.providerId)
+			.where(sql`model_id IS NULL`),
+		uniqueIndex("provider_routing_settings_provider_model_uidx")
+			.on(table.providerId, table.modelId)
+			.where(sql`model_id IS NOT NULL`),
+		index("provider_routing_settings_company_idx").on(table.providerCompanyId),
+	],
+);
+
+// A carrier's requested change to its routing knobs ("fare change"). Like
+// price filings, routing changes only take effect once an admin approves the
+// filing — approval writes the values into `provider_routing_settings`.
+export const providerRoutingFiling = pgTable(
+	"provider_routing_filing",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		providerCompanyId: text()
+			.notNull()
+			.references(() => providerCompany.id, { onDelete: "cascade" }),
+		providerId: text().notNull(),
+		modelId: text(),
+		discountPercent: decimal().notNull(),
+		marginPercent: decimal().notNull(),
+		status: text({ enum: ["pending", "approved", "rejected"] })
+			.notNull()
+			.default("pending"),
+		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
+		reviewedBy: text(),
+		reviewNote: text(),
+		reviewedAt: timestamp(),
+	},
+	(table) => [
+		uniqueIndex("provider_routing_filing_pending_default_uidx")
+			.on(table.providerId)
+			.where(sql`model_id IS NULL AND status = 'pending'`),
+		uniqueIndex("provider_routing_filing_pending_model_uidx")
+			.on(table.providerId, table.modelId)
+			.where(sql`model_id IS NOT NULL AND status = 'pending'`),
+		index("provider_routing_filing_company_idx").on(table.providerCompanyId),
+		index("provider_routing_filing_status_idx").on(table.status),
+	],
+);
+
 // Project hourly statistics aggregation - used for fast dashboard queries
 export const projectHourlyStats = pgTable(
 	"project_hourly_stats",
@@ -4394,6 +5201,10 @@ export const projectHourlyModelStats = pgTable(
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
+		// Gateway margin earned on Airside-carrier traffic:
+		// SUM(log.cost * log.providerMarginPercent) for credits-mode, non-cached
+		// requests. 0 for providers without routing settings.
+		providerMarginAmount: real().notNull().default(0),
 		// Per-mode breakdowns
 		creditsRequestCount: integer().notNull().default(0),
 		apiKeysRequestCount: integer().notNull().default(0),
@@ -4749,6 +5560,86 @@ export const apiKeyHourlyModelStats = pgTable(
 	],
 );
 
+// Per-key app usage remains available after request retention expires.
+export const apiKeyHourlySourceStats = pgTable(
+	"api_key_hourly_source_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		apiKeyId: text().notNull(),
+		projectId: text().notNull(), // Denormalized for efficient queries
+		hourTimestamp: timestamp().notNull(), // Start of the hour bucket
+		source: text().notNull(),
+		// Request counts
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		streamedCount: integer().notNull().default(0),
+		nonStreamedCount: integer().notNull().default(0),
+		// Unified finish reason counts
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		// Error type counts (subset of errorCount)
+		clientErrorCount: integer().notNull().default(0),
+		gatewayErrorCount: integer().notNull().default(0),
+		upstreamErrorCount: integer().notNull().default(0),
+		// Token counts
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		reasoningTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
+		// Costs
+		cost: real().notNull().default(0),
+		inputCost: real().notNull().default(0),
+		outputCost: real().notNull().default(0),
+		requestCost: real().notNull().default(0),
+		dataStorageCost: real().notNull().default(0),
+		discountSavings: real().notNull().default(0),
+		imageInputCost: real().notNull().default(0),
+		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
+		videoOutputCost: real().notNull().default(0),
+		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
+		// Per-mode breakdowns
+		creditsRequestCount: integer().notNull().default(0),
+		apiKeysRequestCount: integer().notNull().default(0),
+		creditsCost: real().notNull().default(0),
+		apiKeysCost: real().notNull().default(0),
+		creditsDataStorageCost: real().notNull().default(0),
+		apiKeysDataStorageCost: real().notNull().default(0),
+	},
+	(table) => [
+		// Unique constraint for one record per api-key-hour-source
+		unique().on(table.apiKeyId, table.hourTimestamp, table.source),
+		// Index for dashboard queries (api key + time range)
+		index("api_key_hourly_source_stats_api_key_id_hour_timestamp_idx").on(
+			table.apiKeyId,
+			table.hourTimestamp,
+		),
+		// Index for project-level queries (all keys in a project)
+		index("api_key_hourly_source_stats_project_id_hour_timestamp_idx").on(
+			table.projectId,
+			table.hourTimestamp,
+		),
+		// Index for worker refresh queries
+		index("api_key_hourly_source_stats_hour_timestamp_idx").on(
+			table.hourTimestamp,
+		),
+	],
+);
+
 // Dimensions the global stats tables are keyed on in addition to the day
 // bucket and the model/source. Both carry an "unknown" member: rows written
 // before these columns existed keep it, and it is also the fallback for
@@ -4832,6 +5723,10 @@ export const globalModelStats = pgTable(
 		videoOutputCost: real().notNull().default(0),
 		cachedInputCost: real().notNull().default(0),
 		cacheWriteInputCost: real().notNull().default(0),
+		// Gateway margin earned on Airside-carrier traffic:
+		// SUM(log.cost * log.providerMarginPercent) for credits-mode, non-cached
+		// requests. 0 for providers without routing settings.
+		providerMarginAmount: real().notNull().default(0),
 	},
 	(table) => [
 		// usedMode/orgKind are part of the key: every metric is therefore
@@ -4931,7 +5826,93 @@ export const globalSourceStats = pgTable(
 	],
 );
 
-// Singleton state row for the incremental global-stats aggregator.
+// Global per-credential model statistics — the model breakdown of
+// globalModelStats split by the provider key that served each request. Only
+// rows with a non-null `log.providerKeyId` land here (see
+// providerKeyHourlyStats), so summing this table never reproduces the global
+// totals; it answers "which models did this credential serve, at what cost".
+export const globalProviderKeyModelStats = pgTable(
+	"global_provider_key_model_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		dayTimestamp: timestamp().notNull(), // Start of the UTC day bucket
+		providerKeyId: text().notNull(),
+		usedModel: text().notNull(),
+		usedProvider: text().notNull(),
+		// See globalModelStats for the semantics of these two dimensions.
+		usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
+			.notNull()
+			.default("unknown"),
+		orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS })
+			.notNull()
+			.default("unknown"),
+		// Request counts
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		streamedCount: integer().notNull().default(0),
+		nonStreamedCount: integer().notNull().default(0),
+		// Unified finish reason counts
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		// Error type counts (subset of errorCount)
+		clientErrorCount: integer().notNull().default(0),
+		gatewayErrorCount: integer().notNull().default(0),
+		upstreamErrorCount: integer().notNull().default(0),
+		// Token counts
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		reasoningTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
+		// Costs
+		cost: real().notNull().default(0),
+		inputCost: real().notNull().default(0),
+		outputCost: real().notNull().default(0),
+		requestCost: real().notNull().default(0),
+		dataStorageCost: real().notNull().default(0),
+		discountSavings: real().notNull().default(0),
+		imageInputCost: real().notNull().default(0),
+		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
+		videoOutputCost: real().notNull().default(0),
+		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
+	},
+	(table) => [
+		// Named explicitly: the auto-generated six-column name exceeds Postgres'
+		// 63-byte identifier limit.
+		unique("global_provider_key_model_stats_day_key_model_unique").on(
+			table.dayTimestamp,
+			table.providerKeyId,
+			table.usedModel,
+			table.usedProvider,
+			table.usedMode,
+			table.orgKind,
+		),
+		index("global_provider_key_model_stats_day_timestamp_idx").on(
+			table.dayTimestamp,
+		),
+		index("global_provider_key_model_stats_key_day_idx").on(
+			table.providerKeyId,
+			table.dayTimestamp,
+		),
+	],
+);
+
+// Independent cursors for global stats ("singleton") and provider-key model
+// stats ("provider-key-model"), so adding a rollup cannot skip its history.
 // `lastProcessedHour` is the last UTC bucket that has been folded into the
 // daily stats. `lastSafetyNetDay` is the most recent UTC day that has been
 // fully recomputed by the safety-net pass.
@@ -4987,6 +5968,37 @@ export const orgLimitHitDaily = pgTable(
 			table.endpointKey,
 		),
 		index("org_limit_hit_daily_day_idx").on(table.day),
+	],
+);
+
+export const organizationSkill = pgTable(
+	"organization_skill",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		name: text().notNull(),
+		description: text().notNull(),
+		content: text().notNull(),
+		files: jsonb()
+			.notNull()
+			.$type<
+				{ path: string; content: string; encoding?: "utf-8" | "base64" }[]
+			>()
+			.default([]),
+		enabled: boolean().notNull().default(true),
+	},
+	(table) => [
+		uniqueIndex("organization_skill_org_name_unique").on(
+			table.organizationId,
+			table.name,
+		),
 	],
 );
 

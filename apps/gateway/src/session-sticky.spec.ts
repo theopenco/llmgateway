@@ -1,7 +1,9 @@
 import { beforeAll, describe, expect, test } from "vitest";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
@@ -42,7 +44,7 @@ describe("session stickiness across candidate changes", () => {
 	async function seedApiAndProviderKeys(suffix: string) {
 		await db.insert(tables.apiKey).values({
 			id: `token-id-session-sticky-${suffix}`,
-			token: `real-token-session-sticky-${suffix}`,
+			...hashApiKeyForStorage(`real-token-session-sticky-${suffix}`),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -51,14 +53,22 @@ describe("session stickiness across candidate changes", () => {
 		await db.insert(tables.providerKey).values([
 			{
 				id: `provider-key-session-sticky-openai-${suffix}`,
-				token: "sk-openai-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-openai-test-key",
+					`provider-key-session-sticky-openai-${suffix}`,
+					"org-id",
+				),
 				provider: "openai",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
 			},
 			{
 				id: `provider-key-session-sticky-azure-${suffix}`,
-				token: "sk-azure-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-azure-test-key",
+					`provider-key-session-sticky-azure-${suffix}`,
+					"org-id",
+				),
 				provider: "azure",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
@@ -248,7 +258,7 @@ describe("session stickiness across candidate changes", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-session-sticky-tool-choice",
-			token,
+			...hashApiKeyForStorage(token),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -256,14 +266,22 @@ describe("session stickiness across candidate changes", () => {
 		await db.insert(tables.providerKey).values([
 			{
 				id: "provider-key-session-sticky-canopywave",
-				token: "sk-canopywave-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-canopywave-test-key",
+					"provider-key-session-sticky-canopywave",
+					"org-id",
+				),
 				provider: "canopywave",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
 			},
 			{
 				id: "provider-key-session-sticky-deepinfra",
-				token: "sk-deepinfra-test-key",
+				...encryptProviderKeyForStorage(
+					"sk-deepinfra-test-key",
+					"provider-key-session-sticky-deepinfra",
+					"org-id",
+				),
 				provider: "deepinfra",
 				organizationId: "org-id",
 				baseUrl: `${mockServerUrl}/v1`,

@@ -27,6 +27,7 @@ export const RETENTION_SENSITIVE_LOG_FIELDS = [
  * cleared. Used by the gateway so payloads for non-retaining orgs never travel
  * through Redis (or reach the database) in the first place — the gateway is the
  * sole decider of what gets persisted, so the worker inserts queued rows as-is.
+ * Error diagnostics remain available regardless of payload retention.
  */
 export function stripRetentionSensitiveLogFields<T extends LogInsertData>(
 	logData: T,

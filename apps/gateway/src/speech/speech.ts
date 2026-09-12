@@ -24,6 +24,7 @@ import {
 } from "@/lib/api-key-health.js";
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import {
@@ -33,16 +34,25 @@ import {
 	findProviderKey,
 } from "@/lib/cached-queries.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
-import { assertProviderCompliant } from "@/lib/compliance.js";
+import {
+	assertProviderCompliant,
+	getEffectiveRetentionLevel,
+} from "@/lib/compliance.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
+import {
+	rateLimitHeaders,
+	standardErrorResponses,
+} from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
+import { fetchProvider } from "@/lib/fetch-provider.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
+import { fetchNoRedirect, RedirectError } from "@llmgateway/actions";
 import {
 	getGoogleVertexPublisherModelPath,
 	getProviderHeaders,
@@ -114,15 +124,6 @@ interface SpeechErrorBody {
 		code: string;
 	};
 }
-
-const speechErrorSchema = z.object({
-	error: z.object({
-		message: z.string(),
-		type: z.string(),
-		param: z.string().nullable(),
-		code: z.string(),
-	}),
-});
 
 /** Minimal shape of a Gemini `generateContent` response part. */
 interface GeminiPart {
@@ -413,6 +414,7 @@ const createSpeech = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"audio/wav": { schema: z.any() },
 				"audio/mpeg": { schema: z.any() },
@@ -420,34 +422,7 @@ const createSpeech = createRoute({
 			},
 			description: "Generated audio.",
 		},
-		400: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Invalid request body or parameters.",
-		},
-		401: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Unauthorized request.",
-		},
-		402: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Payment required / insufficient credits.",
-		},
-		403: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Forbidden.",
-		},
-		500: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Internal server error.",
-		},
-		502: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Failed to connect to the upstream provider.",
-		},
-		504: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Upstream provider timeout.",
-		},
+		...standardErrorResponses(),
 	},
 });
 
@@ -634,6 +609,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	// User-level limits take priority: enforce the per-member budget (set on the
 	// Teams page; fails open on read errors) before the per-key usage limits, so a
 	// member who is over budget is denied even if the key itself is within limits.
+	await assertMemberProjectAccess(apiKey, project.organizationId);
 	await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
 	assertApiKeyWithinUsageLimits(apiKey);
 
@@ -650,7 +626,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		});
 	}
 
-	const retentionLevel = organization.retentionLevel ?? "none";
+	const retentionLevel = getEffectiveRetentionLevel(organization);
 
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
@@ -878,15 +854,19 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			throw new HTTPException(500, { message: "No token" });
 		}
 
-		const envBaseUrl = getCredentialSetting(providerId, "baseUrl", managedKey, {
-			configIndex,
-			variant: envVariant,
-		});
+		const credential = { providerKey, managedKey };
 		const resolvedBaseUrl =
 			providerKey?.baseUrl ??
-			envBaseUrl ??
-			PROVIDER_BASE_URL_DEFAULTS[providerId] ??
-			"https://generativelanguage.googleapis.com";
+			getCredentialSetting(providerId, "baseUrl", credential, {
+				configIndex,
+				variant: envVariant,
+			}) ??
+			PROVIDER_BASE_URL_DEFAULTS[providerId];
+		if (!resolvedBaseUrl) {
+			throw new HTTPException(500, {
+				message: `No base URL set for provider: ${providerId}`,
+			});
+		}
 
 		const elevenLabsOutputFormat =
 			ELEVENLABS_OUTPUT_FORMATS[responseFormat] ?? "mp3_44100_128";
@@ -906,7 +886,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		} else if (isGoogleVertex) {
 			const vertexProjectId =
 				providerKey?.options?.google_vertex_project_id ??
-				getCredentialSetting("google-vertex", "project", managedKey, {
+				getCredentialSetting("google-vertex", "project", credential, {
 					configIndex,
 					variant: envVariant,
 				});
@@ -926,7 +906,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				});
 			}
 			const vertexRegion =
-				getCredentialSetting("google-vertex", "region", managedKey, {
+				getCredentialSetting("google-vertex", "region", credential, {
 					configIndex,
 					defaultValue: "global",
 					variant: envVariant,
@@ -1025,7 +1005,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			let fetchError: Error | null = null;
 			try {
 				const fetchSignal = createCombinedSignal(controller);
-				upstreamResponse = await fetch(attempt.upstreamUrl, {
+				upstreamResponse = await fetchProvider(attempt.upstreamUrl, {
 					method: "POST",
 					// SSRF: never follow redirects on an authenticated provider request. A
 					// tenant-supplied baseUrl could 3xx to an internal host at request
@@ -1415,7 +1395,9 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						logger.warn("Speech API - no audio in SSE stream", {
 							requestId,
 							model: upstreamModel,
-							sseError: sseErrorMessage,
+							...(retentionLevel === "retain" && {
+								sseError: sseErrorMessage,
+							}),
 						});
 						routingAttempts.push(
 							buildRoutingAttempt(
@@ -1633,9 +1615,10 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				const audioUrl = dashScopeJson.output?.audio?.url;
 				let out: Buffer | null = null;
 				let downloadError: string | null = null;
+				let redirectBlocked = false;
 				if (typeof audioUrl === "string" && audioUrl) {
 					try {
-						const audioResponse = await fetch(audioUrl, {
+						const audioResponse = await fetchNoRedirect(audioUrl, {
 							// The download URL is provider-issued; still never follow
 							// redirects so the response can't be bounced elsewhere.
 							redirect: "error",
@@ -1647,6 +1630,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 							downloadError = `Audio download failed with status ${audioResponse.status}`;
 						}
 					} catch (error) {
+						redirectBlocked = error instanceof RedirectError;
 						downloadError =
 							error instanceof Error ? error.message : String(error);
 					}
@@ -1662,8 +1646,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						buildRoutingAttempt(
 							providerId,
 							modelDefId,
-							upstreamResponse.status,
-							"upstream_error",
+							redirectBlocked ? 400 : upstreamResponse.status,
+							redirectBlocked ? "client_error" : "upstream_error",
 							false,
 							{
 								apiKeyHash: usedApiKeyHash,
@@ -1688,7 +1672,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						responseSize: upstreamText.length,
 						content: null,
 						reasoningContent: null,
-						finishReason: "upstream_error",
+						finishReason: redirectBlocked ? "client_error" : "upstream_error",
 						promptTokens: null,
 						completionTokens: null,
 						totalTokens: null,
@@ -1698,8 +1682,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						streamed: false,
 						canceled: false,
 						errorDetails: {
-							statusCode: upstreamResponse.status,
-							statusText: "no_audio",
+							statusCode: redirectBlocked ? 400 : upstreamResponse.status,
+							statusText: redirectBlocked ? "Bad Request" : "no_audio",
 							responseText: (downloadError ?? upstreamText).slice(0, 2000),
 						},
 						inputCost: 0,
@@ -1733,12 +1717,12 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 										? `Failed to download synthesized audio: ${downloadError}`
 										: (dashScopeJson.message ??
 											"The model did not return any audio. The content may have been filtered."),
-								type: "upstream_error",
+								type: redirectBlocked ? "client_error" : "upstream_error",
 								param: null,
-								code: "no_audio",
+								code: redirectBlocked ? "unexpected_redirect" : "no_audio",
 							},
 						} satisfies SpeechErrorBody,
-						502,
+						redirectBlocked ? 400 : 502,
 					);
 				}
 

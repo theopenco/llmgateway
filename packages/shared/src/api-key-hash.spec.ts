@@ -2,9 +2,12 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
 	getApiKeyFingerprint,
+	getApiKeyFingerprints,
 	getApiKeyHashSecret,
 	getApiKeyHashSecrets,
 	getSecretKeyId,
+	hashApiKeyForStorage,
+	hashTokenForStorage,
 } from "./api-key-hash.js";
 
 const ENV_VAR = "GATEWAY_API_KEY_HASH_SECRET";
@@ -70,6 +73,30 @@ describe("getApiKeyHashSecret / getApiKeyFingerprint", () => {
 		expect(getApiKeyFingerprint("llmgtwy_token")).toBe(current);
 		setSecret("secret-old");
 		expect(getApiKeyFingerprint("llmgtwy_token")).not.toBe(current);
+	});
+
+	it("computes lookup fingerprints for the full keyring", () => {
+		setSecret("secret-new,secret-old");
+		const fingerprints = getApiKeyFingerprints("llmgtwy_token");
+		expect(fingerprints).toHaveLength(2);
+		expect(fingerprints[0]).toBe(getApiKeyFingerprint("llmgtwy_token"));
+		setSecret("secret-old");
+		expect(fingerprints[1]).toBe(getApiKeyFingerprint("llmgtwy_token"));
+	});
+
+	it("builds hash-only storage values", () => {
+		setSecret("secret-new");
+		expect(hashApiKeyForStorage("llmgtwy_secret-value")).toEqual({
+			tokenHash: getApiKeyFingerprint("llmgtwy_secret-value"),
+			tokenMasked: "llmgtwy_secr•••••",
+		});
+	});
+
+	it("builds hash-only values without API-key display metadata", () => {
+		setSecret("secret-new");
+		expect(hashTokenForStorage("es_session-secret")).toEqual({
+			tokenHash: getApiKeyFingerprint("es_session-secret"),
+		});
 	});
 });
 

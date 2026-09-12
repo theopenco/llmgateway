@@ -5,14 +5,16 @@ import { HeroRSC } from "@/components/landing/hero-rsc";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Add a Provider – LLM Gateway",
+	title: "Add a Provider",
 	description:
-		"Request to list your AI provider on LLM Gateway. Share your provider details, compliance, and data policies and our team will get in touch.",
+		"List your AI provider on LLM Gateway: self-serve via the Airside carrier console, or share your details and our team will get in touch.",
+	alternates: { canonical: "/add-provider" },
 	openGraph: {
-		title: "Add a Provider – LLM Gateway",
+		title: "Add a Provider to LLM Gateway",
 		description:
-			"Request to list your AI provider on LLM Gateway. Share your provider details, compliance, and data policies and our team will get in touch.",
+			"List your AI provider on LLM Gateway: self-serve via the Airside carrier console, or share your details and our team will get in touch.",
 		type: "website",
+		url: "https://llmgateway.io/add-provider",
 	},
 };
 

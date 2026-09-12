@@ -1,11 +1,12 @@
 import { generateImage } from "ai";
 import { cookies } from "next/headers";
 
-import { PLAYGROUND_KEY_COOKIE_NAME } from "@/lib/constants";
+import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 import { describeImageGenerationError } from "@/lib/image-gen";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 export const maxDuration = 300; // 5 minutes
@@ -69,9 +70,7 @@ export async function POST(req: Request) {
 	const noFallbackHeader = req.headers.get("x-no-fallback") ?? undefined;
 
 	const cookieStore = await cookies();
-	const cookieApiKey =
-		cookieStore.get(PLAYGROUND_KEY_COOKIE_NAME)?.value ??
-		cookieStore.get(`__Host-${PLAYGROUND_KEY_COOKIE_NAME}`)?.value;
+	const cookieApiKey = getPlaygroundKeyForRequest(cookieStore);
 	const finalApiKey = apiKey ?? headerApiKey ?? cookieApiKey;
 	if (!finalApiKey) {
 		return new Response(JSON.stringify({ error: "Missing API key" }), {
@@ -79,15 +78,9 @@ export async function POST(req: Request) {
 		});
 	}
 
-	const gatewayUrl =
-		process.env.GATEWAY_URL ??
-		(process.env.NODE_ENV === "development"
-			? "http://localhost:4001/v1"
-			: "https://api.llmgateway.io/v1");
-
 	const llmgateway = createLLMGateway({
 		apiKey: finalApiKey,
-		baseURL: gatewayUrl,
+		baseURL: getGatewayApiBaseUrl(),
 		headers: {
 			"x-source": LOUNGE_SOURCE,
 			...(noFallbackHeader ? { "x-no-fallback": noFallbackHeader } : {}),

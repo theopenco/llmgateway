@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
@@ -38,7 +39,7 @@ describe("dev-plan PAYG overflow", () => {
 		await harness.setProjectMode("credits");
 		await db.insert(tables.apiKey).values({
 			id: `${token}-id`,
-			token,
+			...hashApiKeyForStorage(token),
 			projectId: "project-id",
 			description: "PAYG test key",
 			createdBy: "user-id",

@@ -38,7 +38,8 @@ import { randomInt } from "@llmgateway/shared/random";
 
 import type { VariantProps } from "class-variance-authority";
 
-const SIDEBAR_STORAGE_KEY = "sidebar_state";
+const SIDEBAR_COOKIE_NAME = "sidebar_state";
+const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 const SIDEBAR_WIDTH = "16rem";
 const SIDEBAR_WIDTH_MOBILE = "18rem";
 const SIDEBAR_WIDTH_ICON = "3rem";
@@ -80,26 +81,13 @@ function SidebarProvider({
 }) {
 	const isMobile = useIsMobile();
 	const [openMobile, setOpenMobile] = useState(false);
-	const [mounted, setMounted] = useState(false);
-
-	// Track if component has mounted to prevent hydration issues
-	useEffect(() => {
-		setMounted(true);
-	}, []);
 
 	// This is the internal state of the sidebar.
 	// We use openProp and setOpenProp for control from outside the component.
+	// The server layout reads the cookie and passes it as defaultOpen, so the
+	// first client render already matches the persisted state (no post-mount
+	// snap).
 	const [_open, _setOpen] = useState(defaultOpen);
-
-	// Update internal state from localStorage after mounting
-	useEffect(() => {
-		if (mounted && !openProp) {
-			const savedState = localStorage.getItem(SIDEBAR_STORAGE_KEY);
-			if (savedState !== null) {
-				_setOpen(savedState === "true");
-			}
-		}
-	}, [mounted, openProp]);
 
 	const open = openProp ?? _open;
 	const setOpen = useCallback(
@@ -111,10 +99,8 @@ function SidebarProvider({
 				_setOpen(openState);
 			}
 
-			// Save the state to localStorage
-			if (typeof window !== "undefined") {
-				localStorage.setItem(SIDEBAR_STORAGE_KEY, String(openState));
-			}
+			// This sets the cookie to keep the sidebar state.
+			document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
 		},
 		[setOpenProp, open],
 	);

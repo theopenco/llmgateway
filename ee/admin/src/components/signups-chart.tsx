@@ -5,6 +5,10 @@ import { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis } from "recharts";
 
 import {
+	ChartTypeToggle,
+	type ChartType,
+} from "@/components/chart-type-toggle";
+import {
 	Card,
 	CardContent,
 	CardDescription,
@@ -47,6 +51,8 @@ export function SignupsChart({
 	totals: { signups: number; paidCustomers: number };
 }) {
 	const [activeChart, setActiveChart] = useState<ActiveChart>("signups");
+	const [chartType, setChartType] = useState<ChartType>("line");
+	const MainChart = chartType === "line" ? LineChart : BarChart;
 
 	const dailyData = useMemo(
 		() =>
@@ -64,9 +70,12 @@ export function SignupsChart({
 		<Card>
 			<CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
 				<div className="flex flex-1 flex-col justify-center gap-1.5 px-6 py-5 sm:py-6">
-					<CardTitle className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-						Signups & Paid Customers
-					</CardTitle>
+					<div className="flex flex-wrap items-center justify-between gap-3">
+						<CardTitle className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+							Signups & Paid Customers
+						</CardTitle>
+						<ChartTypeToggle value={chartType} onValueChange={setChartType} />
+					</div>
 					<CardDescription className="text-xs">
 						Cumulative signups and paid customers over time
 					</CardDescription>
@@ -94,7 +103,11 @@ export function SignupsChart({
 					config={chartConfig}
 					className="aspect-auto h-[250px] w-full"
 				>
-					<LineChart data={data} margin={{ left: 12, right: 12 }}>
+					<MainChart
+						data={data}
+						accessibilityLayer
+						margin={{ left: 12, right: 12 }}
+					>
 						<CartesianGrid vertical={false} />
 						<XAxis
 							dataKey="date"
@@ -119,14 +132,23 @@ export function SignupsChart({
 								/>
 							}
 						/>
-						<Line
-							dataKey={activeChart}
-							type="monotone"
-							stroke={`var(--color-${activeChart})`}
-							strokeWidth={2}
-							dot={false}
-						/>
-					</LineChart>
+						{chartType === "line" ? (
+							<Line
+								dataKey={activeChart}
+								type="monotone"
+								stroke={`var(--color-${activeChart})`}
+								strokeWidth={2}
+								dot={false}
+							/>
+						) : (
+							<Bar
+								dataKey={activeChart}
+								fill={`var(--color-${activeChart})`}
+								maxBarSize={40}
+								radius={[3, 3, 0, 0]}
+							/>
+						)}
+					</MainChart>
 				</ChartContainer>
 				<div className="mt-2 px-2 sm:px-0">
 					<p className="mb-1 px-2 text-xs text-muted-foreground sm:px-3">

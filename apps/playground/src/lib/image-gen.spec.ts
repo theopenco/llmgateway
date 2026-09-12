@@ -3,6 +3,29 @@ import { describe, expect, it } from "vitest";
 import { getModelImageConfig } from "@/lib/image-gen";
 
 describe("getModelImageConfig", () => {
+	it.each(["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
+		"offers GPT Image 2.5 qualities for %s",
+		(model) => {
+			for (const id of [model, `openai/${model}`]) {
+				const config = getModelImageConfig(id);
+
+				expect(config.usesPixelDimensions).toBe(true);
+				expect(config.availableSizes).toContain("3840x2160");
+				expect(config.defaultSize).toBe("1024x1024");
+				expect(config.supportsQuality).toBe(true);
+				expect(config.availableQualities).toEqual([
+					"auto",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				]);
+				expect(config.defaultQuality).toBe("low");
+			}
+		},
+	);
+
 	it("offers only the tiers xAI's Grok Imagine 2.0 accepts", () => {
 		for (const model of [
 			"grok-imagine-image-2-0",
@@ -44,5 +67,27 @@ describe("getModelImageConfig", () => {
 			"high",
 		]);
 		expect(config.defaultQuality).toBe("low");
+	});
+
+	it("offers Muse sizes without an unsupported quality control", () => {
+		const config = getModelImageConfig("meta/muse-image-1.0");
+
+		expect(config.usesPixelDimensions).toBe(true);
+		expect(config.availableSizes).toEqual([
+			"1024x1024",
+			"1024x1536",
+			"1536x1024",
+		]);
+		expect(config.defaultSize).toBe("1024x1024");
+		expect(config.supportsQuality).toBe(false);
+		expect(config.availableQualities).toEqual([]);
+	});
+
+	it("allows Seedream 5.0 Pro reference images", () => {
+		const config = getModelImageConfig("bytedance/seedream-5-0-pro");
+
+		expect(config.availableSizes).toEqual(["1K", "2K"]);
+		expect(config.defaultSize).toBe("2K");
+		expect(config.maxInputImages).toBe(10);
 	});
 });

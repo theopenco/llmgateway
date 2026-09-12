@@ -6,6 +6,7 @@ import { Footer } from "@/components/Footer";
 import { GetDevPassButton } from "@/components/GetDevPassButton";
 import { Header } from "@/components/Header";
 import { Button } from "@/components/ui/button";
+import { getCodingModelCards } from "@/lib/coding-models";
 
 import type { Metadata } from "next";
 
@@ -14,9 +15,17 @@ export const metadata: Metadata = {
 	description:
 		"High-performance AI models optimized for coding tasks with tool support, JSON output, streaming, and prompt caching.",
 	alternates: { canonical: "/coding-models" },
+	openGraph: {
+		title: "AI Models for Coding | DevPass",
+		description:
+			"High-performance AI models optimized for coding tasks with tool support, JSON output, streaming, and prompt caching.",
+		type: "website",
+		url: "https://devpass.llmgateway.io/coding-models",
+	},
 };
 
-export default function CodingModelsPage() {
+export default async function CodingModelsPage() {
+	const codingModelCards = await getCodingModelCards();
 	return (
 		<div className="min-h-screen bg-background">
 			<Header />
@@ -95,7 +104,7 @@ export default function CodingModelsPage() {
 							We recommend the latest models from open-weight-first labs — the
 							full standard and premium catalogue is one tab away.
 						</p>
-						<CodingModelsShowcase showCTA showTabs />
+						<CodingModelsShowcase models={codingModelCards} showCTA showTabs />
 					</div>
 				</section>
 

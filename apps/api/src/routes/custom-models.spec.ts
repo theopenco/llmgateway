@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
 
 const ORG_ID = "custom-models-org";
@@ -92,7 +93,11 @@ describe("custom provider/model management role gating", () => {
 
 		await db.insert(tables.providerKey).values({
 			id: CUSTOM_KEY_ID,
-			token: "custom-provider-token",
+			...encryptProviderKeyForStorage(
+				"custom-provider-token",
+				CUSTOM_KEY_ID,
+				ORG_ID,
+			),
 			provider: "custom",
 			name: "myprovider",
 			baseUrl: "https://custom.example.com/v1",

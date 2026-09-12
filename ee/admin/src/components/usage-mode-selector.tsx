@@ -16,16 +16,18 @@ export function useUsageMode(): UsageMode {
 }
 
 /**
- * All / Credits / BYOK toggle for admin usage views, persisted in the `mode`
+ * All / Credits / Bring Your Own Key toggle for admin usage views, persisted in the `mode`
  * URL search param. Credits = billed against the org balance; BYOK = served by
  * the org's own provider keys (not billed).
  */
 export function UsageModeSelector({
 	className,
 	compact = false,
+	extraParams,
 }: {
 	className?: string;
 	compact?: boolean;
+	extraParams?: Record<string, string | null>;
 } = {}) {
 	return (
 		<SegmentedUrlSelector
@@ -35,6 +37,7 @@ export function UsageModeSelector({
 			options={USAGE_MODE_OPTIONS}
 			className={className}
 			compact={compact}
+			extraParams={extraParams}
 		/>
 	);
 }

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
 
 const originalAdminEmails = process.env.ADMIN_EMAILS;
@@ -53,24 +54,151 @@ describe("admin organization details endpoints", () => {
 	});
 
 	it("rejects unauthenticated and non-admin requests", async () => {
-		for (const path of ["/audit-logs", "/settings", "/guardrails", "/sso"]) {
+		for (const path of [
+			"/members",
+			"/audit-logs",
+			"/settings",
+			"/guardrails",
+			"/sso",
+		]) {
 			expect((await get(path)).status).toBe(401);
 		}
 
 		process.env.ADMIN_EMAILS = "someone-else@example.com";
-		for (const path of ["/audit-logs", "/settings", "/guardrails", "/sso"]) {
+		for (const path of [
+			"/members",
+			"/audit-logs",
+			"/settings",
+			"/guardrails",
+			"/sso",
+		]) {
 			expect((await get(path, cookie)).status).toBe(403);
 		}
 	});
 
 	it("returns 404 for an unknown organization", async () => {
-		for (const path of ["/audit-logs", "/settings", "/guardrails", "/sso"]) {
+		for (const path of [
+			"/members",
+			"/audit-logs",
+			"/settings",
+			"/guardrails",
+			"/sso",
+		]) {
 			const res = await app.request(
 				`/admin/organizations/does-not-exist${path}`,
 				{ headers: { Cookie: cookie } },
 			);
 			expect(res.status).toBe(404);
 		}
+	});
+
+	it("returns members, teams, and their IAM policies", async () => {
+		await db.insert(tables.organizationTeam).values({
+			id: "admin-team",
+			organizationId: ORG_ID,
+			name: "Platform",
+			isDefault: true,
+			maxApiKeys: 5,
+			usageLimit: "100",
+			periodUsageLimit: "25",
+			periodUsageDurationValue: 1,
+			periodUsageDurationUnit: "month",
+		});
+		await db.insert(tables.project).values({
+			id: "admin-team-project",
+			organizationId: ORG_ID,
+			name: "Production",
+		});
+		await db.insert(tables.organizationTeamProject).values({
+			teamId: "admin-team",
+			projectId: "admin-team-project",
+		});
+		await db.insert(tables.user).values({
+			id: "admin-team-member-user",
+			name: "Team Member",
+			email: "team-member@test.example",
+			emailVerified: true,
+		});
+		await db.insert(tables.userOrganization).values([
+			{
+				id: "admin-owner-membership",
+				userId: "test-user-id",
+				organizationId: ORG_ID,
+				role: "owner",
+			},
+			{
+				id: "admin-team-membership",
+				userId: "admin-team-member-user",
+				organizationId: ORG_ID,
+				teamId: "admin-team",
+				teamAssignmentSource: "sso",
+				role: "developer",
+			},
+		]);
+		await db.insert(tables.userIamRule).values({
+			id: "admin-member-rule",
+			userOrganizationId: "admin-team-membership",
+			ruleType: "allow_providers",
+			ruleValue: { providers: ["openai"] },
+		});
+		await db.insert(tables.organizationTeamIamRule).values({
+			id: "admin-team-rule",
+			teamId: "admin-team",
+			ruleType: "deny_models",
+			ruleValue: { models: ["restricted-model"] },
+		});
+
+		const res = await get("/members", cookie);
+		expect(res.status).toBe(200);
+		const json = await res.json();
+
+		expect(json.total).toBe(2);
+		expect(json.teamTotal).toBe(1);
+		expect(json.members).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					id: "admin-team-membership",
+					role: "developer",
+					teamAssignmentSource: "sso",
+					team: expect.objectContaining({
+						id: "admin-team",
+						name: "Platform",
+						isDefault: true,
+					}),
+					iamRules: [
+						expect.objectContaining({
+							id: "admin-member-rule",
+							ruleType: "allow_providers",
+						}),
+					],
+				}),
+			]),
+		);
+		expect(json.teams[0]).toMatchObject({
+			id: "admin-team",
+			name: "Platform",
+			isDefault: true,
+			budget: {
+				maxApiKeys: 5,
+				usageLimit: "100",
+				periodUsageLimit: "25",
+				periodUsageDurationValue: 1,
+				periodUsageDurationUnit: "month",
+			},
+			members: [
+				expect.objectContaining({
+					id: "admin-team-membership",
+					email: "team-member@test.example",
+				}),
+			],
+			projects: [{ id: "admin-team-project", name: "Production" }],
+			iamRules: [
+				expect.objectContaining({
+					id: "admin-team-rule",
+					ruleType: "deny_models",
+				}),
+			],
+		});
 	});
 
 	it("returns paginated audit logs with filters", async () => {
@@ -124,7 +252,7 @@ describe("admin organization details endpoints", () => {
 				organizationId: ORG_ID,
 				provider: "custom",
 				name: "myllm",
-				token: "sk-custom",
+				...encryptProviderKeyForStorage("sk-custom", "custom-key-1", ORG_ID),
 				complianceAttestation: { soc2: 2, gdpr: true, headquarters: "US" },
 			},
 			{
@@ -132,14 +260,18 @@ describe("admin organization details endpoints", () => {
 				organizationId: ORG_ID,
 				provider: "custom",
 				name: "gone",
-				token: "sk-gone",
+				...encryptProviderKeyForStorage(
+					"sk-gone",
+					"custom-key-deleted",
+					ORG_ID,
+				),
 				status: "deleted",
 			},
 			{
 				id: "regular-key",
 				organizationId: ORG_ID,
 				provider: "openai",
-				token: "sk-openai",
+				...encryptProviderKeyForStorage("sk-openai", "regular-key", ORG_ID),
 			},
 		]);
 

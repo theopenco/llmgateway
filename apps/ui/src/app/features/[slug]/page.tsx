@@ -6,16 +6,10 @@ import {
 	ExternalLink,
 	Sparkles,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { ActivityLogsDemo } from "@/components/features/activity-logs-demo";
-import { ApiKeyDemo } from "@/components/features/api-key-demo";
-import { CostAnalyticsDemo } from "@/components/features/cost-analytics-demo";
-import { ErrorsMonitoringDemo } from "@/components/features/errors-monitoring-demo";
-import { ModelBreakdownDemo } from "@/components/features/model-breakdown-demo";
-import { MultiProviderDemo } from "@/components/features/multi-provider-demo";
-import { PerformanceMonitoringDemo } from "@/components/features/performance-monitoring-demo";
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
 import { Badge } from "@/lib/components/badge";
@@ -29,14 +23,43 @@ interface PageProps {
 	params: Promise<{ slug: string }>;
 }
 
+// Only the demo matching the route is rendered, so load each one lazily
+// instead of bundling all of them (two pull in recharts) into every
+// feature page.
 const demoComponents = {
-	"multi-provider": MultiProviderDemo,
-	"performance-monitoring": PerformanceMonitoringDemo,
-	"api-key": ApiKeyDemo,
-	"cost-analytics": CostAnalyticsDemo,
-	"model-breakdown": ModelBreakdownDemo,
-	"errors-monitoring": ErrorsMonitoringDemo,
-	"activity-logs": ActivityLogsDemo,
+	"multi-provider": dynamic(() =>
+		import("@/components/features/multi-provider-demo").then(
+			(mod) => mod.MultiProviderDemo,
+		),
+	),
+	"performance-monitoring": dynamic(() =>
+		import("@/components/features/performance-monitoring-demo").then(
+			(mod) => mod.PerformanceMonitoringDemo,
+		),
+	),
+	"api-key": dynamic(() =>
+		import("@/components/features/api-key-demo").then((mod) => mod.ApiKeyDemo),
+	),
+	"cost-analytics": dynamic(() =>
+		import("@/components/features/cost-analytics-demo").then(
+			(mod) => mod.CostAnalyticsDemo,
+		),
+	),
+	"model-breakdown": dynamic(() =>
+		import("@/components/features/model-breakdown-demo").then(
+			(mod) => mod.ModelBreakdownDemo,
+		),
+	),
+	"errors-monitoring": dynamic(() =>
+		import("@/components/features/errors-monitoring-demo").then(
+			(mod) => mod.ErrorsMonitoringDemo,
+		),
+	),
+	"activity-logs": dynamic(() =>
+		import("@/components/features/activity-logs-demo").then(
+			(mod) => mod.ActivityLogsDemo,
+		),
+	),
 	"audit-logs": null,
 	guardrails: null,
 };

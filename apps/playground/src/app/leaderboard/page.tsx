@@ -10,11 +10,18 @@ import type { Metadata } from "next";
 export const revalidate = 300;
 
 export const metadata: Metadata = {
-	title: "Leaderboard",
+	title: "Leaderboard — Most Active Members",
 	description:
 		"The most active members of the Lounge, ranked by points earned chatting and creating across every frontier model.",
 	alternates: {
 		canonical: "/leaderboard",
+	},
+	openGraph: {
+		title: "Lounge Leaderboard — Most Active Members",
+		description:
+			"The most active members of the Lounge, ranked by points earned chatting and creating across every frontier model.",
+		type: "website",
+		url: "https://lounge.llmgateway.io/leaderboard",
 	},
 };
 

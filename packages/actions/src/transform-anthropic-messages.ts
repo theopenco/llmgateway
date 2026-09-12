@@ -16,6 +16,12 @@ import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
 import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
 
 /**
+ * Breakpoints a request may carry across tools, system and messages together.
+ * Anthropic, Vertex and Bedrock all reject the fifth.
+ */
+export const MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS = 4;
+
+/**
  * Last caller-supplied cache breakpoint in an OpenAI-format content array. On a
  * tool message the array is lowered to a single tool_result block, so the last
  * marker is the one that ends the prefix.
@@ -60,9 +66,9 @@ export async function transformAnthropicMessages(
 	const shouldApplyCacheControl =
 		provider === "anthropic" && autoInjectCacheControl;
 
-	// Track cache_control usage to limit to maximum of 4 blocks total (including system messages)
+	// Continue the budget the tools and system passes already spent from.
 	let cacheControlCount = initialCacheControlCount;
-	const maxCacheControlBlocks = 4;
+	const maxCacheControlBlocks = MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS;
 
 	// Keep track of all tool_use IDs seen so far to ensure uniqueness
 	const seenToolUseIds = new Set<string>();

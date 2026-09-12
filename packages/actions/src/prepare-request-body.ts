@@ -36,15 +36,19 @@ import {
 	toAnthropicToolSearchTool,
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
+import { fetchNoRedirect } from "./fetch-no-redirect.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
-import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
+import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 import { mappingSupportsToolChoice } from "./tool-choice-support.js";
-import { transformAnthropicMessages } from "./transform-anthropic-messages.js";
+import {
+	MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS,
+	transformAnthropicMessages,
+} from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
-type OpenAIImageQuality = "low" | "medium" | "high" | "auto";
+type OpenAIImageQuality = "low" | "medium" | "high" | "xhigh" | "max" | "auto";
 
 export { RequestError } from "./request-error.js";
 
@@ -177,6 +181,7 @@ function getProviderMapping(
 interface OpenAIImageRequest {
 	model: string;
 	prompt: string;
+	user?: string;
 	size?: string;
 	quality?: OpenAIImageQuality;
 	n?: number;
@@ -184,7 +189,7 @@ interface OpenAIImageRequest {
 }
 
 /**
- * Narrow a free-form quality string to the values gpt-image-2 accepts.
+ * Narrow a free-form quality string to GPT Image quality values.
  * Returns undefined for unknown values so they get dropped from the request.
  */
 function normalizeImageQuality(
@@ -198,6 +203,8 @@ function normalizeImageQuality(
 		normalized === "low" ||
 		normalized === "medium" ||
 		normalized === "high" ||
+		normalized === "xhigh" ||
+		normalized === "max" ||
 		normalized === "auto"
 	) {
 		return normalized;
@@ -233,7 +240,7 @@ async function fetchImageAsBlob(
 	// SSRF: the URL comes from the request body, so validate it does not resolve
 	// to an internal host and refuse redirects before fetching.
 	await assertSafeUserContentUrl(url);
-	const response = await fetch(url, { redirect: "error" });
+	const response = await fetchNoRedirect(url);
 	if (!response.ok) {
 		throw new Error(
 			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,
@@ -1452,6 +1459,7 @@ export async function prepareRequestBody(
 		const openaiImageRequest: OpenAIImageRequest = {
 			model: usedExternalId,
 			prompt,
+			...(safety_identifier !== undefined && { user: safety_identifier }),
 			...(openaiSize && { size: openaiSize }),
 			...(openaiQuality && { quality: openaiQuality }),
 			...(image_config?.n && { n: image_config.n }),
@@ -1463,6 +1471,9 @@ export async function prepareRequestBody(
 			const formData = new FormData();
 			formData.append("model", openaiImageRequest.model);
 			formData.append("prompt", openaiImageRequest.prompt);
+			if (openaiImageRequest.user !== undefined) {
+				formData.append("user", openaiImageRequest.user);
+			}
 			if (openaiImageRequest.size) {
 				formData.append("size", openaiImageRequest.size);
 			}
@@ -1709,27 +1720,37 @@ export async function prepareRequestBody(
 
 	// Handle ByteDance Seedream image generation
 	if (imageGenerations && usedProvider === "bytedance") {
-		// Extract prompt from last user message
 		const lastUserMessage = [...messages]
 			.reverse()
 			.find((m) => m.role === "user");
 		let prompt = "";
+		const imageUrls: string[] = [];
 		if (lastUserMessage) {
 			if (typeof lastUserMessage.content === "string") {
 				prompt = lastUserMessage.content;
 			} else if (Array.isArray(lastUserMessage.content)) {
-				prompt = lastUserMessage.content
-					.filter((p): p is { type: "text"; text: string } => p.type === "text")
-					.map((p) => p.text)
-					.join("\n");
+				for (const part of lastUserMessage.content) {
+					if (part.type === "text" && part.text) {
+						prompt += (prompt ? "\n" : "") + part.text;
+					} else if (part.type === "image_url" && part.image_url) {
+						const url =
+							typeof part.image_url === "string"
+								? part.image_url
+								: part.image_url.url;
+						if (url) {
+							imageUrls.push(url);
+						}
+					}
+				}
 			}
 		}
 
-		// ByteDance Seedream format
 		const bytedanceImageRequest: any = {
 			model: usedExternalId,
 			prompt,
 			...(image_config?.image_size && { size: image_config.image_size }),
+			...(imageUrls.length === 1 && { image: imageUrls[0] }),
+			...(imageUrls.length > 1 && { image: imageUrls }),
 		};
 
 		return bytedanceImageRequest;
@@ -1803,6 +1824,7 @@ export async function prepareRequestBody(
 	const providerHandlesCacheControl =
 		usedProvider === "anthropic" ||
 		usedProvider === "vertex-anthropic" ||
+		usedProvider === "azure-anthropic" ||
 		usedProvider === "aws-bedrock" ||
 		usedProvider === "alibaba";
 	const stripAllCacheControl = !allowProviderCacheWrites;
@@ -1935,6 +1957,19 @@ export async function prepareRequestBody(
 			}
 			const reasoning = m.reasoning ?? fallback;
 			return { ...m, reasoning_content: reasoning || fallback };
+		});
+	}
+
+	if (usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") {
+		// Novita rejects empty text blocks alongside otherwise valid image input.
+		processedMessages = processedMessages.map((message) => {
+			if (!Array.isArray(message.content)) {
+				return message;
+			}
+			const content = message.content.filter(
+				(part) => !isTextContent(part) || part.text !== "",
+			);
+			return content.length ? { ...message, content } : message;
 		});
 	}
 
@@ -2135,6 +2170,7 @@ export async function prepareRequestBody(
 		case "azure":
 		case "sakana":
 		case "meta":
+		case "meta-contributor":
 		case "aws-mantle":
 		case "openai": {
 			// Determine whether to use Responses API format.
@@ -2212,7 +2248,7 @@ export async function prepareRequestBody(
 					model: usedExternalId,
 					input: transformedMessages,
 					reasoning:
-						usedProvider === "meta"
+						usedProvider === "meta" || usedProvider === "meta-contributor"
 							? {
 									...(reasoning_effort !== undefined && {
 										effort: reasoning_effort,
@@ -2255,6 +2291,7 @@ export async function prepareRequestBody(
 						responsesBody.service_tier = supportedServiceTier;
 					}
 					if (
+						allowProviderCacheWrites &&
 						prompt_cache_retention !== undefined &&
 						(prompt_cache_retention !== "24h" ||
 							supportsOpenAIExtendedPromptCache(usedInternalModel))
@@ -2288,10 +2325,12 @@ export async function prepareRequestBody(
 				// required for hits at all) a key derived from the conversation
 				// prefix.
 				if (
-					usedProvider === "openai" ||
-					usedProvider === "azure" ||
-					usedProvider === "aws-mantle" ||
-					usedProvider === "meta"
+					allowProviderCacheWrites &&
+					(usedProvider === "openai" ||
+						usedProvider === "azure" ||
+						usedProvider === "aws-mantle" ||
+						usedProvider === "meta" ||
+						usedProvider === "meta-contributor")
 				) {
 					const upstreamCacheKey =
 						(prompt_cache_key !== undefined
@@ -2300,7 +2339,7 @@ export async function prepareRequestBody(
 						(session_id !== undefined
 							? hashSessionCacheKey(session_id)
 							: undefined) ??
-						(usedProvider === "meta"
+						(usedProvider === "meta" || usedProvider === "meta-contributor"
 							? deriveConversationCacheKey(processedMessages)
 							: undefined);
 					if (upstreamCacheKey !== undefined) {
@@ -2342,7 +2381,11 @@ export async function prepareRequestBody(
 				// Add web search tool for Responses API
 				if (webSearchTool) {
 					responsesBody.tools ??= [];
-					const webSearch: any = { type: "web_search" };
+					const webSearch: {
+						type: "web_search";
+						user_location?: unknown;
+						search_context_size?: string;
+					} = { type: "web_search" };
 					if (webSearchTool.user_location) {
 						webSearch.user_location = webSearchTool.user_location;
 					}
@@ -2357,6 +2400,34 @@ export async function prepareRequestBody(
 					if (webSearchTool.forced) {
 						responsesBody.tool_choice = { type: "web_search" };
 					}
+				}
+
+				if (usedProvider === "meta" && usedInternalModel === "muse-image-1.0") {
+					const supportedSizes = [
+						"1024x1024",
+						"1024x1536",
+						"1536x1024",
+					] as const;
+					const requestedSize = image_config?.image_size;
+					if (
+						requestedSize !== undefined &&
+						!supportedSizes.includes(
+							requestedSize as (typeof supportedSizes)[number],
+						)
+					) {
+						throw new RequestError(
+							`Invalid image_size for Muse Image: "${requestedSize}". Allowed values: ${supportedSizes.join(
+								", ",
+							)}`,
+						);
+					}
+					responsesBody.tools ??= [];
+					responsesBody.tools.push({
+						type: "image_generation",
+						...(requestedSize && {
+							size: requestedSize as (typeof supportedSizes)[number],
+						}),
+					});
 				}
 				if (resolvedToolChoice) {
 					responsesBody.tool_choice = toResponsesToolChoice(resolvedToolChoice);
@@ -2404,6 +2475,18 @@ export async function prepareRequestBody(
 				return responsesBody;
 			} else {
 				// Use regular chat completions format
+				if (usedProvider === "openai" || usedProvider === "azure") {
+					if (safety_identifier !== undefined) {
+						if (usedProvider === "openai") {
+							requestBody.safety_identifier = safety_identifier;
+						} else {
+							// Azure's deployment-based APIs predate safety_identifier but
+							// accept `user` for the same abuse-attribution purpose.
+							requestBody.user = safety_identifier;
+						}
+					}
+				}
+
 				if (usedProvider === "openai") {
 					if (supportedServiceTier) {
 						requestBody.service_tier = supportedServiceTier;
@@ -2411,22 +2494,20 @@ export async function prepareRequestBody(
 					// Azure is intentionally excluded on this path: chat completions
 					// may hit a legacy deployment-based api-version that rejects
 					// unknown body fields, and the deployment type isn't known here.
-					const upstreamCacheKey =
-						(prompt_cache_key !== undefined
-							? hashPromptCacheKey(prompt_cache_key)
-							: undefined) ??
-						(session_id !== undefined
-							? hashSessionCacheKey(session_id)
-							: undefined);
-					if (upstreamCacheKey !== undefined) {
-						requestBody.prompt_cache_key = upstreamCacheKey;
-					}
-					// Azure is excluded here for the same reason as the cache key
-					// above; it gets `safety_identifier` on the Responses path only.
-					if (safety_identifier !== undefined) {
-						requestBody.safety_identifier = safety_identifier;
+					if (allowProviderCacheWrites) {
+						const upstreamCacheKey =
+							(prompt_cache_key !== undefined
+								? hashPromptCacheKey(prompt_cache_key)
+								: undefined) ??
+							(session_id !== undefined
+								? hashSessionCacheKey(session_id)
+								: undefined);
+						if (upstreamCacheKey !== undefined) {
+							requestBody.prompt_cache_key = upstreamCacheKey;
+						}
 					}
 					if (
+						allowProviderCacheWrites &&
 						prompt_cache_retention !== undefined &&
 						(prompt_cache_retention !== "24h" ||
 							supportsOpenAIExtendedPromptCache(usedInternalModel))
@@ -2849,7 +2930,8 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "anthropic":
-		case "vertex-anthropic": {
+		case "vertex-anthropic":
+		case "azure-anthropic": {
 			// Remove generic tool_choice that was added earlier
 			delete requestBody.tool_choice;
 
@@ -2937,8 +3019,8 @@ export async function prepareRequestBody(
 				autoInjectCacheControl && !callerUses1hTtlInMessages;
 
 			// Build the system field with cache_control for long prompts
-			// Track cache_control usage across system and user messages (max 4 total per Anthropic's limit)
-			const maxCacheControlBlocks = 4;
+			// Track cache_control usage across tools, system and messages
+			const maxCacheControlBlocks = MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS;
 
 			// Anthropic renders `tools` before `system` and `messages`, so a caller
 			// breakpoint on the last tool caches the largest prefix available — and
@@ -3349,9 +3431,9 @@ export async function prepareRequestBody(
 			delete requestBody.tools; // Will be transformed to Bedrock format
 			delete requestBody.tool_choice; // Not supported in Bedrock Converse API
 
-			// Track cache control usage (max 4 blocks per Anthropic/Bedrock limit)
+			// Track cache point usage (Bedrock enforces the same per-request limit)
 			let bedrockCacheControlCount = 0;
-			const bedrockMaxCacheControlBlocks = 4;
+			const bedrockMaxCacheControlBlocks = MAX_ANTHROPIC_CACHE_CONTROL_BLOCKS;
 			interface BedrockCachePoint {
 				cachePoint: { type: "default"; ttl?: "5m" | "1h" };
 			}
@@ -3637,10 +3719,10 @@ export async function prepareRequestBody(
 									},
 								});
 							} catch (error) {
-								// A size rejection is the user's to act on: degrading to a
+								// A client rejection is the user's to act on: degrading to a
 								// placeholder would return a 200 that silently ignores the
 								// image and still bills for the turn.
-								if (error instanceof ImageSizeLimitError) {
+								if (error instanceof RequestError) {
 									throw error;
 								}
 								logger.error("Failed to process image for Bedrock", {
@@ -4122,6 +4204,12 @@ export async function prepareRequestBody(
 		}
 		case "inference.net":
 		case "together-ai": {
+			if (stream && usedProvider === "together-ai") {
+				requestBody.stream_options = {
+					include_usage: true,
+				};
+			}
+
 			if (usedExternalId.startsWith(`${usedProvider}/`)) {
 				requestBody.model = usedExternalId.substring(usedProvider.length + 1);
 			}

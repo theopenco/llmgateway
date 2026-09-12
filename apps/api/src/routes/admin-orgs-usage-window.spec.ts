@@ -8,6 +8,7 @@ import {
 } from "@/testing.js";
 
 import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const RECENT_ORG_ID = "usage-window-recent-org";
 const RECENT_PROJECT_ID = "usage-window-recent-project";
@@ -105,14 +106,14 @@ describe("admin — organizations list usage window", () => {
 		await db.insert(tables.apiKey).values([
 			{
 				id: RECENT_KEY_ID,
-				token: "usage-window-recent-token",
+				...hashApiKeyForStorage("usage-window-recent-token"),
 				projectId: RECENT_PROJECT_ID,
 				description: "Recent Key",
 				createdBy: "test-user-id",
 			},
 			{
 				id: OLD_KEY_ID,
-				token: "usage-window-old-token",
+				...hashApiKeyForStorage("usage-window-old-token"),
 				projectId: OLD_PROJECT_ID,
 				description: "Old Key",
 				createdBy: "test-user-id",

@@ -97,14 +97,17 @@ describe("provider key hourly stats aggregation", () => {
 		});
 		await db.insert(apiKey).values({
 			id: ids.apiKeyId,
-			token: `pk-stats-token-${suffix}`,
+			tokenHash: `pk-stats-token-${suffix}`,
+			tokenMasked: `pk-stats-token-${suffix}`,
 			projectId: ids.projectId,
 			description: "Provider Key Stats Key",
 			createdBy: ids.userId,
 		});
 		await db.insert(tables.providerKey).values({
 			id: ids.providerKeyId,
-			token: `sk-pk-stats-${suffix}`,
+			tokenCiphertext: `encrypted-pk-stats-${suffix}`,
+			tokenHash: `hash-pk-stats-${suffix}`,
+			tokenMasked: `sk-pk-stats-${suffix}`,
 			provider: "openai",
 			organizationId: ids.orgId,
 		});
@@ -212,7 +215,8 @@ describe("provider key hourly stats aggregation", () => {
 		});
 		await db.insert(apiKey).values({
 			id: secondApiKeyId,
-			token: `pk-stats-token-2-${suffix}`,
+			tokenHash: `pk-stats-token-2-${suffix}`,
+			tokenMasked: `pk-stats-token-2-${suffix}`,
 			projectId: secondProjectId,
 			description: "Provider Key Stats Key 2",
 			createdBy: ids.userId,

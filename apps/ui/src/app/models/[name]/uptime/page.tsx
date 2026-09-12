@@ -6,12 +6,13 @@ import {
 	ShieldCheck,
 	Zap,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import Footer from "@/components/landing/footer";
 import { Navbar } from "@/components/landing/navbar";
-import { ModelUptimeCharts } from "@/components/models/model-uptime-charts";
+import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { Badge } from "@/lib/components/badge";
 import {
 	Card,
@@ -20,15 +21,23 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
+import { fetchProviders } from "@/lib/fetch-models";
 
 import {
 	models as modelDefinitions,
 	providers as providerDefinitions,
 	expandAllProviderRegions,
-	type ModelDefinition,
 } from "@llmgateway/models";
 
 import type { Metadata } from "next";
+
+// The uptime charts pull in recharts; load them lazily so the chart library
+// stays out of the route's initial bundle.
+const ModelUptimeCharts = dynamic(() =>
+	import("@/components/models/model-uptime-charts").then(
+		(mod) => mod.ModelUptimeCharts,
+	),
+);
 
 interface PageProps {
 	params: Promise<{ name: string }>;
@@ -38,20 +47,25 @@ export default async function ModelUptimePage({ params }: PageProps) {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
 
-	const modelDef = modelDefinitions.find(
-		(m) => m.id === decodedName,
-	) as ModelDefinition;
+	// fetchProviders resolves to a fallback, including after an early 404.
+	const providersPromise = fetchProviders();
+	const modelDef = await findPublicModelDefinition(decodedName);
 
 	if (!modelDef) {
 		notFound();
 	}
 
+	const apiProviders = await providersPromise;
 	const expandedProviders = expandAllProviderRegions(modelDef.providers);
 	const providerNames = Array.from(
 		new Set(
 			expandedProviders.map((p) => {
 				const info = providerDefinitions.find((pd) => pd.id === p.providerId);
-				return info?.name ?? p.providerId;
+				return (
+					info?.name ??
+					apiProviders.find((provider) => provider.id === p.providerId)?.name ??
+					p.providerId
+				);
 			}),
 		),
 	);
@@ -363,8 +377,7 @@ export async function generateMetadata({
 }: PageProps): Promise<Metadata> {
 	const { name } = await params;
 	const decodedName = decodeURIComponent(name);
-	const model = modelDefinitions.find((m) => m.id === decodedName) as
-		ModelDefinition | undefined;
+	const model = await findPublicModelDefinition(decodedName);
 
 	if (!model) {
 		return {};

@@ -2,15 +2,29 @@ import { randomUUID } from "node:crypto";
 
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
-import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
 import { internalApiOriginHeaders } from "@/lib/api-origin.js";
 import {
+	findApiKeyByToken,
+	findOrganizationById,
+	findProjectById,
+} from "@/lib/cached-queries.js";
+import { logGatewayClientError } from "@/lib/client-error-log.js";
+import { getEffectiveRetentionLevel } from "@/lib/compliance.js";
+import {
 	buildAnthropicErrorBody,
 	getAnthropicErrorType,
 } from "@/lib/error-response.js";
+import { rateLimitHeaders } from "@/lib/error-schemas.js";
+import {
+	anthropicErrorSchema,
+	standardErrorResponses,
+} from "@/lib/error-schemas.js";
+import { parseApiToken } from "@/lib/extract-api-token.js";
+import { streamSSE } from "@/lib/pending-work.js";
 import { extractAnthropicSessionId } from "@/lib/session-id.js";
+import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
 import {
 	isToolSearchBlock,
@@ -18,7 +32,6 @@ import {
 } from "@llmgateway/actions";
 import { logger, toError } from "@llmgateway/logger";
 
-import { logAnthropicClientError } from "./client-error-log.js";
 import {
 	buildOpenAiRequestRejectionMessage,
 	detectOpenAiChatCompletionsFields,
@@ -28,6 +41,7 @@ import { mapAnthropicThinkingToReasoning } from "./thinking-to-reasoning.js";
 
 import type { ServerTypes } from "@/vars.js";
 import type { AnthropicNativeBlock, CacheControl } from "@llmgateway/models";
+import type { Context } from "hono";
 
 // Most of the request schema is built from unions (content blocks, tool
 // variants), and a union issue's own message is a useless "Invalid input" —
@@ -35,6 +49,17 @@ import type { AnthropicNativeBlock, CacheControl } from "@llmgateway/models";
 // and cap so a body that mismatches every branch doesn't produce a wall of
 // text.
 const MAX_REPORTED_ISSUES = 12;
+
+async function shouldRetainPayloadLogs(c: Context): Promise<boolean> {
+	const token = parseApiToken(c);
+	const apiKey = token ? await findApiKeyByToken(token) : null;
+	const project = apiKey ? await findProjectById(apiKey.projectId) : null;
+	const organization = project
+		? await findOrganizationById(project.organizationId)
+		: null;
+
+	return getEffectiveRetentionLevel(organization) === "retain";
+}
 
 function flattenZodIssues(issues: z.ZodIssue[], depth = 0): string[] {
 	const flattened: string[] = [];
@@ -74,24 +99,36 @@ export const anthropic = new OpenAPIHono<ServerTypes>({
 		}
 
 		let rawBody: unknown = null;
+		let invalidJson = false;
 		try {
 			rawBody = await c.req.json();
 		} catch {
-			rawBody = null;
+			invalidJson = true;
 		}
 
 		const openAiFields = detectOpenAiChatCompletionsFields(rawBody);
 		const isOpenAiBody = openAiFields.length > 0;
-		const message = isOpenAiBody
-			? buildOpenAiRequestRejectionMessage(openAiFields)
-			: `Invalid request format: ${formatValidationIssues(result.error)}`;
+		const message = invalidJson
+			? "Invalid JSON in request body"
+			: isOpenAiBody
+				? buildOpenAiRequestRejectionMessage(openAiFields)
+				: `Invalid request format: ${formatValidationIssues(result.error)}`;
+		logger.warn("Invalid Messages API request", {
+			issues: summarizeZodIssues(result.error.issues),
+			path: c.req.path,
+			method: c.req.method,
+		});
 
-		await logAnthropicClientError(
-			c,
+		await logGatewayClientError(c, {
+			apiOrigin: "messages",
 			rawBody,
 			message,
-			isOpenAiBody ? "openai_request_format" : "invalid_request_format",
-		);
+			cause: invalidJson
+				? "invalid_json"
+				: isOpenAiBody
+					? "openai_request_format"
+					: "invalid_request_format",
+		});
 
 		return c.json(buildAnthropicErrorBody({ message, status: 400 }), 400);
 	},
@@ -538,6 +575,7 @@ const messages = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: anthropicResponseSchema,
@@ -548,6 +586,7 @@ const messages = createRoute({
 			},
 			description: "Successful response",
 		},
+		...standardErrorResponses(anthropicErrorSchema),
 	},
 });
 
@@ -557,9 +596,18 @@ anthropic.openapi(messages, async (c) => {
 	try {
 		rawRequest = await c.req.json();
 	} catch (error) {
-		throw new HTTPException(400, {
-			message: `Invalid JSON in request body: ${error}`,
+		const message = `Invalid JSON in request body: ${error}`;
+		logger.warn("Invalid Messages API JSON", {
+			path: c.req.path,
+			method: c.req.method,
 		});
+		await logGatewayClientError(c, {
+			apiOrigin: "messages",
+			rawBody: null,
+			message,
+			cause: "invalid_json",
+		});
+		throw new HTTPException(400, { message });
 	}
 
 	// Note: no OpenAI-format guard runs here. A body that reaches this point has
@@ -573,16 +621,22 @@ anthropic.openapi(messages, async (c) => {
 	const validation = anthropicRequestSchema.safeParse(rawRequest);
 	if (!validation.success) {
 		const message = `Invalid request format: ${formatValidationIssues(validation.error)}`;
-		await logAnthropicClientError(
-			c,
-			rawRequest,
+		logger.warn("Invalid Messages API request", {
+			issues: summarizeZodIssues(validation.error.issues),
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "messages",
+			rawBody: rawRequest,
 			message,
-			"invalid_request_format",
-		);
+			cause: "invalid_request_format",
+		});
 		throw new HTTPException(400, { message });
 	}
 
 	const anthropicRequest: AnthropicRequest = validation.data;
+	const retainPayloadLogs = await shouldRetainPayloadLogs(c);
 
 	// Transform Anthropic request to OpenAI format
 	const openaiMessages: Array<Record<string, unknown>> = [];
@@ -1720,13 +1774,15 @@ anthropic.openapi(messages, async (c) => {
 					// ends the stream cleanly. A client-side abort needs no write.
 					if (error instanceof Error && error.name === "AbortError") {
 						logger.info("Anthropic streaming request aborted by client", {
-							message: error.message,
+							...(retainPayloadLogs && { message: error.message }),
 							path: c.req.path,
 						});
 					} else {
 						logger.error(
 							"Anthropic streaming error (mid-stream)",
-							toError(error),
+							retainPayloadLogs
+								? toError(error)
+								: new Error("Anthropic streaming error"),
 							{ path: c.req.path },
 						);
 						try {
@@ -1761,11 +1817,14 @@ anthropic.openapi(messages, async (c) => {
 			async (error) => {
 				if (error.name === "AbortError") {
 					logger.info("Anthropic streaming request aborted by client", {
-						message: error.message,
+						...(retainPayloadLogs && { message: error.message }),
 						path: c.req.path,
 					});
 				} else {
-					logger.error("Anthropic streaming error (escaped handler)", error);
+					logger.error(
+						"Anthropic streaming error (escaped handler)",
+						retainPayloadLogs ? error : new Error("Anthropic streaming error"),
+					);
 				}
 			},
 		);
@@ -1779,8 +1838,11 @@ anthropic.openapi(messages, async (c) => {
 		openaiResponse = JSON.parse(openaiText);
 	} catch (error) {
 		logger.error("Failed to parse OpenAI response", {
-			err: toError(error),
-			responseText: openaiText || "(empty)",
+			errorName: error instanceof Error ? error.name : "ParseError",
+			...(retainPayloadLogs && {
+				err: toError(error),
+				responseText: openaiText || "(empty)",
+			}),
 		});
 		throw new HTTPException(500, {
 			message: `Failed to parse OpenAI response: ${error instanceof Error ? error.message : String(error)}`,
@@ -1851,8 +1913,11 @@ anthropic.openapi(messages, async (c) => {
 				input = JSON.parse(toolCall.function.arguments ?? "{}");
 			} catch (err) {
 				logger.error("Failed to parse anthropic tool call arguments", {
-					err: err instanceof Error ? err : new Error(String(err)),
-					arguments: toolCall.function.arguments,
+					errorName: err instanceof Error ? err.name : "ParseError",
+					...(retainPayloadLogs && {
+						err: err instanceof Error ? err : new Error(String(err)),
+						arguments: toolCall.function.arguments,
+					}),
 				});
 				throw new HTTPException(500, {
 					message: "Failed to parse tool call arguments",

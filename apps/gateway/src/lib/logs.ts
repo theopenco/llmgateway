@@ -7,6 +7,7 @@ import {
 import { recordChatCompletionMetrics } from "@llmgateway/instrumentation";
 import { logger } from "@llmgateway/logger";
 
+import { getAirsideRoutingSnapshot } from "./airside-routing-snapshot.js";
 import { recordSpend } from "./spend-limit.js";
 import {
 	redactErrorDetails,
@@ -99,6 +100,7 @@ export function getUnifiedFinishReason(
 	switch (provider) {
 		case "anthropic":
 		case "vertex-anthropic":
+		case "azure-anthropic":
 			if (finishReason === "stop_sequence") {
 				return UnifiedFinishReason.COMPLETED;
 			}
@@ -265,9 +267,10 @@ function getErrorTypeFromUnifiedFinishReason(
 
 /**
  * Calculate data storage cost based on token usage
- * $0.01 per 1M tokens (total tokens = input + output + reasoning)
+ * $0.01 per 1M tokens (total tokens = input + output)
  * promptTokens is the canonical total input count and already includes cached
- * input tokens for providers that report them separately.
+ * input tokens for providers that report them separately. completionTokens is
+ * the canonical total output count and already includes reasoning tokens.
  * Returns "0" if retention level is "none" since no data is stored
  */
 export function calculateDataStorageCost(
@@ -284,9 +287,8 @@ export function calculateDataStorageCost(
 
 	const prompt = Number(promptTokens) || 0;
 	const completion = Number(completionTokens) || 0;
-	const reasoning = Number(reasoningTokens) || 0;
 
-	const totalTokens = prompt + completion + reasoning;
+	const totalTokens = prompt + completion;
 
 	// $0.01 per 1M tokens
 	const cost = (totalTokens / 1_000_000) * 0.01;
@@ -412,6 +414,21 @@ export async function insertLog(
 			: undefined,
 		errorType,
 	});
+
+	// Snapshot the used provider's Airside routing settings so margin revenue
+	// stays reconstructable after a carrier changes them. SWR-cached, and never
+	// allowed to block logging.
+	if (logData.usedProvider && logData.providerMarginPercent === undefined) {
+		const routingModel = logData.usedModel?.startsWith(
+			`${logData.usedProvider}/`,
+		)
+			? logData.usedModel.slice(logData.usedProvider.length + 1)
+			: logData.usedModel;
+		Object.assign(
+			logData,
+			await getAirsideRoutingSnapshot(logData.usedProvider, routingModel),
+		);
+	}
 
 	// Maintain per-org daily/monthly spend-cap counters. Single DRY chokepoint
 	// for every request path; swallows its own Redis errors so logging is never

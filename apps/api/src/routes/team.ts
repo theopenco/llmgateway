@@ -16,6 +16,7 @@ import {
 } from "@/lib/iam-rules.js";
 import { revokeMemberApiKeys } from "@/lib/revoke-member-api-keys.js";
 import { resolveSeatLimit } from "@/lib/seat-limit.js";
+import { recomputeUserTeam } from "@/lib/sso-teams.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
 import { logAuditEvent } from "@llmgateway/audit";
@@ -35,12 +36,13 @@ import {
 	type OrgDefaultDeveloperBudget,
 } from "@llmgateway/db";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+import { isProjectScopedRole } from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const team = new OpenAPIHono<ServerTypes>();
 
-const roleSchema = z.enum(["owner", "admin", "developer"]);
+const roleSchema = z.enum(["owner", "admin", "project_admin", "developer"]);
 
 const INVITE_EXPIRY_DAYS = 30;
 const INVITE_EXPIRY_MS = INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
@@ -57,7 +59,13 @@ const memberBudgetSchema = z.object({
 
 const memberSpendSchema = z.object({
 	lifetime: z.number(),
-	currentPeriod: z.number().nullable(),
+	currentPeriods: z.array(
+		z.object({
+			durationValue: z.number().int(),
+			durationUnit: periodDurationUnitSchema,
+			usage: z.number(),
+		}),
+	),
 	activeApiKeys: z.number(),
 });
 
@@ -83,15 +91,18 @@ const teamMemberSchema = z.object({
 	budget: memberBudgetSchema.nullable(),
 	effectiveBudget: memberBudgetSchema.nullable(),
 	spend: memberSpendSchema.nullable(),
+	team: z.object({ id: z.string(), name: z.string() }).nullable(),
+	teamBudget: memberBudgetSchema.nullable(),
+	personalProjects: z.array(memberProjectSchema).nullable(),
 	// Project access: null = every project in the org (owner/admin); an array =
-	// the specific projects a project-scoped "developer" is limited to.
+	// the specific projects a project-scoped member is limited to.
 	projects: z.array(memberProjectSchema).nullable(),
 });
 
 const addMemberSchema = z.object({
 	email: z.string().email(),
 	role: roleSchema,
-	// Required (non-empty) when role is "developer": the projects the member is
+	// Required (non-empty) for project-scoped roles: the projects the member is
 	// granted access to. Ignored for owner/admin (they get the whole org).
 	projectIds: z.array(z.string()).optional(),
 });
@@ -102,7 +113,7 @@ const teamInviteSchema = z.object({
 	role: roleSchema,
 	createdAt: z.date(),
 	expiresAt: z.date(),
-	// Projects a "developer" invite will be granted at acceptance; null for
+	// Projects a project-scoped invite will be granted at acceptance; null for
 	// owner/admin invites (whole-org access).
 	projects: z.array(memberProjectSchema).nullable(),
 });
@@ -166,12 +177,11 @@ async function invitesWithProjects(
 		role: invite.role,
 		createdAt: invite.createdAt,
 		expiresAt: invite.expiresAt,
-		projects:
-			invite.role === "developer"
-				? (invite.projectIds ?? [])
-						.map((id) => projectById.get(id))
-						.filter((p): p is { id: string; name: string } => !!p)
-				: null,
+		projects: isProjectScopedRole(invite.role)
+			? (invite.projectIds ?? [])
+					.map((id) => projectById.get(id))
+					.filter((p): p is { id: string; name: string } => !!p)
+			: null,
 	}));
 }
 
@@ -193,6 +203,27 @@ function budgetFromRow(
 		periodUsageDurationValue: row.periodUsageDurationValue,
 		periodUsageDurationUnit: row.periodUsageDurationUnit,
 	};
+}
+
+async function getMemberTeamPolicy(teamId: string | null) {
+	if (!teamId) {
+		return null;
+	}
+	const team = await db.query.organizationTeam.findFirst({
+		where: { id: { eq: teamId } },
+		with: { projects: { with: { project: { columns: { status: true } } } } },
+	});
+	return team
+		? {
+				identity: { id: team.id, name: team.name },
+				budget: budgetFromRow(team),
+				projectIds: new Set(
+					team.projects
+						.filter((grant) => grant.project?.status !== "deleted")
+						.map((grant) => grant.projectId),
+				),
+			}
+		: null;
 }
 
 function orgDefaultsFrom(
@@ -233,15 +264,13 @@ function effectiveBudgetFrom(
 
 const EMPTY_SPEND: z.infer<typeof memberSpendSchema> = {
 	lifetime: 0,
-	currentPeriod: null,
+	currentPeriods: [],
 	activeApiKeys: 0,
 };
 
-interface MemberPeriodRow {
+interface MemberSpendInput {
 	userId: string;
-	periodUsageLimit: string | null;
-	periodUsageDurationValue: number | null;
-	periodUsageDurationUnit: (typeof apiKeyPeriodDurationUnits)[number] | null;
+	budgets: Array<z.infer<typeof memberBudgetSchema> | null>;
 }
 
 /**
@@ -251,7 +280,7 @@ interface MemberPeriodRow {
  */
 async function computeMemberSpend(
 	organizationId: string,
-	members: MemberPeriodRow[],
+	members: MemberSpendInput[],
 ): Promise<Map<string, z.infer<typeof memberSpendSchema>>> {
 	const spendByUser = new Map<string, z.infer<typeof memberSpendSchema>>();
 	if (members.length === 0) {
@@ -273,6 +302,7 @@ async function computeMemberSpend(
 					usage: true,
 					status: true,
 					keyType: true,
+					kind: true,
 				},
 			})
 		: [];
@@ -289,7 +319,11 @@ async function computeMemberSpend(
 		};
 		entry.keyIds.push(key.id);
 		entry.lifetime += Number(key.usage ?? 0);
-		if (key.status === "active" && key.keyType === "user") {
+		if (
+			key.status === "active" &&
+			key.keyType === "user" &&
+			key.kind !== "playground"
+		) {
 			entry.activeApiKeys += 1;
 		}
 		keysByUser.set(key.createdBy, entry);
@@ -298,38 +332,64 @@ async function computeMemberSpend(
 	const now = new Date();
 	for (const member of members) {
 		const keys = keysByUser.get(member.userId);
-		let currentPeriod: number | null = null;
-		if (
-			member.periodUsageLimit !== null &&
-			member.periodUsageDurationValue !== null &&
-			member.periodUsageDurationUnit !== null &&
-			keys &&
-			keys.keyIds.length
-		) {
-			const flooredHour = new Date(now);
-			flooredHour.setMinutes(0, 0, 0);
-			const windowStart = addApiKeyPeriodDuration(
-				flooredHour,
-				-member.periodUsageDurationValue,
-				member.periodUsageDurationUnit,
-			);
-			const rows = await db
-				// cost is float4; SUM(real) accumulates in float4 too, so cast first.
-				.select({
-					total: sql<string>`coalesce(sum(cast(${tables.apiKeyHourlyStats.cost} as double precision)), 0)`,
-				})
-				.from(tables.apiKeyHourlyStats)
-				.where(
-					and(
-						inArray(tables.apiKeyHourlyStats.apiKeyId, keys.keyIds),
-						gte(tables.apiKeyHourlyStats.hourTimestamp, windowStart),
-					),
+		const uniquePeriods = new Map<
+			string,
+			{
+				durationValue: number;
+				durationUnit: (typeof apiKeyPeriodDurationUnits)[number];
+			}
+		>();
+		for (const budget of member.budgets) {
+			if (
+				budget &&
+				budget.periodUsageLimit !== null &&
+				budget.periodUsageDurationValue !== null &&
+				budget.periodUsageDurationUnit !== null
+			) {
+				uniquePeriods.set(
+					`${budget.periodUsageDurationValue}:${budget.periodUsageDurationUnit}`,
+					{
+						durationValue: budget.periodUsageDurationValue,
+						durationUnit: budget.periodUsageDurationUnit,
+					},
 				);
-			currentPeriod = Number(rows[0]?.total ?? 0);
+			}
+		}
+
+		const currentPeriods: z.infer<typeof memberSpendSchema>["currentPeriods"] =
+			[];
+		for (const period of uniquePeriods.values()) {
+			let usage = 0;
+			if (keys?.keyIds.length) {
+				const flooredHour = new Date(now);
+				flooredHour.setMinutes(0, 0, 0);
+				const windowStart = addApiKeyPeriodDuration(
+					flooredHour,
+					-period.durationValue,
+					period.durationUnit,
+				);
+				// Match the gateway's getMemberPeriodSpend window: exactly the
+				// period's worth of hourly buckets ending at the current hour.
+				windowStart.setHours(windowStart.getHours() + 1);
+				const rows = await db
+					// cost is float4; SUM(real) accumulates in float4 too, so cast first.
+					.select({
+						total: sql<string>`coalesce(sum(cast(${tables.apiKeyHourlyStats.cost} as double precision)), 0)`,
+					})
+					.from(tables.apiKeyHourlyStats)
+					.where(
+						and(
+							inArray(tables.apiKeyHourlyStats.apiKeyId, keys.keyIds),
+							gte(tables.apiKeyHourlyStats.hourTimestamp, windowStart),
+						),
+					);
+				usage = Number(rows[0]?.total ?? 0);
+			}
+			currentPeriods.push({ ...period, usage });
 		}
 		spendByUser.set(member.userId, {
 			lifetime: keys?.lifetime ?? 0,
-			currentPeriod,
+			currentPeriods,
 			activeApiKeys: keys?.activeApiKeys ?? 0,
 		});
 	}
@@ -339,28 +399,29 @@ async function computeMemberSpend(
 
 const updateMemberSchema = z.object({
 	role: roleSchema,
-	// When the (new) role is "developer", the projects the member is limited to.
+	// For project-scoped roles, the projects the member is limited to.
 	projectIds: z.array(z.string()).optional(),
 });
 
 /**
- * Validate a developer's requested project grants against the org and return the
+ * Validate a member's requested project grants against the org and return the
  * resolved {id,name} list. Throws 400 when the role/project combination is
  * invalid.
  */
-async function resolveDeveloperProjects(
+async function resolveMemberProjects(
 	organizationId: string,
 	role: z.infer<typeof roleSchema>,
 	projectIds: string[] | undefined,
 ): Promise<{ id: string; name: string }[]> {
-	if (role !== "developer") {
+	if (!isProjectScopedRole(role)) {
 		return [];
 	}
 
 	const unique = Array.from(new Set(projectIds ?? []));
 	if (unique.length === 0) {
 		throw new HTTPException(400, {
-			message: "Developers must be granted access to at least one project.",
+			message:
+				"Project-scoped members must be granted access to at least one project.",
 		});
 	}
 
@@ -383,19 +444,20 @@ async function resolveDeveloperProjects(
 }
 
 /**
- * Replace a membership's project grants with exactly `projectIds` (developers),
+ * Replace a membership's project grants with exactly `projectIds` (project-scoped roles),
  * or clear them entirely (owner/admin have implicit access to every project).
  */
 async function syncMemberProjects(
 	userOrganizationId: string,
 	projectIds: string[],
+	tx: Pick<typeof db, "insert" | "delete">,
 ): Promise<void> {
-	await db
+	await tx
 		.delete(tables.userProject)
 		.where(eq(tables.userProject.userOrganizationId, userOrganizationId));
 
 	if (projectIds.length) {
-		await db.insert(tables.userProject).values(
+		await tx.insert(tables.userProject).values(
 			projectIds.map((projectId) => ({
 				userOrganizationId,
 				projectId,
@@ -477,7 +539,16 @@ team.openapi(getMembers, async (c) => {
 			userProjects: {
 				with: {
 					project: {
-						columns: { id: true, name: true },
+						columns: { id: true, name: true, status: true },
+					},
+				},
+			},
+			team: {
+				with: {
+					projects: {
+						with: {
+							project: { columns: { id: true, name: true, status: true } },
+						},
 					},
 				},
 			},
@@ -488,10 +559,6 @@ team.openapi(getMembers, async (c) => {
 	// owners/admins. Developers can still list members and their roles.
 	const isPrivileged =
 		userOrganization.role === "owner" || userOrganization.role === "admin";
-
-	const spendByUser = isPrivileged
-		? await computeMemberSpend(organizationId, members)
-		: new Map<string, z.infer<typeof memberSpendSchema>>();
 
 	const org = await db.query.organization.findFirst({
 		where: { id: { eq: organizationId } },
@@ -506,32 +573,63 @@ team.openapi(getMembers, async (c) => {
 		},
 	});
 	const orgDefaults = orgDefaultsFrom(isPrivileged ? org : null);
+	const spendByUser = isPrivileged
+		? await computeMemberSpend(
+				organizationId,
+				members.map((member) => ({
+					userId: member.userId,
+					budgets: [
+						effectiveBudgetFrom(member, orgDefaults),
+						member.team ? budgetFromRow(member.team) : null,
+					],
+				})),
+			)
+		: new Map<string, z.infer<typeof memberSpendSchema>>();
 	const seatLimit = resolveSeatLimit(organizationId, org?.plan, org?.seats);
 
 	const pendingInvites = await listActivePendingInvites(organizationId);
 	const invites = await invitesWithProjects(organizationId, pendingInvites);
 
 	return c.json({
-		members: members.map((m) => ({
-			id: m.id,
-			userId: m.userId,
-			role: m.role,
-			createdAt: m.createdAt,
-			user: m.user!,
-			budget: isPrivileged ? budgetFromRow(m) : null,
-			effectiveBudget: isPrivileged
-				? effectiveBudgetFrom(m, orgDefaults)
-				: null,
-			spend: isPrivileged ? (spendByUser.get(m.userId) ?? EMPTY_SPEND) : null,
-			// Owner/admin members have implicit access to every project (null);
-			// developers are limited to their granted projects.
-			projects:
-				m.role === "developer"
-					? m.userProjects
-							.filter((up) => up.project)
-							.map((up) => ({ id: up.project!.id, name: up.project!.name }))
+		members: members.map((m) => {
+			const personalProjects = isProjectScopedRole(m.role)
+				? m.userProjects
+						.filter((up) => up.project && up.project.status !== "deleted")
+						.map((up) => ({ id: up.project!.id, name: up.project!.name }))
+				: null;
+			const teamProjectIds = m.team
+				? new Set(
+						m.team.projects
+							.filter(
+								(entry) => entry.project && entry.project.status !== "deleted",
+							)
+							.map((entry) => entry.project!.id),
+					)
+				: null;
+			return {
+				id: m.id,
+				userId: m.userId,
+				role: m.role,
+				createdAt: m.createdAt,
+				user: m.user!,
+				budget: isPrivileged ? budgetFromRow(m) : null,
+				effectiveBudget: isPrivileged
+					? effectiveBudgetFrom(m, orgDefaults)
 					: null,
-		})),
+				spend: isPrivileged ? (spendByUser.get(m.userId) ?? EMPTY_SPEND) : null,
+				team: m.team ? { id: m.team.id, name: m.team.name } : null,
+				teamBudget: isPrivileged && m.team ? budgetFromRow(m.team) : null,
+				personalProjects,
+				// Owner/admin members have implicit access to every project (null);
+				// project-scoped members are limited to their granted projects.
+				projects:
+					personalProjects && teamProjectIds
+						? personalProjects.filter((project) =>
+								teamProjectIds.has(project.id),
+							)
+						: personalProjects,
+			};
+		}),
 		invites,
 		defaultDeveloperBudget: isPrivileged
 			? defaultBudgetFrom(orgDefaults)
@@ -554,6 +652,8 @@ const getMyBudget = createRoute({
 				"application/json": {
 					schema: z.object({
 						budget: memberBudgetSchema,
+						teamBudget: memberBudgetSchema.nullable(),
+						team: z.object({ id: z.string(), name: z.string() }).nullable(),
 						spend: memberSpendSchema,
 					}),
 				},
@@ -595,6 +695,7 @@ team.openapi(getMyBudget, async (c) => {
 					defaultDeveloperPeriodUsageDurationUnit: true,
 				},
 			},
+			team: true,
 		},
 	});
 
@@ -604,18 +705,26 @@ team.openapi(getMyBudget, async (c) => {
 		});
 	}
 
+	const memberBudget = effectiveBudgetFrom(
+		membership,
+		orgDefaultsFrom(membership.organization),
+	);
+	const teamBudget = membership.team ? budgetFromRow(membership.team) : null;
 	const spend =
-		(await computeMemberSpend(organizationId, [membership])).get(
-			membership.userId,
-		) ?? EMPTY_SPEND;
+		(
+			await computeMemberSpend(organizationId, [
+				{ userId: membership.userId, budgets: [memberBudget, teamBudget] },
+			])
+		).get(membership.userId) ?? EMPTY_SPEND;
 
 	// Show the member the budget actually enforced on them (their own values,
 	// falling back to the org-wide default developer budget).
 	return c.json({
-		budget: effectiveBudgetFrom(
-			membership,
-			orgDefaultsFrom(membership.organization),
-		),
+		budget: memberBudget,
+		teamBudget,
+		team: membership.team
+			? { id: membership.team.id, name: membership.team.name }
+			: null,
 		spend,
 	});
 });
@@ -696,21 +805,21 @@ team.openapi(addMember, async (c) => {
 		});
 	}
 
-	// Project-scoped "developer" access is an Enterprise feature.
+	// Project-scoped access is an Enterprise feature.
 	if (
-		role === "developer" &&
+		isProjectScopedRole(role) &&
 		!hasOrganizationEnterpriseAccess(
 			userOrganization.organization?.id,
 			userOrganization.organization?.plan,
 		)
 	) {
 		throw new HTTPException(403, {
-			message: "Project-scoped developer access requires the Enterprise plan.",
+			message: "Project-scoped access requires the Enterprise plan.",
 		});
 	}
 
 	// Developers must be granted a valid, non-empty set of org projects.
-	const grantedProjects = await resolveDeveloperProjects(
+	const grantedProjects = await resolveMemberProjects(
 		organizationId,
 		role,
 		projectIds,
@@ -777,8 +886,9 @@ team.openapi(addMember, async (c) => {
 				organizationId,
 				email: normalizedEmail,
 				role,
-				projectIds:
-					role === "developer" ? grantedProjects.map((p) => p.id) : null,
+				projectIds: isProjectScopedRole(role)
+					? grantedProjects.map((p) => p.id)
+					: null,
 				invitedBy: authUser.id,
 				expiresAt: new Date(Date.now() + INVITE_EXPIRY_MS),
 			})
@@ -790,7 +900,7 @@ team.openapi(addMember, async (c) => {
 
 		const text = `Hey!
 
-${inviterName} invited you to join the "${orgName}" organization on LLM Gateway as ${role === "admin" ? "an" : "a"} ${role}.
+${inviterName} invited you to join the "${orgName}" organization on LLM Gateway as ${role === "admin" ? "an" : "a"} ${role === "project_admin" ? "project admin" : role}.
 
 Create an account using this email address (${normalizedEmail}) and you'll be added to the organization automatically:
 
@@ -831,7 +941,7 @@ This invitation expires in ${INVITE_EXPIRY_DAYS} days. If you weren't expecting 
 				role: invite.role,
 				createdAt: invite.createdAt,
 				expiresAt: invite.expiresAt,
-				projects: role === "developer" ? grantedProjects : null,
+				projects: isProjectScopedRole(role) ? grantedProjects : null,
 			},
 		});
 	}
@@ -875,11 +985,17 @@ This invitation expires in ${INVITE_EXPIRY_DAYS} days. If you weren't expecting 
 		throw error;
 	}
 
-	if (role === "developer") {
-		await syncMemberProjects(
-			newMember.id,
-			grantedProjects.map((p) => p.id),
-		);
+	if (isProjectScopedRole(role)) {
+		await cdb.transaction(async (tx) => {
+			await syncMemberProjects(
+				newMember.id,
+				grantedProjects.map((p) => p.id),
+				tx,
+			);
+		});
+		if (role === "developer") {
+			await recomputeUserTeam(targetUser.id, organizationId);
+		}
 	}
 
 	await logAuditEvent({
@@ -911,7 +1027,10 @@ This invitation expires in ${INVITE_EXPIRY_DAYS} days. If you weren't expecting 
 			budget: budgetFromRow(newMember),
 			effectiveBudget: budgetFromRow(newMember),
 			spend: EMPTY_SPEND,
-			projects: role === "developer" ? grantedProjects : null,
+			team: null,
+			teamBudget: null,
+			personalProjects: isProjectScopedRole(role) ? grantedProjects : null,
+			projects: isProjectScopedRole(role) ? grantedProjects : null,
 		},
 		invite: null,
 	});
@@ -1098,21 +1217,21 @@ team.openapi(updateMember, async (c) => {
 		});
 	}
 
-	// Project-scoped "developer" access is an Enterprise feature.
+	// Project-scoped access is an Enterprise feature.
 	if (
-		role === "developer" &&
+		isProjectScopedRole(role) &&
 		!hasOrganizationEnterpriseAccess(
 			userOrganization.organization?.id,
 			userOrganization.organization?.plan,
 		)
 	) {
 		throw new HTTPException(403, {
-			message: "Project-scoped developer access requires the Enterprise plan.",
+			message: "Project-scoped access requires the Enterprise plan.",
 		});
 	}
 
-	// Developers need a valid, non-empty project grant list (validated up front).
-	const grantedProjects = await resolveDeveloperProjects(
+	// Validate project grants before updating membership.
+	const grantedProjects = await resolveMemberProjects(
 		organizationId,
 		role,
 		projectIds,
@@ -1175,18 +1294,37 @@ team.openapi(updateMember, async (c) => {
 		}
 	}
 
-	const [updatedMember] = await db
-		.update(tables.userOrganization)
-		.set({ role })
-		.where(eq(tables.userOrganization.id, memberId))
-		.returning();
+	const updatedMember = await cdb.transaction(async (tx) => {
+		const [member] = await tx
+			.update(tables.userOrganization)
+			.set({
+				role,
+				...(role === "developer"
+					? {}
+					: { teamId: null, teamAssignmentSource: "manual" as const }),
+			})
+			.where(eq(tables.userOrganization.id, memberId))
+			.returning();
+		await syncMemberProjects(
+			memberId,
+			isProjectScopedRole(role) ? grantedProjects.map((p) => p.id) : [],
+			tx,
+		);
+		return member;
+	});
 
-	// Sync project grants: developers keep exactly the granted set; owner/admin
-	// have implicit access to everything, so their grants are cleared.
-	await syncMemberProjects(
-		memberId,
-		role === "developer" ? grantedProjects.map((p) => p.id) : [],
-	);
+	// A demoted member starts team-less; pick up the SCIM-mapped or default
+	// team like any other newly joining developer.
+	let effectiveTeamId = updatedMember.teamId;
+	if (role === "developer" && targetMember.role !== "developer") {
+		const teamChange = await recomputeUserTeam(
+			targetMember.userId,
+			organizationId,
+		);
+		if (teamChange) {
+			effectiveTeamId = teamChange.new;
+		}
+	}
 
 	if (targetMember.role !== role) {
 		await logAuditEvent({
@@ -1205,10 +1343,28 @@ team.openapi(updateMember, async (c) => {
 		});
 	}
 
+	const teamPolicy = await getMemberTeamPolicy(effectiveTeamId);
+	const effectiveMemberBudget = effectiveBudgetFrom(
+		updatedMember,
+		orgDefaultsFrom(userOrganization.organization),
+	);
 	const spend =
-		(await computeMemberSpend(organizationId, [updatedMember])).get(
-			updatedMember.userId,
-		) ?? EMPTY_SPEND;
+		(
+			await computeMemberSpend(organizationId, [
+				{
+					userId: updatedMember.userId,
+					budgets: [effectiveMemberBudget, teamPolicy?.budget ?? null],
+				},
+			])
+		).get(updatedMember.userId) ?? EMPTY_SPEND;
+	const effectiveProjects =
+		role === "developer" && teamPolicy
+			? grantedProjects.filter((project) =>
+					teamPolicy.projectIds.has(project.id),
+				)
+			: isProjectScopedRole(role)
+				? grantedProjects
+				: null;
 
 	return c.json({
 		message: "Member role updated successfully",
@@ -1219,9 +1375,12 @@ team.openapi(updateMember, async (c) => {
 			createdAt: updatedMember.createdAt,
 			user: targetMember.user!,
 			budget: budgetFromRow(updatedMember),
-			effectiveBudget: budgetFromRow(updatedMember),
+			effectiveBudget: effectiveMemberBudget,
 			spend,
-			projects: role === "developer" ? grantedProjects : null,
+			team: teamPolicy?.identity ?? null,
+			teamBudget: teamPolicy?.budget ?? null,
+			personalProjects: isProjectScopedRole(role) ? grantedProjects : null,
+			projects: effectiveProjects,
 		},
 	});
 });
@@ -1407,7 +1566,7 @@ team.openapi(updateMemberBudget, async (c) => {
 			: null,
 	};
 
-	const [updatedMember] = await db
+	const [updatedMember] = await cdb
 		.update(tables.userOrganization)
 		.set(nextBudget)
 		.where(eq(tables.userOrganization.id, memberId))
@@ -1431,22 +1590,36 @@ team.openapi(updateMemberBudget, async (c) => {
 		},
 	});
 
+	const memberProjects = isProjectScopedRole(updatedMember.role)
+		? (
+				await db.query.userProject.findMany({
+					where: { userOrganizationId: { eq: updatedMember.id } },
+					with: { project: { columns: { id: true, name: true } } },
+				})
+			)
+				.filter((up) => up.project)
+				.map((up) => ({ id: up.project!.id, name: up.project!.name }))
+		: null;
+	const teamPolicy = await getMemberTeamPolicy(updatedMember.teamId);
+	const effectiveMemberBudget = effectiveBudgetFrom(
+		updatedMember,
+		orgDefaultsFrom(userOrganization.organization),
+	);
 	const spend =
-		(await computeMemberSpend(organizationId, [updatedMember])).get(
-			updatedMember.userId,
-		) ?? EMPTY_SPEND;
-
-	const memberProjects =
-		updatedMember.role === "developer"
-			? (
-					await db.query.userProject.findMany({
-						where: { userOrganizationId: { eq: updatedMember.id } },
-						with: { project: { columns: { id: true, name: true } } },
-					})
+		(
+			await computeMemberSpend(organizationId, [
+				{
+					userId: updatedMember.userId,
+					budgets: [effectiveMemberBudget, teamPolicy?.budget ?? null],
+				},
+			])
+		).get(updatedMember.userId) ?? EMPTY_SPEND;
+	const effectiveProjects =
+		memberProjects && teamPolicy
+			? memberProjects.filter((project) =>
+					teamPolicy.projectIds.has(project.id),
 				)
-					.filter((up) => up.project)
-					.map((up) => ({ id: up.project!.id, name: up.project!.name }))
-			: null;
+			: memberProjects;
 
 	return c.json({
 		message: "Member budget updated successfully",
@@ -1457,9 +1630,12 @@ team.openapi(updateMemberBudget, async (c) => {
 			createdAt: updatedMember.createdAt,
 			user: targetMember.user!,
 			budget: budgetFromRow(updatedMember),
-			effectiveBudget: budgetFromRow(updatedMember),
+			effectiveBudget: effectiveMemberBudget,
 			spend,
-			projects: memberProjects,
+			team: teamPolicy?.identity ?? null,
+			teamBudget: teamPolicy?.budget ?? null,
+			personalProjects: memberProjects,
+			projects: effectiveProjects,
 		},
 	});
 });
@@ -1578,7 +1754,7 @@ team.openapi(updateDefaultDeveloperBudget, async (c) => {
 			: null,
 	};
 
-	await db
+	await cdb
 		.update(tables.organization)
 		.set(nextDefaults)
 		.where(eq(tables.organization.id, organizationId));
@@ -1765,6 +1941,16 @@ export const memberIamRuleSchema = z.object({
 	status: iamRuleStatusEnum,
 });
 
+const teamIamRuleSchema = z.object({
+	id: z.string(),
+	createdAt: z.date(),
+	updatedAt: z.date(),
+	teamId: z.string(),
+	ruleType: iamRuleTypeEnum,
+	ruleValue: iamRuleValueSchema,
+	status: iamRuleStatusEnum,
+});
+
 // Shared guard for member-level IAM rule management: caller must be an
 // owner/admin of a non-personal org, and admins may not touch owners' rules
 // (mirrors the budget/role/remove endpoints).
@@ -1857,6 +2043,7 @@ const getMyIamRules = createRoute({
 				"application/json": {
 					schema: z.object({
 						rules: z.array(memberIamRuleSchema),
+						teamRules: z.array(teamIamRuleSchema),
 					}),
 				},
 			},
@@ -1905,8 +2092,14 @@ team.openapi(getMyIamRules, async (c) => {
 			createdAt: "asc",
 		},
 	});
+	const teamRules = membership.teamId
+		? await db.query.organizationTeamIamRule.findMany({
+				where: { teamId: { eq: membership.teamId } },
+				orderBy: { createdAt: "asc" },
+			})
+		: [];
 
-	return c.json({ rules });
+	return c.json({ rules, teamRules });
 });
 
 const createMemberIamRule = createRoute({
@@ -2010,6 +2203,7 @@ const listMemberIamRules = createRoute({
 				"application/json": {
 					schema: z.object({
 						rules: z.array(memberIamRuleSchema),
+						teamRules: z.array(teamIamRuleSchema),
 					}),
 				},
 			},
@@ -2028,7 +2222,11 @@ team.openapi(listMemberIamRules, async (c) => {
 
 	const { organizationId, memberId } = c.req.param();
 
-	await requireMemberIamAccess(authUser.id, organizationId, memberId);
+	const { targetMember } = await requireMemberIamAccess(
+		authUser.id,
+		organizationId,
+		memberId,
+	);
 
 	const rules = await db.query.userIamRule.findMany({
 		where: {
@@ -2040,8 +2238,14 @@ team.openapi(listMemberIamRules, async (c) => {
 			createdAt: "asc",
 		},
 	});
+	const teamRules = targetMember.teamId
+		? await db.query.organizationTeamIamRule.findMany({
+				where: { teamId: { eq: targetMember.teamId } },
+				orderBy: { createdAt: "asc" },
+			})
+		: [];
 
-	return c.json({ rules });
+	return c.json({ rules, teamRules });
 });
 
 const updateMemberIamRule = createRoute({

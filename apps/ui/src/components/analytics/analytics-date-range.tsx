@@ -1,6 +1,5 @@
 "use client";
 
-import { format, subDays } from "date-fns";
 import { ChevronDownIcon, Lock, Mail } from "lucide-react";
 
 import { DateRangePicker } from "@/components/date-range-picker";
@@ -10,6 +9,8 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/lib/components/popover";
+
+import { formatDayKey, shiftDayKey, UTC_TIME_ZONE } from "@llmgateway/shared";
 
 /**
  * Date window non-enterprise plans can see on the new analytics pages. Custom
@@ -27,13 +28,12 @@ export function getAnalyticsRange(
 	isEnterprise: boolean,
 	searchFrom: string | null,
 	searchTo: string | null,
+	/** Zone the caller's queries bucket by. The default window has to be that
+	 *  zone's calendar days, not the browser's. */
+	timeZone: string = UTC_TIME_ZONE,
 ): { fromStr: string; toStr: string } {
-	const today = new Date();
-	const defaultFrom = format(
-		subDays(today, FREE_PLAN_RANGE_DAYS - 1),
-		"yyyy-MM-dd",
-	);
-	const defaultTo = format(today, "yyyy-MM-dd");
+	const defaultTo = formatDayKey(new Date(), timeZone);
+	const defaultFrom = shiftDayKey(defaultTo, -(FREE_PLAN_RANGE_DAYS - 1));
 
 	if (!isEnterprise) {
 		return { fromStr: defaultFrom, toStr: defaultTo };

@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { describe, expect, it } from "vitest";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables, type ProviderKeyOptions } from "@llmgateway/db";
 import {
 	type ModelDefinition,
@@ -10,11 +11,13 @@ import {
 	getSupportedServiceTiers,
 	models,
 	type ProviderModelMapping,
+	type ReasoningEffort,
 	providers,
 	getConcurrentTestOptions,
 	getTestOptions,
 	expandAllProviderRegions,
 } from "@llmgateway/models";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 import { uniqueId } from "@llmgateway/shared/random";
 
 import {
@@ -771,6 +774,84 @@ export const transcriptionModels = models
 		return testCases;
 	});
 
+// Realtime transcription mappings are served by the /v1/realtime WebSocket
+// (transcription sessions), so they get their own list for
+// realtime-transcription.e2e.ts, applying the same TEST_MODELS/TEST_PROVIDERS,
+// deactivation, env-var, and stability filters as transcriptionModels.
+export const realtimeTranscriptionModels = models
+	.filter((model) => !["custom", "auto"].includes(model.id))
+	.filter((model) =>
+		model.providers.some(
+			(provider: ProviderModelMapping) =>
+				provider.realtimeTranscription === true,
+		),
+	)
+	.filter((model) => {
+		if (hasOnlyModels) {
+			return model.providers.some(
+				(provider: ProviderModelMapping) => provider.test === "only",
+			);
+		}
+		return true;
+	})
+	.flatMap((model) => {
+		const testCases = [];
+		const expandedProviders = expandAllProviderRegions(
+			model.providers as ProviderModelMapping[],
+		);
+		for (const provider of expandedProviders) {
+			if (!provider.realtimeTranscription) {
+				continue;
+			}
+			if (provider.deactivatedAt && new Date() > provider.deactivatedAt) {
+				continue;
+			}
+			if (provider.deprecatedAt && new Date() > provider.deprecatedAt) {
+				continue;
+			}
+			if (specifiedModels || specifiedProviders) {
+				if (specifiedProviders) {
+					if (!specifiedProviders.includes(provider.providerId)) {
+						continue;
+					}
+				} else {
+					if (
+						!matchesTestModel(provider.providerId, model.id, provider.region)
+					) {
+						continue;
+					}
+				}
+			} else {
+				if (provider.test === "skip") {
+					continue;
+				}
+				if (
+					provider.test !== "only" &&
+					!hasAllRequiredProviderEnvVars(provider.providerId)
+				) {
+					continue;
+				}
+				if (
+					(provider.stability === "unstable" ||
+						provider.stability === "experimental") &&
+					!fullMode &&
+					provider.test !== "only"
+				) {
+					continue;
+				}
+			}
+			if (hasOnlyModels && provider.test !== "only") {
+				continue;
+			}
+			testCases.push({
+				model: `${provider.providerId}/${model.id}${provider.region ? `:${provider.region}` : ""}`,
+				provider,
+				originalModel: model.id,
+			});
+		}
+		return testCases;
+	});
+
 // Rerank models are excluded from filteredModels above (they use the
 // dedicated /v1/rerank endpoint). Build a separate list of rerank
 // provider/model mappings for rerank.e2e.ts, applying the same
@@ -982,15 +1063,15 @@ export const thinkingDisabledForcedToolChoiceModels = testModels.filter((m) =>
 // back to the strongest declared tier.
 export function getSupportedReasoningEffort(
 	providers: ProviderModelMapping[] | undefined,
-): string {
+): ReasoningEffort {
 	const efforts = providers?.find(
 		(p) => p.reasoning === true,
 	)?.reasoningEfforts;
 	if (!efforts || efforts.includes("medium")) {
 		return "medium";
 	}
-	for (const effort of ["high", "low", "minimal", "xhigh", "max"]) {
-		if (efforts.includes(effort as (typeof efforts)[number])) {
+	for (const effort of ["high", "low", "minimal", "xhigh", "max"] as const) {
+		if (efforts.includes(effort)) {
 			return effort;
 		}
 	}
@@ -1141,7 +1222,7 @@ export async function createProviderKey(
 		.insert(tables.providerKey)
 		.values({
 			id: keyId,
-			token,
+			...encryptProviderKeyForStorage(token, keyId, "org-id"),
 			provider: provider.replace("env-", ""), // Remove env- prefix for the provider field
 			organizationId: "org-id",
 			baseUrl,
@@ -1150,7 +1231,7 @@ export async function createProviderKey(
 		.onConflictDoUpdate({
 			target: tables.providerKey.id,
 			set: {
-				token,
+				...encryptProviderKeyForStorage(token, keyId, "org-id"),
 				baseUrl,
 				options,
 			},
@@ -1238,7 +1319,7 @@ export async function beforeAllHook() {
 		.insert(tables.apiKey)
 		.values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -1304,6 +1385,14 @@ function providerEnvOptionsForTests(
 			opts.azure_ai_foundry_api_version = apiVersion;
 		}
 		return Object.keys(opts).length > 0 ? opts : undefined;
+	}
+	if (
+		providerId === "azure-anthropic" &&
+		process.env.LLM_AZURE_ANTHROPIC_RESOURCE
+	) {
+		return {
+			azure_anthropic_resource: process.env.LLM_AZURE_ANTHROPIC_RESOURCE,
+		};
 	}
 	return undefined;
 }

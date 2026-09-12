@@ -2,6 +2,7 @@ import { HTTPException } from "hono/http-exception";
 
 import {
 	findActiveIamRules,
+	findActiveTeamIamRules,
 	findActiveUserIamRules,
 } from "@/lib/cached-queries.js";
 import { anyCidrMatches } from "@/lib/client-ip.js";
@@ -50,11 +51,31 @@ export interface IamValidationResult {
 // admin set (which key rules can only further restrict, never expand).
 const scopeDenialSuffix = {
 	key: " Adapt your LLMGateway API key IAM permissions in the dashboard or contact your LLMGateway API Key issuer.",
+	team: " This restriction is inherited from an organization team IAM rule set by your org admin.",
 	member:
 		" This restriction is an organization member IAM rule set by your org admin.",
 } as const;
 
 type IamRuleScope = keyof typeof scopeDenialSuffix;
+
+type RequestIamRules = Record<IamRuleScope, IamRule[]>;
+
+/** Load once when checking access to multiple models in one request. */
+export async function findRequestIamRules(
+	apiKey: GatewayApiKey,
+	organizationId: string,
+): Promise<RequestIamRules> {
+	const [key, member, team] = await Promise.all([
+		findActiveIamRules(apiKey.id),
+		apiKey.keyType === "user"
+			? findActiveUserIamRules(apiKey.createdBy, organizationId)
+			: [],
+		apiKey.keyType === "user"
+			? findActiveTeamIamRules(apiKey.createdBy, organizationId)
+			: [],
+	]);
+	return { key, member, team };
+}
 
 // Whether a rule's provider entry matches a provider id. Custom providers all
 // share the provider id "custom", so rules can address one of them
@@ -132,7 +153,20 @@ async function evaluateIamRuleSet(
 		}
 	}
 
-	for (const group of allowGroups.values()) {
+	// Evaluate allow groups in a fixed order: pricing caps read the provider set
+	// surviving earlier rules, so provider-narrowing groups must run first. Map
+	// insertion order follows DB fetch order, which is not deterministic.
+	const allowGroupOrder: IamRule["ruleType"][] = [
+		"allow_providers",
+		"allow_models",
+		"allow_pricing",
+		"allow_ip_cidrs",
+	];
+	for (const groupType of allowGroupOrder) {
+		const group = allowGroups.get(groupType);
+		if (!group) {
+			continue;
+		}
 		let groupAllowed = false;
 		let firstDenial: RuleEvaluationResult | undefined;
 		let unionedProviders: Set<ProviderId> | undefined;
@@ -250,6 +284,7 @@ export async function validateRequestModelAccess(params: {
 	// (moderations): model/pricing allowlists can never name that model, so
 	// evaluating them would deny with no way to allowlist it.
 	applicableRuleTypes?: readonly IamRule["ruleType"][];
+	iamRules?: RequestIamRules;
 }): Promise<IamValidationResult> {
 	const {
 		apiKey,
@@ -261,6 +296,7 @@ export async function validateRequestModelAccess(params: {
 		clientIp,
 		autoRouting,
 		applicableRuleTypes,
+		iamRules,
 	} = params;
 
 	const filterRules = (rules: IamRule[]) =>
@@ -294,22 +330,41 @@ export async function validateRequestModelAccess(params: {
 		return { allowed: false, reason: `Model ${requestedModel} not found` };
 	}
 
-	// Member-level rules are the ceiling set by org owners/admins; the key's own
-	// rules are evaluated second, seeded with the member stage's surviving
-	// provider set, so key rules can only narrow access, never expand it.
+	// Team rules are the outer ceiling, followed by member and key rules. Each
+	// stage is seeded with the preceding stage's survivors so lower scopes can
+	// only narrow access, never expand it.
 	// Member rules only bind normal developer keys: platform keys are org
 	// infrastructure whose `createdBy` is merely whoever clicked create, and
 	// end-user sessions were already handled above.
 	const memberRules =
-		apiKey.keyType === "user"
+		iamRules?.member ??
+		(apiKey.keyType === "user"
 			? await findActiveUserIamRules(apiKey.createdBy, organizationId)
-			: [];
+			: []);
+	const teamRules =
+		iamRules?.team ??
+		(apiKey.keyType === "user"
+			? await findActiveTeamIamRules(apiKey.createdBy, organizationId)
+			: []);
+
+	const teamResult = await evaluateIamRuleSet(
+		filterRules(teamRules),
+		modelDef,
+		requestedProvider,
+		new Set(modelDef.providers.map((p) => p.providerId)),
+		clientIp,
+		"team",
+		customProviderName,
+	);
+	if (!teamResult.allowed) {
+		return teamResult;
+	}
 
 	const memberResult = await evaluateIamRuleSet(
 		filterRules(memberRules),
 		modelDef,
 		requestedProvider,
-		new Set(modelDef.providers.map((p) => p.providerId)),
+		new Set(teamResult.allowedProviders),
 		clientIp,
 		"member",
 		customProviderName,
@@ -318,7 +373,7 @@ export async function validateRequestModelAccess(params: {
 		return memberResult;
 	}
 
-	const keyRules = await findActiveIamRules(apiKey.id);
+	const keyRules = iamRules?.key ?? (await findActiveIamRules(apiKey.id));
 	return await evaluateIamRuleSet(
 		filterRules(keyRules),
 		modelDef,
@@ -503,13 +558,18 @@ async function evaluateRule(
 				}
 			}
 
-			// Check max price limits
+			// Check max price limits, but only against providers that survived the
+			// earlier scopes/rules — a provider already excluded (e.g. by a team
+			// allow_providers ceiling) must not fail the whole request on price.
 			if (
 				ruleValue.maxInputPrice !== undefined ||
 				ruleValue.maxOutputPrice !== undefined
 			) {
 				for (const provider of modelDef.providers) {
 					if (requestedProvider && provider.providerId !== requestedProvider) {
+						continue;
+					}
+					if (!currentAllowedProviders.has(provider.providerId)) {
 						continue;
 					}
 

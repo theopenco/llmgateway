@@ -32,19 +32,11 @@ function getVideoContentTokenSecret(): string {
 }
 
 function base64urlEncode(input: string): string {
-	return Buffer.from(input)
-		.toString("base64")
-		.replace(/\+/g, "-")
-		.replace(/\//g, "_")
-		.replace(/=+$/g, "");
+	return Buffer.from(input).toString("base64url");
 }
 
 function base64urlDecode(input: string): string {
-	const padded = input.replace(/-/g, "+").replace(/_/g, "/");
-	const remainder = padded.length % 4;
-	const normalized =
-		remainder === 0 ? padded : `${padded}${"=".repeat(4 - remainder)}`;
-	return Buffer.from(normalized, "base64").toString("utf8");
+	return Buffer.from(input, "base64url").toString("utf8");
 }
 
 function signJwtSegment(
@@ -54,10 +46,7 @@ function signJwtSegment(
 ): string {
 	return createHmac("sha256", secret)
 		.update(`${header}.${payload}`)
-		.digest("base64")
-		.replace(/\+/g, "-")
-		.replace(/\//g, "_")
-		.replace(/=+$/g, "");
+		.digest("base64url");
 }
 
 function getDefaultVideoContentExpiryDate(): Date {

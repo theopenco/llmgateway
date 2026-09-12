@@ -3,19 +3,35 @@
 import {
 	AlertTriangle,
 	AlertCircle,
+	ArrowUpRight,
 	Ban,
+	Blocks,
+	Brain,
+	Braces,
+	CalendarClock,
+	Clock,
 	Copy,
 	Check,
 	ChevronDown,
 	ChevronUp,
 	Gem,
 	Globe,
+	Eye,
+	FileText,
 	Linkedin,
+	ListFilter,
+	Radio,
+	Search,
 	Share2,
+	SlidersHorizontal,
+	Volume2,
+	Wrench,
 	Zap,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import Link from "next/link.js";
+import { useId, useMemo, useState } from "react";
 
+import { CarrierMark } from "@/components/carrier-mark";
 import { getProviderIcon } from "@/components/provider-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,12 +48,29 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { shouldShowDeactivationNotice } from "@/deactivation";
+import {
+	isDeactivationScheduledSoon,
+	isMappingDeactivated,
+	MODEL_DEACTIVATION_NOTICE_DAYS,
+	shouldShowDeactivationNotice,
+} from "@/deactivation";
+import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
 
-import { formatContextSize, formatDeprecationDate } from "./format";
+import { getDefaultProviderMapping } from "./default-provider-mapping";
+import {
+	formatContextSize,
+	formatDeprecationDate,
+	formatPerSecondPriceLabel,
+	formatPerUnitPrice,
+} from "./format";
+import { getMappingCapabilities } from "./mapping-capabilities";
 import { ModelCodeExampleDialog } from "./model-code-example-dialog";
 import { ModelStatusBadge } from "./model-status-badge";
+import {
+	effectiveUnitPrice,
+	formatPeakPricingSchedule,
+} from "./pricing-schedule";
 import { XIcon } from "./x-icon";
 
 import type {
@@ -45,6 +78,7 @@ import type {
 	ApiModelProviderMapping,
 	ApiProvider,
 } from "./api-types";
+import type { MAPPING_CAPABILITIES } from "./mapping-capabilities";
 import type { StabilityLevel } from "@llmgateway/models";
 
 interface ModelWithProviders extends ApiModel {
@@ -125,6 +159,21 @@ function hasEstimatedImageCost(mapping: ApiModelProviderMapping): boolean {
 	);
 }
 
+const MAPPING_CAPABILITY_ICONS = {
+	streaming: Zap,
+	vision: Eye,
+	audio: Volume2,
+	document: FileText,
+	tools: Wrench,
+	reasoning: Brain,
+	reasoningMaxTokens: SlidersHorizontal,
+	jsonOutput: Braces,
+	jsonOutputSchema: Blocks,
+	webSearch: Search,
+	realtime: Radio,
+	rerank: ListFilter,
+} satisfies Record<(typeof MAPPING_CAPABILITIES)[number]["key"], typeof Zap>;
+
 export function ModelCard({
 	model,
 	shouldShowStabilityWarning,
@@ -189,6 +238,12 @@ export function ModelCard({
 		allHaveDeactivatedAt &&
 		model.providerDetails.every(
 			({ provider }) => new Date(provider.deactivatedAt!) <= now,
+		);
+	const isAllScheduled =
+		allHaveDeactivatedAt &&
+		!deactivationAllPast &&
+		model.providerDetails.every(({ provider }) =>
+			shouldShowDeactivationNotice(provider, now),
 		);
 	const deprecationAllPast =
 		allHaveDeprecatedAt &&
@@ -374,12 +429,10 @@ export function ModelCard({
 									</TooltipContent>
 								</Tooltip>
 							)}
-							{showModelDeactivationStatus && (
-								<ModelStatusBadge
-									status="deactivated"
-									isPast={deactivationAllPast}
-								/>
+							{deactivationAllPast && (
+								<ModelStatusBadge status="deactivated" isPast />
 							)}
+							{isAllScheduled && <ModelStatusBadge status="scheduled" />}
 							{allHaveDeprecatedAt && (
 								<ModelStatusBadge
 									status="deprecated"
@@ -590,6 +643,8 @@ export function ProviderSection({
 	copiedModel,
 	isImageGen = false,
 	detailed = false,
+	providerHref,
+	headerExtra,
 }: {
 	modelId: string;
 	providerInfo: ApiProvider;
@@ -608,15 +663,39 @@ export function ProviderSection({
 	copiedModel: string | null;
 	isImageGen?: boolean;
 	detailed?: boolean;
+	/** Links the provider name to the provider's page when set. */
+	providerHref?: string;
+	headerExtra?: React.ReactNode;
 }) {
-	const [activeRegionIdx, setActiveRegionIdx] = useState(0);
+	const [selectedRegion, setSelectedRegion] = useState<
+		string | null | undefined
+	>();
+	const mappingDetailsId = useId();
 	const [showTokenPricing, setShowTokenPricing] = useState(false);
 	const [showMappingDetails, setShowMappingDetails] = useState(false);
+	const [timeBasedPricingMode, setTimeBasedPricingMode] = useState<
+		"peak" | "offPeak"
+	>("peak");
 	const [selectedServiceTierId, setSelectedServiceTierId] =
 		useState("standard");
-	const activeMapping = mappings[activeRegionIdx] ?? mappings[0];
-	const showDeactivationNotice = shouldShowDeactivationNotice(activeMapping);
+	const activeMapping =
+		mappings.find(
+			(mapping) =>
+				selectedRegion !== undefined &&
+				(mapping.region ?? null) === selectedRegion,
+		) ?? getDefaultProviderMapping(mappings);
+	const isDeactivated = isMappingDeactivated(activeMapping);
+	const isScheduled =
+		!isDeactivated &&
+		isDeactivationScheduledSoon(
+			activeMapping,
+			undefined,
+			MODEL_DEACTIVATION_NOTICE_DAYS,
+		);
+	const showDeactivationNotice = isDeactivated || isScheduled;
+	const mappingCapabilities = getMappingCapabilities(activeMapping);
 	const hasMappingDetails =
+		mappingCapabilities.length > 0 ||
 		(activeMapping.reasoningEfforts?.length ?? 0) > 0 ||
 		(activeMapping.supportedParameters?.length ?? 0) > 0;
 	const supportedServiceTierIds = new Set(activeMapping.serviceTiers ?? []);
@@ -637,24 +716,61 @@ export function ProviderSection({
 	const hasImageCostEstimate = hasEstimatedImageCost(activeMapping);
 	const shouldShowTokenPricing =
 		!isImageGen || showTokenPricing || !hasImageCostEstimate;
+	const timeBasedPrices = activeMapping.peakPricing?.[timeBasedPricingMode];
+	const displayedInputPrice =
+		timeBasedPrices?.inputPrice ?? activeMapping.inputPrice;
+	const displayedCachedInputPrice =
+		timeBasedPrices?.cachedInputPrice ?? activeMapping.cachedInputPrice;
+	const displayedOutputPrice =
+		timeBasedPrices?.outputPrice ?? activeMapping.outputPrice;
+	const pricingSchedule = activeMapping.peakPricing
+		? formatPeakPricingSchedule(activeMapping.peakPricing)
+		: null;
+	const providerBrandUrl =
+		providerInfo.airsideIconUrl ?? providerInfo.airsideLogoUrl;
+	const providerMark = (
+		<div className="w-5 h-5 rounded flex items-center justify-center shrink-0">
+			{providerBrandUrl ? (
+				<CarrierMark
+					src={providerBrandUrl}
+					className="h-4 w-4 object-contain"
+				/>
+			) : ProviderIcon ? (
+				<ProviderIcon className="h-4 w-4" />
+			) : (
+				<span className="text-[10px] font-bold text-muted-foreground">
+					{(providerInfo.name ?? providerId).charAt(0).toUpperCase()}
+				</span>
+			)}
+		</div>
+	);
 
 	return (
 		<div className="flex flex-1 flex-col rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
 			{/* Provider header */}
 			<div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-border/30">
 				<div className="flex items-center gap-2 min-w-0">
-					<div className="w-5 h-5 rounded flex items-center justify-center shrink-0">
-						{ProviderIcon ? (
-							<ProviderIcon className="h-4 w-4" />
-						) : (
-							<span className="text-[10px] font-bold text-muted-foreground">
-								{(providerInfo?.name ?? providerId).charAt(0).toUpperCase()}
+					{providerHref ? (
+						<Link
+							href={providerHref}
+							onClick={(e) => e.stopPropagation()}
+							className="group/provider flex items-center gap-2 min-w-0"
+							title={`About ${providerInfo?.name ?? providerId}`}
+						>
+							{providerMark}
+							<span className="text-sm font-semibold text-foreground truncate underline-offset-4 decoration-border group-hover/provider:underline">
+								{providerInfo?.name ?? providerId}
 							</span>
-						)}
-					</div>
-					<span className="text-sm font-semibold text-foreground truncate">
-						{providerInfo?.name ?? providerId}
-					</span>
+							<ArrowUpRight className="h-3 w-3 shrink-0 text-muted-foreground/50 transition-[transform,color] duration-150 ease-out group-hover/provider:text-foreground group-hover/provider:translate-x-px group-hover/provider:-translate-y-px" />
+						</Link>
+					) : (
+						<>
+							{providerMark}
+							<span className="text-sm font-semibold text-foreground truncate">
+								{providerInfo?.name ?? providerId}
+							</span>
+						</>
+					)}
 					<StabilityDot stability={activeMapping.stability} />
 					{hasProviderStabilityWarning(activeMapping) && (
 						<AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
@@ -665,6 +781,7 @@ export function ProviderSection({
 							{providerInfo.modelCardBadge}
 						</Badge>
 					)}
+					{headerExtra}
 				</div>
 				<div className="flex items-center gap-1 shrink-0">
 					{serviceTiers.length > 0 && (
@@ -762,13 +879,14 @@ export function ProviderSection({
 						<button
 							key={`${mapping.providerId}-${mapping.region ?? "default"}-${idx}`}
 							type="button"
+							aria-pressed={activeMapping === mapping}
 							onClick={(e) => {
 								e.stopPropagation();
-								setActiveRegionIdx(idx);
+								setSelectedRegion(mapping.region ?? null);
 							}}
 							className={cn(
 								"px-2 py-1 rounded text-[10px] font-medium transition-colors whitespace-nowrap",
-								activeRegionIdx === idx
+								activeMapping === mapping
 									? "bg-background text-foreground shadow-sm border border-border/50"
 									: "text-muted-foreground hover:text-foreground",
 							)}
@@ -823,12 +941,24 @@ export function ProviderSection({
 								)}
 							</Badge>
 						)}
-						{showDeactivationNotice && (
+						{isDeactivated && (
 							<Badge
 								variant="outline"
 								className="text-[10px] px-2 py-0.5 gap-1 bg-red-500/5 text-red-600 dark:text-red-400 border-red-500/20"
 							>
 								<AlertCircle className="h-2.5 w-2.5" />
+								{formatDeprecationDate(
+									activeMapping.deactivatedAt!,
+									"deactivated",
+								)}
+							</Badge>
+						)}
+						{isScheduled && (
+							<Badge
+								variant="outline"
+								className="text-[10px] px-2 py-0.5 gap-1 bg-amber-500/5 text-amber-600 dark:text-amber-400 border-amber-500/20"
+							>
+								<Clock className="h-2.5 w-2.5" />
 								{formatDeprecationDate(
 									activeMapping.deactivatedAt!,
 									"deactivated",
@@ -841,9 +971,7 @@ export function ProviderSection({
 				{/* Per-image summary for image-gen models */}
 				{isImageGen &&
 					(() => {
-						const discountNum = activeMapping.discount
-							? parseFloat(activeMapping.discount)
-							: 0;
+						const discountNum = discountFraction(activeMapping.discount);
 						const requestPriceNum =
 							activeMapping.requestPrice !== null &&
 							activeMapping.requestPrice !== undefined
@@ -914,14 +1042,14 @@ export function ProviderSection({
 										{discountNum > 0 ? (
 											<>
 												<span className="line-through text-muted-foreground mr-1 text-xs">
-													${perImage.toFixed(4)}
+													${perImage.toFixed(5)}
 												</span>
 												<span className="text-green-600">
-													${discounted.toFixed(4)}
+													${discounted.toFixed(5)}
 												</span>
 											</>
 										) : (
-											`$${perImage.toFixed(4)}`
+											`$${perImage.toFixed(5)}`
 										)}
 									</div>
 								</div>
@@ -934,15 +1062,13 @@ export function ProviderSection({
 					activeMapping.inputCharacterPrice &&
 					parseFloat(activeMapping.inputCharacterPrice) > 0 &&
 					(() => {
-						const discountNum = activeMapping.discount
-							? parseFloat(activeMapping.discount)
-							: 0;
+						const discountNum = discountFraction(activeMapping.discount);
 						const perThousandChars =
 							parseFloat(activeMapping.inputCharacterPrice!) *
 							1000 *
 							serviceTierMultiplier;
 						const formatChars = (value: number) =>
-							`$${parseFloat(value.toFixed(4))}`;
+							`$${parseFloat(value.toFixed(5))}`;
 						return (
 							<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
 								<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
@@ -985,16 +1111,31 @@ export function ProviderSection({
 						<div className="space-y-1">
 							{(() => {
 								const prices = activeMapping.perSecondPrice!;
-								const defaultVideo = prices["default_video"];
-								const defaultAudio = prices["default_audio"];
-								if (defaultVideo && defaultAudio) {
+								const discounted = discountFraction(activeMapping.discount) > 0;
+								const label = formatPerSecondPriceLabel(
+									prices,
+									activeMapping.discount,
+									serviceTierMultiplier,
+								);
+								if (label) {
 									return (
 										<div className="flex justify-between text-sm">
 											<span className="text-muted-foreground">
-												Video / Audio
+												{label.tiers.length > 1 ? "Video / Audio" : "Default"}
 											</span>
 											<span className="font-semibold tabular-nums">
-												${defaultVideo} – ${defaultAudio}
+												{discounted ? (
+													<>
+														<span className="line-through text-muted-foreground mr-1 text-xs">
+															{label.original}
+														</span>
+														<span className="text-green-600">
+															{label.value}
+														</span>
+													</>
+												) : (
+													label.value
+												)}
 												<span className="text-muted-foreground text-xs ml-0.5">
 													/sec
 												</span>
@@ -1002,26 +1143,20 @@ export function ProviderSection({
 										</div>
 									);
 								}
-								const defaultPrice = prices["default"];
-								if (defaultPrice) {
-									return (
-										<div className="flex justify-between text-sm">
-											<span className="text-muted-foreground">Default</span>
-											<span className="font-semibold tabular-nums">
-												${defaultPrice}
-												<span className="text-muted-foreground text-xs ml-0.5">
-													/sec
-												</span>
+								return Object.entries(prices).map(([key, value]) => {
+									const price = effectiveUnitPrice(
+										value,
+										activeMapping.discount,
+									);
+									return price === null ? null : (
+										<div key={key} className="flex justify-between text-xs">
+											<span className="text-muted-foreground">{key}</span>
+											<span className="font-mono tabular-nums">
+												{formatPerUnitPrice(price * serviceTierMultiplier)}/sec
 											</span>
 										</div>
 									);
-								}
-								return Object.entries(prices).map(([key, value]) => (
-									<div key={key} className="flex justify-between text-xs">
-										<span className="text-muted-foreground">{key}</span>
-										<span className="font-mono tabular-nums">${value}/sec</span>
-									</div>
-								));
+								});
 							})()}
 						</div>
 					</div>
@@ -1030,14 +1165,12 @@ export function ProviderSection({
 				  !(parseFloat(activeMapping.inputPrice ?? "0") > 0) &&
 				  !(parseFloat(activeMapping.outputPrice ?? "0") > 0) ? (
 					(() => {
-						const discountNum = activeMapping.discount
-							? parseFloat(activeMapping.discount)
-							: 0;
+						const discountNum = discountFraction(activeMapping.discount);
 						const perHour =
 							parseFloat(activeMapping.inputAudioHourPrice!) *
 							serviceTierMultiplier;
 						const formatHour = (value: number) =>
-							`$${parseFloat(value.toFixed(4))}`;
+							`$${parseFloat(value.toFixed(5))}`;
 						return (
 							<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
 								<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
@@ -1068,11 +1201,48 @@ export function ProviderSection({
 					})()
 				) : (
 					<div className="space-y-2">
+						{activeMapping.peakPricing && (
+							<div className="flex items-center justify-between gap-3">
+								<span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+									Time-based pricing
+								</span>
+								<div
+									className="flex h-7 items-center rounded-md border border-border/50 bg-background p-0.5"
+									role="group"
+									aria-label="Pricing rate"
+								>
+									{(
+										[
+											["peak", "Peak"],
+											["offPeak", "Off-peak"],
+										] as const
+									).map(([mode, label]) => {
+										const isSelected = timeBasedPricingMode === mode;
+										return (
+											<button
+												key={mode}
+												type="button"
+												onClick={() => setTimeBasedPricingMode(mode)}
+												className={cn(
+													"h-6 rounded px-2 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+													isSelected
+														? "bg-muted text-foreground shadow-sm"
+														: "text-muted-foreground hover:text-foreground",
+												)}
+												aria-pressed={isSelected}
+											>
+												{label}
+											</button>
+										);
+									})}
+								</div>
+							</div>
+						)}
 						<div className="grid grid-cols-3 gap-px rounded-md bg-border/30 border border-border/30 overflow-hidden">
 							<div className="bg-background p-2">
 								<PriceCell
 									label="Input"
-									price={activeMapping.inputPrice}
+									price={displayedInputPrice}
 									discount={activeMapping.discount}
 									unit="/M tokens"
 									formatPrice={formatPrice}
@@ -1082,7 +1252,7 @@ export function ProviderSection({
 							<div className="bg-background p-2">
 								<PriceCell
 									label={detailed ? "Cache Read" : "Cached"}
-									price={activeMapping.cachedInputPrice}
+									price={displayedCachedInputPrice}
 									discount={activeMapping.discount}
 									unit="/M tokens"
 									formatPrice={formatPrice}
@@ -1092,7 +1262,7 @@ export function ProviderSection({
 							<div className="bg-background p-2">
 								<PriceCell
 									label="Output"
-									price={activeMapping.outputPrice}
+									price={displayedOutputPrice}
 									discount={activeMapping.discount}
 									unit="/M tokens"
 									formatPrice={formatPrice}
@@ -1100,6 +1270,28 @@ export function ProviderSection({
 								/>
 							</div>
 						</div>
+						{pricingSchedule && (
+							<div className="flex items-start gap-2 px-0.5 pt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+								<CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-foreground/65" />
+								<div>
+									<p>
+										<span className="font-medium text-foreground">Peak:</span>{" "}
+										{pricingSchedule.peakDays}, {pricingSchedule.peakHours}{" "}
+										{pricingSchedule.timeZoneLabel}.
+									</p>
+									<p>
+										<span className="font-medium text-foreground">
+											Off-peak:
+										</span>{" "}
+										{pricingSchedule.peakDays} outside those hours
+										{pricingSchedule.offPeakDays
+											? `, plus all day ${pricingSchedule.offPeakDays}`
+											: ""}
+										.
+									</p>
+								</div>
+							</div>
+						)}
 						{activeMapping.ocrPagePrice !== null &&
 							activeMapping.ocrPagePrice !== undefined &&
 							Number(activeMapping.ocrPagePrice) > 0 && (
@@ -1184,9 +1376,9 @@ export function ProviderSection({
 											<div>OUT</div>
 										</div>
 										{activeMapping.pricingTiers!.map((tier, index) => {
-											const discountNum = activeMapping.discount
-												? parseFloat(activeMapping.discount)
-												: 0;
+											const discountNum = discountFraction(
+												activeMapping.discount,
+											);
 											const prevTokens =
 												activeMapping.pricingTiers![index - 1]?.upToTokens ?? 0;
 											const label =
@@ -1269,9 +1461,7 @@ export function ProviderSection({
 								if (entries.length === 0) {
 									return null;
 								}
-								const discountNum = activeMapping.discount
-									? parseFloat(activeMapping.discount)
-									: 0;
+								const discountNum = discountFraction(activeMapping.discount);
 								return (
 									<div className="mb-1.5">
 										<div className="text-[10px] text-muted-foreground mb-0.5">
@@ -1293,14 +1483,14 @@ export function ProviderSection({
 														{discountNum > 0 ? (
 															<>
 																<span className="line-through text-muted-foreground mr-1">
-																	~${raw.toFixed(4)}
+																	~${raw.toFixed(5)}
 																</span>
 																<span className="text-green-600 font-semibold">
-																	~${discounted.toFixed(4)}
+																	~${discounted.toFixed(5)}
 																</span>
 															</>
 														) : (
-															`~$${raw.toFixed(4)}`
+															`~$${raw.toFixed(5)}`
 														)}
 													</span>
 												</div>
@@ -1341,9 +1531,7 @@ export function ProviderSection({
 								if (entries.length === 0) {
 									return null;
 								}
-								const discountNum = activeMapping.discount
-									? parseFloat(activeMapping.discount)
-									: 0;
+								const discountNum = discountFraction(activeMapping.discount);
 								return (
 									<div>
 										<div className="text-[10px] text-muted-foreground mb-0.5">
@@ -1365,14 +1553,14 @@ export function ProviderSection({
 														{discountNum > 0 ? (
 															<>
 																<span className="line-through text-muted-foreground mr-1">
-																	~${raw.toFixed(4)}
+																	~${raw.toFixed(5)}
 																</span>
 																<span className="text-green-600 font-semibold">
-																	~${discounted.toFixed(4)}
+																	~${discounted.toFixed(5)}
 																</span>
 															</>
 														) : (
-															`~$${raw.toFixed(4)}`
+															`~$${raw.toFixed(5)}`
 														)}
 													</span>
 												</div>
@@ -1399,9 +1587,7 @@ export function ProviderSection({
 							parseFloat(activeMapping.requestPrice) > 0 &&
 							(() => {
 								const original = parseFloat(activeMapping.requestPrice);
-								const discountNum = activeMapping.discount
-									? parseFloat(activeMapping.discount)
-									: 0;
+								const discountNum = discountFraction(activeMapping.discount);
 								return (
 									<span>
 										+{" "}
@@ -1426,9 +1612,7 @@ export function ProviderSection({
 							parseFloat(activeMapping.webSearchPrice) > 0 &&
 							(() => {
 								const original = parseFloat(activeMapping.webSearchPrice);
-								const discountNum = activeMapping.discount
-									? parseFloat(activeMapping.discount)
-									: 0;
+								const discountNum = discountFraction(activeMapping.discount);
 								return (
 									<span>
 										+{" "}
@@ -1474,11 +1658,40 @@ export function ProviderSection({
 					</button>
 				)}
 
-				{/* Reasoning efforts + supported parameters, collapsed by default */}
+				{/* Mapping metadata, collapsed by default */}
 				{hasMappingDetails && (
 					<>
 						{showMappingDetails && (
-							<div className="space-y-2.5">
+							<div
+								id={mappingDetailsId}
+								className="space-y-2.5"
+								onClick={(event) => event.stopPropagation()}
+							>
+								{mappingCapabilities.length > 0 && (
+									<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
+										<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+											Capabilities
+										</div>
+										<div className="flex flex-wrap gap-1.5">
+											{mappingCapabilities.map(({ key, label }) => {
+												const Icon = MAPPING_CAPABILITY_ICONS[key];
+												return (
+													<Badge
+														key={key}
+														variant="outline"
+														className="h-6 gap-1.5 border-border/60 bg-background/70 px-2 text-[10px] font-medium text-foreground"
+													>
+														<Icon
+															className="h-3 w-3 text-primary"
+															aria-hidden="true"
+														/>
+														{label}
+													</Badge>
+												);
+											})}
+										</div>
+									</div>
+								)}
 								{(activeMapping.reasoningEfforts?.length ?? 0) > 0 && (
 									<div className="rounded-md bg-muted/40 border border-border/30 p-2.5">
 										<div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
@@ -1519,6 +1732,8 @@ export function ProviderSection({
 						)}
 						<button
 							type="button"
+							aria-expanded={showMappingDetails}
+							aria-controls={mappingDetailsId}
 							className="w-full flex items-center justify-center gap-1.5 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
 							onClick={(e) => {
 								e.stopPropagation();

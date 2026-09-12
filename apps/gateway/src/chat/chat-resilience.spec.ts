@@ -3,8 +3,10 @@ import { beforeAll, describe, expect, test, vi, afterEach } from "vitest";
 import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 describe("chat resilience under DB outage", () => {
 	const harness = createGatewayApiTestHarness();
@@ -40,14 +42,18 @@ describe("chat resilience under DB outage", () => {
 	}) {
 		await db.insert(tables.apiKey).values({
 			id: opts.apiKeyId,
-			token: opts.token,
+			...hashApiKeyForStorage(opts.token),
 			projectId: "project-id",
 			description: "Resilience API Key",
 			createdBy: "user-id",
 		});
 		await db.insert(tables.providerKey).values({
 			id: opts.providerKeyId,
-			token: "sk-resilience-key",
+			...encryptProviderKeyForStorage(
+				"sk-resilience-key",
+				opts.providerKeyId,
+				"org-id",
+			),
 			provider: "llmgateway",
 			organizationId: "org-id",
 			baseUrl: opts.baseUrl,

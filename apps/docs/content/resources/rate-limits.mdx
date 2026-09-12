@@ -6,13 +6,11 @@ icon: Timer
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-# Rate Limits
-
 LLMGateway applies rate limits to ensure fair usage and protect platform stability. Limits are evaluated in a few independent layers:
 
 - **Per-organization endpoint limits** — a requests-per-minute cap on every API endpoint, scoped to your organization.
 - **Free model limits** — additional limits specifically for zero-cost models.
-- **Provider limits** — upstream limits enforced per provider/model when applicable.
+- **Provider/model caps** — limits configured and enforced by LLMGateway for a provider/model.
 
 ## Per-Organization Endpoint Limits
 
@@ -20,24 +18,24 @@ Every API endpoint is rate limited per organization using a rolling 60-second wi
 
 The default limits (requests per minute, per organization) are:
 
-| Endpoint             | Path                       | Requests / min |
-| -------------------- | -------------------------- | -------------- |
-| Chat completions     | `/v1/chat/completions`     | 600            |
-| Messages (Anthropic) | `/v1/messages`             | 600            |
-| Responses            | `/v1/responses`            | 600            |
-| Embeddings           | `/v1/embeddings`           | 1200           |
-| Moderations          | `/v1/moderations`          | 1200           |
-| Rerank               | `/v1/rerank`               | 1200           |
-| Models               | `/v1/models`               | 1200           |
-| OCR                  | `/v1/ocr`                  | 300            |
-| Images               | `/v1/images`               | 300            |
-| Speech               | `/v1/audio/speech`         | 300            |
-| Transcriptions       | `/v1/audio/transcriptions` | 300            |
-| Videos               | `/v1/videos`               | 120            |
-| Realtime (mint)      | `/v1/realtime`             | 120            |
-| Key info             | `/v1/key`                  | 1200           |
-| Credits              | `/v1/credits`              | 300            |
-| AI SDK protocol      | `/v*/ai`                   | 600            |
+| Endpoint                                           | Path                       | Requests / min |
+| -------------------------------------------------- | -------------------------- | -------------- |
+| Chat completions                                   | `/v1/chat/completions`     | 600            |
+| Messages (Anthropic)                               | `/v1/messages`             | 600            |
+| Responses                                          | `/v1/responses`            | 600            |
+| Embeddings                                         | `/v1/embeddings`           | 1200           |
+| Moderations                                        | `/v1/moderations`          | 1200           |
+| Rerank                                             | `/v1/rerank`               | 1200           |
+| Models                                             | `/v1/models`               | 1200           |
+| OCR                                                | `/v1/ocr`                  | 300            |
+| Images                                             | `/v1/images`               | 300            |
+| Speech                                             | `/v1/audio/speech`         | 300            |
+| Transcriptions                                     | `/v1/audio/transcriptions` | 300            |
+| Videos                                             | `/v1/videos`               | 120            |
+| Realtime (mint)                                    | `/v1/realtime`             | 120            |
+| [Key and DevPass usage](/developers/devpass-usage) | `/v1/key`                  | 1200           |
+| Credits                                            | `/v1/credits`              | 300            |
+| AI SDK protocol                                    | `/v*/ai`                   | 600            |
 
 <Callout type="info">
 	**[Enterprise](https://llmgateway.io/enterprise) organizations are exempt**
@@ -175,23 +173,31 @@ For organizations that have **purchased at least some credits**:
 
 ## Provider Limits
 
-Some providers and models enforce their own upstream request limits. When a provider limit is reached, LLMGateway returns a `429` and includes provider-scoped headers (`X-RateLimit-Limit-Provider`, `X-RateLimit-Remaining-Provider`). Where possible, [fallback routing](/features/routing) automatically retries the request on a healthy provider.
+LLMGateway uses configured provider/model caps to route requests away from providers that have reached their allowance. If you pin a provider and disable fallback, reaching one of these gateway-enforced caps can return `429`.
+
+Rate limits returned by an upstream provider are treated as provider errors and are eligible for retries or [fallback routing](/features/routing), subject to your routing configuration and available providers. Upstream `Retry-After` and rate-limit headers are never forwarded to clients, including when retries are exhausted. Provider-scoped quota headers (`X-RateLimit-*-Provider*`) are not exposed.
 
 ## Rate Limit Headers
 
-When a request is rate limited, the `429` response includes:
+All rate-limit response headers describe limits enforced by **LLMGateway**.
+
+Successful authenticated responses carry the organization requests-per-minute (RPM) policy, remaining request quota, and reset delay only when they passed an RPM quota check. Anonymous requests, enterprise RPM exemptions, and disabled or unavailable RPM limiters omit these headers on success.
 
 ```http
-Retry-After: 12
-X-RateLimit-Limit: 600
-X-RateLimit-Remaining: 0
-X-RateLimit-Reset: 1640995200
+RateLimit-Policy: "requests";q=600;w=60
+RateLimit: "requests";r=599;t=60
+RateLimit-Limit: 600
+RateLimit-Remaining: 599
+RateLimit-Reset: 60
 ```
 
-- `Retry-After`: Seconds to wait before retrying
-- `X-RateLimit-Limit`: Maximum number of requests allowed in the current window
-- `X-RateLimit-Remaining`: Number of requests remaining in the current window
-- `X-RateLimit-Reset`: Unix timestamp when the rate limit window resets
+`RateLimit-Policy` and `RateLimit` use the HTTP Structured Fields syntax in [draft-ietf-httpapi-ratelimit-headers-11](https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-ratelimit-headers-11), currently an Internet-Draft. `q` is the quota, `w` the window in seconds, `r` the remaining quota, and `t` a reset delay in seconds. The request window rolls; the reset delay on an admitted request is a conservative upper bound, and quota may become available sooner.
+
+Organization throttles return 429 with `Retry-After` in seconds, zero remaining quota, and a reset delay. Concurrency throttles identify the `"concurrency"` policy with `qu="concurrent-requests"` and suggest retrying after one second; capacity depends on requests finishing.
+
+The legacy `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` fields remain available. `RateLimit-Reset` is a delay in seconds; `X-RateLimit-Reset` is a Unix timestamp. These fields also remain available as `X-RateLimit-Limit` and `X-RateLimit-Remaining`. Browser clients on allowed CORS origins can read these headers.
+
+Other gateway gates, such as spending limits, can reject requests independently of the advertised organization quota. Honor `Retry-After` when supplied; otherwise use exponential backoff with jitter. Inspect the error body to distinguish a temporary throttle from a spending limit that needs account action.
 
 ## Rate Limit Exceeded
 
@@ -257,7 +263,7 @@ How `529` differs from `429`:
 ## Best Practices
 
 - **Respect `Retry-After`.** Implement exponential backoff when you receive `429` or `529` responses, starting from the `Retry-After` value.
-- **Watch the headers.** Monitor `X-RateLimit-Remaining` to back off before you hit the limit.
+- **Watch the headers.** Monitor `RateLimit` or `RateLimit-Remaining` to back off before you hit the limit.
 - **Spread traffic across endpoints.** Limits are per endpoint, so unrelated workloads don't compete for the same budget.
 - **Scale with usage.** Regular organizations unlock higher limits automatically as lifetime spend grows; [contact us](mailto:contact@llmgateway.io) about an [Enterprise plan](https://llmgateway.io/enterprise) to remove the per-minute limits and get an elevated concurrency ceiling.
 

@@ -54,7 +54,7 @@ function defaultsToBudget(
  * its limit + duration must travel together).
  */
 export function resolveEffectiveMemberBudget(
-	role: "owner" | "admin" | "developer",
+	role: "owner" | "admin" | "project_admin" | "developer",
 	member: MemberBudgetFields,
 	orgDefaults: OrgDefaultDeveloperBudget,
 ): MemberBudgetFields {
@@ -75,4 +75,30 @@ export function resolveEffectiveMemberBudget(
 			? member.periodUsageDurationUnit
 			: defaults.periodUsageDurationUnit,
 	};
+}
+
+/**
+ * Resolve every independently enforced budget for a member. Organization
+ * defaults still feed the existing member policy; an assigned developer team
+ * adds a separate ceiling rather than replacing that policy.
+ */
+export function resolveMemberBudgetPolicies(
+	role: "owner" | "admin" | "project_admin" | "developer",
+	member: MemberBudgetFields,
+	orgDefaults: OrgDefaultDeveloperBudget,
+	team: MemberBudgetFields | null,
+): { source: "member" | "team"; budget: MemberBudgetFields }[] {
+	const policies: {
+		source: "member" | "team";
+		budget: MemberBudgetFields;
+	}[] = [
+		{
+			source: "member" as const,
+			budget: resolveEffectiveMemberBudget(role, member, orgDefaults),
+		},
+	];
+	if (role === "developer" && team) {
+		policies.unshift({ source: "team" as const, budget: team });
+	}
+	return policies;
 }

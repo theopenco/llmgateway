@@ -32,7 +32,7 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 	const testOrgId = "test-org-resilience";
 	const testProjectId = "test-project-resilience";
 	const testApiKeyId = "test-api-key-resilience";
-	const testApiKeyToken = "sk-test-resilience-token";
+	const testApiKeyHash = "test-api-key-resilience-hash";
 	const testProviderKeyId = "test-provider-key-resilience";
 	const testIamRuleId = "test-iam-rule-resilience";
 
@@ -84,7 +84,8 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		await db.insert(apiKey).values({
 			id: testApiKeyId,
-			token: testApiKeyToken,
+			tokenHash: testApiKeyHash,
+			tokenMasked: "sk-test-resi•••••",
 			projectId: testProjectId,
 			description: "Test API Key for resilience testing",
 			status: "active",
@@ -94,7 +95,9 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 		// Provider keys for testing compound conditions and inArray
 		await db.insert(providerKey).values({
 			id: testProviderKeyId,
-			token: "test-provider-token",
+			tokenCiphertext: "encrypted-provider-token",
+			tokenHash: "test-provider-token-hash",
+			tokenMasked: "test-provide•••••",
 			provider: "openai",
 			organizationId: testOrgId,
 			status: "active",
@@ -102,7 +105,9 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 
 		await db.insert(providerKey).values({
 			id: "test-provider-key-anthropic",
-			token: "test-anthropic-token",
+			tokenCiphertext: "encrypted-anthropic-token",
+			tokenHash: "test-anthropic-token-hash",
+			tokenMasked: "test-anthro•••••",
 			provider: "anthropic",
 			organizationId: testOrgId,
 			status: "active",
@@ -156,14 +161,14 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 			.select()
 			.from(apiKey)
 			.where(
-				and(eq(apiKey.token, testApiKeyToken), eq(apiKey.status, "active")),
+				and(eq(apiKey.tokenHash, testApiKeyHash), eq(apiKey.status, "active")),
 			)
 			.limit(1);
 
 		const firstQuery = firstQueryResults[0];
 		expect(firstQuery).toBeDefined();
 		expect(firstQuery?.id).toBe(testApiKeyId);
-		expect(firstQuery?.token).toBe(testApiKeyToken);
+		expect(firstQuery?.tokenHash).toBe(testApiKeyHash);
 
 		// Step 2: Close the working pool
 		await workingPool.end();
@@ -188,14 +193,14 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 			.select()
 			.from(apiKey)
 			.where(
-				and(eq(apiKey.token, testApiKeyToken), eq(apiKey.status, "active")),
+				and(eq(apiKey.tokenHash, testApiKeyHash), eq(apiKey.status, "active")),
 			)
 			.limit(1);
 
 		const cachedQuery = cachedQueryResults[0];
 		expect(cachedQuery).toBeDefined();
 		expect(cachedQuery?.id).toBe(testApiKeyId);
-		expect(cachedQuery?.token).toBe(testApiKeyToken);
+		expect(cachedQuery?.tokenHash).toBe(testApiKeyHash);
 
 		// Clean up
 		try {
@@ -230,7 +235,7 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 		// Make a relational query to "prime" the cache (but it won't actually cache)
 		const firstQuery = await workingCdb.query.apiKey.findFirst({
 			where: {
-				token: { eq: testApiKeyToken },
+				tokenHash: { eq: testApiKeyHash },
 				status: { eq: "active" },
 			},
 		});
@@ -256,7 +261,7 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 		await expect(
 			brokenCdb.query.apiKey.findFirst({
 				where: {
-					token: { eq: testApiKeyToken },
+					tokenHash: { eq: testApiKeyHash },
 					status: { eq: "active" },
 				},
 			}),
@@ -413,7 +418,7 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 		await expect(
 			brokenCdb.query.apiKey.findFirst({
 				where: {
-					token: { eq: "sk-never-cached-token" },
+					tokenHash: { eq: "never-cached-token-hash" },
 				},
 			}),
 		).rejects.toThrow();
@@ -448,7 +453,7 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 			.select()
 			.from(apiKey)
 			.where(
-				and(eq(apiKey.token, testApiKeyToken), eq(apiKey.status, "active")),
+				and(eq(apiKey.tokenHash, testApiKeyHash), eq(apiKey.status, "active")),
 			)
 			.limit(1);
 		expect(firstQueryResults[0]).toBeDefined();
@@ -477,7 +482,7 @@ describe("cdb resilience - cached queries work without Postgres", () => {
 			.select()
 			.from(apiKey)
 			.where(
-				and(eq(apiKey.token, testApiKeyToken), eq(apiKey.status, "active")),
+				and(eq(apiKey.tokenHash, testApiKeyHash), eq(apiKey.status, "active")),
 			)
 			.limit(1);
 		const duration = Date.now() - startTime;

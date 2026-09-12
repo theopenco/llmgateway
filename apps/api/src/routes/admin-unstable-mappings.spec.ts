@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 interface MappingEntry {
 	usedModel: string;
@@ -46,7 +48,7 @@ describe("admin unstable mappings", () => {
 		});
 		await db.insert(tables.apiKey).values({
 			id: "um-api-key",
-			token: "um-api-key-token",
+			...hashApiKeyForStorage("um-api-key-token"),
 			projectId: "um-project",
 			description: "UM Key",
 			createdBy: "test-user-id",
@@ -54,7 +56,7 @@ describe("admin unstable mappings", () => {
 		await db.insert(tables.providerKey).values([
 			{
 				id: "um-key-a",
-				token: "sk-um-key-a",
+				...encryptProviderKeyForStorage("sk-um-key-a", "um-key-a", null),
 				provider: "openai",
 				managed: true,
 				organizationId: null,
@@ -62,7 +64,11 @@ describe("admin unstable mappings", () => {
 			},
 			{
 				id: "um-key-b",
-				token: "sk-um-key-bbbb1234",
+				...encryptProviderKeyForStorage(
+					"sk-um-key-bbbb1234",
+					"um-key-b",
+					"um-org",
+				),
 				provider: "openai",
 				managed: false,
 				organizationId: "um-org",

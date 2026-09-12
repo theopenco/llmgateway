@@ -3,7 +3,6 @@
 import { Check, Copy } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useState, useEffect, Fragment } from "react";
-import { createHighlighter } from "shiki";
 
 import { Button } from "@/lib/components/button";
 import { toast } from "@/lib/components/use-toast";
@@ -218,12 +217,16 @@ const highlightLangs: BundledLanguage[] = [
 
 let highlighterPromise: Promise<Highlighter> | null = null;
 
+// Load shiki lazily so the highlighter engine stays out of the landing
+// page's initial bundle; highlighting fills in once it resolves.
 function getHighlighter() {
 	if (!highlighterPromise) {
-		highlighterPromise = createHighlighter({
-			langs: highlightLangs,
-			themes: ["dracula", "github-light"],
-		});
+		highlighterPromise = import("shiki").then(({ createHighlighter }) =>
+			createHighlighter({
+				langs: highlightLangs,
+				themes: ["dracula", "github-light"],
+			}),
+		);
 	}
 	return highlighterPromise;
 }

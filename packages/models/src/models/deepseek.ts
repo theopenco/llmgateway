@@ -283,15 +283,14 @@ export const deepseekModels = [
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-v4-pro",
-				// Base fields are the regular flat rates, billed before
-				// effectiveAt (2026-08-16 16:00 UTC). On/after, peak hours
-				// (01:00-04:00 and 06:00-10:00 UTC) bill at the peak rates
-				// below, all other hours at the offPeak rates.
+				deactivatedAt: new Date("2026-09-14"),
+				// Peak hours (01:00-04:00 and 06:00-10:00 UTC) bill at the peak
+				// rates below. All other hours and Beijing-time weekends bill at
+				// the off-peak rates.
 				inputPrice: "0.435e-6",
 				outputPrice: "0.87e-6",
 				cachedInputPrice: "0.003625e-6",
 				peakPricing: {
-					effectiveAt: "2026-08-16T16:00:00Z",
 					peak: {
 						inputPrice: "1.32e-6",
 						outputPrice: "3.96e-6",
@@ -306,6 +305,11 @@ export const deepseekModels = [
 						[1, 4],
 						[6, 10],
 					],
+					offPeakDays: {
+						daysOfWeek: [0, 6],
+						utcOffsetMinutes: 480,
+						timeZoneLabel: "Beijing time",
+					},
 				},
 				requestPrice: "0",
 				contextSize: 1050000,
@@ -477,6 +481,7 @@ export const deepseekModels = [
 			{
 				providerId: "nebius",
 				externalId: "deepseek-ai/DeepSeek-V4-Pro",
+				deactivatedAt: new Date("2026-08-31"),
 				inputPrice: "1.75e-6",
 				outputPrice: "3.5e-6",
 				requestPrice: "0",
@@ -558,16 +563,10 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "baidu",
-				externalId: "deepseek-v4-pro",
-				// Unlike Flash (which Qianfan lists separately as
-				// deepseek-v4-flash-0731), Qianfan has no dated/GA slug for Pro:
-				// this listing's hugging_face_id is still deepseek-ai/DeepSeek-V4-Pro
-				// (the pre-0813 preview repo) and its description never mentions an
-				// official/GA release (verified 2026-08-18). Pricing is correct for
-				// what's actually served — the preview build, not 0813 GA.
-				inputPrice: "1.69e-6",
-				cachedInputPrice: "0.14e-6",
-				outputPrice: "3.38e-6",
+				externalId: "deepseek-v4-pro-0813",
+				inputPrice: "1.32e-6",
+				cachedInputPrice: "0.132e-6",
+				outputPrice: "3.96e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
 				// /v1/models reports 393216 while Qianfan's model page caps output at
@@ -633,15 +632,14 @@ export const deepseekModels = [
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-v4-flash",
-				// Base fields are the regular flat rates, billed before
-				// effectiveAt (2026-08-16 16:00 UTC). On/after, peak hours
-				// (01:00-04:00 and 06:00-10:00 UTC) bill at the peak rates
-				// below, all other hours at the offPeak rates.
+				deactivatedAt: new Date("2026-09-10"),
+				// Peak hours (01:00-04:00 and 06:00-10:00 UTC) bill at the peak
+				// rates below. All other hours and Beijing-time weekends bill at
+				// the off-peak rates.
 				inputPrice: "0.14e-6",
 				outputPrice: "0.28e-6",
 				cachedInputPrice: "0.0028e-6",
 				peakPricing: {
-					effectiveAt: "2026-08-16T16:00:00Z",
 					peak: {
 						inputPrice: "0.44e-6",
 						outputPrice: "1.32e-6",
@@ -656,6 +654,11 @@ export const deepseekModels = [
 						[1, 4],
 						[6, 10],
 					],
+					offPeakDays: {
+						daysOfWeek: [0, 6],
+						utcOffsetMinutes: 480,
+						timeZoneLabel: "Beijing time",
+					},
 				},
 				requestPrice: "0",
 				contextSize: 1050000,
@@ -821,14 +824,11 @@ export const deepseekModels = [
 				// The undated `deepseek-v4-flash` alias still resolves to the launch
 				// snapshot; `-0731` is the current deployment.
 				externalId: "accounts/fireworks/models/deepseek-v4-flash-0731",
-				inputPrice: "0.14e-6",
-				cachedInputPrice: "0.028e-6",
-				outputPrice: "0.28e-6",
+				inputPrice: "0.22e-6",
+				cachedInputPrice: "0.007e-6",
+				outputPrice: "0.66e-6",
 				requestPrice: "0",
-				// Fireworks prices DeepSeek's Priority tier at 1.5x standard rather
-				// than the 1.25x that applies to the rest of its catalogue.
 				serviceTiers: ["priority"],
-				serviceTierMultipliers: { priority: 1.5 },
 				contextSize: 1048576,
 				maxOutput: 393216,
 				streaming: true,
@@ -871,8 +871,7 @@ export const deepseekModels = [
 				// Reasoning arrives as `reasoning_content` (streamed as deltas) only
 				// when `reasoning_effort` is passed explicitly — a request without it
 				// returns no reasoning at all, and "none" suppresses it.
-				// `reasoning_tokens` is reported inside completion_tokens, so costs.ts
-				// lists this provider in completionIncludesReasoning.
+				// `reasoning_tokens` is reported inside completion_tokens.
 				//
 				// All four tool_choice modes are honoured, so none are declared here.
 				// The endpoint silently ignores n > 1 and returns one choice, so this
@@ -945,9 +944,9 @@ export const deepseekModels = [
 			{
 				providerId: "gonka24",
 				externalId: "deepseek-v4-flash-0731",
-				inputPrice: "0.075e-6",
-				cachedInputPrice: "0.0155e-6",
-				outputPrice: "0.175e-6",
+				inputPrice: "0.051e-6",
+				cachedInputPrice: "0.0097e-6",
+				outputPrice: "0.104e-6",
 				requestPrice: "0",
 				// The deployment shares one 390000-token window between prompt and
 				// completion, and stops generating at 16384 tokens with
@@ -978,10 +977,10 @@ export const deepseekModels = [
 			},
 			{
 				providerId: "baidu",
-				externalId: "deepseek-v4-flash",
-				inputPrice: "0.14e-6",
-				cachedInputPrice: "0.028e-6",
-				outputPrice: "0.28e-6",
+				externalId: "deepseek-v4-flash-0731",
+				inputPrice: "0.44e-6",
+				cachedInputPrice: "0.044e-6",
+				outputPrice: "1.32e-6",
 				requestPrice: "0",
 				contextSize: 1048576,
 				maxOutput: 131072,
@@ -1001,6 +1000,31 @@ export const deepseekModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+			},
+			{
+				providerId: "consensusprotocol",
+				externalId: "DeepSeek-V4-Flash",
+				inputPrice: "0.13e-6",
+				outputPrice: "0.27e-6",
+				cachedInputPrice: "0.02e-6",
+				requestPrice: "0",
+				contextSize: 524288,
+				maxOutput: 393216,
+				quantization: "int8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "max"],
+				vision: false,
+				tools: true,
+				// tool_choice "none" leaks a raw <|DSML|tool_calls> template as
+				// assistant content instead of suppressing tools, so it downgrades to
+				// "auto" instead.
+				supportedToolChoices: ["auto", "required", "function"],
+				// An assistant prefill turn comes back with a stray "</think>"
+				// prefixed to the content, so the prefill is rewritten away instead.
+				supportsAssistantPrefill: false,
+				jsonOutput: true,
+				jsonOutputSchema: true,
 			},
 			{
 				providerId: "tencent",
@@ -1038,6 +1062,138 @@ export const deepseekModels = [
 				// unavailable now" on this deployment.
 				jsonOutput: true,
 				jsonOutputSchema: false,
+			},
+		],
+	},
+	{
+		id: "deepseek-v4-flash-vision-exp",
+		name: "DeepSeek V4 Flash Vision Exp",
+		description:
+			"Experimental multimodal DeepSeek V4 Flash model with vision, extended context, and reasoning.",
+		family: "deepseek",
+		stability: "beta",
+		releasedAt: new Date("2026-08-21"),
+		providers: [
+			{
+				providerId: "deepseek",
+				externalId: "deepseek-v4-flash-vision-exp",
+				deactivatedAt: new Date("2026-09-10"),
+				inputPrice: "0.14e-6",
+				outputPrice: "0.28e-6",
+				cachedInputPrice: "0.0028e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.44e-6",
+						outputPrice: "1.32e-6",
+						cachedInputPrice: "0.014e-6",
+					},
+					offPeak: {
+						inputPrice: "0.22e-6",
+						outputPrice: "0.66e-6",
+						cachedInputPrice: "0.007e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDays: {
+						daysOfWeek: [0, 6],
+						utcOffsetMinutes: 480,
+						timeZoneLabel: "Beijing time",
+					},
+				},
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 393216,
+				jsonOutput: true,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "max"],
+				vision: true,
+				tools: true,
+				supportsDeveloperRole: false,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+					"reasoning_effort",
+				],
+			},
+		],
+	},
+	{
+		id: "deepseek-v4.1-flash",
+		name: "DeepSeek V4.1 Flash",
+		description:
+			"DeepSeek's V4.1 Flash model with native vision, extended context, and reasoning; succeeds V4 Flash and V4 Pro.",
+		family: "deepseek",
+		releasedAt: new Date("2026-09-10"),
+		providers: [
+			{
+				providerId: "deepseek",
+				externalId: "deepseek-flash",
+				// DeepSeek fetches remote image URLs itself and fails on hosts it
+				// cannot reach, while the same bytes inline as a data URL work.
+				requiresBase64Images: true,
+				// Peak hours (01:00-04:00 and 06:00-10:00 UTC) bill at the peak
+				// rates below. All other hours and Beijing-time weekends bill at
+				// the off-peak rates.
+				inputPrice: "0.15e-6",
+				outputPrice: "0.6e-6",
+				cachedInputPrice: "0.003e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.3e-6",
+						outputPrice: "1.2e-6",
+						cachedInputPrice: "0.006e-6",
+					},
+					offPeak: {
+						inputPrice: "0.15e-6",
+						outputPrice: "0.6e-6",
+						cachedInputPrice: "0.003e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDays: {
+						daysOfWeek: [0, 6],
+						utcOffsetMinutes: 480,
+						timeZoneLabel: "Beijing time",
+					},
+				},
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 393216,
+				jsonOutput: true,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "max"],
+				vision: true,
+				tools: true,
+				// DeepSeek's API 400s on the OpenAI-only `developer` role
+				// ("unknown variant `developer`, expected one of `system`, `user`,
+				// `assistant`, `tool`, `latest_reminder`"), so it gets rewritten to
+				// `system` before the request goes out.
+				supportsDeveloperRole: false,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+					"reasoning_effort",
+				],
 			},
 		],
 	},

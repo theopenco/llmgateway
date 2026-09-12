@@ -50,11 +50,15 @@ async function deletePaymentMethod(
 	cookie: string,
 	paymentMethodId = STRIPE_PAYMENT_METHOD_ID,
 	replacementPaymentMethodId?: string,
+	releaseDevPlanCardFingerprint?: boolean,
 ) {
 	return await request(`/${paymentMethodId}`, {
 		method: "DELETE",
 		headers: { Cookie: cookie, "Content-Type": "application/json" },
-		body: JSON.stringify({ replacementPaymentMethodId }),
+		body: JSON.stringify({
+			replacementPaymentMethodId,
+			releaseDevPlanCardFingerprint,
+		}),
 	});
 }
 
@@ -162,6 +166,7 @@ describe("admin organization payment methods", () => {
 					type: "card",
 					createdAt: "2030-01-01T00:00:00.000Z",
 					isDefault: true,
+					canReleaseDevPlanCardFingerprint: false,
 					card: {
 						brand: "visa",
 						last4: "4242",
@@ -170,11 +175,122 @@ describe("admin organization payment methods", () => {
 					},
 				},
 			],
+			devPlanCardFingerprints: [],
 		});
 		expect(stripeMock.paymentMethods.list).toHaveBeenCalledWith({
 			customer: STRIPE_CUSTOMER_ID,
 			limit: 100,
 		});
+	});
+
+	it("marks a card that can release a retained DevPass fingerprint", async () => {
+		await db
+			.update(tables.organization)
+			.set({ devPlanCardFingerprint: "retained_fingerprint" })
+			.where(eq(tables.organization.id, ORG_ID));
+		stripeMock.paymentMethods.list.mockResolvedValue({
+			data: [
+				{
+					id: STRIPE_PAYMENT_METHOD_ID,
+					type: "card",
+					created: 1_893_456_000,
+					card: {
+						brand: "visa",
+						last4: "4242",
+						exp_month: 12,
+						exp_year: 2030,
+						fingerprint: "retained_fingerprint",
+					},
+				},
+			],
+		});
+
+		const response = await request("", { headers: { Cookie: cookie } });
+
+		expect(response.status).toBe(200);
+		expect((await response.json()).paymentMethods[0]).toMatchObject({
+			id: STRIPE_PAYMENT_METHOD_ID,
+			canReleaseDevPlanCardFingerprint: true,
+		});
+	});
+
+	it("lists retained DevPass fingerprints without a Stripe customer", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				stripeCustomerId: null,
+				devPlanCardFingerprint: "retained_fingerprint",
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+		await db.insert(tables.devPlanCardFingerprintHistory).values({
+			id: "retained-fingerprint-id",
+			createdAt: new Date("2030-01-01T00:00:00.000Z"),
+			organizationId: ORG_ID,
+			fingerprint: "retained_fingerprint",
+		});
+
+		const response = await request("", { headers: { Cookie: cookie } });
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			paymentMethods: [],
+			devPlanCardFingerprints: [
+				{
+					id: "retained-fingerprint-id",
+					createdAt: "2030-01-01T00:00:00.000Z",
+					fingerprint: "retained_fingerprint",
+					isCurrent: true,
+					canRelease: true,
+				},
+			],
+		});
+	});
+
+	it("lets an admin release an inactive account fingerprint", async () => {
+		await db
+			.update(tables.organization)
+			.set({ devPlanCardFingerprint: "retained_fingerprint" })
+			.where(eq(tables.organization.id, ORG_ID));
+		await db.insert(tables.devPlanCardFingerprintHistory).values({
+			id: "retained-fingerprint-id",
+			organizationId: ORG_ID,
+			fingerprint: "retained_fingerprint",
+		});
+
+		const response = await app.request(
+			`/admin/organizations/${ORG_ID}/dev-plan-card-fingerprints/retained-fingerprint-id`,
+			{ method: "DELETE", headers: { Cookie: cookie } },
+		);
+
+		expect(response.status).toBe(200);
+		expect(
+			await db.query.devPlanCardFingerprintHistory.findMany(),
+		).toHaveLength(0);
+		expect(
+			await db.query.organization.findFirst({ where: { id: ORG_ID } }),
+		).toMatchObject({ devPlanCardFingerprint: null });
+	});
+
+	it("keeps fingerprints while a DevPass subscription exists", async () => {
+		await db
+			.update(tables.organization)
+			.set({ devPlanStripeSubscriptionId: SUBSCRIPTION_ID })
+			.where(eq(tables.organization.id, ORG_ID));
+		await db.insert(tables.devPlanCardFingerprintHistory).values({
+			id: "retained-fingerprint-id",
+			organizationId: ORG_ID,
+			fingerprint: "retained_fingerprint",
+		});
+
+		const response = await app.request(
+			`/admin/organizations/${ORG_ID}/dev-plan-card-fingerprints/retained-fingerprint-id`,
+			{ method: "DELETE", headers: { Cookie: cookie } },
+		);
+
+		expect(response.status).toBe(409);
+		expect(
+			await db.query.devPlanCardFingerprintHistory.findMany(),
+		).toHaveLength(1);
 	});
 
 	it("returns an empty list when the organization has no Stripe customer", async () => {
@@ -186,7 +302,10 @@ describe("admin organization payment methods", () => {
 		const response = await request("", { headers: { Cookie: cookie } });
 
 		expect(response.status).toBe(200);
-		expect(await response.json()).toEqual({ paymentMethods: [] });
+		expect(await response.json()).toEqual({
+			paymentMethods: [],
+			devPlanCardFingerprints: [],
+		});
 		expect(stripeMock.paymentMethods.list).not.toHaveBeenCalled();
 	});
 
@@ -284,6 +403,106 @@ describe("admin organization payment methods", () => {
 			resourceId: STRIPE_PAYMENT_METHOD_ID,
 			metadata: { cardLast4: "4242" },
 		});
+	});
+
+	it("keeps a retained DevPass fingerprint by default", async () => {
+		await db
+			.update(tables.organization)
+			.set({ devPlanCardFingerprint: "retained_fingerprint" })
+			.where(eq(tables.organization.id, ORG_ID));
+		stripeMock.paymentMethods.retrieve.mockResolvedValue({
+			id: STRIPE_PAYMENT_METHOD_ID,
+			customer: STRIPE_CUSTOMER_ID,
+			type: "card",
+			card: { fingerprint: "retained_fingerprint" },
+		});
+
+		const response = await deletePaymentMethod(cookie);
+
+		expect(response.status).toBe(200);
+		expect(
+			await db.query.organization.findFirst({
+				where: { id: { eq: ORG_ID } },
+			}),
+		).toMatchObject({ devPlanCardFingerprint: "retained_fingerprint" });
+	});
+
+	it("releases a retained DevPass fingerprint when requested", async () => {
+		await db
+			.update(tables.organization)
+			.set({ devPlanCardFingerprint: "retained_fingerprint" })
+			.where(eq(tables.organization.id, ORG_ID));
+		await db.insert(tables.devPlanCardFingerprintHistory).values({
+			organizationId: ORG_ID,
+			fingerprint: "retained_fingerprint",
+		});
+		stripeMock.paymentMethods.retrieve.mockResolvedValue({
+			id: STRIPE_PAYMENT_METHOD_ID,
+			customer: STRIPE_CUSTOMER_ID,
+			type: "card",
+			card: {
+				last4: "4242",
+				fingerprint: "retained_fingerprint",
+			},
+		});
+
+		const response = await deletePaymentMethod(
+			cookie,
+			STRIPE_PAYMENT_METHOD_ID,
+			undefined,
+			true,
+		);
+
+		expect(response.status).toBe(200);
+		expect(
+			await db.query.organization.findFirst({
+				where: { id: { eq: ORG_ID } },
+			}),
+		).toMatchObject({ devPlanCardFingerprint: null });
+		expect(
+			await db.query.devPlanCardFingerprintHistory.findMany(),
+		).toHaveLength(0);
+
+		const auditLog = await db.query.auditLog.findFirst({
+			where: {
+				organizationId: { eq: ORG_ID },
+				action: { eq: "payment.method.delete" },
+			},
+		});
+		expect(auditLog?.metadata).toMatchObject({
+			devPlanCardFingerprintReleased: true,
+		});
+	});
+
+	it("rejects releasing a fingerprint for an active DevPass subscription", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				devPlanStripeSubscriptionId: SUBSCRIPTION_ID,
+				devPlanCardFingerprint: "retained_fingerprint",
+			})
+			.where(eq(tables.organization.id, ORG_ID));
+		stripeMock.paymentMethods.retrieve.mockResolvedValue({
+			id: STRIPE_PAYMENT_METHOD_ID,
+			customer: STRIPE_CUSTOMER_ID,
+			type: "card",
+			card: { fingerprint: "retained_fingerprint" },
+		});
+
+		const response = await deletePaymentMethod(
+			cookie,
+			STRIPE_PAYMENT_METHOD_ID,
+			undefined,
+			true,
+		);
+
+		expect(response.status).toBe(400);
+		expect(stripeMock.paymentMethods.detach).not.toHaveBeenCalled();
+		expect(
+			await db.query.organization.findFirst({
+				where: { id: { eq: ORG_ID } },
+			}),
+		).toMatchObject({ devPlanCardFingerprint: "retained_fingerprint" });
 	});
 
 	it("requires an attached replacement before deleting a default method", async () => {

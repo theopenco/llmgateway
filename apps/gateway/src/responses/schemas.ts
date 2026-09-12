@@ -230,7 +230,6 @@ export const UNREPLAYABLE_ITEM_TYPES = [
 	"local_shell_call",
 	"local_shell_call_output",
 	"web_search_call",
-	"image_generation_call",
 	"tool_search_call",
 	"tool_search_output",
 	"compaction",
@@ -240,6 +239,15 @@ export const UNREPLAYABLE_ITEM_TYPES = [
 
 const unreplayableItemSchema = z
 	.object({ type: z.enum(UNREPLAYABLE_ITEM_TYPES) })
+	.passthrough();
+
+const imageGenerationCallItemSchema = z
+	.object({
+		type: z.literal("image_generation_call"),
+		id: nullishToUndefined(z.string()),
+		result: nullishToUndefined(z.string()),
+		status: itemStatusSchema,
+	})
 	.passthrough();
 
 const reasoningItemSchema = z.object({
@@ -280,6 +288,7 @@ const inputItemSchema = z.preprocess(
 		functionCallOutputItemSchema,
 		customToolCallItemSchema,
 		customToolCallOutputItemSchema,
+		imageGenerationCallItemSchema,
 		additionalToolsItemSchema,
 		itemReferenceItemSchema,
 		unreplayableItemSchema,
@@ -352,6 +361,10 @@ export const responsesRequestSchema = z.object({
 					max_uses: z.number().optional(),
 					allowed_domains: z.array(z.string()).optional(),
 					blocked_domains: z.array(z.string()).optional(),
+				}),
+				z.object({
+					type: z.literal("image_generation"),
+					size: z.enum(["1024x1024", "1024x1536", "1536x1024"]).optional(),
 				}),
 				// catch-all for unknown tool types (e.g. computer_use, code_interpreter)
 				z.record(z.any()),

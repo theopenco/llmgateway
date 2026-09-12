@@ -176,7 +176,6 @@ export default function DashboardShell({
 	const { posthogKey, googleAdsPurchaseConversion, googleAdsSignupConversion } =
 		config;
 	const api = useApi();
-	const { stripe, isLoading: stripeLoading } = useStripe();
 	const queryClient = useQueryClient();
 
 	const { user } = useUser({
@@ -191,6 +190,11 @@ export default function DashboardShell({
 	const subscribeMutation = api.useMutation("post", "/dev-plans/subscribe");
 	const finalizeMutation = api.useMutation("post", "/dev-plans/finalize");
 	const setupSessionId = searchParams.get("setup_session_id");
+	// Stripe.js is only needed to finalize a checkout setup session, so skip
+	// loading it on every other dashboard view.
+	const { stripe, isLoading: stripeLoading } = useStripe(
+		Boolean(setupSessionId),
+	);
 	const signupMethod = searchParams.get("signup_method");
 	const signupTracked = useRef(false);
 

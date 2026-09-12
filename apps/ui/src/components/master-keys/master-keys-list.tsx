@@ -45,6 +45,19 @@ interface MasterKeysListProps {
 	organizationId: string;
 }
 
+const createdDateFormat = new Intl.DateTimeFormat(undefined, {
+	month: "short",
+	day: "numeric",
+	year: "numeric",
+});
+const createdDateTimeFormat = new Intl.DateTimeFormat(undefined, {
+	month: "short",
+	day: "numeric",
+	year: "numeric",
+	hour: "2-digit",
+	minute: "2-digit",
+});
+
 export function MasterKeysList({ organizationId }: MasterKeysListProps) {
 	const api = useApi();
 	const queryClient = useQueryClient();
@@ -212,22 +225,12 @@ export function MasterKeysList({ organizationId }: MasterKeysListProps) {
 									<Tooltip>
 										<TooltipTrigger asChild>
 											<span className="text-muted-foreground cursor-help border-b border-dotted border-muted-foreground/50 hover:border-muted-foreground">
-												{Intl.DateTimeFormat(undefined, {
-													month: "short",
-													day: "numeric",
-													year: "numeric",
-												}).format(new Date(key.createdAt))}
+												{createdDateFormat.format(new Date(key.createdAt))}
 											</span>
 										</TooltipTrigger>
 										<TooltipContent>
 											<p className="max-w-xs text-xs whitespace-nowrap">
-												{Intl.DateTimeFormat(undefined, {
-													month: "short",
-													day: "numeric",
-													year: "numeric",
-													hour: "2-digit",
-													minute: "2-digit",
-												}).format(new Date(key.createdAt))}
+												{createdDateTimeFormat.format(new Date(key.createdAt))}
 											</p>
 										</TooltipContent>
 									</Tooltip>
@@ -239,13 +242,7 @@ export function MasterKeysList({ organizationId }: MasterKeysListProps) {
 								</TableCell>
 								<TableCell className="text-muted-foreground text-sm">
 									{key.lastUsedAt
-										? Intl.DateTimeFormat(undefined, {
-												month: "short",
-												day: "numeric",
-												year: "numeric",
-												hour: "2-digit",
-												minute: "2-digit",
-											}).format(new Date(key.lastUsedAt))
+										? createdDateTimeFormat.format(new Date(key.lastUsedAt))
 										: "Never"}
 								</TableCell>
 								<TableCell className="text-right">
@@ -314,11 +311,7 @@ export function MasterKeysList({ organizationId }: MasterKeysListProps) {
 									<StatusBadge status={key.status} />
 								</div>
 								<div className="text-xs text-muted-foreground mt-1">
-									{Intl.DateTimeFormat(undefined, {
-										month: "short",
-										day: "numeric",
-										year: "numeric",
-									}).format(new Date(key.createdAt))}
+									{createdDateFormat.format(new Date(key.createdAt))}
 								</div>
 							</div>
 							<DropdownMenu>
@@ -378,13 +371,7 @@ export function MasterKeysList({ organizationId }: MasterKeysListProps) {
 							</div>
 							<div className="text-sm">
 								{key.lastUsedAt
-									? Intl.DateTimeFormat(undefined, {
-											month: "short",
-											day: "numeric",
-											year: "numeric",
-											hour: "2-digit",
-											minute: "2-digit",
-										}).format(new Date(key.lastUsedAt))
+									? createdDateTimeFormat.format(new Date(key.lastUsedAt))
 									: "Never"}
 							</div>
 						</div>

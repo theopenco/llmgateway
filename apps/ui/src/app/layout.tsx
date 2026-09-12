@@ -2,6 +2,7 @@ import { Inter, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
+import { getTimeZonePreference } from "@/lib/timezone-server";
 
 import "./globals.css";
 
@@ -78,7 +79,6 @@ export const metadata: Metadata = {
 		title: "LLM Gateway - Unified API for Multiple LLM Providers",
 		description:
 			"Route, manage, and analyze LLM requests across 40+ providers through one unified API.",
-		images: ["/opengraph.png?v=2"],
 		creator: "@llmgateway",
 	},
 	robots: {
@@ -97,7 +97,9 @@ export const metadata: Metadata = {
 const organizationSchema = {
 	"@context": "https://schema.org",
 	"@type": "Organization",
+	"@id": "https://llmgateway.io/#organization",
 	name: "LLM Gateway",
+	alternateName: "LLMGateway",
 	url: "https://llmgateway.io",
 	logo: {
 		"@type": "ImageObject",
@@ -111,17 +113,30 @@ const organizationSchema = {
 		"https://x.com/llmgateway",
 		"https://github.com/theopenco/llmgateway",
 	],
+	legalName: "Polar Lights LLC",
+	address: {
+		"@type": "PostalAddress",
+		streetAddress: "16192 Coastal Highway",
+		addressLocality: "Lewes",
+		addressRegion: "DE",
+		postalCode: "19958",
+		addressCountry: "US",
+	},
 	contactPoint: {
 		"@type": "ContactPoint",
 		email: "contact@llmgateway.io",
 		contactType: "customer support",
+		url: "https://llmgateway.io/contact",
 	},
 };
 
 const websiteSchema = {
 	"@context": "https://schema.org",
 	"@type": "WebSite",
+	"@id": "https://llmgateway.io/#website",
+	publisher: { "@id": "https://llmgateway.io/#organization" },
 	name: "LLM Gateway",
+	alternateName: ["LLMGateway", "llmgateway.io"],
 	url: "https://llmgateway.io",
 	potentialAction: {
 		"@type": "SearchAction",
@@ -133,8 +148,13 @@ const websiteSchema = {
 	},
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({
+	children,
+}: {
+	children: ReactNode;
+}) {
 	const config = getConfig();
+	const timeZone = await getTimeZonePreference();
 
 	return (
 		<html
@@ -143,6 +163,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 			suppressHydrationWarning
 		>
 			<head>
+				<link
+					rel="service-desc"
+					type="application/vnd.oai.openapi+json"
+					href="/openapi.json"
+				/>
+				<link rel="service-doc" href="/developers" />
 				<link rel="preconnect" href="https://internal.llmgateway.io" />
 				<link rel="preconnect" href="https://docs.llmgateway.io" />
 				<script
@@ -161,7 +187,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 				/>
 			</head>
 			<body className="min-h-screen antialiased">
-				<Providers config={config}>{children}</Providers>
+				<Providers config={config} timeZone={timeZone}>
+					{children}
+				</Providers>
 			</body>
 		</html>
 	);

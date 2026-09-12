@@ -14,16 +14,27 @@ const RATIO_TOLERANCE = 1e-9;
 // price without forcing the catalogue to overbill.
 const PUBLISHED_OFF_RATIO_CACHE_PRICES: Record<
 	string,
-	{ cachedInputPrice?: number; cacheReadInputPrice?: number }
+	{
+		cachedInputPrice?: number;
+		cacheReadInputPrice?: number;
+		cacheWriteInputPrice?: number;
+	}
 > = {
 	// $2/M input, but $0.25/M implicit hits (0.125x) and $0.17/M explicit hits
 	// (0.085x). Explicit cache creation still follows the usual 1.25x.
 	"qwen3.8-max": { cachedInputPrice: 0.25e-6, cacheReadInputPrice: 0.17e-6 },
+	// $0.15/M input, but $0.016/M for both implicit and explicit hits (0.107x)
+	// and $0.2/M creation (1.33x) — every cache rate is off-ratio here.
+	"qwen3.8-flash": {
+		cachedInputPrice: 0.016e-6,
+		cacheReadInputPrice: 0.016e-6,
+		cacheWriteInputPrice: 0.2e-6,
+	},
 };
 
 function expectedCacheRate(
 	externalId: string,
-	field: "cachedInputPrice" | "cacheReadInputPrice",
+	field: "cachedInputPrice" | "cacheReadInputPrice" | "cacheWriteInputPrice",
 	inputPrice: string,
 	multiplier: number,
 ) {
@@ -96,7 +107,7 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 	);
 
 	it.each(alibabaProviderEntries)(
-		"$modelId cacheWriteInputPrice follows the 1.25x explicit-cache multiplier",
+		"$modelId cacheWriteInputPrice follows the 1.25x explicit-cache multiplier (or its published off-ratio rate)",
 		({ provider }) => {
 			if (
 				provider.cacheWriteInputPrice !== undefined &&
@@ -106,7 +117,12 @@ describe("Alibaba Qwen explicit-cache pricing", () => {
 					provider.externalId,
 					"cacheWriteInputPrice (5m)",
 					provider.cacheWriteInputPrice,
-					Number(provider.inputPrice) * FIVE_MIN_WRITE_MULTIPLIER,
+					expectedCacheRate(
+						provider.externalId,
+						"cacheWriteInputPrice",
+						provider.inputPrice,
+						FIVE_MIN_WRITE_MULTIPLIER,
+					),
 				);
 			}
 			for (const tier of provider.pricingTiers ?? []) {

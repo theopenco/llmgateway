@@ -1,6 +1,6 @@
 "use client";
 
-import { format, formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 import {
 	AlertCircle,
 	ArrowLeft,
@@ -40,7 +40,12 @@ import {
 	formatServiceTierMultiplier,
 	getServiceTier,
 } from "@llmgateway/models";
-import { regionFromUsedModel } from "@llmgateway/shared";
+import {
+	Time,
+	formatDateTime,
+	regionFromUsedModel,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 import {
 	API_ORIGIN_LABELS,
 	CredentialSourceBadge,
@@ -427,6 +432,7 @@ export function LogDetailClient({
 	projectId,
 	logId,
 }: LogDetailClientProps) {
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 	const api = useApi();
 
 	const { data } = api.useQuery(
@@ -518,7 +524,10 @@ export function LogDetailClient({
 							</div>
 							<div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
 								<span>
-									{format(log.createdAt, "MMM d, yyyy 'at' HH:mm:ss")}
+									<Time
+										date={log.createdAt}
+										format="monthDayYearHourMinuteZone"
+									/>
 								</span>
 								<span>
 									({formatDistanceToNow(log.createdAt, { addSuffix: true })})
@@ -1261,7 +1270,11 @@ export function LogDetailClient({
 								<Field label="Used Mode" value={log.usedMode || "?"} />
 								<Field
 									label="Date"
-									value={format(log.createdAt, "dd.MM.yyyy HH:mm:ss")}
+									value={formatDateTime(
+										log.createdAt,
+										displayTimeZone,
+										"dayMonthYearTimeZone",
+									)}
 									mono
 								/>
 							</div>

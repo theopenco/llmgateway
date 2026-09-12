@@ -1,11 +1,10 @@
-import { createHash } from "node:crypto";
-
 import { HTTPException } from "hono/http-exception";
 
 import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
 import { getApiKeyFingerprint } from "@/lib/api-key-fingerprint.js";
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import {
@@ -24,6 +23,7 @@ import { readProviderKey } from "@llmgateway/actions";
 
 import {
 	findRealtimeMapping,
+	findTranscriptionSessionMapping,
 	listRealtimeTranscriptionMappings,
 	type RealtimeMappingMatch,
 } from "./catalog.js";
@@ -36,9 +36,24 @@ type Organization = InferSelectModel<typeof tables.organization>;
 type Project = InferSelectModel<typeof tables.project>;
 type ProviderKey = InferSelectModel<typeof tables.providerKey>;
 
+/**
+ * What the session does: "realtime" is a speech-to-speech session on a
+ * `realtime` mapping; "transcription" is a transcription-only session
+ * (`intent=transcription`) whose sole model is a `realtimeTranscription`
+ * mapping.
+ */
+export type RealtimeSessionType = "realtime" | "transcription";
+
 export interface RealtimePreflightInput {
 	token: string | undefined;
 	requestedModel: string | undefined;
+	/**
+	 * `intent` query parameter of the connection. "transcription" restricts
+	 * model resolution to transcription mappings; unset lets a transcription
+	 * model still open a transcription session, so `?model=gpt-live-transcribe`
+	 * works without the extra parameter.
+	 */
+	intent?: string;
 	clientIp?: string;
 }
 
@@ -46,6 +61,11 @@ export interface RealtimePreflightResult {
 	apiKey: GatewayApiKey;
 	project: Project;
 	organization: Organization;
+	sessionType: RealtimeSessionType;
+	/**
+	 * The session's mapping: the realtime mapping, or for a transcription
+	 * session the ASR mapping every transcription event is billed against.
+	 */
 	match: RealtimeMappingMatch;
 	providerKey: ProviderKey | undefined;
 	/**
@@ -80,29 +100,10 @@ export interface RealtimePreflightResult {
 	 */
 	clientIp: string | undefined;
 	/**
-	 * Stable, privacy-preserving end-user identifier forwarded upstream via the
-	 * OpenAI-Safety-Identifier header (a hash, never a raw internal id).
+	 * Stable, privacy-preserving identifier forwarded upstream via the
+	 * OpenAI-Safety-Identifier header.
 	 */
 	safetyIdentifier: string;
-}
-
-/**
- * Derive the opaque `OpenAI-Safety-Identifier` for a session. It is keyed on the
- * tenant (organization + project) rather than on the API key: keys are rotatable
- * credentials, so deriving from one would reset the upstream abuse-tracking
- * identity on every rotation, and no part of a credential should ever be fed
- * into a fast digest. Both ids are 20-character CSPRNG nanoids (~119 bits each),
- * so a plain digest needs no salt or pepper: there is no small input space to
- * enumerate, and the hash exists only to keep internal ids off the wire.
- */
-function deriveSafetyIdentifier(
-	organizationId: string,
-	projectId: string,
-): string {
-	return createHash("sha256")
-		.update(`realtime-safety-identifier:${organizationId}:${projectId}`)
-		.digest("hex")
-		.slice(0, 32);
 }
 
 export function getAvailableCredits(organization: Organization): number {
@@ -160,20 +161,53 @@ async function runRealtimePreflightInner(
 			"Unauthorized: No API key provided. Expected 'Authorization: Bearer your-api-token' header.",
 		);
 	}
+	if (input.intent !== undefined && input.intent !== "transcription") {
+		throw new RealtimeConnectError(
+			400,
+			"invalid_intent",
+			`Unsupported 'intent' query parameter: ${input.intent}. Omit it for a realtime session or use intent=transcription.`,
+		);
+	}
+	const transcriptionIntent = input.intent === "transcription";
 	if (!input.requestedModel) {
 		throw new RealtimeConnectError(
 			400,
 			"missing_model",
-			"Missing required 'model' query parameter, e.g. /v1/realtime?model=gpt-realtime.",
+			transcriptionIntent
+				? "Missing required 'model' query parameter, e.g. /v1/realtime?intent=transcription&model=gpt-live-transcribe. The gateway pins the transcription model at connection time."
+				: "Missing required 'model' query parameter, e.g. /v1/realtime?model=gpt-realtime.",
 		);
 	}
 
-	const match = findRealtimeMapping(input.requestedModel);
+	let sessionType: RealtimeSessionType = "realtime";
+	let match = transcriptionIntent
+		? null
+		: findRealtimeMapping(input.requestedModel);
+	if (!match) {
+		match = findTranscriptionSessionMapping(input.requestedModel);
+		if (match) {
+			sessionType = "transcription";
+		}
+	}
 	if (!match) {
 		throw new RealtimeConnectError(
 			400,
 			"model_not_found",
-			`Realtime model not found: ${input.requestedModel}`,
+			transcriptionIntent
+				? `Realtime transcription model not found: ${input.requestedModel}`
+				: `Realtime model not found: ${input.requestedModel}`,
+		);
+	}
+	// Transcription sessions speak the OpenAI realtime protocol end to end;
+	// the Gemini session implementation has no transcription-only mode.
+	if (
+		sessionType === "transcription" &&
+		match.mapping.providerId === "google-ai-studio"
+	) {
+		throw new RealtimeConnectError(
+			400,
+			"model_not_found",
+			`Realtime transcription model not found: ${input.requestedModel}`,
 		);
 	}
 	// Provider-scoped kill switch. Enforced here so it covers both client-secret
@@ -231,6 +265,7 @@ async function runRealtimePreflightInner(
 		);
 	}
 
+	await assertMemberProjectAccess(apiKey, project.organizationId);
 	await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
 	assertApiKeyWithinUsageLimits(apiKey);
 
@@ -297,9 +332,14 @@ async function runRealtimePreflightInner(
 	// Input transcription bills a second model, so resolve up front which ASR
 	// mappings this key may actually use. Doing it here (rather than per
 	// session.update) keeps the protocol path synchronous and means a key
-	// restricted by model, price or IP cannot reach a pricier ASR model.
-	const allowedTranscriptionModelIds: string[] = [];
-	for (const candidate of listRealtimeTranscriptionMappings(providerId)) {
+	// restricted by model, price or IP cannot reach a pricier ASR model. A
+	// transcription session has exactly one ASR model, the one IAM just
+	// validated above.
+	const allowedTranscriptionModelIds: string[] =
+		sessionType === "transcription" ? [match.modelId] : [];
+	for (const candidate of sessionType === "transcription"
+		? []
+		: listRealtimeTranscriptionMappings(providerId)) {
 		const validation = await validateRequestModelAccess({
 			apiKey,
 			organizationId: project.organizationId,
@@ -403,6 +443,7 @@ async function runRealtimePreflightInner(
 		apiKey,
 		project,
 		organization,
+		sessionType,
 		match,
 		providerKey,
 		managedKey,
@@ -417,6 +458,6 @@ async function runRealtimePreflightInner(
 		usedMode: providerKey ? "api-keys" : "credits",
 		allowedTranscriptionModelIds,
 		clientIp: input.clientIp,
-		safetyIdentifier: deriveSafetyIdentifier(organization.id, project.id),
+		safetyIdentifier: organization.safetyIdentifier,
 	};
 }

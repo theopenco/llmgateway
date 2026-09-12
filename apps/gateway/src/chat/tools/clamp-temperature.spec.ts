@@ -16,6 +16,14 @@ describe("clampTemperature", () => {
 		expect(clampTemperature(2, "zai")).toBe(1);
 	});
 
+	it("clamps values above the mapping ceiling", () => {
+		expect(clampTemperature(1.9, "runware", 1)).toBe(1);
+	});
+
+	it("uses the tighter provider or mapping ceiling", () => {
+		expect(clampTemperature(1.5, "zai", 0.8)).toBe(0.8);
+	});
+
 	it("keeps values within the provider ceiling", () => {
 		expect(clampTemperature(1, "zai")).toBe(1);
 		expect(clampTemperature(0.7, "zai")).toBe(0.7);

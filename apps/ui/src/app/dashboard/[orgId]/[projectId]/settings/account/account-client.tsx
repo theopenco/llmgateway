@@ -36,6 +36,8 @@ import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { toast } from "@/lib/components/use-toast";
 
+import { TimeZoneSetting } from "@llmgateway/shared";
+
 interface DeletionPreviewOrganization {
 	id: string;
 	name: string;
@@ -226,6 +228,18 @@ export function AccountClient() {
 								{updateUserMutation.isPending ? "Saving..." : "Save Changes"}
 							</Button>
 						</CardFooter>
+					</Card>
+					<Card>
+						<CardHeader>
+							<CardTitle>Time display</CardTitle>
+							<CardDescription>
+								Choose whether dates and times are shown in your local timezone
+								or in UTC. Applies to you, on this device.
+							</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<TimeZoneSetting />
+						</CardContent>
 					</Card>
 					<Card>
 						<CardHeader>

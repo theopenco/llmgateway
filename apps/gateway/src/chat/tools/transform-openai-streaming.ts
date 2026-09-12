@@ -90,8 +90,8 @@ export function transformOpenaiStreaming(
 			role: delta.role ?? "assistant",
 		};
 
-		// Some upstreams (e.g. the Tundra endpoint) emit an empty
-		// `tool_calls: []` array in the leading delta chunk. OpenAI never sends an
+		// Some upstreams emit an empty `tool_calls: []` array in the leading delta
+		// chunk. OpenAI never sends an
 		// empty tool_calls array, and downstream consumers treat any present
 		// tool_calls field as an actual tool-call delta, so drop it when empty.
 		if (

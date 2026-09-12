@@ -446,6 +446,25 @@ describe("parseGoogleUpstreamDocumentError", () => {
 		expect(result?.mimeType).toBe("application/zip");
 	});
 
+	it("handles long whitespace around the MIME type", () => {
+		const body = JSON.stringify({
+			error: {
+				message: `Unsupported MIME type:${" ".repeat(100_000)}application/zip${" ".repeat(100_000)}.`,
+			},
+		});
+		const result = parseGoogleUpstreamDocumentError(body, "google-ai-studio");
+		expect(result?.mimeType).toBe("application/zip");
+	});
+
+	it("returns null when the MIME type is empty", () => {
+		const body = JSON.stringify({
+			error: { message: `Unsupported MIME type:${" ".repeat(100_000)}` },
+		});
+		expect(
+			parseGoogleUpstreamDocumentError(body, "google-ai-studio"),
+		).toBeNull();
+	});
+
 	it("returns null for unrelated Google errors", () => {
 		const body = JSON.stringify({
 			error: {

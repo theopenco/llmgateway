@@ -10,6 +10,9 @@ import {
 	findOrganizationById,
 	findProjectById,
 } from "@/lib/cached-queries.js";
+import { getEffectiveRetentionLevel } from "@/lib/compliance.js";
+import { rateLimitHeaders } from "@/lib/error-schemas.js";
+import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
@@ -31,7 +34,7 @@ const imageGenerationsRequestSchema = z.object({
 	model: z.string().optional().default("auto").openapi({
 		description:
 			"The model to use for image generation. Defaults to auto which selects an appropriate image generation model.",
-		example: "gemini-3.1-flash-image-preview",
+		example: "gemini-3.1-flash-image",
 	}),
 	n: z.number().int().min(1).max(10).optional().default(1).openapi({
 		description: "The number of images to generate. Must be between 1 and 10.",
@@ -43,7 +46,7 @@ const imageGenerationsRequestSchema = z.object({
 		example: "1024x1024",
 	}),
 	quality: z
-		.enum(["standard", "hd", "low", "medium", "high", "auto"])
+		.enum(["standard", "hd", "low", "medium", "high", "xhigh", "max", "auto"])
 		.optional()
 		.openapi({
 			description:
@@ -122,6 +125,7 @@ const generations = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: imageGenerationsResponseSchema,
@@ -129,17 +133,17 @@ const generations = createRoute({
 			},
 			description: "Image generation response.",
 		},
+		...standardErrorResponses(),
 	},
 });
 
 /**
  * Normalize OpenAI's legacy DALL-E quality values ("standard", "hd") into the
- * gpt-image-2 vocabulary ("low" | "medium" | "high" | "auto") so downstream
- * provider request preparation only ever sees supported strings.
+ * GPT Image quality values for downstream provider request preparation.
  */
 function normalizeQuality(
 	quality: string | undefined,
-): "low" | "medium" | "high" | "auto" | undefined {
+): "low" | "medium" | "high" | "xhigh" | "max" | "auto" | undefined {
 	if (!quality) {
 		return undefined;
 	}
@@ -151,6 +155,8 @@ function normalizeQuality(
 		case "low":
 		case "medium":
 		case "high":
+		case "xhigh":
+		case "max":
 		case "auto":
 			return quality;
 		default:
@@ -222,6 +228,7 @@ async function extractImagesFromChatResponse(
 	chatResponse: any,
 	prompt: string,
 	model: string,
+	retainPayloadLogs: boolean,
 ): Promise<Array<{ b64_json: string; revised_prompt?: string }>> {
 	const imageObjects: Array<{
 		b64_json: string;
@@ -250,11 +257,7 @@ async function extractImagesFromChatResponse(
 				) {
 					// Handle URL-based images (e.g. Z.AI, Alibaba, ByteDance)
 					try {
-						// Trusted upstream provider response, not request input: skip the
-						// user-content SSRF guard (CDNs may redirect to signed URLs).
-						const result = await processImageUrl(imageUrl, false, 20, null, {
-							validateSsrf: false,
-						});
+						const result = await processImageUrl(imageUrl);
 						imageObjects.push({
 							b64_json: result.data,
 							revised_prompt: prompt,
@@ -326,14 +329,16 @@ async function extractImagesFromChatResponse(
 			model,
 			hasContent: !!chatResponse.choices?.[0]?.message?.content,
 			hasImages: !!chatResponse.choices?.[0]?.message?.images,
-			contentPreview: chatResponse.choices?.[0]?.message?.content?.slice(
-				0,
-				200,
-			),
+			...(retainPayloadLogs && {
+				contentPreview: chatResponse.choices?.[0]?.message?.content?.slice(
+					0,
+					200,
+				),
+			}),
 		});
 		throw new HTTPException(500, {
 			message:
-				"The model did not generate any images. Try a different model with image generation capabilities (e.g., gemini-3.1-flash-image-preview, gemini-3-pro-image-preview).",
+				"The model did not generate any images. Try a different model with image generation capabilities (e.g., gemini-3.1-flash-image, gemini-3-pro-image).",
 		});
 	}
 
@@ -360,7 +365,7 @@ function forwardHeaders(c: Context): Record<string, string> {
 }
 
 function resolveImageRequestModel(model: string | undefined): string {
-	return !model || model === "auto" ? "gemini-3-pro-image-preview" : model;
+	return !model || model === "auto" ? "gemini-3-pro-image" : model;
 }
 
 function getStringProperty(
@@ -461,7 +466,7 @@ async function resolveImageClientErrorLogContext(
 		apiKey,
 		project,
 		requestId,
-		retentionLevel: organization?.retentionLevel ?? "none",
+		retentionLevel: getEffectiveRetentionLevel(organization),
 	};
 }
 
@@ -589,9 +594,12 @@ function assertImageModel(model: string): void {
 	}
 }
 
+// Provider error bodies can echo the prompt, so the message only reaches the
+// application log when the organization retains payloads.
 async function forwardToChatCompletions(
 	c: Context,
 	chatRequest: Record<string, unknown>,
+	retainPayloadLogs: boolean,
 ): Promise<any> {
 	const response = await app.request("/v1/chat/completions", {
 		method: "POST",
@@ -638,7 +646,7 @@ async function forwardToChatCompletions(
 				status,
 				originalStatus: response.status,
 				errorType,
-				message: errorMessage,
+				...(retainPayloadLogs && { message: errorMessage }),
 			});
 		} else {
 			logger.warn("Images API - chat completions request failed", {
@@ -668,7 +676,7 @@ async function forwardToChatCompletions(
 
 export const images = new OpenAPIHono<ServerTypes>();
 
-images.openapi(generations, async (c) => {
+images.openapi(generations, async (c): Promise<any> => {
 	const startedAt = Date.now();
 	const getLogContext = createImageClientErrorLogContextResolver(c);
 
@@ -710,8 +718,7 @@ images.openapi(generations, async (c) => {
 	const request = validationResult.data;
 
 	// Resolve "auto" model to a default image generation model
-	const model =
-		request.model === "auto" ? "gemini-3-pro-image-preview" : request.model;
+	const model = request.model === "auto" ? "gemini-3-pro-image" : request.model;
 
 	assertImageModel(model);
 
@@ -747,18 +754,24 @@ images.openapi(generations, async (c) => {
 
 	logger.debug("Images API - forwarding to chat completions", {
 		model: request.model,
-		prompt: request.prompt.slice(0, 200),
 		size: request.size,
 		quality: normalizedQuality,
 		n: request.n,
 	});
 
-	const chatResponse = await forwardToChatCompletions(c, chatRequest);
+	const retainPayloadLogs =
+		(await getLogContext())?.retentionLevel === "retain";
+	const chatResponse = await forwardToChatCompletions(
+		c,
+		chatRequest,
+		retainPayloadLogs,
+	);
 
 	const imageObjects = await extractImagesFromChatResponse(
 		chatResponse,
 		request.prompt,
 		request.model,
+		retainPayloadLogs,
 	);
 
 	// Truncate to the requested number of images
@@ -806,7 +819,7 @@ const imageEditsRequestSchema = z.object({
 	}),
 	model: z.string().optional().openapi({
 		description: "The model to use for image editing.",
-		example: "gemini-3-pro-image-preview",
+		example: "gemini-3-pro-image",
 	}),
 	n: z.number().int().min(1).max(10).optional().openapi({
 		description: "The number of edited images to generate.",
@@ -820,10 +833,13 @@ const imageEditsRequestSchema = z.object({
 		description: "Output image format.",
 		example: "png",
 	}),
-	quality: z.enum(["low", "medium", "high", "auto"]).optional().openapi({
-		description: "Output quality for image models.",
-		example: "high",
-	}),
+	quality: z
+		.enum(["low", "medium", "high", "xhigh", "max", "auto"])
+		.optional()
+		.openapi({
+			description: "Output quality for image models.",
+			example: "high",
+		}),
 	size: z.string().optional().openapi({
 		description:
 			"Requested output image size. Supported values depend on the model and provider.",
@@ -841,7 +857,7 @@ type ImageEditsRequest = z.infer<typeof imageEditsRequestSchema>;
 const imageEditsResponseSchema = imageGenerationsResponseSchema.extend({
 	background: z.enum(["transparent", "opaque"]).optional(),
 	output_format: z.enum(["png", "webp", "jpeg"]).optional(),
-	quality: z.enum(["low", "medium", "high"]).optional(),
+	quality: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
 	size: z.string().optional(),
 	usage: z
 		.object({
@@ -885,6 +901,7 @@ const edits = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: imageEditsResponseSchema,
@@ -892,6 +909,7 @@ const edits = createRoute({
 			},
 			description: "Image edit response.",
 		},
+		...standardErrorResponses(),
 	},
 });
 
@@ -1125,7 +1143,7 @@ async function processImageEdit(
 
 	const model =
 		request.model === "auto" || !request.model
-			? "gemini-3-pro-image-preview"
+			? "gemini-3-pro-image"
 			: request.model;
 
 	assertImageModel(model);
@@ -1164,7 +1182,6 @@ async function processImageEdit(
 
 	logger.debug("Images Edit API - forwarding to chat completions", {
 		model,
-		prompt: request.prompt.slice(0, 200),
 		imageCount,
 		n: request.n,
 		size: request.size,
@@ -1173,12 +1190,19 @@ async function processImageEdit(
 		outputFormat: request.output_format,
 	});
 
-	const chatResponse = await forwardToChatCompletions(c, chatRequest);
+	const retainPayloadLogs =
+		(await getLogContext())?.retentionLevel === "retain";
+	const chatResponse = await forwardToChatCompletions(
+		c,
+		chatRequest,
+		retainPayloadLogs,
+	);
 
 	const imageObjects = await extractImagesFromChatResponse(
 		chatResponse,
 		request.prompt,
 		model,
+		retainPayloadLogs,
 	);
 
 	const imagesResponse: z.infer<typeof imageEditsResponseSchema> = {
@@ -1236,7 +1260,7 @@ images.post("/edits", async (c, next) => {
 	return await processImageEdit(c, getLogContext, request, startedAt);
 });
 
-images.openapi(edits, async (c) => {
+images.openapi(edits, async (c): Promise<any> => {
 	const startedAt = Date.now();
 	const getLogContext = createImageClientErrorLogContextResolver(c);
 	let rawBody: unknown;

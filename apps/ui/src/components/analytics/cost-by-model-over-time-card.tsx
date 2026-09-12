@@ -1,6 +1,5 @@
 "use client";
 
-import { format, parseISO } from "date-fns";
 import { useCallback, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
@@ -17,6 +16,12 @@ import {
 	ChartTooltipContent,
 } from "@/lib/components/chart";
 import { cn } from "@/lib/utils";
+
+import {
+	formatBucketLabel,
+	formatBucketLabelWithZone,
+	useDisplayTimeZone,
+} from "@llmgateway/shared";
 
 import {
 	buildModelTimeseries,
@@ -56,6 +61,7 @@ export function CostByModelOverTimeCard({
 }: CostByModelOverTimeCardProps) {
 	const [activeMetric, setActiveMetric] = useState<ChartMetric>("cost");
 	const [modelView, setModelView] = useState<ModelView>("mapping");
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 
 	const series = useMemo(
 		() => buildModelTimeseries(activity, modelView),
@@ -97,13 +103,9 @@ export function CostByModelOverTimeCard({
 
 	const formatTimestamp = useCallback(
 		(ts: string) => {
-			// parseISO reads date-only strings ("2026-06-20") as local midnight,
-			// avoiding the UTC-midnight off-by-one that new Date() causes in
-			// negative-offset timezones.
-			const date = parseISO(ts);
 			return bucket === "hour"
-				? format(date, "MMM d HH:mm")
-				: format(date, "MMM d");
+				? formatBucketLabel(ts, "monthDayHourMinute")
+				: formatBucketLabel(ts, "monthDay");
 		},
 		[bucket],
 	);
@@ -207,9 +209,12 @@ export function CostByModelOverTimeCard({
 												label={props.label}
 												payload={sortedPayload}
 												labelFormatter={(value: string) =>
-													format(
-														parseISO(value),
-														bucket === "hour" ? "MMM d, HH:mm" : "MMM d, yyyy",
+													formatBucketLabelWithZone(
+														value,
+														bucket === "hour"
+															? "monthDayHourMinute"
+															: "monthDayYear",
+														displayTimeZone,
 													)
 												}
 												formatter={(value, name) => {

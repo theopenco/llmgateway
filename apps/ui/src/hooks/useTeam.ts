@@ -13,7 +13,9 @@ export type MyMemberBudgetData =
 export function useTeamMembers(
 	organizationId: string | undefined,
 	initialData?: TeamMembersData,
-	options?: { enabled?: boolean },
+	options?: {
+		enabled?: boolean | ((data: TeamMembersData | undefined) => boolean);
+	},
 ) {
 	const api = useApi();
 
@@ -29,7 +31,11 @@ export function useTeamMembers(
 		},
 		{
 			...(initialData ? { initialData } : {}),
-			enabled: (options?.enabled ?? true) && !!organizationId,
+			enabled: (query) =>
+				!!organizationId &&
+				(typeof options?.enabled === "function"
+					? options.enabled(query.state.data)
+					: (options?.enabled ?? true)),
 		},
 	);
 }
@@ -61,7 +67,10 @@ export function useMyMemberBudget(
 
 // The authenticated user's OWN member-level IAM rules (self-service, no admin
 // gate) — the ceiling their API-key rules can only narrow.
-export function useMyIamRules(organizationId: string) {
+export function useMyIamRules(
+	organizationId: string,
+	options?: { enabled?: boolean },
+) {
 	const api = useApi();
 
 	return api.useQuery(
@@ -75,12 +84,16 @@ export function useMyIamRules(organizationId: string) {
 			},
 		},
 		{
-			enabled: !!organizationId,
+			enabled: (options?.enabled ?? true) && !!organizationId,
 		},
 	);
 }
 
-export function useMemberIamRules(organizationId: string, memberId: string) {
+export function useMemberIamRules(
+	organizationId: string,
+	memberId: string,
+	options?: { enabled?: boolean },
+) {
 	const api = useApi();
 
 	return api.useQuery(
@@ -95,7 +108,7 @@ export function useMemberIamRules(organizationId: string, memberId: string) {
 			},
 		},
 		{
-			enabled: !!organizationId && !!memberId,
+			enabled: (options?.enabled ?? true) && !!organizationId && !!memberId,
 		},
 	);
 }

@@ -3,6 +3,7 @@ import { Bricolage_Grotesque, Inter, Geist_Mono } from "next/font/google";
 import { GoogleTag } from "@/components/google-tag";
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
+import { getTimeZonePreference } from "@/lib/timezone-server";
 
 import "./globals.css";
 
@@ -66,7 +67,6 @@ export const metadata: Metadata = {
 		title: "DevPass by LLM Gateway - All-Access Dev Plans for AI Coding",
 		description:
 			"One subscription, every coding model. Fixed-price dev plans for Claude Code, Cursor, and 200+ models.",
-		images: ["/opengraph.png?v=2"],
 		creator: "@llmgateway",
 	},
 };
@@ -85,8 +85,13 @@ const webSiteSchema = {
 	},
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({
+	children,
+}: {
+	children: ReactNode;
+}) {
 	const config = getConfig();
+	const timeZone = await getTimeZonePreference();
 
 	return (
 		<html
@@ -109,7 +114,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
 					googleAdsSignupConversion={config.googleAdsSignupConversion}
 					googleAdsPurchaseConversion={config.googleAdsPurchaseConversion}
 				/>
-				<Providers config={config}>{children}</Providers>
+				<Providers config={config} timeZone={timeZone}>
+					{children}
+				</Providers>
 			</body>
 		</html>
 	);

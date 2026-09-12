@@ -176,7 +176,7 @@ export function validateApiKeyLimitPayloadWithinMemberBudget(
 	);
 }
 
-export function formatCurrencyAmount(value: string): string {
+export function formatCurrencyAmount(value: string | number): string {
 	return `$${Number(value).toFixed(2)}`;
 }
 
@@ -202,6 +202,28 @@ export function formatPeriodLimitSummary(
 	}
 
 	return `${formatCurrencyAmount(apiKey.periodUsageLimit)} / ${formatPeriodWindowLabel(apiKey.periodUsageDurationValue, apiKey.periodUsageDurationUnit)}`;
+}
+
+const periodResetFormat = new Intl.DateTimeFormat(undefined, {
+	month: "short",
+	day: "numeric",
+	hour: "2-digit",
+	minute: "2-digit",
+});
+
+export function formatApiKeyPeriodResetLabel(
+	resetAt: string | Date | null | undefined,
+): string | null {
+	if (resetAt === null || resetAt === undefined) {
+		return null;
+	}
+
+	const date = resetAt instanceof Date ? resetAt : new Date(resetAt);
+	if (Number.isNaN(date.getTime())) {
+		return null;
+	}
+
+	return periodResetFormat.format(date);
 }
 
 export function formatCurrentPeriodUsageSummary(
@@ -230,20 +252,7 @@ export function formatCurrentPeriodUsageSummary(
 		};
 	}
 
-	const resetAt =
-		apiKey.currentPeriodResetAt !== null &&
-		apiKey.currentPeriodResetAt !== undefined
-			? new Date(apiKey.currentPeriodResetAt)
-			: null;
-	const resetLabel =
-		resetAt && !Number.isNaN(resetAt.getTime())
-			? Intl.DateTimeFormat(undefined, {
-					month: "short",
-					day: "numeric",
-					hour: "2-digit",
-					minute: "2-digit",
-				}).format(resetAt)
-			: null;
+	const resetLabel = formatApiKeyPeriodResetLabel(apiKey.currentPeriodResetAt);
 
 	return {
 		summary: `${formatCurrencyAmount(apiKey.currentPeriodUsage)} / ${formatCurrencyAmount(apiKey.periodUsageLimit)}`,
@@ -262,16 +271,23 @@ interface ApiKeyLimitFieldsProps {
 	memberBudget?: MemberBudgetConstraint | null;
 	budgetOwner?: MemberBudgetOwner;
 	ownerName?: string | null;
+	memberBudgetLabel?: string;
+	additionalBudgets?: Array<{
+		budget: MemberBudgetConstraint;
+		label: string;
+	}>;
 }
 
 function MemberBudgetNotice({
 	budget,
 	budgetOwner,
 	ownerName,
+	label,
 }: {
 	budget: MemberBudgetConstraint;
 	budgetOwner: MemberBudgetOwner;
 	ownerName?: string | null;
+	label?: string;
 }) {
 	const parts: string[] = [];
 	if (budget.usageLimit !== null) {
@@ -307,7 +323,7 @@ function MemberBudgetNotice({
 
 	return (
 		<div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-			Your organization limits you to{" "}
+			{label ?? "Your organization policy"} limits you to{" "}
 			<span className="font-medium">{parts.join(" and ")}</span>. This
 			key&apos;s limits must be at or below that.
 		</div>
@@ -321,6 +337,8 @@ export function ApiKeyLimitFields({
 	memberBudget,
 	budgetOwner = "self",
 	ownerName,
+	memberBudgetLabel,
+	additionalBudgets = [],
 }: ApiKeyLimitFieldsProps) {
 	const updateValue = <K extends keyof ApiKeyLimitFormValue>(
 		key: K,
@@ -339,7 +357,19 @@ export function ApiKeyLimitFields({
 					budget={memberBudget}
 					budgetOwner={budgetOwner}
 					ownerName={ownerName}
+					label={memberBudgetLabel}
 				/>
+			)}
+			{additionalBudgets.map(({ budget, label }) =>
+				hasMemberBudgetCaps(budget) ? (
+					<MemberBudgetNotice
+						key={label}
+						budget={budget}
+						budgetOwner={budgetOwner}
+						ownerName={ownerName}
+						label={label}
+					/>
+				) : null,
 			)}
 			<div className="rounded-md border p-4 space-y-3">
 				<div className="flex items-center gap-2">

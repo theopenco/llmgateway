@@ -1,20 +1,16 @@
-import { decryptProviderKey } from "./crypto.js";
+import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
+import { maskToken } from "@llmgateway/shared/mask-token";
+
+import { decryptProviderKey, encryptProviderKey } from "./crypto.js";
 
 /**
  * Minimal row shape needed for token resolution. Avoids importing the full
- * Drizzle ProviderKey type so this helper stays usable from any package
- * that knows the three relevant columns.
- *
- * Fields are declared as `?` (optional) in addition to nullable because the
- * gateway's SWR fallback can serve cached row JSON written *before* this
- * change shipped, where the new columns simply do not exist on the object.
- * We must treat absent and null identically — see isAbsent() below.
+ * Drizzle ProviderKey type so this helper stays usable from any package.
  */
 export interface ProviderKeyRowLike {
 	id: string;
 	organizationId: string | null;
-	token?: string | null;
-	tokenCiphertext?: string | null;
+	tokenCiphertext: string | null;
 }
 
 /**
@@ -31,54 +27,46 @@ export function providerKeyEncryptionScope(
 	return organizationId ?? MANAGED_PROVIDER_KEY_ORG_SCOPE;
 }
 
-function isAbsent(value: string | null | undefined): value is null | undefined {
-	return value === null || value === undefined;
-}
-
 /**
  * Resolves the plaintext provider-key token for a row.
- *
- * Path selection is by column nullity (treating absent fields as null),
- * not by content shape:
- *   - tokenCiphertext present  → strict crypto path (any failure throws; no fallback)
- *   - tokenCiphertext absent   → legacy plaintext path (use row.token directly)
- *   - both absent              → throw
- *
- * This is NOT a downgrade-attack vector: an attacker tampering with the
- * tokenCiphertext column value keeps the column non-null, which forces the
- * strict path and fails GCM verification rather than falling back to token.
- *
- * The absent-vs-null distinction matters for stale SWR mirrors that were
- * serialized before the schema added tokenCiphertext: those rows have no
- * such property, and we must continue to read them as legacy plaintext.
  */
 export function readProviderKey(row: ProviderKeyRowLike): string {
-	if (!isAbsent(row.tokenCiphertext)) {
-		return decryptProviderKey(
-			row.tokenCiphertext,
-			row.id,
-			providerKeyEncryptionScope(row.organizationId),
-		);
+	if (!row.tokenCiphertext) {
+		throw new Error("Provider key ciphertext is missing");
 	}
-	if (isAbsent(row.token)) {
-		throw new Error(`provider_key ${row.id}: no token available`);
-	}
-	return row.token;
+
+	return decryptProviderKey(
+		row.tokenCiphertext,
+		row.id,
+		providerKeyEncryptionScope(row.organizationId),
+	);
 }
 
-/**
- * Returns true if the row carries any provider-key material, without
- * decrypting. Use this for truthiness checks where the caller only needs
- * to know whether a key exists (e.g., "is this a free-credits request?")
- * rather than its plaintext value.
- */
-export function hasProviderKey(
-	row: ProviderKeyRowLike | null | undefined,
-): boolean {
-	if (!row) {
-		return false;
+export function readProviderKeyMask(row: {
+	tokenMasked: string | null;
+}): string {
+	if (!row.tokenMasked) {
+		throw new Error("Provider key mask is missing");
 	}
-	return !isAbsent(row.tokenCiphertext) || !isAbsent(row.token);
+
+	return row.tokenMasked;
+}
+
+/** Complete encrypted-at-rest values for a provider-key insert or rotation. */
+export function encryptProviderKeyForStorage(
+	token: string,
+	id: string,
+	organizationId: string | null,
+) {
+	return {
+		tokenCiphertext: encryptProviderKey(
+			token,
+			id,
+			providerKeyEncryptionScope(organizationId),
+		),
+		tokenMasked: maskToken(token),
+		tokenHash: getApiKeyFingerprint(token),
+	} as const;
 }
 
 /** Row shape needed to describe a credential to the organization that owns it. */

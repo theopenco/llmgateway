@@ -14,6 +14,8 @@ import {
 } from "@/chat-helpers.e2e.js";
 import { readAll } from "@/test-utils/test-helpers.js";
 
+import { createWebSearchVerificationRequest } from "@llmgateway/actions";
+
 const testWebSearch = process.env.TEST_WEB_SEARCH;
 
 // Skip all tests if TEST_WEB_SEARCH is not set
@@ -57,22 +59,7 @@ describeWebSearch("e2e web search", getConcurrentTestOptions(), () => {
 					"x-no-fallback": "true",
 					Authorization: `Bearer real-token`,
 				},
-				body: JSON.stringify({
-					model: model,
-					messages: [
-						{
-							role: "user",
-							content:
-								"Search the web for the latest news about artificial intelligence from today. What are the top stories?",
-						},
-					],
-					tools: [
-						{
-							type: "web_search",
-						},
-					],
-					tool_choice: FORCE_WEB_SEARCH,
-				}),
+				body: JSON.stringify(createWebSearchVerificationRequest(model)),
 			});
 
 			const json = await res.json();

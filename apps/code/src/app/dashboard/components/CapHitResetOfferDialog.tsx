@@ -21,7 +21,9 @@ import { getCookie, setCookie } from "@/lib/cookies";
 import {
 	DEV_PLAN_RESET_PASS_PURCHASE_MAX_CYCLE_USAGE,
 	DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE,
+	formatDateTime,
 	getDevPlanCycleUsageFraction,
+	useDisplayTimeZone,
 } from "@llmgateway/shared";
 
 // A dismissal keeps the offer quiet for the rest of the current cap window;
@@ -56,6 +58,7 @@ export default function CapHitResetOfferDialog({
 }: CapHitResetOfferDialogProps) {
 	const posthog = usePostHog();
 	const { posthogKey } = useAppConfig();
+	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 	const [open, setOpen] = useState(false);
 	const shownTracked = useRef(false);
 
@@ -115,6 +118,13 @@ export default function CapHitResetOfferDialog({
 
 	const resetsIn = premiumWeekResetsAt
 		? formatDistanceToNowStrict(new Date(premiumWeekResetsAt))
+		: null;
+	const resetsWhen = premiumWeekResetsAt
+		? formatDateTime(
+				premiumWeekResetsAt,
+				displayTimeZone,
+				"monthDayHourMinuteZone",
+			)
 		: null;
 
 	const dismiss = () => {
@@ -176,8 +186,8 @@ export default function CapHitResetOfferDialog({
 					</DialogTitle>
 					<DialogDescription className="pr-10">
 						{`You've used the full $${premiumWeeklyLimit.toFixed(2)} premium-model allowance on the ${tier} plan`}
-						{resetsIn
-							? `, and the window doesn't reopen for ${resetsIn}. `
+						{resetsWhen && resetsIn
+							? `, and the window doesn't reopen until ${resetsWhen} (${resetsIn}). `
 							: ". "}
 						{canRedeem
 							? `You're holding ${available} Reset Pass${available === 1 ? "" : "es"} — stamp one now and the full allowance is back instantly.`

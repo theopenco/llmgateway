@@ -8,14 +8,27 @@ vi.mock("./cdb.js", () => ({
 
 const mockCdb = await import("./cdb.js");
 
-function createQueryMock(results: Array<Record<string, unknown>>) {
-	const chain = {
+function createQueryMock(
+	results: Array<Record<string, unknown>>,
+	carrierRows: Array<Record<string, unknown>> = [],
+) {
+	// First query: the rate_limit rows (awaited straight off .where()).
+	const rateLimitChain = {
 		select: vi.fn().mockReturnThis(),
 		from: vi.fn().mockReturnThis(),
 		where: vi.fn().mockResolvedValue(results),
 	};
-	vi.mocked(mockCdb.cdb.select).mockReturnValue(chain as never);
-	return chain;
+	// Second query: the carrier caps on provider_draft_model (.where().limit(1)).
+	const carrierChain = {
+		select: vi.fn().mockReturnThis(),
+		from: vi.fn().mockReturnThis(),
+		where: vi.fn().mockReturnThis(),
+		limit: vi.fn().mockResolvedValue(carrierRows),
+	};
+	vi.mocked(mockCdb.cdb.select)
+		.mockReturnValueOnce(rateLimitChain as never)
+		.mockReturnValue(carrierChain as never);
+	return rateLimitChain;
 }
 
 const { getEffectiveRateLimit } = await import("./rate-limit-helpers.js");
@@ -37,6 +50,73 @@ describe("getEffectiveRateLimit", () => {
 			rpdSource: "none",
 			rpmShared: false,
 			rpdShared: false,
+		});
+	});
+
+	it("falls back to carrier caps when no admin row constrains a window", async () => {
+		createQueryMock([], [{ maxRpm: 30, maxRpd: 5000 }]);
+
+		const result = await getEffectiveRateLimit(
+			"org-1",
+			"mistral",
+			"gpt-5.6-luna",
+		);
+
+		expect(result).toMatchObject({
+			maxRpm: 30,
+			maxRpd: 5000,
+			rpmSource: "carrier_provider_model",
+			rpdSource: "carrier_provider_model",
+			rpmShared: false,
+			rpdShared: false,
+		});
+	});
+
+	it("lets an admin row win per-window over carrier caps", async () => {
+		createQueryMock(
+			[
+				{
+					id: "rl-admin-rpm",
+					organizationId: null,
+					provider: "mistral",
+					model: "gpt-5.6-luna",
+					maxRpm: 10,
+					maxRpd: null,
+					enforcement: "per_org",
+				},
+			],
+			[{ maxRpm: 30, maxRpd: 5000 }],
+		);
+
+		const result = await getEffectiveRateLimit(
+			"org-1",
+			"mistral",
+			"gpt-5.6-luna",
+		);
+
+		// Admin RPM wins; the carrier still fills the unconstrained RPD window.
+		expect(result).toMatchObject({
+			maxRpm: 10,
+			rpmSource: "global_provider_model",
+			maxRpd: 5000,
+			rpdSource: "carrier_provider_model",
+		});
+	});
+
+	it("ignores carrier rows with null caps", async () => {
+		createQueryMock([], [{ maxRpm: null, maxRpd: null }]);
+
+		const result = await getEffectiveRateLimit(
+			"org-1",
+			"mistral",
+			"gpt-5.6-luna",
+		);
+
+		expect(result).toMatchObject({
+			maxRpm: 0,
+			maxRpd: 0,
+			rpmSource: "none",
+			rpdSource: "none",
 		});
 	});
 

@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const originalAdminEmails = process.env.ADMIN_EMAILS;
 
@@ -54,7 +56,7 @@ describe("admin organization key listings", () => {
 				{
 					id: "ak-active",
 					projectId: PROJECT_ID,
-					token: "ak-token-active",
+					...hashApiKeyForStorage("ak-token-active"),
 					description: "active key",
 					createdBy: "test-user-id",
 					status: "active",
@@ -62,7 +64,7 @@ describe("admin organization key listings", () => {
 				{
 					id: "ak-inactive",
 					projectId: PROJECT_ID,
-					token: "ak-token-inactive",
+					...hashApiKeyForStorage("ak-token-inactive"),
 					description: "disabled key",
 					createdBy: "test-user-id",
 					status: "inactive",
@@ -70,7 +72,7 @@ describe("admin organization key listings", () => {
 				{
 					id: "ak-deleted",
 					projectId: PROJECT_ID,
-					token: "ak-token-deleted",
+					...hashApiKeyForStorage("ak-token-deleted"),
 					description: "deleted key",
 					createdBy: "test-user-id",
 					status: "deleted",
@@ -117,7 +119,7 @@ describe("admin organization key listings", () => {
 			await db.insert(tables.apiKey).values({
 				id: "ak-null",
 				projectId: PROJECT_ID,
-				token: "ak-token-null",
+				...hashApiKeyForStorage("ak-token-null"),
 				description: "legacy key",
 				createdBy: "test-user-id",
 				status: null,
@@ -141,21 +143,21 @@ describe("admin organization key listings", () => {
 					id: "pk-active",
 					organizationId: ORG_ID,
 					provider: "openai",
-					token: "sk-active",
+					...encryptProviderKeyForStorage("sk-active", "pk-active", ORG_ID),
 					status: "active",
 				},
 				{
 					id: "pk-inactive",
 					organizationId: ORG_ID,
 					provider: "anthropic",
-					token: "sk-inactive",
+					...encryptProviderKeyForStorage("sk-inactive", "pk-inactive", ORG_ID),
 					status: "inactive",
 				},
 				{
 					id: "pk-deleted",
 					organizationId: ORG_ID,
 					provider: "google-ai-studio",
-					token: "sk-deleted",
+					...encryptProviderKeyForStorage("sk-deleted", "pk-deleted", ORG_ID),
 					status: "deleted",
 				},
 			]);

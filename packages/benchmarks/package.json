@@ -1,0 +1,39 @@
+{
+	"name": "@llmgateway/benchmarks",
+	"version": "0.0.0",
+	"private": true,
+	"license": "SEE LICENSE IN ../../LICENSE",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		},
+		"./cli": {
+			"types": "./dist/cli.d.ts",
+			"import": "./dist/cli.js",
+			"default": "./dist/cli.js"
+		}
+	},
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"bin": {
+		"llmgateway-benchmark": "./dist/cli.js"
+	},
+	"files": [
+		"dist/"
+	],
+	"scripts": {
+		"benchmark": "tsx --env-file=../../.env src/cli.ts",
+		"build": "tsc && resolve-tspaths",
+		"dev": "tsc-watch --onSuccess 'resolve-tspaths'",
+		"format": "eslint --fix . && prettier --write .",
+		"lint": "eslint . && prettier --check .",
+		"test": "vitest run --config vitest.config.ts"
+	},
+	"dependencies": {
+		"@llmgateway/models": "workspace:*"
+	},
+	"devDependencies": {}
+}

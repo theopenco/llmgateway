@@ -11,6 +11,8 @@ The Dashboard is the first page you see after logging in. It provides a high-lev
 <ThemedImage
 	alt="Dashboard overview showing stat cards and usage chart"
 	basePath="/learn/dashboard"
+	width={1440}
+	height={3185}
 />
 
 ## Date Range
@@ -21,9 +23,18 @@ At the top of the page, you can toggle the date range for all dashboard metrics:
 - **30 days** — Last 30 days of data
 - **Custom** — Pick a custom start and end date
 
+### Display time zone
+
+Timestamps and chart buckets follow the display time zone set under **Settings →
+Account**: either your local zone or UTC. The preference drives both how a
+datetime renders and the bucketing the analytics endpoints do, so a chart's bars
+and its axis labels always agree. It is stored in a browser cookie rather than
+your profile, so the server renders the correct zone on first paint, and the
+DevPass dashboard reads the same preference from its own **Settings** page.
+
 ## Stat Cards
 
-The dashboard displays eight metric cards in two rows:
+The dashboard displays metric cards in two rows. Organization credits and top-up actions are visible only to organization owners and admins.
 
 ### Top Row
 
@@ -45,16 +56,36 @@ The dashboard displays eight metric cards in two rows:
 
 ## Usage Overview Chart
 
-Below the stat cards, a chart visualizes your usage over time. You can toggle between two views using the dropdown:
+Below the stat cards, a chart visualizes your usage over time:
 
-- **Costs** — Shows input, output, and cached input costs as a stacked area chart
-- **Requests** — Shows request volume over time
+- **Costs** — Choose **Total** for daily cost bars or **Breakdown** to split input, output, and cached input costs.
+- **Requests** — Shows request volume over time.
 
 The chart is filtered by the currently selected project.
+
+### Compare periods
+
+Choose **Compare** to compare another date range by elapsed day:
+
+- **Previous period** uses the same number of days immediately before the active range.
+- **Week over week** uses seven days starting on the date you choose.
+- **Month over month** uses one calendar month starting on the date you choose. August 1 runs through August 31; February 1 runs through February 28, or February 29 in a leap year.
+- **Custom range** lets you choose both comparison dates.
+
+Week and month comparisons always end before the active range begins. Their duration is independent of the main date filter, so a month comparison still shows the full month when the dashboard displays seven days. The chart includes every day in the longer range and leaves the shorter series blank after it ends. Comparison is unavailable for all-time ranges.
+
+<ThemedImage
+	alt="Choosing a full month to compare with dashboard usage"
+	basePath="/learn/dashboard-comparison"
+	width={1440}
+	height={900}
+/>
 
 <ThemedImage
 	alt="Usage overview chart and quick actions panel"
 	basePath="/learn/dashboard-usage"
+	width={1440}
+	height={430}
 />
 
 ## Quick Actions
@@ -62,7 +93,7 @@ The chart is filtered by the currently selected project.
 A sidebar panel provides shortcuts to common tasks:
 
 - **Manage API Keys** — Go to the API Keys page
-- **Provider Keys** — Configure your own provider keys
+- **Provider Keys** — Configure your own provider keys (organization owners and admins)
 - **View Activity** — See detailed request logs
 - **Usage & Metrics** — Dive into usage analytics
 - **Model Usage** — View per-model usage breakdown
@@ -74,6 +105,8 @@ A donut chart showing how your costs are distributed across different models and
 <ThemedImage
 	alt="Cost breakdown chart and errors reliability section"
 	basePath="/learn/dashboard-cost"
+	width={1440}
+	height={320}
 />
 
 ## Errors & Reliability
@@ -89,7 +122,7 @@ A table showing your most recent API requests with key details like model, statu
 
 ## Header Actions
 
-Two buttons in the top-right corner:
+The top-right corner provides these actions:
 
 - **Create API Key** — Quickly create a new API key for your project
-- **Top Up Credits** — Add credits to your organization balance
+- **Top Up Credits** — Add credits to your organization balance (organization owners and admins)

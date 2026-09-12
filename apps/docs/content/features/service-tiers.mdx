@@ -6,8 +6,6 @@ icon: Gauge
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-# Service Tiers
-
 Some OpenAI, Google, and Fireworks models support selectable **processing tiers** that trade
 latency and availability against price. You pick one per request with the
 OpenAI-compatible `service_tier` parameter, and LLM Gateway forwards it only
@@ -43,11 +41,8 @@ The parameter works the same on the OpenAI-compatible **Responses API**
 (`/v1/responses`): the tier is forwarded to the provider and the response's
 `service_tier` field echoes the tier that was actually served.
 
-<Callout type="info">
-	Service-tier selection is available for pay-as-you-go requests. DevPass uses
-	Standard processing and does not expose a service-tier selector in the
-	dashboard.
-</Callout>
+Coding (dev) plans are limited to `default`/`auto` and `flex` — the premium
+`priority` tier is not part of the plan and a request that asks for it returns a 403.
 
 ## Supported providers
 
@@ -114,9 +109,12 @@ carried through all of it.
   tier. If no eligible candidate is left, you get the upstream error instead of
   a silently downgraded response.
 
-This behavior applies to explicit service-tier requests made with pay-as-you-go
-credits. The `used_service_tier` response metadata always reports the tier that
-was actually served.
+This applies to a tier you requested yourself. The optional coding-plan default
+tier is a cost preference rather than a requirement, so a request that cannot be
+served at that tier runs at standard instead of failing; `used_service_tier` in
+the response metadata always reports what was actually served. A tier sent on
+the request always takes precedence over that default, within the tiers the plan
+allows.
 
 <Callout type="info">
 	Rotating to another key for the same provider is a separate upstream account
@@ -157,8 +155,8 @@ the tier it was sent at.
 
 <Callout type="warn">
 	LLM Gateway rejects unsupported tier requests before provider routing. For
-	example, `gemini-3-pro-image-preview` currently exposes Flex for Google AI
-	Studio and Vertex, but not Priority.
+	example, `gemini-3-pro-image` exposes Flex and Priority for Google AI Studio,
+	but only Flex for Vertex. Other mappings expose neither tier.
 </Callout>
 
 You can see per-tier pricing for each model on its

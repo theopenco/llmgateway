@@ -3,8 +3,10 @@ import { EventEmitter } from "node:events";
 import { Decimal } from "decimal.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { assertMemberProjectAccess } from "@/lib/api-key-usage-limits.js";
 import { findApiKeyByToken } from "@/lib/cached-queries.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
+import { checkProviderRateLimit } from "@/lib/provider-rate-limit.js";
 
 import {
 	closeRealtimeSessionRecord,
@@ -19,6 +21,7 @@ import type { WebSocket } from "ws";
 
 vi.mock("@/lib/api-key-usage-limits.js", () => ({
 	assertApiKeyWithinUsageLimits: vi.fn(),
+	assertMemberProjectAccess: vi.fn(async () => {}),
 	assertMemberWithinBudget: vi.fn(async () => {}),
 }));
 
@@ -166,6 +169,7 @@ async function flush(): Promise<void> {
 function createSession(
 	preflightOverrides: Record<string, unknown> = {},
 	allowedTranscription: RealtimeMappingMatch | null = null,
+	pinned: { instructions?: string | null; voice?: string | null } = {},
 ) {
 	const client = new FakeSocket();
 	const upstream = new FakeSocket();
@@ -183,6 +187,8 @@ function createSession(
 		source: "lounge.llmgateway.io",
 		userAgent: "vitest",
 		allowedTranscription,
+		pinnedInstructions: pinned.instructions ?? null,
+		pinnedVoice: pinned.voice ?? null,
 		onClosed: () => {},
 	});
 	const clientSends = (event: Record<string, unknown>) => {
@@ -194,6 +200,20 @@ function createSession(
 	return { client, upstream, session, clientSends, upstreamSends };
 }
 
+/**
+ * Drive the upstream session.created handshake and clear the buffers, so the
+ * test starts from a configured session. Generation is held until the gateway's
+ * control session.update has been forwarded, so any test sending
+ * response.create needs this first.
+ */
+async function openSession(harness: ReturnType<typeof createSession>) {
+	harness.upstreamSends({ type: "session.created", session: { id: "sess_1" } });
+	await flush();
+	harness.upstream.sent.length = 0;
+	harness.client.sent.length = 0;
+	return harness;
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 });
@@ -201,15 +221,17 @@ beforeEach(() => {
 describe("RealtimeProxySession turn handling", () => {
 	it("accepts canonical model ids in session updates", async () => {
 		const preflight = buildPreflight();
-		const { client, upstream, session, clientSends } = createSession({
-			match: {
-				...preflight.match,
-				mapping: {
-					...preflight.match.mapping,
-					externalId: "upstream-deployment",
+		const { client, upstream, session, clientSends } = await openSession(
+			createSession({
+				match: {
+					...preflight.match,
+					mapping: {
+						...preflight.match.mapping,
+						externalId: "upstream-deployment",
+					},
 				},
-			},
-		});
+			}),
+		);
 
 		clientSends({
 			type: "session.update",
@@ -262,7 +284,8 @@ describe("RealtimeProxySession turn handling", () => {
 	});
 
 	it("starts the pending auto-response only after a commit-during-response's response.done is billed", async () => {
-		const { upstream, session, clientSends, upstreamSends } = createSession();
+		const { upstream, session, clientSends, upstreamSends } =
+			await openSession(createSession());
 
 		clientSends({ type: "response.create" });
 		await flush();
@@ -308,7 +331,8 @@ describe("RealtimeProxySession turn handling", () => {
 	});
 
 	it("does not queue an auto-response for commits when turn detection is disabled", async () => {
-		const { upstream, session, clientSends, upstreamSends } = createSession();
+		const { upstream, session, clientSends, upstreamSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -328,9 +352,11 @@ describe("RealtimeProxySession turn handling", () => {
 
 describe("RealtimeProxySession authorization", () => {
 	it("rejects a transcription model the key's IAM rules do not allow", async () => {
-		const { client, upstream, session, clientSends } = createSession({
-			allowedTranscriptionModelIds: ["gpt-4o-mini-transcribe"],
-		});
+		const { client, upstream, session, clientSends } = await openSession(
+			createSession({
+				allowedTranscriptionModelIds: ["gpt-4o-mini-transcribe"],
+			}),
+		);
 
 		clientSends({
 			type: "session.update",
@@ -350,7 +376,8 @@ describe("RealtimeProxySession authorization", () => {
 	});
 
 	it("rejects stored prompt references in session.update and response.create", async () => {
-		const { client, upstream, session, clientSends } = createSession();
+		const { client, upstream, session, clientSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -372,7 +399,8 @@ describe("RealtimeProxySession authorization", () => {
 	});
 
 	it("closes the session when IAM revokes model access mid-session", async () => {
-		const { client, upstream, clientSends } = createSession();
+		const { client, upstream, clientSends } =
+			await openSession(createSession());
 
 		vi.mocked(validateRequestModelAccess).mockResolvedValueOnce({
 			allowed: false,
@@ -392,11 +420,34 @@ describe("RealtimeProxySession authorization", () => {
 			expect.anything(),
 		);
 	});
+
+	it("closes the session when team project access is revoked", async () => {
+		const { client, upstream, clientSends } =
+			await openSession(createSession());
+
+		vi.mocked(assertMemberProjectAccess).mockRejectedValueOnce(
+			new Error("Project access has been revoked."),
+		);
+		clientSends({ type: "response.create" });
+		await flush();
+
+		expect(client.sent.some((m) => m.includes("project_access_revoked"))).toBe(
+			true,
+		);
+		expect(upstream.sent).toHaveLength(0);
+		expect(closeRealtimeSessionRecord).toHaveBeenCalledWith(
+			"rts_1",
+			"closed",
+			"project_access_revoked",
+			expect.anything(),
+		);
+	});
 });
 
 describe("RealtimeProxySession transcription", () => {
 	it("rejects unsupported transcription models in session.update", async () => {
-		const { client, upstream, session, clientSends } = createSession();
+		const { client, upstream, session, clientSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -416,7 +467,8 @@ describe("RealtimeProxySession transcription", () => {
 	});
 
 	it("pins the ASR mapping and rewrites the forwarded model to the upstream id", async () => {
-		const { client, upstream, session, clientSends } = createSession();
+		const { client, upstream, session, clientSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -460,7 +512,7 @@ describe("RealtimeProxySession transcription", () => {
 
 	it("drains a disconnect until the pending transcription is billed", async () => {
 		const { client, upstream, session, clientSends, upstreamSends } =
-			createSession();
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -520,7 +572,8 @@ describe("RealtimeProxySession transcription", () => {
 	});
 
 	it("still bills a pending transcription after transcription is disabled", async () => {
-		const { upstream, session, clientSends, upstreamSends } = createSession();
+		const { upstream, session, clientSends, upstreamSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -584,7 +637,7 @@ describe("RealtimeProxySession transcription", () => {
 
 	it("does not start an auto-response while draining a disconnect", async () => {
 		const { client, upstream, session, clientSends, upstreamSends } =
-			createSession();
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -627,7 +680,8 @@ describe("RealtimeProxySession transcription", () => {
 	});
 
 	it("does not pin transcription when a later field of the same update is rejected", async () => {
-		const { client, upstream, session, clientSends } = createSession();
+		const { client, upstream, session, clientSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -666,7 +720,8 @@ describe("RealtimeProxySession transcription", () => {
 	});
 
 	it("does not track commits as pending when the enabling update was rejected", async () => {
-		const { client, session, clientSends, upstreamSends } = createSession();
+		const { client, session, clientSends, upstreamSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -704,7 +759,8 @@ describe("RealtimeProxySession transcription", () => {
 	});
 
 	it("closes the session when the API key is revoked between transcriptions", async () => {
-		const { client, session, clientSends, upstreamSends } = createSession();
+		const { client, session, clientSends, upstreamSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -753,7 +809,8 @@ describe("RealtimeProxySession transcription", () => {
 	});
 
 	it("fails closed on duration-based transcription usage", async () => {
-		const { session, clientSends, upstreamSends } = createSession();
+		const { session, clientSends, upstreamSends } =
+			await openSession(createSession());
 
 		clientSends({
 			type: "session.update",
@@ -783,6 +840,598 @@ describe("RealtimeProxySession transcription", () => {
 			expect.stringContaining("unpriceable_transcription"),
 			expect.anything(),
 		);
+
+		session.shutdown(1000, "test_done");
+	});
+});
+
+describe("RealtimeProxySession transcription sessions", () => {
+	const transcriptionMatch = {
+		modelId: "gpt-live-transcribe",
+		modelDef: { id: "gpt-live-transcribe" },
+		mapping: {
+			providerId: "openai",
+			externalId: "gpt-live-transcribe",
+			inputPrice: "0",
+			outputPrice: "0",
+			inputAudioHourPrice: "1.02",
+		},
+	} as unknown as RealtimeMappingMatch;
+
+	function createTranscriptionSession() {
+		return createSession(
+			{
+				sessionType: "transcription",
+				match: transcriptionMatch,
+				allowedTranscriptionModelIds: ["gpt-live-transcribe"],
+			},
+			transcriptionMatch,
+		);
+	}
+
+	it("pins the transcription model upstream on session.created and hides the echo", async () => {
+		const { client, upstream, session, upstreamSends } =
+			createTranscriptionSession();
+
+		upstreamSends({
+			type: "session.created",
+			session: { id: "sess_1", type: "transcription" },
+		});
+		upstreamSends({
+			type: "session.updated",
+			session: { id: "sess_1", type: "transcription" },
+		});
+		await flush();
+
+		expect(upstream.sent).toHaveLength(1);
+		const control = JSON.parse(upstream.sent[0]) as {
+			type: string;
+			event_id: string;
+			session: {
+				type: string;
+				audio: { input: { transcription: { model: string } } };
+			};
+		};
+		expect(control.type).toBe("session.update");
+		expect(control.event_id).toBe("event_lmg_pin_transcription_model");
+		expect(control.session.type).toBe("transcription");
+		expect(control.session.audio.input.transcription.model).toBe(
+			"gpt-live-transcribe",
+		);
+		// The control echo is suppressed; the created event is forwarded without
+		// a realtime session model stamped onto it.
+		expect(client.sent).toHaveLength(1);
+		const created = JSON.parse(client.sent[0]) as {
+			type: string;
+			session: { model?: string };
+		};
+		expect(created.type).toBe("session.created");
+		expect(created.session.model).toBeUndefined();
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("rejects response.create", async () => {
+		const { client, upstream, session, clientSends } = await openSession(
+			createTranscriptionSession(),
+		);
+
+		clientSends({ type: "response.create" });
+		await flush();
+
+		expect(upstream.sent).toHaveLength(0);
+		expect(client.sent.some((m) => m.includes("response_not_supported"))).toBe(
+			true,
+		);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("does not start a response for committed audio", async () => {
+		const { upstream, session, upstreamSends } = await openSession(
+			createTranscriptionSession(),
+		);
+
+		upstreamSends({ type: "input_audio_buffer.committed", item_id: "item_1" });
+		await flush();
+
+		expect(upstream.sent.some((m) => m.includes("response.create"))).toBe(
+			false,
+		);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("bills duration usage against the per-hour audio price", async () => {
+		const { client, session, upstreamSends } = await openSession(
+			createTranscriptionSession(),
+		);
+
+		upstreamSends({ type: "input_audio_buffer.committed", item_id: "item_1" });
+		upstreamSends({
+			type: "conversation.item.input_audio_transcription.completed",
+			item_id: "item_1",
+			content_index: 0,
+			transcript: "hello",
+			usage: { type: "duration", seconds: 90 },
+		});
+		await flush();
+
+		expect(recordRealtimeTranscription).toHaveBeenCalledTimes(1);
+		const input = vi.mocked(recordRealtimeTranscription).mock.calls[0][0];
+		expect(input.transcription.modelId).toBe("gpt-live-transcribe");
+		expect(input.usage.inputAudioSeconds).toBe(90);
+		expect(input.costs.totalCost.toString()).toBe("0.0255");
+		expect(input.pricingSnapshot.audioInputHour).toBe("1.02");
+		expect(
+			client.sent.some((m) =>
+				m.includes("input_audio_transcription.completed"),
+			),
+		).toBe(true);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("keeps the transcription model locked and forwards other config", async () => {
+		const { client, upstream, session, clientSends } = await openSession(
+			createTranscriptionSession(),
+		);
+
+		clientSends({
+			type: "session.update",
+			session: {
+				type: "transcription",
+				audio: { input: { transcription: null } },
+			},
+		});
+		clientSends({
+			type: "session.update",
+			session: {
+				type: "transcription",
+				audio: { input: { transcription: { model: "gpt-4o-transcribe" } } },
+			},
+		});
+		await flush();
+		expect(
+			client.sent.some((m) => m.includes("transcription_model_required")),
+		).toBe(true);
+		expect(
+			client.sent.some((m) => m.includes("transcription_model_locked")),
+		).toBe(true);
+		expect(upstream.sent).toHaveLength(0);
+
+		clientSends({
+			type: "session.update",
+			session: {
+				type: "transcription",
+				audio: {
+					input: {
+						transcription: {
+							model: "openai/gpt-live-transcribe",
+							delay: "low",
+						},
+						turn_detection: null,
+					},
+				},
+			},
+		});
+		await flush();
+		expect(upstream.sent).toHaveLength(1);
+		const forwarded = JSON.parse(upstream.sent[0]) as {
+			session: {
+				audio: {
+					input: {
+						transcription: { model: string; delay: string };
+						turn_detection: null;
+					};
+				};
+			};
+		};
+		expect(forwarded.session.audio.input.transcription).toEqual({
+			model: "gpt-live-transcribe",
+			delay: "low",
+		});
+		expect(forwarded.session.audio.input.turn_detection).toBeNull();
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("commits live-transcribed audio on disconnect and bills it before closing", async () => {
+		const { client, upstream, session, upstreamSends } = await openSession(
+			createTranscriptionSession(),
+		);
+
+		// Streaming ASR emits deltas for audio the client never committed.
+		upstreamSends({
+			type: "conversation.item.input_audio_transcription.delta",
+			item_id: "item_live",
+			delta: "Hello",
+		});
+		await flush();
+		client.emit("close");
+		await flush();
+
+		// The gateway commits the live buffer and keeps the upstream open.
+		expect(
+			upstream.sent.some((m) => m.includes("input_audio_buffer.commit")),
+		).toBe(true);
+		expect(upstream.closed).toHaveLength(0);
+		expect(closeRealtimeSessionRecord).not.toHaveBeenCalled();
+
+		upstreamSends({
+			type: "input_audio_buffer.committed",
+			item_id: "item_live",
+		});
+		upstreamSends({
+			type: "conversation.item.input_audio_transcription.completed",
+			item_id: "item_live",
+			content_index: 0,
+			transcript: "Hello",
+			usage: { type: "duration", seconds: 2 },
+		});
+		await flush();
+
+		expect(recordRealtimeTranscription).toHaveBeenCalledTimes(1);
+		expect(closeRealtimeSessionRecord).toHaveBeenCalledWith(
+			"rts_1",
+			"closed",
+			"client_disconnected",
+			expect.anything(),
+		);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("drains live-transcribed audio when the client stops answering pings", async () => {
+		process.env.REALTIME_PING_INTERVAL_MS = "10";
+		try {
+			const { client, upstream, session, upstreamSends } = await openSession(
+				createTranscriptionSession(),
+			);
+
+			upstreamSends({
+				type: "conversation.item.input_audio_transcription.delta",
+				item_id: "item_live",
+				delta: "Hello",
+			});
+			await flush();
+			// The upstream keeps answering pings; the client never does.
+			const keepUpstreamAlive = setInterval(() => upstream.emit("pong"), 2);
+			try {
+				await new Promise((resolve) => setTimeout(resolve, 40));
+				await flush();
+			} finally {
+				clearInterval(keepUpstreamAlive);
+			}
+
+			// The client is closed for the ping timeout, but the live buffer is
+			// committed and the upstream stays open for its billable tail.
+			expect(client.closed).toEqual([{ code: 1011, reason: "ping_timeout" }]);
+			expect(
+				upstream.sent.some((m) => m.includes("input_audio_buffer.commit")),
+			).toBe(true);
+			expect(upstream.closed).toHaveLength(0);
+			expect(closeRealtimeSessionRecord).not.toHaveBeenCalled();
+
+			upstreamSends({
+				type: "input_audio_buffer.committed",
+				item_id: "item_live",
+			});
+			upstreamSends({
+				type: "conversation.item.input_audio_transcription.completed",
+				item_id: "item_live",
+				content_index: 0,
+				transcript: "Hello",
+				usage: { type: "duration", seconds: 2 },
+			});
+			await flush();
+
+			expect(recordRealtimeTranscription).toHaveBeenCalledTimes(1);
+			expect(closeRealtimeSessionRecord).toHaveBeenCalledWith(
+				"rts_1",
+				"closed",
+				"ping_timeout",
+				expect.anything(),
+			);
+
+			session.shutdown(1000, "test_done");
+		} finally {
+			delete process.env.REALTIME_PING_INTERVAL_MS;
+		}
+	});
+
+	it("commits live-transcribed audio ahead of a client clear", async () => {
+		const { upstream, session, clientSends, upstreamSends } = await openSession(
+			createTranscriptionSession(),
+		);
+
+		upstreamSends({
+			type: "conversation.item.input_audio_transcription.delta",
+			item_id: "item_live",
+			delta: "Hello",
+		});
+		await flush();
+		clientSends({ type: "input_audio_buffer.clear" });
+		await flush();
+
+		expect(upstream.sent.map((m) => JSON.parse(m).type)).toEqual([
+			"input_audio_buffer.commit",
+			"input_audio_buffer.clear",
+		]);
+
+		// A clear with nothing live is forwarded as is.
+		upstreamSends({
+			type: "input_audio_buffer.committed",
+			item_id: "item_live",
+		});
+		upstream.sent.length = 0;
+		clientSends({ type: "input_audio_buffer.clear" });
+		await flush();
+		expect(upstream.sent.map((m) => JSON.parse(m).type)).toEqual([
+			"input_audio_buffer.clear",
+		]);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("closes the session when the provider rate limit is exhausted", async () => {
+		vi.mocked(checkProviderRateLimit).mockResolvedValueOnce({
+			allowed: false,
+			rateLimited: true,
+			blockedBy: ["rpm"],
+			retryAfter: 30,
+		} as unknown as Awaited<ReturnType<typeof checkProviderRateLimit>>);
+		const { client, session, upstreamSends } = await openSession(
+			createTranscriptionSession(),
+		);
+
+		upstreamSends({ type: "input_audio_buffer.committed", item_id: "item_1" });
+		upstreamSends({
+			type: "conversation.item.input_audio_transcription.completed",
+			item_id: "item_1",
+			content_index: 0,
+			transcript: "hello",
+			usage: { type: "duration", seconds: 4 },
+		});
+		await flush();
+
+		expect(checkProviderRateLimit).toHaveBeenCalledWith(
+			"org_1",
+			"openai",
+			"gpt-live-transcribe",
+		);
+		expect(client.sent.some((m) => m.includes("rate_limit_exceeded"))).toBe(
+			true,
+		);
+		expect(closeRealtimeSessionRecord).toHaveBeenCalledWith(
+			"rts_1",
+			"closed",
+			"rate_limit_exceeded",
+			expect.anything(),
+		);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("closes the session when the upstream rejects the model pin", async () => {
+		const { session, upstreamSends } = await openSession(
+			createTranscriptionSession(),
+		);
+
+		upstreamSends({
+			type: "error",
+			error: {
+				type: "invalid_request_error",
+				event_id: "event_lmg_pin_transcription_model",
+				message: "Unsupported model",
+			},
+		});
+		await flush();
+
+		expect(closeRealtimeSessionRecord).toHaveBeenCalledWith(
+			"rts_1",
+			"error",
+			"transcription_pin_rejected",
+			expect.anything(),
+		);
+
+		session.shutdown(1000, "test_done");
+	});
+});
+
+describe("RealtimeProxySession pinned instructions", () => {
+	const INSTRUCTIONS = "You are the operator's support agent.";
+
+	it("applies pinned instructions and voice in the control session.update", async () => {
+		const { upstream, session, upstreamSends } = createSession({}, null, {
+			instructions: INSTRUCTIONS,
+			voice: "marin",
+		});
+
+		upstreamSends({ type: "session.created", session: { id: "sess_1" } });
+		await flush();
+
+		const control = JSON.parse(upstream.sent[0]) as {
+			session: {
+				instructions: string;
+				audio: {
+					input: { turn_detection: { create_response: boolean } };
+					output: { voice: string };
+				};
+			};
+		};
+		expect(control.session.instructions).toBe(INSTRUCTIONS);
+		expect(control.session.audio.output.voice).toBe("marin");
+		// The auto-response control this message already carried still applies.
+		expect(control.session.audio.input.turn_detection.create_response).toBe(
+			false,
+		);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("omits instructions from the control update when nothing is pinned", async () => {
+		const { upstream, session, upstreamSends } = createSession();
+
+		upstreamSends({ type: "session.created", session: { id: "sess_1" } });
+		await flush();
+
+		const control = JSON.parse(upstream.sent[0]) as {
+			session: Record<string, unknown>;
+		};
+		expect(control.session).not.toHaveProperty("instructions");
+		expect(control.session.audio).not.toHaveProperty("output");
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("rejects a client session.update that changes instructions", async () => {
+		const { client, upstream, session, clientSends } = await openSession(
+			createSession({}, null, {
+				instructions: INSTRUCTIONS,
+			}),
+		);
+
+		clientSends({
+			type: "session.update",
+			session: { type: "realtime", instructions: "You are a pirate." },
+		});
+		await flush();
+
+		expect(client.sent.some((m) => m.includes("instructions_locked"))).toBe(
+			true,
+		);
+		expect(upstream.sent).toHaveLength(0);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("rejects per-response instructions that would bypass the lock", async () => {
+		const { client, upstream, session, clientSends } = await openSession(
+			createSession({}, null, { instructions: INSTRUCTIONS }),
+		);
+
+		clientSends({
+			type: "response.create",
+			response: { instructions: "You are a pirate." },
+		});
+		await flush();
+
+		expect(client.sent.some((m) => m.includes("instructions_locked"))).toBe(
+			true,
+		);
+		expect(upstream.sent).toHaveLength(0);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("allows unrelated session updates while instructions are pinned", async () => {
+		const { client, upstream, session, clientSends } = await openSession(
+			createSession({}, null, {
+				instructions: INSTRUCTIONS,
+			}),
+		);
+
+		clientSends({
+			type: "session.update",
+			session: { type: "realtime", audio: { output: { voice: "cedar" } } },
+		});
+		await flush();
+
+		expect(client.sent).toHaveLength(0);
+		expect(upstream.sent).toHaveLength(1);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("leaves instructions to the client when nothing is pinned", async () => {
+		const { client, upstream, session, clientSends } =
+			await openSession(createSession());
+
+		clientSends({
+			type: "session.update",
+			session: { type: "realtime", instructions: "client owns this" },
+		});
+		await flush();
+
+		expect(client.sent).toHaveLength(0);
+		expect(upstream.sent).toHaveLength(1);
+		expect(upstream.sent[0]).toContain("client owns this");
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("holds generation until the pinned instructions reach the provider", async () => {
+		// A client that does not wait for session.created must not be able to
+		// generate a turn under the provider's defaults.
+		const { upstream, session, clientSends, upstreamSends } = createSession(
+			{},
+			null,
+			{ instructions: INSTRUCTIONS },
+		);
+
+		clientSends({ type: "response.create" });
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+
+		upstreamSends({ type: "session.created", session: { id: "sess_1" } });
+		await flush();
+
+		expect(upstream.sent).toHaveLength(2);
+		expect(upstream.sent[0]).toContain(INSTRUCTIONS);
+		expect(JSON.parse(upstream.sent[1]).type).toBe("response.create");
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("keeps an early client voice update effective over the pinned default", async () => {
+		// Real clients configure on socket open rather than on session.created, so
+		// the client's own update must land after the gateway's control update —
+		// voice is a default, not a lock.
+		const { upstream, session, clientSends, upstreamSends } = createSession(
+			{},
+			null,
+			{ instructions: INSTRUCTIONS, voice: "marin" },
+		);
+
+		clientSends({
+			type: "session.update",
+			session: { type: "realtime", audio: { output: { voice: "cedar" } } },
+		});
+		await flush();
+		expect(upstream.sent).toHaveLength(0);
+
+		upstreamSends({ type: "session.created", session: { id: "sess_1" } });
+		await flush();
+
+		expect(upstream.sent).toHaveLength(2);
+		const control = JSON.parse(upstream.sent[0]) as {
+			session: { instructions: string; audio: { output: { voice: string } } };
+		};
+		const clientUpdate = JSON.parse(upstream.sent[1]) as {
+			session: { audio: { output: { voice: string } } };
+		};
+		expect(control.session.instructions).toBe(INSTRUCTIONS);
+		expect(control.session.audio.output.voice).toBe("marin");
+		// The client's choice is applied last, so it is the one in effect.
+		expect(clientUpdate.session.audio.output.voice).toBe("cedar");
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("strips pinned instructions from session events echoed to the client", async () => {
+		const { client, session, upstreamSends } = createSession({}, null, {
+			instructions: INSTRUCTIONS,
+		});
+
+		// The provider echoes the whole session state, instructions included.
+		upstreamSends({
+			type: "session.updated",
+			session: { id: "sess_1", instructions: INSTRUCTIONS },
+		});
+		await flush();
+
+		expect(client.sent.join("")).not.toContain(INSTRUCTIONS);
 
 		session.shutdown(1000, "test_done");
 	});

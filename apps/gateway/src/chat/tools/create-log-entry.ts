@@ -1,5 +1,7 @@
 import { trace } from "@opentelemetry/api";
 
+import { normalizeLogSource } from "@/lib/normalize-log-source.js";
+
 import type { GatewayApiKey } from "@/lib/cached-queries.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
 import type {
@@ -121,7 +123,7 @@ function buildLogEntry(options: CreateLogEntryOptions) {
 		toolChoice: options.toolChoice ?? null,
 		mode: options.project.mode,
 		apiOrigin: options.apiOrigin ?? null,
-		source: options.source ?? null,
+		source: normalizeLogSource(options.source),
 		customHeaders:
 			Object.keys(options.customHeaders).length > 0
 				? options.customHeaders

@@ -17,7 +17,9 @@ import {
 	clearCache,
 } from "@/test-utils/test-helpers.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, pool, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 // A trivial upstream that always returns a valid completion, so the gateway
 // path runs end-to-end without touching a real provider.
@@ -148,14 +150,18 @@ describe("Chat completions caching: repeated requests do not re-read Postgres", 
 		});
 		await db.insert(tables.apiKey).values({
 			id: "cache-key",
-			token: "cache-token",
+			...hashApiKeyForStorage("cache-token"),
 			projectId: "cache-project",
 			description: "Cache Key",
 			createdBy: "cache-user",
 		});
 		await db.insert(tables.providerKey).values({
 			id: "cache-provider-key",
-			token: "sk-mock",
+			...encryptProviderKeyForStorage(
+				"sk-mock",
+				"cache-provider-key",
+				"cache-org",
+			),
 			provider: "llmgateway",
 			organizationId: "cache-org",
 			baseUrl: `http://localhost:${MOCK_PORT}`,

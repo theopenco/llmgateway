@@ -1,6 +1,6 @@
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 
-export type OrgRole = "owner" | "admin" | "developer";
+export type OrgRole = "owner" | "admin" | "project_admin" | "developer";
 
 export interface RoleChange {
 	old: OrgRole;
@@ -9,8 +9,9 @@ export interface RoleChange {
 
 const ROLE_RANK: Record<OrgRole, number> = {
 	developer: 1,
-	admin: 2,
-	owner: 3,
+	project_admin: 2,
+	admin: 3,
+	owner: 4,
 };
 
 // Recompute an org member's role from their SCIM group memberships and the
@@ -72,9 +73,14 @@ export async function recomputeUserRole(
 		return null;
 	}
 	if (membership.role !== mappedRole) {
-		await db
+		await cdb
 			.update(tables.userOrganization)
-			.set({ role: mappedRole })
+			.set({
+				role: mappedRole,
+				...(mappedRole === "developer"
+					? {}
+					: { teamId: null, teamAssignmentSource: "manual" as const }),
+			})
 			.where(eq(tables.userOrganization.id, membership.id));
 		return { old: membership.role, new: mappedRole };
 	}

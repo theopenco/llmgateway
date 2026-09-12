@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { readProviderKey } from "@llmgateway/actions";
+import {
+	encryptProviderKeyForStorage,
+	readProviderKey,
+} from "@llmgateway/actions";
 import { db, tables } from "@llmgateway/db";
 import { getApiKeyFingerprint } from "@llmgateway/shared/api-key-hash";
 
@@ -101,9 +104,7 @@ describe("v1/master custom providers and models", () => {
 		});
 		expect(stored?.provider).toBe("custom");
 		expect(stored?.organizationId).toBe("test-org-id");
-		// Stored encrypted at rest: the legacy plaintext column stays NULL and
-		// the ciphertext decrypts back to the submitted token.
-		expect(stored?.token).toBeNull();
+		// Stored encrypted at rest; the ciphertext decrypts to the submitted token.
 		expect(stored?.tokenCiphertext).toMatch(/^llmgw:v2:/);
 		expect(readProviderKey(stored!)).toBe("sk-acme-secret");
 	});
@@ -179,11 +180,16 @@ describe("v1/master custom providers and models", () => {
 		const [foreign] = await db
 			.insert(tables.providerKey)
 			.values({
+				id: "foreign-custom-provider",
+				...encryptProviderKeyForStorage(
+					"sk-foreign",
+					"foreign-custom-provider",
+					"other-org-id",
+				),
 				organizationId: "other-org-id",
 				provider: "custom",
 				name: "foreign",
 				baseUrl: "https://foreign.example.com/v1",
-				token: "sk-foreign",
 			})
 			.returning();
 
@@ -201,9 +207,14 @@ describe("v1/master custom providers and models", () => {
 		const [byok] = await db
 			.insert(tables.providerKey)
 			.values({
+				id: "non-custom-provider",
+				...encryptProviderKeyForStorage(
+					"sk-openai",
+					"non-custom-provider",
+					"test-org-id",
+				),
 				organizationId: "test-org-id",
 				provider: "openai",
-				token: "sk-openai",
 			})
 			.returning();
 
@@ -303,11 +314,16 @@ describe("v1/master custom providers and models", () => {
 		const [foreign] = await db
 			.insert(tables.providerKey)
 			.values({
+				id: "foreign-model-provider",
+				...encryptProviderKeyForStorage(
+					"sk-foreign",
+					"foreign-model-provider",
+					"other-org-id",
+				),
 				organizationId: "other-org-id",
 				provider: "custom",
 				name: "foreign",
 				baseUrl: "https://foreign.example.com/v1",
-				token: "sk-foreign",
 			})
 			.returning();
 

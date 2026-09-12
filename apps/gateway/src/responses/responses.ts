@@ -3,11 +3,11 @@ import { zstdDecompress } from "node:zlib";
 
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
-import { streamSSE } from "hono/streaming";
 
 import { app } from "@/app.js";
 import {
 	assertApiKeyWithinUsageLimits,
+	assertMemberProjectAccess,
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import { internalApiOriginHeaders } from "@/lib/api-origin.js";
@@ -16,11 +16,15 @@ import {
 	findProjectById,
 	findOrganizationById,
 } from "@/lib/cached-queries.js";
+import { logGatewayClientError } from "@/lib/client-error-log.js";
+import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { getOrganizationBlockReason } from "@/lib/organization-access.js";
+import { streamSSE } from "@/lib/pending-work.js";
 import {
 	setResponsesContext,
 	deleteResponsesContext,
 } from "@/lib/responses-context.js";
+import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
 import { shortid } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -124,16 +128,19 @@ async function authenticateRequest(
 	// others. User-level member budget takes priority over the per-key limits.
 	// Both use the SWR-cached queries and fail fast before the retention/context
 	// work below.
-	if (enforceSpendLimits) {
-		try {
+	// Project access gates every authenticated path, including retrieval of
+	// stored responses; spend limits only apply where new usage is generated.
+	try {
+		await assertMemberProjectAccess(apiKey, project.organizationId);
+		if (enforceSpendLimits) {
 			await assertMemberWithinBudget(apiKey.createdBy, project.organizationId);
 			assertApiKeyWithinUsageLimits(apiKey);
-		} catch (e) {
-			if (e instanceof HTTPException) {
-				return { error: e.message, status: e.status };
-			}
-			throw e;
 		}
+	} catch (e) {
+		if (e instanceof HTTPException) {
+			return { error: e.message, status: e.status };
+		}
+		throw e;
 	}
 
 	return { apiKey, project, organization };
@@ -158,10 +165,21 @@ responses.post("/", async (c) => {
 			rawBody = await c.req.json();
 		}
 	} catch {
+		const message = "Invalid JSON in request body";
+		logger.warn("Invalid Responses API JSON", {
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "responses",
+			rawBody: null,
+			message,
+			cause: "invalid_json",
+		});
 		return c.json(
 			{
 				error: {
-					message: "Invalid JSON in request body",
+					message,
 					type: "invalid_request_error",
 					code: "invalid_json",
 				},
@@ -172,10 +190,22 @@ responses.post("/", async (c) => {
 
 	const validation = responsesRequestSchema.safeParse(rawBody);
 	if (!validation.success) {
+		const message = `Invalid request: ${formatValidationError(validation.error)}`;
+		logger.warn("Invalid Responses API request", {
+			issues: summarizeZodIssues(validation.error.issues),
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "responses",
+			rawBody,
+			message,
+			cause: "invalid_request",
+		});
 		return c.json(
 			{
 				error: {
-					message: `Invalid request: ${formatValidationError(validation.error)}`,
+					message,
 					type: "invalid_request_error",
 					code: "invalid_request",
 				},
@@ -201,8 +231,22 @@ responses.post("/", async (c) => {
 		);
 	}
 
-	const { project } = authResult;
+	const { project, organization } = authResult;
 
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(organization);
+	if (zeroDataRetentionEnabled && req.store !== false) {
+		return c.json(
+			{
+				error: {
+					message:
+						"Responses API storage is unavailable while zero data retention is active. Set store to false.",
+					type: "invalid_request_error",
+					code: "zdr_storage_conflict",
+				},
+			},
+			400,
+		);
+	}
 	const shouldStore = req.store !== false;
 	const includeEncryptedReasoning =
 		req.include?.includes("reasoning.encrypted_content") ?? false;
@@ -291,6 +335,9 @@ responses.post("/", async (c) => {
 			return null;
 		})
 		.filter((t): t is NonNullable<typeof t> => t !== null);
+	const imageGenerationTool = req.tools?.find(
+		(tool: Record<string, unknown>) => tool.type === "image_generation",
+	) as Record<string, unknown> | undefined;
 
 	// Convert text.format to response_format
 	let response_format: Record<string, unknown> | undefined;
@@ -328,6 +375,11 @@ responses.post("/", async (c) => {
 	}
 	if (tools && tools.length > 0) {
 		chatRequest.tools = tools;
+	}
+	if (typeof imageGenerationTool?.size === "string") {
+		chatRequest.image_config = {
+			image_size: imageGenerationTool.size,
+		};
 	}
 	if (req.tool_choice) {
 		// The chat handler speaks Chat Completions, so a Responses-shaped named
@@ -674,10 +726,21 @@ responses.post("/compact", async (c) => {
 			rawBody = await c.req.json();
 		}
 	} catch {
+		const message = "Invalid JSON in request body";
+		logger.warn("Invalid Responses compact JSON", {
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "responses",
+			rawBody: null,
+			message,
+			cause: "invalid_json",
+		});
 		return c.json(
 			{
 				error: {
-					message: "Invalid JSON in request body",
+					message,
 					type: "invalid_request_error",
 					code: "invalid_json",
 				},
@@ -688,10 +751,22 @@ responses.post("/compact", async (c) => {
 
 	const validation = compactRequestSchema.safeParse(rawBody);
 	if (!validation.success) {
+		const message = `Invalid request: ${formatValidationError(validation.error)}`;
+		logger.warn("Invalid Responses compact request", {
+			issues: summarizeZodIssues(validation.error.issues),
+			path: c.req.path,
+			method: c.req.method,
+		});
+		await logGatewayClientError(c, {
+			apiOrigin: "responses",
+			rawBody,
+			message,
+			cause: "invalid_request",
+		});
 		return c.json(
 			{
 				error: {
-					message: `Invalid request: ${formatValidationError(validation.error)}`,
+					message,
 					type: "invalid_request_error",
 					code: "invalid_request",
 				},
@@ -716,7 +791,8 @@ responses.post("/compact", async (c) => {
 		);
 	}
 
-	const { project } = authResult;
+	const { project, organization } = authResult;
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(organization);
 
 	let inputItems: unknown[] = [];
 	if (typeof req.input === "string") {
@@ -865,20 +941,22 @@ responses.post("/compact", async (c) => {
 			? chatJson.model
 			: req.model;
 
-	await storeResponse(
-		compactionId,
-		{
-			id: compactionId,
-			input: inputItems,
-			output: compactionResponse.output,
-			instructions: req.instructions,
-			model: responseModel,
-			status: "completed",
-			usage: compactionResponse.usage as unknown as Record<string, unknown>,
-			created_at: createdAt,
-		},
-		project.id,
-	);
+	if (!zeroDataRetentionEnabled) {
+		await storeResponse(
+			compactionId,
+			{
+				id: compactionId,
+				input: inputItems,
+				output: compactionResponse.output,
+				instructions: req.instructions,
+				model: responseModel,
+				status: "completed",
+				usage: compactionResponse.usage as unknown as Record<string, unknown>,
+				created_at: createdAt,
+			},
+			project.id,
+		);
+	}
 
 	return c.json(compactionResponse);
 });

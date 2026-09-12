@@ -48,6 +48,15 @@ export type Price = string;
 export type ReasoningEffort =
 	"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
+export const PROVIDER_API_FORMATS = [
+	"provider-native",
+	"openai-chat-completions",
+	"openai-responses",
+	"google-vertex",
+] as const;
+
+export type ProviderApiFormat = (typeof PROVIDER_API_FORMATS)[number];
+
 /**
  * Pricing tier for models with context-length based pricing
  */
@@ -319,23 +328,14 @@ export interface ProviderModelMapping {
 	 */
 	pricingTiers?: PricingTier[];
 	/**
-	 * Peak/off-peak time-of-day pricing. The mapping's base
-	 * inputPrice/outputPrice/cachedInputPrice are the regular flat prices,
-	 * billed before `effectiveAt` (and always when `peakPricing` is absent).
-	 * On/after `effectiveAt`, `peak` applies while the current UTC hour falls
-	 * inside `hoursUtc` and `offPeak` applies otherwise. Only DeepSeek's
-	 * first-party API uses this today — peak 01:00-04:00 and 06:00-10:00 UTC
-	 * at double the off-peak rates, effective 2026-08-16.
+	 * Peak/off-peak time-of-day pricing. When present, `peak` applies while the
+	 * current UTC hour falls inside `hoursUtc` and `offPeak` applies otherwise.
+	 * `offPeakDays` can override those windows for provider-defined local
+	 * calendar days. Only DeepSeek's first-party API uses this today.
 	 */
 	peakPricing?: {
 		/**
-		 * ISO-8601 instant when peak/off-peak pricing takes effect. Before
-		 * this date the mapping's base inputPrice/outputPrice/cachedInputPrice
-		 * (the regular flat rates) apply.
-		 */
-		effectiveAt: string;
-		/**
-		 * Prices charged during peak hours (on/after effectiveAt).
+		 * Prices charged during peak hours.
 		 */
 		peak: {
 			/**
@@ -354,7 +354,7 @@ export interface ProviderModelMapping {
 			cachedInputPrice?: Price;
 		};
 		/**
-		 * Prices charged during off-peak hours (on/after effectiveAt).
+		 * Prices charged during off-peak hours.
 		 */
 		offPeak: {
 			/**
@@ -377,6 +377,17 @@ export interface ProviderModelMapping {
 		 * hours outside these ranges are off-peak.
 		 */
 		hoursUtc: readonly [start: number, end: number][];
+		/**
+		 * Local calendar days that are always billed off-peak. Days use
+		 * JavaScript's numbering (Sunday = 0, Saturday = 6), shifted from UTC by
+		 * `utcOffsetMinutes`.
+		 */
+		offPeakDays?: {
+			daysOfWeek: readonly number[];
+			utcOffsetMinutes: number;
+			/** Human-readable time zone used in pricing disclosures. */
+			timeZoneLabel: string;
+		};
 	};
 	/**
 	 * Maximum context window size in tokens
@@ -386,6 +397,10 @@ export interface ProviderModelMapping {
 	 * Maximum output size in tokens
 	 */
 	maxOutput?: number;
+	/**
+	 * Maximum temperature accepted by this provider mapping.
+	 */
+	maxTemperature?: number;
 	/**
 	 * Weight quantization the provider serves this model at (e.g. "fp8").
 	 * Only set when the provider explicitly documents the serving precision;
@@ -482,7 +497,7 @@ export interface ProviderModelMapping {
 	 * Provider-specific request/endpoint format when a provider has multiple API
 	 * surfaces for different models. Defaults to the provider's native format.
 	 */
-	apiFormat?: "openai-chat-completions";
+	apiFormat?: ProviderApiFormat;
 	/**
 	 * Provider service tier IDs supported by this specific model mapping.
 	 * Provider definitions own the tier metadata and default multipliers;
@@ -707,11 +722,21 @@ export interface ProviderModelMapping {
 	 * When true, the gateway's /v1/realtime proxy allows this mapping as the
 	 * `input_audio_transcription.model` of a realtime session and bills each
 	 * `conversation.item.input_audio_transcription.completed` event against
-	 * this mapping's token prices (inputPrice for text tokens, inputAudioPrice
-	 * for audio tokens, outputPrice for output tokens). Only token-metered ASR
-	 * mappings may set this; duration-billed models are not priceable here.
+	 * this mapping: token usage via inputPrice (text), inputAudioPrice (audio)
+	 * and outputPrice, or duration usage via inputAudioHourPrice. A mapping
+	 * must declare the prices matching the usage shape its provider reports.
+	 * Also makes the mapping connectable as a transcription-only session
+	 * (`/v1/realtime?intent=transcription`).
 	 */
 	realtimeTranscription?: boolean;
+	/**
+	 * Whether this mapping accepts a `turn_detection` config on a transcription
+	 * session. Streaming ASR deployments segment continuously on their own and
+	 * reject the field outright, so it is opt-in: without it, callers must
+	 * commit turns themselves (`turn_detection: null` plus
+	 * `input_audio_buffer.commit`).
+	 */
+	realtimeTranscriptionTurnDetection?: boolean;
 	/**
 	 * Whether this model uses a dedicated transcription (speech-to-text) API.
 	 * When true, requests are routed to the gateway's /v1/audio/transcriptions
@@ -749,6 +774,14 @@ export interface ProviderModelMapping {
 	 * At sync/routing time, each region is expanded into a separate DB row / candidate.
 	 */
 	regions?: ProviderRegion[];
+	/**
+	 * The region-less root of this mapping is itself a real, routable
+	 * deployment (the provider's default endpoint) rather than a synthetic
+	 * aggregate of its regions, so routing keeps it as a candidate alongside
+	 * the regional variants. Set on Airside listings, whose regional fares are
+	 * add-ons to the default deployment.
+	 */
+	routableRoot?: boolean;
 	/**
 	 * Whether this model uses a dedicated video generation API.
 	 * When true, requests are routed to a provider-specific video generation endpoint.

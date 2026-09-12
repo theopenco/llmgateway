@@ -8,13 +8,20 @@ import { providers } from "@llmgateway/models";
 export function clampTemperature(
 	temperature: number | undefined,
 	providerId: string,
+	mappingMaxTemperature?: number,
 ): number | undefined {
 	if (temperature === undefined) {
 		return undefined;
 	}
-	const maxTemperature = providers.find(
+	const providerMaxTemperature = providers.find(
 		(p) => p.id === providerId,
 	)?.maxTemperature;
+	const maxTemperature =
+		providerMaxTemperature === undefined
+			? mappingMaxTemperature
+			: mappingMaxTemperature === undefined
+				? providerMaxTemperature
+				: Math.min(providerMaxTemperature, mappingMaxTemperature);
 	if (maxTemperature === undefined || temperature <= maxTemperature) {
 		return temperature;
 	}

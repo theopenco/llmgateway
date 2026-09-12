@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	assertSafeContentUrl,
 	assertSafeProviderBaseUrl,
+	assertSafeUserUrl,
 	isPrivateOrReservedIp,
 	isProviderUrlGuardEnabled,
 } from "./url-safety.js";
@@ -178,6 +179,23 @@ describe("assertSafeContentUrl", () => {
 		expect(() => assertSafeContentUrl("gopher://127.0.0.1")).toThrow();
 		expect(() => assertSafeContentUrl("not a url")).toThrow(
 			"Invalid content URL",
+		);
+	});
+});
+
+describe("assertSafeUserUrl", () => {
+	it("accepts only public https targets", () => {
+		expect(() =>
+			assertSafeUserUrl("https://mcp.example.com/rpc"),
+		).not.toThrow();
+		expect(() => assertSafeUserUrl("http://mcp.example.com/rpc")).toThrow(
+			"must use https",
+		);
+		expect(() => assertSafeUserUrl("https://127.0.0.1/rpc")).toThrow(
+			"private or reserved",
+		);
+		expect(() => assertSafeUserUrl("https://service.internal/rpc")).toThrow(
+			"disallowed internal host",
 		);
 	});
 });

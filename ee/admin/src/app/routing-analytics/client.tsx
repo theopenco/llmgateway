@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
 	Bar,
 	BarChart,
@@ -12,6 +12,10 @@ import {
 	YAxis,
 } from "recharts";
 
+import {
+	ChartTypeToggle,
+	type ChartType,
+} from "@/components/chart-type-toggle";
 import { StatCard } from "@/components/detail-stat-cards";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -316,6 +320,8 @@ export function RoutingAnalyticsClient() {
 	const selectedProviderId = searchParams.get("providerId");
 	const window = parseWindow(searchParams.get("window"));
 	const metric = parseMetric(searchParams.get("metric"));
+	const [chartType, setChartType] = useState<ChartType>("line");
+	const MetricChart = chartType === "line" ? LineChart : BarChart;
 
 	const updateParams = useCallback(
 		(values: Record<string, string | null>) => {
@@ -376,17 +382,39 @@ export function RoutingAnalyticsClient() {
 					?.requestCount ?? 0) > 0,
 		);
 	}, [data]);
+	const providerChartSeries = useMemo(
+		() =>
+			chartedProviders.map((mapping, index) => ({
+				...mapping,
+				chartKey: `series_${index}`,
+			})),
+		[chartedProviders],
+	);
+	const chartKeyByProvider = useMemo(
+		() =>
+			new Map(
+				providerChartSeries.map((mapping) => [
+					mapping.providerId,
+					mapping.chartKey,
+				]),
+			),
+		[providerChartSeries],
+	);
 
 	const chartConfig = useMemo(() => {
 		const config: ChartConfig = {};
-		chartedProviders.forEach((mapping, index) => {
-			config[mapping.providerId] = {
+		providerChartSeries.forEach((mapping, index) => {
+			config[mapping.chartKey] = {
 				label: mapping.providerName,
 				color: SERIES_COLORS[index % SERIES_COLORS.length],
 			};
 		});
 		return config;
-	}, [chartedProviders]);
+	}, [providerChartSeries]);
+	const providerSeriesColor = (providerId: string) => {
+		const chartKey = chartKeyByProvider.get(providerId);
+		return chartKey ? chartConfig[chartKey]?.color : undefined;
+	};
 
 	const metricChartData = useMemo(() => {
 		if (!data) {
@@ -395,11 +423,14 @@ export function RoutingAnalyticsClient() {
 		return data.hourly.map((hour) => {
 			const row: Record<string, string | number | null> = { hour: hour.hour };
 			for (const entry of hour.providers) {
-				row[entry.providerId] = entry[metric];
+				const chartKey = chartKeyByProvider.get(entry.providerId);
+				if (chartKey) {
+					row[chartKey] = entry[metric];
+				}
 			}
 			return row;
 		});
-	}, [data, metric]);
+	}, [data, metric, chartKeyByProvider]);
 
 	const trafficChartData = useMemo(() => {
 		if (!data) {
@@ -408,11 +439,14 @@ export function RoutingAnalyticsClient() {
 		return data.hourly.map((hour) => {
 			const row: Record<string, string | number> = { hour: hour.hour };
 			for (const entry of hour.providers) {
-				row[entry.providerId] = entry.requestCount;
+				const chartKey = chartKeyByProvider.get(entry.providerId);
+				if (chartKey) {
+					row[chartKey] = entry.requestCount;
+				}
 			}
 			return row;
 		});
-	}, [data]);
+	}, [data, chartKeyByProvider]);
 
 	const totalRequests = useMemo(
 		() => data?.summary.reduce((sum, s) => sum + s.requestCount, 0) ?? 0,
@@ -863,8 +897,9 @@ export function RoutingAnalyticsClient() {
 															<span
 																className="h-2.5 w-2.5 shrink-0 rounded-full"
 																style={{
-																	backgroundColor:
-																		chartConfig[summary.providerId]?.color,
+																	backgroundColor: providerSeriesColor(
+																		summary.providerId,
+																	),
 																}}
 															/>
 															<span className="font-medium">
@@ -1027,18 +1062,24 @@ export function RoutingAnalyticsClient() {
 									{metricOption.description}
 								</CardDescription>
 							</div>
-							<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1">
-								{METRIC_OPTIONS.map((option) => (
-									<Button
-										key={option.value}
-										variant={metric === option.value ? "default" : "ghost"}
-										size="sm"
-										className="h-7 px-3 text-xs"
-										onClick={() => updateParams({ metric: option.value })}
-									>
-										{option.label}
-									</Button>
-								))}
+							<div className="flex flex-wrap items-center gap-2">
+								<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1">
+									{METRIC_OPTIONS.map((option) => (
+										<Button
+											key={option.value}
+											variant={metric === option.value ? "default" : "ghost"}
+											size="sm"
+											className="h-7 px-3 text-xs"
+											onClick={() => updateParams({ metric: option.value })}
+										>
+											{option.label}
+										</Button>
+									))}
+								</div>
+								<ChartTypeToggle
+									value={chartType}
+									onValueChange={setChartType}
+								/>
 							</div>
 						</CardHeader>
 						<CardContent className="px-2 pb-4 sm:p-6">
@@ -1046,8 +1087,9 @@ export function RoutingAnalyticsClient() {
 								config={chartConfig}
 								className="aspect-auto h-[320px] w-full"
 							>
-								<LineChart
+								<MetricChart
 									data={metricChartData}
+									accessibilityLayer
 									margin={{ left: 12, right: 12 }}
 								>
 									<CartesianGrid vertical={false} strokeDasharray="3 3" />
@@ -1091,22 +1133,31 @@ export function RoutingAnalyticsClient() {
 										}
 									/>
 									<ChartLegend content={<ChartLegendContent />} />
-									{chartedProviders.map((mapping) => {
+									{providerChartSeries.map((mapping) => {
 										const emphasis = seriesEmphasis(mapping.providerId);
-										return (
+										return chartType === "line" ? (
 											<Line
 												key={mapping.providerId}
-												dataKey={mapping.providerId}
+												dataKey={mapping.chartKey}
 												type="monotone"
-												stroke={`var(--color-${mapping.providerId})`}
+												stroke={`var(--color-${mapping.chartKey})`}
 												strokeWidth={emphasis.strokeWidth}
 												strokeOpacity={emphasis.opacity}
 												dot={false}
 												connectNulls={false}
 											/>
+										) : (
+											<Bar
+												key={mapping.providerId}
+												dataKey={mapping.chartKey}
+												fill={`var(--color-${mapping.chartKey})`}
+												fillOpacity={emphasis.opacity}
+												maxBarSize={30}
+												radius={[2, 2, 0, 0]}
+											/>
 										);
 									})}
-								</LineChart>
+								</MetricChart>
 							</ChartContainer>
 							{metric === "score" ? (
 								<p className="mt-2 px-2 text-xs text-muted-foreground sm:px-0">
@@ -1156,12 +1207,12 @@ export function RoutingAnalyticsClient() {
 										}
 									/>
 									<ChartLegend content={<ChartLegendContent />} />
-									{chartedProviders.map((mapping) => (
+									{providerChartSeries.map((mapping) => (
 										<Bar
 											key={mapping.providerId}
-											dataKey={mapping.providerId}
+											dataKey={mapping.chartKey}
 											stackId="requests"
-											fill={`var(--color-${mapping.providerId})`}
+											fill={`var(--color-${mapping.chartKey})`}
 											fillOpacity={seriesEmphasis(mapping.providerId).opacity}
 										/>
 									))}
@@ -1310,8 +1361,9 @@ export function RoutingAnalyticsClient() {
 																<span
 																	className="h-2.5 w-2.5 shrink-0 rounded-full"
 																	style={{
-																		backgroundColor:
-																			chartConfig[summary.providerId]?.color,
+																		backgroundColor: providerSeriesColor(
+																			summary.providerId,
+																		),
 																	}}
 																/>
 																{mapping.providerName}

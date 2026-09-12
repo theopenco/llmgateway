@@ -13,6 +13,10 @@ import {
 } from "recharts";
 
 import {
+	ChartTypeToggle,
+	type ChartType,
+} from "@/components/chart-type-toggle";
+import {
 	Card,
 	CardContent,
 	CardDescription,
@@ -49,20 +53,33 @@ const chartConfig = {
 		label: "Net",
 		color: "hsl(142 71% 45%)",
 	},
+	enterpriseRevenue: {
+		label: "Enterprise licensing fees",
+		color: "hsl(271 81% 56%)",
+	},
 } satisfies ChartConfig;
 
 const revenueViews = {
 	credits: {
 		label: "Credits Net",
 		description:
-			"Cumulative processed, revenue (after fees), and net (after fees & refunds) for credit purchases",
+			"Cumulative processed, revenue (after the platform fee), and net (after the platform fee & refunded credits) for credit purchases",
+		dailyLabel: "Net gain",
 		lines: ["processed", "revenue", "net"],
 	},
 	devpass: {
 		label: "DevPass Net",
 		description:
 			"Cumulative gross and net (after refunds) DevPass plan revenue",
+		dailyLabel: "Net gain",
 		lines: ["devpassRevenue", "devpassNet"],
+	},
+	enterprise: {
+		label: "Enterprise Gross",
+		description:
+			"Cumulative gross revenue from enterprise licensing deals; these deals do not grant credits",
+		dailyLabel: "Enterprise licensing fees",
+		lines: ["enterpriseRevenue"],
 	},
 } as const;
 
@@ -84,16 +101,22 @@ export function RevenueChart({
 	totals,
 }: {
 	data: TimeseriesDataPoint[];
-	totals: { credits: number; devpass: number };
+	totals: { credits: number; devpass: number; enterprise: number };
 }) {
 	const [activeView, setActiveView] = useState<ActiveView>("credits");
+	const [chartType, setChartType] = useState<ChartType>("line");
+	const MainChart = chartType === "line" ? LineChart : BarChart;
 
 	const dailyData = useMemo(
 		() =>
 			data.map((point) => ({
 				date: point.date,
 				dailyNet:
-					activeView === "credits" ? point.dailyNet : point.dailyDevpassNet,
+					activeView === "credits"
+						? point.dailyNet
+						: activeView === "devpass"
+							? point.dailyDevpassNet
+							: point.dailyEnterpriseRevenue,
 			})),
 		[data, activeView],
 	);
@@ -102,15 +125,18 @@ export function RevenueChart({
 		<Card>
 			<CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
 				<div className="flex flex-1 flex-col justify-center gap-1.5 px-6 py-5 sm:py-6">
-					<CardTitle className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-						Credits & DevPass Revenue
-					</CardTitle>
+					<div className="flex flex-wrap items-center justify-between gap-3">
+						<CardTitle className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+							Credits, DevPass & Enterprise Revenue
+						</CardTitle>
+						<ChartTypeToggle value={chartType} onValueChange={setChartType} />
+					</div>
 					<CardDescription className="text-xs">
 						{revenueViews[activeView].description}
 					</CardDescription>
 				</div>
 				<div className="flex">
-					{(["credits", "devpass"] as const).map((key) => (
+					{(["credits", "devpass", "enterprise"] as const).map((key) => (
 						<button
 							key={key}
 							data-active={activeView === key}
@@ -132,7 +158,11 @@ export function RevenueChart({
 					config={chartConfig}
 					className="aspect-auto h-[250px] w-full"
 				>
-					<LineChart data={data} margin={{ left: 12, right: 12 }}>
+					<MainChart
+						data={data}
+						accessibilityLayer
+						margin={{ left: 12, right: 12 }}
+					>
 						<CartesianGrid vertical={false} />
 						<XAxis
 							dataKey="date"
@@ -167,21 +197,31 @@ export function RevenueChart({
 								/>
 							}
 						/>
-						{revenueViews[activeView].lines.map((key) => (
-							<Line
-								key={key}
-								dataKey={key}
-								type="monotone"
-								stroke={`var(--color-${key})`}
-								strokeWidth={2}
-								dot={false}
-							/>
-						))}
-					</LineChart>
+						{revenueViews[activeView].lines.map((key) =>
+							chartType === "line" ? (
+								<Line
+									key={key}
+									dataKey={key}
+									type="monotone"
+									stroke={`var(--color-${key})`}
+									strokeWidth={2}
+									dot={false}
+								/>
+							) : (
+								<Bar
+									key={key}
+									dataKey={key}
+									fill={`var(--color-${key})`}
+									maxBarSize={36}
+									radius={[2, 2, 0, 0]}
+								/>
+							),
+						)}
+					</MainChart>
 				</ChartContainer>
 				<div className="mt-2 px-2 sm:px-0">
 					<p className="mb-1 px-2 text-xs text-muted-foreground sm:px-3">
-						Net gain per day
+						{revenueViews[activeView].dailyLabel} per day
 					</p>
 					<ChartContainer
 						config={chartConfig}
@@ -200,7 +240,9 @@ export function RevenueChart({
 										}}
 										formatter={(value) => (
 											<>
-												<span className="text-muted-foreground">Net gain</span>
+												<span className="text-muted-foreground">
+													{revenueViews[activeView].dailyLabel}
+												</span>
 												<span className="ml-auto font-mono font-medium tabular-nums">
 													{currencyFormatter.format(Number(value))}
 												</span>

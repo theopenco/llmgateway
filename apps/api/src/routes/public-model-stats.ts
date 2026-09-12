@@ -1,11 +1,7 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
-import {
-	floorToHourStart,
-	pickMappingHistoryTable,
-	pickModelHistoryTable,
-} from "@/utils/history-window.js";
+import { floorToHourStart } from "@/utils/history-window.js";
 
 import {
 	and,
@@ -14,6 +10,8 @@ import {
 	gte,
 	inArray,
 	lt,
+	modelHistoryHourly,
+	modelProviderMappingHistoryHourly,
 	sql,
 } from "@llmgateway/db";
 import {
@@ -110,15 +108,15 @@ function windowToStartDate(window: string, now: Date): Date {
 publicModelStats.openapi(listRoute, async (c) => {
 	const { window = "7d" } = c.req.valid("query");
 
-	// Windows longer than 24h aggregate the hourly rollup tables instead of
-	// scanning millions of minute rows; see public-providers-stats for details.
-	const hourly = window !== "24h";
+	// Public rankings only need hourly resolution. The hourly tables are refreshed
+	// every minute, including the current hour, and avoid scanning the much larger
+	// minute tables for the 24h window.
 	const now = new Date();
-	const { table: mh, bucket: mhTs } = pickModelHistoryTable(hourly);
-	const { table: mph, bucket: mphTs } = pickMappingHistoryTable(hourly);
-	const startDate = hourly
-		? floorToHourStart(windowToStartDate(window, now))
-		: windowToStartDate(window, now);
+	const mh = modelHistoryHourly;
+	const mhTs = mh.hourTimestamp;
+	const mph = modelProviderMappingHistoryHourly;
+	const mphTs = mph.hourTimestamp;
+	const startDate = floorToHourStart(windowToStartDate(window, now));
 	// The previous window of equal length, used for the trend comparison.
 	const windowMs = now.getTime() - startDate.getTime();
 	const prevStartDate = new Date(startDate.getTime() - windowMs);
@@ -239,12 +237,6 @@ publicModelStats.openapi(listRoute, async (c) => {
 			window === "30d"
 				? sql<Date>`date_trunc('day', ${mhTs})`
 				: sql<Date>`date_trunc('hour', ${mhTs})`;
-		// The 24h totals use an exact rolling lower bound, which would leave the
-		// leading hourly bucket artificially partial in the chart; floor it for
-		// the series only. The trailing in-progress bucket stays — the chart is
-		// live. 7d/30d startDate is already hour-floored.
-		const seriesStartDate = hourly ? startDate : floorToHourStart(startDate);
-
 		const seriesRows = await cdb
 			.select({
 				modelId: mh.modelId,
@@ -252,7 +244,7 @@ publicModelStats.openapi(listRoute, async (c) => {
 				totalTokens: sql<string>`COALESCE(SUM(${mh.totalTokens}), 0)`,
 			})
 			.from(mh)
-			.where(and(gte(mhTs, seriesStartDate), inArray(mh.modelId, topModelIds)))
+			.where(and(gte(mhTs, startDate), inArray(mh.modelId, topModelIds)))
 			.groupBy(mh.modelId, seriesBucket)
 			.orderBy(seriesBucket)
 			// The top-model set can shift within the TTL, so a tag keyed on the

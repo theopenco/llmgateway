@@ -8,6 +8,7 @@ import {
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	getDevPlanPremiumWeeklyLimit,
 } from "@llmgateway/shared";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -24,7 +25,7 @@ describe("/v1/key", () => {
 	) {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",

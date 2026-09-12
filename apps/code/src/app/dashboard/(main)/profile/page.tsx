@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { fetchServerData } from "@/lib/server-api";
+import { fetchServerData, getUserMe } from "@/lib/server-api";
 
 import { ProfilePageClient } from "./ProfilePageClient";
 
@@ -9,8 +9,6 @@ import type { Metadata } from "next";
 
 type ProfileResponse =
 	paths["/user/profile"]["get"]["responses"][200]["content"]["application/json"];
-type UserMeResponse =
-	paths["/user/me"]["get"]["responses"][200]["content"]["application/json"];
 
 export const metadata: Metadata = {
 	title: "Your Profile · DevPass",
@@ -20,7 +18,7 @@ export const metadata: Metadata = {
 export default async function ProfilePage() {
 	const [profileData, userData] = await Promise.all([
 		fetchServerData<ProfileResponse>("GET", "/user/profile"),
-		fetchServerData<UserMeResponse>("GET", "/user/me"),
+		getUserMe(),
 	]);
 
 	if (!userData?.user) {

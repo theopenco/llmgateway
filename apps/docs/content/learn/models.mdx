@@ -9,7 +9,7 @@ import { ThemedImage } from "@/components/themed-image";
 
 The Models page shows every model available to your organization in one directory: the full LLM Gateway catalog plus any models defined for your own [custom providers](/features/custom-providers). When your organization enforces a [provider compliance policy](/features/compliance), the page also shows exactly which models are eligible to route to — and why the rest are blocked.
 
-<ThemedImage alt="Models" basePath="/learn/models" />
+<ThemedImage alt="Models" basePath="/learn/models" width={1440} height={3681} />
 
 Every organization member can browse this page, including project-scoped `developer` members, so your whole team can see which providers and models are available without needing admin access. Management actions are only visible to owners and admins.
 
@@ -30,7 +30,43 @@ Search matches model names, ids, aliases, and providers. The **Filters** panel o
 - **Source** — show **Catalog & custom** (default), only **Catalog models**, or only **Custom models**. The selector appears once your organization has custom models.
 - **Eligible only** — hide models blocked by your organization's compliance policy.
 
-<ThemedImage alt="Models filters" basePath="/learn/models-filters" />
+<ThemedImage
+	alt="Models filters"
+	basePath="/learn/models-filters"
+	width={1440}
+	height={900}
+/>
+
+### Lifecycle status
+
+Every provider mapping carries exactly one lifecycle status, shown as a badge on
+the mapping and selectable from the **Status** chips in the filter panel:
+
+| Status          | Meaning                                                                  |
+| --------------- | ------------------------------------------------------------------------ |
+| **Deprecated**  | Still routes; the provider has announced a sunset, so migrate soon       |
+| **Scheduled**   | Still routes, but deactivation is set for a date inside the next 90 days |
+| **Deactivated** | No longer routes; requests return errors                                 |
+
+Status resolves by urgency — deactivated beats scheduled beats deprecated — so a
+mapping never carries two, and a deactivation further out than the 90-day notice
+window stays plain active rather than warning early. The chips are single-select
+and write to `?status=`, so a filtered view can be shared.
+
+With no chip selected, the directory lists everything routable and hides
+mappings already past their deprecation or deactivation date.
+
+### Time-based pricing
+
+A few provider mappings bill different rates depending on when the request
+arrives. Those cards carry a **Time-based pricing** toggle: switch between
+**Peak** and **Off-peak** to see each set of input, cached-input, and output
+prices, with the schedule that decides which one applies spelled out underneath —
+the peak hours, their time zone, and any days that are off-peak all day.
+
+Billing follows the same schedule automatically at request time; there is
+nothing to set on your side. To pay off-peak rates, move batch or backfill work
+into the off-peak window.
 
 ## Compliance eligibility
 

@@ -30,6 +30,7 @@ docker run -d \
   -p 3003:3003 \
   -p 3005:3005 \
   -p 3006:3006 \
+  -p 3007:3007 \
   -p 4001:4001 \
   -p 4002:4002 \
   -v llmgateway_postgres:/var/lib/postgresql/data \
@@ -49,6 +50,7 @@ Pin to a specific version instead of `latest` using the [latest release tag](htt
 - **Web Interface**: http://localhost:3002
 - **Chat Playground**: http://localhost:3003
 - **Documentation**: http://localhost:3005
+- **Provider Portal (Airside)**: http://localhost:3007
 - **API Endpoint**: http://localhost:4002
 - **Gateway Endpoint**: http://localhost:4001
 

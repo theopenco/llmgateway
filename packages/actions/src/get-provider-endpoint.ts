@@ -5,6 +5,7 @@ import {
 	type EnvVarVariant,
 	type ProviderDefinition,
 	type ProviderModelMapping,
+	type ProviderApiFormat,
 	type ProviderId,
 	type VertexTokenType,
 	getProviderEnvValue,
@@ -19,7 +20,17 @@ import {
 import type { ProviderKeyOptions } from "@llmgateway/db";
 
 function appendPath(url: string, path: string): string {
-	return `${url.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+	let urlEnd = url.length;
+	while (urlEnd > 0 && url[urlEnd - 1] === "/") {
+		urlEnd--;
+	}
+
+	let pathStart = 0;
+	while (pathStart < path.length && path[pathStart] === "/") {
+		pathStart++;
+	}
+
+	return `${url.slice(0, urlEnd)}/${path.slice(pathStart)}`;
 }
 
 function getBedrockMantleBaseUrl(url: string, region?: string): string {
@@ -178,13 +189,8 @@ export function getGoogleVertexPublisherModelPath(
 }
 
 /**
- * Static default base URLs for providers whose canonical upstream is a fixed
- * host. Single source of truth for "the provider's default base URL":
- * getProviderEndpoint falls back to these when no key base URL or env
- * override is configured, and service-tier key eligibility compares custom
- * base URLs against them. Providers absent from this map derive their
- * endpoint from env vars, key options (e.g. the Azure resource), or region
- * maps and have no static default.
+ * Static fallback URLs when no key or env override is configured. Providers
+ * absent from this map derive endpoints from env vars, key options, or regions.
  */
 const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	openai: "https://api.openai.com",
@@ -205,6 +211,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	runware: "https://api.runware.ai",
 	moonshot: "https://api.moonshot.ai",
 	meta: "https://api.meta.ai",
+	"meta-contributor": "https://api.meta.ai",
 	nebius: "https://api.tokenfactory.nebius.com",
 	zai: "https://api.z.ai",
 	nanogpt: "https://nano-gpt.com/api",
@@ -220,6 +227,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	fireworks: "https://api.fireworks.ai/inference",
 	ranoai: "https://api.ranoai.com",
 	baidu: "https://api.baiduqianfan.ai",
+	consensusprotocol: "https://api.consensusprotocol.org",
 	tencent: "https://tokenhub-intl.tencentcloudmaas.com",
 };
 
@@ -257,6 +265,7 @@ export function getProviderEndpoint(
 	modelId?: string,
 	vertexTokenType?: VertexTokenType,
 	variant?: EnvVarVariant,
+	apiFormat?: ProviderApiFormat,
 ): string {
 	let externalId = model;
 	let providerMapping: ProviderModelMapping | undefined;
@@ -441,42 +450,6 @@ export function getProviderEndpoint(
 					);
 				}
 				break;
-			case "tundra":
-				url =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"tundra",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-				if (!url) {
-					throw new Error(
-						"Tundra provider requires LLM_TUNDRA_BASE_URL environment variable",
-					);
-				}
-				break;
-			case "permafrost":
-				url =
-					credentialConfig?.baseUrl ??
-					(skipEnvVars
-						? undefined
-						: getProviderEnvValue(
-								"permafrost",
-								"baseUrl",
-								configIndex,
-								undefined,
-								variant,
-							));
-				if (!url) {
-					throw new Error(
-						"Permafrost provider requires LLM_PERMAFROST_BASE_URL environment variable",
-					);
-				}
-				break;
 			case "alibaba": {
 				const alibabaBaseUrl = resolveWorkspaceScopedEndpoint(
 					"alibaba",
@@ -625,6 +598,35 @@ export function getProviderEndpoint(
 				url = `https://${resource}.services.ai.azure.com`;
 				break;
 			}
+			case "azure-anthropic": {
+				const resource =
+					credentialConfig?.resource ??
+					providerKeyOptions?.azure_anthropic_resource ??
+					(skipEnvVars
+						? undefined
+						: getProviderEnvValue(
+								"azure-anthropic",
+								"resource",
+								configIndex,
+								undefined,
+								variant,
+							));
+
+				if (!resource) {
+					const azureAnthropicEnv = getProviderEnvConfig("azure-anthropic");
+					throw new Error(
+						`Azure Anthropic resource is required - set via provider options or ${azureAnthropicEnv?.required.resource ?? "LLM_AZURE_ANTHROPIC_RESOURCE"} env var`,
+					);
+				}
+				if (!/^[a-zA-Z0-9-]{1,64}$/.test(resource)) {
+					const azureAnthropicEnv = getProviderEnvConfig("azure-anthropic");
+					throw new Error(
+						`Azure Anthropic resource is invalid - must be 1-64 chars of letters, digits, or hyphens (set via provider options or ${azureAnthropicEnv?.required.resource ?? "LLM_AZURE_ANTHROPIC_RESOURCE"} env var)`,
+					);
+				}
+				url = `https://${resource}.services.ai.azure.com`;
+				break;
+			}
 			case "custom":
 				if (!baseUrl) {
 					throw new Error(`Custom provider requires a baseUrl`);
@@ -644,6 +646,39 @@ export function getProviderEndpoint(
 
 	if (!url) {
 		throw new Error(`Failed to determine base URL for provider ${provider}`);
+	}
+
+	if (
+		provider === "aws-bedrock" &&
+		(apiFormat === "openai-chat-completions" ||
+			((!apiFormat || apiFormat === "provider-native") &&
+				providerMapping?.apiFormat === "openai-chat-completions"))
+	) {
+		return appendPath(
+			getBedrockMantleBaseUrl(url, region),
+			"/chat/completions",
+		);
+	}
+
+	if (apiFormat === "openai-chat-completions") {
+		return appendPath(url, "/v1/chat/completions");
+	}
+	if (apiFormat === "openai-responses") {
+		return appendPath(url, "/v1/responses");
+	}
+	if (apiFormat === "google-vertex") {
+		return buildVertexCompatibleEndpoint(
+			"google-vertex",
+			url,
+			externalId,
+			token,
+			stream,
+			configIndex,
+			providerKeyOptions,
+			skipEnvVars,
+			vertexTokenType ?? (provider === "google-vertex" ? undefined : "api-key"),
+			variant,
+		);
 	}
 
 	switch (provider) {
@@ -804,11 +839,6 @@ export function getProviderEndpoint(
 			}
 			return `${url}/api/paas/v4/chat/completions`;
 		case "aws-bedrock": {
-			if (providerMapping?.apiFormat === "openai-chat-completions") {
-				const mantleBaseUrl = getBedrockMantleBaseUrl(url, region);
-				return appendPath(mantleBaseUrl, "/chat/completions");
-			}
-
 			const awsRegionPrefix = region
 				? (
 						providers.find((p) => p.id === "aws-bedrock") as
@@ -920,6 +950,10 @@ export function getProviderEndpoint(
 				"2024-05-01-preview";
 			return `${url}/models/chat/completions?api-version=${apiVersion}`;
 		}
+		case "azure-anthropic":
+			// Claude models on Microsoft Foundry are only served through the
+			// Anthropic Messages API; there is no OpenAI-compatible surface.
+			return `${url}/anthropic/v1/messages`;
 		case "openai": {
 			if (imageGenerations) {
 				return `${url}/v1/images/generations`;
@@ -986,13 +1020,14 @@ export function getProviderEndpoint(
 		case "llmgateway":
 		case "groq":
 		case "cerebras":
+		case "meta-contributor":
 		case "meta": {
 			// Muse Spark only exposes reasoning (as summaries) through the
 			// Responses API — Chat Completions redacts reasoning_content entirely.
 			if (model) {
 				const modelDef = models.find((m) => m.id === (modelId ?? model));
 				const providerMapping = modelDef?.providers.find(
-					(p) => p.providerId === "meta",
+					(p) => p.providerId === provider,
 				);
 				const supportsResponsesApi =
 					(providerMapping as ProviderModelMapping)?.supportsResponsesApi ===
@@ -1013,11 +1048,10 @@ export function getProviderEndpoint(
 		case "minimax":
 		case "xiaomi":
 		case "embercloud":
-		case "tundra":
-		case "permafrost":
 		case "scx-ai":
 		case "scx-ai-gp":
 		case "ranoai":
+		case "consensusprotocol":
 		case "tencent":
 		case "custom":
 		default:

@@ -32,9 +32,10 @@ export interface TransactionalEmailOptions {
 		contentType?: string;
 	}>;
 	/**
-	 * When true, the function rejects on misconfiguration and delivery
-	 * failures instead of silently logging. Use for flows where the caller
-	 * must know whether the email was actually queued (e.g. password reset).
+	 * When true, the function rejects on unexpected misconfiguration and
+	 * delivery failures instead of silently logging. Intentional policy skips
+	 * still resolve. Use for flows where the caller must know whether the email
+	 * was actually queued (e.g. password reset).
 	 */
 	strict?: boolean;
 	/**
@@ -52,6 +53,45 @@ export interface TransactionalEmailOptions {
 	 * such as the email-verification and password-reset emails.
 	 */
 	organizationId?: string;
+	/**
+	 * Upper bound for the Resend request. When exceeded the send rejects, so a
+	 * caller holding a transaction open is not pinned by a slow provider.
+	 */
+	timeoutMs?: number;
+}
+
+function withTimeout<T>(
+	promise: Promise<T>,
+	ms: number,
+	message: string,
+): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error(message)), ms);
+	});
+	return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function isReservedEmailAddress(email: string): boolean {
+	const separatorIndex = email.lastIndexOf("@");
+	if (separatorIndex === -1) {
+		return false;
+	}
+
+	const domain = email.slice(separatorIndex + 1).toLowerCase();
+	const reservedDomains = [
+		"example",
+		"invalid",
+		"localhost",
+		"test",
+		"example.com",
+		"example.net",
+		"example.org",
+	];
+
+	return reservedDomains.some(
+		(reserved) => domain === reserved || domain.endsWith(`.${reserved}`),
+	);
 }
 
 export async function sendTransactionalEmail({
@@ -63,7 +103,16 @@ export async function sendTransactionalEmail({
 	strict = false,
 	logSafe = false,
 	organizationId,
+	timeoutMs,
 }: TransactionalEmailOptions): Promise<void> {
+	if (process.env.NODE_ENV === "production" && isReservedEmailAddress(to)) {
+		logger.info("Skipping transactional email to reserved domain", {
+			to,
+			subject,
+		});
+		return;
+	}
+
 	// Policy gate: never send org-scoped transactional emails to an
 	// organization whose owner has not verified their email.
 	if (organizationId && !(await isOrgOwnerEmailVerified(organizationId))) {
@@ -118,9 +167,16 @@ export async function sendTransactionalEmail({
 			})),
 		};
 
-		const { data, error } = await client.emails.send(
+		const send = client.emails.send(
 			text ? { ...emailPayload, text } : { ...emailPayload, html: html ?? "" },
 		);
+		const { data, error } = await (timeoutMs
+			? withTimeout(
+					send,
+					timeoutMs,
+					`Resend did not respond within ${timeoutMs}ms`,
+				)
+			: send);
 
 		if (error) {
 			throw new Error(`Resend API error: ${error.message}`);

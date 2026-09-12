@@ -36,6 +36,35 @@ describe("getFinishReasonFromError", () => {
 		).toBe("gateway_error");
 	});
 
+	it.each([400, 401, 403, 422])(
+		"returns upstream_error for Anthropic account access restrictions on %i",
+		(statusCode) => {
+			const message =
+				"Access to Anthropic models is not allowed for this account";
+			expect(getFinishReasonFromError(statusCode, message)).toBe(
+				"upstream_error",
+			);
+			expect(
+				getFinishReasonFromError(
+					statusCode,
+					JSON.stringify({
+						error: {
+							type: "invalid_request_error",
+							message: message.toLowerCase(),
+						},
+					}),
+				),
+			).toBe("upstream_error");
+		},
+	);
+
+	it.each([
+		"This content type is not allowed for this model",
+		"The requested parameter is not supported for Anthropic models",
+	])("keeps request validation errors as client_error: %s", (message) => {
+		expect(getFinishReasonFromError(400, message)).toBe("client_error");
+	});
+
 	it("returns gateway_error for Anthropic low credit balance on 400", () => {
 		expect(
 			getFinishReasonFromError(
@@ -49,6 +78,15 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(400, "Insufficient Balance")).toBe(
 			"gateway_error",
 		);
+	});
+
+	it("returns gateway_error for Fireworks monthly spending limit", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"message":"Request rejected because the account is reaching the monthly spending limit."}}',
+			),
+		).toBe("gateway_error");
 	});
 
 	it("returns gateway_error for 405 method not allowed", () => {

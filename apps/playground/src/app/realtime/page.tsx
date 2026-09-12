@@ -3,10 +3,12 @@ import { notFound } from "next/navigation";
 
 import { LastUsedProjectTracker } from "@/components/last-used-project-tracker";
 import RealtimePageClient from "@/components/playground/realtime-page-client";
+import { PlaygroundSeoSection } from "@/components/seo/playground-seo-section";
 import { fetchModels, fetchProviders } from "@/lib/fetch-models";
 import {
 	decodeModelPreference,
 	REALTIME_MODEL_COOKIE,
+	REALTIME_TRANSCRIPTION_MODEL_COOKIE,
 } from "@/lib/model-preferences";
 import { fetchServerData } from "@/lib/server-api";
 
@@ -14,10 +16,17 @@ import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "AI Voice Calls — Realtime Speech-to-Speech Playground",
+	title: "AI Voice Calls — Realtime Speech to Speech",
 	description:
 		"Have live voice conversations with realtime speech-to-speech models. Pick a model and voice, talk naturally, interrupt mid-sentence, and read both transcripts.",
 	alternates: { canonical: "/realtime" },
+	openGraph: {
+		title: "AI Voice Calls — Realtime Speech to Speech | Lounge",
+		description:
+			"Live voice conversations with realtime speech-to-speech models. Pick a model and voice, interrupt mid-sentence, and read both transcripts.",
+		type: "website",
+		url: "https://lounge.llmgateway.io/realtime",
+	},
 };
 
 export default async function RealtimePage({
@@ -30,12 +39,27 @@ export default async function RealtimePage({
 	const initialModelPreference = decodeModelPreference(
 		cookieStore.get(REALTIME_MODEL_COOKIE)?.value,
 	);
+	const initialTranscriptionModelPreference = decodeModelPreference(
+		cookieStore.get(REALTIME_TRANSCRIPTION_MODEL_COOKIE)?.value,
+	);
 
-	const [models, providers, initialOrganizationsData] = await Promise.all([
-		fetchModels(),
-		fetchProviders(),
-		fetchServerData("GET", "/orgs"),
-	]);
+	const [models, providers, initialOrganizationsData, orgIdProjectsData] =
+		await Promise.all([
+			fetchModels(),
+			fetchProviders(),
+			fetchServerData("GET", "/orgs"),
+			// Start the projects fetch for the URL's org eagerly; it is discarded
+			// below when that org doesn't end up selected.
+			orgId
+				? fetchServerData("GET", "/orgs/{id}/projects", {
+						params: {
+							path: {
+								id: orgId,
+							},
+						},
+					})
+				: null,
+		]);
 
 	const allOrganizations = (
 		initialOrganizationsData &&
@@ -54,8 +78,15 @@ export default async function RealtimePage({
 		organizations[0] ??
 		null;
 
-	let initialProjectsData: { projects: Project[] } | null = null;
-	if (selectedOrganization?.id) {
+	let initialProjectsData: { projects: Project[] } | null =
+		selectedOrganization?.id === orgId && orgIdProjectsData
+			? (orgIdProjectsData as { projects: Project[] })
+			: null;
+	if (!selectedOrganization) {
+		return <PlaygroundSeoSection variant="realtime" />;
+	}
+
+	if (!initialProjectsData && selectedOrganization?.id) {
 		try {
 			initialProjectsData = (await fetchServerData(
 				"GET",
@@ -110,6 +141,9 @@ export default async function RealtimePage({
 				projects={projects}
 				selectedProject={selectedProject}
 				initialModelPreference={initialModelPreference}
+				initialTranscriptionModelPreference={
+					initialTranscriptionModelPreference
+				}
 			/>
 		</>
 	);

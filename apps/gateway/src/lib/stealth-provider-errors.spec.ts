@@ -14,7 +14,7 @@ describe("shouldRedactProviderError", () => {
 	it("returns true for stealth providers", () => {
 		expect(shouldRedactProviderError("granite")).toBe(true);
 		expect(shouldRedactProviderError("glacier")).toBe(true);
-		expect(shouldRedactProviderError("tundra")).toBe(true);
+		expect(shouldRedactProviderError("quartz")).toBe(true);
 	});
 
 	it("returns false for regular providers", () => {
@@ -111,7 +111,7 @@ describe("clientFacingUpstreamFailureMessage", () => {
 	it("drops the error message for stealth providers", () => {
 		expect(
 			clientFacingUpstreamFailureMessage(
-				"tundra",
+				"quartz",
 				"Failed to connect to provider",
 				"getaddrinfo ENOTFOUND api.secretvendor.com",
 			),
@@ -123,7 +123,7 @@ describe("clientFacingUpstreamErrorMessage", () => {
 	it("redacts an HTTP error body for stealth providers", () => {
 		expect(
 			clientFacingUpstreamErrorMessage(
-				"avalanche",
+				"glacier",
 				500,
 				"quota exceeded at https://plataforma-secreta.example.com",
 			),

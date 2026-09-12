@@ -108,6 +108,14 @@ export type CostByModelTimeseriesResponse =
 	GetJsonResponse<"/admin/organizations/{orgId}/cost-by-model-timeseries">;
 export type ModelView = CostByModelTimeseriesResponse["modelView"];
 export type CostTimeseriesGroupBy = CostByModelTimeseriesResponse["groupBy"];
+export type OrganizationCostGroupBy = Extract<
+	CostTimeseriesGroupBy,
+	"model" | "project" | "api-key" | "user"
+>;
+export type ProjectCostTimeseriesGroupBy = Extract<
+	CostTimeseriesGroupBy,
+	"model" | "source"
+>;
 
 // Global stats
 export type GlobalStatsResponse = GetJsonResponse<"/admin/global-stats">;

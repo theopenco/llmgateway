@@ -127,17 +127,40 @@ const highlighterCache = new Map<
 	Promise<HighlighterGeneric<BundledLanguage, BundledTheme>>
 >();
 
-// Token cache
+// Token cache, bounded: a long chat renders many code blocks (and streaming
+// produces one entry per intermediate snapshot), so evict the least recently
+// used entries instead of retaining every token array for the tab's lifetime.
+const TOKENS_CACHE_MAX_ENTRIES = 200;
 const tokensCache = new Map<string, TokenizedCode>();
+
+function setCachedTokens(key: string, tokens: TokenizedCode) {
+	tokensCache.set(key, tokens);
+	while (tokensCache.size > TOKENS_CACHE_MAX_ENTRIES) {
+		const oldest = tokensCache.keys().next().value;
+		if (oldest === undefined) {
+			break;
+		}
+		tokensCache.delete(oldest);
+	}
+}
+
+function getCachedTokens(key: string): TokenizedCode | undefined {
+	const cached = tokensCache.get(key);
+	if (cached) {
+		// Re-insert so recently used entries sit at the back of the eviction order.
+		tokensCache.delete(key);
+		tokensCache.set(key, cached);
+	}
+	return cached;
+}
 
 // Subscribers for async token updates
 const subscribers = new Map<string, Set<(result: TokenizedCode) => void>>();
 
-const getTokensCacheKey = (code: string, language: BundledLanguage) => {
-	const start = code.slice(0, 100);
-	const end = code.length > 100 ? code.slice(-100) : "";
-	return `${language}:${code.length}:${start}:${end}`;
-};
+const inFlightTokenizations = new Set<string>();
+
+const getTokensCacheKey = (code: string, language: BundledLanguage) =>
+	`${language}:${code}`;
 
 const getHighlighter = (
 	language: BundledLanguage,
@@ -196,7 +219,7 @@ export const highlightCode = (
 	const tokensCacheKey = getTokensCacheKey(code, language);
 
 	// Return cached result if available
-	const cached = tokensCache.get(tokensCacheKey);
+	const cached = getCachedTokens(tokensCacheKey);
 	if (cached) {
 		return cached;
 	}
@@ -208,6 +231,11 @@ export const highlightCode = (
 		}
 		subscribers.get(tokensCacheKey)?.add(callback);
 	}
+
+	if (inFlightTokenizations.has(tokensCacheKey)) {
+		return null;
+	}
+	inFlightTokenizations.add(tokensCacheKey);
 
 	// Start highlighting in background - fire-and-forget async pattern
 	getHighlighter(language)
@@ -231,20 +259,20 @@ export const highlightCode = (
 			};
 
 			// Cache the result
-			tokensCache.set(tokensCacheKey, tokenized);
+			setCachedTokens(tokensCacheKey, tokenized);
+			inFlightTokenizations.delete(tokensCacheKey);
 
 			// Notify all subscribers
 			const subs = subscribers.get(tokensCacheKey);
 			if (subs) {
-				for (const sub of subs as any) {
-					sub(tokenized);
-				}
+				subs.forEach((sub) => sub(tokenized));
 				subscribers.delete(tokensCacheKey);
 			}
 		})
 		// oxlint-disable-next-line eslint-plugin-promise(prefer-await-to-then), eslint-plugin-promise(prefer-await-to-callbacks)
 		.catch((error) => {
 			console.error("Failed to highlight code:", error);
+			inFlightTokenizations.delete(tokensCacheKey);
 			subscribers.delete(tokensCacheKey);
 		});
 
@@ -412,15 +440,15 @@ export const CodeBlockContent = ({
 	useEffect(() => {
 		let cancelled = false;
 
-		// Reset to raw tokens when code changes (shows current code, not stale tokens)
-		setTokenized(highlightCode(code, language) ?? rawTokens);
-
-		// Subscribe to async highlighting result
-		highlightCode(code, language, (result) => {
-			if (!cancelled) {
-				setTokenized(result);
-			}
-		});
+		// Show the cached tokens (or raw code, not stale tokens) immediately and
+		// subscribe for the async highlighting result in a single call.
+		setTokenized(
+			highlightCode(code, language, (result) => {
+				if (!cancelled) {
+					setTokenized(result);
+				}
+			}) ?? rawTokens,
+		);
 
 		return () => {
 			cancelled = true;

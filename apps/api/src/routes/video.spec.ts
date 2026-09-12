@@ -4,6 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 const SECRET_ENV = "LLM_VIDEO_CONTENT_JWT_SECRET";
 const ALLOW_DEV_ENV = "VIDEO_CONTENT_TOKEN_ALLOW_DEV";
@@ -27,7 +28,7 @@ async function seedCompletedVideoJob() {
 	});
 	await db.insert(tables.apiKey).values({
 		id: "api-key-id",
-		token: "real-token",
+		...hashApiKeyForStorage("real-token"),
 		projectId: "project-id",
 		description: "Test API Key",
 		createdBy: "test-user-id",

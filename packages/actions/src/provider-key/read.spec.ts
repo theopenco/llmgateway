@@ -3,9 +3,11 @@ import { randomBytes } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { encryptProviderKey } from "./crypto.js";
-import { hasProviderKey, providerKeyLabel, readProviderKey } from "./read.js";
-
-import type { ProviderKeyRowLike } from "./read.js";
+import {
+	providerKeyLabel,
+	readProviderKey,
+	readProviderKeyMask,
+} from "./read.js";
 
 const ENV_VAR = "GATEWAY_API_KEY_HASH_SECRET";
 const ORIGINAL_KEY = process.env[ENV_VAR];
@@ -27,33 +29,22 @@ afterEach(() => {
 const ROW_ID = "row-abc";
 const ORG_ID = "org-xyz";
 
-function legacyRow(token: string | null) {
-	return { id: ROW_ID, organizationId: ORG_ID, token, tokenCiphertext: null };
-}
-
-function encryptedRow(plaintext: string, alsoSetToken: string | null = null) {
+function encryptedRow(plaintext: string) {
 	return {
 		id: ROW_ID,
 		organizationId: ORG_ID,
-		token: alsoSetToken,
 		tokenCiphertext: encryptProviderKey(plaintext, ROW_ID, ORG_ID),
 	};
 }
 
 describe("readProviderKey", () => {
-	it("returns legacy plaintext when tokenCiphertext is null", () => {
-		expect(readProviderKey(legacyRow("legacy-plaintext-value"))).toBe(
-			"legacy-plaintext-value",
-		);
-	});
-
-	it("decrypts when tokenCiphertext is set, ignoring the legacy token column", () => {
-		const row = encryptedRow("real-encrypted-value", "ATTACKER_PLAINTEXT");
+	it("decrypts the encrypted token", () => {
+		const row = encryptedRow("real-encrypted-value");
 		expect(readProviderKey(row)).toBe("real-encrypted-value");
 	});
 
-	it("does NOT fall back to legacy token when ciphertext is tampered", () => {
-		const row = encryptedRow("real-value", "would-be-fallback");
+	it("throws when ciphertext is tampered", () => {
+		const row = encryptedRow("real-value");
 		const parts = row.tokenCiphertext.split(":");
 		const flipped = Array.from(parts[3]);
 		flipped[0] = flipped[0] === "A" ? "B" : "A";
@@ -62,82 +53,37 @@ describe("readProviderKey", () => {
 		expect(() => readProviderKey(row)).toThrow();
 	});
 
-	it("throws when both columns are null", () => {
-		expect(() => readProviderKey(legacyRow(null))).toThrow(
-			/no token available/,
-		);
-	});
-
-	it("throws on unknown ciphertext prefix even if token is set", () => {
+	it("throws on an unknown ciphertext prefix", () => {
 		const row = {
 			id: ROW_ID,
 			organizationId: ORG_ID,
-			token: "fallback-not-allowed",
 			tokenCiphertext: "llmgw:v3:aaa:bbb:ccc",
 		};
 		expect(() => readProviderKey(row)).toThrow(/unknown ciphertext version/);
 	});
 
-	it("treats absent tokenCiphertext field as legacy (stale SWR mirror)", () => {
-		// Simulate a row deserialized from an SWR mirror written before this
-		// PR shipped: the tokenCiphertext property is missing entirely, not
-		// just null. Must still go down the legacy path.
-		const staleCachedRow = {
-			id: ROW_ID,
-			organizationId: ORG_ID,
-			token: "pre-byok-plaintext",
-		} as ProviderKeyRowLike;
-		expect(readProviderKey(staleCachedRow)).toBe("pre-byok-plaintext");
-	});
-
-	it("throws when both ciphertext and token fields are absent (stale cache + no token)", () => {
-		const empty = { id: ROW_ID, organizationId: ORG_ID } as ProviderKeyRowLike;
-		expect(() => readProviderKey(empty)).toThrow(/no token available/);
+	it("throws when ciphertext is missing", () => {
+		expect(() =>
+			readProviderKey({
+				id: ROW_ID,
+				organizationId: ORG_ID,
+				tokenCiphertext: null,
+			}),
+		).toThrow("Provider key ciphertext is missing");
 	});
 });
 
-describe("hasProviderKey", () => {
-	it("returns false for null row", () => {
-		expect(hasProviderKey(null)).toBe(false);
-		expect(hasProviderKey(undefined)).toBe(false);
+describe("readProviderKeyMask", () => {
+	it("returns the encrypted key's mask", () => {
+		expect(readProviderKeyMask({ tokenMasked: "sk-live-1234•••••" })).toBe(
+			"sk-live-1234•••••",
+		);
 	});
 
-	it("returns false for a row with no token material", () => {
-		expect(hasProviderKey(legacyRow(null))).toBe(false);
-	});
-
-	it("returns true for a legacy plaintext row", () => {
-		expect(hasProviderKey(legacyRow("anything"))).toBe(true);
-	});
-
-	it("returns true for an encrypted row", () => {
-		expect(hasProviderKey(encryptedRow("anything"))).toBe(true);
-	});
-
-	it("never decrypts (works with garbage ciphertext)", () => {
-		// Even malformed ciphertext is truthy — by design, no decrypt cost.
-		expect(
-			hasProviderKey({
-				id: ROW_ID,
-				organizationId: ORG_ID,
-				token: null,
-				tokenCiphertext: "obviously-not-a-valid-ciphertext",
-			}),
-		).toBe(true);
-	});
-
-	it("treats absent tokenCiphertext field as legacy (stale SWR mirror)", () => {
-		const staleCachedRow = {
-			id: ROW_ID,
-			organizationId: ORG_ID,
-			token: "anything",
-		} as ProviderKeyRowLike;
-		expect(hasProviderKey(staleCachedRow)).toBe(true);
-	});
-
-	it("returns false when both fields are absent (empty stale row)", () => {
-		const empty = { id: ROW_ID, organizationId: ORG_ID } as ProviderKeyRowLike;
-		expect(hasProviderKey(empty)).toBe(false);
+	it("throws when the mask is missing", () => {
+		expect(() => readProviderKeyMask({ tokenMasked: null })).toThrow(
+			"Provider key mask is missing",
+		);
 	});
 });
 

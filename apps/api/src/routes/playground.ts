@@ -1,16 +1,19 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { getCookie, setCookie } from "hono/cookie";
+import { getCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 
 import { awardLoungePoints } from "@/utils/lounge-points.js";
 import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
+import {
+	getOrCreatePlaygroundApiKey,
+	PLAYGROUND_KEY_COOKIE_NAME,
+	setPlaygroundKeyCookie,
+} from "@/utils/playground-key.js";
 
-import { db, tables, shortid, desc, eq, and, sql } from "@llmgateway/db";
+import { db, tables, desc, eq, and, sql } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
-
-const COOKIE_NAME = "llmgateway_playground_key";
 
 const playground = new OpenAPIHono<ServerTypes>();
 
@@ -32,7 +35,11 @@ const ensureKey = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({ ok: z.boolean(), token: z.string() }),
+					schema: z.object({
+						ok: z.boolean(),
+						token: z.string(),
+						expiresIn: z.number().int().positive(),
+					}),
 				},
 			},
 			description: "Ensured playground key and set cookie",
@@ -69,40 +76,16 @@ playground.openapi(ensureKey, async (c) => {
 		});
 	}
 
-	// Find any active API key for this project
-	let key = await db.query.apiKey.findFirst({
-		where: {
-			projectId: { eq: projectId },
-			status: { eq: "active" },
-		},
-	});
-
-	if (!key) {
-		const prefix =
-			process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
-		const token = prefix + shortid(40);
-		[key] = await db
-			.insert(tables.apiKey)
-			.values({
-				token,
-				projectId,
-				description: "Auto-generated playground key",
-				usageLimit: null,
-				createdBy: user.id,
-			})
-			.returning();
-	}
+	const { token, cookieMaxAge } = await getOrCreatePlaygroundApiKey(
+		projectId,
+		user.id,
+		getCookie(c, PLAYGROUND_KEY_COOKIE_NAME),
+	);
 
 	// Set httpOnly cookie for playground API key (API domain)
-	setCookie(c, COOKIE_NAME, key.token, {
-		httpOnly: true,
-		secure: process.env.NODE_ENV === "production",
-		sameSite: "Lax",
-		path: "/",
-		maxAge: 60 * 60 * 24 * 30, // 30 days
-	});
+	setPlaygroundKeyCookie(c, token, cookieMaxAge);
 
-	return c.json({ ok: true, token: key.token });
+	return c.json({ ok: true, token, expiresIn: cookieMaxAge });
 });
 
 const getChatOrg = createRoute({
@@ -169,7 +152,7 @@ const getKey = createRoute({
 });
 
 playground.openapi(getKey, async (c) => {
-	const cookie = getCookie(c, COOKIE_NAME);
+	const cookie = getCookie(c, PLAYGROUND_KEY_COOKIE_NAME);
 	return c.json({ hasKey: !!cookie });
 });
 

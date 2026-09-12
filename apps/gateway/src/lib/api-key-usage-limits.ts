@@ -3,8 +3,8 @@ import { HTTPException } from "hono/http-exception";
 import {
 	getApiKeyCurrentPeriodState,
 	isApiKeyPeriodLimitConfigured,
-	resolveEffectiveMemberBudget,
-	type InferSelectModel,
+	resolveMemberBudgetPolicies,
+	type ApiKey,
 } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 
@@ -13,11 +13,8 @@ import {
 	findUserOrganizationBudget,
 	getMemberKeyUsage,
 	getMemberPeriodSpend,
+	memberHasEffectiveProjectAccess,
 } from "./cached-queries.js";
-
-import type { tables } from "@llmgateway/db";
-
-type ApiKey = InferSelectModel<typeof tables.apiKey>;
 
 export function assertApiKeyWithinUsageLimits(
 	apiKey: ApiKey,
@@ -57,6 +54,45 @@ export function assertApiKeyWithinUsageLimits(
 }
 
 /**
+ * Fail closed when a normal user key's creator no longer has project access.
+ * Like the budget check below, a failed read (cold cache during a DB outage)
+ * fails OPEN — only a confirmed missing grant rejects.
+ */
+export async function assertMemberProjectAccess(
+	apiKey: ApiKey,
+	organizationId: string,
+): Promise<void> {
+	if (apiKey.keyType !== "user") {
+		return;
+	}
+	let allowed: boolean;
+	try {
+		allowed = await memberHasEffectiveProjectAccess(
+			apiKey.createdBy,
+			organizationId,
+			apiKey.projectId,
+		);
+	} catch (e) {
+		logger.error(
+			"member project access check unavailable, allowing request",
+			toError(e),
+			{
+				userId: apiKey.createdBy,
+				organizationId,
+				projectId: apiKey.projectId,
+			},
+		);
+		return;
+	}
+	if (!allowed) {
+		throw new HTTPException(403, {
+			message:
+				"This API key's creator no longer has access to the key's project.",
+		});
+	}
+}
+
+/**
  * Enforce the per-member budget set on the Teams page. Reads spend from the
  * durable per-key sources (apiKey.usage + apiKeyHourlyStats.cost) through the
  * SWR cache, so it fails OPEN: a cold cache during a Postgres outage must not
@@ -84,7 +120,7 @@ export async function assertMemberWithinBudget(
 		// The org-wide default developer budget is the fallback; the member's own
 		// values override it field by field.
 		const org = await findOrganizationById(organizationId);
-		const budget = resolveEffectiveMemberBudget(
+		const policies = resolveMemberBudgetPolicies(
 			memberBudget.role,
 			memberBudget,
 			{
@@ -97,9 +133,14 @@ export async function assertMemberWithinBudget(
 				defaultDeveloperPeriodUsageDurationUnit:
 					org?.defaultDeveloperPeriodUsageDurationUnit ?? null,
 			},
+			memberBudget.teamBudget,
 		);
 
-		if (!budget.usageLimit && !budget.periodUsageLimit) {
+		if (
+			policies.every(
+				({ budget }) => !budget.usageLimit && !budget.periodUsageLimit,
+			)
+		) {
 			return;
 		}
 
@@ -108,25 +149,27 @@ export async function assertMemberWithinBudget(
 			organizationId,
 		);
 
-		if (budget.usageLimit && lifetimeUsage >= Number(budget.usageLimit)) {
-			throw new HTTPException(403, {
-				message: "Member has reached their total spend budget.",
-			});
-		}
-
-		if (isApiKeyPeriodLimitConfigured(budget) && keyIds.length) {
-			const spend = await getMemberPeriodSpend(
-				organizationId,
-				userId,
-				keyIds,
-				budget.periodUsageDurationUnit,
-				budget.periodUsageDurationValue,
-				now,
-			);
-			if (spend >= Number(budget.periodUsageLimit)) {
+		for (const { source, budget } of policies) {
+			if (budget.usageLimit && lifetimeUsage >= Number(budget.usageLimit)) {
 				throw new HTTPException(403, {
-					message: "Member has reached their period spend budget.",
+					message: `Member has reached their ${source} total spend budget.`,
 				});
+			}
+
+			if (isApiKeyPeriodLimitConfigured(budget) && keyIds.length) {
+				const spend = await getMemberPeriodSpend(
+					organizationId,
+					userId,
+					keyIds,
+					budget.periodUsageDurationUnit,
+					budget.periodUsageDurationValue,
+					now,
+				);
+				if (spend >= Number(budget.periodUsageLimit)) {
+					throw new HTTPException(403, {
+						message: `Member has reached their ${source} period spend budget.`,
+					});
+				}
 			}
 		}
 	} catch (e) {

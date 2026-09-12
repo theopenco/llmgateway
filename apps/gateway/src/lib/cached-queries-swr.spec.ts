@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import {
 	redisClient,
 	SWR_PREFIX,
@@ -21,8 +22,9 @@ import {
 	user,
 	userOrganization,
 } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
-import { getApiKeyFingerprint } from "./api-key-fingerprint.js";
+import { getApiKeyFingerprints } from "./api-key-fingerprint.js";
 import {
 	findActiveIamRules,
 	findActiveCustomModels,
@@ -131,7 +133,7 @@ describe("cached-queries SWR integration", () => {
 
 		await db.insert(apiKey).values({
 			id: testApiKeyId,
-			token: testApiKeyToken,
+			...hashApiKeyForStorage(testApiKeyToken),
 			projectId: testProjectId,
 			description: "Test API Key for SWR testing",
 			status: "active",
@@ -140,7 +142,11 @@ describe("cached-queries SWR integration", () => {
 
 		await db.insert(providerKey).values({
 			id: testProviderKeyOpenAi,
-			token: "swr-test-openai-token",
+			...encryptProviderKeyForStorage(
+				"swr-test-openai-token",
+				testProviderKeyOpenAi,
+				testOrgId,
+			),
 			provider: "openai",
 			organizationId: testOrgId,
 			status: "active",
@@ -148,7 +154,11 @@ describe("cached-queries SWR integration", () => {
 
 		await db.insert(providerKey).values({
 			id: testProviderKeyAnthropic,
-			token: "swr-test-anthropic-token",
+			...encryptProviderKeyForStorage(
+				"swr-test-anthropic-token",
+				testProviderKeyAnthropic,
+				testOrgId,
+			),
 			provider: "anthropic",
 			organizationId: testOrgId,
 			status: "active",
@@ -156,7 +166,11 @@ describe("cached-queries SWR integration", () => {
 
 		await db.insert(providerKey).values({
 			id: testCustomProviderKey,
-			token: "swr-test-custom-token",
+			...encryptProviderKeyForStorage(
+				"swr-test-custom-token",
+				testCustomProviderKey,
+				testOrgId,
+			),
 			provider: "custom",
 			name: "swr-custom-provider",
 			baseUrl: "https://custom.example.com",
@@ -205,6 +219,7 @@ describe("cached-queries SWR integration", () => {
 
 	afterEach(async () => {
 		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
 		await waitForSwrMirrorWrites();
 		await db.delete(apiKeyIamRule);
 		await db.delete(apiKey);
@@ -227,7 +242,7 @@ describe("cached-queries SWR integration", () => {
 			await waitForSwrMirrorWrites();
 
 			const mirror = await redisClient.get(
-				`${SWR_PREFIX}apiKey:token:${getApiKeyFingerprint(testApiKeyToken)}`,
+				`${SWR_PREFIX}apiKey:token:${getApiKeyFingerprints(testApiKeyToken).join(":")}`,
 			);
 			expect(mirror).not.toBeNull();
 			const raw = await redisClient.get(
@@ -374,6 +389,39 @@ describe("cached-queries SWR integration", () => {
 	});
 
 	describe("fallback when DB fails", () => {
+		it("does not use a mirror after its hash secret is retired", async () => {
+			const retiredToken = "sk-retired-secret-token";
+			vi.stubEnv("GATEWAY_API_KEY_HASH_SECRET", "retired-secret");
+			await db.insert(apiKey).values({
+				id: "test-retired-secret-key",
+				...hashApiKeyForStorage(retiredToken),
+				projectId: testProjectId,
+				description: "Retired secret key",
+				status: "active",
+				createdBy: testUserId,
+			});
+
+			vi.stubEnv(
+				"GATEWAY_API_KEY_HASH_SECRET",
+				"current-secret,retired-secret",
+			);
+			expect((await findApiKeyByToken(retiredToken))?.id).toBe(
+				"test-retired-secret-key",
+			);
+			await waitForSwrMirrorWrites();
+			await flushDrizzleCache();
+
+			vi.stubEnv("GATEWAY_API_KEY_HASH_SECRET", "current-secret");
+			const selectSpy = vi.spyOn(cdb, "select").mockImplementation(() => {
+				throw new Error("postgres unavailable");
+			});
+
+			await expect(findApiKeyByToken(retiredToken)).rejects.toThrow(
+				"postgres unavailable",
+			);
+			selectSpy.mockRestore();
+		});
+
 		it("returns SWR mirror when Drizzle cache is flushed and DB errors", async () => {
 			await findApiKeyByToken(testApiKeyToken);
 			await waitForSwrMirrorWrites();
@@ -394,7 +442,11 @@ describe("cached-queries SWR integration", () => {
 		it("model-restricted managed scopes survive a DB outage via SWR", async () => {
 			await db.insert(providerKey).values({
 				id: "swr-managed-restricted",
-				token: "swr-managed-restricted-token",
+				...encryptProviderKeyForStorage(
+					"swr-managed-restricted-token",
+					"swr-managed-restricted",
+					null,
+				),
 				provider: "openai",
 				managed: true,
 				organizationId: null,
@@ -439,7 +491,11 @@ describe("cached-queries SWR integration", () => {
 				.where(eq(providerKey.id, testProviderKeyOpenAi));
 			await db.insert(providerKey).values({
 				id: "swr-openai-unrestricted",
-				token: "swr-openai-unrestricted-token",
+				...encryptProviderKeyForStorage(
+					"swr-openai-unrestricted-token",
+					"swr-openai-unrestricted",
+					testOrgId,
+				),
 				provider: "openai",
 				organizationId: testOrgId,
 				status: "active",

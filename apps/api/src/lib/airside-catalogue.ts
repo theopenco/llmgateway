@@ -1,0 +1,381 @@
+import {
+	and,
+	cdb,
+	eq,
+	isNotNull,
+	isNull,
+	notInArray,
+	tables,
+} from "@llmgateway/db";
+import {
+	expandAllProviderRegions,
+	models as catalogueModels,
+	staticCatalogueMapsModel,
+} from "@llmgateway/models";
+
+import type { AirsideRegionPrice } from "@llmgateway/db";
+import type { ProviderModelMapping } from "@llmgateway/models";
+
+type DraftModelRow = typeof tables.providerDraftModel.$inferSelect;
+type CatalogueTransaction = Parameters<
+	Parameters<typeof cdb.transaction>[0]
+>[0];
+
+interface FilingPrices {
+	inputPrice: string;
+	outputPrice: string;
+	cachedInputPrice: string | null;
+	requestPrice: string | null;
+	regionPrices?: AirsideRegionPrice[] | null;
+}
+
+/**
+ * Materialization of approved Airside listings into the DB catalogue tables
+ * (`model` + `model_provider_mapping`). Those tables back /internal/models
+ * and /internal/providers, which feed the public models directory and the
+ * playground selector — so an approved listing shows up everywhere the
+ * synced catalogue does. The mapping source records Airside ownership so the
+ * worker's static catalogue sync does not overwrite carrier-managed rows.
+ */
+
+/** Active static mappings must be imported before a carrier can manage them. */
+export function staticCatalogueHasActiveMapping(
+	providerId: string,
+	modelName: string,
+): boolean {
+	return staticCatalogueMapsModel(providerId, modelName, { activeOnly: true });
+}
+
+export async function materializeAirsideModel(
+	model: DraftModelRow,
+	filing: FilingPrices,
+	transaction?: CatalogueTransaction,
+): Promise<void> {
+	const upsert = async (tx: CatalogueTransaction) => {
+		// The worker sync normally creates provider rows at boot; make the
+		// materialization self-sufficient for fresh installs and tests.
+		await tx
+			.insert(tables.provider)
+			.values({
+				id: model.providerId,
+				name: model.providerId,
+				description: "",
+			})
+			.onConflictDoNothing();
+		// Existence reads gate FK-dependent writes: a cached answer (cdb caches
+		// select-builder queries) can outlive an uncached delete and skip the
+		// insert the mapping rows depend on.
+		const existingModel = await tx
+			.select({ id: tables.model.id })
+			.from(tables.model)
+			.where(eq(tables.model.id, model.modelName))
+			.limit(1)
+			.$withCache(false);
+		if (existingModel.length === 0) {
+			await tx.insert(tables.model).values({
+				id: model.modelName,
+				family: model.family ?? model.providerId,
+				name: model.displayName ?? model.modelName,
+				description: model.description ?? undefined,
+				status: "active",
+			});
+		}
+		const existingMapping = await tx
+			.select({ id: tables.modelProviderMapping.id })
+			.from(tables.modelProviderMapping)
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, model.modelName),
+					eq(tables.modelProviderMapping.providerId, model.providerId),
+					isNull(tables.modelProviderMapping.region),
+				),
+			)
+			.limit(1)
+			.$withCache(false);
+		const mappingValues = {
+			externalId: model.externalId,
+			apiFormat: model.apiFormat,
+			source: "airside" as const,
+			inputPrice: filing.inputPrice,
+			outputPrice: filing.outputPrice,
+			cachedInputPrice: filing.cachedInputPrice,
+			requestPrice: filing.requestPrice,
+			quantization: model.quantization,
+			contextSize: model.contextSize,
+			maxOutput: model.maxOutput,
+			streaming: model.streaming,
+			vision: model.vision,
+			audio: model.audio,
+			tools: model.tools,
+			jsonOutput: model.jsonOutput,
+			jsonOutputSchema: model.jsonOutputSchema,
+			reasoning: model.reasoning,
+			reasoningMaxTokens: model.reasoningMaxTokens,
+			reasoningEfforts: model.reasoningEfforts,
+			webSearch: model.webSearch,
+			status: "active" as const,
+			deactivatedAt: null,
+		};
+		if (existingMapping.length > 0) {
+			await tx
+				.update(tables.modelProviderMapping)
+				.set(mappingValues)
+				.where(eq(tables.modelProviderMapping.id, existingMapping[0].id));
+		} else {
+			await tx.insert(tables.modelProviderMapping).values({
+				modelId: model.modelName,
+				providerId: model.providerId,
+				...mappingValues,
+			});
+		}
+		// The listing owns every row of the pair: upsert one row per filed
+		// region and drop the rest — regions no longer filed as well as stale
+		// catalogue-sourced regional leftovers from before the takeover.
+		const regionPrices = filing.regionPrices ?? [];
+		for (const regionPrice of regionPrices) {
+			const regionValues = {
+				...mappingValues,
+				inputPrice: regionPrice.inputPrice,
+				outputPrice: regionPrice.outputPrice,
+				cachedInputPrice:
+					regionPrice.cachedInputPrice ?? filing.cachedInputPrice,
+				requestPrice: regionPrice.requestPrice ?? filing.requestPrice,
+			};
+			const existingRegion = await tx
+				.select({ id: tables.modelProviderMapping.id })
+				.from(tables.modelProviderMapping)
+				.where(
+					and(
+						eq(tables.modelProviderMapping.modelId, model.modelName),
+						eq(tables.modelProviderMapping.providerId, model.providerId),
+						eq(tables.modelProviderMapping.region, regionPrice.region),
+					),
+				)
+				.limit(1)
+				.$withCache(false);
+			if (existingRegion.length > 0) {
+				await tx
+					.update(tables.modelProviderMapping)
+					.set(regionValues)
+					.where(eq(tables.modelProviderMapping.id, existingRegion[0].id));
+			} else {
+				await tx.insert(tables.modelProviderMapping).values({
+					modelId: model.modelName,
+					providerId: model.providerId,
+					region: regionPrice.region,
+					...regionValues,
+				});
+			}
+		}
+		const filedRegions = regionPrices.map((regionPrice) => regionPrice.region);
+		await tx
+			.delete(tables.modelProviderMapping)
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, model.modelName),
+					eq(tables.modelProviderMapping.providerId, model.providerId),
+					isNotNull(tables.modelProviderMapping.region),
+					...(filedRegions.length > 0
+						? [notInArray(tables.modelProviderMapping.region, filedRegions)]
+						: []),
+				),
+			);
+	};
+	if (transaction) {
+		await upsert(transaction);
+		return;
+	}
+	await cdb.transaction(upsert);
+}
+
+/** Apply approved metadata to the live catalogue mappings. */
+export async function syncAirsideModelMetadata(
+	model: DraftModelRow,
+	transaction?: CatalogueTransaction,
+): Promise<void> {
+	if (model.status !== "active") {
+		return;
+	}
+	const sync = async (tx: CatalogueTransaction) => {
+		const isStaticModel = catalogueModels.some(
+			(definition) => definition.id === model.modelName,
+		);
+		if (!isStaticModel) {
+			await tx
+				.update(tables.model)
+				.set({
+					name: model.displayName ?? model.modelName,
+					description: model.description ?? "",
+					family: model.family ?? model.providerId,
+				})
+				.where(eq(tables.model.id, model.modelName));
+		}
+		await tx
+			.update(tables.modelProviderMapping)
+			.set({
+				quantization: model.quantization,
+				contextSize: model.contextSize,
+				maxOutput: model.maxOutput,
+				streaming: model.streaming,
+				vision: model.vision,
+				audio: model.audio,
+				tools: model.tools,
+				jsonOutput: model.jsonOutput,
+				jsonOutputSchema: model.jsonOutputSchema,
+				reasoning: model.reasoning,
+				reasoningMaxTokens: model.reasoningMaxTokens,
+				reasoningEfforts: model.reasoningEfforts,
+				webSearch: model.webSearch,
+			})
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, model.modelName),
+					eq(tables.modelProviderMapping.providerId, model.providerId),
+					eq(tables.modelProviderMapping.source, "airside"),
+				),
+			);
+	};
+	if (transaction) {
+		await sync(transaction);
+		return;
+	}
+	await cdb.transaction(sync);
+}
+
+/** Upsert an approved price update into the materialized catalogue. */
+export async function updateAirsideMappingPrices(
+	model: DraftModelRow,
+	filing: FilingPrices,
+	transaction?: CatalogueTransaction,
+): Promise<void> {
+	await materializeAirsideModel(model, filing, transaction);
+}
+
+/** Exact canonical id only: a listing keyed by an alias has no catalogue row
+ *  to restore, so it is DB-only and removed on delist. */
+function findStaticMappings(providerId: string, modelName: string) {
+	const definition = catalogueModels.find((model) => model.id === modelName);
+	if (!definition) {
+		return null;
+	}
+	const mappings = expandAllProviderRegions(definition.providers).filter(
+		(candidate) => candidate.providerId === providerId,
+	) as ProviderModelMapping[];
+	const base = mappings.find((candidate) => candidate.region === undefined);
+	return base
+		? {
+				definition,
+				mapping: base,
+				regionMappings: mappings.filter(
+					(candidate) => candidate.region !== undefined,
+				),
+			}
+		: null;
+}
+
+function staticMappingValues(mapping: ProviderModelMapping) {
+	return {
+		externalId: mapping.externalId,
+		apiFormat: mapping.apiFormat ?? null,
+		source: "catalogue" as const,
+		inputPrice: mapping.inputPrice?.toString() ?? null,
+		outputPrice: mapping.outputPrice?.toString() ?? null,
+		cachedInputPrice: mapping.cachedInputPrice?.toString() ?? null,
+		cacheWriteInputPrice: mapping.cacheWriteInputPrice?.toString() ?? null,
+		cacheWriteInputPrice1h: mapping.cacheWriteInputPrice1h?.toString() ?? null,
+		imageInputPrice: mapping.imageInputPrice?.toString() ?? null,
+		requestPrice: mapping.requestPrice?.toString() ?? null,
+		quantization: mapping.quantization ?? null,
+		contextSize: mapping.contextSize ?? null,
+		maxOutput: mapping.maxOutput ?? null,
+		streaming: mapping.streaming !== false,
+		vision: mapping.vision ?? null,
+		audio: mapping.audio ?? null,
+		reasoning: mapping.reasoning ?? null,
+		reasoningMaxTokens: mapping.reasoningMaxTokens ?? false,
+		reasoningOutput: mapping.reasoningOutput ?? null,
+		reasoningEfforts: null,
+		tools: mapping.tools ?? null,
+		jsonOutput: mapping.jsonOutput ?? false,
+		jsonOutputSchema: mapping.jsonOutputSchema ?? false,
+		webSearch: mapping.webSearch ?? false,
+		webSearchPrice: mapping.webSearchPrice?.toString() ?? null,
+		stability: mapping.stability ?? "stable",
+		supportedParameters:
+			(mapping.supportedParameters as string[] | undefined) ?? null,
+		test: mapping.test ?? null,
+		deprecatedAt: mapping.deprecatedAt ?? null,
+		deactivatedAt: mapping.deactivatedAt ?? null,
+		status: "active" as const,
+	};
+}
+
+/** Restore the static mapping(s), or remove a DB-only mapping, on delist. */
+export async function dematerializeAirsideModel(
+	providerId: string,
+	modelName: string,
+	transaction?: CatalogueTransaction,
+): Promise<void> {
+	const staticEntry = findStaticMappings(providerId, modelName);
+	const remove = async (tx: CatalogueTransaction) => {
+		// Regional rows carry filed regional prices; the static catalogue is
+		// the only source of regional variants once the listing is gone.
+		await tx
+			.delete(tables.modelProviderMapping)
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, modelName),
+					eq(tables.modelProviderMapping.providerId, providerId),
+					isNotNull(tables.modelProviderMapping.region),
+					eq(tables.modelProviderMapping.source, "airside"),
+				),
+			);
+		const mappingWhere = and(
+			eq(tables.modelProviderMapping.modelId, modelName),
+			eq(tables.modelProviderMapping.providerId, providerId),
+			isNull(tables.modelProviderMapping.region),
+			eq(tables.modelProviderMapping.source, "airside"),
+		);
+		if (staticEntry) {
+			await tx
+				.update(tables.modelProviderMapping)
+				.set(staticMappingValues(staticEntry.mapping))
+				.where(mappingWhere);
+			for (const regionMapping of staticEntry.regionMappings) {
+				await tx
+					.insert(tables.modelProviderMapping)
+					.values({
+						modelId: modelName,
+						providerId,
+						region: regionMapping.region,
+						...staticMappingValues(regionMapping),
+					})
+					.onConflictDoUpdate({
+						target: [
+							tables.modelProviderMapping.modelId,
+							tables.modelProviderMapping.providerId,
+							tables.modelProviderMapping.region,
+						],
+						set: staticMappingValues(regionMapping),
+					});
+			}
+		} else {
+			await tx.delete(tables.modelProviderMapping).where(mappingWhere);
+		}
+		// A model row without any mappings has no catalogue representation.
+		const remaining = await tx
+			.select({ id: tables.modelProviderMapping.id })
+			.from(tables.modelProviderMapping)
+			.where(eq(tables.modelProviderMapping.modelId, modelName))
+			.limit(1)
+			.$withCache(false);
+		if (remaining.length === 0) {
+			await tx.delete(tables.model).where(eq(tables.model.id, modelName));
+		}
+	};
+	if (transaction) {
+		await remove(transaction);
+		return;
+	}
+	await cdb.transaction(remove);
+}

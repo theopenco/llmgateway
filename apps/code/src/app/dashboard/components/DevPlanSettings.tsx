@@ -11,6 +11,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useApi } from "@/lib/fetch-client";
 
 import type { ProviderCacheControlMode } from "@llmgateway/models";
@@ -56,15 +57,15 @@ const PROVIDER_CACHE_OPTIONS: Array<{
 ];
 
 interface DevPlanSettingsProps {
-	canConfigureServiceTier: boolean;
 	devPlanServiceTier: ServiceTier;
+	blockApiTraining: boolean;
 	defaultRoutingStrategy: RoutingStrategy;
 	providerCacheControlMode: ProviderCacheControlMode;
 }
 
 export default function DevPlanSettings({
-	canConfigureServiceTier,
 	devPlanServiceTier: initialServiceTier,
+	blockApiTraining: initialBlockApiTraining,
 	defaultRoutingStrategy: initialRoutingStrategy,
 	providerCacheControlMode: initialProviderCacheControlMode,
 }: DevPlanSettingsProps) {
@@ -78,6 +79,11 @@ export default function DevPlanSettings({
 	const [serviceTier, setServiceTier] =
 		useState<ServiceTier>(initialServiceTier);
 	const [isUpdatingServiceTier, setIsUpdatingServiceTier] = useState(false);
+	const [blockApiTraining, setBlockApiTraining] = useState(
+		initialBlockApiTraining,
+	);
+	const [isUpdatingBlockApiTraining, setIsUpdatingBlockApiTraining] =
+		useState(false);
 	const [providerCacheControlMode, setProviderCacheControlMode] =
 		useState<ProviderCacheControlMode>(initialProviderCacheControlMode);
 	const [isUpdatingProviderCache, setIsUpdatingProviderCache] = useState(false);
@@ -105,6 +111,25 @@ export default function DevPlanSettings({
 			toast.error("Failed to update routing strategy");
 		} finally {
 			setIsUpdatingRouting(false);
+		}
+	};
+
+	const handleBlockApiTrainingChange = async (enabled: boolean) => {
+		const previous = blockApiTraining;
+		setBlockApiTraining(enabled);
+		setIsUpdatingBlockApiTraining(true);
+		try {
+			await updateSettingsMutation.mutateAsync({
+				body: { blockApiTraining: enabled },
+			});
+			toast.success(
+				enabled ? "No-training routing enabled" : "Standard routing enabled",
+			);
+		} catch {
+			setBlockApiTraining(previous);
+			toast.error("Failed to update AI training preference");
+		} finally {
+			setIsUpdatingBlockApiTraining(false);
 		}
 	};
 
@@ -158,6 +183,35 @@ export default function DevPlanSettings({
 		<div>
 			<h2 className="mb-4 font-semibold">Settings</h2>
 			<div className="space-y-4">
+				<div className="rounded-xl border p-5">
+					<div className="flex items-start justify-between gap-4">
+						<div className="space-y-0.5">
+							<Label
+								htmlFor="block-api-training"
+								className="text-sm font-medium"
+							>
+								No AI training
+							</Label>
+							<p
+								id="block-api-training-description"
+								className="text-xs text-muted-foreground"
+							>
+								Only route through providers that explicitly state API inputs
+								aren&apos;t used to train models. Providers with unknown
+								policies are excluded, so some models may be unavailable.
+								DevPass remains metadata-only either way.
+							</p>
+						</div>
+						<Switch
+							id="block-api-training"
+							aria-describedby="block-api-training-description"
+							checked={blockApiTraining}
+							onCheckedChange={handleBlockApiTrainingChange}
+							disabled={isUpdatingBlockApiTraining}
+						/>
+					</div>
+				</div>
+
 				<div className="rounded-xl border p-5 space-y-4">
 					<div className="flex items-center justify-between gap-4">
 						<div className="space-y-0.5">
@@ -248,51 +302,45 @@ export default function DevPlanSettings({
 					</div>
 				</div>
 
-				{canConfigureServiceTier && (
-					<div className="rounded-xl border p-5 space-y-4">
-						<div className="flex items-center justify-between gap-4">
-							<div className="space-y-0.5">
-								<Label htmlFor="service-tier" className="text-sm font-medium">
-									Default service tier
-								</Label>
-								<p className="text-xs text-muted-foreground">
-									Flex processing costs less and saves your plan credits, but
-									responses may be slower during peak demand. Only applied for
-									models that support it — everything else stays on standard
-									processing.{" "}
-									<a
-										href="https://docs.llmgateway.io/features/service-tiers"
-										target="_blank"
-										rel="noreferrer"
-										className="underline underline-offset-2"
-									>
-										Learn more
-									</a>
-								</p>
-							</div>
-							<Select
-								value={serviceTier}
-								onValueChange={handleServiceTierChange}
-								disabled={isUpdatingServiceTier}
-							>
-								<SelectTrigger
-									id="service-tier"
-									size="sm"
-									className="w-[180px]"
+				<div className="rounded-xl border p-5 space-y-4">
+					<div className="flex items-center justify-between gap-4">
+						<div className="space-y-0.5">
+							<Label htmlFor="service-tier" className="text-sm font-medium">
+								Default service tier
+							</Label>
+							<p className="text-xs text-muted-foreground">
+								Flex processing costs less and saves your plan credits, but
+								responses may be slower during peak demand. Only applied for
+								models that support it — everything else stays on standard
+								processing.{" "}
+								<a
+									href="https://docs.llmgateway.io/features/service-tiers"
+									target="_blank"
+									rel="noreferrer"
+									className="underline underline-offset-2"
 								>
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									{SERVICE_TIER_OPTIONS.map((option) => (
-										<SelectItem key={option.value} value={option.value}>
-											{option.label}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
+									Learn more
+								</a>
+							</p>
 						</div>
+						<Select
+							value={serviceTier}
+							onValueChange={handleServiceTierChange}
+							disabled={isUpdatingServiceTier}
+						>
+							<SelectTrigger id="service-tier" size="sm" className="w-[180px]">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								{SERVICE_TIER_OPTIONS.map((option) => (
+									<SelectItem key={option.value} value={option.value}>
+										{option.label}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
 					</div>
-				)}
+				</div>
 			</div>
 		</div>
 	);

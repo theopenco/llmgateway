@@ -92,7 +92,7 @@ Once configured, all Autohand Code requests appear in your LLM Gateway dashboard
 ## Get Started
 
 1. [Sign up free](https://llmgateway.io/signup) — no credit card required
-2. Copy your API key from the dashboard
+2. Create or roll an API key in the dashboard and copy the newly shown secret
 3. Set the environment variables above
 4. Run `autohand` and start coding
 

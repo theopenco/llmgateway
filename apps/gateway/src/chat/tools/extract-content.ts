@@ -16,6 +16,7 @@ export function extractContent(data: any, provider: Provider): string {
 		}
 		case "anthropic":
 		case "vertex-anthropic":
+		case "azure-anthropic":
 			if (data.type === "content_block_delta" && data.delta?.text) {
 				return data.delta.text;
 			} else if (data.delta?.text) {

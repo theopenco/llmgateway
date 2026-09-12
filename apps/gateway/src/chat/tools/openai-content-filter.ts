@@ -4,8 +4,13 @@ import {
 } from "@/lib/cached-queries.js";
 import { isCancellationError, isTimeoutError } from "@/lib/timeout-config.js";
 
-import { getProviderHeaders, readProviderKey } from "@llmgateway/actions";
+import {
+	getProviderDefaultBaseUrl,
+	getProviderHeaders,
+	readProviderKey,
+} from "@llmgateway/actions";
 import { logger } from "@llmgateway/logger";
+import { getProviderEnvValue } from "@llmgateway/models";
 
 import { extractErrorCause } from "./extract-error-cause.js";
 import { getProviderEnv } from "./get-provider-env.js";
@@ -68,7 +73,7 @@ interface OpenAIContentFilterRequestResult {
 }
 
 const OPENAI_MODERATION_MODEL = "omni-moderation-latest";
-const OPENAI_MODERATION_URL = "https://api.openai.com/v1/moderations";
+const OPENAI_MODERATION_PATH = "/v1/moderations";
 const OPENAI_MODERATION_TIMEOUT_MS = 60_000;
 const DEFAULT_OPENAI_MODERATION_SCORE_THRESHOLD = 0.75;
 
@@ -359,13 +364,22 @@ function createFailedOpenAIContentFilterResult(
 	};
 }
 
+interface ContentFilterCredential {
+	providerToken: string;
+	moderationUrl: string;
+}
+
 /**
  * The OpenAI credential the moderation call runs on. A managed credential
  * supersedes the env vars for its provider entirely, so once one exists the
  * environment is never read — and a provider whose managed credentials cannot
- * serve the call has no env key left to fall back to.
+ * serve the call has no env key left to fall back to. The base URL follows
+ * the same credential, so a proxied deployment moderates through its proxy.
  */
-async function resolveContentFilterToken(): Promise<string> {
+async function resolveContentFilterCredential(): Promise<ContentFilterCredential> {
+	const defaultBaseUrl = getProviderDefaultBaseUrl("openai") ?? "";
+	const moderationUrl = (baseUrl: string) =>
+		`${baseUrl.replace(/\/+$/, "")}${OPENAI_MODERATION_PATH}`;
 	if (await hasManagedProviderCredential("openai")) {
 		const managedKey = await findManagedProviderKey("openai", {
 			selectionScope: OPENAI_MODERATION_MODEL,
@@ -375,15 +389,23 @@ async function resolveContentFilterToken(): Promise<string> {
 				"No managed credential available for provider: openai (content filter)",
 			);
 		}
-		return readProviderKey(managedKey);
+		return {
+			providerToken: readProviderKey(managedKey),
+			moderationUrl: moderationUrl(
+				managedKey.config?.baseUrl ?? defaultBaseUrl,
+			),
+		};
 	}
-	return getProviderEnv("openai", { advanceRoundRobin: false }).token;
+	const env = getProviderEnv("openai", { advanceRoundRobin: false });
+	const baseUrl =
+		getProviderEnvValue("openai", "baseUrl", env.configIndex) ?? defaultBaseUrl;
+	return { providerToken: env.token, moderationUrl: moderationUrl(baseUrl) };
 }
 
 async function runOpenAIContentFilterRequest(
 	request: OpenAIModerationRequest,
 	context: GatewayContentFilterContext,
-	providerToken: string,
+	credential: ContentFilterCredential,
 	signal: AbortSignal,
 ): Promise<OpenAIContentFilterRequestResult> {
 	const startTime = Date.now();
@@ -391,12 +413,12 @@ async function runOpenAIContentFilterRequest(
 	let upstreamText: string;
 
 	try {
-		upstreamResponse = await fetch(OPENAI_MODERATION_URL, {
+		upstreamResponse = await fetch(credential.moderationUrl, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
 				"X-Client-Request-Id": context.requestId,
-				...getProviderHeaders("openai", providerToken, {
+				...getProviderHeaders("openai", credential.providerToken, {
 					requestId: context.requestId,
 				}),
 			},
@@ -523,10 +545,10 @@ export async function checkOpenAIContentFilter(
 		// vars for their provider, so once OpenAI has one the moderation call
 		// uses it and never reads `LLM_OPENAI_API_KEY`; when none can serve it,
 		// this throws and the filter fails open below.
-		const token = await resolveContentFilterToken();
+		const credential = await resolveContentFilterCredential();
 		const moderationResults = await Promise.all(
 			moderationRequests.map((request) =>
-				runOpenAIContentFilterRequest(request, context, token, signal),
+				runOpenAIContentFilterRequest(request, context, credential, signal),
 			),
 		);
 

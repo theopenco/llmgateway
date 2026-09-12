@@ -5,10 +5,17 @@ import { LegalSummary } from "@/components/LegalSummary";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Terms of Use — DevPass",
+	title: "Terms of Use",
 	description:
-		"Supplemental DevPass Terms of Use. These build on the LLM Gateway Terms of Use and cover the DevPass flat-rate subscription: fair-use limits, one account per developer, personal (non-team) use, approved coding tools, and AI provider policies.",
+		"Supplemental DevPass Terms of Use for the flat-rate subscription: fair-use limits, one account per developer, approved coding tools, and AI provider policies.",
 	alternates: { canonical: "/legal/terms" },
+	openGraph: {
+		title: "DevPass Supplemental Terms of Use",
+		description:
+			"The terms that govern the DevPass flat-rate subscription, on top of the LLM Gateway Terms of Use.",
+		type: "article",
+		url: "https://devpass.llmgateway.io/legal/terms",
+	},
 };
 
 export default function TermsPage() {
@@ -18,7 +25,7 @@ export default function TermsPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> August 18, 2026
+				<strong>Last Updated:</strong> September 4, 2026
 			</p>
 			<LegalSummary variant="terms" />
 			<p>
@@ -123,9 +130,28 @@ export default function TermsPage() {
 				Billing is processed securely through <strong>Stripe</strong>, as
 				described in the Base Terms. By subscribing, you authorize us to charge
 				your payment method for the selected plan and any applicable taxes. All
-				fees are non-refundable except where required by law. You may cancel at
-				any time; your plan remains active until the end of the current billing
-				period.
+				fees are generally non-refundable except where required by law or under
+				the limited goodwill refund option below. You may cancel at any time;
+				your plan remains active until the end of the current billing period.
+			</p>
+			<p>
+				<strong>Limited first-month goodwill refund.</strong> Once you start
+				using your included allowance, you are not entitled to a refund because
+				each processed request causes us to incur real, non-recoverable AI
+				provider costs. As a limited goodwill exception, we may make a full
+				self-service refund available for your initial DevPass plan payment if
+				you request it from your billing dashboard within 14 days of purchase
+				and have used less than 20% of the monthly allowance. The payment and
+				account must also meet the eligibility requirements shown in the billing
+				dashboard. Once usage reaches 20% or more, a refund is not available.
+				Any reference to a &ldquo;first-month guarantee&rdquo; means only this
+				limited goodwill option and does not create a broader right to a refund.
+			</p>
+			<p>
+				If the refund option is available, select <strong>Refund</strong> on the
+				eligible charge in your billing dashboard. An approved refund ends your
+				DevPass subscription and access immediately, and any unused allowance
+				for that billing period is forfeited. There is no cancellation fee.
 			</p>
 			<p>
 				<strong>Plan changes.</strong> You may change tiers at any time from

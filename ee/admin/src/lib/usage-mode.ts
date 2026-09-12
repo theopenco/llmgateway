@@ -2,10 +2,10 @@
  * Billing-mode view for usage reporting: "total" blends credits and BYOK
  * ("api-keys") traffic, the other two narrow to the selected mode.
  *
- * On the global stats page the narrowing happens in SQL — `used_mode` is part
- * of the aggregation key — so every metric reflects the selected mode. Other
- * admin views still read the project hourly tables, where only spend and
- * request counts carry the split.
+ * On global stats and catalogue pages the narrowing happens in SQL —
+ * `used_mode` is part of the aggregation key — so every metric reflects the
+ * selected mode. Organization and project views still read the project hourly
+ * tables, where only spend and request counts carry the split.
  */
 /**
  * Deliberately does NOT include the API's `unknown` bucket. This type is shared
@@ -19,7 +19,7 @@ export type UsageMode = "total" | "credits" | "api-keys";
 export const USAGE_MODE_OPTIONS: { value: UsageMode; label: string }[] = [
 	{ value: "total", label: "All" },
 	{ value: "credits", label: "Credits" },
-	{ value: "api-keys", label: "BYOK" },
+	{ value: "api-keys", label: "Bring Your Own Key" },
 ];
 
 /**

@@ -32,14 +32,16 @@ import {
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Pricing — DevPass",
+	title: "Pricing — Flat-Rate AI Coding Plans",
 	description:
 		"Flat-rate AI coding plans. Lite, Pro, and Max — every plan includes 200+ models metered at provider rates.",
 	alternates: { canonical: "/pricing" },
 	openGraph: {
-		title: "Pricing — DevPass",
+		title: "DevPass Pricing — Flat-Rate AI Coding Plans",
 		description:
 			"Flat-rate AI coding plans. Every plan includes 200+ models — Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro, GLM-4.7, and more.",
+		type: "website",
+		url: "https://devpass.llmgateway.io/pricing",
 	},
 };
 

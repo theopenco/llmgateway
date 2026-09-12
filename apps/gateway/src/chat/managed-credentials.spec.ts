@@ -4,7 +4,9 @@ import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 /**
  * Credits-mode traffic served by platform-managed provider credentials — the
@@ -20,7 +22,7 @@ describe("managed provider credentials", () => {
 	async function seedApiKey() {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
-			token: "real-token",
+			...hashApiKeyForStorage("real-token"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -44,7 +46,7 @@ describe("managed provider credentials", () => {
 		await cdb.insert(tables.providerKey).values({
 			id: values.id,
 			provider: values.provider,
-			token: values.token,
+			...encryptProviderKeyForStorage(values.token, values.id, null),
 			managed: true,
 			organizationId: null,
 			config: values.config,
@@ -770,7 +772,11 @@ describe("managed provider credentials", () => {
 			await cdb.insert(tables.providerKey).values({
 				id: "byok-openai-attribution",
 				provider: "openai",
-				token: "sk-byok-attribution",
+				...encryptProviderKeyForStorage(
+					"sk-byok-attribution",
+					"byok-openai-attribution",
+					"org-id",
+				),
 				organizationId: "org-id",
 			});
 

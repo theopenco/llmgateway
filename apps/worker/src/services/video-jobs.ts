@@ -43,8 +43,6 @@ import {
 } from "@llmgateway/models";
 import {
 	buildGatewayVideoLogContentUrl,
-	getAvalancheApiBaseUrl,
-	getAvalancheJobsApiBaseUrl,
 	getVideoProxyRedisKey,
 	isContentFilterErrorText,
 	VIDEO_PROXY_REDIS_TTL_SECONDS,
@@ -180,16 +178,6 @@ function getDefaultVideoProviderBaseUrl(providerId: Provider): string | null {
 	}
 }
 
-function isSoraVideoModelName(modelName: string): boolean {
-	return modelName === "sora-2" || modelName === "sora-2-pro";
-}
-
-function isAvalancheSoraJob(job: VideoJobRecord): boolean {
-	return (
-		job.usedProvider === "avalanche" && isSoraVideoModelName(job.usedModel)
-	);
-}
-
 async function findActiveProviderKey(
 	organizationId: string,
 	providerId: string,
@@ -303,10 +291,9 @@ async function resolveVideoProviderContext(
 			throw new Error(`No API key set for provider: ${job.usedProvider}`);
 		}
 
-		const baseUrl =
-			providerKey.baseUrl ??
-			getProviderEnvValue(providerId, "baseUrl") ??
-			defaultBaseUrl;
+		// A BYOK key is self-contained: the deployment's env base URL never
+		// applies to an org's own key (mirrors the gateway's skipEnvVars).
+		const baseUrl = providerKey.baseUrl ?? defaultBaseUrl;
 		if (!baseUrl) {
 			throw new Error(`No base URL set for provider: ${job.usedProvider}`);
 		}
@@ -459,32 +446,6 @@ function normalizeVideoStatus(value: unknown): VideoJobRecord["status"] {
 		default:
 			return "queued";
 	}
-}
-
-function normalizeAvalancheSuccessFlag(
-	value: unknown,
-): VideoJobRecord["status"] {
-	if (typeof value === "number") {
-		switch (value) {
-			case 1:
-				return "completed";
-			case 2:
-			case 3:
-			case -1:
-				return "failed";
-			default:
-				return "in_progress";
-		}
-	}
-
-	if (typeof value === "string" && value.length > 0) {
-		const parsed = Number(value);
-		if (!Number.isNaN(parsed)) {
-			return normalizeAvalancheSuccessFlag(parsed);
-		}
-	}
-
-	return "in_progress";
 }
 
 function parseTimestamp(value: unknown): Date | null {
@@ -908,38 +869,6 @@ function getRequestedVideoSize(job: VideoJobRecord): string | null {
 	return null;
 }
 
-function getAvalancheUpgradeTaskId(job: VideoJobRecord): string | null {
-	for (const candidate of getVideoMetadataCandidates(job)) {
-		const value = readNestedValue(candidate, "avalanche_upgrade_task_id");
-		if (typeof value === "string" && value.length > 0) {
-			return value;
-		}
-	}
-
-	return null;
-}
-
-function parseAvalancheResultUrls(value: unknown): string[] {
-	if (Array.isArray(value)) {
-		return value.filter((item): item is string => typeof item === "string");
-	}
-
-	if (typeof value === "string" && value.length > 0) {
-		try {
-			const parsed = JSON.parse(value) as unknown;
-			if (Array.isArray(parsed)) {
-				return parsed.filter(
-					(item): item is string => typeof item === "string",
-				);
-			}
-		} catch {
-			return [value];
-		}
-	}
-
-	return [];
-}
-
 function getRequestedVideoMetadata(job: VideoJobRecord): {
 	size: string;
 	width: number;
@@ -1074,187 +1003,6 @@ function addRequestedVideoMetadata(
 	};
 }
 
-function getRequestedAvalancheResolution(
-	job: VideoJobRecord,
-): "1080p" | "4k" | null {
-	const requestedMetadata = getRequestedVideoMetadata(job);
-	if (
-		requestedMetadata?.resolution === "1080p" ||
-		requestedMetadata?.resolution === "4k"
-	) {
-		return requestedMetadata.resolution;
-	}
-
-	return null;
-}
-
-function readAvalancheResponseData(
-	body: Record<string, unknown>,
-): Record<string, unknown> {
-	return body.data && typeof body.data === "object"
-		? (body.data as Record<string, unknown>)
-		: {};
-}
-
-function getAvalancheMessage(body: Record<string, unknown>): string | null {
-	const data = readAvalancheResponseData(body);
-
-	for (const candidate of [
-		body.msg,
-		body.message,
-		data.msg,
-		data.message,
-		data.errorMessage,
-	]) {
-		if (typeof candidate === "string" && candidate.length > 0) {
-			return candidate;
-		}
-	}
-
-	return null;
-}
-
-function parseAvalancheTaskJsonRecord(
-	value: unknown,
-): Record<string, unknown> | null {
-	if (!value || typeof value !== "string" || value.length === 0) {
-		return null;
-	}
-
-	try {
-		const parsed = JSON.parse(value) as unknown;
-		return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-			? (parsed as Record<string, unknown>)
-			: null;
-	} catch {
-		return null;
-	}
-}
-
-function parseAvalancheTaskResultUrls(value: unknown): string[] {
-	if (Array.isArray(value)) {
-		return value.filter((item): item is string => typeof item === "string");
-	}
-
-	if (typeof value === "string" && value.length > 0) {
-		return [value];
-	}
-
-	return [];
-}
-
-function normalizeAvalancheSoraRecordInfo(
-	job: VideoJobRecord,
-	body: Record<string, unknown>,
-): Record<string, unknown> {
-	const data = readAvalancheResponseData(body);
-	const result = parseAvalancheTaskJsonRecord(data.resultJson);
-	const resultUrls = parseAvalancheTaskResultUrls(result?.resultUrls);
-	const originUrls = parseAvalancheTaskResultUrls(result?.originUrls);
-	const url = resultUrls[0] ?? originUrls[0] ?? null;
-	const status = normalizeVideoStatus(data.state);
-	const progress =
-		typeof data.progress === "number" && Number.isFinite(data.progress)
-			? Math.max(0, Math.min(100, Math.round(data.progress)))
-			: status === "completed" || status === "failed"
-				? 100
-				: status === "in_progress"
-					? 50
-					: 0;
-	const failCode =
-		typeof data.failCode === "string" && data.failCode.length > 0
-			? data.failCode
-			: undefined;
-	const failMsg =
-		typeof data.failMsg === "string" && data.failMsg.length > 0
-			? data.failMsg
-			: null;
-
-	return addRequestedVideoMetadata(job, {
-		status,
-		progress,
-		url,
-		output_url: url,
-		mime_type: url ? "video/mp4" : undefined,
-		completed_at: data.completeTime,
-		created_at: data.createTime,
-		error:
-			status === "failed"
-				? {
-						message: failMsg ?? "Avalanche Sora video generation failed",
-						code: failCode,
-						details: body,
-					}
-				: null,
-		avalanche_result_json: result ?? data.resultJson,
-		avalanche_record_info: body,
-	});
-}
-
-function createAvalanchePendingUpgradeResponse(
-	job: VideoJobRecord,
-	baseResponse: Record<string, unknown>,
-	extra: Record<string, unknown> = {},
-): Record<string, unknown> {
-	return addRequestedVideoMetadata(job, {
-		...baseResponse,
-		...extra,
-		status: "in_progress",
-		progress:
-			typeof extra.progress === "number" && Number.isFinite(extra.progress)
-				? extra.progress
-				: 95,
-		error: null,
-	});
-}
-
-function normalizeAvalancheRecordInfo(
-	job: VideoJobRecord,
-	body: Record<string, unknown>,
-): Record<string, unknown> {
-	const data = readAvalancheResponseData(body);
-	const response =
-		data.response && typeof data.response === "object"
-			? (data.response as Record<string, unknown>)
-			: {};
-	const resultUrls = parseAvalancheResultUrls(
-		response.resultUrls ?? data.resultUrls,
-	);
-	const originUrls = parseAvalancheResultUrls(
-		response.originUrls ?? data.originUrls,
-	);
-	const url = resultUrls[0] ?? originUrls[0] ?? null;
-	const status = normalizeAvalancheSuccessFlag(data.successFlag);
-	const message = getAvalancheMessage(body);
-
-	return addRequestedVideoMetadata(job, {
-		status,
-		progress: status === "completed" ? 100 : status === "failed" ? 100 : 50,
-		url,
-		output_url: url,
-		mime_type: url ? "video/mp4" : undefined,
-		completed_at: data.completeTime,
-		created_at: data.createTime,
-		resolution:
-			typeof response.resolution === "string"
-				? response.resolution
-				: typeof data.resolution === "string"
-					? data.resolution
-					: undefined,
-		fallbackFlag: data.fallbackFlag,
-		error:
-			status === "failed"
-				? {
-						message: message ?? "Avalanche video generation failed",
-						code:
-							typeof data.errorCode === "string" ? data.errorCode : undefined,
-						details: body,
-					}
-				: null,
-		avalanche_record_info: body,
-	});
-}
-
 async function fetchJsonResponse(
 	url: string,
 	init: RequestInit,
@@ -1278,216 +1026,6 @@ async function fetchJsonResponse(
 	}
 
 	return { body, response, responseText };
-}
-
-async function fetchAvalancheRecordInfo(
-	job: VideoJobRecord,
-	providerContext: ResolvedVideoProviderContext,
-	taskId: string,
-): Promise<Record<string, unknown>> {
-	const url = new URL(
-		joinUrl(getAvalancheApiBaseUrl(providerContext.baseUrl), "/record-info"),
-	);
-	url.searchParams.set("taskId", taskId);
-
-	const { body, response } = await fetchJsonResponse(url.toString(), {
-		method: "GET",
-		headers: getVideoProviderHeaders(job, providerContext),
-	});
-
-	if (!response.ok) {
-		throw new Error(
-			getAvalancheMessage(body) ??
-				`Avalanche status request failed with status ${response.status}`,
-		);
-	}
-
-	return body;
-}
-
-async function fetchAvalancheSoraStatus(
-	job: VideoJobRecord,
-	providerContext: ResolvedVideoProviderContext,
-): Promise<Record<string, unknown>> {
-	const url = new URL(
-		joinUrl(getAvalancheJobsApiBaseUrl(providerContext.baseUrl), "/recordInfo"),
-	);
-	url.searchParams.set("taskId", job.upstreamId);
-
-	const { body, response } = await fetchJsonResponse(url.toString(), {
-		method: "GET",
-		headers: getVideoProviderHeaders(job, providerContext),
-	});
-
-	if (!response.ok) {
-		throw new Error(
-			getAvalancheMessage(body) ??
-				`Avalanche Sora status request failed with status ${response.status}`,
-		);
-	}
-
-	return normalizeAvalancheSoraRecordInfo(job, body);
-}
-
-async function fetchAvalanche1080pUpgrade(
-	job: VideoJobRecord,
-	providerContext: ResolvedVideoProviderContext,
-	baseResponse: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-	const url = new URL(
-		joinUrl(
-			getAvalancheApiBaseUrl(providerContext.baseUrl),
-			"/get-1080p-video",
-		),
-	);
-	url.searchParams.set("taskId", job.upstreamId);
-	url.searchParams.set("index", "0");
-
-	const { body, response } = await fetchJsonResponse(url.toString(), {
-		method: "GET",
-		headers: getVideoProviderHeaders(job, providerContext),
-	});
-	const data = readAvalancheResponseData(body);
-	const resultUrl =
-		typeof data.resultUrl === "string"
-			? data.resultUrl
-			: parseAvalancheResultUrls(data.resultUrls)[0];
-
-	if (response.ok && resultUrl) {
-		return addRequestedVideoMetadata(job, {
-			...baseResponse,
-			status: "completed",
-			progress: 100,
-			url: resultUrl,
-			output_url: resultUrl,
-			mime_type: "video/mp4",
-			error: null,
-			resolution: "1080p",
-			avalanche_1080p_response: body,
-		});
-	}
-
-	return createAvalanchePendingUpgradeResponse(job, baseResponse, {
-		avalanche_1080p_response: body,
-	});
-}
-
-async function fetchAvalanche4kUpgrade(
-	job: VideoJobRecord,
-	providerContext: ResolvedVideoProviderContext,
-	baseResponse: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-	const url = joinUrl(
-		getAvalancheApiBaseUrl(providerContext.baseUrl),
-		"/get-4k-video",
-	);
-	const { body, response } = await fetchJsonResponse(url, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			...getVideoProviderHeaders(job, providerContext),
-		},
-		body: JSON.stringify({
-			taskId: job.upstreamId,
-			index: 0,
-		}),
-	});
-	const data = readAvalancheResponseData(body);
-	const resultUrls = parseAvalancheResultUrls(
-		data.resultUrls ?? data.resultUrl ?? body.resultUrls ?? body.resultUrl,
-	);
-	const resultUrl = resultUrls[0];
-	const upgradeTaskId =
-		typeof data.taskId === "string" && data.taskId.length > 0
-			? data.taskId
-			: getAvalancheUpgradeTaskId(job);
-
-	if (response.ok && resultUrl) {
-		return addRequestedVideoMetadata(job, {
-			...baseResponse,
-			status: "completed",
-			progress: 100,
-			url: resultUrl,
-			output_url: resultUrl,
-			mime_type: "video/mp4",
-			error: null,
-			resolution: "4k",
-			avalanche_upgrade_task_id: upgradeTaskId ?? null,
-			avalanche_4k_response: body,
-		});
-	}
-
-	if (
-		response.ok ||
-		response.status === 422 ||
-		response.status === 409 ||
-		response.status === 425
-	) {
-		return createAvalanchePendingUpgradeResponse(job, baseResponse, {
-			avalanche_upgrade_task_id: upgradeTaskId ?? null,
-			avalanche_4k_response: body,
-		});
-	}
-
-	throw new Error(
-		getAvalancheMessage(body) ??
-			`Avalanche 4k request failed with status ${response.status}`,
-	);
-}
-
-async function fetchAvalancheStatus(
-	job: VideoJobRecord,
-	providerContext: ResolvedVideoProviderContext,
-): Promise<Record<string, unknown>> {
-	const recordInfo = await fetchAvalancheRecordInfo(
-		job,
-		providerContext,
-		job.upstreamId,
-	);
-	const normalizedRecordInfo = normalizeAvalancheRecordInfo(job, recordInfo);
-	const requestedResolution = getRequestedAvalancheResolution(job);
-	const resolvedResolution =
-		typeof normalizedRecordInfo.resolution === "string"
-			? normalizedRecordInfo.resolution.toLowerCase()
-			: null;
-
-	if (normalizedRecordInfo.status !== "completed" || !requestedResolution) {
-		return normalizedRecordInfo;
-	}
-
-	if (
-		requestedResolution === "1080p" &&
-		resolvedResolution === "1080p" &&
-		extractContentUrl(normalizedRecordInfo)
-	) {
-		return normalizedRecordInfo;
-	}
-
-	if (
-		requestedResolution === "4k" &&
-		resolvedResolution === "4k" &&
-		extractContentUrl(normalizedRecordInfo)
-	) {
-		return normalizedRecordInfo;
-	}
-
-	if (requestedResolution === "1080p") {
-		return await fetchAvalanche1080pUpgrade(
-			job,
-			providerContext,
-			normalizedRecordInfo,
-		);
-	}
-
-	if (requestedResolution === "4k") {
-		return await fetchAvalanche4kUpgrade(
-			job,
-			providerContext,
-			normalizedRecordInfo,
-		);
-	}
-
-	return normalizedRecordInfo;
 }
 
 function getGoogleVertexOperationMetadata(job: VideoJobRecord): {
@@ -1970,6 +1508,8 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				usedModel: getFormattedUsedVideoModel(jobToLog),
 				usedModelMapping: jobToLog.usedModel,
 				usedProvider: jobToLog.usedProvider,
+				providerMarginPercent: jobToLog.providerMarginPercent,
+				providerDiscountPercent: jobToLog.providerDiscountPercent,
 				responseSize,
 				content:
 					jobToLog.status === "completed" && responsePayload.content?.[0]?.url
@@ -2405,12 +1945,6 @@ async function fetchUpstreamStatus(
 ): Promise<Record<string, unknown>> {
 	const providerContext = await resolveVideoProviderContext(job);
 
-	if (job.usedProvider === "avalanche") {
-		return isAvalancheSoraJob(job)
-			? await fetchAvalancheSoraStatus(job, providerContext)
-			: await fetchAvalancheStatus(job, providerContext);
-	}
-
 	if (isGoogleVertexVideoProvider(job.usedProvider)) {
 		return await fetchGoogleVertexStatus(job, providerContext);
 	}
@@ -2477,7 +2011,6 @@ async function fetchUpstreamContentMetadata(
 	job: VideoJobRecord,
 ): Promise<Record<string, unknown> | null> {
 	if (
-		job.usedProvider === "avalanche" ||
 		job.usedProvider === "xai" ||
 		isGoogleVertexVideoProvider(job.usedProvider) ||
 		isMinimaxVideoProvider(job.usedProvider) ||

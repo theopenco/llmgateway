@@ -14,6 +14,11 @@ const nextConfig: NextConfig = {
 	productionBrowserSourceMaps: true,
 	reactCompiler: true,
 	transpilePackages: ["shiki"],
+	// lib/source.ts imports the full lucide-react icon barrel; transform it
+	// to direct imports so the whole icon set stays out of the bundles.
+	experimental: {
+		optimizePackageImports: ["lucide-react"],
+	},
 
 	rewrites() {
 		return [
@@ -94,6 +99,11 @@ const nextConfig: NextConfig = {
 			{
 				source: "/v1/ocr",
 				destination: "/v1_ocr",
+				permanent: true,
+			},
+			{
+				source: "/v1/key",
+				destination: "/v1_key_retrieve",
 				permanent: true,
 			},
 			{

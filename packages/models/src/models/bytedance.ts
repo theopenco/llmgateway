@@ -431,7 +431,7 @@ export const bytedanceModels = [
 		id: "seedream-5-0-pro",
 		name: "Seedream 5.0 Pro",
 		description:
-			"ByteDance Seedream 5.0 Pro flagship text-to-image generation model with precise layout control, multilingual text rendering, and up to 2K output",
+			"ByteDance Seedream 5.0 Pro flagship image generation and editing model with precise layout control, multilingual text rendering, and up to 2K output",
 		family: "bytedance",
 		output: ["text", "image"],
 		releasedAt: new Date("2026-06-28"),
@@ -446,7 +446,7 @@ export const bytedanceModels = [
 				contextSize: 2000,
 				maxOutput: 4096,
 				streaming: false,
-				vision: false,
+				vision: true,
 				tools: false,
 				jsonOutput: false,
 				imageGenerations: true,

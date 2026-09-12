@@ -1,10 +1,13 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { app } from "@/app.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import { waitForLogs } from "@/test-utils/test-helpers.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { logger } from "@llmgateway/logger";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 describe("speech", () => {
 	const harness = createGatewayApiTestHarness();
@@ -21,7 +24,7 @@ describe("speech", () => {
 	) {
 		await db.insert(tables.apiKey).values({
 			id: apiKeyId,
-			token,
+			...hashApiKeyForStorage(token),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -36,7 +39,11 @@ describe("speech", () => {
 						: "google-test-key";
 		await db.insert(tables.providerKey).values({
 			id: `provider-key-${provider}-${apiKeyId}`,
-			token: providerToken,
+			...encryptProviderKeyForStorage(
+				providerToken,
+				`provider-key-${provider}-${apiKeyId}`,
+				"org-id",
+			),
 			provider,
 			organizationId: "org-id",
 			baseUrl: harness.mockServerUrl,
@@ -241,7 +248,7 @@ describe("speech", () => {
 
 		await db.insert(tables.apiKey).values({
 			id: "token-id-speech-no-credits",
-			token: "real-token-speech-no-credits",
+			...hashApiKeyForStorage("real-token-speech-no-credits"),
 			projectId: "project-id",
 			description: "Test API Key",
 			createdBy: "user-id",
@@ -284,7 +291,7 @@ describe("speech", () => {
 
 			await db.insert(tables.apiKey).values({
 				id: "token-id-speech-chat-plan",
-				token: "real-token-speech-chat-plan",
+				...hashApiKeyForStorage("real-token-speech-chat-plan"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -326,7 +333,7 @@ describe("speech", () => {
 		try {
 			await db.insert(tables.apiKey).values({
 				id: "token-id-speech-vertex",
-				token: "real-token-speech-vertex",
+				...hashApiKeyForStorage("real-token-speech-vertex"),
 				projectId: "project-id",
 				description: "Test API Key",
 				createdBy: "user-id",
@@ -334,7 +341,11 @@ describe("speech", () => {
 			await harness.setProjectMode("credits");
 			await cdb.insert(tables.providerKey).values({
 				id: "managed-key-speech-vertex",
-				token: "google-test-key",
+				...encryptProviderKeyForStorage(
+					"google-test-key",
+					"managed-key-speech-vertex",
+					null,
+				),
 				provider: "google-vertex",
 				managed: true,
 				organizationId: null,
@@ -664,5 +675,72 @@ describe("speech", () => {
 		// $0.60/1M input text tokens + $12/1M output audio tokens.
 		expect(Number(log?.inputCost)).toBeCloseTo(7 * 0.6e-6, 12);
 		expect(Number(log?.outputCost)).toBeCloseTo(42 * 12e-6, 12);
+	});
+
+	test("/v1/audio/speech redacts SSE errors when retention is disabled", async () => {
+		await db
+			.update(tables.organization)
+			.set({ retentionLevel: "none" })
+			.where(eq(tables.organization.id, "org-id"));
+		await seedKeys(
+			"real-token-speech-sse-error",
+			"token-id-speech-sse-error",
+			"openai",
+		);
+
+		const secretError = "Provider echoed secret speech input";
+		const originalFetch = globalThis.fetch;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				const url =
+					typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.toString()
+							: input.url;
+				if (
+					url.startsWith(harness.mockServerUrl) &&
+					url.endsWith("/v1/audio/speech")
+				) {
+					return new Response(
+						`data: ${JSON.stringify({
+							type: "error",
+							error: { message: secretError },
+						})}\n\n`,
+						{
+							status: 200,
+							headers: { "Content-Type": "text/event-stream" },
+						},
+					);
+				}
+				return await originalFetch(input, init);
+			});
+		const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+		try {
+			const res = await app.request("/v1/audio/speech", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token-speech-sse-error",
+				},
+				body: JSON.stringify({
+					model: "gpt-4o-mini-tts",
+					input: "secret speech input",
+				}),
+			});
+
+			expect(res.status).toBe(502);
+			const warning = warnSpy.mock.calls.find(
+				([message]) => message === "Speech API - no audio in SSE stream",
+			);
+			expect(warning).toBeDefined();
+			expect(warning?.[1]).not.toHaveProperty("sseError");
+			expect(JSON.stringify(warning)).not.toContain(secretError);
+		} finally {
+			warnSpy.mockRestore();
+			fetchSpy.mockRestore();
+		}
 	});
 });

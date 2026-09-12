@@ -7,6 +7,7 @@ import {
 	ArchiveRestore,
 	ArrowLeft,
 	Building2,
+	Check,
 	CheckCircle2,
 	Clock,
 	ExternalLink,
@@ -22,6 +23,7 @@ import {
 	ThumbsUp,
 	Trash2,
 	User,
+	X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -183,6 +185,8 @@ export function ChatSupportLogsClient() {
 	const [replyText, setReplyText] = useState("");
 	const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 	const [showArchived, setShowArchived] = useState(false);
+	const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+	const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const replyInputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -218,6 +222,11 @@ export function ChatSupportLogsClient() {
 		const timer = setTimeout(() => setDebouncedSearch(search), 300);
 		return () => clearTimeout(timer);
 	}, [search]);
+
+	// The visible list changes, so a kept selection could delete hidden rows.
+	useEffect(() => {
+		setSelectedIds(new Set());
+	}, [showArchived, debouncedSearch]);
 
 	const { data: listData, isLoading: listLoading } = $api.useQuery(
 		"get",
@@ -293,6 +302,21 @@ export function ChatSupportLogsClient() {
 		},
 	);
 
+	const bulkDeleteMutation = $api.useMutation(
+		"post",
+		"/admin/chat-support-logs/bulk-delete",
+		{
+			onSuccess: (_data, variables) => {
+				if (selectedId && variables?.body?.ids.includes(selectedId)) {
+					setSelectedId(null);
+				}
+				setSelectedIds(new Set());
+				setBulkDeleteDialogOpen(false);
+				invalidateChatLists();
+			},
+		},
+	);
+
 	const archiveMutation = $api.useMutation(
 		"patch",
 		"/admin/chat-support-logs/{id}/archive",
@@ -353,6 +377,23 @@ export function ChatSupportLogsClient() {
 			handleReplySubmit(e);
 		}
 	};
+
+	const toggleSelected = useCallback((id: string) => {
+		setSelectedIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) {
+				next.delete(id);
+			} else {
+				next.add(id);
+			}
+			return next;
+		});
+	}, []);
+
+	const selectionMode = selectedIds.size > 0;
+	const allSelected =
+		conversations.length > 0 &&
+		conversations.every((c) => selectedIds.has(c.id));
 
 	const selectedConv = conversations.find((c) => c.id === selectedId);
 	const isArchived = !!(detail?.archivedAt ?? selectedConv?.archivedAt);
@@ -422,27 +463,78 @@ export function ChatSupportLogsClient() {
 				>
 					{/* Search header */}
 					<div className="border-b border-border/60 px-4 py-3">
-						<div className="mb-3 flex items-center justify-between">
-							<h2 className="text-sm font-semibold tracking-tight text-foreground">
-								Conversations
-							</h2>
-							<button
-								type="button"
-								onClick={() => {
-									setShowArchived((v) => !v);
-									setSelectedId(null);
-								}}
-								className={cn(
-									"flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors",
-									showArchived
-										? "bg-primary text-primary-foreground"
-										: "text-muted-foreground hover:text-foreground",
-								)}
-							>
-								<Archive className="h-3 w-3" />
-								Archived
-							</button>
-						</div>
+						{selectionMode ? (
+							<div className="mb-3 flex h-6 items-center justify-between gap-2">
+								<div className="flex items-center gap-2">
+									<button
+										type="button"
+										role="checkbox"
+										aria-checked={allSelected}
+										aria-label={
+											allSelected ? "Deselect all" : "Select all conversations"
+										}
+										onClick={() =>
+											setSelectedIds(
+												allSelected
+													? new Set()
+													: new Set(conversations.map((c) => c.id)),
+											)
+										}
+										className={cn(
+											"flex h-4 w-4 items-center justify-center rounded border transition-colors",
+											allSelected
+												? "border-primary bg-primary text-primary-foreground"
+												: "border-muted-foreground/40 text-transparent hover:border-foreground",
+										)}
+									>
+										<Check className="h-3 w-3" />
+									</button>
+									<span className="text-sm font-semibold tracking-tight text-foreground">
+										{selectedIds.size} selected
+									</span>
+								</div>
+								<div className="flex items-center gap-1">
+									<button
+										type="button"
+										onClick={() => setBulkDeleteDialogOpen(true)}
+										className="flex items-center gap-1 rounded px-2 py-0.5 text-xs text-destructive transition-colors hover:bg-destructive/10"
+									>
+										<Trash2 className="h-3 w-3" />
+										Delete
+									</button>
+									<button
+										type="button"
+										aria-label="Clear selection"
+										onClick={() => setSelectedIds(new Set())}
+										className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
+									>
+										<X className="h-3.5 w-3.5" />
+									</button>
+								</div>
+							</div>
+						) : (
+							<div className="mb-3 flex h-6 items-center justify-between">
+								<h2 className="text-sm font-semibold tracking-tight text-foreground">
+									Conversations
+								</h2>
+								<button
+									type="button"
+									onClick={() => {
+										setShowArchived((v) => !v);
+										setSelectedId(null);
+									}}
+									className={cn(
+										"flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors",
+										showArchived
+											? "bg-primary text-primary-foreground"
+											: "text-muted-foreground hover:text-foreground",
+									)}
+								>
+									<Archive className="h-3 w-3" />
+									Archived
+								</button>
+							</div>
+						)}
 						<div className="relative">
 							<Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
 							<input
@@ -479,65 +571,96 @@ export function ChatSupportLogsClient() {
 						) : (
 							<div className="flex flex-col gap-0.5 p-1.5">
 								{conversations.map((conv) => (
-									<button
-										key={conv.id}
-										type="button"
-										onClick={() => handleSelectConversation(conv.id)}
-										className={cn(
-											"group flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors",
-											selectedId === conv.id
-												? "bg-primary/8 ring-1 ring-primary/20"
-												: "hover:bg-muted/60",
-										)}
-									>
-										<div className="relative">
-											<div
-												className={cn(
-													"mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-medium",
-													selectedId === conv.id
-														? "bg-primary text-primary-foreground"
-														: "bg-muted text-muted-foreground",
-												)}
-											>
-												{conv.name
-													? conv.name
-															.split(" ")
-															.map((w) => w[0])
-															.join("")
-															.slice(0, 2)
-															.toUpperCase()
-													: "?"}
-											</div>
-											{conv.escalatedAt && (
-												<span className="absolute -right-0.5 -top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-amber-500">
-													<AlertTriangle className="h-2 w-2 text-white" />
-												</span>
+									<div key={conv.id} className="group relative">
+										<button
+											type="button"
+											onClick={() =>
+												selectionMode
+													? toggleSelected(conv.id)
+													: handleSelectConversation(conv.id)
+											}
+											className={cn(
+												"flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors",
+												selectedId === conv.id || selectedIds.has(conv.id)
+													? "bg-primary/8 ring-1 ring-primary/20"
+													: "hover:bg-muted/60",
 											)}
-											{(readMap[conv.id] ?? 0) < conv.messageCount && (
-												<span className="absolute -left-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-blue-500" />
-											)}
-										</div>
-										<div className="flex min-w-0 flex-1 flex-col gap-0.5">
-											<div className="flex items-center justify-between gap-2">
-												<span
+										>
+											<div className="relative">
+												<div
 													className={cn(
-														"truncate text-sm font-medium",
+														"mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-medium",
 														selectedId === conv.id
-															? "text-primary"
-															: "text-foreground",
+															? "bg-primary text-primary-foreground"
+															: "bg-muted text-muted-foreground",
 													)}
 												>
-													{conv.name ?? "Anonymous"}
-												</span>
-												<span className="shrink-0 text-[11px] text-muted-foreground">
-													{timeAgo(conv.createdAt)}
-												</span>
+													{conv.name
+														? conv.name
+																.split(" ")
+																.map((w) => w[0])
+																.join("")
+																.slice(0, 2)
+																.toUpperCase()
+														: "?"}
+												</div>
+												{conv.escalatedAt && (
+													<span className="absolute -right-0.5 -top-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-amber-500">
+														<AlertTriangle className="h-2 w-2 text-white" />
+													</span>
+												)}
+												{(readMap[conv.id] ?? 0) < conv.messageCount && (
+													<span className="absolute -left-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-blue-500" />
+												)}
 											</div>
-											<p className="truncate text-xs text-muted-foreground">
-												{conv.firstMessage ?? "No messages yet"}
-											</p>
-										</div>
-									</button>
+											<div className="flex min-w-0 flex-1 flex-col gap-0.5">
+												<div className="flex items-center justify-between gap-2">
+													<span
+														className={cn(
+															"truncate text-sm font-medium",
+															selectedId === conv.id
+																? "text-primary"
+																: "text-foreground",
+														)}
+													>
+														{conv.name ?? "Anonymous"}
+													</span>
+													<span className="shrink-0 text-[11px] text-muted-foreground">
+														{timeAgo(conv.createdAt)}
+													</span>
+												</div>
+												<p className="truncate text-xs text-muted-foreground">
+													{conv.firstMessage ?? "No messages yet"}
+												</p>
+											</div>
+										</button>
+										{/* Selection checkbox — overlays the avatar on hover or
+										    while any conversation is selected. */}
+										<button
+											type="button"
+											role="checkbox"
+											aria-checked={selectedIds.has(conv.id)}
+											aria-label={
+												selectedIds.has(conv.id)
+													? "Deselect conversation"
+													: "Select conversation"
+											}
+											onClick={() => toggleSelected(conv.id)}
+											className={cn(
+												"absolute left-3 top-3 flex h-8 w-8 items-center justify-center rounded-full border transition-opacity",
+												selectedIds.has(conv.id)
+													? "border-primary bg-primary text-primary-foreground opacity-100"
+													: cn(
+															"border-border bg-background text-transparent hover:text-muted-foreground",
+															selectionMode
+																? "opacity-100"
+																: "opacity-0 focus-visible:opacity-100 group-hover:opacity-100",
+														),
+											)}
+										>
+											<Check className="h-4 w-4" />
+										</button>
+									</div>
 								))}
 							</div>
 						)}
@@ -1074,6 +1197,46 @@ export function ChatSupportLogsClient() {
 							}}
 						>
 							{deleteMutation.isPending ? "Deleting..." : "Delete"}
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			{/* Bulk delete confirmation dialog */}
+			<Dialog
+				open={bulkDeleteDialogOpen}
+				onOpenChange={setBulkDeleteDialogOpen}
+			>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>
+							Delete {selectedIds.size}{" "}
+							{selectedIds.size === 1 ? "Conversation" : "Conversations"}
+						</DialogTitle>
+						<DialogDescription>
+							This will permanently delete the selected conversations and all
+							their messages. This action cannot be undone.
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button
+							variant="outline"
+							onClick={() => setBulkDeleteDialogOpen(false)}
+						>
+							Cancel
+						</Button>
+						<Button
+							variant="destructive"
+							disabled={bulkDeleteMutation.isPending}
+							onClick={() =>
+								bulkDeleteMutation.mutate({
+									body: { ids: Array.from(selectedIds) },
+								})
+							}
+						>
+							{bulkDeleteMutation.isPending
+								? "Deleting..."
+								: `Delete ${selectedIds.size === 1 ? "Conversation" : "Conversations"}`}
 						</Button>
 					</DialogFooter>
 				</DialogContent>

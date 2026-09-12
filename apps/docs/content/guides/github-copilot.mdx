@@ -27,7 +27,7 @@ One provider entry. No config files. Works on any Copilot plan, or with no Copil
 <Step>
 ### Sign Up for LLM Gateway
 
-[Sign up free](https://llmgateway.io/signup) — no credit card required. Copy your API key (starts with `llmgtwy_`) from the dashboard.
+[Sign up free](https://llmgateway.io/signup) — no credit card required. Create an API key in the dashboard and copy it when shown (it starts with `llmgtwy_`).
 
 </Step>
 
@@ -72,6 +72,17 @@ LLM Gateway's `/v1` endpoint is fully OpenAI-compatible. The Copilot app fetches
 
 All models available to your account show up in the app's model picker; agent sessions work with models that support tool calling and streaming. Browse the [models page](https://llmgateway.io/models) to compare capabilities and pricing, or check [discounted models](https://llmgateway.io/models?discounted=true) for savings up to 90%.
 
+## Reasoning Effort Levels
+
+The Copilot app discovers only model IDs from a BYOK provider — it cannot learn which reasoning effort levels a model supports, so the composer's reasoning control stays on the app default (Medium) and any level you pick reverts until you configure the model:
+
+1. In the app, open **Settings** → **Model Providers** and select your LLM Gateway provider
+2. Edit the model and set its **supported reasoning effort levels** (available since app v1.1.8)
+
+Enter only levels the model actually supports: the gateway forwards your selection to the provider as-is, and providers reject levels their model doesn't accept. To find the right values for a model, open it on the [models page](https://llmgateway.io/models) and check the **Reasoning Efforts** badges on the provider entry, or query the API — each entry in `GET https://api.llmgateway.io/v1/models` lists them under `providers[].reasoning_efforts` (omitted for provider entries that don't declare their supported values).
+
+While unconfigured, sessions still work: the app sends no reasoning effort and the provider uses its default.
+
 ## Good to Know
 
 - **Keys stay local** — the app stores your API key in the OS keychain and never reads it back into the UI.
@@ -103,6 +114,10 @@ Your API key is invalid or was revoked. Generate a new key in the dashboard and 
 ### 402 or credit errors
 
 Your LLM Gateway organization is out of credits. Top up in the [dashboard](https://llmgateway.io/dashboard) — BYOK sessions bill through LLM Gateway, not Copilot premium requests.
+
+### Reasoning effort resets to Medium
+
+The app can't discover reasoning support from a BYOK provider, so the control reverts until you set the model's supported levels by hand — see [Reasoning Effort Levels](#reasoning-effort-levels).
 
 ### Provider option is missing
 

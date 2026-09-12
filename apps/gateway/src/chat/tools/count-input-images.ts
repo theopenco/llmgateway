@@ -3,7 +3,7 @@ const IMAGE_URL_PATTERN = /https:\/\/[^\s]+/gi;
 
 /**
  * Counts images in messages for cost calculation.
- * Used primarily for Gemini image model pricing (gemini-3-pro-image-preview, gemini-3.1-flash-image-preview).
+ * Used primarily for Gemini image model pricing (gemini-3-pro-image, gemini-3.1-flash-image).
  * Counts both image_url type content parts and image URLs found in text content.
  */
 export function countInputImages(messages: any[]): number {

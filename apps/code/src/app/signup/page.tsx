@@ -167,11 +167,11 @@ function SignupForm() {
 								DevPass
 							</span>
 						</div>
-						<h1 className="text-4xl font-bold leading-tight tracking-tight text-white xl:text-5xl">
+						<p className="text-4xl font-bold leading-tight tracking-tight text-white xl:text-5xl">
 							Ship faster
 							<br />
 							with AI.
-						</h1>
+						</p>
 						<p className="mt-4 max-w-md text-lg text-zinc-400">
 							Dev plans, coding tools, and AI-powered workflows for individual
 							developers.
@@ -346,6 +346,16 @@ function SignupForm() {
 							newUserCallbackPath={returnUrl}
 							requestSignUp
 						/>
+						<p className="text-center text-xs leading-relaxed text-muted-foreground">
+							By signing up, you agree to the{" "}
+							<Link
+								href="/legal/terms"
+								className="underline underline-offset-4 hover:text-foreground"
+							>
+								DevPass Terms of Use
+							</Link>
+							.
+						</p>
 					</div>
 
 					<p className="mt-6 text-center text-sm text-muted-foreground">

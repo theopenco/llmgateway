@@ -1,8 +1,12 @@
 import { describe, expect, test } from "vitest";
 
+import { applyCategoryFilter } from "./model-category-filters";
 import {
 	applyUseCaseFilter,
+	getExcludedCapabilityKeys,
+	getImpliedCapabilityKeys,
 	providerRowPassesFilters,
+	useCaseCategories,
 } from "./use-case-filters";
 
 import type {
@@ -10,6 +14,7 @@ import type {
 	ApiModelProviderMapping,
 	ApiProvider,
 } from "./api-types";
+import type { ModelCategoryFilter } from "./model-category-filters";
 import type { ProviderRowFilterOptions } from "./use-case-filters";
 // Realistic mock mapping: every field the directory renders, with capability
 // flags off by default so a test can flip exactly the one it cares about.
@@ -363,5 +368,172 @@ describe("providerRowPassesFilters: full production row-filter path", () => {
 			)
 			.map(({ provider }) => provider);
 		expect(rows.map((r) => r.id)).toEqual(["alpha", "beta"]);
+	});
+});
+
+// Pin the implication tables to the real predicates: each test breaks (or
+// grants) exactly one capability on an otherwise fully-capable model and
+// expects the category to reject it. Loosening a predicate without updating
+// the table fails here, so a toggle is never wrongly left disabled.
+describe("category → capability implication tables", () => {
+	const capableMapping: Partial<ApiModelProviderMapping> = {
+		streaming: true,
+		tools: true,
+		reasoning: true,
+		vision: true,
+		webSearch: true,
+		cachedInputPrice: "0.2e-6",
+		discount: "0.2",
+	};
+	const mappingBreakers: Record<string, Partial<ApiModelProviderMapping>> = {
+		streaming: { streaming: false },
+		tools: { tools: false },
+		reasoning: { reasoning: false },
+		vision: { vision: false },
+		webSearch: { webSearch: false },
+		discounted: { discount: null },
+	};
+	// Capability keys whose predicate is a model output modality rather than a
+	// mapping flag; breaking them means removing that modality from `output`.
+	const outputModalityByCapability: Record<string, string> = {
+		imageGeneration: "image",
+		videoGeneration: "video",
+		embedding: "embedding",
+	};
+
+	function capableModel(output: string[]) {
+		const model = makeModel([makeMapping(capableMapping)]);
+		model.output = output;
+		return model;
+	}
+
+	function brokenModel(output: string[], key: string) {
+		const modality = outputModalityByCapability[key];
+		if (modality) {
+			return capableModel(output.filter((o) => o !== modality));
+		}
+		const breaker = mappingBreakers[key];
+		if (!breaker) {
+			throw new Error(`no capability breaker defined for key "${key}"`);
+		}
+		const model = makeModel([makeMapping({ ...capableMapping, ...breaker })]);
+		model.output = output;
+		return model;
+	}
+
+	describe("Use Case implied keys are enforced by applyUseCaseFilter", () => {
+		function outputFor(category: string): string[] {
+			return category === "image" ? ["image"] : ["text"];
+		}
+
+		for (const category of useCaseCategories) {
+			for (const key of getImpliedCapabilityKeys(category)) {
+				test(`${category} implies ${key}`, () => {
+					const good = capableModel(outputFor(category));
+					expect(applyUseCaseFilter(category, good, good.mappings)).toBe(true);
+					const bad = brokenModel(outputFor(category), key);
+					expect(applyUseCaseFilter(category, bad, bad.mappings)).toBe(false);
+				});
+			}
+		}
+
+		test("'all' and unknown categories imply nothing", () => {
+			expect(getImpliedCapabilityKeys("all")).toEqual([]);
+			expect(getImpliedCapabilityKeys(null)).toEqual([]);
+			expect(getImpliedCapabilityKeys("not-a-real-category")).toEqual([]);
+		});
+	});
+
+	describe("Use Case excluded keys can never match", () => {
+		// Granting the excluded capability must make the category reject the
+		// model, proving the combination is empty by construction.
+		const granters: Record<
+			string,
+			(model: ReturnType<typeof capableModel>) => void
+		> = {
+			free: (model) => {
+				model.free = true;
+			},
+			imageGeneration: (model) => {
+				model.output = [...(model.output ?? []), "image"];
+			},
+		};
+
+		for (const category of useCaseCategories) {
+			for (const key of getExcludedCapabilityKeys(category)) {
+				test(`${category} excludes ${key}`, () => {
+					const granter = granters[key];
+					if (!granter) {
+						throw new Error(`no capability granter defined for key "${key}"`);
+					}
+					const model = capableModel(["text"]);
+					expect(applyUseCaseFilter(category, model, model.mappings)).toBe(
+						true,
+					);
+					granter(model);
+					expect(applyUseCaseFilter(category, model, model.mappings)).toBe(
+						false,
+					);
+				});
+			}
+		}
+
+		test("categories without exclusions return an empty list", () => {
+			expect(getExcludedCapabilityKeys("chat")).toEqual([]);
+			expect(getExcludedCapabilityKeys("all")).toEqual([]);
+			expect(getExcludedCapabilityKeys(null)).toEqual([]);
+		});
+	});
+
+	describe("category-page implied keys are enforced by applyCategoryFilter", () => {
+		const filtersWithImplications: ModelCategoryFilter[] = [
+			"text-to-image",
+			"image-to-image",
+			"video",
+			"embedding",
+			"web-search",
+			"vision",
+			"reasoning",
+			"tools",
+			"discounted",
+		];
+
+		function outputFor(categoryFilter: ModelCategoryFilter): string[] {
+			switch (categoryFilter) {
+				case "text-to-image":
+				case "image-to-image":
+					return ["image"];
+				case "video":
+					return ["video"];
+				case "embedding":
+					return ["embedding"];
+				default:
+					return ["text"];
+			}
+		}
+
+		for (const categoryFilter of filtersWithImplications) {
+			const implied = getImpliedCapabilityKeys(null, categoryFilter);
+			test(`${categoryFilter} implies ${implied.join(", ")}`, () => {
+				expect(implied.length).toBeGreaterThan(0);
+				for (const key of implied) {
+					const good = capableModel(outputFor(categoryFilter));
+					expect(applyCategoryFilter(categoryFilter, good, good.mappings)).toBe(
+						true,
+					);
+					const bad = brokenModel(outputFor(categoryFilter), key);
+					expect(applyCategoryFilter(categoryFilter, bad, bad.mappings)).toBe(
+						false,
+					);
+				}
+			});
+		}
+
+		test("curated and price-based category pages imply nothing", () => {
+			expect(getImpliedCapabilityKeys(null, "coding")).toEqual([]);
+			expect(getImpliedCapabilityKeys(null, "cheapest")).toEqual([]);
+			expect(getImpliedCapabilityKeys(null, "long-context")).toEqual([]);
+			expect(getImpliedCapabilityKeys(null, "text")).toEqual([]);
+		});
 	});
 });

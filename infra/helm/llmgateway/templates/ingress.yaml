@@ -91,6 +91,18 @@ spec:
                 port:
                   name: http
     {{- end }}
+    {{- if and .Values.airside.enabled .Values.ingress.hosts.airside }}
+    - host: {{ .Values.ingress.hosts.airside | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "llmgateway.fullname" . }}-airside
+                port:
+                  name: http
+    {{- end }}
     {{- if and .Values.docs.enabled .Values.ingress.hosts.docs }}
     - host: {{ .Values.ingress.hosts.docs | quote }}
       http:

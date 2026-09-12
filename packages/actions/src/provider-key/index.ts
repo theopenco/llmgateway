@@ -5,7 +5,8 @@ export {
 } from "./crypto.js";
 export {
 	readProviderKey,
-	hasProviderKey,
+	readProviderKeyMask,
+	encryptProviderKeyForStorage,
 	providerKeyEncryptionScope,
 	providerKeyLabel,
 	MANAGED_PROVIDER_KEY_ORG_SCOPE,

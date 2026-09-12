@@ -17,6 +17,7 @@ import type { WebSocket } from "ws";
 
 vi.mock("@/lib/api-key-usage-limits.js", () => ({
 	assertApiKeyWithinUsageLimits: vi.fn(),
+	assertMemberProjectAccess: vi.fn(async () => {}),
 	assertMemberWithinBudget: vi.fn(async () => {}),
 }));
 
@@ -165,7 +166,10 @@ const validSetup = {
 	},
 };
 
-function createSession(preflightOverrides: Record<string, unknown> = {}) {
+function createSession(
+	preflightOverrides: Record<string, unknown> = {},
+	pinned: { instructions?: string | null; voice?: string | null } = {},
+) {
 	const client = new FakeSocket();
 	const upstream = new FakeSocket();
 	const session = new GeminiRealtimeProxySession({
@@ -182,6 +186,8 @@ function createSession(preflightOverrides: Record<string, unknown> = {}) {
 		lease: { sessionId: "rts_g1", organizationId: "org_1", apiKeyId: "key_1" },
 		source: "lounge.llmgateway.io",
 		userAgent: "vitest",
+		pinnedInstructions: pinned.instructions ?? null,
+		pinnedVoice: pinned.voice ?? null,
 		onClosed: () => {},
 	});
 	const clientSends = (message: Record<string, unknown>) => {
@@ -1012,5 +1018,134 @@ describe("GeminiRealtimeProxySession draining", () => {
 			"client_disconnected",
 			expect.anything(),
 		);
+	});
+});
+
+describe("GeminiRealtimeProxySession pinned instructions", () => {
+	const INSTRUCTIONS = "You are the operator's support agent.";
+
+	const baseSetup = {
+		model: "gemini-2.5-flash-native-audio-preview-12-2025",
+		generationConfig: { responseModalities: ["AUDIO"] },
+	};
+
+	it("applies pinned instructions to setup.systemInstruction", async () => {
+		const { upstream, session, clientSends } = createSession(
+			{},
+			{ instructions: INSTRUCTIONS },
+		);
+
+		clientSends({ setup: baseSetup });
+		await flush();
+
+		const forwarded = JSON.parse(upstream.sent[0]) as {
+			setup: { systemInstruction: { parts: { text: string }[] } };
+		};
+		expect(forwarded.setup.systemInstruction.parts[0].text).toBe(INSTRUCTIONS);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("rejects a client systemInstruction when instructions are pinned", async () => {
+		const { upstream, session, clientSends, gatewayErrors } = createSession(
+			{},
+			{ instructions: INSTRUCTIONS },
+		);
+
+		clientSends({
+			setup: {
+				...baseSetup,
+				systemInstruction: { parts: [{ text: "You are a pirate." }] },
+			},
+		});
+		await flush();
+
+		expect(gatewayErrors()).toEqual(["instructions_locked"]);
+		expect(upstream.sent).toHaveLength(0);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("leaves systemInstruction to the client when nothing is pinned", async () => {
+		const { upstream, session, clientSends } = createSession();
+
+		clientSends({
+			setup: {
+				...baseSetup,
+				systemInstruction: { parts: [{ text: "client owns this" }] },
+			},
+		});
+		await flush();
+
+		expect(upstream.sent[0]).toContain("client owns this");
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("fills in the pinned voice when the client chose none", async () => {
+		const { upstream, session, clientSends } = createSession(
+			{},
+			{ voice: "Kore" },
+		);
+
+		clientSends({ setup: baseSetup });
+		await flush();
+
+		const forwarded = JSON.parse(upstream.sent[0]) as {
+			setup: {
+				generationConfig: {
+					responseModalities: string[];
+					speechConfig: {
+						voiceConfig: { prebuiltVoiceConfig: { voiceName: string } };
+					};
+				};
+			};
+		};
+		expect(
+			forwarded.setup.generationConfig.speechConfig.voiceConfig
+				.prebuiltVoiceConfig.voiceName,
+		).toBe("Kore");
+		// Merging the voice must not drop the rest of generationConfig.
+		expect(forwarded.setup.generationConfig.responseModalities).toEqual([
+			"AUDIO",
+		]);
+
+		session.shutdown(1000, "test_done");
+	});
+
+	it("does not override a voice the client chose explicitly", async () => {
+		const { upstream, session, clientSends } = createSession(
+			{},
+			{ voice: "Kore" },
+		);
+
+		clientSends({
+			setup: {
+				...baseSetup,
+				generationConfig: {
+					responseModalities: ["AUDIO"],
+					speechConfig: {
+						voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } },
+					},
+				},
+			},
+		});
+		await flush();
+
+		const forwarded = JSON.parse(upstream.sent[0]) as {
+			setup: {
+				generationConfig: {
+					speechConfig: {
+						voiceConfig: { prebuiltVoiceConfig: { voiceName: string } };
+					};
+				};
+			};
+		};
+		expect(
+			forwarded.setup.generationConfig.speechConfig.voiceConfig
+				.prebuiltVoiceConfig.voiceName,
+		).toBe("Puck");
+
+		session.shutdown(1000, "test_done");
 	});
 });

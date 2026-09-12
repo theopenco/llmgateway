@@ -1,5 +1,5 @@
 curl -X POST \
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=$LLM_GOOGLE_AI_STUDIO_API_KEY" \
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent?key=$LLM_GOOGLE_AI_STUDIO_API_KEY" \
     -H "Content-Type: application/json" \
     -d '{
       "contents": [

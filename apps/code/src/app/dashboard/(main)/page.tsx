@@ -3,6 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { usePostHog } from "posthog-js/react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import ApiKeySection from "@/app/dashboard/components/ApiKeySection";
@@ -32,6 +33,10 @@ export default function OverviewPage() {
 	const posthog = usePostHog();
 	const api = useApi();
 	const queryClient = useQueryClient();
+	const [revealedApiKey, setRevealedApiKey] = useState<{
+		id: string;
+		token: string;
+	} | null>(null);
 
 	const { data: devPlanStatus } = useDevPlanStatus();
 
@@ -41,14 +46,22 @@ export default function OverviewPage() {
 	);
 
 	const handleRotateApiKey = async (): Promise<void> => {
+		const apiKeyId = devPlanStatus?.apiKey?.id;
+		if (!apiKeyId) {
+			toast.error("No API key to rotate");
+			return;
+		}
 		try {
-			await rotateApiKeyMutation.mutateAsync({});
+			const result = await rotateApiKeyMutation.mutateAsync({
+				body: { apiKeyId },
+			});
 			await queryClient.invalidateQueries({
 				predicate: (query) => {
 					const key = query.queryKey;
 					return Array.isArray(key) && key[1] === "/dev-plans/status";
 				},
 			});
+			setRevealedApiKey({ id: result.apiKeyId, token: result.apiKey });
 			if (posthogKey) {
 				posthog.capture("dev_plan_api_key_rotated");
 			}
@@ -75,6 +88,10 @@ export default function OverviewPage() {
 	);
 	const currentPlanName = devPlanStatus.devPlan?.toUpperCase() ?? "";
 	const currentPlanData = plans.find((p) => p.tier === devPlanStatus.devPlan);
+	const activeRevealedApiKey =
+		revealedApiKey && revealedApiKey.id === devPlanStatus.apiKey?.id
+			? revealedApiKey.token
+			: null;
 
 	return (
 		<div className="space-y-10">
@@ -113,7 +130,8 @@ export default function OverviewPage() {
 				<div className="rounded-xl border bg-card p-6">
 					{devPlanStatus.apiKey ? (
 						<ApiKeySection
-							apiKey={devPlanStatus.apiKey}
+							apiKey={activeRevealedApiKey ?? devPlanStatus.apiKey.maskedToken}
+							isRevealable={activeRevealedApiKey !== null}
 							uiUrl={config.uiUrl}
 							onRotate={handleRotateApiKey}
 							isRotating={rotateApiKeyMutation.isPending}
@@ -125,9 +143,13 @@ export default function OverviewPage() {
 					)}
 				</div>
 				<div className="rounded-xl border bg-card p-6">
-					{devPlanStatus.apiKey ? (
-						<QuickStart apiKey={devPlanStatus.apiKey} />
-					) : null}
+					{activeRevealedApiKey ? (
+						<QuickStart apiKey={activeRevealedApiKey} />
+					) : (
+						<div className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
+							Rotate the API key to configure a new tool with its secret.
+						</div>
+					)}
 				</div>
 			</div>
 

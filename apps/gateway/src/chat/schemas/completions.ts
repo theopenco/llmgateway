@@ -6,9 +6,11 @@ export const completionsRequestSchema = z.object({
 	}),
 	messages: z.array(
 		z.object({
-			role: z.string().openapi({
-				example: "user",
-			}),
+			role: z
+				.enum(["developer", "system", "user", "assistant", "tool", "function"])
+				.openapi({
+					example: "user",
+				}),
 			content: z
 				.union([
 					z.string().openapi({
@@ -472,7 +474,9 @@ export const completionsRequestSchema = z.object({
 		.object({
 			aspect_ratio: z.string().optional(),
 			image_size: z.string().optional(),
-			image_quality: z.enum(["low", "medium", "high", "auto"]).optional(),
+			image_quality: z
+				.enum(["low", "medium", "high", "xhigh", "max", "auto"])
+				.optional(),
 			n: z.number().optional(),
 			seed: z.number().optional(),
 		})

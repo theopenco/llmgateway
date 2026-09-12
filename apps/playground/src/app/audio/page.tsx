@@ -15,10 +15,17 @@ import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "AI Audio Generator — Text to Speech with ElevenLabs, OpenAI & Gemini",
+	title: "AI Text to Speech — Compare Voices and Models",
 	description:
-		"Generate speech from text with ElevenLabs, OpenAI, and Gemini TTS models. Pick voices, compare providers, and download the audio in one playground.",
+		"Turn text into speech in Lounge. Choose a supported model and voice, compare outputs, and download generated audio.",
 	alternates: { canonical: "/audio" },
+	openGraph: {
+		title: "AI Text to Speech — Compare Voices and Models | Lounge",
+		description:
+			"Turn text into speech in Lounge. Choose a supported model and voice, compare outputs, and download generated audio.",
+		type: "website",
+		url: "https://lounge.llmgateway.io/audio",
+	},
 };
 
 export default async function AudioPage({
@@ -96,6 +103,10 @@ export default async function AudioPage({
 		initialProjectsData = null;
 	}
 
+	if (!selectedOrganization) {
+		return <PlaygroundSeoSection variant="audio" />;
+	}
+
 	if (!initialProjectsData && selectedOrganization?.id) {
 		try {
 			initialProjectsData = (await fetchServerData(
@@ -143,7 +154,6 @@ export default async function AudioPage({
 					projectId={selectedProject.id}
 				/>
 			) : null}
-			<PlaygroundSeoSection variant="audio" />
 			<AudioPageClient
 				models={models}
 				providers={providers}

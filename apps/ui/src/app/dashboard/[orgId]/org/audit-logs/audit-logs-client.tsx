@@ -1,6 +1,5 @@
 "use client";
 
-import { format } from "date-fns";
 import { Check, Copy } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useCallback } from "react";
@@ -26,6 +25,8 @@ import {
 	SelectValue,
 } from "@/lib/components/select";
 import { useFetchClient } from "@/lib/fetch-client";
+
+import { Time } from "@llmgateway/shared";
 
 import { ContactSalesCard } from "./contact-sales-card";
 
@@ -366,12 +367,17 @@ export function AuditLogsClient() {
 															{formatAction(log.action)}
 														</Badge>
 														<span className="text-xs text-muted-foreground">
-															{format(new Date(log.createdAt), "PPp")}
+															<Time
+																date={log.createdAt}
+																format="monthDayYearHourMinuteZone"
+															/>
 														</span>
 													</div>
 													<div className="text-sm">
 														<span className="font-medium">
-															{log.user?.email ?? log.userId}
+															{log.metadata?.actorType === "system"
+																? "System"
+																: (log.user?.email ?? log.userId)}
 														</span>
 													</div>
 													<div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -454,17 +460,26 @@ export function AuditLogsClient() {
 													className="hover:bg-muted/25 transition-colors"
 												>
 													<td className="p-4 align-middle text-sm whitespace-nowrap">
-														{format(new Date(log.createdAt), "PPp")}
+														<Time
+															date={log.createdAt}
+															format="monthDayYearHourMinuteZone"
+														/>
 													</td>
 													<td className="p-4 align-middle">
-														<div className="flex flex-col">
+														{log.metadata?.actorType === "system" ? (
 															<span className="text-sm font-medium">
-																{log.user?.name ?? "—"}
+																System
 															</span>
-															<span className="text-xs text-muted-foreground">
-																{log.user?.email ?? log.userId}
-															</span>
-														</div>
+														) : (
+															<div className="flex flex-col">
+																<span className="text-sm font-medium">
+																	{log.user?.name ?? "—"}
+																</span>
+																<span className="text-xs text-muted-foreground">
+																	{log.user?.email ?? log.userId}
+																</span>
+															</div>
+														)}
 													</td>
 													<td className="p-4 align-middle">
 														<Badge variant={getActionBadgeVariant(log.action)}>

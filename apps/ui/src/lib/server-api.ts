@@ -5,7 +5,7 @@ import { cache } from "react";
 import { getConfig } from "./config-server";
 
 import type { paths } from "./api/v1";
-import type { Organization, Project } from "./types";
+import type { Organization, Project, User } from "./types";
 
 // Server-side API client
 export async function createServerApiClient() {
@@ -139,6 +139,12 @@ export function getProject(projectId: string) {
 				},
 			},
 		}),
+	);
+}
+
+export function getUserMe() {
+	return dedupeRequest("userMe", () =>
+		fetchServerData<{ user: User }>("GET", "/user/me"),
 	);
 }
 

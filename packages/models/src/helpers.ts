@@ -189,6 +189,7 @@ const OPENAI_EXPLICIT_PROMPT_CACHE_MODELS = new Set<string>([
 	"gpt-5.6-sol",
 	"gpt-5.6-terra",
 	"gpt-5.6-luna",
+	"gpt-6-astra",
 ]);
 
 export function supportsOpenAIExplicitPromptCache(modelName: string): boolean {
@@ -198,10 +199,10 @@ export function supportsOpenAIExplicitPromptCache(modelName: string): boolean {
 /**
  * Resolve the per-token rates that apply to a mapping at a given instant.
  * Without `peakPricing`, the mapping's base inputPrice/outputPrice/
- * cachedInputPrice are always returned. With `peakPricing`, the base fields
- * (the regular flat rates) apply before `effectiveAt`; on/after it, the
- * `peak` rates apply while `now` (UTC) falls inside a peak window and the
- * `offPeak` rates otherwise.
+ * cachedInputPrice are always returned. With `peakPricing`, the `peak` rates
+ * apply while `now` (UTC) falls inside a peak window and the `offPeak` rates
+ * otherwise. A matching `offPeakDays` calendar day overrides the hourly
+ * windows.
  */
 export function resolveTimeBasedPricing(
 	mapping: Pick<
@@ -222,22 +223,56 @@ export function resolveTimeBasedPricing(
 			cachedInputPrice: mapping.cachedInputPrice,
 		};
 	}
-	// Before effectiveAt, charge the base (regular flat) prices.
-	if (now.getTime() < Date.parse(peakPricing.effectiveAt)) {
-		return {
-			inputPrice: mapping.inputPrice ?? "0",
-			outputPrice: mapping.outputPrice ?? "0",
-			cachedInputPrice: mapping.cachedInputPrice,
-		};
-	}
+	const offPeakDays = peakPricing.offPeakDays;
+	const utcOffsetMilliseconds = (offPeakDays?.utcOffsetMinutes ?? 0) * 60_000;
+	const isOffPeakDay =
+		offPeakDays !== undefined &&
+		offPeakDays.daysOfWeek.includes(
+			new Date(now.getTime() + utcOffsetMilliseconds).getUTCDay(),
+		);
 	const hour = now.getUTCHours();
-	const isPeak = peakPricing.hoursUtc.some(
-		([start, end]) => hour >= start && hour < end,
-	);
+	const isPeak =
+		!isOffPeakDay &&
+		peakPricing.hoursUtc.some(([start, end]) => hour >= start && hour < end);
 	const tier = isPeak ? peakPricing.peak : peakPricing.offPeak;
 	return {
 		inputPrice: tier.inputPrice,
 		outputPrice: tier.outputPrice,
 		cachedInputPrice: tier.cachedInputPrice,
 	};
+}
+
+/**
+ * Whether the static catalogue maps `modelName` (by id or alias) for
+ * `providerId`. With `activeOnly`, deactivated mappings do not count — that
+ * variant is the routing/listing rule for Airside carrier listings:
+ * deactivating a static mapping hands the model over to the carrier's listing.
+ */
+export function staticCatalogueMapsModel(
+	providerId: string,
+	modelName: string,
+	options: { activeOnly?: boolean } = {},
+): boolean {
+	const now = new Date();
+	return models.some(
+		(model) =>
+			(model.id === modelName ||
+				("aliases" in model &&
+					(model.aliases as readonly string[] | undefined)?.includes(
+						modelName,
+					))) &&
+			model.providers.some((mapping) => {
+				if (mapping.providerId !== providerId) {
+					return false;
+				}
+				if (!options.activeOnly) {
+					return true;
+				}
+				const deactivatedAt =
+					"deactivatedAt" in mapping
+						? (mapping.deactivatedAt as Date | string | undefined)
+						: undefined;
+				return !(deactivatedAt && new Date(deactivatedAt) <= now);
+			}),
+	);
 }

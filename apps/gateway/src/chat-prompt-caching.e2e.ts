@@ -19,6 +19,7 @@ import {
 import { models } from "@llmgateway/models";
 
 import { app } from "./app.js";
+import { readAll } from "./test-utils/test-helpers.js";
 
 import type { ProviderModelMapping } from "@llmgateway/models";
 
@@ -37,6 +38,11 @@ const promptCachingModels = filteredModels
 		const testCases = [];
 
 		for (const provider of model.providers as ProviderModelMapping[]) {
+			// Dedicated image endpoints do not receive this test's system prompt.
+			if (provider.imageGenerations) {
+				continue;
+			}
+
 			// Skip providers without cachedInputPrice (no prompt caching support)
 			if (provider.cachedInputPrice === undefined) {
 				continue;
@@ -81,15 +87,6 @@ const promptCachingModels = filteredModels
 		return testCases;
 	});
 
-// Only run prompt caching tests when TEST_CACHE_MODE=true
-const testCacheMode = process.env.TEST_CACHE_MODE === "true";
-
-if (testCacheMode) {
-	console.log(
-		`Testing ${promptCachingModels.length} models with prompt caching support`,
-	);
-}
-
 describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 	beforeAll(beforeAllHook);
 
@@ -99,16 +96,21 @@ describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 		expect(true).toBe(true);
 	});
 
-	if (testCacheMode) {
+	describe.skipIf(promptCachingModels.length === 0)("cacheable models", () => {
 		test.each(promptCachingModels)(
 			"prompt caching works for $model",
 			getTestOptions(),
 			async ({ model, originalModel, provider, minCacheableTokens }) => {
 				// Generate a long system prompt that exceeds the model's minimum cacheable token threshold
-				// We need significantly more than the minimum to ensure caching is triggered
-				// Using 2x the minimum + buffer to be safe (Anthropic's tokenizer is ~4 chars per token)
+				// Google's implicit cache is best-effort and needs a longer prefix to
+				// produce reliable hits at the published minimum.
+				const thresholdMultiplier =
+					provider.providerId === "google-ai-studio" ||
+					provider.providerId === "google-vertex"
+						? 4
+						: 2;
 				// eslint-disable-next-line no-mixed-operators
-				const targetTokens = minCacheableTokens * 2 + 1000;
+				const targetTokens = minCacheableTokens * thresholdMultiplier + 1000;
 				const charsPerRepeat = 95; // approximate chars in each repeat string
 				const repeatCount = Math.ceil((targetTokens * 4) / charsPerRepeat);
 				const longSystemPrompt = `You are a helpful AI assistant specialized in analyzing complex data and providing detailed insights. ${"This is detailed context information that should be cached for optimal efficiency and performance. ".repeat(repeatCount)}Please analyze any questions carefully.`;
@@ -126,6 +128,7 @@ describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 					headers: {
 						"Content-Type": "application/json",
 						"x-request-id": firstRequestId,
+						"x-no-fallback": "true",
 						Authorization: `Bearer real-token`,
 					},
 					body: JSON.stringify({
@@ -178,6 +181,7 @@ describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 						headers: {
 							"Content-Type": "application/json",
 							"x-request-id": secondRequestId,
+							"x-no-fallback": "true",
 							Authorization: `Bearer real-token`,
 						},
 						body: JSON.stringify({
@@ -274,7 +278,72 @@ describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 						Number(providerMapping.inputPrice),
 					);
 				}
+
+				if (provider.streaming) {
+					const sendStreamingCacheRequest = async () => {
+						const requestId = generateTestRequestId();
+						const res = await app.request("/v1/chat/completions", {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								"x-request-id": requestId,
+								"x-no-fallback": "true",
+								Authorization: `Bearer real-token`,
+							},
+							body: JSON.stringify({
+								model,
+								messages: [
+									{
+										role: "system",
+										content: longSystemPrompt,
+									},
+									{
+										role: "user",
+										content:
+											"Just reply with 'OK' to confirm you received the context.",
+									},
+								],
+								stream: true,
+							}),
+						});
+						const streamResult = await readAll(res.body);
+						const usage = streamResult.chunks
+							.filter((chunk) => chunk.usage)
+							.at(-1)?.usage;
+						return { res, requestId, streamResult, usage };
+					};
+
+					let streamAttempt = 0;
+					let streamResult: Awaited<
+						ReturnType<typeof sendStreamingCacheRequest>
+					>;
+					do {
+						streamAttempt++;
+						streamResult = await sendStreamingCacheRequest();
+						const cached =
+							streamResult.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+						if (streamResult.res.status !== 200 || cached > 0) {
+							break;
+						}
+						if (streamAttempt < maxAttempts) {
+							await new Promise((r) => setTimeout(r, 750 * streamAttempt));
+						}
+					} while (streamAttempt < maxAttempts);
+
+					expect(streamResult.res.status).toBe(200);
+					expect(streamResult.streamResult.hasValidSSE).toBe(true);
+					expect(
+						streamResult.usage?.prompt_tokens_details?.cached_tokens,
+					).toBeGreaterThan(0);
+
+					const streamingLog = await validateLogByRequestId(
+						streamResult.requestId,
+					);
+					expect(streamingLog.streamed).toBe(true);
+					expect(Number(streamingLog.cachedTokens)).toBeGreaterThan(0);
+					expect(Number(streamingLog.cachedInputCost)).toBeGreaterThan(0);
+				}
 			},
 		);
-	}
+	});
 });

@@ -14,6 +14,11 @@ interface ChatCompletionsResponse {
 		message?: {
 			role?: string;
 			content?: string | null;
+			images?: Array<{
+				type?: string;
+				image_url?: { url?: string };
+				url?: string;
+			}>;
 			tool_calls?: Array<{
 				id: string;
 				type: string;
@@ -436,6 +441,23 @@ export function convertChatResponseToResponses(
 		);
 	});
 	emitMessagesUpTo(Number.MAX_SAFE_INTEGER);
+
+	for (const image of message?.images ?? []) {
+		const url = image.image_url?.url ?? image.url;
+		if (typeof url !== "string") {
+			continue;
+		}
+		const match = url.match(/^data:image\/[\w+.-]+;base64,(.+)$/s);
+		if (!match) {
+			continue;
+		}
+		output.push({
+			type: "image_generation_call",
+			id: `ig_${shortid(24)}`,
+			status: "completed",
+			result: match[1],
+		});
+	}
 
 	// Map finish_reason to status. Providers served via the OpenAI Responses
 	// API surface truncation as finish_reason "incomplete" (from the upstream

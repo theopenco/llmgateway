@@ -53,6 +53,11 @@ function baseLogData(overrides: Partial<LogInsertData>): LogInsertData {
 		toolChoice: "auto",
 		toolResults: [{ id: "1" }],
 		responsesApiData: { foo: "bar" },
+		errorDetails: {
+			statusCode: 400,
+			statusText: "Bad Request",
+			responseText: "Access to this model is not allowed for this account.",
+		},
 		...overrides,
 	} as LogInsertData;
 }
@@ -75,6 +80,11 @@ describe("insertLog retention stripping", () => {
 		expect(published.toolChoice).toBeNull();
 		expect(published.toolResults).toBeNull();
 		expect(published.responsesApiData).toBeNull();
+		expect(published.errorDetails).toEqual({
+			statusCode: 400,
+			statusText: "Bad Request",
+			responseText: "Access to this model is not allowed for this account.",
+		});
 		// Metadata is preserved.
 		expect(published.requestId).toBe("req-1");
 		expect(published.organizationId).toBe("org-1");
@@ -86,6 +96,7 @@ describe("insertLog retention stripping", () => {
 
 		const published = publishToQueue.mock.calls[0][1] as LogInsertData;
 		expect(published.content).toBe("secret completion");
+		expect(published.errorDetails).toEqual(baseLogData({}).errorDetails);
 		expect(published.messages).toEqual([
 			{ role: "user", content: "secret prompt" },
 		]);
@@ -98,6 +109,7 @@ describe("insertLog retention stripping", () => {
 		expect(published.messages).toBeNull();
 		expect(published.content).toBeNull();
 		expect(published.reasoningContent).toBeNull();
+		expect(published.errorDetails).toEqual(baseLogData({}).errorDetails);
 	});
 
 	it("strips payload fields when retention is explicitly null (fail closed)", async () => {
@@ -106,6 +118,7 @@ describe("insertLog retention stripping", () => {
 		const published = publishToQueue.mock.calls[0][1] as LogInsertData;
 		expect(published.messages).toBeNull();
 		expect(published.content).toBeNull();
+		expect(published.errorDetails).toEqual(baseLogData({}).errorDetails);
 	});
 
 	it("strips all payload fields when retention is none", async () => {

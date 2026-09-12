@@ -8,8 +8,10 @@ import {
 	validateLogByRequestId,
 } from "@/chat-helpers.e2e.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, tables, eq } from "@llmgateway/db";
 import { models, providers, getProviderEnvVar } from "@llmgateway/models";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import {
@@ -81,7 +83,7 @@ describe("e2e individual tests", () => {
 		const token = `real-token-${testId}`;
 		await db.insert(tables.apiKey).values({
 			id: `token-${testId}`,
-			token,
+			...hashApiKeyForStorage(token),
 			projectId: projectId,
 			description: `Test API Key ${testId}`,
 			createdBy: userId,
@@ -112,7 +114,7 @@ describe("e2e individual tests", () => {
 		const keyId = `provider-key-${provider}-${testId}`;
 		await db.insert(tables.providerKey).values({
 			id: keyId,
-			token,
+			...encryptProviderKeyForStorage(token, keyId, organizationId),
 			provider: provider.replace("env-", ""), // Remove env- prefix for the provider field
 			organizationId,
 		});
@@ -356,7 +358,7 @@ describe("e2e individual tests", () => {
 			const creditsToken = "credits-token-auto";
 			await db.insert(tables.apiKey).values({
 				id: "token-credits-auto",
-				token: creditsToken,
+				...hashApiKeyForStorage(creditsToken),
 				projectId: projectId,
 				description: "Test API Key for Credits",
 				createdBy: userId,
@@ -473,7 +475,11 @@ describe("e2e individual tests", () => {
 		await db.insert(tables.providerKey).values({
 			id: "provider-key-custom-model",
 			provider: "llmgateway",
-			token: envVarValue,
+			...encryptProviderKeyForStorage(
+				envVarValue,
+				"provider-key-custom-model",
+				orgId,
+			),
 			baseUrl: "https://api.openai.com", // Use real OpenAI endpoint for testing
 			status: "active",
 			organizationId: orgId,
@@ -482,7 +488,7 @@ describe("e2e individual tests", () => {
 		const customToken = "real-token-custom";
 		await db.insert(tables.apiKey).values({
 			id: "token-custom-model",
-			token: customToken,
+			...hashApiKeyForStorage(customToken),
 			projectId: projectId,
 			description: "Test API Key",
 			createdBy: userId,

@@ -109,12 +109,12 @@ export function AuthDialog({
 						<Wordmark size="sm" />
 					</div>
 
-					<h1
+					<h2
 						id="auth-dialog-title"
 						className="mt-5 text-xl font-semibold leading-tight tracking-tight sm:text-2xl"
 					>
 						{title}
-					</h1>
+					</h2>
 					<p className="mt-2.5 text-sm text-muted-foreground">{description}</p>
 
 					<div className="mt-5 flex items-center gap-3">

@@ -109,14 +109,9 @@ export {
 
 export {
 	buildGatewayVideoLogContentUrl,
+	getGatewayApiBaseUrl,
 	getGatewayPublicBaseUrl,
 } from "./gateway-url.js";
-
-export {
-	getAvalancheApiBaseUrl,
-	getAvalancheJobsApiBaseUrl,
-	getAvalancheFileUploadBaseUrl,
-} from "./avalanche.js";
 
 export {
 	createHttpClient,
@@ -127,8 +122,38 @@ export {
 export {
 	ModelSelector,
 	ProviderIcons,
+	Time,
+	TimeZoneProvider,
+	TimeZoneSetting,
 	getProviderIcon,
+	useDisplayTimeZone,
 } from "./components/index.js";
+
+export {
+	type DateFormat,
+	dateFormats,
+	formatBucketLabel,
+	formatBucketLabelWithZone,
+	formatDateTime,
+	formatDayKey,
+	formatZoneName,
+	isDayString,
+	isNaiveDateTimeString,
+	shiftDayKey,
+} from "./lib/format-date.js";
+
+export {
+	DEFAULT_TIME_ZONE_PREFERENCE,
+	TIMEZONE_COOKIE_MAX_AGE_DAYS,
+	TIMEZONE_COOKIE_NAME,
+	type TimeZoneMode,
+	type TimeZonePreference,
+	UTC_TIME_ZONE,
+	getBrowserTimeZone,
+	isValidTimeZone,
+	parseTimeZoneCookie,
+	serializeTimeZonePreference,
+} from "./lib/timezone.js";
 
 export { useIsMobile } from "./hooks/use-mobile.js";
 
@@ -152,17 +177,32 @@ export {
 } from "./random.js";
 
 export {
+	createEmptyProviderModelsByKind,
 	getModelIdsByProvider,
+	getModelIdsByProviderAndKind,
+	getProviderModelKind,
 	getProviderModelIds,
+	PROVIDER_MODEL_KINDS,
+	type ProviderModelKind,
+	type ProviderModelsByKind,
 } from "./provider-model-ids.js";
 
 export {
+	getModelImageConfig,
+	GPT_IMAGE_SIZES,
+	type AspectRatio,
+} from "./image-generation-config.js";
+
+export {
 	addCalendarDays,
+	ENTERPRISE_LICENSE_CRITICAL_DAYS,
+	ENTERPRISE_LICENSE_EXPIRING_DAYS,
 	ENTERPRISE_TRIAL_DAY_PRESETS,
 	ENTERPRISE_TRIAL_DAYS,
 	extendTrialEnd,
 	formatPlanTermBadge,
 	formatPlanTermLabel,
+	getEnterpriseLicenseTerm,
 	getOrganizationTerm,
 	getPlanTerm,
 	PLAN_TERM_CRITICAL_DAYS,
@@ -181,7 +221,12 @@ export {
 	LOUNGE_SOURCE,
 } from "./lounge-source.js";
 
-export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
+export {
+	getActiveProviderPromo,
+	MARKETING_STATS,
+	RUNWARE_PROMO,
+	SCX_PROMO,
+} from "./marketing.js";
 
 export {
 	deriveStabilityMetrics,
@@ -208,6 +253,8 @@ export {
 export {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
 	CUSTOM_PROVIDER_NAME_REGEX,
+	PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
+	providerBaseUrlHasEndpointPath,
 	RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
 	RESERVED_CUSTOM_PROVIDER_NAMES,
 } from "./custom-providers.js";
@@ -281,12 +328,18 @@ export {
 export {
 	assertSafeContentUrl,
 	assertSafeProviderBaseUrl,
+	assertSafeUserUrl,
 	assertSafeWebhookUrl,
 	isPrivateOrReservedIp,
 	isProviderUrlGuardEnabled,
 } from "./url-safety.js";
 
 export { parseUsedModel, regionFromUsedModel } from "./used-model.js";
+
+export {
+	PLAYGROUND_KEY_COOKIE_MAX_AGE,
+	PLAYGROUND_KEY_COOKIE_NAME,
+} from "./playground-key-cookie.js";
 
 export {
 	baseLimitEnvVar,
@@ -328,3 +381,35 @@ export {
 
 export * from "./components/ui/index.js";
 export { discountFraction, isValidDiscount } from "./lib/discount.js";
+export {
+	mcpAccountSchema,
+	mcpUsageInputSchema,
+	mcpUsageBreakdownInputSchema,
+	mcpUsageSchema,
+	mcpUsageBreakdownSchema,
+	type McpUsageInput,
+	type McpUsageBreakdownInput,
+	type McpUsageScope,
+} from "./mcp-usage.js";
+
+export {
+	formatMonthLabel,
+	MODEL_SEARCH_MAX_PAGE_SIZE,
+	MODEL_SEARCH_MAX_QUERY_LENGTH,
+	MODEL_SEARCH_PAGE_SIZE,
+	type ModelSearchEntry,
+	type ModelSearchHit,
+	type ModelSearchOptions,
+	type ModelSearchPage,
+	type ModelSearchProvider,
+	monthKeyOf,
+	normalizeSearchText,
+	scoreModelSearchEntry,
+	searchMatchRanges,
+	searchModelEntries,
+	searchModelProviders,
+	searchWords,
+	tokenizeSearchQuery,
+	UNKNOWN_MONTH_KEY,
+	withinOneEdit,
+} from "./model-search.js";

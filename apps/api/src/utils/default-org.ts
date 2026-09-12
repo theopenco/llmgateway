@@ -1,6 +1,6 @@
 import { isUserHighRisk } from "@/lib/account-risk.js";
 
-import { db, shortid, tables } from "@llmgateway/db";
+import { db, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
 interface DefaultOrganizationUser {
@@ -34,7 +34,7 @@ function isActiveDashboardOrganization(userOrganization: {
 // user can join/leave multiple organizations they don't own. Requiring
 // ownership prevents mirroring invoice details from someone else's org that
 // merely happens to carry this user's email as its billing email. Only fall
-// back to the first-active organization when no owned billing-email match
+// back to an organization they administer when no owned billing-email match
 // exists.
 export async function findDefaultOrganization(
 	userId: string,
@@ -43,6 +43,7 @@ export async function findDefaultOrganization(
 	const userOrganizations = await db.query.userOrganization.findMany({
 		where: {
 			userId,
+			role: { in: ["owner", "admin"] },
 		},
 		with: {
 			organization: true,
@@ -121,25 +122,10 @@ export async function getOrCreateDefaultOrganization(
 			role: "owner",
 		});
 
-		const [project] = await tx
-			.insert(tables.project)
-			.values({
-				name: "Default Project",
-				organizationId: organization.id,
-				mode: "hybrid",
-			})
-			.returning();
-
-		const prefix =
-			process.env.NODE_ENV === "development" ? `llmgdev_` : "llmgtwy_";
-		const token = prefix + shortid(40);
-
-		await tx.insert(tables.apiKey).values({
-			projectId: project.id,
-			token,
-			description: "Auto-generated playground key",
-			usageLimit: null,
-			createdBy: user.id,
+		await tx.insert(tables.project).values({
+			name: "Default Project",
+			organizationId: organization.id,
+			mode: "hybrid",
 		});
 
 		if (options.referralOrganizationId) {
