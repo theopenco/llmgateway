@@ -62,6 +62,27 @@ describe("getProjectRoutingUsage", () => {
 		);
 	});
 
+	it("serves the mirrored usage when the query fails", async () => {
+		await db.insert(stats).values(row());
+		const first = await getProjectRoutingUsage(projectId, combinations);
+		await waitForSwrMirrorWrites();
+		vi.spyOn(cdb, "select").mockImplementationOnce(() => {
+			throw new Error("Usage query unavailable");
+		});
+		const warn = vi.spyOn(logger, "warn");
+		expect(first.size).toBe(combinations.length);
+		expect(await getProjectRoutingUsage(projectId, combinations)).toEqual(
+			first,
+		);
+		expect(warn).toHaveBeenCalledWith("serving SWR stale fallback", {
+			key: `projectRoutingUsage:v2:${projectId}:${modelId}`,
+		});
+		expect(warn).not.toHaveBeenCalledWith(
+			"Routing usage unavailable; using configured pricing",
+			expect.anything(),
+		);
+	});
+
 	it("uses provider hits and a token-weighted model mix for unseen providers", async () => {
 		await db.insert(stats).values([
 			row({ cachedTokens: "9000000" }),
