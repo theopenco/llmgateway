@@ -334,6 +334,52 @@ describe("email change confirmation", () => {
 		expect(await db.query.verification.findMany()).toHaveLength(0);
 	});
 
+	it("releases the user lock before delivering a committed reset token", async () => {
+		await patch({ email: newEmail, currentPassword });
+		const emailToken = confirmationToken();
+		const entered = deferred();
+		const release = deferred();
+		sendEmail.mockImplementationOnce(async () => {
+			entered.resolve();
+			await release.promise;
+		});
+		const issuing = app.request("/auth/request-password-reset", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ email: "admin@example.com" }),
+		});
+		let resetToken: string | undefined;
+		try {
+			await entered.promise;
+			const record = await db.query.verification.findFirst({
+				where: { value: "test-user-id" },
+			});
+			expect(record?.identifier).toMatch(/^reset-password:/);
+			resetToken = record!.identifier.slice("reset-password:".length);
+			expect((await confirm(emailToken)).status).toBe(200);
+			expect((await storedUser())?.email).toBe(newEmail);
+		} finally {
+			release.resolve();
+			await issuing;
+		}
+		expect((await issuing).status).toBe(200);
+		expect((await resetPassword(resetToken!)).status).toBe(400);
+		expect((await signIn(newEmail)).status).toBe(200);
+	});
+
+	it("removes committed reset tokens when delivery fails and permits retry", async () => {
+		sendEmail.mockRejectedValueOnce(new Error("Mail unavailable"));
+		const response = await app.request("/auth/request-password-reset", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ email: "admin@example.com" }),
+		});
+		expect(response.status).toBe(500);
+		expect(await db.query.verification.findMany()).toHaveLength(0);
+		expect((await signIn("admin@example.com")).status).toBe(200);
+		expect((await resetPassword(await requestReset())).status).toBe(200);
+	});
+
 	it("rolls back consumed reset tokens when the native reset hook fails", async () => {
 		const token = await requestReset();
 		const context = await apiAuth.$context;

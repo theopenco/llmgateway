@@ -71,14 +71,45 @@ export function serializedPasswordReset(): BetterAuthPlugin {
 					const user = await db.query.user.findFirst({
 						where: { email: ctx.body.email.toLowerCase() },
 					});
-					return await withUserTransaction(user?.id, ctx.context, () =>
+					const emailAndPassword = ctx.context.options.emailAndPassword;
+					const sendResetPassword = emailAndPassword?.sendResetPassword;
+					let delivery:
+						Parameters<NonNullable<typeof sendResetPassword>> | undefined;
+					const context = {
+						...ctx.context,
+						options: { ...ctx.context.options },
+					};
+					if (emailAndPassword && sendResetPassword) {
+						context.options.emailAndPassword = {
+							...emailAndPassword,
+							sendResetPassword: async (
+								...args: Parameters<typeof sendResetPassword>
+							) => {
+								delivery = args;
+							},
+						};
+					}
+					const result = await withUserTransaction(user?.id, context, () =>
 						requestPasswordReset({
 							...ctx,
+							context,
 							asResponse: false,
 							returnHeaders: false,
 							returnStatus: false,
 						}),
 					);
+					// Mail delivery must not hold the user lock or a database connection.
+					if (delivery && sendResetPassword) {
+						try {
+							await sendResetPassword(...delivery);
+						} catch (error) {
+							await ctx.context.internalAdapter.deleteVerificationByIdentifier(
+								`reset-password:${delivery[0].token}`,
+							);
+							throw error;
+						}
+					}
+					return result;
 				},
 			),
 		},
