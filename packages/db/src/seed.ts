@@ -10,7 +10,11 @@ import {
 	models as allModels,
 	providers as allProviders,
 } from "@llmgateway/models";
-import { DEV_PLAN_PRICES, getDevPlanCreditsLimit } from "@llmgateway/shared";
+import {
+	DEV_PLAN_PRICES,
+	DEV_PLAN_RESET_PASS_PRICES,
+	getDevPlanCreditsLimit,
+} from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { and, closeDatabase, db, eq, isNull, tables } from "./index.js";
@@ -1172,6 +1176,9 @@ function generateProjectHourlySourceStats(projects: ProjectDef[]) {
 	return stats;
 }
 
+// Matches the seeded mistral provider_routing_settings marginPercent.
+const airsideMarginPercent = 0.3;
+
 function minutesAgo(minutes: number) {
 	/* eslint-disable no-mixed-operators */
 	return new Date(Date.now() - minutes * 60 * 1000);
@@ -2019,11 +2026,22 @@ async function seed() {
 	await bulkInsert(tables.projectHourlyStats, devpassHourlyStats);
 
 	// Split each hourly bucket across a few models so the Model Usage Overview chart has data.
-	const devpassModels: Array<{ provider: string; model: string }> = [
+	// The mistral share is routed through the seeded Airside carrier, so the
+	// admin DevPass page has gateway margin to show.
+	const devpassModels: Array<{
+		provider: string;
+		model: string;
+		marginPercent?: number;
+	}> = [
 		{ provider: "anthropic", model: "claude-3.5-sonnet" },
 		{ provider: "openai", model: "gpt-4o" },
 		{ provider: "anthropic", model: "claude-3-haiku" },
 		{ provider: "openai", model: "gpt-4o-mini" },
+		{
+			provider: "mistral",
+			model: "mistral-medium-4",
+			marginPercent: airsideMarginPercent,
+		},
 	];
 	const devpassHourlyModelStats: Array<Record<string, any>> = [];
 	for (const bucket of devpassHourlyStats) {
@@ -2076,6 +2094,9 @@ async function seed() {
 				videoOutputCost: 0,
 				cachedInputCost: 0,
 				cacheWriteInputCost: 0,
+				providerMarginAmount: Number(
+					(bucket.cost * w * (m.marginPercent ?? 0)).toFixed(4),
+				),
 				creditsRequestCount: reqs,
 				apiKeysRequestCount: 0,
 				creditsCost: Number((bucket.cost * w).toFixed(4)),
@@ -2537,6 +2558,52 @@ async function seed() {
 		stripePaymentIntentId: "pi_seed_devpass_renewal",
 		stripeInvoiceId: "in_seed_devpass_renewal",
 		description: "Seeded DevPass Pro renewal for admin dashboard",
+	});
+
+	// Two Reset Pass sales (one inside the current 12-day cycle, one before
+	// it) and a PAYG overflow top-up carrying the 5% fee, so every component
+	// of the admin DevPass margin breakdown is populated locally.
+	const devpassResetPassCycleCreatedAt = daysAgo(3);
+	await upsert(tables.transaction, {
+		id: "test-devpass-reset-pass-cycle-transaction-id",
+		organizationId: "test-personal-org-id",
+		createdAt: devpassResetPassCycleCreatedAt,
+		updatedAt: devpassResetPassCycleCreatedAt,
+		type: "dev_plan_reset_pass",
+		amount: String(DEV_PLAN_RESET_PASS_PRICES.pro),
+		creditAmount: null,
+		currency: "USD",
+		status: "completed",
+		stripePaymentIntentId: "pi_seed_devpass_reset_pass_cycle",
+		description: "DevPass Reset Pass (PRO)",
+	});
+	const devpassResetPassPastCreatedAt = daysAgo(20);
+	await upsert(tables.transaction, {
+		id: "test-devpass-reset-pass-past-transaction-id",
+		organizationId: "test-personal-org-id",
+		createdAt: devpassResetPassPastCreatedAt,
+		updatedAt: devpassResetPassPastCreatedAt,
+		type: "dev_plan_reset_pass",
+		amount: String(DEV_PLAN_RESET_PASS_PRICES.pro),
+		creditAmount: null,
+		currency: "USD",
+		status: "completed",
+		stripePaymentIntentId: "pi_seed_devpass_reset_pass_past",
+		description: "DevPass Reset Pass (PRO)",
+	});
+	const devpassTopupCreatedAt = daysAgo(4);
+	await upsert(tables.transaction, {
+		id: "test-devpass-payg-topup-transaction-id",
+		organizationId: "test-personal-org-id",
+		createdAt: devpassTopupCreatedAt,
+		updatedAt: devpassTopupCreatedAt,
+		type: "credit_topup",
+		amount: "26.25",
+		creditAmount: "25",
+		currency: "USD",
+		status: "completed",
+		stripePaymentIntentId: "pi_seed_devpass_payg_topup",
+		description: "Credit purchase for 25 USD (including fees)",
 	});
 
 	const devpassRefundCreatedAt = new Date();
@@ -3320,8 +3387,6 @@ async function seedAirside() {
 		{ model: "mistral-medium-4", inputPrice: 4e-7, outputPrice: 2e-6 },
 		{ model: "codestral-3", inputPrice: 9e-7, outputPrice: 3e-6 },
 	];
-	// Matches the seeded mistral provider_routing_settings marginPercent.
-	const airsideMarginPercent = 0.3;
 	let airsideStatId = 0;
 	for (let day = 0; day < 30; day++) {
 		for (const entry of airsideModels) {
