@@ -51,6 +51,14 @@ import {
 	isPremiumWeekExpired,
 	isPrivateOrReservedIp,
 } from "@llmgateway/shared";
+import {
+	buildPayloadKey,
+	hasLogPayload,
+	isPayloadStorageEnabled,
+	mapWithConcurrency,
+	putLogPayload,
+	splitLogPayload,
+} from "@llmgateway/shared/payload-storage";
 
 import { posthog } from "./posthog.js";
 import {
@@ -878,6 +886,10 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						userAgent: null,
 						gatewayContentFilterResponse: null,
 						responsesApiData: null,
+						// The blob itself is deleted by the bucket lifecycle rule; the
+						// row just stops pointing at it so the detail view can't try a
+						// hydration that would race the lifecycle deletion.
+						payloadRef: null,
 						dataRetentionCleanedUp: true,
 					})
 					// Use `= ANY($1)` with a single array parameter instead of
@@ -2034,11 +2046,23 @@ export async function processLogQueue(): Promise<number> {
 
 	const MAX_RETRIES = 5;
 
+	// Id-annotated originals: requeue paths publish these (never the mutated
+	// preview rows) so a retried batch re-uploads the same blob keys instead of
+	// orphaning objects under fresh ids or persisting previews as the blob.
+	let queuedRows: LogInsertData[] | null = null;
+
+	const requeueRows = async () => {
+		for (const row of queuedRows ??
+			message.map((msg) => JSON.parse(msg) as LogInsertData)) {
+			await publishToQueue(LOG_QUEUE, row);
+		}
+	};
+
 	try {
 		// The gateway decides what to persist: it strips request/response payload
 		// fields before publishing for orgs that don't retain data, so the worker
 		// inserts the queued rows with no per-batch org retention lookup.
-		const logData = message.map((i) => {
+		queuedRows = message.map((i) => {
 			const data = JSON.parse(i) as LogInsertData;
 			// Failed requests can still carry fractional limits into integer columns.
 			if (typeof data.maxTokens === "number") {
@@ -2050,12 +2074,43 @@ export async function processLogQueue(): Promise<number> {
 			return data;
 		});
 
+		// Blob keys and requeue idempotency need the PK before insert (normally
+		// assigned by the DB column default at insert time).
+		for (const row of queuedRows) {
+			row.id ??= shortid();
+		}
+
+		// Offload payload fields to object storage: the PG row keeps truncated
+		// previews plus the blob key. An upload failure throws into the outer
+		// catch, so the batch requeues and the circuit breaker also covers
+		// object-storage outages. Rows the gateway already stripped for
+		// non-retaining orgs have no payload fields and skip the blob entirely.
+		let rowsToInsert = queuedRows;
+		if (isPayloadStorageEnabled()) {
+			rowsToInsert = await mapWithConcurrency(queuedRows, 8, async (row) => {
+				const rowRecord = row as Record<string, unknown>;
+				if (!hasLogPayload(rowRecord)) {
+					return row;
+				}
+				const { payload, previewColumns } = splitLogPayload(rowRecord);
+				const payloadRef = await putLogPayload(
+					buildPayloadKey(row.organizationId, row.projectId, row.id!),
+					payload,
+				);
+				return {
+					...row,
+					...(previewColumns as Partial<LogInsertData>),
+					payloadRef,
+				};
+			});
+		}
+
 		// Insert logs with retry logic
 		let lastError: Error | undefined;
 		for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 			try {
 				const insertStart = Date.now();
-				await db.insert(log).values(logData);
+				await db.insert(log).values(rowsToInsert);
 				const insertMs = Date.now() - insertStart;
 				recordLogInsertSuccess();
 				logger.info(
@@ -2092,9 +2147,7 @@ export async function processLogQueue(): Promise<number> {
 		);
 
 		// Re-add messages to queue
-		for (const msg of message) {
-			await publishToQueue(LOG_QUEUE, JSON.parse(msg));
-		}
+		await requeueRows();
 
 		return 0;
 	} catch (error) {
@@ -2108,9 +2161,7 @@ export async function processLogQueue(): Promise<number> {
 
 		// Re-add messages to queue on unexpected errors
 		try {
-			for (const msg of message) {
-				await publishToQueue(LOG_QUEUE, JSON.parse(msg));
-			}
+			await requeueRows();
 		} catch (requeueError) {
 			logger.error(
 				"Failed to re-queue log messages",
