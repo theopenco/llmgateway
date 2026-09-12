@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "a173f8b6-2571-4685-bd8d-b97f948f67d0",
+  "id": "7a360f41-677f-4b09-949a-00b4d4135f0b",
   "prevId": "75d4ee89-cd59-4ee2-8a70-39866ca971e1",
   "ddl": [
     {
@@ -1051,6 +1051,19 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "api_key"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "token_hash",
       "entityType": "columns",
       "schema": "public",
@@ -1059,7 +1072,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -4551,6 +4564,38 @@
       "table": "chat_share"
     },
     {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "allow_discovery",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "chat_share"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "allow_forking",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "chat_share"
+    },
+    {
       "type": "jsonb",
       "typeSchema": null,
       "notNull": true,
@@ -6120,7 +6165,20 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "end_user_session"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -21610,7 +21668,20 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -21623,7 +21694,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -21636,7 +21707,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -38604,6 +38675,17 @@
     {
       "nameExplicit": false,
       "columns": [
+        "token"
+      ],
+      "nullsNotDistinct": false,
+      "name": "api_key_token_unique",
+      "schema": "public",
+      "table": "api_key",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "token_hash"
       ],
       "nullsNotDistinct": false,
@@ -38654,6 +38736,17 @@
       "name": "end_customer_stripe_customer_id_key",
       "schema": "public",
       "table": "end_customer",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "token"
+      ],
+      "nullsNotDistinct": false,
+      "name": "end_user_session_token_key",
+      "schema": "public",
+      "table": "end_user_session",
       "entityType": "uniques"
     },
     {
@@ -38844,13 +38937,6 @@
       "entityType": "uniques"
     },
     {
-      "value": "\"key_type\" = 'platform_publishable' OR \"token_hash\" IS NOT NULL",
-      "name": "api_key_token_hash_required",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "api_key"
-    },
-    {
       "value": "\"rating\" IS NULL OR (\"rating\" >= 0 AND \"rating\" <= 5)",
       "name": "chat_support_conversation_rating_check",
       "entityType": "checks",
@@ -38912,6 +38998,13 @@
       "entityType": "checks",
       "schema": "public",
       "table": "model_survey_response"
+    },
+    {
+      "value": "(\"token\" IS NULL) <> (\"token_ciphertext\" IS NULL)",
+      "name": "provider_key_token_xor",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "provider_key"
     },
     {
       "value": "(\"managed\" = true AND \"organization_id\" IS NULL) OR (\"managed\" = false AND \"organization_id\" IS NOT NULL)",
