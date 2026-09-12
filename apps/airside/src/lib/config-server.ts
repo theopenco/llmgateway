@@ -14,7 +14,7 @@ export interface AppConfig {
 
 export function getConfig(): AppConfig {
 	const apiUrl = process.env.API_URL ?? "http://localhost:4002";
-	const posthogHost = process.env.POSTHOG_HOST;
+	const posthogHost = process.env.POSTHOG_HOST || undefined;
 	if (posthogHost !== undefined) {
 		const url = new URL(posthogHost);
 		const localDevelopment =
