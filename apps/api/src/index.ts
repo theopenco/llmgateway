@@ -21,6 +21,7 @@ import { authHandler } from "./auth/handler.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { beacon } from "./routes/beacon.js";
 import { cliSkills } from "./routes/cli-skills.js";
+import { emailChange } from "./routes/email-change.js";
 import { routes } from "./routes/index.js";
 import { internalModels } from "./routes/internal-models.js";
 import { mcp } from "./routes/mcp.js";
@@ -335,6 +336,7 @@ app.doc("/json", config);
 app.get("/docs", swaggerUI({ url: "./json" }));
 
 app.route("/", authHandler);
+app.route("/", emailChange);
 
 app.route("/v1/master", v1Master);
 app.route("/mcp", mcp);

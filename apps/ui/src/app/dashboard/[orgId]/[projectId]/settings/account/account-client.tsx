@@ -93,6 +93,8 @@ export function AccountClient() {
 
 	const [name, setName] = useState(user?.name ?? "");
 	const [email, setEmail] = useState(user?.email ?? "");
+	const [currentPassword, setCurrentPassword] = useState("");
+	const [pendingEmail, setPendingEmail] = useState("");
 
 	useEffect(() => {
 		if (user) {
@@ -105,6 +107,8 @@ export function AccountClient() {
 		(a) => a.providerId === "credential",
 	);
 	const emailEditable = !!hasCredentialAccount;
+	const emailChanged =
+		emailEditable && email.trim().toLowerCase() !== user?.email?.toLowerCase();
 
 	const socialProviders =
 		user?.accounts?.filter((a) => a.providerId !== "credential") ?? [];
@@ -123,16 +127,22 @@ export function AccountClient() {
 
 	const handleUpdateUser = async () => {
 		try {
-			await updateUserMutation.mutateAsync({
+			const result = await updateUserMutation.mutateAsync({
 				body: {
 					name: name ?? undefined,
-					email: emailEditable ? (email ?? undefined) : undefined,
+					email: emailChanged ? email : undefined,
+					currentPassword: emailChanged ? currentPassword : undefined,
 				},
 			});
 
+			if (emailChanged) {
+				setPendingEmail(email.trim().toLowerCase());
+				setEmail(result.user.email);
+			}
+			setCurrentPassword("");
 			toast({
 				title: "Success",
-				description: "Your account information has been updated.",
+				description: result.message,
 			});
 		} catch (error) {
 			toast({
@@ -195,6 +205,8 @@ export function AccountClient() {
 								<Label htmlFor="email">Email</Label>
 								<Input
 									id="email"
+									type="email"
+									autoComplete="email"
 									value={email}
 									onChange={(e) => setEmail(e.target.value)}
 									disabled={!emailEditable}
@@ -218,12 +230,39 @@ export function AccountClient() {
 									</div>
 								)}
 							</div>
+							{emailChanged && (
+								<div className="space-y-2">
+									<Label htmlFor="email-current-password">
+										Current password
+									</Label>
+									<Input
+										id="email-current-password"
+										type="password"
+										autoComplete="current-password"
+										value={currentPassword}
+										onChange={(event) => setCurrentPassword(event.target.value)}
+									/>
+									<p className="text-muted-foreground text-sm">
+										Confirm your new address by email before it replaces your
+										current sign-in and recovery address.
+									</p>
+								</div>
+							)}
+							{pendingEmail && (
+								<p role="status" className="text-muted-foreground text-sm">
+									Check {pendingEmail} for a confirmation link. Your current
+									email address remains active until you confirm.
+								</p>
+							)}
 						</CardContent>
 						<CardFooter className="flex justify-between">
 							<Button variant="outline">Cancel</Button>
 							<Button
 								onClick={handleUpdateUser}
-								disabled={updateUserMutation.isPending}
+								disabled={
+									updateUserMutation.isPending ||
+									(emailChanged && !currentPassword)
+								}
 							>
 								{updateUserMutation.isPending ? "Saving..." : "Save Changes"}
 							</Button>

@@ -2,11 +2,12 @@ import { passkey } from "@better-auth/passkey";
 import { sso } from "@better-auth/sso";
 import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
 import { betterAuth } from "better-auth";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
 import { bearer, deviceAuthorization } from "better-auth/plugins";
 import { Redis } from "ioredis";
 
+import { createAuthDatabase } from "@/auth/database.js";
+import { serializedPasswordReset } from "@/auth/password-reset.js";
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
 import { getClientIpFromHeaders } from "@/lib/client-ip.js";
@@ -447,7 +448,7 @@ export async function checkRateLimit(
 	}
 }
 
-async function createResendContact(
+export async function createResendContact(
 	email: string,
 	name?: string,
 	attributes?: Record<string, string | number | boolean>,
@@ -725,6 +726,7 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 				},
 			},
 			plugins: [
+				serializedPasswordReset(),
 				bearer(),
 				deviceAuthorization({
 					verificationUri: `${uiUrl}/connect/device`,
@@ -809,6 +811,7 @@ If you didn't request this, you can safely ignore this email. Your password won'
 							to: user.email,
 							subject: "Reset your LLM Gateway password",
 							text,
+							timeoutMs: 15000,
 							strict: true,
 							logSafe: true,
 						});
@@ -826,18 +829,7 @@ If you didn't request this, you can safely ignore this email. Your password won'
 			},
 			baseURL: apiUrl || "http://localhost:4002",
 			secret: process.env.AUTH_SECRET ?? "dev-secret-key-must-be-32-chars!",
-			database: drizzleAdapter(db, {
-				provider: "pg",
-				schema: {
-					user: tables.user,
-					session: tables.session,
-					account: tables.account,
-					verification: tables.verification,
-					deviceCode: tables.deviceCode,
-					passkey: tables.passkey,
-					ssoProvider: tables.ssoProvider,
-				},
-			}),
+			database: createAuthDatabase(db),
 			socialProviders: {
 				// Social sign-in must never silently create an account: the login
 				// pages ask the user to confirm first and retry with

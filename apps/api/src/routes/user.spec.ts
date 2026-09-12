@@ -1,6 +1,11 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 
+import { redisClient } from "@/auth/config.js";
 import { app } from "@/index.js";
+import {
+	getEmailChangeRateLimitKeys,
+	getEmailChangeProofRateLimitKeys,
+} from "@/lib/email-change.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
@@ -175,12 +180,19 @@ describe("user account deletion", () => {
 
 describe("user accounts and email editability", () => {
 	let token: string;
+	const emailRateLimitKeys = [
+		...getEmailChangeProofRateLimitKeys("test-user-id", new Headers()),
+		...getEmailChangeRateLimitKeys("test-user-id", "changed@example.com"),
+		...getEmailChangeRateLimitKeys("test-user-id", "mixed.case@example.com"),
+	];
 
 	beforeEach(async () => {
+		await redisClient.del(...emailRateLimitKeys);
 		token = await createTestUser();
 	});
 
 	afterEach(async () => {
+		await redisClient.del(...emailRateLimitKeys);
 		await db.delete(tables.passkey);
 		await db.delete(tables.ssoProvider);
 		await deleteAll();
@@ -363,26 +375,34 @@ describe("user accounts and email editability", () => {
 		expect(json.user.accounts).toHaveLength(2);
 	});
 
-	it("PATCH /user/me should reset emailVerified when the email changes", async () => {
-		const res = await app.request("/user/me", {
-			method: "PATCH",
-			headers: {
-				Cookie: token,
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({ email: "changed@example.com" }),
-		});
+	it("PATCH /user/me should preserve the current identity until email confirmation", async () => {
+		vi.stubEnv("ADMIN_EMAILS", "changed@example.com");
+		try {
+			const res = await app.request("/user/me", {
+				method: "PATCH",
+				headers: {
+					Cookie: token,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					email: "changed@example.com",
+					currentPassword: "admin@example.com1A",
+				}),
+			});
 
-		expect(res.status).toBe(200);
-		const json = await res.json();
-		expect(json.user.email).toBe("changed@example.com");
-		expect(json.user.emailVerified).toBe(false);
-		expect(json.user.isAdmin).toBe(false);
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.user.email).toBe("admin@example.com");
+			expect(json.user.emailVerified).toBe(true);
+			expect(json.user.isAdmin).toBe(false);
 
-		const stored = await db.query.user.findFirst({
-			where: { id: { eq: "test-user-id" } },
-		});
-		expect(stored!.emailVerified).toBe(false);
+			const stored = await db.query.user.findFirst({
+				where: { id: { eq: "test-user-id" } },
+			});
+			expect(stored!.emailVerified).toBe(true);
+		} finally {
+			vi.unstubAllEnvs();
+		}
 	});
 
 	it("PATCH /user/me should keep emailVerified when the email is unchanged", async () => {
@@ -400,20 +420,27 @@ describe("user accounts and email editability", () => {
 		expect(json.user.emailVerified).toBe(true);
 	});
 
-	it("PATCH /user/me should store a changed email lowercased", async () => {
+	it("PATCH /user/me should store a pending email lowercased", async () => {
 		const res = await app.request("/user/me", {
 			method: "PATCH",
 			headers: {
 				Cookie: token,
 				"Content-Type": "application/json",
 			},
-			body: JSON.stringify({ email: "Mixed.Case@Example.COM" }),
+			body: JSON.stringify({
+				email: "Mixed.Case@Example.COM",
+				currentPassword: "admin@example.com1A",
+			}),
 		});
 
 		expect(res.status).toBe(200);
 		const json = await res.json();
-		expect(json.user.email).toBe("mixed.case@example.com");
-		expect(json.user.emailVerified).toBe(false);
+		expect(json.user.email).toBe("admin@example.com");
+		const pending = await db.query.verification.findFirst({
+			where: { id: "email-change:test-user-id" },
+		});
+		expect(JSON.parse(pending!.value).newEmail).toBe("mixed.case@example.com");
+		expect(json.user.emailVerified).toBe(true);
 	});
 
 	it("PATCH /user/me should reject a case variant of another account's email", async () => {
@@ -430,7 +457,10 @@ describe("user accounts and email editability", () => {
 				Cookie: token,
 				"Content-Type": "application/json",
 			},
-			body: JSON.stringify({ email: "TAKEN@example.com" }),
+			body: JSON.stringify({
+				email: "TAKEN@example.com",
+				currentPassword: "admin@example.com1A",
+			}),
 		});
 
 		expect(res.status).toBe(400);
@@ -457,7 +487,10 @@ describe("user accounts and email editability", () => {
 				Cookie: token,
 				"Content-Type": "application/json",
 			},
-			body: JSON.stringify({ email: "taken@example.com" }),
+			body: JSON.stringify({
+				email: "taken@example.com",
+				currentPassword: "admin@example.com1A",
+			}),
 		});
 
 		expect(res.status).toBe(400);
