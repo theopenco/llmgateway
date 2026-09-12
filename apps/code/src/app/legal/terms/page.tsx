@@ -25,7 +25,7 @@ export default function TermsPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> September 4, 2026
+				<strong>Last Updated:</strong> September 12, 2026
 			</p>
 			<LegalSummary variant="terms" />
 			<p>
@@ -125,6 +125,17 @@ export default function TermsPage() {
 					immediate mid-cycle upgrade, which rolls your unused allowance into
 					the new cycle (see &ldquo;Plan changes&rdquo; below)
 				</li>
+				<li>
+					Allowances are paced. Each tier publishes a{" "}
+					<strong>daily pacing allowance</strong> &mdash; the share of the
+					monthly allowance that can be used in any rolling 24-hour window,
+					across all models &mdash; and a{" "}
+					<strong>weekly fair-use allowance</strong> for premium models.
+					Requests beyond a pacing allowance are declined until the window rolls
+					over, unless pay-as-you-go overflow is enabled. The current shares are
+					published on the <Link href="/pricing">pricing page</Link> and may
+					change with notice
+				</li>
 			</ul>
 			<p>
 				Billing is processed securely through <strong>Stripe</strong>, as
@@ -183,7 +194,7 @@ export default function TermsPage() {
 			<p>
 				DevPass is sold to <strong>one developer, on one account</strong>. The
 				flat-rate price and{" "}
-				<strong>3&times; your subscription in included usage</strong> only work
+				<strong>2&times; your subscription in included usage</strong> only work
 				because each person uses a single account in good faith. Splitting that
 				usage across multiple accounts is the fastest way to break the deal for
 				everyone.

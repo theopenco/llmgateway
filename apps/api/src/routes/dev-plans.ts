@@ -70,6 +70,9 @@ import {
 	TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CREDIT_TOP_UP_MIN_AMOUNT,
+	DEV_PLAN_CANCELLATION_COMMENTS_MAX_LENGTH,
+	DEV_PLAN_CANCELLATION_REASONS,
+	DEV_PLAN_DAY_LENGTH_MS,
 	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PRICES,
@@ -78,10 +81,12 @@ import {
 	DEV_PLAN_RESET_PASS_REDEEM_MAX_CYCLE_USAGE,
 	getDevPlanCreditsLimit,
 	getDevPlanCycleUsageFraction,
+	getDevPlanDailyLimit,
 	getDevPlanPremiumWeeklyLimit,
 	getDevPlanUpgradeCredits,
 	getIncludedResetPassesRemaining,
 	getRemainingPremiumWeeklyAllowance,
+	isDailyWindowExpired,
 	isPremiumWeekExpired,
 	type DevPlanCycle,
 	type DevPlanTier,
@@ -368,6 +373,8 @@ async function resetEndedDevPlan(organizationId: string): Promise<void> {
 			devPlanCreditsUsed: "0",
 			devPlanPremiumCreditsUsed: "0",
 			devPlanPremiumWeekStart: null,
+			devPlanDailyCreditsUsed: "0",
+			devPlanDayStart: null,
 			// Included passes are a per-cycle grant, so their used-counter clears
 			// with the plan; purchased passes were paid for and survive to a
 			// future resubscribe.
@@ -392,6 +399,10 @@ const subscribe = createRoute({
 				"application/json": {
 					schema: z.object({
 						tier: z.enum(["lite", "pro", "max"]),
+						// Opt into pay-as-you-go overflow at signup. Written before
+						// checkout so the plan activates with overflow already on; the
+						// gateway ignores the flag until a plan is active.
+						paygEnabled: z.boolean().optional(),
 					}),
 				},
 			},
@@ -413,7 +424,7 @@ const subscribe = createRoute({
 
 devPlans.openapi(subscribe, async (c) => {
 	const user = c.get("user");
-	const { tier } = c.req.valid("json");
+	const { tier, paygEnabled } = c.req.valid("json");
 
 	// Dev plans are billed monthly only; the Stripe monthly cycle drives credit
 	// refreshes. (Legacy annual subscriptions are still serviced on read.)
@@ -466,6 +477,13 @@ devPlans.openapi(subscribe, async (c) => {
 		});
 	}
 
+	if (paygEnabled && !personalOrg.devPlanPaygEnabled) {
+		await cdb
+			.update(tables.organization)
+			.set({ devPlanPaygEnabled: true })
+			.where(eq(tables.organization.id, personalOrg.id));
+	}
+
 	try {
 		const stripeCustomerId = await ensureStripeCustomer(personalOrg.id);
 
@@ -516,6 +534,7 @@ devPlans.openapi(subscribe, async (c) => {
 			metadata: {
 				tier,
 				cycle,
+				paygEnabled: paygEnabled === true,
 			},
 		});
 
@@ -677,11 +696,28 @@ devPlans.openapi(finalize, async (c) => {
 	}
 });
 
-// Cancel dev plan subscription
+// Cancel dev plan subscription. The cancel dialog collects the survey answer
+// up front and sends it here, so the feedback row is written in the same
+// request instead of waiting for the webhook to flip devPlanCancelled.
 const cancel = createRoute({
 	method: "post",
 	path: "/cancel",
-	request: {},
+	request: {
+		body: {
+			required: false,
+			content: {
+				"application/json": {
+					schema: z.object({
+						reason: z.enum(DEV_PLAN_CANCELLATION_REASONS).optional(),
+						comments: z
+							.string()
+							.max(DEV_PLAN_CANCELLATION_COMMENTS_MAX_LENGTH)
+							.optional(),
+					}),
+				},
+			},
+		},
+	},
 	responses: {
 		200: {
 			content: {
@@ -704,6 +740,12 @@ devPlans.openapi(cancel, async (c) => {
 			message: "Unauthorized",
 		});
 	}
+
+	// The body is optional; without a JSON payload the validator yields nothing.
+	const { reason, comments } = c.req.valid("json") ?? {
+		reason: undefined,
+		comments: undefined,
+	};
 
 	// Find personal org
 	const userOrgs = await db.query.userOrganization.findMany({
@@ -747,16 +789,8 @@ devPlans.openapi(cancel, async (c) => {
 			resourceId: personalOrg.devPlanStripeSubscriptionId,
 			metadata: {
 				tier: personalOrg.devPlan,
+				reason: reason ?? null,
 			},
-		});
-
-		// Wait for webhook to process
-		await new Promise((resolve) => {
-			setTimeout(resolve, 3000);
-		});
-
-		return c.json({
-			success: true,
 		});
 	} catch (error) {
 		logger.error(
@@ -767,6 +801,57 @@ devPlans.openapi(cancel, async (c) => {
 			message: "Failed to cancel dev plan subscription",
 		});
 	}
+
+	// The subscription is already cancelled at this point, so a failure here
+	// must not turn the response into a 500 the dialog would read as "not
+	// cancelled". Log it and keep going.
+	if (reason) {
+		const previousDevPlan =
+			personalOrg.devPlan === "lite" ||
+			personalOrg.devPlan === "pro" ||
+			personalOrg.devPlan === "max"
+				? personalOrg.devPlan
+				: null;
+		const trimmedComments = comments?.trim() || null;
+		try {
+			await db
+				.insert(tables.devPlanCancellationFeedback)
+				.values({
+					organizationId: personalOrg.id,
+					userId: user.id,
+					devPlanStripeSubscriptionId: personalOrg.devPlanStripeSubscriptionId,
+					previousDevPlan,
+					reason,
+					comments: trimmedComments,
+				})
+				.onConflictDoUpdate({
+					target: [
+						tables.devPlanCancellationFeedback.organizationId,
+						tables.devPlanCancellationFeedback.devPlanStripeSubscriptionId,
+					],
+					set: {
+						reason,
+						comments: trimmedComments,
+						userId: user.id,
+						updatedAt: new Date(),
+					},
+				});
+		} catch (error) {
+			logger.error(
+				"Failed to record dev plan cancellation feedback",
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		}
+	}
+
+	// Wait for webhook to process
+	await new Promise((resolve) => {
+		setTimeout(resolve, 3000);
+	});
+
+	return c.json({
+		success: true,
+	});
 });
 
 // Resume cancelled dev plan subscription
@@ -1447,6 +1532,8 @@ devPlans.openapi(changeTier, async (c) => {
 							devPlanCreditsUsed: "0",
 							devPlanPremiumCreditsUsed: "0",
 							devPlanPremiumWeekStart: new Date(),
+							devPlanDailyCreditsUsed: "0",
+							devPlanDayStart: null,
 							devPlanIncludedResetPassesUsed: 0,
 							devPlanCreditsFrozen: false,
 							devPlanCreditsLimitBeforeFreeze: null,
@@ -1788,6 +1875,11 @@ const getStatus = createRoute({
 						devPlanPremiumWeeklyLimit: z.string(),
 						devPlanPremiumCreditsUsed: z.string(),
 						devPlanPremiumWeekResetsAt: z.string().nullable(),
+						// Daily pacing allowance: plan credits per rolling 24-hour
+						// window, how much of it is used, and when the window rolls.
+						devPlanDailyLimit: z.string(),
+						devPlanDailyCreditsUsed: z.string(),
+						devPlanDayResetsAt: z.string().nullable(),
 						// Purchased Reset Passes redeemable on the current tier
 						// (purchased inventory is tier-bound).
 						devPlanResetPasses: z.number(),
@@ -1869,6 +1961,9 @@ devPlans.openapi(getStatus, async (c) => {
 			devPlanPremiumWeeklyLimit: "0",
 			devPlanPremiumCreditsUsed: "0",
 			devPlanPremiumWeekResetsAt: null,
+			devPlanDailyLimit: "0",
+			devPlanDailyCreditsUsed: "0",
+			devPlanDayResetsAt: null,
 			devPlanResetPasses: 0,
 			devPlanIncludedResetPasses: 0,
 			devPlanIncludedResetPassesRemaining: 0,
@@ -1931,6 +2026,22 @@ devPlans.openapi(getStatus, async (c) => {
 				).toISOString()
 			: null;
 
+	// Daily pacing allowance, same semantics as the weekly window above.
+	const dailyLimit =
+		personalOrg.devPlan !== "none"
+			? getDevPlanDailyLimit(personalOrg.devPlan)
+			: 0;
+	const dayExpired = isDailyWindowExpired(personalOrg.devPlanDayStart);
+	const dailyCreditsUsed = dayExpired
+		? 0
+		: parseFloat(personalOrg.devPlanDailyCreditsUsed ?? "0");
+	const dayResetsAt =
+		!dayExpired && personalOrg.devPlanDayStart
+			? new Date(
+					personalOrg.devPlanDayStart.getTime() + DEV_PLAN_DAY_LENGTH_MS,
+				).toISOString()
+			: null;
+
 	// Get API key and project if user has an active dev plan
 	let apiKey: { id: string; maskedToken: string } | null = null;
 	let projectId: string | null = null;
@@ -1976,6 +2087,9 @@ devPlans.openapi(getStatus, async (c) => {
 		devPlanPremiumWeeklyLimit: premiumWeeklyLimit.toFixed(2),
 		devPlanPremiumCreditsUsed: premiumCreditsUsed.toFixed(2),
 		devPlanPremiumWeekResetsAt: premiumWeekResetsAt,
+		devPlanDailyLimit: dailyLimit.toFixed(2),
+		devPlanDailyCreditsUsed: dailyCreditsUsed.toFixed(2),
+		devPlanDayResetsAt: dayResetsAt,
 		devPlanResetPasses:
 			personalOrg.devPlan !== "none"
 				? getPurchasedResetPasses(personalOrg, personalOrg.devPlan)

@@ -146,6 +146,37 @@ describe("dev-plan-cancellation-feedback", () => {
 		expect(body.existingFeedback.comments).toBe("moved to vendor X");
 	});
 
+	test("POST / accepts the reasons added for the cancel dialog", async () => {
+		await seedCancelledDevPlan();
+
+		const res = await app.request("/dev-plan-cancellation-feedback/submit", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({
+				reason: "allowance_too_small",
+				comments: "Out of allowance by day nine.",
+			}),
+		});
+		expect(res.status).toBe(200);
+
+		const rows = await db.query.devPlanCancellationFeedback.findMany({
+			where: { organizationId: { eq: PERSONAL_ORG_ID } },
+		});
+		expect(rows).toHaveLength(1);
+		expect(rows[0].reason).toBe("allowance_too_small");
+	});
+
+	test("POST / rejects a reason outside the shared list", async () => {
+		await seedCancelledDevPlan();
+
+		const res = await app.request("/dev-plan-cancellation-feedback/submit", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ reason: "vibes" }),
+		});
+		expect(res.status).toBe(400);
+	});
+
 	test("POST / rejects when no cancelled dev plan exists", async () => {
 		const res = await app.request("/dev-plan-cancellation-feedback/submit", {
 			method: "POST",

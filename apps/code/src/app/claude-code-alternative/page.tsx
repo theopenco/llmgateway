@@ -81,9 +81,9 @@ const comparisonFeatures = [
 		highlight: true,
 	},
 	{
-		label: "Weekly usage caps",
-		devpass: "None — dollar allowance (~3× plan price)",
-		competitor: "Two weekly caps + 5-hour window",
+		label: "Usage limits",
+		devpass: "Published dollar allowances (~2× plan price)",
+		competitor: "Two weekly caps + 5-hour window, unpublished",
 		highlight: true,
 	},
 	{
@@ -120,7 +120,7 @@ const faqs = [
 	},
 	{
 		question: "How much cheaper is DevPass than Claude Max?",
-		answer: `Claude Max costs $100/mo (5×) or $200/mo (20×) of an unpublished usage quota, Anthropic models only. DevPass plans are $${DEV_PLAN_PRICES.lite} (Lite), $${DEV_PLAN_PRICES.pro} (Pro) and $${DEV_PLAN_PRICES.max} (Max), and each includes roughly 3× its price in metered model usage at the providers' published rates — about $${getDevPlanCreditsLimit("lite")}, $${getDevPlanCreditsLimit("pro")} and $${getDevPlanCreditsLimit("max")} respectively — across 200+ models. Whether that's cheaper for you depends on your usage, but you can read your burn in real dollars instead of guessing at a multiplier.`,
+		answer: `Claude Max costs $100/mo (5×) or $200/mo (20×) of an unpublished usage quota, Anthropic models only. DevPass plans are $${DEV_PLAN_PRICES.lite} (Lite), $${DEV_PLAN_PRICES.pro} (Pro) and $${DEV_PLAN_PRICES.max} (Max), and each includes 2× its price in metered model usage at the providers' published rates — about $${getDevPlanCreditsLimit("lite")}, $${getDevPlanCreditsLimit("pro")} and $${getDevPlanCreditsLimit("max")} respectively — across 200+ models. Whether that's cheaper for you depends on your usage, but you can read your burn in real dollars instead of guessing at a multiplier.`,
 	},
 	{
 		question: "Does DevPass include Claude models?",
@@ -130,7 +130,7 @@ const faqs = [
 	{
 		question: "Does DevPass have weekly usage limits like Claude Max?",
 		answer:
-			"No. There are no 5-hour windows and no weekly caps. Each plan includes a monthly dollar allowance (about 3× the plan price) metered per request at provider rates. If you run through it, you can top up or move up a tier — you're never waiting for a timer to reset.",
+			"Not hidden ones. DevPass publishes its limits in dollars instead of opaque multipliers: a monthly allowance (2× the plan price), a daily pacing allowance that keeps it lasting the whole cycle, and a weekly fair-use allowance on premium models only. Standard models never touch the weekly window, every number is on the pricing page, and pay-as-you-go overflow lifts the pacing limits when you need a big day — so you're never guessing at a timer.",
 	},
 	{
 		question: "What about Claude Pro at $20/mo?",
@@ -307,7 +307,7 @@ export default function ClaudeCodeAlternativePage() {
 						<p className="mb-8 max-w-3xl text-muted-foreground">
 							Claude Max sells multipliers of a quota Anthropic doesn&apos;t
 							publish. DevPass sells a number you can read: every plan includes
-							roughly 3× its price in model usage, metered per request at each
+							2× its price in model usage, metered per request at each
 							provider&apos;s published per-token rate. When Claude Opus is the
 							right tool you pay Anthropic&apos;s rate for it; when GLM or Qwen
 							will do, the same allowance stretches several times further.

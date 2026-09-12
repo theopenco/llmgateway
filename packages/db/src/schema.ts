@@ -363,10 +363,16 @@ export const organization = pgTable(
 		devPlanPaygEnabled: boolean().notNull().default(false),
 		devPlanPremiumCreditsUsed: decimal().notNull().default("0"),
 		devPlanPremiumWeekStart: timestamp(),
+		// Rolling 24-hour pacing window on the monthly allowance, the same
+		// shape as the premium weekly pair above. The limit derives from the
+		// tier (DEV_PLAN_DAILY_PERCENT), so only usage and window start are
+		// stored.
+		devPlanDailyCreditsUsed: decimal().notNull().default("0"),
+		devPlanDayStart: timestamp(),
 		// Purchased Reset Passes still unredeemed, tracked per tier bought.
 		// Redeeming one instantly restores the full weekly premium-model
 		// allowance, but a pass is only redeemable while the org is on the
-		// tier it was purchased for — a $9 Lite pass can't reset the larger
+		// tier it was purchased for — a Lite pass can't reset the larger
 		// Pro/Max allowance. Purchases survive plan changes and even a plan
 		// ending (they apply again on resubscribing to that tier).
 		devPlanResetPassesLite: integer().notNull().default(0),
@@ -698,12 +704,16 @@ export const devPlanCancellationFeedback = pgTable(
 		previousDevPlan: text({
 			enum: ["lite", "pro", "max"],
 		}),
+		// Mirrors DEV_PLAN_CANCELLATION_REASONS in @llmgateway/shared.
 		reason: text({
 			enum: [
 				"too_expensive",
-				"missing_features",
 				"not_using_enough",
+				"allowance_too_small",
+				"tool_not_supported",
+				"missing_features",
 				"switched_alternative",
+				"just_testing",
 				"other",
 			],
 		}).notNull(),

@@ -17,7 +17,7 @@ faqs:
   - question: "Can I use DevPass with Claude Code and Cursor?"
     answer: "Yes. DevPass is OpenAI- and Anthropic-compatible, so it works with Claude Code, OpenCode, Cursor, Cline, Zed, Aider and any tool that accepts a custom base URL and key. You keep your workflow and swap in one key for every model."
   - question: "Is a flat-rate plan cheaper than paying per token?"
-    answer: "For daily, agent-heavy work, almost always. DevPass turns every $1 into roughly $3 of model usage at provider rates, and the flat ceiling means a runaway agent loop can't produce a surprise invoice. For light or spiky use, raw pay-as-you-go (Cline or Aider on your own key) can still win."
+    answer: "For daily, agent-heavy work, almost always. DevPass turns every $1 into $2 of model usage at provider rates, and the flat ceiling means a runaway agent loop can't produce a surprise invoice. For light or spiky use, raw pay-as-you-go (Cline or Aider on your own key) can still win."
   - question: "How many models do I get with DevPass?"
     answer: "Every plan includes all 200+ models on LLM Gateway, from frontier flagships to open-weight coders like GLM-5.1, Qwen3 and Kimi K3. There's no per-model gating between tiers — the tiers differ only in monthly usage allowance."
 ---
@@ -38,16 +38,16 @@ The short version: most plans give you one company's models inside one company's
 
 - **One key, every model** — switch from Claude to GPT-5.6 to a cheap open-weight coder mid-session, no new subscription, no new key
 - **Flat, predictable pricing** — $29, $79, or $179 a month. You know the number on day one; a runaway agent can't run up a surprise invoice
-- **~3× value at provider rates** — every $1 you pay turns into roughly $3 of model usage metered at each provider's published per-token rate, shown in your dashboard in real time
+- **2× value at provider rates** — every $1 you pay turns into $2 of model usage metered at each provider's published per-token rate, shown in your dashboard in real time
 - **Works with the tools you already have** — Claude Code, OpenCode, Cursor, Cline, Zed, and anything OpenAI- or Anthropic-compatible
 
 **Pricing:**
 
-| Plan    | Price      | Model usage included                        |
-| ------- | ---------- | ------------------------------------------- |
-| Lite    | $29/mo     | ~$87 at provider rates                      |
-| **Pro** | **$79/mo** | **~$237** — where most developers ship from |
-| Max     | $179/mo    | ~$537 — built for all-day agent runs        |
+| Plan    | Price      | Model usage included                       |
+| ------- | ---------- | ------------------------------------------ |
+| Lite    | $29/mo     | $58 at provider rates                      |
+| **Pro** | **$79/mo** | **$158** — where most developers ship from |
+| Max     | $179/mo    | $358 — built for all-day agent runs        |
 
 **Best for:** Developers who use more than one model, more than one tool, or just want a flat bill they can predict.
 

@@ -138,7 +138,7 @@ export default async function LandingPage() {
 							<div>
 								<div className="mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-1.5 font-mono text-xs text-emerald-700 dark:text-emerald-400">
 									<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-									$1 in → $3 of model usage, at provider rates
+									$1 in → $2 of model usage, at provider rates
 								</div>
 								<h1 className="font-display mb-6 text-5xl font-bold tracking-tight text-balance sm:text-6xl lg:text-7xl">
 									One AI coding subscription.
@@ -319,7 +319,7 @@ export default async function LandingPage() {
 								</div>
 							</dl>
 							<p className="mt-5 text-sm leading-relaxed text-muted-foreground">
-								Same dollars, 3× the metered usage — in whatever editor or agent
+								Same dollars, 2× the metered usage — in whatever editor or agent
 								you already use.
 							</p>
 							<CodeCTATracker cta="compare_cursor" location="pricing">
@@ -457,7 +457,7 @@ export default async function LandingPage() {
 				</section>
 
 				{/* FAQ */}
-				<Faq />
+				<Faq credits={credits} />
 
 				{/* Final CTA */}
 				<section className="relative overflow-hidden border-t py-28 px-4">

@@ -44,8 +44,10 @@ import { hasErrorCode } from "@llmgateway/models";
 import {
 	assertSafeWebhookUrl,
 	calculateFees,
+	getRemainingDailyAllowance,
 	getRemainingPremiumWeeklyAllowance,
 	isCreditTopUpAmountInRange,
+	isDailyWindowExpired,
 	isLoungeSource,
 	isPremiumUsedModel,
 	isPremiumWeekExpired,
@@ -1311,6 +1313,8 @@ export async function batchProcessLogs(): Promise<number> {
 				remaining: Decimal;
 				premiumCreditsUsed?: Decimal;
 				premiumWeekStart?: Date | null;
+				dailyCreditsUsed?: Decimal;
+				dayStart?: Date | null;
 			}
 
 			const deductFromPlanPool = async (
@@ -1334,6 +1338,20 @@ export async function batchProcessLogs(): Promise<number> {
 					const weekExpired = isPremiumWeekExpired(pool.premiumWeekStart);
 					const now = new Date();
 					const premiumAmountStr = premiumAmount.toString();
+					// Daily pacing window: every pool debit counts, all models. An
+					// expired window restarts from this debit.
+					const dayExpired = isDailyWindowExpired(pool.dayStart);
+					const dailySet = dayExpired
+						? { devPlanDailyCreditsUsed: amountStr, devPlanDayStart: now }
+						: {
+								devPlanDailyCreditsUsed: sql`${organization.devPlanDailyCreditsUsed} + ${amountStr}`,
+							};
+					pool.dailyCreditsUsed = dayExpired
+						? amount
+						: (pool.dailyCreditsUsed ?? new Decimal(0)).plus(amount);
+					if (dayExpired) {
+						pool.dayStart = now;
+					}
 
 					if (premiumAmount.greaterThan(0)) {
 						if (weekExpired) {
@@ -1341,6 +1359,7 @@ export async function batchProcessLogs(): Promise<number> {
 								.update(organization)
 								.set({
 									devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+									...dailySet,
 									devPlanPremiumCreditsUsed: premiumAmountStr,
 									devPlanPremiumWeekStart: now,
 								})
@@ -1352,6 +1371,7 @@ export async function batchProcessLogs(): Promise<number> {
 								.update(organization)
 								.set({
 									devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+									...dailySet,
 									devPlanPremiumCreditsUsed: sql`${organization.devPlanPremiumCreditsUsed} + ${premiumAmountStr}`,
 								})
 								.where(eq(organization.id, orgId));
@@ -1364,6 +1384,7 @@ export async function batchProcessLogs(): Promise<number> {
 							.update(organization)
 							.set({
 								devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+								...dailySet,
 								devPlanPremiumCreditsUsed: "0",
 								devPlanPremiumWeekStart: now,
 							})
@@ -1375,6 +1396,7 @@ export async function batchProcessLogs(): Promise<number> {
 							.update(organization)
 							.set({
 								devPlanCreditsUsed: sql`${organization.devPlanCreditsUsed} + ${amountStr}`,
+								...dailySet,
 							})
 							.where(eq(organization.id, orgId));
 					}
@@ -1418,6 +1440,10 @@ export async function batchProcessLogs(): Promise<number> {
 									org.devPlanPremiumCreditsUsed || "0",
 								),
 								premiumWeekStart: org.devPlanPremiumWeekStart,
+								dailyCreditsUsed: new Decimal(
+									org.devPlanDailyCreditsUsed || "0",
+								),
+								dayStart: org.devPlanDayStart,
 							}
 						: null;
 
@@ -1460,6 +1486,26 @@ export async function batchProcessLogs(): Promise<number> {
 						remaining = remaining.minus(premiumOverflow);
 						remainingPremium = remainingPremium.minus(premiumOverflow);
 					}
+					// The daily pacing allowance limits the plan pool the same way:
+					// with overflow opted in, pool spend past today's allowance is
+					// held out of the drain and billed to the credits balance.
+					let dailyOverflow = new Decimal(0);
+					if (
+						org?.devPlanPaygEnabled &&
+						devPool &&
+						(preferred === devPool || !chatPool)
+					) {
+						const dailyLeft = new Decimal(
+							getRemainingDailyAllowance(
+								org.devPlan as DevPlanTier,
+								devPool.dailyCreditsUsed?.toNumber() ?? 0,
+								devPool.dayStart,
+							),
+						);
+						dailyOverflow = Decimal.max(0, remaining.minus(dailyLeft));
+						remaining = remaining.minus(dailyOverflow);
+						remainingPremium = Decimal.min(remainingPremium, remaining);
+					}
 					for (const pool of [preferred, fallback]) {
 						if (!pool || remaining.lessThanOrEqualTo(0)) {
 							continue;
@@ -1477,7 +1523,7 @@ export async function batchProcessLogs(): Promise<number> {
 						remainingPremium = remainingPremium.minus(premiumTake);
 					}
 					return {
-						remaining: remaining.plus(premiumOverflow),
+						remaining: remaining.plus(premiumOverflow).plus(dailyOverflow),
 						remainingPremium,
 					};
 				};

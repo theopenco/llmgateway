@@ -15,6 +15,10 @@ import {
 	apiKey,
 	user,
 } from "@llmgateway/db";
+import {
+	getDevPlanDailyLimit,
+	getDevPlanPremiumWeeklyLimit,
+} from "@llmgateway/shared";
 
 import { batchProcessLogs } from "./worker.js";
 
@@ -325,19 +329,19 @@ describe("Log Processing", () => {
 		});
 
 		test("should route premium spend past the weekly allowance to regular credits when PAYG is enabled", async () => {
-			// The pro weekly premium allowance is 15% of the monthly pool
-			// (237 * 0.15 = 35.55). With the counter already at the cap, an
-			// over-cap premium request admitted via PAYG overflow must bill the
-			// org's balance — draining the monthly pool here would make the
-			// weekly cap meaningless.
+			// With the premium counter already at the weekly cap, an over-cap
+			// premium request admitted via PAYG overflow must bill the org's
+			// balance — draining the monthly pool here would make the weekly
+			// cap meaningless.
+			const weeklyLimit = getDevPlanPremiumWeeklyLimit("pro");
 			await db
 				.update(organization)
 				.set({
 					kind: "devpass",
 					devPlan: "pro",
-					devPlanCreditsLimit: "237",
+					devPlanCreditsLimit: "158",
 					devPlanCreditsUsed: "50",
-					devPlanPremiumCreditsUsed: "35.55",
+					devPlanPremiumCreditsUsed: weeklyLimit.toString(),
 					devPlanPremiumWeekStart: new Date(),
 					devPlanPaygEnabled: true,
 				})
@@ -369,22 +373,26 @@ describe("Log Processing", () => {
 
 			// Plan pool and premium counter untouched; the balance paid.
 			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBe(50);
-			expect(Number(updatedOrg!.devPlanPremiumCreditsUsed)).toBe(35.55);
+			expect(Number(updatedOrg!.devPlanPremiumCreditsUsed)).toBeCloseTo(
+				weeklyLimit,
+				6,
+			);
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits - 0.5);
 		});
 
 		test("should split premium spend across the weekly allowance boundary when PAYG is enabled", async () => {
-			// 0.30 of weekly premium allowance left (35.55 - 35.25): a 0.50
-			// premium charge takes 0.30 from the plan pool and overflows the
-			// remaining 0.20 to the balance.
+			// 0.30 of weekly premium allowance left: a 0.50 premium charge takes
+			// 0.30 from the plan pool and overflows the remaining 0.20 to the
+			// balance.
+			const weeklyLimit = getDevPlanPremiumWeeklyLimit("pro");
 			await db
 				.update(organization)
 				.set({
 					kind: "devpass",
 					devPlan: "pro",
-					devPlanCreditsLimit: "237",
+					devPlanCreditsLimit: "158",
 					devPlanCreditsUsed: "50",
-					devPlanPremiumCreditsUsed: "35.25",
+					devPlanPremiumCreditsUsed: (weeklyLimit - 0.3).toFixed(2),
 					devPlanPremiumWeekStart: new Date(),
 					devPlanPaygEnabled: true,
 				})
@@ -416,7 +424,7 @@ describe("Log Processing", () => {
 
 			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBeCloseTo(50.3, 6);
 			expect(Number(updatedOrg!.devPlanPremiumCreditsUsed)).toBeCloseTo(
-				35.55,
+				weeklyLimit,
 				6,
 			);
 			expect(Number(updatedOrg!.credits)).toBeCloseTo(initialCredits - 0.2, 6);
@@ -427,14 +435,15 @@ describe("Log Processing", () => {
 			// requests, but requests already in flight when the cap was crossed
 			// can land here. The balance is unspendable without the opt-in, so
 			// the spend stays on the plan pool exactly as before.
+			const weeklyLimit = getDevPlanPremiumWeeklyLimit("pro");
 			await db
 				.update(organization)
 				.set({
 					kind: "devpass",
 					devPlan: "pro",
-					devPlanCreditsLimit: "237",
+					devPlanCreditsLimit: "158",
 					devPlanCreditsUsed: "50",
-					devPlanPremiumCreditsUsed: "35.55",
+					devPlanPremiumCreditsUsed: weeklyLimit.toString(),
 					devPlanPremiumWeekStart: new Date(),
 					devPlanPaygEnabled: false,
 				})
@@ -466,7 +475,237 @@ describe("Log Processing", () => {
 
 			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBeCloseTo(50.5, 6);
 			expect(Number(updatedOrg!.devPlanPremiumCreditsUsed)).toBeCloseTo(
-				36.05,
+				weeklyLimit + 0.5,
+				6,
+			);
+			expect(Number(updatedOrg!.credits)).toBe(initialCredits);
+		});
+
+		test("should accrue daily pacing usage on every dev plan pool debit", async () => {
+			await db
+				.update(organization)
+				.set({
+					kind: "devpass",
+					devPlan: "pro",
+					devPlanCreditsLimit: "158",
+					devPlanCreditsUsed: "0",
+					devPlanDailyCreditsUsed: "0",
+					devPlanDayStart: null,
+				})
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-daily-accrue",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.5,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBe(0.5);
+			expect(Number(updatedOrg!.devPlanDailyCreditsUsed)).toBe(0.5);
+			expect(updatedOrg!.devPlanDayStart).toBeInstanceOf(Date);
+		});
+
+		test("should restart the daily pacing window once it has expired", async () => {
+			const staleOffsetMs = 25 * 60 * 60 * 1000;
+			const staleStart = new Date(Date.now() - staleOffsetMs);
+			await db
+				.update(organization)
+				.set({
+					kind: "devpass",
+					devPlan: "pro",
+					devPlanCreditsLimit: "158",
+					devPlanCreditsUsed: "10",
+					devPlanDailyCreditsUsed: "4",
+					devPlanDayStart: staleStart,
+				})
+				.where(eq(organization.id, testOrg.id));
+
+			await db.insert(log).values({
+				requestId: "test-request-daily-rollover",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.25,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBe(10.25);
+			expect(Number(updatedOrg!.devPlanDailyCreditsUsed)).toBe(0.25);
+			expect(updatedOrg!.devPlanDayStart!.getTime()).toBeGreaterThan(
+				staleStart.getTime(),
+			);
+		});
+
+		test("should route spend past the daily pacing allowance to regular credits when PAYG is enabled", async () => {
+			const dailyLimit = getDevPlanDailyLimit("pro");
+			await db
+				.update(organization)
+				.set({
+					kind: "devpass",
+					devPlan: "pro",
+					devPlanCreditsLimit: "158",
+					devPlanCreditsUsed: "50",
+					devPlanDailyCreditsUsed: dailyLimit.toString(),
+					devPlanDayStart: new Date(),
+					devPlanPaygEnabled: true,
+				})
+				.where(eq(organization.id, testOrg.id));
+			const initialCredits = Number(testOrg.credits);
+
+			await db.insert(log).values({
+				requestId: "test-request-daily-overflow",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.5,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			// Plan pool and daily counter untouched; the balance paid.
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBe(50);
+			expect(Number(updatedOrg!.devPlanDailyCreditsUsed)).toBeCloseTo(
+				dailyLimit,
+				6,
+			);
+			expect(Number(updatedOrg!.credits)).toBe(initialCredits - 0.5);
+		});
+
+		test("should split spend across the daily pacing boundary when PAYG is enabled", async () => {
+			// 0.20 of today's allowance left: a 0.50 charge takes 0.20 from the
+			// plan pool and overflows the remaining 0.30 to the balance.
+			const dailyLimit = getDevPlanDailyLimit("pro");
+			await db
+				.update(organization)
+				.set({
+					kind: "devpass",
+					devPlan: "pro",
+					devPlanCreditsLimit: "158",
+					devPlanCreditsUsed: "50",
+					devPlanDailyCreditsUsed: (dailyLimit - 0.2).toFixed(2),
+					devPlanDayStart: new Date(),
+					devPlanPaygEnabled: true,
+				})
+				.where(eq(organization.id, testOrg.id));
+			const initialCredits = Number(testOrg.credits);
+
+			await db.insert(log).values({
+				requestId: "test-request-daily-split",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.5,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBeCloseTo(50.2, 6);
+			expect(Number(updatedOrg!.devPlanDailyCreditsUsed)).toBeCloseTo(
+				dailyLimit,
+				6,
+			);
+			expect(Number(updatedOrg!.credits)).toBeCloseTo(initialCredits - 0.3, 6);
+		});
+
+		test("should keep spend past the daily pacing allowance on the plan pool when PAYG is disabled", async () => {
+			const dailyLimit = getDevPlanDailyLimit("pro");
+			await db
+				.update(organization)
+				.set({
+					kind: "devpass",
+					devPlan: "pro",
+					devPlanCreditsLimit: "158",
+					devPlanCreditsUsed: "50",
+					devPlanDailyCreditsUsed: dailyLimit.toString(),
+					devPlanDayStart: new Date(),
+					devPlanPaygEnabled: false,
+				})
+				.where(eq(organization.id, testOrg.id));
+			const initialCredits = Number(testOrg.credits);
+
+			await db.insert(log).values({
+				requestId: "test-request-daily-payg-off",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.5,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBeCloseTo(50.5, 6);
+			expect(Number(updatedOrg!.devPlanDailyCreditsUsed)).toBeCloseTo(
+				dailyLimit + 0.5,
 				6,
 			);
 			expect(Number(updatedOrg!.credits)).toBe(initialCredits);

@@ -3,18 +3,16 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { db, tables } from "@llmgateway/db";
+import {
+	DEV_PLAN_CANCELLATION_COMMENTS_MAX_LENGTH,
+	DEV_PLAN_CANCELLATION_REASONS,
+} from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
 export const devPlanCancellationFeedback = new OpenAPIHono<ServerTypes>();
 
-const reasonEnum = z.enum([
-	"too_expensive",
-	"missing_features",
-	"not_using_enough",
-	"switched_alternative",
-	"other",
-]);
+const reasonEnum = z.enum(DEV_PLAN_CANCELLATION_REASONS);
 
 async function findUserPersonalOrg(userId: string) {
 	const userOrgs = await db.query.userOrganization.findMany({
@@ -116,7 +114,10 @@ const submit = createRoute({
 				"application/json": {
 					schema: z.object({
 						reason: reasonEnum,
-						comments: z.string().max(2000).optional(),
+						comments: z
+							.string()
+							.max(DEV_PLAN_CANCELLATION_COMMENTS_MAX_LENGTH)
+							.optional(),
 					}),
 				},
 			},

@@ -19,6 +19,10 @@ export default function UsagePage() {
 	const premiumWeeklyLimit = parseFloat(
 		devPlanStatus.devPlanPremiumWeeklyLimit ?? "0",
 	);
+	const dailyCreditsUsed = parseFloat(
+		devPlanStatus.devPlanDailyCreditsUsed ?? "0",
+	);
+	const dailyLimit = parseFloat(devPlanStatus.devPlanDailyLimit ?? "0");
 	const currentPlanName = devPlanStatus.devPlan?.toUpperCase() ?? "";
 	const currentPlanData = plans.find((p) => p.tier === devPlanStatus.devPlan);
 
@@ -32,6 +36,9 @@ export default function UsagePage() {
 				premiumCreditsUsed={premiumCreditsUsed}
 				premiumWeeklyLimit={premiumWeeklyLimit}
 				premiumWeekResetsAt={devPlanStatus.devPlanPremiumWeekResetsAt ?? null}
+				dailyCreditsUsed={dailyCreditsUsed}
+				dailyLimit={dailyLimit}
+				dayResetsAt={devPlanStatus.devPlanDayResetsAt ?? null}
 				resetPasses={devPlanStatus.devPlanResetPasses ?? 0}
 				includedResetPasses={devPlanStatus.devPlanIncludedResetPasses ?? 0}
 				includedResetPassesRemaining={

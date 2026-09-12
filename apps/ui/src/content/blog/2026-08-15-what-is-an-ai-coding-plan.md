@@ -45,7 +45,7 @@ Three things, and you should be able to name all three before you buy:
 2. **A model list** — which models the allowance can be spent on, and whether new flagship releases are included or cost extra.
 3. **A rate** — whether usage is metered at the provider's list price or marked up before it draws down your allowance.
 
-On [DevPass](https://devpass.llmgateway.io), those are public numbers: Lite is $29/month and includes $87 of model usage, Pro is $79 for $237, and Max is $179 for $537. Usage is metered at provider list rates, so a dollar of allowance buys a dollar of tokens — there is no markup between the two.
+On [DevPass](https://devpass.llmgateway.io), those are public numbers: Lite is $29/month and includes $58 of model usage, Pro is $79 for $158, and Max is $179 for $358. Usage is metered at provider list rates, so a dollar of allowance buys a dollar of tokens — there is no markup between the two.
 
 <BlogCta variant="devpass" location="mid_article" />
 

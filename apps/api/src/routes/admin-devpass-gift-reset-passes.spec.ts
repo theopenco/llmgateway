@@ -4,6 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, tables } from "@llmgateway/db";
+import { DEV_PLAN_INCLUDED_RESET_PASSES } from "@llmgateway/shared";
 
 const ORG_ID = "admin-gift-reset-pass-org";
 const originalMultiplier = process.env.DEV_PLAN_CREDITS_MULTIPLIER;
@@ -216,12 +217,12 @@ describe("admin devpass gift reset passes", () => {
 		});
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as DetailResponse;
-		// Pro includes 1 reset pass per cycle, none used yet.
+		// The gifted pass plus whatever the tier includes per cycle, none used.
 		expect(body.resetPasses).toEqual({
 			lite: 0,
 			pro: 1,
 			max: 0,
-			includedRemaining: 1,
+			includedRemaining: DEV_PLAN_INCLUDED_RESET_PASSES.pro,
 		});
 		const giftRow = body.transactions.find(
 			(t) => t.type === "dev_plan_reset_pass_gift",

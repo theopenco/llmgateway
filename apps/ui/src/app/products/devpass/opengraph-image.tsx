@@ -9,6 +9,6 @@ export default function Image() {
 		eyebrow: "DevPass",
 		title: "Flat-Price Dev Plans",
 		subtitle:
-			"Every dollar becomes $3 of model usage at provider rates — for Claude Code, Cursor, Cline, and any OpenAI-compatible coding tool.",
+			"Every dollar becomes $2 of model usage at provider rates — for Claude Code, Cursor, Cline, and any OpenAI-compatible coding tool.",
 	});
 }

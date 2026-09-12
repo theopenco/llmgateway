@@ -1,6 +1,6 @@
 ---
 title: DevPass Usage API
-description: Read DevPass monthly and weekly usage limits from an application using its gateway API key
+description: Read DevPass monthly, daily and weekly usage limits from an application using its gateway API key
 icon: Gauge
 ---
 
@@ -37,9 +37,12 @@ organization-level plan state.
 		"limit": null,
 		"devPlan": "pro",
 		"devPlanCreditsUsed": "25",
-		"devPlanCreditsLimit": "237",
-		"devPlanCreditsRemaining": "212.00",
-		"devPlanPremiumWeeklyLimit": "35.55",
+		"devPlanCreditsLimit": "158",
+		"devPlanCreditsRemaining": "133.00",
+		"devPlanDailyLimit": "14.22",
+		"devPlanDailyCreditsUsed": "3.10",
+		"devPlanDayResetsAt": "2026-08-22T09:30:00.000Z",
+		"devPlanPremiumWeeklyLimit": "18.96",
 		"devPlanPremiumCreditsUsed": "5.00",
 		"devPlanPremiumWeekResetsAt": "2026-08-28T12:00:00.000Z"
 	}
@@ -55,12 +58,23 @@ organization-level plan state.
 | `devPlanCreditsUsed`         | Plan credits used in the current billing cycle                 |
 | `devPlanCreditsLimit`        | Plan credit allowance for the current billing cycle            |
 | `devPlanCreditsRemaining`    | Remaining plan credits, clamped to zero                        |
+| `devPlanDailyLimit`          | Daily pacing allowance — plan credits usable per rolling 24h   |
+| `devPlanDailyCreditsUsed`    | Plan credits used in the current 24-hour window                |
+| `devPlanDayResetsAt`         | ISO 8601 reset time, or `null` when no daily window is active  |
 | `devPlanPremiumWeeklyLimit`  | Weekly premium-model allowance                                 |
 | `devPlanPremiumCreditsUsed`  | Premium-model credits used in the current weekly window        |
 | `devPlanPremiumWeekResetsAt` | ISO 8601 reset time, or `null` when no weekly window is active |
 
 All USD values are decimal strings. Parse them before calculating percentages
-or remaining premium allowance.
+or remaining allowances.
+
+## Daily window behavior
+
+The pacing window starts with the first request that draws on the plan
+allowance and lasts 24 hours; it covers every model. When it expires, the
+endpoint returns `"0.00"` for `devPlanDailyCreditsUsed` and `null` for
+`devPlanDayResetsAt`; the full daily share is available again, and the next
+request starts a new window.
 
 ## Weekly window behavior
 
