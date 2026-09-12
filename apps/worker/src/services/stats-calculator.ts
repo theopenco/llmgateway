@@ -23,6 +23,7 @@ import { logger } from "@llmgateway/logger";
 import { getLogRetentionCutoff } from "@llmgateway/shared/log-retention";
 
 import { excludeRecoveredSameProviderRegionRetry } from "./log-filters.js";
+import { formatUTCTimestamp } from "./project-stats-aggregator.js";
 import { calculateRoutingTelemetryForHour } from "./routing-telemetry-aggregator.js";
 
 // Environment variable for backfill duration in seconds (defaults to 300 seconds = 5 minutes)
@@ -1506,25 +1507,39 @@ export async function backfillHourlyHistoryIfNeeded() {
 			? roundToHourStart(earliestLog[0].createdAt).getTime()
 			: null;
 
-		// Hours already summarized in each table (excluding the in-progress current
-		// hour). An hour is recomputed only when it is missing from any set.
-		const [mappingHours, modelHours, routingHours] = await Promise.all([
-			database
-				.select({
-					hourTimestamp: modelProviderMappingHistoryHourly.hourTimestamp,
-				})
-				.from(modelProviderMappingHistoryHourly)
-				.where(
-					lt(modelProviderMappingHistoryHourly.hourTimestamp, currentHourStart),
+		// Probe each backfillable hour once instead of reading every historical row.
+		// Restrict probes to hours the capped loop can visit.
+		const lastHourOffset =
+			(Math.ceil(HOURLY_BACKFILL_MAX_ITERATIONS) - 1) * ONE_HOUR_MS;
+		const lastScannedHour = new Date(
+			Math.min(
+				previousHourStart.getTime(),
+				startHour.getTime() + lastHourOffset,
+			),
+		);
+		const summarizedHours = (
+			table:
+				| typeof modelProviderMappingHistoryHourly
+				| typeof modelHistoryHourly
+				| typeof routingElectionHourly,
+		) =>
+			database.select({
+				hourTimestamp: sql<Date>`candidate.hour_timestamp`.mapWith(
+					table.hourTimestamp,
 				),
-			database
-				.select({ hourTimestamp: modelHistoryHourly.hourTimestamp })
-				.from(modelHistoryHourly)
-				.where(lt(modelHistoryHourly.hourTimestamp, currentHourStart)),
-			database
-				.selectDistinct({ hourTimestamp: routingElectionHourly.hourTimestamp })
-				.from(routingElectionHourly)
-				.where(lt(routingElectionHourly.hourTimestamp, currentHourStart)),
+			}).from(sql`generate_series(
+					${formatUTCTimestamp(startHour)}::timestamp,
+					${formatUTCTimestamp(lastScannedHour)}::timestamp,
+					interval '1 hour'
+				) as candidate(hour_timestamp)`).where(sql`exists (
+					select 1 from ${table}
+					where ${table.hourTimestamp} = candidate.hour_timestamp
+				)`);
+
+		const [mappingHours, modelHours, routingHours] = await Promise.all([
+			summarizedHours(modelProviderMappingHistoryHourly),
+			summarizedHours(modelHistoryHourly),
+			summarizedHours(routingElectionHourly),
 		]);
 
 		const mappingHourSet = new Set(

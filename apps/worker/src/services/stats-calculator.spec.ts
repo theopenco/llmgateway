@@ -2245,6 +2245,80 @@ describe("stats-calculator", () => {
 			expect(currentHourRow).toBeUndefined();
 		});
 
+		it("backfills missing routing hours and preserves settled hours", async () => {
+			const hours = [
+				new Date("2024-01-01T10:00:00.000Z"),
+				new Date("2024-01-01T11:00:00.000Z"),
+			];
+			for (const hourTimestamp of hours) {
+				const minuteTimestamp = new Date(hourTimestamp);
+				minuteTimestamp.setUTCMinutes(30);
+				const mapping = {
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+				};
+				await db.insert(modelHistory).values({
+					modelId: mapping.modelId,
+					minuteTimestamp,
+					logsCount: 1,
+				});
+				await db.insert(modelProviderMappingHistory).values({
+					...mapping,
+					minuteTimestamp,
+					logsCount: 1,
+				});
+				await db.insert(modelHistoryHourly).values({
+					modelId: mapping.modelId,
+					hourTimestamp,
+					logsCount: 99,
+				});
+				await db.insert(modelProviderMappingHistoryHourly).values({
+					...mapping,
+					hourTimestamp,
+					logsCount: 99,
+				});
+				await db.insert(log).values({
+					requestId: `routing-backfill-${hourTimestamp.getUTCHours()}`,
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					createdAt: minuteTimestamp,
+					duration: 100,
+					requestedModel: "gpt-4",
+					usedModel: "openai/gpt-4",
+					usedProvider: "openai",
+					responseSize: 0,
+					mode: "credits",
+					usedMode: "credits",
+				});
+			}
+			await db.insert(routingElectionHourly).values({
+				hourTimestamp: hours[1],
+				modelId: "gpt-4",
+				providerId: "openai",
+				selectionReason: "unknown",
+				requestCount: 99,
+				candidateCount: 0,
+			});
+
+			await backfillHourlyHistoryIfNeeded();
+
+			for (const table of [
+				modelHistoryHourly,
+				modelProviderMappingHistoryHourly,
+			]) {
+				const rows = await db.select().from(table).orderBy(table.hourTimestamp);
+				expect(rows.map((row) => row.logsCount)).toEqual([1, 99]);
+			}
+			const elections = await db
+				.select()
+				.from(routingElectionHourly)
+				.orderBy(routingElectionHourly.hourTimestamp);
+			expect(elections.map((row) => row.requestCount)).toEqual([1, 99]);
+			expect(elections.map((row) => row.hourTimestamp)).toEqual(hours);
+		});
+
 		it("should resume from the shared latest hour when both tables are populated", async () => {
 			// Both summary tables already finalized hour 10:00 (no minute data there,
 			// so the overlap re-run must leave the row untouched).
