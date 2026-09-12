@@ -208,6 +208,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	deepseek: "https://api.deepseek.com",
 	perplexity: "https://api.perplexity.ai",
 	novita: "https://api.novita.ai/v3/openai",
+	runpod: "https://api.runpod.ai",
 	runware: "https://api.runware.ai",
 	moonshot: "https://api.moonshot.ai",
 	meta: "https://api.meta.ai",
@@ -338,6 +339,7 @@ export function getProviderEndpoint(
 			case "google-ai-studio":
 			case "google-vertex":
 			case "xiaomi":
+			case "runpod":
 				url =
 					envValueOrDefault(
 						provider,
@@ -832,6 +834,11 @@ export function getProviderEndpoint(
 			return `${url}/chat/completions`;
 		case "novita":
 			return `${url}/chat/completions`;
+		case "runpod":
+			if (externalId === "kimi-k3") {
+				return appendPath(url, "/v2/moonshot-kimi/openai/v1/chat/completions");
+			}
+			throw new Error(`Unsupported Runpod model: ${model}`);
 		case "zai":
 			if (imageGenerations) {
 				return `${url}/api/paas/v4/images/generations`;
