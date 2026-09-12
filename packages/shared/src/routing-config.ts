@@ -14,7 +14,7 @@ export interface RoutingThresholdsConfig {
 	/**
 	 * Prompt-cache hit rate ([0,1]). Explicit overrides take precedence over
 	 * observed project usage; otherwise the cold-start fallback depends on the
-	 * organization kind (DEFAULT_CACHE_HIT_RATE_BY_ORG_KIND).
+	 * workload (DEFAULT_CACHE_PRICING_BY_ORG_KIND).
 	 */
 	cacheHitRate?: number;
 	/**
@@ -123,34 +123,31 @@ export const DEFAULT_ROUTING_WEIGHTS: Required<RoutingWeightsConfig> = {
 	uptime: 0.5,
 	throughput: 0.05,
 	latency: 0.025,
-	cache: 0.2,
+	// Cached input savings already participate in the price score.
+	cache: 0,
 };
 
 export type RoutingOrganizationKind = "default" | "devpass" | "chat";
 
-/**
- * Cold-start cache-hit rate by organization kind. DevPass and Chat sessions
- * replay most of their prompt on every turn; team workloads are mixed.
- */
-export const DEFAULT_CACHE_HIT_RATE_BY_ORG_KIND: Record<
+/** Cold-start estimates; recognized coding clients use the DevPass profile. */
+export const DEFAULT_CACHE_PRICING_BY_ORG_KIND: Record<
 	RoutingOrganizationKind,
-	number
+	Required<Pick<RoutingThresholdsConfig, "cacheHitRate" | "cacheOutputRatio">>
 > = {
-	default: 0.5,
-	devpass: 0.85,
-	chat: 0.85,
+	default: { cacheHitRate: 0.1, cacheOutputRatio: 0.2 },
+	devpass: { cacheHitRate: 0.9, cacheOutputRatio: 0.02 },
+	chat: { cacheHitRate: 0.5, cacheOutputRatio: 0.1 },
 };
 
-export function getDefaultCacheHitRate(
+export function getDefaultCachePricing(
 	orgKind?: RoutingOrganizationKind | null,
-): number {
-	return DEFAULT_CACHE_HIT_RATE_BY_ORG_KIND[orgKind ?? "default"];
+) {
+	return { ...DEFAULT_CACHE_PRICING_BY_ORG_KIND[orgKind ?? "default"] };
 }
 
 export const DEFAULT_ROUTING_THRESHOLDS: Required<RoutingThresholdsConfig> = {
 	cachePromptTokens: 5000,
-	cacheHitRate: DEFAULT_CACHE_HIT_RATE_BY_ORG_KIND.default,
-	cacheOutputRatio: 0.2,
+	...getDefaultCachePricing(),
 	uptimePenalty: 95,
 	defaultUptime: 100,
 	defaultLatency: 1000,
@@ -340,7 +337,7 @@ export function resolveRoutingConfig(
 		thresholds: mergeGroup(
 			{
 				...DEFAULT_ROUTING_THRESHOLDS,
-				cacheHitRate: getDefaultCacheHitRate(orgKind),
+				...getDefaultCachePricing(orgKind),
 			},
 			effectiveOverrides?.thresholds,
 		),

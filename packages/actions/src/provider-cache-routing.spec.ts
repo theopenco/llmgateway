@@ -47,6 +47,106 @@ async function select(
 }
 
 describe("routing with observed cache usage", () => {
+	it.each([0.1, 0.05, 0])(
+		"does not reward cache support at a %s hit rate",
+		async (hitRate) => {
+			const apiModel = {
+				id: "api-cache-test",
+				providers: [
+					{
+						providerId: "openai" as const,
+						externalId: "api-cache-test",
+						inputPrice: "0.6e-6",
+						cachedInputPrice: "0.11e-6",
+						outputPrice: "2.2e-6",
+					},
+					{
+						providerId: "deepseek" as const,
+						externalId: "api-cache-test",
+						inputPrice: "0.45e-6",
+						outputPrice: "2e-6",
+					},
+				],
+			};
+			const metricsMap = new Map(
+				apiModel.providers.map((p) => [
+					metricsKey(apiModel.id, p.providerId),
+					{
+						modelId: apiModel.id,
+						providerId: p.providerId,
+						totalRequests: 100,
+						uptime: 100,
+						cacheHitRate: hitRate,
+						cacheOutputRatio: 0.1,
+					},
+				]),
+			);
+			const result = await getCheapestFromAvailableProviders(
+				apiModel.providers,
+				apiModel,
+				{
+					metricsMap,
+					promptTokens: 10_000,
+					routingConfig: resolveRoutingConfig(null, { openai: 1, deepseek: 1 }),
+				},
+			);
+			expect(result?.provider.providerId).toBe("deepseek");
+		},
+	);
+
+	it.each([
+		["default", true, "openai"],
+		["chat", true, "openai"],
+		["devpass", true, "deepseek"],
+		["devpass", "score-only", "deepseek"],
+		["devpass", false, "openai"],
+	] as const)(
+		"uses %s defaults for a short prompt with session=%s",
+		async (kind, session, expected) => {
+			const codingModel = {
+				id: "coding-cache-test",
+				providers: [
+					{
+						providerId: "openai" as const,
+						externalId: "coding-cache-test",
+						inputPrice: "1e-6",
+						cachedInputPrice: "0.5e-6",
+						outputPrice: "1e-6",
+					},
+					{
+						providerId: "deepseek" as const,
+						externalId: "coding-cache-test",
+						inputPrice: "2e-6",
+						cachedInputPrice: "0.1e-6",
+						outputPrice: "3e-6",
+					},
+				],
+			};
+			const set = vi.fn();
+			const result = await getCheapestFromAvailableProviders(
+				codingModel.providers,
+				codingModel,
+				{
+					promptTokens: 100,
+					session: session === "score-only",
+					routingConfig: resolveRoutingConfig(
+						null,
+						{ openai: 1, deepseek: 1 },
+						kind,
+					),
+					sessionProviderStore:
+						session === true ? { get: async () => null, set } : undefined,
+				},
+			);
+			expect(result?.provider.providerId).toBe(expected);
+			if (session === true) {
+				expect(set).toHaveBeenCalledWith(expected, undefined);
+			} else {
+				expect(set).not.toHaveBeenCalled();
+			}
+		},
+	);
+
 	it("reproduces the DeepInfra preference with the default token mix", async () => {
 		expect((await select())?.provider.providerId).toBe("deepinfra");
 	});

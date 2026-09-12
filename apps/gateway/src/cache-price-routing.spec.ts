@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
+import * as routingConfigLoader from "./lib/routing-config-loader.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
 
 describe("DevPass cached-workload price routing", () => {
@@ -12,19 +13,30 @@ describe("DevPass cached-workload price routing", () => {
 	const model = "deepseek-v4-flash";
 
 	afterEach(async () => {
+		vi.restoreAllMocks();
 		await db
 			.delete(tables.projectHourlyModelStats)
 			.where(eq(tables.projectHourlyModelStats.projectId, "project-id"));
 	});
 
 	test.each([
-		[false, 2000, "deepinfra"],
-		[true, 2000, "fireworks"],
-		[true, 1, "fireworks"],
+		[false, 2000, "deepinfra", true, true],
+		[false, 1, "deepinfra", true, true],
+		[true, 2000, "fireworks", true, true],
+		[true, 1, "fireworks", true, true],
+		[false, 1, "deepinfra", false, true],
+		[true, 1, "fireworks", false, true],
+		[false, 1, "deepinfra", false, false],
 	])(
-		"routes with usage=%s and prompt repetitions=%s",
-		async (withUsage, repetitions, expected) => {
-			await harness.setDevPlan({ devPlan: "pro" });
+		"routes with usage=%s, repetitions=%s, provider=%s, DevPass=%s, coding=%s",
+		async (withUsage, repetitions, expected, devpass, coding) => {
+			const resolveConfig = vi.spyOn(
+				routingConfigLoader,
+				"getResolvedRoutingConfig",
+			);
+			if (devpass) {
+				await harness.setDevPlan({ devPlan: "pro" });
+			}
 			await db
 				.update(tables.organization)
 				.set({ retentionLevel: "none" })
@@ -74,7 +86,7 @@ describe("DevPass cached-workload price routing", () => {
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: "Bearer test-token-cache-routing",
-					"x-source": "opencode",
+					"x-source": coding ? "opencode" : "api",
 					"x-session-id": "cache-routing-session",
 					"x-no-fallback": "true",
 				},
@@ -88,6 +100,11 @@ describe("DevPass cached-workload price routing", () => {
 			const json = await response.json();
 			expect(response.status, JSON.stringify(json)).toBe(200);
 			expect(json.metadata.routing[0].provider).toBe(expected);
+			const config = await resolveConfig.mock.results[0].value;
+			expect(config.thresholds).toMatchObject({
+				cacheHitRate: coding || devpass ? 0.9 : 0.1,
+				cacheOutputRatio: coding || devpass ? 0.02 : 0.2,
+			});
 		},
 	);
 });

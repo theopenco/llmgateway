@@ -13,7 +13,7 @@ import {
 	DEFAULT_ROUTING_THRESHOLDS,
 	DEFAULT_ROUTING_TIMEOUTS,
 	DEFAULT_ROUTING_WEIGHTS,
-	getDefaultCacheHitRate,
+	getDefaultCachePricing,
 	resolveRoutingConfig,
 	type RoutingOrganizationKind,
 	ROUTING_HISTORY_MAX_WINDOW_MINUTES,
@@ -548,7 +548,7 @@ routingConfig.openapi(getDefaults, async (c) => {
 		weights: DEFAULT_ROUTING_WEIGHTS,
 		thresholds: {
 			...DEFAULT_ROUTING_THRESHOLDS,
-			cacheHitRate: getDefaultCacheHitRate(organizationKind),
+			...getDefaultCachePricing(organizationKind),
 		},
 		retry: DEFAULT_ROUTING_RETRY,
 		timeouts: DEFAULT_ROUTING_TIMEOUTS,

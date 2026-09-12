@@ -269,7 +269,7 @@ export {
 
 export {
 	buildProviderPriorityDefaults,
-	DEFAULT_CACHE_HIT_RATE_BY_ORG_KIND,
+	DEFAULT_CACHE_PRICING_BY_ORG_KIND,
 	DEFAULT_ROUTING_HISTORY,
 	DEFAULT_ROUTING_RETRY,
 	DEFAULT_ROUTING_SESSION,
@@ -277,7 +277,7 @@ export {
 	DEFAULT_ROUTING_THRESHOLDS,
 	DEFAULT_ROUTING_TIMEOUTS,
 	DEFAULT_ROUTING_WEIGHTS,
-	getDefaultCacheHitRate,
+	getDefaultCachePricing,
 	getDefaultRoutingConfig,
 	historyMatchesDefaults,
 	type ProviderPriorityOverrides,

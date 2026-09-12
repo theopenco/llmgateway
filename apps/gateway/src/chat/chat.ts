@@ -579,6 +579,7 @@ async function collapseProvidersToBestRegionPerProvider(
 		metricsMap: Map<string, ProviderMetrics>;
 		isStreaming: boolean;
 		promptTokens?: number;
+		session?: boolean;
 		routingConfig?: ResolvedRoutingConfig;
 		organizationId: string;
 	},
@@ -2636,6 +2637,7 @@ chat.openapi(completions, async (c) => {
 		organization.id,
 		organization.plan,
 		organization.kind,
+		isRecognizedCodingAgent(source),
 	);
 	// Routing strategies only affect multi-provider selection. When the request
 	// pins a specific provider (e.g. `openai/gpt-4o`), the same routingCfg is
@@ -4158,6 +4160,7 @@ chat.openapi(completions, async (c) => {
 						metricsMap,
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
+						session: sessionStickyEnabled,
 						routingConfig: routingCfg,
 						organizationId: project.organizationId,
 					},
@@ -4878,6 +4881,7 @@ chat.openapi(completions, async (c) => {
 									metricsMap: allMetricsMap,
 									isStreaming: stream,
 									promptTokens: routingPromptTokens,
+									session: sessionStickyEnabled,
 									routingConfig: routingCfg,
 									organizationId: project.organizationId,
 								},
@@ -5231,6 +5235,7 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
+							session: sessionStickyEnabled,
 							routingConfig: routingCfg,
 							organizationId: project.organizationId,
 						},
@@ -5507,6 +5512,7 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
+							session: sessionStickyEnabled,
 							routingConfig: routingCfg,
 							organizationId: project.organizationId,
 							providerDiscountResolver,

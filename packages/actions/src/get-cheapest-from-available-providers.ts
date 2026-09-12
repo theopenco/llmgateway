@@ -210,6 +210,8 @@ export interface ProviderSelectionOptions {
 	 * weighted score.
 	 */
 	promptTokens?: number;
+	/** Use session pricing when scoring regions or metadata without updating a pin. */
+	session?: boolean;
 	/**
 	 * Sticky-routing session store. When provided (and session stickiness is
 	 * enabled), the provider is selected with the normal weighted-score
@@ -693,15 +695,10 @@ export async function getCheapestFromAvailableProviders<
 	const cacheSupportRelevant =
 		(promptTokens !== undefined &&
 			promptTokens >= thresholds.cachePromptTokens) ||
-		// A new session may start small before growing into the project's usual
-		// workload. Use that history before choosing the provider it pins.
-		(sessionSticky &&
-			availableModelProviders.some(
-				(p) =>
-					metricsMap?.get(
-						metricsKey(modelWithPricing.id, p.providerId, p.region),
-					)?.cacheOutputRatio !== undefined,
-			));
+		// Choose a session's provider for its expected workload, even when the
+		// opening prompt is short and only cold-start estimates are available.
+		sessionSticky ||
+		(options?.session === true && cfg.session.enabled);
 	const cachePricing: CachePricingContext | undefined = cacheSupportRelevant
 		? {
 				hitRate: Math.min(1, Math.max(0, thresholds.cacheHitRate)),

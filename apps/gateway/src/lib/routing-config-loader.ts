@@ -42,9 +42,11 @@ export async function getResolvedRoutingConfig(
 	organizationId: string | undefined,
 	orgPlan: string | undefined,
 	orgKind?: RoutingOrganizationKind | null,
+	isCodingAgent = false,
 ): Promise<ResolvedRoutingConfig> {
+	const defaultsKind = isCodingAgent ? "devpass" : orgKind;
 	if (!projectId || !hasOrganizationEnterpriseAccess(organizationId, orgPlan)) {
-		return resolveRoutingConfig(null, providerPriorityDefaults, orgKind);
+		return resolveRoutingConfig(null, providerPriorityDefaults, defaultsKind);
 	}
 
 	const overrides = await swrWrap(
@@ -75,7 +77,11 @@ export async function getResolvedRoutingConfig(
 		},
 	);
 
-	return resolveRoutingConfig(overrides, providerPriorityDefaults, orgKind);
+	return resolveRoutingConfig(
+		overrides,
+		providerPriorityDefaults,
+		defaultsKind,
+	);
 }
 
 export function getDefaultProviderPriorities(): ProviderPriorityOverrides {
