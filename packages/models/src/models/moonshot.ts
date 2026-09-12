@@ -730,7 +730,27 @@ export const moonshotModels = [
 				cachedInputPrice: "0.3e-6",
 				outputPrice: "15e-6",
 				requestPrice: "0",
-				regions: [{ id: "singapore" }],
+				regions: [
+					{ id: "singapore" },
+					{
+						id: "eu-frankfurt",
+						inputPrice: "2.827e-6",
+						cachedInputPrice: "0.283e-6",
+						outputPrice: "14.133e-6",
+					},
+					{
+						id: "us-virginia",
+						inputPrice: "2.827e-6",
+						cachedInputPrice: "0.283e-6",
+						outputPrice: "14.133e-6",
+					},
+					{
+						id: "cn-beijing",
+						inputPrice: "2.827e-6",
+						cachedInputPrice: "0.283e-6",
+						outputPrice: "14.133e-6",
+					},
+				],
 				contextSize: 1048576,
 				maxOutput: 1048576,
 				streaming: true,
