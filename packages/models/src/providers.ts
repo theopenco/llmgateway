@@ -886,7 +886,24 @@ export const providers: ProviderDefinition[] = [
 		usagePolicyUrl: "https://www.runpod.io/legal/terms-of-service",
 		legalEntity: "Runpod, Inc.",
 		headquarters: "US",
-		dataPolicy: null,
+		dataPolicy: {
+			apiTraining: null,
+			promptLogging: null,
+			retentionPeriod: null,
+			soc2: 2,
+			iso27001: true,
+			gdpr: true,
+		},
+		additionalLinks: [
+			{
+				desc: "Compliance",
+				link: "https://www.runpod.io/legal/compliance",
+			},
+			{
+				desc: "Trust Center",
+				link: "https://trust.runpod.io/",
+			},
+		],
 	},
 	{
 		id: "novita",
