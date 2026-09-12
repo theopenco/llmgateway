@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 
 import { redisClient } from "@/auth/config.js";
 import { app } from "@/index.js";
@@ -376,28 +376,33 @@ describe("user accounts and email editability", () => {
 	});
 
 	it("PATCH /user/me should preserve the current identity until email confirmation", async () => {
-		const res = await app.request("/user/me", {
-			method: "PATCH",
-			headers: {
-				Cookie: token,
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({
-				email: "changed@example.com",
-				currentPassword: "admin@example.com1A",
-			}),
-		});
+		vi.stubEnv("ADMIN_EMAILS", "changed@example.com");
+		try {
+			const res = await app.request("/user/me", {
+				method: "PATCH",
+				headers: {
+					Cookie: token,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					email: "changed@example.com",
+					currentPassword: "admin@example.com1A",
+				}),
+			});
 
-		expect(res.status).toBe(200);
-		const json = await res.json();
-		expect(json.user.email).toBe("admin@example.com");
-		expect(json.user.emailVerified).toBe(true);
-		expect(json.user.isAdmin).toBe(false);
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			expect(json.user.email).toBe("admin@example.com");
+			expect(json.user.emailVerified).toBe(true);
+			expect(json.user.isAdmin).toBe(false);
 
-		const stored = await db.query.user.findFirst({
-			where: { id: { eq: "test-user-id" } },
-		});
-		expect(stored!.emailVerified).toBe(true);
+			const stored = await db.query.user.findFirst({
+				where: { id: { eq: "test-user-id" } },
+			});
+			expect(stored!.emailVerified).toBe(true);
+		} finally {
+			vi.unstubAllEnvs();
+		}
 	});
 
 	it("PATCH /user/me should keep emailVerified when the email is unchanged", async () => {

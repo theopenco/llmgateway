@@ -1,4 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import { hashPassword, verifyPassword } from "better-auth/crypto";
 import { HTTPException } from "hono/http-exception";
@@ -34,6 +36,26 @@ export function getEmailChangeRateLimitKeys(userId: string, email: string) {
 		`email-change:rate:user:${userId}`,
 		`email-change:rate:recipient:${hashIdentifier(email.trim().toLowerCase())}`,
 	];
+}
+
+export function getEmailChangeConfirmationRateLimitKey(headers: Headers) {
+	return `email-change:confirm:ip:${hashIdentifier(getClientIpFromHeaders(headers) ?? "unknown")}`;
+}
+
+export async function checkEmailChangeConfirmationRateLimit(headers: Headers) {
+	if (
+		(await redisClient.eval(
+			RESERVE_EMAIL_CHANGE,
+			1,
+			getEmailChangeConfirmationRateLimitKey(headers),
+			60,
+			60,
+		)) !== 1
+	) {
+		throw new HTTPException(429, {
+			message: "Too many confirmation attempts. Try again in a minute.",
+		});
+	}
 }
 
 export function getEmailChangeProofRateLimitKeys(
@@ -171,6 +193,15 @@ export async function requestEmailChange(
 			strict: true,
 			logSafe: true,
 		});
+		const previewDirectory = process.env.EMAIL_CHANGE_PREVIEW_DIR;
+		if (process.env.NODE_ENV === "development" && previewDirectory) {
+			await mkdir(previewDirectory, { recursive: true, mode: 0o700 });
+			await writeFile(
+				join(previewDirectory, `${hashIdentifier(token)}.txt`),
+				`${url.toString()}\n`,
+				{ mode: 0o600, flag: "wx" },
+			);
+		}
 	} catch (error) {
 		await db
 			.delete(tables.verification)

@@ -1,7 +1,10 @@
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
-import { confirmEmailChange } from "@/lib/email-change.js";
+import {
+	checkEmailChangeConfirmationRateLimit,
+	confirmEmailChange,
+} from "@/lib/email-change.js";
 
 export const emailChange = new OpenAPIHono();
 
@@ -19,6 +22,12 @@ emailChange.openapi(
 			},
 		},
 		responses: {
+			429: {
+				description: "Too many confirmation attempts.",
+				content: {
+					"application/json": { schema: z.object({ message: z.string() }) },
+				},
+			},
 			400: {
 				description: "Invalid, expired, or conflicting email change.",
 				content: {
@@ -34,6 +43,7 @@ emailChange.openapi(
 		},
 	}),
 	async (c) => {
+		await checkEmailChangeConfirmationRateLimit(c.req.raw.headers);
 		await confirmEmailChange(c.req.valid("json").token, c.req.raw.headers);
 		return c.json({
 			message: "Email updated. Sign in with your new email address.",

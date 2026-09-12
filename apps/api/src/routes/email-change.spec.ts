@@ -1,3 +1,7 @@
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import * as crypto from "better-auth/crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,6 +10,7 @@ import { app } from "@/index.js";
 import {
 	getEmailChangeRateLimitKeys,
 	getEmailChangeProofRateLimitKeys,
+	getEmailChangeConfirmationRateLimitKey,
 } from "@/lib/email-change.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 import * as abuseIp from "@/utils/abuse-ip.js";
@@ -50,6 +55,9 @@ function patch(
 }
 
 function confirm(token: string, headers: Record<string, string> = {}) {
+	rateLimitKeys.add(
+		getEmailChangeConfirmationRateLimitKey(new Headers(headers)),
+	);
 	return app.request("/user/email/confirm", {
 		method: "POST",
 		headers: { "Content-Type": "application/json", ...headers },
@@ -95,7 +103,8 @@ async function waitForDatabaseLock() {
 		async () => {
 			const waiting =
 				await db.execute(sql`select count(*)::int as count from pg_stat_activity
-			where datname = current_database() and wait_event_type = 'Lock' and pid <> pg_backend_pid()`);
+			where datname = current_database() and wait_event_type = 'Lock' and pid <> pg_backend_pid()
+			and query ilike 'select%from "user"%for update%'`);
 			expect(waiting.rows[0]?.count).toBeGreaterThan(0);
 		},
 		{ timeout: 5000 },
@@ -148,6 +157,39 @@ describe("email change confirmation", () => {
 		).toBe(401);
 		expect((await storedUser())?.email).toBe("admin@example.com");
 		expect(sendEmail).not.toHaveBeenCalled();
+	});
+
+	it("limits confirmation requests before opening database transactions", async () => {
+		const headers = { "x-forwarded-for": "198.51.100.42" };
+		const key = getEmailChangeConfirmationRateLimitKey(new Headers(headers));
+		rateLimitKeys.add(key);
+		await redisClient.set(key, "59", "EX", 60);
+		expect((await confirm("0".repeat(64), headers)).status).toBe(400);
+		const transaction = vi.spyOn(db, "transaction");
+		try {
+			expect((await confirm("0".repeat(64), headers)).status).toBe(429);
+			expect(transaction).not.toHaveBeenCalled();
+		} finally {
+			transaction.mockRestore();
+		}
+		expect(
+			(await confirm("0".repeat(64), { "x-forwarded-for": "198.51.100.43" }))
+				.status,
+		).toBe(400);
+	});
+
+	it("fails closed on confirmation throttle errors before opening a transaction", async () => {
+		const evalScript = vi
+			.spyOn(redisClient, "eval")
+			.mockRejectedValueOnce(new Error("Redis unavailable"));
+		const transaction = vi.spyOn(db, "transaction");
+		try {
+			expect((await confirm("0".repeat(64))).status).toBe(500);
+			expect(transaction).not.toHaveBeenCalled();
+		} finally {
+			evalScript.mockRestore();
+			transaction.mockRestore();
+		}
 	});
 
 	it("keeps sign-in and password recovery at the old address until confirmation", async () => {
@@ -273,6 +315,105 @@ describe("email change confirmation", () => {
 		expect((await storedUser())?.email).toBe("admin@example.com");
 	});
 
+	it.each(["confirmation", "reset"])(
+		"rejects a stale sign-in after password verification when %s wins",
+		async (operation) => {
+			const resetToken = await requestReset();
+			await patch({ email: newEmail, currentPassword });
+			const emailToken = confirmationToken();
+			const context = await apiAuth.$context;
+			const verify = context.password.verify;
+			const entered = deferred();
+			const release = deferred();
+			const spy = vi
+				.spyOn(context.password, "verify")
+				.mockImplementationOnce(async (input) => {
+					const valid = await verify(input);
+					entered.resolve();
+					await release.promise;
+					return valid;
+				});
+			const signingIn = signIn("admin@example.com");
+			try {
+				await entered.promise;
+				const response =
+					operation === "confirmation"
+						? await confirm(emailToken)
+						: await resetPassword(resetToken);
+				expect(response.status).toBe(200);
+			} finally {
+				release.resolve();
+				await signingIn;
+				spy.mockRestore();
+			}
+			expect((await signingIn).status).toBe(401);
+			expect((await (await signingIn).json()).code).toBe(
+				"INVALID_EMAIL_OR_PASSWORD",
+			);
+		},
+	);
+
+	it("revokes a sign-in that creates its session before confirmation", async () => {
+		await patch({ email: newEmail, currentPassword });
+		const emailToken = confirmationToken();
+		const context = await apiAuth.$context;
+		const create = context.internalAdapter.createSession;
+		const entered = deferred();
+		const release = deferred();
+		const spy = vi
+			.spyOn(context.internalAdapter, "createSession")
+			.mockImplementationOnce(async (...args) => {
+				entered.resolve();
+				await release.promise;
+				return await create(...args);
+			});
+		const signingIn = signIn("admin@example.com");
+		await entered.promise;
+		const confirming = confirm(emailToken);
+		try {
+			await waitForDatabaseLock();
+		} finally {
+			release.resolve();
+			await Promise.all([signingIn, confirming]);
+			spy.mockRestore();
+		}
+		expect((await signingIn).status).toBe(200);
+		expect((await confirming).status).toBe(200);
+		expect(
+			await db.query.session.findMany({ where: { userId: "test-user-id" } }),
+		).toHaveLength(0);
+	});
+
+	it.each(["development", "production"])(
+		"captures private local confirmation previews only in development (%s)",
+		async (environment) => {
+			const directory = await mkdtemp(join(tmpdir(), "email-change-preview-"));
+			vi.stubEnv("NODE_ENV", environment);
+			vi.stubEnv("EMAIL_CHANGE_PREVIEW_DIR", directory);
+			if (environment === "production") {
+				vi.stubEnv("RESEND_API_KEY", "test");
+			}
+			try {
+				expect((await patch({ email: newEmail, currentPassword })).status).toBe(
+					200,
+				);
+				const files = await readdir(directory);
+				if (environment === "production") {
+					expect(files).toHaveLength(0);
+				} else {
+					expect(files).toHaveLength(1);
+					const path = join(directory, files[0]);
+					expect((await stat(path)).mode & 0o777).toBe(0o600);
+					const url = new URL((await readFile(path, "utf8")).trim());
+					expect((await confirm(url.hash.slice(1))).status).toBe(200);
+					expect((await storedUser())?.email).toBe(newEmail);
+				}
+			} finally {
+				await rm(directory, { recursive: true, force: true });
+			}
+		},
+	);
+
 	it("serializes email confirmation before an in-flight password reset", async () => {
 		const token = await requestReset();
 		await patch({ email: newEmail, currentPassword });
@@ -374,7 +515,13 @@ describe("email change confirmation", () => {
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ email: "admin@example.com" }),
 		});
-		expect(response.status).toBe(500);
+		expect(response.status).toBe(200);
+		const unknown = await app.request("/auth/request-password-reset", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ email: "unknown@example.com" }),
+		});
+		expect(await response.json()).toEqual(await unknown.json());
 		expect(await db.query.verification.findMany()).toHaveLength(0);
 		expect((await signIn("admin@example.com")).status).toBe(200);
 		expect((await resetPassword(await requestReset())).status).toBe(200);
