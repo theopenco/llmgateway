@@ -2253,9 +2253,13 @@ export async function prepareRequestBody(
 									...(reasoning_effort !== undefined && {
 										effort: reasoning_effort,
 									}),
+									summary:
+										providerMappingForOptions?.reasoningSummary ?? "detailed",
 								}
 							: {
 									effort: responsesReasoningEffort,
+									summary:
+										providerMappingForOptions?.reasoningSummary ?? "detailed",
 									// reasoning.context is only documented on OpenAI's
 									// Responses API surface; other providers reject
 									// unknown reasoning fields.
@@ -2265,10 +2269,6 @@ export async function prepareRequestBody(
 										}),
 								},
 				};
-
-				if (providerMappingForOptions?.supportsReasoningSummary !== false) {
-					responsesBody.reasoning.summary = "detailed";
-				}
 
 				// Run stateless upstream and ask for encrypted reasoning payloads so
 				// reasoning can be replayed on later turns (the gateway never uses

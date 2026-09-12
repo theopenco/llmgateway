@@ -2488,7 +2488,7 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-6-astra",
-				supportsReasoningSummary: false,
+				reasoningSummary: "auto",
 				regions: [
 					{ id: "global" },
 					{

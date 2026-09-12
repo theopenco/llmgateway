@@ -1997,16 +1997,19 @@ describe("prepareRequestBody - reasoning summaries", () => {
 		})) as OpenAIResponsesRequestBody;
 
 		expect(requestBody.model).toBe(`${prefix}openai.gpt-6-astra`);
-		expect(requestBody.reasoning).toEqual({ effort: "medium" });
+		expect(requestBody.reasoning).toEqual({
+			effort: "medium",
+			summary: "auto",
+		});
 		expect(requestBody.store).toBe(false);
 	});
 
 	test.each([
-		{ provider: "aws-mantle", model: "gpt-6-astra", summary: undefined },
+		{ provider: "aws-mantle", model: "gpt-6-astra", summary: "auto" },
 		{ provider: "aws-mantle", model: "gpt-5.6-sol", summary: "detailed" },
 		{ provider: "openai", model: "gpt-6-astra", summary: "detailed" },
 	] as const)(
-		"respects summary support for $provider/$model",
+		"uses the summary mode for $provider/$model",
 		async ({ provider, model, summary }) => {
 			const requestBody = (await prepareOpenAITextRequest({
 				provider,
@@ -2016,7 +2019,7 @@ describe("prepareRequestBody - reasoning summaries", () => {
 
 			expect(requestBody.reasoning).toEqual({
 				effort: "medium",
-				...(summary && { summary }),
+				summary,
 			});
 		},
 	);

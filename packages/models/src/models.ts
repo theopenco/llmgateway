@@ -543,8 +543,8 @@ export interface ProviderModelMapping {
 	 *   simpler prompts)
 	 */
 	reasoningOutput?: "omit";
-	/** Whether Responses API reasoning summaries are accepted. Defaults to true. */
-	supportsReasoningSummary?: boolean;
+	/** Responses API reasoning summary mode. Defaults to detailed. */
+	reasoningSummary?: "auto" | "detailed";
 	/**
 	 * Whether this model supports explicit reasoning.max_tokens parameter.
 	 * When true, users can specify the exact token budget for reasoning instead of using reasoning_effort levels.
