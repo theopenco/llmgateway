@@ -49,6 +49,13 @@ const serviceTierSourceSql = sql<
 const HISTORY_USAGE_MODES = ["credits", "api-keys"] as const;
 type HistoryUsageMode = (typeof HISTORY_USAGE_MODES)[number];
 
+// A mapping ID identifies one model/provider pair. Keep its historical labels
+// without adding redundant grouping keys that inflate PostgreSQL's estimates.
+const mappingHistoryLabels = {
+	modelId: sql<string>`min(${modelProviderMappingHistory.modelId})`,
+	providerId: sql<string>`min(${modelProviderMappingHistory.providerId})`,
+};
+
 interface MappingMinuteStats {
 	modelId: string | null;
 	providerId: string | null;
@@ -1256,8 +1263,7 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 		.select({
 			modelProviderMappingId:
 				modelProviderMappingHistory.modelProviderMappingId,
-			modelId: modelProviderMappingHistory.modelId,
-			providerId: modelProviderMappingHistory.providerId,
+			...mappingHistoryLabels,
 			usedMode: modelProviderMappingHistory.usedMode,
 			logsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.logsCount}), 0)::int`,
 			errorsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.errorsCount}), 0)::int`,
@@ -1299,8 +1305,6 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 		)
 		.groupBy(
 			modelProviderMappingHistory.modelProviderMappingId,
-			modelProviderMappingHistory.modelId,
-			modelProviderMappingHistory.providerId,
 			modelProviderMappingHistory.usedMode,
 		);
 
@@ -1589,8 +1593,7 @@ export async function calculateAggregatedStatistics() {
 			.select({
 				modelProviderMappingId:
 					modelProviderMappingHistory.modelProviderMappingId,
-				providerId: modelProviderMappingHistory.providerId,
-				modelId: modelProviderMappingHistory.modelId,
+				...mappingHistoryLabels,
 				totalLogs:
 					sql<number>`coalesce(sum(${modelProviderMappingHistory.logsCount}), 0)::bigint`.as(
 						"total_logs",
@@ -1618,11 +1621,7 @@ export async function calculateAggregatedStatistics() {
 			})
 			.from(modelProviderMappingHistory)
 			.where(gte(modelProviderMappingHistory.minuteTimestamp, oneHourAgo))
-			.groupBy(
-				modelProviderMappingHistory.modelProviderMappingId,
-				modelProviderMappingHistory.providerId,
-				modelProviderMappingHistory.modelId,
-			);
+			.groupBy(modelProviderMappingHistory.modelProviderMappingId);
 
 		interface RollupAgg {
 			totalLogs: number;
