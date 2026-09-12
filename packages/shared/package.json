@@ -94,6 +94,11 @@
 			"import": "./dist/dynamic-route.js",
 			"default": "./dist/dynamic-route.js"
 		},
+		"./log-retention": {
+			"types": "./dist/log-retention.d.ts",
+			"import": "./dist/log-retention.js",
+			"default": "./dist/log-retention.js"
+		},
 		"./routing-telemetry": {
 			"types": "./dist/routing-telemetry.d.ts",
 			"import": "./dist/routing-telemetry.js",

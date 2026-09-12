@@ -44,20 +44,26 @@ export default function Sso() {
 
 	const searchParams = useSearchParams();
 	const redirectTarget = getAuthRedirect(searchParams.get("redirect"));
+	const reauthenticate = searchParams.get("reauthenticate") === "true";
+	const loginQuery = new URLSearchParams({ redirect: redirectTarget });
+	if (reauthenticate) {
+		loginQuery.set("reauthenticate", "true");
+	}
+	const loginPath = `/login?${loginQuery.toString()}` as Route;
 
 	const defaultEmail = searchParams.get("email") ?? "";
 
 	useUser({
-		redirectTo: redirectTarget,
+		redirectTo: reauthenticate ? undefined : redirectTarget,
 		redirectWhen: "authenticated",
 		checkOnboarding: !isCliAuthRedirect(redirectTarget),
 	});
 
 	useEffect(() => {
 		if (!ssoEnabled) {
-			router.replace(`/login?redirect=${encodeURIComponent(redirectTarget)}`);
+			router.replace(loginPath);
 		}
-	}, [ssoEnabled, router, redirectTarget]);
+	}, [ssoEnabled, router, loginPath]);
 
 	useEffect(() => {
 		posthog.capture("page_viewed_sso");
@@ -90,6 +96,9 @@ export default function Sso() {
 			const errorUrl = new URL("/sso", location.origin);
 			errorUrl.searchParams.set("redirect", redirectTarget);
 			errorUrl.searchParams.set("email", values.email);
+			if (reauthenticate) {
+				errorUrl.searchParams.set("reauthenticate", "true");
+			}
 			const res = await signIn.sso({
 				email: values.email,
 				callbackURL: location.protocol + "//" + location.host + redirectTarget,
@@ -172,11 +181,7 @@ export default function Sso() {
 				</Form>
 
 				<Button asChild variant="ghost" className="w-full">
-					<Link
-						href={
-							`/login?redirect=${encodeURIComponent(redirectTarget)}` as Route
-						}
-					>
+					<Link href={loginPath}>
 						<ArrowLeft className="mr-2 h-4 w-4" />
 						Back to login
 					</Link>
