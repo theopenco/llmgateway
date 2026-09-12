@@ -221,7 +221,7 @@ export function CostByModelTimeseriesChart({
 				</div>
 				<div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
 					<div
-						className="flex items-center gap-1"
+						className="flex flex-wrap items-center gap-1"
 						role="group"
 						aria-label="Metric"
 					>

@@ -80,7 +80,7 @@ export function ChatPlansTimeseriesChart({
 
 	return (
 		<Card>
-			<CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
+			<CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0">
 				<div className="flex flex-1 flex-col justify-center gap-1 px-6 py-5 sm:py-6">
 					<div className="flex flex-wrap items-center justify-between gap-3">
 						<CardTitle>Lounge (chat) plans revenue & usage</CardTitle>
@@ -104,7 +104,7 @@ export function ChatPlansTimeseriesChart({
 								aria-pressed={activeSeries === key}
 								data-active={activeSeries === key}
 								className={cn(
-									"relative z-30 flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left even:border-l data-[active=true]:bg-muted/50 sm:border-l sm:border-t-0 sm:px-8 sm:py-6",
+									"relative z-30 flex min-w-0 flex-1 flex-col justify-center gap-1 border-l border-t px-4 py-4 text-left first:border-l-0 data-[active=true]:bg-muted/50 sm:px-6",
 								)}
 								onClick={() => setActiveSeries(key)}
 							>
