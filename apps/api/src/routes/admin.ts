@@ -402,6 +402,17 @@ const adminMetricsSchema = z.object({
 	// Negotiated enterprise revenue recorded by an administrator. These rows do
 	// not grant credits and are kept separate from manual credit payments.
 	grossEnterpriseDealsRevenue: z.number(),
+	// Gateway margin accrued on Airside-carrier traffic (credits mode), summed
+	// from the daily global rollups. A profit share inside credits spend, so it
+	// is reported alongside — not added to — the grossRevenue splits.
+	airsideMarginProfit: z.number(),
+	airsideMarginByCarrier: z.array(
+		z.object({
+			providerId: z.string(),
+			companyName: z.string(),
+			amount: z.number(),
+		}),
+	),
 });
 
 const timeseriesRangeSchema = z.enum(["7d", "30d", "90d", "365d", "all"]);
@@ -1559,6 +1570,64 @@ admin.openapi(getMetrics, async (c) => {
 		grossEnterpriseDealsRow?.value ?? 0,
 	);
 
+	// Airside gateway margin, per carrier. dayTimestamp is `timestamp without
+	// time zone`, so compare against UTC strings rather than Date parameters.
+	const toUtcTimestamp = (date: Date) =>
+		date.toISOString().slice(0, 19).replace("T", " ");
+	const airsideMarginDateFilter = and(
+		startDate
+			? sql`${globalModelStats.dayTimestamp} >= ${toUtcTimestamp(startDate)}::timestamp`
+			: undefined,
+		endDate
+			? sql`${globalModelStats.dayTimestamp} <= ${toUtcTimestamp(endDate)}::timestamp`
+			: undefined,
+	);
+	const airsideMarginRows = await db
+		.select({
+			providerId: tables.providerRoutingSettings.providerId,
+			companyName: tables.providerCompany.name,
+			amount:
+				sql<number>`coalesce(sum(cast(${globalModelStats.providerMarginAmount} as double precision)), 0)`.as(
+					"amount",
+				),
+		})
+		.from(tables.providerRoutingSettings)
+		.innerJoin(
+			tables.providerCompany,
+			eq(
+				tables.providerRoutingSettings.providerCompanyId,
+				tables.providerCompany.id,
+			),
+		)
+		.leftJoin(
+			globalModelStats,
+			and(
+				eq(
+					globalModelStats.usedProvider,
+					tables.providerRoutingSettings.providerId,
+				),
+				eq(globalModelStats.usedMode, "credits"),
+				airsideMarginDateFilter,
+			),
+		)
+		.where(isNull(tables.providerRoutingSettings.modelId))
+		.groupBy(
+			tables.providerRoutingSettings.providerId,
+			tables.providerCompany.name,
+		);
+
+	const airsideMarginByCarrier = airsideMarginRows
+		.map((row) => ({
+			providerId: row.providerId,
+			companyName: row.companyName,
+			amount: Number(row.amount ?? 0),
+		}))
+		.sort((a, b) => b.amount - a.amount);
+	const airsideMarginProfit = airsideMarginByCarrier.reduce(
+		(sum, row) => sum + row.amount,
+		0,
+	);
+
 	const grossRevenue =
 		grossCreditsRevenue +
 		grossDevpassRevenue +
@@ -1602,6 +1671,8 @@ admin.openapi(getMetrics, async (c) => {
 		grossProSubscriptionsRevenue,
 		grossManualPaymentsRevenue,
 		grossEnterpriseDealsRevenue,
+		airsideMarginProfit,
+		airsideMarginByCarrier,
 	});
 });
 
