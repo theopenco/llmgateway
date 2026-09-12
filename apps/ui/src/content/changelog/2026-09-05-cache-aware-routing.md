@@ -2,8 +2,8 @@
 id: "95"
 slug: "cache-aware-routing"
 date: "2026-09-05"
-title: "Cache-Aware Provider Selection"
-summary: "Smart routing now ranks providers on what a cached workload actually pays. For prompts of 5,000 tokens or more, the price score blends each provider's cached input rate at an assumed 70% hit rate and weights output at a 20% output-to-input ratio, and context-length pricing tiers are resolved from the prompt size before scoring. Both assumptions are tunable per project on the Enterprise plan."
+title: "Adaptive Cache-Aware Provider Selection"
+summary: "Routing learns cache-hit rates and output-to-input proportions from recent project/model usage to compare providers for large prompts and sessions. Available automatically across plans, with workload defaults before enough history exists and explicit overrides on Enterprise."
 image:
   src: "/changelog/cache-aware-routing.png"
   alt: "A glowing routing junction splitting a light trace toward two provider chips beside a memory-cache module and a balance scale weighing coins on a circuit board"
@@ -11,32 +11,36 @@ image:
   height: 1024
 ---
 
-Two providers can list the same model at the same input and output prices and still bill a cached workload very differently: one charges cache reads at 56% of its input price, the other at 16%. Routing used to rank both on list prices alone, so a cache-heavy agent loop could land on the provider that costs up to 2.6x more once the cache reads are billed. **Cache-aware provider selection** ranks on the price the workload will actually pay.
+**Updated September 12, 2026:** routing now learns from project usage.
 
-## The Price Routing Ranks On
+The lowest input price can hide expensive cache reads, and one fixed cache-hit assumption cannot fit every workload. **Adaptive cache-aware provider selection** learns from your project's model usage to compare providers using the token mix your application sends.
 
-For requests at or above the cache-relevance gate (`cachePromptTokens`, default 5,000 prompt tokens), the price component of the routing score becomes:
+## Price the Workload You Run
 
-```
-(cachedInputPrice × h + inputPrice × (1 − h) + outputPrice × r) / 2
-```
+For prompts estimated at **5,000 tokens or more**, or when selecting a session's provider, both `auto` and `price` routing blend cached and uncached input prices and weight output by the expected output-to-input ratio.
 
-| Threshold           | Default | Meaning                                                         |
-| ------------------- | ------- | --------------------------------------------------------------- |
-| `cachePromptTokens` | `5000`  | Prompt size from which cache pricing enters the ranking         |
-| `cacheHitRate`      | `0.7`   | Assumed share of prompt tokens served from the provider's cache |
-| `cacheOutputRatio`  | `0.2`   | Assumed output-to-input token ratio for large-prompt requests   |
+Routing learns from the **last 24 hours** once eligible model usage reaches **20 successful requests and 100,000 input tokens**. A sufficiently sampled provider uses its own cache-hit rate across regions; otherwise it uses the project's combined rate for that model. The output ratio always comes from that model's combined project usage.
 
-Providers that do not publish a cached input price rank at their full input price, exactly as they bill. Peak and off-peak cached prices are respected. The blend covers implicit cache hits only: explicit-cache reads requested with `cache_control` are billed at a provider's separate `cacheReadInputPrice` where one exists and are not part of the ranking. Smaller prompts rank as before, and setting `cacheHitRate` to `0` and `cacheOutputRatio` to `1` returns the price component to list prices while the separate cache-support weight still applies.
+Before enough data exists, these workload estimates apply:
 
-The output ratio matters as much as the blend: at output parity, a cheaper output price swamps any cache difference, and large-prompt traffic is dominated by input tokens anyway. The defaults are asymmetric on purpose. Treating a one-shot large prompt as cached costs at most about 11% on the affected models; ranking a cached workload on list prices costs up to 160%.
+| Workload                              | Cached input | Output-to-input ratio |
+| ------------------------------------- | ------------ | --------------------- |
+| General API or unknown client         | 10%          | 20%                   |
+| DevPass or a recognized coding client | 90%          | 2%                    |
+| Chat organization                     | 50%          | 10%                   |
 
-## Pricing Tiers Resolved Before Scoring
+Recognized coding clients use the coding defaults on regular API projects too. A session ID alone does not identify coding traffic.
 
-Selection now also resolves context-length pricing tiers from the prompt-token estimate before ranking, with the same precedence billing uses: time-based pricing first, then the tier override by token count. Tiered mappings were previously ranked at their base rates regardless of prompt size.
+## Preserve Cache Locality and Controls
 
-Both thresholds live under **Project Settings → Routing** and are available on the **Enterprise plan**.
+- **Sessions:** the opening request uses workload estimates even with a short prompt. Healthy, compatible pins stay in place as new observations arrive.
+- **Retention:** learning reads hourly aggregates and works with payload retention disabled. Buckets containing gateway response-cache hits are excluded.
+- **Availability:** usage lookups are cached for 60 seconds, with previously cached observations used on failure before falling back to configured estimates.
+- **Pricing:** context-length tiers and time-based prices apply before scoring. Providers without a cached input price use their full input price; separate explicit-cache read rates and cache-write charges are outside the estimate.
+- **Cache preference:** the separate cache-support weight now defaults to zero, because cache-read savings already count toward price. Small requests outside sessions continue to weight input and output equally.
+
+Adaptive pricing is automatic across plans. **Enterprise** projects can override `thresholds.cacheHitRate` and `thresholds.cacheOutputRatio` under **Project Settings → Routing**; explicit values take precedence over observations and defaults. Setting them to `0` and `1` restores list-price ranking for the token-price component. Cache-hit estimates guide routing and do not guarantee a cache hit or savings on an individual request.
 
 ---
 
-**[Routing docs →](https://docs.llmgateway.io/features/routing)** | **[Enterprise plans →](https://llmgateway.io/enterprise)**
+**[Routing docs →](https://docs.llmgateway.io/features/routing)** | **[Read the blog post →](https://llmgateway.io/blog/cache-aware-llm-routing)**
