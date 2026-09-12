@@ -3132,6 +3132,8 @@ export const chatShare = pgTable(
 			.references(() => user.id, { onDelete: "cascade" }),
 		title: text().notNull(),
 		model: text().notNull(),
+		allowDiscovery: boolean().notNull().default(false),
+		allowForking: boolean().notNull().default(false),
 		messages: jsonb().notNull(),
 	},
 	(table) => [
