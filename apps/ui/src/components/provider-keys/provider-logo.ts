@@ -24,6 +24,7 @@ export const providerLogoUrls: Partial<
 	deepseek: ProviderIcons.deepseek,
 	perplexity: ProviderIcons.perplexity,
 	meta: ProviderIcons.meta,
+	"meta-contributor": ProviderIcons["meta-contributor"],
 	moonshot: ProviderIcons.moonshot,
 	novita: ProviderIcons.novita,
 	alibaba: ProviderIcons.alibaba,
