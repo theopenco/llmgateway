@@ -30,6 +30,7 @@ import prettyBytes from "pretty-bytes";
 import { useState } from "react";
 
 import { CredentialSourceBadge } from "@/components/credential-source-badge";
+import { RoutingMetadataExpired } from "@/components/routing-metadata-expired";
 import { Time } from "@/components/time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { isRoutingMetadataExpired } from "@/log-retention.js";
 import { regionFromUsedModel } from "@/used-model.js";
 
 import {
@@ -388,6 +390,7 @@ export function LogCard({
 	fetchInputImages,
 }: LogCardProps) {
 	const routingMetadata = log.routingMetadata as RoutingMetadata | undefined;
+	const routingMetadataExpired = isRoutingMetadataExpired(log);
 	// Regional mappings encode the served region as a `:region` suffix on
 	// `usedModel`; providers without regional deployments have none.
 	const usedRegion = regionFromUsedModel(log.usedModel, log.usedProvider);
@@ -668,6 +671,11 @@ export function LogCard({
 									</>
 								)}
 							</div>
+							{routingMetadataExpired && (
+								<div className="mt-3 border-t pt-3">
+									<RoutingMetadataExpired />
+								</div>
+							)}
 							{routingMetadata && (
 								<div className="mt-3">
 									<h5 className="text-xs font-medium text-muted-foreground mb-2">

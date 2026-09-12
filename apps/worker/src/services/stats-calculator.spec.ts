@@ -9,6 +9,8 @@ import {
 	modelHistory,
 	modelProviderMappingHistoryHourly,
 	modelHistoryHourly,
+	routingElectionHourly,
+	routingExclusionHourly,
 	log,
 	organization,
 	project,
@@ -19,6 +21,7 @@ import {
 	getTableColumns,
 	sql,
 } from "@llmgateway/db";
+import * as logRetention from "@llmgateway/shared/log-retention";
 
 import {
 	calculateMinutelyHistory,
@@ -38,6 +41,8 @@ describe("stats-calculator", () => {
 
 		// Clean up test data before each test
 		await db.delete(log);
+		await db.delete(routingElectionHourly);
+		await db.delete(routingExclusionHourly);
 		await db.delete(modelProviderMappingHistoryHourly);
 		await db.delete(modelHistoryHourly);
 		await db.delete(modelProviderMappingHistory);
@@ -148,6 +153,7 @@ describe("stats-calculator", () => {
 	});
 
 	afterEach(() => {
+		vi.restoreAllMocks();
 		vi.useRealTimers();
 	});
 
@@ -2120,6 +2126,61 @@ describe("stats-calculator", () => {
 	});
 
 	describe("backfillHourlyHistoryIfNeeded", () => {
+		it("uses saved minute counters without rebuilding expired routing", async () => {
+			vi.spyOn(logRetention, "getLogRetentionCutoff").mockReturnValue(
+				new Date("2024-01-01T11:00:00Z"),
+			);
+			const minuteTimestamp = new Date("2024-01-01T10:30:00Z");
+			await db.insert(modelHistory).values({
+				modelId: "gpt-4",
+				minuteTimestamp,
+				logsCount: 1,
+				serviceTierImplicitCount: 1,
+			});
+			await db.insert(modelProviderMappingHistory).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				minuteTimestamp,
+				logsCount: 1,
+				serviceTierImplicitCount: 1,
+			});
+			await db.insert(log).values({
+				id: "expired-routing-log",
+				requestId: "expired-routing-request",
+				organizationId: "org-1",
+				projectId: "proj-1",
+				apiKeyId: "key-1",
+				createdAt: minuteTimestamp,
+				duration: 100,
+				requestedModel: "gpt-4",
+				usedModel: "openai/gpt-4",
+				usedProvider: "openai",
+				responseSize: 0,
+				mode: "credits",
+				usedMode: "credits",
+				requestedServiceTier: "flex",
+				routingMetadata: null,
+				dataRetentionCleanedUp: true,
+			});
+
+			await backfillHourlyHistoryIfNeeded();
+
+			for (const table of [
+				modelHistoryHourly,
+				modelProviderMappingHistoryHourly,
+			]) {
+				const rows = await db.select().from(table);
+				expect(rows).toHaveLength(1);
+				expect(rows[0]).toMatchObject({
+					logsCount: 1,
+					serviceTierImplicitCount: 1,
+					serviceTierExplicitCount: 0,
+				});
+			}
+			expect(await db.select().from(routingElectionHourly)).toEqual([]);
+		});
+
 		it("should backfill from the earliest minute entry when hourly is empty", async () => {
 			// mockDate 12:30Z → previous complete hour is 11:00; current hour 12:00
 			// is in progress and must NOT be produced by backfill.

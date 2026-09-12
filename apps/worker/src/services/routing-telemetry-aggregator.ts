@@ -9,6 +9,7 @@ import {
 	sql,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { getLogRetentionCutoff } from "@llmgateway/shared/log-retention";
 import {
 	ROUTING_EXCLUSION_REASONS,
 	ROUTING_SELECTION_REASONS,
@@ -299,12 +300,10 @@ async function aggregateExclusions(tx: Tx, targetHour: Date) {
 /**
  * Roll up one hour of routing decisions from log.routingMetadata.
  *
- * Reading `log` is deliberate and safe here despite the table's volume: the
- * fields used (routingMetadata, the service-tier columns) survive retention
- * stripping, each pass scans a single hour's rows rather than running per
- * dashboard request, and the resulting hourly rows are what the admin dashboard
- * queries. Backfilling an hour whose logs have already been pruned simply
- * produces no rows and leaves any existing ones untouched.
+ * Reading `log` is deliberate and safe here despite the table's volume:
+ * each pass scans a single hour's rows, and the admin dashboard queries the
+ * resulting hourly rows. Routing details must be aggregated before the 30-day
+ * cleanup clears routingMetadata; they cannot be reconstructed afterward.
  *
  * Both aggregations share one transaction so the hour lands all-or-nothing.
  * Presence in routing_election_hourly is what tells the backfill an hour is
@@ -312,6 +311,11 @@ async function aggregateExclusions(tx: Tx, targetHour: Date) {
  * the hour would look complete and its exclusion rows would never be filled in.
  */
 export async function calculateRoutingTelemetryForHour(targetHour: Date) {
+	// An expired hour may be partially cleaned. Preserve its saved rollups.
+	if (hourWindow(targetHour).start < getLogRetentionCutoff()) {
+		return { electionRows: 0, exclusionRows: 0 };
+	}
+
 	const { electionRows, exclusionRows } = await db.transaction(async (tx) => ({
 		electionRows: await aggregateElections(tx, targetHour),
 		exclusionRows: await aggregateExclusions(tx, targetHour),

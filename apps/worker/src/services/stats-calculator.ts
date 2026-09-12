@@ -20,6 +20,7 @@ import {
 	type SQL,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { getLogRetentionCutoff } from "@llmgateway/shared/log-retention";
 
 import { excludeRecoveredSameProviderRegionRetry } from "./log-filters.js";
 import { calculateRoutingTelemetryForHour } from "./routing-telemetry-aggregator.js";
@@ -300,6 +301,9 @@ function getCurrentHourStart(): Date {
  */
 async function calculateModelHistoryForMinute(targetMinute: Date) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
+	if (roundedTargetMinute < getLogRetentionCutoff()) {
+		return { totalModels: 0, activeModels: 0, inactiveModels: 0 };
+	}
 
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
 	const database = db;
@@ -599,6 +603,9 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
  */
 async function calculateHistoryForMinute(targetMinute: Date) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
+	if (roundedTargetMinute < getLogRetentionCutoff()) {
+		return { totalMappings: 0, activeMappings: 0, inactiveMappings: 0 };
+	}
 
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
 	const database = db;
@@ -998,12 +1005,21 @@ export async function backfillHistoryIfNeeded() {
 		}
 
 		const previousMinute = getPreviousMinuteStart();
+		const earliestRetainedMinute = new Date(
+			Math.ceil(getLogRetentionCutoff().getTime() / ONE_MINUTE_MS) *
+				ONE_MINUTE_MS,
+		);
 
 		if (!lastMinute) {
 			// No history exists, start from configured backfill duration ago
 			const backfillMs = BACKFILL_DURATION_SECONDS * 1000;
 			const backfillStart = new Date(Date.now() - backfillMs);
-			const backfillStartRounded = roundToMinuteStart(backfillStart);
+			const backfillStartRounded = new Date(
+				Math.max(
+					roundToMinuteStart(backfillStart).getTime(),
+					earliestRetainedMinute.getTime(),
+				),
+			);
 
 			logger.info(
 				`No existing history found. Starting backfill from ${backfillStartRounded.toISOString()} to ${previousMinute.toISOString()}`,
@@ -1058,7 +1074,12 @@ export async function backfillHistoryIfNeeded() {
 				`Found gap of ${minutesBehind} minutes. Backfilling from ${lastMinute.toISOString()}`,
 			);
 
-			let minute = new Date(lastMinute.getTime() + ONE_MINUTE_MS); // Start from the minute after the last recorded
+			let minute = new Date(
+				Math.max(
+					lastMinute.getTime() + ONE_MINUTE_MS,
+					earliestRetainedMinute.getTime(),
+				),
+			);
 			let iterationCount = 0;
 			const maxIterations = 1440; // Safety limit for 24 hours of backfill
 
@@ -1411,7 +1432,7 @@ export async function calculateHourlyHistory() {
  * Backfill missing hourly summary rows by walking every completed hour from the
  * earliest minute-history entry up to the previous complete hour and recomputing
  * only the hours absent from ANY summary table — the two history rollups, plus
- * routing telemetry for hours whose logs still exist. Detecting missing hours
+ * routing telemetry for hours within log retention. Detecting missing hours
  * (rather than resuming from the latest entry) is what makes this robust: the
  * minutely loop writes the current and previous hour on startup, so the latest
  * hourly entry is never a reliable "everything before this is done" watermark —
@@ -1471,13 +1492,14 @@ export async function backfillHourlyHistoryIfNeeded() {
 			return;
 		}
 
-		// Oldest hour that still has logs to aggregate. Routing telemetry is derived
-		// from `log` rather than from minute history, so hours whose logs retention
-		// has already pruned can never produce routing rows — requiring them below
-		// would recompute the same empty hours on every worker start.
+		// Only complete hours within retention can reconstruct routing details.
+		const earliestRetainedHour = new Date(
+			Math.ceil(getLogRetentionCutoff().getTime() / ONE_HOUR_MS) * ONE_HOUR_MS,
+		);
 		const earliestLog = await database
 			.select({ createdAt: log.createdAt })
 			.from(log)
+			.where(gte(log.createdAt, earliestRetainedHour))
 			.orderBy(asc(log.createdAt))
 			.limit(1);
 		const earliestLogHourMs = earliestLog[0]
