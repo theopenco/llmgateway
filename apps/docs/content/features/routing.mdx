@@ -69,7 +69,7 @@ This makes routing react quickly to a provider that just started failing or slow
 
 For estimated prompts of at least **5,000 tokens**, or when choosing a session's provider, routing blends each provider's uncached and cached input prices and weights output by the expected output:input token ratio. Coding sessions that mostly reuse prompt tokens can therefore favor a provider with cheaper cache reads even when its uncached input price is higher. Providers without a cached input price use their full input price.
 
-These estimates use the project's **last 24 hours of model usage**, once it includes at least **20 successful requests and 100,000 input tokens**:
+These estimates use the project's **last 24 hours of model usage**, once it includes at least **20 successful requests and 20,000 input tokens**:
 
 - **Cache-hit rate** is cached input tokens divided by total input tokens. Each provider uses its own rate, counted across all of its regions, once it meets the same sample thresholds; otherwise it uses the project's combined rate for that model.
 - **Output:input ratio** uses the project's combined output and input tokens for that model across providers.

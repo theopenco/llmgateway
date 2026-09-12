@@ -15,7 +15,7 @@ interface TokenUsage {
 }
 
 function hasEnoughUsage(usage: TokenUsage): boolean {
-	return usage.requests >= 20 && usage.input >= 100_000;
+	return usage.requests >= 20 && usage.input >= 20_000;
 }
 
 /** Recent project/model token mix, with provider-specific cache hits when sampled. */

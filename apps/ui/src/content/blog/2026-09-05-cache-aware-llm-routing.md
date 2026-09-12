@@ -10,7 +10,7 @@ faqs:
   - question: "How does cache-aware LLM routing choose a provider?"
     answer: "For prompts estimated at 5,000 tokens or more, or when selecting a session's provider, routing blends cached and uncached input prices and weights output by the expected output-to-input token ratio. Both auto and price routing use these estimates. Providers without a cached input price use their full input price."
   - question: "When does routing start learning from my traffic?"
-    answer: "Once a project's last 24 hours of model usage include at least 20 successful requests and 100,000 input tokens in eligible hourly aggregates. Until then, routing uses workload defaults. Learning works with payload retention disabled; buckets containing gateway response-cache hits are excluded."
+    answer: "Once a project's last 24 hours of model usage include at least 20 successful requests and 20,000 input tokens in eligible hourly aggregates. Until then, routing uses workload defaults. Learning works with payload retention disabled; buckets containing gateway response-cache hits are excluded."
   - question: "Do I need Enterprise for adaptive routing?"
     answer: "No. Adaptive pricing applies automatically across plans. Enterprise lets you override cacheHitRate and cacheOutputRatio per project; explicit overrides take precedence over observations and workload defaults."
   - question: "Will new usage data move an existing session?"
@@ -42,7 +42,7 @@ Both `routing: "auto"` and `routing: "price"` use the estimate. The default `aut
 
 ## Learn From Your Project's Traffic
 
-Routing uses the project's **last 24 hours of usage for that model** once eligible data includes at least **20 successful requests and 100,000 input tokens**.
+Routing uses the project's **last 24 hours of usage for that model** once eligible data includes at least **20 successful requests and 20,000 input tokens**.
 
 - **Cache-hit rate:** each provider uses its own observed rate once it meets those thresholds, combining its regions. Otherwise, it uses the project's combined rate for that model.
 - **Output-to-input ratio:** calculated across providers for that model within the project.

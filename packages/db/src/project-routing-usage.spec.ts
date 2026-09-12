@@ -149,13 +149,31 @@ describe("getProjectRoutingUsage", () => {
 	it.each([
 		{ requestCount: 19 },
 		{ requestCount: 100, errorCount: 81 },
-		{ inputTokens: "99999" },
+		{ inputTokens: "19999" },
 		{ inputTokens: "0", cachedTokens: "0" },
 	])("keeps defaults for insufficient usage: %o", async (overrides) => {
 		await db.insert(stats).values(row(overrides));
 		expect(await getProjectRoutingUsage(projectId, combinations)).toEqual(
 			new Map(),
 		);
+	});
+
+	it("learns at 20 successful requests and 20,000 input tokens", async () => {
+		await db.insert(stats).values(
+			row({
+				requestCount: 20,
+				inputTokens: "20000",
+				cachedTokens: "16000",
+				outputTokens: "4000",
+			}),
+		);
+		const usage = await getProjectRoutingUsage(projectId, combinations);
+		for (const { providerId } of combinations) {
+			expect(usage.get(metricsKey(modelId, providerId))).toEqual({
+				cacheHitRate: 0.8,
+				cacheOutputRatio: 0.2,
+			});
+		}
 	});
 
 	it("caps cached tokens and allows an observed zero output ratio", async () => {

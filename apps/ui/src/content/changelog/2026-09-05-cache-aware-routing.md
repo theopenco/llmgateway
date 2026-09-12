@@ -19,7 +19,7 @@ The lowest input price can hide expensive cache reads, and one fixed cache-hit a
 
 For prompts estimated at **5,000 tokens or more**, or when selecting a session's provider, both `auto` and `price` routing blend cached and uncached input prices and weight output by the expected output-to-input ratio.
 
-Routing learns from the **last 24 hours** once eligible model usage reaches **20 successful requests and 100,000 input tokens**. A sufficiently sampled provider uses its own cache-hit rate across regions; otherwise it uses the project's combined rate for that model. The output ratio always comes from that model's combined project usage.
+Routing learns from the **last 24 hours** once eligible model usage reaches **20 successful requests and 20,000 input tokens**. A sufficiently sampled provider uses its own cache-hit rate across regions; otherwise it uses the project's combined rate for that model. The output ratio always comes from that model's combined project usage.
 
 Before enough data exists, these workload estimates apply:
 

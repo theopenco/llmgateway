@@ -74,10 +74,10 @@ describe("DevPass cached-workload price routing", () => {
 					),
 					usedModel: `deepinfra/${model}`,
 					usedProvider: "deepinfra",
-					requestCount: 100,
-					inputTokens: "10000000",
-					cachedTokens: "9950000",
-					outputTokens: "50000",
+					requestCount: 20,
+					inputTokens: "20000",
+					cachedTokens: "19900",
+					outputTokens: "100",
 				});
 			}
 
