@@ -175,6 +175,8 @@ export function restoreGoogleReasoningDetails<T extends GoogleTextPart>(
 			? [{ part, offset }]
 			: [];
 	});
+	// Later details must follow earlier parts even when their text offsets match.
+	let nextPartIndex = 0;
 	for (const detail of details ?? []) {
 		if (!isGoogleReasoningDetail(detail)) {
 			continue;
@@ -193,6 +195,10 @@ export function restoreGoogleReasoningDetails<T extends GoogleTextPart>(
 						signedTextMatches(part.text ?? "", metadata))),
 		);
 		if (explicitIndex !== -1) {
+			nextPartIndex = Math.max(
+				nextPartIndex,
+				restored.indexOf(explicitParts[explicitIndex]!.part) + 1,
+			);
 			explicitParts.splice(explicitIndex, 1);
 			continue;
 		}
@@ -210,29 +216,37 @@ export function restoreGoogleReasoningDetails<T extends GoogleTextPart>(
 		let inserted = false;
 		for (let i = 0; i < restored.length; i++) {
 			const part = restored[i]!;
-			if (part.thought || part.text === undefined) {
+			if (part.text === undefined) {
 				continue;
 			}
+			const text = part.thought ? "" : part.text;
+			const canSplit = !part.thought && !part.thoughtSignature;
 			const relativeOffset = offset - position;
-			position += part.text.length;
-			if (relativeOffset < 0 || offset > position || part.thoughtSignature) {
+			position += text.length;
+			if (
+				i < nextPartIndex ||
+				relativeOffset < 0 ||
+				offset > position ||
+				(!canSplit && (relativeOffset !== 0 || length !== 0))
+			) {
 				continue;
 			}
 			const signed = thought
 				? (metadata.text ?? "")
-				: part.text.slice(relativeOffset, relativeOffset + length);
+				: text.slice(relativeOffset, relativeOffset + length);
 			if (!signedTextMatches(signed, metadata)) {
 				continue;
 			}
-			const before = part.text.slice(0, relativeOffset);
-			const after = part.text.slice(relativeOffset + length);
+			const before = canSplit ? text.slice(0, relativeOffset) : "";
+			const after = canSplit ? text.slice(relativeOffset + length) : "";
 			restored.splice(
 				i,
-				1,
+				canSplit ? 1 : 0,
 				...(before ? [{ ...part, text: before }] : []),
 				signedPart(signed),
 				...(after ? [{ ...part, text: after }] : []),
 			);
+			nextPartIndex = i + (before ? 2 : 1);
 			inserted = true;
 			break;
 		}
@@ -240,6 +254,7 @@ export function restoreGoogleReasoningDetails<T extends GoogleTextPart>(
 			const signed = thought ? (metadata.text ?? "") : "";
 			if (signedTextMatches(signed, metadata)) {
 				restored.push(signedPart(signed));
+				nextPartIndex = restored.length;
 			}
 		}
 	}

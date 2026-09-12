@@ -27,6 +27,44 @@ describe("Gemini signed text parts", () => {
 		).toEqual(parts);
 	});
 
+	it.each([false, true])(
+		"preserves signed parts at the same offset (thought: %s)",
+		(thought) => {
+			const signedParts = [
+				{
+					text: thought ? "first thought" : "",
+					...(thought ? { thought } : {}),
+					thoughtSignature: "first-signature",
+				},
+				{
+					text: thought ? "second thought" : "",
+					...(thought ? { thought } : {}),
+					thoughtSignature: "second-signature",
+				},
+			];
+			for (const suffix of [
+				[],
+				[{ text: "suffix" }],
+				[{ text: "suffix", thoughtSignature: "suffix-signature" }],
+			]) {
+				const parts = [{ text: "prefix" }, ...signedParts, ...suffix];
+				const details = buildGoogleReasoningDetails(parts);
+				expect(
+					restoreGoogleReasoningDetails(
+						[{ text: "prefix" + (suffix[0]?.text ?? "") }],
+						details,
+					),
+				).toEqual(parts);
+				expect(
+					restoreGoogleReasoningDetails(
+						[{ text: "prefix" }, signedParts[0]!, ...suffix],
+						details,
+					),
+				).toEqual(parts);
+			}
+		},
+	);
+
 	it("keeps streaming offsets and indexes across chunks", () => {
 		const state = { textOffset: 0, index: 0 };
 		const details = [
