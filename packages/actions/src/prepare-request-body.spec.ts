@@ -102,8 +102,9 @@ async function prepareMetaImageRequest(imageConfig: {
 }
 
 async function prepareOpenAITextRequest(options: {
-	provider?: "openai" | "azure";
+	provider?: "openai" | "azure" | "aws-mantle";
 	model?: string;
+	region?: string;
 	useResponsesApi?: boolean;
 	promptCacheKey?: string;
 	promptCacheRetention?: "in_memory" | "24h";
@@ -117,8 +118,8 @@ async function prepareOpenAITextRequest(options: {
 	return await prepareRequestBody(
 		options.provider ?? "openai",
 		model,
-		null,
-		model,
+		options.region ?? null,
+		options.provider === "aws-mantle" ? `openai.${model}` : model,
 		(options.messages as any) ?? [{ role: "user", content: "Hello!" }],
 		false,
 		undefined,
@@ -1980,6 +1981,45 @@ describe("prepareRequestBody - Fireworks service tiers", () => {
 
 		expect(requestBody.service_tier).toBeUndefined();
 	});
+});
+
+describe("prepareRequestBody - reasoning summaries", () => {
+	test.each([
+		{ region: "global", prefix: "global." },
+		{ region: "us", prefix: "us." },
+		{ region: "us-west-2", prefix: "" },
+	])("routes Astra through the $region profile", async ({ region, prefix }) => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "aws-mantle",
+			model: "gpt-6-astra",
+			region,
+			useResponsesApi: true,
+		})) as OpenAIResponsesRequestBody;
+
+		expect(requestBody.model).toBe(`${prefix}openai.gpt-6-astra`);
+		expect(requestBody.reasoning).toEqual({ effort: "medium" });
+		expect(requestBody.store).toBe(false);
+	});
+
+	test.each([
+		{ provider: "aws-mantle", model: "gpt-6-astra", summary: undefined },
+		{ provider: "aws-mantle", model: "gpt-5.6-sol", summary: "detailed" },
+		{ provider: "openai", model: "gpt-6-astra", summary: "detailed" },
+	] as const)(
+		"respects summary support for $provider/$model",
+		async ({ provider, model, summary }) => {
+			const requestBody = (await prepareOpenAITextRequest({
+				provider,
+				model,
+				useResponsesApi: true,
+			})) as OpenAIResponsesRequestBody;
+
+			expect(requestBody.reasoning).toEqual({
+				effort: "medium",
+				...(summary && { summary }),
+			});
+		},
+	);
 });
 
 describe("prepareRequestBody - verbosity", () => {

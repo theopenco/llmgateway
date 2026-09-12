@@ -9,6 +9,7 @@ import {
 	type ProviderId,
 	type VertexTokenType,
 	getProviderEnvValue,
+	getProviderDefinition,
 	getProviderEnvConfig,
 	getRegionEnvVarSuffix,
 	getRegionScopedProviderEnvValue,
@@ -497,11 +498,7 @@ export function getProviderEndpoint(
 				break;
 			}
 			case "aws-mantle": {
-				// Bedrock Mantle: OpenAI frontier models on AWS, Responses API only.
-				// The selected region normally resolves through regionConfig's
-				// endpointMap; the env var stays supported as a deployment-level
-				// override, and us-east-1 is the fallback because it is the only
-				// region carrying the whole GPT-5.6 family (Sol is not in us-west-2).
+				// Cross-region profiles use Runtime; concrete regions use Mantle.
 				const envBaseUrl = skipEnvVars
 					? undefined
 					: getProviderEnvValue(
@@ -516,6 +513,9 @@ export function getProviderEndpoint(
 				url =
 					envBaseUrl ??
 					regionBaseUrl ??
+					getProviderDefinition("aws-mantle")?.regionConfig?.endpointMap[
+						mantleRegion
+					] ??
 					`https://bedrock-mantle.${mantleRegion}.api.aws`;
 				break;
 			}
@@ -856,8 +856,6 @@ export function getProviderEndpoint(
 			return `${url}/model/${prefix}${externalId}/${endpoint}`;
 		}
 		case "aws-mantle":
-			// Bedrock Mantle only exposes the OpenAI Responses API — Chat
-			// Completions requests are rejected upstream.
 			return appendPath(url, "/openai/v1/responses");
 		case "azure": {
 			const deploymentType =
