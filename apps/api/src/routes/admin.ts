@@ -14037,6 +14037,19 @@ const devpassKpisSchema = z.object({
 	refundedAmountThisMonth: z.number(),
 	resetPassesSold: z.number(),
 	resetPassRevenue: z.number(),
+	// Reset Pass sales inside the active subscribers' current billing cycles
+	// (net of refunds): the share counted into totalMargin.
+	resetPassesSoldCycle: z.number(),
+	resetPassRevenueCycle: z.number(),
+	// Gateway margin earned on Airside-carrier traffic from DevPass orgs in
+	// the current cycles (hourly project rollups). `totalRealCostCycle` is the
+	// catalogue price, which still contains this margin, so it is added back.
+	gatewayMarginCycle: z.number(),
+	// PAYG top-up dollars charged above the credits granted (the platform
+	// fee), net of refunds. The credits fund overflow usage 1:1, so the fee is
+	// the only top-up money that is margin.
+	paygFeeCycle: z.number(),
+	paygFeeAllTime: z.number(),
 	// PAYG overflow adoption + monetization across active subscribers.
 	paygOptedIn: z.number(),
 	// Sum of credits balances held by active subscribers (deferred revenue —
@@ -14050,7 +14063,11 @@ const devpassKpisSchema = z.object({
 	weightedAvgUtilization: z.number(),
 	totalRealCostCycle: z.number(),
 	totalMrrCycle: z.number(),
+	// Plan economics only: MRR minus the pool-funded provider cost.
+	planMargin: z.number(),
+	// planMargin + gatewayMarginCycle + resetPassRevenueCycle + paygFeeCycle.
 	totalMargin: z.number(),
+	// totalMargin over cycle revenue (MRR + Reset Passes + PAYG fee).
 	marginPct: z.number().nullable(),
 });
 
@@ -14380,6 +14397,9 @@ const devpassTimeseriesPointSchema = z.object({
 	// margin because `cost` includes the overflow usage they fund.
 	topupRevenue: z.number(),
 	cost: z.number(),
+	// Gateway margin on Airside-carrier traffic that day. Added into margin
+	// because `cost` is the catalogue price, which still contains it.
+	gatewayMargin: z.number(),
 	margin: z.number(),
 });
 
@@ -14390,6 +14410,7 @@ const devpassTimeseriesSchema = z.object({
 		rawRevenue: z.number(),
 		topupRevenue: z.number(),
 		cost: z.number(),
+		gatewayMargin: z.number(),
 		margin: z.number(),
 	}),
 	range: z.object({
@@ -14479,10 +14500,13 @@ const devpassUsageSchema = z.object({
 	models: z.array(devpassUsageRowSchema),
 	providers: z.array(devpassUsageRowSchema),
 	sources: z.array(devpassUsageRowSchema),
-	range: z.object({
-		from: z.string(),
-		to: z.string(),
-	}),
+	// null when no from/to was supplied (all time).
+	range: z
+		.object({
+			from: z.string(),
+			to: z.string(),
+		})
+		.nullable(),
 });
 
 const getDevpassUsage = createRoute({
@@ -14591,6 +14615,40 @@ function buildDevpassCycleCostExprs() {
 
 	return { realCostSub, realCostExpr, overflowCostExpr };
 }
+
+// Gateway margin earned on Airside-carrier traffic in the current cycle, per
+// org. `providerMarginAmount` is already credits-mode and non-cached only.
+function buildDevpassCycleGatewayMarginSub() {
+	return db
+		.select({
+			organizationId: tables.project.organizationId,
+			gatewayMargin:
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyModelStats.providerMarginAmount} AS NUMERIC)), 0)`.as(
+					"gateway_margin",
+				),
+		})
+		.from(projectHourlyModelStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyModelStats.projectId, tables.project.id),
+		)
+		.innerJoin(
+			tables.organization,
+			and(
+				eq(tables.project.organizationId, tables.organization.id),
+				isNotNull(tables.organization.devPlanBillingCycleStart),
+				sql`${projectHourlyModelStats.hourTimestamp} >= ${tables.organization.devPlanBillingCycleStart}`,
+			),
+		)
+		.groupBy(tables.project.organizationId)
+		.as("gateway_margin_sub");
+}
+
+// Top-up dollars above the credits granted: the platform fee. A refund row
+// stores the gross refunded in `amount` and the credits clawed back as a
+// negative `creditAmount`, so the same shape (minus the absolute clawback)
+// yields the fee handed back.
+const topupFeeExpr = sql`CAST(${tables.transaction.amount} AS NUMERIC) - ABS(COALESCE(CAST(${tables.transaction.creditAmount} AS NUMERIC), 0))`;
 
 admin.openapi(getDevpassSubscribers, async (c) => {
 	const query = c.req.valid("query");
@@ -15123,10 +15181,23 @@ admin.openapi(getDevpassKpis, async (c) => {
 	);
 
 	const { realCostSub, overflowCostExpr } = buildDevpassCycleCostExprs();
+	const gatewayMarginSub = buildDevpassCycleGatewayMarginSub();
+
+	// Transactions booked inside each active subscriber's current billing
+	// cycle: the window the cycle cost and MRR are scoped to.
+	const inCurrentCycle = and(
+		devpassActiveUniverseWhere(),
+		isNotNull(tables.organization.devPlanBillingCycleStart),
+		sql`${tables.transaction.createdAt} >= ${tables.organization.devPlanBillingCycleStart}`,
+	)!;
 
 	const refundOriginalTx = aliasedTable(
 		tables.transaction,
 		"refund_original_tx",
+	);
+	const topupFeeRefundOriginalTx = aliasedTable(
+		tables.transaction,
+		"topup_fee_refund_original_tx",
 	);
 	const resetPassRefundOriginalTx = aliasedTable(
 		tables.transaction,
@@ -15232,6 +15303,7 @@ admin.openapi(getDevpassKpis, async (c) => {
 		[utilRow],
 		[universeRow],
 		[topupRevenueRow],
+		[topupFeeRefundRow],
 	] = await Promise.all([
 		// KPI strip — counts the full active subscriber base, matching Stripe's
 		// "active" filter which includes cancel-at-period-end subs until the period
@@ -15361,6 +15433,8 @@ admin.openapi(getDevpassKpis, async (c) => {
 			.select({
 				count: sql<number>`COUNT(*)`,
 				total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+				countCycle: sql<number>`COUNT(*) FILTER (WHERE ${inCurrentCycle})`,
+				totalCycle: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)) FILTER (WHERE ${inCurrentCycle}), 0)`,
 			})
 			.from(tables.transaction)
 			.innerJoin(
@@ -15377,6 +15451,7 @@ admin.openapi(getDevpassKpis, async (c) => {
 		db
 			.select({
 				total: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
+				totalCycle: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)) FILTER (WHERE ${inCurrentCycle}), 0)`,
 			})
 			.from(tables.transaction)
 			.innerJoin(
@@ -15412,6 +15487,7 @@ admin.openapi(getDevpassKpis, async (c) => {
 				totalCost: sql<string>`COALESCE(SUM(CAST(${realCostSub.realCost} AS NUMERIC)), 0)`,
 				totalMrr: sql<string>`COALESCE(SUM(${devpassTierPriceExpr}), 0)`,
 				totalOverflow: sql<string>`COALESCE(SUM(${overflowCostExpr}), 0)`,
+				totalGatewayMargin: sql<string>`COALESCE(SUM(CAST(${gatewayMarginSub.gatewayMargin} AS NUMERIC)), 0)`,
 				paygOptedIn: sql<number>`COUNT(*) FILTER (WHERE ${tables.organization.devPlanPaygEnabled})`,
 				paygBalanceHeld: sql<string>`COALESCE(SUM(CAST(${tables.organization.credits} AS NUMERIC)), 0)`,
 			})
@@ -15420,12 +15496,19 @@ admin.openapi(getDevpassKpis, async (c) => {
 				realCostSub,
 				eq(tables.organization.id, realCostSub.organizationId),
 			)
+			.leftJoin(
+				gatewayMarginSub,
+				eq(tables.organization.id, gatewayMarginSub.organizationId),
+			)
 			.where(devpassActiveUniverseWhere()),
-		// PAYG overflow top-up revenue on devpass orgs (gross Stripe amount).
+		// PAYG overflow top-up revenue on devpass orgs (gross Stripe amount),
+		// plus the fee share of it (gross minus credits granted).
 		db
 			.select({
 				allTime: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`,
 				thisMonth: sql<string>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart}), 0)`,
+				feeAllTime: sql<string>`COALESCE(SUM(${topupFeeExpr}), 0)`,
+				feeCycle: sql<string>`COALESCE(SUM(${topupFeeExpr}) FILTER (WHERE ${inCurrentCycle}), 0)`,
 			})
 			.from(tables.transaction)
 			.innerJoin(
@@ -15438,6 +15521,35 @@ admin.openapi(getDevpassKpis, async (c) => {
 					eq(tables.transaction.status, "completed"),
 					eq(tables.organization.kind, "devpass"),
 					sql`CAST(${tables.transaction.amount} AS NUMERIC) > 0`,
+				),
+			),
+		// Fee handed back with top-up refunds.
+		db
+			.select({
+				feeAllTime: sql<string>`COALESCE(SUM(${topupFeeExpr}), 0)`,
+				feeCycle: sql<string>`COALESCE(SUM(${topupFeeExpr}) FILTER (WHERE ${inCurrentCycle}), 0)`,
+			})
+			.from(tables.transaction)
+			.innerJoin(
+				topupFeeRefundOriginalTx,
+				eq(
+					tables.transaction.relatedTransactionId,
+					topupFeeRefundOriginalTx.id,
+				),
+			)
+			.innerJoin(
+				tables.organization,
+				eq(tables.transaction.organizationId, tables.organization.id),
+			)
+			.where(
+				and(
+					eq(tables.transaction.type, "credit_refund"),
+					eq(tables.transaction.status, "completed"),
+					eq(tables.organization.kind, "devpass"),
+					refundsCountedTopupFilter(
+						tables.transaction,
+						topupFeeRefundOriginalTx,
+					),
 				),
 			),
 	]);
@@ -15471,6 +15583,15 @@ admin.openapi(getDevpassKpis, async (c) => {
 	const endsThisMonth = Number(endsRow?.count ?? 0);
 	const resetPassRevenue =
 		Number(resetPassRow?.total ?? 0) - Number(resetPassRefundRow?.total ?? 0);
+	const resetPassRevenueCycle =
+		Number(resetPassRow?.totalCycle ?? 0) -
+		Number(resetPassRefundRow?.totalCycle ?? 0);
+	const paygFeeCycle =
+		Number(topupRevenueRow?.feeCycle ?? 0) -
+		Number(topupFeeRefundRow?.feeCycle ?? 0);
+	const paygFeeAllTime =
+		Number(topupRevenueRow?.feeAllTime ?? 0) -
+		Number(topupFeeRefundRow?.feeAllTime ?? 0);
 
 	const totalUsed = Number(utilRow?.totalUsed ?? 0);
 	const totalLimit = Number(utilRow?.totalLimit ?? 0);
@@ -15480,10 +15601,17 @@ admin.openapi(getDevpassKpis, async (c) => {
 	const totalRealCostCycle = Number(universeRow?.totalCost ?? 0);
 	const totalMrrCycle = Number(universeRow?.totalMrr ?? 0);
 	const totalOverflowCostCycle = Number(universeRow?.totalOverflow ?? 0);
+	const gatewayMarginCycle = Number(universeRow?.totalGatewayMargin ?? 0);
 	// Plan economics: overflow cost is funded by the orgs' own top-ups, so it
 	// doesn't count against plan MRR.
-	const totalMargin =
+	const planMargin =
 		totalMrrCycle - (totalRealCostCycle - totalOverflowCostCycle);
+	// Everything else DevPass earns in the same cycles: the Airside margin
+	// hidden inside the catalogue-priced cost, Reset Pass sales, and the fee
+	// share of PAYG top-ups.
+	const totalMargin =
+		planMargin + gatewayMarginCycle + resetPassRevenueCycle + paygFeeCycle;
+	const cycleRevenue = totalMrrCycle + resetPassRevenueCycle + paygFeeCycle;
 
 	return c.json({
 		activeByTier,
@@ -15507,6 +15635,11 @@ admin.openapi(getDevpassKpis, async (c) => {
 		refundedAmountThisMonth: Number(refundsRow?.total ?? 0),
 		resetPassesSold: Number(resetPassRow?.count ?? 0),
 		resetPassRevenue,
+		resetPassesSoldCycle: Number(resetPassRow?.countCycle ?? 0),
+		resetPassRevenueCycle,
+		gatewayMarginCycle,
+		paygFeeCycle,
+		paygFeeAllTime,
 		paygOptedIn: Number(universeRow?.paygOptedIn ?? 0),
 		paygBalanceHeld: Number(universeRow?.paygBalanceHeld ?? 0),
 		topupRevenueThisMonth: Number(topupRevenueRow?.thisMonth ?? 0),
@@ -15515,8 +15648,9 @@ admin.openapi(getDevpassKpis, async (c) => {
 		weightedAvgUtilization,
 		totalRealCostCycle,
 		totalMrrCycle,
+		planMargin,
 		totalMargin,
-		marginPct: totalMrrCycle > 0 ? (totalMargin / totalMrrCycle) * 100 : null,
+		marginPct: cycleRevenue > 0 ? (totalMargin / cycleRevenue) * 100 : null,
 	});
 });
 
@@ -15748,6 +15882,36 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		.groupBy(sql`DATE(${projectHourlyStats.hourTimestamp})`)
 		.orderBy(asc(sql`DATE(${projectHourlyStats.hourTimestamp})`));
 
+	// Gateway margin per day on Airside-carrier traffic from DevPass orgs.
+	const gatewayMarginPerDay = await db
+		.select({
+			date: sql<string>`DATE(${projectHourlyModelStats.hourTimestamp})`.as(
+				"date",
+			),
+			total:
+				sql<string>`COALESCE(SUM(CAST(${projectHourlyModelStats.providerMarginAmount} AS NUMERIC)), 0)`.as(
+					"total",
+				),
+		})
+		.from(projectHourlyModelStats)
+		.innerJoin(
+			tables.project,
+			eq(projectHourlyModelStats.projectId, tables.project.id),
+		)
+		.innerJoin(
+			tables.organization,
+			eq(tables.project.organizationId, tables.organization.id),
+		)
+		.where(
+			and(
+				gte(projectHourlyModelStats.hourTimestamp, startDate),
+				lte(projectHourlyModelStats.hourTimestamp, endDate),
+				eq(tables.organization.kind, "devpass"),
+			),
+		)
+		.groupBy(sql`DATE(${projectHourlyModelStats.hourTimestamp})`)
+		.orderBy(asc(sql`DATE(${projectHourlyModelStats.hourTimestamp})`));
+
 	const revenueMap = new Map<string, number>();
 	for (const row of revenuePerDay) {
 		revenueMap.set(row.date, Number(row.total));
@@ -15768,6 +15932,10 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	for (const row of costPerDay) {
 		costMap.set(row.date, Number(row.total));
 	}
+	const gatewayMarginMap = new Map<string, number>();
+	for (const row of gatewayMarginPerDay) {
+		gatewayMarginMap.set(row.date, Number(row.total));
+	}
 
 	const data: Array<{
 		date: string;
@@ -15775,6 +15943,7 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		rawRevenue: number;
 		topupRevenue: number;
 		cost: number;
+		gatewayMargin: number;
 		margin: number;
 	}> = [];
 
@@ -15795,11 +15964,14 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 	let totalRawRevenue = 0;
 	let totalTopupRevenue = 0;
 	let totalCost = 0;
+	let totalGatewayMargin = 0;
 
 	// `rawRevenue` is the gross amount collected from dev plan payments that
 	// day; `revenue` nets refunds out of it. `topupRevenue` is PAYG overflow
 	// top-ups net of their refunds — counted into margin because `cost`
-	// includes the overflow usage those top-ups fund. Margin stays net-based.
+	// includes the overflow usage those top-ups fund. `gatewayMargin` is added
+	// back because `cost` is the catalogue price, which still contains the
+	// Airside margin. Margin stays net-based.
 	while (cursor.getTime() <= lastDay) {
 		const iso = cursor.toISOString().slice(0, 10);
 		const rawRevenue = revenueMap.get(iso) ?? 0;
@@ -15807,12 +15979,22 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 		const topupRevenue =
 			(topupMap.get(iso) ?? 0) - (topupRefundMap.get(iso) ?? 0);
 		const cost = costMap.get(iso) ?? 0;
-		const margin = revenue + topupRevenue - cost;
-		data.push({ date: iso, revenue, rawRevenue, topupRevenue, cost, margin });
+		const gatewayMargin = gatewayMarginMap.get(iso) ?? 0;
+		const margin = revenue + topupRevenue + gatewayMargin - cost;
+		data.push({
+			date: iso,
+			revenue,
+			rawRevenue,
+			topupRevenue,
+			cost,
+			gatewayMargin,
+			margin,
+		});
 		totalRevenue += revenue;
 		totalRawRevenue += rawRevenue;
 		totalTopupRevenue += topupRevenue;
 		totalCost += cost;
+		totalGatewayMargin += gatewayMargin;
 		cursor.setUTCDate(cursor.getUTCDate() + 1);
 	}
 
@@ -15823,7 +16005,8 @@ admin.openapi(getDevpassTimeseries, async (c) => {
 			rawRevenue: totalRawRevenue,
 			topupRevenue: totalTopupRevenue,
 			cost: totalCost,
-			margin: totalRevenue + totalTopupRevenue - totalCost,
+			gatewayMargin: totalGatewayMargin,
+			margin: totalRevenue + totalTopupRevenue + totalGatewayMargin - totalCost,
 		},
 		range: {
 			from: startDate.toISOString().slice(0, 10),
@@ -15987,24 +16170,18 @@ admin.openapi(getDevpassPaygStats, async (c) => {
 admin.openapi(getDevpassUsage, async (c) => {
 	const query = c.req.valid("query");
 	const limit = query.limit ?? 10;
-	const now = new Date();
 
-	let startDate: Date;
-	let endDate: Date;
+	// No from/to means all time; the admin page always sends a window by
+	// default and only omits it when "All time" is picked explicitly.
+	let startDate: Date | null = null;
+	let endDate: Date | null = null;
 	if (query.from && query.to) {
 		startDate = new Date(query.from + "T00:00:00.000Z");
 		endDate = new Date(query.to + "T23:59:59.999Z");
-	} else {
-		startDate = new Date(now);
-		startDate.setUTCDate(startDate.getUTCDate() - 30);
-		startDate.setUTCHours(0, 0, 0, 0);
-		endDate = new Date(now);
-		endDate.setUTCHours(23, 59, 59, 999);
-	}
-
-	if (endDate.getTime() < startDate.getTime()) {
-		endDate = new Date(startDate);
-		endDate.setUTCHours(23, 59, 59, 999);
+		if (endDate.getTime() < startDate.getTime()) {
+			endDate = new Date(startDate);
+			endDate.setUTCHours(23, 59, 59, 999);
+		}
 	}
 
 	// Filter: only DevPass orgs (kind = 'devpass'). Stable across the
@@ -16015,8 +16192,10 @@ admin.openapi(getDevpassUsage, async (c) => {
 	// dashboard reads from rollups instead of the raw `log` table. Joins
 	// project -> organization to restrict to DevPass orgs.
 	const projectModelWhere = and(
-		gte(projectHourlyModelStats.hourTimestamp, startDate),
-		lte(projectHourlyModelStats.hourTimestamp, endDate),
+		startDate
+			? gte(projectHourlyModelStats.hourTimestamp, startDate)
+			: undefined,
+		endDate ? lte(projectHourlyModelStats.hourTimestamp, endDate) : undefined,
 		devpassOrgFilter,
 	);
 
@@ -16090,8 +16269,10 @@ admin.openapi(getDevpassUsage, async (c) => {
 	// is scoped to DevPass orgs (joins project -> organization), instead of the
 	// cross-org globalSourceStats table.
 	const projectSourceWhere = and(
-		gte(projectHourlySourceStats.hourTimestamp, startDate),
-		lte(projectHourlySourceStats.hourTimestamp, endDate),
+		startDate
+			? gte(projectHourlySourceStats.hourTimestamp, startDate)
+			: undefined,
+		endDate ? lte(projectHourlySourceStats.hourTimestamp, endDate) : undefined,
 		devpassOrgFilter,
 	);
 
@@ -16144,10 +16325,13 @@ admin.openapi(getDevpassUsage, async (c) => {
 		models: modelRows.map(mapRow),
 		providers: providerRows.map(mapRow),
 		sources: sourceRows.map(mapRow),
-		range: {
-			from: startDate.toISOString().slice(0, 10),
-			to: endDate.toISOString().slice(0, 10),
-		},
+		range:
+			startDate && endDate
+				? {
+						from: startDate.toISOString().slice(0, 10),
+						to: endDate.toISOString().slice(0, 10),
+					}
+				: null,
 	});
 });
 
