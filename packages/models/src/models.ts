@@ -196,10 +196,6 @@ export interface ProviderModelMapping {
 	 */
 	externalId: string;
 	/**
-	 * Runpod serverless endpoint ID used in request URLs.
-	 */
-	runpodEndpointId?: string;
-	/**
 	 * Price per input token in USD
 	 */
 	inputPrice?: Price;

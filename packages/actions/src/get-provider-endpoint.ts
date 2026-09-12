@@ -834,18 +834,11 @@ export function getProviderEndpoint(
 			return `${url}/chat/completions`;
 		case "novita":
 			return `${url}/chat/completions`;
-		case "runpod": {
-			const endpointId = providerMapping?.runpodEndpointId;
-			if (!endpointId) {
-				throw new Error(
-					`Runpod model "${model}" requires a serverless endpoint ID`,
-				);
+		case "runpod":
+			if (externalId === "kimi-k3") {
+				return appendPath(url, "/v2/moonshot-kimi/openai/v1/chat/completions");
 			}
-			return appendPath(
-				url,
-				`/v2/${encodeURIComponent(endpointId)}/openai/v1/chat/completions`,
-			);
-		}
+			throw new Error(`Unsupported Runpod model: ${model}`);
 		case "zai":
 			if (imageGenerations) {
 				return `${url}/api/paas/v4/images/generations`;

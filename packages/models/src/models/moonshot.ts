@@ -752,7 +752,6 @@ export const moonshotModels = [
 			{
 				providerId: "runpod",
 				externalId: "kimi-k3",
-				runpodEndpointId: "moonshot-kimi",
 				inputPrice: "3.0e-6",
 				cachedInputPrice: "0.3e-6",
 				outputPrice: "15.0e-6",

@@ -138,12 +138,10 @@ describe("getProviderEndpoint", () => {
 		);
 	});
 
-	it("requires a model-specific Runpod endpoint", () => {
+	it("rejects unsupported Runpod models", () => {
 		expect(() =>
 			getProviderEndpoint("runpod", undefined, "unregistered-model"),
-		).toThrow(
-			'Runpod model "unregistered-model" requires a serverless endpoint ID',
-		);
+		).toThrow("Unsupported Runpod model: unregistered-model");
 	});
 
 	function getCustomEndpoint(
