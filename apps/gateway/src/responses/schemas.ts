@@ -81,11 +81,13 @@ const messageItemSchema = z.object({
 					z.object({
 						type: z.literal("output_text"),
 						text: z.string(),
+						extra_content: googleExtraContentSchema.optional(),
 						prompt_cache_breakpoint: promptCacheBreakpointSchema,
 					}),
 					z.object({
 						type: z.literal("text"),
 						text: z.string(),
+						extra_content: googleExtraContentSchema.optional(),
 						prompt_cache_breakpoint: promptCacheBreakpointSchema,
 					}),
 					z.object({
@@ -108,6 +110,7 @@ const messageItemSchema = z.object({
 			z.object({
 				id: z.string(),
 				type: z.literal("function"),
+				extra_content: googleExtraContentSchema.optional(),
 				function: z.object({
 					name: z.string(),
 					arguments: z.string(),

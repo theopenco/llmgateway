@@ -45,6 +45,7 @@ interface ChatMessage {
 	reasoning?: string;
 	reasoning_details?: Array<Record<string, unknown>>;
 	phase?: "commentary" | "final_answer";
+	content_before_tool_calls?: boolean;
 }
 
 interface PendingReasoning {
@@ -132,7 +133,10 @@ export function convertResponsesInputToMessages(
 	// and attach to the next assistant message so the provider layer can replay
 	// the reasoning (encrypted payloads and/or text) on this turn.
 	const pendingReasoning: PendingReasoning = { texts: [], details: [] };
-	let pendingToolPhase: ChatMessage["phase"];
+	// Signed assistant message immediately preceding a tool call, folded into
+	// that tool call's assistant message so the signed turn stays whole.
+	let pendingToolMessage:
+		{ text: string; phase?: ChatMessage["phase"] } | undefined;
 	const pendingGeneratedImages: Array<Record<string, unknown>> = [];
 
 	let i = 0;
@@ -178,9 +182,10 @@ export function convertResponsesInputToMessages(
 
 			// Fold trailing assistant message content (if any) into this same
 			// assistant message rather than emitting it as a separate message.
-			let foldedContent: string | null = null;
-			let foldedPhase = pendingToolPhase;
-			pendingToolPhase = undefined;
+			let foldedContent: string | null = pendingToolMessage?.text || null;
+			let foldedPhase = pendingToolMessage?.phase;
+			const contentBeforeToolCalls = foldedContent !== null;
+			pendingToolMessage = undefined;
 			while (i < input.length) {
 				const next = input[i] as Record<string, unknown> | undefined;
 				if (
@@ -211,6 +216,7 @@ export function convertResponsesInputToMessages(
 				content: foldedContent,
 				tool_calls: toolCalls,
 				...(foldedPhase ? { phase: foldedPhase } : {}),
+				...(contentBeforeToolCalls ? { content_before_tool_calls: true } : {}),
 				...takePendingReasoning(pendingReasoning),
 			});
 			continue;
@@ -274,6 +280,7 @@ export function convertResponsesInputToMessages(
 			tool_calls?: Array<{
 				id: string;
 				type: "function";
+				extra_content?: GoogleExtraContent;
 				function: { name: string; arguments: string };
 			}>;
 			tool_call_id?: string;
@@ -317,14 +324,14 @@ export function convertResponsesInputToMessages(
 				isGoogleReasoningDetail,
 			);
 			pendingReasoning.details.push(...googleDetails);
-			// A streamed signature may precede the tool call in its own empty
-			// output item. Keep both on the same assistant turn when replaying.
-			if (
-				googleDetails.length > 0 &&
-				!extractTextFromContent(content) &&
-				isToolCallItem(input[i + 1])
-			) {
-				pendingToolPhase = msg.phase;
+			// Streaming emits a signed message (text or an empty signature carrier)
+			// ahead of the function call it belongs to. Keep both on the same
+			// assistant turn so the provider sees the signed turn it produced.
+			if (googleDetails.length > 0 && isToolCallItem(input[i + 1])) {
+				pendingToolMessage = {
+					text: extractTextFromContent(content),
+					phase: msg.phase,
+				};
 				i++;
 				continue;
 			}
@@ -426,7 +433,12 @@ function convertContent(
 			item.type === "output_text" ||
 			item.type === "text"
 		) {
-			return { type: "text", text: item.text, ...breakpoint };
+			return {
+				type: "text",
+				text: item.text,
+				...(item.extra_content ? { extra_content: item.extra_content } : {}),
+				...breakpoint,
+			};
 		}
 		if (item.type === "input_image") {
 			return {

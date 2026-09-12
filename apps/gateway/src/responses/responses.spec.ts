@@ -603,6 +603,84 @@ describe("convertResponsesInputToMessages", () => {
 		},
 	);
 
+	it("folds signed text streamed ahead of a tool call into its turn", () => {
+		const details = [
+			{
+				type: "reasoning.text",
+				format: "google-gemini-v1",
+				signature: "test-signature",
+			},
+		];
+		const result = convertResponsesInputToMessages([
+			{
+				type: "message",
+				role: "assistant",
+				content: [{ type: "output_text", text: "Looking it up." }],
+				phase: "commentary",
+				reasoning_details: details,
+			},
+			{
+				type: "function_call",
+				call_id: "call_test",
+				name: "lookup",
+				arguments: "{}",
+			},
+			{ type: "function_call_output", call_id: "call_test", output: "42" },
+		]);
+		expect(result).toHaveLength(2);
+		expect(result[0]).toEqual({
+			role: "assistant",
+			content: "Looking it up.",
+			phase: "commentary",
+			content_before_tool_calls: true,
+			reasoning_details: details,
+			tool_calls: [
+				{
+					id: "call_test",
+					type: "function",
+					function: { name: "lookup", arguments: "{}" },
+				},
+			],
+		});
+	});
+
+	it("keeps Gemini signatures on chat-shaped assistant history", () => {
+		const extra_content = { google: { thought_signature: "test-signature" } };
+		const parsed = responsesRequestSchema.parse({
+			model: "gemini-3.5-flash",
+			input: [
+				{
+					type: "message",
+					role: "assistant",
+					content: [{ type: "text", text: "Looking it up.", extra_content }],
+					tool_calls: [
+						{
+							id: "call_test",
+							type: "function",
+							function: { name: "lookup", arguments: "{}" },
+							extra_content,
+						},
+					],
+				},
+			],
+		});
+		const result = convertResponsesInputToMessages(parsed.input);
+		expect(result).toEqual([
+			{
+				role: "assistant",
+				content: [{ type: "text", text: "Looking it up.", extra_content }],
+				tool_calls: [
+					{
+						id: "call_test",
+						type: "function",
+						function: { name: "lookup", arguments: "{}" },
+						extra_content,
+					},
+				],
+			},
+		]);
+	});
+
 	it("preserves the phase of a folded trailing assistant message", () => {
 		const input = [
 			{
