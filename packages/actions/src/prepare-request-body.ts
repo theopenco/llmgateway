@@ -36,9 +36,10 @@ import {
 	toAnthropicToolSearchTool,
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
+import { fetchNoRedirect } from "./fetch-no-redirect.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
-import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
+import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 import { mappingSupportsToolChoice } from "./tool-choice-support.js";
 import {
@@ -239,7 +240,7 @@ async function fetchImageAsBlob(
 	// SSRF: the URL comes from the request body, so validate it does not resolve
 	// to an internal host and refuse redirects before fetching.
 	await assertSafeUserContentUrl(url);
-	const response = await fetch(url, { redirect: "error" });
+	const response = await fetchNoRedirect(url);
 	if (!response.ok) {
 		throw new Error(
 			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,
@@ -3718,10 +3719,10 @@ export async function prepareRequestBody(
 									},
 								});
 							} catch (error) {
-								// A size rejection is the user's to act on: degrading to a
+								// A client rejection is the user's to act on: degrading to a
 								// placeholder would return a 200 that silently ignores the
 								// image and still bills for the turn.
-								if (error instanceof ImageSizeLimitError) {
+								if (error instanceof RequestError) {
 									throw error;
 								}
 								logger.error("Failed to process image for Bedrock", {

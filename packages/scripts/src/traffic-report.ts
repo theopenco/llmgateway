@@ -62,8 +62,7 @@ const PRODUCTS: ReadonlyArray<{ host: string; label: string }> = [
 	{ host: "llmgateway.io", label: "LLM Gateway" },
 	{ host: "devpass.llmgateway.io", label: "DevPass" },
 	{ host: "lounge.llmgateway.io", label: "Lounge" },
-	// Pre-move Lounge host, kept so historical periods still report traffic.
-	{ host: "chat.llmgateway.io", label: "Lounge (legacy host)" },
+	{ host: "airside.llmgateway.io", label: "AirSide" },
 	{ host: "docs.llmgateway.io", label: "Docs" },
 ];
 
@@ -81,7 +80,7 @@ const EVENTS: ReadonlyArray<{
 	{ event: "chat_plan_started", label: "Chat plan starts" },
 	{ event: "reset_pass_purchased", label: "Reset passes" },
 	{ event: "onboarding_completed", label: "Onboarding done" },
-	{ event: "playground_chat_sent", label: "Playground chats" },
+	{ event: "playground_chat_sent", label: "Lounge chats" },
 	{ event: "cta_clicked", label: "CTA clickers", unique: true },
 	{ event: "pricing_plan_clicked", label: "Pricing clickers", unique: true },
 	{ event: "enterprise_contact_submitted", label: "Enterprise leads" },
