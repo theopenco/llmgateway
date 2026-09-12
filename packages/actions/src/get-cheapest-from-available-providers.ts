@@ -561,7 +561,7 @@ async function getProviderSelectionPrices<T extends AvailableModelProvider>(
 			const overrides = options?.routingConfig?.cachePricingOverrides;
 			const observedCachePricing = cachePricing && {
 				hitRate:
-					overrides?.cacheHitRate !== undefined || cachePricing.hitRate === 0
+					overrides?.cacheHitRate !== undefined
 						? cachePricing.hitRate
 						: (metrics?.cacheHitRate ?? cachePricing.hitRate),
 				outputRatio:

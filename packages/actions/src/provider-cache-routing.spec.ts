@@ -187,8 +187,10 @@ describe("routing with observed cache usage", () => {
 	});
 
 	it("honors disabling cached-input pricing", async () => {
-		const cfg = applyRoutingPreference(getDefaultRoutingConfig(), "price");
-		cfg.thresholds.cacheHitRate = 0;
+		const cfg = applyRoutingPreference(
+			resolveRoutingConfig({ thresholds: { cacheHitRate: 0 } }, {}),
+			"price",
+		);
 		const result = await getCheapestFromAvailableProviders(candidates, model, {
 			metricsMap: usageMetrics(),
 			promptTokens: 100_000,

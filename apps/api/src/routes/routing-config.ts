@@ -226,6 +226,12 @@ const resolvedConfigSchema = z.object({
 		defaultThroughput: z.number(),
 		explorationRate: z.number(),
 	}),
+	cachePricingOverrides: z
+		.object({
+			cacheHitRate: z.number().optional(),
+			cacheOutputRatio: z.number().optional(),
+		})
+		.optional(),
 	retry: z.object({
 		maxRetries: z.number(),
 		lowUptimeFallbackThreshold: z.number(),
