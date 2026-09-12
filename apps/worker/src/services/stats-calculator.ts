@@ -16,6 +16,7 @@ import {
 	lt,
 	and,
 	inArray,
+	type Column,
 	type SQL,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
@@ -167,10 +168,7 @@ function mergeMappingMinuteStats(
 	return target;
 }
 
-// Metric columns shared by model_history and model_provider_mapping_history that
-// are overwritten on conflict. Used to build a single bulk upsert SET clause so
-// the per-minute history write is one statement instead of one round-trip (and
-// one implicit transaction/fsync) per model and per mapping.
+// Metrics shared by minute and hourly history upserts.
 const HISTORY_METRIC_COLUMNS = [
 	"logsCount",
 	"errorsCount",
@@ -205,7 +203,7 @@ const HISTORY_METRIC_COLUMNS = [
 ] as const;
 
 // Chunk size for bulk upserts. Postgres caps a statement at 65535 bind
-// parameters; history rows have ~25 columns, so 1000 rows stays well under it.
+// parameters; history rows have fewer than 40 columns.
 const HISTORY_UPSERT_CHUNK_SIZE = 1000;
 
 // The schema uses Drizzle's global `casing: "snake_case"`, so a column's `.name`
@@ -216,18 +214,22 @@ function toSnakeCase(name: string): string {
 	return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 }
 
-// Build the ON CONFLICT DO UPDATE SET clause for a history table, taking each
-// metric value from the row being inserted (`excluded`) so a single multi-row
-// statement updates every conflicting row correctly.
-function buildHistoryUpsertSet(
-	columns: Record<(typeof HISTORY_METRIC_COLUMNS)[number], { name: string }>,
-): Record<string, SQL> {
+function buildHistoryUpsert(
+	columns: Record<(typeof HISTORY_METRIC_COLUMNS)[number], Column>,
+): { set: Record<string, SQL>; setWhere: SQL } {
 	const set: Record<string, SQL> = {};
 	for (const key of HISTORY_METRIC_COLUMNS) {
 		set[key] = sql`excluded.${sql.identifier(toSnakeCase(columns[key].name))}`;
 	}
 	set.updatedAt = sql`now()`;
-	return set;
+	// Repeated refreshes usually leave most rows unchanged. Compare every metric
+	// so late corrections still apply even when request counts stay the same.
+	const existing = HISTORY_METRIC_COLUMNS.map((key) => columns[key]);
+	const incoming = HISTORY_METRIC_COLUMNS.map((key) => set[key]);
+	return {
+		set,
+		setWhere: sql`row(${sql.join(existing, sql`, `)}) is distinct from row(${sql.join(incoming, sql`, `)})`,
+	};
 }
 
 /**
@@ -547,7 +549,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 		}
 	}
 
-	const modelHistoryUpsertSet = buildHistoryUpsertSet(modelHistory);
+	const modelHistoryUpsert = buildHistoryUpsert(modelHistory);
 	for (
 		let i = 0;
 		i < modelHistoryValues.length;
@@ -563,7 +565,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 					modelHistory.minuteTimestamp,
 					modelHistory.usedMode,
 				],
-				set: modelHistoryUpsertSet,
+				...modelHistoryUpsert,
 			});
 	}
 	// Once the per-mode rows are complete, remove the legacy blended bucket for
@@ -919,9 +921,7 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 		}
 	}
 
-	const mappingHistoryUpsertSet = buildHistoryUpsertSet(
-		modelProviderMappingHistory,
-	);
+	const mappingHistoryUpsert = buildHistoryUpsert(modelProviderMappingHistory);
 	for (
 		let i = 0;
 		i < mappingHistoryValues.length;
@@ -937,7 +937,7 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 					modelProviderMappingHistory.minuteTimestamp,
 					modelProviderMappingHistory.usedMode,
 				],
-				set: mappingHistoryUpsertSet,
+				...mappingHistoryUpsert,
 			});
 	}
 	await database
@@ -1196,18 +1196,22 @@ async function calculateModelHistoryForHour(targetHour: Date) {
 		)
 		.groupBy(modelHistory.modelId, modelHistory.usedMode);
 
-	for (const row of hourlyStats) {
-		const { modelId, usedMode, ...stats } = row;
+	const historyValues = hourlyStats.map((row) => ({
+		...row,
+		hourTimestamp: roundedHour,
+	}));
+	const historyUpsert = buildHistoryUpsert(modelHistoryHourly);
+	for (let i = 0; i < historyValues.length; i += HISTORY_UPSERT_CHUNK_SIZE) {
 		await database
 			.insert(modelHistoryHourly)
-			.values({ modelId, usedMode, hourTimestamp: roundedHour, ...stats })
+			.values(historyValues.slice(i, i + HISTORY_UPSERT_CHUNK_SIZE))
 			.onConflictDoUpdate({
 				target: [
 					modelHistoryHourly.modelId,
 					modelHistoryHourly.hourTimestamp,
 					modelHistoryHourly.usedMode,
 				],
-				set: { ...stats, updatedAt: new Date() },
+				...historyUpsert,
 			});
 	}
 	const legacyModelIds = new Set(
@@ -1300,26 +1304,22 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 			modelProviderMappingHistory.usedMode,
 		);
 
-	for (const row of hourlyStats) {
-		const { modelProviderMappingId, modelId, providerId, usedMode, ...stats } =
-			row;
+	const historyValues = hourlyStats.map((row) => ({
+		...row,
+		hourTimestamp: roundedHour,
+	}));
+	const historyUpsert = buildHistoryUpsert(modelProviderMappingHistoryHourly);
+	for (let i = 0; i < historyValues.length; i += HISTORY_UPSERT_CHUNK_SIZE) {
 		await database
 			.insert(modelProviderMappingHistoryHourly)
-			.values({
-				modelProviderMappingId,
-				modelId,
-				providerId,
-				usedMode,
-				hourTimestamp: roundedHour,
-				...stats,
-			})
+			.values(historyValues.slice(i, i + HISTORY_UPSERT_CHUNK_SIZE))
 			.onConflictDoUpdate({
 				target: [
 					modelProviderMappingHistoryHourly.modelProviderMappingId,
 					modelProviderMappingHistoryHourly.hourTimestamp,
 					modelProviderMappingHistoryHourly.usedMode,
 				],
-				set: { ...stats, updatedAt: new Date() },
+				...historyUpsert,
 			});
 	}
 	const legacyMappingIds = new Set(
