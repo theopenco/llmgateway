@@ -4,10 +4,12 @@ import {
 } from "@better-auth/core/context";
 import {
 	APIError,
+	changePassword,
 	createAuthEndpoint,
 	requestPasswordReset,
 	resetPassword,
 	signInEmail,
+	verifyEmail,
 } from "better-auth/api";
 
 import { createAuthDatabase } from "@/auth/database.js";
@@ -25,7 +27,7 @@ async function withUserTransaction<T>(
 	if (!userId) {
 		return await callback();
 	}
-	// Serialize reset and sign-in state with email confirmation.
+	// Serialize credential and session writes with email confirmation.
 	return await runWithTransaction(
 		{
 			...context.adapter,
@@ -55,8 +57,9 @@ async function withUserTransaction<T>(
 
 async function createVerifiedSession(
 	context: AuthContext,
-	email: string,
-	verifiedPassword: string | undefined,
+	proof:
+		| { email: string | undefined; passwordHash: string | undefined }
+		| { email: string | undefined },
 	args: Parameters<AuthContext["internalAdapter"]["createSession"]>,
 ) {
 	return await withUserTransaction(args[0], context, async () => {
@@ -65,26 +68,46 @@ async function createVerifiedSession(
 			model: "user",
 			where: [{ field: "id", value: args[0] }],
 		});
-		const account = await adapter.findOne<Account>({
-			model: "account",
-			where: [
-				{ field: "userId", value: args[0] },
-				{ field: "providerId", value: "credential" },
-			],
-		});
-		if (
-			!user ||
-			user.email !== email.toLowerCase() ||
-			!verifiedPassword ||
-			account?.password !== verifiedPassword
-		) {
+		let valid = user && user.email === proof.email?.toLowerCase();
+		if ("passwordHash" in proof) {
+			const account = await adapter.findOne<Account>({
+				model: "account",
+				where: [
+					{ field: "userId", value: args[0] },
+					{ field: "providerId", value: "credential" },
+				],
+			});
+			valid = !!(
+				valid &&
+				proof.passwordHash &&
+				account?.password === proof.passwordHash
+			);
+		}
+		if (!valid) {
 			throw new APIError("UNAUTHORIZED", {
-				code: "INVALID_EMAIL_OR_PASSWORD",
-				message: "Invalid email or password",
+				code:
+					"passwordHash" in proof
+						? "INVALID_EMAIL_OR_PASSWORD"
+						: "INVALID_USER",
+				message:
+					"passwordHash" in proof
+						? "Invalid email or password"
+						: "Invalid user",
 			});
 		}
 		return await context.internalAdapter.createSession(...args);
 	});
+}
+
+function forwardHeaders(target: Headers, source: Headers) {
+	for (const [name, value] of source) {
+		if (name !== "set-cookie") {
+			target.set(name, value);
+		}
+	}
+	for (const cookie of source.getSetCookie()) {
+		target.append("set-cookie", cookie);
+	}
 }
 
 export function serializedPasswordReset(): BetterAuthPlugin {
@@ -92,6 +115,96 @@ export function serializedPasswordReset(): BetterAuthPlugin {
 	return {
 		id: "serialized-password-reset",
 		endpoints: {
+			changePassword: createAuthEndpoint(
+				changePassword.path,
+				changePassword.options,
+				async (ctx) => {
+					let newSession:
+						Parameters<AuthContext["setNewSession"]>[0] | undefined;
+					const context = {
+						...ctx.context,
+						setNewSession: (
+							session: Parameters<AuthContext["setNewSession"]>[0],
+						) => {
+							newSession = session;
+						},
+					};
+					const result = await withUserTransaction(
+						ctx.context.session.user.id,
+						context,
+						async () => {
+							const session = await ctx.context.internalAdapter.findSession(
+								ctx.context.session.session.token,
+							);
+							if (
+								!session ||
+								session.user.email !== ctx.context.session.user.email
+							) {
+								throw new APIError("UNAUTHORIZED", {
+									code: "INVALID_SESSION",
+									message: "The authenticated session is no longer current",
+								});
+							}
+							return await changePassword({
+								...ctx,
+								context,
+								asResponse: false,
+								returnHeaders: true,
+								returnStatus: false,
+							});
+						},
+					);
+					if (newSession) {
+						ctx.context.setNewSession(newSession);
+					}
+					forwardHeaders(ctx.responseHeaders, result.headers);
+					return result.response;
+				},
+			),
+			verifyEmail: createAuthEndpoint(
+				verifyEmail.path,
+				verifyEmail.options,
+				async (ctx) => {
+					let verifiedEmail: string | undefined;
+					const result = await verifyEmail({
+						...ctx,
+						context: {
+							...ctx.context,
+							setNewSession: (
+								session: Parameters<AuthContext["setNewSession"]>[0],
+							) => ctx.context.setNewSession(session),
+							internalAdapter: {
+								...ctx.context.internalAdapter,
+								findUserByEmail: async (
+									...args: Parameters<
+										AuthContext["internalAdapter"]["findUserByEmail"]
+									>
+								) => {
+									const user =
+										await ctx.context.internalAdapter.findUserByEmail(...args);
+									verifiedEmail = user?.user.email;
+									return user;
+								},
+								createSession: async (
+									...args: Parameters<
+										AuthContext["internalAdapter"]["createSession"]
+									>
+								) =>
+									await createVerifiedSession(
+										ctx.context,
+										{ email: verifiedEmail },
+										args,
+									),
+							},
+						},
+						asResponse: false,
+						returnHeaders: true,
+						returnStatus: false,
+					});
+					forwardHeaders(ctx.responseHeaders, result.headers);
+					return result.response;
+				},
+			),
 			signInEmail: createAuthEndpoint(
 				nativeSignInEmail.path,
 				nativeSignInEmail.options,
@@ -125,8 +238,7 @@ export function serializedPasswordReset(): BetterAuthPlugin {
 								) =>
 									await createVerifiedSession(
 										ctx.context,
-										ctx.body.email,
-										verifiedPassword,
+										{ email: ctx.body.email, passwordHash: verifiedPassword },
 										args,
 									),
 							},
@@ -135,14 +247,7 @@ export function serializedPasswordReset(): BetterAuthPlugin {
 						returnHeaders: true,
 						returnStatus: false,
 					});
-					for (const [name, value] of result.headers) {
-						if (name !== "set-cookie") {
-							ctx.responseHeaders.set(name, value);
-						}
-					}
-					for (const cookie of result.headers.getSetCookie()) {
-						ctx.responseHeaders.append("set-cookie", cookie);
-					}
+					forwardHeaders(ctx.responseHeaders, result.headers);
 					return result.response;
 				},
 			),

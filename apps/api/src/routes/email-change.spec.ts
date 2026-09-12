@@ -2,6 +2,7 @@ import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { createEmailVerificationToken } from "better-auth/api";
 import * as crypto from "better-auth/crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -378,6 +379,217 @@ describe("email change confirmation", () => {
 			spy.mockRestore();
 		}
 		expect((await signingIn).status).toBe(200);
+		expect((await confirming).status).toBe(200);
+		expect(
+			await db.query.session.findMany({ where: { userId: "test-user-id" } }),
+		).toHaveLength(0);
+	});
+
+	it.each(["/auth/change-password", "/user/password"])(
+		"cancels email confirmation when a password change is in flight (%s)",
+		async (path) => {
+			await patch({ email: newEmail, currentPassword });
+			const context = await apiAuth.$context;
+			const verify = context.password.verify;
+			const entered = deferred();
+			const release = deferred();
+			const spy = vi
+				.spyOn(context.password, "verify")
+				.mockImplementationOnce(async (input) => {
+					const valid = await verify(input);
+					entered.resolve();
+					await release.promise;
+					return valid;
+				});
+			const changing = app.request(path, {
+				method: path === "/user/password" ? "PUT" : "POST",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					currentPassword,
+					newPassword: "new-test-password1A",
+					revokeOtherSessions: true,
+				}),
+			});
+			await entered.promise;
+			const confirming = confirm(confirmationToken());
+			try {
+				await waitForDatabaseLock();
+			} finally {
+				release.resolve();
+				await Promise.all([changing, confirming]);
+				spy.mockRestore();
+			}
+			expect((await changing).status).toBe(200);
+			if (path === "/auth/change-password") {
+				expect((await changing).headers.get("set-cookie")).toContain(
+					"session_token=",
+				);
+			}
+			expect((await confirming).status).toBe(400);
+			expect((await storedUser())?.email).toBe("admin@example.com");
+		},
+	);
+
+	it.each(["/auth/change-password", "/user/password"])(
+		"rejects a cached password-change session after confirmation (%s)",
+		async (path) => {
+			await patch({ email: newEmail, currentPassword });
+			const verify = crypto.verifyPassword;
+			const entered = deferred();
+			const release = deferred();
+			const spy = vi
+				.spyOn(crypto, "verifyPassword")
+				.mockImplementationOnce(async (input) => {
+					entered.resolve();
+					await release.promise;
+					return await verify(input);
+				});
+			const confirming = confirm(confirmationToken());
+			await entered.promise;
+			const changing = app.request(path, {
+				method: path === "/user/password" ? "PUT" : "POST",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					currentPassword,
+					newPassword: "new-test-password1A",
+				}),
+			});
+			try {
+				await waitForDatabaseLock();
+			} finally {
+				release.resolve();
+				await Promise.all([confirming, changing]);
+				spy.mockRestore();
+			}
+			expect((await confirming).status).toBe(200);
+			expect((await changing).status).toBe(
+				path === "/user/password" ? 500 : 401,
+			);
+			expect(
+				await db.query.session.findMany({ where: { userId: "test-user-id" } }),
+			).toHaveLength(0);
+			expect((await signIn(newEmail)).status).toBe(200);
+		},
+	);
+
+	it.each([false, true])(
+		"preserves native verification and auto-sign-in (redirect=%s)",
+		async (redirect) => {
+			const context = await apiAuth.$context;
+			const options = context.options.emailVerification!;
+			const original = { ...options };
+			options.autoSignInAfterVerification = true;
+			options.afterEmailVerification = vi.fn().mockResolvedValue(undefined);
+			await db
+				.update(tables.user)
+				.set({ emailVerified: false })
+				.where(eq(tables.user.id, "test-user-id"));
+			const token = await createEmailVerificationToken(
+				context.secret,
+				"admin@example.com",
+			);
+			const callback = `${process.env.UI_URL ?? "http://localhost:3002"}/dashboard`;
+			try {
+				const response = await app.request(
+					`/auth/verify-email?token=${token}${redirect ? `&callbackURL=${encodeURIComponent(callback)}` : ""}`,
+				);
+				expect(response.status).toBe(redirect ? 302 : 200);
+				if (redirect) {
+					expect(response.headers.get("location")).toBe(callback);
+				} else {
+					expect((await response.json()).status).toBe(true);
+				}
+				expect(response.headers.get("set-cookie")).toContain("session_token=");
+				expect(options.afterEmailVerification).toHaveBeenCalledOnce();
+				expect((await storedUser())?.emailVerified).toBe(true);
+				const session = await app.request("/user/me", {
+					headers: { Cookie: response.headers.get("set-cookie")! },
+				});
+				expect(session.status).toBe(200);
+			} finally {
+				options.autoSignInAfterVerification =
+					original.autoSignInAfterVerification;
+				options.afterEmailVerification = original.afterEmailVerification;
+			}
+		},
+	);
+
+	it("rejects old-address auto-sign-in when verification hooks finish after confirmation", async () => {
+		await patch({ email: newEmail, currentPassword });
+		const context = await apiAuth.$context;
+		const options = context.options.emailVerification!;
+		const original = { ...options };
+		const entered = deferred();
+		const release = deferred();
+		options.autoSignInAfterVerification = true;
+		options.afterEmailVerification = async () => {
+			entered.resolve();
+			await release.promise;
+		};
+		await db
+			.update(tables.user)
+			.set({ emailVerified: false })
+			.where(eq(tables.user.id, "test-user-id"));
+		const token = await createEmailVerificationToken(
+			context.secret,
+			"admin@example.com",
+		);
+		const verifying = app.request(`/auth/verify-email?token=${token}`);
+		try {
+			await entered.promise;
+			expect((await confirm(confirmationToken())).status).toBe(200);
+		} finally {
+			release.resolve();
+			await verifying;
+			options.autoSignInAfterVerification =
+				original.autoSignInAfterVerification;
+			options.afterEmailVerification = original.afterEmailVerification;
+		}
+		expect((await verifying).status).toBe(401);
+		expect(
+			await db.query.session.findMany({ where: { userId: "test-user-id" } }),
+		).toHaveLength(0);
+	});
+
+	it("revokes a verification session created before email confirmation", async () => {
+		await patch({ email: newEmail, currentPassword });
+		const context = await apiAuth.$context;
+		const options = context.options.emailVerification!;
+		const original = { ...options };
+		options.autoSignInAfterVerification = true;
+		options.afterEmailVerification = vi.fn().mockResolvedValue(undefined);
+		await db
+			.update(tables.user)
+			.set({ emailVerified: false })
+			.where(eq(tables.user.id, "test-user-id"));
+		const token = await createEmailVerificationToken(
+			context.secret,
+			"admin@example.com",
+		);
+		const create = context.internalAdapter.createSession;
+		const entered = deferred();
+		const release = deferred();
+		const spy = vi
+			.spyOn(context.internalAdapter, "createSession")
+			.mockImplementationOnce(async (...args) => {
+				entered.resolve();
+				await release.promise;
+				return await create(...args);
+			});
+		const verifying = app.request(`/auth/verify-email?token=${token}`);
+		await entered.promise;
+		const confirming = confirm(confirmationToken());
+		try {
+			await waitForDatabaseLock();
+		} finally {
+			release.resolve();
+			await Promise.all([verifying, confirming]);
+			spy.mockRestore();
+			options.autoSignInAfterVerification =
+				original.autoSignInAfterVerification;
+			options.afterEmailVerification = original.afterEmailVerification;
+		}
+		expect((await verifying).status).toBe(200);
 		expect((await confirming).status).toBe(200);
 		expect(
 			await db.query.session.findMany({ where: { userId: "test-user-id" } }),
