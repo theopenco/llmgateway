@@ -279,4 +279,14 @@ describe("admin devpass margin components", () => {
 		expect(weekBody.range).toEqual({ from, to });
 		expect(weekBody.models.map((m) => m.id)).toEqual(["carrier-model"]);
 	});
+
+	it("usage rejects a lone range bound instead of widening to all time", async () => {
+		const to = isoDay(now);
+		for (const qs of [`from=${to}`, `to=${to}`]) {
+			const res = await app.request(`/admin/devpass/usage?${qs}`, {
+				headers: { Cookie: cookie },
+			});
+			expect(res.status).toBe(400);
+		}
+	});
 });

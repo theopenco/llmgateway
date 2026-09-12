@@ -16172,7 +16172,13 @@ admin.openapi(getDevpassUsage, async (c) => {
 	const limit = query.limit ?? 10;
 
 	// No from/to means all time; the admin page always sends a window by
-	// default and only omits it when "All time" is picked explicitly.
+	// default and only omits it when "All time" is picked explicitly. A lone
+	// bound is rejected rather than silently widening to all time.
+	if (Boolean(query.from) !== Boolean(query.to)) {
+		throw new HTTPException(400, {
+			message: "Both from and to are required to narrow the usage window",
+		});
+	}
 	let startDate: Date | null = null;
 	let endDate: Date | null = null;
 	if (query.from && query.to) {
