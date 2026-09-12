@@ -1640,6 +1640,8 @@ chat.openapi(completions, async (c) => {
 		plugins,
 		n,
 		user,
+		stop,
+		seed,
 	} = validationResult.data;
 
 	// Mutable: dev-plan (DevPass) orgs can configure a default service tier in
@@ -6473,6 +6475,8 @@ chat.openapi(completions, async (c) => {
 			prompt_cache_options,
 			n,
 			service_tier,
+			stop,
+			seed,
 		};
 
 		if (stream) {
@@ -7309,6 +7313,8 @@ chat.openapi(completions, async (c) => {
 			sessionId,
 			reasoning_context,
 			organization.safetyIdentifier,
+			stop,
+			seed,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
@@ -7524,6 +7530,8 @@ chat.openapi(completions, async (c) => {
 				service_tier,
 				clientRequestedServiceTier: clientRequestedServiceTier(),
 				verbosity,
+				stop,
+				seed,
 			},
 		);
 	}
