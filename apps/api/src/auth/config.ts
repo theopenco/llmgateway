@@ -2,15 +2,16 @@ import { passkey } from "@better-auth/passkey";
 import { sso } from "@better-auth/sso";
 import { instrumentBetterAuth } from "@kubiks/otel-better-auth";
 import { betterAuth } from "better-auth";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
 import { bearer, deviceAuthorization } from "better-auth/plugins";
 import { Redis } from "ioredis";
 
+import { createAuthDatabase } from "@/auth/database.js";
 import {
 	MAX_PASSWORD_LENGTH,
 	MIN_PASSWORD_LENGTH,
 } from "@/auth/password-policy.js";
+import { serializedPasswordReset } from "@/auth/password-reset.js";
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
 import { getClientIpFromHeaders } from "@/lib/client-ip.js";
@@ -451,7 +452,7 @@ export async function checkRateLimit(
 	}
 }
 
-async function createResendContact(
+export async function createResendContact(
 	email: string,
 	name?: string,
 	attributes?: Record<string, string | number | boolean>,
@@ -729,6 +730,7 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 				},
 			},
 			plugins: [
+				serializedPasswordReset(),
 				bearer(),
 				deviceAuthorization({
 					verificationUri: `${uiUrl}/connect/device`,
@@ -773,6 +775,7 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 			],
 			emailAndPassword: {
 				enabled: true,
+				revokeSessionsOnPasswordReset: true,
 				// Enforced on sign-up/reset/change/set-password only, never on
 				// sign-in, so existing accounts with shorter passwords keep working.
 				minPasswordLength: MIN_PASSWORD_LENGTH,
@@ -813,6 +816,7 @@ If you didn't request this, you can safely ignore this email. Your password won'
 							to: user.email,
 							subject: "Reset your LLM Gateway password",
 							text,
+							timeoutMs: 15000,
 							strict: true,
 							logSafe: true,
 						});
@@ -830,18 +834,7 @@ If you didn't request this, you can safely ignore this email. Your password won'
 			},
 			baseURL: apiUrl || "http://localhost:4002",
 			secret: process.env.AUTH_SECRET ?? "dev-secret-key-must-be-32-chars!",
-			database: drizzleAdapter(db, {
-				provider: "pg",
-				schema: {
-					user: tables.user,
-					session: tables.session,
-					account: tables.account,
-					verification: tables.verification,
-					deviceCode: tables.deviceCode,
-					passkey: tables.passkey,
-					ssoProvider: tables.ssoProvider,
-				},
-			}),
+			database: createAuthDatabase(db),
 			socialProviders: {
 				// Social sign-in must never silently create an account: the login
 				// pages ask the user to confirm first and retry with
@@ -967,6 +960,15 @@ The LLM Gateway Team`.trim();
 					},
 			hooks: {
 				before: createAuthMiddleware(async (ctx) => {
+					if (
+						ctx.path === "/change-password" &&
+						ctx.body &&
+						typeof ctx.body === "object"
+					) {
+						const body = ctx.body as { revokeOtherSessions?: boolean };
+						body.revokeOtherSessions = true;
+					}
+
 					if (ctx.path.startsWith("/sign-in")) {
 						const body = ctx.body as { email?: string } | undefined;
 						const email = body?.email?.trim().toLowerCase();

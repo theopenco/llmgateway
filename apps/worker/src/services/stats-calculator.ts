@@ -16,9 +16,11 @@ import {
 	lt,
 	and,
 	inArray,
+	type Column,
 	type SQL,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { getLogRetentionCutoff } from "@llmgateway/shared/log-retention";
 
 import { excludeRecoveredSameProviderRegionRetry } from "./log-filters.js";
 import { calculateRoutingTelemetryForHour } from "./routing-telemetry-aggregator.js";
@@ -47,6 +49,13 @@ const serviceTierSourceSql = sql<
 >`(${log.routingMetadata}::jsonb ->> 'serviceTierSource')`;
 const HISTORY_USAGE_MODES = ["credits", "api-keys"] as const;
 type HistoryUsageMode = (typeof HISTORY_USAGE_MODES)[number];
+
+// A mapping ID identifies one model/provider pair. Keep its historical labels
+// without adding redundant grouping keys that inflate PostgreSQL's estimates.
+const mappingHistoryLabels = {
+	modelId: sql<string>`min(${modelProviderMappingHistory.modelId})`,
+	providerId: sql<string>`min(${modelProviderMappingHistory.providerId})`,
+};
 
 interface MappingMinuteStats {
 	modelId: string | null;
@@ -167,10 +176,7 @@ function mergeMappingMinuteStats(
 	return target;
 }
 
-// Metric columns shared by model_history and model_provider_mapping_history that
-// are overwritten on conflict. Used to build a single bulk upsert SET clause so
-// the per-minute history write is one statement instead of one round-trip (and
-// one implicit transaction/fsync) per model and per mapping.
+// Metrics shared by minute and hourly history upserts.
 const HISTORY_METRIC_COLUMNS = [
 	"logsCount",
 	"errorsCount",
@@ -205,7 +211,7 @@ const HISTORY_METRIC_COLUMNS = [
 ] as const;
 
 // Chunk size for bulk upserts. Postgres caps a statement at 65535 bind
-// parameters; history rows have ~25 columns, so 1000 rows stays well under it.
+// parameters; history rows have fewer than 40 columns.
 const HISTORY_UPSERT_CHUNK_SIZE = 1000;
 
 // The schema uses Drizzle's global `casing: "snake_case"`, so a column's `.name`
@@ -216,18 +222,22 @@ function toSnakeCase(name: string): string {
 	return name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 }
 
-// Build the ON CONFLICT DO UPDATE SET clause for a history table, taking each
-// metric value from the row being inserted (`excluded`) so a single multi-row
-// statement updates every conflicting row correctly.
-function buildHistoryUpsertSet(
-	columns: Record<(typeof HISTORY_METRIC_COLUMNS)[number], { name: string }>,
-): Record<string, SQL> {
+function buildHistoryUpsert(
+	columns: Record<(typeof HISTORY_METRIC_COLUMNS)[number], Column>,
+): { set: Record<string, SQL>; setWhere: SQL } {
 	const set: Record<string, SQL> = {};
 	for (const key of HISTORY_METRIC_COLUMNS) {
 		set[key] = sql`excluded.${sql.identifier(toSnakeCase(columns[key].name))}`;
 	}
 	set.updatedAt = sql`now()`;
-	return set;
+	// Repeated refreshes usually leave most rows unchanged. Compare every metric
+	// so late corrections still apply even when request counts stay the same.
+	const existing = HISTORY_METRIC_COLUMNS.map((key) => columns[key]);
+	const incoming = HISTORY_METRIC_COLUMNS.map((key) => set[key]);
+	return {
+		set,
+		setWhere: sql`row(${sql.join(existing, sql`, `)}) is distinct from row(${sql.join(incoming, sql`, `)})`,
+	};
 }
 
 /**
@@ -291,6 +301,9 @@ function getCurrentHourStart(): Date {
  */
 async function calculateModelHistoryForMinute(targetMinute: Date) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
+	if (roundedTargetMinute < getLogRetentionCutoff()) {
+		return { totalModels: 0, activeModels: 0, inactiveModels: 0 };
+	}
 
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
 	const database = db;
@@ -547,7 +560,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 		}
 	}
 
-	const modelHistoryUpsertSet = buildHistoryUpsertSet(modelHistory);
+	const modelHistoryUpsert = buildHistoryUpsert(modelHistory);
 	for (
 		let i = 0;
 		i < modelHistoryValues.length;
@@ -563,7 +576,7 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
 					modelHistory.minuteTimestamp,
 					modelHistory.usedMode,
 				],
-				set: modelHistoryUpsertSet,
+				...modelHistoryUpsert,
 			});
 	}
 	// Once the per-mode rows are complete, remove the legacy blended bucket for
@@ -590,6 +603,9 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
  */
 async function calculateHistoryForMinute(targetMinute: Date) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
+	if (roundedTargetMinute < getLogRetentionCutoff()) {
+		return { totalMappings: 0, activeMappings: 0, inactiveMappings: 0 };
+	}
 
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
 	const database = db;
@@ -919,9 +935,7 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 		}
 	}
 
-	const mappingHistoryUpsertSet = buildHistoryUpsertSet(
-		modelProviderMappingHistory,
-	);
+	const mappingHistoryUpsert = buildHistoryUpsert(modelProviderMappingHistory);
 	for (
 		let i = 0;
 		i < mappingHistoryValues.length;
@@ -937,7 +951,7 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 					modelProviderMappingHistory.minuteTimestamp,
 					modelProviderMappingHistory.usedMode,
 				],
-				set: mappingHistoryUpsertSet,
+				...mappingHistoryUpsert,
 			});
 	}
 	await database
@@ -991,12 +1005,21 @@ export async function backfillHistoryIfNeeded() {
 		}
 
 		const previousMinute = getPreviousMinuteStart();
+		const earliestRetainedMinute = new Date(
+			Math.ceil(getLogRetentionCutoff().getTime() / ONE_MINUTE_MS) *
+				ONE_MINUTE_MS,
+		);
 
 		if (!lastMinute) {
 			// No history exists, start from configured backfill duration ago
 			const backfillMs = BACKFILL_DURATION_SECONDS * 1000;
 			const backfillStart = new Date(Date.now() - backfillMs);
-			const backfillStartRounded = roundToMinuteStart(backfillStart);
+			const backfillStartRounded = new Date(
+				Math.max(
+					roundToMinuteStart(backfillStart).getTime(),
+					earliestRetainedMinute.getTime(),
+				),
+			);
 
 			logger.info(
 				`No existing history found. Starting backfill from ${backfillStartRounded.toISOString()} to ${previousMinute.toISOString()}`,
@@ -1051,7 +1074,12 @@ export async function backfillHistoryIfNeeded() {
 				`Found gap of ${minutesBehind} minutes. Backfilling from ${lastMinute.toISOString()}`,
 			);
 
-			let minute = new Date(lastMinute.getTime() + ONE_MINUTE_MS); // Start from the minute after the last recorded
+			let minute = new Date(
+				Math.max(
+					lastMinute.getTime() + ONE_MINUTE_MS,
+					earliestRetainedMinute.getTime(),
+				),
+			);
 			let iterationCount = 0;
 			const maxIterations = 1440; // Safety limit for 24 hours of backfill
 
@@ -1196,18 +1224,22 @@ async function calculateModelHistoryForHour(targetHour: Date) {
 		)
 		.groupBy(modelHistory.modelId, modelHistory.usedMode);
 
-	for (const row of hourlyStats) {
-		const { modelId, usedMode, ...stats } = row;
+	const historyValues = hourlyStats.map((row) => ({
+		...row,
+		hourTimestamp: roundedHour,
+	}));
+	const historyUpsert = buildHistoryUpsert(modelHistoryHourly);
+	for (let i = 0; i < historyValues.length; i += HISTORY_UPSERT_CHUNK_SIZE) {
 		await database
 			.insert(modelHistoryHourly)
-			.values({ modelId, usedMode, hourTimestamp: roundedHour, ...stats })
+			.values(historyValues.slice(i, i + HISTORY_UPSERT_CHUNK_SIZE))
 			.onConflictDoUpdate({
 				target: [
 					modelHistoryHourly.modelId,
 					modelHistoryHourly.hourTimestamp,
 					modelHistoryHourly.usedMode,
 				],
-				set: { ...stats, updatedAt: new Date() },
+				...historyUpsert,
 			});
 	}
 	const legacyModelIds = new Set(
@@ -1252,8 +1284,7 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 		.select({
 			modelProviderMappingId:
 				modelProviderMappingHistory.modelProviderMappingId,
-			modelId: modelProviderMappingHistory.modelId,
-			providerId: modelProviderMappingHistory.providerId,
+			...mappingHistoryLabels,
 			usedMode: modelProviderMappingHistory.usedMode,
 			logsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.logsCount}), 0)::int`,
 			errorsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.errorsCount}), 0)::int`,
@@ -1295,31 +1326,25 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 		)
 		.groupBy(
 			modelProviderMappingHistory.modelProviderMappingId,
-			modelProviderMappingHistory.modelId,
-			modelProviderMappingHistory.providerId,
 			modelProviderMappingHistory.usedMode,
 		);
 
-	for (const row of hourlyStats) {
-		const { modelProviderMappingId, modelId, providerId, usedMode, ...stats } =
-			row;
+	const historyValues = hourlyStats.map((row) => ({
+		...row,
+		hourTimestamp: roundedHour,
+	}));
+	const historyUpsert = buildHistoryUpsert(modelProviderMappingHistoryHourly);
+	for (let i = 0; i < historyValues.length; i += HISTORY_UPSERT_CHUNK_SIZE) {
 		await database
 			.insert(modelProviderMappingHistoryHourly)
-			.values({
-				modelProviderMappingId,
-				modelId,
-				providerId,
-				usedMode,
-				hourTimestamp: roundedHour,
-				...stats,
-			})
+			.values(historyValues.slice(i, i + HISTORY_UPSERT_CHUNK_SIZE))
 			.onConflictDoUpdate({
 				target: [
 					modelProviderMappingHistoryHourly.modelProviderMappingId,
 					modelProviderMappingHistoryHourly.hourTimestamp,
 					modelProviderMappingHistoryHourly.usedMode,
 				],
-				set: { ...stats, updatedAt: new Date() },
+				...historyUpsert,
 			});
 	}
 	const legacyMappingIds = new Set(
@@ -1407,7 +1432,7 @@ export async function calculateHourlyHistory() {
  * Backfill missing hourly summary rows by walking every completed hour from the
  * earliest minute-history entry up to the previous complete hour and recomputing
  * only the hours absent from ANY summary table — the two history rollups, plus
- * routing telemetry for hours whose logs still exist. Detecting missing hours
+ * routing telemetry for hours within log retention. Detecting missing hours
  * (rather than resuming from the latest entry) is what makes this robust: the
  * minutely loop writes the current and previous hour on startup, so the latest
  * hourly entry is never a reliable "everything before this is done" watermark —
@@ -1467,13 +1492,14 @@ export async function backfillHourlyHistoryIfNeeded() {
 			return;
 		}
 
-		// Oldest hour that still has logs to aggregate. Routing telemetry is derived
-		// from `log` rather than from minute history, so hours whose logs retention
-		// has already pruned can never produce routing rows — requiring them below
-		// would recompute the same empty hours on every worker start.
+		// Only complete hours within retention can reconstruct routing details.
+		const earliestRetainedHour = new Date(
+			Math.ceil(getLogRetentionCutoff().getTime() / ONE_HOUR_MS) * ONE_HOUR_MS,
+		);
 		const earliestLog = await database
 			.select({ createdAt: log.createdAt })
 			.from(log)
+			.where(gte(log.createdAt, earliestRetainedHour))
 			.orderBy(asc(log.createdAt))
 			.limit(1);
 		const earliestLogHourMs = earliestLog[0]
@@ -1589,8 +1615,7 @@ export async function calculateAggregatedStatistics() {
 			.select({
 				modelProviderMappingId:
 					modelProviderMappingHistory.modelProviderMappingId,
-				providerId: modelProviderMappingHistory.providerId,
-				modelId: modelProviderMappingHistory.modelId,
+				...mappingHistoryLabels,
 				totalLogs:
 					sql<number>`coalesce(sum(${modelProviderMappingHistory.logsCount}), 0)::bigint`.as(
 						"total_logs",
@@ -1618,11 +1643,7 @@ export async function calculateAggregatedStatistics() {
 			})
 			.from(modelProviderMappingHistory)
 			.where(gte(modelProviderMappingHistory.minuteTimestamp, oneHourAgo))
-			.groupBy(
-				modelProviderMappingHistory.modelProviderMappingId,
-				modelProviderMappingHistory.providerId,
-				modelProviderMappingHistory.modelId,
-			);
+			.groupBy(modelProviderMappingHistory.modelProviderMappingId);
 
 		interface RollupAgg {
 			totalLogs: number;

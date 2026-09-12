@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { extractTokenUsage } from "./extract-token-usage.js";
 import { transformStreamingToOpenai } from "./transform-streaming-to-openai.js";
 
 const { warn, error, setexMock } = vi.hoisted(() => ({
@@ -26,6 +27,47 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("transformStreamingToOpenai", () => {
+	it.each([false, true])(
+		"preserves Runpod cached usage with top-level usage: %s",
+		(topLevelUsage) => {
+			const usage = {
+				prompt_tokens: 22612,
+				completion_tokens: 43,
+				total_tokens: 22655,
+				completion_tokens_details: { reasoning_tokens: 27 },
+				prompt_tokens_details: { cached_tokens: 22528 },
+			};
+			const data = {
+				id: "chatcmpl-test",
+				object: "chat.completion.chunk",
+				created: 1234567890,
+				choices: [{ index: 0, delta: {}, finish_reason: "stop", usage }],
+				...(topLevelUsage && { usage }),
+			};
+			const result = transformStreamingToOpenai(
+				"runpod",
+				"runpod/kimi-k3",
+				data,
+				[],
+			);
+
+			expect(result.usage).toEqual({
+				prompt_tokens: 22612,
+				completion_tokens: 43,
+				total_tokens: 22655,
+				reasoning_tokens: 27,
+				prompt_tokens_details: { cached_tokens: 22528 },
+			});
+			expect(extractTokenUsage(data, "runpod")).toMatchObject({
+				promptTokens: 22612,
+				completionTokens: 43,
+				totalTokens: 22655,
+				reasoningTokens: 27,
+				cachedTokens: 22528,
+			});
+		},
+	);
+
 	it("replaces upstream model ids with the canonical mapping", () => {
 		const result = transformStreamingToOpenai(
 			"deepinfra",

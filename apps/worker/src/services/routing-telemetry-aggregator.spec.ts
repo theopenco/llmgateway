@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	apiKey,
@@ -75,6 +75,7 @@ async function exclusions() {
 
 describe("routing telemetry aggregator", () => {
 	beforeEach(async () => {
+		vi.setSystemTime(new Date("2026-08-08T00:00:00Z"));
 		await db.delete(routingElectionHourly);
 		await db.delete(routingExclusionHourly);
 		await db.delete(log);
@@ -106,6 +107,53 @@ describe("routing telemetry aggregator", () => {
 			projectId: "rt-proj",
 			createdBy: testUser.id,
 		});
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it.each(["2026-09-06T10:30:00Z", "2026-09-07T10:00:00Z"])(
+		"preserves saved rollups when an hour expires (%s)",
+		async (expiredNow) => {
+			await db.insert(log).values([
+				withMetadata(
+					{
+						selectionReason: "weighted-score",
+						serviceTierSource: "coding-plan-default",
+						availableProviders: ["openai", "azure"],
+						filteredProviders: [
+							{ providerId: "azure", reasons: ["vision"], codes: ["vision"] },
+						],
+					},
+					{ requestedServiceTier: "flex" },
+				),
+			]);
+			await calculateRoutingTelemetryForHour(HOUR);
+			const savedElections = await db.select().from(routingElectionHourly);
+			const savedExclusions = await db.select().from(routingExclusionHourly);
+
+			await db.update(log).set({ routingMetadata: null });
+			vi.setSystemTime(new Date(expiredNow));
+			expect(await calculateRoutingTelemetryForHour(HOUR)).toEqual({
+				electionRows: 0,
+				exclusionRows: 0,
+			});
+			expect(await db.select().from(routingElectionHourly)).toEqual(
+				savedElections,
+			);
+			expect(await db.select().from(routingExclusionHourly)).toEqual(
+				savedExclusions,
+			);
+		},
+	);
+
+	it("does not create unknown elections from expired logs", async () => {
+		await db.insert(log).values([logRow({ routingMetadata: null })]);
+		vi.setSystemTime(new Date("2026-09-07T10:00:00Z"));
+		await calculateRoutingTelemetryForHour(HOUR);
+		expect(await elections()).toEqual([]);
+		expect(await exclusions()).toEqual([]);
 	});
 
 	it("splits requests by selection reason and sums the candidate set size", async () => {
@@ -185,6 +233,79 @@ describe("routing telemetry aggregator", () => {
 		expect(await elections()).toEqual([
 			expect.objectContaining({ selectionReason: "unknown" }),
 		]);
+	});
+
+	it("retains elections without routing metadata", async () => {
+		await db
+			.insert(log)
+			.values([
+				logRow(),
+				logRow({ routingMetadata: null, requestedServiceTier: "flex" }),
+			]);
+
+		await calculateRoutingTelemetryForHour(HOUR);
+
+		expect(await elections()).toEqual([
+			expect.objectContaining({
+				selectionReason: "unknown",
+				requestCount: 2,
+				candidateCount: 0,
+				explicit: 1,
+				implicit: 0,
+			}),
+		]);
+		expect(await exclusions()).toEqual([]);
+	});
+
+	it("deduplicates all exclusion forms within each decision", async () => {
+		await db.insert(log).values([
+			withMetadata({
+				availableProviders: ["azure", "azure"],
+				filteredProviders: [
+					{
+						providerId: "azure",
+						reasons: [],
+						codes: [
+							"vision",
+							"vision",
+							"future_a",
+							"future_b",
+							"content_filter",
+						],
+					},
+					{ providerId: "azure", reasons: [], codes: ["vision"] },
+				],
+				contentFilterExcludedProviders: ["azure", "azure"],
+				providerScores: [
+					{ providerId: "azure", score: 0, price: 1, rate_limited: true },
+					{ providerId: "azure", score: 0, price: 1, rate_limited: true },
+				],
+			}),
+			withMetadata({
+				filteredProviders: [{ providerId: "azure", reasons: ["legacy"] }],
+			}),
+			withMetadata({
+				filteredProviders: [{ providerId: "azure", reasons: [], codes: [] }],
+			}),
+			withMetadata({
+				providerScores: [{ providerId: "azure", score: 1, price: 1 }],
+			}),
+		]);
+
+		await calculateRoutingTelemetryForHour(HOUR);
+
+		expect(await exclusions()).toEqual(
+			expect.arrayContaining(
+				["vision", "other", "content_filter", "rate_limited"].map((reason) => ({
+					providerId: "azure",
+					reason,
+					excludedCount: 1,
+					candidateCount: 4,
+					excludedDecisionCount: 1,
+				})),
+			),
+		);
+		expect(await exclusions()).toHaveLength(4);
 	});
 
 	it("counts exclusion codes against the candidate set they were dropped from", async () => {
