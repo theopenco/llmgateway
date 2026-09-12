@@ -1087,7 +1087,7 @@ export const providers: ProviderDefinition[] = [
 		name: "AWS Mantle",
 		forwardsSafetyIdentifier: false,
 		description:
-			"Amazon Bedrock Mantle - OpenAI frontier models served on AWS via the Responses API",
+			"OpenAI frontier models on Amazon Bedrock's Mantle and Runtime Responses APIs",
 		env: {
 			required: {
 				apiKey: "LLM_AWS_MANTLE_API_KEY",
@@ -1107,21 +1107,21 @@ export const providers: ProviderDefinition[] = [
 		regionConfig: {
 			optionsKey: "aws_mantle_region",
 			defaultRegion: "us-east-1",
-			// Mantle has no cross-region inference profiles at all — the model
-			// cards mark Geo and Global as unsupported — so every entry is a
-			// concrete AWS region and `pinDefaultRegion` stays unset, letting the
-			// gateway route across regions like Alibaba instead of pinning to a
-			// synthetic global default the way aws-bedrock does.
 			regions: [
+				{ id: "global", label: "Global" },
+				{ id: "us", label: "US cross-region" },
 				{ id: "us-east-1", label: "US East (N. Virginia)" },
 				{ id: "us-east-2", label: "US East (Ohio)" },
 				{ id: "us-west-2", label: "US West (Oregon)" },
 			],
 			endpointMap: {
+				global: "https://bedrock-runtime.us-east-1.amazonaws.com",
+				us: "https://bedrock-runtime.us-east-1.amazonaws.com",
 				"us-east-1": "https://bedrock-mantle.us-east-1.api.aws",
 				"us-east-2": "https://bedrock-mantle.us-east-2.api.aws",
 				"us-west-2": "https://bedrock-mantle.us-west-2.api.aws",
 			},
+			modelPrefixMap: { global: "global.", us: "us." },
 			// Bedrock long-term API keys are IAM-global: one ABSK key authenticates
 			// against every regional Mantle endpoint, so non-default regions do not
 			// need their own `LLM_AWS_MANTLE_API_KEY__<REGION>` env key.

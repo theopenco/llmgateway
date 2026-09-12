@@ -4,6 +4,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	type ModelDefinition,
 	models,
+	getProviderDefinition,
 	expandAllProviderRegions,
 	type ProviderModelMapping,
 	type ProviderId,
@@ -2256,11 +2257,13 @@ export async function prepareRequestBody(
 									...(reasoning_effort !== undefined && {
 										effort: reasoning_effort,
 									}),
-									summary: "detailed",
+									summary:
+										providerMappingForOptions?.reasoningSummary ?? "detailed",
 								}
 							: {
 									effort: responsesReasoningEffort,
-									summary: "detailed",
+									summary:
+										providerMappingForOptions?.reasoningSummary ?? "detailed",
 									// reasoning.context is only documented on OpenAI's
 									// Responses API surface; other providers reject
 									// unknown reasoning fields.
@@ -2287,6 +2290,13 @@ export async function prepareRequestBody(
 					// provider-stored responses, so opt out to keep the provider's
 					// zero-retention data policy accurate.
 					responsesBody.store = false;
+					const prefix = usedRegion
+						? getProviderDefinition(usedProvider)?.regionConfig
+								?.modelPrefixMap?.[usedRegion]
+						: undefined;
+					if (prefix) {
+						responsesBody.model = `${prefix}${usedExternalId}`;
+					}
 				}
 
 				if (usedProvider === "openai") {

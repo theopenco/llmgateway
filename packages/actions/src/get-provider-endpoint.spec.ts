@@ -1319,6 +1319,34 @@ describe("getProviderEndpoint", () => {
 	});
 
 	describe("aws-mantle regions", () => {
+		it.each(["global", "us"])("routes %s through Bedrock Runtime", (region) => {
+			const endpoint = getProviderEndpoint(
+				"aws-mantle",
+				undefined,
+				"gpt-6-astra",
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				region,
+				true,
+			);
+
+			expect(endpoint).toBe(
+				"https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/responses",
+			);
+		});
+
+		it("resolves the global endpoint from the region environment variable", () => {
+			process.env.LLM_AWS_MANTLE_REGION = "global";
+			expect(getProviderEndpoint("aws-mantle", undefined, "gpt-6-astra")).toBe(
+				"https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1/responses",
+			);
+		});
+
 		it.each([
 			{ region: "us-east-1" },
 			{ region: "us-east-2" },
