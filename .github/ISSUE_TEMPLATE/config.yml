@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: 🔌 List your provider on Airside
+    url: https://airside.llmgateway.io
+    about: Register your provider and manage model listings in the Airside provider console.
   - name: 💬 Discord Community
     url: https://discord.gg/llmgateway
     about: Ask questions, get help, and chat with the community.
