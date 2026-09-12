@@ -10,7 +10,7 @@ LLMGateway applies rate limits to ensure fair usage and protect platform stabili
 
 - **Per-organization endpoint limits** — a requests-per-minute cap on every API endpoint, scoped to your organization.
 - **Free model limits** — additional limits specifically for zero-cost models.
-- **Provider limits** — upstream limits enforced per provider/model when applicable.
+- **Provider/model caps** — limits configured and enforced by LLMGateway for a provider/model.
 
 ## Per-Organization Endpoint Limits
 
@@ -173,9 +173,13 @@ For organizations that have **purchased at least some credits**:
 
 ## Provider Limits
 
-Some providers and models enforce their own upstream request limits. When a provider limit is reached, LLMGateway returns a `429` and includes provider-scoped headers (`X-RateLimit-Limit-Provider`, `X-RateLimit-Remaining-Provider`). Where possible, [fallback routing](/features/routing) automatically retries the request on a healthy provider.
+LLMGateway uses configured provider/model caps to route requests away from providers that have reached their allowance. If you pin a provider and disable fallback, reaching one of these gateway-enforced caps can return `429`.
+
+Rate limits returned by an upstream provider are treated as provider errors and are eligible for retries or [fallback routing](/features/routing), subject to your routing configuration and available providers. Upstream `Retry-After` and rate-limit headers are never forwarded to clients, including when retries are exhausted. Provider-scoped quota headers (`X-RateLimit-*-Provider*`) are not exposed.
 
 ## Rate Limit Headers
+
+All rate-limit response headers describe limits enforced by **LLMGateway**.
 
 Successful authenticated responses carry the organization requests-per-minute (RPM) policy, remaining request quota, and reset delay only when they passed an RPM quota check. Anonymous requests, enterprise RPM exemptions, and disabled or unavailable RPM limiters omit these headers on success.
 
@@ -193,7 +197,7 @@ Organization throttles return 429 with `Retry-After` in seconds, zero remaining 
 
 The legacy `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset` fields remain available. `RateLimit-Reset` is a delay in seconds; `X-RateLimit-Reset` is a Unix timestamp. These fields also remain available as `X-RateLimit-Limit` and `X-RateLimit-Remaining`. Browser clients on allowed CORS origins can read these headers.
 
-Other gates, such as spending limits and upstream throttles, can reject requests independently of the advertised organization quota. Honor `Retry-After` when supplied; otherwise use exponential backoff with jitter. Inspect the error body to distinguish a temporary throttle from a spending limit that needs account action.
+Other gateway gates, such as spending limits, can reject requests independently of the advertised organization quota. Honor `Retry-After` when supplied; otherwise use exponential backoff with jitter. Inspect the error body to distinguish a temporary throttle from a spending limit that needs account action.
 
 ## Rate Limit Exceeded
 

@@ -74,6 +74,8 @@ const sharedMessageSchema = z.object({
 
 const sharedChatSchema = z.object({
 	id: z.string(),
+	allowDiscovery: z.boolean(),
+	allowForking: z.boolean(),
 	title: z.string(),
 	model: z.string(),
 	createdAt: z.string().datetime(),
@@ -135,7 +137,8 @@ const listSharedChats = createRoute({
 					}),
 				},
 			},
-			description: "Active public shared chats (id + updatedAt) for sitemaps.",
+			description:
+				"Public shared chats whose owners opted into discovery (id + updatedAt).",
 		},
 		429: rateLimitedResponse,
 	},
@@ -159,6 +162,7 @@ publicChatShares.openapi(listSharedChats, async (c) => {
 		.innerJoin(tables.chat, eq(tables.chatShare.chatId, tables.chat.id))
 		.where(
 			and(
+				eq(tables.chatShare.allowDiscovery, true),
 				isNull(tables.chatShare.deletedAt),
 				isNull(tables.chatShare.organizationId),
 				eq(tables.chat.status, "active"),
@@ -193,6 +197,8 @@ publicChatShares.openapi(getSharedChat, async (c) => {
 			title: tables.chatShare.title,
 			model: tables.chatShare.model,
 			messages: tables.chatShare.messages,
+			allowDiscovery: tables.chatShare.allowDiscovery,
+			allowForking: tables.chatShare.allowForking,
 			createdAt: tables.chatShare.createdAt,
 		})
 		.from(tables.chatShare)
@@ -211,6 +217,12 @@ publicChatShares.openapi(getSharedChat, async (c) => {
 		return c.json({ message: "Shared chat not found" }, 404);
 	}
 
+	c.header("Cache-Control", "no-store");
+	c.header(
+		"X-Robots-Tag",
+		share.allowDiscovery ? "index, follow" : "noindex, nofollow",
+	);
+
 	const messages = sharedMessageSchema
 		.array()
 		.parse(share.messages)
@@ -222,6 +234,8 @@ publicChatShares.openapi(getSharedChat, async (c) => {
 				id: share.id,
 				title: share.title,
 				model: share.model,
+				allowDiscovery: share.allowDiscovery,
+				allowForking: share.allowForking,
 				createdAt: share.createdAt.toISOString(),
 				messages,
 			},

@@ -48,6 +48,7 @@ import {
 } from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
+import { fetchProvider } from "@/lib/fetch-provider.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
@@ -799,7 +800,7 @@ transcriptions.openapi(createTranscription, async (c): Promise<any> => {
 				const fetchSignal = createCombinedSignal(controller);
 				// No explicit Content-Type: fetch derives the multipart boundary
 				// from the FormData body.
-				upstreamResponse = await fetch(attempt.upstreamUrl, {
+				upstreamResponse = await fetchProvider(attempt.upstreamUrl, {
 					method: "POST",
 					// SSRF: never follow redirects on an authenticated provider request. A
 					// tenant-supplied baseUrl could 3xx to an internal host at request

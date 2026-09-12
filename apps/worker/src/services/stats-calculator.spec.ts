@@ -9,6 +9,8 @@ import {
 	modelHistory,
 	modelProviderMappingHistoryHourly,
 	modelHistoryHourly,
+	routingElectionHourly,
+	routingExclusionHourly,
 	log,
 	organization,
 	project,
@@ -16,7 +18,10 @@ import {
 	eq,
 	and,
 	user,
+	getTableColumns,
+	sql,
 } from "@llmgateway/db";
+import * as logRetention from "@llmgateway/shared/log-retention";
 
 import {
 	calculateMinutelyHistory,
@@ -36,6 +41,8 @@ describe("stats-calculator", () => {
 
 		// Clean up test data before each test
 		await db.delete(log);
+		await db.delete(routingElectionHourly);
+		await db.delete(routingExclusionHourly);
 		await db.delete(modelProviderMappingHistoryHourly);
 		await db.delete(modelHistoryHourly);
 		await db.delete(modelProviderMappingHistory);
@@ -146,7 +153,124 @@ describe("stats-calculator", () => {
 	});
 
 	afterEach(() => {
+		vi.restoreAllMocks();
 		vi.useRealTimers();
+	});
+
+	it.each(["minute", "hour"] as const)(
+		"skips unchanged %s history while applying metric corrections",
+		async (grain) => {
+			const tables =
+				grain === "minute"
+					? [modelHistory, modelProviderMappingHistory]
+					: [modelHistoryHourly, modelProviderMappingHistoryHourly];
+			const refresh = async () => {
+				await calculateMinutelyHistory();
+				if (grain === "hour") {
+					await calculateHourlyHistory();
+				}
+			};
+			const readHistory = async () => {
+				const records = [];
+				for (const table of tables) {
+					records.push(
+						await db
+							.select({
+								...getTableColumns(table),
+								rowVersion: sql<string>`xmin::text`,
+							})
+							.from(table)
+							.orderBy(table.id),
+					);
+				}
+				return records;
+			};
+
+			await db.insert(log).values({
+				id: "log-1",
+				requestId: "req-1",
+				organizationId: "org-1",
+				projectId: "proj-1",
+				apiKeyId: "key-1",
+				duration: 1000,
+				requestedModel: "gpt-4",
+				usedModel: "openai/gpt-4",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "api-keys",
+				usedMode: "api-keys",
+				cost: 0.3,
+				inputCost: 0.1,
+				createdAt: new Date("2024-01-01T12:29:30.000Z"),
+			});
+			await refresh();
+			const initial = await readHistory();
+			for (const rows of initial) {
+				expect(rows).toHaveLength(4);
+				expect(rows.filter((row) => row.logsCount === 0)).toHaveLength(3);
+			}
+
+			await refresh();
+			expect(await readHistory()).toEqual(initial);
+
+			await db.update(log).set({ inputCost: 0.25 }).where(eq(log.id, "log-1"));
+			await refresh();
+			const corrected = await readHistory();
+			for (const [index, rows] of corrected.entries()) {
+				for (const row of rows) {
+					const previous = initial[index]!.find((entry) => entry.id === row.id);
+					if (row.modelId === "gpt-4" && row.usedMode === "api-keys") {
+						expect(row.logsCount).toBe(1);
+						expect(row.totalInputCost).toBeCloseTo(0.25);
+						expect(row.rowVersion).not.toBe(previous!.rowVersion);
+					} else {
+						expect(row).toEqual(previous);
+					}
+				}
+			}
+			await refresh();
+			expect(await readHistory()).toEqual(corrected);
+
+			await db.delete(log);
+			await refresh();
+			for (const rows of await readHistory()) {
+				expect(rows).toHaveLength(4);
+				for (const row of rows) {
+					expect(row.logsCount).toBe(0);
+					expect(row.totalInputCost).toBe(0);
+				}
+			}
+		},
+	);
+
+	it("writes every history row across bulk insert chunks", async () => {
+		const models = Array.from({ length: 501 }, (_, i) => ({
+			id: `batch-model-${i}`,
+			name: `Batch model ${i}`,
+			family: "test",
+		}));
+		await db.insert(model).values(models);
+		await db.insert(modelProviderMapping).values(
+			models.map(({ id }) => ({
+				id: `mapping-${id}`,
+				modelId: id,
+				providerId: "openai",
+				externalId: id,
+			})),
+		);
+		await calculateMinutelyHistory();
+		await calculateHourlyHistory();
+
+		for (const table of [
+			modelHistory,
+			modelProviderMappingHistory,
+			modelHistoryHourly,
+			modelProviderMappingHistoryHourly,
+		]) {
+			const rows = await db.select().from(table);
+			expect(rows).toHaveLength(1006);
+			expect(new Set(rows.map((row) => row.modelId)).size).toBe(503);
+		}
 	});
 
 	describe("calculateMinutelyHistory", () => {
@@ -1619,6 +1743,122 @@ describe("stats-calculator", () => {
 		const currentHour = new Date("2024-01-01T12:00:00.000Z");
 		const previousHour = new Date("2024-01-01T11:00:00.000Z");
 
+		it("preserves mapping identities and billing modes across rollups", async () => {
+			await db.insert(modelProviderMapping).values({
+				id: "mapping-regional",
+				modelId: "gpt-4",
+				providerId: "openai",
+				externalId: "gpt-4",
+				region: "europe",
+			});
+			await db.insert(modelProviderMappingHistory).values(
+				(
+					[
+						{
+							mappingId: "mapping-1",
+							usedMode: "credits",
+							minute: 5,
+							count: 3,
+						},
+						{
+							mappingId: "mapping-1",
+							usedMode: "credits",
+							minute: 10,
+							count: 5,
+						},
+						{
+							mappingId: "mapping-1",
+							usedMode: "api-keys",
+							minute: 5,
+							count: 7,
+						},
+						{
+							mappingId: "mapping-1",
+							usedMode: "unknown",
+							minute: 5,
+							count: 11,
+						},
+						{
+							mappingId: "mapping-regional",
+							usedMode: "credits",
+							minute: 5,
+							count: 13,
+						},
+						{
+							mappingId: "mapping-2",
+							usedMode: "credits",
+							minute: 5,
+							count: 17,
+						},
+					] as const
+				).map(({ mappingId, usedMode, minute, count }) => {
+					const offsetMs = minute * 60_000;
+					return {
+						modelProviderMappingId: mappingId,
+						modelId: mappingId === "mapping-2" ? "claude-3-5-sonnet" : "gpt-4",
+						providerId: mappingId === "mapping-2" ? "anthropic" : "openai",
+						usedMode,
+						minuteTimestamp: new Date(currentHour.getTime() + offsetMs),
+						logsCount: count,
+					};
+				}),
+			);
+			await db
+				.delete(modelProviderMapping)
+				.where(eq(modelProviderMapping.id, "mapping-2"));
+
+			await calculateHourlyHistory();
+			const rows = await db
+				.select({
+					mappingId: modelProviderMappingHistoryHourly.modelProviderMappingId,
+					modelId: modelProviderMappingHistoryHourly.modelId,
+					providerId: modelProviderMappingHistoryHourly.providerId,
+					usedMode: modelProviderMappingHistoryHourly.usedMode,
+					logsCount: modelProviderMappingHistoryHourly.logsCount,
+				})
+				.from(modelProviderMappingHistoryHourly);
+			expect(rows).toHaveLength(5);
+			expect(rows).toEqual(
+				expect.arrayContaining([
+					...[
+						{ mappingId: "mapping-1", usedMode: "credits", logsCount: 8 },
+						{ mappingId: "mapping-1", usedMode: "api-keys", logsCount: 7 },
+						{ mappingId: "mapping-1", usedMode: "unknown", logsCount: 11 },
+						{
+							mappingId: "mapping-regional",
+							usedMode: "credits",
+							logsCount: 13,
+						},
+					].map((row) => ({ ...row, modelId: "gpt-4", providerId: "openai" })),
+					{
+						mappingId: "mapping-2",
+						modelId: "claude-3-5-sonnet",
+						providerId: "anthropic",
+						usedMode: "credits",
+						logsCount: 17,
+					},
+				]),
+			);
+
+			await calculateAggregatedStatistics();
+			const mappings = await db
+				.select({
+					id: modelProviderMapping.id,
+					logsCount: modelProviderMapping.logsCount,
+				})
+				.from(modelProviderMapping)
+				.orderBy(modelProviderMapping.id);
+			expect(mappings).toEqual([
+				{ id: "mapping-1", logsCount: 26 },
+				{ id: "mapping-regional", logsCount: 13 },
+			]);
+			const [archivedModel] = await db
+				.select()
+				.from(model)
+				.where(eq(model.id, "claude-3-5-sonnet"));
+			expect(archivedModel.logsCount).toBe(17);
+		});
+
 		it("should roll up minute history into hourly summaries", async () => {
 			await db.insert(modelHistory).values([
 				{
@@ -1886,6 +2126,61 @@ describe("stats-calculator", () => {
 	});
 
 	describe("backfillHourlyHistoryIfNeeded", () => {
+		it("uses saved minute counters without rebuilding expired routing", async () => {
+			vi.spyOn(logRetention, "getLogRetentionCutoff").mockReturnValue(
+				new Date("2024-01-01T11:00:00Z"),
+			);
+			const minuteTimestamp = new Date("2024-01-01T10:30:00Z");
+			await db.insert(modelHistory).values({
+				modelId: "gpt-4",
+				minuteTimestamp,
+				logsCount: 1,
+				serviceTierImplicitCount: 1,
+			});
+			await db.insert(modelProviderMappingHistory).values({
+				modelId: "gpt-4",
+				providerId: "openai",
+				modelProviderMappingId: "mapping-1",
+				minuteTimestamp,
+				logsCount: 1,
+				serviceTierImplicitCount: 1,
+			});
+			await db.insert(log).values({
+				id: "expired-routing-log",
+				requestId: "expired-routing-request",
+				organizationId: "org-1",
+				projectId: "proj-1",
+				apiKeyId: "key-1",
+				createdAt: minuteTimestamp,
+				duration: 100,
+				requestedModel: "gpt-4",
+				usedModel: "openai/gpt-4",
+				usedProvider: "openai",
+				responseSize: 0,
+				mode: "credits",
+				usedMode: "credits",
+				requestedServiceTier: "flex",
+				routingMetadata: null,
+				dataRetentionCleanedUp: true,
+			});
+
+			await backfillHourlyHistoryIfNeeded();
+
+			for (const table of [
+				modelHistoryHourly,
+				modelProviderMappingHistoryHourly,
+			]) {
+				const rows = await db.select().from(table);
+				expect(rows).toHaveLength(1);
+				expect(rows[0]).toMatchObject({
+					logsCount: 1,
+					serviceTierImplicitCount: 1,
+					serviceTierExplicitCount: 0,
+				});
+			}
+			expect(await db.select().from(routingElectionHourly)).toEqual([]);
+		});
+
 		it("should backfill from the earliest minute entry when hourly is empty", async () => {
 			// mockDate 12:30Z → previous complete hour is 11:00; current hour 12:00
 			// is in progress and must NOT be produced by backfill.
@@ -1948,6 +2243,80 @@ describe("stats-calculator", () => {
 					new Date("2024-01-01T12:00:00.000Z").getTime(),
 			);
 			expect(currentHourRow).toBeUndefined();
+		});
+
+		it("backfills missing routing hours and preserves settled hours", async () => {
+			const hours = [
+				new Date("2024-01-01T10:00:00.000Z"),
+				new Date("2024-01-01T11:00:00.000Z"),
+			];
+			for (const hourTimestamp of hours) {
+				const minuteTimestamp = new Date(hourTimestamp);
+				minuteTimestamp.setUTCMinutes(30);
+				const mapping = {
+					modelId: "gpt-4",
+					providerId: "openai",
+					modelProviderMappingId: "mapping-1",
+				};
+				await db.insert(modelHistory).values({
+					modelId: mapping.modelId,
+					minuteTimestamp,
+					logsCount: 1,
+				});
+				await db.insert(modelProviderMappingHistory).values({
+					...mapping,
+					minuteTimestamp,
+					logsCount: 1,
+				});
+				await db.insert(modelHistoryHourly).values({
+					modelId: mapping.modelId,
+					hourTimestamp,
+					logsCount: 99,
+				});
+				await db.insert(modelProviderMappingHistoryHourly).values({
+					...mapping,
+					hourTimestamp,
+					logsCount: 99,
+				});
+				await db.insert(log).values({
+					requestId: `routing-backfill-${hourTimestamp.getUTCHours()}`,
+					organizationId: "org-1",
+					projectId: "proj-1",
+					apiKeyId: "key-1",
+					createdAt: minuteTimestamp,
+					duration: 100,
+					requestedModel: "gpt-4",
+					usedModel: "openai/gpt-4",
+					usedProvider: "openai",
+					responseSize: 0,
+					mode: "credits",
+					usedMode: "credits",
+				});
+			}
+			await db.insert(routingElectionHourly).values({
+				hourTimestamp: hours[1],
+				modelId: "gpt-4",
+				providerId: "openai",
+				selectionReason: "unknown",
+				requestCount: 99,
+				candidateCount: 0,
+			});
+
+			await backfillHourlyHistoryIfNeeded();
+
+			for (const table of [
+				modelHistoryHourly,
+				modelProviderMappingHistoryHourly,
+			]) {
+				const rows = await db.select().from(table).orderBy(table.hourTimestamp);
+				expect(rows.map((row) => row.logsCount)).toEqual([1, 99]);
+			}
+			const elections = await db
+				.select()
+				.from(routingElectionHourly)
+				.orderBy(routingElectionHourly.hourTimestamp);
+			expect(elections.map((row) => row.requestCount)).toEqual([1, 99]);
+			expect(elections.map((row) => row.hourTimestamp)).toEqual(hours);
 		});
 
 		it("should resume from the shared latest hour when both tables are populated", async () => {

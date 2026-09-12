@@ -29,6 +29,7 @@
 		"setup": "pnpm build:core && docker compose down -v && docker compose up -d && pnpm wait-for-services && pnpm push-test && pnpm push-dev && pnpm seed",
 		"sync": "pnpm push-dev; pnpm push-test",
 		"stripe:listen": "stripe listen --api-key \"$(grep -E '^STRIPE_SECRET_KEY=' .env | head -1 | cut -d= -f2-)\" --forward-to localhost:4002/stripe/webhook",
+		"test:browser": "playwright test",
 		"test:e2e": "pnpm build:core && E2E_TEST=true vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism",
 		"test:unit": "pnpm build:core && vitest run --no-file-parallelism",
 		"wait-for-services": "./scripts/wait-for-services.sh"
@@ -39,6 +40,7 @@
 	"prettier": "@steebchen/prettier-config",
 	"devDependencies": {
 		"@abinnovision/eslint-config-react": "3.1.1",
+		"@playwright/test": "1.61.1",
 		"@semantic-release/exec": "^7.1.0",
 		"@semantic-release/npm": "^13.1.5",
 		"@steebchen/commitlint-config": "^1.7.0",
@@ -70,7 +72,7 @@
 		"typescript": "5.9.2",
 		"vite": "^7.3.5",
 		"vite-tsconfig-paths": "^5.1.4",
-		"vitest": "^4.1.8"
+		"vitest": "^4.1.11"
 	},
 	"disabledLinters": [
 		"eslint-plugin-tailwindcss"
