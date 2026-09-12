@@ -16,6 +16,8 @@ import {
 	eq,
 	and,
 	user,
+	getTableColumns,
+	sql,
 } from "@llmgateway/db";
 
 import {
@@ -147,6 +149,122 @@ describe("stats-calculator", () => {
 
 	afterEach(() => {
 		vi.useRealTimers();
+	});
+
+	it.each(["minute", "hour"] as const)(
+		"skips unchanged %s history while applying metric corrections",
+		async (grain) => {
+			const tables =
+				grain === "minute"
+					? [modelHistory, modelProviderMappingHistory]
+					: [modelHistoryHourly, modelProviderMappingHistoryHourly];
+			const refresh = async () => {
+				await calculateMinutelyHistory();
+				if (grain === "hour") {
+					await calculateHourlyHistory();
+				}
+			};
+			const readHistory = async () => {
+				const records = [];
+				for (const table of tables) {
+					records.push(
+						await db
+							.select({
+								...getTableColumns(table),
+								rowVersion: sql<string>`xmin::text`,
+							})
+							.from(table)
+							.orderBy(table.id),
+					);
+				}
+				return records;
+			};
+
+			await db.insert(log).values({
+				id: "log-1",
+				requestId: "req-1",
+				organizationId: "org-1",
+				projectId: "proj-1",
+				apiKeyId: "key-1",
+				duration: 1000,
+				requestedModel: "gpt-4",
+				usedModel: "openai/gpt-4",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "api-keys",
+				usedMode: "api-keys",
+				cost: 0.3,
+				inputCost: 0.1,
+				createdAt: new Date("2024-01-01T12:29:30.000Z"),
+			});
+			await refresh();
+			const initial = await readHistory();
+			for (const rows of initial) {
+				expect(rows).toHaveLength(4);
+				expect(rows.filter((row) => row.logsCount === 0)).toHaveLength(3);
+			}
+
+			await refresh();
+			expect(await readHistory()).toEqual(initial);
+
+			await db.update(log).set({ inputCost: 0.25 }).where(eq(log.id, "log-1"));
+			await refresh();
+			const corrected = await readHistory();
+			for (const [index, rows] of corrected.entries()) {
+				for (const row of rows) {
+					const previous = initial[index]!.find((entry) => entry.id === row.id);
+					if (row.modelId === "gpt-4" && row.usedMode === "api-keys") {
+						expect(row.logsCount).toBe(1);
+						expect(row.totalInputCost).toBeCloseTo(0.25);
+						expect(row.rowVersion).not.toBe(previous!.rowVersion);
+					} else {
+						expect(row).toEqual(previous);
+					}
+				}
+			}
+			await refresh();
+			expect(await readHistory()).toEqual(corrected);
+
+			await db.delete(log);
+			await refresh();
+			for (const rows of await readHistory()) {
+				expect(rows).toHaveLength(4);
+				for (const row of rows) {
+					expect(row.logsCount).toBe(0);
+					expect(row.totalInputCost).toBe(0);
+				}
+			}
+		},
+	);
+
+	it("writes every history row across bulk insert chunks", async () => {
+		const models = Array.from({ length: 501 }, (_, i) => ({
+			id: `batch-model-${i}`,
+			name: `Batch model ${i}`,
+			family: "test",
+		}));
+		await db.insert(model).values(models);
+		await db.insert(modelProviderMapping).values(
+			models.map(({ id }) => ({
+				id: `mapping-${id}`,
+				modelId: id,
+				providerId: "openai",
+				externalId: id,
+			})),
+		);
+		await calculateMinutelyHistory();
+		await calculateHourlyHistory();
+
+		for (const table of [
+			modelHistory,
+			modelProviderMappingHistory,
+			modelHistoryHourly,
+			modelProviderMappingHistoryHourly,
+		]) {
+			const rows = await db.select().from(table);
+			expect(rows).toHaveLength(1006);
+			expect(new Set(rows.map((row) => row.modelId)).size).toBe(503);
+		}
 	});
 
 	describe("calculateMinutelyHistory", () => {
