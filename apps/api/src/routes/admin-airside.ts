@@ -29,6 +29,7 @@ import {
 	ne,
 	sql,
 	tables,
+	invalidateProviderClaimCache,
 } from "@llmgateway/db";
 import {
 	models as catalogueModels,
@@ -837,6 +838,7 @@ adminAirside.openapi(approveClaim, async (c) => {
 				.where(eq(tables.providerRoutingSettings.id, settings.id));
 		}
 	});
+	await invalidateProviderClaimCache();
 	const updated = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },
 		with: { providerCompany: true },
@@ -1057,6 +1059,7 @@ adminAirside.openapi(revokeClaim, async (c) => {
 			}
 		}
 	});
+	await invalidateProviderClaimCache();
 	const updated = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },
 		with: { providerCompany: true },

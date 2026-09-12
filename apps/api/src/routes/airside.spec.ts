@@ -8,8 +8,10 @@ import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import {
 	db,
 	eq,
+	getCatalogueProviderIds,
 	getEffectiveDiscount,
 	inArray,
+	invalidateProviderClaimCache,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -2909,6 +2911,10 @@ describe("airside provider portal", () => {
 				set: { name: "stale", status: "inactive" },
 			});
 
+		// Warm the cached carrier set so approval has to evict it.
+		await invalidateProviderClaimCache();
+		expect((await getCatalogueProviderIds()).has("acme-sky")).toBe(false);
+
 		// Approval creates (or re-activates) the DB catalogue provider row.
 		const approve = await app.request(
 			`/admin/airside/claims/${claim.id}/approve`,
@@ -2919,6 +2925,7 @@ describe("airside provider portal", () => {
 			where: { id: { eq: "acme-sky" } },
 		});
 		expect(providerRow).toMatchObject({ name: "Acme Sky", status: "active" });
+		expect((await getCatalogueProviderIds()).has("acme-sky")).toBe(true);
 
 		// The managed-credentials catalog now offers the carrier…
 		const catalog = await app.request("/admin/provider-credentials/catalog", {
@@ -2962,6 +2969,7 @@ describe("airside provider portal", () => {
 			where: { id: { eq: "acme-sky" } },
 		});
 		expect(goneRow).toBeFalsy();
+		expect((await getCatalogueProviderIds()).has("acme-sky")).toBe(false);
 	});
 
 	it("waives the listing fee with an admin-minted invite code", async () => {
