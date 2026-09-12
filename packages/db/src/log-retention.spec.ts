@@ -37,6 +37,16 @@ function baseLogData(overrides: Partial<LogInsertData> = {}): LogInsertData {
 		rawResponse: { choices: [{ message: { content: "secret completion" } }] },
 		upstreamRequest: { input: [{ type: "reasoning", encrypted_content: "s" }] },
 		upstreamResponse: { output: [{ type: "message" }] },
+		errorDetails: {
+			statusCode: 400,
+			statusText: "Bad Request",
+			responseText: "Access to this model is not allowed for this account.",
+		},
+		internalErrorDetails: {
+			statusCode: 400,
+			statusText: "Bad Request",
+			responseText: "Upstream account access denied",
+		},
 		...overrides,
 	} as LogInsertData;
 }
@@ -56,6 +66,18 @@ describe("stripRetentionSensitiveLogFields", () => {
 		expect(stripped.rawResponse).toBeNull();
 		expect(stripped.upstreamRequest).toBeNull();
 		expect(stripped.upstreamResponse).toBeNull();
+	});
+
+	it("preserves public and internal error details", () => {
+		const input = baseLogData();
+		const stripped = stripRetentionSensitiveLogFields(input);
+
+		expect(stripped.errorDetails).toEqual(input.errorDetails);
+		expect(stripped.internalErrorDetails).toEqual(input.internalErrorDetails);
+		expect(
+			stripRetentionSensitiveLogFields(baseLogData({ errorDetails: null }))
+				.errorDetails,
+		).toBeNull();
 	});
 
 	it("nulls exactly the documented field list and nothing else", () => {

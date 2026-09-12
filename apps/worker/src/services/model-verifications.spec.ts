@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
 	encryptModelVerificationCredential,
 	encryptProviderKeyForStorage,
 } from "@llmgateway/actions";
-import { db, eq, tables } from "@llmgateway/db";
+import { db, eq, inArray, tables } from "@llmgateway/db";
 
 import {
 	claimNextModelVerification,
@@ -19,9 +19,18 @@ import type {
 } from "@llmgateway/db";
 
 const originalHashSecret = process.env.GATEWAY_API_KEY_HASH_SECRET;
+const STALE_AGE_MS = 60 * 60 * 1000;
 const companyIds: string[] = [];
 const providerKeyIds: string[] = [];
 const userIds: string[] = [];
+
+beforeEach(async () => {
+	await db
+		.delete(tables.providerModelVerification)
+		.where(
+			inArray(tables.providerModelVerification.status, ["queued", "running"]),
+		);
+});
 
 afterEach(async () => {
 	for (const id of providerKeyIds.splice(0)) {
@@ -242,5 +251,54 @@ describe("model verification worker", () => {
 			checks: replacementChecks,
 		});
 		expect(stored?.credentialCiphertext).not.toBeNull();
+	});
+
+	it("requeues a stale running job until the attempt ceiling", async () => {
+		const verificationId = await enqueueVerification();
+		const stale = new Date(Date.now() - STALE_AGE_MS);
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				status: "running",
+				attempts: 1,
+				startedAt: stale,
+				updatedAt: stale,
+			})
+			.where(eq(tables.providerModelVerification.id, verificationId));
+		const reclaimed = await claimNextModelVerification();
+		expect(reclaimed).toMatchObject({
+			id: verificationId,
+			status: "running",
+			attempts: 2,
+		});
+	});
+
+	it("fails a stale job terminally once the attempt ceiling is reached", async () => {
+		const verificationId = await enqueueVerification();
+		const stale = new Date(Date.now() - STALE_AGE_MS);
+		await db
+			.update(tables.providerModelVerification)
+			.set({
+				status: "running",
+				attempts: 3,
+				startedAt: stale,
+				updatedAt: stale,
+			})
+			.where(eq(tables.providerModelVerification.id, verificationId));
+		expect(await claimNextModelVerification()).toBeNull();
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: verificationId } },
+		});
+		expect(stored).toMatchObject({
+			status: "failed",
+			attempts: 3,
+			summary: "Verification timed out.",
+			credentialCiphertext: null,
+		});
+		expect(stored?.checks[0]).toMatchObject({
+			status: "failed",
+			feedback: "Verification timed out.",
+		});
+		expect(stored?.completedAt).toBeInstanceOf(Date);
 	});
 });

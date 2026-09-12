@@ -8,8 +8,6 @@ import { getPaymentIntentFromInvoicePayments } from "@/stripe.js";
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, tables } from "@llmgateway/db";
 import {
-	CHAT_PLAN_PRICES,
-	DEV_PLAN_PRICES,
 	DEV_PLAN_RESET_PASS_PRICES,
 	isRefundFeedbackComplete,
 	REFUND_COMMENTS_MAX_LENGTH,
@@ -17,7 +15,6 @@ import {
 	RESET_PASS_SELF_REFUND_WINDOW_DAYS,
 	SELF_REFUND_USAGE_PERCENT,
 	SELF_REFUND_WINDOW_DAYS,
-	type ChatPlanTier,
 	type DevPlanTier,
 } from "@llmgateway/shared";
 
@@ -259,31 +256,7 @@ function checkPlanEligibility(
 		return ineligible("not_latest_purchase");
 	}
 
-	const isFirstPurchase =
-		transaction.type === (isDev ? "dev_plan_start" : "chat_plan_start") &&
-		planPayments.length === 1;
-
-	if (isFirstPurchase) {
-		// First-ever plan purchase: threshold on the virtual credit allowance
-		// (deliberately more lenient, as a first-purchase guarantee).
-		if (
-			!creditsLimit.gt(0) ||
-			usageExceedsThreshold(creditsUsed, creditsLimit)
-		) {
-			return ineligible("usage_exceeded");
-		}
-		return { eligible: true };
-	}
-
-	// Renewals and re-subscribes: threshold on the dollar price instead of the
-	// virtual allowance. Virtual credits track provider cost, so at a 3x
-	// multiplier the threshold share of the allowance would leak three times as
-	// much of the payment in provider cost; gating on dollars caps the leak at
-	// the threshold share of revenue.
-	const price = isDev
-		? DEV_PLAN_PRICES[plan as DevPlanTier]
-		: CHAT_PLAN_PRICES[plan as ChatPlanTier];
-	if (!price || usageExceedsThreshold(creditsUsed, dec(price))) {
+	if (!creditsLimit.gt(0) || usageExceedsThreshold(creditsUsed, creditsLimit)) {
 		return ineligible("usage_exceeded");
 	}
 	return { eligible: true };

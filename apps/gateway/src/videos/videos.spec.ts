@@ -80,6 +80,47 @@ describe("videos", () => {
 		expect(statusRes.status).toBe(404);
 	});
 
+	test("/v1/videos rejects jobs while ZDR is active", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: {
+					enabled: true,
+					zeroDataRetention: true,
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-zdr-video-block",
+			...hashApiKeyForStorage("real-token-zdr-video-block"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		const response = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-zdr-video-block",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/kling-v3-0",
+				prompt: "Do not retain this video",
+				size: "1280x720",
+				seconds: 5,
+			}),
+		});
+
+		expect(response.status).toBe(400);
+		expect(await response.text()).toContain(
+			"video jobs require temporary output storage",
+		);
+		expect(await db.query.videoJob.findMany()).toHaveLength(0);
+	});
+
 	test("/v1/videos rejects non-https reference videos", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
@@ -285,6 +326,63 @@ describe("videos", () => {
 			aspect_ratio: "16:9",
 			sound: false,
 		});
+	});
+
+	test("/v1/videos does not persist prompts when retention is off", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				retentionLevel: "none",
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-zdr-video",
+			...hashApiKeyForStorage("real-token-zdr-video"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-atlascloud-zdr",
+			...encryptProviderKeyForStorage(
+				"atlascloud-test-token",
+				"provider-key-atlascloud-zdr",
+				"org-id",
+			),
+			provider: "atlascloud",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-zdr-video",
+			},
+			body: JSON.stringify({
+				model: "atlascloud/kling-v3-0",
+				prompt: "Do not persist this video prompt",
+				size: "1280x720",
+				seconds: 5,
+				audio: false,
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(videoJob?.prompt).toBe("");
+		expect(videoJob?.upstreamCreateResponse).not.toHaveProperty(
+			"llmgateway_raw_request",
+		);
+		expect(videoJob?.upstreamCreateResponse).not.toHaveProperty(
+			"llmgateway_upstream_request",
+		);
 	});
 
 	test("/v1/videos uploads AtlasCloud image-to-video frame inputs", async () => {
@@ -1595,6 +1693,7 @@ describe("videos", () => {
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
+				options: { google_vertex_project_id: "test-project" },
 			});
 
 			const createRes = await app.request("/v1/videos", {
@@ -1828,6 +1927,7 @@ describe("videos", () => {
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
+				options: { google_vertex_project_id: "test-project" },
 			});
 
 			const createRes = await app.request("/v1/videos", {
@@ -1913,6 +2013,7 @@ describe("videos", () => {
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
+				options: { google_vertex_project_id: "test-project" },
 			});
 
 			const createRes = await app.request("/v1/videos", {
@@ -1987,6 +2088,7 @@ describe("videos", () => {
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
+				options: { google_vertex_project_id: "test-project" },
 			});
 
 			const createRes = await app.request("/v1/videos", {
@@ -2070,6 +2172,7 @@ describe("videos", () => {
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
+				options: { google_vertex_project_id: "provider-project" },
 			});
 
 			const createRes = await app.request("/v1/videos", {
@@ -2196,6 +2299,7 @@ describe("videos", () => {
 				provider: "google-vertex",
 				organizationId: "org-id",
 				baseUrl: mockServerUrl,
+				options: { google_vertex_project_id: "test-project" },
 			});
 
 			const createRes = await app.request("/v1/videos", {

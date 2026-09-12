@@ -20,6 +20,8 @@ import { Label } from "@/lib/components/label";
 import { Switch } from "@/lib/components/switch";
 import { useFetchClient } from "@/lib/fetch-client";
 
+import { canManageProject } from "@llmgateway/shared/organization-roles";
+
 import { RoutingContactSalesCard } from "./routing-contact-sales-card";
 import { RoutingStrategyCard } from "./routing-strategy-card";
 
@@ -321,8 +323,7 @@ export function RoutingConfigClient({
 
 	const role = teamData?.members.find((m) => m.userId === user?.id)?.role;
 	const canManage =
-		selectedOrganization?.enterpriseAccess === true &&
-		(role === "owner" || role === "admin");
+		selectedOrganization?.enterpriseAccess === true && canManageProject(role);
 
 	const [state, setState] = useState<RoutingConfigState>(emptyState());
 	const [defaults, setDefaults] = useState<DefaultsResponse | null>(null);

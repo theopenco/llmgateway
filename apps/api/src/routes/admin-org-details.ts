@@ -204,6 +204,7 @@ const compliancePolicySchema = z.object({
 	requireGdpr: z.boolean().optional(),
 	blockApiTraining: z.boolean().optional(),
 	blockPromptLogging: z.boolean().optional(),
+	zeroDataRetention: z.boolean().optional(),
 	blockStealthProviders: z.boolean().optional(),
 	allowedCountries: z.array(z.string()).optional(),
 	blockedProviders: z.array(z.string()).optional(),

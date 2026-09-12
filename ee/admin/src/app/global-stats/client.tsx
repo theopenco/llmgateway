@@ -6,6 +6,8 @@ import {
 	Building2,
 	Coins,
 	Cpu,
+	Download,
+	FileDown,
 	Layers,
 	Server,
 	Wallet,
@@ -35,6 +37,12 @@ import {
 	resolveGlobalStatsRange,
 } from "@/components/global-stats-range-picker";
 import { OrgKindSelector, useOrgKind } from "@/components/org-kind-selector";
+import {
+	ProviderKeySelector,
+	providerKeyLabel,
+	useGlobalStatsProviderKeys,
+	useProviderKeyId,
+} from "@/components/provider-key-selector";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -52,11 +60,21 @@ import {
 	UsageModeSelector,
 	useUsageMode,
 } from "@/components/usage-mode-selector";
+import { downloadCsv } from "@/lib/download-csv";
 import { useApi } from "@/lib/fetch-client";
 import { buildGlobalStatsStackedChart } from "@/lib/global-stats-chart";
+import {
+	buildGlobalStatsBreakdownCsv,
+	buildGlobalStatsReportCsv,
+	buildGlobalStatsTimeseriesBreakdownCsv,
+	buildGlobalStatsTimeseriesCsv,
+	globalStatsExportFilename,
+} from "@/lib/global-stats-csv";
 import { orgKindDescription, orgKindLabel } from "@/lib/org-kind";
 import { usageModeDescription, usageModeLabel } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
+
+import { detectCsvFormat } from "@llmgateway/shared";
 
 import type { ChartConfig } from "@/components/ui/chart";
 import type { ReactNode } from "react";
@@ -290,7 +308,11 @@ export function GlobalStatsClient() {
 	const { allTime, from, to } = resolveGlobalStatsRange(searchParams);
 	const usageMode = useUsageMode();
 	const orgKind = useOrgKind();
-	const groupBy = parseGroupBy(searchParams.get("groupBy"));
+	const providerKeyId = useProviderKeyId();
+	// The per-credential rollup has no x-source dimension (see the API).
+	const requestedGroupBy = parseGroupBy(searchParams.get("groupBy"));
+	const groupBy =
+		providerKeyId && requestedGroupBy === "source" ? "model" : requestedGroupBy;
 	const chartMetric = parseMetric(searchParams.get("metric"));
 	const modelView = parseModelView(searchParams.get("modelView"));
 	const showTimeseriesBreakdown = parseBreakdown(searchParams.get("breakdown"));
@@ -311,7 +333,7 @@ export function GlobalStatsClient() {
 	// The range picker and the mode/kind selectors write to the URL directly, so
 	// reset pagination during render when any of them changes (each also
 	// re-sorts the breakdown).
-	const viewKey = `${allTime ? "all" : `${from}|${to}`}|${usageMode}|${orgKind}`;
+	const viewKey = `${allTime ? "all" : `${from}|${to}`}|${usageMode}|${orgKind}|${providerKeyId ?? ""}`;
 	const [lastViewKey, setLastViewKey] = useState(viewKey);
 	if (viewKey !== lastViewKey) {
 		setLastViewKey(viewKey);
@@ -360,10 +382,18 @@ export function GlobalStatsClient() {
 					modelView,
 					mode: usageMode,
 					kind: orgKind,
+					...(providerKeyId ? { providerKeyId } : {}),
 				},
 			},
 		},
 	);
+	const { data: providerKeysData } = useGlobalStatsProviderKeys();
+	const selectedProviderKey = providerKeyId
+		? providerKeysData?.providerKeys.find((key) => key.id === providerKeyId)
+		: undefined;
+	const providerKeyName = selectedProviderKey
+		? providerKeyLabel(selectedProviderKey)
+		: providerKeyId;
 
 	const rangeLabel = useMemo(() => {
 		const start = from ?? data?.start;
@@ -528,13 +558,25 @@ export function GlobalStatsClient() {
 	const scopeNotes = [
 		usageModeDescription(usageMode),
 		orgKindDescription(orgKind),
+		providerKeyId
+			? `Only requests served by provider key ${providerKeyName}; traffic served by env-var credentials is never attributed to a key.`
+			: null,
 	].filter(Boolean);
 	const scopeParts = [
 		orgKind === "all" ? null : orgKindLabel(orgKind),
 		usageMode === "total" ? null : usageModeLabel(usageMode),
+		providerKeyId ? `Key ${providerKeyName}` : null,
 	].filter((part): part is string => part !== null);
 	const scopeSuffix = scopeParts.map((label) => ` · ${label}`).join("");
-	const scopeLabel = scopeParts.length > 0 ? scopeParts.join(" · ") : "Total";
+	// Stat-card headings are uppercase and narrow; name the key in the
+	// descriptions but keep it to "Key" here.
+	const statScopeParts = [
+		orgKind === "all" ? null : orgKindLabel(orgKind),
+		usageMode === "total" ? null : usageModeLabel(usageMode),
+		providerKeyId ? "Key" : null,
+	].filter((part): part is string => part !== null);
+	const scopeLabel =
+		statScopeParts.length > 0 ? statScopeParts.join(" · ") : "Total";
 
 	const breakdownTotalPages = Math.max(
 		1,
@@ -547,26 +589,164 @@ export function GlobalStatsClient() {
 		breakdownStart + BREAKDOWN_PAGE_SIZE,
 	);
 
+	const exportDimension =
+		groupBy === "model"
+			? modelView === "provider"
+				? "provider"
+				: modelView === "canonical"
+					? "canonical model"
+					: "mapping"
+			: breakdownNounSingular.toLowerCase();
+	const exportScope = useMemo(
+		() => ({
+			start: from ?? data?.start ?? "",
+			end: to ?? data?.end ?? "",
+			allTime,
+			traffic: usageModeLabel(usageMode),
+			organization: orgKindLabel(orgKind),
+			groupBy:
+				GROUP_OPTIONS.find((opt) => opt.value === groupBy)?.label ?? groupBy,
+			modelView:
+				groupBy === "model"
+					? (MODEL_VIEW_OPTIONS.find((opt) => opt.value === modelView)?.label ??
+						modelView)
+					: null,
+			providerKeyId,
+			providerKeyLabel: providerKeyName,
+			metric: chartMetric,
+		}),
+		[
+			from,
+			to,
+			data?.start,
+			data?.end,
+			allTime,
+			usageMode,
+			orgKind,
+			groupBy,
+			modelView,
+			providerKeyId,
+			providerKeyName,
+			chartMetric,
+		],
+	);
+	const canExport = !isLoading && !isError && !!data;
+
+	const exportTimeseries = useCallback(() => {
+		const format = detectCsvFormat();
+		const csv = showTimeseriesBreakdown
+			? buildGlobalStatsTimeseriesBreakdownCsv(
+					{
+						dimension: exportDimension,
+						rankedBreakdown: sortedBreakdown,
+						timeseries,
+						timeseriesBreakdown,
+					},
+					format,
+				)
+			: buildGlobalStatsTimeseriesCsv(timeseries, format);
+		downloadCsv(
+			globalStatsExportFilename(
+				showTimeseriesBreakdown
+					? `daily-by-${exportDimension.replace(/\s+/g, "-")}`
+					: "daily",
+				exportScope,
+			),
+			csv,
+		);
+	}, [
+		showTimeseriesBreakdown,
+		sortedBreakdown,
+		timeseries,
+		timeseriesBreakdown,
+		exportDimension,
+		exportScope,
+	]);
+
+	const exportBreakdown = useCallback(() => {
+		downloadCsv(
+			globalStatsExportFilename(
+				`by-${exportDimension.replace(/\s+/g, "-")}`,
+				exportScope,
+			),
+			buildGlobalStatsBreakdownCsv(
+				{
+					dimension: exportDimension,
+					breakdown: sortedBreakdown,
+					metric: chartMetric,
+				},
+				detectCsvFormat(),
+			),
+		);
+	}, [exportDimension, exportScope, sortedBreakdown, chartMetric]);
+
+	const exportReport = useCallback(() => {
+		if (!totals) {
+			return;
+		}
+		downloadCsv(
+			globalStatsExportFilename("report", exportScope),
+			buildGlobalStatsReportCsv(
+				{
+					scope: exportScope,
+					generatedAt: new Date(),
+					totals,
+					composition: {
+						byMode: modeComposition ?? null,
+						byKind: kindComposition ?? null,
+					},
+					timeseries,
+					timeseriesBreakdown,
+					breakdown: sortedBreakdown,
+					dimension: exportDimension,
+				},
+				detectCsvFormat(),
+			),
+		);
+	}, [
+		totals,
+		exportScope,
+		modeComposition,
+		kindComposition,
+		timeseries,
+		timeseriesBreakdown,
+		sortedBreakdown,
+		exportDimension,
+	]);
+
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
 			<header className="space-y-5">
-				<div className="max-w-4xl">
-					<h1 className="text-3xl font-semibold tracking-tight">
-						Global Stats
-					</h1>
-					<p className="mt-1 text-sm text-muted-foreground">
-						Cross-organization usage aggregated by day, grouped by model,
-						x-source header, billing mode or organization kind.
-						{scopeNotes.length > 0 ? ` ${scopeNotes.join(" ")}` : ""}
-					</p>
-					{unattributedNote ? (
-						<p className="mt-1 text-xs text-muted-foreground">
-							{unattributedNote}
+				<div className="flex flex-wrap items-start justify-between gap-4">
+					<div className="max-w-4xl">
+						<h1 className="text-3xl font-semibold tracking-tight">
+							Global Stats
+						</h1>
+						<p className="mt-1 text-sm text-muted-foreground">
+							Cross-organization usage aggregated by day, grouped by model,
+							x-source header, billing mode or organization kind.
+							{scopeNotes.length > 0 ? ` ${scopeNotes.join(" ")}` : ""}
 						</p>
-					) : null}
+						{unattributedNote ? (
+							<p className="mt-1 text-xs text-muted-foreground">
+								{unattributedNote}
+							</p>
+						) : null}
+					</div>
+					<Button
+						variant="outline"
+						size="sm"
+						className="h-8 gap-1.5 px-3 text-xs"
+						disabled={!canExport}
+						onClick={exportReport}
+						title={`Download every section for ${rangeLabel} as one CSV report`}
+					>
+						<FileDown className="h-3.5 w-3.5" aria-hidden />
+						Generate report
+					</Button>
 				</div>
 				<div className="rounded-xl border border-border/60 bg-card/70 p-3 shadow-sm">
-					<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[auto_auto_minmax(0,1fr)_auto] xl:items-end">
+					<div className="flex flex-wrap items-end gap-x-5 gap-y-3">
 						<ToolbarGroup label="Traffic">
 							<UsageModeSelector
 								compact
@@ -576,6 +756,9 @@ export function GlobalStatsClient() {
 						<ToolbarGroup label="Organization">
 							<OrgKindSelector compact className="w-fit max-w-full flex-wrap" />
 						</ToolbarGroup>
+						<ToolbarGroup label="Provider key">
+							<ProviderKeySelector />
+						</ToolbarGroup>
 						<ToolbarGroup label="Break down by">
 							<div
 								className="flex w-fit max-w-full flex-wrap items-center gap-1 rounded-md border border-border/60 bg-background p-1"
@@ -584,6 +767,8 @@ export function GlobalStatsClient() {
 							>
 								{GROUP_OPTIONS.map((opt) => {
 									const Icon = opt.icon;
+									const unavailable =
+										opt.value === "source" && providerKeyId !== null;
 									return (
 										<Button
 											key={opt.value}
@@ -591,6 +776,12 @@ export function GlobalStatsClient() {
 											size="sm"
 											className="h-7 gap-1.5 px-3 text-xs"
 											aria-pressed={groupBy === opt.value}
+											disabled={unavailable}
+											title={
+												unavailable
+													? "x-source is not tracked per provider key"
+													: undefined
+											}
 											onClick={() => setGroupBy(opt.value)}
 										>
 											<Icon className="h-3.5 w-3.5" aria-hidden />
@@ -600,7 +791,7 @@ export function GlobalStatsClient() {
 								})}
 							</div>
 						</ToolbarGroup>
-						<ToolbarGroup label="Range">
+						<ToolbarGroup label="Range" className="ml-auto">
 							<GlobalStatsRangePicker />
 						</ToolbarGroup>
 					</div>
@@ -778,6 +969,18 @@ export function GlobalStatsClient() {
 						</ToolbarGroup>
 						<ToolbarGroup label="Chart">
 							<ChartTypeToggle value={chartType} onValueChange={setChartType} />
+						</ToolbarGroup>
+						<ToolbarGroup label="Export" className="ml-auto">
+							<Button
+								variant="outline"
+								size="sm"
+								className="h-8 gap-1.5 px-3 text-xs"
+								disabled={!canExport || timeseries.length === 0}
+								onClick={exportTimeseries}
+							>
+								<Download className="h-3.5 w-3.5" aria-hidden />
+								CSV
+							</Button>
 						</ToolbarGroup>
 					</div>
 				</CardHeader>
@@ -1006,6 +1209,18 @@ export function GlobalStatsClient() {
 									),
 								)}
 							</div>
+						</ToolbarGroup>
+						<ToolbarGroup label="Export" className="ml-auto">
+							<Button
+								variant="outline"
+								size="sm"
+								className="h-8 gap-1.5 px-3 text-xs"
+								disabled={!canExport || sortedBreakdown.length === 0}
+								onClick={exportBreakdown}
+							>
+								<Download className="h-3.5 w-3.5" aria-hidden />
+								CSV
+							</Button>
 						</ToolbarGroup>
 					</div>
 				</CardHeader>

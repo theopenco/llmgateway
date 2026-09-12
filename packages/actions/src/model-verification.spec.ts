@@ -9,6 +9,10 @@ import {
 
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
 
+vi.mock("./gcp-access-token.js", () => ({
+	getGcpServiceAccountAccessToken: vi.fn(async () => "derived-access-token"),
+}));
+
 const target: ProviderModelVerificationTarget = {
 	providerId: "openai",
 	modelName: "verification-model",
@@ -382,6 +386,35 @@ describe("model verification", () => {
 		expect(
 			result.checks.slice(1).every((check) => check.status === "skipped"),
 		).toBe(true);
+	});
+
+	it("redacts the derived access token on failure paths", async () => {
+		const fetchImplementation = vi
+			.fn<typeof fetch>()
+			.mockResolvedValue(
+				new Response(
+					JSON.stringify({ error: { message: "bad derived-access-token" } }),
+					{ status: 401 },
+				),
+			);
+		const result = await runProviderModelVerification({
+			target: { ...target, providerId: "google-vertex" },
+			token: '{"type":"service_account"}',
+			providerKeyOptions: {
+				google_vertex_project_id: "verification-project",
+				google_vertex_token_type: "oauth",
+			},
+			skipEnvVars: true,
+			fetchImplementation,
+		});
+		expect(result.passed).toBe(false);
+		expect(fetchImplementation).toHaveBeenCalledTimes(1);
+		const [, request] = fetchImplementation.mock.calls[0];
+		expect(request?.headers).toMatchObject({
+			Authorization: "Bearer derived-access-token",
+		});
+		expect(JSON.stringify(result)).not.toContain("derived-access-token");
+		expect(result.checks[0]).toMatchObject({ status: "failed" });
 	});
 
 	it("binds supplied credentials to one verification and company", () => {

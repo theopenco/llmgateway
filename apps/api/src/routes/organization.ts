@@ -11,6 +11,7 @@ import {
 } from "@/lib/self-refund.js";
 import {
 	getUserProjectIds,
+	getAdminOrganizationIds,
 	userHasOrganizationAccess,
 } from "@/utils/authorization.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
@@ -21,7 +22,12 @@ import {
 	isRefundTransaction,
 } from "@/utils/invoice.js";
 import { providerCacheControlModeSchema } from "@/utils/provider-cache-control.js";
+import { serializeOrganization } from "@/utils/serialize-organization.js";
 import { isConfigurableDomain, normalizeDomain } from "@/utils/sso-domain.js";
+import {
+	isZeroDataRetentionEnabled,
+	zdrCachingConflictMessage,
+} from "@/utils/zdr-settings.js";
 
 import {
 	getOrgTierQualifyingSpendUsd,
@@ -29,6 +35,7 @@ import {
 } from "@llmgateway/actions";
 import { logAuditEvent } from "@llmgateway/audit";
 import { redisClient } from "@llmgateway/cache";
+import { organizationBillingFields } from "@llmgateway/db";
 import {
 	and,
 	cdb,
@@ -61,6 +68,7 @@ import {
 	spendMonthlyKey,
 } from "@llmgateway/shared";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -86,6 +94,9 @@ const customProviderRefRegex = new RegExp(
 const customModelRefRegex = new RegExp(
 	`^${CUSTOM_PROVIDER_NAME_REGEX.source.slice(1, -1)}/.+$`,
 );
+
+const zdrRetentionConflictMessage =
+	"Zero data retention requires Metadata Only. Disable payload retention before enabling ZDR, or disable ZDR before enabling payload retention.";
 
 const complianceProviderRefSchema = z
 	.string()
@@ -115,6 +126,7 @@ const providerCompliancePolicySchema = z.object({
 	requireGdpr: z.boolean().optional(),
 	blockApiTraining: z.boolean().optional(),
 	blockPromptLogging: z.boolean().optional(),
+	zeroDataRetention: z.boolean().optional(),
 	blockStealthProviders: z.boolean().optional(),
 	allowedCountries: z
 		.array(
@@ -129,82 +141,84 @@ const providerCompliancePolicySchema = z.object({
 	allowedModels: z.array(complianceModelRefSchema).max(500).optional(),
 });
 
-const organizationSchema = z.object({
-	id: z.string(),
-	createdAt: z.date(),
-	updatedAt: z.date(),
-	name: z.string(),
-	logo: z.string().nullable(),
-	billingEmail: z.string(),
-	billingCompany: z.string().nullable(),
-	billingAddress: z.string().nullable(),
-	billingTaxId: z.string().nullable(),
-	billingNotes: z.string().nullable(),
-	credits: z.string(),
-	plan: z.enum(["free", "pro", "enterprise"]),
-	planExpiresAt: z.date().nullable(),
-	// Start of the current plan term; null when it was never recorded.
-	planStartedAt: z.date().nullable(),
-	// Enterprise trial window. While `isTrialActive` is set, the trial end is
-	// the date that decides whether the org keeps its enterprise features.
-	isTrialActive: z.boolean(),
-	trialStartDate: z.date().nullable(),
-	trialEndDate: z.date().nullable(),
-	// Manual seat-limit override; null = use the plan default.
-	seats: z.number().nullable(),
-	// Manual API-key-limit override; null = use the plan default.
-	apiKeyLimit: z.number().nullable(),
-	// Manual project-limit override; null = use the plan default.
-	projectLimit: z.number().nullable(),
-	retentionLevel: z.enum(["retain", "none"]),
-	providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
-	ssoAutoJoinDomain: z.string().nullable(),
-	status: z.enum(["active", "inactive", "deleted"]).nullable(),
-	autoTopUpEnabled: z.boolean(),
-	autoTopUpThreshold: z.string().nullable(),
-	autoTopUpAmount: z.string().nullable(),
-	referralEarnings: z.string(),
-	referralBonusEnabled: z.boolean(),
-	referralBonusPercent: z.string(),
-	// Organization kind: "default" (regular dashboard org), "devpass" (per-user
-	// Dev Plans org), or "chat" (per-user lounge.llmgateway.io org).
-	kind: z.enum(["default", "chat", "devpass"]),
-	devPlan: z.enum(["none", "lite", "pro", "max"]),
-	devPlanCycle: z.enum(["monthly", "annual"]),
-	devPlanCreditsUsed: z.string(),
-	devPlanCreditsLimit: z.string(),
-	devPlanPremiumCreditsUsed: z.string(),
-	devPlanPremiumWeekStart: z.date().nullable(),
-	devPlanResetPassesLite: z.number(),
-	devPlanResetPassesPro: z.number(),
-	devPlanResetPassesMax: z.number(),
-	devPlanIncludedResetPassesUsed: z.number(),
-	devPlanBillingCycleStart: z.date().nullable(),
-	devPlanExpiresAt: z.date().nullable(),
-	devPlanServiceTier: z.enum(["default", "flex"]),
-	devPlanPaygEnabled: z.boolean(),
-	devPlanBillingOverride: z.boolean(),
-	// Chat Plans fields
-	chatPlan: z.enum(["none", "starter", "plus", "pro"]),
-	chatPlanCycle: z.enum(["monthly"]),
-	chatPlanCreditsUsed: z.string(),
-	chatPlanCreditsLimit: z.string(),
-	chatPlanBillingCycleStart: z.date().nullable(),
-	chatPlanExpiresAt: z.date().nullable(),
-	// Org-wide default developer budget (managed on the Teams page).
-	defaultDeveloperMaxApiKeys: z.number().nullable(),
-	defaultDeveloperUsageLimit: z.string().nullable(),
-	defaultDeveloperPeriodUsageLimit: z.string().nullable(),
-	defaultDeveloperPeriodUsageDurationValue: z.number().nullable(),
-	defaultDeveloperPeriodUsageDurationUnit: z
-		.enum(["hour", "day", "week", "month"])
-		.nullable(),
-	// The authenticated user's role in this org. Populated by GET /orgs so the
-	// dashboard can gate org-level UI (e.g. hide org nav from project-scoped
-	// "developer" members). Omitted by single-org endpoints.
-	role: z.enum(["owner", "admin", "developer"]).optional(),
-	enterpriseAccess: z.boolean().optional(),
-});
+const organizationSchema = z
+	.object({
+		id: z.string(),
+		createdAt: z.date(),
+		updatedAt: z.date(),
+		name: z.string(),
+		logo: z.string().nullable(),
+		billingEmail: z.string(),
+		billingCompany: z.string().nullable(),
+		billingAddress: z.string().nullable(),
+		billingTaxId: z.string().nullable(),
+		billingNotes: z.string().nullable(),
+		credits: z.string(),
+		plan: z.enum(["free", "pro", "enterprise"]),
+		planExpiresAt: z.date().nullable(),
+		// Start of the current plan term; null when it was never recorded.
+		planStartedAt: z.date().nullable(),
+		// Enterprise trial window. While `isTrialActive` is set, the trial end is
+		// the date that decides whether the org keeps its enterprise features.
+		isTrialActive: z.boolean(),
+		trialStartDate: z.date().nullable(),
+		trialEndDate: z.date().nullable(),
+		// Manual seat-limit override; null = use the plan default.
+		seats: z.number().nullable(),
+		// Manual API-key-limit override; null = use the plan default.
+		apiKeyLimit: z.number().nullable(),
+		// Manual project-limit override; null = use the plan default.
+		projectLimit: z.number().nullable(),
+		retentionLevel: z.enum(["retain", "none"]),
+		providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
+		ssoAutoJoinDomain: z.string().nullable(),
+		status: z.enum(["active", "inactive", "deleted"]).nullable(),
+		autoTopUpEnabled: z.boolean(),
+		autoTopUpThreshold: z.string().nullable(),
+		autoTopUpAmount: z.string().nullable(),
+		referralEarnings: z.string(),
+		referralBonusEnabled: z.boolean(),
+		referralBonusPercent: z.string(),
+		// Organization kind: "default" (regular dashboard org), "devpass" (per-user
+		// Dev Plans org), or "chat" (per-user lounge.llmgateway.io org).
+		kind: z.enum(["default", "chat", "devpass"]),
+		devPlan: z.enum(["none", "lite", "pro", "max"]),
+		devPlanCycle: z.enum(["monthly", "annual"]),
+		devPlanCreditsUsed: z.string(),
+		devPlanCreditsLimit: z.string(),
+		devPlanPremiumCreditsUsed: z.string(),
+		devPlanPremiumWeekStart: z.date().nullable(),
+		devPlanResetPassesLite: z.number(),
+		devPlanResetPassesPro: z.number(),
+		devPlanResetPassesMax: z.number(),
+		devPlanIncludedResetPassesUsed: z.number(),
+		devPlanBillingCycleStart: z.date().nullable(),
+		devPlanExpiresAt: z.date().nullable(),
+		devPlanServiceTier: z.enum(["default", "flex"]),
+		devPlanPaygEnabled: z.boolean(),
+		devPlanBillingOverride: z.boolean(),
+		// Chat Plans fields
+		chatPlan: z.enum(["none", "starter", "plus", "pro"]),
+		chatPlanCycle: z.enum(["monthly"]),
+		chatPlanCreditsUsed: z.string(),
+		chatPlanCreditsLimit: z.string(),
+		chatPlanBillingCycleStart: z.date().nullable(),
+		chatPlanExpiresAt: z.date().nullable(),
+		// Org-wide default developer budget (managed on the Teams page).
+		defaultDeveloperMaxApiKeys: z.number().nullable(),
+		defaultDeveloperUsageLimit: z.string().nullable(),
+		defaultDeveloperPeriodUsageLimit: z.string().nullable(),
+		defaultDeveloperPeriodUsageDurationValue: z.number().nullable(),
+		defaultDeveloperPeriodUsageDurationUnit: z
+			.enum(["hour", "day", "week", "month"])
+			.nullable(),
+		// The authenticated user's role in this org. Populated by GET /orgs so the
+		// dashboard can gate org-level UI (e.g. hide org nav from project-scoped
+		// "developer" members). Omitted by single-org endpoints.
+		role: z.enum(["owner", "admin", "project_admin", "developer"]).optional(),
+		enterpriseAccess: z.boolean().optional(),
+	})
+	.partial(organizationBillingFields);
 
 const projectSchema = z.object({
 	id: z.string(),
@@ -391,7 +405,7 @@ organization.openapi(getOrganizations, async (c) => {
 
 	let organizations = userOrganizations
 		.map((uo) => ({
-			...uo.organization!,
+			...serializeOrganization(uo.organization!, uo.role),
 			role: uo.role,
 			enterpriseAccess: hasOrganizationEnterpriseAccess(
 				uo.organization?.id,
@@ -417,7 +431,7 @@ organization.openapi(getOrganizations, async (c) => {
 		) {
 			organizations = [
 				{
-					...defaultOrganization,
+					...serializeOrganization(defaultOrganization, "owner"),
 					role: "owner" as const,
 					enterpriseAccess: hasOrganizationEnterpriseAccess(
 						defaultOrganization.id,
@@ -586,7 +600,7 @@ organization.openapi(createOrganization, async (c) => {
 	});
 
 	return c.json({
-		organization: newOrganization,
+		organization: serializeOrganization(newOrganization, "owner"),
 	});
 });
 
@@ -688,6 +702,12 @@ organization.openapi(updateOrganization, async (c) => {
 		});
 	}
 
+	if (!isOrganizationAdmin(userOrganization.role)) {
+		throw new HTTPException(403, {
+			message: "Only owners and admins can update organization settings",
+		});
+	}
+
 	// Check if user is trying to update policies or billing settings
 	const isBillingOrPolicyUpdate =
 		billingEmail !== undefined ||
@@ -760,6 +780,43 @@ organization.openapi(updateOrganization, async (c) => {
 		) {
 			throw new HTTPException(403, {
 				message: "Provider compliance policies require an enterprise plan",
+			});
+		}
+	}
+
+	const effectiveCompliancePolicy =
+		providerCompliancePolicy === undefined
+			? userOrganization.organization!.providerCompliancePolicy
+			: providerCompliancePolicy;
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled({
+		...userOrganization.organization!,
+		providerCompliancePolicy: effectiveCompliancePolicy,
+	});
+	const nextRetentionLevel =
+		retentionLevel ?? userOrganization.organization!.retentionLevel;
+
+	if (
+		(retentionLevel !== undefined || providerCompliancePolicy !== undefined) &&
+		zeroDataRetentionEnabled &&
+		nextRetentionLevel === "retain"
+	) {
+		throw new HTTPException(400, {
+			message: zdrRetentionConflictMessage,
+		});
+	}
+
+	if (providerCompliancePolicy !== undefined && zeroDataRetentionEnabled) {
+		const cachedProject = await db.query.project.findFirst({
+			columns: { id: true },
+			where: {
+				organizationId: { eq: id },
+				cachingEnabled: { eq: true },
+				status: { ne: "deleted" },
+			},
+		});
+		if (cachedProject) {
+			throw new HTTPException(400, {
+				message: zdrCachingConflictMessage,
 			});
 		}
 	}
@@ -852,13 +909,31 @@ organization.openapi(updateOrganization, async (c) => {
 	if (Object.keys(updateData).length === 0) {
 		updatedOrganization = userOrganization.organization!;
 	} else {
+		const updateConditions = [eq(tables.organization.id, id)];
+		if (retentionLevel === "retain" && providerCompliancePolicy === undefined) {
+			// Re-check the stored policy at write time so a concurrent ZDR enable
+			// cannot race payload retention on. The column is `json`, which has no
+			// equality operator, so test the flags instead of comparing the value.
+			const policyColumn = tables.organization.providerCompliancePolicy;
+			updateConditions.push(
+				sql`coalesce((${policyColumn}::jsonb ->> 'enabled')::boolean and (${policyColumn}::jsonb ->> 'zeroDataRetention')::boolean, false) = false`,
+			);
+		}
+		if (
+			providerCompliancePolicy !== undefined &&
+			zeroDataRetentionEnabled &&
+			retentionLevel === undefined
+		) {
+			updateConditions.push(eq(tables.organization.retentionLevel, "none"));
+		}
+
 		try {
 			// Cached client so gateway policy gates see compliance changes
 			// immediately instead of serving the previous organization row.
 			[updatedOrganization] = await cdb
 				.update(tables.organization)
 				.set(updateData)
-				.where(eq(tables.organization.id, id))
+				.where(and(...updateConditions))
 				.returning();
 		} catch (err) {
 			const code =
@@ -870,6 +945,11 @@ organization.openapi(updateOrganization, async (c) => {
 				});
 			}
 			throw err;
+		}
+		if (!updatedOrganization) {
+			throw new HTTPException(400, {
+				message: zdrRetentionConflictMessage,
+			});
 		}
 	}
 
@@ -1015,7 +1095,10 @@ organization.openapi(updateOrganization, async (c) => {
 
 	return c.json({
 		message: "Organization updated successfully",
-		organization: updatedOrganization,
+		organization: serializeOrganization(
+			updatedOrganization,
+			userOrganization.role,
+		),
 	});
 });
 
@@ -1091,6 +1174,12 @@ organization.openapi(deleteOrganization, async (c) => {
 	) {
 		throw new HTTPException(404, {
 			message: "Organization not found",
+		});
+	}
+
+	if (userOrganization.role !== "owner") {
+		throw new HTTPException(403, {
+			message: "Only owners can delete organizations",
 		});
 	}
 
@@ -1175,6 +1264,12 @@ organization.openapi(getTransactions, async (c) => {
 	if (!userOrganization?.organization) {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
+		});
+	}
+
+	if (!isOrganizationAdmin(userOrganization.role)) {
+		throw new HTTPException(403, {
+			message: "Only owners and admins can view transactions",
 		});
 	}
 
@@ -1339,7 +1434,7 @@ organization.openapi(downloadTransactionInvoice, async (c) => {
 
 	const { id, transactionId } = c.req.param();
 
-	const hasAccess = await userHasOrganizationAccess(user.id, id);
+	const hasAccess = (await getAdminOrganizationIds(user.id)).includes(id);
 	if (!hasAccess) {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
@@ -1431,7 +1526,7 @@ organization.openapi(getReferralStats, async (c) => {
 
 	const { id } = c.req.param();
 
-	const hasAccess = await userHasOrganizationAccess(user.id, id);
+	const hasAccess = (await getAdminOrganizationIds(user.id)).includes(id);
 	if (!hasAccess) {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
@@ -1497,7 +1592,7 @@ organization.openapi(getOrgDiscounts, async (c) => {
 
 	const { id } = c.req.param();
 
-	const hasAccess = await userHasOrganizationAccess(user.id, id);
+	const hasAccess = (await getAdminOrganizationIds(user.id)).includes(id);
 	if (!hasAccess) {
 		throw new HTTPException(403, {
 			message: "You do not have access to this organization",
@@ -1572,7 +1667,7 @@ organization.openapi(getCreditsRunway, async (c) => {
 	// Runway aggregates spend across every project in the org, including ones a
 	// developer was never granted, so it is owner/admin only. The dashboard hides
 	// the credits widget from developers anyway.
-	if (membership.role === "developer") {
+	if (!isOrganizationAdmin(membership.role)) {
 		throw new HTTPException(403, {
 			message: "Only organization owners and admins can view credits runway",
 		});
@@ -1723,7 +1818,7 @@ organization.openapi(getOrganizationLimits, async (c) => {
 	}
 	// Spend and org-wide caps are financial data, so developers (project-scoped
 	// members) are excluded, mirroring the credits-runway endpoint.
-	if (membership.role === "developer") {
+	if (!isOrganizationAdmin(membership.role)) {
 		throw new HTTPException(403, {
 			message: "Only organization owners and admins can view limits",
 		});

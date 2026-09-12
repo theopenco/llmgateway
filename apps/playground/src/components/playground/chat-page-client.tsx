@@ -41,6 +41,7 @@ import { useMcpServers } from "@/hooks/useMcpServers";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useSkills, type Skill } from "@/hooks/useSkills";
 import { useUser } from "@/hooks/useUser";
+import { organizationCreditErrorMessage } from "@/lib/credit-error";
 import { useApi } from "@/lib/fetch-client";
 import { getModelImageConfig } from "@/lib/image-gen";
 import { parseImageFile } from "@/lib/image-utils";
@@ -52,6 +53,8 @@ import {
 } from "@/lib/model-utils";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 import { getErrorMessage } from "@/lib/utils";
+
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type {
 	ApiModel,
@@ -250,6 +253,7 @@ function buildEditedUserMessage(
 }
 
 interface ChatPageClientProps {
+	initiallySignedOut?: boolean;
 	models: ApiModel[];
 	providers: ApiProvider[];
 	organizations: Organization[];
@@ -292,6 +296,7 @@ function getSelectedMapping(
 }
 
 export default function ChatPageClient({
+	initiallySignedOut = false,
 	models,
 	providers,
 	organizations,
@@ -437,7 +442,12 @@ export default function ChatPageClient({
 				streamingChatIdRef.current = null;
 				isSendingRef.current = false;
 				errorOccurredRef.current = true;
-				const msg = getErrorMessage(e);
+				const msg = selectedOrganization
+					? organizationCreditErrorMessage(
+							getErrorMessage(e),
+							selectedOrganization.role,
+						)
+					: getErrorMessage(e);
 				setError(msg);
 				toast.error(msg);
 
@@ -1134,7 +1144,7 @@ export default function ChatPageClient({
 	]);
 
 	const isAuthenticated = !isUserLoading && !!user;
-	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
+	const showAuthDialog = !user && (!isUserLoading || initiallySignedOut);
 
 	const returnUrl = useMemo(() => {
 		const search = searchParams.toString();
@@ -1147,6 +1157,9 @@ export default function ChatPageClient({
 		projectId: string;
 		request: Promise<void>;
 	} | null>(null);
+	// Bumped on logout/project reset so a stale in-flight request cannot mark
+	// the next session as ensured.
+	const ensureKeyGenerationRef = useRef(0);
 
 	const ensurePlaygroundKey = useCallback(async () => {
 		if (!isAuthenticated || !selectedProject) {
@@ -1162,6 +1175,7 @@ export default function ChatPageClient({
 			return;
 		}
 
+		const generation = ensureKeyGenerationRef.current;
 		const request = (async () => {
 			const response = await fetch("/api/ensure-playground-key", {
 				method: "POST",
@@ -1173,7 +1187,9 @@ export default function ChatPageClient({
 					`Failed to prepare chat credentials (${response.status}).`,
 				);
 			}
-			ensuredProjectRef.current = projectId;
+			if (ensureKeyGenerationRef.current === generation) {
+				ensuredProjectRef.current = projectId;
+			}
 		})();
 		ensureKeyRequestRef.current = { projectId, request };
 
@@ -1190,7 +1206,9 @@ export default function ChatPageClient({
 	useEffect(() => {
 		// Reset ref when user logs out or project is unset
 		if (!isAuthenticated || !selectedProject) {
+			ensureKeyGenerationRef.current += 1;
 			ensuredProjectRef.current = null;
+			ensureKeyRequestRef.current = null;
 			return;
 		}
 
@@ -1256,7 +1274,10 @@ export default function ChatPageClient({
 		if (selectedOrganization) {
 			// Chat plan credits live on the Chat org and never fund dashboard-org
 			// requests, so only the org's own credits count here.
-			if (Number(selectedOrganization.credits) <= 0) {
+			if (
+				isOrganizationAdmin(selectedOrganization.role) &&
+				Number(selectedOrganization.credits) <= 0
+			) {
 				setShowTopUp(true);
 				return false;
 			}
@@ -2301,6 +2322,7 @@ export default function ChatPageClient({
 											className="hidden md:flex flex-col h-full min-h-0"
 										>
 											<ExtraChatPanel
+												organizationRole={selectedOrganization?.role}
 												panelIndex={index + 2}
 												models={models}
 												providers={providers}
@@ -2429,6 +2451,7 @@ export default function ChatPageClient({
 	);
 }
 interface ExtraChatPanelProps {
+	organizationRole?: string;
 	panelIndex: number;
 	models: ApiModel[];
 	providers: ApiProvider[];
@@ -2454,6 +2477,7 @@ interface ExtraChatPanelProps {
 }
 
 function ExtraChatPanel({
+	organizationRole,
 	panelIndex,
 	models,
 	providers,
@@ -2574,7 +2598,9 @@ function ExtraChatPanel({
 	const { messages, setMessages, sendMessage, status, stop, regenerate } =
 		useChat({
 			onError: async (e) => {
-				const msg = getErrorMessage(e);
+				const msg = organizationRole
+					? organizationCreditErrorMessage(getErrorMessage(e), organizationRole)
+					: getErrorMessage(e);
 				toast.error(msg);
 			},
 			onFinish: async ({ message }) => {

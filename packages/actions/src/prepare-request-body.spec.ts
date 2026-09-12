@@ -102,8 +102,9 @@ async function prepareMetaImageRequest(imageConfig: {
 }
 
 async function prepareOpenAITextRequest(options: {
-	provider?: "openai" | "azure";
+	provider?: "openai" | "azure" | "aws-mantle";
 	model?: string;
+	region?: string;
 	useResponsesApi?: boolean;
 	promptCacheKey?: string;
 	promptCacheRetention?: "in_memory" | "24h";
@@ -117,8 +118,8 @@ async function prepareOpenAITextRequest(options: {
 	return await prepareRequestBody(
 		options.provider ?? "openai",
 		model,
-		null,
-		model,
+		options.region ?? null,
+		options.provider === "aws-mantle" ? `openai.${model}` : model,
 		(options.messages as any) ?? [{ role: "user", content: "Hello!" }],
 		false,
 		undefined,
@@ -1982,6 +1983,48 @@ describe("prepareRequestBody - Fireworks service tiers", () => {
 	});
 });
 
+describe("prepareRequestBody - reasoning summaries", () => {
+	test.each([
+		{ region: "global", prefix: "global." },
+		{ region: "us", prefix: "us." },
+		{ region: "us-west-2", prefix: "" },
+	])("routes Astra through the $region profile", async ({ region, prefix }) => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "aws-mantle",
+			model: "gpt-6-astra",
+			region,
+			useResponsesApi: true,
+		})) as OpenAIResponsesRequestBody;
+
+		expect(requestBody.model).toBe(`${prefix}openai.gpt-6-astra`);
+		expect(requestBody.reasoning).toEqual({
+			effort: "medium",
+			summary: "auto",
+		});
+		expect(requestBody.store).toBe(false);
+	});
+
+	test.each([
+		{ provider: "aws-mantle", model: "gpt-6-astra", summary: "auto" },
+		{ provider: "aws-mantle", model: "gpt-5.6-sol", summary: "detailed" },
+		{ provider: "openai", model: "gpt-6-astra", summary: "detailed" },
+	] as const)(
+		"uses the summary mode for $provider/$model",
+		async ({ provider, model, summary }) => {
+			const requestBody = (await prepareOpenAITextRequest({
+				provider,
+				model,
+				useResponsesApi: true,
+			})) as OpenAIResponsesRequestBody;
+
+			expect(requestBody.reasoning).toEqual({
+				effort: "medium",
+				summary,
+			});
+		},
+	);
+});
+
 describe("prepareRequestBody - verbosity", () => {
 	test("forwards verbosity to gpt-5.6 chat completions", async () => {
 		const requestBody = (await prepareOpenAITextRequest({
@@ -2739,7 +2782,25 @@ describe("prepareRequestBody - Alibaba thinking", () => {
 		expect(requestBody.reasoning_effort).toBeUndefined();
 	});
 
-	test("sends nothing for mappings without budget-controlled thinking", async () => {
+	test.each([
+		"none",
+		"minimal",
+		"low",
+		"medium",
+		"high",
+		"xhigh",
+		"max",
+	] as const)(
+		"forwards native %s effort for kimi-k3",
+		async (reasoningEffort) => {
+			const requestBody = await prepare({ model: "kimi-k3", reasoningEffort });
+			expect(requestBody.reasoning_effort).toBe(reasoningEffort);
+			expect(requestBody.enable_thinking).toBeUndefined();
+			expect(requestBody.thinking_budget).toBeUndefined();
+		},
+	);
+
+	test("sends nothing for mappings without reasoning controls", async () => {
 		const requestBody = await prepare({
 			model: "qwq-plus",
 			reasoningEffort: "high",
@@ -7302,7 +7363,12 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 		provider: Parameters<typeof prepareRequestBody>[0],
 		model: string,
 		messages: Parameters<typeof prepareRequestBody>[4],
-		opts: { promptCacheKey?: string; sessionId?: string } = {},
+		opts: {
+			promptCacheKey?: string;
+			promptCacheRetention?: "in_memory" | "24h";
+			sessionId?: string;
+			providerCacheControlMode?: ProviderCacheControlMode;
+		} = {},
 	) {
 		return (await prepareRequestBody(
 			provider,
@@ -7332,14 +7398,17 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 			undefined, // reasoning_max_tokens
 			undefined, // useResponsesApi
 			opts.promptCacheKey,
-			undefined, // prompt_cache_retention
-			"auto", // providerCacheControlMode
+			opts.promptCacheRetention,
+			opts.providerCacheControlMode ?? "auto",
 			undefined, // n
 			undefined, // service_tier
 			undefined, // verbosity
 			undefined, // prompt_cache_options
 			opts.sessionId,
-		)) as { prompt_cache_key?: string };
+		)) as {
+			prompt_cache_key?: string;
+			prompt_cache_retention?: string;
+		};
 	}
 
 	const conversation = [
@@ -7462,6 +7531,29 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 
 		expect(openai.prompt_cache_key).toBeUndefined();
 		expect(azure.prompt_cache_key).toBeUndefined();
+	});
+
+	test("cache-off mode omits all upstream cache-routing keys", async () => {
+		for (const [provider, model] of [
+			["meta", "muse-spark-1.1"],
+			["openai", "gpt-5-mini"],
+			["openai", "gpt-4o-mini"],
+			["azure", "gpt-5-mini"],
+		] as const) {
+			const requestBody = await prepareCacheKeyRequest(
+				provider,
+				model,
+				conversation,
+				{
+					promptCacheKey: "caller-session-key",
+					promptCacheRetention: "in_memory",
+					sessionId: "sess-123",
+					providerCacheControlMode: "off",
+				},
+			);
+			expect(requestBody.prompt_cache_key).toBeUndefined();
+			expect(requestBody.prompt_cache_retention).toBeUndefined();
+		}
 	});
 
 	test("sakana: never receives a prompt_cache_key", async () => {

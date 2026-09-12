@@ -65,6 +65,8 @@ export interface ApiModelProviderMapping {
 	webSearch: boolean | null;
 	webSearchPrice: string | null;
 	realtime?: boolean | null;
+	realtimeTranscription?: boolean | null;
+	realtimeTranscriptionTurnDetection?: boolean | null;
 	supportedVoices?: string[] | null;
 	supportedVideoSizes: string[] | null;
 	supportedVideoDurationsSeconds: number[] | null;

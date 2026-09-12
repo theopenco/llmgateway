@@ -4,6 +4,7 @@ import { MonitorSmartphone, HelpCircle, Plus } from "lucide-react";
 import Link from "next/link";
 import React, { useRef } from "react";
 
+import { ProviderLogo } from "@/components/landing/provider-logo";
 import { Button } from "@/lib/components/button";
 import {
 	Tooltip,
@@ -15,7 +16,6 @@ import Logo from "@/lib/icons/Logo";
 import { cn } from "@/lib/utils";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
-import { ProviderIcons } from "@llmgateway/shared/components";
 
 import { AnimatedBeam } from "./animated-beam";
 
@@ -60,26 +60,25 @@ export function Graph() {
 		useRef<HTMLDivElement>(null),
 	];
 
-	const OpenAIIcon = ProviderIcons.openai;
-	const AnthropicIcon = ProviderIcons.anthropic;
-	const XAIIcon = ProviderIcons.xai;
-	const DeepseekIcon = ProviderIcons.deepseek;
-
 	const providerNodes = [
 		{
 			href: "/providers/openai",
 			label: "View OpenAI models",
-			icon: <OpenAIIcon className="w-6 h-6 object-contain" />,
+			icon: (
+				<ProviderLogo provider="openai" className="w-6 h-6 object-contain" />
+			),
 		},
 		{
 			href: "/providers/anthropic",
 			label: "View Anthropic models",
-			icon: <AnthropicIcon className="w-6 h-6 object-contain" />,
+			icon: (
+				<ProviderLogo provider="anthropic" className="w-6 h-6 object-contain" />
+			),
 		},
 		{
 			href: "/providers/xai",
 			label: "View xAI models",
-			icon: <XAIIcon className="w-6 h-6 object-contain" />,
+			icon: <ProviderLogo provider="xai" className="w-6 h-6 object-contain" />,
 		},
 		{
 			href: "/providers",
@@ -89,7 +88,9 @@ export function Graph() {
 		{
 			href: "/providers/deepseek",
 			label: "View DeepSeek models",
-			icon: <DeepseekIcon className="w-6 h-6 object-contain" />,
+			icon: (
+				<ProviderLogo provider="deepseek" className="w-6 h-6 object-contain" />
+			),
 		},
 	];
 

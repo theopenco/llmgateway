@@ -5,12 +5,19 @@ import {
 	CheckCircle2,
 	Clock3,
 	Loader2,
+	Plus,
 	ShieldCheck,
+	X,
 	XCircle,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import {
+	CataloguePriceButton,
+	FamilyField,
+	useCatalogue,
+} from "@/components/dashboard/CatalogueFields";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -37,6 +44,55 @@ import { perMillionToPerToken, perTokenToPerMillion } from "@/lib/format";
 
 import type { AirsideModel } from "@/app/dashboard/fleet/page";
 import type { ReactNode } from "react";
+
+function QuantizationField({
+	id,
+	value,
+	onChange,
+}: {
+	id: string;
+	value: AirsideModel["quantization"];
+	onChange: (value: AirsideModel["quantization"]) => void;
+}) {
+	return (
+		<div className="space-y-2">
+			<Label htmlFor={id}>Quantization</Label>
+			<Select
+				value={value ?? "unknown"}
+				onValueChange={(value) =>
+					onChange(
+						value === "unknown"
+							? null
+							: (value as AirsideModel["quantization"]),
+					)
+				}
+			>
+				<SelectTrigger id={id}>
+					<SelectValue />
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value="unknown">Unknown</SelectItem>
+					{(
+						[
+							"int4",
+							"int8",
+							"fp4",
+							"fp6",
+							"fp8",
+							"fp16",
+							"bf16",
+							"fp32",
+						] as const
+					).map((quantization) => (
+						<SelectItem key={quantization} value={quantization}>
+							{quantization.toUpperCase()}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</div>
+	);
+}
 
 function useInvalidateModels(providerCompanyId: string) {
 	const api = useApi();
@@ -117,6 +173,189 @@ function VerificationResults({ verification }: { verification: Verification }) {
 			{verification.summary ? (
 				<p className="text-muted-foreground text-xs">{verification.summary}</p>
 			) : null}
+		</div>
+	);
+}
+
+interface RegionFareRow {
+	region: string;
+	inputPrice: string;
+	outputPrice: string;
+	cachedInputPrice: string;
+	requestPrice: string;
+}
+
+const EMPTY_REGION_FARE: RegionFareRow = {
+	region: "",
+	inputPrice: "",
+	outputPrice: "",
+	cachedInputPrice: "",
+	requestPrice: "",
+};
+
+type RegionPriceEntry = NonNullable<
+	NonNullable<AirsideModel["currentPricing"]>["regionPrices"]
+>[number];
+
+function regionFaresFromPricing(
+	regionPrices: RegionPriceEntry[] | null | undefined,
+): RegionFareRow[] {
+	return (regionPrices ?? []).map((entry) => ({
+		region: entry.region,
+		inputPrice: perTokenToPerMillion(entry.inputPrice),
+		outputPrice: perTokenToPerMillion(entry.outputPrice),
+		cachedInputPrice: perTokenToPerMillion(entry.cachedInputPrice),
+		requestPrice: entry.requestPrice ?? "",
+	}));
+}
+
+function regionFaresToBody(rows: RegionFareRow[]) {
+	if (rows.length === 0) {
+		return undefined;
+	}
+	return rows.map((row) => ({
+		region: row.region.trim(),
+		inputPrice: perMillionToPerToken(row.inputPrice),
+		outputPrice: perMillionToPerToken(row.outputPrice),
+		cachedInputPrice: row.cachedInputPrice
+			? perMillionToPerToken(row.cachedInputPrice)
+			: undefined,
+		requestPrice: row.requestPrice.trim() || undefined,
+	}));
+}
+
+/**
+ * Optional per-region fares filed alongside the default ones. Riders pin a
+ * region with `provider/model:region`; every other request pays the default
+ * fares.
+ */
+function RegionFaresEditor({
+	idPrefix,
+	rows,
+	onChange,
+}: {
+	idPrefix: string;
+	rows: RegionFareRow[];
+	onChange: (rows: RegionFareRow[]) => void;
+}) {
+	const setRow = (index: number, patch: Partial<RegionFareRow>) => {
+		onChange(
+			rows.map((row, rowIndex) =>
+				rowIndex === index ? { ...row, ...patch } : row,
+			),
+		);
+	};
+	return (
+		<div className="space-y-3">
+			<div>
+				<Label>Regional fares (optional)</Label>
+				<p className="text-muted-foreground mt-1 text-xs">
+					Riders pin a region with{" "}
+					<span className="font-mono">model:region</span>; everything else pays
+					the default fares above.
+				</p>
+			</div>
+			{rows.map((row, index) => (
+				<div
+					key={index}
+					className="border-border space-y-3 rounded-md border p-3"
+					data-testid={`${idPrefix}-region-fare-${index}`}
+				>
+					<div className="flex items-end gap-2">
+						<div className="flex-1 space-y-2">
+							<Label htmlFor={`${idPrefix}-region-${index}`}>Region</Label>
+							<Input
+								id={`${idPrefix}-region-${index}`}
+								data-testid={`${idPrefix}-region-${index}`}
+								className="font-mono"
+								value={row.region}
+								onChange={(e) =>
+									setRow(index, {
+										region: e.target.value.toLowerCase(),
+									})
+								}
+								placeholder="au"
+								required
+							/>
+						</div>
+						<Button
+							type="button"
+							size="icon"
+							variant="ghost"
+							aria-label="Remove region"
+							data-testid={`${idPrefix}-remove-region-${index}`}
+							onClick={() =>
+								onChange(rows.filter((_, rowIndex) => rowIndex !== index))
+							}
+						>
+							<X className="size-4" />
+						</Button>
+					</div>
+					<div className="grid gap-3 sm:grid-cols-2">
+						<div className="space-y-2">
+							<Label htmlFor={`${idPrefix}-region-input-${index}`}>
+								Input $/1M tokens
+							</Label>
+							<Input
+								id={`${idPrefix}-region-input-${index}`}
+								data-testid={`${idPrefix}-region-input-${index}`}
+								value={row.inputPrice}
+								onChange={(e) => setRow(index, { inputPrice: e.target.value })}
+								placeholder="2"
+								required
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor={`${idPrefix}-region-output-${index}`}>
+								Output $/1M tokens
+							</Label>
+							<Input
+								id={`${idPrefix}-region-output-${index}`}
+								data-testid={`${idPrefix}-region-output-${index}`}
+								value={row.outputPrice}
+								onChange={(e) => setRow(index, { outputPrice: e.target.value })}
+								placeholder="6"
+								required
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor={`${idPrefix}-region-cached-${index}`}>
+								Cached input $/1M tokens
+							</Label>
+							<Input
+								id={`${idPrefix}-region-cached-${index}`}
+								value={row.cachedInputPrice}
+								onChange={(e) =>
+									setRow(index, { cachedInputPrice: e.target.value })
+								}
+								placeholder="same as default"
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor={`${idPrefix}-region-request-${index}`}>
+								Per-request $
+							</Label>
+							<Input
+								id={`${idPrefix}-region-request-${index}`}
+								value={row.requestPrice}
+								onChange={(e) =>
+									setRow(index, { requestPrice: e.target.value })
+								}
+								placeholder="same as default"
+							/>
+						</div>
+					</div>
+				</div>
+			))}
+			<Button
+				type="button"
+				size="sm"
+				variant="outline"
+				data-testid={`${idPrefix}-add-region-fare`}
+				onClick={() => onChange([...rows, EMPTY_REGION_FARE])}
+			>
+				<Plus className="size-4" /> Add region
+			</Button>
 		</div>
 	);
 }
@@ -202,20 +441,27 @@ export function RegisterModelDialog({
 	const api = useApi();
 	const invalidate = useInvalidateModels(providerCompanyId);
 	const [open, setOpen] = useState(false);
+	const catalogue = useCatalogue(open);
 	const [modelName, setModelName] = useState("");
-	const [externalId, setExternalId] = useState("");
-	const [apiFormat, setApiFormat] = useState<AirsideModel["apiFormat"]>(
-		"openai-chat-completions",
+	const canonicalModel = catalogue.data?.models.find(
+		(entry) => entry.id === modelName.trim(),
 	);
+
+	const [externalId, setExternalId] = useState("");
+	const [apiFormat, setApiFormat] =
+		useState<AirsideModel["apiFormat"]>("provider-native");
 	const [displayName, setDisplayName] = useState("");
 	const [contextSize, setContextSize] = useState("128000");
 	const [description, setDescription] = useState("");
 	const [family, setFamily] = useState("");
+	const [quantization, setQuantization] =
+		useState<AirsideModel["quantization"]>(null);
 	const [maxOutput, setMaxOutput] = useState("");
 	const [inputPrice, setInputPrice] = useState("");
 	const [outputPrice, setOutputPrice] = useState("");
 	const [cachedInputPrice, setCachedInputPrice] = useState("");
 	const [requestPrice, setRequestPrice] = useState("");
+	const [regionFares, setRegionFares] = useState<RegionFareRow[]>([]);
 	const [note, setNote] = useState("");
 	const [apiKey, setApiKey] = useState("");
 	const [verificationId, setVerificationId] = useState("");
@@ -291,10 +537,15 @@ export function RegisterModelDialog({
 			setOpen(false);
 			setModelName("");
 			setExternalId("");
-			setApiFormat("openai-chat-completions");
+			setApiFormat("provider-native");
 			setDisplayName("");
+			setDescription("");
+			setFamily("");
+			setCachedInputPrice("");
+			setRequestPrice("");
 			setInputPrice("");
 			setOutputPrice("");
+			setRegionFares([]);
 			setNote("");
 			setApiKey("");
 			setVerificationId("");
@@ -312,7 +563,7 @@ export function RegisterModelDialog({
 	const verificationMapping = {
 		providerCompanyId,
 		providerId: effectiveProviderId,
-		modelName,
+		modelName: modelName.trim(),
 		externalId: externalId || undefined,
 		apiFormat,
 		...capabilities,
@@ -337,10 +588,32 @@ export function RegisterModelDialog({
 						are in dollars per million tokens.
 					</DialogDescription>
 				</DialogHeader>
+				{catalogue.isError && (
+					<div role="alert" className="text-destructive text-sm">
+						Could not load the catalogue.{" "}
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => catalogue.refetch()}
+						>
+							Retry
+						</Button>
+					</div>
+				)}
+				{canonicalModel && (
+					<p className="text-muted-foreground text-sm">
+						Display name, description and family come from the existing
+						catalogue model.
+					</p>
+				)}
 				<form
 					className="space-y-4"
 					onSubmit={(e) => {
 						e.preventDefault();
+						if (!catalogue.isSuccess) {
+							toast.error("Load the catalogue before saving.");
+							return;
+						}
 						if (verification?.status !== "passed") {
 							queueVerification.mutate({
 								body: {
@@ -355,12 +628,17 @@ export function RegisterModelDialog({
 								verificationId: verification.id,
 								providerCompanyId,
 								providerId: effectiveProviderId,
-								modelName,
+								modelName: modelName.trim(),
 								externalId: externalId || undefined,
 								apiFormat,
-								displayName: displayName || undefined,
-								description: description || undefined,
-								family,
+								displayName: canonicalModel
+									? undefined
+									: displayName || undefined,
+								description: canonicalModel
+									? undefined
+									: description || undefined,
+								family: canonicalModel?.family ?? family,
+								quantization,
 								contextSize: Number(contextSize) || undefined,
 								maxOutput: Number(maxOutput) || undefined,
 								...capabilities,
@@ -378,6 +656,7 @@ export function RegisterModelDialog({
 										? perMillionToPerToken(cachedInputPrice)
 										: undefined,
 									requestPrice: requestPrice || undefined,
+									regionPrices: regionFaresToBody(regionFares),
 								},
 								note: note || undefined,
 							},
@@ -440,15 +719,17 @@ export function RegisterModelDialog({
 								The id your API expects. Fixed once listed.
 							</p>
 						</div>
-						<div className="space-y-2">
-							<Label htmlFor="model-display">Display name</Label>
-							<Input
-								id="model-display"
-								value={displayName}
-								onChange={(e) => setDisplayName(e.target.value)}
-								placeholder="Acme Large 2"
-							/>
-						</div>
+						{catalogue.isSuccess && !canonicalModel && (
+							<div className="space-y-2">
+								<Label htmlFor="model-display">Display name</Label>
+								<Input
+									id="model-display"
+									value={displayName}
+									onChange={(e) => setDisplayName(e.target.value)}
+									placeholder="Acme Large 2"
+								/>
+							</div>
+						)}
 						<div className="space-y-2 sm:col-span-2">
 							<Label htmlFor="model-api-format">Upstream API</Label>
 							<Select
@@ -498,28 +779,33 @@ export function RegisterModelDialog({
 								placeholder="optional"
 							/>
 						</div>
-						<div className="space-y-2 sm:col-span-2">
-							<Label htmlFor="model-family">Family</Label>
-							<Input
+						<QuantizationField
+							id="model-quantization"
+							value={quantization}
+							onChange={setQuantization}
+						/>
+						{catalogue.isSuccess && !canonicalModel && (
+							<FamilyField
 								id="model-family"
 								value={family}
-								onChange={(e) => setFamily(e.target.value)}
-								placeholder="e.g. acme (groups related models)"
-								required
+								onChange={setFamily}
+								models={catalogue.data.models}
 							/>
-						</div>
+						)}
 					</div>
 
-					<div className="space-y-2">
-						<Label htmlFor="model-description">Description</Label>
-						<Textarea
-							id="model-description"
-							value={description}
-							onChange={(e) => setDescription(e.target.value)}
-							placeholder="What is this model good at?"
-							rows={2}
-						/>
-					</div>
+					{catalogue.isSuccess && !canonicalModel && (
+						<div className="space-y-2">
+							<Label htmlFor="model-description">Description</Label>
+							<Textarea
+								id="model-description"
+								value={description}
+								onChange={(e) => setDescription(e.target.value)}
+								placeholder="What is this model good at?"
+								rows={2}
+							/>
+						</div>
+					)}
 
 					<div className="space-y-2">
 						<Label>Capabilities</Label>
@@ -616,6 +902,21 @@ export function RegisterModelDialog({
 						<div className="text-primary font-mono text-[0.65rem] tracking-[0.25em] uppercase">
 							Initial tariff — requires approval
 						</div>
+						{canonicalModel && (
+							<CataloguePriceButton
+								model={canonicalModel}
+								providerId={effectiveProviderId}
+								onSelect={(price) => {
+									setInputPrice(perTokenToPerMillion(price.inputPrice));
+									setOutputPrice(perTokenToPerMillion(price.outputPrice));
+									setCachedInputPrice(
+										perTokenToPerMillion(price.cachedInputPrice),
+									);
+									setRequestPrice(price.requestPrice ?? "");
+								}}
+							/>
+						)}
+
 						<div className="grid gap-4 sm:grid-cols-2">
 							<div className="space-y-2">
 								<Label htmlFor="model-input-price">Input $/1M tokens</Label>
@@ -662,6 +963,11 @@ export function RegisterModelDialog({
 								/>
 							</div>
 						</div>
+						<RegionFaresEditor
+							idPrefix="register"
+							rows={regionFares}
+							onChange={setRegionFares}
+						/>
 						<div className="space-y-2">
 							<Label htmlFor="model-note">Note to the regulator</Label>
 							<Textarea
@@ -853,73 +1159,90 @@ export function EditModelDialog({
 	const api = useApi();
 	const invalidate = useInvalidateModels(model.providerCompanyId);
 	const [open, setOpen] = useState(false);
-	const [displayName, setDisplayName] = useState(model.displayName ?? "");
-	const [description, setDescription] = useState(model.description ?? "");
-	const [contextSize, setContextSize] = useState(
-		model.contextSize ? String(model.contextSize) : "",
+	// A pending change is what the listing becomes once approved, so the form
+	// starts from it; saving replaces that filing.
+	const hasPendingChange = model.pendingFiling?.kind === "metadata";
+	const proposed = {
+		...model,
+		...(hasPendingChange ? (model.pendingFiling?.metadata ?? {}) : {}),
+	};
+	const catalogue = useCatalogue(open);
+	const canonicalModel = catalogue.data?.models.find(
+		(entry) => entry.id === model.modelName,
 	);
-	const [family, setFamily] = useState(model.family ?? "");
+	const [displayName, setDisplayName] = useState(proposed.displayName ?? "");
+	const [description, setDescription] = useState(proposed.description ?? "");
+	const [contextSize, setContextSize] = useState(
+		proposed.contextSize ? String(proposed.contextSize) : "",
+	);
+	const [family, setFamily] = useState(proposed.family ?? "");
+	const [quantization, setQuantization] = useState(proposed.quantization);
 	const [maxOutput, setMaxOutput] = useState(
-		model.maxOutput ? String(model.maxOutput) : "",
+		proposed.maxOutput ? String(proposed.maxOutput) : "",
 	);
 	const [capabilities, setCapabilities] = useState<
 		Record<CapabilityKey, boolean>
 	>({
-		streaming: model.streaming,
-		tools: model.tools,
-		vision: model.vision,
-		audio: model.audio,
-		jsonOutput: model.jsonOutput,
-		jsonOutputSchema: model.jsonOutputSchema,
-		reasoning: model.reasoning,
-		reasoningMaxTokens: model.reasoningMaxTokens,
-		webSearch: model.webSearch,
+		streaming: proposed.streaming,
+		tools: proposed.tools,
+		vision: proposed.vision,
+		audio: proposed.audio,
+		jsonOutput: proposed.jsonOutput,
+		jsonOutputSchema: proposed.jsonOutputSchema,
+		reasoning: proposed.reasoning,
+		reasoningMaxTokens: proposed.reasoningMaxTokens,
+		webSearch: proposed.webSearch,
 	});
 	const [reasoningEfforts, setReasoningEfforts] = useState<
 		ReasoningEffortOption[]
-	>((model.reasoningEfforts ?? []) as ReasoningEffortOption[]);
+	>((proposed.reasoningEfforts ?? []) as ReasoningEffortOption[]);
 	const [maxRpm, setMaxRpm] = useState(
-		model.maxRpm ? String(model.maxRpm) : "",
+		proposed.maxRpm ? String(proposed.maxRpm) : "",
 	);
 	const [maxRpd, setMaxRpd] = useState(
-		model.maxRpd ? String(model.maxRpd) : "",
+		proposed.maxRpd ? String(proposed.maxRpd) : "",
 	);
 	const [rateLimitScope, setRateLimitScope] = useState<RateLimitScope>(
-		model.rateLimitScope,
+		proposed.rateLimitScope,
 	);
 
 	function resetFromModel() {
-		setDisplayName(model.displayName ?? "");
-		setDescription(model.description ?? "");
-		setContextSize(model.contextSize ? String(model.contextSize) : "");
-		setFamily(model.family ?? "");
-		setMaxOutput(model.maxOutput ? String(model.maxOutput) : "");
+		setDisplayName(proposed.displayName ?? "");
+		setDescription(proposed.description ?? "");
+		setContextSize(proposed.contextSize ? String(proposed.contextSize) : "");
+		setFamily(proposed.family ?? "");
+		setQuantization(proposed.quantization);
+		setMaxOutput(proposed.maxOutput ? String(proposed.maxOutput) : "");
 		setCapabilities({
-			streaming: model.streaming,
-			tools: model.tools,
-			vision: model.vision,
-			audio: model.audio,
-			jsonOutput: model.jsonOutput,
-			jsonOutputSchema: model.jsonOutputSchema,
-			reasoning: model.reasoning,
-			reasoningMaxTokens: model.reasoningMaxTokens,
-			webSearch: model.webSearch,
+			streaming: proposed.streaming,
+			tools: proposed.tools,
+			vision: proposed.vision,
+			audio: proposed.audio,
+			jsonOutput: proposed.jsonOutput,
+			jsonOutputSchema: proposed.jsonOutputSchema,
+			reasoning: proposed.reasoning,
+			reasoningMaxTokens: proposed.reasoningMaxTokens,
+			webSearch: proposed.webSearch,
 		});
 		setReasoningEfforts(
-			(model.reasoningEfforts ?? []) as ReasoningEffortOption[],
+			(proposed.reasoningEfforts ?? []) as ReasoningEffortOption[],
 		);
-		setMaxRpm(model.maxRpm ? String(model.maxRpm) : "");
-		setMaxRpd(model.maxRpd ? String(model.maxRpd) : "");
-		setRateLimitScope(model.rateLimitScope);
+		setMaxRpm(proposed.maxRpm ? String(proposed.maxRpm) : "");
+		setMaxRpd(proposed.maxRpd ? String(proposed.maxRpd) : "");
+		setRateLimitScope(proposed.rateLimitScope);
 	}
 
 	const updateModel = api.useMutation("patch", "/airside/models/{id}", {
-		onSuccess: async () => {
+		onSuccess: async (data) => {
 			await invalidate();
 			toast.success(
-				model.status === "active"
-					? "Change filed for review."
-					: "Model updated.",
+				model.status !== "active"
+					? "Model updated."
+					: !hasPendingChange
+						? "Change filed for review."
+						: data.model.pendingFiling
+							? "Pending change replaced."
+							: "Pending change withdrawn.",
 			);
 			setOpen(false);
 		},
@@ -943,27 +1266,52 @@ export function EditModelDialog({
 			}}
 		>
 			<DialogTrigger asChild>{children}</DialogTrigger>
-			<DialogContent className="sm:max-w-lg">
+			<DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
 				<DialogHeader>
 					<DialogTitle className="font-display">
 						Edit {model.modelName}
 					</DialogTitle>
 					<DialogDescription>
-						{model.status === "active"
-							? "Changes to a live listing are filed for review and apply once we approve them. Pricing goes through a separate fare filing."
-							: "Everything here applies to the draft immediately; the initial fare filing covers it. Pricing only changes through a fare filing."}
+						{model.status !== "active"
+							? "Everything here applies to the draft immediately; the initial fare filing covers it. Pricing only changes through a fare filing."
+							: hasPendingChange
+								? "A change is already awaiting review, so the form shows those values. Saving replaces that filing; saving the live values back withdraws it. Pricing goes through a separate fare filing."
+								: "Changes to a live listing are filed for review and apply once we approve them. Pricing goes through a separate fare filing."}
 					</DialogDescription>
 				</DialogHeader>
+				{catalogue.isError && (
+					<div role="alert" className="text-destructive text-sm">
+						Could not load the catalogue.{" "}
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => catalogue.refetch()}
+						>
+							Retry
+						</Button>
+					</div>
+				)}
+				{canonicalModel && (
+					<p className="text-muted-foreground text-sm">
+						Display name, description and family come from the existing
+						catalogue model.
+					</p>
+				)}
 				<form
 					className="space-y-4"
 					onSubmit={(e) => {
 						e.preventDefault();
+						if (!catalogue.isSuccess) {
+							toast.error("Load the catalogue before saving.");
+							return;
+						}
 						updateModel.mutate({
 							params: { path: { id: model.id } },
 							body: {
-								displayName: displayName || null,
-								description: description || null,
-								family,
+								displayName: canonicalModel ? undefined : displayName || null,
+								description: canonicalModel ? undefined : description || null,
+								family: canonicalModel?.family ?? family,
+								quantization,
 								contextSize: contextSize ? Number(contextSize) : null,
 								maxOutput: maxOutput ? Number(maxOutput) : null,
 								...capabilities,
@@ -992,15 +1340,17 @@ export function EditModelDialog({
 								The id sent to your API. Delist and re-register to change it.
 							</p>
 						</div>
-						<div className="space-y-2">
-							<Label htmlFor="edit-display">Display name</Label>
-							<Input
-								id="edit-display"
-								data-testid="edit-display-name"
-								value={displayName}
-								onChange={(e) => setDisplayName(e.target.value)}
-							/>
-						</div>
+						{catalogue.isSuccess && !canonicalModel && (
+							<div className="space-y-2">
+								<Label htmlFor="edit-display">Display name</Label>
+								<Input
+									id="edit-display"
+									data-testid="edit-display-name"
+									value={displayName}
+									onChange={(e) => setDisplayName(e.target.value)}
+								/>
+							</div>
+						)}
 						<div className="space-y-2">
 							<Label htmlFor="edit-context">Context size</Label>
 							<Input
@@ -1021,25 +1371,31 @@ export function EditModelDialog({
 								min={1}
 							/>
 						</div>
-						<div className="space-y-2">
-							<Label htmlFor="edit-family">Family</Label>
-							<Input
+						<QuantizationField
+							id="edit-quantization"
+							value={quantization}
+							onChange={setQuantization}
+						/>
+						{catalogue.isSuccess && !canonicalModel && (
+							<FamilyField
 								id="edit-family"
 								value={family}
-								onChange={(e) => setFamily(e.target.value)}
-								required
+								onChange={setFamily}
+								models={catalogue.data.models}
+							/>
+						)}
+					</div>
+					{catalogue.isSuccess && !canonicalModel && (
+						<div className="space-y-2">
+							<Label htmlFor="edit-description">Description</Label>
+							<Textarea
+								id="edit-description"
+								value={description}
+								onChange={(e) => setDescription(e.target.value)}
+								rows={2}
 							/>
 						</div>
-					</div>
-					<div className="space-y-2">
-						<Label htmlFor="edit-description">Description</Label>
-						<Textarea
-							id="edit-description"
-							value={description}
-							onChange={(e) => setDescription(e.target.value)}
-							rows={2}
-						/>
-					</div>
+					)}
 					<div className="space-y-2">
 						<Label>Capabilities</Label>
 						<div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -1152,6 +1508,10 @@ export function FileFareDialog({
 	const api = useApi();
 	const invalidate = useInvalidateModels(model.providerCompanyId);
 	const [open, setOpen] = useState(false);
+	const catalogue = useCatalogue(open);
+	const canonicalModel = catalogue.data?.models.find(
+		(entry) => entry.id === model.modelName,
+	);
 	const [inputPrice, setInputPrice] = useState(
 		perTokenToPerMillion(model.currentPricing?.inputPrice),
 	);
@@ -1164,6 +1524,9 @@ export function FileFareDialog({
 	const [requestPrice, setRequestPrice] = useState(
 		model.currentPricing?.requestPrice ?? "",
 	);
+	const [regionFares, setRegionFares] = useState<RegionFareRow[]>(
+		regionFaresFromPricing(model.currentPricing?.regionPrices),
+	);
 	const [note, setNote] = useState("");
 
 	function resetFromModel() {
@@ -1173,6 +1536,7 @@ export function FileFareDialog({
 			perTokenToPerMillion(model.currentPricing?.cachedInputPrice),
 		);
 		setRequestPrice(model.currentPricing?.requestPrice ?? "");
+		setRegionFares(regionFaresFromPricing(model.currentPricing?.regionPrices));
 		setNote("");
 	}
 
@@ -1205,7 +1569,7 @@ export function FileFareDialog({
 			}}
 		>
 			<DialogTrigger asChild>{children}</DialogTrigger>
-			<DialogContent className="sm:max-w-md">
+			<DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-md">
 				<DialogHeader>
 					<DialogTitle className="font-display">
 						File a fare for {model.modelName}
@@ -1228,11 +1592,26 @@ export function FileFareDialog({
 									? perMillionToPerToken(cachedInputPrice)
 									: undefined,
 								requestPrice: requestPrice || undefined,
+								regionPrices: regionFaresToBody(regionFares),
 								note: note || undefined,
 							},
 						});
 					}}
 				>
+					{canonicalModel && (
+						<CataloguePriceButton
+							model={canonicalModel}
+							providerId={model.providerId}
+							onSelect={(price) => {
+								setInputPrice(perTokenToPerMillion(price.inputPrice));
+								setOutputPrice(perTokenToPerMillion(price.outputPrice));
+								setCachedInputPrice(
+									perTokenToPerMillion(price.cachedInputPrice),
+								);
+								setRequestPrice(price.requestPrice ?? "");
+							}}
+						/>
+					)}
 					<div className="grid gap-4 sm:grid-cols-2">
 						<div className="space-y-2">
 							<Label htmlFor="fare-input">Input $/1M tokens</Label>
@@ -1277,6 +1656,11 @@ export function FileFareDialog({
 							/>
 						</div>
 					</div>
+					<RegionFaresEditor
+						idPrefix="fare"
+						rows={regionFares}
+						onChange={setRegionFares}
+					/>
 					<div className="space-y-2">
 						<Label htmlFor="fare-note">Note</Label>
 						<Textarea

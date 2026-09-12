@@ -42,7 +42,7 @@ describe("runBenchmarkCli", () => {
 
 		const exitCode = await runBenchmarkCli([
 			"--model",
-			"deepseek-v4-flash",
+			"deepseek-v4.1-flash",
 			"--mapping",
 			"deepseek",
 			"--suite",
@@ -81,7 +81,7 @@ describe("runBenchmarkCli", () => {
 
 		const exitCode = await runBenchmarkCli([
 			"--model",
-			"deepseek-v4-flash",
+			"deepseek-v4.1-flash",
 			"--mapping",
 			"deepseek",
 			"--external",

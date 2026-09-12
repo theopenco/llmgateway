@@ -36,6 +36,8 @@ import { WebsiteVerificationCard } from "@/components/WebsiteVerificationCard";
 import { useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
 
+import { providerBaseUrlHasEndpointPath } from "@llmgateway/shared";
+
 function ClaimDialog({
 	providerName,
 	disabled,
@@ -104,7 +106,7 @@ function ClaimDialog({
 function endpointDomainState(
 	baseUrl: string,
 	domains: string[],
-): "empty" | "invalid-url" | "wrong-domain" | "ok" {
+): "empty" | "invalid-url" | "wrong-domain" | "endpoint-path" | "ok" {
 	const trimmed = baseUrl.trim();
 	if (!trimmed) {
 		return "empty";
@@ -115,11 +117,12 @@ function endpointDomainState(
 	} catch {
 		return "invalid-url";
 	}
-	return domains.some(
-		(domain) => host === domain || host.endsWith(`.${domain}`),
-	)
-		? "ok"
-		: "wrong-domain";
+	if (
+		!domains.some((domain) => host === domain || host.endsWith(`.${domain}`))
+	) {
+		return "wrong-domain";
+	}
+	return providerBaseUrlHasEndpointPath(trimmed) ? "endpoint-path" : "ok";
 }
 
 function RegisterCarrierDialog({
@@ -148,6 +151,8 @@ function RegisterCarrierDialog({
 	const [logoUrl, setLogoUrl] = useState<string | undefined>(undefined);
 	const [iconUrl, setIconUrl] = useState<string | undefined>(undefined);
 	const domainState = endpointDomainState(baseUrl, claimDomains);
+	const domainError =
+		domainState === "wrong-domain" || domainState === "endpoint-path";
 
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
@@ -231,7 +236,7 @@ function RegisterCarrierDialog({
 							value={baseUrl}
 							onChange={(e) => setBaseUrl(e.target.value)}
 							placeholder={`https://api.${claimDomains[0] ?? "example.com"}`}
-							aria-invalid={domainState === "wrong-domain" || undefined}
+							aria-invalid={domainError || undefined}
 							aria-describedby="carrier-base-url-hint"
 							required
 						/>
@@ -239,7 +244,7 @@ function RegisterCarrierDialog({
 							id="carrier-base-url-hint"
 							data-testid="carrier-base-url-hint"
 							className={
-								domainState === "wrong-domain"
+								domainError
 									? "text-destructive text-xs"
 									: "text-muted-foreground text-xs"
 							}
@@ -249,6 +254,12 @@ function RegisterCarrierDialog({
 									Must be on{" "}
 									<span className="font-mono">{claimDomains.join(" or ")}</span>{" "}
 									— we only list an endpoint on a domain you proved.
+								</>
+							) : domainState === "endpoint-path" ? (
+								<>
+									Base URL only — we append{" "}
+									<span className="font-mono">/v1/chat/completions</span>{" "}
+									ourselves.
 								</>
 							) : (
 								<>
@@ -723,8 +734,8 @@ function OnboardingContent() {
 										{claimDomains.map((d) => `@${d}`).join(" or ")}
 									</span>
 									. If your provider is not on LLM Gateway yet, register it as a
-									new carrier below — all you need is an OpenAI-compatible API
-									on that domain.
+									new carrier below — all you need is an inference API on that
+									domain.
 								</p>
 							)
 						) : (
@@ -834,7 +845,7 @@ function OnboardingContent() {
 							<div className="mt-4 flex items-center justify-between gap-3">
 								<p className="text-muted-foreground text-xs">
 									{registerBlockedReason ??
-										`Not in the catalogue? Register your own carrier — an OpenAI-compatible API on ${claimDomains
+										`Not in the catalogue? Register your own carrier — an inference API on ${claimDomains
 											.map((d) => `@${d}`)
 											.join(" or ")} is all it takes.`}
 								</p>

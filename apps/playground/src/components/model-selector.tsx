@@ -21,6 +21,7 @@ import {
 import * as React from "react";
 import { List, type RowComponentProps } from "react-window";
 
+import { ModelDiscountBadge } from "@/components/model-discount-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -1774,6 +1775,14 @@ export function ModelSelector({
 											</div>
 										</div>
 
+										<ModelDiscountBadge
+											mappings={
+												previewEntry.mapping
+													? [previewEntry.mapping]
+													: previewEntry.model.mappings
+											}
+											exact={!!previewEntry.mapping}
+										/>
 										{!previewEntry.provider ? (
 											<>
 												<p className="text-xs text-muted-foreground leading-relaxed">
@@ -2509,6 +2518,14 @@ export function ModelSelector({
 								</DialogTitle>
 							</DialogHeader>
 
+							<ModelDiscountBadge
+								mappings={
+									selectedDetails.mapping
+										? [selectedDetails.mapping]
+										: selectedDetails.model.mappings
+								}
+								exact={!!selectedDetails.mapping}
+							/>
 							<div className="space-y-4">
 								{!selectedDetails.provider ? (
 									<div className="space-y-4">

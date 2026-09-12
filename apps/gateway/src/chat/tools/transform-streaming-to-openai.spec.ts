@@ -1,17 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { extractTokenUsage } from "./extract-token-usage.js";
 import { transformStreamingToOpenai } from "./transform-streaming-to-openai.js";
 
-const { warn, error } = vi.hoisted(() => ({
+const { warn, error, setexMock } = vi.hoisted(() => ({
 	warn: vi.fn(),
 	error: vi.fn(),
+	setexMock: vi.fn(() => Promise.resolve("OK")),
 }));
 
 vi.mock("@llmgateway/cache", () => ({
 	redisClient: {
 		get: vi.fn(),
 		// The caller chains .catch() on this, so it must be thenable.
-		setex: vi.fn(() => Promise.resolve("OK")),
+		setex: setexMock,
 	},
 }));
 
@@ -25,6 +27,47 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("transformStreamingToOpenai", () => {
+	it.each([false, true])(
+		"preserves Runpod cached usage with top-level usage: %s",
+		(topLevelUsage) => {
+			const usage = {
+				prompt_tokens: 22612,
+				completion_tokens: 43,
+				total_tokens: 22655,
+				completion_tokens_details: { reasoning_tokens: 27 },
+				prompt_tokens_details: { cached_tokens: 22528 },
+			};
+			const data = {
+				id: "chatcmpl-test",
+				object: "chat.completion.chunk",
+				created: 1234567890,
+				choices: [{ index: 0, delta: {}, finish_reason: "stop", usage }],
+				...(topLevelUsage && { usage }),
+			};
+			const result = transformStreamingToOpenai(
+				"runpod",
+				"runpod/kimi-k3",
+				data,
+				[],
+			);
+
+			expect(result.usage).toEqual({
+				prompt_tokens: 22612,
+				completion_tokens: 43,
+				total_tokens: 22655,
+				reasoning_tokens: 27,
+				prompt_tokens_details: { cached_tokens: 22528 },
+			});
+			expect(extractTokenUsage(data, "runpod")).toMatchObject({
+				promptTokens: 22612,
+				completionTokens: 43,
+				totalTokens: 22655,
+				reasoningTokens: 27,
+				cachedTokens: 22528,
+			});
+		},
+	);
+
 	it("replaces upstream model ids with the canonical mapping", () => {
 		const result = transformStreamingToOpenai(
 			"deepinfra",
@@ -137,6 +180,39 @@ describe("transformStreamingToOpenai", () => {
 		for (const id of ids) {
 			expect(id.startsWith("read_file_")).toBe(true);
 		}
+	});
+
+	it("keeps streamed thought signatures inline without caching them", () => {
+		setexMock.mockClear();
+		const result = transformStreamingToOpenai(
+			"google-ai-studio",
+			"gemini-3.5-flash",
+			{
+				candidates: [
+					{
+						content: {
+							parts: [
+								{
+									functionCall: { name: "read_file", args: {} },
+									thoughtSignature: "sig-private",
+								},
+							],
+						},
+					},
+				],
+			},
+			[],
+			undefined,
+			true,
+			undefined,
+			undefined,
+			{ cacheThoughtSignatures: false },
+		);
+
+		expect(result.choices[0].delta.tool_calls[0].provider_extra).toEqual({
+			google: { thought_signature: "sig-private" },
+		});
+		expect(setexMock).not.toHaveBeenCalled();
 	});
 
 	it("transforms azure-anthropic streaming events like anthropic", () => {

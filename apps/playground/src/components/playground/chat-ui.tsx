@@ -89,7 +89,9 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useOrganization } from "@/hooks/useOrganization";
 import { useSkills, type Skill } from "@/hooks/useSkills";
+import { useAppConfig } from "@/lib/config";
 import {
 	heroSuggestionGroups,
 	sampleSuggestions,
@@ -378,10 +380,22 @@ function getFinishReasonLabel(reason: string): string {
 	}
 }
 
+const tokenCountFormat = new Intl.NumberFormat("en-US");
+const smallCostFormat = new Intl.NumberFormat("en-US", {
+	style: "currency",
+	currency: "USD",
+	minimumFractionDigits: 6,
+	maximumFractionDigits: 6,
+});
+const costFormat = new Intl.NumberFormat("en-US", {
+	style: "currency",
+	currency: "USD",
+	minimumFractionDigits: 2,
+	maximumFractionDigits: 4,
+});
+
 function formatTokenCount(value?: number): string {
-	return value === undefined
-		? "-"
-		: new Intl.NumberFormat("en-US").format(value);
+	return value === undefined ? "-" : tokenCountFormat.format(value);
 }
 
 function formatCost(value?: number): string {
@@ -391,12 +405,7 @@ function formatCost(value?: number): string {
 	if (value > 0 && value < 0.000001) {
 		return "<$0.000001";
 	}
-	return new Intl.NumberFormat("en-US", {
-		style: "currency",
-		currency: "USD",
-		minimumFractionDigits: value < 0.01 ? 6 : 2,
-		maximumFractionDigits: value < 0.01 ? 6 : 4,
-	}).format(value);
+	return (value < 0.01 ? smallCostFormat : costFormat).format(value);
 }
 
 function getMessageImageGridClass(imageCount: number, alignEnd = false) {
@@ -437,6 +446,11 @@ function MessageMetadataPopover({
 }: {
 	metadata: PlaygroundMessageMetadata;
 }) {
+	const { organization, isLoading, isError } = useOrganization();
+	const config = useAppConfig();
+	const isChatPlanLog =
+		organization?.kind === "chat" &&
+		organization.id === metadata.organizationId;
 	const [open, setOpen] = useState(false);
 	const discount = metadata.discount;
 	const logId = metadata.logId;
@@ -499,14 +513,43 @@ function MessageMetadataPopover({
 							<div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3">
 								<span className="text-muted-foreground">Activity log</span>
 								<span className="flex items-center justify-end">
-									<a
-										href={`${process.env.NODE_ENV === "development" ? "http://localhost:3002" : "https://llmgateway.io"}/dashboard/${organizationId}/${projectId}/activity/${logId}`}
-										target="_blank"
-										rel="noopener noreferrer"
-										className="text-muted-foreground hover:text-foreground"
-									>
-										<ExternalLinkIcon className="h-3 w-3" />
-									</a>
+									{isChatPlanLog || isLoading || isError ? (
+										<Tooltip>
+											<TooltipTrigger asChild>
+												<span tabIndex={0}>
+													<Button
+														type="button"
+														variant="ghost"
+														size="icon"
+														className="size-6"
+														disabled
+														aria-label="Activity log unavailable"
+													>
+														<ExternalLinkIcon className="size-3" />
+													</Button>
+												</span>
+											</TooltipTrigger>
+											<TooltipContent>
+												<p>
+													{isLoading
+														? "Checking log access…"
+														: isError
+															? "Unable to check log access. Reload and try again."
+															: "Log details are unavailable on the Chat plan. Switch to a pay-as-you-go organization for future logs."}
+												</p>
+											</TooltipContent>
+										</Tooltip>
+									) : (
+										<a
+											href={`${config.uiUrl}/dashboard/${organizationId}/${projectId}/activity/${logId}`}
+											aria-label="View activity log"
+											target="_blank"
+											rel="noopener noreferrer"
+											className="text-muted-foreground hover:text-foreground"
+										>
+											<ExternalLinkIcon className="h-3 w-3" />
+										</a>
+									)}
 								</span>
 							</div>
 						)}

@@ -86,10 +86,8 @@ const complianceOptions = [
 
 export function AddProviderForm({
 	initialPayment,
-	airsideUrl,
 }: {
 	initialPayment?: "success" | "canceled" | null;
-	airsideUrl: string;
 }) {
 	const api = useApi();
 	const posthog = usePostHog();
@@ -231,7 +229,7 @@ export function AddProviderForm({
 								</p>
 								<div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
 									<Button asChild size="lg" className="w-full sm:w-auto">
-										<a href={airsideUrl}>
+										<a href="https://airside.llmgateway.io">
 											Claim your carrier on Airside
 											<span
 												aria-hidden="true"

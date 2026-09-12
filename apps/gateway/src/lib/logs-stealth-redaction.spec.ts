@@ -48,26 +48,30 @@ describe("insertLog stealth provider error redaction", () => {
 		publishToQueue.mockClear();
 	});
 
-	it("moves the raw error to internalErrorDetails for stealth providers", async () => {
-		await insertLog(
-			baseLogData({
-				usedProvider: "granite",
-				errorDetails: { ...rawErrorDetails },
-			}),
-		);
+	it.each(["retain", "none"] as const)(
+		"keeps stealth errors internal with retention %s",
+		async (retentionLevel) => {
+			await insertLog(
+				baseLogData({
+					usedProvider: "granite",
+					errorDetails: { ...rawErrorDetails },
+				}),
+				{ retentionLevel },
+			);
 
-		expect(publishToQueue).toHaveBeenCalledTimes(1);
-		const published = publishToQueue.mock.calls[0][1] as LogInsertData;
-		expect(published.internalErrorDetails).toEqual(rawErrorDetails);
-		expect(published.errorDetails).toEqual({
-			statusCode: 429,
-			statusText: "Too Many Requests",
-			responseText: "Upstream provider error (429 Too Many Requests)",
-		});
-		expect(JSON.stringify(published.errorDetails)).not.toContain(
-			"SecretVendor",
-		);
-	});
+			expect(publishToQueue).toHaveBeenCalledTimes(1);
+			const published = publishToQueue.mock.calls[0][1] as LogInsertData;
+			expect(published.internalErrorDetails).toEqual(rawErrorDetails);
+			expect(published.errorDetails).toEqual({
+				statusCode: 429,
+				statusText: "Too Many Requests",
+				responseText: "Upstream provider error (429 Too Many Requests)",
+			});
+			expect(JSON.stringify(published.errorDetails)).not.toContain(
+				"SecretVendor",
+			);
+		},
+	);
 
 	it("leaves errorDetails untouched for regular providers", async () => {
 		await insertLog(
@@ -75,6 +79,7 @@ describe("insertLog stealth provider error redaction", () => {
 				usedProvider: "openai",
 				errorDetails: { ...rawErrorDetails },
 			}),
+			{ retentionLevel: "retain" },
 		);
 
 		const published = publishToQueue.mock.calls[0][1] as LogInsertData;
@@ -90,6 +95,7 @@ describe("insertLog stealth provider error redaction", () => {
 				finishReason: "stop",
 				errorDetails: null,
 			}),
+			{ retentionLevel: "retain" },
 		);
 
 		const published = publishToQueue.mock.calls[0][1] as LogInsertData;

@@ -53,10 +53,9 @@ import { cn } from "@/lib/utils";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
 
-import { RunwarePromoBanner } from "./runware-promo-banner";
+import { ProviderPromoBanner } from "./provider-promo-banner";
 import { ThemeToggle } from "./theme-toggle";
 
-import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { Route } from "next";
 
 function IconMenuItem({
@@ -139,13 +138,9 @@ function IconMenuItem({
 export const Navbar = ({
 	children,
 	sticky = true,
-	models,
-	providers,
 }: {
 	children?: React.ReactNode;
 	sticky?: boolean;
-	models?: ApiModel[];
-	providers?: ApiProvider[];
 }) => {
 	const config = useAppConfig();
 	const posthog = usePostHog();
@@ -443,7 +438,7 @@ export const Navbar = ({
 				data-state={menuState && "active"}
 				className={cn("z-20 w-full px-2 group", sticky && "fixed")}
 			>
-				<RunwarePromoBanner collapsed={isScrolled} />
+				<ProviderPromoBanner collapsed={isScrolled} />
 				<div
 					className={cn(
 						"mt-2 mx-auto max-w-[1400px] px-6 transition-all duration-300",
@@ -478,7 +473,7 @@ export const Navbar = ({
 						{/* Desktop center nav */}
 						<div className="m-auto hidden items-center gap-1 nav:flex min-w-0">
 							<div className="w-[140px] xl:w-[160px]">
-								<ModelSearch models={models} providers={providers} />
+								<ModelSearch />
 							</div>
 							<NavigationMenu viewport={false} delayDuration={300}>
 								<NavigationMenuList className="flex gap-0.5 text-sm">
@@ -625,7 +620,7 @@ export const Navbar = ({
 							{/* Mobile nav */}
 							<div className="nav:hidden">
 								<div className="mb-4">
-									<ModelSearch models={models} providers={providers} />
+									<ModelSearch />
 								</div>
 								<ul className="text-base">
 									<li>

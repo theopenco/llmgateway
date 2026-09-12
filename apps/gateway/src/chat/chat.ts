@@ -47,8 +47,10 @@ import {
 import {
 	complianceBlockMessage,
 	getActiveCompliancePolicy,
+	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
+	isZeroDataRetentionEnabled,
 	logComplianceBlock,
 	type ComplianceCheckContext,
 } from "@/lib/compliance.js";
@@ -59,6 +61,7 @@ import {
 	shouldBillCancelledRequests,
 	zeroInferenceCosts,
 } from "@/lib/costs.js";
+import { customModelToProviderMapping } from "@/lib/custom-model.js";
 import { getPublishedDynamicRoute } from "@/lib/dynamic-route-loader.js";
 import {
 	assertOriginAllowed,
@@ -72,8 +75,10 @@ import {
 	getLicensedOrganizationPlan,
 	hasOrganizationEnterpriseAccess,
 } from "@/lib/enterprise.js";
+import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
+import { fetchProvider } from "@/lib/fetch-provider.js";
 import {
 	getGcpAccessToken,
 	getVertexAnthropicProjectId,
@@ -120,6 +125,7 @@ import {
 	isTimeoutError,
 } from "@/lib/timeout-config.js";
 import { validateModelOutput } from "@/lib/validate-model-output.js";
+import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 
 import {
 	applyGoogleServiceTier,
@@ -188,6 +194,7 @@ import {
 	type VertexTokenType,
 	type WebSearchTool,
 	expandAllProviderRegions,
+	expandProviderRegions,
 	getProviderDefinition,
 	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
@@ -400,41 +407,6 @@ function toDataStorageCostNumber(
 	return Number.isFinite(num) ? num : null;
 }
 
-/**
- * Builds a synthetic provider mapping (providerId "custom") from an enterprise
- * custom model catalog entry. Used both to override the mock model info for
- * limit/capability enforcement and as the `customPricing` override threaded into
- * calculateCosts so custom-provider requests are billed at the catalog rates.
- */
-function customModelToProviderMapping(cm: CustomModel): ProviderModelMapping {
-	const streaming: boolean | "only" =
-		cm.streaming === "only" ? "only" : cm.streaming !== "false";
-	return {
-		providerId: "custom",
-		externalId: cm.modelName,
-		inputPrice: cm.inputPrice ?? undefined,
-		outputPrice: cm.outputPrice ?? undefined,
-		cachedInputPrice: cm.cachedInputPrice ?? undefined,
-		cacheReadInputPrice: cm.cacheReadInputPrice ?? undefined,
-		cacheWriteInputPrice: cm.cacheWriteInputPrice ?? undefined,
-		cacheWriteInputPrice1h: cm.cacheWriteInputPrice1h ?? undefined,
-		requestPrice: cm.requestPrice ?? undefined,
-		webSearchPrice: cm.webSearchPrice ?? undefined,
-		imageInputPrice: cm.imageInputPrice ?? undefined,
-		inputAudioPrice: cm.audioInputPrice ?? undefined,
-		contextSize: cm.contextSize ?? undefined,
-		maxOutput: cm.maxOutput ?? undefined,
-		vision: cm.vision ?? undefined,
-		tools: cm.tools ?? undefined,
-		reasoning: cm.reasoning ?? undefined,
-		jsonOutput: cm.jsonOutput ?? undefined,
-		jsonOutputSchema: cm.jsonOutput ?? undefined,
-		audio: cm.audio ?? undefined,
-		supportedParameters: cm.supportedParameters ?? undefined,
-		streaming,
-	};
-}
-
 type CustomAutoRoutingMapping = ProviderModelMapping & {
 	customProviderKeyId: string;
 	customProviderName: string;
@@ -541,7 +513,9 @@ function preferConcreteRegionalMappings(
 
 	return providers.filter(
 		(mapping) =>
-			!providersWithRegions.has(mapping.providerId) || Boolean(mapping.region),
+			!providersWithRegions.has(mapping.providerId) ||
+			Boolean(mapping.region) ||
+			mapping.routableRoot === true,
 	);
 }
 
@@ -736,7 +710,16 @@ function filterEligibleModelProviders(
 		const lockedRegion = options.providerLockedRegions?.get(
 			provider.providerId,
 		);
-		if (lockedRegion && provider.region && provider.region !== lockedRegion) {
+		// A routable root has concrete regional siblings that can satisfy the
+		// lock, so it must not slip locked traffic onto the default deployment.
+		// Region-less mappings without regional variants keep passing — for
+		// them the lock is applied at endpoint resolution, not candidate level.
+		if (
+			lockedRegion &&
+			(provider.region
+				? provider.region !== lockedRegion
+				: provider.routableRoot === true)
+		) {
 			if (filteredOut) {
 				recordFilteredProvider(filteredOut, provider.providerId, [
 					exclusionReason("locked_region"),
@@ -1364,7 +1347,7 @@ export const chat = new OpenAPIHono<ServerTypes>({
 			: "Invalid request parameters";
 		const cause = invalidJson ? "invalid_json" : "invalid_parameters";
 		logger.warn("Invalid chat completions request", {
-			issues: result.error.issues,
+			issues: summarizeZodIssues(result.error.issues),
 			path: c.req.path,
 			method: c.req.method,
 		});
@@ -1411,6 +1394,7 @@ const completions = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: z.object({
@@ -1616,7 +1600,7 @@ chat.openapi(completions, async (c) => {
 	if (!validationResult.success) {
 		const message = "Invalid request parameters";
 		logger.warn("Invalid chat completions request", {
-			issues: validationResult.error.issues,
+			issues: summarizeZodIssues(validationResult.error.issues),
 			path: c.req.path,
 			method: c.req.method,
 		});
@@ -2378,9 +2362,11 @@ chat.openapi(completions, async (c) => {
 	// would push the zero-credit org we just waived the charge for into negative
 	// credits. Forcing it here rather than zeroing at each cost site keeps the
 	// two in step: no stored payloads, therefore no storage to charge for.
-	const retentionLevel = sponsoredOnboarding
-		? "none"
-		: (organization.retentionLevel ?? "none");
+	const zeroDataRetentionEnabled = isZeroDataRetentionEnabled(organization);
+	const retentionLevel =
+		sponsoredOnboarding || zeroDataRetentionEnabled
+			? "none"
+			: getEffectiveRetentionLevel(organization);
 
 	// Note: the end-user-wallet credits substitution (withWalletCredits) happens
 	// further below — orgs backing end-user wallets are always regular
@@ -2394,14 +2380,7 @@ chat.openapi(completions, async (c) => {
 	// this org's env-credential reads. Undefined = base vars only.
 	const envVariant = getLicensedOrganizationEnvVariant(organization);
 
-	// Dev-plan (DevPass) orgs can default routing to cheaper flex processing via
-	// their dashboard settings to save on plan credits. Applied softly, and only
-	// when the request itself doesn't specify a service_tier: the tier kicks in
-	// only if at least one candidate mapping supports flex AND has a credential
-	// that reaches the provider's real upstream (mirroring the service-tier key
-	// eligibility enforced below), so requests to models without flex support
-	// stay on standard processing instead of failing the explicit-tier
-	// validation and eligibility checks below.
+	// Apply the dev-plan flex default only when a mapping and credential support it.
 	if (
 		isDevPlan &&
 		organization.devPlanServiceTier === "flex" &&
@@ -2722,6 +2701,7 @@ chat.openapi(completions, async (c) => {
 					await logViolation(project.organizationId, violation, {
 						apiKeyId: apiKey.id,
 						model: requestedModel,
+						retainSensitiveContent: retentionLevel === "retain",
 					});
 				} catch {
 					// Silently ignore logging failures
@@ -2849,6 +2829,7 @@ chat.openapi(completions, async (c) => {
 				await logViolation(project.organizationId, violation, {
 					apiKeyId: apiKey.id,
 					model: requestedModel,
+					retainSensitiveContent: retentionLevel === "retain",
 				});
 			} catch {
 				// Silently ignore logging failures
@@ -3434,13 +3415,7 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Flex/Priority is only honored when the request reaches the provider's real
-	// upstream endpoint — a provider key with a custom base URL (proxy) may
-	// silently drop the tier and be billed/reported as standard. Exclude
-	// providers that have no upstream-eligible credential from service-tier
-	// routing (mirroring the compliance policy): auto/model-id routing drops
-	// them, and only fails when none remain; a pinned provider with no eligible
-	// key returns a clear 400 instead of silently downgrading.
+	// Exclude providers without a credential in a tier-capable region.
 	let serviceTierOrgKeys:
 		InferSelectModel<typeof tables.providerKey>[] | undefined;
 	const isProviderServiceTierEligible = (providerId: string): boolean => {
@@ -3448,11 +3423,6 @@ chat.openapi(completions, async (c) => {
 			(key) => key.provider === providerId,
 		);
 		const hasCompliantDbKey = dbKeys.some(providerKeySupportsServiceTier);
-		// An env credential is eligible only when at least one of its (possibly
-		// comma-indexed) base URLs targets the managed upstream — a custom base URL
-		// on every env index is just as ineligible as a custom DB key. In hybrid
-		// mode env is used only when no DB key is picked, which the
-		// serviceTierKeyFilter guarantees for a custom base URL.
 		const envEligible =
 			(project.mode === "credits" || project.mode === "hybrid") &&
 			hasServiceTierEligibleEnvCredential(providerId as Provider);
@@ -3489,7 +3459,7 @@ chat.openapi(completions, async (c) => {
 			!isProviderServiceTierEligible(usedProvider);
 		if (iamFilteredModelProviders.length === 0 || pinnedIneligible) {
 			throw new HTTPException(400, {
-				message: `Service tier '${service_tier}' requires a provider key that targets the original upstream endpoint. Remove the custom base URL from the ${pinnedIneligible ? `${usedProvider} ` : ""}provider key or omit service_tier.`,
+				message: `No provider key is available in a region that supports service tier '${service_tier}'${pinnedIneligible ? ` for ${usedProvider}` : ""}.`,
 			});
 		}
 	};
@@ -3524,7 +3494,6 @@ chat.openapi(completions, async (c) => {
 			(usedInternalModel === airsideCheckedModel &&
 				(airsideCheckedProvider === undefined ||
 					usedProvider === airsideCheckedProvider)) ||
-			usedRegion !== undefined ||
 			!usedProvider ||
 			usedProvider === "custom" ||
 			usedProvider === "llmgateway"
@@ -3532,7 +3501,20 @@ chat.openapi(completions, async (c) => {
 			return fromResolution;
 		}
 		const listed = await findAirsideModel(usedProvider, usedInternalModel);
-		return listed ? airsideListingToModelDefinition(listed).mapping : undefined;
+		if (!listed) {
+			return undefined;
+		}
+		// The owner's filed prices govern the whole pair: bill a served region
+		// at its filed regional price, and anything else at the canonical
+		// default-region price.
+		const expanded = expandProviderRegions(
+			airsideListingToModelDefinition(listed).mapping,
+		);
+		return (
+			expanded.find(
+				(mapping) => (mapping.region ?? null) === (usedRegion ?? null),
+			) ?? expanded.find((mapping) => mapping.region === undefined)
+		);
 	};
 	let customPricingMapping: ProviderModelMapping | undefined =
 		findAirsidePricingMapping();
@@ -4383,13 +4365,14 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 		}
-		const sameProviderRegionalMappings = sameProviderMappings.filter(
+		// A routable root (an Airside listing's default deployment) stays a
+		// candidate next to its regional variants; only synthetic roots are
+		// dropped in favor of concrete regions.
+		const sameProviderRoutingMappings = sameProviderMappings.some(
 			(p) => p.region,
-		);
-		const sameProviderRoutingMappings =
-			sameProviderRegionalMappings.length > 0
-				? sameProviderRegionalMappings
-				: sameProviderMappings;
+		)
+			? sameProviderMappings.filter((p) => p.region || p.routableRoot === true)
+			: sameProviderMappings;
 
 		if (sameProviderMappings.length > 1) {
 			let lockedRegion = usedRegion;
@@ -4489,7 +4472,14 @@ chat.openapi(completions, async (c) => {
 			usedRegion ??= (sameProviderMappings[0] as ProviderModelMapping).region;
 		}
 
-		if (!usedRegion) {
+		if (
+			!usedRegion &&
+			// Only force a region when every candidate is regional — a selected
+			// region-less routable root legitimately serves without one.
+			!sameProviderRoutingMappings.some(
+				(p) => !(p as ProviderModelMapping).region,
+			)
+		) {
 			const firstRegionalMatch = sameProviderRoutingMappings.find(
 				(p) => (p as ProviderModelMapping).region,
 			) as ProviderModelMapping | undefined;
@@ -5196,9 +5186,14 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 
-			const rawModelWithPricing = models.find(
-				(m) => m.id === usedInternalModel,
-			);
+			// Airside-only models have no static entry; their synthesized
+			// definition carries the filed (regional) prices so selection can
+			// still score candidates instead of taking the first one.
+			const rawModelWithPricing =
+				models.find((m) => m.id === usedInternalModel) ??
+				(airsideResolution?.parseResult.requestedModel === usedInternalModel
+					? airsideResolution.modelInfoResult.modelInfo
+					: undefined);
 			const modelWithPricing = rawModelWithPricing
 				? {
 						...rawModelWithPricing,
@@ -5434,10 +5429,10 @@ chat.openapi(completions, async (c) => {
 				{ explicitLocks: providerLockedRegions, requestedRegion },
 			);
 			const directProviderRegionalMappings = directProviderMappings.filter(
-				(provider) => provider.region,
+				(provider) => provider.region || provider.routableRoot === true,
 			);
 			routingMetadataProviders = filterEligibleModelProviders(
-				directProviderRegionalMappings.length > 0
+				directProviderMappings.some((provider) => provider.region)
 					? directProviderRegionalMappings
 					: directProviderMappings,
 				{
@@ -5728,11 +5723,7 @@ chat.openapi(completions, async (c) => {
 			providerKeyLabel: providerKeyLabel(providerKey),
 		};
 	}
-	// Flex/Priority is only honored when the request reaches the provider's real
-	// upstream endpoint on a tier-capable location. Skip provider keys whose
-	// custom base URL (proxy) may silently drop the tier, and Vertex keys pinned
-	// to a regional endpoint, so a compliant key (or the managed env credential
-	// in hybrid mode) is used instead.
+	// Skip Vertex credentials pinned to a region that cannot serve the tier.
 	const serviceTierKeyFilter = isRequestedServiceTier(service_tier)
 		? providerKeySupportsServiceTier
 		: undefined;
@@ -6090,44 +6081,6 @@ chat.openapi(completions, async (c) => {
 			modelInfo.id,
 		);
 
-		const providerRateLimitEntries = Object.entries(
-			providerRateLimitResult.limits,
-		) as Array<
-			[
-				keyof typeof providerRateLimitWindows,
-				(typeof providerRateLimitResult.limits)[keyof typeof providerRateLimitResult.limits],
-			]
-		>;
-		const primaryProviderRateLimit = providerRateLimitEntries.find(
-			([, limit]) => limit.limit > 0,
-		);
-
-		if (primaryProviderRateLimit) {
-			c.header(
-				"X-RateLimit-Limit-Provider",
-				primaryProviderRateLimit[1].limit.toString(),
-			);
-			c.header(
-				"X-RateLimit-Remaining-Provider",
-				primaryProviderRateLimit[1].remaining.toString(),
-			);
-		}
-
-		for (const [window, limit] of providerRateLimitEntries) {
-			if (limit.limit === 0) {
-				continue;
-			}
-
-			c.header(
-				`X-RateLimit-Limit-Provider-${providerRateLimitWindows[window].headerSuffix}`,
-				limit.limit.toString(),
-			);
-			c.header(
-				`X-RateLimit-Remaining-Provider-${providerRateLimitWindows[window].headerSuffix}`,
-				limit.remaining.toString(),
-			);
-		}
-
 		// Race condition: between peek and consume, the window may have filled.
 		// Only hard-block if the user explicitly requested this provider with no-fallback.
 		if (!providerRateLimitResult.allowed) {
@@ -6172,11 +6125,7 @@ chat.openapi(completions, async (c) => {
 	// A sponsored onboarding call is exempt: its storage cost is zeroed below, so
 	// there is nothing to fund. Without this, a new account that turned retention
 	// on before finishing the wizard hits the very 402 this path exists to avoid.
-	if (
-		organization &&
-		organization.retentionLevel === "retain" &&
-		!sponsoredOnboarding
-	) {
+	if (organization && retentionLevel === "retain" && !sponsoredOnboarding) {
 		const { totalAvailableCredits } = getAvailableCredits(organization);
 
 		if (totalAvailableCredits <= 0) {
@@ -6523,15 +6472,20 @@ chat.openapi(completions, async (c) => {
 	const {
 		enabled: projectCachingEnabled,
 		duration: cacheDuration,
-		providerCacheControlMode,
+		providerCacheControlMode: configuredProviderCacheControlMode,
 	} = await isCachingEnabled(project.id);
+	const providerCacheControlMode = zeroDataRetentionEnabled
+		? "off"
+		: configuredProviderCacheControlMode;
 	// Per-request opt-out, mirroring X-No-Fallback. Agent workloads that retry a
 	// byte-identical request expect a fresh sample rather than a replay, so let
 	// a caller bypass the response cache (both read and write) without turning
 	// the project setting off.
 	const noCache = c.req.header("x-no-cache") === "true";
 	const cachingEnabled =
-		organization.devPlan !== "none" || noCache ? false : projectCachingEnabled;
+		organization.devPlan !== "none" || noCache || zeroDataRetentionEnabled
+			? false
+			: projectCachingEnabled;
 
 	let cacheKey: string | null = null;
 	let streamingCacheKey: string | null = null;
@@ -7151,16 +7105,13 @@ chat.openapi(completions, async (c) => {
 	// When the provider only supports streaming, force it even if the client didn't request it.
 	// The upstream request uses effectiveStream; the client response uses stream.
 	const forceStream = streamingSupport === "only" && !stream;
-	// Force upstream SSE for OpenAI/Azure gpt-image-* regardless of what the client
-	// requested. For image generation the upstream request is always non-streaming
-	// (effectiveStream is forced false above when faking streaming for the client),
-	// so partial_images=1 is needed in both cases to keep the connection alive past
-	// Azure's 122s synchronous wall and to use AI_STREAMING_TIMEOUT_MS (1200s default)
-	// instead of AI_TIMEOUT_MS (600s). The SSE response is collapsed back into the
-	// regular non-streaming JSON shape before being returned (or re-wrapped as fake
-	// SSE for clients that requested streaming).
+	// OpenAI/Azure image streaming only supports n=1. Force SSE for single-image
+	// requests to keep the connection alive past Azure's 122s synchronous wall
+	// and use AI_STREAMING_TIMEOUT_MS. Collapse the response to JSON (or fake
+	// client SSE); batches use the provider's non-streaming response.
 	let forceImageStreamUpstream =
 		isImageGeneration &&
+		(image_config?.n ?? 1) === 1 &&
 		(usedProvider === "openai" || usedProvider === "azure");
 	const effectiveStream = fakeStreamingForImageGen
 		? false
@@ -7299,7 +7250,10 @@ chat.openapi(completions, async (c) => {
 
 	// For Google providers, enrich messages with cached thought_signatures
 	// This is needed for multi-turn tool call conversations with Gemini 3+
-	if (isGoogleCompatibleProvider(transportProvider)) {
+	if (
+		isGoogleCompatibleProvider(transportProvider) &&
+		!zeroDataRetentionEnabled
+	) {
 		const { redisClient } = await import("@llmgateway/cache");
 		for (const message of messages) {
 			if (
@@ -7643,6 +7597,7 @@ chat.openapi(completions, async (c) => {
 		isImageGeneration = ctx.isImageGeneration;
 		forceImageStreamUpstream =
 			isImageGeneration &&
+			(image_config?.n ?? 1) === 1 &&
 			(usedProvider === "openai" || usedProvider === "azure");
 		if (forceImageStreamUpstream) {
 			requestBody = injectImageStreamParams(requestBody);
@@ -8299,7 +8254,7 @@ chat.openapi(completions, async (c) => {
 							routingCfg,
 						);
 
-						res = await fetch(url, {
+						res = await fetchProvider(url, {
 							method: "POST",
 							// SSRF: never follow redirects on an authenticated provider
 							// request. A tenant-supplied baseUrl (validated at registration)
@@ -8892,7 +8847,9 @@ chat.openapi(completions, async (c) => {
 						) {
 							logger.warn("Provider error", {
 								status: res.status,
-								errorText: errorResponseText,
+								...(retentionLevel === "retain" && {
+									errorText: errorResponseText,
+								}),
 								usedProvider,
 								requestedProvider,
 								usedInternalModel,
@@ -9275,7 +9232,9 @@ chat.openapi(completions, async (c) => {
 
 						logger.warn("Immediate streaming provider error", {
 							status: inferredStatusCode,
-							errorText: errorResponseText,
+							...(retentionLevel === "retain" && {
+								errorText: errorResponseText,
+							}),
 							usedProvider,
 							requestedProvider,
 							usedInternalModel,
@@ -10060,9 +10019,11 @@ chat.openapi(completions, async (c) => {
 								(eventData.includes("event:") || eventData.includes("id:"))
 							) {
 								logger.warn("Event data contains SSE field", {
-									eventData:
-										eventData.substring(0, 200) +
-										(eventData.length > 200 ? "..." : ""),
+									...(retentionLevel === "retain" && {
+										eventData:
+											eventData.substring(0, 200) +
+											(eventData.length > 200 ? "..." : ""),
+									}),
 									dataIndex,
 									eventEnd,
 									bufferLength: bufferCopy.length,
@@ -10322,12 +10283,19 @@ chat.openapi(completions, async (c) => {
 									// Since we already validated JSON completeness above, this is likely a format issue
 									// Create structured error for logging
 									streamingError = {
-										message: e instanceof Error ? e.message : String(e),
+										message:
+											retentionLevel === "retain"
+												? e instanceof Error
+													? e.message
+													: String(e)
+												: "Failed to parse streaming JSON",
 										type: "json_parse_error",
 										code: "json_parse_error",
 										details: {
 											name: e instanceof Error ? e.name : "ParseError",
-											eventData: eventData.substring(0, 5000),
+											...(retentionLevel === "retain" && {
+												eventData: eventData.substring(0, 5000),
+											}),
 											provider: usedProvider,
 											model: usedInternalModel,
 											eventLength: eventData.length,
@@ -10337,10 +10305,13 @@ chat.openapi(completions, async (c) => {
 										},
 									};
 									logger.warn("Failed to parse streaming JSON", {
-										error: e instanceof Error ? e.message : String(e),
-										eventData:
-											eventData.substring(0, 200) +
-											(eventData.length > 200 ? "..." : ""),
+										errorName: e instanceof Error ? e.name : "ParseError",
+										...(retentionLevel === "retain" && {
+											error: e instanceof Error ? e.message : String(e),
+											eventData:
+												eventData.substring(0, 200) +
+												(eventData.length > 200 ? "..." : ""),
+										}),
 										provider: usedProvider,
 										eventLength: eventData.length,
 										bufferEnd: eventEnd,
@@ -10550,6 +10521,9 @@ chat.openapi(completions, async (c) => {
 									supportsReasoning,
 									toolSearchState,
 									toolCallChoiceIndices,
+									{
+										cacheThoughtSignatures: !zeroDataRetentionEnabled,
+									},
 								);
 
 								// Skip null events (some providers have non-data events)
@@ -12713,7 +12687,7 @@ chat.openapi(completions, async (c) => {
 				forwardedServiceTier,
 			);
 
-			res = await fetch(url, {
+			res = await fetchProvider(url, {
 				method: "POST",
 				// SSRF: never follow redirects on an authenticated provider request
 				// (see streaming path above).
@@ -13212,7 +13186,9 @@ chat.openapi(completions, async (c) => {
 			) {
 				logger.warn("Provider error", {
 					status: res.status,
-					errorText: errorResponseText,
+					...(retentionLevel === "retain" && {
+						errorText: errorResponseText,
+					}),
 					usedProvider,
 					requestedProvider,
 					usedInternalModel,
@@ -14154,7 +14130,7 @@ chat.openapi(completions, async (c) => {
 	} finally {
 		c.req.raw.signal.removeEventListener("abort", onAbort);
 	}
-	if (process.env.NODE_ENV !== "production") {
+	if (process.env.NODE_ENV !== "production" && retentionLevel === "retain") {
 		logger.debug("API response", { response: json });
 	}
 	// Track response size - prefer Content-Length header to avoid expensive stringify on large responses
@@ -14201,6 +14177,7 @@ chat.openapi(completions, async (c) => {
 		splitTaggedReasoning,
 		!!webSearchTool,
 		!!webSearchTool?.forced,
+		{ cacheThoughtSignatures: !zeroDataRetentionEnabled },
 	);
 	let { content, totalTokens } = parsedResponse;
 	const {
@@ -14283,13 +14260,20 @@ chat.openapi(completions, async (c) => {
 			reasoningTokens,
 			hasToolResults: !!toolResults,
 			toolResultsCount: toolResults?.length ?? 0,
-			rawCandidates: json.candidates,
+			...(retentionLevel === "retain" && {
+				rawCandidates: json.candidates,
+			}),
 			rawUsageMetadata: json.usageMetadata,
 		});
 	}
 
 	// Debug: Log images found in response
-	logger.debug("Gateway - parseProviderResponse extracted images", { images });
+	logger.debug(
+		"Gateway - parseProviderResponse extracted images",
+		retentionLevel === "retain"
+			? { images }
+			: { imageCount: images?.length ?? 0 },
+	);
 	logger.debug("Gateway - Used provider", { usedProvider });
 	logger.debug("Gateway - Used model", { usedInternalModel });
 
@@ -14498,6 +14482,7 @@ chat.openapi(completions, async (c) => {
 		cacheCreation1hTokens,
 		audioInputTokens,
 		echoedServiceTier,
+		{ cacheThoughtSignatures: !zeroDataRetentionEnabled },
 		transportProvider,
 	);
 	// Attach opaque reasoning payloads (e.g. OpenAI encrypted reasoning) to the

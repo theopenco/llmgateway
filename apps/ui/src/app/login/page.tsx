@@ -3,7 +3,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { WebAuthnAbortService } from "@simplewebauthn/browser";
 import { useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
 import {
 	Loader2,
 	KeySquare,
@@ -59,11 +58,13 @@ export default function Login() {
 
 	const searchParams = useSearchParams();
 	const redirectTarget = getAuthRedirect(searchParams.get("redirect"));
+	const reauthenticate = searchParams.get("reauthenticate") === "true";
+	const loginPath = reauthenticate ? "/login?reauthenticate=true" : "/login";
 
 	const { isAuthenticated } = useSessionStatus();
 
 	useUser({
-		redirectTo: redirectTarget,
+		redirectTo: reauthenticate ? undefined : redirectTarget,
 		redirectWhen: "authenticated",
 		checkOnboarding: !isCliAuthRedirect(redirectTarget),
 		enabled: isAuthenticated,
@@ -172,6 +173,7 @@ export default function Login() {
 				});
 				return;
 			}
+			queryClient.clear();
 			posthog.capture("user_logged_in", { method: "passkey" });
 			toast({ title: "Login successful" });
 			router.push(redirectTarget as Route);
@@ -193,6 +195,9 @@ export default function Login() {
 			// email — clearer than the full email+password form when SSO only needs
 			// the email. Carry over whatever they've already typed.
 			const query = new URLSearchParams({ redirect: redirectTarget });
+			if (reauthenticate) {
+				query.set("reauthenticate", "true");
+			}
 			if (email) {
 				query.set("email", email);
 			}
@@ -209,7 +214,7 @@ export default function Login() {
 			// Carry the validated `?redirect=` target through the error path too, so a
 			// failed SSO attempt returns to /login with the intended destination and a
 			// retry still lands the user there.
-			const errorUrl = new URL("/login", origin);
+			const errorUrl = new URL(loginPath, origin);
 			if (redirectTarget !== "/dashboard") {
 				errorUrl.searchParams.set("redirect", redirectTarget);
 			}
@@ -239,12 +244,7 @@ export default function Login() {
 	}
 
 	return (
-		<motion.div
-			initial={{ opacity: 0, y: 12 }}
-			animate={{ opacity: 1, y: 0 }}
-			transition={{ duration: 0.4, ease: "easeOut" }}
-			className="mx-auto w-full max-w-[400px]"
-		>
+		<div className="mx-auto w-full max-w-[400px]">
 			{/* Mobile brand header */}
 			<div className="mb-6 lg:hidden">
 				<p className="text-sm font-medium uppercase tracking-widest text-primary">
@@ -360,7 +360,7 @@ export default function Login() {
 					isLoading={isLoading}
 					setIsLoading={setIsLoading}
 					callbackPath={redirectTarget}
-					errorCallbackPath="/login"
+					errorCallbackPath={loginPath}
 					newUserCallbackPath={redirectTarget}
 				/>
 
@@ -403,6 +403,6 @@ export default function Login() {
 					Don&apos;t have an account? Sign up
 				</Link>
 			</p>
-		</motion.div>
+		</div>
 	);
 }

@@ -10,6 +10,8 @@ import {
 	findOrganizationById,
 	findProjectById,
 } from "@/lib/cached-queries.js";
+import { getEffectiveRetentionLevel } from "@/lib/compliance.js";
+import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
@@ -44,7 +46,7 @@ const imageGenerationsRequestSchema = z.object({
 		example: "1024x1024",
 	}),
 	quality: z
-		.enum(["standard", "hd", "low", "medium", "high", "auto"])
+		.enum(["standard", "hd", "low", "medium", "high", "xhigh", "max", "auto"])
 		.optional()
 		.openapi({
 			description:
@@ -123,6 +125,7 @@ const generations = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: imageGenerationsResponseSchema,
@@ -136,12 +139,11 @@ const generations = createRoute({
 
 /**
  * Normalize OpenAI's legacy DALL-E quality values ("standard", "hd") into the
- * gpt-image-2 vocabulary ("low" | "medium" | "high" | "auto") so downstream
- * provider request preparation only ever sees supported strings.
+ * GPT Image quality values for downstream provider request preparation.
  */
 function normalizeQuality(
 	quality: string | undefined,
-): "low" | "medium" | "high" | "auto" | undefined {
+): "low" | "medium" | "high" | "xhigh" | "max" | "auto" | undefined {
 	if (!quality) {
 		return undefined;
 	}
@@ -153,6 +155,8 @@ function normalizeQuality(
 		case "low":
 		case "medium":
 		case "high":
+		case "xhigh":
+		case "max":
 		case "auto":
 			return quality;
 		default:
@@ -224,6 +228,7 @@ async function extractImagesFromChatResponse(
 	chatResponse: any,
 	prompt: string,
 	model: string,
+	retainPayloadLogs: boolean,
 ): Promise<Array<{ b64_json: string; revised_prompt?: string }>> {
 	const imageObjects: Array<{
 		b64_json: string;
@@ -324,10 +329,12 @@ async function extractImagesFromChatResponse(
 			model,
 			hasContent: !!chatResponse.choices?.[0]?.message?.content,
 			hasImages: !!chatResponse.choices?.[0]?.message?.images,
-			contentPreview: chatResponse.choices?.[0]?.message?.content?.slice(
-				0,
-				200,
-			),
+			...(retainPayloadLogs && {
+				contentPreview: chatResponse.choices?.[0]?.message?.content?.slice(
+					0,
+					200,
+				),
+			}),
 		});
 		throw new HTTPException(500, {
 			message:
@@ -459,7 +466,7 @@ async function resolveImageClientErrorLogContext(
 		apiKey,
 		project,
 		requestId,
-		retentionLevel: organization?.retentionLevel ?? "none",
+		retentionLevel: getEffectiveRetentionLevel(organization),
 	};
 }
 
@@ -587,9 +594,12 @@ function assertImageModel(model: string): void {
 	}
 }
 
+// Provider error bodies can echo the prompt, so the message only reaches the
+// application log when the organization retains payloads.
 async function forwardToChatCompletions(
 	c: Context,
 	chatRequest: Record<string, unknown>,
+	retainPayloadLogs: boolean,
 ): Promise<any> {
 	const response = await app.request("/v1/chat/completions", {
 		method: "POST",
@@ -636,7 +646,7 @@ async function forwardToChatCompletions(
 				status,
 				originalStatus: response.status,
 				errorType,
-				message: errorMessage,
+				...(retainPayloadLogs && { message: errorMessage }),
 			});
 		} else {
 			logger.warn("Images API - chat completions request failed", {
@@ -744,18 +754,24 @@ images.openapi(generations, async (c): Promise<any> => {
 
 	logger.debug("Images API - forwarding to chat completions", {
 		model: request.model,
-		prompt: request.prompt.slice(0, 200),
 		size: request.size,
 		quality: normalizedQuality,
 		n: request.n,
 	});
 
-	const chatResponse = await forwardToChatCompletions(c, chatRequest);
+	const retainPayloadLogs =
+		(await getLogContext())?.retentionLevel === "retain";
+	const chatResponse = await forwardToChatCompletions(
+		c,
+		chatRequest,
+		retainPayloadLogs,
+	);
 
 	const imageObjects = await extractImagesFromChatResponse(
 		chatResponse,
 		request.prompt,
 		request.model,
+		retainPayloadLogs,
 	);
 
 	// Truncate to the requested number of images
@@ -817,10 +833,13 @@ const imageEditsRequestSchema = z.object({
 		description: "Output image format.",
 		example: "png",
 	}),
-	quality: z.enum(["low", "medium", "high", "auto"]).optional().openapi({
-		description: "Output quality for image models.",
-		example: "high",
-	}),
+	quality: z
+		.enum(["low", "medium", "high", "xhigh", "max", "auto"])
+		.optional()
+		.openapi({
+			description: "Output quality for image models.",
+			example: "high",
+		}),
 	size: z.string().optional().openapi({
 		description:
 			"Requested output image size. Supported values depend on the model and provider.",
@@ -838,7 +857,7 @@ type ImageEditsRequest = z.infer<typeof imageEditsRequestSchema>;
 const imageEditsResponseSchema = imageGenerationsResponseSchema.extend({
 	background: z.enum(["transparent", "opaque"]).optional(),
 	output_format: z.enum(["png", "webp", "jpeg"]).optional(),
-	quality: z.enum(["low", "medium", "high"]).optional(),
+	quality: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
 	size: z.string().optional(),
 	usage: z
 		.object({
@@ -882,6 +901,7 @@ const edits = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: imageEditsResponseSchema,
@@ -1162,7 +1182,6 @@ async function processImageEdit(
 
 	logger.debug("Images Edit API - forwarding to chat completions", {
 		model,
-		prompt: request.prompt.slice(0, 200),
 		imageCount,
 		n: request.n,
 		size: request.size,
@@ -1171,12 +1190,19 @@ async function processImageEdit(
 		outputFormat: request.output_format,
 	});
 
-	const chatResponse = await forwardToChatCompletions(c, chatRequest);
+	const retainPayloadLogs =
+		(await getLogContext())?.retentionLevel === "retain";
+	const chatResponse = await forwardToChatCompletions(
+		c,
+		chatRequest,
+		retainPayloadLogs,
+	);
 
 	const imageObjects = await extractImagesFromChatResponse(
 		chatResponse,
 		request.prompt,
 		model,
+		retainPayloadLogs,
 	);
 
 	const imagesResponse: z.infer<typeof imageEditsResponseSchema> = {

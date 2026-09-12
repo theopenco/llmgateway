@@ -35,14 +35,22 @@ import {
 } from "@/lib/cached-queries.js";
 import { raceClientAbort } from "@/lib/client-abort.js";
 import { getClientIpFromRequest } from "@/lib/client-ip.js";
-import { assertProviderCompliant } from "@/lib/compliance.js";
+import {
+	assertProviderCompliant,
+	getEffectiveRetentionLevel,
+} from "@/lib/compliance.js";
 import {
 	applyEndUserSession,
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
+import {
+	rateLimitHeaders,
+	standardErrorResponses,
+} from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
+import { fetchProvider } from "@/lib/fetch-provider.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
@@ -72,6 +80,7 @@ import {
 } from "@llmgateway/models";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
+import type { openAIErrorSchema } from "@/lib/error-schemas.js";
 import type { ServerTypes } from "@/vars.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
@@ -140,15 +149,6 @@ const embeddingResponseSchema = z
 	.openapi({
 		description: "OpenAI-compatible embeddings response payload.",
 	});
-
-const embeddingErrorSchema = z.object({
-	error: z.object({
-		message: z.string(),
-		type: z.string(),
-		param: z.string().nullable(),
-		code: z.string(),
-	}),
-});
 
 function normalizeEmbeddingInputToMessages(input: unknown) {
 	const previewItem = (item: unknown) => {
@@ -366,6 +366,7 @@ const createEmbeddings = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: embeddingResponseSchema,
@@ -373,94 +374,7 @@ const createEmbeddings = createRoute({
 			},
 			description: "Embeddings response.",
 		},
-		400: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Invalid request body or parameters.",
-		},
-		401: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Unauthorized request.",
-		},
-		402: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Payment required / Insufficient credits or retention.",
-		},
-		403: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Forbidden upstream response.",
-		},
-		404: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Not found upstream response.",
-		},
-		410: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Archived or unavailable project.",
-		},
-		429: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Rate limited upstream response.",
-		},
-		500: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Internal server error.",
-		},
-		502: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Failed to connect to the upstream provider.",
-		},
-		503: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Service unavailable upstream response.",
-		},
-		504: {
-			content: {
-				"application/json": {
-					schema: embeddingErrorSchema,
-				},
-			},
-			description: "Upstream provider timeout.",
-		},
+		...standardErrorResponses(),
 	},
 });
 
@@ -642,7 +556,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		});
 	}
 
-	const retentionLevel = organization.retentionLevel ?? "none";
+	const retentionLevel = getEffectiveRetentionLevel(organization);
 
 	const iamValidation = await validateRequestModelAccess({
 		apiKey,
@@ -735,7 +649,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 		| {
 				kind: "json_error";
 				status: 400 | 500;
-				body: z.infer<typeof embeddingErrorSchema>;
+				body: z.infer<typeof openAIErrorSchema>;
 		  };
 
 	// Resolves the token, upstream URL, and request body for one attempt,
@@ -850,21 +764,19 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			});
 		}
 
-		// Env baseUrl override: LLM_<PROVIDER>_BASE_URL can redirect upstream
-		// traffic to proxies, regional endpoints, or test mocks. Applies to
-		// any provider — getProviderEnvValue returns undefined for providers
-		// that don't declare a baseUrl env in packages/models/src/providers.ts,
-		// so the ?? chain falls through safely. providerKey.baseUrl still wins
-		// when set, so BYOK callers can opt out by configuring their own.
-		const envBaseUrl = getCredentialSetting(providerId, "baseUrl", managedKey, {
-			configIndex,
-			variant: envVariant,
-		});
+		const credential = { providerKey, managedKey };
 		const resolvedBaseUrl =
 			providerKey?.baseUrl ??
-			envBaseUrl ??
-			getProviderDefaultBaseUrl(providerId) ??
-			"https://api.openai.com";
+			getCredentialSetting(providerId, "baseUrl", credential, {
+				configIndex,
+				variant: envVariant,
+			}) ??
+			getProviderDefaultBaseUrl(providerId);
+		if (!resolvedBaseUrl) {
+			throw new HTTPException(500, {
+				message: `No base URL set for provider: ${providerId}`,
+			});
+		}
 
 		let upstreamUrl: string;
 		let requestBody: Record<string, unknown>;
@@ -919,7 +831,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			}
 			const vertexProjectId =
 				providerKey?.options?.google_vertex_project_id ??
-				getCredentialSetting("google-vertex", "project", managedKey, {
+				getCredentialSetting("google-vertex", "project", credential, {
 					configIndex,
 					variant: envVariant,
 				});
@@ -948,7 +860,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 				};
 			}
 			const vertexRegion =
-				getCredentialSetting("google-vertex", "region", managedKey, {
+				getCredentialSetting("google-vertex", "region", credential, {
 					configIndex,
 					defaultValue: "global",
 					variant: envVariant,
@@ -1099,7 +1011,7 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 			let fetchError: Error | null = null;
 			try {
 				const fetchSignal = createCombinedSignal(controller);
-				upstreamResponse = await fetch(attempt.upstreamUrl, {
+				upstreamResponse = await fetchProvider(attempt.upstreamUrl, {
 					method: "POST",
 					// SSRF: never follow redirects on an authenticated provider request. A
 					// tenant-supplied baseUrl could 3xx to an internal host at request
@@ -1425,12 +1337,12 @@ embeddings.openapi(createEmbeddings, async (c): Promise<any> => {
 								param: null,
 								code: "upstream_error",
 							},
-						} satisfies z.infer<typeof embeddingErrorSchema>,
+						} satisfies z.infer<typeof openAIErrorSchema>,
 						status as 400 | 401 | 403 | 404 | 410 | 429 | 500 | 502 | 503 | 504,
 					);
 				}
 
-				const normalizedUpstreamError: z.infer<typeof embeddingErrorSchema> = {
+				const normalizedUpstreamError: z.infer<typeof openAIErrorSchema> = {
 					error: {
 						message:
 							typeof upstreamJson === "string"

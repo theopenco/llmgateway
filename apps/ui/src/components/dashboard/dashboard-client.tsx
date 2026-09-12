@@ -64,6 +64,7 @@ import { applyUsageModeToDaily } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
 import { useDisplayTimeZone } from "@llmgateway/shared";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type {
 	UsageComparisonMode,
@@ -73,6 +74,7 @@ import type { ActivitT } from "@/types/activity";
 
 interface DashboardClientProps {
 	initialActivityData?: ActivitT;
+	initialActivityRange?: { from: string; to: string };
 	/** Zone the server fetched `initialActivityData` in, so the client can tell
 	 *  whether it still matches the zone it now wants to render. */
 	initialActivityTimeZone?: string;
@@ -144,6 +146,7 @@ function QuickActionsCard({
 	buildOrgUrl: (path?: string) => string;
 	className?: string;
 }) {
+	const { selectedOrganization } = useDashboardNavigation();
 	return (
 		<Card className={className}>
 			<CardHeader>
@@ -152,25 +155,31 @@ function QuickActionsCard({
 			</CardHeader>
 			<CardContent>
 				<div className="grid grid-cols-2 gap-2">
-					{quickActions.map((action) => (
-						<Link
-							key={action.href}
-							href={
-								action.href === "provider-keys"
-									? buildOrgUrl("org/provider-keys")
-									: buildUrl(action.href)
-							}
-							prefetch={true}
-							className="group flex items-center gap-3 rounded-lg border border-border/60 p-3 transition-colors hover:border-primary/40 hover:bg-accent/40"
-						>
-							<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground transition-colors group-hover:text-foreground">
-								<action.icon className="h-4 w-4" />
-							</div>
-							<span className="text-sm font-medium leading-tight">
-								{action.label}
-							</span>
-						</Link>
-					))}
+					{quickActions
+						.filter(
+							(action) =>
+								action.href !== "provider-keys" ||
+								isOrganizationAdmin(selectedOrganization?.role),
+						)
+						.map((action) => (
+							<Link
+								key={action.href}
+								href={
+									action.href === "provider-keys"
+										? buildOrgUrl("org/provider-keys")
+										: buildUrl(action.href)
+								}
+								prefetch={true}
+								className="group flex items-center gap-3 rounded-lg border border-border/60 p-3 transition-colors hover:border-primary/40 hover:bg-accent/40"
+							>
+								<div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted/40 text-muted-foreground transition-colors group-hover:text-foreground">
+									<action.icon className="h-4 w-4" />
+								</div>
+								<span className="text-sm font-medium leading-tight">
+									{action.label}
+								</span>
+							</Link>
+						))}
 				</div>
 			</CardContent>
 		</Card>
@@ -214,6 +223,7 @@ function StatCell({
 
 export function DashboardClient({
 	initialActivityData,
+	initialActivityRange,
 	initialActivityTimeZone,
 }: DashboardClientProps) {
 	const router = useRouter();
@@ -259,6 +269,7 @@ export function DashboardClient({
 	}, [searchParams, router, buildUrl]);
 
 	const { selectedOrganization, selectedProject } = useDashboardNavigation();
+	const isOrgAdmin = isOrganizationAdmin(selectedOrganization?.role);
 	const api = useApi();
 
 	const { data, isLoading } = api.useQuery(
@@ -276,13 +287,12 @@ export function DashboardClient({
 		},
 		{
 			enabled: !!selectedProject?.id,
-			// Only seed the server payload when it was bucketed in the zone this
-			// query asks for. The client can detect a different zone than the
-			// cookie held (first visit, or the machine moved), and a mismatched
-			// payload would sit there labelled as the new zone for the whole
-			// staleTime.
+			// Reuse the server payload for the matching range and time zone,
+			// including the default range before dates are added to the URL.
 			initialData:
-				searchParams.get("from") && initialActivityTimeZone === displayTimeZone
+				initialActivityRange?.from === fromStr &&
+				initialActivityRange.to === toStr &&
+				initialActivityTimeZone === displayTimeZone
 					? initialActivityData
 					: undefined,
 			refetchOnWindowFocus: false,
@@ -606,10 +616,10 @@ export function DashboardClient({
 										Create API Key
 									</Button>
 								</CreateApiKeyDialog>
-								<TopUpCreditsButton />
+								{isOrgAdmin && <TopUpCreditsButton />}
 							</>
 						)}
-						{selectedOrganization && !selectedProject && <TopUpCreditsButton />}
+						{isOrgAdmin && !selectedProject && <TopUpCreditsButton />}
 					</div>
 				</div>
 
@@ -627,18 +637,25 @@ export function DashboardClient({
 				</div>
 
 				<div className="space-y-4">
-					<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
-						<MetricCard
-							label="Organization Credits"
-							value={`$${
-								selectedOrganization
-									? formatCredits(Number(selectedOrganization.credits))
-									: "0.00"
-							}`}
-							subtitle="Available balance"
-							icon={<CreditCard className="h-4 w-4" />}
-							accent="blue"
-						/>
+					<div
+						className={cn(
+							"grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4",
+							isOrgAdmin ? "lg:grid-cols-4" : "lg:grid-cols-3",
+						)}
+					>
+						{isOrgAdmin && (
+							<MetricCard
+								label="Organization Credits"
+								value={`$${
+									selectedOrganization
+										? formatCredits(Number(selectedOrganization.credits))
+										: "0.00"
+								}`}
+								subtitle="Available balance"
+								icon={<CreditCard className="h-4 w-4" />}
+								accent="blue"
+							/>
+						)}
 						<MetricCard
 							label="Total Requests"
 							value={totalRequests.toLocaleString()}
@@ -752,6 +769,7 @@ export function DashboardClient({
 									createdAtMs !== null &&
 									Date.now() - createdAtMs < 7 * 24 * 60 * 60 * 1000;
 								const needsTopUp =
+									isOrgAdmin &&
 									!Number.isNaN(credits) &&
 									credits <= 0 &&
 									totalRequests === 0 &&
@@ -816,7 +834,7 @@ export function DashboardClient({
 													</div>
 												</div>
 												<div className="flex flex-wrap gap-2">
-													<TopUpCreditsButton />
+													{isOrgAdmin && <TopUpCreditsButton />}
 													<Button asChild variant="outline" size="sm">
 														<a
 															href={

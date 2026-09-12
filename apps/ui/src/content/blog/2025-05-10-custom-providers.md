@@ -43,6 +43,8 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 Your custom provider appears in your analytics dashboard alongside OpenAI, Anthropic, and others—giving you a unified view of all your LLM usage.
 
+For sustained production workloads, it's also worth evaluating dedicated inference capacity. Providers like Morph offer [dedicated inference capacity](https://www.morphllm.com/dedicated-inference?utm_source=llmgateway.io) with reserved capacity and managed model serving. Compare the reservation against your actual usage, including idle time, to determine whether it fits your workload.
+
 For setup details and troubleshooting, see the [Custom Providers documentation](https://docs.llmgateway.io/features/custom-providers).
 
 <BlogCta variant="gateway" location="bottom" />

@@ -2,9 +2,13 @@ import { describe, it, expect, vi } from "vitest";
 
 import { parseProviderResponse } from "./parse-provider-response.js";
 
+const { setexMock } = vi.hoisted(() => ({
+	setexMock: vi.fn().mockResolvedValue("OK"),
+}));
+
 vi.mock("@llmgateway/cache", () => ({
 	redisClient: {
-		setex: vi.fn().mockResolvedValue("OK"),
+		setex: setexMock,
 	},
 }));
 
@@ -552,6 +556,39 @@ describe("parseProviderResponse", () => {
 			for (const id of ids) {
 				expect(id.startsWith("get_weather_")).toBe(true);
 			}
+		});
+
+		it("keeps thought signatures inline without caching them", () => {
+			setexMock.mockClear();
+			const result = parseProviderResponse(
+				"google-ai-studio",
+				"gemini-3.5-flash",
+				{
+					candidates: [
+						{
+							content: {
+								parts: [
+									{
+										functionCall: { name: "read_file", args: {} },
+										thoughtSignature: "sig-private",
+									},
+								],
+							},
+						},
+					],
+				},
+				[],
+				true,
+				false,
+				false,
+				false,
+				{ cacheThoughtSignatures: false },
+			);
+
+			expect(result.toolResults?.[0].extra_content).toEqual({
+				google: { thought_signature: "sig-private" },
+			});
+			expect(setexMock).not.toHaveBeenCalled();
 		});
 	});
 

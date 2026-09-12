@@ -51,6 +51,10 @@ import {
 	isPremiumWeekExpired,
 	isPrivateOrReservedIp,
 } from "@llmgateway/shared";
+import {
+	getLogRetentionCutoff,
+	LOG_RETENTION_DAYS,
+} from "@llmgateway/shared/log-retention";
 
 import { posthog } from "./posthog.js";
 import {
@@ -814,17 +818,8 @@ export async function cleanupExpiredLogData(): Promise<void> {
 	try {
 		logger.info("Starting data retention cleanup...");
 
-		// Unified retention period - 30 days for all users
-		const RETENTION_DAYS = 30;
 		const CLEANUP_BATCH_SIZE = 10000;
-
-		const now = new Date();
-
-		// Calculate cutoff date (30 days ago)
-		const cutoffDate = new Date(
-			// eslint-disable-next-line no-mixed-operators
-			now.getTime() - RETENTION_DAYS * 24 * 60 * 60 * 1000,
-		);
+		const cutoffDate = getLogRetentionCutoff();
 
 		let totalCleaned = 0;
 
@@ -878,6 +873,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						userAgent: null,
 						gatewayContentFilterResponse: null,
 						responsesApiData: null,
+						routingMetadata: null,
 						dataRetentionCleanedUp: true,
 					})
 					// Use `= ANY($1)` with a single array parameter instead of
@@ -905,7 +901,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 
 		if (totalCleaned > 0) {
 			logger.info(
-				`Total cleaned up verbose data from ${totalCleaned} logs (older than ${RETENTION_DAYS} days)`,
+				`Total cleaned up verbose data from ${totalCleaned} logs (older than ${LOG_RETENTION_DAYS} days)`,
 			);
 		}
 
@@ -2037,8 +2033,18 @@ export async function processLogQueue(): Promise<number> {
 	try {
 		// The gateway decides what to persist: it strips request/response payload
 		// fields before publishing for orgs that don't retain data, so the worker
-		// inserts the queued rows as-is with no per-batch org retention lookup.
-		const logData = message.map((i) => JSON.parse(i) as LogInsertData);
+		// inserts the queued rows with no per-batch org retention lookup.
+		const logData = message.map((i) => {
+			const data = JSON.parse(i) as LogInsertData;
+			// Failed requests can still carry fractional limits into integer columns.
+			if (typeof data.maxTokens === "number") {
+				data.maxTokens = Math.ceil(data.maxTokens);
+			}
+			if (typeof data.reasoningMaxTokens === "number") {
+				data.reasoningMaxTokens = Math.ceil(data.reasoningMaxTokens);
+			}
+			return data;
+		});
 
 		// Insert logs with retry logic
 		let lastError: Error | undefined;
@@ -2484,9 +2490,9 @@ async function runGlobalStatsLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
-				await processClosedHours();
+				const pending = await processClosedHours();
 
-				await interruptibleSleep(interval);
+				await interruptibleSleep(pending ? Math.min(interval, 5000) : interval);
 			} catch (error) {
 				logger.error(
 					"Error in global daily stats loop",

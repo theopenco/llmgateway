@@ -587,12 +587,7 @@ export async function resolveProviderContext(
 	// this org's env-credential reads. Undefined = base vars only.
 	const envVariant = getLicensedOrganizationEnvVariant(organization);
 
-	// Flex/Priority is only honored when the request reaches the provider's real
-	// upstream endpoint on a tier-capable location. Skip provider keys whose
-	// custom base URL (proxy) may silently drop the tier, and Vertex keys pinned
-	// to a regional endpoint, so a compliant key (or the managed env credential)
-	// is used instead. This is what keeps an alternate-key retry from rotating a
-	// Flex request onto a credential that would serve it as standard.
+	// Skip Vertex credentials pinned to a region that cannot serve the tier.
 	const serviceTierKeyFilter = isPremiumServiceTier(options.service_tier)
 		? providerKeySupportsServiceTier
 		: undefined;

@@ -4,6 +4,7 @@ import { logger } from "@llmgateway/logger";
 import {
 	type ModelDefinition,
 	models,
+	getProviderDefinition,
 	expandAllProviderRegions,
 	type ProviderModelMapping,
 	type ProviderId,
@@ -36,9 +37,10 @@ import {
 	toAnthropicToolSearchTool,
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
+import { fetchNoRedirect } from "./fetch-no-redirect.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
-import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
+import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 import { mappingSupportsToolChoice } from "./tool-choice-support.js";
 import {
@@ -47,7 +49,7 @@ import {
 } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
-type OpenAIImageQuality = "low" | "medium" | "high" | "auto";
+type OpenAIImageQuality = "low" | "medium" | "high" | "xhigh" | "max" | "auto";
 
 export { RequestError } from "./request-error.js";
 
@@ -188,7 +190,7 @@ interface OpenAIImageRequest {
 }
 
 /**
- * Narrow a free-form quality string to the values gpt-image-2 accepts.
+ * Narrow a free-form quality string to GPT Image quality values.
  * Returns undefined for unknown values so they get dropped from the request.
  */
 function normalizeImageQuality(
@@ -202,6 +204,8 @@ function normalizeImageQuality(
 		normalized === "low" ||
 		normalized === "medium" ||
 		normalized === "high" ||
+		normalized === "xhigh" ||
+		normalized === "max" ||
 		normalized === "auto"
 	) {
 		return normalized;
@@ -237,7 +241,7 @@ async function fetchImageAsBlob(
 	// SSRF: the URL comes from the request body, so validate it does not resolve
 	// to an internal host and refuse redirects before fetching.
 	await assertSafeUserContentUrl(url);
-	const response = await fetch(url, { redirect: "error" });
+	const response = await fetchNoRedirect(url);
 	if (!response.ok) {
 		throw new Error(
 			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,
@@ -1957,8 +1961,11 @@ export async function prepareRequestBody(
 		});
 	}
 
-	if (usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") {
-		// Novita rejects empty text blocks alongside otherwise valid image input.
+	if (
+		(usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") ||
+		usedProvider === "runpod"
+	) {
+		// These deployments reject empty text blocks in otherwise valid messages.
 		processedMessages = processedMessages.map((message) => {
 			if (!Array.isArray(message.content)) {
 				return message;
@@ -2250,11 +2257,13 @@ export async function prepareRequestBody(
 									...(reasoning_effort !== undefined && {
 										effort: reasoning_effort,
 									}),
-									summary: "detailed",
+									summary:
+										providerMappingForOptions?.reasoningSummary ?? "detailed",
 								}
 							: {
 									effort: responsesReasoningEffort,
-									summary: "detailed",
+									summary:
+										providerMappingForOptions?.reasoningSummary ?? "detailed",
 									// reasoning.context is only documented on OpenAI's
 									// Responses API surface; other providers reject
 									// unknown reasoning fields.
@@ -2281,6 +2290,13 @@ export async function prepareRequestBody(
 					// provider-stored responses, so opt out to keep the provider's
 					// zero-retention data policy accurate.
 					responsesBody.store = false;
+					const prefix = usedRegion
+						? getProviderDefinition(usedProvider)?.regionConfig
+								?.modelPrefixMap?.[usedRegion]
+						: undefined;
+					if (prefix) {
+						responsesBody.model = `${prefix}${usedExternalId}`;
+					}
 				}
 
 				if (usedProvider === "openai") {
@@ -2288,6 +2304,7 @@ export async function prepareRequestBody(
 						responsesBody.service_tier = supportedServiceTier;
 					}
 					if (
+						allowProviderCacheWrites &&
 						prompt_cache_retention !== undefined &&
 						(prompt_cache_retention !== "24h" ||
 							supportsOpenAIExtendedPromptCache(usedInternalModel))
@@ -2321,11 +2338,12 @@ export async function prepareRequestBody(
 				// required for hits at all) a key derived from the conversation
 				// prefix.
 				if (
-					usedProvider === "openai" ||
-					usedProvider === "azure" ||
-					usedProvider === "aws-mantle" ||
-					usedProvider === "meta" ||
-					usedProvider === "meta-contributor"
+					allowProviderCacheWrites &&
+					(usedProvider === "openai" ||
+						usedProvider === "azure" ||
+						usedProvider === "aws-mantle" ||
+						usedProvider === "meta" ||
+						usedProvider === "meta-contributor")
 				) {
 					const upstreamCacheKey =
 						(prompt_cache_key !== undefined
@@ -2489,17 +2507,20 @@ export async function prepareRequestBody(
 					// Azure is intentionally excluded on this path: chat completions
 					// may hit a legacy deployment-based api-version that rejects
 					// unknown body fields, and the deployment type isn't known here.
-					const upstreamCacheKey =
-						(prompt_cache_key !== undefined
-							? hashPromptCacheKey(prompt_cache_key)
-							: undefined) ??
-						(session_id !== undefined
-							? hashSessionCacheKey(session_id)
-							: undefined);
-					if (upstreamCacheKey !== undefined) {
-						requestBody.prompt_cache_key = upstreamCacheKey;
+					if (allowProviderCacheWrites) {
+						const upstreamCacheKey =
+							(prompt_cache_key !== undefined
+								? hashPromptCacheKey(prompt_cache_key)
+								: undefined) ??
+							(session_id !== undefined
+								? hashSessionCacheKey(session_id)
+								: undefined);
+						if (upstreamCacheKey !== undefined) {
+							requestBody.prompt_cache_key = upstreamCacheKey;
+						}
 					}
 					if (
+						allowProviderCacheWrites &&
 						prompt_cache_retention !== undefined &&
 						(prompt_cache_retention !== "24h" ||
 							supportsOpenAIExtendedPromptCache(usedInternalModel))
@@ -2815,17 +2836,8 @@ export async function prepareRequestBody(
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
 			}
-			// DashScope doesn't recognize `reasoning_effort`; thinking is
-			// controlled via `enable_thinking` (boolean) and `thinking_budget`
-			// (max thinking tokens), and thinking models think by default.
-			// Mappings whose thinking is budget-controlled declare
-			// `reasoningMaxTokens`, so translate the unified reasoning parameters
-			// only for them: `none` becomes an explicit disable, every other tier
-			// becomes an explicit enable with a native budget (mirroring the
-			// Google tier-to-budget mapping), and an explicit
-			// `reasoning.max_tokens` is forwarded as the budget verbatim. When no
-			// reasoning parameter is set, send nothing and keep the provider
-			// default.
+			// Budget-controlled mappings use enable_thinking and thinking_budget;
+			// mappings declaring native reasoning_effort receive it directly.
 			if (
 				supportsReasoning &&
 				providerMappingForOptions?.reasoningMaxTokens === true &&
@@ -2863,6 +2875,14 @@ export async function prepareRequestBody(
 					requestBody.enable_thinking = true;
 					requestBody.thinking_budget = thinkingBudget;
 				}
+			} else if (
+				supportsReasoning &&
+				reasoning_effort !== undefined &&
+				providerMappingForOptions?.supportedParameters?.includes(
+					"reasoning_effort",
+				)
+			) {
+				requestBody.reasoning_effort = reasoning_effort;
 			}
 			break;
 		}
@@ -3711,10 +3731,10 @@ export async function prepareRequestBody(
 									},
 								});
 							} catch (error) {
-								// A size rejection is the user's to act on: degrading to a
+								// A client rejection is the user's to act on: degrading to a
 								// placeholder would return a 200 that silently ignores the
 								// image and still bills for the turn.
-								if (error instanceof ImageSizeLimitError) {
+								if (error instanceof RequestError) {
 									throw error;
 								}
 								logger.error("Failed to process image for Bedrock", {

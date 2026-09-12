@@ -18,7 +18,24 @@ interface OrganizationLike {
 	id: string;
 	plan: string;
 	kind?: string | null;
+	retentionLevel?: "retain" | "none" | null;
 	providerCompliancePolicy?: ProviderCompliancePolicy | null;
+}
+
+export function isZeroDataRetentionEnabled(
+	organization: OrganizationLike | null | undefined,
+): boolean {
+	return organization
+		? getActiveCompliancePolicy(organization)?.zeroDataRetention === true
+		: false;
+}
+
+export function getEffectiveRetentionLevel(
+	organization: OrganizationLike | null | undefined,
+): "retain" | "none" {
+	return isZeroDataRetentionEnabled(organization)
+		? "none"
+		: (organization?.retentionLevel ?? "none");
 }
 
 /**
