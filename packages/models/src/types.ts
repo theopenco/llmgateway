@@ -36,9 +36,14 @@ export interface CacheControl {
 export type ProviderCacheControlMode = "auto" | "passthrough" | "off";
 
 // Base content types
+export interface GoogleExtraContent {
+	google?: { thought_signature?: string };
+}
+
 export interface TextContent {
 	type: "text";
 	text: string;
+	extra_content?: GoogleExtraContent;
 	cache_control?: CacheControl;
 	prompt_cache_breakpoint?: PromptCacheBreakpoint;
 }
@@ -138,6 +143,7 @@ export type MessageContent =
 export interface ToolCall {
 	id: string;
 	type: "function";
+	extra_content?: GoogleExtraContent;
 	function: {
 		name: string;
 		arguments: string;

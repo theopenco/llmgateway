@@ -559,6 +559,128 @@ describe("convertResponsesInputToMessages", () => {
 		expect(result[2]!.role).toBe("tool");
 	});
 
+	it.each(["commentary", "final_answer"] as const)(
+		"preserves %s on a signed message folded into a tool call",
+		(phase) => {
+			const details = [
+				{
+					type: "reasoning.text",
+					format: "google-gemini-v1",
+					signature: "test-signature",
+				},
+			];
+			const result = convertResponsesInputToMessages([
+				{
+					type: "message",
+					role: "assistant",
+					content: "",
+					phase,
+					reasoning_details: details,
+				},
+				{
+					type: "function_call",
+					call_id: "call_first",
+					name: "lookup",
+					arguments: "{}",
+				},
+				{ type: "function_call_output", call_id: "call_first", output: "42" },
+				{
+					type: "function_call",
+					call_id: "call_second",
+					name: "lookup",
+					arguments: "{}",
+				},
+			]);
+			expect(result).toHaveLength(3);
+			expect(result[0]).toMatchObject({
+				role: "assistant",
+				phase,
+				reasoning_details: details,
+				tool_calls: [{ id: "call_first" }],
+			});
+			expect(result[2]!.phase).toBeUndefined();
+			expect(result[2]!.reasoning_details).toBeUndefined();
+		},
+	);
+
+	it("folds signed text streamed ahead of a tool call into its turn", () => {
+		const details = [
+			{
+				type: "reasoning.text",
+				format: "google-gemini-v1",
+				signature: "test-signature",
+			},
+		];
+		const result = convertResponsesInputToMessages([
+			{
+				type: "message",
+				role: "assistant",
+				content: [{ type: "output_text", text: "Looking it up." }],
+				phase: "commentary",
+				reasoning_details: details,
+			},
+			{
+				type: "function_call",
+				call_id: "call_test",
+				name: "lookup",
+				arguments: "{}",
+			},
+			{ type: "function_call_output", call_id: "call_test", output: "42" },
+		]);
+		expect(result).toHaveLength(2);
+		expect(result[0]).toEqual({
+			role: "assistant",
+			content: "Looking it up.",
+			phase: "commentary",
+			content_before_tool_calls: true,
+			reasoning_details: details,
+			tool_calls: [
+				{
+					id: "call_test",
+					type: "function",
+					function: { name: "lookup", arguments: "{}" },
+				},
+			],
+		});
+	});
+
+	it("keeps Gemini signatures on chat-shaped assistant history", () => {
+		const extra_content = { google: { thought_signature: "test-signature" } };
+		const parsed = responsesRequestSchema.parse({
+			model: "gemini-3.5-flash",
+			input: [
+				{
+					type: "message",
+					role: "assistant",
+					content: [{ type: "text", text: "Looking it up.", extra_content }],
+					tool_calls: [
+						{
+							id: "call_test",
+							type: "function",
+							function: { name: "lookup", arguments: "{}" },
+							extra_content,
+						},
+					],
+				},
+			],
+		});
+		const result = convertResponsesInputToMessages(parsed.input);
+		expect(result).toEqual([
+			{
+				role: "assistant",
+				content: [{ type: "text", text: "Looking it up.", extra_content }],
+				tool_calls: [
+					{
+						id: "call_test",
+						type: "function",
+						function: { name: "lookup", arguments: "{}" },
+						extra_content,
+					},
+				],
+			},
+		]);
+	});
+
 	it("preserves the phase of a folded trailing assistant message", () => {
 		const input = [
 			{
@@ -2432,5 +2554,87 @@ describe("resolveItemReferences", () => {
 		const resolved = await resolveItemReferences(input, "project_1");
 
 		expect(resolved).toEqual([{ role: "user", content: "hi" }]);
+	});
+});
+
+describe("Gemini signature deltas in Responses streams", () => {
+	const detail = {
+		type: "reasoning.text",
+		format: "google-gemini-v1",
+		signature: "test-signature",
+		google_part: { thought: true, text_offset: 0 },
+	};
+
+	it("attaches a signature streamed ahead of the text without empty text events", () => {
+		const state = createStreamingState("gemini-3.5-flash");
+		const early = processStreamChunk(
+			{ choices: [{ delta: { reasoning_details: [detail] } }] },
+			state,
+		);
+		expect(early.map((e) => e.event)).not.toContain(
+			"response.output_text.delta",
+		);
+		expect(early.map((e) => e.event)).not.toContain(
+			"response.output_item.added",
+		);
+
+		processStreamChunk({ choices: [{ delta: { content: "Answer" } }] }, state);
+		const [message] = buildFinalOutputItems(state);
+		expect(message).toMatchObject({
+			type: "message",
+			content: [{ type: "output_text", text: "Answer" }],
+			reasoning_details: [detail],
+		});
+		expect(state.messageItems).toHaveLength(1);
+	});
+
+	it("emits a carrier message after the tool calls for a signature-only turn", () => {
+		const state = createStreamingState("gemini-3.5-flash");
+		processStreamChunk(
+			{ choices: [{ delta: { reasoning_details: [detail] } }] },
+			state,
+		);
+		processStreamChunk(
+			{
+				choices: [
+					{
+						delta: {
+							tool_calls: [
+								{
+									index: 0,
+									id: "call_test",
+									function: { name: "lookup", arguments: "{}" },
+								},
+							],
+						},
+					},
+				],
+			},
+			state,
+		);
+
+		const events = createCompletionEvents(state);
+		const added = events.filter(
+			(e) => e.event === "response.output_item.added",
+		);
+		const done = events.filter((e) => e.event === "response.output_item.done");
+		expect(added.map((e) => JSON.parse(e.data).item.type)).toEqual(["message"]);
+		expect(done.map((e) => JSON.parse(e.data).item.type)).toEqual([
+			"message",
+			"function_call",
+		]);
+		expect(events.map((e) => e.event)).not.toContain(
+			"response.output_text.delta",
+		);
+
+		const output = JSON.parse(events[events.length - 1]!.data).response.output;
+		expect(output.map((item: { type: string }) => item.type)).toEqual([
+			"function_call",
+			"message",
+		]);
+		expect(output[1]).toMatchObject({
+			content: [{ type: "output_text", text: "" }],
+			reasoning_details: [detail],
+		});
 	});
 });

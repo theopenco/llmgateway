@@ -65,6 +65,11 @@
 			"import": "./dist/mask-token.js",
 			"default": "./dist/mask-token.js"
 		},
+		"./provider-key-crypto": {
+			"types": "./dist/provider-key-crypto.d.ts",
+			"import": "./dist/provider-key-crypto.js",
+			"default": "./dist/provider-key-crypto.js"
+		},
 		"./random": {
 			"types": "./dist/random.d.ts",
 			"import": "./dist/random.js",

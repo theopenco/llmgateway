@@ -15,7 +15,12 @@ import {
 	DEV_PLAN_RESET_PASS_PRICES,
 	getDevPlanCreditsLimit,
 } from "@llmgateway/shared";
-import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import {
+	getApiKeyFingerprint,
+	hashApiKeyForStorage,
+} from "@llmgateway/shared/api-key-hash";
+import { maskToken } from "@llmgateway/shared/mask-token";
+import { encryptProviderKey } from "@llmgateway/shared/provider-key-crypto";
 
 import { and, closeDatabase, db, eq, isNull, tables } from "./index.js";
 import { logs } from "./logs.js";
@@ -606,12 +611,15 @@ function generateProviderKeys(projects: ProjectDef[]) {
 	);
 	for (const orgId of orgIds) {
 		for (const provider of ["openai", "anthropic"]) {
+			const id = `seed-pk-${orgId}-${provider}`;
+			const token = `sk-seed-${provider}-${orgId}`;
 			keys.push({
-				id: `seed-pk-${orgId}-${provider}`,
+				id,
 				organizationId: orgId,
 				provider,
-				token: `sk-seed-${provider}-${orgId}`,
-				tokenMasked: `sk-...${orgId.slice(-4)}`,
+				tokenCiphertext: encryptProviderKey(token, id, orgId),
+				tokenMasked: maskToken(token),
+				tokenHash: getApiKeyFingerprint(token),
 				description: `${provider} production key`,
 				usage: String(randomFloat(0, 200)),
 			});
@@ -695,7 +703,7 @@ function generateLogs(
 				duration,
 				timeToFirstToken,
 				requestedModel: modelDef.model,
-				usedModel: modelDef.model,
+				usedModel: `${modelDef.provider}/${modelDef.model}`,
 				usedProvider: modelDef.provider,
 				responseSize: isError ? 0 : randomInt(100, 15000),
 				content: isError ? null : "Generated response content.",
@@ -1036,7 +1044,7 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 					id: `phms-${statIdx}`,
 					projectId: proj.id,
 					hourTimestamp: hourTs,
-					usedModel: modelDef.model,
+					usedModel: `${modelDef.provider}/${modelDef.model}`,
 					usedProvider: modelDef.provider,
 					requestCount: reqCount,
 					errorCount: errCount,
@@ -1922,7 +1930,7 @@ async function seed() {
 			timeToFirstToken:
 				isStreamed && !isError ? randomInt(80, Math.min(duration, 2200)) : null,
 			requestedModel: modelDef.model,
-			usedModel: modelDef.model,
+			usedModel: `${modelDef.provider}/${modelDef.model}`,
 			usedProvider: modelDef.provider,
 			source: agent.source,
 			responseSize: isError ? 0 : randomInt(500, 18000),
@@ -2059,7 +2067,7 @@ async function seed() {
 				id: `devpass-phms-${bucket.id}-${i}`,
 				projectId: "test-personal-project-id",
 				hourTimestamp: bucket.hourTimestamp,
-				usedModel: m.model,
+				usedModel: `${m.provider}/${m.model}`,
 				usedProvider: m.provider,
 				requestCount: reqs,
 				errorCount: errors,
@@ -3407,7 +3415,7 @@ async function seedAirside() {
 					id: `airside-phms-${airsideStatId++}`,
 					projectId: "test-project-id",
 					hourTimestamp: bucket,
-					usedModel: entry.model,
+					usedModel: `mistral/${entry.model}`,
 					usedProvider: "mistral",
 					requestCount,
 					errorCount: randomInt(0, Math.ceil(requestCount / 50)),
@@ -3430,7 +3438,7 @@ async function seedAirside() {
 			airsideGlobalStats.push({
 				id: `airside-gms-${day}-${entry.model}`,
 				dayTimestamp: dayBucket,
-				usedModel: entry.model,
+				usedModel: `mistral/${entry.model}`,
 				usedProvider: "mistral",
 				usedMode: "credits",
 				orgKind: "default",
