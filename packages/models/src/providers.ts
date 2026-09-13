@@ -1701,6 +1701,10 @@ export const providers: ProviderDefinition[] = [
 			required: {
 				apiKey: "LLM_MINIMAX_API_KEY",
 			},
+			optional: {
+				baseUrl: "LLM_MINIMAX_BASE_URL",
+				region: "LLM_MINIMAX_REGION",
+			},
 		},
 		streaming: true,
 		cancellation: true,
@@ -1719,6 +1723,18 @@ export const providers: ProviderDefinition[] = [
 			retentionPeriod: null,
 		},
 		priority: 1.2,
+		regionConfig: {
+			optionsKey: "minimax_region",
+			defaultRegion: "global_en",
+			regions: [
+				{ id: "global_en", label: "Global (default)" },
+				{ id: "cn_zh", label: "China" },
+			],
+			endpointMap: {
+				global_en: "https://api.minimax.io",
+				cn_zh: "https://api.minimaxi.com",
+			},
+		},
 	},
 	{
 		id: "embercloud",

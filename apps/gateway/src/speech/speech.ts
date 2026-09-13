@@ -112,6 +112,16 @@ const speechRequestSchema = z.object({
 			"Optional style/delivery instructions prepended to the input as a natural-language directive (e.g. 'Say cheerfully').",
 		example: "Say in a warm, friendly tone",
 	}),
+	// MiniMax T2A v2 accepts these provider-native controls. They are optional
+	// so existing OpenAI/Gemini/ElevenLabs callers keep the same contract.
+	stream: z.boolean().optional(),
+	language_boost: z.string().optional(),
+	output_format: z.enum(["mp3", "wav", "flac", "pcm"]).optional(),
+	voice_setting: z.record(z.unknown()).optional(),
+	pronunciation_dict: z.record(z.unknown()).optional(),
+	audio_setting: z.record(z.unknown()).optional(),
+	voice_modify: z.record(z.unknown()).optional(),
+	subtitle_enable: z.boolean().optional(),
 });
 
 type SpeechRequest = z.infer<typeof speechRequestSchema>;
@@ -165,6 +175,18 @@ interface DashScopeTtsResponse {
 	code?: string;
 }
 
+/** Minimal shape of a MiniMax T2A v2 response. */
+interface MiniMaxTtsResponse {
+	data?: {
+		audio?: string;
+		status?: number;
+	};
+	base_resp?: {
+		status_code?: number;
+		status_msg?: string;
+	};
+}
+
 function hasInlineAudio(
 	part: GeminiPart,
 ): part is GeminiPart & { inlineData: { data: string; mimeType?: string } } {
@@ -190,6 +212,7 @@ const PROVIDER_BASE_URL_DEFAULTS: Partial<Record<string, string>> = {
 	openai: "https://api.openai.com",
 	elevenlabs: "https://api.elevenlabs.io",
 	alibaba: "https://dashscope-intl.aliyuncs.com",
+	minimax: "https://api.minimax.io",
 };
 
 const SUPPORTED_PROVIDERS = new Set([
@@ -198,6 +221,7 @@ const SUPPORTED_PROVIDERS = new Set([
 	"openai",
 	"elevenlabs",
 	"alibaba",
+	"minimax",
 ]);
 
 // Response formats Gemini can satisfy. Gemini emits raw PCM, so the gateway can
@@ -244,6 +268,22 @@ const ELEVENLABS_OUTPUT_FORMATS: Record<string, string> = {
 // so the gateway can only serve WAV for Qwen TTS models.
 const ALIBABA_RESPONSE_FORMATS = new Set(["wav"]);
 
+// MiniMax T2A v2 returns audio encoded in the response JSON. The requested
+// format is selected with `output_format` and is returned without conversion.
+const MINIMAX_RESPONSE_FORMATS = new Set(["mp3", "wav", "flac", "pcm"]);
+
+const MINIMAX_CONTENT_TYPES: Record<string, string> = {
+	mp3: "audio/mpeg",
+	wav: "audio/wav",
+	flac: "audio/flac",
+	pcm: "audio/pcm",
+};
+
+const MINIMAX_REGION_BASE_URLS: Record<string, string> = {
+	global_en: "https://api.minimax.io",
+	cn_zh: "https://api.minimaxi.com",
+};
+
 /**
  * Wrap raw signed 16-bit little-endian PCM samples in a minimal WAV container
  * so callers receive a directly playable file. Gemini returns mono PCM at the
@@ -278,6 +318,16 @@ function parseSampleRate(mimeType: string | undefined): number {
 	const match = mimeType?.match(/rate=(\d+)/);
 	const rate = match ? Number(match[1]) : NaN;
 	return Number.isFinite(rate) && rate > 0 ? rate : 24000;
+}
+
+function decodeMiniMaxAudio(value: string): Buffer {
+	const payload = value.trim();
+	// T2A v2 normally returns a hexadecimal payload. Keep a base64 fallback for
+	// deployments that negotiate the alternate encoding.
+	if (payload.length % 2 === 0 && /^[0-9a-f]+$/i.test(payload)) {
+		return Buffer.from(payload, "hex");
+	}
+	return Buffer.from(payload, "base64");
 }
 
 function toArrayBuffer(buf: Buffer): ArrayBuffer {
@@ -488,6 +538,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	const isOpenAI = providerId === "openai";
 	const isElevenLabs = providerId === "elevenlabs";
 	const isAlibaba = providerId === "alibaba";
+	const isMiniMax = providerId === "minimax";
 	const isGoogleVertex = providerId === "google-vertex";
 	// OpenAI and ElevenLabs both return audio already encoded in the requested
 	// format and bill independently of Gemini's inline-PCM path.
@@ -515,14 +566,21 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 	}
 
 	const responseFormat =
-		request.response_format ?? (isEncodedPassthrough ? "mp3" : "wav");
+		request.response_format ??
+		(isMiniMax
+			? (request.output_format ?? "mp3")
+			: isEncodedPassthrough
+				? "mp3"
+				: "wav");
 	const allowedFormats = isOpenAI
 		? OPENAI_RESPONSE_FORMATS
 		: isElevenLabs
 			? ELEVENLABS_RESPONSE_FORMATS
 			: isAlibaba
 				? ALIBABA_RESPONSE_FORMATS
-				: GOOGLE_RESPONSE_FORMATS;
+				: isMiniMax
+					? MINIMAX_RESPONSE_FORMATS
+					: GOOGLE_RESPONSE_FORMATS;
 	if (!allowedFormats.has(responseFormat)) {
 		return c.json(
 			{
@@ -533,7 +591,9 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 							? `Unsupported response_format '${responseFormat}'. ElevenLabs supports 'mp3', 'wav', 'pcm' and 'opus'.`
 							: isAlibaba
 								? `Unsupported response_format '${responseFormat}'. Qwen TTS models only support 'wav'.`
-								: `Unsupported response_format '${responseFormat}'. Gemini speech models only support 'wav' and 'pcm'.`,
+								: isMiniMax
+									? `Unsupported response_format '${responseFormat}'. MiniMax T2A models support 'mp3', 'wav', 'flac' and 'pcm'.`
+									: `Unsupported response_format '${responseFormat}'. Gemini speech models only support 'wav' and 'pcm'.`,
 					type: "invalid_request_error",
 					param: "response_format",
 					code: "unsupported_response_format",
@@ -562,7 +622,9 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		);
 	}
 	const voice =
-		request.voice ?? supportedVoices[0] ?? (isOpenAI ? "alloy" : "Kore");
+		request.voice ??
+		supportedVoices[0] ??
+		(isOpenAI ? "alloy" : isMiniMax ? undefined : "Kore");
 
 	const startedAt = Date.now();
 	const source = validateSource(
@@ -694,7 +756,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		? {
 				model: upstreamModel,
 				input: request.input,
-				voice,
+				voice: voice ?? "alloy",
 				response_format: responseFormat,
 				...(request.speed !== undefined ? { speed: request.speed } : {}),
 				// `instructions` and SSE streaming only apply to gpt-4o-mini-tts;
@@ -723,10 +785,29 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						model: upstreamModel,
 						input: {
 							text: request.input,
-							voice,
+							voice: voice ?? "Kore",
 							format: responseFormat,
 							sample_rate: 24000,
 						},
+					}
+				: isMiniMax
+				? {
+						model: upstreamModel,
+						text: request.input,
+						...(request.stream !== undefined
+							? { stream: request.stream }
+							: {}),
+						language_boost: request.language_boost,
+						output_format: request.output_format ?? responseFormat,
+						...(request.voice_setting
+							? { voice_setting: request.voice_setting }
+							: voice
+								? { voice_setting: { voice_id: voice } }
+								: {}),
+						pronunciation_dict: request.pronunciation_dict,
+						audio_setting: request.audio_setting,
+						voice_modify: request.voice_modify,
+						subtitle_enable: request.subtitle_enable,
 					}
 				: {
 						contents: [{ role: "user", parts: [{ text: promptText }] }],
@@ -734,7 +815,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 							responseModalities: ["AUDIO"],
 							speechConfig: {
 								voiceConfig: {
-									prebuiltVoiceConfig: { voiceName: voice },
+									prebuiltVoiceConfig: { voiceName: voice ?? "Kore" },
 								},
 							},
 						},
@@ -855,12 +936,24 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		}
 
 		const credential = { providerKey, managedKey };
+		const configuredRegion = isMiniMax
+			? (getCredentialSetting("minimax", "region", credential, {
+					configIndex,
+					variant: envVariant,
+					defaultValue: "global_en",
+				}) ?? "global_en")
+			: undefined;
+		const minimaxRegionBaseUrl =
+			isMiniMax && configuredRegion
+				? MINIMAX_REGION_BASE_URLS[configuredRegion]
+				: undefined;
 		const resolvedBaseUrl =
 			providerKey?.baseUrl ??
 			getCredentialSetting(providerId, "baseUrl", credential, {
 				configIndex,
 				variant: envVariant,
 			}) ??
+			minimaxRegionBaseUrl ??
 			PROVIDER_BASE_URL_DEFAULTS[providerId];
 		if (!resolvedBaseUrl) {
 			throw new HTTPException(500, {
@@ -873,7 +966,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 		// ElevenLabs voices are addressed by id. Resolve our friendly voice name
 		// to the upstream id, falling back to the raw value so callers may also
 		// pass a voice id directly.
-		const elevenLabsVoiceId = ELEVENLABS_VOICE_IDS[voice] ?? voice;
+		const elevenLabsVoiceId =
+			ELEVENLABS_VOICE_IDS[voice ?? "Sarah"] ?? voice ?? "Sarah";
 
 		let upstreamUrl: string;
 		let vertexTokenType: VertexTokenType | undefined;
@@ -883,6 +977,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			upstreamUrl = `${resolvedBaseUrl}/v1/text-to-speech/${encodeURIComponent(elevenLabsVoiceId)}?output_format=${elevenLabsOutputFormat}`;
 		} else if (isAlibaba) {
 			upstreamUrl = `${resolvedBaseUrl}/api/v1/services/audio/tts/SpeechSynthesizer`;
+		} else if (isMiniMax) {
+			upstreamUrl = `${resolvedBaseUrl}/v1/t2a_v2`;
 		} else if (isGoogleVertex) {
 			const vertexProjectId =
 				providerKey?.options?.google_vertex_project_id ??
@@ -1592,6 +1688,215 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 
 				return c.body(toArrayBuffer(out), 200, {
 					"Content-Type": contentType,
+					"Content-Length": String(out.length),
+					"x-request-id": requestId,
+				});
+			}
+
+			// MiniMax T2A v2 returns the synthesized audio inline in a JSON response.
+			if (isMiniMax) {
+				const upstreamText = await upstreamResponse.text();
+				const miniMaxResponses: MiniMaxTtsResponse[] = [];
+				if (request.stream) {
+					for (const line of upstreamText.split("\\n")) {
+						const payload = line.trim().replace(/^data:\\s*/, "");
+						if (!payload || payload === "[DONE]") continue;
+						try {
+							miniMaxResponses.push(JSON.parse(payload) as MiniMaxTtsResponse);
+						} catch {
+							// Ignore keep-alive and non-JSON stream lines.
+						}
+					}
+				} else if (upstreamText) {
+					try {
+						miniMaxResponses.push(
+							JSON.parse(upstreamText) as MiniMaxTtsResponse,
+						);
+					} catch {
+						// Leave the response empty so the standard no-audio error is returned.
+					}
+				}
+				const miniMaxJson = miniMaxResponses[0] ?? {};
+				const audioPayload = miniMaxResponses
+					.map((response) => response.data?.audio ?? "")
+					.join("");
+				const out =
+					audioPayload
+						? decodeMiniMaxAudio(audioPayload)
+						: Buffer.alloc(0);
+				const providerError = miniMaxResponses.some(
+					(response) =>
+						response.base_resp?.status_code !== undefined &&
+						response.base_resp.status_code !== 0,
+				);
+
+				if (providerError || out.length === 0) {
+					const message =
+						miniMaxJson.base_resp?.status_msg ??
+						"The model did not return any audio.";
+					routingAttempts.push(
+						buildRoutingAttempt(
+							providerId,
+							modelDefId,
+							upstreamResponse.status,
+							"upstream_error",
+							false,
+							{
+								apiKeyHash: usedApiKeyHash,
+								credentialSource,
+								providerKeyId,
+								providerKeyLabel: keyLabel,
+								logId: finalLogId,
+							},
+						),
+					);
+					await insertLog(
+						{
+							...baseLogEntry,
+							id: finalLogId,
+							routingMetadata: buildSpeechRoutingMetadata(
+								usedApiKeyHash,
+								credentialSource,
+								usedProviderKey,
+							),
+							duration,
+							timeToFirstToken: null,
+							timeToFirstReasoningToken: null,
+							responseSize: upstreamText.length,
+							content: null,
+							reasoningContent: null,
+							finishReason: "upstream_error",
+							promptTokens: null,
+							completionTokens: null,
+							totalTokens: null,
+							reasoningTokens: null,
+							cachedTokens: null,
+							hasError: true,
+							streamed: false,
+							canceled: false,
+							errorDetails: {
+								statusCode: upstreamResponse.status,
+								statusText: "no_audio",
+								responseText: upstreamText.slice(0, 2000),
+							},
+							inputCost: 0,
+							outputCost: 0,
+							cachedInputCost: 0,
+							requestCost: 0,
+							webSearchCost: 0,
+							imageInputTokens: null,
+							imageOutputTokens: null,
+							imageInputCost: null,
+							imageOutputCost: null,
+							cost: 0,
+							estimatedCost: false,
+							discount: null,
+							pricingTier: null,
+							dataStorageCost: calculateDataStorageCost(
+								null,
+								null,
+								null,
+								null,
+								retentionLevel,
+							),
+							cached: false,
+							toolResults: null,
+						},
+						{ retentionLevel },
+					);
+					return c.json(
+						{
+							error: {
+								message,
+								type: "upstream_error",
+								param: null,
+								code: "no_audio",
+							},
+						} satisfies SpeechErrorBody,
+						502,
+					);
+				}
+
+				const characters = request.input.length;
+				const inputCharacterPrice = Number(
+					mapping.inputCharacterPrice ?? "0",
+				);
+				const inputCost = characters * inputCharacterPrice;
+				const requestCost = Number(mapping.requestPrice ?? "0");
+				const cost = inputCost + requestCost;
+
+				routingAttempts.push(
+					buildRoutingAttempt(
+						providerId,
+						modelDefId,
+						upstreamResponse.status,
+						"none",
+						true,
+						{
+							apiKeyHash: usedApiKeyHash,
+							credentialSource,
+							providerKeyId,
+							providerKeyLabel: keyLabel,
+							logId: finalLogId,
+						},
+					),
+				);
+
+				await insertLog(
+					{
+						...baseLogEntry,
+						id: finalLogId,
+						routingMetadata: buildSpeechRoutingMetadata(
+							usedApiKeyHash,
+							credentialSource,
+							usedProviderKey,
+						),
+						duration,
+						timeToFirstToken: null,
+						timeToFirstReasoningToken: null,
+						responseSize: out.length,
+						content: `[audio: ${out.length} bytes, ${MINIMAX_CONTENT_TYPES[responseFormat] ?? "application/octet-stream"}]`,
+						reasoningContent: null,
+						finishReason: "stop",
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: false,
+						streamed: false,
+						canceled: false,
+						errorDetails: null,
+						inputCost,
+						outputCost: 0,
+						cachedInputCost: 0,
+						requestCost,
+						webSearchCost: 0,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						cost,
+						estimatedCost: false,
+						discount: null,
+						pricingTier: null,
+						dataStorageCost: calculateDataStorageCost(
+							null,
+							null,
+							null,
+							null,
+							retentionLevel,
+						),
+						cached: false,
+						toolResults: null,
+					},
+					{ retentionLevel },
+				);
+
+				return c.body(toArrayBuffer(out), 200, {
+					"Content-Type":
+						MINIMAX_CONTENT_TYPES[responseFormat] ??
+						"application/octet-stream",
 					"Content-Length": String(out.length),
 					"x-request-id": requestId,
 				});
