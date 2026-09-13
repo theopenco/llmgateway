@@ -63,6 +63,13 @@ describe("detectCodingAgentFromUserAgent", () => {
 		);
 	});
 
+	it("detects Anvil", () => {
+		expect(detectCodingAgentFromUserAgent("anvil/0.6.16")).toBe("anvil");
+		expect(detectCodingAgentFromUserAgent("anvil-desktop 0.6.16")).toBe(
+			"anvil",
+		);
+	});
+
 	it("detects Empryo", () => {
 		expect(detectCodingAgentFromUserAgent("empryo/1.0.0")).toBe("empryo");
 	});

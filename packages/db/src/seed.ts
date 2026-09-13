@@ -1100,6 +1100,7 @@ const AGENT_SOURCES: Array<{ source: string; weight: number }> = [
 	{ source: "codex", weight: 0.1 },
 	{ source: "opencode", weight: 0.1 },
 	{ source: "empryo", weight: 0.08 },
+	{ source: "anvil", weight: 0.07 },
 	{ source: "autohand", weight: 0.06 },
 	{ source: "n8n", weight: 0.04 },
 ];
@@ -1830,6 +1831,15 @@ async function seed() {
 				{ model: "deepseek-chat", provider: "deepseek", weight: 0.55 },
 				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.3 },
 				{ model: "gpt-4o-mini", provider: "openai", weight: 0.15 },
+			],
+		},
+		{
+			source: "anvil",
+			weight: 0.02,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.6 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.25 },
+				{ model: "deepseek-chat", provider: "deepseek", weight: 0.15 },
 			],
 		},
 		{

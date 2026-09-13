@@ -240,6 +240,20 @@ export const EmpryoIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
 	</svg>
 );
 
+// Anvil Icon — the full-color crest SVG (gradients, filters, binary sparks)
+// hosted at /integrations/anvil.svg in each app's public dir, wrapped in an
+// <svg> shell so sibling icon sizing rules apply.
+export const AnvilIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" {...props}>
+		<image
+			href="/integrations/anvil.svg"
+			width="24"
+			height="24"
+			preserveAspectRatio="xMidYMid meet"
+		/>
+	</svg>
+);
+
 // Continue CLI Icon
 export const ContinueIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
