@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { SidebarProvider } from "@/components/ui/sidebar";
 // No local api key. We'll call backend to ensure key cookie exists after login.
+import { useConnectors } from "@/hooks/use-connectors";
 import {
 	useAddMessage,
 	useCreateChat,
@@ -37,7 +38,6 @@ import {
 	useUpdateChat,
 	useUpdateMessage,
 } from "@/hooks/useChats";
-import { useMcpServers } from "@/hooks/useMcpServers";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useSkills, type Skill } from "@/hooks/useSkills";
 import { useUser } from "@/hooks/useUser";
@@ -82,7 +82,8 @@ function isToolPart(obj: unknown): obj is ToolPart {
 		obj !== null &&
 		"type" in obj &&
 		typeof (obj as ToolPart).type === "string" &&
-		(obj as ToolPart).type.startsWith("tool-")
+		((obj as ToolPart).type.startsWith("tool-") ||
+			(obj as ToolPart).type === "dynamic-tool")
 	);
 }
 
@@ -376,15 +377,7 @@ export default function ChatPageClient({
 		null,
 	);
 
-	// MCP servers management
-	const {
-		servers: mcpServers,
-		addServer: addMcpServer,
-		updateServer: updateMcpServer,
-		removeServer: removeMcpServer,
-		toggleServer: toggleMcpServer,
-		getEnabledServers: getEnabledMcpServers,
-	} = useMcpServers();
+	const { data: connectorData } = useConnectors();
 
 	// Skills
 	const { data: skillsData } = useSkills();
@@ -436,173 +429,179 @@ export default function ChatPageClient({
 	// stale URL value while router navigation is catching up.
 	const pendingNewChatRef = useRef<string | null>(null);
 
-	const { messages, setMessages, sendMessage, status, stop, regenerate } =
-		useChat({
-			onError: async (e) => {
-				streamingChatIdRef.current = null;
-				isSendingRef.current = false;
-				errorOccurredRef.current = true;
-				const msg = selectedOrganization
-					? organizationCreditErrorMessage(
-							getErrorMessage(e),
-							selectedOrganization.role,
-						)
-					: getErrorMessage(e);
-				setError(msg);
-				toast.error(msg);
+	const {
+		messages,
+		setMessages,
+		sendMessage,
+		status,
+		stop,
+		regenerate,
+		addToolApprovalResponse,
+	} = useChat({
+		onError: async (e) => {
+			streamingChatIdRef.current = null;
+			isSendingRef.current = false;
+			errorOccurredRef.current = true;
+			const msg = selectedOrganization
+				? organizationCreditErrorMessage(
+						getErrorMessage(e),
+						selectedOrganization.role,
+					)
+				: getErrorMessage(e);
+			setError(msg);
+			toast.error(msg);
 
-				// If it was a new chat and AI failed to respond, delete the chat
-				if (isNewChatRef.current && chatIdRef.current) {
-					try {
-						await deleteChat.mutateAsync({
-							params: { path: { id: chatIdRef.current } },
-						});
-						// Reset state
-						setCurrentChatId(null);
-						clearingChatRef.current = true;
-						chatIdRef.current = null;
-						setMessages([]);
-						isNewChatRef.current = false;
-					} catch (cleanupError) {
-						toast.error(
-							"Failed to cleanup chat: " + getErrorMessage(cleanupError),
-						);
-					}
-				}
-			},
-			onFinish: async ({ message, finishReason: reason }) => {
-				isSendingRef.current = false;
-				isNewChatRef.current = false;
-
-				// Track finish reason for inline display
-				if (reason && reason !== "stop" && reason !== "tool-calls") {
-					setFinishReason(reason);
-				} else {
-					setFinishReason(null);
-				}
-
-				// If an error already occurred during streaming, skip saving the response
-				if (errorOccurredRef.current) {
-					errorOccurredRef.current = false;
-					return;
-				}
-				if (isTemporaryChat) {
-					return;
-				}
-
-				// Use the chat ID captured at stream-start. This ref is set before
-				// sendMessage is called so it's always available here, even if the
-				// user navigated to a different chat while the stream was running.
-				const chatId = streamingChatIdRef.current;
-				streamingChatIdRef.current = null;
-
-				if (!chatId) {
-					toast.error(
-						"Failed to save AI response: No chat ID found (chat may not have finished saving before the stream ended).",
-					);
-					return;
-				}
-				// Extract assistant text, images, and reasoning from UIMessage parts
-				const textContent = message.parts
-					.filter((p) => p.type === "text")
-					.map((p) => p.text)
-					.join("");
-
-				const reasoningContent = message.parts
-					.filter((p) => p.type === "reasoning")
-					.map((p) => p.text)
-					.join("");
-
-				const imageUrlParts = (message.parts as any[])
-					.filter((p: any) => p.type === "image_url" && p.image_url?.url)
-					.map((p: any) => ({
-						type: "image_url",
-						image_url: { url: p.image_url.url },
-					}));
-
-				// Handle file parts for images (supports multiple shapes from providers)
-				const fileParts = (message.parts as any[])
-					.filter((p) => {
-						if (p.type !== "file") {
-							return false;
-						}
-						const mediaType =
-							p.mediaType ??
-							p.mimeType ??
-							p.mime_type ??
-							p.file?.mediaType ??
-							p.file?.mimeType ??
-							p.file?.mime_type;
-						return (
-							typeof mediaType === "string" && mediaType.startsWith("image/")
-						);
-					})
-					.map((p) => {
-						const mediaType =
-							p.mediaType ??
-							p.mimeType ??
-							p.mime_type ??
-							p.file?.mediaType ??
-							p.file?.mimeType ??
-							p.file?.mime_type;
-						const url =
-							p.url ??
-							p.data ??
-							p.base64 ??
-							p.file?.url ??
-							p.file?.data ??
-							p.file?.base64;
-						const { dataUrl } = parseImageFile({
-							url,
-							mediaType,
-						});
-						return {
-							type: "image_url" as const,
-							image_url: { url: dataUrl },
-						};
-					});
-
-				const images = [...imageUrlParts, ...fileParts];
-
-				// Extract tool parts (AI SDK v6 uses tool-{toolName} as the part type)
-				const toolParts = message.parts.filter(isToolPart);
-				const metadata = parsePlaygroundMessageMetadata(message.metadata);
-
-				const bodyToSave = {
-					role: "assistant" as const,
-					content: textContent || undefined,
-					images: images.length > 0 ? JSON.stringify(images) : undefined,
-					reasoning: reasoningContent || undefined,
-					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
-					sources: extractSourcePartsJson(message.parts),
-					...(metadata ? { metadata } : {}),
-				};
-
+			// If it was a new chat and AI failed to respond, delete the chat
+			if (isNewChatRef.current && chatIdRef.current) {
 				try {
-					await addMessage.mutateAsync({
-						params: { path: { id: chatId } },
-						body: bodyToSave,
+					await deleteChat.mutateAsync({
+						params: { path: { id: chatIdRef.current } },
 					});
-				} catch (error: any) {
-					// If chat not found, clear the stale chat ID
-					if (
-						error?.status === 404 &&
-						error?.message?.includes("Chat not found")
-					) {
-						clearingChatRef.current = true;
-						chatIdRef.current = null;
-						setCurrentChatId(null);
-						setMessages([]);
-						toast.error("Chat was deleted. Please start a new conversation.");
-					} else {
-						toast.error(
-							`Failed to save AI response: ${getErrorMessage(error)}`,
-						);
-					}
+					// Reset state
+					setCurrentChatId(null);
+					clearingChatRef.current = true;
+					chatIdRef.current = null;
+					setMessages([]);
+					isNewChatRef.current = false;
+				} catch (cleanupError) {
+					toast.error(
+						"Failed to cleanup chat: " + getErrorMessage(cleanupError),
+					);
 				}
-				// Note: useAddMessage already invalidates /chats query on success
-			},
-		});
+			}
+		},
+		onFinish: async ({ message, finishReason: reason }) => {
+			isSendingRef.current = false;
+			isNewChatRef.current = false;
+
+			// Track finish reason for inline display
+			if (reason && reason !== "stop" && reason !== "tool-calls") {
+				setFinishReason(reason);
+			} else {
+				setFinishReason(null);
+			}
+
+			// If an error already occurred during streaming, skip saving the response
+			if (errorOccurredRef.current) {
+				errorOccurredRef.current = false;
+				return;
+			}
+			if (isTemporaryChat) {
+				return;
+			}
+
+			// Use the chat ID captured at stream-start. This ref is set before
+			// sendMessage is called so it's always available here, even if the
+			// user navigated to a different chat while the stream was running.
+			const chatId = streamingChatIdRef.current;
+			streamingChatIdRef.current = null;
+
+			if (!chatId) {
+				toast.error(
+					"Failed to save AI response: No chat ID found (chat may not have finished saving before the stream ended).",
+				);
+				return;
+			}
+			// Extract assistant text, images, and reasoning from UIMessage parts
+			const textContent = message.parts
+				.filter((p) => p.type === "text")
+				.map((p) => p.text)
+				.join("");
+
+			const reasoningContent = message.parts
+				.filter((p) => p.type === "reasoning")
+				.map((p) => p.text)
+				.join("");
+
+			const imageUrlParts = (message.parts as any[])
+				.filter((p: any) => p.type === "image_url" && p.image_url?.url)
+				.map((p: any) => ({
+					type: "image_url",
+					image_url: { url: p.image_url.url },
+				}));
+
+			// Handle file parts for images (supports multiple shapes from providers)
+			const fileParts = (message.parts as any[])
+				.filter((p) => {
+					if (p.type !== "file") {
+						return false;
+					}
+					const mediaType =
+						p.mediaType ??
+						p.mimeType ??
+						p.mime_type ??
+						p.file?.mediaType ??
+						p.file?.mimeType ??
+						p.file?.mime_type;
+					return (
+						typeof mediaType === "string" && mediaType.startsWith("image/")
+					);
+				})
+				.map((p) => {
+					const mediaType =
+						p.mediaType ??
+						p.mimeType ??
+						p.mime_type ??
+						p.file?.mediaType ??
+						p.file?.mimeType ??
+						p.file?.mime_type;
+					const url =
+						p.url ??
+						p.data ??
+						p.base64 ??
+						p.file?.url ??
+						p.file?.data ??
+						p.file?.base64;
+					const { dataUrl } = parseImageFile({
+						url,
+						mediaType,
+					});
+					return {
+						type: "image_url" as const,
+						image_url: { url: dataUrl },
+					};
+				});
+
+			const images = [...imageUrlParts, ...fileParts];
+
+			// Preserve connector approvals and results with the conversation.
+			const toolParts = message.parts.filter(isToolPart);
+			const metadata = parsePlaygroundMessageMetadata(message.metadata);
+
+			const bodyToSave = {
+				id: message.id,
+				role: "assistant" as const,
+				content: textContent || undefined,
+				images: images.length > 0 ? JSON.stringify(images) : undefined,
+				reasoning: reasoningContent || undefined,
+				tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+				sources: extractSourcePartsJson(message.parts),
+				...(metadata ? { metadata } : {}),
+			};
+
+			try {
+				await addMessage.mutateAsync({
+					params: { path: { id: chatId } },
+					body: bodyToSave,
+				});
+			} catch (error: any) {
+				// If chat not found, clear the stale chat ID
+				if (
+					error?.status === 404 &&
+					error?.message?.includes("Chat not found")
+				) {
+					clearingChatRef.current = true;
+					chatIdRef.current = null;
+					setCurrentChatId(null);
+					setMessages([]);
+					toast.error("Chat was deleted. Please start a new conversation.");
+				} else {
+					toast.error(`Failed to save AI response: ${getErrorMessage(error)}`);
+				}
+			}
+			// Note: useAddMessage already invalidates /chats query on success
+		},
+	});
 
 	// Sync currentChatId with URL param changes
 	useEffect(() => {
@@ -804,8 +803,13 @@ export default function ChatPageClient({
 
 			const noFallback = shouldDisableFallback(selectedModel);
 
-			// Get enabled MCP servers
-			const enabledMcpServers = getEnabledMcpServers();
+			const connectorIds =
+				connectorData?.connectors
+					.filter(
+						(connector) =>
+							connector.available && connector.connected && connector.enabled,
+					)
+					.map((connector) => connector.id) ?? [];
 
 			return {
 				...options,
@@ -822,9 +826,7 @@ export default function ChatPageClient({
 					...(webSearchEnabled && supportsWebSearch
 						? { web_search: true }
 						: {}),
-					...(enabledMcpServers.length > 0
-						? { mcp_servers: enabledMcpServers }
-						: {}),
+					connector_ids: connectorIds,
 					...(isTemporaryChat ? { temporary_chat: true } : {}),
 					...(activeProjectId && !isTemporaryChat
 						? { project_id: activeProjectId }
@@ -852,7 +854,7 @@ export default function ChatPageClient({
 			selectedModel,
 			webSearchEnabled,
 			supportsWebSearch,
-			getEnabledMcpServers,
+			connectorData,
 			isTemporaryChat,
 			activeProjectId,
 			activeSkills,
@@ -870,6 +872,48 @@ export default function ChatPageClient({
 			);
 		},
 		[sendMessage, buildRequestOptions],
+	);
+
+	const answeringApprovals = useRef(new Set<string>());
+	const answeredApprovals = useRef(new Set<string>());
+	const continuedApprovals = useRef(new Set<string>());
+	const handleToolApproval = useCallback(
+		async (id: string, approved: boolean) => {
+			if (answeringApprovals.current.has(id)) {
+				return;
+			}
+			answeringApprovals.current.add(id);
+			await addToolApprovalResponse({ id, approved });
+			answeredApprovals.current.add(id);
+			const pendingIds =
+				messages
+					.at(-1)
+					?.parts.flatMap((part) =>
+						(part.type === "dynamic-tool" || part.type.startsWith("tool-")) &&
+						"state" in part &&
+						part.state === "approval-requested" &&
+						"approval" in part &&
+						part.approval
+							? [part.approval.id]
+							: [],
+					) ?? [];
+			if (
+				pendingIds.some(
+					(pendingId) =>
+						!answeredApprovals.current.has(pendingId) ||
+						continuedApprovals.current.has(pendingId),
+				)
+			) {
+				return;
+			}
+			// Claim continuation before yielding so simultaneous answers send only once.
+			for (const pendingId of [...pendingIds, id]) {
+				continuedApprovals.current.add(pendingId);
+			}
+			streamingChatIdRef.current = chatIdRef.current;
+			await sendMessage(undefined, buildRequestOptions(false));
+		},
+		[addToolApprovalResponse, messages, sendMessage, buildRequestOptions],
 	);
 
 	const regenerateWithHeaders = useCallback(
@@ -2071,11 +2115,6 @@ export default function ChatPageClient({
 							showGlobalModelSelector={
 								!(comparisonEnabled && extraPanelIds.length > 0)
 							}
-							mcpServers={mcpServers}
-							onAddMcpServer={addMcpServer}
-							onUpdateMcpServer={updateMcpServer}
-							onRemoveMcpServer={removeMcpServer}
-							onToggleMcpServer={toggleMcpServer}
 							isTemporaryChat={isTemporaryChat}
 							onToggleTemporaryChat={handleToggleTemporaryChat}
 							showTemporaryChatSwitcher={!currentChatId}
@@ -2202,6 +2241,7 @@ export default function ChatPageClient({
 											supportsDocuments={supportsDocuments}
 											supportsImageGen={supportsImageGen}
 											sendMessage={sendMessageWithHeaders}
+											onToolApproval={handleToolApproval}
 											selectedModel={selectedModel}
 											text={primaryText}
 											setText={setPrimaryText}
@@ -2263,6 +2303,7 @@ export default function ChatPageClient({
 										supportsDocuments={supportsDocuments}
 										supportsImageGen={supportsImageGen}
 										sendMessage={sendMessageWithHeaders}
+										onToolApproval={handleToolApproval}
 										selectedModel={selectedModel}
 										text={primaryText}
 										setText={setPrimaryText}
@@ -2623,6 +2664,7 @@ function ExtraChatPanel({
 				const metadata = parsePlaygroundMessageMetadata(message.metadata);
 
 				const bodyToSave = {
+					id: message.id,
 					role: "assistant" as const,
 					content: textContent || undefined,
 					reasoning: reasoningContent || undefined,

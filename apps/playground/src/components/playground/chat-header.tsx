@@ -1,7 +1,7 @@
 "use client";
 
 import { ModelSelector } from "@/components/model-selector";
-import { McpServersDialog } from "@/components/playground/mcp-servers-dialog";
+import { ConnectorsDialog } from "@/components/playground/connectors-dialog";
 import { ShareChatDialog } from "@/components/playground/share-chat-dialog";
 import { TempChatSwitcher } from "@/components/playground/temp-chat-switcher";
 import { Label } from "@/components/ui/label";
@@ -9,7 +9,6 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Switch } from "@/components/ui/switch";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import type { McpServer } from "@/hooks/useMcpServers";
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { Organization } from "@/lib/types";
 
@@ -22,15 +21,6 @@ interface ChatHeaderProps {
 	onComparisonEnabledChange: (enabled: boolean) => void;
 	hideCompare?: boolean;
 	showGlobalModelSelector: boolean;
-	// MCP servers props
-	mcpServers: McpServer[];
-	onAddMcpServer: (server: Omit<McpServer, "id">) => McpServer;
-	onUpdateMcpServer: (
-		id: string,
-		updates: Partial<Omit<McpServer, "id">>,
-	) => void;
-	onRemoveMcpServer: (id: string) => void;
-	onToggleMcpServer: (id: string) => void;
 	isTemporaryChat: boolean;
 	onToggleTemporaryChat: () => void;
 	showTemporaryChatSwitcher: boolean;
@@ -54,11 +44,6 @@ export const ChatHeader = ({
 	onComparisonEnabledChange,
 	hideCompare = false,
 	showGlobalModelSelector,
-	mcpServers,
-	onAddMcpServer,
-	onUpdateMcpServer,
-	onRemoveMcpServer,
-	onToggleMcpServer,
 	isTemporaryChat,
 	onToggleTemporaryChat,
 	showTemporaryChatSwitcher,
@@ -109,13 +94,7 @@ export const ChatHeader = ({
 					/>
 				)}
 				<TooltipProvider>
-					<McpServersDialog
-						servers={mcpServers}
-						onAddServer={onAddMcpServer}
-						onUpdateServer={onUpdateMcpServer}
-						onRemoveServer={onRemoveMcpServer}
-						onToggleServer={onToggleMcpServer}
-					/>
+					<ConnectorsDialog />
 				</TooltipProvider>
 				{isTemporaryChat ? null : !hideCompare || comparisonEnabled ? (
 					<div className="hidden items-center gap-2 md:flex">
