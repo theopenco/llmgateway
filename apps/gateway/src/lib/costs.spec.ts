@@ -39,6 +39,33 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false); // Not estimated
 	});
 
+	it.each([
+		{ prompt: 90, completion: 40, reasoning: 24, cached: 0, cost: 0.00087 },
+		{
+			prompt: 22612,
+			completion: 38,
+			reasoning: 22,
+			cached: 22528,
+			cost: 0.0075804,
+		},
+	])("matches Runpod usage with $cached cached tokens", async (usage) => {
+		const result = await calculateCosts(
+			"kimi-k3",
+			"runpod",
+			null,
+			usage.prompt,
+			usage.completion,
+			usage.cached,
+			undefined,
+			usage.reasoning,
+		);
+
+		expect(result.totalCost).toBeCloseTo(usage.cost, 10);
+		expect(result.cachedInputCost).toBeCloseTo(usage.cached * 0.3e-6, 10);
+		expect(result.outputCost).toBeCloseTo(usage.completion * 15e-6, 10);
+		expect(result.estimatedCost).toBe(false);
+	});
+
 	it("should calculate costs with null token counts but provided text", async () => {
 		const result = await calculateCosts(
 			"gpt-4",

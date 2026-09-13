@@ -3,7 +3,11 @@ import { createHash, randomBytes } from "node:crypto";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
-import { connectorAvailable, shopDomain } from "@/lib/connectors/catalogue.js";
+import {
+	assertConnectorAvailable,
+	connectorAvailable,
+	shopDomain,
+} from "@/lib/connectors/catalogue.js";
 import { openConnector, sealConnector } from "@/lib/connectors/crypto.js";
 import {
 	beginAuthorization,
@@ -89,12 +93,13 @@ connectors.openapi(
 					const connection = connections.find(
 						(entry) => entry.connectorId === id,
 					);
+					const available = connectorAvailable(id);
 					return {
 						id,
 						...loungeConnectors[id],
-						available: connectorAvailable(id),
+						available,
 						connected: Boolean(connection),
-						enabled: connection?.enabled ?? false,
+						enabled: available && (connection?.enabled ?? false),
 					};
 				}),
 			},
@@ -146,11 +151,7 @@ connectors.openapi(
 	}),
 	async (c) => {
 		const { connectorId: id } = c.req.valid("param");
-		if (!connectorAvailable(id)) {
-			throw new HTTPException(503, {
-				message: "This connector is not configured yet",
-			});
-		}
+		assertConnectorAvailable(id);
 		const userId = c.get("user")!.id;
 		const state = randomBytes(32).toString("base64url");
 		const stateHash = createHash("sha256").update(state).digest("hex");
@@ -207,6 +208,7 @@ connectors.openapi(
 	async (c) => {
 		const { connectorId: id } = c.req.valid("param");
 		const { state, code, error } = c.req.valid("query");
+		assertConnectorAvailable(id);
 		const userId = c.get("user")!.id;
 		const stateHash = createHash("sha256").update(state).digest("hex");
 		const [pending] = await db
@@ -318,6 +320,9 @@ connectors.openapi(
 		responses: { ...errorResponses, 200: ok },
 	}),
 	async (c) => {
+		if (c.req.valid("json").enabled) {
+			assertConnectorAvailable(c.req.valid("param").connectorId);
+		}
 		const rows = await db
 			.update(tables.loungeConnection)
 			.set(c.req.valid("json"))

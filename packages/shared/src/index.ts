@@ -253,6 +253,8 @@ export {
 export {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
 	CUSTOM_PROVIDER_NAME_REGEX,
+	PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
+	providerBaseUrlHasEndpointPath,
 	RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
 	RESERVED_CUSTOM_PROVIDER_NAMES,
 } from "./custom-providers.js";
@@ -274,6 +276,7 @@ export {
 
 export {
 	buildProviderPriorityDefaults,
+	DEFAULT_CACHE_PRICING_BY_ORG_KIND,
 	DEFAULT_ROUTING_HISTORY,
 	DEFAULT_ROUTING_RETRY,
 	DEFAULT_ROUTING_SESSION,
@@ -281,6 +284,7 @@ export {
 	DEFAULT_ROUTING_THRESHOLDS,
 	DEFAULT_ROUTING_TIMEOUTS,
 	DEFAULT_ROUTING_WEIGHTS,
+	getDefaultCachePricing,
 	getDefaultRoutingConfig,
 	historyMatchesDefaults,
 	type ProviderPriorityOverrides,
@@ -290,6 +294,7 @@ export {
 	routingHistoryCacheKey,
 	type RoutingConfigOverrides,
 	type RoutingHistoryConfig,
+	type RoutingOrganizationKind,
 	type RoutingRetryConfig,
 	type RoutingSessionConfig,
 	type RoutingStickyConfig,
@@ -389,3 +394,39 @@ export {
 	type McpUsageBreakdownInput,
 	type McpUsageScope,
 } from "./mcp-usage.js";
+
+export {
+	formatMonthLabel,
+	MODEL_SEARCH_MAX_PAGE_SIZE,
+	MODEL_SEARCH_MAX_QUERY_LENGTH,
+	MODEL_SEARCH_PAGE_SIZE,
+	type ModelSearchEntry,
+	type ModelSearchHit,
+	type ModelSearchOptions,
+	type ModelSearchPage,
+	type ModelSearchProvider,
+	monthKeyOf,
+	normalizeSearchText,
+	scoreModelSearchEntry,
+	searchMatchRanges,
+	searchModelEntries,
+	searchModelProviders,
+	searchWords,
+	tokenizeSearchQuery,
+	UNKNOWN_MONTH_KEY,
+	withinOneEdit,
+} from "./model-search.js";
+
+export {
+	isSystemBannerSeverity,
+	isValidSystemBannerLink,
+	normalizeSystemBanner,
+	parseSystemBanner,
+	serializeSystemBanner,
+	SYSTEM_BANNER_DEFAULT_LINK_LABEL,
+	SYSTEM_BANNER_LINK_LABEL_MAX_LENGTH,
+	SYSTEM_BANNER_MESSAGE_MAX_LENGTH,
+	SYSTEM_BANNER_SEVERITIES,
+	type SystemBanner,
+	type SystemBannerSeverity,
+} from "./system-banner.js";

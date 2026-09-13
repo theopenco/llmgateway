@@ -705,6 +705,20 @@ describe("provider headquarters country mappings are complete", () => {
 });
 
 describe("compliance failure reasons", () => {
+	it("checks Runpod certifications and unknown data handling", () => {
+		expect(
+			getProviderComplianceFailures(getProviderDefinition("runpod")!, {
+				enabled: true,
+				requireSoc2Type2: true,
+				requireIso27001: true,
+				requireGdpr: true,
+				blockApiTraining: true,
+				blockPromptLogging: true,
+				zeroDataRetention: true,
+			}),
+		).toEqual(["blockApiTraining", "blockPromptLogging", "zeroDataRetention"]);
+	});
+
 	it("reports every unmet requirement for a provider", () => {
 		const provider = makeProvider(
 			{

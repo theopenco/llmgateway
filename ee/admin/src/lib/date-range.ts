@@ -156,6 +156,19 @@ export const ALL_TIME_RANGE = "all_time";
 // away in the picker.
 export const ORGANIZATIONS_DEFAULT_RANGE = "this_week";
 
+// The DevPass usage cards (top models / providers / coding agents) carry
+// their own picker so the rest of the page can stay on all time without
+// dragging the model-rollup scan along; they open on a recent window.
+export const DEVPASS_USAGE_DEFAULT_RANGE = "last_30_days";
+
+// A section-scoped picker keeps `<prefix>Range` / `<prefix>From` /
+// `<prefix>To`, so it moves independently of the page-level params.
+export function dateRangeParamNames(prefix?: string) {
+	return prefix
+		? { range: `${prefix}Range`, from: `${prefix}From`, to: `${prefix}To` }
+		: { range: "range", from: "from", to: "to" };
+}
+
 // Resolves the URL query state into concrete `from`/`to` date strings for API
 // calls. A valid `range` preset wins and is resolved against today; `from`/`to`
 // are honored only as a custom span; then the page's own `defaultRange`, if it

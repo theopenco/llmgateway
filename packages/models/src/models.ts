@@ -8,6 +8,7 @@ import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
 import { googleModels } from "./models/google.js";
 import { inclusionaiModels } from "./models/inclusionai.js";
+import { kinfraModels } from "./models/kinfra.js";
 import { llmgatewayModels } from "./models/llmgateway.js";
 import { metaModels } from "./models/meta.js";
 import { microsoftModels } from "./models/microsoft.js";
@@ -543,6 +544,8 @@ export interface ProviderModelMapping {
 	 *   simpler prompts)
 	 */
 	reasoningOutput?: "omit";
+	/** Responses API reasoning summary mode. Defaults to detailed. */
+	reasoningSummary?: "auto" | "detailed";
 	/**
 	 * Whether this model supports explicit reasoning.max_tokens parameter.
 	 * When true, users can specify the exact token budget for reasoning instead of using reasoning_effort levels.
@@ -774,6 +777,14 @@ export interface ProviderModelMapping {
 	 */
 	regions?: ProviderRegion[];
 	/**
+	 * The region-less root of this mapping is itself a real, routable
+	 * deployment (the provider's default endpoint) rather than a synthetic
+	 * aggregate of its regions, so routing keeps it as a candidate alongside
+	 * the regional variants. Set on Airside listings, whose regional fares are
+	 * add-ons to the default deployment.
+	 */
+	routableRoot?: boolean;
+	/**
 	 * Whether this model uses a dedicated video generation API.
 	 * When true, requests are routed to a provider-specific video generation endpoint.
 	 */
@@ -904,6 +915,7 @@ export const models = [
 	...nousresearchModels,
 	...reveModels,
 	...sakanaModels,
+	...kinfraModels,
 	...tencentModels,
 	...nvidiaModels,
 	...openbmbModels,

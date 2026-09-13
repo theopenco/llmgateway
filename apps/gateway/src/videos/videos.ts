@@ -49,6 +49,7 @@ import {
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
+import { fetchProvider } from "@/lib/fetch-provider.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
@@ -62,6 +63,7 @@ import {
 	getDiscountedProviderSelectionPrice,
 	getProviderHeaders,
 	managedCredentialOptions,
+	fetchNoRedirect,
 	processImageUrl,
 	providerKeyLabel,
 	readProviderKey,
@@ -932,6 +934,7 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		project.id,
 		organization.id,
 		organization.plan,
+		organization.kind,
 	);
 
 	return {
@@ -2702,7 +2705,9 @@ async function streamVideoFromUrl(
 ): Promise<Response> {
 	// SSRF: refuse redirects so a tenant-controlled content URL cannot 3xx the
 	// gateway onward to an internal host whose body would then be streamed back.
-	const upstreamResponse = await fetch(contentUrl, { redirect: "error" });
+	const upstreamResponse = await fetchNoRedirect(contentUrl, {
+		redirect: "error",
+	});
 	if (!upstreamResponse.ok || !upstreamResponse.body) {
 		throw new HTTPException(502, {
 			message: "Failed to fetch video content from upstream provider",
@@ -2860,7 +2865,7 @@ async function streamDirectUpstreamVideoContent(
 			providerContext.baseUrl,
 			`/v1/files/retrieve?file_id=${fileId}`,
 		);
-		const retrieveResponse = await fetch(retrieveUrl, {
+		const retrieveResponse = await fetchNoRedirect(retrieveUrl, {
 			// SSRF: never follow redirects on a tenant-baseUrl provider request.
 			redirect: "error",
 			headers: getProviderHeaders(
@@ -2891,7 +2896,7 @@ async function streamDirectUpstreamVideoContent(
 		);
 	}
 
-	const upstreamResponse = await fetch(contentUrl, {
+	const upstreamResponse = await fetchNoRedirect(contentUrl, {
 		// SSRF: never follow redirects on a tenant-controlled content/baseUrl
 		// request; the followed body would be streamed back to the caller.
 		redirect: "error",
@@ -2972,7 +2977,7 @@ async function fetchUpstreamJson(
 	providerId: string,
 ): Promise<Record<string, unknown>> {
 	// SSRF: never follow redirects on a tenant-baseUrl provider request.
-	const response = await fetch(url, { ...init, redirect: "error" });
+	const response = await fetchProvider(url, init);
 	const text = await response.text();
 	let body: Record<string, unknown> = {};
 
@@ -4718,6 +4723,23 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 			break;
 		} catch (error) {
 			const statusCode = error instanceof HTTPException ? error.status : 0;
+			if (statusCode === 400 && error instanceof HTTPException) {
+				await insertVideoClientErrorLog({
+					request,
+					requestId,
+					apiKey,
+					project,
+					organization,
+					normalizedModel,
+					requestedProvider,
+					providerContext: selectedProviderContext,
+					upstreamModelName: selectedUpstreamModelName,
+					routingMetadata: enrichedRoutingMetadata,
+					statusCode,
+					message: error.message,
+					startedAt,
+				});
+			}
 			const retryErrorType =
 				statusCode === 0
 					? "network_error"

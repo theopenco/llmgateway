@@ -71,6 +71,42 @@ describe("Lounge connector routes", () => {
 		expect(body.connectors).toHaveLength(11);
 		expect(JSON.stringify(body)).not.toContain("fixture-secret");
 	});
+	it("blocks existing connections when deployment credentials are removed", async () => {
+		await connect();
+		const state = await begin();
+		vi.mocked(fetchSafeUserUrl).mockClear();
+		vi.stubEnv("LOUNGE_GOOGLE_CLIENT_SECRET", "");
+		const body = await (await request("")).json();
+		expect(
+			body.connectors.find((entry: { id: string }) => entry.id === "gmail"),
+		).toMatchObject({
+			available: false,
+			connected: true,
+			enabled: false,
+		});
+		expect((await request("/gmail/authorize", "POST", {})).status).toBe(503);
+		expect(
+			(await request(`/gmail/callback?state=${state}&code=code`)).status,
+		).toBe(503);
+		expect((await request("/gmail", "PATCH", { enabled: true })).status).toBe(
+			503,
+		);
+		expect(
+			(await request("/tools", "POST", { connectors: ["gmail"] })).status,
+		).toBe(503);
+		expect(
+			(
+				await request("/gmail/tools/search_messages", "POST", {
+					input: { query: "test" },
+				})
+			).status,
+		).toBe(503);
+		expect(fetchSafeUserUrl).not.toHaveBeenCalled();
+		expect((await request("/gmail", "PATCH", { enabled: false })).status).toBe(
+			200,
+		);
+		expect((await request("/gmail", "DELETE")).status).toBe(200);
+	});
 	it("returns failed exchanges to the Lounge without changing an existing connection", async () => {
 		await connect();
 		const before = await db.query.loungeConnection.findFirst();

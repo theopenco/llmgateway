@@ -61,14 +61,35 @@ const messageSchema = z.object({
 
 const shareSchema = z.object({
 	id: z.string(),
+	allowDiscovery: z.boolean(),
+	allowForking: z.boolean(),
 	url: z.string(),
 	createdAt: z.string().datetime(),
 	organizationId: z.string().nullable().optional(),
 });
 
-const shareChatSchema = z.object({
-	organizationId: z.string().min(1).optional(),
-});
+const shareChatSchema = z
+	.object({
+		visibility: z.enum(["public", "organization"]),
+		organizationId: z.string().min(1).optional(),
+		allowDiscovery: z.boolean().default(false),
+		allowForking: z.boolean().default(false),
+	})
+	.superRefine((body, ctx) => {
+		if ((body.visibility === "organization") !== Boolean(body.organizationId)) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				message:
+					"Organization visibility requires an organization; public visibility must not include one.",
+			});
+		}
+		if (body.visibility === "organization" && body.allowDiscovery) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				message: "Organization shares cannot be listed publicly.",
+			});
+		}
+	});
 
 const orgShareListItemSchema = z.object({
 	id: z.string(),
@@ -80,6 +101,7 @@ const orgShareListItemSchema = z.object({
 
 const orgShareSchema = z.object({
 	id: z.string(),
+	allowForking: z.boolean(),
 	title: z.string(),
 	model: z.string(),
 	createdAt: z.string().datetime(),
@@ -917,7 +939,7 @@ const shareChat = createRoute({
 			id: z.string(),
 		}),
 		body: {
-			required: false,
+			required: true,
 			content: {
 				"application/json": {
 					schema: shareChatSchema,
@@ -934,7 +956,8 @@ const shareChat = createRoute({
 					}),
 				},
 			},
-			description: "Chat share snapshot.",
+			description:
+				"Chat share snapshot. Reusing an existing share preserves its permissions; delete it and create a new share to change them.",
 		},
 	},
 });
@@ -946,14 +969,7 @@ chats.openapi(shareChat, async (c) => {
 	}
 
 	const { id } = c.req.valid("param");
-	const body = shareChatSchema.parse(
-		await c.req.json().catch((e: unknown) => {
-			if (e instanceof SyntaxError) {
-				throw new HTTPException(400, { message: "Invalid request body" });
-			}
-			return {};
-		}),
-	);
+	const body = c.req.valid("json");
 	const organizationId = body.organizationId ?? null;
 	if (organizationId) {
 		const hasAccess = await userHasOrganizationAccess(user.id, organizationId);
@@ -999,6 +1015,8 @@ chats.openapi(shareChat, async (c) => {
 		return c.json({
 			share: {
 				id: existingShare.id,
+				allowDiscovery: existingShare.allowDiscovery,
+				allowForking: existingShare.allowForking,
 				url: organizationId
 					? `/org/${organizationId}/chat/${existingShare.id}`
 					: `/share/${existingShare.id}`,
@@ -1048,6 +1066,8 @@ chats.openapi(shareChat, async (c) => {
 		.values({
 			chatId: chat.id,
 			organizationId,
+			allowDiscovery: body.allowDiscovery,
+			allowForking: body.allowForking,
 			userId: user.id,
 			title: chat.title,
 			model: chat.model,
@@ -1094,6 +1114,8 @@ chats.openapi(shareChat, async (c) => {
 		return c.json({
 			share: {
 				id: activeShare.id,
+				allowDiscovery: activeShare.allowDiscovery,
+				allowForking: activeShare.allowForking,
 				url: organizationId
 					? `/org/${organizationId}/chat/${activeShare.id}`
 					: `/share/${activeShare.id}`,
@@ -1106,6 +1128,8 @@ chats.openapi(shareChat, async (c) => {
 	return c.json({
 		share: {
 			id: share.id,
+			allowDiscovery: share.allowDiscovery,
+			allowForking: share.allowForking,
 			url: organizationId
 				? `/org/${organizationId}/chat/${share.id}`
 				: `/share/${share.id}`,
@@ -1272,6 +1296,7 @@ chats.openapi(getOrgShare, async (c) => {
 			title: tables.chatShare.title,
 			model: tables.chatShare.model,
 			messages: tables.chatShare.messages,
+			allowForking: tables.chatShare.allowForking,
 			createdAt: tables.chatShare.createdAt,
 			organizationId: tables.chatShare.organizationId,
 		})
@@ -1314,6 +1339,7 @@ chats.openapi(getOrgShare, async (c) => {
 			id: share.id,
 			title: share.title,
 			model: share.model,
+			allowForking: share.allowForking,
 			createdAt: share.createdAt.toISOString(),
 			messages,
 		},
@@ -1426,6 +1452,12 @@ const forkSharedChat = createRoute({
 			},
 			description: "Chat limit reached or validation error.",
 		},
+		403: {
+			content: {
+				"application/json": { schema: z.object({ message: z.string() }) },
+			},
+			description: "The owner has not allowed forks.",
+		},
 		404: {
 			content: {
 				"application/json": {
@@ -1452,6 +1484,7 @@ chats.openapi(forkSharedChat, async (c) => {
 			title: tables.chatShare.title,
 			model: tables.chatShare.model,
 			messages: tables.chatShare.messages,
+			allowForking: tables.chatShare.allowForking,
 			organizationId: tables.chatShare.organizationId,
 		})
 		.from(tables.chatShare)
@@ -1477,6 +1510,12 @@ chats.openapi(forkSharedChat, async (c) => {
 		if (!hasAccess) {
 			return c.json({ message: "Shared chat not found" }, 404);
 		}
+	}
+
+	if (!share.allowForking) {
+		throw new HTTPException(403, {
+			message: "The owner has not allowed forks of this share",
+		});
 	}
 
 	await enforceActiveChatLimit(user.id);

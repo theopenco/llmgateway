@@ -25,6 +25,10 @@ const GATEWAY_TEST_DB_LOCK_ID = 41001;
 
 async function resetGatewayTestData() {
 	await db.delete(tables.log);
+	// Routing reads uptime/latency from a 60-minute history window, so metric
+	// rows a test seeds (e.g. a 0%-uptime provider) must not leak into later
+	// tests' provider selection — or collide with a re-seed in the same minute.
+	await db.delete(tables.modelProviderMappingHistory);
 	await db.delete(tables.webhookDeliveryLog);
 	await db.delete(tables.videoJob);
 	await db.delete(tables.apiKey);

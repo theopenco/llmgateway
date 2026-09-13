@@ -2,6 +2,7 @@ import { createHash, createHmac } from "node:crypto";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { loungeConnectorIds } from "@llmgateway/shared/lounge-connectors";
 import { fetchSafeUserUrl } from "@llmgateway/shared/url-safety-node";
 
 import { connectorAvailable, shopDomain } from "./catalogue.js";
@@ -63,12 +64,26 @@ describe("connector OAuth", () => {
 	])("rejects unsafe store %s", (shop) => {
 		expect(() => shopDomain(shop)).toThrow();
 	});
-	it("marks registered-app connectors unavailable without credentials", () => {
-		vi.stubEnv("LOUNGE_GOOGLE_CLIENT_ID", "");
-		vi.stubEnv("LOUNGE_GOOGLE_CLIENT_SECRET", "");
-		expect(connectorAvailable("gmail")).toBe(false);
-		expect(connectorAvailable("notion")).toBe(true);
-	});
+	it.each(loungeConnectorIds)(
+		"requires both configured credentials for %s",
+		(id) => {
+			const prefix =
+				id === "gmail" || id === "google-drive" ? "GOOGLE" : id.toUpperCase();
+			for (const [clientId, clientSecret, expected] of [
+				[undefined, undefined, false],
+				["", "", false],
+				["fixture-client", "", false],
+				["", "fixture-secret", false],
+				["fixture-client", " \t ", false],
+				[" \t ", "fixture-secret", false],
+				["fixture-client", "fixture-secret", true],
+			] as const) {
+				vi.stubEnv(`LOUNGE_${prefix}_CLIENT_ID`, clientId);
+				vi.stubEnv(`LOUNGE_${prefix}_CLIENT_SECRET`, clientSecret);
+				expect(connectorAvailable(id)).toBe(expected);
+			}
+		},
+	);
 	it("refreshes tokens and keeps an existing refresh token if omitted", async () => {
 		vi.stubEnv("LOUNGE_GOOGLE_CLIENT_ID", "fixture-client");
 		vi.stubEnv("LOUNGE_GOOGLE_CLIENT_SECRET", "fixture-secret");

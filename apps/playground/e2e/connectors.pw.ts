@@ -54,6 +54,22 @@ test("lists all connectors and removes custom MCP configuration", async ({
 test("uses OAuth navigation without asking for credentials", async ({
 	page,
 }) => {
+	await page.route("**/connectors", (route) =>
+		route.fulfill({
+			json: {
+				connectors: [
+					{
+						id: "posthog",
+						...loungeConnectors.posthog,
+						available: true,
+						connected: false,
+						enabled: false,
+					},
+				],
+			},
+		}),
+	);
+	await page.reload();
 	let body: unknown;
 	await page.route("**/connectors/posthog/authorize", async (route) => {
 		body = route.request().postDataJSON();
@@ -76,6 +92,51 @@ test("uses OAuth navigation without asking for credentials", async ({
 	await expect(page).toHaveURL("https://oauth.example.com/consent");
 	expect(body).toMatchObject({ returnTo: expect.stringMatching(/^\//) });
 });
+
+for (const connected of [false, true]) {
+	test(`disables an unconfigured ${connected ? "connected" : "new"} connector`, async ({
+		page,
+	}) => {
+		await page.route("**/connectors", (route) =>
+			route.fulfill({
+				json: {
+					connectors: [
+						{
+							id: "notion",
+							...loungeConnectors.notion,
+							available: false,
+							connected,
+							enabled: false,
+						},
+					],
+				},
+			}),
+		);
+		await page.reload();
+		await page.getByRole("button", { name: "Connectors", exact: true }).click();
+		const dialog = page.getByRole("dialog");
+		await expect(
+			dialog.getByText("Not configured", { exact: true }),
+		).toBeVisible();
+		if (connected) {
+			const toggle = dialog.getByRole("switch", {
+				name: "Use Notion in chats",
+			});
+			await expect(toggle).toBeDisabled();
+			await expect(toggle).not.toBeChecked();
+			await expect(
+				dialog.getByRole("button", { name: "Reconnect", exact: true }),
+			).toBeDisabled();
+			await expect(
+				dialog.getByRole("button", { name: "Disconnect", exact: true }),
+			).toBeEnabled();
+		} else {
+			await expect(
+				dialog.getByRole("button", { name: "Not configured", exact: true }),
+			).toBeDisabled();
+		}
+	});
+}
 
 test("shows a recoverable loading failure", async ({ page }) => {
 	await page.route("**/connectors", (route) =>
@@ -224,7 +285,12 @@ for (const approvalCount of [1, 2]) {
 				body: `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`,
 			});
 		});
+		const keyReady = page.waitForResponse(
+			(response) =>
+				response.url().endsWith("/api/ensure-playground-key") && response.ok(),
+		);
 		await page.reload();
+		await keyReady;
 		await expect(
 			page.getByRole("button", { name: "Connectors", exact: true }),
 		).toContainText("1");

@@ -20,6 +20,7 @@ import { customAlphabet } from "nanoid";
 import type { gatewayContentFilterResponseSchema } from "./log-payloads.js";
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type {
+	Quantization,
 	ProviderApiFormat,
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
@@ -1376,10 +1377,7 @@ export const endUserSession = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		// Legacy plaintext column. New sessions store only tokenHash; backfilled
-		// rows retain plaintext during the staged rollout.
-		token: text().unique(),
-		tokenHash: text().unique(),
+		tokenHash: text().notNull().unique(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		})
@@ -1561,11 +1559,8 @@ export const apiKey = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		// Legacy plaintext column. New writes store only tokenHash + tokenMasked;
-		// backfilled rows retain plaintext during the staged rollout.
-		token: text().unique(),
 		tokenHash: text().unique(),
-		tokenMasked: text(),
+		tokenMasked: text().notNull(),
 		description: text().notNull(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
@@ -1621,6 +1616,10 @@ export const apiKey = pgTable(
 			.where(
 				sql`${table.keyType} = 'end_user_customer' AND ${table.status} = 'active'`,
 			),
+		check(
+			"api_key_token_hash_required",
+			sql`${table.keyType} = 'platform_publishable' OR ${table.tokenHash} IS NOT NULL`,
+		),
 	],
 );
 
@@ -1883,20 +1882,14 @@ export const providerKey = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		// Legacy plaintext column. New writes set this to NULL and populate
-		// tokenCiphertext + tokenMasked instead. Existing rows from before
-		// BYOK encryption was added still carry plaintext here and are read
-		// through the legacy branch of readProviderKey().
-		token: text(),
-		tokenCiphertext: text(),
-		tokenMasked: text(),
+		tokenCiphertext: text().notNull(),
+		tokenMasked: text().notNull(),
 		// HMAC-SHA256 fingerprint of the plaintext token, computed at write time
 		// with the same helper the gateway uses for `log.usedApiKeyHash`. Lets an
 		// operator tie a credential to the requests it served without the
 		// plaintext ever being readable back: the admin dashboard shows this and
-		// the mask, and never decrypts. NULL for rows written before this column
-		// existed; it is filled on the next token write.
-		tokenHash: text(),
+		// the mask, and never decrypts.
+		tokenHash: text().notNull(),
 		provider: text().notNull(),
 		name: text(), // Optional name for custom providers (lowercase a-z with single hyphens)
 		// Organization-owned label shown alongside this key in routing and log
@@ -1981,13 +1974,6 @@ export const providerKey = pgTable(
 		index("provider_key_managed_provider_idx").on(
 			table.managed,
 			table.provider,
-		),
-		// Exactly one storage form per row: a legacy plaintext token XOR an
-		// encrypted one. Also rejects rows with neither, which readProviderKey
-		// could never resolve into a credential.
-		check(
-			"provider_key_token_xor",
-			sql`(${table.token} IS NULL) <> (${table.tokenCiphertext} IS NULL)`,
 		),
 		// Managed credentials are platform-owned and never belong to an org;
 		// every other row must be org-scoped.
@@ -3131,6 +3117,8 @@ export const chatShare = pgTable(
 			.references(() => user.id, { onDelete: "cascade" }),
 		title: text().notNull(),
 		model: text().notNull(),
+		allowDiscovery: boolean().notNull().default(false),
+		allowForking: boolean().notNull().default(false),
 		messages: jsonb().notNull(),
 	},
 	(table) => [
@@ -3389,6 +3377,7 @@ export const modelProviderMapping = pgTable(
 		cacheWriteInputPrice1h: decimal(),
 		imageInputPrice: decimal(),
 		requestPrice: decimal(),
+		quantization: text().$type<Quantization>(),
 		contextSize: integer(),
 		maxOutput: integer(),
 		streaming: boolean().notNull().default(false),
@@ -4757,6 +4746,7 @@ export const providerClaim = pgTable(
 // filing. A newly added model stays `draft` until its initial filing is
 // approved. Prices are text to preserve exponent notation (see customModel).
 export interface AirsideModelMetadataChanges {
+	quantization?: Quantization | null;
 	displayName?: string | null;
 	description?: string | null;
 	family?: string;
@@ -4815,6 +4805,7 @@ export const providerDraftModel = pgTable(
 		displayName: text(),
 		description: text(),
 		family: text(),
+		quantization: text().$type<Quantization>(),
 		contextSize: integer(),
 		maxOutput: integer(),
 		streaming: boolean().notNull().default(true),
@@ -4945,6 +4936,16 @@ export const providerModelVerification = pgTable(
 	],
 );
 
+// Per-region price override carried by a price filing. Missing optional
+// fields inherit the filing's flat (default-region) values.
+export interface AirsideRegionPrice {
+	region: string;
+	inputPrice: string;
+	outputPrice: string;
+	cachedInputPrice?: string | null;
+	requestPrice?: string | null;
+}
+
 // A pricing proposal ("tariff filing") for a provider-listed model. Admins
 // approve or reject filings in the admin dashboard; the model's effective
 // pricing is its most recently approved filing. `kind: "initial"` filings
@@ -4974,6 +4975,9 @@ export const providerPriceFiling = pgTable(
 		outputPrice: text().notNull(),
 		cachedInputPrice: text(),
 		requestPrice: text(),
+		// Per-region price overrides; an approved filing's set fully replaces the
+		// listing's regional pricing. Null/empty = default-region pricing only.
+		regionPrices: jsonb().$type<AirsideRegionPrice[]>(),
 		metadata: jsonb().$type<AirsideModelMetadataChanges>(),
 		status: text({ enum: ["pending", "approved", "rejected"] })
 			.notNull()

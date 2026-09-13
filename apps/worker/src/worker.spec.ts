@@ -556,7 +556,7 @@ describe("worker", () => {
 	});
 
 	describe("cleanupExpiredLogData", () => {
-		test("should null moderation payloads during retention cleanup", async () => {
+		test("should clear expired payloads and routing metadata", async () => {
 			process.env.ENABLE_DATA_RETENTION_CLEANUP = "true";
 
 			const testUser = await db
@@ -606,44 +606,55 @@ describe("worker", () => {
 			// eslint-disable-next-line no-mixed-operators
 			const oldCreatedAt = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
 
+			const [expiredLog] = await db
+				.insert(tables.log)
+				.values({
+					id: retentionTestIds.logId,
+					requestId: retentionTestIds.requestId,
+					createdAt: oldCreatedAt,
+					updatedAt: oldCreatedAt,
+					organizationId: testOrg.id,
+					projectId: testProject.id,
+					apiKeyId: testApiKey.id,
+					duration: 100,
+					requestedModel: "openai/gpt-4o-mini",
+					requestedProvider: "openai",
+					usedModel: "gpt-4o-mini",
+					usedProvider: "openai",
+					responseSize: 100,
+					content: "response content",
+					messages: [{ role: "user", content: "hello" }],
+					rawRequest: { input: "hello" },
+					upstreamResponse: { output: "response content" },
+					userAgent: "test-user-agent",
+					routingMetadata: { selectedProvider: "openai" },
+					gatewayContentFilterResponse: [
+						{
+							id: "modr-retention-test",
+							model: "omni-moderation-latest",
+							results: [
+								{
+									flagged: true,
+									categories: {
+										violence: true,
+									},
+									category_scores: {
+										violence: 0.95,
+									},
+								},
+							],
+						},
+					],
+					mode: "credits",
+					usedMode: "credits",
+				})
+				.returning();
+
 			await db.insert(tables.log).values({
-				id: retentionTestIds.logId,
-				requestId: retentionTestIds.requestId,
-				createdAt: oldCreatedAt,
-				updatedAt: oldCreatedAt,
-				organizationId: testOrg.id,
-				projectId: testProject.id,
-				apiKeyId: testApiKey.id,
-				duration: 100,
-				requestedModel: "openai/gpt-4o-mini",
-				requestedProvider: "openai",
-				usedModel: "gpt-4o-mini",
-				usedProvider: "openai",
-				responseSize: 100,
-				content: "response content",
-				messages: [{ role: "user", content: "hello" }],
-				rawRequest: { input: "hello" },
-				upstreamResponse: { output: "response content" },
-				userAgent: "test-user-agent",
-				gatewayContentFilterResponse: [
-					{
-						id: "modr-retention-test",
-						model: "omni-moderation-latest",
-						results: [
-							{
-								flagged: true,
-								categories: {
-									violence: true,
-								},
-								category_scores: {
-									violence: 0.95,
-								},
-							},
-						],
-					},
-				],
-				mode: "credits",
-				usedMode: "credits",
+				...expiredLog,
+				id: "retention-recent-log",
+				requestId: "retention-recent-request",
+				createdAt: new Date(),
 			});
 
 			await cleanupExpiredLogData();
@@ -663,7 +674,14 @@ describe("worker", () => {
 			expect(cleanedLog?.upstreamResponse).toBeNull();
 			expect(cleanedLog?.userAgent).toBeNull();
 			expect(cleanedLog?.gatewayContentFilterResponse).toBeNull();
+			expect(cleanedLog?.routingMetadata).toBeNull();
 			expect(cleanedLog?.dataRetentionCleanedUp).toBe(true);
+
+			const recentLog = await db.query.log.findFirst({
+				where: { id: { eq: "retention-recent-log" } },
+			});
+			expect(recentLog?.routingMetadata).toEqual(expiredLog.routingMetadata);
+			expect(recentLog?.dataRetentionCleanedUp).toBe(false);
 		});
 	});
 

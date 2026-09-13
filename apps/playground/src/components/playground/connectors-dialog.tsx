@@ -87,7 +87,8 @@ export function ConnectorsDialog() {
 	});
 	const enabledCount =
 		data?.connectors.filter(
-			(connector) => connector.connected && connector.enabled,
+			(connector) =>
+				connector.available && connector.connected && connector.enabled,
 		).length ?? 0;
 	const connectors = data?.connectors.filter((connector) =>
 		`${connector.name} ${connector.description}`
@@ -196,8 +197,8 @@ export function ConnectorsDialog() {
 									{connector.connected ? (
 										<Switch
 											aria-label={`Use ${connector.name} in chats`}
-											checked={connector.enabled}
-											disabled={mutation.isPending}
+											checked={connector.available && connector.enabled}
+											disabled={!connector.available || mutation.isPending}
 											onCheckedChange={(enabled) =>
 												mutation.mutate({
 													action: "toggle",
@@ -249,11 +250,15 @@ export function ConnectorsDialog() {
 								{connector.connected && (
 									<div className="mt-2 ml-13 flex items-center gap-3">
 										<span className="text-muted-foreground text-xs">
-											{connector.enabled ? "Active in chats" : "Paused"}
+											{!connector.available
+												? "Not configured"
+												: connector.enabled
+													? "Active in chats"
+													: "Paused"}
 										</span>
 										<button
 											type="button"
-											disabled={mutation.isPending}
+											disabled={!connector.available || mutation.isPending}
 											onClick={() =>
 												mutation.mutate({ action: "connect", id: connector.id })
 											}

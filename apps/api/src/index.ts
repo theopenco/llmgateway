@@ -21,6 +21,7 @@ import { authHandler } from "./auth/handler.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { beacon } from "./routes/beacon.js";
 import { cliSkills } from "./routes/cli-skills.js";
+import { emailChange } from "./routes/email-change.js";
 import { routes } from "./routes/index.js";
 import { internalModels } from "./routes/internal-models.js";
 import { mcp } from "./routes/mcp.js";
@@ -31,6 +32,7 @@ import { platformSessions } from "./routes/platform-sessions.js";
 import { platformWallet } from "./routes/platform-wallet.js";
 import { platformWebhooks } from "./routes/platform-webhooks.js";
 import { publicApps } from "./routes/public-apps.js";
+import { publicBanner } from "./routes/public-banner.js";
 import { publicChatShares } from "./routes/public-chat-shares.js";
 import { publicChatSupport } from "./routes/public-chat-support.js";
 import { publicConfig } from "./routes/public-config.js";
@@ -315,6 +317,7 @@ app.route("/", referral);
 
 app.route("/internal", internalModels);
 
+app.route("/public/banner", publicBanner);
 app.route("/public/discounts", publicDiscounts);
 app.route("/public/contact", publicContact);
 app.route("/public/newsletter", publicNewsletter);
@@ -335,6 +338,7 @@ app.doc("/json", config);
 app.get("/docs", swaggerUI({ url: "./json" }));
 
 app.route("/", authHandler);
+app.route("/", emailChange);
 
 app.route("/v1/master", v1Master);
 app.route("/mcp", mcp);

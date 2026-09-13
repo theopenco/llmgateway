@@ -39,7 +39,7 @@ export function SegmentedQueryToggle({
 	);
 
 	return (
-		<div className="flex items-center gap-1" aria-label={label}>
+		<div className="flex flex-wrap items-center gap-1" aria-label={label}>
 			{options.map((option) => (
 				<Button
 					key={option.value}

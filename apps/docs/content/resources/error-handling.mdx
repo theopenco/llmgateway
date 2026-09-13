@@ -8,6 +8,8 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 On the OpenAI-compatible endpoints, LLMGateway returns errors in the same format as the OpenAI API, so existing OpenAI SDKs and tooling can parse gateway errors without changes. This applies to errors forwarded from upstream providers as well as errors raised by the gateway itself (authentication failures, usage limits, validation problems, timeouts, and so on). The Anthropic-compatible Messages endpoint (`/v1/messages`) instead returns Anthropic-native errors — see [Anthropic Endpoint](#anthropic-endpoint) below.
 
+Upstream rate limits are treated as provider errors and are eligible for retries and fallback. Rate-limit headers returned to clients describe only limits enforced by LLMGateway; upstream `Retry-After` and rate-limit headers are not forwarded.
+
 ## Error Format
 
 Errors on the OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/embeddings`, `/v1/images`, `/v1/models`, `/v1/moderations`, `/v1/rerank`, `/v1/responses`, `/v1/videos`) use the standard OpenAI error envelope:

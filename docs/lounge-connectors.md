@@ -13,7 +13,7 @@ credentials and signs tool approvals. Rotation uses the existing keyring.
 
 | Connector                               | Setup                                                                                                                                                                                                                                                                                                                                                   |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PostHog, Notion, Linear, Sentry, Stripe | OAuth client registration is discovered from each official MCP server.                                                                                                                                                                                                                                                                                  |
+| PostHog, Notion, Linear, Sentry, Stripe | Set `LOUNGE_<CONNECTOR>_CLIENT_ID` and `LOUNGE_<CONNECTOR>_CLIENT_SECRET` for a registered OAuth client, using the uppercase connector ID.                                                                                                                                                                                                                                                                                  |
 | Slack                                   | Set `LOUNGE_SLACK_CLIENT_ID` and `LOUNGE_SLACK_CLIENT_SECRET` for a published or internal Slack app approved for MCP.                                                                                                                                                                                                                                   |
 | Figma                                   | Register an approved remote MCP client with Figma, then set `LOUNGE_FIGMA_CLIENT_ID` and `LOUNGE_FIGMA_CLIENT_SECRET`. Figma rejects unrestricted dynamic registration.                                                                                                                                                                                 |
 | Gmail, Google Drive                     | Set `LOUNGE_GOOGLE_CLIENT_ID` and `LOUNGE_GOOGLE_CLIENT_SECRET`. Register both callbacks; enable Gmail and Drive APIs and configure the consent screen for `gmail.readonly` and `drive.readonly`. External production use requires Google's applicable scope verification.                                                                              |
@@ -23,8 +23,11 @@ credentials and signs tool approvals. Rotation uses the existing keyring.
 Docker Compose forwards these variables from its environment. For Helm, add the
 OAuth variables through `api.extraEnv` using Secret references or `existingSecret`.
 
-Apps without required deployment configuration remain visible but cannot start
-a connection. Connectors using provider MCP tools retain the provider's granted
+Every connector requires both a configured OAuth client ID and secret. Missing,
+empty, or whitespace-only credentials keep it disabled, including existing
+connections. Authorization, reconnection, enabling, and tool access are blocked;
+disconnection remains available. Automatic client registration does not enable
+unconfigured connectors. Connectors using provider MCP tools retain the provider's granted
 permissions. Gmail and Drive tools read data; Shopify tools query products and
 recent orders. Disconnect removes the Lounge's stored credentials and pending
 authorizations. Users can also revoke the application in the provider's account

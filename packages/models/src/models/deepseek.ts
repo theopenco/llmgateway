@@ -588,6 +588,36 @@ export const deepseekModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				providerId: "tencent",
+				// The dated id is TokenHub's "Vendor Direct" deployment, priced at
+				// DeepSeek's own rate. The undated `deepseek-v4-pro` id is
+				// Tencent's own hosting at 1.74/3.48 — 4x the input and output
+				// price for the same model — so it is deliberately not mapped.
+				externalId: "deepseek-v4-pro-202606",
+				inputPrice: "0.435e-6",
+				cachedInputPrice: "0.00363e-6",
+				outputPrice: "0.87e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				supportedToolChoices: ["auto", "none"],
+				jsonOutput: true,
+				jsonOutputSchema: false,
+			},
 		],
 	},
 	{
@@ -601,6 +631,7 @@ export const deepseekModels = [
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-v4-flash",
+				deactivatedAt: new Date("2026-09-10"),
 				// Peak hours (01:00-04:00 and 06:00-10:00 UTC) bill at the peak
 				// rates below. All other hours and Beijing-time weekends bill at
 				// the off-peak rates.
@@ -994,6 +1025,43 @@ export const deepseekModels = [
 				jsonOutput: true,
 				jsonOutputSchema: true,
 			},
+			{
+				providerId: "tencent",
+				// TokenHub serves two DeepSeek V4 Flash deployments: this dated id
+				// is the "Vendor Direct" one routed to DeepSeek itself, which is
+				// why it matches DeepSeek's own cache rate. The undated
+				// `deepseek-v4-flash` id is Tencent's own hosting at a 10x cache
+				// price (0.028 vs 0.0028) and is deliberately not mapped.
+				externalId: "deepseek-v4-flash-202605",
+				inputPrice: "0.14e-6",
+				cachedInputPrice: "0.0028e-6",
+				outputPrice: "0.28e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				// Same upstream constraint as the direct DeepSeek mapping: forced
+				// tool_choice 400s with "Thinking mode does not support this
+				// tool_choice".
+				supportedToolChoices: ["auto", "none"],
+				// json_object works (DeepSeek still requires the word "json" in the
+				// prompt); json_schema 400s with "This response_format type is
+				// unavailable now" on this deployment.
+				jsonOutput: true,
+				jsonOutputSchema: false,
+			},
 		],
 	},
 	{
@@ -1008,6 +1076,7 @@ export const deepseekModels = [
 			{
 				providerId: "deepseek",
 				externalId: "deepseek-v4-flash-vision-exp",
+				deactivatedAt: new Date("2026-09-10"),
 				inputPrice: "0.14e-6",
 				outputPrice: "0.28e-6",
 				cachedInputPrice: "0.0028e-6",
@@ -1054,6 +1123,170 @@ export const deepseekModels = [
 					"tools",
 					"reasoning_effort",
 				],
+			},
+		],
+	},
+	{
+		id: "deepseek-v4.1-flash",
+		name: "DeepSeek V4.1 Flash",
+		description:
+			"DeepSeek's V4.1 Flash model with native vision, extended context, and reasoning; succeeds V4 Flash and V4 Pro.",
+		family: "deepseek",
+		releasedAt: new Date("2026-09-10"),
+		providers: [
+			{
+				providerId: "deepseek",
+				externalId: "deepseek-flash",
+				// DeepSeek fetches remote image URLs itself and fails on hosts it
+				// cannot reach, while the same bytes inline as a data URL work.
+				requiresBase64Images: true,
+				// Peak hours (01:00-04:00 and 06:00-10:00 UTC) bill at the peak
+				// rates below. All other hours and Beijing-time weekends bill at
+				// the off-peak rates.
+				inputPrice: "0.15e-6",
+				outputPrice: "0.6e-6",
+				cachedInputPrice: "0.003e-6",
+				peakPricing: {
+					peak: {
+						inputPrice: "0.3e-6",
+						outputPrice: "1.2e-6",
+						cachedInputPrice: "0.006e-6",
+					},
+					offPeak: {
+						inputPrice: "0.15e-6",
+						outputPrice: "0.6e-6",
+						cachedInputPrice: "0.003e-6",
+					},
+					hoursUtc: [
+						[1, 4],
+						[6, 10],
+					],
+					offPeakDays: {
+						daysOfWeek: [0, 6],
+						utcOffsetMinutes: 480,
+						timeZoneLabel: "Beijing time",
+					},
+				},
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 393216,
+				jsonOutput: true,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "high", "max"],
+				vision: true,
+				tools: true,
+				// DeepSeek's API 400s on the OpenAI-only `developer` role
+				// ("unknown variant `developer`, expected one of `system`, `user`,
+				// `assistant`, `tool`, `latest_reminder`"), so it gets rewritten to
+				// `system` before the request goes out.
+				supportsDeveloperRole: false,
+				supportedParameters: [
+					"temperature",
+					"max_tokens",
+					"top_p",
+					"frequency_penalty",
+					"presence_penalty",
+					"stop",
+					"stream",
+					"response_format",
+					"tools",
+					"reasoning_effort",
+				],
+			},
+			{
+				providerId: "deepinfra",
+				externalId: "deepseek-ai/DeepSeek-V4.1-Flash",
+				inputPrice: "0.2e-6",
+				cachedInputPrice: "0.006e-6",
+				outputPrice: "0.6e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 393216,
+				quantization: "fp8",
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsAssistantPrefill: false,
+			},
+			{
+				providerId: "fireworks",
+				externalId: "accounts/fireworks/models/deepseek-v4p1-flash",
+				inputPrice: "0.22e-6",
+				cachedInputPrice: "0.007e-6",
+				outputPrice: "0.66e-6",
+				requestPrice: "0",
+				serviceTiers: ["priority"],
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsAssistantPrefill: false,
+			},
+			{
+				providerId: "together-ai",
+				externalId: "deepseek-ai/DeepSeek-V4.1-Flash",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.006e-6",
+				outputPrice: "1.2e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				// Unlike the V4 Flash deployment, this one honours "none" through
+				// reasoning_effort itself, so it needs no thinking switch.
+				reasoningEfforts: ["none", "low", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+				supportsAssistantPrefill: false,
+			},
+			{
+				providerId: "novita",
+				externalId: "deepseek/deepseek-v4.1-flash",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.006e-6",
+				outputPrice: "1.2e-6",
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 393216,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: true,
+				requiresBase64Images: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none"],
+				supportsDeveloperRole: false,
+				jsonOutput: true,
+				jsonOutputSchema: false,
 			},
 		],
 	},

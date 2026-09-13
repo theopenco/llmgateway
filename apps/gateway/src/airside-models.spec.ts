@@ -430,6 +430,81 @@ describe("airside-listed models", () => {
 		expect(Number(log!.cost)).toBeCloseTo(0.007, 6);
 	});
 
+	test("routes a region-pinned listing and bills its regional fare", async () => {
+		await setup("airside-region-token");
+		await db.insert(tables.modelProviderMapping).values({
+			modelId: "gpt-5.6-luna",
+			providerId: "mistral",
+			region: "au",
+			externalId: "gpt-5.6-luna",
+			source: "airside",
+			inputPrice: "4e-6",
+			outputPrice: "2e-5",
+			contextSize: 128000,
+			streaming: true,
+			tools: true,
+			vision: true,
+			status: "active",
+		});
+		await clearCache();
+
+		const resolution = await resolveAirsideModel("mistral/gpt-5.6-luna:au");
+		expect(resolution).toBeTruthy();
+		expect(resolution?.parseResult.requestedRegion).toBe("au");
+		const regionalPricing = resolution?.pricingMappings.find(
+			(mapping) => mapping.region === "au",
+		);
+		expect(Number(regionalPricing?.inputPrice)).toBeCloseTo(4e-6);
+		expect(Number(regionalPricing?.outputPrice)).toBeCloseTo(2e-5);
+		// An unfiled region falls through to the (throwing) static parse.
+		await expect(
+			resolveAirsideModel("mistral/gpt-5.6-luna:mars"),
+		).resolves.toBeNull();
+
+		// Unpinned traffic routes to the cheaper default deployment and pays
+		// the default fare.
+		const defaultRequestId = "airside-region-req-1";
+		const defaultRes = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer airside-region-token",
+				"x-no-fallback": "true",
+				"x-request-id": defaultRequestId,
+			},
+			body: JSON.stringify({
+				model: "mistral/gpt-5.6-luna",
+				messages: [{ role: "user", content: "Say hi at the default fare" }],
+			}),
+		});
+		expect(defaultRes.status).toBe(200);
+		const defaultLog = await waitForLogByRequestId(defaultRequestId);
+		expect(defaultLog!.usedModel).toBe("mistral/gpt-5.6-luna");
+		expect(Number(defaultLog!.inputCost)).toBeCloseTo(0.002, 6);
+		expect(Number(defaultLog!.outputCost)).toBeCloseTo(0.005, 6);
+
+		const requestId = "airside-region-req-2";
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer airside-region-token",
+				"x-no-fallback": "true",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "mistral/gpt-5.6-luna:au",
+				messages: [{ role: "user", content: "Say hi from down under" }],
+			}),
+		});
+		expect(res.status).toBe(200);
+		// 1000 tokens at $4/M in + 500 tokens at $20/M out.
+		const log = await waitForLogByRequestId(requestId);
+		expect(log!.usedProvider).toBe("mistral");
+		expect(Number(log!.inputCost)).toBeCloseTo(0.004, 6);
+		expect(Number(log!.outputCost)).toBeCloseTo(0.01, 6);
+	});
+
 	test("bills an approved Airside discount once", async () => {
 		await setup("airside-discount-token");
 		await db.insert(tables.providerRoutingSettings).values({

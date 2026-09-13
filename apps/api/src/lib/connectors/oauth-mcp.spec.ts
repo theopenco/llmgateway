@@ -30,13 +30,11 @@ describe("MCP OAuth protocol integration", () => {
 		"completes discovery, consent and code exchange for %s",
 		async (id) => {
 			vi.stubEnv("API_URL", "https://api.example.com");
-			if (id === "slack" || id === "figma") {
-				vi.stubEnv(`LOUNGE_${id.toUpperCase()}_CLIENT_ID`, "registered-client");
-				vi.stubEnv(
-					`LOUNGE_${id.toUpperCase()}_CLIENT_SECRET`,
-					"registered-secret",
-				);
-			}
+			vi.stubEnv(`LOUNGE_${id.toUpperCase()}_CLIENT_ID`, "registered-client");
+			vi.stubEnv(
+				`LOUNGE_${id.toUpperCase()}_CLIENT_SECRET`,
+				"registered-secret",
+			);
 			let registrations = 0;
 			let exchange: URLSearchParams | undefined;
 			vi.mocked(fetchSafeUserUrl).mockImplementation(async (input, init) => {
@@ -106,7 +104,7 @@ describe("MCP OAuth protocol integration", () => {
 			expect(credentials.tokens?.access_token).toBe("fixture-access");
 			expect(credentials.expiresAt).toBeGreaterThan(Date.now());
 			expect(credentials.verifier).toBeUndefined();
-			expect(registrations).toBe(id === "slack" || id === "figma" ? 0 : 1);
+			expect(registrations).toBe(0);
 		},
 	);
 });

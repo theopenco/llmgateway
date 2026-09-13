@@ -805,7 +805,10 @@ export default function ChatPageClient({
 
 			const connectorIds =
 				connectorData?.connectors
-					.filter((connector) => connector.connected && connector.enabled)
+					.filter(
+						(connector) =>
+							connector.available && connector.connected && connector.enabled,
+					)
 					.map((connector) => connector.id) ?? [];
 
 			return {

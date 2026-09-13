@@ -19,17 +19,22 @@ export function connectorClient(id: LoungeConnectorId) {
 			? "GOOGLE"
 			: id.toUpperCase().replaceAll("-", "_");
 	return {
-		clientId: process.env[`LOUNGE_${prefix}_CLIENT_ID`],
-		clientSecret: process.env[`LOUNGE_${prefix}_CLIENT_SECRET`],
+		clientId: process.env[`LOUNGE_${prefix}_CLIENT_ID`]?.trim(),
+		clientSecret: process.env[`LOUNGE_${prefix}_CLIENT_SECRET`]?.trim(),
 	};
 }
 
 export function connectorAvailable(id: LoungeConnectorId) {
-	if (mcpEndpoints[id] && id !== "slack" && id !== "github" && id !== "figma") {
-		return true;
-	}
 	const client = connectorClient(id);
 	return Boolean(client.clientId && client.clientSecret);
+}
+
+export function assertConnectorAvailable(id: LoungeConnectorId) {
+	if (!connectorAvailable(id)) {
+		throw new HTTPException(503, {
+			message: "This connector is not configured yet",
+		});
+	}
 }
 
 export function connectorCallback(id: LoungeConnectorId) {

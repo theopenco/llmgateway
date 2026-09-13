@@ -10,7 +10,11 @@ import { redisClient } from "@llmgateway/cache";
 import { and, db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 
-import { mcpEndpoints, nativeOAuth } from "./catalogue.js";
+import {
+	assertConnectorAvailable,
+	mcpEndpoints,
+	nativeOAuth,
+} from "./catalogue.js";
 import { openConnector, sealConnector } from "./crypto.js";
 import { executeNativeTool, nativeTools } from "./native-tools.js";
 import {
@@ -31,6 +35,7 @@ export interface ConnectorTool {
 }
 
 async function activeConnection(userId: string, id: LoungeConnectorId) {
+	assertConnectorAvailable(id);
 	const connection = await db.query.loungeConnection.findFirst({
 		where: { userId, connectorId: id, enabled: true },
 	});

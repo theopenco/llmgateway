@@ -37,7 +37,7 @@ Listed prices are what developers are billed, so pricing never changes silently:
 - The **initial** filing sets the launch pricing and activates the model on approval.
 - Every later price change is an **update** filing — drafted by you, approved by the LLM Gateway team, and only then in effect.
 
-A filing covers input, output, optional cached-input, and optional per-request prices (USD per token, decimal or exponent notation), plus a note for the reviewer. The latest approved filing is the model's effective price; pending and rejected filings are tracked under **Filings**.
+A filing covers input, output, optional cached-input, and optional per-request prices (USD per token, decimal or exponent notation), plus a note for the reviewer. It can also carry **regional fares** — per-region price overrides developers reach with `<provider>/<model>:<region>`, while all other traffic pays the default fares. Each approved filing's regional set fully replaces the previous one, and while no filing is pending a region can be dropped from the Fleet page — removing an offering changes no price, so it applies immediately without review. The latest approved filing is the model's effective price; pending and rejected filings are tracked under **Filings**.
 
 ## Routing and billing
 
@@ -54,7 +54,7 @@ Under **Fares** each claimed provider has two knobs:
 - **Traffic discount** (0–50%) — a discount you offer on routed traffic.
 - **Landing fee** (5–50%) — the gateway margin you accept; the baseline is **20%**.
 
-Accepting more than the baseline margin or offering a discount makes your traffic effectively cheaper, which boosts you in the [smart routing election](/features/routing); accepting less prices you up. Like price changes, fare changes are filed for review and only reach routing once the LLM Gateway team approves them. The election scores every candidate provider on weighted factors — price after your discount and margin (`0.6`), availability/uptime (`0.5`), prompt-cache support (`0.2`), throughput (`0.05`), and latency (`0.025`) — and the lowest score wins.
+Accepting more than the baseline margin or offering a discount makes your traffic effectively cheaper, which boosts you in the [smart routing election](/features/routing); accepting less prices you up. Like price changes, fare changes are filed for review and only reach routing once the LLM Gateway team approves them. The election scores every candidate provider on weighted factors — expected token cost after your discount and margin (`0.6`), availability/uptime (`0.5`), throughput (`0.05`), and latency (`0.025`) — and the lowest score wins. Cache-read savings count toward token cost; cache support alone receives no additional preference by default.
 
 <Callout type="info">
 	Routing reacts to live metrics: reliability and speed still matter. A cheap

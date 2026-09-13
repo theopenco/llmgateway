@@ -26,6 +26,36 @@ function corsHeaders(route: Route) {
 	};
 }
 
+async function openModelEditor(page: Page, modelName: string) {
+	await page.getByTestId(`edit-${modelName}`).click();
+	const dialog = page.getByRole("dialog", {
+		name: `Edit ${modelName}`,
+		exact: true,
+		includeHidden: true,
+	});
+	await expect(dialog).toBeVisible();
+	return dialog;
+}
+
+async function waitForModelEditorClosed(page: Page, modelName: string) {
+	// Radix restores focus after its exit animation and portal teardown.
+	await expect(page.getByRole("dialog", { includeHidden: true })).toHaveCount(
+		0,
+	);
+	await expect(page.getByTestId(`edit-${modelName}`)).toBeFocused();
+}
+
+async function saveModelEditor(page: Page, modelName: string) {
+	const response = page.waitForResponse(
+		(response) =>
+			response.request().method() === "PATCH" &&
+			/\/airside\/models\/[^/]+$/.test(new URL(response.url()).pathname),
+	);
+	await page.getByTestId("edit-model-submit").click();
+	expect((await response).status()).toBe(200);
+	await waitForModelEditorClosed(page, modelName);
+}
+
 test("landing page shows the departure board and CTA", async ({ page }) => {
 	await page.goto("/");
 	await expect(page.getByText("Departures — model traffic")).toBeVisible();
@@ -136,6 +166,56 @@ test("fleet lists seeded models with their filing states", async ({ page }) => {
 	await expect(page.getByTestId("file-fare-codestral-3")).toBeDisabled();
 });
 
+test("quantization edits persist on draft cards", async ({ page }) => {
+	await login(page);
+	await page.goto("/dashboard/fleet");
+	const draft = page.getByTestId("model-strip-mistral-large-4");
+	for (const quantization of ["FP8", "Unknown"]) {
+		const dialog = await openModelEditor(page, "mistral-large-4");
+		await dialog.getByLabel("Quantization", { exact: true }).click();
+		await page.getByRole("option", { name: quantization, exact: true }).click();
+		await saveModelEditor(page, "mistral-large-4");
+		await page.reload();
+		await expect(draft).toBeVisible();
+		if (quantization === "Unknown") {
+			await expect(draft).not.toContainText("Quant:");
+		} else {
+			await expect(draft).toContainText(`Quant: ${quantization}`);
+		}
+		await openModelEditor(page, "mistral-large-4");
+		await expect(dialog.getByLabel("Quantization", { exact: true })).toHaveText(
+			quantization,
+		);
+		await page.keyboard.press("Escape");
+		await waitForModelEditorClosed(page, "mistral-large-4");
+	}
+});
+
+test("quantization edits stay pending on live models and can be withdrawn", async ({
+	page,
+}) => {
+	await login(page);
+	await page.goto("/dashboard/fleet");
+	const dialog = await openModelEditor(page, "mistral-medium-4");
+	await dialog.getByLabel("Quantization", { exact: true }).click();
+	await page.getByRole("option", { name: "BF16", exact: true }).click();
+	await saveModelEditor(page, "mistral-medium-4");
+	await page.reload();
+	const active = page.getByTestId("model-strip-mistral-medium-4");
+	await expect(active).toContainText("Change filed");
+	await expect(active).not.toContainText("Quant: BF16");
+	await openModelEditor(page, "mistral-medium-4");
+	await expect(dialog.getByLabel("Quantization", { exact: true })).toHaveText(
+		"BF16",
+	);
+	await dialog.getByLabel("Quantization", { exact: true }).click();
+	await page.getByRole("option", { name: "Unknown", exact: true }).click();
+	await saveModelEditor(page, "mistral-medium-4");
+	await page.reload();
+	await expect(active).toContainText("In service");
+	await expect(active).not.toContainText("Change filed");
+});
+
 test("registering a model requires provider preflight", async ({ page }) => {
 	let statusReads = 0;
 	await page.route("**/airside/model-verifications**", async (route) => {
@@ -182,6 +262,8 @@ test("registering a model requires provider preflight", async ({ page }) => {
 	await page.getByTestId("register-model-button").click();
 	await page.getByTestId("model-name-input").fill("pw-preflight-model");
 	await page.getByLabel("Family").fill("playwright");
+	await page.getByLabel("Quantization", { exact: true }).click();
+	await page.getByRole("option", { name: "FP8", exact: true }).click();
 	// Prices are entered as dollars per million tokens.
 	await page.getByTestId("input-price").fill("1");
 	await page.getByTestId("output-price").fill("3");
@@ -360,6 +442,13 @@ test("new provider signs up and claims by email domain", async ({ page }) => {
 	await page.getByTestId("carrier-base-url-input").fill("https://api.wrong.io");
 	await expect(page.getByTestId("carrier-base-url-hint")).toContainText(
 		"Must be on deepseek.com",
+	);
+	await expect(page.getByTestId("confirm-register-carrier")).toBeDisabled();
+	await page
+		.getByTestId("carrier-base-url-input")
+		.fill("https://api.deepseek.com/v1");
+	await expect(page.getByTestId("carrier-base-url-hint")).toContainText(
+		"Base URL only",
 	);
 	await expect(page.getByTestId("confirm-register-carrier")).toBeDisabled();
 	await page

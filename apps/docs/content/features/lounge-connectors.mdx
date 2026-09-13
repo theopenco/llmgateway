@@ -1,0 +1,13 @@
+---
+title: Lounge connectors
+description: Connect your apps to Lounge chats with OAuth
+icon: Plug
+---
+
+Open **Connectors** in the Lounge to connect an account through OAuth. Connections are private to your account, and tool calls require your approval before they run.
+
+A connector stays **Not configured** until the deployment has both its OAuth client ID and secret. Missing credentials also disable existing connections: you cannot enable, reconnect, or use their tools until configuration is restored. You can still disconnect an account.
+
+Pausing a configured connection retains its credentials and stops tool access. Disconnecting deletes its stored credentials and pending authorizations. Tool results used in a chat are sent to the selected model and saved with that conversation.
+
+For deployment variables and callback setup, see the [connector setup guide](https://github.com/theopenco/llmgateway/blob/main/docs/lounge-connectors.md).

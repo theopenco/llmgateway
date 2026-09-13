@@ -78,6 +78,7 @@ import {
 import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
+import { fetchProvider } from "@/lib/fetch-provider.js";
 import {
 	getGcpAccessToken,
 	getVertexAnthropicProjectId,
@@ -150,6 +151,9 @@ import {
 	UnsupportedAudioFormatError,
 	UnsupportedDocumentFormatError,
 	type RoutingMetadata,
+	type GoogleThoughtSignatureState,
+	isGoogleReasoningDetail,
+	preserveGoogleResponseText,
 } from "@llmgateway/actions";
 import {
 	generateCacheKey,
@@ -177,6 +181,7 @@ import {
 import { logger, toError } from "@llmgateway/logger";
 import {
 	type BaseMessage,
+	type ReasoningDetail,
 	getModelStreamingSupport,
 	hasMaxTokens,
 	hasRegionSpecificEnvKey,
@@ -193,6 +198,7 @@ import {
 	type VertexTokenType,
 	type WebSearchTool,
 	expandAllProviderRegions,
+	expandProviderRegions,
 	getProviderDefinition,
 	getRegionScopedDefaultRegion,
 	getRegionSpecificEnvVarName,
@@ -511,7 +517,9 @@ function preferConcreteRegionalMappings(
 
 	return providers.filter(
 		(mapping) =>
-			!providersWithRegions.has(mapping.providerId) || Boolean(mapping.region),
+			!providersWithRegions.has(mapping.providerId) ||
+			Boolean(mapping.region) ||
+			mapping.routableRoot === true,
 	);
 }
 
@@ -549,6 +557,7 @@ async function collapseProvidersToBestRegionPerProvider(
 		metricsMap: Map<string, ProviderMetrics>;
 		isStreaming: boolean;
 		promptTokens?: number;
+		session?: boolean;
 		routingConfig?: ResolvedRoutingConfig;
 		organizationId: string;
 	},
@@ -705,7 +714,16 @@ function filterEligibleModelProviders(
 		const lockedRegion = options.providerLockedRegions?.get(
 			provider.providerId,
 		);
-		if (lockedRegion && provider.region && provider.region !== lockedRegion) {
+		// A routable root has concrete regional siblings that can satisfy the
+		// lock, so it must not slip locked traffic onto the default deployment.
+		// Region-less mappings without regional variants keep passing — for
+		// them the lock is applied at endpoint resolution, not candidate level.
+		if (
+			lockedRegion &&
+			(provider.region
+				? provider.region !== lockedRegion
+				: provider.routableRoot === true)
+		) {
 			if (filteredOut) {
 				recordFilteredProvider(filteredOut, provider.providerId, [
 					exclusionReason("locked_region"),
@@ -2601,6 +2619,8 @@ chat.openapi(completions, async (c) => {
 		project.id,
 		organization.id,
 		organization.plan,
+		organization.kind,
+		isRecognizedCodingAgent(source),
 	);
 	// Routing strategies only affect multi-provider selection. When the request
 	// pins a specific provider (e.g. `openai/gpt-4o`), the same routingCfg is
@@ -3478,7 +3498,6 @@ chat.openapi(completions, async (c) => {
 			(usedInternalModel === airsideCheckedModel &&
 				(airsideCheckedProvider === undefined ||
 					usedProvider === airsideCheckedProvider)) ||
-			usedRegion !== undefined ||
 			!usedProvider ||
 			usedProvider === "custom" ||
 			usedProvider === "llmgateway"
@@ -3486,7 +3505,20 @@ chat.openapi(completions, async (c) => {
 			return fromResolution;
 		}
 		const listed = await findAirsideModel(usedProvider, usedInternalModel);
-		return listed ? airsideListingToModelDefinition(listed).mapping : undefined;
+		if (!listed) {
+			return undefined;
+		}
+		// The owner's filed prices govern the whole pair: bill a served region
+		// at its filed regional price, and anything else at the canonical
+		// default-region price.
+		const expanded = expandProviderRegions(
+			airsideListingToModelDefinition(listed).mapping,
+		);
+		return (
+			expanded.find(
+				(mapping) => (mapping.region ?? null) === (usedRegion ?? null),
+			) ?? expanded.find((mapping) => mapping.region === undefined)
+		);
 	};
 	let customPricingMapping: ProviderModelMapping | undefined =
 		findAirsidePricingMapping();
@@ -4100,6 +4132,11 @@ chat.openapi(completions, async (c) => {
 			const metricsMap = await getProviderMetricsForRouting(
 				metricsCombinations,
 				routingCfg,
+				{
+					projectId: project.id,
+					promptTokens: routingPromptTokens,
+					session: sessionStickyEnabled,
+				},
 			);
 			providerAgnosticSelectedProviders =
 				await collapseProvidersToBestRegionPerProvider(
@@ -4109,6 +4146,7 @@ chat.openapi(completions, async (c) => {
 						metricsMap,
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
+						session: sessionStickyEnabled,
 						routingConfig: routingCfg,
 						organizationId: project.organizationId,
 					},
@@ -4331,13 +4369,14 @@ chat.openapi(completions, async (c) => {
 				});
 			}
 		}
-		const sameProviderRegionalMappings = sameProviderMappings.filter(
+		// A routable root (an Airside listing's default deployment) stays a
+		// candidate next to its regional variants; only synthetic roots are
+		// dropped in favor of concrete regions.
+		const sameProviderRoutingMappings = sameProviderMappings.some(
 			(p) => p.region,
-		);
-		const sameProviderRoutingMappings =
-			sameProviderRegionalMappings.length > 0
-				? sameProviderRegionalMappings
-				: sameProviderMappings;
+		)
+			? sameProviderMappings.filter((p) => p.region || p.routableRoot === true)
+			: sameProviderMappings;
 
 		if (sameProviderMappings.length > 1) {
 			let lockedRegion = usedRegion;
@@ -4400,6 +4439,11 @@ chat.openapi(completions, async (c) => {
 					const metricsMap = await getProviderMetricsForRouting(
 						metricsCombinations,
 						routingCfg,
+						{
+							projectId: project.id,
+							promptTokens: routingPromptTokens,
+							session: sessionStickyEnabled,
+						},
 					);
 					const bestRegionResult = await getCheapestFromAvailableProviders(
 						eligibleMappings,
@@ -4432,7 +4476,14 @@ chat.openapi(completions, async (c) => {
 			usedRegion ??= (sameProviderMappings[0] as ProviderModelMapping).region;
 		}
 
-		if (!usedRegion) {
+		if (
+			!usedRegion &&
+			// Only force a region when every candidate is regional — a selected
+			// region-less routable root legitimately serves without one.
+			!sameProviderRoutingMappings.some(
+				(p) => !(p as ProviderModelMapping).region,
+			)
+		) {
 			const firstRegionalMatch = sameProviderRoutingMappings.find(
 				(p) => (p as ProviderModelMapping).region,
 			) as ProviderModelMapping | undefined;
@@ -4625,6 +4676,11 @@ chat.openapi(completions, async (c) => {
 						const allMetricsMap = await getProviderMetricsForRouting(
 							metricsCombinations,
 							routingCfg,
+							{
+								projectId: project.id,
+								promptTokens: routingPromptTokens,
+								session: sessionStickyEnabled,
+							},
 						);
 
 						const cheapestResult = await getCheapestFromAvailableProviders(
@@ -4805,6 +4861,11 @@ chat.openapi(completions, async (c) => {
 						const allMetricsMap = await getProviderMetricsForRouting(
 							metricsCombinations,
 							routingCfg,
+							{
+								projectId: project.id,
+								promptTokens: routingPromptTokens,
+								session: sessionStickyEnabled,
+							},
 						);
 						const providerAgnosticCandidates =
 							await collapseProvidersToBestRegionPerProvider(
@@ -4814,6 +4875,7 @@ chat.openapi(completions, async (c) => {
 									metricsMap: allMetricsMap,
 									isStreaming: stream,
 									promptTokens: routingPromptTokens,
+									session: sessionStickyEnabled,
 									routingConfig: routingCfg,
 									organizationId: project.organizationId,
 								},
@@ -5128,9 +5190,14 @@ chat.openapi(completions, async (c) => {
 				}
 			}
 
-			const rawModelWithPricing = models.find(
-				(m) => m.id === usedInternalModel,
-			);
+			// Airside-only models have no static entry; their synthesized
+			// definition carries the filed (regional) prices so selection can
+			// still score candidates instead of taking the first one.
+			const rawModelWithPricing =
+				models.find((m) => m.id === usedInternalModel) ??
+				(airsideResolution?.parseResult.requestedModel === usedInternalModel
+					? airsideResolution.modelInfoResult.modelInfo
+					: undefined);
 			const modelWithPricing = rawModelWithPricing
 				? {
 						...rawModelWithPricing,
@@ -5153,6 +5220,11 @@ chat.openapi(completions, async (c) => {
 				const metricsMap = await getProviderMetricsForRouting(
 					metricsCombinations,
 					routingCfg,
+					{
+						projectId: project.id,
+						promptTokens: routingPromptTokens,
+						session: sessionStickyEnabled,
+					},
 				);
 				const providerAgnosticCandidates =
 					await collapseProvidersToBestRegionPerProvider(
@@ -5162,6 +5234,7 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
+							session: sessionStickyEnabled,
 							routingConfig: routingCfg,
 							organizationId: project.organizationId,
 						},
@@ -5360,10 +5433,10 @@ chat.openapi(completions, async (c) => {
 				{ explicitLocks: providerLockedRegions, requestedRegion },
 			);
 			const directProviderRegionalMappings = directProviderMappings.filter(
-				(provider) => provider.region,
+				(provider) => provider.region || provider.routableRoot === true,
 			);
 			routingMetadataProviders = filterEligibleModelProviders(
-				directProviderRegionalMappings.length > 0
+				directProviderMappings.some((provider) => provider.region)
 					? directProviderRegionalMappings
 					: directProviderMappings,
 				{
@@ -5414,6 +5487,11 @@ chat.openapi(completions, async (c) => {
 			metricsMap = await getProviderMetricsForRouting(
 				metricsCombinations,
 				routingCfg,
+				{
+					projectId: project.id,
+					promptTokens: routingPromptTokens,
+					session: sessionStickyEnabled,
+				},
 			);
 		}
 
@@ -5433,6 +5511,7 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
+							session: sessionStickyEnabled,
 							routingConfig: routingCfg,
 							organizationId: project.organizationId,
 							providerDiscountResolver,
@@ -6005,44 +6084,6 @@ chat.openapi(completions, async (c) => {
 			usedProvider,
 			modelInfo.id,
 		);
-
-		const providerRateLimitEntries = Object.entries(
-			providerRateLimitResult.limits,
-		) as Array<
-			[
-				keyof typeof providerRateLimitWindows,
-				(typeof providerRateLimitResult.limits)[keyof typeof providerRateLimitResult.limits],
-			]
-		>;
-		const primaryProviderRateLimit = providerRateLimitEntries.find(
-			([, limit]) => limit.limit > 0,
-		);
-
-		if (primaryProviderRateLimit) {
-			c.header(
-				"X-RateLimit-Limit-Provider",
-				primaryProviderRateLimit[1].limit.toString(),
-			);
-			c.header(
-				"X-RateLimit-Remaining-Provider",
-				primaryProviderRateLimit[1].remaining.toString(),
-			);
-		}
-
-		for (const [window, limit] of providerRateLimitEntries) {
-			if (limit.limit === 0) {
-				continue;
-			}
-
-			c.header(
-				`X-RateLimit-Limit-Provider-${providerRateLimitWindows[window].headerSuffix}`,
-				limit.limit.toString(),
-			);
-			c.header(
-				`X-RateLimit-Remaining-Provider-${providerRateLimitWindows[window].headerSuffix}`,
-				limit.remaining.toString(),
-			);
-		}
 
 		// Race condition: between peek and consume, the window may have filled.
 		// Only hard-block if the user explicitly requested this provider with no-fallback.
@@ -7225,7 +7266,10 @@ chat.openapi(completions, async (c) => {
 				Array.isArray(message.tool_calls)
 			) {
 				for (const toolCall of message.tool_calls) {
-					if (toolCall.id) {
+					if (
+						toolCall.id &&
+						!toolCall.extra_content?.google?.thought_signature
+					) {
 						try {
 							// Use redisClient.get directly since thought_signature is a plain string, not JSON
 							const cachedSignature = await redisClient.get(
@@ -8217,7 +8261,7 @@ chat.openapi(completions, async (c) => {
 							routingCfg,
 						);
 
-						res = await fetch(url, {
+						res = await fetchProvider(url, {
 							method: "POST",
 							// SSRF: never follow redirects on an authenticated provider
 							// request. A tenant-supplied baseUrl (validated at registration)
@@ -9612,6 +9656,10 @@ chat.openapi(completions, async (c) => {
 				// arrives, so the pair can be forwarded to native clients intact.
 				const toolSearchState: AnthropicToolSearchState = new Map();
 				const toolCallChoiceIndices = new Set<number>();
+				const googleThoughtSignatureState = new Map<
+					number,
+					GoogleThoughtSignatureState
+				>();
 				let sawUpstreamDoneSentinel = false;
 				let sawProviderTerminalEvent = false;
 				let sawOpenAiResponsesDoneEvent = false;
@@ -9671,6 +9719,7 @@ chat.openapi(completions, async (c) => {
 				// Buffer for storing chunks when healing is enabled
 				// We need to buffer content, track last chunk info, and replay healed content at the end
 				const bufferedContentChunks: string[] = [];
+				const bufferedGoogleDetails: ReasoningDetail[] = [];
 				let lastChunkId: string | null = null;
 				let lastChunkModel: string | null = null;
 				let lastChunkCreated: number | null = null;
@@ -10486,6 +10535,7 @@ chat.openapi(completions, async (c) => {
 									toolCallChoiceIndices,
 									{
 										cacheThoughtSignatures: !zeroDataRetentionEnabled,
+										googleThoughtSignatureState,
 									},
 								);
 
@@ -10713,6 +10763,24 @@ chat.openapi(completions, async (c) => {
 									);
 									if (chunkWithoutContent.choices?.[0]?.delta?.content) {
 										delete chunkWithoutContent.choices[0].delta.content;
+									}
+									const bufferedDelta = chunkWithoutContent.choices?.[0]?.delta;
+									if (
+										isGoogleCompatibleProvider(transportProvider) &&
+										bufferedContentChunks.length > 0 &&
+										bufferedDelta?.reasoning_details
+									) {
+										const details =
+											bufferedDelta.reasoning_details as ReasoningDetail[];
+										bufferedGoogleDetails.push(
+											...details.filter(isGoogleReasoningDetail),
+										);
+										bufferedDelta.reasoning_details = details.filter(
+											(detail) => !isGoogleReasoningDetail(detail),
+										);
+										if (bufferedDelta.reasoning_details.length === 0) {
+											delete bufferedDelta.reasoning_details;
+										}
 									}
 
 									// Only send chunk if it has meaningful data (not just empty delta)
@@ -11801,6 +11869,15 @@ chat.openapi(completions, async (c) => {
 											index: 0,
 											delta: {
 												content: healingResult.content,
+												...(bufferedGoogleDetails.length > 0
+													? {
+															reasoning_details: preserveGoogleResponseText(
+																bufferedGoogleDetails,
+																bufferedContent,
+																healingResult.content,
+															),
+														}
+													: {}),
 											},
 											finish_reason: null,
 										},
@@ -12650,7 +12727,7 @@ chat.openapi(completions, async (c) => {
 				forwardedServiceTier,
 			);
 
-			res = await fetch(url, {
+			res = await fetchProvider(url, {
 				method: "POST",
 				// SSRF: never follow redirects on an authenticated provider request
 				// (see streaming path above).

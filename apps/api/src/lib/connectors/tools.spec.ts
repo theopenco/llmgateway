@@ -15,6 +15,20 @@ vi.mock("@llmgateway/shared/url-safety-node", () => ({
 describe("connector MCP integration", () => {
 	let userId: string;
 	beforeEach(async () => {
+		for (const prefix of [
+			"GOOGLE",
+			"GITHUB",
+			"POSTHOG",
+			"SLACK",
+			"NOTION",
+			"FIGMA",
+			"LINEAR",
+			"SENTRY",
+			"STRIPE",
+		]) {
+			vi.stubEnv(`LOUNGE_${prefix}_CLIENT_ID`, "fixture-client");
+			vi.stubEnv(`LOUNGE_${prefix}_CLIENT_SECRET`, "fixture-secret");
+		}
 		await createTestUser();
 		userId = (await db.query.user.findFirst())!.id;
 		vi.mocked(fetchSafeUserUrl).mockImplementation(async (_url, init) => {
