@@ -151,6 +151,9 @@ import {
 	UnsupportedAudioFormatError,
 	UnsupportedDocumentFormatError,
 	type RoutingMetadata,
+	type GoogleThoughtSignatureState,
+	isGoogleReasoningDetail,
+	preserveGoogleResponseText,
 } from "@llmgateway/actions";
 import {
 	generateCacheKey,
@@ -178,6 +181,7 @@ import {
 import { logger, toError } from "@llmgateway/logger";
 import {
 	type BaseMessage,
+	type ReasoningDetail,
 	getModelStreamingSupport,
 	hasMaxTokens,
 	hasRegionSpecificEnvKey,
@@ -7225,7 +7229,10 @@ chat.openapi(completions, async (c) => {
 				Array.isArray(message.tool_calls)
 			) {
 				for (const toolCall of message.tool_calls) {
-					if (toolCall.id) {
+					if (
+						toolCall.id &&
+						!toolCall.extra_content?.google?.thought_signature
+					) {
 						try {
 							// Use redisClient.get directly since thought_signature is a plain string, not JSON
 							const cachedSignature = await redisClient.get(
@@ -9612,6 +9619,10 @@ chat.openapi(completions, async (c) => {
 				// arrives, so the pair can be forwarded to native clients intact.
 				const toolSearchState: AnthropicToolSearchState = new Map();
 				const toolCallChoiceIndices = new Set<number>();
+				const googleThoughtSignatureState = new Map<
+					number,
+					GoogleThoughtSignatureState
+				>();
 				let sawUpstreamDoneSentinel = false;
 				let sawProviderTerminalEvent = false;
 				let sawOpenAiResponsesDoneEvent = false;
@@ -9671,6 +9682,7 @@ chat.openapi(completions, async (c) => {
 				// Buffer for storing chunks when healing is enabled
 				// We need to buffer content, track last chunk info, and replay healed content at the end
 				const bufferedContentChunks: string[] = [];
+				const bufferedGoogleDetails: ReasoningDetail[] = [];
 				let lastChunkId: string | null = null;
 				let lastChunkModel: string | null = null;
 				let lastChunkCreated: number | null = null;
@@ -10486,6 +10498,7 @@ chat.openapi(completions, async (c) => {
 									toolCallChoiceIndices,
 									{
 										cacheThoughtSignatures: !zeroDataRetentionEnabled,
+										googleThoughtSignatureState,
 									},
 								);
 
@@ -10713,6 +10726,24 @@ chat.openapi(completions, async (c) => {
 									);
 									if (chunkWithoutContent.choices?.[0]?.delta?.content) {
 										delete chunkWithoutContent.choices[0].delta.content;
+									}
+									const bufferedDelta = chunkWithoutContent.choices?.[0]?.delta;
+									if (
+										isGoogleCompatibleProvider(transportProvider) &&
+										bufferedContentChunks.length > 0 &&
+										bufferedDelta?.reasoning_details
+									) {
+										const details =
+											bufferedDelta.reasoning_details as ReasoningDetail[];
+										bufferedGoogleDetails.push(
+											...details.filter(isGoogleReasoningDetail),
+										);
+										bufferedDelta.reasoning_details = details.filter(
+											(detail) => !isGoogleReasoningDetail(detail),
+										);
+										if (bufferedDelta.reasoning_details.length === 0) {
+											delete bufferedDelta.reasoning_details;
+										}
 									}
 
 									// Only send chunk if it has meaningful data (not just empty delta)
@@ -11801,6 +11832,15 @@ chat.openapi(completions, async (c) => {
 											index: 0,
 											delta: {
 												content: healingResult.content,
+												...(bufferedGoogleDetails.length > 0
+													? {
+															reasoning_details: preserveGoogleResponseText(
+																bufferedGoogleDetails,
+																bufferedContent,
+																healingResult.content,
+															),
+														}
+													: {}),
 											},
 											finish_reason: null,
 										},
