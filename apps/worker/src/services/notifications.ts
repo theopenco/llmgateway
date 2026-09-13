@@ -196,7 +196,8 @@ export async function processNotifications(now = new Date()): Promise<void> {
 			.selectDistinct({
 				projectId: apiKeyHourlyModelStats.projectId,
 				apiKeyId: apiKeyHourlyModelStats.apiKeyId,
-				model: apiKeyHourlyModelStats.usedModel,
+				model: sql<string>`split_part(split_part(${apiKeyHourlyModelStats.usedModel}, '/', 2), ':', 1)`,
+				region: sql<string>`split_part(${apiKeyHourlyModelStats.usedModel}, ':', 2)`,
 				provider: apiKeyHourlyModelStats.usedProvider,
 			})
 			.from(apiKeyHourlyModelStats)
@@ -221,7 +222,10 @@ export async function processNotifications(now = new Date()): Promise<void> {
 				: used.apiKeyId;
 			if (retirement) {
 				for (const mapping of mappings.filter(
-					(m) => m.modelId === used.model && m.providerId === used.provider,
+					(m) =>
+						m.modelId === used.model &&
+						m.providerId === used.provider &&
+						(m.region ?? "") === used.region,
 				)) {
 					for (const [kind, date] of [
 						["deprecated", mapping.deprecatedAt],
@@ -229,7 +233,7 @@ export async function processNotifications(now = new Date()): Promise<void> {
 					] as const) {
 						if (
 							!date ||
-							date.getTime() < now.getTime() - DAY ||
+							date.getTime() <= now.getTime() ||
 							date.getTime() > now.getTime() + USAGE_WINDOW_MS
 						) {
 							continue;

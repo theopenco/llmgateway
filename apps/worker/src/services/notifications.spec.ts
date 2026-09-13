@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { db, eq, tables } from "@llmgateway/db";
+import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import {
 	deliverNotificationEmails,
@@ -72,6 +73,7 @@ beforeEach(async () => {
 	});
 	await db.insert(tables.apiKey).values({
 		id: "alert-key",
+		...hashApiKeyForStorage("test-token"),
 		description: "Test key",
 		projectId: "alert-project",
 		createdBy: "alert-owner",
@@ -110,7 +112,7 @@ async function insertUsage() {
 	await db.insert(tables.apiKeyHourlyModelStats).values({
 		projectId: "alert-project",
 		apiKeyId: "alert-key",
-		usedModel: "test-model",
+		usedModel: "test-provider/test-model",
 		usedProvider: "test-provider",
 		hourTimestamp: new Date(now.getTime() - 3600000),
 		requestCount: 10,
@@ -179,7 +181,30 @@ describe("usage notifications", () => {
 			.set({ statsUpdatedAt: new Date(now.getTime() - day) });
 		await processNotifications(now);
 		expect(await db.query.notification.findMany()).toHaveLength(0);
+		await db
+			.update(tables.modelProviderMapping)
+			.set({ deactivatedAt: daysFromNow(7) });
+		await db.update(tables.provider).set({ statsUpdatedAt: now });
+		await db
+			.update(tables.apiKeyHourlyModelStats)
+			.set({ hourTimestamp: daysFromNow(-31) });
+		await processNotifications(now);
+		expect(await db.query.notification.findMany()).toHaveLength(0);
 	});
+	it("matches the used mapping region when scheduling retirement alerts", async () => {
+		await enable("model_retirement");
+		await insertUsage();
+		await db
+			.update(tables.apiKeyHourlyModelStats)
+			.set({ usedModel: "test-provider/test-model:west" });
+		await db.update(tables.modelProviderMapping).set({ region: "east" });
+		await processNotifications(now);
+		expect(await db.query.notification.findMany()).toHaveLength(0);
+		await db.update(tables.modelProviderMapping).set({ region: "west" });
+		await processNotifications(now);
+		expect(await db.query.notification.findMany()).toHaveLength(1);
+	});
+
 	it("retries failed email with the same idempotency key and checks current access", async () => {
 		await enable("budget", "alert-owner", true);
 		send.mockResolvedValueOnce({ error: { message: "Temporary failure" } });

@@ -36,7 +36,7 @@ const descriptions = {
 	provider_issue: {
 		title: "Provider issues",
 		description:
-			"Hear about elevated errors from providers you used in the last 30 days, at most once a day per provider and project.",
+			"Hear about elevated errors from providers you used in the last 30 days.",
 	},
 };
 
