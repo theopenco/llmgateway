@@ -1,11 +1,12 @@
 "use client";
 
 import UsageOverview from "@/app/dashboard/components/UsageOverview";
-import { plans } from "@/app/dashboard/plans";
+import { usePlans } from "@/app/dashboard/plans";
 import { useDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
 
 export default function UsagePage() {
 	const { data: devPlanStatus } = useDevPlanStatus();
+	const plans = usePlans();
 
 	if (!devPlanStatus) {
 		return null;

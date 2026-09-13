@@ -311,7 +311,7 @@ export const modelCategoryContent = {
 			{
 				question: "How do premium models work on DevPass plans?",
 				answer:
-					"DevPass plans include a weekly fair-use allowance for premium models: 10% of monthly credits on Lite, 12% on Pro, and 15% on Max. The allowance works on a fixed 7-day window that opens with your first premium request and fully resets when it ends. Standard models are never affected by it — they draw only on the plan's monthly allowance and its daily pacing, like every other model.",
+					"DevPass plans include a weekly fair-use allowance for premium models: 10% of monthly credits on Lite, 12% on Pro, and 15% on Max. The allowance works on a rolling 7-day window that opens with your first premium request and fully resets when it ends; a monthly renewal starts a new window, and redeeming a Reset Pass clears the current one so your next premium request starts fresh. Standard models are never affected by it — they draw only on the plan's monthly allowance and its daily pacing, like every other model.",
 			},
 			{
 				question: "How do I check whether a specific model is premium?",

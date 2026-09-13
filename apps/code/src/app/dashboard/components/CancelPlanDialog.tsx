@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 
-import { plans } from "@/app/dashboard/plans";
+import { usePlans } from "@/app/dashboard/plans";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -31,7 +31,7 @@ import {
 	type DevPlanCancellationReason,
 } from "@llmgateway/shared";
 
-import type { PlanTier } from "@/app/dashboard/types";
+import type { PlanOption, PlanTier } from "@/app/dashboard/types";
 
 type Step = "survey" | "offer" | "confirm";
 
@@ -63,7 +63,7 @@ const STEPS: { id: Step; label: string }[] = [
 	{ id: "confirm", label: "Confirm" },
 ];
 
-function planName(tier: PlanTier): string {
+function planName(plans: PlanOption[], tier: PlanTier): string {
 	return plans.find((p) => p.tier === tier)?.name ?? tier.toUpperCase();
 }
 
@@ -170,6 +170,7 @@ function CancelFlow({
 }: CancelPlanDialogProps) {
 	const posthog = usePostHog();
 	const { posthogKey, docsUrl, discordUrl } = useAppConfig();
+	const plans = usePlans();
 	const reduceMotion = useReducedMotion();
 
 	const [step, setStep] = useState<Step>("survey");
@@ -312,7 +313,7 @@ function CancelFlow({
 						? DEV_PLAN_CANCELLATION_HEADING
 						: step === "offer"
 							? "Before you stamp out"
-							: `Cancel your ${planName(tier)} plan?`}
+							: `Cancel your ${planName(plans, tier)} plan?`}
 				</DialogTitle>
 				<DialogDescription>
 					{step === "survey"
@@ -338,9 +339,10 @@ function CancelFlow({
 						<>
 							<RadioGroup
 								value={reason ?? ""}
-								onValueChange={(value) =>
-									setReason(value as DevPlanCancellationReason)
-								}
+								onValueChange={(value) => {
+									setReason(value as DevPlanCancellationReason);
+									setComments("");
+								}}
 								className="gap-1.5"
 							>
 								{DEV_PLAN_CANCELLATION_REASON_OPTIONS.map((o, i) => {
@@ -433,7 +435,8 @@ function CancelFlow({
 								{offer.kind === "downgrade" ? (
 									<div className="mt-3 space-y-2">
 										<p className="text-base font-semibold tracking-tight">
-											Switch to {planName(offer.tier)} at your next renewal
+											Switch to {planName(plans, offer.tier)} at your next
+											renewal
 										</p>
 										<p className="text-2xl font-bold tracking-tight tabular-nums">
 											${DEV_PLAN_PRICES[offer.tier]}
@@ -473,7 +476,7 @@ function CancelFlow({
 											{isDowngrading && (
 												<Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
 											)}
-											Switch to {planName(offer.tier)} at renewal
+											Switch to {planName(plans, offer.tier)} at renewal
 										</Button>
 									) : offer.external ? (
 										<Button asChild data-testid="cancel-offer-accept">

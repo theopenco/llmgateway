@@ -11,6 +11,11 @@ import {
 	Wallet,
 } from "lucide-react";
 
+import {
+	SELF_REFUND_USAGE_PERCENT,
+	SELF_REFUND_WINDOW_DAYS,
+} from "@llmgateway/shared";
+
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -42,8 +47,8 @@ const termsCards: SummaryCard[] = [
 				allowance published on the pricing page. Allowances reset every cycle
 				and don&rsquo;t roll over, except when you upgrade mid-cycle. Fees are
 				generally non-refundable once usage begins; a first-payment refund
-				within 14 days may be offered as goodwill only while usage remains below
-				20%.
+				within {SELF_REFUND_WINDOW_DAYS} days may be offered as goodwill only
+				while usage remains below {SELF_REFUND_USAGE_PERCENT}%.
 			</>
 		),
 	},

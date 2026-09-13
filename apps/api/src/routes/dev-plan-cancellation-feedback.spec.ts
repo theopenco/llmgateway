@@ -177,6 +177,20 @@ describe("dev-plan-cancellation-feedback", () => {
 		expect(res.status).toBe(400);
 	});
 
+	test('POST / rejects "other" without comments', async () => {
+		await seedCancelledDevPlan();
+
+		const res = await app.request("/dev-plan-cancellation-feedback/submit", {
+			method: "POST",
+			headers: { "Content-Type": "application/json", Cookie: token },
+			body: JSON.stringify({ reason: "other" }),
+		});
+		expect(res.status).toBe(400);
+		expect(
+			await db.query.devPlanCancellationFeedback.findMany({}),
+		).toHaveLength(0);
+	});
+
 	test("POST / rejects when no cancelled dev plan exists", async () => {
 		const res = await app.request("/dev-plan-cancellation-feedback/submit", {
 			method: "POST",

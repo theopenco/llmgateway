@@ -118,4 +118,12 @@ describe("POST /dev-plans/cancel", () => {
 		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
 		expect(await feedbackRows()).toHaveLength(0);
 	});
+
+	it('rejects "other" with blank comments before touching Stripe', async () => {
+		const res = await cancel({ reason: "other", comments: "   " });
+
+		expect(res.status).toBe(400);
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+		expect(await feedbackRows()).toHaveLength(0);
+	});
 });

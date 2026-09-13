@@ -9,7 +9,7 @@ import { usePostHog } from "posthog-js/react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { plans } from "@/app/dashboard/plans";
+import { usePlans } from "@/app/dashboard/plans";
 import { useDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -64,6 +64,7 @@ export default function BillingClient({
 	const config = useAppConfig();
 	const { posthogKey } = config;
 	const posthog = usePostHog();
+	const plans = usePlans();
 	const api = useApi();
 	const queryClient = useQueryClient();
 	const { stripe } = useStripe();

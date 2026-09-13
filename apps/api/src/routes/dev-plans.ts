@@ -5,6 +5,11 @@ import { z } from "zod";
 import { assertOrganizationNotHighRisk } from "@/lib/account-risk.js";
 import { readApiKeyMask } from "@/lib/api-key-mask.js";
 import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
+import {
+	devPlanCancellationCommentsSchema,
+	devPlanCancellationReasonSchema,
+	refineCancellationComments,
+} from "@/lib/dev-plan-cancellation.js";
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import {
 	computeSelfRefundEligibility,
@@ -70,8 +75,6 @@ import {
 	TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
 	CREDIT_TOP_UP_MAX_AMOUNT,
 	CREDIT_TOP_UP_MIN_AMOUNT,
-	DEV_PLAN_CANCELLATION_COMMENTS_MAX_LENGTH,
-	DEV_PLAN_CANCELLATION_REASONS,
 	DEV_PLAN_DAY_LENGTH_MS,
 	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
@@ -707,13 +710,12 @@ const cancel = createRoute({
 			required: false,
 			content: {
 				"application/json": {
-					schema: z.object({
-						reason: z.enum(DEV_PLAN_CANCELLATION_REASONS).optional(),
-						comments: z
-							.string()
-							.max(DEV_PLAN_CANCELLATION_COMMENTS_MAX_LENGTH)
-							.optional(),
-					}),
+					schema: z
+						.object({
+							reason: devPlanCancellationReasonSchema.optional(),
+							comments: devPlanCancellationCommentsSchema,
+						})
+						.superRefine(refineCancellationComments),
 				},
 			},
 		},

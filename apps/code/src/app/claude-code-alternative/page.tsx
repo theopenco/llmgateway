@@ -22,7 +22,7 @@ const BASE_URL = "https://devpass.llmgateway.io";
 const PAGE_PATH = "/claude-code-alternative";
 
 const TITLE = "Claude Code Alternative (2026): Keep the CLI, Skip the Caps";
-const DESCRIPTION = `DevPass keeps the Claude Code CLI and replaces the Max subscription: one key, 200+ models (Claude included) at provider rates, from $${DEV_PLAN_PRICES.lite}/mo. No weekly caps.`;
+const DESCRIPTION = `DevPass keeps the Claude Code CLI and replaces the Max subscription: one key, 200+ models (Claude included) at provider rates, from $${DEV_PLAN_PRICES.lite}/mo. No hidden caps.`;
 
 export const metadata: Metadata = {
 	title: { absolute: `${TITLE} | DevPass` },
@@ -213,7 +213,7 @@ export default function ClaudeCodeAlternativePage() {
 							Max subscription. DevPass is one key that runs{" "}
 							{MARKETING_STATS.models} models — Claude included — through Claude
 							Code or any agent you like, metered at provider rates from $
-							{DEV_PLAN_PRICES.lite}/mo. No weekly caps.
+							{DEV_PLAN_PRICES.lite}/mo. No hidden caps.
 						</p>
 
 						<div className="mt-9 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">

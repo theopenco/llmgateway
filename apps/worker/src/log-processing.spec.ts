@@ -18,6 +18,7 @@ import {
 import {
 	getDevPlanDailyLimit,
 	getDevPlanPremiumWeeklyLimit,
+	LOUNGE_SOURCE,
 } from "@llmgateway/shared";
 
 import { batchProcessLogs } from "./worker.js";
@@ -657,6 +658,61 @@ describe("Log Processing", () => {
 			});
 
 			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBeCloseTo(50.2, 6);
+			expect(Number(updatedOrg!.devPlanDailyCreditsUsed)).toBeCloseTo(
+				dailyLimit,
+				6,
+			);
+			expect(Number(updatedOrg!.credits)).toBeCloseTo(initialCredits - 0.3, 6);
+		});
+
+		test("should apply the daily pacing allowance when the dev plan backs an exhausted chat pool", async () => {
+			// Lounge traffic prefers the chat pool. With 0.20 of chat credits
+			// left and today's dev allowance spent, a 0.50 charge drains the
+			// chat pool first and the rest overflows to the balance instead of
+			// pushing the dev pool past its daily allowance.
+			const dailyLimit = getDevPlanDailyLimit("pro");
+			await db
+				.update(organization)
+				.set({
+					chatPlan: "plus",
+					chatPlanCreditsLimit: "19",
+					chatPlanCreditsUsed: "18.8",
+					devPlan: "pro",
+					devPlanCreditsLimit: "158",
+					devPlanCreditsUsed: "50",
+					devPlanDailyCreditsUsed: dailyLimit.toString(),
+					devPlanDayStart: new Date(),
+					devPlanPaygEnabled: true,
+				})
+				.where(eq(organization.id, testOrg.id));
+			const initialCredits = Number(testOrg.credits);
+
+			await db.insert(log).values({
+				requestId: "test-request-daily-chat-fallback",
+				organizationId: testOrg.id,
+				projectId: testProject.id,
+				apiKeyId: testApiKey.id,
+				cost: 0.5,
+				cached: false,
+				usedMode: "credits",
+				duration: 2000,
+				requestedModel: "openai/gpt-4o-mini",
+				requestedProvider: "openai",
+				usedModel: "gpt-4o-mini",
+				usedProvider: "openai",
+				responseSize: 150,
+				mode: "credits",
+				source: LOUNGE_SOURCE,
+			});
+
+			await batchProcessLogs();
+
+			const updatedOrg = await db.query.organization.findFirst({
+				where: { id: { eq: testOrg.id } },
+			});
+
+			expect(Number(updatedOrg!.chatPlanCreditsUsed)).toBeCloseTo(19, 6);
+			expect(Number(updatedOrg!.devPlanCreditsUsed)).toBe(50);
 			expect(Number(updatedOrg!.devPlanDailyCreditsUsed)).toBeCloseTo(
 				dailyLimit,
 				6,

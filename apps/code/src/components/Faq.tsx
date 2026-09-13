@@ -84,7 +84,7 @@ function buildFaqData(credits: FaqCredits): FaqItem[] {
 		},
 		{
 			question: "What is the daily pacing allowance?",
-			answer: `Each rolling 24-hour window can use up to ${pct(DEV_PLAN_DAILY_PERCENT.lite)}% of your monthly allowance on Lite, ${pct(DEV_PLAN_DAILY_PERCENT.pro)}% on Pro and ${pct(DEV_PLAN_DAILY_PERCENT.max)}% on Max, across every model — so your allowance lasts the whole cycle instead of draining in a single burst. When a window fills up, requests wait for it to roll over; pay-as-you-go overflow lifts it, and upgrading raises it. The window starts with your first request and resets 24 hours later.`,
+			answer: `Each rolling 24-hour window can use up to ${pct(DEV_PLAN_DAILY_PERCENT.lite)}% of your monthly allowance on Lite, ${pct(DEV_PLAN_DAILY_PERCENT.pro)}% on Pro and ${pct(DEV_PLAN_DAILY_PERCENT.max)}% on Max, across every model — so your allowance lasts the whole cycle instead of draining in a single burst. When a window fills up, further requests are declined until it rolls over; pay-as-you-go overflow lifts it, and upgrading raises it. The window starts with your first request and resets 24 hours later.`,
 			content: (
 				<>
 					<p>
@@ -107,10 +107,10 @@ function buildFaqData(credits: FaqCredits): FaqItem[] {
 						</li>
 					</ul>
 					<p className="mt-3">
-						When a window fills up, requests wait for it to roll over — the
-						window starts with your first request and resets 24 hours later.{" "}
-						<strong>Pay-as-you-go overflow</strong> lifts it, and upgrading
-						raises it.
+						When a window fills up, further requests are declined until it rolls
+						over — the window starts with your first request and resets 24 hours
+						later. <strong>Pay-as-you-go overflow</strong> lifts it, and
+						upgrading raises it.
 					</p>
 				</>
 			),
@@ -192,7 +192,7 @@ function buildFaqData(credits: FaqCredits): FaqItem[] {
 		{
 			question: "Can I pin a specific provider, like on pay-as-you-go?",
 			answer:
-				"No — DevPass always smart-routes. You request a model by its plain id (e.g. claude-sonnet-5) and the gateway picks the best provider in real time based on uptime, speed, price, and prompt caching — that routing is part of how DevPass stretches every dollar into $2 of usage. Provider-prefixed model ids like openai/gpt-4o aren't available on DevPass; your coding sessions still stick to one provider automatically to keep prompt caches warm. If you need to pin an exact provider or region, use LLM Gateway's pay-as-you-go API on llmgateway.io, which fully supports provider pinning.",
+				"No — DevPass always smart-routes. You request a model by its plain id (e.g. claude-sonnet-5) and the gateway picks the best provider in real time based on uptime, speed, price, and prompt caching — that routing is part of how DevPass stretches every dollar into $${usagePerDollar} of usage. Provider-prefixed model ids like openai/gpt-4o aren't available on DevPass; your coding sessions still stick to one provider automatically to keep prompt caches warm. If you need to pin an exact provider or region, use LLM Gateway's pay-as-you-go API on llmgateway.io, which fully supports provider pinning.",
 			content: (
 				<>
 					<p>
@@ -200,7 +200,7 @@ function buildFaqData(credits: FaqCredits): FaqItem[] {
 						id (e.g. <code className="font-mono text-sm">claude-sonnet-5</code>)
 						and the gateway picks the best provider in real time based on
 						uptime, speed, price, and prompt caching — that routing is part of
-						how DevPass stretches every dollar into $2 of usage.
+						how DevPass stretches every dollar into ${usagePerDollar} of usage.
 						Provider-prefixed model ids like{" "}
 						<code className="font-mono text-sm">openai/gpt-4o</code> aren&apos;t
 						available on DevPass, and your coding sessions still stick to one

@@ -66,7 +66,7 @@ The weekly ceiling is a fraction of your monthly allowance, and the fraction get
 
 This is the question worth asking before you subscribe, not after.
 
-- **Weekly premium cap reached** — standard models keep working with no interruption. For premium models you can wait for the window to roll, move up a tier, or redeem a [Reset Pass](https://devpass.llmgateway.io/pricing), which restores the weekly allowance immediately. Pro includes one pass a month and Max includes two; beyond those, extra passes are $9 on Lite, $29 on Pro, $79 on Max.
+- **Weekly premium cap reached** — standard models keep working with no interruption. For premium models you can wait for the window to roll, move up a tier, or redeem a [Reset Pass](https://devpass.llmgateway.io/pricing), which restores the weekly allowance immediately. Max includes two passes a month; beyond those, extra passes are $5 on Lite, $15 on Pro, $45 on Max.
 - **Monthly allowance spent** — the plan's ceiling by default. Requests stop there unless you opt into pay-as-you-go overflow, which lets work continue on your regular credits balance at pass-through token prices. Without the opt-in, the allowance is a hard stop even if the account holds credits.
 
 Note which of those is a real ceiling. A Reset Pass lifts the _weekly_ cap, but the unlocked spend still comes out of the monthly pool — the pool is always the cost ceiling, which is the point of a flat-rate plan.

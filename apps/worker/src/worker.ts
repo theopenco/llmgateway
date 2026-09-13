@@ -1489,13 +1489,19 @@ export async function batchProcessLogs(): Promise<number> {
 					}
 					// The daily pacing allowance limits the plan pool the same way:
 					// with overflow opted in, pool spend past today's allowance is
-					// held out of the drain and billed to the credits balance.
+					// held out of the drain and billed to the credits balance. It
+					// applies to whatever can reach the dev pool: the whole bucket
+					// when the dev pool is preferred, otherwise only what the
+					// preferred chat pool cannot cover.
 					let dailyOverflow = new Decimal(0);
-					if (
-						org?.devPlanPaygEnabled &&
-						devPool &&
-						(preferred === devPool || !chatPool)
-					) {
+					if (org?.devPlanPaygEnabled && devPool) {
+						const devPoolBound =
+							preferred === devPool || !chatPool
+								? remaining
+								: Decimal.max(
+										0,
+										remaining.minus(Decimal.max(0, chatPool.remaining)),
+									);
 						const dailyLeft = new Decimal(
 							getRemainingDailyAllowance(
 								org.devPlan as DevPlanTier,
@@ -1503,7 +1509,7 @@ export async function batchProcessLogs(): Promise<number> {
 								devPool.dayStart,
 							),
 						);
-						dailyOverflow = Decimal.max(0, remaining.minus(dailyLeft));
+						dailyOverflow = Decimal.max(0, devPoolBound.minus(dailyLeft));
 						remaining = remaining.minus(dailyOverflow);
 						remainingPremium = Decimal.min(remainingPremium, remaining);
 					}

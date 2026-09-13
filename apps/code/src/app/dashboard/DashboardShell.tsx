@@ -47,7 +47,7 @@ import {
 import { useStripe } from "@/lib/stripe";
 import { cn } from "@/lib/utils";
 
-import { plans } from "./plans";
+import { usePlans } from "./plans";
 import { useDevPlanStatus } from "./useDevPlanStatus";
 
 import type { PlanTier } from "./types";
@@ -175,6 +175,7 @@ export default function DashboardShell({
 	const config = useAppConfig();
 	const { posthogKey, googleAdsPurchaseConversion, googleAdsSignupConversion } =
 		config;
+	const plans = usePlans();
 	const api = useApi();
 	const queryClient = useQueryClient();
 
