@@ -7,6 +7,7 @@ import { db, eq, inArray, tables } from "@llmgateway/db";
 import {
 	refreshProjectHourlyStats,
 	refreshCurrentHourStats,
+	resetProjectStatsRefreshState,
 } from "./project-stats-aggregator.js";
 
 const statsTables = [
@@ -89,6 +90,7 @@ describe("batched project stats refresh", () => {
 	beforeEach(async () => {
 		vi.useFakeTimers({ toFake: ["Date"] });
 		vi.setSystemTime(new Date("2026-09-12T10:30:00Z"));
+		resetProjectStatsRefreshState();
 		await cleanup();
 		await db
 			.insert(tables.user)
@@ -339,7 +341,7 @@ describe("batched project stats refresh", () => {
 		await db
 			.insert(tables.log)
 			.values(logValues({ createdAt: new Date("2026-09-12T10:02:00Z") }));
-		vi.setSystemTime(new Date("2026-09-12T11:30:00Z"));
+		vi.setSystemTime(new Date("2026-09-12T12:30:00Z"));
 		await refreshProjectHourlyStats();
 		const refreshed = await readAllStats();
 		for (const rows of refreshed) {
@@ -352,5 +354,99 @@ describe("batched project stats refresh", () => {
 				rows.filter((row) => row.projectId === projectIds[1]),
 			),
 		).toEqual(neighbor);
+	});
+
+	test("adds new logs incrementally and recomputes on the full-refresh cadence", async () => {
+		await db.insert(tables.log).values(logValues());
+		await refreshProjectHourlyStats();
+		for (const rows of await readAllStats()) {
+			expect(rows).toHaveLength(1);
+			expect(rows[0]).toMatchObject({ requestCount: 1, cost: 0.25 });
+		}
+
+		// Settled since the last pass: picked up by an incremental pass.
+		await db.insert(tables.log).values([
+			logValues({ createdAt: new Date("2026-09-12T10:30:05Z") }),
+			logValues({
+				createdAt: new Date("2026-09-12T10:30:06Z"),
+				usedModel: "other-model",
+				source: "other-source",
+				providerKeyId: "other-credential",
+			}),
+			// Still inside the settle window: left for the next pass.
+			logValues({ createdAt: new Date("2026-09-12T10:30:25Z") }),
+		]);
+		vi.setSystemTime(new Date("2026-09-12T10:30:30Z"));
+		await refreshProjectHourlyStats();
+		const [project, model, source, key, keyModel, keySource, credential] =
+			await readAllStats();
+		for (const rows of [project, key]) {
+			expect(rows).toHaveLength(1);
+			expect(rows[0]).toMatchObject({
+				requestCount: 3,
+				cost: 0.75,
+				totalTokens: "90",
+			});
+		}
+		for (const rows of [model, source, keyModel, keySource, credential]) {
+			expect(rows).toHaveLength(2);
+			expect(rows.map((row) => row.requestCount).sort()).toEqual([1, 2]);
+		}
+
+		vi.setSystemTime(new Date("2026-09-12T10:31:00Z"));
+		await refreshProjectHourlyStats();
+		expect((await readAllStats())[0][0]).toMatchObject({ requestCount: 4 });
+
+		// Corrections to existing rows wait for the next full recompute.
+		await db
+			.update(tables.log)
+			.set({ cost: 0.5 })
+			.where(eq(tables.log.projectId, projectIds[0]));
+		vi.setSystemTime(new Date("2026-09-12T10:32:00Z"));
+		await refreshProjectHourlyStats();
+		expect((await readAllStats())[0][0]).toMatchObject({ cost: 1 });
+		vi.setSystemTime(new Date("2026-09-12T10:35:30Z"));
+		await refreshProjectHourlyStats();
+		for (const rows of await readAllStats()) {
+			expect(rows.reduce((sum, row) => sum + row.requestCount, 0)).toBe(4);
+			expect(rows.reduce((sum, row) => sum + row.cost, 0)).toBeCloseTo(2);
+		}
+	});
+
+	test("finalizes the previous hour once its logs have settled", async () => {
+		vi.setSystemTime(new Date("2026-09-12T10:59:30Z"));
+		await db.insert(tables.log).values(logValues());
+		await refreshProjectHourlyStats();
+		// Inserts take the database clock, which fake timers do not reach.
+		await db
+			.update(tables.projectHourlyStats)
+			.set({ updatedAt: new Date() })
+			.where(eq(tables.projectHourlyStats.projectId, projectIds[0]));
+
+		// The hour has just closed: the last logs may still be committing.
+		await db
+			.insert(tables.log)
+			.values(logValues({ createdAt: new Date("2026-09-12T10:59:58Z") }));
+		vi.setSystemTime(new Date("2026-09-12T11:00:05Z"));
+		await refreshProjectHourlyStats();
+		const [pending] = await readAllStats();
+		expect(pending[0]).toMatchObject({ requestCount: 1 });
+		expect(pending[0].updatedAt).toEqual(new Date("2026-09-12T10:59:30Z"));
+
+		vi.setSystemTime(new Date("2026-09-12T11:00:15Z"));
+		await refreshProjectHourlyStats();
+		const [finalized] = await readAllStats();
+		expect(finalized[0]).toMatchObject({
+			requestCount: 2,
+			hourTimestamp: hour,
+		});
+		expect(finalized[0].updatedAt).toEqual(new Date("2026-09-12T11:00:15Z"));
+
+		// Finalization runs once; later passes leave the closed hour alone.
+		vi.setSystemTime(new Date("2026-09-12T11:02:00Z"));
+		await refreshProjectHourlyStats();
+		expect((await readAllStats())[0][0].updatedAt).toEqual(
+			new Date("2026-09-12T11:00:15Z"),
+		);
 	});
 });

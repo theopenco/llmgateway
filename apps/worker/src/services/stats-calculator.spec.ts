@@ -29,6 +29,7 @@ import {
 	calculateHourlyHistory,
 	backfillHistoryIfNeeded,
 	backfillHourlyHistoryIfNeeded,
+	resetHourlyHistoryState,
 } from "./stats-calculator.js";
 
 // Mock current time for consistent testing
@@ -38,6 +39,7 @@ describe("stats-calculator", () => {
 	beforeEach(async () => {
 		// Mock Date to have consistent time-based tests
 		vi.setSystemTime(mockDate);
+		resetHourlyHistoryState();
 
 		// Clean up test data before each test
 		await db.delete(log);
@@ -1742,6 +1744,47 @@ describe("stats-calculator", () => {
 		// mockDate is 12:30Z → current hour 12:00, previous hour 11:00
 		const currentHour = new Date("2024-01-01T12:00:00.000Z");
 		const previousHour = new Date("2024-01-01T11:00:00.000Z");
+
+		it("stops rolling up the previous hour once it has settled", async () => {
+			const minuteRow = (minute: number, count: number) => {
+				const offsetMs = minute * 60_000;
+				return {
+					modelProviderMappingId: "mapping-1",
+					modelId: "gpt-4",
+					providerId: "openai",
+					usedMode: "credits" as const,
+					minuteTimestamp: new Date(previousHour.getTime() + offsetMs),
+					logsCount: count,
+				};
+			};
+			const previousHourCount = async () =>
+				(
+					await db
+						.select({ logsCount: modelProviderMappingHistoryHourly.logsCount })
+						.from(modelProviderMappingHistoryHourly)
+						.where(
+							eq(modelProviderMappingHistoryHourly.hourTimestamp, previousHour),
+						)
+				)[0]?.logsCount;
+
+			// Within the settle window the closed hour still picks up changes.
+			vi.setSystemTime(new Date("2024-01-01T12:02:00.000Z"));
+			await db.insert(modelProviderMappingHistory).values(minuteRow(5, 3));
+			await calculateHourlyHistory();
+			expect(await previousHourCount()).toBe(3);
+			await db.insert(modelProviderMappingHistory).values(minuteRow(59, 4));
+			await calculateHourlyHistory();
+			expect(await previousHourCount()).toBe(7);
+
+			// Past the window it is rolled up one final time, then left alone.
+			vi.setSystemTime(mockDate);
+			await db.insert(modelProviderMappingHistory).values(minuteRow(30, 5));
+			await calculateHourlyHistory();
+			expect(await previousHourCount()).toBe(12);
+			await db.insert(modelProviderMappingHistory).values(minuteRow(31, 6));
+			await calculateHourlyHistory();
+			expect(await previousHourCount()).toBe(12);
+		});
 
 		it("preserves mapping identities and billing modes across rollups", async () => {
 			await db.insert(modelProviderMapping).values({

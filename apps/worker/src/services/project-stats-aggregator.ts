@@ -34,24 +34,25 @@ export function formatUTCTimestamp(date: Date): string {
 	return date.toISOString().slice(0, 19).replace("T", " ");
 }
 
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
+function getCurrentHourStartDate(): Date {
+	const now = new Date();
+	return new Date(
+		Date.UTC(
+			now.getUTCFullYear(),
+			now.getUTCMonth(),
+			now.getUTCDate(),
+			now.getUTCHours(),
+		),
+	);
+}
+
 /**
  * Get the current hour start as a UTC timestamp string
  */
 function getCurrentHourStart(): string {
-	const now = new Date();
-	return formatUTCTimestamp(
-		new Date(
-			Date.UTC(
-				now.getUTCFullYear(),
-				now.getUTCMonth(),
-				now.getUTCDate(),
-				now.getUTCHours(),
-				0,
-				0,
-				0,
-			),
-		),
-	);
+	return formatUTCTimestamp(getCurrentHourStartDate());
 }
 
 /**
@@ -238,10 +239,35 @@ export function getCommonAggregationFields() {
 const STATS_READ_BATCH_SIZE = 100;
 const STATS_WRITE_BATCH_SIZE = 500;
 
+/**
+ * Slice of an hour's logs to aggregate. Bounds are half-open UTC timestamp
+ * strings; `accumulate` adds the slice onto the stored buckets instead of
+ * replacing them, which is only correct when no other pass covered the slice.
+ */
+interface LogWindow {
+	since?: string;
+	until?: string;
+	accumulate?: boolean;
+}
+
+function hourLogWindow(hourTimestamp: string, window: LogWindow) {
+	return and(
+		sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
+		sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+		window.since
+			? sql`${log.createdAt} >= ${window.since}::timestamp`
+			: undefined,
+		window.until
+			? sql`${log.createdAt} < ${window.until}::timestamp`
+			: undefined,
+	);
+}
+
 function statsUpdate(
 	columns: Record<string, AnyColumn>,
 	fields: Record<string, unknown>,
 	skipUnchanged = true,
+	accumulate = false,
 ) {
 	const set: Record<string, SQL> = {};
 	const existing: AnyColumn[] = [];
@@ -251,15 +277,16 @@ function statsUpdate(
 			.replace(/([a-z0-9])([A-Z])/g, "$1_$2")
 			.toLowerCase();
 		const excluded = sql`excluded.${sql.identifier(name)}`;
-		set[key] = excluded;
+		set[key] = accumulate ? sql`${columns[key]} + ${excluded}` : excluded;
 		existing.push(columns[key]);
 		incoming.push(excluded);
 	}
 	return {
 		set: { ...set, updatedAt: new Date() },
-		setWhere: skipUnchanged
-			? sql`row(${sql.join(existing, sql`, `)}) is distinct from row(${sql.join(incoming, sql`, `)})`
-			: undefined,
+		setWhere:
+			skipUnchanged && !accumulate
+				? sql`row(${sql.join(existing, sql`, `)}) is distinct from row(${sql.join(incoming, sql`, `)})`
+				: undefined,
 	};
 }
 
@@ -270,6 +297,7 @@ function statsUpdate(
 async function recalculateProjectHourlyStats(
 	projectIds: string[],
 	hourTimestamp: string,
+	window: LogWindow = {},
 ) {
 	const database = db;
 
@@ -279,8 +307,7 @@ async function recalculateProjectHourlyStats(
 		.where(
 			and(
 				inArray(log.projectId, projectIds),
-				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
-				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+				hourLogWindow(hourTimestamp, window),
 			),
 		)
 		.groupBy(log.projectId);
@@ -304,6 +331,7 @@ async function recalculateProjectHourlyStats(
 					getTableColumns(projectHourlyStats),
 					getCommonAggregationFields(),
 					false,
+					window.accumulate,
 				),
 			});
 	}
@@ -315,6 +343,7 @@ async function recalculateProjectHourlyStats(
 async function recalculateProjectHourlyModelStats(
 	projectIds: string[],
 	hourTimestamp: string,
+	window: LogWindow = {},
 ) {
 	const database = db;
 
@@ -330,8 +359,7 @@ async function recalculateProjectHourlyModelStats(
 		.where(
 			and(
 				inArray(log.projectId, projectIds),
-				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
-				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+				hourLogWindow(hourTimestamp, window),
 			),
 		)
 		.groupBy(log.projectId, log.usedModel, log.usedProvider);
@@ -352,10 +380,15 @@ async function recalculateProjectHourlyModelStats(
 					projectHourlyModelStats.usedModel,
 					projectHourlyModelStats.usedProvider,
 				],
-				...statsUpdate(getTableColumns(projectHourlyModelStats), {
-					...getCommonAggregationFields(),
-					providerMarginAmount: providerMarginAmountField(),
-				}),
+				...statsUpdate(
+					getTableColumns(projectHourlyModelStats),
+					{
+						...getCommonAggregationFields(),
+						providerMarginAmount: providerMarginAmountField(),
+					},
+					true,
+					window.accumulate,
+				),
 			});
 	}
 }
@@ -367,6 +400,7 @@ async function recalculateProjectHourlyModelStats(
 async function recalculateProjectHourlySourceStats(
 	projectIds: string[],
 	hourTimestamp: string,
+	window: LogWindow = {},
 ) {
 	const database = db;
 
@@ -380,8 +414,7 @@ async function recalculateProjectHourlySourceStats(
 		.where(
 			and(
 				inArray(log.projectId, projectIds),
-				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
-				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+				hourLogWindow(hourTimestamp, window),
 			),
 		)
 		.groupBy(log.projectId, sql`coalesce(${log.source}, 'unknown')`);
@@ -404,6 +437,8 @@ async function recalculateProjectHourlySourceStats(
 				...statsUpdate(
 					getTableColumns(projectHourlySourceStats),
 					getCommonAggregationFields(),
+					true,
+					window.accumulate,
 				),
 			});
 	}
@@ -415,6 +450,7 @@ async function recalculateProjectHourlySourceStats(
 async function recalculateApiKeyHourlyStats(
 	projectIds: string[],
 	hourTimestamp: string,
+	window: LogWindow = {},
 ) {
 	const database = db;
 
@@ -429,8 +465,7 @@ async function recalculateApiKeyHourlyStats(
 		.where(
 			and(
 				inArray(log.projectId, projectIds),
-				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
-				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+				hourLogWindow(hourTimestamp, window),
 				inArray(apiKey.keyType, ["user", "end_user_customer"]),
 			),
 		)
@@ -450,6 +485,8 @@ async function recalculateApiKeyHourlyStats(
 				...statsUpdate(
 					getTableColumns(apiKeyHourlyStats),
 					getCommonAggregationFields(),
+					true,
+					window.accumulate,
 				),
 			});
 	}
@@ -461,6 +498,7 @@ async function recalculateApiKeyHourlyStats(
 async function recalculateApiKeyHourlyModelStats(
 	projectIds: string[],
 	hourTimestamp: string,
+	window: LogWindow = {},
 ) {
 	const database = db;
 
@@ -477,8 +515,7 @@ async function recalculateApiKeyHourlyModelStats(
 		.where(
 			and(
 				inArray(log.projectId, projectIds),
-				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
-				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+				hourLogWindow(hourTimestamp, window),
 				inArray(apiKey.keyType, ["user", "end_user_customer"]),
 			),
 		)
@@ -503,6 +540,8 @@ async function recalculateApiKeyHourlyModelStats(
 				...statsUpdate(
 					getTableColumns(apiKeyHourlyModelStats),
 					getCommonAggregationFields(),
+					true,
+					window.accumulate,
 				),
 			});
 	}
@@ -521,6 +560,7 @@ export async function recalculateApiKeyHourlySourceStats(
 async function recalculateApiKeyHourlySourceStatsForProjects(
 	projectIds: string[],
 	hourTimestamp: string,
+	window: LogWindow = {},
 ) {
 	const database = db;
 
@@ -536,8 +576,7 @@ async function recalculateApiKeyHourlySourceStatsForProjects(
 		.where(
 			and(
 				inArray(log.projectId, projectIds),
-				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
-				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+				hourLogWindow(hourTimestamp, window),
 				inArray(apiKey.keyType, ["user", "end_user_customer"]),
 			),
 		)
@@ -565,6 +604,8 @@ async function recalculateApiKeyHourlySourceStatsForProjects(
 				...statsUpdate(
 					getTableColumns(apiKeyHourlySourceStats),
 					getCommonAggregationFields(),
+					true,
+					window.accumulate,
 				),
 			});
 	}
@@ -616,6 +657,7 @@ function getProviderKeySpendAggregationFields() {
 async function recalculateProviderKeyHourlyStats(
 	projectIds: string[],
 	hourTimestamp: string,
+	window: LogWindow = {},
 ) {
 	const database = db;
 
@@ -632,8 +674,7 @@ async function recalculateProviderKeyHourlyStats(
 		.where(
 			and(
 				inArray(log.projectId, projectIds),
-				sql`${log.createdAt} >= ${hourTimestamp}::timestamp`,
-				sql`${log.createdAt} < ${hourTimestamp}::timestamp + interval '1 hour'`,
+				hourLogWindow(hourTimestamp, window),
 				isNotNull(log.providerKeyId),
 			),
 		)
@@ -657,6 +698,8 @@ async function recalculateProviderKeyHourlyStats(
 				...statsUpdate(
 					getTableColumns(providerKeyHourlyStats),
 					getProviderKeySpendAggregationFields(),
+					true,
+					window.accumulate,
 				),
 			});
 	}
@@ -669,17 +712,49 @@ async function recalculateProviderKeyHourlyStats(
  * backfill) go through this so a newly added stats table cannot be wired into
  * one path and silently forgotten in the others.
  */
-async function recalculateBucket(projectIds: string[], hourTimestamp: string) {
-	await recalculateProjectHourlyStats(projectIds, hourTimestamp);
-	await recalculateProjectHourlyModelStats(projectIds, hourTimestamp);
-	await recalculateProjectHourlySourceStats(projectIds, hourTimestamp);
-	await recalculateApiKeyHourlyStats(projectIds, hourTimestamp);
-	await recalculateApiKeyHourlyModelStats(projectIds, hourTimestamp);
+async function recalculateBucket(
+	projectIds: string[],
+	hourTimestamp: string,
+	window: LogWindow = {},
+) {
+	await recalculateProjectHourlyStats(projectIds, hourTimestamp, window);
+	await recalculateProjectHourlyModelStats(projectIds, hourTimestamp, window);
+	await recalculateProjectHourlySourceStats(projectIds, hourTimestamp, window);
+	await recalculateApiKeyHourlyStats(projectIds, hourTimestamp, window);
+	await recalculateApiKeyHourlyModelStats(projectIds, hourTimestamp, window);
 	await recalculateApiKeyHourlySourceStatsForProjects(
 		projectIds,
 		hourTimestamp,
+		window,
 	);
-	await recalculateProviderKeyHourlyStats(projectIds, hourTimestamp);
+	await recalculateProviderKeyHourlyStats(projectIds, hourTimestamp, window);
+}
+
+/**
+ * Recalculate one hour for every project with logs in the window.
+ */
+async function refreshHourStats(hourTimestamp: string, window: LogWindow) {
+	const projects = await db
+		.select({ projectId: log.projectId })
+		.from(log)
+		.where(hourLogWindow(hourTimestamp, window))
+		.groupBy(log.projectId);
+
+	for (
+		let offset = 0;
+		offset < projects.length;
+		offset += STATS_READ_BATCH_SIZE
+	) {
+		await recalculateBucket(
+			projects
+				.slice(offset, offset + STATS_READ_BATCH_SIZE)
+				.map(({ projectId }) => projectId),
+			hourTimestamp,
+			window,
+		);
+	}
+
+	return projects.length;
 }
 
 // Batch size per run (shared by both phases)
@@ -740,6 +815,8 @@ export async function aggregateHistoricalStats() {
 						staleStart
 							? sql`${projectHourlyStats.hourTimestamp} >= ${staleStart}::timestamp`
 							: undefined,
+						// The live refresh owns the current hour.
+						sql`${projectHourlyStats.hourTimestamp} < ${currentHourStart}::timestamp`,
 						// A bucket can only be stale if it was last aggregated before its
 						// hour ended: a log in [hour, hour+1h) can only be newer than
 						// updatedAt when updatedAt < hour+1h. This is implied by the EXISTS
@@ -879,39 +956,22 @@ export async function aggregateHistoricalStats() {
 }
 
 /**
- * Refresh the current hour's stats (for real-time dashboard data)
+ * Fully recompute the current hour's stats. `until` bounds the logs included so
+ * a later incremental pass can continue from exactly that point.
  */
-export async function refreshCurrentHourStats() {
+export async function refreshCurrentHourStats(until?: Date) {
 	const currentHourStart = getCurrentHourStart();
 
 	logger.info(`Refreshing current hour stats for ${currentHourStart}`);
 
 	try {
-		const projects = await db
-			.select({ projectId: log.projectId })
-			.from(log)
-			.where(
-				and(
-					sql`${log.createdAt} >= ${currentHourStart}::timestamp`,
-					sql`${log.createdAt} < ${currentHourStart}::timestamp + interval '1 hour'`,
-				),
-			)
-			.groupBy(log.projectId);
+		const projects = await refreshHourStats(currentHourStart, {
+			until: until ? formatUTCTimestamp(until) : undefined,
+		});
 
-		for (
-			let offset = 0;
-			offset < projects.length;
-			offset += STATS_READ_BATCH_SIZE
-		) {
-			await recalculateBucket(
-				projects
-					.slice(offset, offset + STATS_READ_BATCH_SIZE)
-					.map(({ projectId }) => projectId),
-				currentHourStart,
-			);
-		}
-
-		logger.info(`Refreshed current hour stats (${currentHourStart})`);
+		logger.info(
+			`Refreshed current hour stats (${currentHourStart}, ${projects} projects)`,
+		);
 	} catch (error) {
 		logger.error(
 			"Error refreshing current hour stats",
@@ -921,11 +981,88 @@ export async function refreshCurrentHourStats() {
 	}
 }
 
+// Live refresh cadence. The current hour is fully recomputed at most once per
+// LIVE_FULL_REFRESH_MS; passes in between aggregate only the logs created since
+// the previous pass and add them onto the stored buckets. `log.created_at` is
+// the insert transaction's start time, so once a log is LIVE_SETTLE_MS old it is
+// committed and consecutive passes see disjoint, gap-free slices.
+const LIVE_SETTLE_MS = 10_000;
+const LIVE_FULL_REFRESH_MS = 5 * 60 * 1000;
+// Closed hours are re-checked for late logs at most this often.
+const STALE_CHECK_INTERVAL_MS = 60 * 1000;
+
+let liveRefresh: { watermark: string; fullRefreshedAt: number } | undefined;
+let finalizedHour: string | undefined;
+let lastStaleCheckAt = 0;
+
+/** Forget the in-memory refresh watermarks (tests). */
+export function resetProjectStatsRefreshState() {
+	liveRefresh = undefined;
+	finalizedHour = undefined;
+	lastStaleCheckAt = 0;
+}
+
+async function refreshLiveStats() {
+	const now = Date.now();
+	const until = formatUTCTimestamp(new Date(now - LIVE_SETTLE_MS));
+
+	if (
+		!liveRefresh ||
+		now - liveRefresh.fullRefreshedAt >= LIVE_FULL_REFRESH_MS
+	) {
+		await refreshCurrentHourStats(new Date(now - LIVE_SETTLE_MS));
+		liveRefresh = { watermark: until, fullRefreshedAt: now };
+		return;
+	}
+
+	if (until <= liveRefresh.watermark) {
+		return;
+	}
+
+	const since = liveRefresh.watermark;
+	const projects = await refreshHourStats(getCurrentHourStart(), {
+		since,
+		until,
+		accumulate: true,
+	});
+	liveRefresh.watermark = until;
+
+	logger.info(
+		`Added live stats for ${projects} projects (${since} to ${until})`,
+	);
+}
+
+/**
+ * Recompute the hour that just closed once its logs have settled. This counts
+ * anything that landed after the last live pass and moves the buckets'
+ * updatedAt past the hour end, so they stop being stale-detection candidates.
+ */
+async function finalizePreviousHour() {
+	const currentHourStart = getCurrentHourStartDate();
+	const previousHourStart = formatUTCTimestamp(
+		new Date(currentHourStart.getTime() - ONE_HOUR_MS),
+	);
+
+	if (
+		finalizedHour === previousHourStart ||
+		Date.now() - LIVE_SETTLE_MS < currentHourStart.getTime()
+	) {
+		return;
+	}
+
+	const projects = await refreshHourStats(previousHourStart, {});
+	finalizedHour = previousHourStart;
+
+	logger.info(
+		`Finalized previous hour stats (${previousHourStart}, ${projects} projects)`,
+	);
+}
+
 /**
  * Main refresh function called by the worker interval.
- * Order: current hour (live) → stale detection → backfill (slow).
- * This ensures live dashboard data is always fresh, even when backfill
- * is working through a large volume of historical buckets.
+ * Order: current hour (live) → previous hour finalization → stale detection →
+ * backfill (slow). This ensures live dashboard data is always fresh, even when
+ * backfill is working through a large volume of historical buckets.
  */
 export async function refreshProjectHourlyStats() {
 	const start = Date.now();
@@ -934,15 +1071,21 @@ export async function refreshProjectHourlyStats() {
 	try {
 		// 1. Refresh current hour first — keeps the live dashboard up-to-date
 		const liveStart = Date.now();
-		await refreshCurrentHourStats();
+		await refreshLiveStats();
 		logger.info(`Current hour stats refresh took ${Date.now() - liveStart}ms`);
 
-		// 2. Stale detection + backfill (stale runs first inside aggregateHistoricalStats)
-		const recentStart = Date.now();
-		await aggregateHistoricalStats();
-		logger.info(
-			`Stale detection + backfill took ${Date.now() - recentStart}ms`,
-		);
+		// 2. Settle the hour that just closed
+		await finalizePreviousHour();
+
+		// 3. Stale detection + backfill (stale runs first inside aggregateHistoricalStats)
+		if (Date.now() - lastStaleCheckAt >= STALE_CHECK_INTERVAL_MS) {
+			lastStaleCheckAt = Date.now();
+			const recentStart = Date.now();
+			await aggregateHistoricalStats();
+			logger.info(
+				`Stale detection + backfill took ${Date.now() - recentStart}ms`,
+			);
+		}
 
 		logger.info(
 			`Project hourly stats refresh complete in ${Date.now() - start}ms`,
