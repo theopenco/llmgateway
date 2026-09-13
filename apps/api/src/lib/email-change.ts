@@ -13,10 +13,10 @@ import {
 	redisClient,
 } from "@/auth/config.js";
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
-import { getClientIpFromHeaders } from "@/lib/client-ip.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
 import { and, db, eq, gt, like, ne, sql, tables } from "@llmgateway/db";
+import { getClientIpFromHeaders } from "@llmgateway/shared/client-ip";
 
 const EMAIL_CHANGE_TTL_MS = 60 * 60 * 1000;
 

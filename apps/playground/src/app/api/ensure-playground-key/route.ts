@@ -9,6 +9,8 @@ import {
 } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
+
 import type { NextRequest } from "next/server";
 
 export async function POST(req: NextRequest) {
@@ -42,7 +44,13 @@ export async function POST(req: NextRequest) {
 
 	const res = await fetch(`${config.apiBackendUrl}/playground/ensure-key`, {
 		method: "POST",
-		headers: { "Content-Type": "application/json", Cookie: cookieHeader },
+		headers: {
+			// Forward the visitor's address so the API's per-IP limits bucket
+			// them individually rather than behind this server's own address.
+			...forwardedIpHeaders(req.headers),
+			"Content-Type": "application/json",
+			Cookie: cookieHeader,
+		},
 		body: JSON.stringify({ projectId }),
 	});
 

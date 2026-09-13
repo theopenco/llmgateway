@@ -1,5 +1,5 @@
 import { generateText, Output } from "ai";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { z } from "zod";
 
 import { getConfig } from "@/lib/config-server";
@@ -7,6 +7,7 @@ import { getAdminUser } from "@/lib/getUser";
 import { getSessionCookieHeader } from "@/lib/session-cookie";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 
 const COOKIE_NAME = "llmgateway_admin_key";
@@ -41,10 +42,13 @@ async function getApiKey(): Promise<{
 
 	const config = getConfig();
 	const cookieHeader = await getSessionCookieHeader();
+	// Forward the visitor's address so the API's per-IP limits bucket
+	// them individually rather than behind this server's own address.
+	const ipHeaders = forwardedIpHeaders(await headers());
 
 	// Get user's first org
 	const orgsRes = await fetch(`${config.apiBackendUrl}/orgs`, {
-		headers: { Cookie: cookieHeader },
+		headers: { ...ipHeaders, Cookie: cookieHeader },
 	});
 	if (!orgsRes.ok) {
 		return null;
@@ -60,7 +64,7 @@ async function getApiKey(): Promise<{
 	// Get first project
 	const projectsRes = await fetch(
 		`${config.apiBackendUrl}/orgs/${org.id}/projects`,
-		{ headers: { Cookie: cookieHeader } },
+		{ headers: { ...ipHeaders, Cookie: cookieHeader } },
 	);
 	if (!projectsRes.ok) {
 		return null;
@@ -78,7 +82,11 @@ async function getApiKey(): Promise<{
 		`${config.apiBackendUrl}/playground/ensure-key`,
 		{
 			method: "POST",
-			headers: { "Content-Type": "application/json", Cookie: cookieHeader },
+			headers: {
+				...ipHeaders,
+				"Content-Type": "application/json",
+				Cookie: cookieHeader,
+			},
 			body: JSON.stringify({ projectId: project.id }),
 		},
 	);

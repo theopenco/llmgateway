@@ -8,9 +8,9 @@ import {
 import { createMiddleware } from "hono/factory";
 
 import { logger } from "@llmgateway/logger";
+import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 
 import type { Attributes } from "@opentelemetry/api";
-import type { Context } from "hono";
 
 export interface TracingMiddlewareOptions {
 	serviceName: string;
@@ -47,7 +47,7 @@ export function createTracingMiddleware(options: TracingMiddlewareOptions) {
 			"http.url": c.req.url,
 			"http.route": path,
 			"http.user_agent": c.req.header("user-agent") ?? "",
-			"http.remote_addr": getClientIp(c),
+			"http.remote_addr": getClientIpFromContext(c) ?? "",
 		};
 
 		// Add force-trace header as attribute for the sampler
@@ -128,14 +128,4 @@ export function createTracingMiddleware(options: TracingMiddlewareOptions) {
 			},
 		);
 	});
-}
-
-function getClientIp(c: Context): string {
-	// Enhanced client IP detection logic (from API version)
-	return (
-		c.req.header("cf-connecting-ip") ??
-		c.req.header("x-forwarded-for")?.split(",")[0] ??
-		c.req.header("remote-addr") ??
-		""
-	);
 }

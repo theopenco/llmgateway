@@ -129,6 +129,7 @@ export {
 	requestsInFlight,
 	gatewayInflightRequests,
 	gatewayRequestsShedTotal,
+	clientIpMissingTotal,
 	recordChatCompletionMetrics,
 	recordRequestStarted,
 	recordRequestCompleted,

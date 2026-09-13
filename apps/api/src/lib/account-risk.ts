@@ -1,6 +1,5 @@
 import { HTTPException } from "hono/http-exception";
 
-import { getClientIpFromHeaders } from "@/lib/client-ip.js";
 import {
 	checkIpAbuse,
 	describeAbuseReport,
@@ -10,6 +9,7 @@ import { notifyHighRiskAccount } from "@/utils/discord.js";
 
 import { and, cdb, db, eq, inArray, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { getClientIpFromHeaders } from "@llmgateway/shared/client-ip";
 
 export const HIGH_RISK_ACCOUNT_MESSAGE =
 	"This account is under review and cannot purchase credits. Please use the Contact Us link or email contact@llmgateway.io so we can unlock your account.";

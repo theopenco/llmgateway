@@ -1,5 +1,7 @@
 import { getConfig } from "@/lib/config-server";
 
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
+
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
@@ -16,14 +18,7 @@ export async function POST(req: Request) {
 		headers["user-agent"] = userAgent;
 	}
 
-	// Only forward `cf-connecting-ip`: Cloudflare overwrites any client-supplied
-	// value, so it's the one IP header we can trust. Never pass through
-	// `x-forwarded-for` or `x-real-ip` — clients can set those via fetch and
-	// poison the backend's IP-based rate limiter.
-	const cfConnectingIp = req.headers.get("cf-connecting-ip");
-	if (cfConnectingIp) {
-		headers["cf-connecting-ip"] = cfConnectingIp;
-	}
+	Object.assign(headers, forwardedIpHeaders(req.headers));
 
 	const upstream = await fetch(target, {
 		method: "POST",

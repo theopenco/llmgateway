@@ -212,7 +212,7 @@ describe("API auth hooks functionality", () => {
 				headers: {
 					"Content-Type": "application/json",
 					Origin: codeUrl,
-					"CF-Connecting-IP": `192.168.30.${randomInt(0, 255)}`,
+					"X-Forwarded-For": `192.168.30.${randomInt(0, 255)}`,
 				},
 				body: JSON.stringify({ email, password, name: "Dev User" }),
 			}),
@@ -270,7 +270,7 @@ describe("API auth hooks functionality", () => {
 				headers: {
 					"Content-Type": "application/json",
 					Origin: codeUrl,
-					"CF-Connecting-IP": `192.168.31.${randomInt(0, 255)}`,
+					"X-Forwarded-For": `192.168.31.${randomInt(0, 255)}`,
 				},
 				body: JSON.stringify({ email, password, name: "Dev User" }),
 			}),
@@ -351,7 +351,7 @@ describe("API auth hooks functionality", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": `192.168.10.${randomInt(0, 255)}`,
+					"X-Forwarded-For": `192.168.10.${randomInt(0, 255)}`,
 				},
 				body: JSON.stringify({ email, password, name: "Test User" }),
 			}),
@@ -385,7 +385,7 @@ describe("API auth hooks functionality", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": `192.168.20.${randomInt(0, 255)}`,
+					"X-Forwarded-For": `192.168.20.${randomInt(0, 255)}`,
 				},
 				body: JSON.stringify({ email, password }),
 			}),
@@ -410,7 +410,7 @@ describe("API auth hooks functionality", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": `192.168.21.${randomInt(0, 255)}`,
+					"X-Forwarded-For": `192.168.21.${randomInt(0, 255)}`,
 				},
 				body: JSON.stringify({ email, password, name: "Alice Wonder" }),
 			}),
@@ -463,7 +463,7 @@ describe("Auth rate limiting", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": ipAddress,
+					"X-Forwarded-For": ipAddress,
 				},
 				body: JSON.stringify({ email, password, name: "Test User" }),
 			}),
@@ -483,7 +483,7 @@ describe("Auth rate limiting", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": ipAddress,
+					"X-Forwarded-For": ipAddress,
 				},
 				body: JSON.stringify({ email: email1, password, name: "Test User" }),
 			}),
@@ -497,7 +497,7 @@ describe("Auth rate limiting", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": ipAddress,
+					"X-Forwarded-For": ipAddress,
 				},
 				body: JSON.stringify({ email: email2, password, name: "Test User" }),
 			}),
@@ -519,7 +519,7 @@ describe("Auth rate limiting", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": ipAddress,
+					"X-Forwarded-For": ipAddress,
 				},
 				body: JSON.stringify({ email: email3, password, name: "Test User" }),
 			}),
@@ -544,7 +544,7 @@ describe("Auth rate limiting", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": ipAddress1,
+					"X-Forwarded-For": ipAddress1,
 				},
 				body: JSON.stringify({ email: email1, password, name: "Test User" }),
 			}),
@@ -558,7 +558,7 @@ describe("Auth rate limiting", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": ipAddress1,
+					"X-Forwarded-For": ipAddress1,
 				},
 				body: JSON.stringify({ email: email2, password, name: "Test User" }),
 			}),
@@ -572,7 +572,7 @@ describe("Auth rate limiting", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": ipAddress2,
+					"X-Forwarded-For": ipAddress2,
 				},
 				body: JSON.stringify({ email: emailIp2, password, name: "Test User" }),
 			}),
@@ -580,19 +580,17 @@ describe("Auth rate limiting", () => {
 		expect(ip2Response.status).toBe(200); // Should succeed (first attempt from this IP)
 	});
 
-	test("should prioritize X-Forwarded-For over CF-Connecting-IP header", async () => {
+	test("should key the limit only on the configured header", async () => {
 		const password = "Password123!";
-		const cfIp = `192.168.1.${randomInt(0, 255)}`;
 		const forwardedFor = `192.168.40.${randomInt(0, 255)}, 172.16.0.1`;
 
-		// X-Forwarded-For is what the GCP load balancer sets, so it wins
 		const email = `test-${Date.now()}@example.com`;
 		const response = await apiAuth.handler(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": cfIp,
+					"CF-Connecting-IP": `192.168.1.${randomInt(0, 255)}`,
 					"X-Forwarded-For": forwardedFor,
 				},
 				body: JSON.stringify({ email, password, name: "Test User" }),
@@ -601,7 +599,8 @@ describe("Auth rate limiting", () => {
 
 		expect(response.status).toBe(200);
 
-		// Rate limited on the X-Forwarded-For IP even with a different CF IP
+		// Same configured header, different everything else: still the same
+		// bucket, so a caller cannot escape the limit by varying other headers.
 		const email2 = `test2-${Date.now()}@example.com`;
 		const response2 = await apiAuth.handler(
 			new Request("http://localhost:4002/auth/sign-up/email", {
@@ -609,6 +608,7 @@ describe("Auth rate limiting", () => {
 				headers: {
 					"Content-Type": "application/json",
 					"CF-Connecting-IP": `192.168.2.${randomInt(0, 255)}`,
+					"X-Real-IP": `192.168.3.${randomInt(0, 255)}`,
 					"X-Forwarded-For": forwardedFor,
 				},
 				body: JSON.stringify({ email: email2, password, name: "Test User" }),
@@ -618,31 +618,11 @@ describe("Auth rate limiting", () => {
 		expect(response2.status).toBe(429);
 	});
 
-	test("should handle alternative IP headers", async () => {
-		const email = `test-${Date.now()}@example.com`;
-		const password = "Password123!";
-		const ipAddress = "192.168.1.105";
-
-		// Test with X-Real-IP header when CF-Connecting-IP is not present
-		const response = await apiAuth.handler(
-			new Request("http://localhost:4002/auth/sign-up/email", {
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Real-IP": ipAddress,
-				},
-				body: JSON.stringify({ email, password, name: "Test User" }),
-			}),
-		);
-
-		expect(response.status).toBe(200);
-	});
-
-	test("should fallback to X-Forwarded-For when CF-Connecting-IP not present", async () => {
+	test("should rate limit on the configured header", async () => {
 		const password = "Password123!";
 		const forwardedFor = "192.168.1.107, 10.0.0.1, 172.16.0.1";
 
-		// Test fallback to X-Forwarded-For (should use first IP: 192.168.1.107)
+		// The chain's first hop is the client: 192.168.1.107
 		const email = `test-${Date.now()}@example.com`;
 		const response = await apiAuth.handler(
 			new Request("http://localhost:4002/auth/sign-up/email", {
@@ -683,7 +663,7 @@ describe("Auth rate limiting", () => {
 					method: "POST",
 					headers: {
 						"Content-Type": "application/json",
-						"CF-Connecting-IP": ipAddress,
+						"X-Forwarded-For": ipAddress,
 					},
 					body: JSON.stringify({
 						email: `test-${Date.now()}-${i}@example.com`,
@@ -758,7 +738,7 @@ describe("Signup country blocking", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": blockedIp,
+					"X-Forwarded-For": blockedIp,
 					"X-Client-Region": "AQ",
 				},
 				body: JSON.stringify({
@@ -780,7 +760,7 @@ describe("Signup country blocking", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": blockedIp,
+					"X-Forwarded-For": blockedIp,
 				},
 				body: JSON.stringify({
 					email: `nonexistent-${Date.now()}@example.com`,
@@ -799,7 +779,7 @@ describe("Signup country blocking", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": allowedIp,
+					"X-Forwarded-For": allowedIp,
 					"X-Client-Region": "DE",
 				},
 				body: JSON.stringify({
@@ -819,7 +799,7 @@ describe("Signup country blocking", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": `10.1.2.${randomInt(1, 254)}`,
+					"X-Forwarded-For": `10.1.2.${randomInt(1, 254)}`,
 				},
 				body: JSON.stringify({
 					email: `local-${Date.now()}@example.com`,

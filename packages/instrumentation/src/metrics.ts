@@ -87,6 +87,17 @@ export const gatewayRequestsShedTotal = new Counter({
 	registers: [metricsRegistry],
 });
 
+// Requests whose client IP could not be read from CLIENT_IP_HEADER. Only
+// in-cluster probes should ever land here, so a rise means a route stopped
+// stamping the header or its name no longer matches the load balancer — the
+// failure that silently collapses every per-IP limit into one bucket.
+export const clientIpMissingTotal = new Counter({
+	name: "client_ip_missing_total",
+	help: "Total number of requests with no resolvable client IP",
+	labelNames: ["service"] as const,
+	registers: [metricsRegistry],
+});
+
 export interface ChatCompletionMetrics {
 	model: string;
 	provider: string;

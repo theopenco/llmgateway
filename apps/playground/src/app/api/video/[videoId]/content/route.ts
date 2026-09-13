@@ -8,6 +8,8 @@ import {
 import { getConfig } from "@/lib/config-server";
 import { getUser } from "@/lib/getUser";
 
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
+
 export const dynamic = "force-dynamic";
 
 const SESSION_COOKIE_KEY = "better-auth.session_token";
@@ -44,6 +46,9 @@ export async function GET(
 			`${apiBackendUrl}/video/${encodeURIComponent(videoId)}`,
 			{
 				headers: {
+					// Forward the visitor's address so the API's per-IP limits bucket
+					// them individually rather than behind this server's own address.
+					...forwardedIpHeaders(req.headers),
 					Cookie: cookieHeader,
 				},
 				cache: "no-store",

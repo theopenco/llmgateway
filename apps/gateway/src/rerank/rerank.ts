@@ -34,7 +34,6 @@ import {
 	findProviderKey,
 } from "@/lib/cached-queries.js";
 import { raceClientAbort } from "@/lib/client-abort.js";
-import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	assertProviderCompliant,
 	getEffectiveRetentionLevel,
@@ -72,6 +71,7 @@ import {
 } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 import { models as modelDefinitions, type Provider } from "@llmgateway/models";
+import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
 import type { openAIErrorSchema } from "@/lib/error-schemas.js";

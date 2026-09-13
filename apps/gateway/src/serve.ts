@@ -8,6 +8,7 @@ import {
 	shutdownInstrumentation,
 } from "@llmgateway/instrumentation";
 import { logger, toError } from "@llmgateway/logger";
+import { assertClientIpHeaderConfigured } from "@llmgateway/shared/client-ip";
 import { getEnterpriseLicenseStatus } from "@llmgateway/shared/enterprise-license";
 
 import { app } from "./app.js";
@@ -52,6 +53,10 @@ let realtime: RealtimeServer | null = null;
 let stopEnvInventoryPublisher: (() => void) | null = null;
 
 async function startServer() {
+	// IAM IP allow-lists fail closed without a client IP, so refuse to serve
+	// at all rather than deny customer keys once traffic arrives.
+	assertClientIpHeaderConfigured();
+
 	// Tag every DB query with the originating service for Cloud SQL Query Insights
 	setQueryTags({ application: "gateway" });
 
