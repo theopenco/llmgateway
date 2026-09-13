@@ -32,6 +32,7 @@ import { platformSessions } from "./routes/platform-sessions.js";
 import { platformWallet } from "./routes/platform-wallet.js";
 import { platformWebhooks } from "./routes/platform-webhooks.js";
 import { publicApps } from "./routes/public-apps.js";
+import { publicBanner } from "./routes/public-banner.js";
 import { publicChatShares } from "./routes/public-chat-shares.js";
 import { publicChatSupport } from "./routes/public-chat-support.js";
 import { publicConfig } from "./routes/public-config.js";
@@ -316,6 +317,7 @@ app.route("/", referral);
 
 app.route("/internal", internalModels);
 
+app.route("/public/banner", publicBanner);
 app.route("/public/discounts", publicDiscounts);
 app.route("/public/contact", publicContact);
 app.route("/public/newsletter", publicNewsletter);
