@@ -66,6 +66,7 @@ import {
 	processClosedHours,
 } from "./services/global-stats-aggregator.js";
 import { processNextModelVerification } from "./services/model-verifications.js";
+import { processNotifications } from "./services/notifications.js";
 import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
 	refreshProjectHourlyStats,
@@ -3111,6 +3112,38 @@ async function runMarginPayoutLoop() {
 	}
 }
 
+async function runNotificationsLoop() {
+	activeLoops++;
+	const interval = 60 * 1000;
+	logger.info(
+		`Starting notifications loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (await acquireLock("notifications")) {
+					try {
+						await processNotifications();
+					} finally {
+						await releaseLock("notifications");
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in notifications loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Notifications loop stopped");
+	}
+}
+
 export async function startWorker() {
 	if (isWorkerRunning) {
 		logger.error("Worker is already running");
@@ -3226,6 +3259,7 @@ export async function startWorker() {
 	void runStaleTopUpPiCancelLoop();
 	void runWebhookDeliveryLoop();
 	void runMarginPayoutLoop();
+	void runNotificationsLoop();
 	void runFollowUpEmailsLoop({
 		shouldStop: isStopRequested,
 		acquireLock,

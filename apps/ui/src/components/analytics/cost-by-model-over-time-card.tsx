@@ -1,8 +1,19 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import {
+	Bar,
+	Line,
+	ComposedChart,
+	CartesianGrid,
+	XAxis,
+	YAxis,
+} from "recharts";
 
+import {
+	ChartStyleSelector,
+	useChartStyle,
+} from "@/components/analytics/chart-style";
 import {
 	Card,
 	CardContent,
@@ -57,8 +68,9 @@ export function CostByModelOverTimeCard({
 	activity,
 	loading = false,
 	title = "Cost by Model Over Time",
-	description = "Stacked breakdown of the top 10 models over the selected window",
+	description = "Compare the top 10 models over the selected window",
 }: CostByModelOverTimeCardProps) {
+	const { style } = useChartStyle();
 	const [activeMetric, setActiveMetric] = useState<ChartMetric>("cost");
 	const [modelView, setModelView] = useState<ModelView>("mapping");
 	const { timeZone: displayTimeZone } = useDisplayTimeZone();
@@ -135,6 +147,7 @@ export function CostByModelOverTimeCard({
 							</button>
 						))}
 					</div>
+					<ChartStyleSelector />
 					<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5">
 						{modelViewTabs.map((tab) => (
 							<button
@@ -169,7 +182,7 @@ export function CostByModelOverTimeCard({
 							config={config}
 							className="aspect-auto h-[300px] w-full"
 						>
-							<AreaChart
+							<ComposedChart
 								data={chartData}
 								margin={{ left: 0, right: 8, top: 4, bottom: 0 }}
 							>
@@ -236,20 +249,27 @@ export function CostByModelOverTimeCard({
 								/>
 								{series.models.map((model) => {
 									const key = sanitizeKey(model);
-									return (
-										<Area
+									return style === "bar" ? (
+										<Bar
 											key={key}
 											dataKey={key}
-											type="monotone"
 											stackId="1"
-											stroke={`var(--color-${key})`}
 											fill={`var(--color-${key})`}
-											fillOpacity={0.5}
-											strokeWidth={1}
+											isAnimationActive={false}
+										/>
+									) : (
+										<Line
+											key={key}
+											dataKey={key}
+											type="linear"
+											stroke={`var(--color-${key})`}
+											strokeWidth={2}
+											dot={false}
+											isAnimationActive={false}
 										/>
 									);
 								})}
-							</AreaChart>
+							</ComposedChart>
 						</ChartContainer>
 						<div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs">
 							{series.models.map((model, i) => (
