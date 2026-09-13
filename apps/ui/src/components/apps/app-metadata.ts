@@ -1,5 +1,6 @@
 import {
 	AnthropicIcon,
+	AnvilIcon,
 	AutohandIcon,
 	ClineIcon,
 	CodexIcon,
@@ -173,6 +174,14 @@ export const APP_METADATA: Record<string, AppMetadata> = {
 			"Browser-based coding agent. Hands you a working app from a single prompt.",
 		category: "coding",
 		Icon: AutohandIcon,
+	},
+	anvil: {
+		displayName: "Anvil",
+		url: "https://anvil.dev",
+		description:
+			"Chat-first desktop workspace for repo-aware agent delivery. Connects to LLM Gateway with one-click browser login.",
+		category: "coding",
+		Icon: AnvilIcon,
 	},
 	empryo: {
 		displayName: "Empryo",
