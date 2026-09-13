@@ -60,9 +60,15 @@ describe("connector OAuth", () => {
 		"evil.example",
 		"store.myshopify.com.evil.example",
 		"store.myshopify.com/path",
+		"store-.myshopify.com",
 		"localhost",
 	])("rejects unsafe store %s", (shop) => {
 		expect(() => shopDomain(shop)).toThrow();
+	});
+	it("normalizes a pasted store domain", () => {
+		expect(shopDomain("  My-Store.MyShopify.com\n")).toBe(
+			"my-store.myshopify.com",
+		);
 	});
 	it.each(loungeConnectorIds)(
 		"requires both configured credentials for %s",

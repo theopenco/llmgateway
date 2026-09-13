@@ -45,12 +45,13 @@ export function connectorCallback(id: LoungeConnectorId) {
 }
 
 export function shopDomain(shop: string) {
-	if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop)) {
+	const normalized = shop.trim().toLowerCase();
+	if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.myshopify\.com$/.test(normalized)) {
 		throw new HTTPException(400, {
 			message: "Enter your store’s myshopify.com domain",
 		});
 	}
-	return shop;
+	return normalized;
 }
 
 export function nativeOAuth(id: LoungeConnectorId, shop?: string) {
