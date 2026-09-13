@@ -1,0 +1,21 @@
+---
+title: Notifications
+description: Receive budget, model retirement, and provider health alerts
+icon: Bell
+---
+
+Open the **Notifications** bell in the dashboard header, then select **Notification settings**. Choose **In-app**, **Email**, both, or neither for each alert type. Alerts start disabled, and email delivery requires a verified email address. Your preferences apply across projects you can access.
+
+| Alert             | When it appears                                                                                                                                                                   |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API key budgets   | A regular API key reaches your selected percentage of its lifetime or recurring budget. The default threshold is 80%.                                                             |
+| Model retirements | A model mapping you used in the last 30 days is scheduled for deprecation or deactivation within 30 days. The alert links to the model catalogue so you can choose a newer model. |
+| Provider issues   | A provider you used in the last 30 days has elevated upstream errors in its recent traffic.                                                                                       |
+
+Budget alerts repeat for each new recurring period, or when you change the limit or alert threshold. Unlimited keys do not trigger budget warnings. Each scheduled model retirement is announced once; ongoing provider issues produce at most one alert per day per project, or per accessible key for developers.
+
+Provider alerts require at least 20 non-cached, non-client-error requests and an upstream error rate of at least 20% in the latest hourly statistics window. Stale statistics do not trigger alerts. Checks run about once a minute; these warnings are not a guarantee that every outage or budget crossing will be caught before a request fails.
+
+Notifications follow your existing project permissions. Developers receive alerts only for their own keys in assigned projects. Removed project access also removes those alerts from the inbox and prevents pending email delivery.
+
+The inbox shows your 50 most recent in-app alerts. Open an alert to follow its action, or select **Mark all as read** to clear the unread indicator. Turn off a channel in notification settings to stop future delivery through it.

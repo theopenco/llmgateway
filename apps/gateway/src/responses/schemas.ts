@@ -1,5 +1,10 @@
 import { z } from "@hono/zod-openapi";
 
+import {
+	googleExtraContentSchema,
+	reasoningDetailsSchema,
+} from "@/chat/schemas/completions.js";
+
 /**
  * Flatten a Zod error into `path: message` pairs a client can act on.
  *
@@ -63,6 +68,7 @@ const responseInputContentSchema = z.union([
 ]);
 
 const messageItemSchema = z.object({
+	reasoning_details: reasoningDetailsSchema.optional(),
 	type: z.literal("message"),
 	role: z.enum(["user", "assistant", "system", "developer"]),
 	phase: z.enum(["commentary", "final_answer"]).optional(),
@@ -75,11 +81,13 @@ const messageItemSchema = z.object({
 					z.object({
 						type: z.literal("output_text"),
 						text: z.string(),
+						extra_content: googleExtraContentSchema.optional(),
 						prompt_cache_breakpoint: promptCacheBreakpointSchema,
 					}),
 					z.object({
 						type: z.literal("text"),
 						text: z.string(),
+						extra_content: googleExtraContentSchema.optional(),
 						prompt_cache_breakpoint: promptCacheBreakpointSchema,
 					}),
 					z.object({
@@ -102,6 +110,7 @@ const messageItemSchema = z.object({
 			z.object({
 				id: z.string(),
 				type: z.literal("function"),
+				extra_content: googleExtraContentSchema.optional(),
 				function: z.object({
 					name: z.string(),
 					arguments: z.string(),
@@ -127,6 +136,7 @@ const itemStatusSchema = nullishToUndefined(
 );
 
 const functionCallItemSchema = z.object({
+	extra_content: googleExtraContentSchema.optional(),
 	type: z.literal("function_call"),
 	id: nullishToUndefined(z.string()),
 	call_id: z.string(),
@@ -151,6 +161,7 @@ const functionCallOutputItemSchema = z.object({
 // JSON `arguments`, so the model can emit e.g. a patch or a script without
 // JSON-escaping it.
 const customToolCallItemSchema = z.object({
+	extra_content: googleExtraContentSchema.optional(),
 	type: z.literal("custom_tool_call"),
 	id: nullishToUndefined(z.string()),
 	call_id: z.string(),

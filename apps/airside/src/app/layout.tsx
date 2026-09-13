@@ -2,6 +2,9 @@ import { Archivo, Geist_Mono, Inter } from "next/font/google";
 
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
+import { fetchSystemBanner } from "@/lib/system-banner";
+
+import { SystemBannerBar } from "@llmgateway/shared/system-banner";
 
 import "./globals.css";
 
@@ -64,9 +67,11 @@ export const metadata: Metadata = {
 	},
 };
 
-export default function RootLayout({
+export default async function RootLayout({
 	children,
 }: Readonly<{ children: React.ReactNode }>) {
+	const systemBanner = await fetchSystemBanner();
+
 	return (
 		<html
 			lang="en"
@@ -74,6 +79,7 @@ export default function RootLayout({
 			suppressHydrationWarning
 		>
 			<body className="font-sans antialiased">
+				<SystemBannerBar banner={systemBanner} />
 				<Providers config={getConfig()}>{children}</Providers>
 			</body>
 		</html>

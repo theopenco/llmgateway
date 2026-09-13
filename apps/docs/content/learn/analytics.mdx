@@ -49,7 +49,7 @@ Use it to spot the one or two models responsible for most of your bill, or to co
 
 ## Cost by Model Over Time
 
-A stacked area chart that plots the same three metrics across the date range, with one band per model. It has the same **Cost / Requests / Tokens** tabs, plus a **Mappings / Canonical** toggle:
+Choose **Line** to compare individual series or **Bar** to stack their values across the date range. Your chart-style choice is remembered across visits and also applies to the API key, user, and token charts. It has the same **Cost / Requests / Tokens** tabs, plus a **Mappings / Canonical** toggle:
 
 - **Mappings** — each model variant is shown separately, exactly as it was requested (for example a custom provider mapping is kept distinct from the built-in model).
 - **Canonical** — variants of the same underlying model are collapsed into one canonical model (the provider prefix and tag are dropped), so `openai/gpt-5.5` and a custom mapping of it count as a single line.
@@ -58,8 +58,16 @@ Switch to **Canonical** when you care about the underlying model's total footpri
 
 The **Mappings / Canonical** toggle is specific to models — the API key and user breakdowns rank named entities, so there is nothing to collapse.
 
+## Token breakdown
+
+**Tokens over time** separates uncached input, cache reads, and output. Input includes cache-write tokens; the note below the chart shows how many were written to cache. Cache reads appear only in the cache series, so the three categories do not double-count input tokens.
+
+Token counts always include credits and BYOK traffic. The billing-mode selector filters spend and requests, but the historical token counters are combined.
+
+For budget warnings, upcoming model retirements, and provider issues, enable [notifications](/features/notifications) from the bell in the dashboard header.
+
 ## How the data is computed
 
-Both charts derive from the same activity data the rest of the dashboard already reads — there is no separate analytics pipeline to wait on. Aggregation happens per time bucket and is timezone-correct, so totals line up with the Activity and Usage pages for the same range.
+These charts derive from the same activity data the rest of the dashboard already reads — there is no separate analytics pipeline to wait on. Aggregation happens per time bucket and is timezone-correct, so totals line up with the Activity and Usage pages for the same range.
 
 For a per-key view of the same breakdowns, see [API Keys](/learn/api-keys#per-key-statistics). For an org-wide, per-person view on the Enterprise plan, see [Member Analytics](/learn/member-analytics).
