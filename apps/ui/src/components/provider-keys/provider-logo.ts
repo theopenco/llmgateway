@@ -24,6 +24,7 @@ export const providerLogoUrls: Partial<
 	deepseek: ProviderIcons.deepseek,
 	perplexity: ProviderIcons.perplexity,
 	meta: ProviderIcons.meta,
+	"meta-contributor": ProviderIcons["meta-contributor"],
 	moonshot: ProviderIcons.moonshot,
 	novita: ProviderIcons.novita,
 	alibaba: ProviderIcons.alibaba,
@@ -52,6 +53,7 @@ export const providerLogoUrls: Partial<
 	ranoai: ProviderIcons.ranoai,
 	baidu: ProviderIcons.baidu,
 	consensusprotocol: ProviderIcons.consensusprotocol,
+	tencent: ProviderIcons.tencent,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

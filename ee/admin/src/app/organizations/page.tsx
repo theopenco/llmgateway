@@ -324,8 +324,8 @@ export default async function OrganizationsPage({
 						Spend, requests, and tokens cover {usageWindowLabel}.
 					</p>
 				</div>
-				<div className="flex w-full items-start gap-2 sm:w-auto sm:items-center">
-					<div className="flex min-w-0 flex-1 flex-col items-stretch gap-2 sm:flex-initial sm:flex-row sm:items-center">
+				<div className="flex w-full flex-wrap items-start gap-2 sm:w-auto sm:items-center">
+					<div className="flex min-w-0 flex-1 flex-col flex-wrap items-stretch gap-2 sm:flex-initial sm:flex-row sm:items-center">
 						<DateRangePicker defaultRange={ORGANIZATIONS_DEFAULT_RANGE} />
 						<form
 							action={handleSearch}
@@ -336,14 +336,14 @@ export default async function OrganizationsPage({
 							<input type="hidden" name="range" value={dateRange.range ?? ""} />
 							<input type="hidden" name="from" value={dateRange.from ?? ""} />
 							<input type="hidden" name="to" value={dateRange.to ?? ""} />
-							<div className="relative flex-1 sm:flex-initial">
+							<div className="relative min-w-0 flex-1 sm:max-w-64">
 								<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 								<input
 									type="text"
 									name="search"
 									placeholder="Search by name, email, member email, ID, or safety identifier..."
 									defaultValue={search}
-									className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-64"
+									className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
 								/>
 							</div>
 							<Button type="submit" size="sm">

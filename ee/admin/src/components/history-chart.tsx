@@ -292,9 +292,9 @@ export function HistoryChart({
 	return (
 		<Card>
 			<CardHeader className="space-y-4 pb-2">
-				<div className="flex items-start justify-between gap-4">
+				<div className="flex flex-wrap items-start justify-between gap-4">
 					<div>
-						<div className="flex items-center gap-2">
+						<div className="flex flex-wrap items-center gap-2">
 							<CardTitle className="text-base">{title}</CardTitle>
 							<span
 								className="rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
@@ -390,7 +390,7 @@ export function HistoryChart({
 				</div>
 				<div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
 					<div
-						className="flex items-center gap-1"
+						className="flex flex-wrap items-center gap-1"
 						role="group"
 						aria-label="Metric"
 					>

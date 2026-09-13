@@ -7,6 +7,10 @@ import { bearer, deviceAuthorization } from "better-auth/plugins";
 import { Redis } from "ioredis";
 
 import { createAuthDatabase } from "@/auth/database.js";
+import {
+	MAX_PASSWORD_LENGTH,
+	MIN_PASSWORD_LENGTH,
+} from "@/auth/password-policy.js";
 import { serializedPasswordReset } from "@/auth/password-reset.js";
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
@@ -774,7 +778,8 @@ export const apiAuth: ReturnType<typeof instrumentBetterAuth> =
 				revokeSessionsOnPasswordReset: true,
 				// Enforced on sign-up/reset/change/set-password only, never on
 				// sign-in, so existing accounts with shorter passwords keep working.
-				minPasswordLength: 12,
+				minPasswordLength: MIN_PASSWORD_LENGTH,
+				maxPasswordLength: MAX_PASSWORD_LENGTH,
 				sendResetPassword: async ({
 					user,
 					url,

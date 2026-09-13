@@ -14,6 +14,7 @@ import {
 import {
 	ALL_TIME_RANGE,
 	RELATIVE_RANGE_PRESETS,
+	dateRangeParamNames,
 	findRelativeRangePreset,
 	resolveDateRange,
 } from "@/lib/date-range";
@@ -37,12 +38,14 @@ const MONTH_NAMES = [
 export function getDateRangeFromParams(
 	searchParams: URLSearchParams,
 	defaultRange?: string,
+	paramPrefix?: string,
 ) {
+	const names = dateRangeParamNames(paramPrefix);
 	const resolved = resolveDateRange(
 		{
-			range: searchParams.get("range") ?? undefined,
-			from: searchParams.get("from") ?? undefined,
-			to: searchParams.get("to") ?? undefined,
+			range: searchParams.get(names.range) ?? undefined,
+			from: searchParams.get(names.from) ?? undefined,
+			to: searchParams.get(names.to) ?? undefined,
 		},
 		defaultRange,
 	);
@@ -194,17 +197,28 @@ function MonthRangePicker({ from, to, onSelect }: MonthRangePickerProps) {
 	);
 }
 
-export function DateRangePicker({ defaultRange }: { defaultRange?: string }) {
+// `paramPrefix` scopes the picker to its own URL params (see
+// dateRangeParamNames) so a section can be re-ranged without touching the
+// page-level range.
+export function DateRangePicker({
+	defaultRange,
+	paramPrefix,
+}: {
+	defaultRange?: string;
+	paramPrefix?: string;
+}) {
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");
 	const [showCalendar, setShowCalendar] = useState(false);
+	const names = useMemo(() => dateRangeParamNames(paramPrefix), [paramPrefix]);
 
 	const { from, to, isAllTime } = getDateRangeFromParams(
 		searchParams,
 		defaultRange,
+		paramPrefix,
 	);
 	const today = useMemo(() => new Date(), []);
 
@@ -221,7 +235,7 @@ export function DateRangePicker({ defaultRange }: { defaultRange?: string }) {
 	);
 
 	const activePreset = useMemo(() => {
-		const rangeParam = searchParams.get("range") ?? undefined;
+		const rangeParam = searchParams.get(names.range) ?? undefined;
 		if (findRelativeRangePreset(rangeParam)) {
 			return rangeParam as string;
 		}
@@ -231,12 +245,13 @@ export function DateRangePicker({ defaultRange }: { defaultRange?: string }) {
 		// An empty URL means the page's own default is in force, so highlight
 		// that preset rather than the one the empty URL would otherwise imply.
 		const hasCustomSpan =
-			Boolean(searchParams.get("from")) && Boolean(searchParams.get("to"));
+			Boolean(searchParams.get(names.from)) &&
+			Boolean(searchParams.get(names.to));
 		if (!hasCustomSpan && findRelativeRangePreset(defaultRange)) {
 			return defaultRange as string;
 		}
 		return isAllTime ? ALL_TIME_RANGE : "custom";
-	}, [searchParams, isAllTime, defaultRange]);
+	}, [searchParams, isAllTime, defaultRange, names]);
 
 	const filteredPresets = useMemo(
 		() =>
@@ -250,26 +265,26 @@ export function DateRangePicker({ defaultRange }: { defaultRange?: string }) {
 
 	const updateDateRange = (newFrom: Date, newTo: Date) => {
 		const params = new URLSearchParams(searchParams.toString());
-		params.delete("range");
-		params.set("from", format(newFrom, "yyyy-MM-dd"));
-		params.set("to", format(newTo, "yyyy-MM-dd"));
-		router.push(`${pathname}?${params.toString()}`);
+		params.delete(names.range);
+		params.set(names.from, format(newFrom, "yyyy-MM-dd"));
+		params.set(names.to, format(newTo, "yyyy-MM-dd"));
+		router.push(`${pathname}?${params.toString()}`, { scroll: false });
 	};
 
 	const selectAllTime = () => {
 		const params = new URLSearchParams(searchParams.toString());
-		params.delete("from");
-		params.delete("to");
+		params.delete(names.from);
+		params.delete(names.to);
 		// On a page with its own default, an empty URL means that default, so
 		// "all time" has to be written out to override it. Pages without a
 		// default keep the shorter URL, which resolves to all time either way.
 		if (defaultRange) {
-			params.set("range", ALL_TIME_RANGE);
+			params.set(names.range, ALL_TIME_RANGE);
 		} else {
-			params.delete("range");
+			params.delete(names.range);
 		}
 		const qs = params.toString();
-		router.push(qs ? `${pathname}?${qs}` : pathname);
+		router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
 	};
 
 	const handlePresetSelect = (value: string) => {
@@ -287,10 +302,10 @@ export function DateRangePicker({ defaultRange }: { defaultRange?: string }) {
 		// Relative presets only store the preset value; the concrete dates are
 		// resolved against "today" on every request.
 		const params = new URLSearchParams(searchParams.toString());
-		params.delete("from");
-		params.delete("to");
-		params.set("range", value);
-		router.push(`${pathname}?${params.toString()}`);
+		params.delete(names.from);
+		params.delete(names.to);
+		params.set(names.range, value);
+		router.push(`${pathname}?${params.toString()}`, { scroll: false });
 		setOpen(false);
 	};
 
