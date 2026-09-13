@@ -8,8 +8,10 @@ import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import {
 	db,
 	eq,
+	getCatalogueProviderIds,
 	getEffectiveDiscount,
 	inArray,
+	invalidateProviderClaimCache,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -2931,7 +2933,26 @@ describe("airside provider portal", () => {
 		expect(res.status).toBe(201);
 		const { claim } = await res.json();
 
-		// Approval creates the DB catalogue provider row.
+		// The catalogue sync leaves a revoked carrier's row inactive; approval
+		// must flip it back or the re-claimed id stays unlisted.
+		await db
+			.insert(tables.provider)
+			.values({
+				id: "acme-sky",
+				name: "stale",
+				description: "",
+				status: "inactive",
+			})
+			.onConflictDoUpdate({
+				target: tables.provider.id,
+				set: { name: "stale", status: "inactive" },
+			});
+
+		// Warm the cached carrier set so approval has to evict it.
+		await invalidateProviderClaimCache();
+		expect((await getCatalogueProviderIds()).has("acme-sky")).toBe(false);
+
+		// Approval creates (or re-activates) the DB catalogue provider row.
 		const approve = await app.request(
 			`/admin/airside/claims/${claim.id}/approve`,
 			json(cookie),
@@ -2940,7 +2961,8 @@ describe("airside provider portal", () => {
 		const providerRow = await db.query.provider.findFirst({
 			where: { id: { eq: "acme-sky" } },
 		});
-		expect(providerRow?.name).toBe("Acme Sky");
+		expect(providerRow).toMatchObject({ name: "Acme Sky", status: "active" });
+		expect((await getCatalogueProviderIds()).has("acme-sky")).toBe(true);
 
 		// The managed-credentials catalog now offers the carrier…
 		const catalog = await app.request("/admin/provider-credentials/catalog", {
@@ -2984,6 +3006,7 @@ describe("airside provider portal", () => {
 			where: { id: { eq: "acme-sky" } },
 		});
 		expect(goneRow).toBeFalsy();
+		expect((await getCatalogueProviderIds()).has("acme-sky")).toBe(false);
 	});
 
 	it("waives the listing fee with an admin-minted invite code", async () => {

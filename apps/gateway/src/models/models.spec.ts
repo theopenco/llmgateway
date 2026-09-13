@@ -8,6 +8,24 @@ import { models as modelsList, providers } from "@llmgateway/models";
 import type { ProviderModelMapping } from "@llmgateway/models";
 
 describe("Models API", () => {
+	test.each([
+		"",
+		"?include_deactivated=true",
+		"?mapped=true&include_deactivated=true",
+	])("omits deleted providers from catalogue%s", async (query) => {
+		const response = await app.request(`/v1/models${query}`);
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as {
+			data: { id: string; providers?: { providerId: string }[] }[];
+		};
+		for (const model of body.data) {
+			expect(model.id).not.toMatch(/^(iceberg|granite)\//);
+			for (const mapping of model.providers ?? []) {
+				expect(["iceberg", "granite"]).not.toContain(mapping.providerId);
+			}
+		}
+	});
+
 	beforeAll(async () => {
 		// These tests derive expectations from the static catalogue alone, so
 		// Airside listings leaked by an interrupted spec would skew them.

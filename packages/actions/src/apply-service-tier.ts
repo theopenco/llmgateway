@@ -18,7 +18,6 @@ import type { ProviderId, ProviderRequestBody } from "@llmgateway/models";
 const BODY_TIER_PROVIDERS: ReadonlySet<ProviderId> = new Set<ProviderId>([
 	"google-ai-studio",
 	"glacier",
-	"iceberg",
 ]);
 
 /**

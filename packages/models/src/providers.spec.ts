@@ -30,6 +30,17 @@ const getRegionIds = (provider: unknown) =>
 		: [];
 
 describe("provider legal metadata", () => {
+	it("has no definitions or mappings for removed providers", () => {
+		for (const id of ["iceberg", "granite"]) {
+			expect(providers.some((provider) => provider.id === id)).toBe(false);
+			expect(
+				models.some((model) =>
+					model.providers.some((mapping) => mapping.providerId === id),
+				),
+			).toBe(false);
+		}
+	});
+
 	it("is complete for providers with websites", () => {
 		const incompleteProviders = providers
 			.filter((provider) => provider.website)
@@ -281,7 +292,7 @@ describe("model service tier support", () => {
 
 describe("isStealthProvider", () => {
 	it("flags providers that require a baseUrl env var (no default endpoint)", () => {
-		for (const id of ["glacier", "iceberg", "granite", "quartz"]) {
+		for (const id of ["glacier", "quartz"]) {
 			expect(isStealthProvider(id)).toBe(true);
 		}
 	});

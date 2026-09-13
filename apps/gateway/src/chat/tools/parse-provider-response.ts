@@ -343,7 +343,6 @@ export function parseProviderResponse(
 		}
 		case "google-ai-studio":
 		case "glacier":
-		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
 			// A response with no candidates used to be assigned "content_filter"

@@ -930,7 +930,6 @@ export async function calculateCosts(
 			imageInputTokens &&
 			(provider === "google-ai-studio" ||
 				provider === "glacier" ||
-				provider === "iceberg" ||
 				provider === "google-vertex" ||
 				provider === "quartz")
 				? (calculatedPromptTokens || 0) + imageInputTokens

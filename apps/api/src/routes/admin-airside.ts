@@ -29,6 +29,7 @@ import {
 	ne,
 	sql,
 	tables,
+	invalidateProviderClaimCache,
 } from "@llmgateway/db";
 import {
 	models as catalogueModels,
@@ -790,7 +791,9 @@ adminAirside.openapi(approveClaim, async (c) => {
 		}
 		if (claim.kind === "custom") {
 			// A custom carrier only exists in the DB catalogue: create its
-			// provider row so /providers and /internal/providers list it.
+			// provider row so /providers and /internal/providers list it. The
+			// catalogue sync marks the row inactive once a claim is revoked, so a
+			// re-approved id has to be flipped back here.
 			await tx
 				.insert(tables.provider)
 				.values({
@@ -798,7 +801,14 @@ adminAirside.openapi(approveClaim, async (c) => {
 					name: claim.customName ?? claim.providerId,
 					description: claim.customDescription ?? "",
 				})
-				.onConflictDoNothing();
+				.onConflictDoUpdate({
+					target: tables.provider.id,
+					set: {
+						name: claim.customName ?? claim.providerId,
+						description: claim.customDescription ?? "",
+						status: "active",
+					},
+				});
 		}
 		const [settings] = await tx
 			.select()
@@ -828,6 +838,7 @@ adminAirside.openapi(approveClaim, async (c) => {
 				.where(eq(tables.providerRoutingSettings.id, settings.id));
 		}
 	});
+	await invalidateProviderClaimCache();
 	const updated = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },
 		with: { providerCompany: true },
@@ -1048,6 +1059,7 @@ adminAirside.openapi(revokeClaim, async (c) => {
 			}
 		}
 	});
+	await invalidateProviderClaimCache();
 	const updated = await db.query.providerClaim.findFirst({
 		where: { id: { eq: id } },
 		with: { providerCompany: true },

@@ -55,7 +55,6 @@ export function getProviderHeaders(
 			};
 		case "google-ai-studio":
 		case "glacier":
-		case "iceberg":
 		case "quartz":
 			return requestIdHeader;
 		case "google-vertex": {

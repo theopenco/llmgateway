@@ -28,6 +28,7 @@ import {
 import {
 	getProviderDefinition,
 	models,
+	providers,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 import { deriveStabilityMetrics } from "@llmgateway/shared";
@@ -374,8 +375,37 @@ interface MappingInfo {
 async function buildMappingInfos(
 	model: (typeof models)[number],
 ): Promise<MappingInfo[]> {
+	const historicalMappings = await db.query.modelProviderMapping.findMany({
+		where: {
+			modelId: { eq: model.id },
+			providerId: { notIn: providers.map((provider) => provider.id) },
+			source: { eq: "catalogue" },
+			region: { isNull: true },
+		},
+		with: { provider: true },
+	});
+	const mappings: ProviderModelMapping[] = [
+		...model.providers,
+		...historicalMappings.map((mapping) => ({
+			providerId: mapping.providerId,
+			externalId: mapping.externalId,
+			streaming: mapping.streaming,
+			inputPrice: mapping.inputPrice ?? undefined,
+			outputPrice: mapping.outputPrice ?? undefined,
+			cachedInputPrice: mapping.cachedInputPrice ?? undefined,
+			requestPrice: mapping.requestPrice ?? undefined,
+			deactivatedAt: mapping.deactivatedAt ?? undefined,
+			stability: mapping.stability,
+		})),
+	];
+	const historicalNames = new Map(
+		historicalMappings.map((mapping) => [
+			mapping.providerId,
+			mapping.provider?.name ?? mapping.providerId,
+		]),
+	);
 	return await Promise.all(
-		model.providers.map(async (mapping: ProviderModelMapping) => {
+		mappings.map(async (mapping) => {
 			const providerDef = getProviderDefinition(mapping.providerId);
 			const modelStability =
 				"stability" in model
@@ -384,6 +414,9 @@ async function buildMappingInfos(
 			const stability = mapping.stability ?? modelStability ?? "stable";
 			const priority = providerDef?.priority ?? 1;
 			const excludedReasons: string[] = [];
+			if (!providerDef) {
+				excludedReasons.push("removed from catalogue");
+			}
 			// Only a deactivation date that has actually passed excludes a mapping.
 			// Routing itself compares against the date, so a scheduled (future)
 			// deactivation still elects and serves traffic — flagging it here would
@@ -414,7 +447,10 @@ async function buildMappingInfos(
 			);
 			return {
 				providerId: mapping.providerId,
-				providerName: providerDef?.name ?? mapping.providerId,
+				providerName:
+					providerDef?.name ??
+					historicalNames.get(mapping.providerId) ??
+					mapping.providerId,
 				stability,
 				deactivatedAt: mapping.deactivatedAt
 					? mapping.deactivatedAt.toISOString()

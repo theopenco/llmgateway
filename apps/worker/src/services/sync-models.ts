@@ -9,6 +9,9 @@ import {
 	sql,
 	isNotNull,
 	isNull,
+	inArray,
+	notInArray,
+	getCatalogueProviderIds,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -22,6 +25,39 @@ export async function syncProvidersAndModels() {
 
 	try {
 		const database = db;
+		const catalogueProviderIds = [...(await getCatalogueProviderIds())];
+		// Preserve removed providers and every referencing row for historical reads.
+		await database
+			.update(provider)
+			.set({ status: "inactive" })
+			.where(
+				and(
+					eq(provider.status, "active"),
+					notInArray(provider.id, catalogueProviderIds),
+				),
+			);
+		// Re-activate rows whose id is back in the catalogue: a re-added
+		// provider, or a carrier approved after a sync had deactivated its row.
+		await database
+			.update(provider)
+			.set({ status: "active" })
+			.where(
+				and(
+					eq(provider.status, "inactive"),
+					inArray(provider.id, catalogueProviderIds),
+				),
+			);
+		// Airside rows are carrier-managed and never follow the static catalogue.
+		await database
+			.update(modelProviderMapping)
+			.set({ status: "inactive" })
+			.where(
+				and(
+					eq(modelProviderMapping.status, "active"),
+					eq(modelProviderMapping.source, "catalogue"),
+					notInArray(modelProviderMapping.providerId, catalogueProviderIds),
+				),
+			);
 
 		for (const providerDef of providers) {
 			await database
