@@ -4,7 +4,7 @@ import {
 	createUIMessageStream,
 	JsonToSseTransformStream,
 	tool,
-	stepCountIs,
+	isStepCount,
 	type UIMessage,
 } from "ai";
 import { Hono } from "hono";
@@ -537,10 +537,10 @@ publicChatSupport.post("/", async (c) => {
 
 	const result = streamText({
 		model: llmgateway.chat("auto"),
-		system,
+		instructions: system,
 		messages: await convertToModelMessages(contextMessages),
 		maxOutputTokens: 1024,
-		stopWhen: stepCountIs(4),
+		stopWhen: isStepCount(4),
 		tools: {
 			fetchPage: tool({
 				description:
@@ -553,7 +553,7 @@ publicChatSupport.post("/", async (c) => {
 				execute: async ({ url }) => await fetchKnowledgePage(url),
 			}),
 		},
-		async onFinish({ text }) {
+		async onEnd({ text }) {
 			await persistMessage(conversationId, "assistant", text);
 		},
 	});
