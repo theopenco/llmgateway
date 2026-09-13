@@ -1,5 +1,6 @@
 "use client";
 
+import { DeleteOrganizationSettings } from "@/components/settings/delete-organization-settings";
 import { OrganizationIdSettings } from "@/components/settings/organization-id-settings";
 import { OrganizationLogoSettings } from "@/components/settings/organization-logo-settings";
 import { OrganizationNameSettings } from "@/components/settings/organization-name-settings";
@@ -51,6 +52,17 @@ export default function PreferencesPage() {
 						</CardHeader>
 						<CardContent className="space-y-6">
 							<OrganizationLogoSettings />
+						</CardContent>
+					</Card>
+					<Card className="border-destructive/20">
+						<CardHeader>
+							<CardTitle className="text-destructive">Danger Zone</CardTitle>
+							<CardDescription>
+								Irreversible and destructive actions
+							</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<DeleteOrganizationSettings />
 						</CardContent>
 					</Card>
 				</div>
