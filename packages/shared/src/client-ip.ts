@@ -88,6 +88,21 @@ export function getClientIpFromRequest(c: HeaderContext): string | undefined {
 }
 
 /**
+ * Node `IncomingMessage` headers, as seen on a WebSocket upgrade. Node
+ * lowercases names and hands a repeated header over as an array.
+ */
+export function getClientIpFromNodeHeaders(
+	headers: Record<string, string | string[] | undefined>,
+): string | undefined {
+	return (
+		getClientIp((name) => {
+			const value = headers[name];
+			return Array.isArray(value) ? value.join(",") : value;
+		}) ?? undefined
+	);
+}
+
+/**
  * Header to attach when calling the API on a visitor's behalf from a
  * server-rendered page or proxy route: the same one the API reads, passed
  * through verbatim. Without it the API sees the calling server's address and

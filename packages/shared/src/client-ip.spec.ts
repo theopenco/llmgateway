@@ -4,6 +4,7 @@ import {
 	forwardedIpHeaders,
 	getClientIpFromContext,
 	getClientIpFromHeaders,
+	getClientIpFromNodeHeaders,
 	assertClientIpHeaderConfigured,
 	isPublicIp,
 } from "./client-ip.js";
@@ -141,6 +142,32 @@ describe("forwardedIpHeaders", () => {
 			forwardedIpHeaders(new Headers({ "X-Forwarded-For": "1.1.1.1" })),
 		).toEqual({});
 		expect(forwardedIpHeaders(undefined)).toEqual({});
+	});
+});
+
+describe("getClientIpFromNodeHeaders", () => {
+	test("reads the configured header from lowercased Node headers", () => {
+		process.env.CLIENT_IP_HEADER = "X-Client-Ip";
+		expect(
+			getClientIpFromNodeHeaders({
+				"x-client-ip": "5.6.7.8",
+				"x-forwarded-for": "1.1.1.1, 10.0.0.1",
+			}),
+		).toBe("5.6.7.8");
+	});
+
+	test("joins a repeated header and takes the first hop", () => {
+		process.env.CLIENT_IP_HEADER = "X-Forwarded-For";
+		expect(
+			getClientIpFromNodeHeaders({
+				"x-forwarded-for": ["5.6.7.8", "10.0.0.1"],
+			}),
+		).toBe("5.6.7.8");
+	});
+
+	test("is undefined without the header, never the socket address", () => {
+		process.env.CLIENT_IP_HEADER = "X-Client-Ip";
+		expect(getClientIpFromNodeHeaders({ host: "example.com" })).toBeUndefined();
 	});
 });
 
