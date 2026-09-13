@@ -11,7 +11,7 @@ faqs:
   - question: "How do inference providers get paid through LLM Gateway?"
     answer: "Developers are billed at your filed price, less any discount you chose to offer. You keep that billed traffic less the landing fee you accept, which is 20% by default and adjustable between 5% and 50%. The console reports traffic; the settlement schedule is set in a written agreement with LLM Gateway."
   - question: "What does it cost to sell inference through Airside?"
-    answer: "A one-time, non-refundable $2,500 listing fee per provider company, paid through Stripe before your claim is approved. Providers LLM Gateway already works with receive an invite code that waives it. There is no subscription, no minimum volume, and no charge on traffic you do not serve."
+    answer: "A one-time, non-refundable $2,500 listing fee per provider company, paid through Stripe before your claim is approved. Providers LLM Gateway already works with receive an invite code that waives it. There is no subscription, no minimum volume, and no charge on traffic you do not serve. Self-hosted deployments with no fee configured list for free."
   - question: "Is a lower price the only way to win routed traffic?"
     answer: "No. Price carries the heaviest routing weight, but uptime is nearly as heavy, and a deployment below 95% uptime is penalized exponentially. Verified capabilities, a cached-input price, throughput, and time to first token all change which provider wins a request."
 image:
@@ -82,7 +82,7 @@ Raise the landing fee to 30% and you keep $812 from the same traffic, but you en
 
 ## What it costs to get listed
 
-Listing on llmgateway.io carries a one-time, non-refundable **$2,500 listing fee** per provider company, paid through Stripe during onboarding and due before your claim is approved. Providers we already work with receive an invite code that waives it. There is no subscription and no minimum volume: after the fee, you only share the landing fee on traffic you actually win. One listing covers up to 10 crew members and as many carriers as your company operates.
+Listing on llmgateway.io carries a one-time, non-refundable **$2,500 listing fee** per provider company, paid through Stripe during onboarding and due before your claim is approved. Providers we already work with receive an invite code that waives it. There is no subscription and no minimum volume: after the fee, you only share the landing fee on traffic you actually win. One fee covers up to 10 crew members and as many carriers as your company operates. Self-hosted deployments with no fee configured list for free.
 
 Against that fee, the calculation is simple. At the worked example's rates and a 20% landing fee, the listing pays for itself once you have served roughly 2.7 months of that traffic. A busier deployment or a higher-priced model gets there faster.
 
@@ -98,7 +98,7 @@ The [Airside docs](https://docs.llmgateway.io/features/airside) cover each step,
 
 ## Win the election on more than price
 
-Price carries the heaviest weight in the routing election, but it is not the only factor. Every candidate is also scored on uptime, throughput, and time to first token, and the lowest total wins. A few decisions move your share of traffic without touching your fares:
+Price carries the heaviest weight in the routing election, but it is not the only factor. Every candidate is also scored on uptime and throughput, streaming requests add time to first token, and the lowest total wins. A few decisions move your share of traffic without touching your fares:
 
 - **Stay above 95% uptime.** Below that threshold the gateway applies an exponential penalty: about 0.07 at 90%, 0.62 at 80%, and 1.73 at 70%. A cheap deployment that errors loses to a slightly pricier one that does not.
 - **File a cached-input price.** For long prompts and coding sessions, routing blends your cached and uncached input prices by the cache-hit rate it has learned for that workload. A provider with no cached price competes at its full input price.

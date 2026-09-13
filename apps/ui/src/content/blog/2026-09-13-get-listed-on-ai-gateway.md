@@ -7,13 +7,13 @@ summary: "A checklist for inference providers who want their LLM API listed on a
 categories: ["Guides", "Engineering"]
 faqs:
   - question: "What do I need to list my LLM API on LLM Gateway?"
-    answer: "A company email on the same registrable domain as your API endpoint or published website, an OpenAI-compatible endpoint you operate, and a one-time $2,500 listing fee or an invite code. You then register each model with its capabilities and pricing, pass a live preflight against your endpoint, and wait for the LLM Gateway team to approve the claim and the initial price filing."
+    answer: "A company email on the same registrable domain as your API endpoint or published website, an OpenAI-compatible endpoint you operate, and on llmgateway.io a one-time $2,500 listing fee per provider company, waived with an invite code. Self-hosted deployments with no fee configured list for free. You then register each model with its capabilities and pricing, pass a live preflight against your endpoint, and wait for the LLM Gateway team to approve the claim and the initial price filing."
   - question: "Does my API have to be OpenAI-compatible?"
     answer: "The carrier default is OpenAI Chat Completions, and the gateway calls your base URL plus /v1/chat/completions. Each model can instead declare the OpenAI Responses API or Google Vertex generateContent as its upstream format, and preflight verification runs through whichever format you pick."
   - question: "Why was my base URL rejected?"
     answer: "The gateway appends the endpoint path itself. A base URL that already ends in /v1 or /v1/chat/completions would produce a doubled path and fail every request, so registration rejects it. Enter only the host and any path prefix before /v1."
   - question: "Can I list tiered or context-length pricing?"
-    answer: "No. A listing holds one flat set of per-million rates per region: input, output, optional cached input, and an optional per-request charge. File the rate you can sustain at your highest band, and use regional fares if a specific region is priced differently."
+    answer: "No. A listing holds one flat tariff per region: input, output, and optional cached-input rates in USD per million tokens, plus an optional flat charge per request. File the rate you can sustain at your highest band, and use regional fares if a specific region is priced differently."
 image:
   src: "/blog/get-listed-on-ai-gateway.png"
   alt: "A glowing boarding-gate arch on a central chip with a lit checklist beside it and light traces leading in from the edge of a circuit board, surrounded by a key, a plug, and a document icon"
@@ -33,7 +33,7 @@ The gateway needs to know that the person claiming `acme` actually runs `api.acm
 - If your API lives on a different domain than your email, prove the website instead by publishing a `_llmgateway-airside` DNS TXT record from onboarding.
 - Free and disposable email domains are rejected, and only one live claim can exist per provider.
 
-Claims are reviewed by the LLM Gateway team before the carrier goes live. Listing carries a one-time, non-refundable **$2,500 fee** per provider company, paid through Stripe before approval, or an invite code if we already work with you.
+Claims are reviewed by the LLM Gateway team before the carrier goes live. Listing carries a one-time, non-refundable **$2,500 fee** per provider company, paid through Stripe before approval, or an invite code if we already work with you. One fee covers every carrier your company operates. Self-hosted deployments with no fee configured list for free.
 
 ## 2. Give the gateway a base URL it can call
 

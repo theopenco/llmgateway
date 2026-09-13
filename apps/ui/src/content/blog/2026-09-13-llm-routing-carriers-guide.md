@@ -33,7 +33,7 @@ Developers can also skip the election. A request for `provider/model` pins your 
 
 ## How the score is built
 
-Each remaining candidate is scored on four factors. The factor is a ratio against the best candidate in the set, so the cheapest provider scores 0 on price and one twice as expensive scores 1.0. Each ratio is multiplied by its weight divided by the sum of the active weights, and the lowest total wins.
+Each remaining candidate is scored on four factors by default. The factor is a ratio against the best candidate in the set, so the cheapest provider scores 0 on price and one twice as expensive scores 1.0. Each ratio is multiplied by its weight divided by the sum of the active weights, and the lowest total wins.
 
 | Factor     | Weight  | Measured as                                             |
 | ---------- | ------- | ------------------------------------------------------- |
@@ -41,8 +41,9 @@ Each remaining candidate is scored on four factors. The factor is a ratio agains
 | Uptime     | `0.5`   | Success rate over a rolling window                      |
 | Throughput | `0.05`  | Output tokens per second                                |
 | Latency    | `0.025` | Time to first token, streaming requests only            |
+| Cache      | `0`     | Optional cache-support preference, off by default       |
 
-Price and uptime share over 90% of the weight between them. Throughput and latency break ties between providers that are otherwise close. For non-streaming requests the latency weight is dropped and its share is spread across the others. Developers can also send `routing: "price"`, `"throughput"`, or `"latency"` to give one factor 90% of the weight, which is how a fast deployment wins requests it would lose on price.
+Cache-read savings already count toward price, so the separate cache factor defaults to zero; Enterprise projects can enable it under `auto`, and only then does cache support score on its own for cache-relevant requests. Price and uptime share over 90% of the weight between them. Throughput and latency break ties between providers that are otherwise close. For non-streaming requests the latency weight is dropped and its share is spread across the others. Developers can also send `routing: "price"`, `"throughput"`, or `"latency"` to give one factor 90% of the weight, which is how a fast deployment wins requests it would lose on price.
 
 ## The fare formula
 
