@@ -863,7 +863,7 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 			return;
 		}
 
-		const result = await addMemberMutation.mutateAsync({
+		await addMemberMutation.mutateAsync({
 			params: {
 				path: {
 					organizationId,
@@ -879,9 +879,8 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 		});
 		toast({
 			title: "Success",
-			description: result.invite
-				? "Invitation sent — they'll join automatically once they sign up with this email."
-				: "Team member added successfully",
+			description:
+				"Invitation sent — they'll join after signing in or signing up with this email.",
 		});
 		setEmail("");
 		setRole("developer");
@@ -982,10 +981,9 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 									<DialogHeader>
 										<DialogTitle>Add Team Member</DialogTitle>
 										<DialogDescription>
-											Add a new member to your organization by entering their
-											email address. If they don't have an account yet, we'll
-											email them an invitation and they'll join automatically
-											when they sign up (including via SSO).
+											Invite a new member by email. They'll join automatically
+											after signing in or creating an account with that email
+											address, including via SSO.
 										</DialogDescription>
 									</DialogHeader>
 									<div className="space-y-4 py-4">
@@ -1400,9 +1398,9 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 							<CardHeader>
 								<CardTitle>Pending Invitations</CardTitle>
 								<CardDescription>
-									People invited by email who haven't created an account yet.
-									They'll join automatically when they sign up — via email, SSO,
-									or SCIM provisioning.
+									People invited by email who haven't joined yet. They'll join
+									after signing in or signing up with their invited email,
+									including via SSO or SCIM provisioning.
 								</CardDescription>
 							</CardHeader>
 							<CardContent>

@@ -44,6 +44,9 @@
 	"meta": {
 		"viewBox": "0 0 24 24"
 	},
+	"meta-contributor": {
+		"viewBox": "0 0 24 24"
+	},
 	"mistral": {
 		"viewBox": "0 0 41 29"
 	},
@@ -128,6 +131,9 @@
 	"fireworks": {
 		"viewBox": "0 0 88 44"
 	},
+	"runpod": {
+		"viewBox": "0 0 195 206"
+	},
 	"runware": {
 		"viewBox": "0 0 50 51"
 	},
@@ -139,5 +145,8 @@
 	},
 	"consensusprotocol": {
 		"viewBox": "0 0 24 24"
+	},
+	"tencent": {
+		"viewBox": "0 -5 33 33"
 	}
 }

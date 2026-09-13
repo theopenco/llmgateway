@@ -206,6 +206,43 @@ async function createModel(
 describe("airside provider portal", () => {
 	let cookie: string;
 
+	it("offers canonical identities without flattening tiered or retired rates", async () => {
+		const response = await app.request(
+			"/airside/catalogue",
+			json(cookie, undefined, "GET"),
+		);
+		expect(response.status).toBe(200);
+		const data = (await response.json()) as {
+			models: Array<{
+				id: string;
+				family: string;
+				prices: Array<{
+					providerId: string;
+					inputPrice: string;
+					outputPrice: string;
+				}>;
+			}>;
+		};
+		const oss = data.models.find((model) => model.id === "gpt-oss-20b");
+		expect(oss?.family).toBe("openai");
+		expect(oss?.prices).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					providerId: "groq",
+					inputPrice: "0.1e-6",
+					outputPrice: "0.5e-6",
+				}),
+			]),
+		);
+		expect(oss?.prices.some((price) => price.providerId === "nanogpt")).toBe(
+			false,
+		);
+		const tiered = data.models.find((model) => model.id === "gemini-2.5-pro");
+		expect(
+			tiered?.prices.some((price) => price.providerId === "google-ai-studio"),
+		).toBe(false);
+	});
+
 	beforeEach(async () => {
 		vi.spyOn(emailUtils, "sendTransactionalEmail").mockResolvedValue(undefined);
 		cookie = await createTestUser();

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
 
 const MODEL = "openai/global-stats-model";
@@ -242,8 +243,12 @@ describe("admin — global stats mode/kind dimensions", () => {
 		test("lists credentials with traffic in the range", async () => {
 			await db.insert(tables.providerKey).values({
 				id: PROVIDER_KEY_ID,
+				...encryptProviderKeyForStorage(
+					"sk-global-stats",
+					PROVIDER_KEY_ID,
+					null,
+				),
 				provider: "openai",
-				token: "sk-global-stats",
 				managed: true,
 				comment: "Global stats fixture",
 			});

@@ -345,7 +345,7 @@ export function ProvidersGrid({
 				</div>
 				<div className="flex items-center gap-2">
 					<Button asChild variant="outline">
-						<Link href="/add-provider">
+						<Link href="https://airside.llmgateway.io">
 							<Plus className="h-4 w-4" />
 							Add Provider
 						</Link>

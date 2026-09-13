@@ -98,7 +98,7 @@ export default async function ContactSubmissionDetailPage({
 			<BackToSubmissions />
 
 			<header className="flex flex-col gap-2">
-				<div className="flex items-center gap-3">
+				<div className="flex flex-wrap items-center gap-3">
 					<h1 className="text-3xl font-semibold tracking-tight">{data.name}</h1>
 					<Badge variant={getStatusBadgeVariant(data.spamFilterStatus)}>
 						{getStatusLabel(data.spamFilterStatus)}

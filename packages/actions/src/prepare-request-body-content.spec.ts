@@ -29,8 +29,9 @@ async function prepare(
 	)) as OpenAIRequestBody;
 }
 
-describe("Novita GLM-5.3 Flash content", () => {
+describe("Provider message content", () => {
 	test.each([
+		["runpod", "kimi-k3", true],
 		["novita", "glm-5.3-flash", true],
 		["novita", "glm-5.3", false],
 		["zai", "glm-5.3-flash", false],
@@ -42,7 +43,7 @@ describe("Novita GLM-5.3 Flash content", () => {
 			const whitespace = { type: "text", text: " " } as const;
 			const image = {
 				type: "image_url",
-				image_url: { url: "https://example.com/image.png" },
+				image_url: { url: "data:image/png;base64,aW1hZ2U=" },
 			} as const;
 			const content = [text, empty, whitespace, image];
 			const messages: BaseMessage[] = [{ role: "user", content }];
