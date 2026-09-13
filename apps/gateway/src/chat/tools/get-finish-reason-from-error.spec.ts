@@ -89,6 +89,15 @@ describe("getFinishReasonFromError", () => {
 		).toBe("gateway_error");
 	});
 
+	it("returns gateway_error for an exhausted trial quota on 400", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"code":"401008","message":"The free trial quota for the service has been exhausted and postpaid billing is not enabled, so the service cannot be accessed."}}',
+			),
+		).toBe("gateway_error");
+	});
+
 	it("returns gateway_error for 405 method not allowed", () => {
 		expect(getFinishReasonFromError(405)).toBe("gateway_error");
 		expect(getFinishReasonFromError(405, "Method Not Allowed")).toBe(
