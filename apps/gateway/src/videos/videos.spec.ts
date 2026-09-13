@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { processPendingVideoJobs } from "worker";
 
 import { app } from "@/app.js";
@@ -11,7 +11,10 @@ import {
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { cdb, db, eq, tables } from "@llmgateway/db";
-import { buildGatewayVideoLogContentUrl } from "@llmgateway/shared";
+import {
+	buildGatewayVideoLogContentUrl,
+	GATEWAY_CONTENT_FILTER_MESSAGE,
+} from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 describe("videos", () => {
@@ -1453,6 +1456,169 @@ describe("videos", () => {
 		});
 		expect(log?.finishReason).toBe("content_filter");
 		expect(log?.unifiedFinishReason).toBe("content_filter");
+	});
+
+	describe("tiered gateway content filter", () => {
+		const MODERATION_URL = "https://api.openai.com/v1/moderations";
+		let moderationInputs: unknown[] = [];
+
+		async function seedXai() {
+			await db.insert(tables.apiKey).values({
+				id: "token-id",
+				...hashApiKeyForStorage("real-token"),
+				projectId: "project-id",
+				description: "Test API Key",
+				createdBy: "user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: "provider-key-id",
+				...encryptProviderKeyForStorage(
+					"xai-test-token",
+					"provider-key-id",
+					"org-id",
+				),
+				provider: "xai",
+				organizationId: "org-id",
+				baseUrl: mockServerUrl,
+			});
+		}
+
+		function spyModeration() {
+			moderationInputs = [];
+			const originalFetch = globalThis.fetch;
+			return vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async (input, init) => {
+					const url =
+						typeof input === "string"
+							? input
+							: input instanceof URL
+								? input.toString()
+								: input.url;
+					if (url === MODERATION_URL) {
+						moderationInputs.push(JSON.parse(String(init?.body)).input);
+						return new Response(
+							JSON.stringify({
+								id: "modr-video",
+								model: "omni-moderation-latest",
+								results: [
+									{ flagged: true, category_scores: { violence: 0.97 } },
+								],
+							}),
+							{ status: 200, headers: { "Content-Type": "application/json" } },
+						);
+					}
+					return await originalFetch(input as RequestInfo | URL, init);
+				});
+		}
+
+		async function createVideo(requestId: string) {
+			return await app.request("/v1/videos", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-request-id": requestId,
+				},
+				body: JSON.stringify({
+					model: "xai/grok-imagine-video-1-5",
+					prompt: "A violent scene",
+					size: "1280x720",
+					seconds: 6,
+					image: { image_url: "data:image/png;base64,aGVsbG8=" },
+				}),
+			});
+		}
+
+		test("records a log-only violation on the job's log row", async () => {
+			await seedXai();
+			await harness.setContentFilterSettings({ providerIds: ["xai"] });
+			const previousKey = process.env.LLM_OPENAI_API_KEY;
+			process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+			const fetchSpy = spyModeration();
+
+			try {
+				const createRes = await createVideo("video-tier-logged");
+				expect(createRes.status).toBe(200);
+				const created = await createRes.json();
+
+				// Prompt text plus one image part each get their own moderation call.
+				expect(moderationInputs).toHaveLength(2);
+				expect(JSON.stringify(moderationInputs)).toContain("A violent scene");
+				expect(JSON.stringify(moderationInputs)).toContain(
+					"data:image/png;base64,aGVsbG8=",
+				);
+
+				const videoJob = await db.query.videoJob.findFirst({
+					where: { id: { eq: created.id } },
+				});
+				setMockVideoStatusResponse(videoJob!.upstreamId, 400, {
+					code: "imagine:content-moderated",
+					error: "Generated video rejected by content moderation.",
+				});
+				await processPendingVideoJobs();
+
+				const log = await db.query.log.findFirst({
+					where: { requestId: { eq: "video-tier-logged" } },
+				});
+				expect(log?.internalContentFilter).toBe(true);
+				expect(log?.gatewayContentFilterEvaluation).toMatchObject({
+					provider: "xai",
+					tier: 0,
+					level: "strict",
+					violation: true,
+					action: "logged",
+					exemptReason: "global_log_only",
+					matchedCategories: ["violence"],
+				});
+			} finally {
+				fetchSpy.mockRestore();
+				if (previousKey === undefined) {
+					delete process.env.LLM_OPENAI_API_KEY;
+				} else {
+					process.env.LLM_OPENAI_API_KEY = previousKey;
+				}
+			}
+		});
+
+		test("blocks with 403 before creating a job when enforced", async () => {
+			await seedXai();
+			await harness.setContentFilterSettings({
+				providerIds: ["xai"],
+				enforce: true,
+			});
+			const previousKey = process.env.LLM_OPENAI_API_KEY;
+			process.env.LLM_OPENAI_API_KEY = "sk-openai-test";
+			const fetchSpy = spyModeration();
+
+			try {
+				const res = await createVideo("video-tier-blocked");
+				expect(res.status).toBe(403);
+				expect((await res.json()).error.message).toBe(
+					GATEWAY_CONTENT_FILTER_MESSAGE,
+				);
+				expect(await db.query.videoJob.findFirst()).toBeUndefined();
+
+				const log = await db.query.log.findFirst({
+					where: { requestId: { eq: "video-tier-blocked" } },
+				});
+				expect(log?.finishReason).toBe("llmgateway_content_filter");
+				expect(log?.unifiedFinishReason).toBe("content_filter");
+				expect(log?.hasError).toBe(false);
+				expect(log?.usedProvider).toBe("xai");
+				expect(log?.gatewayContentFilterEvaluation).toMatchObject({
+					action: "blocked",
+					enforced: true,
+				});
+			} finally {
+				fetchSpy.mockRestore();
+				if (previousKey === undefined) {
+					delete process.env.LLM_OPENAI_API_KEY;
+				} else {
+					process.env.LLM_OPENAI_API_KEY = previousKey;
+				}
+			}
+		});
 	});
 
 	test("/v1/videos supports completed google-vertex jobs", async () => {

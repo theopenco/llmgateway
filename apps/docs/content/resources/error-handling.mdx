@@ -65,6 +65,26 @@ The gateway maps HTTP status codes to OpenAI error types and codes as follows:
 
 For streaming requests (`"stream": true`), an error that occurs **after** the stream has started is delivered as an SSE `error` event whose payload uses the same `{ "error": { ... } }` envelope. Errors that occur **before** streaming begins (such as authentication failures) are returned as a normal JSON error response with the appropriate status code.
 
+## Gateway Content Filter
+
+Requests routed to some providers may be screened by LLM Gateway's own content filter, which runs the prompt (and any image inputs) through a moderation model before the request reaches the provider. The filter runs on a sample of requests and its strictness follows your organization's [trust tier](/resources/rate-limits#trust-tiers-account-age-or-spend): tiers 0–2 use strict thresholds, tiers 3–4 lenient ones. LLM Gateway staff can pin an organization's content filter tier independently of its trust tier.
+
+By default the filter only records its findings. When blocking is active, a request over its tier's thresholds is rejected before dispatch and the response makes clear that the gateway filter, not the provider, stopped it:
+
+- **Chat Completions** (and the Responses endpoint): HTTP `200` with `finish_reason: "content_filter"`. The assistant message content explains that the request was blocked by LLM Gateway's content filter and how to contact support. Streaming responses send one chunk carrying that content and finish reason, then `[DONE]`.
+- **Messages** (`/v1/messages`): `stop_reason: "refusal"` with the same explanation as the text content.
+- **Images**: HTTP `200` with an empty `data` array.
+- **Videos**: HTTP `403` with the explanation in `error.message`; no job is created.
+
+A moderation outage never fails a request: if the moderation model is unavailable, the request goes through as normal.
+
+<Callout type="info">
+	[**Enterprise**](https://llmgateway.io/enterprise) organizations are exempt
+	from blocking. If a legitimate request is blocked, email
+	[contact@llmgateway.io](mailto:contact@llmgateway.io) so we can review your
+	use case against the Terms of Use and help you get unblocked.
+</Callout>
+
 ## Anthropic Endpoint
 
 The Anthropic-compatible Messages endpoint (`/v1/messages`) returns errors in Anthropic's native format instead, so the Anthropic SDK can parse them:

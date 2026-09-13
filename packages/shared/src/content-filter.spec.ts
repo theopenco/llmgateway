@@ -1,6 +1,48 @@
 import { describe, expect, test } from "vitest";
 
-import { isContentFilterErrorText } from "./content-filter.js";
+import {
+	DEFAULT_CONTENT_FILTER_SETTINGS,
+	isContentFilterErrorText,
+	parseContentFilterSettings,
+} from "./content-filter.js";
+
+describe("parseContentFilterSettings", () => {
+	test("defaults to log-only sampling with no providers", () => {
+		expect(DEFAULT_CONTENT_FILTER_SETTINGS).toEqual({
+			enabled: true,
+			providerIds: [],
+			sampleRatePercent: 100,
+			enforce: false,
+			enforceEnterprise: false,
+		});
+		expect(parseContentFilterSettings(null)).toEqual(
+			DEFAULT_CONTENT_FILTER_SETTINGS,
+		);
+		expect(parseContentFilterSettings("not json")).toEqual(
+			DEFAULT_CONTENT_FILTER_SETTINGS,
+		);
+	});
+
+	test("parses stored settings and fills missing fields", () => {
+		expect(
+			parseContentFilterSettings(
+				JSON.stringify({ providerIds: ["openai"], sampleRatePercent: 10 }),
+			),
+		).toEqual({
+			enabled: true,
+			providerIds: ["openai"],
+			sampleRatePercent: 10,
+			enforce: false,
+			enforceEnterprise: false,
+		});
+	});
+
+	test("falls back to defaults on out-of-range values", () => {
+		expect(
+			parseContentFilterSettings(JSON.stringify({ sampleRatePercent: 250 })),
+		).toEqual(DEFAULT_CONTENT_FILTER_SETTINGS);
+	});
+});
 
 describe("isContentFilterErrorText", () => {
 	test("detects ByteDance Seedance video output moderation", () => {

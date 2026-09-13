@@ -17,7 +17,10 @@ import {
 } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 
-import type { gatewayContentFilterResponseSchema } from "./log-payloads.js";
+import type {
+	gatewayContentFilterEvaluationSchema,
+	gatewayContentFilterResponseSchema,
+} from "./log-payloads.js";
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type {
 	Quantization,
@@ -338,6 +341,12 @@ export const organization = pgTable(
 		// allowance) — both to hold an abusive org down and to lift a vetted org
 		// up. NULL = automatic ladder.
 		trustTierOverride: integer(),
+		// Admin-set gateway content filter tier pin (0-4): 0-2 strict, 3+ lenient.
+		// NULL = follows the trust tier above.
+		contentFilterTierOverride: integer(),
+		// When true the gateway content filter still samples and logs this org's
+		// requests but never blocks them.
+		contentFilterLogOnly: boolean().notNull().default(false),
 		// Organization kind:
 		// - "default": regular dashboard/team org.
 		// - "devpass": per-user personal org backing the Dev Plans (DevPass) product.
@@ -2293,6 +2302,10 @@ export const log = pgTable(
 		internalContentFilter: boolean(),
 		gatewayContentFilterResponse:
 			jsonb().$type<z.infer<typeof gatewayContentFilterResponseSchema>>(),
+		// Outcome of the tiered gateway content filter for sampled requests.
+		// Metadata only (categories and scores), so it is kept at every retention level.
+		gatewayContentFilterEvaluation:
+			jsonb().$type<z.infer<typeof gatewayContentFilterEvaluationSchema>>(),
 		responsesApiId: text(),
 		responsesApiData: jsonb(),
 		// Realtime WebSocket sessions: one log row per billable terminal event
@@ -3907,6 +3920,44 @@ export const routingExclusionHourly = pgTable(
 			table.hourTimestamp,
 			table.reason,
 		),
+	],
+);
+
+// Sentinel category for the per-(org, project, hour) totals row.
+export const CONTENT_FILTER_STATS_ALL_CATEGORY = "all";
+
+// Hourly rollup of log.gatewayContentFilterEvaluation, so abuse rates can be
+// read per organization without scanning `log`. The "all" category row carries
+// the sampled/violation/blocked totals; category rows carry violationCount only.
+export const contentFilterHourlyStats = pgTable(
+	"content_filter_hourly_stats",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		hourTimestamp: timestamp().notNull(),
+		organizationId: text().notNull(),
+		projectId: text().notNull(),
+		category: text().notNull(),
+		sampledCount: integer().notNull().default(0),
+		violationCount: integer().notNull().default(0),
+		blockedCount: integer().notNull().default(0),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.organizationId,
+			table.projectId,
+			table.category,
+		),
+		index("content_filter_hourly_stats_org_ts_idx").on(
+			table.organizationId,
+			table.hourTimestamp,
+		),
+		index("content_filter_hourly_stats_ts_idx").on(table.hourTimestamp),
 	],
 );
 

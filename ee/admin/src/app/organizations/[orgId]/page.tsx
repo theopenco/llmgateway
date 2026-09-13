@@ -292,6 +292,7 @@ export default async function OrganizationPage({
 	]);
 	const transactionsData = transactionsRes.data;
 	const trustTier = orgMetricsRes.data?.trustTier;
+	const contentFilterTier = orgMetricsRes.data?.contentFilterTier;
 	const projectsData = projectsRes.data;
 	const apiKeysData = apiKeysRes.data;
 	const providerKeysData = providerKeysRes.data;
@@ -379,6 +380,10 @@ export default async function OrganizationPage({
 								trustTierOverride={
 									trustTier?.overridden ? trustTier.tier : null
 								}
+								contentFilterTierOverride={
+									contentFilterTier?.overridden ? contentFilterTier.tier : null
+								}
+								contentFilterLogOnly={contentFilterTier?.logOnly ?? false}
 								planExpiresAt={org.planExpiresAt ?? null}
 								planStartedAt={org.planStartedAt ?? null}
 								isTrialActive={org.isTrialActive ?? false}
@@ -466,6 +471,12 @@ export default async function OrganizationPage({
 											: trustTier.exempt === "dev"
 												? "Dev plan limits"
 												: "Chat plan limits"}
+							</p>
+							<p className="mt-1 text-xs text-muted-foreground">
+								Content filter:{" "}
+								{!contentFilterTier
+									? "default"
+									: `tier ${contentFilterTier.tier} · ${contentFilterTier.level}${contentFilterTier.overridden ? " · manual" : ""}${contentFilterTier.exempt ? " · enterprise" : ""}${contentFilterTier.logOnly ? " · log only" : ""}`}
 							</p>
 						</div>
 					</div>

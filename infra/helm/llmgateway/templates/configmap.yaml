@@ -205,4 +205,10 @@ data:
   {{- if .models }}
   LLM_CONTENT_FILTER_MODELS: {{ .models | quote }}
   {{- end }}
+  {{- if .tierStrictScoreThreshold }}
+  LLM_CONTENT_FILTER_TIER_STRICT_SCORE_THRESHOLD: {{ .tierStrictScoreThreshold | quote }}
+  {{- end }}
+  {{- if .tierLenientScoreThreshold }}
+  LLM_CONTENT_FILTER_TIER_LENIENT_SCORE_THRESHOLD: {{ .tierLenientScoreThreshold | quote }}
+  {{- end }}
   {{- end }}

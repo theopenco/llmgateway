@@ -46,6 +46,8 @@ interface ManageOrgDialogProps {
 	apiKeyLimit: number | null;
 	projectLimit: number | null;
 	trustTierOverride: number | null;
+	contentFilterTierOverride: number | null;
+	contentFilterLogOnly: boolean;
 	planExpiresAt: string | null;
 	planStartedAt: string | null;
 	isTrialActive: boolean;
@@ -58,6 +60,8 @@ interface ManageOrgDialogProps {
 		apiKeyLimit: number | null;
 		projectLimit: number | null;
 		trustTierOverride: number | null;
+		contentFilterTierOverride: number | null;
+		contentFilterLogOnly: boolean;
 		planExpiresAt: string | null;
 		planStartedAt: string | null;
 		isTrialActive: boolean;
@@ -121,6 +125,8 @@ export function ManageOrgDialog({
 	apiKeyLimit,
 	projectLimit,
 	trustTierOverride,
+	contentFilterTierOverride,
+	contentFilterLogOnly,
 	planExpiresAt,
 	planStartedAt,
 	isTrialActive,
@@ -149,6 +155,13 @@ export function ManageOrgDialog({
 	const [trustTierValue, setTrustTierValue] = useState(
 		trustTierOverride === null ? "auto" : String(trustTierOverride),
 	);
+	const [contentFilterTierValue, setContentFilterTierValue] = useState(
+		contentFilterTierOverride === null
+			? "auto"
+			: String(contentFilterTierOverride),
+	);
+	const [contentFilterLogOnlyValue, setContentFilterLogOnlyValue] =
+		useState(contentFilterLogOnly);
 	const [startedAtValue, setStartedAtValue] = useState(
 		toDateInputValue(planStartedAt),
 	);
@@ -311,6 +324,11 @@ export function ManageOrgDialog({
 			projectLimit: projectLimitToSave,
 			trustTierOverride:
 				trustTierValue === "auto" ? null : Number(trustTierValue),
+			contentFilterTierOverride:
+				contentFilterTierValue === "auto"
+					? null
+					: Number(contentFilterTierValue),
+			contentFilterLogOnly: contentFilterLogOnlyValue,
 			planStartedAt: startedAtValue === "" ? null : startedAtValue,
 			planExpiresAt: expiresAtValue === "" ? null : expiresAtValue,
 			isTrialActive: trialActiveValue,
@@ -684,6 +702,57 @@ export function ManageOrgDialog({
 							lift a vetted one past the age floors. Automatic follows the
 							ladder.
 						</p>
+					</div>
+
+					<div className="space-y-2">
+						<Label htmlFor="manageContentFilterTier">
+							Content filter tier override
+						</Label>
+						<Select
+							value={contentFilterTierValue}
+							onValueChange={setContentFilterTierValue}
+						>
+							<SelectTrigger id="manageContentFilterTier">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="auto">
+									Automatic (follows trust tier)
+								</SelectItem>
+								<SelectItem value="0">Tier 0 — strict</SelectItem>
+								<SelectItem value="1">Tier 1 — strict</SelectItem>
+								<SelectItem value="2">Tier 2 — strict</SelectItem>
+								<SelectItem value="3">Tier 3 — lenient</SelectItem>
+								<SelectItem value="4">Tier 4 — lenient</SelectItem>
+							</SelectContent>
+						</Select>
+						<p className="text-xs text-muted-foreground">
+							Strictness of the gateway content filter. Tiers 0–2 flag on OpenAI
+							moderation flags or high category scores; tiers 3–4 only on very
+							high scores. Automatic follows the trust tier, so it rises with
+							account age and spend.
+							{planValue === "enterprise"
+								? " Enterprise organizations are never blocked unless enterprise enforcement is enabled globally."
+								: ""}
+						</p>
+					</div>
+
+					<div className="flex items-center gap-3">
+						<Switch
+							id="manageContentFilterLogOnly"
+							checked={contentFilterLogOnlyValue}
+							onCheckedChange={setContentFilterLogOnlyValue}
+						/>
+						<div className="space-y-0.5">
+							<Label htmlFor="manageContentFilterLogOnly">
+								Content filter: log only
+							</Label>
+							<p className="text-xs text-muted-foreground">
+								Keep sampling and recording violations for this organization but
+								never block its requests, even when blocking is enabled
+								globally.
+							</p>
+						</div>
 					</div>
 
 					{error && <p className="text-sm text-destructive">{error}</p>}
