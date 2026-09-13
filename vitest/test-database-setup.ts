@@ -1,3 +1,5 @@
+import { installConsoleCredentialRedaction } from "./redact-credentials.js";
+
 const defaultTestDatabaseUrl = "postgres://postgres:pw@localhost:5432/test";
 
 // TEST_DATABASE_URL takes precedence so a worktree running an isolated stack
@@ -15,3 +17,8 @@ process.env.ALLOW_INSECURE_PROVIDER_URLS ??= "true";
 // Every rate limit and IP allow-list reads the header named here, and the
 // helper refuses to guess one, so tests have to name it like a deployment.
 process.env.CLIENT_IP_HEADER ??= "X-Forwarded-For";
+
+// Both suites can have real provider credentials in the environment (CI e2e
+// secrets, a local .env). Keep them out of console output, which vitest copies
+// into the blob reports CI uploads as artifacts.
+installConsoleCredentialRedaction();

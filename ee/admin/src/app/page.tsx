@@ -4,6 +4,7 @@ import {
 	CircleDollarSign,
 	Gift,
 	PiggyBank,
+	PlaneTakeoff,
 	TrendingUp,
 	Users,
 } from "lucide-react";
@@ -33,7 +34,7 @@ const numberFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 0,
 });
 
-type Accent = "green" | "blue" | "violet" | "amber" | "teal";
+type Accent = "green" | "blue" | "violet" | "amber" | "teal" | "rose";
 
 const accentTick: Record<Accent, string> = {
 	green: "bg-emerald-500 dark:bg-emerald-400",
@@ -41,6 +42,7 @@ const accentTick: Record<Accent, string> = {
 	violet: "bg-violet-500 dark:bg-violet-400",
 	amber: "bg-amber-500 dark:bg-amber-400",
 	teal: "bg-teal-500 dark:bg-teal-400",
+	rose: "bg-rose-500 dark:bg-rose-400",
 };
 
 const accentIcon: Record<Accent, string> = {
@@ -49,6 +51,7 @@ const accentIcon: Record<Accent, string> = {
 	violet: "text-violet-600 dark:text-violet-400",
 	amber: "text-amber-600 dark:text-amber-400",
 	teal: "text-teal-600 dark:text-teal-400",
+	rose: "text-rose-600 dark:text-rose-400",
 };
 
 function revealAt(index: number): CSSProperties {
@@ -133,6 +136,7 @@ function MetricCell({
 	accent,
 	rows,
 	hero = false,
+	rowsGrid = false,
 	className,
 	style,
 }: {
@@ -144,6 +148,8 @@ function MetricCell({
 	accent: Accent;
 	rows: { label: string; value: string }[];
 	hero?: boolean;
+	/** Lay the ledger rows out in the hero's two-column grid. */
+	rowsGrid?: boolean;
 	className?: string;
 	style?: CSSProperties;
 }) {
@@ -199,7 +205,7 @@ function MetricCell({
 			<dl
 				className={cn(
 					"relative mt-auto border-t border-border/50 pt-4",
-					hero
+					hero || rowsGrid
 						? "grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2"
 						: "flex flex-col gap-2",
 				)}
@@ -463,6 +469,21 @@ export default async function Page({
 									value: currencyFormatter.format(metrics.totalBonusCredits),
 								},
 							]}
+						/>
+						<MetricCell
+							label="Airside margin"
+							value={metrics.airsideMarginProfit}
+							format="currency"
+							sublabel="Gateway margin earned on Airside-carrier traffic"
+							icon={<PlaneTakeoff className="h-4 w-4" strokeWidth={1.75} />}
+							accent="rose"
+							rowsGrid
+							className="sm:col-span-2 xl:col-span-3"
+							style={revealAt(7)}
+							rows={metrics.airsideMarginByCarrier.map((carrier) => ({
+								label: carrier.companyName,
+								value: currencyFormatter.format(carrier.amount),
+							}))}
 						/>
 					</div>
 				</div>

@@ -153,7 +153,7 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
-										href="/add-provider"
+										href="https://airside.llmgateway.io"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
 									>
