@@ -10,8 +10,30 @@
  * Standalone on purpose: it runs before anything is built.
  */
 
+/**
+ * Kept in step with `vitest/redact-credentials.ts` — `redact-credentials.spec.ts`
+ * asserts the two agree. Duplicated rather than imported so this stays runnable
+ * before anything is built.
+ *
+ * `LLM_*` is the provider-credential namespace and is treated as secret by
+ * default: `LLM_RUNPOD_KEY` carries a real key and matches none of the naming
+ * patterns below.
+ */
+const LLM_CONFIG_SUFFIX_PATTERN =
+	/_(BASE_URL|REGION|PROJECT|RESOURCE|API_VERSION|DEPLOYMENT_TYPE|USE_RESPONSES_API|WORKSPACE_ID|TOKEN_TYPE|MODE|METHOD|MODELS|KEYWORDS|THRESHOLD|BUCKET|PREFIX|COUNT|TTL_SECONDS)$/;
+
 const CREDENTIAL_NAME_PATTERN =
 	/(API_KEY|TOKEN|SECRET|PASSWORD|SERVICE_ACCOUNT_JSON)/;
+
+function isCredentialEnvName(name) {
+	// Variant and regional overrides (`__ENTERPRISE`, `__EU_FRANKFURT`) share
+	// the base variable's meaning.
+	const base = name.split("__")[0];
+	if (base.startsWith("LLM_")) {
+		return !LLM_CONFIG_SUFFIX_PATTERN.test(base);
+	}
+	return CREDENTIAL_NAME_PATTERN.test(name);
+}
 const MIN_SECRET_LENGTH = 12;
 
 /** Split on top-level commas only, so a service-account JSON stays one entry. */
@@ -66,9 +88,10 @@ function add(value) {
 }
 
 for (const [name, value] of Object.entries(process.env)) {
-	if (!value || !CREDENTIAL_NAME_PATTERN.test(name)) {
+	if (!value || !isCredentialEnvName(name)) {
 		continue;
 	}
+	add(value);
 	for (const entry of splitTopLevel(value)) {
 		const part = entry.trim();
 		add(part);
