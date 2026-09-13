@@ -159,14 +159,32 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		categoriesByOrg.set(row.organizationId, list);
 	}
 
-	const totals = { sampledCount: 0, violationCount: 0, blockedCount: 0 };
+	// Window-wide, independent of the ranked list cap.
+	const [globalTotals] = await db
+		.select({
+			sampledCount: sampled,
+			violationCount: violations,
+			blockedCount: blocked,
+		})
+		.from(contentFilterHourlyStats)
+		.where(
+			and(
+				gte(contentFilterHourlyStats.hourTimestamp, windowStart),
+				eq(
+					contentFilterHourlyStats.category,
+					CONTENT_FILTER_STATS_ALL_CATEGORY,
+				),
+			),
+		);
+	const totals = {
+		sampledCount: Number(globalTotals?.sampledCount ?? 0),
+		violationCount: Number(globalTotals?.violationCount ?? 0),
+		blockedCount: Number(globalTotals?.blockedCount ?? 0),
+	};
 	const organizations = orgRows.map((row) => {
 		const sampledCount = Number(row.sampledCount);
 		const violationCount = Number(row.violationCount);
 		const blockedCount = Number(row.blockedCount);
-		totals.sampledCount += sampledCount;
-		totals.violationCount += violationCount;
-		totals.blockedCount += blockedCount;
 		return {
 			organizationId: row.organizationId,
 			organizationName: row.organizationName ?? null,

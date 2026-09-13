@@ -1610,6 +1610,11 @@ describe("videos", () => {
 					action: "blocked",
 					enforced: true,
 				});
+				// A gateway block is not a provider attempt.
+				expect(log?.routingMetadata?.routing ?? []).toEqual([]);
+				expect(
+					log?.routingMetadata?.providerScores?.some((score) => score.failed),
+				).toBeFalsy();
 			} finally {
 				fetchSpy.mockRestore();
 				if (previousKey === undefined) {

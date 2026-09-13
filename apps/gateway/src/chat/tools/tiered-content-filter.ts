@@ -57,18 +57,38 @@ function getScoreThreshold(envName: string, fallback: number): number {
 	return parsed;
 }
 
-export function getStrictContentFilterScoreThreshold(): number {
-	return getScoreThreshold(
+/**
+ * Both thresholds, validated together: an env pair where strict exceeds
+ * lenient would make lower tiers less restricted than higher ones, so it
+ * falls back to the defaults for both.
+ */
+export function getContentFilterScoreThresholds(): {
+	strict: number;
+	lenient: number;
+} {
+	const strict = getScoreThreshold(
 		"LLM_CONTENT_FILTER_TIER_STRICT_SCORE_THRESHOLD",
 		DEFAULT_STRICT_SCORE_THRESHOLD,
 	);
-}
-
-export function getLenientContentFilterScoreThreshold(): number {
-	return getScoreThreshold(
+	const lenient = getScoreThreshold(
 		"LLM_CONTENT_FILTER_TIER_LENIENT_SCORE_THRESHOLD",
 		DEFAULT_LENIENT_SCORE_THRESHOLD,
 	);
+	if (strict > lenient) {
+		return {
+			strict: DEFAULT_STRICT_SCORE_THRESHOLD,
+			lenient: DEFAULT_LENIENT_SCORE_THRESHOLD,
+		};
+	}
+	return { strict, lenient };
+}
+
+export function getStrictContentFilterScoreThreshold(): number {
+	return getContentFilterScoreThresholds().strict;
+}
+
+export function getLenientContentFilterScoreThreshold(): number {
+	return getContentFilterScoreThresholds().lenient;
 }
 
 export function isContentFilterSampled(
@@ -142,10 +162,8 @@ export function evaluateTieredContentFilter(
 	results: OpenAIModerationResult[],
 	level: ContentFilterLevel,
 ): TieredContentFilterEvaluation {
-	const threshold =
-		level === "strict"
-			? getStrictContentFilterScoreThreshold()
-			: getLenientContentFilterScoreThreshold();
+	const thresholds = getContentFilterScoreThresholds();
+	const threshold = level === "strict" ? thresholds.strict : thresholds.lenient;
 	const categoryScores: Record<string, number> = {};
 	const matched = new Set<string>();
 	let flagged = false;

@@ -381,9 +381,11 @@ export default async function OrganizationPage({
 									trustTier?.overridden ? trustTier.tier : null
 								}
 								contentFilterTierOverride={
-									contentFilterTier?.overridden ? contentFilterTier.tier : null
+									settingsData?.organization.contentFilterTierOverride
 								}
-								contentFilterLogOnly={contentFilterTier?.logOnly ?? false}
+								contentFilterLogOnly={
+									settingsData?.organization.contentFilterLogOnly
+								}
 								planExpiresAt={org.planExpiresAt ?? null}
 								planStartedAt={org.planStartedAt ?? null}
 								isTrialActive={org.isTrialActive ?? false}

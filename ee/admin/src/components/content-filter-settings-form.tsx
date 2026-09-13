@@ -72,17 +72,19 @@ export function ContentFilterSettingsForm({
 			return;
 		}
 		startTransition(async () => {
+			const savedEnforceEnterprise = enforce && enforceEnterprise;
 			const result = await onSave({
 				enabled,
 				sampleRatePercent: rate,
 				enforce,
-				enforceEnterprise: enforce && enforceEnterprise,
+				enforceEnterprise: savedEnforceEnterprise,
 				providerIds: Array.from(providerIds),
 			});
 			if (!result.ok) {
 				setError(result.message);
 				return;
 			}
+			setEnforceEnterprise(savedEnforceEnterprise);
 			setSaved(true);
 			router.refresh();
 		});

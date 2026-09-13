@@ -184,8 +184,9 @@ export async function manageOrganization(
 		apiKeyLimit: number | null;
 		projectLimit: number | null;
 		trustTierOverride: number | null;
-		contentFilterTierOverride: number | null;
-		contentFilterLogOnly: boolean;
+		// Omitted = unchanged.
+		contentFilterTierOverride?: number | null;
+		contentFilterLogOnly?: boolean;
 		planExpiresAt: string | null;
 		planStartedAt: string | null;
 		isTrialActive: boolean;

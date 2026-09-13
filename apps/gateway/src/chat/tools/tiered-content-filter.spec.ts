@@ -205,6 +205,13 @@ describe("evaluateTieredContentFilter", () => {
 		});
 	});
 
+	test("inverted thresholds fall back to the defaults for both", () => {
+		process.env.LLM_CONTENT_FILTER_TIER_STRICT_SCORE_THRESHOLD = "0.95";
+		process.env.LLM_CONTENT_FILTER_TIER_LENIENT_SCORE_THRESHOLD = "0.5";
+		expect(getStrictContentFilterScoreThreshold()).toBe(0.5);
+		expect(getLenientContentFilterScoreThreshold()).toBe(0.9);
+	});
+
 	test("thresholds come from the environment when valid", () => {
 		process.env.LLM_CONTENT_FILTER_TIER_STRICT_SCORE_THRESHOLD = "0.8";
 		process.env.LLM_CONTENT_FILTER_TIER_LENIENT_SCORE_THRESHOLD = "2";

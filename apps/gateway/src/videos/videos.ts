@@ -4376,8 +4376,9 @@ async function insertVideoClientErrorLog(options: {
 	statusCode: number;
 	message: string;
 	startedAt: number;
-	// Overrides the client_error classification, e.g. for a gateway content
-	// filter block.
+	// A gateway decision made before any provider attempt, e.g. a content
+	// filter block: overrides the client_error classification and keeps the
+	// routing metadata as routed instead of recording a failed attempt.
 	outcome?: {
 		finishReason: string;
 		unifiedFinishReason: UnifiedFinishReason;
@@ -4464,12 +4465,14 @@ async function insertVideoClientErrorLog(options: {
 		cached: false,
 		mode: options.project.mode,
 		usedMode: options.providerContext.usedMode,
-		routingMetadata: buildVideoClientErrorRoutingMetadata(
-			options.routingMetadata,
-			options.providerContext,
-			options.normalizedModel,
-			options.statusCode,
-		),
+		routingMetadata: options.outcome
+			? (options.routingMetadata ?? null)
+			: buildVideoClientErrorRoutingMetadata(
+					options.routingMetadata,
+					options.providerContext,
+					options.normalizedModel,
+					options.statusCode,
+				),
 		processedAt: null,
 		rawRequest: null,
 		rawResponse: null,
