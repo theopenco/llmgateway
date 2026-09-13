@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "2812d3cb-8d0c-4899-a46d-1ca1f589dafc",
-  "prevId": "4f04cdf3-7035-4ab1-a27e-c46a268b17f1",
+  "id": "bab56664-8ac3-4dda-a448-5b55197b6b18",
+  "prevId": "7a360f41-677f-4b09-949a-00b4d4135f0b",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -241,18 +241,6 @@
     {
       "isRlsEnabled": false,
       "name": "log",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "lounge_connection",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "lounge_connector_authorization",
       "entityType": "tables",
       "schema": "public"
     },
@@ -1063,19 +1051,6 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
       "name": "token_hash",
       "entityType": "columns",
       "schema": "public",
@@ -1084,7 +1059,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -4576,6 +4551,38 @@
       "table": "chat_share"
     },
     {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "allow_discovery",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "chat_share"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "false",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "allow_forking",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "chat_share"
+    },
+    {
       "type": "jsonb",
       "typeSchema": null,
       "notNull": true,
@@ -6145,20 +6152,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "end_user_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -10766,200 +10760,6 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
-      "table": "lounge_connection"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "user_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "lounge_connection"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "connector_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "lounge_connection"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "credentials",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "lounge_connection"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "true",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "enabled",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "lounge_connection"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "lounge_connection"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "lounge_connection"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "lounge_connector_authorization"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "user_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "lounge_connector_authorization"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "session_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "lounge_connector_authorization"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "false",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "consumed",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "lounge_connector_authorization"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "connector_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "lounge_connector_authorization"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "credentials",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "lounge_connector_authorization"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "expires_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "lounge_connector_authorization"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
       "table": "lounge_point_event"
     },
     {
@@ -13044,6 +12844,19 @@
       "generated": null,
       "identity": null,
       "name": "request_price",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_provider_mapping"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "quantization",
       "entityType": "columns",
       "schema": "public",
       "table": "model_provider_mapping"
@@ -21502,6 +21315,19 @@
       "table": "provider_draft_model"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "quantization",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_draft_model"
+    },
+    {
       "type": "integer",
       "typeSchema": null,
       "notNull": false,
@@ -21816,20 +21642,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_key"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -21842,7 +21655,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -21855,7 +21668,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -23030,6 +22843,19 @@
       "generated": null,
       "identity": null,
       "name": "request_price",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_price_filing"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "region_prices",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_price_filing"
@@ -30549,76 +30375,6 @@
           "asc": true,
           "nullsFirst": false,
           "opclass": null
-        },
-        {
-          "value": "connector_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "lounge_connection_user_connector_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "lounge_connection"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "user_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "lounge_connector_authorization_user_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "lounge_connector_authorization"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "expires_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "lounge_connector_authorization_expiry_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "lounge_connector_authorization"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "user_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
         }
       ],
       "isUnique": false,
@@ -35707,40 +35463,6 @@
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "lounge_connection_user_id_user_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "lounge_connection"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "user",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "lounge_connector_authorization_user_id_user_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "lounge_connector_authorization"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "user",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
       "name": "lounge_point_event_user_id_user_id_fkey",
       "entityType": "fks",
       "schema": "public",
@@ -37851,26 +37573,6 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "lounge_connection_pkey",
-      "schema": "public",
-      "table": "lounge_connection",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "lounge_connector_authorization_pkey",
-      "schema": "public",
-      "table": "lounge_connector_authorization",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
       "name": "lounge_point_event_pkey",
       "schema": "public",
       "table": "lounge_point_event",
@@ -38934,17 +38636,6 @@
     {
       "nameExplicit": false,
       "columns": [
-        "token"
-      ],
-      "nullsNotDistinct": false,
-      "name": "api_key_token_unique",
-      "schema": "public",
-      "table": "api_key",
-      "entityType": "uniques"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
         "token_hash"
       ],
       "nullsNotDistinct": false,
@@ -38995,17 +38686,6 @@
       "name": "end_customer_stripe_customer_id_key",
       "schema": "public",
       "table": "end_customer",
-      "entityType": "uniques"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "token"
-      ],
-      "nullsNotDistinct": false,
-      "name": "end_user_session_token_key",
-      "schema": "public",
-      "table": "end_user_session",
       "entityType": "uniques"
     },
     {
@@ -39196,6 +38876,13 @@
       "entityType": "uniques"
     },
     {
+      "value": "\"key_type\" = 'platform_publishable' OR \"token_hash\" IS NOT NULL",
+      "name": "api_key_token_hash_required",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "api_key"
+    },
+    {
       "value": "\"rating\" IS NULL OR (\"rating\" >= 0 AND \"rating\" <= 5)",
       "name": "chat_support_conversation_rating_check",
       "entityType": "checks",
@@ -39257,13 +38944,6 @@
       "entityType": "checks",
       "schema": "public",
       "table": "model_survey_response"
-    },
-    {
-      "value": "(\"token\" IS NULL) <> (\"token_ciphertext\" IS NULL)",
-      "name": "provider_key_token_xor",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "provider_key"
     },
     {
       "value": "(\"managed\" = true AND \"organization_id\" IS NULL) OR (\"managed\" = false AND \"organization_id\" IS NOT NULL)",
