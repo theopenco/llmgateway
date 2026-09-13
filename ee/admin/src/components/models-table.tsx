@@ -151,7 +151,7 @@ function ModelRow({
 	const [expanded, setExpanded] = useState(false);
 	const stability = deriveStabilityMetrics(
 		model.logsCount,
-		model.errorsCount + model.clientErrorsCount,
+		model.errorsCount,
 		model.clientErrorsCount,
 	);
 	const errorRate = (stability.errorRate ?? 0).toFixed(1);
