@@ -31,6 +31,7 @@ import { lounge } from "./lounge.js";
 import masterKeys from "./master-keys.js";
 import { modelRatings } from "./model-ratings.js";
 import { modelSurvey } from "./model-survey.js";
+import { notifications } from "./notifications.js";
 import { organizationSkills } from "./organization-skills.js";
 import { organizationTeams } from "./organization-teams.js";
 import organization from "./organization.js";
@@ -65,6 +66,7 @@ routes.use("/*", async (c, next) => {
 
 routes.route("/user", user);
 routes.route("/connectors", connectors);
+routes.route("/notifications", notifications);
 
 routes.route("/logs", logs);
 
