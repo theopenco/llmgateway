@@ -1366,6 +1366,7 @@ describe("getCheapestFromAvailableProviders", () => {
 		const equalPriority = resolveRoutingConfig(
 			{ providerPriorities: { embercloud: 1, deepinfra: 1 } },
 			buildProviderPriorityDefaults(),
+			"devpass",
 		);
 
 		it("routes small prompts to the cheapest list price", async () => {

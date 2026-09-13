@@ -8,6 +8,7 @@ import {
 	DEFAULT_ROUTING_THRESHOLDS,
 	DEFAULT_ROUTING_WEIGHTS,
 	buildProviderPriorityDefaults,
+	getDefaultRoutingConfig,
 	historyMatchesDefaults,
 	resolveRoutingConfig,
 	ROUTING_HISTORY_MAX_WINDOW_MINUTES,
@@ -17,6 +18,45 @@ import {
 
 describe("resolveRoutingConfig", () => {
 	const providerDefaults = buildProviderPriorityDefaults();
+
+	it.each([
+		[undefined, 0.1, 0.2],
+		["default", 0.1, 0.2],
+		["devpass", 0.9, 0.02],
+		["chat", 0.5, 0.1],
+	] as const)("defaults cache pricing for org kind %s", (kind, rate, ratio) => {
+		const resolved = resolveRoutingConfig(null, providerDefaults, kind);
+		expect(resolved.thresholds.cacheHitRate).toBe(rate);
+		expect(resolved.thresholds.cacheOutputRatio).toBe(ratio);
+		expect(resolved.cachePricingOverrides?.cacheHitRate).toBeUndefined();
+		expect(getDefaultRoutingConfig(kind).thresholds.cacheHitRate).toBe(rate);
+		expect(getDefaultRoutingConfig(kind).thresholds.cacheOutputRatio).toBe(
+			ratio,
+		);
+	});
+
+	it("keeps an explicit cache-hit rate over the org kind default", () => {
+		const resolved = resolveRoutingConfig(
+			{ thresholds: { cacheHitRate: 0.3 } },
+			providerDefaults,
+			"devpass",
+		);
+		expect(resolved.thresholds.cacheHitRate).toBe(0.3);
+		expect(resolved.thresholds.cacheOutputRatio).toBe(0.02);
+		expect(resolved.cachePricingOverrides?.cacheHitRate).toBe(0.3);
+	});
+
+	it("preserves a zero output override and an explicit cache weight", () => {
+		const resolved = resolveRoutingConfig(
+			{ thresholds: { cacheOutputRatio: 0 }, weights: { cache: 0.2 } },
+			providerDefaults,
+			"devpass",
+		);
+		expect(resolved.thresholds.cacheHitRate).toBe(0.9);
+		expect(resolved.thresholds.cacheOutputRatio).toBe(0);
+		expect(resolved.cachePricingOverrides?.cacheOutputRatio).toBe(0);
+		expect(resolved.weights.cache).toBe(0.2);
+	});
 
 	it("returns defaults when overrides are null", () => {
 		const resolved = resolveRoutingConfig(null, providerDefaults);
