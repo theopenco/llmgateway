@@ -23,58 +23,40 @@ import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
-const REASON_VALUES = [
-	"too_expensive",
-	"missing_features",
-	"not_using_enough",
-	"switched_alternative",
-	"other",
-] as const;
-
-type Reason = (typeof REASON_VALUES)[number];
+import {
+	cancellationCommentsRequired,
+	DEV_PLAN_CANCELLATION_COMMENTS_MAX_LENGTH,
+	DEV_PLAN_CANCELLATION_REASON_OPTIONS,
+	DEV_PLAN_CANCELLATION_REASONS,
+	type DevPlanCancellationReason,
+} from "@llmgateway/shared";
 
 export type PreviousDevPlan = "lite" | "pro" | "max" | null;
 
 export interface ExistingFeedback {
-	reason: Reason;
+	reason: DevPlanCancellationReason;
 	comments: string | null;
 	submittedAt: string;
 }
 
-const REASONS: { value: Reason; label: string; description: string }[] = [
-	{
-		value: "too_expensive",
-		label: "Too expensive",
-		description: "The price didn't fit my budget.",
-	},
-	{
-		value: "missing_features",
-		label: "Missing features",
-		description: "Something I needed wasn't available.",
-	},
-	{
-		value: "not_using_enough",
-		label: "Not using it enough",
-		description: "I didn't get enough value out of it.",
-	},
-	{
-		value: "switched_alternative",
-		label: "Switched to an alternative",
-		description: "I'm using something else now.",
-	},
-	{
-		value: "other",
-		label: "Something else",
-		description: "I'll explain in the comments.",
-	},
-];
-
-const formSchema = z.object({
-	reason: z.enum(REASON_VALUES, {
-		errorMap: () => ({ message: "Please pick a reason." }),
-	}),
-	comments: z.string().max(2000, "Keep it under 2000 characters."),
-});
+const formSchema = z
+	.object({
+		reason: z.enum(DEV_PLAN_CANCELLATION_REASONS, {
+			errorMap: () => ({ message: "Please pick a reason." }),
+		}),
+		comments: z
+			.string()
+			.max(
+				DEV_PLAN_CANCELLATION_COMMENTS_MAX_LENGTH,
+				`Keep it under ${DEV_PLAN_CANCELLATION_COMMENTS_MAX_LENGTH} characters.`,
+			),
+	})
+	.refine(
+		(values) =>
+			!cancellationCommentsRequired(values.reason) ||
+			values.comments.trim().length > 0,
+		{ message: "Tell us a little more.", path: ["comments"] },
+	);
 
 type FormValues = z.infer<typeof formSchema>;
 
@@ -105,6 +87,13 @@ export default function FeedbackForm({
 
 	const isUpdating = existingFeedback !== null;
 	const comments = form.watch("comments");
+	const reason = form.watch("reason");
+	const selectedOption = DEV_PLAN_CANCELLATION_REASON_OPTIONS.find(
+		(option) => option.value === reason,
+	);
+	const commentsRequired = reason
+		? cancellationCommentsRequired(reason)
+		: false;
 
 	async function onSubmit(values: FormValues) {
 		const trimmedComments = values.comments.trim();
@@ -160,7 +149,7 @@ export default function FeedbackForm({
 									onValueChange={field.onChange}
 									className="gap-2"
 								>
-									{REASONS.map((option) => {
+									{DEV_PLAN_CANCELLATION_REASON_OPTIONS.map((option) => {
 										const selected = field.value === option.value;
 										const inputId = `reason-${option.value}`;
 										return (
@@ -168,25 +157,16 @@ export default function FeedbackForm({
 												key={option.value}
 												htmlFor={inputId}
 												className={cn(
-													"flex cursor-pointer items-start gap-3 rounded-xl border p-4 font-normal transition-colors",
+													"flex cursor-pointer items-center gap-3 rounded-xl border p-4 font-normal transition-colors",
 													selected
 														? "border-primary bg-primary/5"
 														: "hover:bg-muted/50",
 												)}
 											>
-												<RadioGroupItem
-													id={inputId}
-													value={option.value}
-													className="mt-0.5"
-												/>
-												<div className="space-y-0.5">
-													<div className="text-sm font-medium">
-														{option.label}
-													</div>
-													<div className="text-xs text-muted-foreground">
-														{option.description}
-													</div>
-												</div>
+												<RadioGroupItem id={inputId} value={option.value} />
+												<span className="text-sm font-medium">
+													{option.label}
+												</span>
 											</FormLabel>
 										);
 									})}
@@ -203,20 +183,29 @@ export default function FeedbackForm({
 					render={({ field }) => (
 						<FormItem>
 							<FormLabel className="text-sm font-medium">
-								Anything else? (optional)
+								{selectedOption?.prompt ?? "Anything else?"}
+								{!commentsRequired && (
+									<span className="font-normal text-muted-foreground">
+										{" "}
+										(optional)
+									</span>
+								)}
 							</FormLabel>
 							<FormControl>
 								<Textarea
 									rows={5}
-									maxLength={2000}
-									placeholder="What got in the way, what was missing, or what would bring you back?"
+									maxLength={DEV_PLAN_CANCELLATION_COMMENTS_MAX_LENGTH}
+									placeholder={
+										selectedOption?.placeholder ??
+										"What got in the way, what was missing, or what would bring you back?"
+									}
 									{...field}
 								/>
 							</FormControl>
 							<div className="flex items-center justify-between">
 								<FormMessage />
 								<p className="text-xs text-muted-foreground ml-auto">
-									{comments.length}/2000
+									{comments.length}/{DEV_PLAN_CANCELLATION_COMMENTS_MAX_LENGTH}
 								</p>
 							</div>
 						</FormItem>

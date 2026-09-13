@@ -47,7 +47,7 @@ import {
 import { useStripe } from "@/lib/stripe";
 import { cn } from "@/lib/utils";
 
-import { plans } from "./plans";
+import { usePlans } from "./plans";
 import { useDevPlanStatus } from "./useDevPlanStatus";
 
 import type { PlanTier } from "./types";
@@ -175,6 +175,7 @@ export default function DashboardShell({
 	const config = useAppConfig();
 	const { posthogKey, googleAdsPurchaseConversion, googleAdsSignupConversion } =
 		config;
+	const plans = usePlans();
 	const api = useApi();
 	const queryClient = useQueryClient();
 
@@ -424,11 +425,15 @@ export default function DashboardShell({
 		googleAdsPurchaseConversion,
 	]);
 
-	const handleSubscribe = async (tier: PlanTier): Promise<void> => {
+	const handleSubscribe = async (
+		tier: PlanTier,
+		options?: { paygEnabled?: boolean },
+	): Promise<void> => {
+		const paygEnabled = options?.paygEnabled === true;
 		setSubscribingTier(tier);
 		try {
 			const result = await subscribeMutation.mutateAsync({
-				body: { tier },
+				body: { tier, paygEnabled },
 			});
 
 			if (!result?.checkoutUrl) {
@@ -437,7 +442,10 @@ export default function DashboardShell({
 			}
 
 			if (posthogKey) {
-				posthog.capture("dev_plan_subscribe_started", { tier });
+				posthog.capture("dev_plan_subscribe_started", { tier, paygEnabled });
+				if (paygEnabled) {
+					posthog.capture("devpass_payg_opted_in_at_signup", { tier });
+				}
 			}
 			window.location.href = result.checkoutUrl;
 		} catch (error: unknown) {
@@ -494,7 +502,7 @@ export default function DashboardShell({
 				</h1>
 				<p className="text-sm text-muted-foreground leading-relaxed">
 					Pick a plan to get your API key and start coding with 200+ models.
-					Every dollar gives you 3x in usage.
+					Every dollar gives you 2× in usage.
 				</p>
 			</div>
 

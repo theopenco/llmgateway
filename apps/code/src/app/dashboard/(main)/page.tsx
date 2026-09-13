@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import ApiKeySection from "@/app/dashboard/components/ApiKeySection";
 import CapHitResetOfferDialog from "@/app/dashboard/components/CapHitResetOfferDialog";
 import UsageSummaryCard from "@/app/dashboard/components/UsageSummaryCard";
-import { plans } from "@/app/dashboard/plans";
+import { usePlans } from "@/app/dashboard/plans";
 import { useDevPlanStatus } from "@/app/dashboard/useDevPlanStatus";
 import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
@@ -39,6 +39,7 @@ export default function OverviewPage() {
 	} | null>(null);
 
 	const { data: devPlanStatus } = useDevPlanStatus();
+	const plans = usePlans();
 
 	const rotateApiKeyMutation = api.useMutation(
 		"post",

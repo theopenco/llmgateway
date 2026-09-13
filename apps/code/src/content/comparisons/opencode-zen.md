@@ -49,7 +49,7 @@ faqs:
   - question: Is OpenCode Zen a subscription?
     answer: "No. OpenCode Zen is pay-as-you-go: you load a balance (starting around $20) and pay per request at cost, with automatic top-ups when the balance runs low. DevPass is the opposite model — a flat monthly subscription with a fixed price and a built-in usage allowance."
   - question: Which is cheaper, DevPass or OpenCode Zen?
-    answer: "It depends on volume. At very low usage, Zen's pay-as-you-go pricing can be cheaper because you only pay for what you use. At steady or heavy usage, DevPass is usually more cost-effective and — just as importantly — predictable, because every dollar buys roughly $3 of model usage and the bill never moves."
+    answer: "It depends on volume. At very low usage, Zen's pay-as-you-go pricing can be cheaper because you only pay for what you use. At steady or heavy usage, DevPass is usually more cost-effective and — just as importantly — predictable, because every dollar buys $2 of model usage and the bill never moves."
   - question: Does OpenCode Zen include Claude and GPT?
     answer: "OpenCode Zen offers a curated, benchmarked set of coding models rather than every model on the market. DevPass includes 200+ models on every plan, including Claude Opus 4.8, GPT-5.5 and Gemini 3.1 Pro, so you're never blocked from the frontier model a task needs."
   - question: Can DevPass give me an unpredictable bill like pay-as-you-go can?

@@ -65,7 +65,7 @@ Two things define it: it's **one model**, and it's **personal use only** — inv
 
 ## What is DevPass?
 
-DevPass by LLM Gateway is a flat-rate plan covering **200+ models behind one key** — Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro, and the open-weight coders including Kimi itself. Instead of unlimited-on-one-model, you get a generous monthly usage **allowance** across all of them (roughly $3 of model usage per $1 you pay), a real cost breakdown per request, and full **commercial and team** rights.
+DevPass by LLM Gateway is a flat-rate plan covering **200+ models behind one key** — Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro, and the open-weight coders including Kimi itself. Instead of unlimited-on-one-model, you get a generous monthly usage **allowance** across all of them ($2 of model usage per $1 you pay), a real cost breakdown per request, and full **commercial and team** rights.
 
 ## Unlimited-but-single vs broad-but-metered
 

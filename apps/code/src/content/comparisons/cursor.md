@@ -4,14 +4,14 @@ slug: cursor
 date: 2026-06-14
 title: DevPass vs Cursor
 metaTitle: "DevPass vs Cursor (2026): Pricing, Models & Usage Compared"
-description: "DevPass vs Cursor compared. Cursor bundles an AI editor with a curated model set from $20/mo; DevPass is one API key for 200+ models at provider rates — roughly 3× the usage value — for Cursor, Claude Code, OpenCode or any tool you already use."
+description: "DevPass vs Cursor compared. Cursor bundles an AI editor with a curated model set from $20/mo; DevPass is one API key for 200+ models at provider rates — 2× the usage value on every plan — for Cursor, Claude Code, OpenCode or any tool you already use."
 competitor: Cursor
 competitorLogo: cursor
 competitorTagline: The AI-native code editor with tab, Composer and agents
 tagline: "Cursor bundles a polished AI editor with a curated set of models. DevPass hands you one key to 200+ models at provider rates — for whatever editor you already use, Cursor included. One is an app; the other is your model layer."
 devpassPrice: "$29–$179/mo"
 competitorPrice: "$20–$200/mo"
-verdict: "Cursor is the better buy if you want a finished AI editor — unlimited tab completion, the Composer agent and Bugbot, all in one app. DevPass isn't an editor: it's a single API key for 200+ models at provider rates, with roughly 3× the usage value of a Cursor plan, that drops into Claude Code, OpenCode, Zed — or Cursor itself. Pick Cursor for the all-in-one editor; pick DevPass to own your model access across every tool without lock-in."
+verdict: "Cursor is the better buy if you want a finished AI editor — unlimited tab completion, the Composer agent and Bugbot, all in one app. DevPass isn't an editor: it's a single API key for 200+ models at provider rates, with 2× the usage value on every plan, that drops into Claude Code, OpenCode, Zed — or Cursor itself. Pick Cursor for the all-in-one editor; pick DevPass to own your model access across every tool without lock-in."
 features:
   - label: Starting price
     devpass: "$29/mo (Lite)"
@@ -21,7 +21,7 @@ features:
     competitor: "~40 curated"
     highlight: true
   - label: Usage value per dollar
-    devpass: "~3× provider rates ($79 → ~$237)"
+    devpass: "2× provider rates ($79 → $158)"
     competitor: "1× on Pro, up to 2× on Ultra"
     highlight: true
   - label: Built-in AI editor + tab completion
@@ -55,7 +55,7 @@ faqs:
   - question: Can I use DevPass inside Cursor?
     answer: "Yes. DevPass exposes an OpenAI-compatible endpoint, so you can point Cursor's custom API key setting at it and run DevPass's 200+ models from inside the Cursor editor — while still getting per-request cost in real dollars and your flat-rate allowance. You keep Cursor's UX and swap in DevPass's catalog and pricing."
   - question: How does DevPass pricing compare to Cursor's?
-    answer: "Cursor bundles usage into the plan: Pro is roughly break-even ($20 of usage for $20), and Ultra gives about 2× ($400 for $200). DevPass gives roughly 3× across every plan — you pay $79 on Pro and get about $237 of model usage at the providers' own published rates, metered transparently."
+    answer: "Cursor bundles usage into the plan: Pro is roughly one-to-one ($20 of usage for $20), and Ultra gives about 2× ($400 for $200). DevPass gives 2× across every plan, not just the top one — you pay $79 on Pro and get $158 of model usage at the providers' own published rates, metered transparently."
   - question: Does DevPass have tab completion or an agent like Cursor?
     answer: "DevPass doesn't ship its own editor, tab completion or Bugbot — that's Cursor's domain. Instead it lets you run any of 200+ models as the agent inside the tools you already use, including Claude Code, OpenCode and Cursor itself. If a bundled editor experience is what you want, Cursor wins; if model breadth, transparent pricing and no lock-in matter more, DevPass does."
 ---
@@ -72,7 +72,7 @@ What you're really buying with Cursor is **the experience**: a finished editor w
 
 DevPass by LLM Gateway isn't an editor — it's the **model layer** underneath your editor. One API key unlocks **200+ models** — Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro, plus the open-weight coders like GLM, Kimi and Qwen — for a flat monthly price: **$29 (Lite)**, **$79 (Pro)** or **$179 (Max)**.
 
-Instead of bundling usage into opaque credits, DevPass meters every request at the **provider's own published rate** and shows you the dollar cost in real time. The allowance is generous: roughly **$3 of model usage for every $1 you pay** (so ~$237 of usage on the $79 Pro plan). It plugs into anything OpenAI- or Anthropic-compatible — **Claude Code, OpenCode, Zed, Cline** — and even into **Cursor itself**.
+Instead of bundling usage into opaque credits, DevPass meters every request at the **provider's own published rate** and shows you the dollar cost in real time. The allowance is simple: **$2 of model usage for every $1 you pay** (so $158 of usage on the $79 Pro plan), paced across the month so it lasts. It plugs into anything OpenAI- or Anthropic-compatible — **Claude Code, OpenCode, Zed, Cline** — and even into **Cursor itself**.
 
 ## The real difference: an editor vs a model layer
 
@@ -85,13 +85,13 @@ Neither is strictly "better." They sit at different layers of your stack.
 
 ## Pricing: what your money actually buys
 
-Cursor folds usage into the subscription. On **Pro**, $20/mo includes roughly $20 of API-rate usage — about break-even — though the cheaper Auto/Composer pool stretches it further for everyday work. **Ultra** gives the best ratio at about **2×** ($400 of usage for $200).
+Cursor folds usage into the subscription. On **Pro**, $20/mo includes roughly $20 of API-rate usage — about one-to-one — though the cheaper Auto/Composer pool stretches it further for everyday work. **Ultra** gives the best ratio at about **2×** ($400 of usage for $200).
 
-DevPass gives roughly **3× on every plan**, metered at the providers' published rates:
+DevPass gives **2× on every plan** — not only the $200 one — metered at the providers' published rates:
 
-- **Lite — $29/mo** → ~$87 of model usage
-- **Pro — $79/mo** → ~$237 of model usage
-- **Max — $179/mo** → ~$537 of model usage
+- **Lite — $29/mo** → $58 of model usage
+- **Pro — $79/mo** → $158 of model usage
+- **Max — $179/mo** → $358 of model usage
 
 Every request shows its exact dollar cost in your dashboard, in real dollars, the moment it completes.
 
@@ -109,4 +109,4 @@ Yes — and it's often the smart move. Because DevPass is **OpenAI-compatible**,
 
 **Choose Cursor if** you want a finished AI editor — unlimited tab completion, the Composer agent, Bugbot review — and you're happy living inside one polished app with a curated model set.
 
-**Choose DevPass if** you already work in Claude Code, OpenCode, Zed or Cline (or want to bring 200+ models into Cursor itself), and you value transparent provider-rate pricing, ~3× usage value, and zero model lock-in over a bundled editor experience.
+**Choose DevPass if** you already work in Claude Code, OpenCode, Zed or Cline (or want to bring 200+ models into Cursor itself), and you value transparent provider-rate pricing, 2× usage value on every tier, and zero model lock-in over a bundled editor experience.

@@ -9,6 +9,10 @@ import {
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { db, eq, tables } from "@llmgateway/db";
+import {
+	DEV_PLAN_INCLUDED_RESET_PASSES,
+	DEV_PLAN_RESET_PASS_PRICES,
+} from "@llmgateway/shared";
 
 import type Stripe from "stripe";
 
@@ -51,8 +55,9 @@ process.env.STRIPE_SECRET_KEY ??= "sk_test_mock";
 const ORG_ID = "test-reset-pass-org";
 const SUBSCRIPTION_ID = "sub_reset_pass";
 const originalMultiplier = process.env.DEV_PLAN_CREDITS_MULTIPLIER;
+const PRO_PASS_CENTS = DEV_PLAN_RESET_PASS_PRICES.pro * 100;
 
-// With multiplier 3 the pro weekly premium limit is 79 * 3 * 0.15 = $35.55, so
+// With multiplier 3 the pro weekly premium limit is 79 * 3 * 0.12 = $28.44, so
 // a partially-used week (e.g. $5) is always strictly below the limit.
 const WEEK_AGO_MS = 8 * 24 * 60 * 60 * 1000;
 const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
@@ -132,7 +137,7 @@ function paymentIntentFixture(
 		metadata: Record<string, string>;
 	}> = {},
 ): Stripe.PaymentIntent {
-	const amount = overrides.amount ?? 2900;
+	const amount = overrides.amount ?? PRO_PASS_CENTS;
 	return {
 		id: overrides.id ?? "pi_reset_fixture",
 		status: "succeeded",
@@ -247,8 +252,9 @@ describe("reset pass redeem", () => {
 		const res = await redeemRequest(token, { confirmHighCycleUsage: true });
 		expect(res.status).toBe(200);
 		const org = await getOrg();
-		expect(org.devPlanIncludedResetPassesUsed).toBe(1);
-		expect(org.devPlanResetPassesPro).toBe(2);
+		// Pro includes no passes, so the redeem burns a purchased one.
+		expect(org.devPlanIncludedResetPassesUsed).toBe(0);
+		expect(org.devPlanResetPassesPro).toBe(1);
 	});
 
 	it("rejects a confirmed redeem when the monthly cycle is exhausted", async () => {
@@ -286,8 +292,8 @@ describe("reset pass redeem", () => {
 		await insertOrg({
 			devPlanPremiumCreditsUsed: "5",
 			devPlanPremiumWeekStart: new Date(),
-			// Pro's single included pass is already consumed this cycle.
-			devPlanIncludedResetPassesUsed: 1,
+			// Pro includes no passes and none were purchased.
+			devPlanIncludedResetPassesUsed: 0,
 			devPlanResetPassesPro: 0,
 		});
 
@@ -314,12 +320,14 @@ describe("reset pass redeem", () => {
 	});
 
 	it("consumes the included pass first and restores the allowance", async () => {
+		// Max is the tier that ships with included passes.
 		const weekStart = new Date(Date.now() - TWO_DAYS_MS);
 		await insertOrg({
+			devPlan: "max",
 			devPlanPremiumCreditsUsed: "17.42",
 			devPlanPremiumWeekStart: weekStart,
 			devPlanIncludedResetPassesUsed: 0,
-			devPlanResetPassesPro: 2,
+			devPlanResetPassesMax: 2,
 		});
 
 		const res = await redeemRequest(token);
@@ -329,7 +337,8 @@ describe("reset pass redeem", () => {
 			success: true,
 			source: "included",
 			devPlanResetPasses: 2,
-			devPlanIncludedResetPassesRemaining: 0,
+			devPlanIncludedResetPassesRemaining:
+				DEV_PLAN_INCLUDED_RESET_PASSES.max - 1,
 		});
 
 		const org = await getOrg();
@@ -337,7 +346,7 @@ describe("reset pass redeem", () => {
 		expect(org.devPlanPremiumWeekStart).toBeNull();
 		expect(org.devPlanIncludedResetPassesUsed).toBe(1);
 		// Purchased inventory is untouched while an included pass is available.
-		expect(org.devPlanResetPassesPro).toBe(2);
+		expect(org.devPlanResetPassesMax).toBe(2);
 	});
 
 	it("falls back to purchased passes once included ones are used", async () => {
@@ -397,8 +406,8 @@ describe("reset pass redeem", () => {
 
 		const org = await getOrg();
 		expect(org.devPlanPremiumCreditsUsed).toBe("0");
-		expect(org.devPlanIncludedResetPassesUsed).toBe(1);
-		expect(org.devPlanResetPassesPro).toBe(3);
+		expect(org.devPlanIncludedResetPassesUsed).toBe(0);
+		expect(org.devPlanResetPassesPro).toBe(2);
 	});
 });
 
@@ -517,7 +526,7 @@ describe("reset pass purchase", () => {
 		stripeMock.paymentIntents.create.mockResolvedValue({
 			id: "pi_requires_action",
 			status: "requires_action",
-			amount: 2900,
+			amount: PRO_PASS_CENTS,
 			amount_received: 0,
 			metadata: {},
 		});
@@ -536,14 +545,14 @@ describe("reset pass purchase", () => {
 		expect(body).toEqual({
 			success: true,
 			devPlanResetPasses: 1,
-			amount: 29,
+			amount: DEV_PLAN_RESET_PASS_PRICES.pro,
 		});
 
 		// The server derives the price from the org's tier; nothing in the
 		// request body can influence the charge.
 		expect(stripeMock.paymentIntents.create).toHaveBeenCalledWith(
 			expect.objectContaining({
-				amount: 2900,
+				amount: PRO_PASS_CENTS,
 				currency: "usd",
 				customer: "cus_reset_pass",
 				payment_method: "pm_from_subscription",
@@ -567,7 +576,9 @@ describe("reset pass purchase", () => {
 		});
 		expect(txs).toHaveLength(1);
 		expect(txs[0].type).toBe("dev_plan_reset_pass");
-		expect(parseFloat(txs[0].amount ?? "0")).toBe(29);
+		expect(parseFloat(txs[0].amount ?? "0")).toBe(
+			DEV_PLAN_RESET_PASS_PRICES.pro,
+		);
 		expect(txs[0].stripePaymentIntentId).toBe("pi_reset_live");
 	});
 
@@ -712,7 +723,13 @@ describe("reset pass lifecycle and status", () => {
 		await insertOrg({ devPlanResetPassesPro: 2 });
 		await insertPassPurchaseTransaction("pi_refund_full");
 		stripeMock.refunds.list.mockResolvedValue({
-			data: [{ id: "re_full", amount: 2900, reason: "requested_by_customer" }],
+			data: [
+				{
+					id: "re_full",
+					amount: PRO_PASS_CENTS,
+					reason: "requested_by_customer",
+				},
+			],
 		});
 		stripeMock.paymentIntents.retrieve.mockResolvedValue({
 			id: "pi_refund_full",
@@ -741,7 +758,7 @@ describe("reset pass lifecycle and status", () => {
 		await insertOrg({ devPlanResetPassesPro: 0 });
 		await insertPassPurchaseTransaction("pi_refund_redeemed");
 		stripeMock.refunds.list.mockResolvedValue({
-			data: [{ id: "re_redeemed", amount: 2900, reason: null }],
+			data: [{ id: "re_redeemed", amount: PRO_PASS_CENTS, reason: null }],
 		});
 		stripeMock.paymentIntents.retrieve.mockResolvedValue({
 			id: "pi_refund_redeemed",
@@ -824,9 +841,11 @@ describe("reset pass lifecycle and status", () => {
 
 		// Only the pro inventory counts while the org is on pro.
 		expect(body.devPlanResetPasses).toBe(3);
-		expect(body.devPlanIncludedResetPasses).toBe(1);
+		expect(body.devPlanIncludedResetPasses).toBe(
+			DEV_PLAN_INCLUDED_RESET_PASSES.pro,
+		);
 		expect(body.devPlanIncludedResetPassesRemaining).toBe(0);
-		expect(body.devPlanResetPassPrice).toBe(29);
+		expect(body.devPlanResetPassPrice).toBe(DEV_PLAN_RESET_PASS_PRICES.pro);
 		expect(body.devPlanPremiumCreditsUsed).toBe("12.30");
 		expect(body.devPlanPremiumWeekResetsAt).not.toBeNull();
 	});

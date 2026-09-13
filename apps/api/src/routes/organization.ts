@@ -188,6 +188,8 @@ const organizationSchema = z
 		devPlanCreditsLimit: z.string(),
 		devPlanPremiumCreditsUsed: z.string(),
 		devPlanPremiumWeekStart: z.date().nullable(),
+		devPlanDailyCreditsUsed: z.string(),
+		devPlanDayStart: z.date().nullable(),
 		devPlanResetPassesLite: z.number(),
 		devPlanResetPassesPro: z.number(),
 		devPlanResetPassesMax: z.number(),

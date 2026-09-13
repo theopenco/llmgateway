@@ -64,7 +64,7 @@ The defining trait is focus: it's a **single-vendor** plan. Every model on it co
 
 ## What is DevPass?
 
-DevPass by LLM Gateway is a flat-rate plan that's single-vendor's opposite. It bundles **200+ models behind one key** — the GLM family _and_ Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro, Kimi, Qwen, DeepSeek and the rest. You get a monthly usage allowance (about $3 of model usage per $1 paid), a per-request cost dashboard, monthly billing, and the freedom to switch models mid-session without touching your config.
+DevPass by LLM Gateway is a flat-rate plan that's single-vendor's opposite. It bundles **200+ models behind one key** — the GLM family _and_ Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro, Kimi, Qwen, DeepSeek and the rest. You get a monthly usage allowance ($2 of model usage per $1 paid), a per-request cost dashboard, monthly billing, and the freedom to switch models mid-session without touching your config.
 
 ## Single vendor vs the whole field
 
