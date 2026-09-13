@@ -48,7 +48,7 @@
 	},
 	"devDependencies": {
 		"@eslint/eslintrc": "^3.3.1",
-		"@playwright/test": "1.61.1",
+		"@playwright/test": "1.63.0",
 		"@tailwindcss/postcss": "^4.1.16",
 		"@tanstack/react-query-devtools": "5.90.2",
 		"@types/node": "^26.2.0",

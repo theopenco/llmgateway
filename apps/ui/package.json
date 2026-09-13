@@ -95,7 +95,7 @@
 		"tailwindcss-animate": "1.0.7"
 	},
 	"devDependencies": {
-		"@playwright/test": "1.61.1",
+		"@playwright/test": "1.63.0",
 		"@tanstack/react-query-devtools": "5.90.2",
 		"@types/react": "^19.3.0",
 		"@types/react-dom": "^19.3.0",
