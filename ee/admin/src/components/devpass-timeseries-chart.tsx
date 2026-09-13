@@ -44,6 +44,10 @@ const chartConfig = {
 		label: "Provider cost",
 		color: "hsl(32 95% 44%)",
 	},
+	gatewayMargin: {
+		label: "Gateway margin",
+		color: "hsl(340 75% 55%)",
+	},
 	margin: {
 		label: "Margin",
 		color: "hsl(221 83% 53%)",
@@ -57,6 +61,7 @@ const SERIES_KEYS = [
 	"rawRevenue",
 	"topupRevenue",
 	"cost",
+	"gatewayMargin",
 	"margin",
 ] as const;
 
@@ -108,12 +113,14 @@ export function DevpassTimeseriesChart({
 		let rawRevenue = 0;
 		let topupRevenue = 0;
 		let cost = 0;
+		let gatewayMargin = 0;
 		let margin = 0;
 		return rows.map((row) => {
 			revenue += row.revenue;
 			rawRevenue += row.rawRevenue;
 			topupRevenue += row.topupRevenue;
 			cost += row.cost;
+			gatewayMargin += row.gatewayMargin;
 			margin += row.margin;
 			return {
 				date: row.date,
@@ -121,6 +128,7 @@ export function DevpassTimeseriesChart({
 				rawRevenue,
 				topupRevenue,
 				cost,
+				gatewayMargin,
 				margin,
 			};
 		});
@@ -142,8 +150,9 @@ export function DevpassTimeseriesChart({
 					<CardTitle>DevPass revenue & usage</CardTitle>
 					<CardDescription className="max-w-3xl">
 						Daily revenue net of refunds, raw gross subscription revenue, PAYG
-						overflow top-ups, real provider cost, and the resulting margin
-						(plans + top-ups − cost). Click a total to toggle its series. Range
+						overflow top-ups, real provider cost, the Airside gateway margin
+						inside that cost, and the resulting margin (plans + top-ups +
+						gateway margin − cost). Click a total to toggle its series. Range
 						totals won&apos;t match the cycle-scoped KPI cards above.
 					</CardDescription>
 				</div>
@@ -164,7 +173,7 @@ export function DevpassTimeseriesChart({
 					<ChartTypeToggle value={chartType} onValueChange={setChartType} />
 				</div>
 			</CardHeader>
-			<div className="grid grid-cols-2 border-y sm:grid-cols-5">
+			<div className="grid grid-cols-2 border-y sm:grid-cols-3 lg:grid-cols-6">
 				{SERIES_KEYS.map((key, index) => {
 					const value = totals?.[key] ?? 0;
 					const active = activeSeries.includes(key);
@@ -177,7 +186,9 @@ export function DevpassTimeseriesChart({
 							className={cn(
 								"flex flex-col gap-1 border-border/60 px-4 py-3 text-left transition-colors hover:bg-muted/30 data-[active=true]:bg-muted/50 sm:px-6",
 								index > 0 && "border-l max-sm:odd:border-l-0",
+								index % 3 === 0 && "sm:max-lg:border-l-0",
 								index > 1 && "max-sm:border-t",
+								index > 2 && "sm:max-lg:border-t",
 							)}
 							onClick={() => toggleSeries(key)}
 						>

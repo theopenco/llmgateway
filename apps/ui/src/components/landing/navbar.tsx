@@ -49,9 +49,11 @@ import {
 } from "@/lib/components/navigation-menu";
 import { useAppConfig } from "@/lib/config";
 import Logo from "@/lib/icons/Logo";
+import { useSystemBanner } from "@/lib/system-banner-context";
 import { cn } from "@/lib/utils";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
+import { SystemBannerBar } from "@llmgateway/shared/system-banner";
 
 import { ProviderPromoBanner } from "./provider-promo-banner";
 import { ThemeToggle } from "./theme-toggle";
@@ -418,6 +420,7 @@ export const Navbar = ({
 		},
 	];
 
+	const systemBanner = useSystemBanner();
 	const [menuState, setMenuState] = useState(false);
 	const [isScrolled, setIsScrolled] = useState(false);
 	const [openMobileSection, setOpenMobileSection] = useState<string | null>(
@@ -434,6 +437,9 @@ export const Navbar = ({
 
 	return (
 		<header>
+			{/* In flow, above the fixed nav, so it pushes the page down instead
+			    of covering it. */}
+			<SystemBannerBar banner={systemBanner} />
 			<nav
 				data-state={menuState && "active"}
 				className={cn("z-20 w-full px-2 group", sticky && "fixed")}

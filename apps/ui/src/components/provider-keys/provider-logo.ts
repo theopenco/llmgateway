@@ -53,6 +53,7 @@ export const providerLogoUrls: Partial<
 	ranoai: ProviderIcons.ranoai,
 	baidu: ProviderIcons.baidu,
 	consensusprotocol: ProviderIcons.consensusprotocol,
+	tencent: ProviderIcons.tencent,
 };
 
 export const getProviderLogoDarkModeClasses = () => {

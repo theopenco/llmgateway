@@ -40,6 +40,11 @@
 			"import": "./dist/components/index.js",
 			"default": "./dist/components/index.js"
 		},
+		"./system-banner": {
+			"types": "./dist/components/system-banner.d.ts",
+			"import": "./dist/components/system-banner.js",
+			"default": "./dist/components/system-banner.js"
+		},
 		"./carrier-mark": {
 			"types": "./dist/components/carrier-mark.d.ts",
 			"import": "./dist/components/carrier-mark.js",
@@ -59,6 +64,11 @@
 			"types": "./dist/mask-token.d.ts",
 			"import": "./dist/mask-token.js",
 			"default": "./dist/mask-token.js"
+		},
+		"./provider-key-crypto": {
+			"types": "./dist/provider-key-crypto.d.ts",
+			"import": "./dist/provider-key-crypto.js",
+			"default": "./dist/provider-key-crypto.js"
 		},
 		"./random": {
 			"types": "./dist/random.d.ts",

@@ -3,6 +3,8 @@
 import {
 	CircleDollarSign,
 	Info,
+	Percent,
+	PlaneTakeoff,
 	RotateCcw,
 	Ticket,
 	TrendingDown,
@@ -25,6 +27,10 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 	currency: "USD",
 	maximumFractionDigits: 2,
 });
+
+function signedCurrency(value: number): string {
+	return `${value < 0 ? "−" : "+"}${currencyFormatter.format(Math.abs(value))}`;
+}
 
 function KpiCard({
 	icon,
@@ -268,9 +274,9 @@ export function DevpassKpis({ from, to }: { from?: string; to?: string }) {
 					</>
 				)}
 			</div>
-			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
 				{kpisError ? null : !kpis ? (
-					<KpiSkeleton count={5} />
+					<KpiSkeleton count={7} />
 				) : (
 					<>
 						<KpiCard
@@ -302,11 +308,36 @@ export function DevpassKpis({ from, to }: { from?: string; to?: string }) {
 												? "border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400"
 												: "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
 										)}
-										title="Profit margin: cycle margin / gross MRR"
+										title="Profit margin: cycle margin / cycle revenue (MRR + reset passes + PAYG fee)"
 									>
 										{kpis.marginPct.toFixed(1)}% profit
 									</span>
 								) : null}
+							</div>
+							<div className="mt-1 text-xs text-muted-foreground">
+								Plan{" "}
+								<span
+									className={cn(
+										"font-medium tabular-nums",
+										kpis.planMargin < 0
+											? "text-rose-600 dark:text-rose-400"
+											: "text-foreground",
+									)}
+								>
+									{currencyFormatter.format(kpis.planMargin)}
+								</span>{" "}
+								· gateway margin{" "}
+								<span className="font-medium tabular-nums text-foreground">
+									{signedCurrency(kpis.gatewayMarginCycle)}
+								</span>{" "}
+								· reset passes{" "}
+								<span className="font-medium tabular-nums text-foreground">
+									{signedCurrency(kpis.resetPassRevenueCycle)}
+								</span>{" "}
+								· PAYG fee{" "}
+								<span className="font-medium tabular-nums text-foreground">
+									{signedCurrency(kpis.paygFeeCycle)}
+								</span>
 							</div>
 							<div className="mt-1 text-xs text-muted-foreground">
 								{currencyFormatter.format(kpis.totalRealCostCycle)} provider
@@ -319,6 +350,51 @@ export function DevpassKpis({ from, to }: { from?: string; to?: string }) {
 										overflow, excluded from margin)
 									</>
 								) : null}
+							</div>
+						</KpiCard>
+						<KpiCard
+							icon={<PlaneTakeoff className="h-3.5 w-3.5" />}
+							label="Gateway margin"
+						>
+							<div className="mt-2 text-2xl font-semibold tabular-nums">
+								{currencyFormatter.format(kpis.gatewayMarginCycle)}
+							</div>
+							<div className="mt-1 text-xs text-muted-foreground">
+								Airside carrier margin on DevPass traffic in the current cycles.
+								Provider cost is the catalogue price, so this is added back into
+								cycle margin.
+							</div>
+						</KpiCard>
+						<KpiCard
+							icon={<Ticket className="h-3.5 w-3.5" />}
+							label="Reset passes sold"
+						>
+							<div className="mt-2 text-2xl font-semibold tabular-nums">
+								{kpis.resetPassesSold}
+							</div>
+							<div className="mt-1 text-xs text-muted-foreground">
+								{currencyFormatter.format(kpis.resetPassRevenue)} all-time
+								revenue
+							</div>
+							<div className="mt-1 text-xs text-muted-foreground">
+								{kpis.resetPassesSoldCycle} in the current cycles ·{" "}
+								<span className="font-medium tabular-nums text-foreground">
+									{currencyFormatter.format(kpis.resetPassRevenueCycle)}
+								</span>{" "}
+								counted in cycle margin
+							</div>
+						</KpiCard>
+						<KpiCard
+							icon={<Percent className="h-3.5 w-3.5" />}
+							label="PAYG fee"
+						>
+							<div className="mt-2 text-2xl font-semibold tabular-nums">
+								{currencyFormatter.format(kpis.paygFeeCycle)}
+							</div>
+							<div className="mt-1 text-xs text-muted-foreground">
+								Top-up dollars above the credits granted (5% platform fee) in
+								the current cycles, net of refunds ·{" "}
+								{currencyFormatter.format(kpis.paygFeeAllTime)} all-time
 							</div>
 						</KpiCard>
 						<KpiCard
@@ -338,18 +414,6 @@ export function DevpassKpis({ from, to }: { from?: string; to?: string }) {
 							<div className="mt-1 text-xs text-muted-foreground">
 								{kpis.refundsThisMonth} refund
 								{kpis.refundsThisMonth === 1 ? "" : "s"} processed
-							</div>
-						</KpiCard>
-						<KpiCard
-							icon={<Ticket className="h-3.5 w-3.5" />}
-							label="Reset passes sold"
-						>
-							<div className="mt-2 text-2xl font-semibold tabular-nums">
-								{kpis.resetPassesSold}
-							</div>
-							<div className="mt-1 text-xs text-muted-foreground">
-								{currencyFormatter.format(kpis.resetPassRevenue)} all-time
-								revenue
 							</div>
 						</KpiCard>
 						<KpiCard

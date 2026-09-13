@@ -12,7 +12,10 @@ import {
 import { DevpassTimeseriesChart } from "@/components/devpass-timeseries-chart";
 import { DevpassUsage } from "@/components/devpass-usage";
 import { Button } from "@/components/ui/button";
-import { resolveDateRange } from "@/lib/date-range";
+import {
+	DEVPASS_USAGE_DEFAULT_RANGE,
+	resolveDateRange,
+} from "@/lib/date-range";
 import { requireSession } from "@/lib/require-session";
 import { cn } from "@/lib/utils";
 
@@ -157,6 +160,9 @@ export default async function DevpassPage({
 		range?: string;
 		from?: string;
 		to?: string;
+		usageRange?: string;
+		usageFrom?: string;
+		usageTo?: string;
 	}>;
 }) {
 	await requireSession();
@@ -168,6 +174,19 @@ export default async function DevpassPage({
 		from: params?.from,
 		to: params?.to,
 	});
+	// The usage cards have their own range (see DEVPASS_USAGE_DEFAULT_RANGE);
+	// only the raw params are round-tripped so the default never gets pinned
+	// into the URL as a custom span.
+	const usageRange =
+		typeof params?.usageRange === "string" ? params.usageRange : undefined;
+	const usageFromParam =
+		typeof params?.usageFrom === "string" ? params.usageFrom : undefined;
+	const usageToParam =
+		typeof params?.usageTo === "string" ? params.usageTo : undefined;
+	const { from: usageFrom, to: usageTo } = resolveDateRange(
+		{ range: usageRange, from: usageFromParam, to: usageToParam },
+		DEVPASS_USAGE_DEFAULT_RANGE,
+	);
 	const rawPage = parseInt(params?.page ?? "1", 10);
 	const page = Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1;
 	const search = params?.search ?? "";
@@ -234,6 +253,12 @@ export default async function DevpassPage({
 			queryParams.set("to", to);
 		}
 	}
+	if (usageRange) {
+		queryParams.set("usageRange", usageRange);
+	} else if (usageFromParam && usageToParam) {
+		queryParams.set("usageFrom", usageFromParam);
+		queryParams.set("usageTo", usageToParam);
+	}
 	queryParams.set("sortBy", sortBy);
 	queryParams.set("sortOrder", sortOrder);
 	const queryString = queryParams.toString();
@@ -251,6 +276,9 @@ export default async function DevpassPage({
 		const rangeValue = formData.get("range") as string;
 		const fromValue = formData.get("from") as string;
 		const toValue = formData.get("to") as string;
+		const usageRangeValue = formData.get("usageRange") as string;
+		const usageFromValue = formData.get("usageFrom") as string;
+		const usageToValue = formData.get("usageTo") as string;
 		const sp = new URLSearchParams();
 		if (searchValue) {
 			sp.set("search", searchValue);
@@ -280,6 +308,12 @@ export default async function DevpassPage({
 				sp.set("to", toValue);
 			}
 		}
+		if (usageRangeValue) {
+			sp.set("usageRange", usageRangeValue);
+		} else if (usageFromValue && usageToValue) {
+			sp.set("usageFrom", usageFromValue);
+			sp.set("usageTo", usageToValue);
+		}
 		sp.set("sortBy", sortByValue);
 		sp.set("sortOrder", sortOrderValue);
 		sp.set("page", "1");
@@ -305,7 +339,7 @@ export default async function DevpassPage({
 
 			<DevpassTimeseriesChart from={from} to={to} />
 
-			<DevpassUsage from={from} to={to} />
+			<DevpassUsage from={usageFrom} to={usageTo} />
 
 			<form
 				action={handleSearch}
@@ -329,6 +363,17 @@ export default async function DevpassPage({
 				<input type="hidden" name="range" value={range ?? ""} />
 				<input type="hidden" name="from" value={range ? "" : (from ?? "")} />
 				<input type="hidden" name="to" value={range ? "" : (to ?? "")} />
+				<input type="hidden" name="usageRange" value={usageRange ?? ""} />
+				<input
+					type="hidden"
+					name="usageFrom"
+					value={usageRange ? "" : (usageFromParam ?? "")}
+				/>
+				<input
+					type="hidden"
+					name="usageTo"
+					value={usageRange ? "" : (usageToParam ?? "")}
+				/>
 				<div className="flex flex-col gap-2 sm:flex-row sm:items-center">
 					<div className="relative flex-1">
 						<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
