@@ -1800,6 +1800,13 @@
       "when": 1789122852368,
       "tag": "1789122852_needy_lifeguard",
       "breakpoints": true
+    },
+    {
+      "idx": 257,
+      "version": "8",
+      "when": 1789299308115,
+      "tag": "1789299308_curly_hellcat",
+      "breakpoints": true
     }
   ]
 }

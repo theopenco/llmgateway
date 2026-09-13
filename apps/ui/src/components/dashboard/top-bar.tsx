@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 
 import { ChangelogNotifications } from "@/components/dashboard/changelog-notifications";
+import { UsageNotifications } from "@/components/dashboard/usage-notifications";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { ModelSearch } from "@/components/shared/model-search";
 import { Separator } from "@/lib/components/separator";
@@ -53,6 +54,7 @@ export function TopBar({
 					<ModelSearch />
 				</div>
 				<ChangelogNotifications entries={announcementEntries} />
+				<UsageNotifications />
 				<ThemeToggle size="compact" className="hidden md:inline-flex" />
 			</div>
 		</header>
