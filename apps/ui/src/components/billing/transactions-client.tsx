@@ -53,7 +53,6 @@ interface RefundEligibility {
 		| "not_owner"
 		| "not_latest_purchase"
 		| "plan_inactive"
-		| "credits_frozen"
 		| "usage_exceeded"
 		| "pass_already_used";
 }
@@ -92,7 +91,6 @@ const REFUND_INELIGIBILITY_COPY: Record<
 	not_owner: "Only the organization owner can request a refund",
 	not_latest_purchase: "Only your most recent purchase can be self-refunded",
 	plan_inactive: "The plan for this payment is no longer active",
-	credits_frozen: "Refunds are unavailable while credits are frozen",
 	usage_exceeded: `More than ${SELF_REFUND_USAGE_PERCENT}% of these credits have been used`,
 	pass_already_used: "This Reset Pass has already been redeemed",
 };

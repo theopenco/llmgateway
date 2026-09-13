@@ -20,6 +20,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { formatRenewalSummary } from "@/lib/renewal-state";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
@@ -260,7 +261,7 @@ export default async function ChatPlansDetailPage({
 						{currencyFormatter.format(sub.mrr)}
 					</div>
 					<div className="mt-1 text-xs text-muted-foreground">
-						Renews {formatDate(sub.expiresAt)}
+						{formatRenewalSummary(sub, formatDate)}
 					</div>
 				</div>
 				<div className="rounded-lg border border-border/60 bg-card p-4">
