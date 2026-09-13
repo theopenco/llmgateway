@@ -11,8 +11,28 @@ import { inspect } from "node:util";
  * string. Redacting at the console boundary covers both.
  */
 
+/**
+ * `LLM_*` is the provider-credential namespace, so it is treated as secret by
+ * default: `LLM_RUNPOD_KEY` carries a real key and matches none of the naming
+ * patterns below. Only the catalogue's non-secret knobs are exempt, and a
+ * missing exemption costs a redacted config value in test output — the
+ * opposite mistake costs a credential.
+ */
+const LLM_CONFIG_SUFFIX_PATTERN =
+	/_(BASE_URL|REGION|PROJECT|RESOURCE|API_VERSION|DEPLOYMENT_TYPE|USE_RESPONSES_API|WORKSPACE_ID|TOKEN_TYPE|MODE|METHOD|MODELS|KEYWORDS|THRESHOLD|BUCKET|PREFIX|COUNT|TTL_SECONDS)$/;
+
 const CREDENTIAL_NAME_PATTERN =
 	/(API_KEY|TOKEN|SECRET|PASSWORD|SERVICE_ACCOUNT_JSON)/;
+
+export function isCredentialEnvName(name: string): boolean {
+	// Variant and regional overrides (`__ENTERPRISE`, `__EU_FRANKFURT`) share
+	// the base variable's meaning.
+	const base = name.split("__")[0];
+	if (base.startsWith("LLM_")) {
+		return !LLM_CONFIG_SUFFIX_PATTERN.test(base);
+	}
+	return CREDENTIAL_NAME_PATTERN.test(name);
+}
 
 /** Short values are config (`true`, `dev`), not credentials, and redacting
  * them would hide the seeded `test-token` fixtures the suites assert on. */
@@ -71,7 +91,7 @@ function splitTopLevel(value: string): string[] {
 	return entries;
 }
 
-function collectSecrets(): string[] {
+export function collectCredentialValues(): string[] {
 	const secrets = new Set<string>();
 
 	const add = (value: string | undefined) => {
@@ -82,7 +102,7 @@ function collectSecrets(): string[] {
 	};
 
 	for (const [name, value] of Object.entries(process.env)) {
-		if (!value || !CREDENTIAL_NAME_PATTERN.test(name)) {
+		if (!value || !isCredentialEnvName(name)) {
 			continue;
 		}
 		add(value);
@@ -124,7 +144,7 @@ let cache: { fingerprint: string; secrets: string[] } | null = null;
 function envFingerprint(): string {
 	let fingerprint = "";
 	for (const [name, value] of Object.entries(process.env)) {
-		if (value && CREDENTIAL_NAME_PATTERN.test(name)) {
+		if (value && isCredentialEnvName(name)) {
 			fingerprint += `${name}:${value.length},`;
 		}
 	}
@@ -134,7 +154,7 @@ function envFingerprint(): string {
 function currentSecrets(): string[] {
 	const fingerprint = envFingerprint();
 	if (!cache || cache.fingerprint !== fingerprint) {
-		cache = { fingerprint, secrets: collectSecrets() };
+		cache = { fingerprint, secrets: collectCredentialValues() };
 	}
 	return cache.secrets;
 }
@@ -167,6 +187,7 @@ export function installConsoleCredentialRedaction(): void {
 	installed = true;
 
 	for (const method of CONSOLE_METHODS) {
+		/* eslint-disable no-console -- wrapping the console is the point here. */
 		const original = console[method].bind(console);
 		console[method] = (...args: unknown[]) => {
 			if (currentSecrets().length === 0) {
@@ -175,5 +196,6 @@ export function installConsoleCredentialRedaction(): void {
 			}
 			original(...args.map(redactArgument));
 		};
+		/* eslint-enable no-console */
 	}
 }
