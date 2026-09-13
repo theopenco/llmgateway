@@ -1,3 +1,4 @@
+import { HTTPException } from "hono/http-exception";
 import { describe, expect, it } from "vitest";
 
 import { parseModelInput } from "./parse-model-input.js";
@@ -41,6 +42,50 @@ describe("parseModelInput / resolveModelInfo catalog-id-only routing", () => {
 		const result = parseModelInput("together-ai/glm-5.1");
 		expect(result.requestedModel).toBe("glm-5.1");
 		expect(result.requestedProvider).toBe("together-ai");
+	});
+});
+
+describe("parseModelInput legacy custom/ prefix", () => {
+	// "custom" is a catalogue provider id, so "custom/<name>/<model>" used to
+	// parse with requestedProvider "custom" but no customProviderName, skipping
+	// the "Provider not found" guard and routing to an arbitrary custom key.
+	it("rejects custom/<name>/<model> with a 400 pointing at <name>/<model>", () => {
+		try {
+			parseModelInput("custom/acme/acme-large");
+			expect.unreachable("expected parseModelInput to throw");
+		} catch (error) {
+			expect(error).toBeInstanceOf(HTTPException);
+			const httpError = error as HTTPException;
+			expect(httpError.status).toBe(400);
+			expect(httpError.message).toContain('"<name>/<model>"');
+			expect(httpError.message).toContain('"acme/acme-large"');
+		}
+	});
+
+	it("rejects custom/<model> without suggesting a malformed rewrite", () => {
+		try {
+			parseModelInput("custom/some-model");
+			expect.unreachable("expected parseModelInput to throw");
+		} catch (error) {
+			expect(error).toBeInstanceOf(HTTPException);
+			const httpError = error as HTTPException;
+			expect(httpError.status).toBe(400);
+			expect(httpError.message).toContain('"<name>/<model>"');
+			expect(httpError.message).not.toContain('"some-model"');
+		}
+	});
+
+	it('still accepts the bare "custom" model', () => {
+		const result = parseModelInput("custom");
+		expect(result.requestedProvider).toBe("llmgateway");
+		expect(result.requestedModel).toBe("custom");
+	});
+
+	it("still resolves <name>/<model> as a custom provider", () => {
+		const result = parseModelInput("acme/acme-large");
+		expect(result.requestedProvider).toBe("custom");
+		expect(result.customProviderName).toBe("acme");
+		expect(result.requestedModel).toBe("acme-large");
 	});
 });
 
