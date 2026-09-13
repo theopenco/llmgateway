@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* The shared announcement banner ships Tailwind classes from outside this app. */
+@source "../../../../packages/shared/src/components/system-banner.tsx";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

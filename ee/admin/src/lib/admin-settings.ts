@@ -2,6 +2,8 @@
 
 import { createServerApiClient } from "./server-api";
 
+import type { SystemBannerSeverity } from "@llmgateway/shared";
+
 export async function getCreditPurchaseBlock() {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET("/admin/settings/credit-purchase-block");
@@ -61,4 +63,34 @@ export async function updateForceThreeDSecure(mode: ForceThreeDSecureMode) {
 		};
 	}
 	return { state: data, message: null };
+}
+
+export interface SystemBannerSettingInput {
+	enabled: boolean;
+	message: string;
+	severity: SystemBannerSeverity;
+	linkUrl: string | null;
+	linkLabel: string | null;
+}
+
+export async function getSystemBanner() {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/settings/banner");
+	return data ?? null;
+}
+
+export async function updateSystemBanner(input: SystemBannerSettingInput) {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.PUT("/admin/settings/banner", {
+		body: input,
+	});
+	if (!data) {
+		return {
+			banner: null,
+			message:
+				(error as { message?: string } | undefined)?.message ??
+				"Failed to update the banner.",
+		};
+	}
+	return { banner: data, message: null };
 }

@@ -34,6 +34,10 @@ import {
 	tokenWindowSchema,
 } from "@/lib/stats-window.js";
 import {
+	getSystemBannerSetting,
+	setSystemBannerSetting,
+} from "@/lib/system-banner.js";
+import {
 	getForcedThreeDSecureMode,
 	getThreeDSecureEnvOverride,
 	setForcedThreeDSecureMode,
@@ -111,8 +115,10 @@ import {
 	MIN_BULK_BLOCK_SEARCH_LENGTH,
 	getOrgSpendTier,
 	getPlanClass,
+	isValidSystemBannerLink,
 	parseUsedModel,
 	resolveTrustTierOverride,
+	SYSTEM_BANNER_SEVERITIES,
 } from "@llmgateway/shared";
 import {
 	getResendClient,
@@ -121,6 +127,7 @@ import {
 } from "@llmgateway/shared/email";
 
 import type { ServerTypes } from "@/vars.js";
+import type { SystemBanner } from "@llmgateway/shared";
 
 function escapeHtml(text: string): string {
 	const htmlEscapeMap: Record<string, string> = {
@@ -5806,6 +5813,98 @@ admin.openapi(updateForceThreeDSecure, async (c) => {
 	await setForcedThreeDSecureMode(mode);
 
 	return c.json(await forceThreeDSecureState());
+});
+
+// --- Announcement Banner ---
+
+const systemBannerSchema = z
+	.object({
+		// Whether the banner is currently shown on the public sites.
+		enabled: z.boolean(),
+		message: z.string(),
+		severity: z.enum(SYSTEM_BANNER_SEVERITIES),
+		linkUrl: z.string().nullable(),
+		linkLabel: z.string().nullable(),
+	})
+	.openapi({});
+
+function systemBannerResponse(setting: {
+	enabled: boolean;
+	banner: SystemBanner | null;
+}) {
+	return {
+		enabled: setting.enabled,
+		message: setting.banner?.message ?? "",
+		severity: setting.banner?.severity ?? ("info" as const),
+		linkUrl: setting.banner?.linkUrl ?? null,
+		linkLabel: setting.banner?.linkLabel ?? null,
+	};
+}
+
+const getSystemBanner = createRoute({
+	method: "get",
+	path: "/settings/banner",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: systemBannerSchema,
+				},
+			},
+			description: "The stored announcement banner.",
+		},
+	},
+});
+
+const updateSystemBanner = createRoute({
+	method: "put",
+	path: "/settings/banner",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: systemBannerSchema,
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: systemBannerSchema,
+				},
+			},
+			description: "Updated announcement banner.",
+		},
+	},
+});
+
+admin.openapi(getSystemBanner, async (c) => {
+	return c.json(systemBannerResponse(await getSystemBannerSetting()));
+});
+
+admin.openapi(updateSystemBanner, async (c) => {
+	const body = c.req.valid("json");
+
+	if (body.enabled && !body.message.trim()) {
+		throw new HTTPException(400, {
+			message: "A banner needs a message before it can be enabled.",
+		});
+	}
+
+	const linkUrl = body.linkUrl?.trim() || null;
+	if (linkUrl && !isValidSystemBannerLink(linkUrl)) {
+		throw new HTTPException(400, {
+			message:
+				"The banner link must be an absolute https URL, e.g. https://status.llmgateway.io.",
+		});
+	}
+
+	return c.json(
+		systemBannerResponse(await setSystemBannerSetting({ ...body, linkUrl })),
+	);
 });
 
 // --- Flagged (high-risk) Accounts ---
