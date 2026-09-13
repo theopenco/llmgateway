@@ -1746,14 +1746,17 @@ describe("stats-calculator", () => {
 		const previousHour = new Date("2024-01-01T11:00:00.000Z");
 
 		it("stops rolling up the previous hour once it has settled", async () => {
-			const minuteRow = (minute: number, count: number) => ({
-				modelProviderMappingId: "mapping-1",
-				modelId: "gpt-4",
-				providerId: "openai",
-				usedMode: "credits" as const,
-				minuteTimestamp: new Date(previousHour.getTime() + minute * 60_000),
-				logsCount: count,
-			});
+			const minuteRow = (minute: number, count: number) => {
+				const offsetMs = minute * 60_000;
+				return {
+					modelProviderMappingId: "mapping-1",
+					modelId: "gpt-4",
+					providerId: "openai",
+					usedMode: "credits" as const,
+					minuteTimestamp: new Date(previousHour.getTime() + offsetMs),
+					logsCount: count,
+				};
+			};
 			const previousHourCount = async () =>
 				(
 					await db
