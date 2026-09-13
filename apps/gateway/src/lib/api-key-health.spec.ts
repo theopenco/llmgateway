@@ -53,6 +53,40 @@ describe("api-key-health", () => {
 			expect(isKeyHealthy("LLM_OPENAI_API_KEY", 0)).toBe(false);
 		});
 
+		it("should count 402 out-of-funds responses against the key", () => {
+			const body =
+				'{"error":{"code":"401008","message":"The free trial quota for the service has been exhausted and postpaid billing is not enabled."}}';
+			reportKeyError("LLM_TENCENT_API_KEY", 0, 402, body);
+			reportKeyError("LLM_TENCENT_API_KEY", 0, 402, body);
+			reportKeyError("LLM_TENCENT_API_KEY", 0, 402, body);
+			expect(isKeyHealthy("LLM_TENCENT_API_KEY", 0)).toBe(false);
+			expect(getKeyMetrics("LLM_TENCENT_API_KEY", 0).uptime).toBe(0);
+		});
+
+		it("should count out-of-funds payloads on other 4xx codes", () => {
+			const body =
+				"Your credit balance is too low to access the Anthropic API.";
+			reportKeyError("LLM_ANTHROPIC_API_KEY", 0, 400, body);
+			reportKeyError("LLM_ANTHROPIC_API_KEY", 0, 400, body);
+			reportKeyError("LLM_ANTHROPIC_API_KEY", 0, 400, body);
+			expect(isKeyHealthy("LLM_ANTHROPIC_API_KEY", 0)).toBe(false);
+		});
+
+		it("should not permanently blacklist an out-of-funds key", () => {
+			reportKeyError("LLM_TENCENT_API_KEY", 0, 402);
+			expect(
+				getKeyMetrics("LLM_TENCENT_API_KEY", 0).permanentlyBlacklisted,
+			).toBe(false);
+			expect(isKeyHealthy("LLM_TENCENT_API_KEY", 0)).toBe(true);
+		});
+
+		it("should count 402 against tracked provider keys", () => {
+			reportTrackedKeyError("provider-key-402", 402);
+			reportTrackedKeyError("provider-key-402", 402);
+			reportTrackedKeyError("provider-key-402", 402);
+			expect(isTrackedKeyHealthy("provider-key-402")).toBe(false);
+		});
+
 		it("should track different keys independently", () => {
 			reportKeyError("LLM_OPENAI_API_KEY", 0, 500);
 			reportKeyError("LLM_OPENAI_API_KEY", 0, 500);
