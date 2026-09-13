@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "55bcd743-993f-483a-a465-d82881ea2fa6",
+  "id": "bab56664-8ac3-4dda-a448-5b55197b6b18",
   "prevId": "7a360f41-677f-4b09-949a-00b4d4135f0b",
   "ddl": [
     {
@@ -1051,19 +1051,6 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
       "name": "token_hash",
       "entityType": "columns",
       "schema": "public",
@@ -1072,7 +1059,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -6165,20 +6152,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "end_user_session"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -15613,35 +15587,6 @@
       "table": "organization"
     },
     {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "'0'",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "dev_plan_daily_credits_used",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "dev_plan_day_start",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
       "type": "integer",
       "typeSchema": null,
       "notNull": true,
@@ -21697,20 +21642,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_key"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -21723,7 +21655,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -21736,7 +21668,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -38704,17 +38636,6 @@
     {
       "nameExplicit": false,
       "columns": [
-        "token"
-      ],
-      "nullsNotDistinct": false,
-      "name": "api_key_token_unique",
-      "schema": "public",
-      "table": "api_key",
-      "entityType": "uniques"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
         "token_hash"
       ],
       "nullsNotDistinct": false,
@@ -38765,17 +38686,6 @@
       "name": "end_customer_stripe_customer_id_key",
       "schema": "public",
       "table": "end_customer",
-      "entityType": "uniques"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "token"
-      ],
-      "nullsNotDistinct": false,
-      "name": "end_user_session_token_key",
-      "schema": "public",
-      "table": "end_user_session",
       "entityType": "uniques"
     },
     {
@@ -38966,6 +38876,13 @@
       "entityType": "uniques"
     },
     {
+      "value": "\"key_type\" = 'platform_publishable' OR \"token_hash\" IS NOT NULL",
+      "name": "api_key_token_hash_required",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "api_key"
+    },
+    {
       "value": "\"rating\" IS NULL OR (\"rating\" >= 0 AND \"rating\" <= 5)",
       "name": "chat_support_conversation_rating_check",
       "entityType": "checks",
@@ -39027,13 +38944,6 @@
       "entityType": "checks",
       "schema": "public",
       "table": "model_survey_response"
-    },
-    {
-      "value": "(\"token\" IS NULL) <> (\"token_ciphertext\" IS NULL)",
-      "name": "provider_key_token_xor",
-      "entityType": "checks",
-      "schema": "public",
-      "table": "provider_key"
     },
     {
       "value": "(\"managed\" = true AND \"organization_id\" IS NULL) OR (\"managed\" = false AND \"organization_id\" IS NOT NULL)",
