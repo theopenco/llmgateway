@@ -220,9 +220,16 @@ export default function BillingClient({
 	const handleCancel = async (): Promise<void> => {
 		setIsCancelling(true);
 		try {
-			await cancelMutation.mutateAsync({});
+			const result = await cancelMutation.mutateAsync({});
 			if (posthogKey) {
 				posthog.capture("dev_plan_cancelled");
+			}
+			if (result.immediate) {
+				await invalidateStatus();
+				toast.success("Subscription cancelled", {
+					description: "Your subscription has ended.",
+				});
+				return;
 			}
 			toast.success("Subscription cancelled", {
 				description: renewWhen
