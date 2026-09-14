@@ -65,18 +65,18 @@ export function ContentConversionRail({
 			}
 			setVisible(window.scrollY / scrollable >= REVEAL_AT);
 		};
-		measure();
-		onScroll();
-		const observer = new ResizeObserver(() => {
+		const remeasure = () => {
 			measure();
 			onScroll();
-		});
+		};
+		remeasure();
+		const observer = new ResizeObserver(remeasure);
 		observer.observe(document.body);
-		window.addEventListener("resize", measure);
+		window.addEventListener("resize", remeasure);
 		window.addEventListener("scroll", onScroll, { passive: true });
 		return () => {
 			observer.disconnect();
-			window.removeEventListener("resize", measure);
+			window.removeEventListener("resize", remeasure);
 			window.removeEventListener("scroll", onScroll);
 		};
 	}, [dismissed]);
