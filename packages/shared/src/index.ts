@@ -241,7 +241,15 @@ export {
 	getOnboardingSponsorSecret,
 } from "./onboarding.js";
 
-export { isContentFilterErrorText } from "./content-filter.js";
+export {
+	CONTENT_FILTER_SETTING_ID,
+	contentFilterSettingsSchema,
+	DEFAULT_CONTENT_FILTER_SETTINGS,
+	GATEWAY_CONTENT_FILTER_MESSAGE,
+	isContentFilterErrorText,
+	parseContentFilterSettings,
+	type ContentFilterSettings,
+} from "./content-filter.js";
 
 export { FAILURE_LABELS, failureLabel } from "./compliance-failure-labels.js";
 
@@ -276,6 +284,7 @@ export {
 
 export {
 	buildProviderPriorityDefaults,
+	DEFAULT_CACHE_PRICING_BY_ORG_KIND,
 	DEFAULT_ROUTING_HISTORY,
 	DEFAULT_ROUTING_RETRY,
 	DEFAULT_ROUTING_SESSION,
@@ -283,6 +292,7 @@ export {
 	DEFAULT_ROUTING_THRESHOLDS,
 	DEFAULT_ROUTING_TIMEOUTS,
 	DEFAULT_ROUTING_WEIGHTS,
+	getDefaultCachePricing,
 	getDefaultRoutingConfig,
 	historyMatchesDefaults,
 	type ProviderPriorityOverrides,
@@ -292,6 +302,7 @@ export {
 	routingHistoryCacheKey,
 	type RoutingConfigOverrides,
 	type RoutingHistoryConfig,
+	type RoutingOrganizationKind,
 	type RoutingRetryConfig,
 	type RoutingSessionConfig,
 	type RoutingStickyConfig,
@@ -369,6 +380,13 @@ export {
 	TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
 	TOPUP_VELOCITY_WINDOW_MS,
 	topUpVelocityKey,
+	contentFilterLevelForTier,
+	getOrgContentFilterTier,
+	LENIENT_CONTENT_FILTER_TIER_MIN,
+	resolveContentFilterTierOverride,
+	type ContentFilterLevel,
+	type ContentFilterTierOrg,
+	type ResolvedContentFilterTier,
 	type NextSpendTierInfo,
 	type OrgLimitType,
 	type PathRateLimitConfig,

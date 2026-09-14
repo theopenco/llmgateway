@@ -57,6 +57,8 @@ For regular (pay-as-you-go) organizations, limits scale with a **trust tier**. A
 
 Spend alone never promotes a brand-new account: each spend-qualified tier also requires the minimum account age shown, so the fastest possible path to Tier 4 is 14 days — no amount of day-one usage unlocks higher limits.
 
+The trust tier also selects how strict the [gateway content filter](/resources/error-handling#gateway-content-filter) is for your organization: tiers 0–2 are screened with strict thresholds, tiers 3–4 with lenient ones.
+
 For example, an org past 30 days old (or with $100+ of usage) is Tier 2: chat completions rises from 600 to 2,400 RPM, with a $500/day and $5,000/month spend ceiling.
 
 Qualifying spend counts **usage billed to your credit balance only** — usage served through your own provider keys (BYOK) does not count — and is **net of refunds**: every refunded payment is deducted, so refunded or clawed-back money never raises limits. Refunded top-ups still count against the top-up allowance below — refunding does not free up top-up headroom.

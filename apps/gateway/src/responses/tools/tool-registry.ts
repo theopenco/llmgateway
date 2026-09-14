@@ -1,4 +1,5 @@
 import type { ToolTreeNode } from "@/responses/schemas.js";
+import type { GoogleExtraContent } from "@llmgateway/models";
 
 /**
  * Codex 0.144+ (and any other client using the Responses tool registry) stops
@@ -188,6 +189,7 @@ export function toResponsesToolCallItem(
 	toolCall: {
 		id: string;
 		callId: string;
+		extraContent?: GoogleExtraContent;
 		name: string;
 		arguments: string;
 		status: "in_progress" | "completed";
@@ -197,6 +199,7 @@ export function toResponsesToolCallItem(
 	const shared = {
 		id: toolCall.id,
 		call_id: toolCall.callId,
+		...(toolCall.extraContent ? { extra_content: toolCall.extraContent } : {}),
 		name,
 		...(namespace ? { namespace } : {}),
 		status: toolCall.status,

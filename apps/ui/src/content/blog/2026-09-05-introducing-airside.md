@@ -2,6 +2,7 @@
 id: "blog-introducing-airside"
 slug: "introducing-airside"
 date: "2026-09-05"
+updatedAt: "2026-09-13"
 title: "Introducing Airside: List Your Models on LLM Gateway"
 summary: "Airside is the self-serve carrier console where LLM providers claim their listing on LLM Gateway, register models, file prices for review, and tune the discount and margin that win routed traffic. Listing costs a one-time $2,500 fee per provider company, and every model is verified live before it goes on the departure board."
 categories: ["Announcements"]
@@ -66,10 +67,10 @@ Results come back per check, so a failure tells you which flag to fix rather tha
 
 Under **Fares**, each carrier controls how it competes:
 
-| Knob                 | Range                | Effect                                                                                        |
-| -------------------- | -------------------- | --------------------------------------------------------------------------------------------- |
-| **Traffic discount** | 0–50%                | Lowers your effective price in the routing election only, so you win more traffic             |
-| **Landing fee**      | 5–50% (baseline 20%) | The gateway margin you accept. Accepting more boosts your score; accepting less prices you up |
+| Knob                 | Range                | Effect                                                                                           |
+| -------------------- | -------------------- | ------------------------------------------------------------------------------------------------ |
+| **Traffic discount** | 0–50%                | Lowers your effective price in the routing election and, once approved, the price developers pay |
+| **Landing fee**      | 5–50% (baseline 20%) | The gateway margin you accept. Accepting more boosts your score; accepting less prices you up    |
 
 ![The Fares page with the traffic discount and landing fee sliders](/blog/airside/fares.png)
 

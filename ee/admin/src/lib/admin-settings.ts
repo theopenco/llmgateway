@@ -79,6 +79,38 @@ export async function getSystemBanner() {
 	return data ?? null;
 }
 
+export interface ContentFilterSettingsInput {
+	enabled: boolean;
+	providerIds: string[];
+	sampleRatePercent: number;
+	enforce: boolean;
+	enforceEnterprise: boolean;
+}
+
+export async function getContentFilterSettings() {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/settings/content-filter");
+	return data ?? null;
+}
+
+export async function updateContentFilterSettings(
+	input: ContentFilterSettingsInput,
+) {
+	const $api = await createServerApiClient();
+	const { data, error } = await $api.PUT("/admin/settings/content-filter", {
+		body: input,
+	});
+	if (!data) {
+		return {
+			settings: null,
+			message:
+				(error as { message?: string } | undefined)?.message ??
+				"Failed to update the content filter settings.",
+		};
+	}
+	return { settings: data, message: null };
+}
+
 export async function updateSystemBanner(input: SystemBannerSettingInput) {
 	const $api = await createServerApiClient();
 	const { data, error } = await $api.PUT("/admin/settings/banner", {

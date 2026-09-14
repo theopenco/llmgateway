@@ -167,6 +167,7 @@ const forkChatResponseSchema = z.object({
 
 const createMessageSchema = z
 	.object({
+		id: z.string().min(1).max(128).optional(),
 		role: z.enum(["user", "assistant", "system"]),
 		content: z.string().optional(),
 		images: z.string().optional(), // JSON string
@@ -1800,6 +1801,62 @@ chats.openapi(addMessage, async (c) => {
 		throw new HTTPException(404, { message: "Chat not found" });
 	}
 
+	// A resumed assistant message (tool approval, reconnect) is sent again
+	// under the id the client already holds, so it replaces the stored row
+	// instead of appending a duplicate.
+	const resumeAssistantMessage = async (messageId: string) => {
+		const [updated] = await db
+			.update(tables.message)
+			.set({
+				content: body.content,
+				images: body.images,
+				audios: body.audios,
+				documents: body.documents,
+				reasoning: body.reasoning,
+				tools: body.tools,
+				sources: body.sources,
+				metadata: body.metadata,
+			})
+			.where(
+				and(
+					eq(tables.message.id, messageId),
+					eq(tables.message.chatId, id),
+					eq(tables.message.role, "assistant"),
+				),
+			)
+			.returning();
+		if (!updated) {
+			throw new HTTPException(409, {
+				message: "Message id belongs to another chat",
+			});
+		}
+		await db
+			.update(tables.chat)
+			.set({ updatedAt: new Date() })
+			.where(eq(tables.chat.id, id));
+		return c.json(
+			{
+				message: {
+					...updated,
+					role: "assistant" as const,
+					createdAt: updated.createdAt.toISOString(),
+				},
+			},
+			201,
+		);
+	};
+
+	if (body.id && body.role === "assistant") {
+		// Message ids are global, so an id from another chat must not reach
+		// the insert and surface as a unique-constraint error.
+		const existing = await db.query.message.findFirst({
+			where: { id: body.id },
+		});
+		if (existing) {
+			return await resumeAssistantMessage(existing.id);
+		}
+	}
+
 	// Check if user has unlimited access via API key
 	const isUnlimited = await hasActiveApiKey(user.id);
 
@@ -1831,6 +1888,7 @@ chats.openapi(addMessage, async (c) => {
 	const [newMessage] = await db
 		.insert(tables.message)
 		.values({
+			id: body.role === "assistant" ? body.id : undefined,
 			chatId: id,
 			role: body.role,
 			content: body.content ?? null,
@@ -1843,7 +1901,14 @@ chats.openapi(addMessage, async (c) => {
 			metadata: body.metadata ?? null,
 			sequence: nextSequence,
 		})
+		.onConflictDoNothing({ target: tables.message.id })
 		.returning();
+
+	// Two simultaneous resumes of the same id can both miss the lookup above;
+	// the one that loses the insert race updates the row the winner created.
+	if (!newMessage && body.id) {
+		return await resumeAssistantMessage(body.id);
+	}
 
 	// Update chat's updatedAt
 	await db

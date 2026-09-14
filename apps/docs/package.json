@@ -20,11 +20,11 @@
 		"start": "next start -H 0.0.0.0"
 	},
 	"dependencies": {
-		"@ai-sdk/react": "3.0.29",
-		"@llmgateway/ai-sdk-provider": "3.8.0",
+		"@ai-sdk/react": "4.0.99",
+		"@llmgateway/ai-sdk-provider": "4.0.0",
 		"@llmgateway/shared": "workspace:*",
 		"@radix-ui/react-presence": "1.1.5",
-		"ai": "6.0.27",
+		"ai": "7.0.96",
 		"babel-plugin-react-compiler": "1.0.0",
 		"class-variance-authority": "^0.7.1",
 		"flexsearch": "^0.8.212",

@@ -54,6 +54,7 @@ const KNOWN_SOURCES = [
 	"opencode",
 	"cursor",
 	"autohand",
+	"anvil",
 	"empryo",
 	"soulforge",
 ] as const;
@@ -64,6 +65,7 @@ const SOURCE_OPTIONS = [
 	{ value: "opencode", label: "OpenCode" },
 	{ value: "cursor", label: "Cursor" },
 	{ value: "autohand", label: "Autohand Code" },
+	{ value: "anvil", label: "Anvil" },
 	{ value: "empryo", label: "Empryo" },
 	{ value: "soulforge", label: "SoulForge" },
 ] as const;
@@ -167,6 +169,8 @@ function formatSourceLabel(source: string): string {
 			return "Cursor";
 		case "autohand":
 			return "Autohand Code";
+		case "anvil":
+			return "Anvil";
 		case "empryo":
 			return "Empryo";
 		case "soulforge":

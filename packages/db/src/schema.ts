@@ -17,7 +17,10 @@ import {
 } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 
-import type { gatewayContentFilterResponseSchema } from "./log-payloads.js";
+import type {
+	gatewayContentFilterEvaluationSchema,
+	gatewayContentFilterResponseSchema,
+} from "./log-payloads.js";
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type {
 	Quantization,
@@ -346,6 +349,12 @@ export const organization = pgTable(
 		// allowance) — both to hold an abusive org down and to lift a vetted org
 		// up. NULL = automatic ladder.
 		trustTierOverride: integer(),
+		// Admin-set gateway content filter tier pin (0-4): 0-2 strict, 3+ lenient.
+		// NULL = follows the trust tier above.
+		contentFilterTierOverride: integer(),
+		// When true the gateway content filter still samples and logs this org's
+		// requests but never blocks them.
+		contentFilterLogOnly: boolean().notNull().default(false),
 		// Organization kind:
 		// - "default": regular dashboard/team org.
 		// - "devpass": per-user personal org backing the Dev Plans (DevPass) product.
@@ -2296,6 +2305,10 @@ export const log = pgTable(
 		internalContentFilter: boolean(),
 		gatewayContentFilterResponse:
 			jsonb().$type<z.infer<typeof gatewayContentFilterResponseSchema>>(),
+		// Outcome of the tiered gateway content filter for sampled requests.
+		// Metadata only (categories and scores), so it is kept at every retention level.
+		gatewayContentFilterEvaluation:
+			jsonb().$type<z.infer<typeof gatewayContentFilterEvaluationSchema>>(),
 		responsesApiId: text(),
 		responsesApiData: jsonb(),
 		// Realtime WebSocket sessions: one log row per billable terminal event
@@ -3910,6 +3923,44 @@ export const routingExclusionHourly = pgTable(
 			table.hourTimestamp,
 			table.reason,
 		),
+	],
+);
+
+// Sentinel category for the per-(org, project, hour) totals row.
+export const CONTENT_FILTER_STATS_ALL_CATEGORY = "all";
+
+// Hourly rollup of log.gatewayContentFilterEvaluation, so abuse rates can be
+// read per organization without scanning `log`. The "all" category row carries
+// the sampled/violation/blocked totals; category rows carry violationCount only.
+export const contentFilterHourlyStats = pgTable(
+	"content_filter_hourly_stats",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		hourTimestamp: timestamp().notNull(),
+		organizationId: text().notNull(),
+		projectId: text().notNull(),
+		category: text().notNull(),
+		sampledCount: integer().notNull().default(0),
+		violationCount: integer().notNull().default(0),
+		blockedCount: integer().notNull().default(0),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.organizationId,
+			table.projectId,
+			table.category,
+		),
+		index("content_filter_hourly_stats_org_ts_idx").on(
+			table.organizationId,
+			table.hourTimestamp,
+		),
+		index("content_filter_hourly_stats_ts_idx").on(table.hourTimestamp),
 	],
 );
 
@@ -6237,5 +6288,100 @@ export const playgroundRealtimeHistory = pgTable(
 	},
 	(table) => [
 		index("playground_realtime_history_user_id_idx").on(table.userId),
+	],
+);
+
+export const notificationTypes = [
+	"budget",
+	"model_retirement",
+	"provider_issue",
+] as const;
+
+export const notificationPreference = pgTable(
+	"notification_preference",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		type: text({ enum: notificationTypes }).notNull(),
+		inApp: boolean().notNull().default(false),
+		email: boolean().notNull().default(false),
+		budgetThreshold: integer().notNull().default(80),
+	},
+	(table) => [unique().on(table.userId, table.type)],
+);
+
+export const notification = pgTable(
+	"notification",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		apiKeyId: text().references(() => apiKey.id, { onDelete: "cascade" }),
+		type: text({ enum: notificationTypes }).notNull(),
+		eventKey: text().notNull(),
+		title: text().notNull(),
+		message: text().notNull(),
+		href: text().notNull(),
+		inApp: boolean().notNull(),
+		email: boolean().notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+		readAt: timestamp(),
+		emailSentAt: timestamp(),
+	},
+	(table) => [
+		unique().on(table.userId, table.eventKey),
+		index("notification_user_created_idx").on(table.userId, table.createdAt),
+		index("notification_pending_email_idx")
+			.on(table.createdAt)
+			.where(sql`${table.email} = true AND ${table.emailSentAt} IS NULL`),
+	],
+);
+
+export const loungeConnection = pgTable(
+	"lounge_connection",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		connectorId: text().notNull(),
+		credentials: text().notNull(),
+		enabled: boolean().notNull().default(true),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+	},
+	(table) => [
+		uniqueIndex("lounge_connection_user_connector_idx").on(
+			table.userId,
+			table.connectorId,
+		),
+	],
+);
+
+export const loungeConnectorAuthorization = pgTable(
+	"lounge_connector_authorization",
+	{
+		id: text().primaryKey(),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		sessionId: text().notNull(),
+		consumed: boolean().notNull().default(false),
+		connectorId: text().notNull(),
+		credentials: text().notNull(),
+		expiresAt: timestamp().notNull(),
+	},
+	(table) => [
+		index("lounge_connector_authorization_user_idx").on(table.userId),
+		index("lounge_connector_authorization_expiry_idx").on(table.expiresAt),
 	],
 );

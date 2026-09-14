@@ -33,6 +33,8 @@ const internalOrganizationFields = [
 	"paymentFailureStartedAt",
 	"subscriptionPaymentStatus",
 	"trustTierOverride",
+	"contentFilterTierOverride",
+	"contentFilterLogOnly",
 	"devPlanStripeSubscriptionId",
 	"devPlanCancelled",
 	"devPlanPendingTier",

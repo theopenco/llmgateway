@@ -54,7 +54,7 @@ Under **Fares** each claimed provider has two knobs:
 - **Traffic discount** (0–50%) — a discount you offer on routed traffic.
 - **Landing fee** (5–50%) — the gateway margin you accept; the baseline is **20%**.
 
-Accepting more than the baseline margin or offering a discount makes your traffic effectively cheaper, which boosts you in the [smart routing election](/features/routing); accepting less prices you up. Like price changes, fare changes are filed for review and only reach routing once the LLM Gateway team approves them. The election scores every candidate provider on weighted factors — price after your discount and margin (`0.6`), availability/uptime (`0.5`), prompt-cache support (`0.2`), throughput (`0.05`), and latency (`0.025`) — and the lowest score wins.
+Accepting more than the baseline margin or offering a discount makes your traffic effectively cheaper, which boosts you in the [smart routing election](/features/routing); accepting less prices you up. Like price changes, fare changes are filed for review and only reach routing once the LLM Gateway team approves them. The election scores every candidate provider on weighted factors — expected token cost after your discount and margin (`0.6`), availability/uptime (`0.5`), throughput (`0.05`), and latency (`0.025`) — and the lowest score wins. Cache-read savings count toward token cost; cache support alone receives no additional preference by default.
 
 <Callout type="info">
 	Routing reacts to live metrics: reliability and speed still matter. A cheap
