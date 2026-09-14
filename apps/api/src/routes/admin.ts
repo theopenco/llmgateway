@@ -3473,8 +3473,10 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		org,
 		qualifyingSpendUsd,
 	);
+	const contentFilterSettings = await getContentFilterSettings();
 	const contentFilterTier = {
-		exempt: org.plan === "enterprise",
+		exempt:
+			org.plan === "enterprise" && !contentFilterSettings.enforceEnterprise,
 		tier: contentFilterTierResolved.tier,
 		overridden: contentFilterTierResolved.overridden,
 		level: contentFilterTierResolved.level,

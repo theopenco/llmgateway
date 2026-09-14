@@ -129,6 +129,21 @@ describe("admin organization content filter tier", () => {
 			level: "lenient",
 			logOnly: true,
 		});
+
+		const enforced = await app.request("/admin/settings/content-filter", {
+			method: "PUT",
+			headers: { Cookie: cookie, "Content-Type": "application/json" },
+			body: JSON.stringify({ enforce: true, enforceEnterprise: true }),
+		});
+		expect(enforced.status).toBe(200);
+		const enforcedMetrics = await app.request(
+			`/admin/organizations/${ORG_ID}`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect((await enforcedMetrics.json()).contentFilterTier).toMatchObject({
+			exempt: false,
+			tier: 4,
+		});
 	});
 
 	it("exposes the raw override on the settings route", async () => {

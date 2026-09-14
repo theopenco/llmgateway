@@ -246,6 +246,7 @@ describe("tiered gateway content filter", () => {
 			violation: false,
 			action: "passed",
 		});
+		expect(log.gatewayContentFilterResponse).toBeNull();
 	});
 
 	test("a content filter pin wins over the trust tier pin", async () => {
