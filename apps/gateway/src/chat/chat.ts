@@ -4537,7 +4537,6 @@ chat.openapi(completions, async (c) => {
 					c.req.raw.signal,
 				)
 			: null;
-	const envContentFilterRan = openAIContentFilterResult !== null;
 	const contentFilterMatched =
 		keywordContentFilterMatch !== null ||
 		openAIContentFilterResult?.flagged === true;
@@ -6253,13 +6252,12 @@ chat.openapi(completions, async (c) => {
 		(contentFilterMode === "monitor" && contentFilterMatched) ||
 		contentFilterRoutingApplied ||
 		gatewayContentFilterEvaluation?.violation === true;
-	// The raw moderation payload is kept for the env filter and for tiered
-	// violations; a clean sampled request stores only the compact evaluation.
-	const gatewayContentFilterResponse =
-		openAIContentFilterResult?.responses.length &&
-		(envContentFilterRan || gatewayContentFilterEvaluation?.violation === true)
-			? openAIContentFilterResult.responses
-			: null;
+	// Stored for every moderated request; the 30-day data retention cleanup
+	// nulls it again, so the extra jsonb per sampled row is bounded.
+	const gatewayContentFilterResponse = openAIContentFilterResult?.responses
+		.length
+		? openAIContentFilterResult.responses
+		: null;
 	const insertLog = (
 		logData: Parameters<typeof _insertLog>[0],
 		options?: Parameters<typeof _insertLog>[1],
