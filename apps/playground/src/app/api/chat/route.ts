@@ -336,6 +336,7 @@ interface ChatRequestBody {
 			| "8:1";
 		image_size?: "0.5K" | "1K" | "2K" | "4K" | string; // string for Alibaba WIDTHxHEIGHT format
 		image_quality?: "auto" | "low" | "medium" | "high" | string;
+		moderation?: "auto" | "low";
 		n?: number;
 	};
 	reasoning_effort?: "minimal" | "low" | "medium" | "high";
@@ -646,10 +647,17 @@ export async function POST(req: Request) {
 				...(image_config?.aspect_ratio && image_config.aspect_ratio !== "auto"
 					? { aspectRatio: image_config.aspect_ratio }
 					: {}),
-				...(image_config?.image_quality
+				...(image_config?.image_quality || image_config?.moderation
 					? {
 							providerOptions: {
-								llmgateway: { quality: image_config.image_quality },
+								llmgateway: {
+									...(image_config.image_quality && {
+										quality: image_config.image_quality,
+									}),
+									...(image_config.moderation && {
+										moderation: image_config.moderation,
+									}),
+								},
 							},
 						}
 					: {}),

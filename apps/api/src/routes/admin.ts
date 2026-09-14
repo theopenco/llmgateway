@@ -17,6 +17,11 @@ import {
 	sumRefundsByTransaction,
 } from "@/lib/admin-refund.js";
 import {
+	getContentFilterSettings,
+	listContentFilterProviders,
+	setContentFilterSettings,
+} from "@/lib/content-filter-settings.js";
+import {
 	CREDIT_PURCHASE_BLOCK_SETTING_ID,
 	isCreditPurchaseBlockEnabled,
 	isCreditPurchaseBlockForcedByEnv,
@@ -113,6 +118,8 @@ import {
 	getIncludedResetPassesRemaining,
 	MAX_BULK_BLOCK_ORGANIZATIONS,
 	MIN_BULK_BLOCK_SEARCH_LENGTH,
+	contentFilterSettingsSchema,
+	getOrgContentFilterTier,
 	getOrgSpendTier,
 	getPlanClass,
 	isValidSystemBannerLink,
@@ -537,9 +544,20 @@ const trustTierSchema = z.object({
 	topUpDailyCapUsd: z.number(),
 });
 
+// The gateway content filter tier: the trust tier by default, or the admin
+// pin. Enterprise orgs are sampled and logged but exempt from blocking.
+const contentFilterTierSchema = z.object({
+	exempt: z.boolean(),
+	tier: z.number(),
+	overridden: z.boolean(),
+	level: z.enum(["strict", "lenient"]),
+	logOnly: z.boolean(),
+});
+
 const orgMetricsSchema = z.object({
 	organization: organizationSchema,
 	trustTier: trustTierSchema,
+	contentFilterTier: contentFilterTierSchema,
 	window: tokenWindowSchema,
 	startDate: z.string(),
 	endDate: z.string(),
@@ -3451,6 +3469,19 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 		monthlyCapUsd: trustTierResolved.monthlyCapUsd,
 		topUpDailyCapUsd: trustTierResolved.topUpDailyCapUsd,
 	};
+	const contentFilterTierResolved = getOrgContentFilterTier(
+		org,
+		qualifyingSpendUsd,
+	);
+	const contentFilterSettings = await getContentFilterSettings();
+	const contentFilterTier = {
+		exempt:
+			org.plan === "enterprise" && !contentFilterSettings.enforceEnterprise,
+		tier: contentFilterTierResolved.tier,
+		overridden: contentFilterTierResolved.overridden,
+		level: contentFilterTierResolved.level,
+		logOnly: org.contentFilterLogOnly,
+	};
 
 	return c.json({
 		organization: {
@@ -3474,6 +3505,7 @@ admin.openapi(getOrganizationMetrics, async (c) => {
 			riskFlagged: org.riskFlagged,
 		},
 		trustTier,
+		contentFilterTier,
 		window: windowParam,
 		startDate: startDate.toISOString(),
 		endDate: now.toISOString(),
@@ -5664,6 +5696,84 @@ admin.openapi(updateCreditPurchaseBlock, async (c) => {
 	return c.json({
 		blocked: await isCreditPurchaseBlockEnabled(),
 		envForced: isCreditPurchaseBlockForcedByEnv(),
+	});
+});
+
+// --- Tiered gateway content filter ---
+
+const contentFilterSettingsResponseSchema = z
+	.object({
+		enabled: z.boolean(),
+		sampleRatePercent: z.number(),
+		enforce: z.boolean(),
+		enforceEnterprise: z.boolean(),
+		providers: z.array(
+			z.object({
+				id: z.string(),
+				name: z.string(),
+				color: z.string().nullable(),
+				enabled: z.boolean(),
+			}),
+		),
+	})
+	.openapi({});
+
+const getContentFilterSettingsRoute = createRoute({
+	method: "get",
+	path: "/settings/content-filter",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: contentFilterSettingsResponseSchema },
+			},
+			description:
+				"Tiered gateway content filter settings and every provider's enabled state.",
+		},
+	},
+});
+
+const updateContentFilterSettingsRoute = createRoute({
+	method: "put",
+	path: "/settings/content-filter",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: contentFilterSettingsSchema.openapi({}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: contentFilterSettingsResponseSchema },
+			},
+			description: "Updated tiered gateway content filter settings.",
+		},
+	},
+});
+
+admin.openapi(getContentFilterSettingsRoute, async (c) => {
+	const settings = await getContentFilterSettings();
+	return c.json({
+		enabled: settings.enabled,
+		sampleRatePercent: settings.sampleRatePercent,
+		enforce: settings.enforce,
+		enforceEnterprise: settings.enforceEnterprise,
+		providers: listContentFilterProviders(settings),
+	});
+});
+
+admin.openapi(updateContentFilterSettingsRoute, async (c) => {
+	const settings = await setContentFilterSettings(c.req.valid("json"));
+	return c.json({
+		enabled: settings.enabled,
+		sampleRatePercent: settings.sampleRatePercent,
+		enforce: settings.enforce,
+		enforceEnterprise: settings.enforceEnterprise,
+		providers: listContentFilterProviders(settings),
 	});
 });
 
@@ -8302,6 +8412,17 @@ const manageOrganizationRoute = createRoute({
 							.max(4)
 							.nullable()
 							.optional(),
+						// Content filter tier pin (0-4). Null follows the trust tier;
+						// omitted leaves the current value unchanged.
+						contentFilterTierOverride: z
+							.number()
+							.int()
+							.min(0)
+							.max(4)
+							.nullable()
+							.optional(),
+						// Omitted leaves the current value unchanged.
+						contentFilterLogOnly: z.boolean().optional(),
 						// Null clears the plan term (open-ended plan).
 						planExpiresAt: planTermDateSchema,
 						planStartedAt: planTermDateSchema,
@@ -8327,6 +8448,8 @@ const manageOrganizationRoute = createRoute({
 						apiKeyLimit: z.number().int().nullable(),
 						projectLimit: z.number().int().nullable(),
 						trustTierOverride: z.number().int().nullable(),
+						contentFilterTierOverride: z.number().int().nullable(),
+						contentFilterLogOnly: z.boolean(),
 						planExpiresAt: z.string().nullable(),
 						planStartedAt: z.string().nullable(),
 						isTrialActive: z.boolean(),
@@ -8360,6 +8483,8 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 		apiKeyLimit,
 		projectLimit,
 		trustTierOverride,
+		contentFilterTierOverride,
+		contentFilterLogOnly,
 		planExpiresAt,
 		planStartedAt,
 		isTrialActive,
@@ -8430,6 +8555,8 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 				projectLimit,
 				// undefined = leave unchanged (drizzle skips undefined set fields).
 				trustTierOverride,
+				contentFilterTierOverride,
+				contentFilterLogOnly,
 				planExpiresAt: expiresAt,
 				planStartedAt: startedAt,
 				isTrialActive,
@@ -8473,6 +8600,13 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 				trustTierOverride === undefined
 					? org.trustTierOverride
 					: trustTierOverride,
+			previousContentFilterTierOverride: org.contentFilterTierOverride,
+			newContentFilterTierOverride:
+				contentFilterTierOverride === undefined
+					? org.contentFilterTierOverride
+					: contentFilterTierOverride,
+			previousContentFilterLogOnly: org.contentFilterLogOnly,
+			newContentFilterLogOnly: contentFilterLogOnly ?? org.contentFilterLogOnly,
 			newProjectLimit: projectLimit,
 			previousPlanExpiresAt: org.planExpiresAt?.toISOString() ?? null,
 			newPlanExpiresAt: expiresAt?.toISOString() ?? null,
@@ -8496,6 +8630,11 @@ admin.openapi(manageOrganizationRoute, async (c) => {
 			trustTierOverride === undefined
 				? org.trustTierOverride
 				: trustTierOverride,
+		contentFilterTierOverride:
+			contentFilterTierOverride === undefined
+				? org.contentFilterTierOverride
+				: contentFilterTierOverride,
+		contentFilterLogOnly: contentFilterLogOnly ?? org.contentFilterLogOnly,
 		planExpiresAt: expiresAt?.toISOString() ?? null,
 		planStartedAt: startedAt?.toISOString() ?? null,
 		isTrialActive,

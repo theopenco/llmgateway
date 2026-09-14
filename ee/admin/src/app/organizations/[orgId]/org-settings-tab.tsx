@@ -370,6 +370,18 @@ export function OrgSettingsTab({
 									: "Metadata only"}
 							</Badge>
 						</SettingRow>
+						<SettingRow label="Content filter tier override">
+							{org.contentFilterTierOverride === null
+								? "Automatic (trust tier)"
+								: `Tier ${org.contentFilterTierOverride}`}
+						</SettingRow>
+						<SettingRow label="Content filter enforcement">
+							<Badge
+								variant={org.contentFilterLogOnly ? "outline" : "secondary"}
+							>
+								{org.contentFilterLogOnly ? "Log only" : "Global setting"}
+							</Badge>
+						</SettingRow>
 						<SettingRow label="Seats">{org.seats ?? "plan default"}</SettingRow>
 						<SettingRow label="API key limit">
 							{org.apiKeyLimit ?? "plan default"}

@@ -70,6 +70,7 @@ export interface CreateLogEntryOptions {
 				aspect_ratio?: string;
 				image_size?: string;
 				image_quality?: string;
+				moderation?: string;
 		  }
 		| undefined;
 	routingMetadata?: RoutingMetadata;
@@ -131,7 +132,8 @@ function buildLogEntry(options: CreateLogEntryOptions) {
 		params:
 			options.imageConfig?.aspect_ratio ||
 			options.imageConfig?.image_size ||
-			options.imageConfig?.image_quality
+			options.imageConfig?.image_quality ||
+			options.imageConfig?.moderation
 				? { image_config: options.imageConfig }
 				: null,
 		routingMetadata: options.routingMetadata ?? null,
@@ -203,6 +205,7 @@ export function createLogEntry(
 				aspect_ratio?: string;
 				image_size?: string;
 				image_quality?: string;
+				moderation?: string;
 		  }
 		| undefined,
 	routingMetadata?: RoutingMetadata,
@@ -246,6 +249,7 @@ export function createLogEntry(
 				aspect_ratio?: string;
 				image_size?: string;
 				image_quality?: string;
+				moderation?: string;
 		  }
 		| undefined,
 	routingMetadata?: RoutingMetadata,

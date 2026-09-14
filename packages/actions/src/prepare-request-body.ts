@@ -50,6 +50,7 @@ import {
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
 type OpenAIImageQuality = "low" | "medium" | "high" | "xhigh" | "max" | "auto";
+type OpenAIImageModeration = "auto" | "low";
 
 export { RequestError } from "./request-error.js";
 
@@ -185,6 +186,7 @@ interface OpenAIImageRequest {
 	user?: string;
 	size?: string;
 	quality?: OpenAIImageQuality;
+	moderation?: OpenAIImageModeration;
 	n?: number;
 	image?: string | string[];
 }
@@ -208,6 +210,23 @@ function normalizeImageQuality(
 		normalized === "max" ||
 		normalized === "auto"
 	) {
+		return normalized;
+	}
+	return undefined;
+}
+
+/**
+ * Narrow a free-form moderation string to the GPT Image moderation values.
+ * Returns undefined for unknown values so they get dropped from the request.
+ */
+function normalizeImageModeration(
+	moderation: string | undefined,
+): OpenAIImageModeration | undefined {
+	if (!moderation) {
+		return undefined;
+	}
+	const normalized = moderation.toLowerCase();
+	if (normalized === "auto" || normalized === "low") {
 		return normalized;
 	}
 	return undefined;
@@ -1318,6 +1337,7 @@ export async function prepareRequestBody(
 		aspect_ratio?: string;
 		image_size?: string;
 		image_quality?: string;
+		moderation?: string;
 		n?: number;
 		seed?: number;
 	},
@@ -1456,6 +1476,7 @@ export async function prepareRequestBody(
 		// OpenAI returns a 4xx for unsupported sizes, which we propagate.
 		const openaiSize = image_config?.image_size;
 		const openaiQuality = normalizeImageQuality(image_config?.image_quality);
+		const openaiModeration = normalizeImageModeration(image_config?.moderation);
 
 		const openaiImageRequest: OpenAIImageRequest = {
 			model: usedExternalId,
@@ -1463,6 +1484,7 @@ export async function prepareRequestBody(
 			...(safety_identifier !== undefined && { user: safety_identifier }),
 			...(openaiSize && { size: openaiSize }),
 			...(openaiQuality && { quality: openaiQuality }),
+			...(openaiModeration && { moderation: openaiModeration }),
 			...(image_config?.n && { n: image_config.n }),
 		};
 
@@ -1480,6 +1502,9 @@ export async function prepareRequestBody(
 			}
 			if (openaiImageRequest.quality) {
 				formData.append("quality", openaiImageRequest.quality);
+			}
+			if (openaiImageRequest.moderation) {
+				formData.append("moderation", openaiImageRequest.moderation);
 			}
 			if (openaiImageRequest.n !== undefined) {
 				formData.append("n", String(openaiImageRequest.n));

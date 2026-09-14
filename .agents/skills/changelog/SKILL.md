@@ -99,7 +99,8 @@ frontmatter dimensions to the generated file.
 - Put the feature's concept at the center: a glowing element mounted on the central chip (e.g. a glowing doorway for the gateway, a glowing key for API keys). Concept over literalism.
 - Surround it with supporting glossy rounded 3D icons that fit the feature (chat bubbles, keys, charts, coins…) in vivid purple, lime green, and mint, each on small pedestals on the board.
 - Add the render feel: subtle depth of field at the edges, soft reflections, premium 3D render, vibrant against the dark board.
-- **Says "no text, no words, no letters, no UI chrome"** — AI image text is unreliable; the title lives in the page, not the image.
+- Reserve the top-left corner as clean negative space: no logo, icon, wordmark, or brand text.
+- **Says "no text, no words, no letters, no logos, no UI chrome"** — the title lives on the page; composite the official logo afterward.
 - Specifies the aspect: "wide 3:2 landscape composition, 1536×1024".
 
 Output the prompt in a fenced block, then the save path, e.g.:
@@ -113,15 +114,30 @@ bright neon-teal light traces flowing across it toward a central raised chip.
 On the chip sits a glowing <concept element>. Around it, glossy rounded 3D
 <supporting icons> in vivid purple, lime green, and mint stand on small
 pedestals on the board. Subtle depth of field at the edges, soft reflections,
-premium 3D render. Wide 3:2 landscape composition, 1536×1024. No text, no
-words, no letters, no UI chrome.
+premium 3D render. Leave the top-left corner empty for the official logo.
+Wide 3:2 landscape composition, 1536×1024. No text, no words, no letters,
+no logos, no UI chrome.
 ```
 
-Save the result to: apps/ui/public/changelog/<slug>.png
+Save the background to: /tmp/<slug>-bg.png
 ````
 
-Generate the image with gpt-image-2, then put the PNG at that path and inspect
-its actual dimensions before validating.
+Generate the background with gpt-image-2, then composite the official aligned
+lockup using the same helper as blog posts:
+
+```bash
+.agents/skills/blog/scripts/composite-logo.sh \
+  /tmp/<slug>-bg.png apps/ui/public/changelog/<slug>.png
+file apps/ui/public/changelog/<slug>.png
+```
+
+The helper uses `apps/ui/public/brand/logo-with-name-white.svg` at 360 px wide,
+positioned at (72, 72) on a 1536×1024 background. It checks for `rsvg-convert`,
+`ffmpeg`, and `ffprobe` and validates dimensions. Inspect the final PNG: the
+symbol and name must be vertically centered on one line. Keep the outlined
+lockup intact; never retype the name, resize the symbol independently, or
+composite over an existing logo. For text-based OG cards, use the shared
+`apps/ui/src/lib/og.tsx` template, which renders the same lockup.
 
 ## Step 4 — Validate
 

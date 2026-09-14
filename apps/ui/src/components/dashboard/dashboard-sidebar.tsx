@@ -90,7 +90,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/lib/components/tooltip";
-import Logo from "@/lib/icons/Logo";
+import Logo, { LogoLockup } from "@/lib/icons/Logo";
 import { buildUrlWithParams } from "@/lib/navigation-utils";
 
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
@@ -350,12 +350,12 @@ function DashboardSidebarHeader({
 			<SidebarMenu>
 				<SidebarMenuItem>
 					<SidebarMenuButton size="lg" asChild tooltip="LLM Gateway">
-						<Link href={buildUrl()} prefetch={true}>
-							<div className="flex aspect-square size-8 items-center justify-center">
+						<Link href={buildUrl()} prefetch={true} aria-label="LLM Gateway">
+							<div className="hidden aspect-square size-8 items-center justify-center group-data-[collapsible=icon]:flex">
 								<Logo className="size-6 text-black dark:text-white" />
 							</div>
-							<span className="text-lg font-bold tracking-tight">
-								LLM Gateway
+							<span className="group-data-[collapsible=icon]:hidden">
+								<LogoLockup className="h-6 w-auto text-black dark:text-white" />
 							</span>
 						</Link>
 					</SidebarMenuButton>

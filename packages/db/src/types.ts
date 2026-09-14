@@ -196,6 +196,9 @@ type SerializedOrganizationBase = Omit<
 	// Admin-only trust-tier pin; the dashboard reads the resolved tier from
 	// GET /orgs/{id}/limits instead.
 	| "trustTierOverride"
+	// Admin-only content filter pin and enforcement override.
+	| "contentFilterTierOverride"
+	| "contentFilterLogOnly"
 	| "devPlanBillingCycleStart"
 	| "devPlanPremiumWeekStart"
 	| "devPlanDayStart"

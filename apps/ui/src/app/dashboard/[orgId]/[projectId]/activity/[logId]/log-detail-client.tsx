@@ -66,6 +66,7 @@ interface ImageConfig {
 	aspect_ratio?: string;
 	image_size?: string;
 	image_quality?: string;
+	moderation?: string;
 	n?: number;
 	output_format?: string;
 	output_compression?: number;
@@ -1187,6 +1188,9 @@ export function LogDetailClient({
 										label="Image Quality"
 										value={imageConfig.image_quality ?? "-"}
 									/>
+									{imageConfig.moderation && (
+										<Field label="Moderation" value={imageConfig.moderation} />
+									)}
 									{imageConfig.n !== undefined && imageConfig.n !== null && (
 										<Field label="Image Count" value={imageConfig.n} />
 									)}

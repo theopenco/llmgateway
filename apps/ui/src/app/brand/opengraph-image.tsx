@@ -9,6 +9,6 @@ export default function Image() {
 		eyebrow: "Brand",
 		title: "Brand Assets",
 		subtitle:
-			"Official LLM Gateway logos, marks, and usage guidelines — SVG files in light and dark variants.",
+			"Official LLM Gateway logos, marks, and usage guidelines — SVG and transparent PNG in black and white.",
 	});
 }
