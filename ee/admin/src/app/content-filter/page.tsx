@@ -19,15 +19,17 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import {
-	getContentFilterViolations,
-	type ContentFilterViolationsWindow,
-} from "@/lib/admin-content-filter";
+import { getContentFilterViolations } from "@/lib/admin-content-filter";
 import {
 	getContentFilterSettings,
 	updateContentFilterSettings,
 	type ContentFilterSettingsInput,
 } from "@/lib/admin-settings";
+import {
+	MIN_SAMPLED_FOR_RATE,
+	type ContentFilterViolationsSort,
+	type ContentFilterViolationsWindow,
+} from "@/lib/content-filter-ranking";
 
 const WINDOWS: { value: ContentFilterViolationsWindow; label: string }[] = [
 	{ value: "24h", label: "24 hours" },
@@ -35,10 +37,41 @@ const WINDOWS: { value: ContentFilterViolationsWindow; label: string }[] = [
 	{ value: "30d", label: "30 days" },
 ];
 
+const SORTS: { value: ContentFilterViolationsSort; label: string }[] = [
+	{ value: "violations", label: "Most violations" },
+	{ value: "rate", label: "Highest rate" },
+];
+
+// The org page shares one window param across its charts; map ours onto it.
+const ORG_PAGE_WINDOW: Record<ContentFilterViolationsWindow, string> = {
+	"24h": "1d",
+	"7d": "7d",
+	"30d": "30d",
+};
+
 function parseWindow(value: string | undefined): ContentFilterViolationsWindow {
 	return WINDOWS.some((w) => w.value === value)
 		? (value as ContentFilterViolationsWindow)
 		: "24h";
+}
+
+function parseSort(value: string | undefined): ContentFilterViolationsSort {
+	return value === "rate" ? "rate" : "violations";
+}
+
+function pageHref(
+	window: ContentFilterViolationsWindow,
+	sort: ContentFilterViolationsSort,
+): string {
+	const params = new URLSearchParams();
+	if (window !== "24h") {
+		params.set("window", window);
+	}
+	if (sort !== "violations") {
+		params.set("sort", sort);
+	}
+	const query = params.toString();
+	return query ? `/content-filter?${query}` : "/content-filter";
 }
 
 const percentFormatter = new Intl.NumberFormat("en-US", {
@@ -69,13 +102,14 @@ function SignInPrompt() {
 export default async function ContentFilterPage({
 	searchParams,
 }: {
-	searchParams?: Promise<{ window?: string }>;
+	searchParams?: Promise<{ window?: string; sort?: string }>;
 }) {
 	const params = await searchParams;
 	const window = parseWindow(params?.window);
+	const sort = parseSort(params?.sort);
 	const [settings, violations] = await Promise.all([
 		getContentFilterSettings(),
-		getContentFilterViolations(window),
+		getContentFilterViolations(window, sort),
 	]);
 
 	if (settings === null || violations === null) {
@@ -131,21 +165,40 @@ export default async function ContentFilterPage({
 								From the hourly rollup. Sampled counts every moderated request;
 								violations are the ones over their tier&apos;s thresholds,
 								whether or not they were blocked.
+								{sort === "rate"
+									? ` Ranked by violation rate among organizations with at least ${MIN_SAMPLED_FOR_RATE} sampled requests in the window.`
+									: " Ranked by violation count."}
 							</CardDescription>
 						</div>
-						<div className="flex flex-wrap items-center gap-1">
-							{WINDOWS.map((option) => (
-								<Button
-									key={option.value}
-									asChild
-									variant={window === option.value ? "default" : "outline"}
-									size="sm"
-								>
-									<Link href={`/content-filter?window=${option.value}`}>
-										{option.label}
-									</Link>
-								</Button>
-							))}
+						<div className="flex flex-col items-end gap-2">
+							<div className="flex flex-wrap items-center gap-1">
+								{WINDOWS.map((option) => (
+									<Button
+										key={option.value}
+										asChild
+										variant={window === option.value ? "default" : "outline"}
+										size="sm"
+									>
+										<Link href={pageHref(option.value, sort)}>
+											{option.label}
+										</Link>
+									</Button>
+								))}
+							</div>
+							<div className="flex flex-wrap items-center gap-1">
+								{SORTS.map((option) => (
+									<Button
+										key={option.value}
+										asChild
+										variant={sort === option.value ? "default" : "outline"}
+										size="sm"
+									>
+										<Link href={pageHref(window, option.value)}>
+											{option.label}
+										</Link>
+									</Button>
+								))}
+							</div>
 						</div>
 					</div>
 				</CardHeader>
@@ -172,7 +225,9 @@ export default async function ContentFilterPage({
 					</div>
 					{violations.organizations.length === 0 ? (
 						<p className="text-sm text-muted-foreground">
-							No moderated requests in this window.
+							{sort === "rate"
+								? `No organization has ${MIN_SAMPLED_FOR_RATE} or more sampled requests in this window.`
+								: "No moderated requests in this window."}
 						</p>
 					) : (
 						<div className="overflow-x-auto">
@@ -192,7 +247,7 @@ export default async function ContentFilterPage({
 										<TableRow key={org.organizationId}>
 											<TableCell>
 												<Link
-													href={`/organizations/${org.organizationId}`}
+													href={`/organizations/${org.organizationId}?window=${ORG_PAGE_WINDOW[window]}#content-filter`}
 													className="font-medium hover:underline"
 												>
 													{org.organizationName ?? org.organizationId}

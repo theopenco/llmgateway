@@ -93,6 +93,8 @@ describe("admin content filter violations", () => {
 		expect(res.status).toBe(200);
 		expect(await res.json()).toEqual({
 			window: "24h",
+			sort: "violations",
+			minSampled: 0,
 			totals: { sampledCount: 30, violationCount: 5, blockedCount: 1 },
 			organizations: [
 				{
@@ -120,6 +122,52 @@ describe("admin content filter violations", () => {
 				},
 			],
 		});
+	});
+
+	test("ranks by violation rate above a sample floor", async () => {
+		await db.insert(tables.organization).values({
+			id: "cf-org-c",
+			name: "Org C",
+			billingEmail: "c@test.example",
+		});
+		// One flagged request out of one: 100% but far too little data to rank.
+		await db.insert(tables.contentFilterHourlyStats).values({
+			hourTimestamp: hoursAgo(1),
+			organizationId: "cf-org-c",
+			projectId: "proj-c",
+			category: "all",
+			sampledCount: 1,
+			violationCount: 1,
+			blockedCount: 0,
+		});
+
+		const unfloored = await app.request(
+			"/admin/content-filter/violations?window=24h&sort=rate",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(unfloored.status).toBe(200);
+		const unflooredBody = await unfloored.json();
+		expect(unflooredBody.sort).toBe("rate");
+		expect(unflooredBody.minSampled).toBe(0);
+		expect(
+			unflooredBody.organizations.map(
+				(org: { organizationId: string }) => org.organizationId,
+			),
+		).toEqual(["cf-org-c", "cf-org-a", "cf-org-b"]);
+
+		const floored = await app.request(
+			"/admin/content-filter/violations?window=24h&sort=rate&minSampled=10",
+			{ headers: { Cookie: cookie } },
+		);
+		const flooredBody = await floored.json();
+		expect(flooredBody.minSampled).toBe(10);
+		expect(
+			flooredBody.organizations.map(
+				(org: { organizationId: string }) => org.organizationId,
+			),
+		).toEqual(["cf-org-a", "cf-org-b"]);
+		// Totals stay window-wide regardless of the floor.
+		expect(flooredBody.totals.sampledCount).toBe(31);
 	});
 
 	test("widens with the window", async () => {

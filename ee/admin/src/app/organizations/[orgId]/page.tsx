@@ -63,6 +63,7 @@ import { AuditLogsTab } from "./audit-logs-tab";
 import { GuardrailsTab } from "./guardrails-tab";
 import { ManageOrgDialog } from "./manage-org-dialog";
 import { MemberAccessTab } from "./member-access-tab";
+import { OrgContentFilterActivity } from "./org-content-filter-activity";
 import { OrgCostByModel } from "./org-cost-by-model";
 import { OrgCostByModelTimeseries } from "./org-cost-by-model-timeseries";
 import { OrgMetricsSection } from "./org-metrics";
@@ -475,10 +476,15 @@ export default async function OrganizationPage({
 												: "Chat plan limits"}
 							</p>
 							<p className="mt-1 text-xs text-muted-foreground">
-								Content filter:{" "}
-								{!contentFilterTier
-									? "default"
-									: `tier ${contentFilterTier.tier} · ${contentFilterTier.level}${contentFilterTier.overridden ? " · manual" : ""}${contentFilterTier.exempt ? " · enterprise" : ""}${contentFilterTier.logOnly ? " · log only" : ""}`}
+								<Link
+									href="#content-filter"
+									className="underline-offset-2 hover:underline"
+								>
+									Content filter:{" "}
+									{!contentFilterTier
+										? "default"
+										: `tier ${contentFilterTier.tier} · ${contentFilterTier.level}${contentFilterTier.overridden ? " · manual" : ""}${contentFilterTier.exempt ? " · enterprise" : ""}${contentFilterTier.logOnly ? " · log only" : ""}`}
+								</Link>
 							</p>
 						</div>
 					</div>
@@ -627,6 +633,8 @@ export default async function OrganizationPage({
 			<OrgCostByModel orgId={orgId} />
 
 			<OrgCostByModelTimeseries orgId={orgId} />
+
+			<OrgContentFilterActivity orgId={orgId} />
 
 			{projects.length > 0 && (
 				<section className="space-y-4">
