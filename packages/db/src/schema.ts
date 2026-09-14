@@ -6236,3 +6236,98 @@ export const playgroundRealtimeHistory = pgTable(
 		index("playground_realtime_history_user_id_idx").on(table.userId),
 	],
 );
+
+export const notificationTypes = [
+	"budget",
+	"model_retirement",
+	"provider_issue",
+] as const;
+
+export const notificationPreference = pgTable(
+	"notification_preference",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		type: text({ enum: notificationTypes }).notNull(),
+		inApp: boolean().notNull().default(false),
+		email: boolean().notNull().default(false),
+		budgetThreshold: integer().notNull().default(80),
+	},
+	(table) => [unique().on(table.userId, table.type)],
+);
+
+export const notification = pgTable(
+	"notification",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		projectId: text()
+			.notNull()
+			.references(() => project.id, { onDelete: "cascade" }),
+		apiKeyId: text().references(() => apiKey.id, { onDelete: "cascade" }),
+		type: text({ enum: notificationTypes }).notNull(),
+		eventKey: text().notNull(),
+		title: text().notNull(),
+		message: text().notNull(),
+		href: text().notNull(),
+		inApp: boolean().notNull(),
+		email: boolean().notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+		readAt: timestamp(),
+		emailSentAt: timestamp(),
+	},
+	(table) => [
+		unique().on(table.userId, table.eventKey),
+		index("notification_user_created_idx").on(table.userId, table.createdAt),
+		index("notification_pending_email_idx")
+			.on(table.createdAt)
+			.where(sql`${table.email} = true AND ${table.emailSentAt} IS NULL`),
+	],
+);
+
+export const loungeConnection = pgTable(
+	"lounge_connection",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		connectorId: text().notNull(),
+		credentials: text().notNull(),
+		enabled: boolean().notNull().default(true),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+	},
+	(table) => [
+		uniqueIndex("lounge_connection_user_connector_idx").on(
+			table.userId,
+			table.connectorId,
+		),
+	],
+);
+
+export const loungeConnectorAuthorization = pgTable(
+	"lounge_connector_authorization",
+	{
+		id: text().primaryKey(),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		sessionId: text().notNull(),
+		consumed: boolean().notNull().default(false),
+		connectorId: text().notNull(),
+		credentials: text().notNull(),
+		expiresAt: timestamp().notNull(),
+	},
+	(table) => [
+		index("lounge_connector_authorization_user_idx").on(table.userId),
+		index("lounge_connector_authorization_expiry_idx").on(table.expiresAt),
+	],
+);

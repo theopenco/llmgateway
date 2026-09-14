@@ -39,6 +39,7 @@ describe("isRecognizedCodingAgent", () => {
 		expect(isRecognizedCodingAgent("mimocode")).toBe(true);
 		expect(isRecognizedCodingAgent("traycer")).toBe(true);
 		expect(isRecognizedCodingAgent("foundry-toolkit")).toBe(true);
+		expect(isRecognizedCodingAgent("anvil")).toBe(true);
 		expect(isRecognizedCodingAgent("windows-ai-studio")).toBe(true);
 		// Detection never infers this one from a User-Agent, but callers that opt
 		// in explicitly are still recognized.

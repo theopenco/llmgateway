@@ -703,7 +703,7 @@ function generateLogs(
 				duration,
 				timeToFirstToken,
 				requestedModel: modelDef.model,
-				usedModel: modelDef.model,
+				usedModel: `${modelDef.provider}/${modelDef.model}`,
 				usedProvider: modelDef.provider,
 				responseSize: isError ? 0 : randomInt(100, 15000),
 				content: isError ? null : "Generated response content.",
@@ -1044,7 +1044,7 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 					id: `phms-${statIdx}`,
 					projectId: proj.id,
 					hourTimestamp: hourTs,
-					usedModel: modelDef.model,
+					usedModel: `${modelDef.provider}/${modelDef.model}`,
 					usedProvider: modelDef.provider,
 					requestCount: reqCount,
 					errorCount: errCount,
@@ -1100,6 +1100,7 @@ const AGENT_SOURCES: Array<{ source: string; weight: number }> = [
 	{ source: "codex", weight: 0.1 },
 	{ source: "opencode", weight: 0.1 },
 	{ source: "empryo", weight: 0.08 },
+	{ source: "anvil", weight: 0.07 },
 	{ source: "autohand", weight: 0.06 },
 	{ source: "n8n", weight: 0.04 },
 ];
@@ -1833,6 +1834,15 @@ async function seed() {
 			],
 		},
 		{
+			source: "anvil",
+			weight: 0.02,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.6 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.25 },
+				{ model: "deepseek-chat", provider: "deepseek", weight: 0.15 },
+			],
+		},
+		{
 			source: "empryo",
 			weight: 0.02,
 			models: [
@@ -1930,7 +1940,7 @@ async function seed() {
 			timeToFirstToken:
 				isStreamed && !isError ? randomInt(80, Math.min(duration, 2200)) : null,
 			requestedModel: modelDef.model,
-			usedModel: modelDef.model,
+			usedModel: `${modelDef.provider}/${modelDef.model}`,
 			usedProvider: modelDef.provider,
 			source: agent.source,
 			responseSize: isError ? 0 : randomInt(500, 18000),
@@ -2067,7 +2077,7 @@ async function seed() {
 				id: `devpass-phms-${bucket.id}-${i}`,
 				projectId: "test-personal-project-id",
 				hourTimestamp: bucket.hourTimestamp,
-				usedModel: m.model,
+				usedModel: `${m.provider}/${m.model}`,
 				usedProvider: m.provider,
 				requestCount: reqs,
 				errorCount: errors,
@@ -3415,7 +3425,7 @@ async function seedAirside() {
 					id: `airside-phms-${airsideStatId++}`,
 					projectId: "test-project-id",
 					hourTimestamp: bucket,
-					usedModel: entry.model,
+					usedModel: `mistral/${entry.model}`,
 					usedProvider: "mistral",
 					requestCount,
 					errorCount: randomInt(0, Math.ceil(requestCount / 50)),
@@ -3438,7 +3448,7 @@ async function seedAirside() {
 			airsideGlobalStats.push({
 				id: `airside-gms-${day}-${entry.model}`,
 				dayTimestamp: dayBucket,
-				usedModel: entry.model,
+				usedModel: `mistral/${entry.model}`,
 				usedProvider: "mistral",
 				usedMode: "credits",
 				orgKind: "default",

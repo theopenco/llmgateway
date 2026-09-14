@@ -1,0 +1,93 @@
+---
+title: Anvil Integration
+description: Connect Anvil to LLM Gateway with one-click browser login — DevPass or pay-as-you-go — and run repo-aware agent sessions with any model.
+icon: Anvil
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import { Callout } from "fumadocs-ui/components/callout";
+
+[Anvil](https://anvil.dev) is a chat-first desktop workspace for repo-aware agent delivery. It keeps conversations, repositories, work items, Git state, reviews, and terminals together while agents do the work. LLM Gateway is a built-in provider with one-click browser login — no keys to copy.
+
+## Two Billing Modes
+
+Anvil's LLM Gateway connector has two billing modes sharing one login flow. **DevPass** lists canonical models (`claude-opus-5`) that the gateway routes for you on a flat coding plan; **Pay as you go** lists provider-pinned models (`anthropic/claude-opus-5`) billed against your credits. Pick the mode matching your account before connecting.
+
+<Callout type="info">
+	**Using DevPass?** Keep the default **DevPass** mode. Provider-pinned routing
+	is not available on coding plans, so canonical model IDs are the ones that
+	work.
+</Callout>
+
+## Prerequisites
+
+- Anvil installed — [download the macOS Apple Silicon DMG](https://github.com/anthonyhumphreys/anvil-stack/releases/latest/download/Anvil-latest-arm64.dmg) or build from the [anvil-stack repository](https://github.com/anthonyhumphreys/anvil-stack)
+- An LLM Gateway account — [sign up free](https://llmgateway.io/signup) (no credit card required)
+
+## Setup
+
+<Steps>
+<Step>
+### Open the LLMGateway Connector
+
+Launch Anvil and open **Settings**. In the provider list, select **LLMGateway** ("DevPass or pay-as-you-go models through one gateway connection"). The same connector is also offered during first-run onboarding.
+
+</Step>
+
+<Step>
+### Pick a Billing Mode
+
+Choose **DevPass** for a coding plan or **Pay as you go** for credits. The mode decides which model catalog Anvil loads.
+
+</Step>
+
+<Step>
+### Connect in Browser
+
+Click **Connect in browser**. Anvil opens the LLM Gateway authorization page — check the account and organization, then approve the connection. Approval creates an API key and returns it to Anvil through a local callback; keep Anvil running until the callback finishes (the login times out after 5 minutes).
+
+Prefer a key you already have? Paste it into the **API key (alternative)** field instead — keys start with `llmgtwy_`.
+
+</Step>
+
+<Step>
+### Select a Model
+
+Pick a model for the session. Anvil lists the gateway's agent-capable (tool-calling) models for the selected billing mode, with per-turn reasoning-effort controls where the model supports them. Check the [live catalogue](https://llmgateway.io/models?features=tools) for current capabilities.
+
+</Step>
+
+<Step>
+### Start Building
+
+Run planning, implementation, or review sessions grounded in your checked-out repositories. All requests route through LLM Gateway and show up as **Anvil** in your [dashboard](https://llmgateway.io/dashboard)'s agents view, with usage, costs, and logs.
+
+</Step>
+</Steps>
+
+## Why Use LLM Gateway with Anvil
+
+- **One login for every model** — Claude, GPT, Gemini, DeepSeek, and more through a single connection
+- **DevPass or credits** — flat-price coding plan or pay-as-you-go, switchable in Settings
+- **Cost tracking** — see exactly what each agent session costs in your dashboard
+- **Automatic fallback** — if a provider is down, requests route to an alternative
+- **Volume discounts** — check [discounted models](https://llmgateway.io/models?discounted=true) for savings
+
+## Troubleshooting
+
+### Login times out
+
+The browser login expires after 5 minutes. Click **Connect in browser** again to get a fresh authorization link, and complete the approval while Anvil is running.
+
+### No models listed
+
+Anvil only lists agent-capable (tool-calling) models for the selected billing mode. Switch the billing mode to match your account type, or refresh the connector status from Settings.
+
+### Authentication errors
+
+Make sure the connected key is active — manage your organization's API keys in the [dashboard](https://llmgateway.io/dashboard). Disconnect and reconnect from Settings to mint a fresh key.
+
+<Callout type="info">
+	Need help? Join our [Discord community](https://llmgateway.io/discord) for
+	support and troubleshooting assistance.
+</Callout>
