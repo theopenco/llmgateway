@@ -28,6 +28,7 @@ describe("image generation upstream streaming", () => {
 		stream: unknown;
 		partialImages: unknown;
 		quality?: unknown;
+		moderation?: unknown;
 	}> = [];
 	let failOpenai = false;
 
@@ -79,6 +80,7 @@ describe("image generation upstream streaming", () => {
 				stream: body.stream,
 				partialImages: body.partial_images,
 				quality: body.quality,
+				moderation: body.moderation,
 			});
 			if (endpoint === "edits") {
 				expect(multipart).toBe(true);
@@ -240,6 +242,83 @@ describe("image generation upstream streaming", () => {
 			});
 		},
 	);
+
+	describe.each(["openai", "azure"])("%s moderation", (provider) => {
+		describe.each(["generations", "edits", "chat"])("%s", (endpoint) => {
+			test.each(["auto", "low"])(
+				"forwards moderation=%s upstream",
+				async (moderation) => {
+					const res = await app.request(
+						endpoint === "chat"
+							? "/v1/chat/completions"
+							: `/v1/images/${endpoint}`,
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Authorization: "Bearer test-token",
+								"x-no-fallback": "true",
+							},
+							body: JSON.stringify({
+								model: `${provider}/gpt-image-2`,
+								...(endpoint === "chat"
+									? {
+											messages: [{ role: "user", content: "A blue circle" }],
+											image_config: { moderation },
+										}
+									: { prompt: "A blue circle", moderation }),
+								...(endpoint === "edits" && {
+									images: [{ image_url: inputImage }],
+								}),
+							}),
+						},
+					);
+					const json = await res.json();
+					expect(res.status, JSON.stringify(json)).toBe(200);
+					expect(upstreamRequests).toHaveLength(1);
+					expect(upstreamRequests[0]).toMatchObject({
+						provider,
+						endpoint: endpoint === "edits" ? "edits" : "generations",
+						moderation,
+					});
+				},
+			);
+		});
+
+		test("omits moderation when not requested", async () => {
+			const res = await app.request("/v1/images/generations", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer test-token",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: `${provider}/gpt-image-2`,
+					prompt: "A blue circle",
+				}),
+			});
+			expect(res.status).toBe(200);
+			expect(upstreamRequests[0].moderation).toBeUndefined();
+		});
+
+		test("rejects an unsupported moderation value", async () => {
+			const res = await app.request("/v1/images/generations", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer test-token",
+				},
+				body: JSON.stringify({
+					model: `${provider}/gpt-image-2`,
+					prompt: "A blue circle",
+					moderation: "strict",
+				}),
+			});
+			expect(res.status).toBe(400);
+			expect(upstreamRequests).toHaveLength(0);
+		});
+	});
 
 	describe.each(["generations", "edits"] as const)("%s", (endpoint) => {
 		describe.each(["openai", "azure"])("%s", (provider) => {

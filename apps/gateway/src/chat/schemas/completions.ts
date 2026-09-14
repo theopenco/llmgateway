@@ -480,6 +480,7 @@ export const completionsRequestSchema = z.object({
 			image_quality: z
 				.enum(["low", "medium", "high", "xhigh", "max", "auto"])
 				.optional(),
+			moderation: z.enum(["auto", "low"]).optional(),
 			n: z.number().optional(),
 			seed: z.number().optional(),
 		})

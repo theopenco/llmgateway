@@ -644,6 +644,7 @@ export type RequestBodyPreparer = (
 		aspect_ratio?: string;
 		image_size?: string;
 		image_quality?: string;
+		moderation?: string;
 		n?: number;
 		seed?: number;
 	},
