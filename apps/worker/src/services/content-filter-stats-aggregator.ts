@@ -38,7 +38,9 @@ function hourWindow(targetHour: Date) {
  * row per violated moderation category. Scans a single hour of `log`, like the
  * routing telemetry rollup; the admin dashboard only reads the hourly rows.
  * Provider retries write one row per attempt under the same request id with
- * the evaluation copied onto each, so counts are per request id.
+ * the evaluation copied onto each, so counts are per request id. Evaluations
+ * whose moderation call failed never scored anything, so they are left out of
+ * sampledCount to keep the violation rate honest during an outage.
  */
 export async function calculateContentFilterStatsForHour(targetHour: Date) {
 	const { start, startUtc } = hourWindow(targetHour);
@@ -54,12 +56,14 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 				${log.projectId} as project_id,
 				evaluation.violation,
 				evaluation.action,
-				evaluation."matchedCategories" as matched_categories
+				evaluation."matchedCategories" as matched_categories,
+				coalesce(evaluation."moderationFailed", false) as moderation_failed
 			from ${log}
 			cross join lateral jsonb_to_record(${log.gatewayContentFilterEvaluation}) as evaluation(
 				violation boolean,
 				action text,
-				"matchedCategories" jsonb
+				"matchedCategories" jsonb,
+				"moderationFailed" boolean
 			)
 			where ${log.createdAt} >= ${startUtc}::timestamp
 				and ${log.createdAt} < ${startUtc}::timestamp + interval '1 hour'
@@ -69,7 +73,7 @@ export async function calculateContentFilterStatsForHour(targetHour: Date) {
 			organization_id,
 			project_id,
 			${CONTENT_FILTER_STATS_ALL_CATEGORY} as category,
-			count(distinct request_id)::int as sampled_count,
+			count(distinct request_id) filter (where not moderation_failed)::int as sampled_count,
 			count(distinct request_id) filter (where violation)::int as violation_count,
 			count(distinct request_id) filter (where action = 'blocked')::int as blocked_count
 		from evaluations

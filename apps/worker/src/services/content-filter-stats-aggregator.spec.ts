@@ -137,6 +137,10 @@ describe("content filter stats aggregator", () => {
 					matchedCategories: ["violence"],
 				}),
 			}),
+			// Moderation failed: nothing was scored, so not sampled.
+			logRow({
+				gatewayContentFilterEvaluation: evaluation({ moderationFailed: true }),
+			}),
 			// Not sampled: must not count at all.
 			logRow(),
 			// Outside the hour: ignored.
