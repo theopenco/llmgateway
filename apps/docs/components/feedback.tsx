@@ -7,13 +7,7 @@ import {
 import { ThumbsDown, ThumbsUp } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
-import {
-	type SyntheticEvent,
-	useEffect,
-	useReducer,
-	useState,
-	useTransition,
-} from "react";
+import { type SyntheticEvent, useEffect, useReducer, useState } from "react";
 
 import { cn } from "../lib/cn";
 import { buttonVariants } from "./ui/button";
@@ -68,11 +62,7 @@ function writeStoredFeedback(url: string, result: Result | null) {
 	}
 }
 
-export function Feedback({
-	onRateAction,
-}: {
-	onRateAction: (url: string) => Promise<ActionResponse>;
-}) {
+export function Feedback({ githubUrl }: { githubUrl: string }) {
 	const url = usePathname();
 	const posthog = usePostHog();
 	const [previous, replacePrevious] = useReducer(
@@ -81,7 +71,6 @@ export function Feedback({
 	);
 	const [opinion, setOpinion] = useState<"good" | "bad" | null>(null);
 	const [message, setMessage] = useState("");
-	const [isPending, startTransition] = useTransition();
 
 	useEffect(() => {
 		replacePrevious(readStoredFeedback(url));
@@ -92,26 +81,22 @@ export function Feedback({
 			return;
 		}
 
-		startTransition(() => {
-			const feedback: Feedback = {
-				opinion,
-				message,
-			};
+		const feedback: Feedback = {
+			opinion,
+			message,
+		};
 
-			posthog.capture("on_rate_docs", { ...feedback, url });
-			void onRateAction(url).then((response) => {
-				const result: Result = {
-					response,
-					...feedback,
-				};
-				// Commit the UI first: a storage failure must not swallow the
-				// confirmation panel and leave Submit looking unresponsive.
-				replacePrevious(result);
-				setMessage("");
-				setOpinion(null);
-				writeStoredFeedback(url, result);
-			});
-		});
+		posthog.capture("on_rate_docs", { ...feedback, url });
+		const result: Result = {
+			response: { githubUrl },
+			...feedback,
+		};
+		// Commit the UI first: a storage failure must not swallow the
+		// confirmation panel and leave Submit looking unresponsive.
+		replacePrevious(result);
+		setMessage("");
+		setOpinion(null);
+		writeStoredFeedback(url, result);
 
 		e?.preventDefault();
 	}
@@ -165,7 +150,7 @@ export function Feedback({
 						<p>Thank you for your feedback!</p>
 						<div className="flex flex-row items-center gap-2">
 							<a
-								href={previous.response?.githubUrl}
+								href={previous.response?.githubUrl ?? githubUrl}
 								rel="noreferrer noopener"
 								target="_blank"
 								className={cn(
@@ -215,7 +200,6 @@ export function Feedback({
 						<button
 							type="submit"
 							className={cn(buttonVariants({ color: "outline" }), "w-fit px-3")}
-							disabled={isPending}
 						>
 							Submit
 						</button>

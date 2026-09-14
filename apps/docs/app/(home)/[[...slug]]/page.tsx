@@ -84,6 +84,10 @@ export default async function Page(props: {
 			owner: "theopenco",
 			repo: "llmgateway",
 			path: `apps/docs/content/${page.path}`,
+			// The layout is force-dynamic, so without an explicit revalidate this
+			// unauthenticated fetch runs per request and burns the shared GitHub
+			// rate limit; opt it into the data cache instead.
+			options: { next: { revalidate: 3600 } },
 		});
 	} catch {
 		// Ignore errors (rate limits, network issues, missing auth in Docker builds)
@@ -137,9 +141,9 @@ export default async function Page(props: {
 					}
 				/>
 				<ViewOptions
-					markdownUrl={
+					markdownUrl={`${docsBaseUrl}${
 						page.url === "/" ? "/llms.mdx/index" : `/llms.mdx${page.url}`
-					}
+					}`}
 					githubUrl={`https://github.com/theopenco/llmgateway/blob/main/apps/docs/content/${page.path}`}
 				/>
 			</nav>
@@ -154,12 +158,7 @@ export default async function Page(props: {
 				/>
 			</DocsBody>
 			<Feedback
-				onRateAction={async (url) => {
-					"use server";
-					return await Promise.resolve({
-						githubUrl: `https://github.com/theopenco/llmgateway/blob/main/apps/docs/content${url}.mdx`,
-					});
-				}}
+				githubUrl={`https://github.com/theopenco/llmgateway/blob/main/apps/docs/content/${page.path}`}
 			/>
 		</DocsPage>
 	);

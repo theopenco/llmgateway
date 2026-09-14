@@ -53,16 +53,32 @@ export function ContentConversionRail({
 		if (dismissed) {
 			return;
 		}
+		// scrollHeight/innerHeight force layout, so measure them outside the
+		// scroll handler and only re-measure when the page actually resizes.
+		let scrollable = 0;
+		const measure = () => {
+			scrollable = document.body.scrollHeight - window.innerHeight;
+		};
 		const onScroll = () => {
-			const scrollable = document.body.scrollHeight - window.innerHeight;
 			if (scrollable <= 0) {
 				return;
 			}
 			setVisible(window.scrollY / scrollable >= REVEAL_AT);
 		};
+		measure();
 		onScroll();
+		const observer = new ResizeObserver(() => {
+			measure();
+			onScroll();
+		});
+		observer.observe(document.body);
+		window.addEventListener("resize", measure);
 		window.addEventListener("scroll", onScroll, { passive: true });
-		return () => window.removeEventListener("scroll", onScroll);
+		return () => {
+			observer.disconnect();
+			window.removeEventListener("resize", measure);
+			window.removeEventListener("scroll", onScroll);
+		};
 	}, [dismissed]);
 
 	// Stand down while any inline offer is on screen — a blog card, or the

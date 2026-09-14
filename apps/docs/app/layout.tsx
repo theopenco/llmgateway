@@ -3,6 +3,8 @@ import "./global.css";
 
 import { RootProvider } from "fumadocs-ui/provider/next";
 import { Geist_Mono, Inter } from "next/font/google";
+import { Suspense } from "react";
+import { preconnect } from "react-dom";
 
 import { docsBaseUrl } from "@/lib/base-url";
 import { ConfigProvider } from "@/lib/context";
@@ -50,11 +52,19 @@ export const metadata: Metadata = {
 	},
 };
 
-export default async function Layout({ children }: { children: ReactNode }) {
+// Fetched inside Suspense so the document shell streams immediately instead
+// of gating TTFB of every page on the banner API round trip.
+async function SystemBanner() {
+	return <SystemBannerBar banner={await fetchSystemBanner()} />;
+}
+
+export default function Layout({ children }: { children: ReactNode }) {
 	// Access environment variables directly on the server
 	const posthogKey = process.env.POSTHOG_KEY ?? "";
 	const posthogHost = process.env.POSTHOG_HOST ?? "";
-	const systemBanner = await fetchSystemBanner();
+	if (posthogHost) {
+		preconnect(posthogHost);
+	}
 
 	return (
 		<html
@@ -63,7 +73,9 @@ export default async function Layout({ children }: { children: ReactNode }) {
 			suppressHydrationWarning
 		>
 			<body className="flex flex-col min-h-screen">
-				<SystemBannerBar banner={systemBanner} />
+				<Suspense fallback={null}>
+					<SystemBanner />
+				</Suspense>
 				<ConfigProvider posthogKey={posthogKey} posthogHost={posthogHost}>
 					<PostHogProvider>
 						<RootProvider>{children}</RootProvider>

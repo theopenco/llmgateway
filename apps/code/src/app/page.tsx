@@ -1,5 +1,6 @@
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
+import { Suspense } from "react";
 
 import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
 import { Faq } from "@/components/Faq";
@@ -96,8 +97,13 @@ const steps = [
 	},
 ];
 
-export default async function LandingPage() {
-	const codingModelCards = await getCodingModelCards();
+// Fetched inside Suspense: the model catalogue comes from a network call and
+// only feeds a below-the-fold section, so it must not block the hero.
+async function CodingModels() {
+	return <CodingModelsShowcase models={await getCodingModelCards()} />;
+}
+
+export default function LandingPage() {
 	const config = getConfig();
 	const credits = {
 		lite: getDevPlanCreditsLimit("lite"),
@@ -452,7 +458,9 @@ export default async function LandingPage() {
 								instead.
 							</p>
 						</div>
-						<CodingModelsShowcase models={codingModelCards} />
+						<Suspense fallback={null}>
+							<CodingModels />
+						</Suspense>
 					</div>
 				</section>
 

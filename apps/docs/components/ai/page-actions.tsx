@@ -92,7 +92,8 @@ export function ViewOptions({
 	githubUrl,
 }: {
 	/**
-	 * A URL to the raw Markdown/MDX content of page
+	 * Absolute URL to the raw Markdown/MDX content of page. Built on the
+	 * server so SSR and hydration render identical hrefs.
 	 */
 	markdownUrl: string;
 
@@ -102,11 +103,7 @@ export function ViewOptions({
 	githubUrl: string;
 }) {
 	const items = useMemo(() => {
-		const fullMarkdownUrl =
-			typeof window !== "undefined"
-				? new URL(markdownUrl, window.location.origin)
-				: "loading";
-		const q = `Read ${fullMarkdownUrl}, I want to ask questions about it.`;
+		const q = `Read ${markdownUrl}, I want to ask questions about it.`;
 
 		return [
 			{

@@ -85,7 +85,9 @@ function aggregateCanonicalModels(
 }
 
 function formatCompact(n: number): string {
-	return new Intl.NumberFormat(undefined, {
+	// Pinned locale: this component is SSR'd, and the server's default locale
+	// differing from the visitor's would be a hydration text mismatch.
+	return new Intl.NumberFormat("en-US", {
 		notation: "compact",
 		maximumFractionDigits: 1,
 	}).format(n);
@@ -317,7 +319,7 @@ export function ProfileView({ profile }: { profile: ProfileData }) {
 												{model.name}
 											</span>
 											<span className="text-xs text-muted-foreground tabular-nums">
-												{model.requestCount.toLocaleString()}
+												{model.requestCount.toLocaleString("en-US")}
 											</span>
 										</>
 									);

@@ -1,13 +1,13 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
 
 // Removed API key manager for playground; we rely on server-set cookie
-import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { ModelSelector } from "@/components/model-selector";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { ChatHeader } from "@/components/playground/chat-header";
@@ -76,6 +76,15 @@ interface ToolPart {
 /**
  * Type guard to check if an object is a ToolPart (type starts with "tool-")
  */
+
+// The top-up dialog pulls in @stripe/react-stripe-js; load it lazily so the
+// payment stack stays out of the chat page bundle until credits run out.
+const TopUpCreditsDialog = dynamic(() =>
+	import("@/components/credits/top-up-credits-dialog").then(
+		(mod) => mod.TopUpCreditsDialog,
+	),
+);
+
 function isToolPart(obj: unknown): obj is ToolPart {
 	return (
 		typeof obj === "object" &&
@@ -369,6 +378,8 @@ export default function ChatPageClient({
 	const [finishReason, setFinishReason] = useState<string | null>(null);
 	const [ocrPending, setOcrPending] = useState(false);
 	const [showTopUp, setShowTopUp] = useState(false);
+	// Latched: once needed, keep it mounted so Radix close animations still run.
+	const [topUpNeeded, setTopUpNeeded] = useState(false);
 	const [isTemporaryChat, setIsTemporaryChat] = useState(false);
 	const [pendingVideoModel, setPendingVideoModel] = useState<string | null>(
 		null,
@@ -874,6 +885,14 @@ export default function ChatPageClient({
 		[sendMessage, buildRequestOptions],
 	);
 
+	// Hot-path callbacks read messages through a ref so their identity stays
+	// stable across streamed tokens; depending on the messages array directly
+	// would defeat the memoized message components on every delta.
+	const messagesRef = useRef(messages);
+	useEffect(() => {
+		messagesRef.current = messages;
+	}, [messages]);
+
 	const answeringApprovals = useRef(new Set<string>());
 	const answeredApprovals = useRef(new Set<string>());
 	const continuedApprovals = useRef(new Set<string>());
@@ -886,7 +905,7 @@ export default function ChatPageClient({
 			await addToolApprovalResponse({ id, approved });
 			answeredApprovals.current.add(id);
 			const pendingIds =
-				messages
+				messagesRef.current
 					.at(-1)
 					?.parts.flatMap((part) =>
 						(part.type === "dynamic-tool" || part.type.startsWith("tool-")) &&
@@ -913,12 +932,12 @@ export default function ChatPageClient({
 			streamingChatIdRef.current = chatIdRef.current;
 			await sendMessage(undefined, buildRequestOptions(false));
 		},
-		[addToolApprovalResponse, messages, sendMessage, buildRequestOptions],
+		[addToolApprovalResponse, sendMessage, buildRequestOptions],
 	);
 
 	const regenerateWithHeaders = useCallback(
 		(options?: any) => {
-			const lastUserMessage = [...messages]
+			const lastUserMessage = [...messagesRef.current]
 				.reverse()
 				.find((m) => m.role === "user");
 			const hasImageAttachments = lastUserMessage?.parts?.some(
@@ -929,7 +948,7 @@ export default function ChatPageClient({
 			streamingChatIdRef.current = chatIdRef.current;
 			return regenerate(buildRequestOptions(!!hasImageAttachments, options));
 		},
-		[regenerate, messages, buildRequestOptions],
+		[regenerate, buildRequestOptions],
 	);
 
 	// Additional comparison chat windows (primary + up to two comparison panels)
@@ -1322,6 +1341,7 @@ export default function ChatPageClient({
 				isOrganizationAdmin(selectedOrganization.role) &&
 				Number(selectedOrganization.credits) <= 0
 			) {
+				setTopUpNeeded(true);
 				setShowTopUp(true);
 				return false;
 			}
@@ -1715,9 +1735,10 @@ export default function ChatPageClient({
 				},
 			});
 
-			const messageIndex = messages.findIndex((m) => m.id === message.id);
+			const current = messagesRef.current;
+			const messageIndex = current.findIndex((m) => m.id === message.id);
 			const previousMessages =
-				messageIndex === -1 ? messages : messages.slice(0, messageIndex);
+				messageIndex === -1 ? current : current.slice(0, messageIndex);
 			setMessages(previousMessages);
 			await new Promise<void>((resolve) => {
 				setTimeout(resolve, 0);
@@ -2402,11 +2423,13 @@ export default function ChatPageClient({
 					</section>
 				</main>
 			</div>
-			<TopUpCreditsDialog
-				open={showTopUp}
-				onOpenChange={setShowTopUp}
-				organizationId={selectedOrganization?.id ?? chatOrg?.id}
-			/>
+			{topUpNeeded && (
+				<TopUpCreditsDialog
+					open={showTopUp}
+					onOpenChange={setShowTopUp}
+					organizationId={selectedOrganization?.id ?? chatOrg?.id}
+				/>
+			)}
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
 			<Dialog
 				open={pendingVideoModel !== null}
@@ -2978,9 +3001,16 @@ function ExtraChatPanel({
 		[sendMessage, buildRequestOptions],
 	);
 
+	// Same stable-identity pattern as the primary panel: read messages via a
+	// ref so streamed tokens do not re-create the callback.
+	const messagesRef = useRef(messages);
+	useEffect(() => {
+		messagesRef.current = messages;
+	}, [messages]);
+
 	const regenerateWithHeaders = useCallback(
 		(options?: any) => {
-			const lastUserMessage = [...messages]
+			const lastUserMessage = [...messagesRef.current]
 				.reverse()
 				.find((m) => m.role === "user");
 			const hasImageAttachments = lastUserMessage?.parts?.some(
@@ -2990,7 +3020,7 @@ function ExtraChatPanel({
 			);
 			return regenerate(buildRequestOptions(!!hasImageAttachments, options));
 		},
-		[regenerate, messages, buildRequestOptions],
+		[regenerate, buildRequestOptions],
 	);
 
 	const effectiveText = syncInput ? syncedText : text;

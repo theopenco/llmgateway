@@ -52,20 +52,30 @@ export function Countdown({ expiresAt }: CountdownProps) {
 		return () => clearInterval(interval);
 	}, [expiresAt]);
 
+	// The server-rendered value is computed at (possibly ISR-cached) render
+	// time, so the first client render always disagrees with it; the mismatch
+	// is expected and corrected by the interval.
 	if (time.expired) {
-		return <span className="text-destructive font-medium">Expired</span>;
+		return (
+			<span suppressHydrationWarning className="text-destructive font-medium">
+				Expired
+			</span>
+		);
 	}
 
 	if (time.days > 0) {
 		return (
-			<span className="tabular-nums">
+			<span suppressHydrationWarning className="tabular-nums">
 				{time.days}d {time.hours}h {time.minutes}m remaining
 			</span>
 		);
 	}
 
 	return (
-		<span className="tabular-nums text-orange-600 dark:text-orange-400">
+		<span
+			suppressHydrationWarning
+			className="tabular-nums text-orange-600 dark:text-orange-400"
+		>
 			{time.hours}h {time.minutes}m {time.seconds}s remaining
 		</span>
 	);
