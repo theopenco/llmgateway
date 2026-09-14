@@ -15,7 +15,7 @@ faqs:
   - question: "How do I compare model costs on my own workload?"
     answer: "Point any Anthropic-compatible harness at https://api.llmgateway.io with your LLM Gateway key, set the model to any provider/model pair, and read per-model cost from the dashboard or the llmgateway CLI's usage command."
 image:
-  src: "/blog/ai-coding-model-benchmark.png"
+  src: "/blog/ai-coding-model-benchmark-results.png"
   alt: "Four pink retro Windows desktops built by different AI models, in a 2x2 grid labelled with what each run cost: $0.11, $1.18, $126.98 and $197.91"
   width: 1536
   height: 1024
