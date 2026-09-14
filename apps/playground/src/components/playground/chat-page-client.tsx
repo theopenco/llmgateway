@@ -902,8 +902,10 @@ export default function ChatPageClient({
 				return;
 			}
 			answeringApprovals.current.add(id);
-			await addToolApprovalResponse({ id, approved });
-			answeredApprovals.current.add(id);
+			// Snapshot the pending set before awaiting: the ref advances as the
+			// store commits, so after the await a near-simultaneous second
+			// approval could see an already-emptied set, and both answers would
+			// pass the guard below and each send a continuation.
 			const pendingIds =
 				messagesRef.current
 					.at(-1)
@@ -916,6 +918,8 @@ export default function ChatPageClient({
 							? [part.approval.id]
 							: [],
 					) ?? [];
+			await addToolApprovalResponse({ id, approved });
+			answeredApprovals.current.add(id);
 			if (
 				pendingIds.some(
 					(pendingId) =>
