@@ -106,6 +106,67 @@ export interface PricingTier {
 }
 
 /**
+ * Peak/off-peak time-of-day rates. `peak` applies while the current UTC hour
+ * falls inside `hoursUtc`; every other hour is off-peak.
+ */
+export interface PeakPricing {
+	/**
+	 * Prices charged during peak hours.
+	 */
+	peak: {
+		/**
+		 * Price per input token in USD during peak hours.
+		 */
+		inputPrice: Price;
+		/**
+		 * Price per output token in USD during peak hours.
+		 */
+		outputPrice: Price;
+		/**
+		 * Price per cached input token in USD during peak hours. When
+		 * unset, billing falls back to `inputPrice`, matching base-price
+		 * behavior.
+		 */
+		cachedInputPrice?: Price;
+	};
+	/**
+	 * Prices charged during off-peak hours.
+	 */
+	offPeak: {
+		/**
+		 * Price per input token in USD during off-peak hours.
+		 */
+		inputPrice: Price;
+		/**
+		 * Price per output token in USD during off-peak hours.
+		 */
+		outputPrice: Price;
+		/**
+		 * Price per cached input token in USD during off-peak hours. When
+		 * unset, billing falls back to `inputPrice`, matching base-price
+		 * behavior.
+		 */
+		cachedInputPrice?: Price;
+	};
+	/**
+	 * Peak hours in UTC as half-open [start, end) hour ranges (0-23). All
+	 * hours outside these ranges are off-peak.
+	 */
+	hoursUtc: readonly [start: number, end: number][];
+	/**
+	 * Local calendar days that are always billed off-peak. Days use
+	 * JavaScript's numbering (Sunday = 0, Saturday = 6), shifted from UTC by
+	 * `utcOffsetMinutes`.
+	 */
+	offPeakDays?: {
+		daysOfWeek: readonly number[];
+		utcOffsetMinutes: number;
+		/** Human-readable time zone used in pricing disclosures. */
+		timeZoneLabel: string;
+	};
+}
+
+/**
  * Pricing and availability for a specific geographic region.
  * When defined on a ProviderModelMapping, the first entry is the default region.
  * Top-level inputPrice/outputPrice always reflect the default (first) region
@@ -150,6 +211,14 @@ export interface ProviderRegion {
 	 * When absent, falls back to the mapping-level pricingTiers.
 	 */
 	pricingTiers?: PricingTier[];
+	/**
+	 * Peak/off-peak rates for this region. A mapping that prices peak hours
+	 * per region MUST set this on every region: the region-level price
+	 * overrides above are ignored while a peakPricing block is in effect, so a
+	 * region that only overrides `inputPrice` would silently bill at the
+	 * mapping-level peak rates.
+	 */
+	peakPricing?: PeakPricing;
 	/**
 	 * Price per request in USD for this region.
 	 * When absent, falls back to the mapping-level requestPrice.
@@ -331,64 +400,9 @@ export interface ProviderModelMapping {
 	 * Peak/off-peak time-of-day pricing. When present, `peak` applies while the
 	 * current UTC hour falls inside `hoursUtc` and `offPeak` applies otherwise.
 	 * `offPeakDays` can override those windows for provider-defined local
-	 * calendar days. Only DeepSeek's first-party API uses this today.
+	 * calendar days.
 	 */
-	peakPricing?: {
-		/**
-		 * Prices charged during peak hours.
-		 */
-		peak: {
-			/**
-			 * Price per input token in USD during peak hours.
-			 */
-			inputPrice: Price;
-			/**
-			 * Price per output token in USD during peak hours.
-			 */
-			outputPrice: Price;
-			/**
-			 * Price per cached input token in USD during peak hours. When
-			 * unset, billing falls back to `inputPrice`, matching base-price
-			 * behavior.
-			 */
-			cachedInputPrice?: Price;
-		};
-		/**
-		 * Prices charged during off-peak hours.
-		 */
-		offPeak: {
-			/**
-			 * Price per input token in USD during off-peak hours.
-			 */
-			inputPrice: Price;
-			/**
-			 * Price per output token in USD during off-peak hours.
-			 */
-			outputPrice: Price;
-			/**
-			 * Price per cached input token in USD during off-peak hours. When
-			 * unset, billing falls back to `inputPrice`, matching base-price
-			 * behavior.
-			 */
-			cachedInputPrice?: Price;
-		};
-		/**
-		 * Peak hours in UTC as half-open [start, end) hour ranges (0-23). All
-		 * hours outside these ranges are off-peak.
-		 */
-		hoursUtc: readonly [start: number, end: number][];
-		/**
-		 * Local calendar days that are always billed off-peak. Days use
-		 * JavaScript's numbering (Sunday = 0, Saturday = 6), shifted from UTC by
-		 * `utcOffsetMinutes`.
-		 */
-		offPeakDays?: {
-			daysOfWeek: readonly number[];
-			utcOffsetMinutes: number;
-			/** Human-readable time zone used in pricing disclosures. */
-			timeZoneLabel: string;
-		};
-	};
+	peakPricing?: PeakPricing;
 	/**
 	 * Maximum context window size in tokens
 	 */
