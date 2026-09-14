@@ -35,6 +35,11 @@
 			"import": "./dist/deactivation.js",
 			"default": "./dist/deactivation.js"
 		},
+		"./logo": {
+			"types": "./dist/components/ui/logo.d.ts",
+			"import": "./dist/components/ui/logo.js",
+			"default": "./dist/components/ui/logo.js"
+		},
 		"./components": {
 			"types": "./dist/components/index.d.ts",
 			"import": "./dist/components/index.js",
