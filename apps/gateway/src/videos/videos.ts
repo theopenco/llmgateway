@@ -4,6 +4,10 @@ import { HTTPException } from "hono/http-exception";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
 import {
+	checkOpenAIContentFilter,
+	hasOpenAIContentFilterCredential,
+} from "@/chat/tools/openai-content-filter.js";
+import {
 	getCredentialSetting,
 	resolvePlatformCredential,
 } from "@/chat/tools/resolve-platform-credential.js";
@@ -13,6 +17,11 @@ import {
 	shouldRetryRequest,
 	type RoutingAttempt,
 } from "@/chat/tools/retry-with-fallback.js";
+import {
+	buildGatewayContentFilterEvaluation,
+	evaluateTieredContentFilter,
+	resolveTieredContentFilterPlan,
+} from "@/chat/tools/tiered-content-filter.js";
 import { getAirsideRoutingSnapshot } from "@/lib/airside-routing-snapshot.js";
 import {
 	assertApiKeyWithinUsageLimits,
@@ -28,6 +37,7 @@ import {
 	findOrganizationById,
 	findProjectById,
 	findProviderKey,
+	getContentFilterSettings,
 	hasManagedProviderCredential,
 	type GatewayApiKey,
 } from "@/lib/cached-queries.js";
@@ -83,10 +93,12 @@ import {
 	shortid,
 	tables,
 	UnifiedFinishReason,
+	type GatewayContentFilterEvaluation,
 	type InferSelectModel,
 } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import {
+	type BaseMessage,
 	type EnvVarVariant,
 	getProviderEnvValue,
 	getProviderEnvVar,
@@ -99,6 +111,7 @@ import {
 	type VertexTokenType,
 } from "@llmgateway/models";
 import {
+	GATEWAY_CONTENT_FILTER_MESSAGE,
 	getVideoProxyRedisKey,
 	VIDEO_PROXY_REDIS_TTL_SECONDS,
 } from "@llmgateway/shared";
@@ -4191,6 +4204,83 @@ async function processVideoImageInputs(
 	).filter((image): image is ProcessedVideoImageInput => image !== null);
 }
 
+function buildVideoModerationMessages(
+	prompt: string,
+	images: Array<ProcessedVideoImageInput | null>,
+): BaseMessage[] {
+	return [
+		{
+			role: "user",
+			content: [
+				{ type: "text", text: prompt },
+				...images
+					.filter((image): image is ProcessedVideoImageInput => image !== null)
+					.map((image) => ({
+						type: "image_url" as const,
+						image_url: {
+							url: `data:${image.mimeType};base64,${image.bytesBase64Encoded}`,
+						},
+					})),
+			],
+		},
+	];
+}
+
+async function evaluateVideoContentFilter(options: {
+	request: z.infer<typeof createVideoRequestSchema>;
+	requestId: string;
+	apiKey: GatewayApiKey;
+	project: InferSelectModel<typeof tables.project>;
+	organization: InferSelectModel<typeof tables.organization>;
+	providerId: string;
+	compliancePolicy: ReturnType<typeof getActiveCompliancePolicy>;
+	images: Array<ProcessedVideoImageInput | null>;
+	signal: AbortSignal;
+}): Promise<GatewayContentFilterEvaluation | null> {
+	// Prompts must never reach OpenAI when the org's compliance policy excludes it.
+	if (
+		options.compliancePolicy &&
+		!isProviderIdCompliant("openai", options.compliancePolicy)
+	) {
+		return null;
+	}
+	const plan = await resolveTieredContentFilterPlan(
+		options.organization,
+		options.providerId,
+		await getContentFilterSettings(),
+	);
+	if (!plan || !(await hasOpenAIContentFilterCredential())) {
+		return null;
+	}
+	const moderation = await checkOpenAIContentFilter(
+		buildVideoModerationMessages(options.request.prompt, options.images),
+		{
+			requestId: options.requestId,
+			organizationId: options.organization.id,
+			projectId: options.project.id,
+			apiKeyId: options.apiKey.id,
+		},
+		options.signal,
+	);
+	const evaluation = buildGatewayContentFilterEvaluation(
+		plan,
+		evaluateTieredContentFilter(moderation.results, plan.level),
+		moderation.results.length === 0,
+	);
+	if (evaluation.violation) {
+		logger.debug("gateway_content_filter_tier", {
+			requestId: options.requestId,
+			organizationId: options.organization.id,
+			provider: options.providerId,
+			tier: plan.tier,
+			level: plan.level,
+			action: evaluation.action,
+			matchedCategories: evaluation.matchedCategories,
+		});
+	}
+	return evaluation;
+}
+
 /**
  * Whose credential a video attempt ran on. `usedMode` on the provider context
  * is already decided by whether the organization's own provider key served the
@@ -4286,6 +4376,16 @@ async function insertVideoClientErrorLog(options: {
 	statusCode: number;
 	message: string;
 	startedAt: number;
+	// A gateway decision made before any provider attempt, e.g. a content
+	// filter block: overrides the client_error classification and keeps the
+	// routing metadata as routed instead of recording a failed attempt.
+	outcome?: {
+		finishReason: string;
+		unifiedFinishReason: UnifiedFinishReason;
+		hasError: boolean;
+		internalContentFilter?: boolean;
+		gatewayContentFilterEvaluation?: GatewayContentFilterEvaluation | null;
+	};
 }): Promise<void> {
 	const responseText = options.message;
 	await db.insert(tables.log).values({
@@ -4313,8 +4413,12 @@ async function insertVideoClientErrorLog(options: {
 		responseSize: responseText.length,
 		content: null,
 		reasoningContent: null,
-		finishReason: "client_error",
-		unifiedFinishReason: UnifiedFinishReason.CLIENT_ERROR,
+		finishReason: options.outcome?.finishReason ?? "client_error",
+		unifiedFinishReason:
+			options.outcome?.unifiedFinishReason ?? UnifiedFinishReason.CLIENT_ERROR,
+		internalContentFilter: options.outcome?.internalContentFilter ?? null,
+		gatewayContentFilterEvaluation:
+			options.outcome?.gatewayContentFilterEvaluation ?? null,
 		promptTokens: null,
 		completionTokens: null,
 		totalTokens: null,
@@ -4330,7 +4434,7 @@ async function insertVideoClientErrorLog(options: {
 						},
 					]
 				: null,
-		hasError: true,
+		hasError: options.outcome?.hasError ?? true,
 		errorDetails: {
 			statusCode: options.statusCode,
 			statusText: "Bad Request",
@@ -4361,12 +4465,14 @@ async function insertVideoClientErrorLog(options: {
 		cached: false,
 		mode: options.project.mode,
 		usedMode: options.providerContext.usedMode,
-		routingMetadata: buildVideoClientErrorRoutingMetadata(
-			options.routingMetadata,
-			options.providerContext,
-			options.normalizedModel,
-			options.statusCode,
-		),
+		routingMetadata: options.outcome
+			? (options.routingMetadata ?? null)
+			: buildVideoClientErrorRoutingMetadata(
+					options.routingMetadata,
+					options.providerContext,
+					options.normalizedModel,
+					options.statusCode,
+				),
 		processedAt: null,
 		rawRequest: null,
 		rawResponse: null,
@@ -4546,6 +4652,49 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		}
 		throw error;
 	}
+	// Tiered gateway content filter on the prompt and decoded image inputs,
+	// keyed on the provider the job is about to be dispatched to. Fails open.
+	const contentFilterEvaluation = await evaluateVideoContentFilter({
+		request,
+		requestId,
+		apiKey,
+		project,
+		organization,
+		providerId: selectedProviderContext.providerId,
+		compliancePolicy: videoCompliancePolicy,
+		images: [
+			processedFirstFrame,
+			processedLastFrameInput,
+			...processedReferenceImages,
+		],
+		signal: c.req.raw.signal,
+	});
+	if (contentFilterEvaluation?.action === "blocked") {
+		await insertVideoClientErrorLog({
+			request,
+			requestId,
+			apiKey,
+			project,
+			organization,
+			normalizedModel,
+			requestedProvider,
+			providerContext: selectedProviderContext,
+			upstreamModelName: selectedUpstreamModelName,
+			routingMetadata: enrichedRoutingMetadata,
+			statusCode: 403,
+			message: GATEWAY_CONTENT_FILTER_MESSAGE,
+			startedAt,
+			outcome: {
+				finishReason: "llmgateway_content_filter",
+				unifiedFinishReason: UnifiedFinishReason.CONTENT_FILTER,
+				hasError: false,
+				internalContentFilter: true,
+				gatewayContentFilterEvaluation: contentFilterEvaluation,
+			},
+		});
+		throw new HTTPException(403, { message: GATEWAY_CONTENT_FILTER_MESSAGE });
+	}
+
 	const routingAttempts: RoutingAttempt[] = [];
 	const failedProviders = new Set<string>();
 	let retryCount = 0;
@@ -4918,6 +5067,10 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				llmgateway_requested_duration_seconds: videoDurationSeconds,
 				llmgateway_input_image_count: inputImageCount,
 				llmgateway_reserved_spend_usd: reservedSpendUsd,
+				// Carried onto the job's log row by the worker at finalization.
+				...(contentFilterEvaluation
+					? { llmgateway_content_filter_evaluation: contentFilterEvaluation }
+					: {}),
 				...(debugMode && retainVideoPayloads
 					? {
 							llmgateway_raw_request: rawBody,

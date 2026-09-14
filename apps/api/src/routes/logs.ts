@@ -40,17 +40,21 @@ import type { ServerTypes } from "@/vars.js";
 
 export const logs = new OpenAPIHono<ServerTypes>();
 
-// internalErrorDetails is omitted: public log queries never select it.
+// Admin-only columns are omitted: public log queries never select them.
 type LogRecord = Omit<
 	InferSelectModel<typeof tables.log>,
-	"internalErrorDetails"
+	"internalErrorDetails" | "gatewayContentFilterEvaluation"
 >;
 
 // internalErrorDetails holds the raw upstream error for stealth providers and
-// must never leave the internal admin surface, so strip it from the columns
-// served by the public logs endpoints.
-const { internalErrorDetails: _internalErrorDetails, ...publicLogColumns } =
-	getTableColumns(tables.log);
+// gatewayContentFilterEvaluation records the admin-set content filter pin and
+// exemption state; neither may leave the internal admin surface, so strip
+// them from the columns served by the public logs endpoints.
+const {
+	internalErrorDetails: _internalErrorDetails,
+	gatewayContentFilterEvaluation: _gatewayContentFilterEvaluation,
+	...publicLogColumns
+} = getTableColumns(tables.log);
 
 const logSelection = {
 	...publicLogColumns,

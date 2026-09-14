@@ -22,6 +22,7 @@ import {
 import { logger } from "@llmgateway/logger";
 import { getLogRetentionCutoff } from "@llmgateway/shared/log-retention";
 
+import { calculateContentFilterStatsForHour } from "./content-filter-stats-aggregator.js";
 import { excludeRecoveredSameProviderRegionRetry } from "./log-filters.js";
 import { formatUTCTimestamp } from "./project-stats-aggregator.js";
 import { calculateRoutingTelemetryForHour } from "./routing-telemetry-aggregator.js";
@@ -1404,7 +1405,20 @@ async function calculateHistoryForHour(targetHour: Date) {
 			error as Error,
 		);
 	}
-	return { mappingResult, modelResult, routingResult };
+	// Same posture: a diagnostic rollup over `log` that must never cost the hour
+	// its usage stats.
+	let contentFilterResult: Awaited<
+		ReturnType<typeof calculateContentFilterStatsForHour>
+	> | null = null;
+	try {
+		contentFilterResult = await calculateContentFilterStatsForHour(targetHour);
+	} catch (error) {
+		logger.error(
+			`Error calculating content filter stats for ${targetHour.toISOString()}:`,
+			error as Error,
+		);
+	}
+	return { mappingResult, modelResult, routingResult, contentFilterResult };
 }
 
 // A closed hour keeps being rolled up until this long after it ends, so logs

@@ -33,6 +33,7 @@ import {
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
+	getContentFilterSettings,
 	listAirsideModels,
 	type CustomModel,
 	type ManagedProviderAvailability,
@@ -167,6 +168,7 @@ import {
 	type InferSelectModel,
 	isCachingEnabled,
 	metricsKey,
+	type GatewayContentFilterEvaluation,
 	type LogInsertData,
 	providerKeyAllowsModel,
 	shortid,
@@ -206,6 +208,7 @@ import {
 import {
 	detectCodingAgentFromReferer,
 	detectCodingAgentFromTitle,
+	GATEWAY_CONTENT_FILTER_MESSAGE,
 	getSupportedAgentsList,
 	isChatPlanModelAllowed,
 	isRecognizedCodingAgent,
@@ -278,7 +281,10 @@ import {
 	isUpstreamTermination,
 	normalizeStreamingError,
 } from "./tools/normalize-streaming-error.js";
-import { checkOpenAIContentFilter } from "./tools/openai-content-filter.js";
+import {
+	checkOpenAIContentFilter,
+	hasOpenAIContentFilterCredential,
+} from "./tools/openai-content-filter.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
@@ -329,6 +335,11 @@ import {
 	mappingSupportsRequestedServiceTier,
 	providerKeySupportsServiceTier,
 } from "./tools/service-tier.js";
+import {
+	buildGatewayContentFilterEvaluation,
+	evaluateTieredContentFilter,
+	resolveTieredContentFilterPlan,
+} from "./tools/tiered-content-filter.js";
 import {
 	encodeChatMessages,
 	messageContentToString,
@@ -4509,18 +4520,20 @@ chat.openapi(completions, async (c) => {
 	// reaches a non-compliant provider (fail closed on the data guarantee).
 	const openAiContentFilterAllowed =
 		!compliancePolicy || isProviderIdCompliant("openai", compliancePolicy);
-	const openAIContentFilterResult =
+	const openAIContentFilterContext = {
+		requestId,
+		organizationId: project.organizationId,
+		projectId: project.id,
+		apiKeyId: apiKey.id,
+	};
+	// Reassigned below when only the tiered filter needs the moderation call.
+	let openAIContentFilterResult =
 		shouldApplyGatewayContentFilter &&
 		contentFilterMethod === "openai" &&
 		openAiContentFilterAllowed
 			? await checkOpenAIContentFilter(
 					messages as BaseMessage[],
-					{
-						requestId,
-						organizationId: project.organizationId,
-						projectId: project.id,
-						apiKeyId: apiKey.id,
-					},
+					openAIContentFilterContext,
 					c.req.raw.signal,
 				)
 			: null;
@@ -6186,11 +6199,61 @@ chat.openapi(completions, async (c) => {
 		contentFilterMatched &&
 		!contentFilterRoutingApplied;
 
+	// Tiered gateway content filter, keyed on the provider the request was routed
+	// to. Reuses the env filter's moderation result when it already ran so a
+	// request never triggers more than one moderation call.
+	let gatewayContentFilterEvaluation: GatewayContentFilterEvaluation | null =
+		null;
+	let tierContentFilterBlocked = false;
+	if (openAiContentFilterAllowed) {
+		const tieredPlan = await resolveTieredContentFilterPlan(
+			organization,
+			usedProvider,
+			await getContentFilterSettings(),
+		);
+		if (
+			tieredPlan &&
+			(openAIContentFilterResult !== null ||
+				(await hasOpenAIContentFilterCredential()))
+		) {
+			openAIContentFilterResult ??= await checkOpenAIContentFilter(
+				messages as BaseMessage[],
+				openAIContentFilterContext,
+				c.req.raw.signal,
+			);
+			const tieredEvaluation = evaluateTieredContentFilter(
+				openAIContentFilterResult.results,
+				tieredPlan.level,
+			);
+			gatewayContentFilterEvaluation = buildGatewayContentFilterEvaluation(
+				tieredPlan,
+				tieredEvaluation,
+				openAIContentFilterResult.results.length === 0,
+			);
+			tierContentFilterBlocked =
+				gatewayContentFilterEvaluation.action === "blocked";
+			if (tieredEvaluation.violation) {
+				logger.debug("gateway_content_filter_tier", {
+					requestId,
+					organizationId: project.organizationId,
+					provider: usedProvider,
+					tier: tieredPlan.tier,
+					level: tieredPlan.level,
+					action: gatewayContentFilterEvaluation.action,
+					matchedCategories: tieredEvaluation.matchedCategories,
+				});
+			}
+		}
+	}
+
 	// Preserve monitor tagging, and also tag successful reroutes triggered by a
 	// gateway content-filter match so the decision remains visible in logs.
 	const shouldTagContentFilter =
 		(contentFilterMode === "monitor" && contentFilterMatched) ||
-		contentFilterRoutingApplied;
+		contentFilterRoutingApplied ||
+		gatewayContentFilterEvaluation?.violation === true;
+	// Stored for every moderated request; the 30-day data retention cleanup
+	// nulls it again, so the extra jsonb per sampled row is bounded.
 	const gatewayContentFilterResponse = openAIContentFilterResult?.responses
 		.length
 		? openAIContentFilterResult.responses
@@ -6209,6 +6272,9 @@ chat.openapi(completions, async (c) => {
 					: logData.internalContentFilter,
 				gatewayContentFilterResponse:
 					logData.gatewayContentFilterResponse ?? gatewayContentFilterResponse,
+				gatewayContentFilterEvaluation:
+					logData.gatewayContentFilterEvaluation ??
+					gatewayContentFilterEvaluation,
 			},
 			// Default the retention level from the resolved organization so payload
 			// fields are stripped before publishing to the log queue for
@@ -6216,7 +6282,7 @@ chat.openapi(completions, async (c) => {
 			{ retentionLevel, ...options },
 		);
 
-	if (contentFilterBlocked) {
+	if (contentFilterBlocked || tierContentFilterBlocked) {
 		const contentFilterResponseId = `chatcmpl-${Date.now()}`;
 		const contentFilterCreated = Math.floor(Date.now() / 1000);
 
@@ -6250,10 +6316,11 @@ chat.openapi(completions, async (c) => {
 					c.req.header("x-debug") === "true",
 					c.req.header("user-agent"),
 				),
-				content: null,
-				responseSize: 0,
+				content: GATEWAY_CONTENT_FILTER_MESSAGE,
+				responseSize: GATEWAY_CONTENT_FILTER_MESSAGE.length,
 				finishReason: "llmgateway_content_filter",
 				unifiedFinishReason: "content_filter",
+				internalContentFilter: true,
 				promptTokens: null,
 				completionTokens: null,
 				totalTokens: null,
@@ -6294,7 +6361,10 @@ chat.openapi(completions, async (c) => {
 					choices: [
 						{
 							index: 0,
-							delta: {},
+							delta: {
+								role: "assistant",
+								content: GATEWAY_CONTENT_FILTER_MESSAGE,
+							},
 							finish_reason: "content_filter",
 						},
 					],
@@ -6317,7 +6387,7 @@ chat.openapi(completions, async (c) => {
 					index: 0,
 					message: {
 						role: "assistant",
-						content: null,
+						content: GATEWAY_CONTENT_FILTER_MESSAGE,
 					},
 					finish_reason: "content_filter",
 				},

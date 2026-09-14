@@ -233,6 +233,8 @@ Image generation models return responses in the standard chat completions format
 }
 ```
 
+A request stopped by the [gateway content filter](/resources/error-handling#gateway-content-filter) returns `finish_reason: "content_filter"` on the Chat Completions API and an empty `data` array on the Images API.
+
 ### Vision support
 
 You can edit or modify images by combining image generation with [vision models](/features/vision) by including the image in the `messages` array.

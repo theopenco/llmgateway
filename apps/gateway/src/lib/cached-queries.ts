@@ -46,6 +46,7 @@ import {
 	providerRoutingSettings as providerRoutingSettingsTable,
 	providerKey as providerKeyTable,
 	routingScoreMultiplier as routingScoreMultiplierTable,
+	systemSetting as systemSettingTable,
 	user as userTable,
 	userIamRule as userIamRuleTable,
 	userOrganization as userOrganizationTable,
@@ -53,6 +54,10 @@ import {
 	wallet as walletTable,
 } from "@llmgateway/db";
 import { getRegionScopedDefaultRegion } from "@llmgateway/models";
+import {
+	CONTENT_FILTER_SETTING_ID,
+	parseContentFilterSettings,
+} from "@llmgateway/shared";
 import { isProjectScopedRole } from "@llmgateway/shared/organization-roles";
 
 import {
@@ -84,6 +89,7 @@ import type {
 	wallet,
 } from "@llmgateway/db";
 import type { EnvVarVariant } from "@llmgateway/models";
+import type { ContentFilterSettings } from "@llmgateway/shared";
 
 // Type aliases for cleaner function signatures
 type EndUserSession = InferSelectModel<typeof endUserSession>;
@@ -417,6 +423,34 @@ export async function findOrganizationById(
 	}
 
 	return org;
+}
+
+const systemSettingTableName = getTableName(systemSettingTable);
+const CONTENT_FILTER_SETTINGS_TTL_SECONDS = 60;
+
+/**
+ * Admin-managed tiered content filter settings. Pinned to a fixed TTL: the
+ * admin API writes the row through the uncached client, so table-level
+ * auto-invalidation would never fire, and a minute of staleness is fine.
+ */
+export async function getContentFilterSettings(): Promise<ContentFilterSettings> {
+	return await swrWrap(
+		`systemSetting:${CONTENT_FILTER_SETTING_ID}`,
+		[systemSettingTableName],
+		async () => {
+			const rows = await db
+				.select({ value: systemSettingTable.value })
+				.from(systemSettingTable)
+				.where(eq(systemSettingTable.id, CONTENT_FILTER_SETTING_ID))
+				.limit(1)
+				.$withCache({
+					tag: `system-setting:${CONTENT_FILTER_SETTING_ID}`,
+					autoInvalidate: false,
+					config: { ex: CONTENT_FILTER_SETTINGS_TTL_SECONDS },
+				});
+			return parseContentFilterSettings(rows[0]?.value);
+		},
+	);
 }
 
 /**

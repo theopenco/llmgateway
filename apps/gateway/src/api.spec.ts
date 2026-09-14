@@ -6,6 +6,7 @@ import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { GATEWAY_CONTENT_FILTER_MESSAGE } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
@@ -6380,7 +6381,9 @@ describe("api", () => {
 			expect(res.status).toBe(200);
 
 			const json = await res.json();
-			expect(json.choices[0].message.content).toBeNull();
+			expect(json.choices[0].message.content).toBe(
+				GATEWAY_CONTENT_FILTER_MESSAGE,
+			);
 			expect(json.choices[0].finish_reason).toBe("content_filter");
 			expect(json.usage.total_tokens).toBe(0);
 			expect(fetchSpy).toHaveBeenCalledOnce();
