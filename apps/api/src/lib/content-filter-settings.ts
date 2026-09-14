@@ -53,6 +53,7 @@ export function listContentFilterProviders(settings: ContentFilterSettings) {
 		.map((provider) => ({
 			id: provider.id,
 			name: provider.name,
+			color: provider.color ?? null,
 			enabled: enabled.has(provider.id),
 		}))
 		.sort((a, b) => a.name.localeCompare(b.name));

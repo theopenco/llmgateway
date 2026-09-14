@@ -5709,6 +5709,7 @@ const contentFilterSettingsResponseSchema = z
 			z.object({
 				id: z.string(),
 				name: z.string(),
+				color: z.string().nullable(),
 				enabled: z.boolean(),
 			}),
 		),

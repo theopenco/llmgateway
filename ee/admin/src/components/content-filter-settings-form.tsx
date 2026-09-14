@@ -8,11 +8,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
+import { MultiProviderSelector } from "@llmgateway/shared/components";
+
 import type { ContentFilterSettingsInput } from "@/lib/admin-settings";
 
 interface ContentFilterProvider {
 	id: string;
 	name: string;
+	color: string | null;
 	enabled: boolean;
 }
 
@@ -43,24 +46,11 @@ export function ContentFilterSettingsForm({
 	const [enforceEnterprise, setEnforceEnterprise] = useState(
 		settings.enforceEnterprise,
 	);
-	const [providerIds, setProviderIds] = useState<Set<string>>(
-		() => new Set(settings.providers.filter((p) => p.enabled).map((p) => p.id)),
+	const [providerIds, setProviderIds] = useState<string[]>(() =>
+		settings.providers.filter((p) => p.enabled).map((p) => p.id),
 	);
 	const [error, setError] = useState<string | null>(null);
 	const [saved, setSaved] = useState(false);
-
-	const toggleProvider = (id: string, checked: boolean) => {
-		setSaved(false);
-		setProviderIds((current) => {
-			const next = new Set(current);
-			if (checked) {
-				next.add(id);
-			} else {
-				next.delete(id);
-			}
-			return next;
-		});
-	};
 
 	const handleSubmit = (event: React.FormEvent) => {
 		event.preventDefault();
@@ -78,7 +68,7 @@ export function ContentFilterSettingsForm({
 				sampleRatePercent: rate,
 				enforce,
 				enforceEnterprise: savedEnforceEnterprise,
-				providerIds: Array.from(providerIds),
+				providerIds,
 			});
 			if (!result.ok) {
 				setError(result.message);
@@ -183,30 +173,15 @@ export function ContentFilterSettingsForm({
 				<p className="text-xs text-muted-foreground">
 					Only requests routed to an enabled provider are moderated.
 				</p>
-				<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-					{settings.providers.map((provider) => (
-						<label
-							key={provider.id}
-							htmlFor={`content-filter-provider-${provider.id}`}
-							className="flex items-center gap-3 rounded-md border border-border/60 px-3 py-2"
-						>
-							<Switch
-								id={`content-filter-provider-${provider.id}`}
-								checked={providerIds.has(provider.id)}
-								disabled={pending}
-								onCheckedChange={(checked) =>
-									toggleProvider(provider.id, checked)
-								}
-							/>
-							<span className="min-w-0">
-								<span className="block truncate text-sm">{provider.name}</span>
-								<span className="block truncate text-xs text-muted-foreground">
-									{provider.id}
-								</span>
-							</span>
-						</label>
-					))}
-				</div>
+				<MultiProviderSelector
+					providers={settings.providers}
+					selectedProviders={providerIds}
+					onProvidersChange={(next) => {
+						setSaved(false);
+						setProviderIds(next);
+					}}
+					placeholder="Search and select providers..."
+				/>
 			</div>
 
 			<div className="flex items-center gap-3">
