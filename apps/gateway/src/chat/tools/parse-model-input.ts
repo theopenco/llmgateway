@@ -34,6 +34,7 @@ export interface ParseModelInputResult {
  * - "provider/model" -> specific provider and model
  * - "provider/model:region" -> specific provider, model, and region
  * - "customProvider/model" -> custom provider with any model name
+ * - "custom/..." -> rejected (legacy spelling; use "customProvider/model")
  * - "model-id" -> model ID lookup
  *
  * @throws HTTPException if the model or provider is not supported
@@ -67,6 +68,17 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 	} else if (modelInput.includes("/")) {
 		const split = modelInput.split("/");
 		const providerCandidate = split[0];
+
+		// "custom" is a catalogue provider id, so the legacy
+		// "custom/<name>/<model>" spelling would otherwise parse with no custom
+		// provider name and route to an arbitrary custom key. Reject it loudly.
+		if (providerCandidate === "custom") {
+			const rest = split.slice(1).join("/");
+			const hint = rest.includes("/") ? `, e.g. "${rest}"` : "";
+			throw new HTTPException(400, {
+				message: `Invalid model "${modelInput}": the "custom/" prefix is not supported. Address a custom provider as "<name>/<model>"${hint}`,
+			});
+		}
 
 		// Check if the provider exists
 		const knownProvider = providers.find((p) => p.id === providerCandidate);
