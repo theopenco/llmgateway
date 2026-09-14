@@ -46,7 +46,8 @@ export const GATEWAY_CONTENT_FILTER_MESSAGE =
  * as `content_filter` rather than a generic upstream error.
  *
  * Covers chat, image, and video generation providers:
- * - Azure OpenAI: `ResponsibleAIPolicyViolation`, `Microsoft's content management policy`
+ * - Azure OpenAI: `ResponsibleAIPolicyViolation`, `content management policy`
+ *   (the owner varies: "Microsoft's" / "Azure OpenAI's"), `ContentFiltered`
  * - ByteDance / DeepSeek (incl. Seedance video moderation, e.g.
  *   `OutputVideoSensitiveContentDetected`): `SensitiveContentDetected`
  * - Alibaba / DashScope: `data_inspection_failed`, `Green net check failed`
@@ -62,7 +63,8 @@ const CONTENT_FILTER_ERROR_SIGNALS = [
 	"data_inspection_failed",
 	"Input data may contain inappropriate content",
 	"Green net check failed",
-	"Microsoft's content management policy",
+	"content management policy",
+	"ContentFiltered",
 	"Your request was rejected by the safety system",
 	"imagine:content-moderated",
 	"System detected potentially unsafe or sensitive content in input or generation",
@@ -81,5 +83,8 @@ export function isContentFilterErrorText(
 		return false;
 	}
 
-	return CONTENT_FILTER_ERROR_SIGNALS.some((signal) => text.includes(signal));
+	const haystack = text.toLowerCase();
+	return CONTENT_FILTER_ERROR_SIGNALS.some((signal) =>
+		haystack.includes(signal.toLowerCase()),
+	);
 }
