@@ -22,6 +22,14 @@ import {
 	ChartTooltip,
 	ChartTooltipContent,
 } from "@/components/ui/chart";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@/components/ui/table";
 import { getOrganizationContentFilterActivity } from "@/lib/admin-content-filter";
 
 import type { ChartConfig } from "@/components/ui/chart";
@@ -106,8 +114,9 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 						<CardDescription>
 							Requests the gateway content filter sampled for this organization
 							over the selected window, and how many crossed their tier&apos;s
-							thresholds. Sampled counts every moderated request; blocked is the
-							subset actually rejected.
+							thresholds, broken down by category and by the model that served
+							the request. Sampled counts every moderated request; blocked is
+							the subset actually rejected.
 						</CardDescription>
 					</div>
 					<Link
@@ -215,6 +224,45 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 								/>
 							</BarChart>
 						</ChartContainer>
+						{data.topModels.length > 0 ? (
+							<div className="mt-4">
+								<p className="mb-2 text-sm font-medium">Top models</p>
+								<Table>
+									<TableHeader>
+										<TableRow>
+											<TableHead>Model</TableHead>
+											<TableHead className="text-right">Sampled</TableHead>
+											<TableHead className="text-right">Violations</TableHead>
+											<TableHead className="text-right">Rate</TableHead>
+											<TableHead className="text-right">Blocked</TableHead>
+										</TableRow>
+									</TableHeader>
+									<TableBody>
+										{data.topModels.map((model) => (
+											<TableRow
+												key={`${model.usedProvider}/${model.usedModel}`}
+											>
+												<TableCell className="font-medium">
+													{model.usedModel}
+												</TableCell>
+												<TableCell className="text-right tabular-nums">
+													{model.sampledCount.toLocaleString("en-US")}
+												</TableCell>
+												<TableCell className="text-right tabular-nums">
+													{model.violationCount.toLocaleString("en-US")}
+												</TableCell>
+												<TableCell className="text-right tabular-nums">
+													{percentFormatter.format(model.violationRate)}
+												</TableCell>
+												<TableCell className="text-right tabular-nums">
+													{model.blockedCount.toLocaleString("en-US")}
+												</TableCell>
+											</TableRow>
+										))}
+									</TableBody>
+								</Table>
+							</div>
+						) : null}
 					</>
 				)}
 			</CardContent>

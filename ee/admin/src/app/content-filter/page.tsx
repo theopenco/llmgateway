@@ -124,7 +124,7 @@ export default async function ContentFilterPage({
 	}
 
 	return (
-		<div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8 md:px-8">
+		<div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 md:px-8">
 			<header className="flex items-center gap-3">
 				<div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
 					<ShieldCheck className="h-5 w-5" />
@@ -240,6 +240,7 @@ export default async function ContentFilterPage({
 										<TableHead className="text-right">Rate</TableHead>
 										<TableHead className="text-right">Blocked</TableHead>
 										<TableHead>Top categories</TableHead>
+										<TableHead>Top models</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
@@ -274,6 +275,83 @@ export default async function ContentFilterPage({
 												{org.topCategories
 													.map((c) => `${c.category} (${c.violationCount})`)
 													.join(", ") || "—"}
+											</TableCell>
+											<TableCell className="text-xs text-muted-foreground">
+												{org.topModels.length === 0 ? (
+													"—"
+												) : (
+													<div className="flex flex-col gap-0.5">
+														{org.topModels.map((m) => (
+															<span
+																key={`${m.usedProvider}/${m.usedModel}`}
+																className="whitespace-nowrap"
+															>
+																{m.usedModel} ({m.violationCount})
+															</span>
+														))}
+													</div>
+												)}
+											</TableCell>
+										</TableRow>
+									))}
+								</TableBody>
+							</Table>
+						</div>
+					)}
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Violations by model</CardTitle>
+					<CardDescription>
+						The same window, grouped by the model that served the request
+						instead of the organization that sent it. Counts are cross-tenant,
+						so one model can appear here without any single organization
+						standing out.
+						{sort === "rate"
+							? ` Ranked by violation rate among models with at least ${MIN_SAMPLED_FOR_RATE} sampled requests.`
+							: " Ranked by violation count."}
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					{violations.models.length === 0 ? (
+						<p className="text-sm text-muted-foreground">
+							No moderated requests in this window.
+						</p>
+					) : (
+						<div className="overflow-x-auto">
+							<Table>
+								<TableHeader>
+									<TableRow>
+										<TableHead>Model</TableHead>
+										<TableHead>Provider</TableHead>
+										<TableHead className="text-right">Sampled</TableHead>
+										<TableHead className="text-right">Violations</TableHead>
+										<TableHead className="text-right">Rate</TableHead>
+										<TableHead className="text-right">Blocked</TableHead>
+									</TableRow>
+								</TableHeader>
+								<TableBody>
+									{violations.models.map((model) => (
+										<TableRow key={`${model.usedProvider}/${model.usedModel}`}>
+											<TableCell className="font-medium">
+												{model.usedModel}
+											</TableCell>
+											<TableCell className="text-muted-foreground">
+												{model.usedProvider}
+											</TableCell>
+											<TableCell className="text-right tabular-nums">
+												{model.sampledCount.toLocaleString("en-US")}
+											</TableCell>
+											<TableCell className="text-right tabular-nums">
+												{model.violationCount.toLocaleString("en-US")}
+											</TableCell>
+											<TableCell className="text-right tabular-nums">
+												{percentFormatter.format(model.violationRate)}
+											</TableCell>
+											<TableCell className="text-right tabular-nums">
+												{model.blockedCount.toLocaleString("en-US")}
 											</TableCell>
 										</TableRow>
 									))}

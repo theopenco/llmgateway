@@ -12,6 +12,7 @@ import { adminMiddleware } from "@/middleware/admin.js";
 import {
 	and,
 	CONTENT_FILTER_STATS_ALL_CATEGORY,
+	contentFilterHourlyModelStats,
 	contentFilterHourlyStats,
 	db,
 	desc,
@@ -40,7 +41,10 @@ const WINDOW_HOURS: Record<z.infer<typeof violationsWindowSchema>, number> = {
 
 const TOP_ORGANIZATIONS = 50;
 const TOP_CATEGORIES = 5;
+const TOP_MODELS = 3;
 const TOP_ORGANIZATION_CATEGORIES = 10;
+const TOP_ORGANIZATION_MODELS = 10;
+const TOP_GLOBAL_MODELS = 25;
 
 const sampled = sql<number>`coalesce(sum(${contentFilterHourlyStats.sampledCount}), 0)::int`;
 const violations = sql<number>`coalesce(sum(${contentFilterHourlyStats.violationCount}), 0)::int`;
@@ -48,6 +52,41 @@ const blocked = sql<number>`coalesce(sum(${contentFilterHourlyStats.blockedCount
 // Zero rather than NULL for unsampled orgs so a DESC sort does not float
 // them to the top.
 const violationRate = sql<number>`coalesce(sum(${contentFilterHourlyStats.violationCount})::float / nullif(sum(${contentFilterHourlyStats.sampledCount}), 0), 0)`;
+
+const modelSampled = sql<number>`coalesce(sum(${contentFilterHourlyModelStats.sampledCount}), 0)::int`;
+const modelViolations = sql<number>`coalesce(sum(${contentFilterHourlyModelStats.violationCount}), 0)::int`;
+const modelBlocked = sql<number>`coalesce(sum(${contentFilterHourlyModelStats.blockedCount}), 0)::int`;
+const modelViolationRate = sql<number>`coalesce(sum(${contentFilterHourlyModelStats.violationCount})::float / nullif(sum(${contentFilterHourlyModelStats.sampledCount}), 0), 0)`;
+
+const modelBreakdownSchema = z.object({
+	usedModel: z.string(),
+	usedProvider: z.string(),
+	sampledCount: z.number(),
+	violationCount: z.number(),
+	blockedCount: z.number(),
+	violationRate: z.number(),
+});
+
+type ModelBreakdown = z.infer<typeof modelBreakdownSchema>;
+
+function toModelBreakdown(row: {
+	usedModel: string;
+	usedProvider: string;
+	sampledCount: number;
+	violationCount: number;
+	blockedCount: number;
+}): ModelBreakdown {
+	const sampledCount = Number(row.sampledCount);
+	const violationCount = Number(row.violationCount);
+	return {
+		usedModel: row.usedModel,
+		usedProvider: row.usedProvider,
+		sampledCount,
+		violationCount,
+		blockedCount: Number(row.blockedCount),
+		violationRate: sampledCount > 0 ? violationCount / sampledCount : 0,
+	};
+}
 
 const violationsResponseSchema = z
 	.object({
@@ -71,8 +110,10 @@ const violationsResponseSchema = z
 				topCategories: z.array(
 					z.object({ category: z.string(), violationCount: z.number() }),
 				),
+				topModels: z.array(modelBreakdownSchema),
 			}),
 		),
+		models: z.array(modelBreakdownSchema),
 	})
 	.openapi({});
 
@@ -94,7 +135,7 @@ const getViolations = createRoute({
 				"application/json": { schema: violationsResponseSchema },
 			},
 			description:
-				"Organizations ranked by gateway content filter violations or violation rate over the window, from the hourly rollup.",
+				"Organizations and models ranked by gateway content filter violations or violation rate over the window, from the hourly rollup.",
 		},
 	},
 });
@@ -184,6 +225,77 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		categoriesByOrg.set(row.organizationId, list);
 	}
 
+	const modelRows =
+		organizationIds.length > 0
+			? await db
+					.select({
+						organizationId: contentFilterHourlyModelStats.organizationId,
+						usedModel: contentFilterHourlyModelStats.usedModel,
+						usedProvider: contentFilterHourlyModelStats.usedProvider,
+						sampledCount: modelSampled,
+						violationCount: modelViolations,
+						blockedCount: modelBlocked,
+					})
+					.from(contentFilterHourlyModelStats)
+					.where(
+						and(
+							gte(contentFilterHourlyModelStats.hourTimestamp, windowStart),
+							eq(
+								contentFilterHourlyModelStats.category,
+								CONTENT_FILTER_STATS_ALL_CATEGORY,
+							),
+							inArray(
+								contentFilterHourlyModelStats.organizationId,
+								organizationIds,
+							),
+						),
+					)
+					.groupBy(
+						contentFilterHourlyModelStats.organizationId,
+						contentFilterHourlyModelStats.usedModel,
+						contentFilterHourlyModelStats.usedProvider,
+					)
+			: [];
+
+	const modelsByOrg = new Map<string, ModelBreakdown[]>();
+	for (const row of modelRows) {
+		const list = modelsByOrg.get(row.organizationId) ?? [];
+		list.push(toModelBreakdown(row));
+		modelsByOrg.set(row.organizationId, list);
+	}
+
+	// Cross-tenant model ranking, independent of the org list cap: which models
+	// the filter flags most across the whole platform.
+	const globalModelRows = await db
+		.select({
+			usedModel: contentFilterHourlyModelStats.usedModel,
+			usedProvider: contentFilterHourlyModelStats.usedProvider,
+			sampledCount: modelSampled,
+			violationCount: modelViolations,
+			blockedCount: modelBlocked,
+		})
+		.from(contentFilterHourlyModelStats)
+		.where(
+			and(
+				gte(contentFilterHourlyModelStats.hourTimestamp, windowStart),
+				eq(
+					contentFilterHourlyModelStats.category,
+					CONTENT_FILTER_STATS_ALL_CATEGORY,
+				),
+			),
+		)
+		.groupBy(
+			contentFilterHourlyModelStats.usedModel,
+			contentFilterHourlyModelStats.usedProvider,
+		)
+		.having(minSampled > 0 ? gte(modelSampled, minSampled) : undefined)
+		.orderBy(
+			...(sort === "rate"
+				? [desc(modelViolationRate), desc(modelViolations), desc(modelSampled)]
+				: [desc(modelViolations), desc(modelSampled)]),
+		)
+		.limit(TOP_GLOBAL_MODELS);
+
 	// Window-wide, independent of the ranked list cap and sample floor.
 	const [globalTotals] = await db
 		.select({
@@ -221,10 +333,20 @@ adminContentFilter.openapi(getViolations, async (c) => {
 			topCategories: (categoriesByOrg.get(row.organizationId) ?? [])
 				.sort((a, b) => b.violationCount - a.violationCount)
 				.slice(0, TOP_CATEGORIES),
+			topModels: (modelsByOrg.get(row.organizationId) ?? [])
+				.sort((a, b) => b.violationCount - a.violationCount)
+				.slice(0, TOP_MODELS),
 		};
 	});
 
-	return c.json({ window, sort, minSampled, totals, organizations });
+	return c.json({
+		window,
+		sort,
+		minSampled,
+		totals,
+		organizations,
+		models: globalModelRows.map(toModelBreakdown),
+	});
 });
 
 const activityResponseSchema = z
@@ -240,6 +362,7 @@ const activityResponseSchema = z
 		topCategories: z.array(
 			z.object({ category: z.string(), violationCount: z.number() }),
 		),
+		topModels: z.array(modelBreakdownSchema),
 		data: z.array(
 			z.object({
 				timestamp: z.string(),
@@ -266,7 +389,7 @@ const getOrganizationActivity = createRoute({
 				"application/json": { schema: activityResponseSchema },
 			},
 			description:
-				"One organization's gateway content filter activity over time: sampled, violating and blocked requests per bucket, plus window totals and top categories.",
+				"One organization's gateway content filter activity over time: sampled, violating and blocked requests per bucket, plus window totals, top categories and top models.",
 		},
 		404: {
 			description: "Organization not found.",
@@ -296,7 +419,12 @@ adminContentFilter.openapi(getOrganizationActivity, async (c) => {
 		gte(contentFilterHourlyStats.hourTimestamp, startDate),
 	);
 
-	const [series, categories] = await Promise.all([
+	const modelWindow = and(
+		eq(contentFilterHourlyModelStats.organizationId, orgId),
+		gte(contentFilterHourlyModelStats.hourTimestamp, startDate),
+	);
+
+	const [series, categories, models] = await Promise.all([
 		db
 			.select({
 				bucket: bucketExpr,
@@ -333,6 +461,30 @@ adminContentFilter.openapi(getOrganizationActivity, async (c) => {
 			.groupBy(contentFilterHourlyStats.category)
 			.orderBy(desc(violations))
 			.limit(TOP_ORGANIZATION_CATEGORIES),
+		db
+			.select({
+				usedModel: contentFilterHourlyModelStats.usedModel,
+				usedProvider: contentFilterHourlyModelStats.usedProvider,
+				sampledCount: modelSampled,
+				violationCount: modelViolations,
+				blockedCount: modelBlocked,
+			})
+			.from(contentFilterHourlyModelStats)
+			.where(
+				and(
+					modelWindow,
+					eq(
+						contentFilterHourlyModelStats.category,
+						CONTENT_FILTER_STATS_ALL_CATEGORY,
+					),
+				),
+			)
+			.groupBy(
+				contentFilterHourlyModelStats.usedModel,
+				contentFilterHourlyModelStats.usedProvider,
+			)
+			.orderBy(desc(modelViolations), desc(modelSampled))
+			.limit(TOP_ORGANIZATION_MODELS),
 	]);
 
 	const byBucket = new Map(
@@ -367,6 +519,7 @@ adminContentFilter.openapi(getOrganizationActivity, async (c) => {
 			category: row.category,
 			violationCount: Number(row.violationCount),
 		})),
+		topModels: models.map(toModelBreakdown),
 		data,
 	});
 });

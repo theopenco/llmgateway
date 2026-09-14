@@ -92,6 +92,53 @@ describe("admin organization content filter activity", () => {
 				blockedCount: 0,
 			},
 		]);
+		await db.insert(tables.contentFilterHourlyModelStats).values([
+			{
+				hourTimestamp: hoursAgo(1),
+				organizationId: "cf-org-a",
+				projectId: "proj-a",
+				usedModel: "openai/gpt-5.6-sol",
+				usedProvider: "openai",
+				category: "all",
+				sampledCount: 10,
+				violationCount: 4,
+				blockedCount: 1,
+			},
+			{
+				hourTimestamp: hoursAgo(3),
+				organizationId: "cf-org-a",
+				projectId: "proj-a",
+				usedModel: "openai/gpt-5.6-sol",
+				usedProvider: "openai",
+				category: "all",
+				sampledCount: 15,
+				violationCount: 1,
+				blockedCount: 0,
+			},
+			{
+				hourTimestamp: hoursAgo(1),
+				organizationId: "cf-org-a",
+				projectId: "proj-a2",
+				usedModel: "anthropic/claude-sonnet-5",
+				usedProvider: "anthropic",
+				category: "all",
+				sampledCount: 5,
+				violationCount: 0,
+				blockedCount: 0,
+			},
+			// Another org: never mixed in.
+			{
+				hourTimestamp: hoursAgo(1),
+				organizationId: "cf-org-b",
+				projectId: "proj-b",
+				usedModel: "openai/gpt-5.6-sol",
+				usedProvider: "openai",
+				category: "all",
+				sampledCount: 100,
+				violationCount: 50,
+				blockedCount: 50,
+			},
+		]);
 	});
 
 	afterEach(async () => {
@@ -122,6 +169,24 @@ describe("admin organization content filter activity", () => {
 		expect(body.topCategories).toEqual([
 			{ category: "violence", violationCount: 3 },
 			{ category: "hate", violationCount: 1 },
+		]);
+		expect(body.topModels).toEqual([
+			{
+				usedModel: "openai/gpt-5.6-sol",
+				usedProvider: "openai",
+				sampledCount: 25,
+				violationCount: 5,
+				blockedCount: 1,
+				violationRate: 0.2,
+			},
+			{
+				usedModel: "anthropic/claude-sonnet-5",
+				usedProvider: "anthropic",
+				sampledCount: 5,
+				violationCount: 0,
+				blockedCount: 0,
+				violationRate: 0,
+			},
 		]);
 		// Five bucket boundaries fall inside a 4h window; quiet ones are zero.
 		expect(body.data).toHaveLength(5);

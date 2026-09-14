@@ -3961,6 +3961,53 @@ export const contentFilterHourlyStats = pgTable(
 	],
 );
 
+// Hourly rollup of log.gatewayContentFilterEvaluation broken out by the model
+// that served the request, so abuse can be attributed to a model or provider
+// without scanning `log`. Mirrors contentFilterHourlyStats: the "all" category
+// row carries the sampled/violation/blocked totals, category rows carry
+// violationCount only. A request retried across providers is counted once per
+// distinct (usedModel, usedProvider) it touched, so these rows can sum to more
+// than the contentFilterHourlyStats totals.
+export const contentFilterHourlyModelStats = pgTable(
+	"content_filter_hourly_model_stats",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		hourTimestamp: timestamp().notNull(),
+		organizationId: text().notNull(),
+		projectId: text().notNull(),
+		usedModel: text().notNull(),
+		usedProvider: text().notNull(),
+		category: text().notNull(),
+		sampledCount: integer().notNull().default(0),
+		violationCount: integer().notNull().default(0),
+		blockedCount: integer().notNull().default(0),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.organizationId,
+			table.projectId,
+			table.usedModel,
+			table.usedProvider,
+			table.category,
+		),
+		index("content_filter_hourly_model_stats_org_ts_idx").on(
+			table.organizationId,
+			table.hourTimestamp,
+		),
+		index("content_filter_hourly_model_stats_model_ts_idx").on(
+			table.usedModel,
+			table.hourTimestamp,
+		),
+		index("content_filter_hourly_model_stats_ts_idx").on(table.hourTimestamp),
+	],
+);
+
 // Audit Log - Enterprise feature for tracking all API actions
 export const auditLogActions = [
 	// Organization
