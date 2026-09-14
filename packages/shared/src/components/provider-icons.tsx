@@ -1327,6 +1327,22 @@ export const FireworksIconStatic: React.FC<React.SVGProps<SVGSVGElement>> = (
 	</svg>
 );
 
+export const AtriaIcon: React.FC<React.SVGProps<SVGSVGElement>> = (props) => (
+	<svg
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 24 24"
+		fill="none"
+		stroke="currentColor"
+		strokeWidth="2"
+		strokeLinecap="round"
+		{...props}
+	>
+		<path d="M8.75 9.63 10 7.46A2.31 2.31 0 0 1 14 7.46l1.25 2.17" />
+		<path d="M15.85 10.67 17.1 12.84a2.31 2.31 0 0 1-2 3.46h-2.5" />
+		<path d="M11.4 16.3H8.9a2.31 2.31 0 0 1-2-3.46l1.25-2.17" />
+	</svg>
+);
+
 export const ConsensusProtocolIcon: React.FC<React.SVGProps<SVGSVGElement>> = (
 	props,
 ) => (
@@ -1665,6 +1681,7 @@ export const ProviderIcons = {
 	ranoai: RanoAIIcon,
 	baidu: BaiduIcon,
 	consensusprotocol: ConsensusProtocolIcon,
+	atria: AtriaIcon,
 	tencent: TencentCloudIcon,
 } as const;
 
@@ -1723,6 +1740,7 @@ export const providerLogoUrls: Partial<
 	ranoai: ProviderIcons.ranoai,
 	baidu: ProviderIcons.baidu,
 	consensusprotocol: ProviderIcons.consensusprotocol,
+	atria: ProviderIcons.atria,
 	tencent: ProviderIcons.tencent,
 };
 

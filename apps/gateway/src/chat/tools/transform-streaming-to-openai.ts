@@ -1573,6 +1573,7 @@ export function transformStreamingToOpenai(
 		case "ranoai":
 		case "baidu":
 		case "consensusprotocol":
+		case "atria":
 		case "granite":
 		case "xiaomi":
 		case "azure-ai-foundry":
