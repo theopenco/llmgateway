@@ -127,6 +127,29 @@ describe("getFinishReasonFromError", () => {
 		expect(getFinishReasonFromError(400, azureError)).toBe("content_filter");
 	});
 
+	it("returns content_filter for an Azure prompt filter without inner_error", () => {
+		const azureError = JSON.stringify({
+			error: {
+				message:
+					"The response was filtered due to the prompt triggering Azure OpenAI\u2019s content management policy. Please modify your prompt and retry.",
+				type: "invalid_request_error",
+				param: "prompt",
+				code: "content_filter",
+				content_filters: [
+					{
+						blocked: true,
+						source_type: "prompt",
+						content_filter_results: {
+							violence: { filtered: true, severity: "medium" },
+						},
+					},
+				],
+				innererror: { code: "ContentFiltered" },
+			},
+		});
+		expect(getFinishReasonFromError(400, azureError)).toBe("content_filter");
+	});
+
 	it("returns content_filter for Azure error even with 5xx (5xx takes precedence)", () => {
 		const azureError =
 			'{"error":{"inner_error":{"code":"ResponsibleAIPolicyViolation"}}}';
