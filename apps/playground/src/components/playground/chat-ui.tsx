@@ -245,6 +245,8 @@ interface ChatUIProps {
 	setAlibabaImageSize: (value: string) => void;
 	imageQuality: string;
 	setImageQuality: (value: string) => void;
+	imageModeration: string;
+	setImageModeration: (value: string) => void;
 	imageCount: 1 | 2 | 3 | 4;
 	setImageCount: (value: 1 | 2 | 3 | 4) => void;
 	supportsWebSearch: boolean;
@@ -1143,6 +1145,8 @@ export const ChatUI = ({
 	setAlibabaImageSize,
 	imageQuality,
 	setImageQuality,
+	imageModeration,
+	setImageModeration,
 	imageCount,
 	setImageCount,
 	supportsWebSearch,
@@ -1176,7 +1180,24 @@ export const ChatUI = ({
 		availableSizes,
 		supportsQuality,
 		availableQualities: qualityOptions,
+		supportsModeration,
+		availableModerations: moderationOptions,
 	} = getModelImageConfig(selectedModel);
+
+	const moderationSelect = supportsModeration ? (
+		<Select value={imageModeration} onValueChange={setImageModeration}>
+			<SelectTrigger size="sm" className="min-w-[150px]">
+				<SelectValue placeholder="Moderation" />
+			</SelectTrigger>
+			<SelectContent>
+				{moderationOptions.map((m) => (
+					<SelectItem key={m} value={m}>
+						Moderation: {m}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
+	) : null;
 
 	const [activeGroup, setActiveGroup] = useState<HeroSuggestionGroup>("Create");
 	const [randomizedHeroSuggestionGroups, setRandomizedHeroSuggestionGroups] =
@@ -2062,6 +2083,7 @@ export const ChatUI = ({
 											</SelectContent>
 										</Select>
 									)}
+									{moderationSelect}
 								</>
 							)}
 							{supportsImageGen && usesPixelDimensions && isGptImage && (
@@ -2093,6 +2115,7 @@ export const ChatUI = ({
 											))}
 										</SelectContent>
 									</Select>
+									{moderationSelect}
 								</>
 							)}
 							{supportsImageGen && usesPixelDimensions && !isGptImage && (

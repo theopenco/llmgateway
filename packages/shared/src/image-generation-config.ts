@@ -105,6 +105,15 @@ export function getModelImageConfig(model: string) {
 			? "medium"
 			: undefined;
 
+	// GPT Image is the only family exposing an explicit moderation control.
+	const supportsModeration = isGptImage;
+	const availableModerations = supportsModeration
+		? (["auto", "low"] as const)
+		: ([] as readonly string[]);
+	const defaultModeration: string | undefined = supportsModeration
+		? "auto"
+		: undefined;
+
 	const maxInputImages = getMaxInputImages(lower);
 
 	const supportedAspectRatios: AspectRatio[] | undefined = isReve
@@ -124,6 +133,9 @@ export function getModelImageConfig(model: string) {
 		supportsQuality,
 		availableQualities,
 		defaultQuality,
+		supportsModeration,
+		availableModerations,
+		defaultModeration,
 		maxInputImages,
 		supportedAspectRatios,
 	};

@@ -361,6 +361,10 @@ export default function ChatPageClient({
 		const config = getModelImageConfig(getInitialModel());
 		return config.defaultQuality ?? "auto";
 	});
+	const [imageModeration, setImageModeration] = useState<string>(() => {
+		const config = getModelImageConfig(getInitialModel());
+		return config.defaultModeration ?? "auto";
+	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
 	const [activeSkills, setActiveSkills] = useState<Skill[]>([]);
@@ -776,6 +780,12 @@ export default function ChatPageClient({
 			// so it stays the single source of truth for both playground surfaces.
 			const includeQuality =
 				getModelImageConfig(selectedModel).supportsQuality && !!imageQuality;
+			// "auto" is the upstream default, so only forward an explicit
+			// relaxation to keep the request body minimal.
+			const includeModeration =
+				getModelImageConfig(selectedModel).supportsModeration &&
+				!!imageModeration &&
+				imageModeration !== "auto";
 
 			// Always send n explicitly to prevent providers from defaulting to >1
 			const imageConfig = useImageGen
@@ -789,6 +799,7 @@ export default function ChatPageClient({
 										image_size: alibabaImageSize,
 									}),
 							...(includeQuality && { image_quality: imageQuality }),
+							...(includeModeration && { moderation: imageModeration }),
 							n: imageCount,
 						}
 					: {
@@ -797,6 +808,7 @@ export default function ChatPageClient({
 							}),
 							...(imageSize !== "1K" && { image_size: imageSize }),
 							...(includeQuality && { image_quality: imageQuality }),
+							...(includeModeration && { moderation: imageModeration }),
 							n: imageCount,
 						}
 				: undefined;
@@ -850,6 +862,7 @@ export default function ChatPageClient({
 			imageSize,
 			alibabaImageSize,
 			imageQuality,
+			imageModeration,
 			imageCount,
 			selectedModel,
 			webSearchEnabled,
@@ -2029,6 +2042,14 @@ export default function ChatPageClient({
 		) {
 			setImageQuality(config.defaultQuality ?? "auto");
 		}
+		if (
+			config.supportsModeration &&
+			!(config.availableModerations as readonly string[]).includes(
+				imageModeration,
+			)
+		) {
+			setImageModeration(config.defaultModeration ?? "auto");
+		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedModel]);
 
@@ -2260,6 +2281,8 @@ export default function ChatPageClient({
 											setAlibabaImageSize={setAlibabaImageSize}
 											imageQuality={imageQuality}
 											setImageQuality={setImageQuality}
+											imageModeration={imageModeration}
+											setImageModeration={setImageModeration}
 											imageCount={imageCount}
 											setImageCount={setImageCount}
 											availableRegions={availableRegions}
@@ -2322,6 +2345,8 @@ export default function ChatPageClient({
 										setAlibabaImageSize={setAlibabaImageSize}
 										imageQuality={imageQuality}
 										setImageQuality={setImageQuality}
+										imageModeration={imageModeration}
+										setImageModeration={setImageModeration}
 										imageCount={imageCount}
 										setImageCount={setImageCount}
 										supportsWebSearch={supportsWebSearch}
@@ -2593,6 +2618,10 @@ function ExtraChatPanel({
 	const [imageQuality, setImageQuality] = useState<string>(() => {
 		const config = getModelImageConfig(initialModel);
 		return config.defaultQuality ?? "auto";
+	});
+	const [imageModeration, setImageModeration] = useState<string>(() => {
+		const config = getModelImageConfig(initialModel);
+		return config.defaultModeration ?? "auto";
 	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(false);
@@ -2867,6 +2896,14 @@ function ExtraChatPanel({
 		) {
 			setImageQuality(config.defaultQuality ?? "auto");
 		}
+		if (
+			config.supportsModeration &&
+			!(config.availableModerations as readonly string[]).includes(
+				imageModeration,
+			)
+		) {
+			setImageModeration(config.defaultModeration ?? "auto");
+		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedModel]);
 
@@ -2896,6 +2933,12 @@ function ExtraChatPanel({
 			// so it stays the single source of truth for both playground surfaces.
 			const includeQuality =
 				getModelImageConfig(selectedModel).supportsQuality && !!imageQuality;
+			// "auto" is the upstream default, so only forward an explicit
+			// relaxation to keep the request body minimal.
+			const includeModeration =
+				getModelImageConfig(selectedModel).supportsModeration &&
+				!!imageModeration &&
+				imageModeration !== "auto";
 
 			// Always send n explicitly to prevent providers from defaulting to >1
 			const imageConfig = useImageGen
@@ -2909,6 +2952,7 @@ function ExtraChatPanel({
 										image_size: alibabaImageSize,
 									}),
 							...(includeQuality && { image_quality: imageQuality }),
+							...(includeModeration && { moderation: imageModeration }),
 							n: imageCount,
 						}
 					: {
@@ -2917,6 +2961,7 @@ function ExtraChatPanel({
 							}),
 							...(imageSize !== "1K" && { image_size: imageSize }),
 							...(includeQuality && { image_quality: imageQuality }),
+							...(includeModeration && { moderation: imageModeration }),
 							n: imageCount,
 						}
 				: undefined;
@@ -2957,6 +3002,7 @@ function ExtraChatPanel({
 			imageSize,
 			alibabaImageSize,
 			imageQuality,
+			imageModeration,
 			imageCount,
 			selectedModel,
 			webSearchEnabled,
@@ -3197,6 +3243,8 @@ function ExtraChatPanel({
 					setAlibabaImageSize={setAlibabaImageSize}
 					imageQuality={imageQuality}
 					setImageQuality={setImageQuality}
+					imageModeration={imageModeration}
+					setImageModeration={setImageModeration}
 					imageCount={imageCount}
 					setImageCount={setImageCount}
 					supportsWebSearch={supportsWebSearch}
