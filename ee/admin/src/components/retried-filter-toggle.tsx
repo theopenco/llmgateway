@@ -28,7 +28,7 @@ export function RetriedFilterToggle({
 	);
 
 	return (
-		<div className="flex items-center gap-1">
+		<div className="flex flex-wrap items-center gap-1">
 			<Button
 				variant={includeRetried ? "outline" : "default"}
 				size="sm"

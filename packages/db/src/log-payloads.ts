@@ -21,7 +21,29 @@ export const gatewayContentFilterResponseSchema = z.array(
 	moderationApiPayloadSchema,
 );
 
+export const gatewayContentFilterEvaluationSchema = z.object({
+	sampled: z.literal(true),
+	provider: z.string(),
+	tier: z.number().int(),
+	overridden: z.boolean(),
+	level: z.enum(["strict", "lenient"]),
+	violation: z.boolean(),
+	action: z.enum(["blocked", "logged", "passed"]),
+	enforced: z.boolean(),
+	exemptReason: z
+		.enum(["global_log_only", "enterprise", "org_log_only"])
+		.optional(),
+	flagged: z.boolean(),
+	matchedCategories: z.array(z.string()),
+	// Highest score per category across every moderation result.
+	categoryScores: z.record(z.number()),
+	moderationFailed: z.boolean(),
+});
+
 export type ModerationApiPayload = z.infer<typeof moderationApiPayloadSchema>;
 export type GatewayContentFilterResponse = z.infer<
 	typeof gatewayContentFilterResponseSchema
+>;
+export type GatewayContentFilterEvaluation = z.infer<
+	typeof gatewayContentFilterEvaluationSchema
 >;

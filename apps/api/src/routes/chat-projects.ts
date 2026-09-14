@@ -1028,7 +1028,7 @@ chatProjects.openapi(extractMemories, async (c) => {
 
 	const result = await generateText({
 		model: llmgateway.chat(MEMORY_EXTRACTION_MODEL),
-		system: MEMORY_EXTRACTOR_SYSTEM,
+		instructions: MEMORY_EXTRACTOR_SYSTEM,
 		prompt: `Existing memories:\n${existingList}\n\nUser message:\n${body.userMessage}\n\nAssistant response:\n${body.assistantMessage}`,
 		tools: {
 			save_memories: tool({

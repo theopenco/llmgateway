@@ -2099,6 +2099,66 @@ export const providers: ProviderDefinition[] = [
 			},
 		],
 	},
+	{
+		id: "tencent",
+		name: "Tencent Cloud",
+		forwardsSafetyIdentifier: false,
+		description:
+			"Tencent Cloud's TokenHub model gateway, serving Tencent's own Hunyuan models alongside third-party models through a single OpenAI-compatible API.",
+		env: {
+			required: {
+				apiKey: "LLM_TENCENT_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#0052D9",
+		website: "https://www.tencentcloud.com/act/pro/tokenhub",
+		statusPageUrl: null,
+		announcement: null,
+		// TokenHub publishes a separate rate card per region (Singapore,
+		// Guangzhou, Silicon Valley) with genuinely different prices — GLM-5.1 is
+		// flat in Singapore but input-length-tiered in Guangzhou. Only the
+		// Singapore endpoint is wired up, so the mappings carry Singapore prices
+		// and there is no `regionConfig`; adding a region means adding its own
+		// mappings with its own prices, never reusing these.
+		termsUrl: "https://www.tencentcloud.com/document/product/301/78869",
+		privacyPolicyUrl: "https://www.tencentcloud.com/document/product/301/17345",
+		usagePolicyUrl: "https://www.tencentcloud.com/document/product/301/9245",
+		legalEntity: "Tencent Cloud LLC.",
+		headquarters: "CN",
+		dataPolicy: {
+			apiTraining: false,
+			promptLogging: false,
+			retentionPeriod: null,
+		},
+		priority: 1.2,
+	},
+	{
+		id: "atria",
+		name: "Atria",
+		forwardsSafetyIdentifier: false,
+		description:
+			"Atria ASI serves the Atria Dawn agentic research model through an OpenAI-compatible inference API.",
+		env: {
+			required: {
+				apiKey: "LLM_ATRIA_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#0f172a",
+		// Atria publishes no terms, privacy or usage policy, so the provider
+		// carries no website rather than linking one without its legal metadata.
+		website: null,
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		legalEntity: null,
+		headquarters: "CN",
+		dataPolicy: null,
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];

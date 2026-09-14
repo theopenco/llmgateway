@@ -33,6 +33,10 @@ interface KpisResponse {
 	topupRevenueThisMonth: number;
 	topupRevenueAllTime: number;
 	totalOverflowCostCycle: number;
+	planMargin: number;
+	gatewayMarginCycle: number;
+	resetPassRevenueCycle: number;
+	paygFeeCycle: number;
 	totalMargin: number;
 }
 
@@ -146,8 +150,13 @@ describe("admin devpass PAYG overflow reporting", () => {
 		expect(kpis.topupRevenueAllTime).toBe(26.25);
 		expect(kpis.topupRevenueThisMonth).toBe(26.25);
 		expect(kpis.totalOverflowCostCycle).toBe(3);
-		// Universe margin mirrors the per-org decomposition.
-		expect(kpis.totalMargin).toBe(79 - 237);
+		// Universe plan margin mirrors the per-org decomposition.
+		expect(kpis.planMargin).toBe(79 - 237);
+		// The $26.25 top-up granted $25 of credits: $1.25 of fee is margin.
+		expect(kpis.paygFeeCycle).toBe(1.25);
+		expect(kpis.gatewayMarginCycle).toBe(0);
+		expect(kpis.resetPassRevenueCycle).toBe(0);
+		expect(kpis.totalMargin).toBe(79 - 237 + 1.25);
 	});
 
 	it("dedicated /admin/devpass/payg reports top-up revenue windows", async () => {

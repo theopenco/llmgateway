@@ -572,7 +572,7 @@ export default async function PartnersPage() {
 
 						<div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
 							<Button asChild size="lg" className="rounded-xl">
-								<Link href="/add-provider">
+								<Link href="https://airside.llmgateway.io">
 									List your provider
 									<ArrowRight className="ml-1.5 h-4 w-4" />
 								</Link>

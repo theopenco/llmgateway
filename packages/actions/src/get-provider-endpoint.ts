@@ -230,6 +230,8 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	ranoai: "https://api.ranoai.com",
 	baidu: "https://api.baiduqianfan.ai",
 	consensusprotocol: "https://api.consensusprotocol.org",
+	atria: "https://api.atria-asi.ai",
+	tencent: "https://tokenhub-intl.tencentcloudmaas.com",
 };
 
 export function getProviderDefaultBaseUrl(
@@ -1019,6 +1021,8 @@ export function getProviderEndpoint(
 		case "scx-ai-gp":
 		case "ranoai":
 		case "consensusprotocol":
+		case "tencent":
+		case "atria":
 		case "custom":
 		default:
 			return `${url}/v1/chat/completions`;

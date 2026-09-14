@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell } from "lucide-react";
+import { Megaphone } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -68,7 +68,7 @@ export function ChangelogNotifications({
 					}
 					className="relative h-9 w-9 text-muted-foreground hover:text-foreground"
 				>
-					<Bell className="h-[18px] w-[18px]" />
+					<Megaphone className="h-[18px] w-[18px]" />
 					{unreadCount > 0 && (
 						<span className="absolute top-1.5 right-1.5 flex h-2 w-2">
 							<span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />

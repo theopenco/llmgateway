@@ -1,8 +1,19 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import {
+	Bar,
+	Line,
+	ComposedChart,
+	CartesianGrid,
+	XAxis,
+	YAxis,
+} from "recharts";
 
+import {
+	ChartStyleSelector,
+	useChartStyle,
+} from "@/components/analytics/chart-style";
 import {
 	Card,
 	CardContent,
@@ -53,6 +64,7 @@ export function DimensionUsageOverTimeCard({
 	title,
 	description,
 }: DimensionUsageOverTimeCardProps) {
+	const { style } = useChartStyle();
 	const [activeMetric, setActiveMetric] = useState<ChartMetric>("cost");
 	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 
@@ -118,6 +130,7 @@ export function DimensionUsageOverTimeCard({
 						</button>
 					))}
 				</div>
+				<ChartStyleSelector />
 			</CardHeader>
 			<CardContent className="px-2 pb-4 sm:px-6">
 				{loading ? (
@@ -134,7 +147,7 @@ export function DimensionUsageOverTimeCard({
 							config={config}
 							className="aspect-auto h-[300px] w-full"
 						>
-							<AreaChart
+							<ComposedChart
 								data={chartData}
 								margin={{ left: 0, right: 8, top: 4, bottom: 0 }}
 							>
@@ -199,20 +212,27 @@ export function DimensionUsageOverTimeCard({
 								/>
 								{series.series.map((s) => {
 									const key = sanitizeKey(s.key);
-									return (
-										<Area
+									return style === "bar" ? (
+										<Bar
 											key={key}
 											dataKey={key}
-											type="monotone"
 											stackId="1"
-											stroke={`var(--color-${key})`}
 											fill={`var(--color-${key})`}
-											fillOpacity={0.5}
-											strokeWidth={1}
+											isAnimationActive={false}
+										/>
+									) : (
+										<Line
+											key={key}
+											dataKey={key}
+											type="linear"
+											stroke={`var(--color-${key})`}
+											strokeWidth={2}
+											dot={false}
+											isAnimationActive={false}
 										/>
 									);
 								})}
-							</AreaChart>
+							</ComposedChart>
 						</ChartContainer>
 						<div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs">
 							{series.series.map((s, i) => (

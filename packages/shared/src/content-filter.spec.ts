@@ -1,6 +1,48 @@
 import { describe, expect, test } from "vitest";
 
-import { isContentFilterErrorText } from "./content-filter.js";
+import {
+	DEFAULT_CONTENT_FILTER_SETTINGS,
+	isContentFilterErrorText,
+	parseContentFilterSettings,
+} from "./content-filter.js";
+
+describe("parseContentFilterSettings", () => {
+	test("defaults to log-only sampling with no providers", () => {
+		expect(DEFAULT_CONTENT_FILTER_SETTINGS).toEqual({
+			enabled: true,
+			providerIds: [],
+			sampleRatePercent: 100,
+			enforce: false,
+			enforceEnterprise: false,
+		});
+		expect(parseContentFilterSettings(null)).toEqual(
+			DEFAULT_CONTENT_FILTER_SETTINGS,
+		);
+		expect(parseContentFilterSettings("not json")).toEqual(
+			DEFAULT_CONTENT_FILTER_SETTINGS,
+		);
+	});
+
+	test("parses stored settings and fills missing fields", () => {
+		expect(
+			parseContentFilterSettings(
+				JSON.stringify({ providerIds: ["openai"], sampleRatePercent: 10 }),
+			),
+		).toEqual({
+			enabled: true,
+			providerIds: ["openai"],
+			sampleRatePercent: 10,
+			enforce: false,
+			enforceEnterprise: false,
+		});
+	});
+
+	test("falls back to defaults on out-of-range values", () => {
+		expect(
+			parseContentFilterSettings(JSON.stringify({ sampleRatePercent: 250 })),
+		).toEqual(DEFAULT_CONTENT_FILTER_SETTINGS);
+	});
+});
 
 describe("isContentFilterErrorText", () => {
 	test("detects ByteDance Seedance video output moderation", () => {
@@ -27,6 +69,18 @@ describe("isContentFilterErrorText", () => {
 				"Blocked by Microsoft's content management policy",
 			),
 		).toBe(true);
+	});
+
+	test("detects Azure prompt filtering regardless of policy owner or casing", () => {
+		expect(
+			isContentFilterErrorText(
+				"The response was filtered due to the prompt triggering Azure OpenAI\u2019s content management policy.",
+			),
+		).toBe(true);
+		expect(
+			isContentFilterErrorText('"innererror": { "code": "ContentFiltered" }'),
+		).toBe(true);
+		expect(isContentFilterErrorText("responsibleaipolicyviolation")).toBe(true);
 	});
 
 	test("detects Alibaba DashScope Wan green-net moderation", () => {

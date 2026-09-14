@@ -27,7 +27,7 @@ body:
     id: provider
     attributes:
       label: Provider
-      description: Which provider serves this model? It must already be supported by the gateway, or be requested separately.
+      description: Which provider serves this model? It must already be supported by the gateway. New providers can register at https://airside.llmgateway.io.
       placeholder: e.g. openai, anthropic, google-vertex
     validations:
       required: true

@@ -233,7 +233,7 @@ export function CostByModelChart({
 						<CardTitle className="text-base">{title}</CardTitle>
 						{description && <CardDescription>{description}</CardDescription>}
 						{data && (
-							<div className="mt-1 flex items-center gap-4 text-xs text-muted-foreground">
+							<div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
 								<span>
 									{usageMode === "credits"
 										? "Credits Cost: "
@@ -260,7 +260,7 @@ export function CostByModelChart({
 				</div>
 				<div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
 					<div
-						className="flex items-center gap-1"
+						className="flex flex-wrap items-center gap-1"
 						role="group"
 						aria-label="Metric"
 					>
@@ -285,7 +285,7 @@ export function CostByModelChart({
 						<UsageModeSelector />
 						{showGroupBy && (
 							<div
-								className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1"
+								className="flex flex-wrap items-center gap-1 rounded-md border border-border/60 bg-background p-1"
 								role="group"
 								aria-label="Break down by"
 							>
@@ -309,7 +309,7 @@ export function CostByModelChart({
 						)}
 						{showModelView && groupBy === "model" && (
 							<div
-								className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1"
+								className="flex flex-wrap items-center gap-1 rounded-md border border-border/60 bg-background p-1"
 								role="group"
 								aria-label="Model view"
 							>

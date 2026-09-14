@@ -149,6 +149,11 @@ export default function ImagePageClient({
 		const config = getModelImageConfig(primaryModel);
 		return config.defaultQuality ?? "auto";
 	});
+	const [imageModeration, setImageModeration] = useState<string>(() => {
+		const primaryModel = selectedModels[0] ?? "";
+		const config = getModelImageConfig(primaryModel);
+		return config.defaultModeration ?? "auto";
+	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 
 	// Input images for image-edit models
@@ -442,6 +447,14 @@ export default function ImagePageClient({
 		) {
 			setImageQuality(config.defaultQuality ?? "auto");
 		}
+		if (
+			config.supportsModeration &&
+			!(config.availableModerations as readonly string[]).includes(
+				imageModeration,
+			)
+		) {
+			setImageModeration(config.defaultModeration ?? "auto");
+		}
 		if (!isEditModel) {
 			setInputImages([]);
 		}
@@ -537,6 +550,12 @@ export default function ImagePageClient({
 			// shows up in the activity log; the gateway / model treat "auto" the
 			// same as omitting the field upstream.
 			const includeQuality = config.supportsQuality && !!imageQuality;
+			// "auto" is the upstream default, so only forward an explicit
+			// relaxation to keep the request body minimal.
+			const includeModeration =
+				config.supportsModeration &&
+				!!imageModeration &&
+				imageModeration !== "auto";
 			const imageConfigBody = config.usesPixelDimensions
 				? {
 						...(config.isGptImage
@@ -547,6 +566,7 @@ export default function ImagePageClient({
 									image_size: alibabaImageSize,
 								}),
 						...(includeQuality && { image_quality: imageQuality }),
+						...(includeModeration && { moderation: imageModeration }),
 						n: imageCount,
 					}
 				: {
@@ -555,6 +575,7 @@ export default function ImagePageClient({
 						}),
 						...(imageSize !== "1K" && { image_size: imageSize }),
 						...(includeQuality && { image_quality: imageQuality }),
+						...(includeModeration && { moderation: imageModeration }),
 						n: imageCount,
 					};
 
@@ -676,6 +697,7 @@ export default function ImagePageClient({
 			imageAspectRatio,
 			imageSize,
 			imageQuality,
+			imageModeration,
 			imageCount,
 			inputImages,
 			posthog,
@@ -871,6 +893,8 @@ export default function ImagePageClient({
 						setAlibabaImageSize={setAlibabaImageSize}
 						imageQuality={imageQuality}
 						setImageQuality={setImageQuality}
+						imageModeration={imageModeration}
+						setImageModeration={setImageModeration}
 						imageCount={imageCount}
 						setImageCount={setImageCount}
 						isGenerating={isGenerating}

@@ -1,7 +1,9 @@
 "use client";
 
 import { Bot, Cpu, Server } from "lucide-react";
+import { Suspense } from "react";
 
+import { DateRangePicker } from "@/components/date-range-picker";
 import {
 	Card,
 	CardContent,
@@ -9,6 +11,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
+import { DEVPASS_USAGE_DEFAULT_RANGE } from "@/lib/date-range";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
@@ -128,33 +131,50 @@ export function DevpassUsage({ from, to }: { from?: string; to?: string }) {
 	const sources = data?.sources ?? [];
 
 	return (
-		<div className="grid gap-4 lg:grid-cols-3">
-			<UsageList
-				title="Top models"
-				description="DevPass spend from hourly project rollups."
-				icon={<Cpu className="h-4 w-4" />}
-				rows={models}
-				isLoading={isLoading}
-				emptyLabel="No model usage in the selected range."
-				monoIds
-			/>
-			<UsageList
-				title="Top providers"
-				description="DevPass spend from hourly project rollups."
-				icon={<Server className="h-4 w-4" />}
-				rows={providers}
-				isLoading={isLoading}
-				emptyLabel="No provider usage in the selected range."
-			/>
-			<UsageList
-				title="Top coding agents"
-				description="DevPass `source` header spend from hourly project rollups."
-				icon={<Bot className="h-4 w-4" />}
-				rows={sources}
-				isLoading={isLoading}
-				emptyLabel="No coding-agent traffic in the selected range."
-				monoIds
-			/>
-		</div>
+		<section className="space-y-3">
+			<div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+				<div className="space-y-1">
+					<h2 className="text-lg font-semibold tracking-tight">Usage</h2>
+					<p className="text-sm text-muted-foreground">
+						Top models, providers and coding agents by DevPass spend. Ranged on
+						its own, independent of the page-level picker.
+					</p>
+				</div>
+				<Suspense>
+					<DateRangePicker
+						paramPrefix="usage"
+						defaultRange={DEVPASS_USAGE_DEFAULT_RANGE}
+					/>
+				</Suspense>
+			</div>
+			<div className="grid gap-4 lg:grid-cols-3">
+				<UsageList
+					title="Top models"
+					description="DevPass spend from hourly project rollups."
+					icon={<Cpu className="h-4 w-4" />}
+					rows={models}
+					isLoading={isLoading}
+					emptyLabel="No model usage in the selected range."
+					monoIds
+				/>
+				<UsageList
+					title="Top providers"
+					description="DevPass spend from hourly project rollups."
+					icon={<Server className="h-4 w-4" />}
+					rows={providers}
+					isLoading={isLoading}
+					emptyLabel="No provider usage in the selected range."
+				/>
+				<UsageList
+					title="Top coding agents"
+					description="DevPass `source` header spend from hourly project rollups."
+					icon={<Bot className="h-4 w-4" />}
+					rows={sources}
+					isLoading={isLoading}
+					emptyLabel="No coding-agent traffic in the selected range."
+					monoIds
+				/>
+			</div>
+		</section>
 	);
 }

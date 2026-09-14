@@ -33,6 +33,7 @@ import {
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
+	getContentFilterSettings,
 	listAirsideModels,
 	type CustomModel,
 	type ManagedProviderAvailability,
@@ -151,6 +152,9 @@ import {
 	UnsupportedAudioFormatError,
 	UnsupportedDocumentFormatError,
 	type RoutingMetadata,
+	type GoogleThoughtSignatureState,
+	isGoogleReasoningDetail,
+	preserveGoogleResponseText,
 } from "@llmgateway/actions";
 import {
 	generateCacheKey,
@@ -164,6 +168,7 @@ import {
 	type InferSelectModel,
 	isCachingEnabled,
 	metricsKey,
+	type GatewayContentFilterEvaluation,
 	type LogInsertData,
 	providerKeyAllowsModel,
 	shortid,
@@ -178,6 +183,7 @@ import {
 import { logger, toError } from "@llmgateway/logger";
 import {
 	type BaseMessage,
+	type ReasoningDetail,
 	getModelStreamingSupport,
 	hasMaxTokens,
 	hasRegionSpecificEnvKey,
@@ -202,6 +208,7 @@ import {
 import {
 	detectCodingAgentFromReferer,
 	detectCodingAgentFromTitle,
+	GATEWAY_CONTENT_FILTER_MESSAGE,
 	getSupportedAgentsList,
 	isChatPlanModelAllowed,
 	isRecognizedCodingAgent,
@@ -274,7 +281,10 @@ import {
 	isUpstreamTermination,
 	normalizeStreamingError,
 } from "./tools/normalize-streaming-error.js";
-import { checkOpenAIContentFilter } from "./tools/openai-content-filter.js";
+import {
+	checkOpenAIContentFilter,
+	hasOpenAIContentFilterCredential,
+} from "./tools/openai-content-filter.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
@@ -325,6 +335,11 @@ import {
 	mappingSupportsRequestedServiceTier,
 	providerKeySupportsServiceTier,
 } from "./tools/service-tier.js";
+import {
+	buildGatewayContentFilterEvaluation,
+	evaluateTieredContentFilter,
+	resolveTieredContentFilterPlan,
+} from "./tools/tiered-content-filter.js";
 import {
 	encodeChatMessages,
 	messageContentToString,
@@ -553,6 +568,7 @@ async function collapseProvidersToBestRegionPerProvider(
 		metricsMap: Map<string, ProviderMetrics>;
 		isStreaming: boolean;
 		promptTokens?: number;
+		session?: boolean;
 		routingConfig?: ResolvedRoutingConfig;
 		organizationId: string;
 	},
@@ -2612,6 +2628,8 @@ chat.openapi(completions, async (c) => {
 		project.id,
 		organization.id,
 		organization.plan,
+		organization.kind,
+		isRecognizedCodingAgent(source),
 	);
 	// Routing strategies only affect multi-provider selection. When the request
 	// pins a specific provider (e.g. `openai/gpt-4o`), the same routingCfg is
@@ -4123,6 +4141,11 @@ chat.openapi(completions, async (c) => {
 			const metricsMap = await getProviderMetricsForRouting(
 				metricsCombinations,
 				routingCfg,
+				{
+					projectId: project.id,
+					promptTokens: routingPromptTokens,
+					session: sessionStickyEnabled,
+				},
 			);
 			providerAgnosticSelectedProviders =
 				await collapseProvidersToBestRegionPerProvider(
@@ -4132,6 +4155,7 @@ chat.openapi(completions, async (c) => {
 						metricsMap,
 						isStreaming: stream,
 						promptTokens: routingPromptTokens,
+						session: sessionStickyEnabled,
 						routingConfig: routingCfg,
 						organizationId: project.organizationId,
 					},
@@ -4424,6 +4448,11 @@ chat.openapi(completions, async (c) => {
 					const metricsMap = await getProviderMetricsForRouting(
 						metricsCombinations,
 						routingCfg,
+						{
+							projectId: project.id,
+							promptTokens: routingPromptTokens,
+							session: sessionStickyEnabled,
+						},
 					);
 					const bestRegionResult = await getCheapestFromAvailableProviders(
 						eligibleMappings,
@@ -4489,18 +4518,20 @@ chat.openapi(completions, async (c) => {
 	// reaches a non-compliant provider (fail closed on the data guarantee).
 	const openAiContentFilterAllowed =
 		!compliancePolicy || isProviderIdCompliant("openai", compliancePolicy);
-	const openAIContentFilterResult =
+	const openAIContentFilterContext = {
+		requestId,
+		organizationId: project.organizationId,
+		projectId: project.id,
+		apiKeyId: apiKey.id,
+	};
+	// Reassigned below when only the tiered filter needs the moderation call.
+	let openAIContentFilterResult =
 		shouldApplyGatewayContentFilter &&
 		contentFilterMethod === "openai" &&
 		openAiContentFilterAllowed
 			? await checkOpenAIContentFilter(
 					messages as BaseMessage[],
-					{
-						requestId,
-						organizationId: project.organizationId,
-						projectId: project.id,
-						apiKeyId: apiKey.id,
-					},
+					openAIContentFilterContext,
 					c.req.raw.signal,
 				)
 			: null;
@@ -4656,6 +4687,11 @@ chat.openapi(completions, async (c) => {
 						const allMetricsMap = await getProviderMetricsForRouting(
 							metricsCombinations,
 							routingCfg,
+							{
+								projectId: project.id,
+								promptTokens: routingPromptTokens,
+								session: sessionStickyEnabled,
+							},
 						);
 
 						const cheapestResult = await getCheapestFromAvailableProviders(
@@ -4836,6 +4872,11 @@ chat.openapi(completions, async (c) => {
 						const allMetricsMap = await getProviderMetricsForRouting(
 							metricsCombinations,
 							routingCfg,
+							{
+								projectId: project.id,
+								promptTokens: routingPromptTokens,
+								session: sessionStickyEnabled,
+							},
 						);
 						const providerAgnosticCandidates =
 							await collapseProvidersToBestRegionPerProvider(
@@ -4845,6 +4886,7 @@ chat.openapi(completions, async (c) => {
 									metricsMap: allMetricsMap,
 									isStreaming: stream,
 									promptTokens: routingPromptTokens,
+									session: sessionStickyEnabled,
 									routingConfig: routingCfg,
 									organizationId: project.organizationId,
 								},
@@ -5189,6 +5231,11 @@ chat.openapi(completions, async (c) => {
 				const metricsMap = await getProviderMetricsForRouting(
 					metricsCombinations,
 					routingCfg,
+					{
+						projectId: project.id,
+						promptTokens: routingPromptTokens,
+						session: sessionStickyEnabled,
+					},
 				);
 				const providerAgnosticCandidates =
 					await collapseProvidersToBestRegionPerProvider(
@@ -5198,6 +5245,7 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
+							session: sessionStickyEnabled,
 							routingConfig: routingCfg,
 							organizationId: project.organizationId,
 						},
@@ -5450,6 +5498,11 @@ chat.openapi(completions, async (c) => {
 			metricsMap = await getProviderMetricsForRouting(
 				metricsCombinations,
 				routingCfg,
+				{
+					projectId: project.id,
+					promptTokens: routingPromptTokens,
+					session: sessionStickyEnabled,
+				},
 			);
 		}
 
@@ -5469,6 +5522,7 @@ chat.openapi(completions, async (c) => {
 							metricsMap,
 							isStreaming: stream,
 							promptTokens: routingPromptTokens,
+							session: sessionStickyEnabled,
 							routingConfig: routingCfg,
 							organizationId: project.organizationId,
 							providerDiscountResolver,
@@ -6143,11 +6197,61 @@ chat.openapi(completions, async (c) => {
 		contentFilterMatched &&
 		!contentFilterRoutingApplied;
 
+	// Tiered gateway content filter, keyed on the provider the request was routed
+	// to. Reuses the env filter's moderation result when it already ran so a
+	// request never triggers more than one moderation call.
+	let gatewayContentFilterEvaluation: GatewayContentFilterEvaluation | null =
+		null;
+	let tierContentFilterBlocked = false;
+	if (openAiContentFilterAllowed) {
+		const tieredPlan = await resolveTieredContentFilterPlan(
+			organization,
+			usedProvider,
+			await getContentFilterSettings(),
+		);
+		if (
+			tieredPlan &&
+			(openAIContentFilterResult !== null ||
+				(await hasOpenAIContentFilterCredential()))
+		) {
+			openAIContentFilterResult ??= await checkOpenAIContentFilter(
+				messages as BaseMessage[],
+				openAIContentFilterContext,
+				c.req.raw.signal,
+			);
+			const tieredEvaluation = evaluateTieredContentFilter(
+				openAIContentFilterResult.results,
+				tieredPlan.level,
+			);
+			gatewayContentFilterEvaluation = buildGatewayContentFilterEvaluation(
+				tieredPlan,
+				tieredEvaluation,
+				openAIContentFilterResult.results.length === 0,
+			);
+			tierContentFilterBlocked =
+				gatewayContentFilterEvaluation.action === "blocked";
+			if (tieredEvaluation.violation) {
+				logger.debug("gateway_content_filter_tier", {
+					requestId,
+					organizationId: project.organizationId,
+					provider: usedProvider,
+					tier: tieredPlan.tier,
+					level: tieredPlan.level,
+					action: gatewayContentFilterEvaluation.action,
+					matchedCategories: tieredEvaluation.matchedCategories,
+				});
+			}
+		}
+	}
+
 	// Preserve monitor tagging, and also tag successful reroutes triggered by a
 	// gateway content-filter match so the decision remains visible in logs.
 	const shouldTagContentFilter =
 		(contentFilterMode === "monitor" && contentFilterMatched) ||
-		contentFilterRoutingApplied;
+		contentFilterRoutingApplied ||
+		gatewayContentFilterEvaluation?.violation === true;
+	// Stored for every moderated request; the 30-day data retention cleanup
+	// nulls it again, so the extra jsonb per sampled row is bounded.
 	const gatewayContentFilterResponse = openAIContentFilterResult?.responses
 		.length
 		? openAIContentFilterResult.responses
@@ -6166,6 +6270,9 @@ chat.openapi(completions, async (c) => {
 					: logData.internalContentFilter,
 				gatewayContentFilterResponse:
 					logData.gatewayContentFilterResponse ?? gatewayContentFilterResponse,
+				gatewayContentFilterEvaluation:
+					logData.gatewayContentFilterEvaluation ??
+					gatewayContentFilterEvaluation,
 			},
 			// Default the retention level from the resolved organization so payload
 			// fields are stripped before publishing to the log queue for
@@ -6173,7 +6280,7 @@ chat.openapi(completions, async (c) => {
 			{ retentionLevel, ...options },
 		);
 
-	if (contentFilterBlocked) {
+	if (contentFilterBlocked || tierContentFilterBlocked) {
 		const contentFilterResponseId = `chatcmpl-${Date.now()}`;
 		const contentFilterCreated = Math.floor(Date.now() / 1000);
 
@@ -6207,10 +6314,11 @@ chat.openapi(completions, async (c) => {
 					c.req.header("x-debug") === "true",
 					c.req.header("user-agent"),
 				),
-				content: null,
-				responseSize: 0,
+				content: GATEWAY_CONTENT_FILTER_MESSAGE,
+				responseSize: GATEWAY_CONTENT_FILTER_MESSAGE.length,
 				finishReason: "llmgateway_content_filter",
 				unifiedFinishReason: "content_filter",
+				internalContentFilter: true,
 				promptTokens: null,
 				completionTokens: null,
 				totalTokens: null,
@@ -6251,7 +6359,10 @@ chat.openapi(completions, async (c) => {
 					choices: [
 						{
 							index: 0,
-							delta: {},
+							delta: {
+								role: "assistant",
+								content: GATEWAY_CONTENT_FILTER_MESSAGE,
+							},
 							finish_reason: "content_filter",
 						},
 					],
@@ -6274,7 +6385,7 @@ chat.openapi(completions, async (c) => {
 					index: 0,
 					message: {
 						role: "assistant",
-						content: null,
+						content: GATEWAY_CONTENT_FILTER_MESSAGE,
 					},
 					finish_reason: "content_filter",
 				},
@@ -7223,7 +7334,10 @@ chat.openapi(completions, async (c) => {
 				Array.isArray(message.tool_calls)
 			) {
 				for (const toolCall of message.tool_calls) {
-					if (toolCall.id) {
+					if (
+						toolCall.id &&
+						!toolCall.extra_content?.google?.thought_signature
+					) {
 						try {
 							// Use redisClient.get directly since thought_signature is a plain string, not JSON
 							const cachedSignature = await redisClient.get(
@@ -9610,6 +9724,10 @@ chat.openapi(completions, async (c) => {
 				// arrives, so the pair can be forwarded to native clients intact.
 				const toolSearchState: AnthropicToolSearchState = new Map();
 				const toolCallChoiceIndices = new Set<number>();
+				const googleThoughtSignatureState = new Map<
+					number,
+					GoogleThoughtSignatureState
+				>();
 				let sawUpstreamDoneSentinel = false;
 				let sawProviderTerminalEvent = false;
 				let sawOpenAiResponsesDoneEvent = false;
@@ -9669,6 +9787,7 @@ chat.openapi(completions, async (c) => {
 				// Buffer for storing chunks when healing is enabled
 				// We need to buffer content, track last chunk info, and replay healed content at the end
 				const bufferedContentChunks: string[] = [];
+				const bufferedGoogleDetails: ReasoningDetail[] = [];
 				let lastChunkId: string | null = null;
 				let lastChunkModel: string | null = null;
 				let lastChunkCreated: number | null = null;
@@ -10484,6 +10603,7 @@ chat.openapi(completions, async (c) => {
 									toolCallChoiceIndices,
 									{
 										cacheThoughtSignatures: !zeroDataRetentionEnabled,
+										googleThoughtSignatureState,
 									},
 								);
 
@@ -10711,6 +10831,24 @@ chat.openapi(completions, async (c) => {
 									);
 									if (chunkWithoutContent.choices?.[0]?.delta?.content) {
 										delete chunkWithoutContent.choices[0].delta.content;
+									}
+									const bufferedDelta = chunkWithoutContent.choices?.[0]?.delta;
+									if (
+										isGoogleCompatibleProvider(transportProvider) &&
+										bufferedContentChunks.length > 0 &&
+										bufferedDelta?.reasoning_details
+									) {
+										const details =
+											bufferedDelta.reasoning_details as ReasoningDetail[];
+										bufferedGoogleDetails.push(
+											...details.filter(isGoogleReasoningDetail),
+										);
+										bufferedDelta.reasoning_details = details.filter(
+											(detail) => !isGoogleReasoningDetail(detail),
+										);
+										if (bufferedDelta.reasoning_details.length === 0) {
+											delete bufferedDelta.reasoning_details;
+										}
 									}
 
 									// Only send chunk if it has meaningful data (not just empty delta)
@@ -11798,6 +11936,15 @@ chat.openapi(completions, async (c) => {
 											index: 0,
 											delta: {
 												content: healingResult.content,
+												...(bufferedGoogleDetails.length > 0
+													? {
+															reasoning_details: preserveGoogleResponseText(
+																bufferedGoogleDetails,
+																bufferedContent,
+																healingResult.content,
+															),
+														}
+													: {}),
 											},
 											finish_reason: null,
 										},

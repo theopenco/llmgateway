@@ -22,6 +22,7 @@ import {
 import { logger } from "@llmgateway/logger";
 import { getLogRetentionCutoff } from "@llmgateway/shared/log-retention";
 
+import { calculateContentFilterStatsForHour } from "./content-filter-stats-aggregator.js";
 import { excludeRecoveredSameProviderRegionRetry } from "./log-filters.js";
 import { formatUTCTimestamp } from "./project-stats-aggregator.js";
 import { calculateRoutingTelemetryForHour } from "./routing-telemetry-aggregator.js";
@@ -1404,20 +1405,49 @@ async function calculateHistoryForHour(targetHour: Date) {
 			error as Error,
 		);
 	}
-	return { mappingResult, modelResult, routingResult };
+	// Same posture: a diagnostic rollup over `log` that must never cost the hour
+	// its usage stats.
+	let contentFilterResult: Awaited<
+		ReturnType<typeof calculateContentFilterStatsForHour>
+	> | null = null;
+	try {
+		contentFilterResult = await calculateContentFilterStatsForHour(targetHour);
+	} catch (error) {
+		logger.error(
+			`Error calculating content filter stats for ${targetHour.toISOString()}:`,
+			error as Error,
+		);
+	}
+	return { mappingResult, modelResult, routingResult, contentFilterResult };
+}
+
+// A closed hour keeps being rolled up until this long after it ends, so logs
+// still being inserted from the queue are counted, then once more and never
+// again. A restart forgets the marker and simply recomputes it one more time.
+const HOURLY_SETTLE_MS = 5 * 60 * 1000;
+let settledHour: number | undefined;
+
+/** Forget which closed hour is settled (tests). */
+export function resetHourlyHistoryState() {
+	settledHour = undefined;
 }
 
 /**
- * Calculate the hourly summary for the previous (now-complete) hour and refresh
- * the current in-progress hour so dashboards see recent data without waiting for
- * the hour to close. Called once per minutely tick.
+ * Calculate the hourly summary for the previous (now-complete) hour until it
+ * settles, and refresh the current in-progress hour so dashboards see recent
+ * data without waiting for the hour to close. Called once per minutely tick.
  */
 export async function calculateHourlyHistory() {
 	const currentHourStart = getCurrentHourStart();
 	const previousHourStart = new Date(currentHourStart.getTime() - ONE_HOUR_MS);
 
 	try {
-		await calculateHistoryForHour(previousHourStart);
+		if (settledHour !== previousHourStart.getTime()) {
+			await calculateHistoryForHour(previousHourStart);
+			if (Date.now() - currentHourStart.getTime() >= HOURLY_SETTLE_MS) {
+				settledHour = previousHourStart.getTime();
+			}
+		}
 		await calculateHistoryForHour(currentHourStart);
 
 		logger.debug(

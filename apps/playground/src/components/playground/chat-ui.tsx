@@ -1,6 +1,15 @@
 "use client";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+	isToolUIPart,
+	getToolName,
+	type UIMessage,
+	type ChatRequestOptions,
+	type ChatStatus,
+	type ToolUIPart,
+	type DynamicToolUIPart,
+} from "ai";
+import {
 	RefreshCcw,
 	Copy,
 	Brain,
@@ -107,7 +116,7 @@ import { getFallbackReasoningEffortOptions } from "@/lib/model-utils";
 import { cn } from "@/lib/utils";
 
 import type { ReasoningEffortOption } from "@/lib/fetch-models";
-import type { UIMessage, ChatRequestOptions, ChatStatus } from "ai";
+import type { PropsWithChildren } from "react";
 
 const REASONING_EFFORT_LABELS: Record<ReasoningEffortOption, string> = {
 	none: "None",
@@ -168,7 +177,10 @@ function getCaretCoordinates(
 	return result;
 }
 
+type ToolApprovalHandler = (id: string, approved: boolean) => Promise<void>;
+
 interface ChatUIProps {
+	onToolApproval?: ToolApprovalHandler;
 	messages: UIMessage[];
 	supportsImages: boolean;
 	supportsAudio: boolean;
@@ -233,6 +245,8 @@ interface ChatUIProps {
 	setAlibabaImageSize: (value: string) => void;
 	imageQuality: string;
 	setImageQuality: (value: string) => void;
+	imageModeration: string;
+	setImageModeration: (value: string) => void;
 	imageCount: 1 | 2 | 3 | 4;
 	setImageCount: (value: 1 | 2 | 3 | 4) => void;
 	supportsWebSearch: boolean;
@@ -301,7 +315,7 @@ interface ExtractedParts {
 	imageParts: any[];
 	audioParts: any[];
 	documentParts: any[];
-	toolParts: any[];
+	toolParts: (ToolUIPart | DynamicToolUIPart)[];
 	reasoningContent: string;
 	sourceParts: any[];
 }
@@ -331,7 +345,7 @@ function extractMessageParts(parts: any[]): ExtractedParts {
 	const imageParts: any[] = [];
 	const audioParts: any[] = [];
 	const documentParts: any[] = [];
-	const toolParts: any[] = [];
+	const toolParts: (ToolUIPart | DynamicToolUIPart)[] = [];
 	const reasoningParts: string[] = [];
 	const sourceParts: any[] = [];
 
@@ -340,8 +354,7 @@ function extractMessageParts(parts: any[]): ExtractedParts {
 			textParts.push(p.text);
 		} else if (p.type === "reasoning") {
 			reasoningParts.push(p.text);
-		} else if (p.type.startsWith("tool-")) {
-			// AI SDK v6 uses tool-{toolName} as the part type (e.g., "tool-fetch_weather")
+		} else if (isToolUIPart(p)) {
 			toolParts.push(p);
 		} else if (p.type === "source-url") {
 			sourceParts.push(p);
@@ -560,6 +573,23 @@ function MessageMetadataPopover({
 	);
 }
 
+function MessageTool({
+	state,
+	children,
+}: PropsWithChildren<{ state: ToolUIPart["state"] }>) {
+	const [open, setOpen] = useState(state === "approval-requested");
+	useEffect(() => {
+		if (state === "approval-requested") {
+			setOpen(true);
+		}
+	}, [state]);
+	return (
+		<Tool open={open} onOpenChange={setOpen}>
+			{children}
+		</Tool>
+	);
+}
+
 // rerender-memo: Memoize message component to prevent re-renders when only streaming status changes
 const AssistantMessage = memo(
 	({
@@ -571,6 +601,7 @@ const AssistantMessage = memo(
 		finishReason,
 		forkChat,
 		isForkingChat,
+		onToolApproval,
 	}: {
 		message: UIMessage;
 		isLastMessage: boolean;
@@ -580,6 +611,7 @@ const AssistantMessage = memo(
 		finishReason?: string | null;
 		forkChat?: () => void | Promise<void>;
 		isForkingChat?: boolean;
+		onToolApproval?: ToolApprovalHandler;
 	}) => {
 		// useMemo for extracted parts to avoid recomputation
 		const { textParts, imageParts, toolParts, reasoningContent, sourceParts } =
@@ -610,17 +642,48 @@ const AssistantMessage = memo(
 				) : null}
 
 				{toolParts.map((tool) => (
-					<Tool key={tool.toolCallId}>
+					<MessageTool key={tool.toolCallId} state={tool.state}>
 						<ToolHeader
-							title={tool.toolName}
+							title={getToolName(tool)
+								.replaceAll("__", " · ")
+								.replaceAll("_", " ")}
 							type={tool.type as `tool-${string}`}
 							state={tool.state}
 						/>
 						<ToolContent>
 							<ToolInput input={tool.input} />
-							<ToolOutput errorText={tool.errorText} output={tool.output} />
+							{tool.state === "approval-requested" &&
+								tool.approval &&
+								onToolApproval &&
+								isLastMessage && (
+									<div className="flex gap-2 px-4 pb-4">
+										<Button
+											size="sm"
+											disabled={status !== "ready"}
+											onClick={() =>
+												void onToolApproval(tool.approval.id, true)
+											}
+										>
+											Allow once
+										</Button>
+										<Button
+											size="sm"
+											variant="outline"
+											disabled={status !== "ready"}
+											onClick={() =>
+												void onToolApproval(tool.approval.id, false)
+											}
+										>
+											Deny
+										</Button>
+									</div>
+								)}
+							<ToolOutput
+								errorText={"errorText" in tool ? tool.errorText : undefined}
+								output={"output" in tool ? tool.output : undefined}
+							/>
 						</ToolContent>
-					</Tool>
+					</MessageTool>
 				))}
 
 				{textContent ? (
@@ -1057,6 +1120,7 @@ export function ReadOnlyChatMessages({ messages }: { messages: UIMessage[] }) {
 }
 
 export const ChatUI = ({
+	onToolApproval,
 	messages,
 	supportsImages,
 	supportsAudio,
@@ -1081,6 +1145,8 @@ export const ChatUI = ({
 	setAlibabaImageSize,
 	imageQuality,
 	setImageQuality,
+	imageModeration,
+	setImageModeration,
 	imageCount,
 	setImageCount,
 	supportsWebSearch,
@@ -1114,7 +1180,24 @@ export const ChatUI = ({
 		availableSizes,
 		supportsQuality,
 		availableQualities: qualityOptions,
+		supportsModeration,
+		availableModerations: moderationOptions,
 	} = getModelImageConfig(selectedModel);
+
+	const moderationSelect = supportsModeration ? (
+		<Select value={imageModeration} onValueChange={setImageModeration}>
+			<SelectTrigger size="sm" className="min-w-[150px]">
+				<SelectValue placeholder="Moderation" />
+			</SelectTrigger>
+			<SelectContent>
+				{moderationOptions.map((m) => (
+					<SelectItem key={m} value={m}>
+						Moderation: {m}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
+	) : null;
 
 	const [activeGroup, setActiveGroup] = useState<HeroSuggestionGroup>("Create");
 	const [randomizedHeroSuggestionGroups, setRandomizedHeroSuggestionGroups] =
@@ -1651,6 +1734,7 @@ export const ChatUI = ({
 											: undefined
 									}
 									isForkingChat={isForkingChat}
+									onToolApproval={onToolApproval}
 								/>
 							) : (
 								<VirtualUserMessageItem
@@ -1999,6 +2083,7 @@ export const ChatUI = ({
 											</SelectContent>
 										</Select>
 									)}
+									{moderationSelect}
 								</>
 							)}
 							{supportsImageGen && usesPixelDimensions && isGptImage && (
@@ -2030,6 +2115,7 @@ export const ChatUI = ({
 											))}
 										</SelectContent>
 									</Select>
+									{moderationSelect}
 								</>
 							)}
 							{supportsImageGen && usesPixelDimensions && !isGptImage && (

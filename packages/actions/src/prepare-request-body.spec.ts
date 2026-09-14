@@ -38,6 +38,7 @@ async function prepareOpenAIImageRequest(imageConfig: {
 	aspect_ratio?: string;
 	image_size?: string;
 	image_quality?: string;
+	moderation?: string;
 	n?: number;
 }) {
 	return await prepareRequestBody(
@@ -1528,6 +1529,35 @@ describe("prepareRequestBody - OpenAI image generation", () => {
 
 		expect(requestBody.size).toBe("1024x1024");
 		expect(requestBody.quality).toBeUndefined();
+	});
+
+	test.each(["auto", "low"])(
+		"should forward moderation %s",
+		async (moderation) => {
+			const requestBody = (await prepareOpenAIImageRequest({
+				image_size: "1024x1024",
+				moderation,
+			})) as any;
+
+			expect(requestBody.moderation).toBe(moderation);
+		},
+	);
+
+	test("should omit moderation when not requested", async () => {
+		const requestBody = (await prepareOpenAIImageRequest({
+			image_size: "1024x1024",
+		})) as any;
+
+		expect(requestBody.moderation).toBeUndefined();
+	});
+
+	test("should drop unsupported moderation values", async () => {
+		const requestBody = (await prepareOpenAIImageRequest({
+			image_size: "1024x1024",
+			moderation: "strict",
+		})) as any;
+
+		expect(requestBody.moderation).toBeUndefined();
 	});
 });
 

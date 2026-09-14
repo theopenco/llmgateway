@@ -35,6 +35,7 @@ interface ImageRequestBody {
 			| "8:1";
 		image_size?: "0.5K" | "1K" | "2K" | "4K" | string;
 		image_quality?: "auto" | "low" | "medium" | "high" | string;
+		moderation?: "auto" | "low";
 		n?: number;
 	};
 	input_images?: { url: string; mediaType: string }[];
@@ -116,10 +117,17 @@ export async function POST(req: Request) {
 			...(image_config?.aspect_ratio && image_config.aspect_ratio !== "auto"
 				? { aspectRatio: image_config.aspect_ratio }
 				: {}),
-			...(image_config?.image_quality
+			...(image_config?.image_quality || image_config?.moderation
 				? {
 						providerOptions: {
-							llmgateway: { quality: image_config.image_quality },
+							llmgateway: {
+								...(image_config.image_quality && {
+									quality: image_config.image_quality,
+								}),
+								...(image_config.moderation && {
+									moderation: image_config.moderation,
+								}),
+							},
 						},
 					}
 				: {}),
