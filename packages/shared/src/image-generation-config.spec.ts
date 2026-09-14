@@ -16,4 +16,18 @@ describe("getModelImageConfig", () => {
 		expect(grok.availableQualities[0]).toBe("low");
 		expect(gemini.availableSizes[0]).toBe("0.5K");
 	});
+
+	it("exposes moderation only for GPT Image models", () => {
+		const gptImage = getModelImageConfig("openai/gpt-image-2.5-flare");
+		const gemini = getModelImageConfig(
+			"google-ai-studio/gemini-3.1-flash-image",
+		);
+
+		expect(gptImage.supportsModeration).toBe(true);
+		expect(gptImage.availableModerations).toEqual(["auto", "low"]);
+		expect(gptImage.defaultModeration).toBe("auto");
+		expect(gemini.supportsModeration).toBe(false);
+		expect(gemini.availableModerations).toEqual([]);
+		expect(gemini.defaultModeration).toBeUndefined();
+	});
 });

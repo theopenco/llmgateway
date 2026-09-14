@@ -1,4 +1,5 @@
 import { hasInvalidProviderCredentialError } from "./provider-auth-errors.js";
+import { hasExhaustedProviderAccountError } from "./provider-funding-errors.js";
 
 /**
  * In-memory API key health tracking for uptime-aware routing
@@ -75,9 +76,17 @@ const PERMANENT_ERROR_CODES = [401, 403];
 /**
  * 4xx responses that should still count against provider/key health.
  * These usually indicate gateway/provider configuration issues rather than
- * end-user request problems.
+ * end-user request problems. 402 is included because it means the provider
+ * account behind the key is out of funds (exhausted trial quota, no postpaid
+ * billing) — without it an unfunded credential keeps 100% uptime and stays the
+ * cheapest pick, so every request eats a failed attempt before falling back.
  */
-const UPTIME_RELEVANT_4XX_CODES = new Set([...PERMANENT_ERROR_CODES, 404, 429]);
+const UPTIME_RELEVANT_4XX_CODES = new Set([
+	...PERMANENT_ERROR_CODES,
+	402,
+	404,
+	429,
+]);
 
 /**
  * Uptime threshold below which exponential penalty kicks in
@@ -433,6 +442,10 @@ export function reportKeyError(
 	}
 
 	const isPermanentErrorMessage = hasInvalidProviderCredentialError(errorText);
+	// Some providers report an out-of-funds account on a 4xx other than 402
+	// (e.g. Anthropic's 400 "Your credit balance is too low"), so match the
+	// payload as well as the status code.
+	const isExhaustedAccountMessage = hasExhaustedProviderAccountError(errorText);
 
 	// Most upstream 4xx responses are client-side request issues and should not
 	// degrade provider uptime or influence routing decisions.
@@ -441,7 +454,8 @@ export function reportKeyError(
 		statusCode >= 400 &&
 		statusCode < 500 &&
 		!UPTIME_RELEVANT_4XX_CODES.has(statusCode) &&
-		!isPermanentErrorMessage
+		!isPermanentErrorMessage &&
+		!isExhaustedAccountMessage
 	) {
 		return;
 	}
@@ -490,13 +504,15 @@ export function reportTrackedKeyError(
 	}
 
 	const isPermanentErrorMessage = hasInvalidProviderCredentialError(errorText);
+	const isExhaustedAccountMessage = hasExhaustedProviderAccountError(errorText);
 
 	if (
 		statusCode !== undefined &&
 		statusCode >= 400 &&
 		statusCode < 500 &&
 		!UPTIME_RELEVANT_4XX_CODES.has(statusCode) &&
-		!isPermanentErrorMessage
+		!isPermanentErrorMessage &&
+		!isExhaustedAccountMessage
 	) {
 		return;
 	}

@@ -31,10 +31,11 @@ const result = await generateImage({
 	// aspectRatio works on Gemini image models; OpenAI gpt-image-2 ignores it
 	// (use a literal WxH `size` instead).
 	aspectRatio: "16:9",
-	// quality works on OpenAI gpt-image-2 ("low" | "medium" | "high" | "auto").
-	// The AI SDK only forwards it through providerOptions.
+	// quality works on OpenAI gpt-image-2 ("low" | "medium" | "high" | "auto")
+	// and moderation ("auto" | "low") on GPT Image models.
+	// The AI SDK only forwards these through providerOptions.
 	providerOptions: {
-		llmgateway: { quality: "high" },
+		llmgateway: { quality: "high", moderation: "low" },
 	},
 });
 

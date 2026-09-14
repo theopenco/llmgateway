@@ -23,6 +23,7 @@ import {
 	Server,
 	Settings,
 	ShieldAlert,
+	ShieldCheck,
 	Sparkles,
 } from "lucide-react";
 import Link from "next/link";
@@ -172,6 +173,12 @@ const navItems: NavItem[] = [
 		label: "Limit Hits",
 		icon: ShieldAlert,
 		match: "prefix",
+	},
+	{
+		href: "/content-filter",
+		label: "Content Filter",
+		icon: ShieldCheck,
+		match: "exact",
 	},
 	{ href: "/settings", label: "Settings", icon: Settings, match: "exact" },
 ];

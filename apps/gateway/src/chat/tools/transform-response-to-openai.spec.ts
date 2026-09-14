@@ -182,11 +182,11 @@ describe("transformResponseToOpenai", () => {
 					content: {
 						parts: [
 							{ text: "thought A", thought: true },
-							{ text: "Variant one." },
+							{ text: "Variant one.", thoughtSignature: "one-signature" },
 							// AI Studio quirk: candidate 0 carries duplicated copies
 							// of the other candidates' parts as a suffix.
-							{ text: "Variant two." },
-							{ text: "Variant three." },
+							{ text: "Variant two.", thoughtSignature: "two-signature" },
+							{ text: "Variant three.", thoughtSignature: "three-signature" },
 						],
 						role: "model",
 					},
@@ -195,12 +195,22 @@ describe("transformResponseToOpenai", () => {
 					// candidate 0, so the transform must fall back to position.
 				},
 				{
-					content: { parts: [{ text: "Variant two." }], role: "model" },
+					content: {
+						parts: [
+							{ text: "Variant two.", thoughtSignature: "two-signature" },
+						],
+						role: "model",
+					},
 					finishReason: "STOP",
 					index: 1,
 				},
 				{
-					content: { parts: [{ text: "Variant three." }], role: "model" },
+					content: {
+						parts: [
+							{ text: "Variant three.", thoughtSignature: "three-signature" },
+						],
+						role: "model",
+					},
 					finishReason: "MAX_TOKENS",
 					index: 2,
 				},
@@ -238,6 +248,14 @@ describe("transformResponseToOpenai", () => {
 			"req_google_n",
 		);
 
+		expect(
+			response.choices.map(
+				(choice: {
+					message: { reasoning_details: Array<{ signature: string }> };
+				}) =>
+					choice.message.reasoning_details.map((detail) => detail.signature),
+			),
+		).toEqual([["one-signature"], ["two-signature"], ["three-signature"]]);
 		expect(response.choices).toHaveLength(3);
 		expect(response.choices[0].index).toBe(0);
 		expect(response.choices[0].message.content).toBe("Variant one.");

@@ -573,3 +573,6 @@ contentFilter:
   mode: ""
   method: ""
   models: ""
+  # Tiered gateway filter score thresholds (0-1). Defaults: 0.5 strict, 0.9 lenient.
+  tierStrictScoreThreshold: ""
+  tierLenientScoreThreshold: ""

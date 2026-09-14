@@ -1,6 +1,6 @@
 import {
 	convertToModelMessages,
-	stepCountIs,
+	isStepCount,
 	streamText,
 	tool,
 	type UIMessage,
@@ -231,13 +231,14 @@ export async function POST(req: Request) {
 
 	const result = streamText({
 		model: llmgateway.chat("auto"),
-		stopWhen: stepCountIs(5),
+		stopWhen: isStepCount(5),
 		tools: {
 			search: searchTool,
 		},
-		messages: [
-			{ role: "system", content: systemPrompt },
-			...(await convertToModelMessages<ChatUIMessage>(reqJson.messages ?? [], {
+		instructions: systemPrompt,
+		messages: await convertToModelMessages<ChatUIMessage>(
+			reqJson.messages ?? [],
+			{
 				convertDataPart(part) {
 					if (part.type === "data-client") {
 						return {
@@ -247,8 +248,8 @@ export async function POST(req: Request) {
 					}
 					return undefined;
 				},
-			})),
-		],
+			},
+		),
 		toolChoice: "auto",
 	});
 

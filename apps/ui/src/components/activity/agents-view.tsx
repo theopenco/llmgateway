@@ -36,6 +36,7 @@ import { applyUsageMode } from "@/lib/usage-mode";
 import { buildAgentLogsCsv, CODING_AGENTS } from "@llmgateway/shared";
 import {
 	AnthropicIcon,
+	AnvilIcon,
 	AutohandIcon,
 	ClineIcon,
 	CodexIcon,
@@ -69,6 +70,7 @@ interface AgentDefinition {
 const AGENT_ICONS: Record<string, IconComponent> = {
 	"devpass-code": DevPassCodeIcon,
 	"claude.com/claude-code": AnthropicIcon,
+	anvil: AnvilIcon,
 	opencode: OpenCodeIcon,
 	cursor: CursorIcon,
 	autohand: AutohandIcon,
