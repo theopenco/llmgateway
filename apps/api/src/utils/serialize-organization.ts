@@ -46,6 +46,8 @@ export function serializeOrganization(
 		devPlanPremiumCreditsUsed: organization.devPlanPremiumCreditsUsed,
 		devPlanPremiumWeekStart:
 			organization.devPlanPremiumWeekStart?.toISOString() ?? null,
+		devPlanDailyCreditsUsed: organization.devPlanDailyCreditsUsed,
+		devPlanDayStart: organization.devPlanDayStart?.toISOString() ?? null,
 		devPlanResetPassesLite: organization.devPlanResetPassesLite,
 		devPlanResetPassesPro: organization.devPlanResetPassesPro,
 		devPlanResetPassesMax: organization.devPlanResetPassesMax,

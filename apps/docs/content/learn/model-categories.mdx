@@ -38,9 +38,9 @@ Premium models are the most expensive to run, so DevPass plans apply a **weekly 
 
 | DevPass plan | Premium fair-use cap (per week) |
 | ------------ | ------------------------------- |
-| **Lite**     | 12% of monthly credits          |
-| **Pro**      | 15% of monthly credits          |
-| **Max**      | 18% of monthly credits          |
+| **Lite**     | 10% of monthly credits          |
+| **Pro**      | 12% of monthly credits          |
+| **Max**      | 15% of monthly credits          |
 
 <Callout type="info">
 	Within DevPass, the weekly cap applies only to **premium** models. Standard
@@ -52,9 +52,21 @@ Once a DevPass plan reaches its weekly premium cap, premium requests are paused 
 
 The fair-use window is a limiter on the plan allowance, not on your own money: with [pay-as-you-go overflow](/learn/payg-overflow) enabled and a positive credits balance, premium requests past the weekly cap keep flowing and bill that balance at provider rates — mid-cycle with monthly allowance remaining, or after the monthly pool is fully used alike. Standard models keep drawing from the plan allowance as usual.
 
+## Daily pacing allowance (DevPass only)
+
+Separately from the premium cap, every DevPass plan paces its monthly allowance with a **daily pacing allowance** that applies to all models, standard and premium alike. Each rolling 24-hour window can use a published share of the monthly credits — the window opens with the first request, everything spent from the plan allowance during those 24 hours counts against it, and the full share is available again once the window ends.
+
+| DevPass plan | Daily pacing allowance (per rolling 24h) |
+| ------------ | ---------------------------------------- |
+| **Lite**     | 8% of monthly credits                    |
+| **Pro**      | 9% of monthly credits                    |
+| **Max**      | 10% of monthly credits                   |
+
+When a window fills, requests are paused until it rolls over; the gateway's `402` response says how long that is. Like the premium cap, pacing limits only the plan allowance: with [pay-as-you-go overflow](/learn/payg-overflow) enabled and a positive credits balance, requests past the daily share keep flowing and bill that balance at provider rates. Upgrading the plan raises the share, and the current dollar figures for each tier are on the [DevPass pricing page](https://devpass.llmgateway.io/pricing).
+
 ## Reset Passes
 
-You don't have to wait out the window: redeeming a [**Reset Pass**](/learn/reset-passes) instantly restores the full weekly premium allowance and starts a fresh 7-day window. A pass removes the weekly limit only — it grants no extra credits, so premium usage after a reset still draws from the plan's monthly allowance. Pro includes 1 pass per billing cycle and Max includes 2; extra passes are a one-time purchase from the DevPass dashboard. See the [Reset Passes page](/learn/reset-passes) for how redemption, included passes, and billing work.
+You don't have to wait out the window: redeeming a [**Reset Pass**](/learn/reset-passes) instantly restores the full weekly premium allowance and starts a fresh 7-day window. A pass removes the weekly limit only — it grants no extra credits and does not affect daily pacing, so premium usage after a reset still draws from the plan's monthly allowance. Max includes 2 passes per billing cycle; on every tier, extra passes are a one-time purchase from the DevPass dashboard. See the [Reset Passes page](/learn/reset-passes) for how redemption, included passes, and billing work.
 
 ## Provider routing on DevPass
 

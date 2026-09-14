@@ -16,6 +16,7 @@ import {
 	organizationCacheTag,
 	tables,
 } from "@llmgateway/db";
+import { getDevPlanCreditsLimit } from "@llmgateway/shared";
 import {
 	getApiKeyFingerprint,
 	hashApiKeyForStorage,
@@ -168,9 +169,9 @@ describe("dev plan tier changes", () => {
 			amountDueCents: 7900,
 			currency: "USD",
 			currentCreditsLimit: 87,
-			// New allowance = the new tier's full allotment (79 * 3 = 237) plus the
-			// unused remainder of the current cycle (87 - 12.5 = 74.5) rolled over.
-			newCreditsLimit: 311.5,
+			// New allowance = the new tier's full allotment plus the unused
+			// remainder of the current cycle (87 - 12.5 = 74.5) rolled over.
+			newCreditsLimit: getDevPlanCreditsLimit("pro") + 74.5,
 			rolloverCredits: 74.5,
 			billingPeriodStart: new Date((nowSeconds - 500) * 1000).toISOString(),
 			billingPeriodEnd: new Date((nowSeconds + 500) * 1000).toISOString(),
@@ -411,10 +412,11 @@ describe("dev plan tier changes", () => {
 			},
 		});
 		expect(org?.devPlan).toBe("pro");
-		// Fresh cycle: usage wiped, limit set to the full new-tier allowance (237)
+		// Fresh cycle: usage wiped, limit set to the full new-tier allowance
 		// plus the unused remainder of the old cycle (87 - 12.5 = 74.5).
+		const upgradedLimit = String(getDevPlanCreditsLimit("pro") + 74.5);
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("311.5");
+		expect(org?.devPlanCreditsLimit).toBe(upgradedLimit);
 		expect(org?.devPlanBillingCycleStart).not.toBeNull();
 		expect(org?.devPlanExpiresAt).toEqual(
 			new Date((nowSeconds + THIRTY_DAYS) * 1000),
@@ -431,7 +433,7 @@ describe("dev plan tier changes", () => {
 		});
 		expect(transaction?.type).toBe("dev_plan_upgrade");
 		expect(transaction?.amount).toBe("79");
-		expect(transaction?.creditAmount).toBe("311.5");
+		expect(transaction?.creditAmount).toBe(upgradedLimit);
 		expect(transaction?.stripeInvoiceId).toBe("in_upgrade");
 		expect(transaction?.stripePaymentIntentId).toBe("pi_upgrade");
 	});
@@ -653,8 +655,8 @@ describe("dev plan tier changes", () => {
 	it("rolls over a fractional remainder without float artifacts", async () => {
 		// The org has heavy prior usage this period; the usage counter resets to 0
 		// and only the exact unused remainder (87 - 80.42 = 6.58) rolls over —
-		// computed with Decimal, so the stored limit is "243.58", not
-		// "243.57999999999998".
+		// computed with Decimal, so the stored limit carries exactly two decimals
+		// and no float artifacts.
 		await db
 			.update(tables.organization)
 			.set({
@@ -707,7 +709,9 @@ describe("dev plan tier changes", () => {
 		});
 		expect(org?.devPlan).toBe("pro");
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("243.58");
+		expect(org?.devPlanCreditsLimit).toBe(
+			(getDevPlanCreditsLimit("pro") + 6.58).toFixed(2),
+		);
 	});
 
 	it("grants only the new-tier allotment when the old allowance is fully used", async () => {
@@ -765,7 +769,9 @@ describe("dev plan tier changes", () => {
 		});
 		expect(org?.devPlan).toBe("pro");
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("237");
+		expect(org?.devPlanCreditsLimit).toBe(
+			String(getDevPlanCreditsLimit("pro")),
+		);
 	});
 
 	it("schedules an upgrade for renewal when timing is next_cycle", async () => {
@@ -1227,8 +1233,10 @@ describe("dev plan tier changes", () => {
 		expect(org?.devPlan).toBe("max");
 		expect(org?.devPlanPendingTier).toBeNull();
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		// Max allotment (537) plus the unused pro remainder (237 - 40 = 197).
-		expect(org?.devPlanCreditsLimit).toBe("734");
+		// Max allotment plus the unused pro remainder (237 - 40 = 197).
+		expect(org?.devPlanCreditsLimit).toBe(
+			String(getDevPlanCreditsLimit("max") + 197),
+		);
 	});
 
 	it("cancels a scheduled downgrade and reverts the Stripe price to the current tier", async () => {

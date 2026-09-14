@@ -261,6 +261,8 @@ export function createGatewayApiTestHarness() {
 			creditsLimit?: string;
 			premiumCreditsUsed?: string;
 			premiumWeekStart?: Date | null;
+			dailyCreditsUsed?: string;
+			dayStart?: Date | null;
 			paygEnabled?: boolean;
 		}) {
 			await db
@@ -273,6 +275,8 @@ export function createGatewayApiTestHarness() {
 					devPlanCreditsLimit: options.creditsLimit ?? "100",
 					devPlanPremiumCreditsUsed: options.premiumCreditsUsed ?? "0",
 					devPlanPremiumWeekStart: options.premiumWeekStart ?? null,
+					devPlanDailyCreditsUsed: options.dailyCreditsUsed ?? "0",
+					devPlanDayStart: options.dayStart ?? null,
 					devPlanPaygEnabled: options.paygEnabled ?? false,
 				})
 				.where(eq(tables.organization.id, TEST_ORGANIZATION_ID));

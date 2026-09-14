@@ -201,6 +201,7 @@ type SerializedOrganizationBase = Omit<
 	| "contentFilterLogOnly"
 	| "devPlanBillingCycleStart"
 	| "devPlanPremiumWeekStart"
+	| "devPlanDayStart"
 	| "devPlanStripeSubscriptionId"
 	| "devPlanCancelled"
 	| "devPlanExpiresAt"
@@ -233,6 +234,7 @@ type SerializedOrganizationBase = Omit<
 	trialEndDate: string | null;
 	devPlanBillingCycleStart: string | null;
 	devPlanPremiumWeekStart: string | null;
+	devPlanDayStart: string | null;
 	devPlanExpiresAt: string | null;
 	chatPlanBillingCycleStart: string | null;
 	chatPlanExpiresAt: string | null;
@@ -257,6 +259,8 @@ export const organizationBillingFields = {
 	devPlanCreditsLimit: true,
 	devPlanPremiumCreditsUsed: true,
 	devPlanPremiumWeekStart: true,
+	devPlanDailyCreditsUsed: true,
+	devPlanDayStart: true,
 	devPlanResetPassesLite: true,
 	devPlanResetPassesPro: true,
 	devPlanResetPassesMax: true,

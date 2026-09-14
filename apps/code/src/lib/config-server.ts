@@ -1,3 +1,5 @@
+import { getDevPlanCreditsLimit, type DevPlanTier } from "@llmgateway/shared";
+
 export interface AppConfig {
 	hosted: boolean;
 	apiUrl: string;
@@ -16,6 +18,9 @@ export interface AppConfig {
 	stripePublishableKey?: string;
 	githubAuth: boolean;
 	googleAuth: boolean;
+	// Monthly allowance per tier, resolved on the server so the browser never
+	// falls back to the default multiplier.
+	devPlanCredits: Record<DevPlanTier, number>;
 }
 
 export function getConfig(): AppConfig {
@@ -39,5 +44,10 @@ export function getConfig(): AppConfig {
 		stripePublishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
 		githubAuth: !!process.env.GITHUB_CLIENT_ID,
 		googleAuth: !!process.env.GOOGLE_CLIENT_ID,
+		devPlanCredits: {
+			lite: getDevPlanCreditsLimit("lite"),
+			pro: getDevPlanCreditsLimit("pro"),
+			max: getDevPlanCreditsLimit("max"),
+		},
 	};
 }

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { getDevPlanCreditsLimit } from "@llmgateway/shared";
 
 import {
 	handleChargeRefunded,
@@ -328,6 +329,12 @@ function makeInvoiceEvent(overrides: {
 	} as unknown as Stripe.InvoicePaymentSucceededEvent;
 }
 
+// The allotment a renewal or activation grants comes from the shared plan
+// constants, so assert against them rather than a literal that drifts.
+const LITE_ALLOTMENT = String(getDevPlanCreditsLimit("lite"));
+const PRO_ALLOTMENT = String(getDevPlanCreditsLimit("pro"));
+const MAX_ALLOTMENT = String(getDevPlanCreditsLimit("max"));
+
 describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 	beforeEach(async () => {
 		await deleteAll();
@@ -370,14 +377,14 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("237");
+		expect(org?.devPlanCreditsLimit).toBe(PRO_ALLOTMENT);
 
 		const txns = await db.query.transaction.findMany({
 			where: { organizationId: { eq: ORG_ID } },
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_renewal");
-		expect(txns[0].creditAmount).toBe("237");
+		expect(txns[0].creditAmount).toBe(PRO_ALLOTMENT);
 	});
 
 	test("applies a scheduled downgrade at renewal: switches tier and grants the lower allotment", async () => {
@@ -410,14 +417,14 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(org?.devPlan).toBe("lite");
 		expect(org?.devPlanPendingTier).toBeNull();
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("87");
+		expect(org?.devPlanCreditsLimit).toBe(LITE_ALLOTMENT);
 
 		const txns = await db.query.transaction.findMany({
 			where: { organizationId: { eq: ORG_ID } },
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_renewal");
-		expect(txns[0].creditAmount).toBe("87");
+		expect(txns[0].creditAmount).toBe(LITE_ALLOTMENT);
 	});
 
 	test("applies a scheduled upgrade at renewal: switches tier and grants the higher allotment", async () => {
@@ -451,14 +458,14 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		expect(org?.devPlan).toBe("max");
 		expect(org?.devPlanPendingTier).toBeNull();
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("537");
+		expect(org?.devPlanCreditsLimit).toBe(MAX_ALLOTMENT);
 
 		const txns = await db.query.transaction.findMany({
 			where: { organizationId: { eq: ORG_ID } },
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_renewal");
-		expect(txns[0].creditAmount).toBe("537");
+		expect(txns[0].creditAmount).toBe(MAX_ALLOTMENT);
 	});
 
 	test("grants the billed tier and defers the pending change when the invoice billed the old tier", async () => {
@@ -499,14 +506,14 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 			expect(org?.devPlan).toBe("max");
 			expect(org?.devPlanPendingTier).toBe("pro");
 			expect(org?.devPlanCreditsUsed).toBe("0");
-			expect(org?.devPlanCreditsLimit).toBe("537");
+			expect(org?.devPlanCreditsLimit).toBe(MAX_ALLOTMENT);
 
 			const txns = await db.query.transaction.findMany({
 				where: { organizationId: { eq: ORG_ID } },
 			});
 			expect(txns).toHaveLength(1);
 			expect(txns[0].type).toBe("dev_plan_renewal");
-			expect(txns[0].creditAmount).toBe("537");
+			expect(txns[0].creditAmount).toBe(MAX_ALLOTMENT);
 			expect(txns[0].description).toBe("Dev Plan MAX renewed");
 		} finally {
 			vi.unstubAllEnvs();
@@ -545,13 +552,13 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 			});
 			expect(org?.devPlan).toBe("pro");
 			expect(org?.devPlanPendingTier).toBeNull();
-			expect(org?.devPlanCreditsLimit).toBe("237");
+			expect(org?.devPlanCreditsLimit).toBe(PRO_ALLOTMENT);
 
 			const txns = await db.query.transaction.findMany({
 				where: { organizationId: { eq: ORG_ID } },
 			});
 			expect(txns).toHaveLength(1);
-			expect(txns[0].creditAmount).toBe("237");
+			expect(txns[0].creditAmount).toBe(PRO_ALLOTMENT);
 			expect(txns[0].description).toBe("Dev Plan PRO renewed");
 		} finally {
 			vi.unstubAllEnvs();
@@ -645,9 +652,10 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		// The change-tier endpoint normally resets state synchronously; this exercises
 		// the webhook fallback when that process died after Stripe collected payment.
 		// An upgrade invoice (`subscription_update`) starts a brand-new cycle: usage
-		// zeroes and the limit becomes the new tier's full allowance (537) plus the
+		// zeroes and the limit becomes the new tier's full allowance plus the
 		// unused remainder of the replaced cycle (237 - 150 = 87) rolled over. The
 		// target tier is read from the subscription metadata the update set.
+		const upgradedLimit = String(getDevPlanCreditsLimit("max") + 87);
 		await seedUsedDevPlanOrg();
 		stripeMock.subscriptions.retrieve.mockResolvedValue({
 			id: SUB_ID,
@@ -669,7 +677,7 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		});
 		expect(org?.devPlan).toBe("max");
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("624");
+		expect(org?.devPlanCreditsLimit).toBe(upgradedLimit);
 		expect(org?.devPlanExpiresAt?.getTime()).toBe(periodEnd * 1000);
 
 		const txns = await db.query.transaction.findMany({
@@ -677,7 +685,7 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 		});
 		expect(txns).toHaveLength(1);
 		expect(txns[0].type).toBe("dev_plan_upgrade");
-		expect(txns[0].creditAmount).toBe("624");
+		expect(txns[0].creditAmount).toBe(upgradedLimit);
 		expect(txns[0].amount).toBe("179");
 		expect(txns[0].stripeInvoiceId).toBe("in_upgrade_001");
 	});
@@ -771,7 +779,7 @@ describe("handleInvoicePaymentSucceeded — dev plan credit reset", () => {
 			where: { id: { eq: ORG_ID } },
 		});
 		expect(org?.devPlanCreditsUsed).toBe("0");
-		expect(org?.devPlanCreditsLimit).toBe("237");
+		expect(org?.devPlanCreditsLimit).toBe(PRO_ALLOTMENT);
 	});
 
 	test("skips processing an invoice that was already recorded", async () => {

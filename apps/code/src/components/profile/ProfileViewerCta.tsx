@@ -33,7 +33,7 @@ export function ProfileViewerCta({ profile }: { profile: ProfileData }) {
 				<p className="mx-auto mt-3 max-w-xl text-muted-foreground">
 					{displayName} has routed {formatTokens(profile.stats.totalTokens)}{" "}
 					tokens through DevPass — Claude, GPT, Gemini, GLM and more, all from a
-					single key. Start your own and turn every dollar into $3 of model
+					single key. Start your own and turn every dollar into $2 of model
 					usage.
 				</p>
 				<div className="mt-7 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">

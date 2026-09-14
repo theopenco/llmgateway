@@ -1,18 +1,25 @@
 "use client";
 
 import { Check, Loader2 } from "lucide-react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { formatUsageRatio } from "@/lib/utils";
 
 import BillingDetailsDialog from "./BillingDetailsDialog";
 
 import type { PlanOption, PlanTier } from "@/app/dashboard/types";
 
+export interface SubscribeOptions {
+	paygEnabled: boolean;
+}
+
 interface InactivePlanChooserProps {
 	plans: PlanOption[];
 	subscribingTier: PlanTier | null;
-	onSubscribe: (tier: PlanTier) => void;
+	onSubscribe: (tier: PlanTier, options: SubscribeOptions) => void;
 }
 
 export default function InactivePlanChooser({
@@ -20,6 +27,8 @@ export default function InactivePlanChooser({
 	subscribingTier,
 	onSubscribe,
 }: InactivePlanChooserProps) {
+	const [paygEnabled, setPaygEnabled] = useState(false);
+
 	return (
 		<div className="space-y-8">
 			<div className="grid gap-5 md:grid-cols-3 max-w-4xl mx-auto">
@@ -75,7 +84,7 @@ export default function InactivePlanChooser({
 							<Button
 								className="w-full"
 								variant={plan.popular ? "default" : "outline"}
-								onClick={() => onSubscribe(plan.tier)}
+								onClick={() => onSubscribe(plan.tier, { paygEnabled })}
 								disabled={subscribingTier === plan.tier}
 							>
 								{subscribingTier === plan.tier ? (
@@ -88,6 +97,48 @@ export default function InactivePlanChooser({
 					);
 				})}
 			</div>
+
+			{/* Overflow is decided at signup rather than discovered at the first
+			    402: the plan activates with the flag already set, and the
+			    dashboard's PAYG card can flip it later either way. */}
+			<div
+				className="relative mx-auto max-w-4xl overflow-hidden rounded-lg border border-dashed border-stone-400/70 bg-stone-50/70 dark:border-stone-600/70 dark:bg-stone-900/30"
+				data-testid="signup-payg-card"
+			>
+				<div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+					<div className="min-w-0">
+						<div className="font-mono text-[10px] uppercase tracking-[0.35em] text-stone-500 dark:text-stone-400">
+							Pay as you go · Overflow
+						</div>
+						<Label
+							htmlFor="signup-payg"
+							className="mt-2 block cursor-pointer text-sm font-medium"
+						>
+							Enable pay-as-you-go overflow
+						</Label>
+						<p className="mt-1 max-w-xl text-sm leading-relaxed text-muted-foreground">
+							Keep coding past your allowance at provider rates, billed to a
+							credits balance you top up. Left off, your plan is a hard cap. You
+							can change this any time from your dashboard.
+						</p>
+					</div>
+					<Switch
+						id="signup-payg"
+						checked={paygEnabled}
+						onCheckedChange={setPaygEnabled}
+						aria-label="Enable pay-as-you-go overflow"
+						data-testid="signup-payg-switch"
+					/>
+				</div>
+				<div
+					aria-hidden
+					className="select-none overflow-hidden whitespace-nowrap border-t border-dashed border-stone-300/80 px-4 pb-1.5 pt-1 font-mono text-[9px] tracking-[0.3em] text-stone-400/80 dark:border-stone-700/80 dark:text-stone-600"
+				>
+					OVERFLOW&lt;&lt;{paygEnabled ? "ON" : "OFF"}
+					&lt;&lt;PROVIDER&lt;RATES&lt;&lt;NO&lt;LOCK&lt;IN&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;
+				</div>
+			</div>
+
 			<InvoiceInfoLabel />
 		</div>
 	);

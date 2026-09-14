@@ -50,7 +50,7 @@ faqs:
   - question: Can I use Qwen models with DevPass?
     answer: "Yes. Qwen3-Coder and Qwen3-Max are part of the DevPass catalog, so you keep Qwen access and gain the frontier models plus the other open-weight coders — all metered in one place with a real per-request cost breakdown."
   - question: Which is better for high-volume agent runs?
-    answer: "Alibaba's plan is designed for sheer Qwen request volume, which suits Qwen-first, high-throughput workflows. DevPass Max ($179/mo, ~$537 of usage) is built for all-day agent runs across any model. The right choice depends on whether you need one model at high volume or many models with headroom."
+    answer: "Alibaba's plan is designed for sheer Qwen request volume, which suits Qwen-first, high-throughput workflows. DevPass Max ($179/mo, $358 of usage) is built for all-day agent runs across any model. The right choice depends on whether you need one model at high volume or many models with headroom."
 ---
 
 ## What is the Alibaba Qwen coding plan?
@@ -61,7 +61,7 @@ For a Qwen-first developer who wants maximum volume, it's a serious option.
 
 ## What is DevPass?
 
-DevPass by LLM Gateway is a flat-rate plan covering **200+ models behind one key** — Qwen3-Coder and Qwen3-Max included, plus Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro and the other open-weight coders. You get a monthly usage allowance (about $3 of model usage per $1 paid), a per-request cost and latency dashboard, and the freedom to switch between any model mid-session.
+DevPass by LLM Gateway is a flat-rate plan covering **200+ models behind one key** — Qwen3-Coder and Qwen3-Max included, plus Claude Opus 4.8, GPT-5.5, Gemini 3.1 Pro and the other open-weight coders. You get a monthly usage allowance ($2 of model usage per $1 paid), a per-request cost and latency dashboard, and the freedom to switch between any model mid-session.
 
 ## Qwen-first volume vs full coverage
 
