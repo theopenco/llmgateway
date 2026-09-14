@@ -177,6 +177,45 @@ describe("content filter stats aggregator", () => {
 		]);
 	});
 
+	it("counts a retried request once", async () => {
+		const retried = evaluation({
+			violation: true,
+			action: "logged",
+			matchedCategories: ["violence"],
+		});
+		await db.insert(log).values([
+			logRow({
+				requestId: "cf-req-retried",
+				hasError: true,
+				gatewayContentFilterEvaluation: retried,
+			}),
+			logRow({
+				requestId: "cf-req-retried",
+				gatewayContentFilterEvaluation: retried,
+			}),
+		]);
+
+		await calculateContentFilterStatsForHour(HOUR);
+		expect(await statsRows()).toEqual([
+			{
+				organizationId: "cf-org",
+				projectId: "cf-proj",
+				category: "all",
+				sampledCount: 1,
+				violationCount: 1,
+				blockedCount: 0,
+			},
+			{
+				organizationId: "cf-org",
+				projectId: "cf-proj",
+				category: "violence",
+				sampledCount: 0,
+				violationCount: 1,
+				blockedCount: 0,
+			},
+		]);
+	});
+
 	it("is idempotent across reruns", async () => {
 		await db.insert(log).values([
 			logRow({
