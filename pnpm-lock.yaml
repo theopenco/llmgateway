@@ -1364,6 +1364,9 @@ importers:
       zod:
         specifier: 3.25.76
         version: 3.25.76
+      sharp:
+        specifier: 0.35.4
+        version: 0.35.4(@types/node@26.2.0)
 
   apps/worker:
     dependencies:
