@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
 	createQueuedModelVerificationChecks,
 	encryptModelVerificationCredential,
+	readProviderEnvInventory,
 } from "@llmgateway/actions";
 import { db, shortid, tables } from "@llmgateway/db";
 import { hasProviderEnvironmentToken } from "@llmgateway/models";
@@ -127,12 +128,26 @@ export async function verificationCredentialSource(
 	) {
 		return "managed";
 	}
-	if (hasProviderEnvironmentToken(target.providerId)) {
+	if (await hasEnvironmentCredential(target.providerId)) {
 		return "environment";
 	}
 	throw new HTTPException(400, {
 		message: "Enter a provider API key to run this verification.",
 	});
+}
+
+/**
+ * `LLM_*` variables live on the gateway deployment, so this process's own
+ * environment reports nothing in production. Ask the snapshot the gateway
+ * publishes first and fall back to `process.env` only when no gateway has
+ * published one.
+ */
+async function hasEnvironmentCredential(providerId: string): Promise<boolean> {
+	const inventory = await readProviderEnvInventory();
+	if (inventory) {
+		return (inventory.providers[providerId]?.length ?? 0) > 0;
+	}
+	return hasProviderEnvironmentToken(providerId);
 }
 
 export async function enqueueModelVerification(
