@@ -174,6 +174,22 @@ describe("admin content filter violations", () => {
 							violationRate: 0.25,
 						},
 					],
+					topProviders: [
+						{
+							usedProvider: "openai",
+							sampledCount: 6,
+							violationCount: 3,
+							blockedCount: 1,
+							violationRate: 0.5,
+						},
+						{
+							usedProvider: "anthropic",
+							sampledCount: 4,
+							violationCount: 1,
+							blockedCount: 0,
+							violationRate: 0.25,
+						},
+					],
 				},
 				{
 					organizationId: "cf-org-b",
@@ -187,6 +203,15 @@ describe("admin content filter violations", () => {
 					topModels: [
 						{
 							usedModel: "openai/gpt-5.6-sol",
+							usedProvider: "openai",
+							sampledCount: 20,
+							violationCount: 1,
+							blockedCount: 0,
+							violationRate: 0.05,
+						},
+					],
+					topProviders: [
+						{
 							usedProvider: "openai",
 							sampledCount: 20,
 							violationCount: 1,
@@ -214,6 +239,22 @@ describe("admin content filter violations", () => {
 					violationRate: 0.25,
 				},
 			],
+			providers: [
+				{
+					usedProvider: "openai",
+					sampledCount: 26,
+					violationCount: 4,
+					blockedCount: 1,
+					violationRate: 4 / 26,
+				},
+				{
+					usedProvider: "anthropic",
+					sampledCount: 4,
+					violationCount: 1,
+					blockedCount: 0,
+					violationRate: 0.25,
+				},
+			],
 		});
 	});
 
@@ -233,6 +274,56 @@ describe("admin content filter violations", () => {
 				violationCount: 4,
 				blockedCount: 1,
 				violationRate: 4 / 26,
+			},
+		]);
+		expect(body.providers).toEqual([
+			{
+				usedProvider: "openai",
+				sampledCount: 26,
+				violationCount: 4,
+				blockedCount: 1,
+				violationRate: 4 / 26,
+			},
+		]);
+	});
+
+	test("rolls an organization's models up to their providers", async () => {
+		// A second OpenAI model for org A: its provider row is the sum of both,
+		// and is not capped by the per-model list.
+		await db.insert(tables.contentFilterHourlyModelStats).values({
+			hourTimestamp: hoursAgo(1),
+			organizationId: "cf-org-a",
+			projectId: "proj-a",
+			usedModel: "openai/gpt-5.6-terra",
+			usedProvider: "openai",
+			category: "all",
+			sampledCount: 10,
+			violationCount: 2,
+			blockedCount: 1,
+		});
+
+		const res = await app.request(
+			"/admin/content-filter/violations?window=24h",
+			{ headers: { Cookie: cookie } },
+		);
+		const body = await res.json();
+		const orgA = body.organizations.find(
+			(org: { organizationId: string }) => org.organizationId === "cf-org-a",
+		);
+		expect(orgA.topProviders).toEqual([
+			{
+				usedProvider: "openai",
+				sampledCount: 16,
+				violationCount: 5,
+				blockedCount: 2,
+				violationRate: 5 / 16,
+			},
+			{
+				usedProvider: "anthropic",
+				sampledCount: 4,
+				violationCount: 1,
+				blockedCount: 0,
+				violationRate: 0.25,
 			},
 		]);
 	});

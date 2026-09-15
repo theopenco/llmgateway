@@ -41,7 +41,8 @@ const WINDOW_HOURS: Record<z.infer<typeof violationsWindowSchema>, number> = {
 
 const TOP_ORGANIZATIONS = 50;
 const TOP_CATEGORIES = 5;
-const TOP_MODELS = 3;
+const TOP_MODELS = 5;
+const TOP_PROVIDERS = 5;
 const TOP_ORGANIZATION_CATEGORIES = 10;
 const TOP_ORGANIZATION_MODELS = 10;
 const TOP_GLOBAL_MODELS = 25;
@@ -67,7 +68,45 @@ const modelBreakdownSchema = z.object({
 	violationRate: z.number(),
 });
 
+const providerBreakdownSchema = z.object({
+	usedProvider: z.string(),
+	sampledCount: z.number(),
+	violationCount: z.number(),
+	blockedCount: z.number(),
+	violationRate: z.number(),
+});
+
 type ModelBreakdown = z.infer<typeof modelBreakdownSchema>;
+type ProviderBreakdown = z.infer<typeof providerBreakdownSchema>;
+
+/**
+ * Collapse per-model rows onto their provider. Done in memory rather than as a
+ * second GROUP BY because the per-model rows for these organizations are
+ * already loaded, and a provider is just the sum of its models.
+ */
+function toProviderBreakdowns(models: ModelBreakdown[]): ProviderBreakdown[] {
+	const byProvider = new Map<string, ProviderBreakdown>();
+	for (const model of models) {
+		const entry = byProvider.get(model.usedProvider) ?? {
+			usedProvider: model.usedProvider,
+			sampledCount: 0,
+			violationCount: 0,
+			blockedCount: 0,
+			violationRate: 0,
+		};
+		entry.sampledCount += model.sampledCount;
+		entry.violationCount += model.violationCount;
+		entry.blockedCount += model.blockedCount;
+		byProvider.set(model.usedProvider, entry);
+	}
+	return [...byProvider.values()]
+		.map((entry) => ({
+			...entry,
+			violationRate:
+				entry.sampledCount > 0 ? entry.violationCount / entry.sampledCount : 0,
+		}))
+		.sort((a, b) => b.violationCount - a.violationCount);
+}
 
 function toModelBreakdown(row: {
 	usedModel: string;
@@ -111,9 +150,11 @@ const violationsResponseSchema = z
 					z.object({ category: z.string(), violationCount: z.number() }),
 				),
 				topModels: z.array(modelBreakdownSchema),
+				topProviders: z.array(providerBreakdownSchema),
 			}),
 		),
 		models: z.array(modelBreakdownSchema),
+		providers: z.array(providerBreakdownSchema),
 	})
 	.openapi({});
 
@@ -296,6 +337,34 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		)
 		.limit(TOP_GLOBAL_MODELS);
 
+	// Grouped in the database rather than folded out of globalModelRows: that
+	// list is capped, so summing it would undercount a provider whose models all
+	// sit below the cap.
+	const globalProviderRows = await db
+		.select({
+			usedProvider: contentFilterHourlyModelStats.usedProvider,
+			sampledCount: modelSampled,
+			violationCount: modelViolations,
+			blockedCount: modelBlocked,
+		})
+		.from(contentFilterHourlyModelStats)
+		.where(
+			and(
+				gte(contentFilterHourlyModelStats.hourTimestamp, windowStart),
+				eq(
+					contentFilterHourlyModelStats.category,
+					CONTENT_FILTER_STATS_ALL_CATEGORY,
+				),
+			),
+		)
+		.groupBy(contentFilterHourlyModelStats.usedProvider)
+		.having(minSampled > 0 ? gte(modelSampled, minSampled) : undefined)
+		.orderBy(
+			...(sort === "rate"
+				? [desc(modelViolationRate), desc(modelViolations), desc(modelSampled)]
+				: [desc(modelViolations), desc(modelSampled)]),
+		);
+
 	// Window-wide, independent of the ranked list cap and sample floor.
 	const [globalTotals] = await db
 		.select({
@@ -318,7 +387,9 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		violationCount: Number(globalTotals?.violationCount ?? 0),
 		blockedCount: Number(globalTotals?.blockedCount ?? 0),
 	};
+	const globalModels = globalModelRows.map(toModelBreakdown);
 	const organizations = orgRows.map((row) => {
+		const orgModels = modelsByOrg.get(row.organizationId) ?? [];
 		const sampledCount = Number(row.sampledCount);
 		const violationCount = Number(row.violationCount);
 		const blockedCount = Number(row.blockedCount);
@@ -333,9 +404,11 @@ adminContentFilter.openapi(getViolations, async (c) => {
 			topCategories: (categoriesByOrg.get(row.organizationId) ?? [])
 				.sort((a, b) => b.violationCount - a.violationCount)
 				.slice(0, TOP_CATEGORIES),
-			topModels: (modelsByOrg.get(row.organizationId) ?? [])
+			topModels: orgModels
+				.slice()
 				.sort((a, b) => b.violationCount - a.violationCount)
 				.slice(0, TOP_MODELS),
+			topProviders: toProviderBreakdowns(orgModels).slice(0, TOP_PROVIDERS),
 		};
 	});
 
@@ -345,7 +418,18 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		minSampled,
 		totals,
 		organizations,
-		models: globalModelRows.map(toModelBreakdown),
+		models: globalModels,
+		providers: globalProviderRows.map((row) => {
+			const sampledCount = Number(row.sampledCount);
+			const violationCount = Number(row.violationCount);
+			return {
+				usedProvider: row.usedProvider,
+				sampledCount,
+				violationCount,
+				blockedCount: Number(row.blockedCount),
+				violationRate: sampledCount > 0 ? violationCount / sampledCount : 0,
+			};
+		}),
 	});
 });
 

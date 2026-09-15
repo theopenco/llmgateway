@@ -240,6 +240,7 @@ export default async function ContentFilterPage({
 										<TableHead className="text-right">Rate</TableHead>
 										<TableHead className="text-right">Blocked</TableHead>
 										<TableHead>Top categories</TableHead>
+										<TableHead>Top providers</TableHead>
 										<TableHead>Top models</TableHead>
 									</TableRow>
 								</TableHeader>
@@ -277,6 +278,22 @@ export default async function ContentFilterPage({
 													.join(", ") || "—"}
 											</TableCell>
 											<TableCell className="text-xs text-muted-foreground">
+												{org.topProviders.length === 0 ? (
+													"—"
+												) : (
+													<div className="flex flex-col gap-0.5">
+														{org.topProviders.map((p) => (
+															<span
+																key={p.usedProvider}
+																className="whitespace-nowrap"
+															>
+																{p.usedProvider} ({p.violationCount})
+															</span>
+														))}
+													</div>
+												)}
+											</TableCell>
+											<TableCell className="text-xs text-muted-foreground">
 												{org.topModels.length === 0 ? (
 													"—"
 												) : (
@@ -303,18 +320,53 @@ export default async function ContentFilterPage({
 
 			<Card>
 				<CardHeader>
-					<CardTitle>Violations by model</CardTitle>
+					<CardTitle>Violations by provider and model</CardTitle>
 					<CardDescription>
-						The same window, grouped by the model that served the request
-						instead of the organization that sent it. Counts are cross-tenant,
-						so one model can appear here without any single organization
-						standing out.
+						The same window, grouped by what served the request instead of the
+						organization that sent it. Counts are cross-tenant, so one provider
+						can appear here without any single organization standing out.
 						{sort === "rate"
 							? ` Ranked by violation rate among models with at least ${MIN_SAMPLED_FOR_RATE} sampled requests.`
 							: " Ranked by violation count."}
 					</CardDescription>
 				</CardHeader>
-				<CardContent>
+				<CardContent className="flex flex-col gap-6">
+					{violations.providers.length > 0 ? (
+						<div className="overflow-x-auto">
+							<Table>
+								<TableHeader>
+									<TableRow>
+										<TableHead>Provider</TableHead>
+										<TableHead className="text-right">Sampled</TableHead>
+										<TableHead className="text-right">Violations</TableHead>
+										<TableHead className="text-right">Rate</TableHead>
+										<TableHead className="text-right">Blocked</TableHead>
+									</TableRow>
+								</TableHeader>
+								<TableBody>
+									{violations.providers.map((provider) => (
+										<TableRow key={provider.usedProvider}>
+											<TableCell className="font-medium">
+												{provider.usedProvider}
+											</TableCell>
+											<TableCell className="text-right tabular-nums">
+												{provider.sampledCount.toLocaleString("en-US")}
+											</TableCell>
+											<TableCell className="text-right tabular-nums">
+												{provider.violationCount.toLocaleString("en-US")}
+											</TableCell>
+											<TableCell className="text-right tabular-nums">
+												{percentFormatter.format(provider.violationRate)}
+											</TableCell>
+											<TableCell className="text-right tabular-nums">
+												{provider.blockedCount.toLocaleString("en-US")}
+											</TableCell>
+										</TableRow>
+									))}
+								</TableBody>
+							</Table>
+						</div>
+					) : null}
 					{violations.models.length === 0 ? (
 						<p className="text-sm text-muted-foreground">
 							No moderated requests in this window.
