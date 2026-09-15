@@ -24,6 +24,7 @@ import {
 	RegisterModelDialog,
 	VerifyModelDialog,
 } from "@/components/dashboard/ModelDialogs";
+import { RelativeDate } from "@/components/RelativeDate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useApi } from "@/lib/fetch-client";
@@ -432,7 +433,12 @@ export default function FleetPage() {
 														? "Awaiting clearance"
 														: model.pendingFiling.kind === "metadata"
 															? "Change filed"
-															: "Fare filed"}
+															: "Fare filed"}{" "}
+													·{" "}
+													<RelativeDate
+														date={model.pendingFiling.createdAt}
+														className="font-normal"
+													/>
 												</Badge>
 											) : null}
 											{model.latestVerification ? (
@@ -447,7 +453,11 @@ export default function FleetPage() {
 													title={model.latestVerification.summary ?? undefined}
 												>
 													<ShieldCheck className="size-3" />
-													Verification {model.latestVerification.status}
+													Verification {model.latestVerification.status} ·{" "}
+													<RelativeDate
+														date={model.latestVerification.createdAt}
+														className="font-normal"
+													/>
 												</Badge>
 											) : null}
 										</div>
@@ -483,6 +493,9 @@ export default function FleetPage() {
 													{Math.round(model.contextSize / 1000)}k ctx
 												</span>
 											) : null}
+											<span>
+												Registered <RelativeDate date={model.createdAt} />
+											</span>
 										</div>
 									</div>
 
