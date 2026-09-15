@@ -2194,15 +2194,8 @@ export async function prepareRequestBody(
 				resolvedToolChoice.type === "function"));
 
 	if (forcesToolUse && usedProvider === "alibaba") {
-		const providerMapping = modelDef?.providers.find(
-			(p) =>
-				p.providerId === usedProvider &&
-				((p as ProviderModelMapping).region ?? null) === usedRegion,
-		);
 		const isExplicitThinkingModel =
-			providerMapping &&
-			"reasoning" in providerMapping &&
-			providerMapping.reasoning === true;
+			providerMappingForOptions?.reasoning === true;
 		if (!isExplicitThinkingModel) {
 			requestBody.enable_thinking = false;
 		}

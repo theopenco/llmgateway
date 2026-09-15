@@ -188,6 +188,43 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
+				providerId: "alibaba",
+				externalId: "glm-5.3",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.28e-6",
+				outputPrice: "4.4e-6",
+				regions: [
+					{ id: "singapore" },
+					{
+						id: "cn-beijing",
+						inputPrice: "1.131e-6",
+						cachedInputPrice: "0.2262e-6",
+						outputPrice: "3.957e-6",
+					},
+					{
+						id: "eu-frankfurt",
+						inputPrice: "1.131e-6",
+						cachedInputPrice: "0.2262e-6",
+						outputPrice: "3.957e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				// DashScope validates temperature against [0, 2) rather than GLM's
+				// own [0, 1] ceiling, and above 1 the deployment intermittently
+				// never emits a stop token, so the request hangs instead of 400ing.
+				maxTemperature: 1,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["low", "high", "max"],
+				vision: false,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				supportsDeveloperRole: false,
+			},
+			{
 				providerId: "runware",
 				externalId: "zai:glm@5.3",
 				inputPrice: "1.2e-6",
