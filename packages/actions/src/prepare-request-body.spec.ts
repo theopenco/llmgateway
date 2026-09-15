@@ -8313,3 +8313,59 @@ describe("prepareRequestBody - tool_choice with thinking disabled", () => {
 		expect(requestBody).toMatchObject({ tool_choice: "auto" });
 	});
 });
+
+describe("prepareRequestBody - alibaba forced tool use", () => {
+	const tools = [
+		{
+			type: "function" as const,
+			function: {
+				name: "get_weather",
+				parameters: {
+					type: "object",
+					properties: { city: { type: "string" } },
+				},
+			},
+		},
+	];
+
+	const prepare = (model: string, region: string | null) =>
+		prepareRequestBody(
+			"alibaba",
+			model,
+			region,
+			model,
+			[{ role: "user", content: "What is the weather in Paris?" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			tools,
+			"required",
+			undefined, // reasoning_effort
+			true, // supportsReasoning
+		) as Promise<any>;
+
+	test.each([null, "singapore", "cn-beijing", "eu-frankfurt"])(
+		"keeps thinking on for glm-5.3 in region %s",
+		async (region) => {
+			// glm-5.3 rejects enable_thinking: false outright, so the always-thinking
+			// mapping must be resolved through region expansion too.
+			const requestBody = await prepare("glm-5.3", region);
+
+			expect(requestBody.enable_thinking).toBeUndefined();
+			expect(requestBody.tool_choice).toBe("required");
+		},
+	);
+
+	test.each([null, "singapore", "cn-beijing"])(
+		"still disables thinking for a non-reasoning mapping in region %s",
+		async (region) => {
+			const requestBody = await prepare("qwen-max", region);
+
+			expect(requestBody.enable_thinking).toBe(false);
+		},
+	);
+});
