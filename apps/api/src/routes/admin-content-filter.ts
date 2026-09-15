@@ -63,6 +63,7 @@ const violationsResponseSchema = z
 			z.object({
 				organizationId: z.string(),
 				organizationName: z.string().nullable(),
+				billingEmail: z.string().nullable(),
 				plan: z.string().nullable(),
 				sampledCount: z.number(),
 				violationCount: z.number(),
@@ -113,6 +114,7 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		.select({
 			organizationId: contentFilterHourlyStats.organizationId,
 			organizationName: tables.organization.name,
+			billingEmail: tables.organization.billingEmail,
 			plan: tables.organization.plan,
 			sampledCount: sampled,
 			violationCount: violations,
@@ -135,6 +137,7 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		.groupBy(
 			contentFilterHourlyStats.organizationId,
 			tables.organization.name,
+			tables.organization.billingEmail,
 			tables.organization.plan,
 		)
 		.having(minSampled > 0 ? gte(sampled, minSampled) : undefined)
@@ -213,6 +216,7 @@ adminContentFilter.openapi(getViolations, async (c) => {
 		return {
 			organizationId: row.organizationId,
 			organizationName: row.organizationName ?? null,
+			billingEmail: row.billingEmail ?? null,
 			plan: row.plan ?? null,
 			sampledCount,
 			violationCount,
