@@ -3,6 +3,15 @@ import { describe, expect, it } from "vitest";
 import { getModelImageConfig } from "./image-generation-config.js";
 
 describe("getModelImageConfig", () => {
+	it("uses pixel presets for models that require dimensions", () => {
+		for (const model of ["qwen-image", "cogview-4", "muse-image"]) {
+			const config = getModelImageConfig(model);
+			expect(config.defaultSize).toBe("1024x1024");
+			expect(
+				config.availableSizes.every((size) => /^\d+x\d+$/.test(size)),
+			).toBe(true);
+		}
+	});
 	it("exposes the cheapest supported image options", () => {
 		const gptImage = getModelImageConfig("openai/gpt-image-2");
 		const grok = getModelImageConfig("xai/grok-imagine-image-2-0");
