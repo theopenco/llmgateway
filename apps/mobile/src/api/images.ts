@@ -47,7 +47,7 @@ export async function generateImages(
 			`This model accepts at most ${config.maxInputImages} reference images.`,
 		);
 	}
-	const gateway = await gatewayClient(projectId);
+	const gateway = await gatewayClient(projectId, settings.model);
 	const body = {
 		model: settings.model,
 		prompt: prompt.trim(),
