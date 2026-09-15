@@ -43,7 +43,7 @@ Verified during development:
 
 - Full repository build: 20 workspaces passed.
 - Repository unit suite: 7,058 passed, 2 skipped; chat history/settings tests: 4 passed.
-- Native tests: 64 passed; shared image configuration tests: 3 passed.
+- Native tests: 70 passed; shared image configuration tests: 3 passed.
 - Signed Release build launched on the iOS simulator with local service URLs.
 - Maestro account flow: sign-in errors, session restoration, workspace switching,
   project and skill persistence/deletion, profile access, and sign-out passed.
@@ -52,6 +52,8 @@ Verified during development:
 - Native chat controls: editing, forking, renaming, saved settings, temporary
   conversations, reasoning, draft preservation, stopping, and attachment
   persistence through restart/retry/edit passed.
+- Native model selection: provider pinning, favorites across restart, removing
+  favorites, and switching back to Auto passed.
 - Native citations: source links and web-search settings survived restart.
 - Native sharing: public links, fork permissions, pasted-link reading, revocation,
   workspace snapshots, and forking into a conversation passed.

@@ -40,11 +40,11 @@ beforeEach(() => {
 	jest.mocked(ensureGatewayKey).mockResolvedValue("test-token");
 });
 
-async function start(signal = new AbortController().signal) {
+async function start(signal = new AbortController().signal, model = "auto") {
 	const onDelta = jest.fn();
 	const result = streamCompletion({
 		projectId: "project",
-		model: "auto",
+		model,
 		messages: [{ role: "user", content: "Hello" }],
 		signal,
 		onDelta,
@@ -104,3 +104,18 @@ test("aborts the active request when the user stops", async () => {
 	await rejected;
 	expect(request.abort).toHaveBeenCalledTimes(1);
 });
+
+test.each(["auto", "gpt-4o-mini", "openai/gpt-4o-mini"])(
+	"pins a provider only for an explicit provider/model selection: %s",
+	async (model) => {
+		const { result, request } = await start(undefined, model);
+		const header = ["x-no-fallback", "true"];
+		if (model.includes("/")) {
+			expect(request.setRequestHeader).toHaveBeenCalledWith(...header);
+		} else {
+			expect(request.setRequestHeader).not.toHaveBeenCalledWith(...header);
+		}
+		request.finish("data: [DONE]\n\n");
+		await result;
+	},
+);
