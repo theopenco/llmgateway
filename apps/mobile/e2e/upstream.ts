@@ -9,6 +9,7 @@ import {
 	setMockVideoStatus,
 	startMockServer,
 } from "../../gateway/dist/test-utils/mock-openai-server.js";
+import { startMockRealtimeServer } from "../../gateway/dist/test-utils/mock-realtime-server.js";
 
 if (!process.env.STACK_SUFFIX || !process.env.GATEWAY_PORT) {
 	throw new Error(
@@ -80,11 +81,13 @@ mockOpenAIServer.post("/v1/images/edits", async (context) => {
 	);
 });
 
-void startMockServer(Number(process.env.GATEWAY_PORT) + 8).catch(
-	(error: unknown) => {
+void startMockServer(Number(process.env.GATEWAY_PORT) + 8)
+	.then((url) => {
+		startMockRealtimeServer(Number(process.env.GATEWAY_PORT) + 9, url);
+	})
+	.catch((error: unknown) => {
 		process.stderr.write(
 			`${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
 		);
 		process.exitCode = 1;
-	},
-);
+	});

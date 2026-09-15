@@ -148,6 +148,11 @@
 			"types": "./dist/audio-generation-config.d.ts",
 			"import": "./dist/audio-generation-config.js",
 			"default": "./dist/audio-generation-config.js"
+		},
+		"./realtime-pcm": {
+			"types": "./dist/realtime-pcm.d.ts",
+			"import": "./dist/realtime-pcm.js",
+			"default": "./dist/realtime-pcm.js"
 		}
 	},
 	"module": "./dist/index.js",
