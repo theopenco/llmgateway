@@ -82,6 +82,7 @@ function SettingsForm({ onClose, webSearch, onSaved }: SettingsProps) {
 			<View style={styles.row}>
 				<Text style={[styles.body, { flex: 1 }]}>Search the web</Text>
 				<Switch
+					testID="web-search-switch"
 					accessibilityLabel="Search the web"
 					value={draft.webSearch}
 					onValueChange={(webSearch) => setDraft({ ...draft, webSearch })}

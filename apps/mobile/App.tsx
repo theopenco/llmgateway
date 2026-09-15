@@ -11,6 +11,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ImageStudio } from "@/screens/ImageStudio";
 import { ProjectDetail } from "@/screens/ProjectDetail";
+import { SharedConversations } from "@/screens/SharedConversations";
 
 import { api, queryClient } from "./src/api/client";
 import { restoreSession, clearSession } from "./src/auth/session";
@@ -40,6 +41,7 @@ type Routes = {
 	Chat: { id?: string; knowledgeProjectId?: string };
 	ProjectDetail: { id: string };
 	History: undefined;
+	SharedConversations: undefined;
 	Projects: undefined;
 	Skills: undefined;
 	Profile: undefined;
@@ -120,6 +122,11 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 									onPress={() => navigation.navigate("History")}
 								/>
 								<Button
+									title="Shared conversations"
+									secondary
+									onPress={() => navigation.navigate("SharedConversations")}
+								/>
+								<Button
 									title="Projects"
 									secondary
 									onPress={() => navigation.navigate("Projects")}
@@ -162,6 +169,17 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 				<Stack.Screen name="History" options={{ title: "Conversations" }}>
 					{({ navigation }) => (
 						<History
+							organizationId={organizationId}
+							onChat={(id) => navigation.navigate("Chat", { id })}
+						/>
+					)}
+				</Stack.Screen>
+				<Stack.Screen
+					name="SharedConversations"
+					options={{ title: "Shared conversations" }}
+				>
+					{({ navigation }) => (
+						<SharedConversations
 							organizationId={organizationId}
 							onChat={(id) => navigation.navigate("Chat", { id })}
 						/>

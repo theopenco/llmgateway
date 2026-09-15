@@ -1,6 +1,11 @@
+import { citationSources } from "@/api/sources";
+
+import type { Source } from "@/api/sources";
+
 export interface CompletionDelta {
 	content: string;
 	reasoning: string;
+	sources?: Source[];
 }
 
 export class SSEDecoder {
@@ -39,7 +44,9 @@ export function parseDelta(payload: string): CompletionDelta | null {
 	}
 	const choice = Array.isArray(data.choices) ? data.choices[0] : undefined;
 	const delta = record(choice) && record(choice.delta) ? choice.delta : {};
+	const sources = citationSources(delta.annotations);
 	return {
+		...(sources.length && { sources }),
 		content: typeof delta.content === "string" ? delta.content : "",
 		reasoning:
 			typeof delta.reasoning === "string"

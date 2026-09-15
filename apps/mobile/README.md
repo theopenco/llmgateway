@@ -43,7 +43,7 @@ Verified during development:
 
 - Full repository build: 20 workspaces passed.
 - Repository unit suite: 7,058 passed, 2 skipped; chat history/settings tests: 4 passed.
-- Native tests: 53 passed; shared image configuration tests: 3 passed.
+- Native tests: 60 passed; shared image configuration tests: 3 passed.
 - Signed Release build launched on the iOS simulator with local service URLs.
 - Maestro account flow: sign-in errors, session restoration, workspace switching,
   project and skill persistence/deletion, profile access, and sign-out passed.
@@ -52,14 +52,17 @@ Verified during development:
 - Native chat controls: editing, forking, renaming, saved settings, temporary
   conversations, reasoning, draft preservation, stopping, and attachment
   persistence through restart/retry/edit passed.
+- Native citations: source links and web-search settings survived restart.
+- Native sharing: public links, fork permissions, pasted-link reading, revocation,
+  workspace snapshots, and forking into a conversation passed.
 - Native image checks with a mock provider: generation/editing, model comparison,
   settings, history after restart, Files export/import, sharing, renaming, and
   deletion passed. Exported PNG bytes matched the generated fixture.
   The iOS 26 Files picker needs the coordinate taps documented in the flows.
   Rerun the complete flows after later app changes.
 
-Additional chat flows live in `e2e/chat-controls.yaml` and
-`e2e/chat-streaming.yaml`. Run `e2e/images.yaml` before `e2e/chat-attachments.yaml`
+Additional chat flows cover controls, streaming, sources, and sharing in
+`e2e/chat-*.yaml`. Run `e2e/images.yaml` before `e2e/chat-attachments.yaml`
 to place its generated PNG in Files.
 
 The Markdown renderer patch supplies accessibility bounds alongside its
