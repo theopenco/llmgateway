@@ -502,6 +502,7 @@ export function resetFailOnceCounter() {
 
 export function resetMockVideoState() {
 	videoCounter = 0;
+	videoAsset = undefined;
 	videoJobs.clear();
 	videoStatusResponses.clear();
 	webhookDeliveries.length = 0;
@@ -550,6 +551,16 @@ export function setMockVideoStatus(
 
 export function getMockVideo(videoId: string): MockVideoJobState | undefined {
 	return videoJobs.get(videoId);
+}
+
+export function getMockVideos(): MockVideoJobState[] {
+	return [...videoJobs.values()];
+}
+
+let videoAsset: Uint8Array<ArrayBuffer> | undefined;
+
+export function setMockVideoAsset(bytes: Uint8Array) {
+	videoAsset = new Uint8Array(bytes);
 }
 
 export function setMockVideoStatusResponse(
@@ -2735,12 +2746,7 @@ mockOpenAIServer.get("/mock-gcs/:bucket/*", async (c) => {
 			videoJob.storageUri === `gs://${bucket}/${objectPath}`,
 	);
 
-	return new Response(`mock-video-${job?.id ?? objectPath}`, {
-		status: 200,
-		headers: {
-			"Content-Type": "video/mp4",
-		},
-	});
+	return mockVideoContentResponse(job?.id ?? objectPath, c.req.header("range"));
 });
 
 mockOpenAIServer.get("/api/v1/model/prediction/:id", async (c) => {
@@ -2773,12 +2779,46 @@ mockOpenAIServer.get("/api/v1/model/prediction/:id", async (c) => {
 	});
 });
 
-mockOpenAIServer.get("/mock-assets/:id", async (c) => {
-	const id = c.req.param("id");
-	return c.body(`mock-video-${id}`, 200, {
-		"Content-Type": "video/mp4",
+function mockVideoContentResponse(id: string, range?: string) {
+	if (videoAsset) {
+		const headers = { "Content-Type": "video/mp4", "Accept-Ranges": "bytes" };
+		if (range) {
+			const match = /^bytes=(\d+)-(\d*)$/.exec(range);
+			const start = Number(match?.[1]);
+			const end = Math.min(
+				Number(match?.[2] || videoAsset.length - 1),
+				videoAsset.length - 1,
+			);
+			if (!match || start > end || start >= videoAsset.length) {
+				return new Response(null, {
+					status: 416,
+					headers: {
+						...headers,
+						"Content-Range": `bytes */${videoAsset.length}`,
+					},
+				});
+			}
+			return new Response(videoAsset.slice(start, end + 1), {
+				status: 206,
+				headers: {
+					...headers,
+					"Content-Length": String(end - start + 1),
+					"Content-Range": `bytes ${start}-${end}/${videoAsset.length}`,
+				},
+			});
+		}
+		return new Response(videoAsset, {
+			headers: { ...headers, "Content-Length": String(videoAsset.length) },
+		});
+	}
+	return new Response(`mock-video-${id}`, {
+		headers: { "Content-Type": "video/mp4" },
 	});
-});
+}
+
+mockOpenAIServer.get("/mock-assets/:id", (c) =>
+	mockVideoContentResponse(c.req.param("id"), c.req.header("range")),
+);
 
 mockOpenAIServer.post("/mock-callback/:name", async (c) => {
 	const name = c.req.param("name");
