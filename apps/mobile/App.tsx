@@ -16,6 +16,7 @@ import { GroupConversation } from "@/screens/GroupConversation";
 import { ImageStudio } from "@/screens/ImageStudio";
 import { ProjectDetail } from "@/screens/ProjectDetail";
 import { SharedConversations } from "@/screens/SharedConversations";
+import { Transcription } from "@/screens/Transcription";
 import { VideoStudio } from "@/screens/VideoStudio";
 
 import { api, queryClient } from "./src/api/client";
@@ -43,6 +44,7 @@ type Routes = {
 	ImageStudio: undefined;
 	VideoStudio: undefined;
 	AudioStudio: undefined;
+	Transcription: undefined;
 	Workspaces: undefined;
 	Chat: { id?: string; knowledgeProjectId?: string; single?: boolean };
 	Comparison: { id?: string };
@@ -171,6 +173,11 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 								onPress={() => navigation.navigate("AudioStudio")}
 							/>
 							<Button
+								title="Live transcription"
+								secondary
+								onPress={() => navigation.navigate("Transcription")}
+							/>
+							<Button
 								title="Switch workspace"
 								secondary
 								onPress={() => navigation.navigate("Workspaces")}
@@ -277,6 +284,12 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 							projectId={projectId}
 						/>
 					)}
+				</Stack.Screen>
+				<Stack.Screen
+					name="Transcription"
+					options={{ title: "Live transcription" }}
+				>
+					{() => <Transcription projectId={projectId} />}
 				</Stack.Screen>
 				<Stack.Screen name="Skills" component={Skills} />
 				<Stack.Screen name="Workspaces">

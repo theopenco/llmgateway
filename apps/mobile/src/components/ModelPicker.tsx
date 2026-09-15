@@ -15,12 +15,14 @@ export function ModelPicker({
 	output = "text",
 	label = "Model",
 	disabled = false,
+	capability,
 }: {
 	value: string;
 	onChange: (model: string) => void;
 	output?: "text" | "image" | "video" | "audio";
 	label?: string;
 	disabled?: boolean;
+	capability?: "realtime" | "realtimeTranscription";
 }) {
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");
@@ -47,12 +49,16 @@ export function ModelPicker({
 	});
 	const choices = (models.data?.models ?? [])
 		.map((model) =>
-			output === "audio"
+			output === "audio" || capability
 				? {
 						...model,
 						mappings: model.mappings.filter(
 							(mapping) =>
-								mapping.speechGenerations &&
+								(capability
+									? mapping[capability]
+									: mapping.speechGenerations) &&
+								(capability !== "realtimeTranscription" ||
+									mapping.providerId !== "google-ai-studio") &&
 								mapping.status === "active" &&
 								(!mapping.deactivatedAt ||
 									new Date(mapping.deactivatedAt).getTime() > Date.now()),
@@ -63,8 +69,9 @@ export function ModelPicker({
 		.filter(
 			(model) =>
 				model.status === "active" &&
-				(output !== "audio" || model.mappings.length > 0) &&
-				(model.output ? model.output.includes(output) : output === "text") &&
+				(!(output === "audio" || capability) || model.mappings.length > 0) &&
+				(capability ||
+					(model.output ? model.output.includes(output) : output === "text")) &&
 				`${model.name} ${model.id}`
 					.toLowerCase()
 					.includes(search.toLowerCase()),
@@ -107,7 +114,7 @@ export function ModelPicker({
 									value={search}
 									onChangeText={setSearch}
 								/>
-								{(output === "text" || output === "image") && (
+								{!capability && (output === "text" || output === "image") && (
 									<Button
 										title="Auto route"
 										secondary
@@ -133,7 +140,13 @@ export function ModelPicker({
 												style={{ flex: 1 }}
 												role="button"
 												aria-label={`Choose ${item.name ?? item.id}`}
-												onPress={() => choose(item.id)}
+												onPress={() =>
+													choose(
+														capability
+															? `${item.mappings[0].providerId}/${item.id}${item.mappings[0].region ? `:${item.mappings[0].region}` : ""}`
+															: item.id,
+													)
+												}
 											>
 												<Text style={styles.body}>{item.name ?? item.id}</Text>
 												<Text style={styles.muted}>{item.id}</Text>
