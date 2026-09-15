@@ -1,0 +1,9 @@
+appId: io.llmgateway.lounge
+---
+- scrollUntilVisible:
+    element: "Switch workspace"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Switch workspace"
+- tapOn: "Use Test Organization"
+- assertVisible: "Start a conversation"

@@ -14,5 +14,9 @@ export default [
 	},
 	...lint,
 	...react,
+	{
+		files: ["e2e/**/*.ts"],
+		languageOptions: { parserOptions: { project: "./e2e/tsconfig.json" } },
+	},
 	{ rules: { "@eslint-react/no-unstable-context-value": "off" } },
 ];
