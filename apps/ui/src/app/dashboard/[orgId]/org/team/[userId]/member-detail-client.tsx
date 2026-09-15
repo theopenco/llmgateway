@@ -36,8 +36,6 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageMode, pickCost, pickRequests } from "@/lib/usage-mode";
 
-import { deriveStabilityMetrics } from "@llmgateway/shared";
-
 import type { Route } from "next";
 
 function periodLabel(value: number, unit: string): string {
@@ -128,13 +126,7 @@ export function MemberDetailClient() {
 	);
 
 	const summary = data?.summary;
-	const errorRate = summary
-		? (deriveStabilityMetrics(
-				summary.requestCount,
-				summary.errorCount + summary.clientErrorCount,
-				summary.clientErrorCount,
-			).errorRate ?? 0)
-		: 0;
+	const errorRate = summary?.errorRate ?? 0;
 
 	const activity = (data?.activity ?? []).map((row) => ({
 		...row,

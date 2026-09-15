@@ -778,13 +778,13 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
 					"logsCount",
 				),
-			errorsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
-					"errorsCount",
-				),
 			clientErrorsCount:
 				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
 					"clientErrorsCount",
+				),
+			gatewayErrorsCount:
+				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+					"gatewayErrorsCount",
 				),
 			upstreamErrorsCount:
 				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
@@ -829,11 +829,12 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 
 	const providers = windowed.map((m) => {
 		const logsCount = Number(m.logsCount);
-		const { errorsCount, errorRate, uptime } = deriveStabilityMetrics(
+		const { errorsCount, errorRate, uptime } = deriveStabilityMetrics({
 			logsCount,
-			Number(m.errorsCount),
-			Number(m.clientErrorsCount),
-		);
+			clientErrorsCount: Number(m.clientErrorsCount),
+			gatewayErrorsCount: Number(m.gatewayErrorsCount),
+			upstreamErrorsCount: Number(m.upstreamErrorsCount),
+		});
 		const cachedCount = Number(m.cachedCount);
 		const totalDuration = Number(m.totalDuration);
 		const totalOutputTokens = Number(m.totalOutputTokens);
@@ -908,6 +909,7 @@ const uptimeProviderSchema = z.object({
 	logsCount: z.number(),
 	errorsCount: z.number(),
 	clientErrorsCount: z.number(),
+	gatewayErrorsCount: z.number(),
 	upstreamErrorsCount: z.number(),
 	uptime: z.number().nullable(),
 	avgTtft: z.number().nullable(),
@@ -984,10 +986,6 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
 						"logs_count",
 					),
-				errorsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
-						"errors_count",
-					),
 				clientErrorsCount:
 					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
 						"client_errors_count",
@@ -1061,7 +1059,6 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			points: Array<{
 				timestamp: string;
 				logsCount: number;
-				errorsCount: number;
 				clientErrorsCount: number;
 				gatewayErrorsCount: number;
 				upstreamErrorsCount: number;
@@ -1098,7 +1095,6 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 		entry.points.push({
 			timestamp: r.minuteTimestamp.toISOString(),
 			logsCount: Number(r.logsCount),
-			errorsCount: Number(r.errorsCount),
 			clientErrorsCount: Number(r.clientErrorsCount),
 			gatewayErrorsCount: Number(r.gatewayErrorsCount),
 			upstreamErrorsCount: Number(r.upstreamErrorsCount),
@@ -1116,8 +1112,8 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 
 	const providers = Array.from(byProvider.values()).map((p) => {
 		let totalLogs = 0;
-		let totalErrors = 0;
 		let totalClientErrors = 0;
+		let totalGatewayErrors = 0;
 		let totalUpstreamErrors = 0;
 		let totalDuration = 0;
 		let totalTtft = 0;
@@ -1128,8 +1124,8 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 
 		const points = p.points.map((pt) => {
 			totalLogs += pt.logsCount;
-			totalErrors += pt.errorsCount;
 			totalClientErrors += pt.clientErrorsCount;
+			totalGatewayErrors += pt.gatewayErrorsCount;
 			totalUpstreamErrors += pt.upstreamErrorsCount;
 			totalDuration += pt.totalDuration;
 			totalTtft += pt.totalTimeToFirstToken;
@@ -1143,11 +1139,12 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			// (much later) first content token.
 			const { total: pointTtft, count: pointTtftCount } =
 				effectiveTtftTotals(pt);
-			const pointMetrics = deriveStabilityMetrics(
-				pt.logsCount,
-				pt.errorsCount,
-				pt.clientErrorsCount,
-			);
+			const pointMetrics = deriveStabilityMetrics({
+				logsCount: pt.logsCount,
+				clientErrorsCount: pt.clientErrorsCount,
+				gatewayErrorsCount: pt.gatewayErrorsCount,
+				upstreamErrorsCount: pt.upstreamErrorsCount,
+			});
 			return {
 				timestamp: pt.timestamp,
 				logsCount: pt.logsCount,
@@ -1164,11 +1161,12 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			};
 		});
 
-		const stability = deriveStabilityMetrics(
-			totalLogs,
-			totalErrors,
-			totalClientErrors,
-		);
+		const stability = deriveStabilityMetrics({
+			logsCount: totalLogs,
+			clientErrorsCount: totalClientErrors,
+			gatewayErrorsCount: totalGatewayErrors,
+			upstreamErrorsCount: totalUpstreamErrors,
+		});
 		const uptime =
 			stability.uptime !== null ? Math.round(stability.uptime * 10) / 10 : null;
 		// Output tokens only — including prompt tokens would inflate throughput
@@ -1191,6 +1189,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			logsCount: totalLogs,
 			errorsCount: stability.errorsCount,
 			clientErrorsCount: totalClientErrors,
+			gatewayErrorsCount: totalGatewayErrors,
 			upstreamErrorsCount: totalUpstreamErrors,
 			uptime,
 			avgTtft:

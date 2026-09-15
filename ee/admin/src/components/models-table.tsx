@@ -149,11 +149,12 @@ function ModelRow({
 	usageMode: UsageMode;
 }) {
 	const [expanded, setExpanded] = useState(false);
-	const stability = deriveStabilityMetrics(
-		model.logsCount,
-		model.errorsCount + model.clientErrorsCount,
-		model.clientErrorsCount,
-	);
+	const stability = deriveStabilityMetrics({
+		logsCount: model.logsCount,
+		clientErrorsCount: model.clientErrorsCount,
+		gatewayErrorsCount: model.gatewayErrorsCount,
+		upstreamErrorsCount: model.upstreamErrorsCount,
+	});
 	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
 	const fetchData = useCallback(

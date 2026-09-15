@@ -33,11 +33,12 @@ export function DetailStatCards({
 	stats: DetailStats;
 	loading?: boolean;
 }) {
-	const stability = deriveStabilityMetrics(
-		stats.logsCount,
-		stats.errorsCount,
-		stats.clientErrorsCount,
-	);
+	const stability = deriveStabilityMetrics({
+		logsCount: stats.logsCount,
+		clientErrorsCount: stats.clientErrorsCount,
+		gatewayErrorsCount: stats.gatewayErrorsCount,
+		upstreamErrorsCount: stats.upstreamErrorsCount,
+	});
 	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
 	return (

@@ -139,11 +139,12 @@ function MappingRow({
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const ProviderIcon = getProviderIcon(mapping.providerId);
-	const stability = deriveStabilityMetrics(
-		mapping.logsCount,
-		mapping.errorsCount + mapping.clientErrorsCount,
-		mapping.clientErrorsCount,
-	);
+	const stability = deriveStabilityMetrics({
+		logsCount: mapping.logsCount,
+		clientErrorsCount: mapping.clientErrorsCount,
+		gatewayErrorsCount: mapping.gatewayErrorsCount,
+		upstreamErrorsCount: mapping.upstreamErrorsCount,
+	});
 	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
 	const fetchData = useCallback(
