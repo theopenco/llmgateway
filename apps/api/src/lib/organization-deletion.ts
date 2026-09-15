@@ -32,10 +32,10 @@ export function hasPositiveCredits(credits: string | null): boolean {
  * Start of the hour bucket that contains `now - idle window`, so a bucket
  * straddling the cutoff still counts.
  */
+const IDLE_WINDOW_MS = ORGANIZATION_DELETE_IDLE_HOURS * 60 * 60 * 1000;
+
 export function getRecentRequestsCutoff(now = new Date()): Date {
-	const cutoff = new Date(
-		now.getTime() - ORGANIZATION_DELETE_IDLE_HOURS * 60 * 60 * 1000,
-	);
+	const cutoff = new Date(now.getTime() - IDLE_WINDOW_MS);
 	cutoff.setUTCMinutes(0, 0, 0);
 	return cutoff;
 }

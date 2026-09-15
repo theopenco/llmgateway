@@ -46,7 +46,8 @@ async function seedOrg(
 }
 
 async function seedRequests(hoursAgo: number) {
-	const hour = new Date(Date.now() - hoursAgo * 60 * 60 * 1000);
+	const ageMs = hoursAgo * 60 * 60 * 1000;
+	const hour = new Date(Date.now() - ageMs);
 	hour.setUTCMinutes(0, 0, 0);
 	await db.insert(tables.projectHourlyStats).values({
 		projectId: PROJECT_ID,
