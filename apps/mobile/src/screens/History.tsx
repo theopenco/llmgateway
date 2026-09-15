@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { Alert, FlatList, Pressable, Text, View } from "react-native";
 
-import { api, queryClient } from "@/api/client";
+import { refreshChatHistory } from "@/api/chat-history";
+import { api, client } from "@/api/client";
 import { Button, ErrorNotice, Field, Loading, styles } from "@/components/ui";
 
 export function History({
@@ -13,17 +15,42 @@ export function History({
 }) {
 	const [search, setSearch] = useState("");
 	const [archived, setArchived] = useState(false);
-	const refresh = () =>
-		queryClient.invalidateQueries({ queryKey: ["get", "/chats"] });
+	const [query, setQuery] = useState("");
+	useEffect(() => {
+		const timeout = setTimeout(() => setQuery(search.trim()), 300);
+		return () => clearTimeout(timeout);
+	}, [search]);
 	const update = api.useMutation("patch", "/chats/{id}", {
-		onSuccess: refresh,
+		onSuccess: refreshChatHistory,
 	});
 	const remove = api.useMutation("delete", "/chats/{id}", {
-		onSuccess: refresh,
+		onSuccess: refreshChatHistory,
 	});
-	const chats = api.useQuery("get", "/chats", {
-		params: {
-			query: { organizationId, status: archived ? "archived" : "active" },
+	const filters = {
+		organizationId,
+		status: archived ? ("archived" as const) : ("active" as const),
+		q: query,
+	};
+	const chats = useInfiniteQuery({
+		queryKey: ["get", "/chats/search", filters],
+		initialPageParam: 0,
+		refetchOnMount: "always",
+		queryFn: async ({ pageParam, signal }) => {
+			const { data } = await client.GET("/chats/search", {
+				params: { query: { ...filters, limit: 50, offset: pageParam } },
+				signal,
+			});
+			if (!data) {
+				throw new Error("Could not load conversations.");
+			}
+			return data;
+		},
+		getNextPageParam: (last, pages) => {
+			const loaded = pages.reduce(
+				(count, page) => count + page.chats.length,
+				0,
+			);
+			return last.chats.length && loaded < last.total ? loaded : undefined;
 		},
 	});
 	return (
@@ -35,6 +62,7 @@ export function History({
 					value={search}
 					onChangeText={setSearch}
 				/>
+				<Text style={styles.muted}>Search titles and message text.</Text>
 				<Button
 					title={
 						archived
@@ -50,21 +78,27 @@ export function History({
 				<Loading />
 			) : (
 				<FlatList
-					data={
-						chats.data?.chats.filter(
-							(chat) =>
-								chat.status === (archived ? "archived" : "active") &&
-								chat.title.toLowerCase().includes(search.toLowerCase()),
-						) ?? []
-					}
+					data={chats.data?.pages.flatMap((page) => page.chats) ?? []}
 					keyExtractor={(chat) => chat.id}
 					contentContainerStyle={{ padding: 22, gap: 12 }}
 					refreshing={chats.isRefetching}
 					onRefresh={() => void chats.refetch()}
 					ListEmptyComponent={
 						<Text style={styles.muted}>
-							Your conversations will appear here.
+							{query
+								? "No matching conversations."
+								: "Your conversations will appear here."}
 						</Text>
+					}
+					ListFooterComponent={
+						chats.hasNextPage ? (
+							<Button
+								title="Load more conversations"
+								secondary
+								busy={chats.isFetchingNextPage}
+								onPress={() => void chats.fetchNextPage()}
+							/>
+						) : undefined
 					}
 					renderItem={({ item }) => (
 						<View style={styles.card}>
