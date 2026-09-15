@@ -30,6 +30,7 @@ const GATEWAY_TEST_DB_LOCK_ID = 41001;
 
 async function resetGatewayTestData() {
 	await db.delete(tables.log);
+	await db.delete(tables.contentFilterHourlyModelStats);
 	await db.delete(tables.contentFilterHourlyStats);
 	await db.delete(tables.systemSetting);
 	// Routing reads uptime/latency from a 60-minute history window, so metric

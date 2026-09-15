@@ -49,6 +49,9 @@ export function ContentFilterSettingsForm({
 	const [providerIds, setProviderIds] = useState<string[]>(() =>
 		settings.providers.filter((p) => p.enabled).map((p) => p.id),
 	);
+	const allSelected =
+		settings.providers.length > 0 &&
+		providerIds.length >= settings.providers.length;
 	const [error, setError] = useState<string | null>(null);
 	const [saved, setSaved] = useState(false);
 
@@ -169,9 +172,26 @@ export function ContentFilterSettingsForm({
 			</div>
 
 			<div className="space-y-2">
-				<p className="text-sm font-medium">Providers</p>
+				<div className="flex items-center justify-between gap-3">
+					<p className="text-sm font-medium">Providers</p>
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						disabled={pending || settings.providers.length === 0}
+						onClick={() => {
+							setSaved(false);
+							setProviderIds(
+								allSelected ? [] : settings.providers.map((p) => p.id),
+							);
+						}}
+					>
+						{allSelected ? "Unselect all" : "Select all"}
+					</Button>
+				</div>
 				<p className="text-xs text-muted-foreground">
-					Only requests routed to an enabled provider are moderated.
+					Only requests routed to an enabled provider are moderated.{" "}
+					{providerIds.length} of {settings.providers.length} selected.
 				</p>
 				<MultiProviderSelector
 					providers={settings.providers}

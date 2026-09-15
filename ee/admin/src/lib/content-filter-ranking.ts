@@ -6,3 +6,6 @@ export type ContentFilterViolationsSort = "violations" | "rate";
  * put a one-request organization at 100%.
  */
 export const MIN_SAMPLED_FOR_RATE = 20;
+
+/** Whether the cross-tenant ranking is grouped per model or per provider. */
+export type ContentFilterViolationsGroupBy = "model" | "provider";

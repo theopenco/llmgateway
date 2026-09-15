@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	apiKey,
+	contentFilterHourlyModelStats,
 	contentFilterHourlyStats,
 	db,
 	log,
@@ -66,6 +67,23 @@ function logRow(overrides: Partial<LogInsert> = {}): LogInsert {
 	};
 }
 
+async function modelStatsRows() {
+	return (await db.select().from(contentFilterHourlyModelStats))
+		.map((row) => ({
+			usedModel: row.usedModel,
+			usedProvider: row.usedProvider,
+			category: row.category,
+			sampledCount: row.sampledCount,
+			violationCount: row.violationCount,
+			blockedCount: row.blockedCount,
+		}))
+		.sort(
+			(a, b) =>
+				a.usedModel.localeCompare(b.usedModel) ||
+				a.category.localeCompare(b.category),
+		);
+}
+
 async function statsRows() {
 	return (await db.select().from(contentFilterHourlyStats))
 		.map((row) => ({
@@ -82,6 +100,7 @@ async function statsRows() {
 describe("content filter stats aggregator", () => {
 	beforeEach(async () => {
 		vi.setSystemTime(new Date("2026-08-08T00:00:00Z"));
+		await db.delete(contentFilterHourlyModelStats);
 		await db.delete(contentFilterHourlyStats);
 		await db.delete(log);
 		await db.delete(apiKey);
@@ -152,6 +171,7 @@ describe("content filter stats aggregator", () => {
 
 		expect(await calculateContentFilterStatsForHour(HOUR)).toEqual({
 			rows: 3,
+			modelRows: 3,
 		});
 		expect(await statsRows()).toEqual([
 			{
@@ -176,6 +196,64 @@ describe("content filter stats aggregator", () => {
 				category: "violence",
 				sampledCount: 0,
 				violationCount: 2,
+				blockedCount: 0,
+			},
+		]);
+	});
+
+	it("breaks the rollup down by the model that served the request", async () => {
+		await db.insert(log).values([
+			logRow({
+				gatewayContentFilterEvaluation: evaluation({
+					violation: true,
+					action: "blocked",
+					matchedCategories: ["violence"],
+				}),
+			}),
+			logRow({ gatewayContentFilterEvaluation: evaluation() }),
+			logRow({
+				usedModel: "anthropic/claude-sonnet-5",
+				usedProvider: "anthropic",
+				gatewayContentFilterEvaluation: evaluation({
+					violation: true,
+					action: "logged",
+					matchedCategories: ["hate"],
+				}),
+			}),
+		]);
+
+		await calculateContentFilterStatsForHour(HOUR);
+		expect(await modelStatsRows()).toEqual([
+			{
+				usedModel: "anthropic/claude-sonnet-5",
+				usedProvider: "anthropic",
+				category: "all",
+				sampledCount: 1,
+				violationCount: 1,
+				blockedCount: 0,
+			},
+			{
+				usedModel: "anthropic/claude-sonnet-5",
+				usedProvider: "anthropic",
+				category: "hate",
+				sampledCount: 0,
+				violationCount: 1,
+				blockedCount: 0,
+			},
+			{
+				usedModel: "openai/gpt-5.6-sol",
+				usedProvider: "openai",
+				category: "all",
+				sampledCount: 2,
+				violationCount: 1,
+				blockedCount: 1,
+			},
+			{
+				usedModel: "openai/gpt-5.6-sol",
+				usedProvider: "openai",
+				category: "violence",
+				sampledCount: 0,
+				violationCount: 1,
 				blockedCount: 0,
 			},
 		]);
@@ -234,6 +312,7 @@ describe("content filter stats aggregator", () => {
 		await calculateContentFilterStatsForHour(HOUR);
 		await calculateContentFilterStatsForHour(HOUR);
 
+		expect(await modelStatsRows()).toHaveLength(2);
 		expect(await statsRows()).toEqual([
 			{
 				organizationId: "cf-org",
@@ -258,6 +337,7 @@ describe("content filter stats aggregator", () => {
 		vi.setSystemTime(new Date("2026-09-07T10:00:00Z"));
 		expect(await calculateContentFilterStatsForHour(HOUR)).toEqual({
 			rows: 0,
+			modelRows: 0,
 		});
 	});
 });
