@@ -15,7 +15,8 @@ for (const name of Object.keys(process.env)) {
 }
 
 process.env.LLM_OPENAI_API_KEY = "test-token";
-process.env.LLM_OPENAI_BASE_URL = `http://localhost:${Number(process.env.GATEWAY_PORT) + 8}`;
+process.env.LLM_OPENAI_BASE_URL = `http://localhost:${Number(process.env.GATEWAY_PORT) + 9}`;
+process.env.REALTIME_INLINE = "true";
 // xAI has no public base-URL env setting; add one only in the isolated harness.
 const xai = getProviderEnvConfig("xai");
 if (!xai) {
