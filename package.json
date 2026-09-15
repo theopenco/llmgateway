@@ -142,7 +142,8 @@
 		},
 		"patchedDependencies": {
 			"gray-matter@4.0.3": "patches/gray-matter@4.0.3.patch",
-			"brace-expansion@5.0.9": "patches/brace-expansion@5.0.9.patch"
+			"brace-expansion@5.0.9": "patches/brace-expansion@5.0.9.patch",
+			"react-native-enriched-markdown@1.0.2": "patches/react-native-enriched-markdown@1.0.2.patch"
 		}
 	},
 	"dependencies": {

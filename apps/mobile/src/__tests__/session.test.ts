@@ -80,4 +80,7 @@ test("clears gateway credentials when signing out", async () => {
 	await signOut();
 	expect(getSessionToken()).toBeNull();
 	expect(clearGatewayKey).toHaveBeenCalledTimes(1);
+	expect(Keychain.resetGenericPassword).toHaveBeenCalledWith({
+		service: "io.llmgateway.lounge.preferences",
+	});
 });

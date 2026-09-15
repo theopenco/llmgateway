@@ -4,6 +4,7 @@ import * as Keychain from "react-native-keychain";
 import { getSessionToken, queryClient, setSessionToken } from "@/api/client";
 import { clearGatewayKey } from "@/api/completion";
 import { config } from "@/config";
+import { clearPreferences } from "@/lib/preferences";
 
 const service = "io.llmgateway.lounge.session";
 export const auth = createAuthClient({
@@ -45,6 +46,7 @@ export async function signOut() {
 }
 
 export async function clearSession() {
+	await clearPreferences();
 	await Keychain.resetGenericPassword({ service });
 	setSessionToken(null);
 	clearGatewayKey();
