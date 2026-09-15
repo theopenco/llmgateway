@@ -89,7 +89,9 @@ function BillingTopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 	const { selectedOrganization } = useDashboardState();
 	const organizationId = selectedOrganization?.id;
 	const alreadyHasAutoTopUp = selectedOrganization?.autoTopUpEnabled ?? false;
-	const { stripe, isLoading: stripeLoading } = useStripe();
+	// The dialog is mounted (closed) on every dashboard route via the sidebar,
+	// so only load Stripe.js once it is actually opened.
+	const { stripe, isLoading: stripeLoading } = useStripe(open);
 	const api = useApi();
 	const posthog = usePostHog();
 

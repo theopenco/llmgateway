@@ -711,6 +711,20 @@ export async function POST(req: Request) {
 		}
 	}
 
+	if ("mcp_servers" in body) {
+		return Response.json(
+			{ error: "Custom MCP servers are no longer supported. Use Connectors." },
+			{ status: 400 },
+		);
+	}
+	const selectedConnectors = z
+		.array(z.enum(loungeConnectorIds))
+		.max(loungeConnectorIds.length)
+		.safeParse(connector_ids ?? []);
+	if (!selectedConnectors.success) {
+		return Response.json({ error: "Invalid connectors" }, { status: 400 });
+	}
+
 	// Project (knowledge base) context: retrieve the chunks most relevant to
 	// the latest user message plus the project's instructions and memories, and
 	// prepend them to the system prompt. Retrieval failures degrade to a normal
@@ -720,21 +734,48 @@ export async function POST(req: Request) {
 	let projectQueryText = "";
 	if (project_id) {
 		projectQueryText = getLastUserText(messages).slice(0, 10_000);
-		const retrieval = await fetchServerData<ProjectRetrievalResponse>(
-			"POST",
-			"/chat-projects/{id}/retrieve",
-			{
-				params: { path: { id: project_id } },
-				body: {
-					query: projectQueryText.trim() || "Project knowledge base overview",
-				},
-				// Bill the query embedding to the same gateway key as the chat.
-				headers: { "x-llmgateway-key": finalApiKey },
-				// Don't let a slow retrieval stall the chat; on timeout the
-				// request proceeds without project context.
-				signal: AbortSignal.timeout(15_000),
-			},
+	}
+	try {
+		// Validate the message shape before firing the retrieval, which bills a
+		// query embedding to the user's key.
+		const modelMessages = await convertToModelMessages(
+			messages.filter((m) => m.role !== "system"),
 		);
+		// Retrieval and connector tool loading are independent, so start both
+		// before awaiting either — serialized they would stack both latencies
+		// onto the stream's time to first token. fetchServerData resolves to null
+		// on failure, so only the connector promise can reject.
+		const retrievalPromise = project_id
+			? fetchServerData<ProjectRetrievalResponse>(
+					"POST",
+					"/chat-projects/{id}/retrieve",
+					{
+						params: { path: { id: project_id } },
+						body: {
+							query:
+								projectQueryText.trim() || "Project knowledge base overview",
+						},
+						// Bill the query embedding to the same gateway key as the chat.
+						headers: { "x-llmgateway-key": finalApiKey },
+						// Don't let a slow retrieval stall the chat; on timeout the
+						// request proceeds without project context.
+						signal: AbortSignal.timeout(15_000),
+					},
+				)
+			: null;
+		const connectorToolsPromise = selectedConnectors.data.length
+			? createServerApiClient().then(async (client) => ({
+					client,
+					response: await client.POST("/connectors/tools", {
+						body: { connectors: selectedConnectors.data },
+						signal: req.signal,
+					}),
+				}))
+			: null;
+		const [retrieval, connectorTools] = await Promise.all([
+			retrievalPromise,
+			connectorToolsPromise,
+		]);
 		if (retrieval) {
 			const sections: string[] = [];
 			if (retrieval.project.instructions.trim()) {
@@ -760,29 +801,10 @@ export async function POST(req: Request) {
 				projectContext = `You are answering inside the project "${retrieval.project.name}".\n\n${sections.join("\n\n")}`;
 			}
 		}
-	}
 
-	if ("mcp_servers" in body) {
-		return Response.json(
-			{ error: "Custom MCP servers are no longer supported. Use Connectors." },
-			{ status: 400 },
-		);
-	}
-	const selectedConnectors = z
-		.array(z.enum(loungeConnectorIds))
-		.max(loungeConnectorIds.length)
-		.safeParse(connector_ids ?? []);
-	if (!selectedConnectors.success) {
-		return Response.json({ error: "Invalid connectors" }, { status: 400 });
-	}
-	try {
 		const allTools: ToolSet = {};
-		if (selectedConnectors.data.length) {
-			const client = await createServerApiClient();
-			const response = await client.POST("/connectors/tools", {
-				body: { connectors: selectedConnectors.data },
-				signal: req.signal,
-			});
+		if (connectorTools) {
+			const { client, response } = connectorTools;
 			if (!response.data) {
 				return Response.json(
 					{
@@ -846,9 +868,7 @@ export async function POST(req: Request) {
 				.join("\n\n") || undefined;
 		const result = streamText({
 			model: llmgateway.chat(selectedModel, { usage: { include: true } }),
-			messages: await convertToModelMessages(
-				messages.filter((m) => m.role !== "system"),
-			),
+			messages: modelMessages,
 			...(resolvedSystem ? { instructions: resolvedSystem } : {}),
 			...(hasTools
 				? {

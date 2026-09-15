@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import { useHasMounted } from "@/hooks/useHasMounted";
+
 interface CountdownProps {
 	expiresAt: string;
 }
@@ -32,6 +34,7 @@ function getTimeRemaining(expiresAt: string) {
 }
 
 export function Countdown({ expiresAt }: CountdownProps) {
+	const hasMounted = useHasMounted();
 	const [time, setTime] = useState(() => getTimeRemaining(expiresAt));
 
 	useEffect(() => {
@@ -51,6 +54,12 @@ export function Countdown({ expiresAt }: CountdownProps) {
 
 		return () => clearInterval(interval);
 	}, [expiresAt]);
+
+	// Clock-derived text can never match between the server render and
+	// hydration, so render it only once mounted; reserve its width meanwhile.
+	if (!hasMounted) {
+		return <span className="tabular-nums invisible">0d 0h 0m remaining</span>;
+	}
 
 	if (time.expired) {
 		return <span className="text-destructive font-medium">Expired</span>;
