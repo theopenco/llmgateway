@@ -43,7 +43,7 @@ Verified during development:
 
 - Full repository build: 20 workspaces passed.
 - Repository unit suite: 7,058 passed, 2 skipped; chat history/search tests: 7 passed.
-- Native tests: 72 passed; shared image configuration tests: 3 passed.
+- Native tests: 78 passed; shared image configuration tests: 3 passed.
 - Signed Release build launched on the iOS simulator with local service URLs.
 - Maestro account flow: sign-in errors, session restoration, workspace switching,
   project and skill persistence/deletion, profile access, and sign-out passed.
@@ -59,6 +59,8 @@ Verified during development:
 - Native citations: source links and web-search settings survived restart.
 - Native sharing: public links, fork permissions, pasted-link reading, revocation,
   workspace snapshots, and forking into a conversation passed.
+- Native comparison: three models, synchronized history after restart, retrying
+  one model, opening its conversation, and stopping all models passed.
 - Native group discussion: five alternating turns, transcript sharing, starting
   over, stopping, and continuing with the next model passed.
 - Native image checks with a mock provider: generation/editing, model comparison,
@@ -81,7 +83,7 @@ A checkbox requires observed behavior, not just a screen or passing type check.
 - [ ] Sign-in, secure session restoration, sign-out, signup/reset, account deletion
 - [ ] Chat: streaming, model selection/favorites, search, reasoning, attachments, web search, stop/retry/edit/fork, settings
 - [ ] History: synchronization, search, pin, archive, delete, public and organization sharing
-- [ ] Model comparison and group conversations
+- [x] Model comparison and group conversations
 - [ ] Projects: instructions, files, retrieval, memory, associated chats
 - [ ] Skills: create, edit, generate, enable, delete, apply in chat
 - [ ] Connectors: connect, authorize, use, disconnect
