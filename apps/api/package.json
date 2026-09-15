@@ -28,6 +28,7 @@
 		"@llmgateway/actions": "workspace:*",
 		"@llmgateway/ai-sdk-provider": "4.0.0",
 		"@llmgateway/audit": "workspace:*",
+		"@llmgateway/benchmarks": "workspace:*",
 		"@llmgateway/cache": "workspace:*",
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/guardrails": "workspace:*",

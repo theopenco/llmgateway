@@ -33,12 +33,85 @@ function firstEnvironmentCredential(value: string): string {
 	return trimmed.startsWith("{") ? value : (value.split(",")[0]?.trim() ?? "");
 }
 
+async function managedCredential(
+	job: VerificationRow,
+	baseUrlOverride?: string,
+): Promise<ResolvedCredential> {
+	const keys = await db.query.providerKey.findMany({
+		where: {
+			provider: { eq: job.target.providerId },
+			managed: { eq: true },
+			status: { eq: "active" },
+		},
+		orderBy: { sortOrder: "asc", createdAt: "asc" },
+	});
+	const key = keys.find(
+		(candidate) =>
+			!candidate.allowedModels?.length ||
+			candidate.allowedModels.includes(job.target.externalId),
+	);
+	if (!key) {
+		throw new Error("No active managed credential can verify this mapping.");
+	}
+	return {
+		providerKey: readProviderKey(key),
+		baseUrl: baseUrlOverride ?? key.baseUrl ?? undefined,
+		providerKeyOptions: managedCredentialOptions(key),
+		skipEnvVars: true,
+	};
+}
+
+function environmentCredential(job: VerificationRow): string {
+	const envName = getProviderEnvVar(job.target.providerId);
+	const token = envName
+		? firstEnvironmentCredential(process.env[envName] ?? "")
+		: "";
+	if (!token) {
+		throw new Error(
+			"No environment credential is configured for this provider.",
+		);
+	}
+	return token;
+}
+
+/**
+ * Runs that belong to no carrier target catalogue mappings we already serve,
+ * so they resolve the platform's own credentials without a provider claim.
+ */
+async function resolvePlatformCredential(
+	job: VerificationRow,
+): Promise<ResolvedCredential> {
+	if (job.credentialSource === "supplied") {
+		if (!job.credentialCiphertext) {
+			throw new Error("The supplied verification credential is unavailable.");
+		}
+		return {
+			providerKey: decryptModelVerificationCredential(
+				job.credentialCiphertext,
+				job.id,
+				job.providerCompanyId,
+			),
+		};
+	}
+	if (job.credentialSource === "managed") {
+		return await managedCredential(job);
+	}
+	return { providerKey: environmentCredential(job) };
+}
+
 async function resolveCredential(
 	job: VerificationRow,
 ): Promise<ResolvedCredential> {
+	// A run with no carrier (an admin run against a catalogue mapping) has no
+	// claim to resolve; admin runs against a carrier's listing keep the
+	// claim-scoped path so a custom carrier's base URL still applies.
+	if (!job.providerCompanyId) {
+		return await resolvePlatformCredential(job);
+	}
+	const companyId = job.providerCompanyId;
 	const claim = await db.query.providerClaim.findFirst({
 		where: {
-			providerCompanyId: { eq: job.providerCompanyId },
+			providerCompanyId: { eq: companyId },
 			providerId: { eq: job.target.providerId },
 			status: { eq: "active" },
 		},
@@ -61,39 +134,12 @@ async function resolveCredential(
 		};
 	}
 	if (job.credentialSource === "managed") {
-		const keys = await db.query.providerKey.findMany({
-			where: {
-				provider: { eq: job.target.providerId },
-				managed: { eq: true },
-				status: { eq: "active" },
-			},
-			orderBy: { sortOrder: "asc", createdAt: "asc" },
-		});
-		const key = keys.find(
-			(candidate) =>
-				!candidate.allowedModels?.length ||
-				candidate.allowedModels.includes(job.target.externalId),
-		);
-		if (!key) {
-			throw new Error("No active managed credential can verify this mapping.");
-		}
-		return {
-			providerKey: readProviderKey(key),
-			baseUrl: claim.customBaseUrl ?? key.baseUrl ?? undefined,
-			providerKeyOptions: managedCredentialOptions(key),
-			skipEnvVars: true,
-		};
+		return await managedCredential(job, claim.customBaseUrl ?? undefined);
 	}
-	const envName = getProviderEnvVar(job.target.providerId);
-	const token = envName
-		? firstEnvironmentCredential(process.env[envName] ?? "")
-		: "";
-	if (!token) {
-		throw new Error(
-			"No environment credential is configured for this provider.",
-		);
-	}
-	return { providerKey: token, baseUrl: claim.customBaseUrl ?? undefined };
+	return {
+		providerKey: environmentCredential(job),
+		baseUrl: claim.customBaseUrl ?? undefined,
+	};
 }
 
 export async function claimNextModelVerification(): Promise<VerificationRow | null> {

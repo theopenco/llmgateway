@@ -73,6 +73,53 @@ describe("admin content filter violations", () => {
 				blockedCount: 0,
 			},
 		]);
+		await db.insert(tables.contentFilterHourlyModelStats).values([
+			{
+				hourTimestamp: hoursAgo(1),
+				organizationId: "cf-org-a",
+				projectId: "proj-a",
+				usedModel: "openai/gpt-5.6-sol",
+				usedProvider: "openai",
+				category: "all",
+				sampledCount: 6,
+				violationCount: 3,
+				blockedCount: 1,
+			},
+			{
+				hourTimestamp: hoursAgo(1),
+				organizationId: "cf-org-a",
+				projectId: "proj-a",
+				usedModel: "anthropic/claude-sonnet-5",
+				usedProvider: "anthropic",
+				category: "all",
+				sampledCount: 4,
+				violationCount: 1,
+				blockedCount: 0,
+			},
+			{
+				hourTimestamp: hoursAgo(2),
+				organizationId: "cf-org-b",
+				projectId: "proj-b",
+				usedModel: "openai/gpt-5.6-sol",
+				usedProvider: "openai",
+				category: "all",
+				sampledCount: 20,
+				violationCount: 1,
+				blockedCount: 0,
+			},
+			// Outside the 24h window.
+			{
+				hourTimestamp: hoursAgo(30),
+				organizationId: "cf-org-b",
+				projectId: "proj-b",
+				usedModel: "openai/gpt-5.6-sol",
+				usedProvider: "openai",
+				category: "all",
+				sampledCount: 100,
+				violationCount: 50,
+				blockedCount: 0,
+			},
+		]);
 	});
 
 	afterEach(async () => {
@@ -100,6 +147,7 @@ describe("admin content filter violations", () => {
 				{
 					organizationId: "cf-org-a",
 					organizationName: "Org A",
+					billingEmail: "a@test.example",
 					plan: "free",
 					sampledCount: 10,
 					violationCount: 4,
@@ -109,19 +157,177 @@ describe("admin content filter violations", () => {
 						{ category: "violence", violationCount: 3 },
 						{ category: "hate", violationCount: 1 },
 					],
+					topModels: [
+						{
+							usedModel: "openai/gpt-5.6-sol",
+							usedProvider: "openai",
+							sampledCount: 6,
+							violationCount: 3,
+							blockedCount: 1,
+							violationRate: 0.5,
+						},
+						{
+							usedModel: "anthropic/claude-sonnet-5",
+							usedProvider: "anthropic",
+							sampledCount: 4,
+							violationCount: 1,
+							blockedCount: 0,
+							violationRate: 0.25,
+						},
+					],
+					topProviders: [
+						{
+							usedProvider: "openai",
+							sampledCount: 6,
+							violationCount: 3,
+							blockedCount: 1,
+							violationRate: 0.5,
+						},
+						{
+							usedProvider: "anthropic",
+							sampledCount: 4,
+							violationCount: 1,
+							blockedCount: 0,
+							violationRate: 0.25,
+						},
+					],
 				},
 				{
 					organizationId: "cf-org-b",
 					organizationName: "Org B",
+					billingEmail: "b@test.example",
 					plan: "free",
 					sampledCount: 20,
 					violationCount: 1,
 					blockedCount: 0,
 					violationRate: 0.05,
 					topCategories: [],
+					topModels: [
+						{
+							usedModel: "openai/gpt-5.6-sol",
+							usedProvider: "openai",
+							sampledCount: 20,
+							violationCount: 1,
+							blockedCount: 0,
+							violationRate: 0.05,
+						},
+					],
+					topProviders: [
+						{
+							usedProvider: "openai",
+							sampledCount: 20,
+							violationCount: 1,
+							blockedCount: 0,
+							violationRate: 0.05,
+						},
+					],
+				},
+			],
+			models: [
+				{
+					usedModel: "openai/gpt-5.6-sol",
+					usedProvider: "openai",
+					sampledCount: 26,
+					violationCount: 4,
+					blockedCount: 1,
+					violationRate: 4 / 26,
+				},
+				{
+					usedModel: "anthropic/claude-sonnet-5",
+					usedProvider: "anthropic",
+					sampledCount: 4,
+					violationCount: 1,
+					blockedCount: 0,
+					violationRate: 0.25,
+				},
+			],
+			providers: [
+				{
+					usedProvider: "openai",
+					sampledCount: 26,
+					violationCount: 4,
+					blockedCount: 1,
+					violationRate: 4 / 26,
+				},
+				{
+					usedProvider: "anthropic",
+					sampledCount: 4,
+					violationCount: 1,
+					blockedCount: 0,
+					violationRate: 0.25,
 				},
 			],
 		});
+	});
+
+	test("ranks models by rate above the same sample floor", async () => {
+		const res = await app.request(
+			"/admin/content-filter/violations?window=24h&sort=rate&minSampled=10",
+			{ headers: { Cookie: cookie } },
+		);
+		const body = await res.json();
+		// The 4-sample Anthropic row is below the floor; only the pooled OpenAI
+		// row survives, at the cross-tenant rate rather than either org's.
+		expect(body.models).toEqual([
+			{
+				usedModel: "openai/gpt-5.6-sol",
+				usedProvider: "openai",
+				sampledCount: 26,
+				violationCount: 4,
+				blockedCount: 1,
+				violationRate: 4 / 26,
+			},
+		]);
+		expect(body.providers).toEqual([
+			{
+				usedProvider: "openai",
+				sampledCount: 26,
+				violationCount: 4,
+				blockedCount: 1,
+				violationRate: 4 / 26,
+			},
+		]);
+	});
+
+	test("rolls an organization's models up to their providers", async () => {
+		// A second OpenAI model for org A: its provider row is the sum of both,
+		// and is not capped by the per-model list.
+		await db.insert(tables.contentFilterHourlyModelStats).values({
+			hourTimestamp: hoursAgo(1),
+			organizationId: "cf-org-a",
+			projectId: "proj-a",
+			usedModel: "openai/gpt-5.6-terra",
+			usedProvider: "openai",
+			category: "all",
+			sampledCount: 10,
+			violationCount: 2,
+			blockedCount: 1,
+		});
+
+		const res = await app.request(
+			"/admin/content-filter/violations?window=24h",
+			{ headers: { Cookie: cookie } },
+		);
+		const body = await res.json();
+		const orgA = body.organizations.find(
+			(org: { organizationId: string }) => org.organizationId === "cf-org-a",
+		);
+		expect(orgA.topProviders).toEqual([
+			{
+				usedProvider: "openai",
+				sampledCount: 16,
+				violationCount: 5,
+				blockedCount: 2,
+				violationRate: 5 / 16,
+			},
+			{
+				usedProvider: "anthropic",
+				sampledCount: 4,
+				violationCount: 1,
+				blockedCount: 0,
+				violationRate: 0.25,
+			},
+		]);
 	});
 
 	test("ranks by violation rate above a sample floor", async () => {

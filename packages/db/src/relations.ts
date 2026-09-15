@@ -768,6 +768,10 @@ export const relations = defineRelations(schema, (r) => ({
 			from: r.providerModelVerification.draftModelId,
 			to: r.providerDraftModel.id,
 		}),
+		modelProviderMapping: r.one.modelProviderMapping({
+			from: r.providerModelVerification.modelProviderMappingId,
+			to: r.modelProviderMapping.id,
+		}),
 	},
 	providerCompanyInvite: {
 		providerCompany: r.one.providerCompany({

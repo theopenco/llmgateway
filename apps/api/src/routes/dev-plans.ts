@@ -13,7 +13,7 @@ import {
 import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
-	isSelfRefundCandidateType,
+	hasRefundAction,
 	refundFeedbackBodySchema,
 } from "@/lib/self-refund.js";
 import { getStripeCardErrorMessage } from "@/lib/stripe-card-error.js";
@@ -2642,7 +2642,7 @@ devPlans.openapi(getInvoices, async (c) => {
 			currency: t.currency,
 			status: t.status,
 			description: t.description,
-			refund: isSelfRefundCandidateType(t.type)
+			refund: hasRefundAction(t)
 				? computeSelfRefundEligibility({
 						organization: personalOrg,
 						role: membership?.role,

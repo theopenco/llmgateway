@@ -70,9 +70,11 @@ interface Transaction {
 		| "subscription_end"
 		| "dev_plan_start"
 		| "dev_plan_renewal"
+		| "dev_plan_upgrade"
 		| "dev_plan_reset_pass"
 		| "chat_plan_start"
-		| "chat_plan_renewal";
+		| "chat_plan_renewal"
+		| "chat_plan_upgrade";
 	creditAmount: string | null;
 	amount: string | null;
 	status: "pending" | "completed" | "failed";
@@ -101,8 +103,10 @@ function isPlanPayment(type: Transaction["type"]): boolean {
 	return (
 		type === "dev_plan_start" ||
 		type === "dev_plan_renewal" ||
+		type === "dev_plan_upgrade" ||
 		type === "chat_plan_start" ||
-		type === "chat_plan_renewal"
+		type === "chat_plan_renewal" ||
+		type === "chat_plan_upgrade"
 	);
 }
 

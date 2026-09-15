@@ -3964,6 +3964,53 @@ export const contentFilterHourlyStats = pgTable(
 	],
 );
 
+// Hourly rollup of log.gatewayContentFilterEvaluation broken out by the model
+// that served the request, so abuse can be attributed to a model or provider
+// without scanning `log`. Mirrors contentFilterHourlyStats: the "all" category
+// row carries the sampled/violation/blocked totals, category rows carry
+// violationCount only. A request retried across providers is counted once per
+// distinct (usedModel, usedProvider) it touched, so these rows can sum to more
+// than the contentFilterHourlyStats totals.
+export const contentFilterHourlyModelStats = pgTable(
+	"content_filter_hourly_model_stats",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		hourTimestamp: timestamp().notNull(),
+		organizationId: text().notNull(),
+		projectId: text().notNull(),
+		usedModel: text().notNull(),
+		usedProvider: text().notNull(),
+		category: text().notNull(),
+		sampledCount: integer().notNull().default(0),
+		violationCount: integer().notNull().default(0),
+		blockedCount: integer().notNull().default(0),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.organizationId,
+			table.projectId,
+			table.usedModel,
+			table.usedProvider,
+			table.category,
+		),
+		index("content_filter_hourly_model_stats_org_ts_idx").on(
+			table.organizationId,
+			table.hourTimestamp,
+		),
+		index("content_filter_hourly_model_stats_model_ts_idx").on(
+			table.usedModel,
+			table.hourTimestamp,
+		),
+		index("content_filter_hourly_model_stats_ts_idx").on(table.hourTimestamp),
+	],
+);
+
 // Audit Log - Enterprise feature for tracking all API actions
 export const auditLogActions = [
 	// Organization
@@ -4920,6 +4967,8 @@ export interface ProviderModelVerificationTarget {
 	modelName: string;
 	externalId: string;
 	apiFormat?: ProviderApiFormat;
+	/** Regional deployment of the mapping; undefined targets the default region. */
+	region?: string | null;
 	streaming: boolean;
 	vision: boolean;
 	audio: boolean;
@@ -4932,9 +4981,10 @@ export interface ProviderModelVerificationTarget {
 	webSearch: boolean;
 }
 
-// One queued verification of an Airside mapping. The target is frozen when
-// queued so an edit cannot change what a completed run proved. A supplied
-// credential is encrypted for this row only and erased on terminal status.
+// One queued verification of an Airside mapping or a catalogue mapping. The
+// target is frozen when queued so an edit cannot change what a completed run
+// proved. A supplied credential is encrypted for this row only and erased on
+// terminal status.
 export const providerModelVerification = pgTable(
 	"provider_model_verification",
 	{
@@ -4944,12 +4994,24 @@ export const providerModelVerification = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		providerCompanyId: text()
+		// Null for admin-initiated runs against a catalogue mapping, which
+		// belong to no carrier.
+		providerCompanyId: text().references(() => providerCompany.id, {
+			onDelete: "cascade",
+		}),
+		// "carrier" runs are queued from Airside and always carry a company;
+		// "admin" runs are queued from the admin dashboard and resolve their
+		// credential without an active provider claim.
+		initiatedBy: text({ enum: ["carrier", "admin"] })
 			.notNull()
-			.references(() => providerCompany.id, { onDelete: "cascade" }),
+			.default("carrier"),
 		// Null for an unsubmitted new mapping; populated for an existing mapping
 		// and when a successful new-mapping verification is consumed.
 		draftModelId: text().references(() => providerDraftModel.id, {
+			onDelete: "cascade",
+		}),
+		// Set when the run targets a live catalogue mapping instead of a draft.
+		modelProviderMappingId: text().references(() => modelProviderMapping.id, {
 			onDelete: "cascade",
 		}),
 		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
@@ -4978,6 +5040,10 @@ export const providerModelVerification = pgTable(
 			table.draftModelId,
 			table.createdAt,
 		),
+		index("provider_model_verification_mapping_idx").on(
+			table.modelProviderMappingId,
+			table.createdAt,
+		),
 		index("provider_model_verification_queue_idx").on(
 			table.status,
 			table.createdAt,
@@ -4986,6 +5052,11 @@ export const providerModelVerification = pgTable(
 			.on(table.draftModelId)
 			.where(
 				sql`draft_model_id IS NOT NULL AND status IN ('queued', 'running')`,
+			),
+		uniqueIndex("provider_model_verification_active_mapping_uidx")
+			.on(table.modelProviderMappingId)
+			.where(
+				sql`model_provider_mapping_id IS NOT NULL AND status IN ('queued', 'running')`,
 			),
 	],
 );
@@ -6383,5 +6454,53 @@ export const loungeConnectorAuthorization = pgTable(
 	(table) => [
 		index("lounge_connector_authorization_user_idx").on(table.userId),
 		index("lounge_connector_authorization_expiry_idx").on(table.expiresAt),
+	],
+);
+
+export interface BenchmarkRunTargetSummary {
+	targetId: string;
+	displayName: string;
+	mapping: string;
+	source: "airside" | "catalogue";
+}
+
+export const benchmarkRun = pgTable(
+	"benchmark_run",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
+		modelId: text().notNull(),
+		// Mapping selectors exactly as submitted, e.g. ["openai", "vertex:us"].
+		// Empty means every active mapping of the model.
+		mappings: json().$type<string[]>().notNull().default([]),
+		profile: text({ enum: ["smoke", "standard", "coding", "load"] })
+			.notNull()
+			.default("smoke"),
+		budgetMs: integer().notNull().default(120000),
+		timeoutMs: integer().notNull().default(60000),
+		runs: integer(),
+		seed: integer().notNull().default(1),
+		status: text({
+			enum: ["queued", "running", "completed", "failed", "canceled"],
+		})
+			.notNull()
+			.default("queued"),
+		attempts: integer().notNull().default(0),
+		startedAt: timestamp(),
+		completedAt: timestamp(),
+		targets: json().$type<BenchmarkRunTargetSummary[]>(),
+		// The rendered BenchmarkResult with per-trial response bodies stripped;
+		// full transcripts would be megabytes per run.
+		result: jsonb().$type<Record<string, unknown>>(),
+		error: text(),
+	},
+	(table) => [
+		index("benchmark_run_queue_idx").on(table.status, table.createdAt),
+		index("benchmark_run_model_idx").on(table.modelId, table.createdAt),
 	],
 );

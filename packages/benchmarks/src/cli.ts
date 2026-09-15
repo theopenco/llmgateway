@@ -21,8 +21,8 @@ const HELP = `Usage:
 Options:
   --model <id>                 Model to benchmark; repeatable
   --mapping <provider[:region]> Mapping selector; repeatable, comma-separated
-  --profile <smoke|standard|load> Benchmark profile (default: smoke)
-  --suite <core|capability|quality|performance|load> Legacy suite selector
+  --profile <smoke|standard|coding|load> Benchmark profile (default: smoke)
+  --suite <core|capability|coding|quality|performance|load> Legacy suite selector
   --external <ifeval>          External benchmark adapter
   --external-data <path|url>   External dataset JSONL file or URL
   --external-limit <count>     Maximum external cases after filtering

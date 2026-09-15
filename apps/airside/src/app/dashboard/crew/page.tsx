@@ -7,6 +7,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { useCompany } from "@/components/dashboard/company-context";
+import { RelativeDate } from "@/components/RelativeDate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -229,11 +230,8 @@ export default function CrewPage() {
 											{member.role}
 										</Badge>
 									</TableCell>
-									<TableCell className="text-muted-foreground font-mono text-xs">
-										{new Date(member.createdAt).toLocaleDateString("en-US", {
-											month: "short",
-											day: "numeric",
-										})}
+									<TableCell className="text-muted-foreground text-xs">
+										<RelativeDate date={member.createdAt} />
 									</TableCell>
 									{isOwner ? (
 										<TableCell className="text-right">
@@ -270,11 +268,8 @@ export default function CrewPage() {
 									<TableCell>
 										<Badge variant="pending">invited</Badge>
 									</TableCell>
-									<TableCell className="text-muted-foreground font-mono text-xs">
-										{new Date(pendingInvite.createdAt).toLocaleDateString(
-											"en-US",
-											{ month: "short", day: "numeric" },
-										)}
+									<TableCell className="text-muted-foreground text-xs">
+										<RelativeDate date={pendingInvite.createdAt} />
 									</TableCell>
 									{isOwner ? (
 										<TableCell className="text-right">

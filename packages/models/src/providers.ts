@@ -2184,6 +2184,31 @@ export const providers: ProviderDefinition[] = [
 		},
 		priority: 1.2,
 	},
+	{
+		id: "atria",
+		name: "Atria",
+		forwardsSafetyIdentifier: false,
+		description:
+			"Atria ASI serves the Atria Dawn agentic research model through an OpenAI-compatible inference API.",
+		env: {
+			required: {
+				apiKey: "LLM_ATRIA_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#0f172a",
+		// Atria publishes no terms, privacy or usage policy, so the provider
+		// carries no website rather than linking one without its legal metadata.
+		website: null,
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		legalEntity: null,
+		headquarters: "CN",
+		dataPolicy: null,
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];

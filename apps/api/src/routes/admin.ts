@@ -4892,6 +4892,7 @@ const getAvailableProvidersAndModels = createRoute({
 								z.object({
 									id: z.string(),
 									name: z.string(),
+									source: z.enum(["catalogue", "airside"]),
 								}),
 							),
 							mappings: z.array(
@@ -4901,6 +4902,7 @@ const getAvailableProvidersAndModels = createRoute({
 									modelId: z.string(),
 									modelName: z.string(),
 									family: z.string(),
+									source: z.enum(["catalogue", "airside"]),
 								}),
 							),
 						})
@@ -4956,18 +4958,201 @@ function formatRoutingScoreMultiplier(multiplier: {
 	};
 }
 
-// Helper to validate provider/model
-function validateProviderAndModel(
+type CatalogueSource = "catalogue" | "airside";
+
+interface ProviderModelOption {
+	providerId: string;
+	providerName: string;
+	modelId: string;
+	modelName: string;
+	family: string;
+	source: CatalogueSource;
+}
+
+/** Active Airside-owned mappings, which exist only in the DB. */
+async function listAirsideMappings() {
+	return await db
+		.select({
+			providerId: tables.modelProviderMapping.providerId,
+			providerName: tables.provider.name,
+			modelId: tables.model.id,
+			modelName: tables.model.name,
+			family: tables.model.family,
+		})
+		.from(tables.modelProviderMapping)
+		.innerJoin(
+			tables.model,
+			eq(tables.model.id, tables.modelProviderMapping.modelId),
+		)
+		.leftJoin(
+			tables.provider,
+			eq(tables.provider.id, tables.modelProviderMapping.providerId),
+		)
+		.where(
+			and(
+				eq(tables.modelProviderMapping.source, "airside"),
+				eq(tables.modelProviderMapping.status, "active"),
+				isNull(tables.modelProviderMapping.region),
+			),
+		);
+}
+
+/** Approved custom carriers: providers that exist only as an Airside claim. */
+async function listAirsideCustomProviders() {
+	return await db
+		.select({
+			id: tables.providerClaim.providerId,
+			name: tables.providerClaim.customName,
+		})
+		.from(tables.providerClaim)
+		.where(
+			and(
+				eq(tables.providerClaim.kind, "custom"),
+				eq(tables.providerClaim.status, "active"),
+			),
+		);
+}
+
+/**
+ * Providers and provider/model pairs an admin can target with a discount or a
+ * rate limit: the static catalogue plus Airside listings. Custom carriers are
+ * listed even without an approved model so a provider-wide cap is still
+ * settable, and an Airside listing that supersedes a catalogue mapping is
+ * reported once, under its Airside source.
+ */
+async function getProviderModelOptions(): Promise<{
+	providers: { id: string; name: string; source: CatalogueSource }[];
+	mappings: ProviderModelOption[];
+}> {
+	// modelId is the canonical model id — the provider-specific upstream
+	// externalId is never exposed here or stored as a discount/rate-limit
+	// target. modelName is the canonical model's human-readable display name.
+	const mappings = new Map<string, ProviderModelOption>();
+
+	for (const model of models) {
+		for (const mapping of model.providers) {
+			const provider = providers.find((p) => p.id === mapping.providerId);
+			if (provider) {
+				mappings.set(`${mapping.providerId}:${model.id}`, {
+					providerId: mapping.providerId,
+					providerName: provider.name,
+					modelId: model.id,
+					modelName: (model as { name?: string }).name ?? model.id,
+					family: model.family,
+					source: "catalogue",
+				});
+			}
+		}
+	}
+
+	const [airsideMappings, customProviders] = await Promise.all([
+		listAirsideMappings(),
+		listAirsideCustomProviders(),
+	]);
+
+	const providerOptions = new Map<
+		string,
+		{ id: string; name: string; source: CatalogueSource }
+	>(
+		providers.map((p) => [
+			p.id,
+			{ id: p.id, name: p.name, source: "catalogue" as const },
+		]),
+	);
+
+	for (const carrier of customProviders) {
+		if (!providerOptions.has(carrier.id)) {
+			providerOptions.set(carrier.id, {
+				id: carrier.id,
+				name: carrier.name ?? carrier.id,
+				source: "airside",
+			});
+		}
+	}
+
+	for (const row of airsideMappings) {
+		const providerOption = providerOptions.get(row.providerId);
+		if (!providerOption) {
+			providerOptions.set(row.providerId, {
+				id: row.providerId,
+				name: row.providerName ?? row.providerId,
+				source: "airside",
+			});
+		}
+		mappings.set(`${row.providerId}:${row.modelId}`, {
+			providerId: row.providerId,
+			providerName: providerOption?.name ?? row.providerName ?? row.providerId,
+			modelId: row.modelId,
+			modelName: row.modelName,
+			family: row.family,
+			source: "airside",
+		});
+	}
+
+	return {
+		providers: Array.from(providerOptions.values()),
+		mappings: Array.from(mappings.values()),
+	};
+}
+
+/** Whether a non-catalogue provider id belongs to an Airside carrier. */
+async function isAirsideProviderId(providerId: string): Promise<boolean> {
+	const [claim] = await db
+		.select({ id: tables.providerClaim.id })
+		.from(tables.providerClaim)
+		.where(
+			and(
+				eq(tables.providerClaim.providerId, providerId),
+				eq(tables.providerClaim.kind, "custom"),
+				eq(tables.providerClaim.status, "active"),
+			),
+		)
+		.limit(1);
+	if (claim) {
+		return true;
+	}
+	return await hasAirsideMapping(providerId, null);
+}
+
+/** Whether an active Airside listing exists for the model (on the provider). */
+async function hasAirsideMapping(
+	providerId: string | null,
+	modelId: string | null,
+): Promise<boolean> {
+	const [row] = await db
+		.select({ id: tables.modelProviderMapping.id })
+		.from(tables.modelProviderMapping)
+		.where(
+			and(
+				eq(tables.modelProviderMapping.source, "airside"),
+				eq(tables.modelProviderMapping.status, "active"),
+				...(providerId
+					? [eq(tables.modelProviderMapping.providerId, providerId)]
+					: []),
+				...(modelId ? [eq(tables.modelProviderMapping.modelId, modelId)] : []),
+			),
+		)
+		.limit(1);
+	return Boolean(row);
+}
+
+// Helper to validate provider/model. Targets may come from the static
+// catalogue or from an Airside listing, which lives only in the DB.
+async function validateProviderAndModel(
 	provider: string | null | undefined,
 	model: string | null | undefined,
-): { error?: string } {
+): Promise<{ error?: string }> {
 	// Must have at least one of provider or model
 	if (!provider && !model) {
 		return { error: "At least one of provider or model must be specified" };
 	}
 
 	// Validate provider if specified
-	if (provider && !validProviderIds.has(provider)) {
+	if (
+		provider &&
+		!validProviderIds.has(provider) &&
+		!(await isAirsideProviderId(provider))
+	) {
 		return { error: `Invalid provider: ${provider}` };
 	}
 
@@ -4976,14 +5161,20 @@ function validateProviderAndModel(
 		// If provider is specified, check that the model is valid for that provider
 		if (provider) {
 			const providerModels = providerModelMappings.get(provider);
-			if (!providerModels || !providerModels.has(model)) {
+			if (
+				(!providerModels || !providerModels.has(model)) &&
+				!(await hasAirsideMapping(provider, model))
+			) {
 				return {
 					error: `Invalid model "${model}" for provider "${provider}"`,
 				};
 			}
 		} else {
 			// No provider specified, just check model is valid globally
-			if (!validModelIds.has(model)) {
+			if (
+				!validModelIds.has(model) &&
+				!(await hasAirsideMapping(null, model))
+			) {
 				return { error: `Invalid model: ${model}` };
 			}
 		}
@@ -5013,7 +5204,7 @@ admin.openapi(createGlobalDiscount, async (c) => {
 	const model = body.model ?? null;
 
 	// Validate provider/model
-	const validation = validateProviderAndModel(provider, model);
+	const validation = await validateProviderAndModel(provider, model);
 	if (validation.error) {
 		throw new HTTPException(400, { message: validation.error });
 	}
@@ -5095,7 +5286,7 @@ admin.openapi(createRoutingScoreMultiplier, async (c) => {
 	const body = c.req.valid("json");
 	const provider = body.provider ?? null;
 	const model = body.model ?? null;
-	const validation = validateProviderAndModel(provider, model);
+	const validation = await validateProviderAndModel(provider, model);
 	if (validation.error) {
 		throw new HTTPException(400, { message: validation.error });
 	}
@@ -5224,7 +5415,7 @@ admin.openapi(createOrganizationDiscount, async (c) => {
 	}
 
 	// Validate provider/model
-	const validation = validateProviderAndModel(provider, model);
+	const validation = await validateProviderAndModel(provider, model);
 	if (validation.error) {
 		throw new HTTPException(400, { message: validation.error });
 	}
@@ -5293,36 +5484,7 @@ admin.openapi(deleteOrganizationDiscount, async (c) => {
 // --- Available Options Handler ---
 
 admin.openapi(getAvailableProvidersAndModels, async (c) => {
-	// modelId is the canonical model id — the provider-specific upstream
-	// externalId is never exposed here or stored as a discount target. modelName
-	// in this response is the canonical model's human-readable display name.
-	const mappings: Array<{
-		providerId: string;
-		providerName: string;
-		modelId: string;
-		modelName: string;
-		family: string;
-	}> = [];
-
-	for (const model of models) {
-		for (const mapping of model.providers) {
-			const provider = providers.find((p) => p.id === mapping.providerId);
-			if (provider) {
-				mappings.push({
-					providerId: mapping.providerId,
-					providerName: provider.name,
-					modelId: model.id,
-					modelName: (model as { name?: string }).name ?? model.id,
-					family: model.family,
-				});
-			}
-		}
-	}
-
-	return c.json({
-		providers: providers.map((p) => ({ id: p.id, name: p.name })),
-		mappings,
-	});
+	return c.json(await getProviderModelOptions());
 });
 
 // ==================== Rate Limit Management ====================
@@ -5573,7 +5735,7 @@ admin.openapi(createGlobalRateLimit, async (c) => {
 	const model = body.model ?? null;
 
 	// Validate provider/model
-	const validation = validateProviderAndModel(provider, model);
+	const validation = await validateProviderAndModel(provider, model);
 	if (validation.error) {
 		throw new HTTPException(400, { message: validation.error });
 	}
@@ -6339,7 +6501,7 @@ admin.openapi(createOrganizationRateLimit, async (c) => {
 	}
 
 	// Validate provider/model
-	const validation = validateProviderAndModel(provider, model);
+	const validation = await validateProviderAndModel(provider, model);
 	if (validation.error) {
 		throw new HTTPException(400, { message: validation.error });
 	}
@@ -6403,6 +6565,7 @@ const getAvailableRateLimitOptions = createRoute({
 								z.object({
 									id: z.string(),
 									name: z.string(),
+									source: z.enum(["catalogue", "airside"]),
 								}),
 							),
 							mappings: z.array(
@@ -6412,6 +6575,7 @@ const getAvailableRateLimitOptions = createRoute({
 									modelId: z.string(),
 									modelName: z.string(),
 									family: z.string(),
+									source: z.enum(["catalogue", "airside"]),
 								}),
 							),
 						})
@@ -6425,37 +6589,7 @@ const getAvailableRateLimitOptions = createRoute({
 });
 
 admin.openapi(getAvailableRateLimitOptions, async (c) => {
-	// modelId is the canonical model id — the provider-specific upstream
-	// externalId is never exposed here or stored as a rate-limit target.
-	// modelName in this response is the canonical model's human-readable display
-	// name.
-	const mappings: Array<{
-		providerId: string;
-		providerName: string;
-		modelId: string;
-		modelName: string;
-		family: string;
-	}> = [];
-
-	for (const model of models) {
-		for (const mapping of model.providers) {
-			const provider = providers.find((p) => p.id === mapping.providerId);
-			if (provider) {
-				mappings.push({
-					providerId: mapping.providerId,
-					providerName: provider.name,
-					modelId: model.id,
-					modelName: (model as { name?: string }).name ?? model.id,
-					family: model.family,
-				});
-			}
-		}
-	}
-
-	return c.json({
-		providers: providers.map((p) => ({ id: p.id, name: p.name })),
-		mappings,
-	});
+	return c.json(await getProviderModelOptions());
 });
 
 // ==================== Provider & Model Stats ====================

@@ -6,7 +6,7 @@ import { isUserHighRisk } from "@/lib/account-risk.js";
 import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
-	isSelfRefundCandidateType,
+	hasRefundAction,
 	refundFeedbackBodySchema,
 } from "@/lib/self-refund.js";
 import {
@@ -1286,7 +1286,7 @@ organization.openapi(getTransactions, async (c) => {
 	const org = userOrganization.organization;
 	return c.json({
 		transactions: transactions.map((t) =>
-			isSelfRefundCandidateType(t.type)
+			hasRefundAction(t)
 				? {
 						...t,
 						refund: computeSelfRefundEligibility({
