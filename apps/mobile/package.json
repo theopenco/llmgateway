@@ -1,0 +1,59 @@
+{
+	"name": "mobile",
+	"version": "1.0.0",
+	"private": true,
+	"scripts": {
+		"ios": "react-native run-ios",
+		"start": "react-native start",
+		"build": "pnpm generate && tsc --noEmit",
+		"generate": "openapi-typescript ../api/openapi.json -o src/lib/api/v1.d.ts && openapi-typescript ../gateway/openapi.json -o src/lib/api/gateway.d.ts",
+		"format": "eslint --fix . && prettier --write .",
+		"lint": "eslint . && prettier --check .",
+		"test": "jest --runInBand",
+		"pods": "pod install --project-directory=ios"
+	},
+	"dependencies": {
+		"@llmgateway/shared": "workspace:*",
+		"@react-native-documents/picker": "12.0.2",
+		"@react-navigation/native": "7.4.1",
+		"@react-navigation/native-stack": "7.19.1",
+		"@tanstack/react-query": "5.90.5",
+		"better-auth": "1.6.26",
+		"openapi-fetch": "0.15.0",
+		"openapi-react-query": "0.5.1",
+		"react": "19.2.3",
+		"react-native": "0.87.1",
+		"react-native-file-access": "4.0.3",
+		"react-native-keychain": "10.0.0",
+		"react-native-safe-area-context": "5.9.1",
+		"react-native-screens": "4.28.0"
+	},
+	"devDependencies": {
+		"@babel/core": "^7.25.2",
+		"@babel/preset-env": "^7.25.3",
+		"@babel/runtime": "^7.25.0",
+		"@react-native-community/cli": "20.2.0",
+		"@react-native-community/cli-platform-android": "20.2.0",
+		"@react-native-community/cli-platform-ios": "20.2.0",
+		"@react-native/babel-preset": "0.87.1",
+		"@react-native/jest-preset": "0.87.1",
+		"@react-native/metro-config": "0.87.1",
+		"@react-native/typescript-config": "0.87.1",
+		"@testing-library/react-native": "14.0.1",
+		"@types/jest": "^29.5.13",
+		"@types/react": "19.2.14",
+		"@types/react-test-renderer": "^19.1.0",
+		"api": "workspace:*",
+		"babel-plugin-transform-inline-environment-variables": "0.4.4",
+		"jest": "^29.6.3",
+		"openapi-typescript": "7.10.1",
+		"prettier": "^3.9.6",
+		"react-test-renderer": "19.2.3",
+		"typescript": "5.9.2"
+	},
+	"engines": {
+		"node": ">= 22.11.0"
+	},
+	"license": "SEE LICENSE IN ../../LICENSE",
+	"prettier": "@steebchen/prettier-config"
+}

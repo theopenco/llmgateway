@@ -85,6 +85,11 @@
 			"import": "./dist/lounge-source.js",
 			"default": "./dist/lounge-source.js"
 		},
+		"./playground-key-cookie": {
+			"types": "./dist/playground-key-cookie.d.ts",
+			"import": "./dist/playground-key-cookie.js",
+			"default": "./dist/playground-key-cookie.js"
+		},
 		"./gateway-url": {
 			"types": "./dist/gateway-url.d.ts",
 			"import": "./dist/gateway-url.js"

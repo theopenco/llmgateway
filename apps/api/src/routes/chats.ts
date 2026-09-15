@@ -249,6 +249,7 @@ const listChats = createRoute({
 		query: z.object({
 			organizationId: z.string().trim().min(1).optional(),
 			projectId: z.string().trim().min(1).optional(),
+			status: z.enum(["active", "archived"]).optional().default("active"),
 		}),
 	},
 	responses: {
@@ -271,7 +272,7 @@ chats.openapi(listChats, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
-	const { organizationId, projectId } = c.req.valid("query");
+	const { organizationId, projectId, status } = c.req.valid("query");
 	const orgFilter = await buildOrgHistoryFilter(
 		tables.chat.organizationId,
 		organizationId,
@@ -320,7 +321,7 @@ chats.openapi(listChats, async (c) => {
 		.where(
 			and(
 				eq(tables.chat.userId, user.id),
-				eq(tables.chat.status, "active"),
+				eq(tables.chat.status, status),
 				isNull(tables.chat.parentChatId),
 				orgFilter,
 				projectId ? eq(tables.chat.projectId, projectId) : undefined,

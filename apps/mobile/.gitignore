@@ -1,0 +1,17 @@
+node_modules/
+vendor/
+!babel.config.js
+!jest.config.js
+!index.js
+ios/Pods/
+ios/build/
+build/
+coverage/
+*.xcuserstate
+xcuserdata/
+.env*
+!ios/.xcode.env
+artifacts/
+ios/.xcode.env.local
+src/lib/api/v1.d.ts
+src/lib/api/gateway.d.ts

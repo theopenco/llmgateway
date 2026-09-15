@@ -1,0 +1,8 @@
+{
+	"extends": ["//"],
+	"tasks": {
+		"build": {
+			"outputs": ["src/lib/api/v1.d.ts", "src/lib/api/gateway.d.ts"]
+		}
+	}
+}
