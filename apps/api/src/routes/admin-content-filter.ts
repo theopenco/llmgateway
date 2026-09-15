@@ -46,6 +46,11 @@ const TOP_PROVIDERS = 5;
 const TOP_ORGANIZATION_CATEGORIES = 10;
 const TOP_ORGANIZATION_MODELS = 10;
 const TOP_GLOBAL_MODELS = 25;
+const FOCUS_ORGANIZATIONS = 50;
+// Sample floor for the per-slice rate ranking. Organizations under it are still
+// returned, flagged and ranked below, so a slice with little traffic is not an
+// empty panel and a single flagged request cannot claim the top spot.
+const FOCUS_RATE_MIN_SAMPLED = 20;
 
 const sampled = sql<number>`coalesce(sum(${contentFilterHourlyStats.sampledCount}), 0)::int`;
 const violations = sql<number>`coalesce(sum(${contentFilterHourlyStats.violationCount}), 0)::int`;
@@ -181,15 +186,20 @@ const getViolations = createRoute({
 	},
 });
 
+function windowStartFor(window: z.infer<typeof violationsWindowSchema>): Date {
+	const start = new Date();
+	start.setUTCMinutes(0, 0, 0);
+	const offsetMs = (WINDOW_HOURS[window] - 1) * 3_600_000;
+	start.setTime(start.getTime() - offsetMs);
+	return start;
+}
+
 adminContentFilter.openapi(getViolations, async (c) => {
 	const query = c.req.valid("query");
 	const window = query.window ?? "24h";
 	const sort = query.sort ?? "violations";
 	const minSampled = query.minSampled ?? 0;
-	const windowStart = new Date();
-	windowStart.setUTCMinutes(0, 0, 0);
-	const windowOffsetMs = (WINDOW_HOURS[window] - 1) * 3_600_000;
-	windowStart.setTime(windowStart.getTime() - windowOffsetMs);
+	const windowStart = windowStartFor(window);
 
 	const orgRows = await db
 		.select({
@@ -428,6 +438,149 @@ adminContentFilter.openapi(getViolations, async (c) => {
 				violationCount,
 				blockedCount: Number(row.blockedCount),
 				violationRate: sampledCount > 0 ? violationCount / sampledCount : 0,
+			};
+		}),
+	});
+});
+
+const focusResponseSchema = z
+	.object({
+		window: violationsWindowSchema,
+		usedProvider: z.string(),
+		usedModel: z.string().nullable(),
+		minSampled: z.number(),
+		totals: z.object({
+			sampledCount: z.number(),
+			violationCount: z.number(),
+			blockedCount: z.number(),
+			violationRate: z.number(),
+		}),
+		organizations: z.array(
+			z.object({
+				organizationId: z.string(),
+				organizationName: z.string().nullable(),
+				plan: z.string().nullable(),
+				sampledCount: z.number(),
+				violationCount: z.number(),
+				blockedCount: z.number(),
+				violationRate: z.number(),
+				belowSampleFloor: z.boolean(),
+			}),
+		),
+	})
+	.openapi({});
+
+const getFocusOrganizations = createRoute({
+	method: "get",
+	path: "/content-filter/violations/organizations",
+	request: {
+		query: z.object({
+			window: violationsWindowSchema.default("24h").optional(),
+			usedProvider: z.string().min(1),
+			// Omit to summarize the whole provider rather than one of its models.
+			usedModel: z.string().min(1).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: focusResponseSchema },
+			},
+			description:
+				"Organizations ranked by violation rate on one provider, or one of its models, over the window.",
+		},
+	},
+});
+
+adminContentFilter.openapi(getFocusOrganizations, async (c) => {
+	const query = c.req.valid("query");
+	const window = query.window ?? "24h";
+	const windowStart = windowStartFor(window);
+	const slice = and(
+		gte(contentFilterHourlyModelStats.hourTimestamp, windowStart),
+		eq(
+			contentFilterHourlyModelStats.category,
+			CONTENT_FILTER_STATS_ALL_CATEGORY,
+		),
+		eq(contentFilterHourlyModelStats.usedProvider, query.usedProvider),
+		query.usedModel
+			? eq(contentFilterHourlyModelStats.usedModel, query.usedModel)
+			: undefined,
+	);
+
+	// Rate first, but only for organizations with enough traffic on this slice to
+	// mean anything; the rest keep their volume order underneath.
+	const meetsFloor = sql<boolean>`coalesce(sum(${contentFilterHourlyModelStats.sampledCount}), 0) >= ${FOCUS_RATE_MIN_SAMPLED}`;
+	const floorRate = sql<number>`case when coalesce(sum(${contentFilterHourlyModelStats.sampledCount}), 0) >= ${FOCUS_RATE_MIN_SAMPLED} then ${modelViolationRate} else 0 end`;
+
+	const [orgRows, [totals]] = await Promise.all([
+		db
+			.select({
+				organizationId: contentFilterHourlyModelStats.organizationId,
+				organizationName: tables.organization.name,
+				plan: tables.organization.plan,
+				sampledCount: modelSampled,
+				violationCount: modelViolations,
+				blockedCount: modelBlocked,
+				meetsFloor,
+			})
+			.from(contentFilterHourlyModelStats)
+			.leftJoin(
+				tables.organization,
+				eq(
+					tables.organization.id,
+					contentFilterHourlyModelStats.organizationId,
+				),
+			)
+			.where(slice)
+			.groupBy(
+				contentFilterHourlyModelStats.organizationId,
+				tables.organization.name,
+				tables.organization.plan,
+			)
+			.orderBy(
+				desc(meetsFloor),
+				desc(floorRate),
+				desc(modelViolations),
+				desc(modelSampled),
+			)
+			.limit(FOCUS_ORGANIZATIONS),
+		db
+			.select({
+				sampledCount: modelSampled,
+				violationCount: modelViolations,
+				blockedCount: modelBlocked,
+			})
+			.from(contentFilterHourlyModelStats)
+			.where(slice),
+	]);
+
+	const sampledCount = Number(totals?.sampledCount ?? 0);
+	const violationCount = Number(totals?.violationCount ?? 0);
+
+	return c.json({
+		window,
+		usedProvider: query.usedProvider,
+		usedModel: query.usedModel ?? null,
+		minSampled: FOCUS_RATE_MIN_SAMPLED,
+		totals: {
+			sampledCount,
+			violationCount,
+			blockedCount: Number(totals?.blockedCount ?? 0),
+			violationRate: sampledCount > 0 ? violationCount / sampledCount : 0,
+		},
+		organizations: orgRows.map((row) => {
+			const orgSampled = Number(row.sampledCount);
+			const orgViolations = Number(row.violationCount);
+			return {
+				organizationId: row.organizationId,
+				organizationName: row.organizationName ?? null,
+				plan: row.plan ?? null,
+				sampledCount: orgSampled,
+				violationCount: orgViolations,
+				blockedCount: Number(row.blockedCount),
+				violationRate: orgSampled > 0 ? orgViolations / orgSampled : 0,
+				belowSampleFloor: !row.meetsFloor,
 			};
 		}),
 	});

@@ -26,6 +26,21 @@ export async function getContentFilterViolations(
 	return data ?? null;
 }
 
+export async function getContentFilterFocusOrganizations(
+	window: ContentFilterViolationsWindow,
+	usedProvider: string,
+	usedModel?: string,
+) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET(
+		"/admin/content-filter/violations/organizations",
+		{
+			params: { query: { window, usedProvider, usedModel } },
+		},
+	);
+	return data ?? null;
+}
+
 export async function getOrganizationContentFilterActivity(
 	orgId: string,
 	window: TokenWindow,

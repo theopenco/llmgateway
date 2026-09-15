@@ -19,7 +19,10 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { getContentFilterViolations } from "@/lib/admin-content-filter";
+import {
+	getContentFilterFocusOrganizations,
+	getContentFilterViolations,
+} from "@/lib/admin-content-filter";
 import {
 	getContentFilterSettings,
 	updateContentFilterSettings,
@@ -71,10 +74,17 @@ function parseGroupBy(
 	return value === "provider" ? "provider" : "model";
 }
 
+// The row of the cross-tenant ranking that is drilled into, if any.
+interface RankingFocus {
+	usedProvider: string;
+	usedModel?: string;
+}
+
 function pageHref(
 	window: ContentFilterViolationsWindow,
 	sort: ContentFilterViolationsSort,
 	groupBy: ContentFilterViolationsGroupBy,
+	focus?: RankingFocus,
 ): string {
 	const params = new URLSearchParams();
 	if (window !== "24h") {
@@ -86,18 +96,37 @@ function pageHref(
 	if (groupBy !== "model") {
 		params.set("groupBy", groupBy);
 	}
+	if (focus) {
+		params.set("focusProvider", focus.usedProvider);
+		if (focus.usedModel) {
+			params.set("focusModel", focus.usedModel);
+		}
+	}
 	const query = params.toString();
 	return query ? `/content-filter?${query}` : "/content-filter";
 }
 
-// The ranking toggle only changes which table is shown, so keep the reader on
-// it rather than scrolling them back to the organization table.
+// Switching the grouping or drilling into a row only changes the ranking card,
+// so keep the reader on it rather than scrolling back to the organization
+// table. Changing the grouping drops any focus: a model row has no meaning in
+// the provider ranking, and vice versa.
 function rankingHref(
 	window: ContentFilterViolationsWindow,
 	sort: ContentFilterViolationsSort,
 	groupBy: ContentFilterViolationsGroupBy,
+	focus?: RankingFocus,
 ): string {
-	return `${pageHref(window, sort, groupBy)}#ranking`;
+	return `${pageHref(window, sort, groupBy, focus)}#ranking`;
+}
+
+function isFocused(
+	focus: RankingFocus | undefined,
+	row: RankingFocus,
+): boolean {
+	return (
+		focus?.usedProvider === row.usedProvider &&
+		focus?.usedModel === row.usedModel
+	);
 }
 
 // usedModel is stored as "<provider>/<model>", and the provider already has its
@@ -141,20 +170,40 @@ export default async function ContentFilterPage({
 		window?: string;
 		sort?: string;
 		groupBy?: string;
+		focusProvider?: string;
+		focusModel?: string;
 	}>;
 }) {
 	const params = await searchParams;
 	const window = parseWindow(params?.window);
 	const sort = parseSort(params?.sort);
 	const groupBy = parseGroupBy(params?.groupBy);
-	const [settings, violations] = await Promise.all([
+	// A model focus needs both halves of the rollup key; the provider ranking
+	// summarizes every model, so it carries the provider alone.
+	const focus: RankingFocus | undefined = params?.focusProvider
+		? {
+				usedProvider: params.focusProvider,
+				usedModel:
+					groupBy === "model" ? (params.focusModel ?? undefined) : undefined,
+			}
+		: undefined;
+	const [settings, violations, focusedOrganizations] = await Promise.all([
 		getContentFilterSettings(),
 		getContentFilterViolations(window, sort),
+		focus
+			? getContentFilterFocusOrganizations(
+					window,
+					focus.usedProvider,
+					focus.usedModel,
+				)
+			: null,
 	]);
 
 	if (settings === null || violations === null) {
 		return <SignInPrompt />;
 	}
+
+	const focusLabel = focus?.usedModel ?? focus?.usedProvider;
 
 	// Both groupings come back in the same payload, so switching is a re-render
 	// rather than another round trip.
@@ -164,11 +213,16 @@ export default async function ContentFilterPage({
 					...provider,
 					key: provider.usedProvider,
 					label: provider.usedProvider,
+					focus: { usedProvider: provider.usedProvider } as RankingFocus,
 				}))
 			: violations.models.map((model) => ({
 					...model,
 					key: `${model.usedProvider}/${model.usedModel}`,
 					label: model.usedModel,
+					focus: {
+						usedProvider: model.usedProvider,
+						usedModel: model.usedModel,
+					} as RankingFocus,
 				}));
 
 	async function handleSave(input: ContentFilterSettingsInput) {
@@ -390,7 +444,8 @@ export default async function ContentFilterPage({
 								standing out.
 								{sort === "rate"
 									? ` Ranked by violation rate among ${groupBy}s with at least ${MIN_SAMPLED_FOR_RATE} sampled requests.`
-									: " Ranked by violation count."}
+									: " Ranked by violation count."}{" "}
+								Select a {groupBy} to see which organizations drive it.
 							</CardDescription>
 						</div>
 						<div className="flex flex-wrap items-center gap-1">
@@ -434,40 +489,132 @@ export default async function ContentFilterPage({
 									</TableRow>
 								</TableHeader>
 								<TableBody>
-									{ranking.map((row) => (
-										<TableRow key={row.key}>
-											{groupBy === "provider" ? (
-												<TableCell className="font-medium">
-													{row.usedProvider}
-												</TableCell>
-											) : (
-												<>
+									{ranking.map((row) => {
+										const selected = isFocused(focus, row.focus);
+										// Clicking the selected row again clears the drill-down.
+										const href = rankingHref(
+											window,
+											sort,
+											groupBy,
+											selected ? undefined : row.focus,
+										);
+										return (
+											<TableRow
+												key={row.key}
+												data-state={selected ? "selected" : undefined}
+											>
+												{groupBy === "provider" ? (
 													<TableCell className="font-medium">
-														{row.label}
+														<Link href={href} className="hover:underline">
+															{row.usedProvider}
+														</Link>
 													</TableCell>
-													<TableCell className="text-muted-foreground">
-														{row.usedProvider}
-													</TableCell>
-												</>
-											)}
-											<TableCell className="text-right tabular-nums">
-												{row.sampledCount.toLocaleString("en-US")}
-											</TableCell>
-											<TableCell className="text-right tabular-nums">
-												{row.violationCount.toLocaleString("en-US")}
-											</TableCell>
-											<TableCell className="text-right tabular-nums">
-												{percentFormatter.format(row.violationRate)}
-											</TableCell>
-											<TableCell className="text-right tabular-nums">
-												{row.blockedCount.toLocaleString("en-US")}
-											</TableCell>
-										</TableRow>
-									))}
+												) : (
+													<>
+														<TableCell className="font-medium">
+															<Link href={href} className="hover:underline">
+																{row.label}
+															</Link>
+														</TableCell>
+														<TableCell className="text-muted-foreground">
+															{row.usedProvider}
+														</TableCell>
+													</>
+												)}
+												<TableCell className="text-right tabular-nums">
+													{row.sampledCount.toLocaleString("en-US")}
+												</TableCell>
+												<TableCell className="text-right tabular-nums">
+													{row.violationCount.toLocaleString("en-US")}
+												</TableCell>
+												<TableCell className="text-right tabular-nums">
+													{percentFormatter.format(row.violationRate)}
+												</TableCell>
+												<TableCell className="text-right tabular-nums">
+													{row.blockedCount.toLocaleString("en-US")}
+												</TableCell>
+											</TableRow>
+										);
+									})}
 								</TableBody>
 							</Table>
 						</div>
 					)}
+					{focus && focusLabel ? (
+						<div className="mt-6 border-t pt-4">
+							<div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+								<div>
+									<p className="text-sm font-medium">
+										Organizations on {focusLabel}
+									</p>
+									<p className="text-sm text-muted-foreground">
+										Ranked by violation rate among organizations with at least{" "}
+										{focusedOrganizations?.minSampled ?? 0} sampled requests on
+										this {groupBy}; quieter ones follow, ordered by volume.
+									</p>
+								</div>
+								<Button asChild variant="outline" size="sm">
+									<Link href={rankingHref(window, sort, groupBy)}>Clear</Link>
+								</Button>
+							</div>
+							{!focusedOrganizations ||
+							focusedOrganizations.organizations.length === 0 ? (
+								<p className="text-sm text-muted-foreground">
+									No moderated requests on this {groupBy} in this window.
+								</p>
+							) : (
+								<div className="overflow-x-auto">
+									<Table>
+										<TableHeader>
+											<TableRow>
+												<TableHead>Organization</TableHead>
+												<TableHead className="text-right">Sampled</TableHead>
+												<TableHead className="text-right">Violations</TableHead>
+												<TableHead className="text-right">Rate</TableHead>
+												<TableHead className="text-right">Blocked</TableHead>
+											</TableRow>
+										</TableHeader>
+										<TableBody>
+											{focusedOrganizations.organizations.map((org) => (
+												<TableRow key={org.organizationId}>
+													<TableCell>
+														<Link
+															href={`/organizations/${org.organizationId}?window=${ORG_PAGE_WINDOW[window]}#content-filter`}
+															className="font-medium hover:underline"
+														>
+															{org.organizationName ?? org.organizationId}
+														</Link>
+														{org.plan ? (
+															<Badge variant="outline" className="ml-2">
+																{org.plan}
+															</Badge>
+														) : null}
+														{org.belowSampleFloor ? (
+															<span className="ml-2 text-xs text-muted-foreground">
+																too few samples to rank
+															</span>
+														) : null}
+													</TableCell>
+													<TableCell className="text-right tabular-nums">
+														{org.sampledCount.toLocaleString("en-US")}
+													</TableCell>
+													<TableCell className="text-right tabular-nums">
+														{org.violationCount.toLocaleString("en-US")}
+													</TableCell>
+													<TableCell className="text-right tabular-nums">
+														{percentFormatter.format(org.violationRate)}
+													</TableCell>
+													<TableCell className="text-right tabular-nums">
+														{org.blockedCount.toLocaleString("en-US")}
+													</TableCell>
+												</TableRow>
+											))}
+										</TableBody>
+									</Table>
+								</div>
+							)}
+						</div>
+					) : null}
 				</CardContent>
 			</Card>
 		</div>
