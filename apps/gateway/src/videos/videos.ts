@@ -5083,12 +5083,11 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		.returning()
 		.then((rows) => rows[0]);
 
-	if (reservedSpendUsd > 0) {
-		// After the insert: the job row is what tells the worker a reservation
-		// exists to reconcile. recordSpend is fail-open, matching the counters'
-		// overall best-effort semantics.
-		await recordSpend(organization.id, reservedSpendUsd);
-	}
+	// After the insert: the job row is what tells the worker a reservation
+	// exists to reconcile. A zero reservation (BYOK, wallet) records no spend
+	// but still stamps org activity. recordSpend is fail-open, matching the
+	// counters' overall best-effort semantics.
+	await recordSpend(organization.id, reservedSpendUsd);
 
 	logger.info("Created video job", {
 		videoId: created.id,
