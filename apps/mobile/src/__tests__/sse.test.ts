@@ -44,4 +44,38 @@ describe("stream decoding", () => {
 		expect(() => parseDelta("{")).toThrow();
 		expect(() => parseDelta("null")).toThrow("Invalid response");
 	});
+	test("extracts web search citations from streamed annotations", () => {
+		expect(
+			parseDelta(
+				JSON.stringify({
+					choices: [
+						{
+							delta: {
+								annotations: [
+									{
+										type: "url_citation",
+										url_citation: {
+											url: "https://example.com/guide",
+											title: "Guide",
+										},
+									},
+								],
+							},
+						},
+					],
+				}),
+			),
+		).toEqual({
+			content: "",
+			reasoning: "",
+			sources: [
+				{
+					type: "source-url",
+					sourceId: "https://example.com/guide",
+					url: "https://example.com/guide",
+					title: "Guide",
+				},
+			],
+		});
+	});
 });

@@ -6,7 +6,6 @@ import {
 	Keyboard,
 	KeyboardAvoidingView,
 	Modal,
-	Share,
 	Switch,
 	Text,
 	TextInput,
@@ -22,10 +21,13 @@ import {
 } from "@/api/chat-messages";
 import { api, client, queryClient } from "@/api/client";
 import { streamCompletion } from "@/api/completion";
+import { mergeSources } from "@/api/sources";
 import { ChatSettings } from "@/components/ChatSettings";
+import { ChatSharing } from "@/components/ChatSharing";
 import { Markdown } from "@/components/Markdown";
 import { MessageBubble } from "@/components/MessageBubble";
 import { ModelPicker } from "@/components/ModelPicker";
+import { Sources } from "@/components/Sources";
 import {
 	Button,
 	colors,
@@ -38,6 +40,7 @@ import { pickFile } from "@/lib/files";
 import { defaultChatSettings, usePreferences } from "@/lib/preferences";
 
 import type { Attachment, ChatMessage } from "@/api/chat-messages";
+import type { Source } from "@/api/sources";
 
 let localSequence = 0;
 function localMessage(
@@ -45,12 +48,14 @@ function localMessage(
 	content: string,
 	attachments: Attachment[],
 	reasoning = "",
+	sourceLinks: Source[] = [],
 ): ChatMessage {
 	return {
 		id: `local-${Date.now()}-${++localSequence}`,
 		role,
 		content,
 		attachments,
+		sourceLinks,
 		reasoning,
 		images: null,
 		audios: null,
@@ -89,6 +94,7 @@ export function Chat({
 	const [temporaryMessages, setTemporaryMessages] = useState<ChatMessage[]>([]);
 	const [draft, setDraft] = useState("");
 	const [reasoning, setReasoning] = useState("");
+	const [draftSources, setDraftSources] = useState<Source[]>([]);
 	const [editing, setEditing] = useState<ChatMessage>();
 	const [editText, setEditText] = useState("");
 	const controllerRef = useRef<AbortController | null>(null);
@@ -158,6 +164,7 @@ export function Chat({
 			followRef.current = true;
 			setDraft("");
 			setReasoning("");
+			setDraftSources([]);
 			const context = await chatContext(
 				content || files.map((file) => file.name).join(" "),
 				projectId,
@@ -227,6 +234,7 @@ export function Chat({
 			}
 			let response = "";
 			let thought = "";
+			let sources: Source[] = [];
 			let generationError: Error | undefined;
 			try {
 				await streamCompletion({
@@ -241,6 +249,8 @@ export function Chat({
 					onDelta: (delta) => {
 						response += delta.content;
 						thought += delta.reasoning;
+						sources = mergeSources(sources, delta.sources ?? []);
+						setDraftSources(sources);
 						setDraft(response);
 						setReasoning(thought);
 					},
@@ -262,7 +272,7 @@ export function Chat({
 				setTemporaryMessages([
 					...prefix,
 					localMessage("user", content, files),
-					localMessage("assistant", answer, [], thought),
+					localMessage("assistant", answer, [], thought, sources),
 				]);
 			} else if (currentId) {
 				const lastAssistant =
@@ -278,12 +288,14 @@ export function Chat({
 						role: "assistant",
 						...(answer && { content: answer }),
 						...(thought && { reasoning: thought }),
+						...(sources.length && { sources: JSON.stringify(sources) }),
 						metadata: { model, interrupted: !!generationError },
 					},
 				});
 			}
 			setDraft("");
 			setReasoning("");
+			setDraftSources([]);
 			if (!temporary) {
 				await refresh();
 			}
@@ -334,24 +346,7 @@ export function Chat({
 			await refresh();
 		},
 	});
-	const share = useMutation({
-		mutationFn: async () => {
-			if (!id) {
-				return;
-			}
-			const result = await client.POST("/chats/{id}/share", {
-				params: { path: { id } },
-				body: {
-					visibility: "public",
-					allowDiscovery: false,
-					allowForking: false,
-				},
-			});
-			if (result.data) {
-				await Share.share({ message: result.data.share.url });
-			}
-		},
-	});
+
 	return (
 		<KeyboardAvoidingView
 			behavior="padding"
@@ -434,20 +429,12 @@ export function Chat({
 							busy={fork.isPending}
 							onPress={() => fork.mutate()}
 						/>
-						<Button
-							title="Share"
-							secondary
-							disabled={send.isPending}
-							onPress={() =>
-								Alert.alert(
-									"Share this conversation?",
-									"Anyone with the link can read a snapshot of its messages.",
-									[
-										{ text: "Cancel", style: "cancel" },
-										{ text: "Create link", onPress: () => share.mutate() },
-									],
-								)
-							}
+						<ChatSharing
+							chatId={id}
+							organizationId={organizationId}
+							publicShareId={chat.data?.chat.shareId}
+							orgShares={chat.data?.chat.orgShares ?? []}
+							disabled={send.isPending || fork.isPending}
 						/>
 					</View>
 				)}
@@ -491,7 +478,7 @@ export function Chat({
 					/>
 				)}
 				ListFooterComponent={
-					draft || reasoning ? (
+					draft || reasoning || draftSources.length ? (
 						<View style={styles.card}>
 							<Text style={styles.eyebrow}>THE LOUNGE</Text>
 							{!!reasoning && (
@@ -500,6 +487,7 @@ export function Chat({
 								</Text>
 							)}
 							{!!draft && <Markdown>{draft}</Markdown>}
+							<Sources sources={draftSources} />
 						</View>
 					) : undefined
 				}
@@ -516,7 +504,6 @@ export function Chat({
 						send.error ??
 						chat.error ??
 						update.error ??
-						share.error ??
 						fork.error ??
 						attach.error ??
 						preferences.error

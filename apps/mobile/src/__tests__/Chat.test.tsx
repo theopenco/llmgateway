@@ -73,7 +73,18 @@ beforeEach(() => {
 		data: { chat: { title: "Fixture", model: "auto" }, messages },
 	});
 	jest.mocked(streamCompletion).mockImplementation(async ({ onDelta }) => {
-		onDelta({ content: "New response", reasoning: "Considered the question" });
+		onDelta({
+			content: "New response",
+			reasoning: "Considered the question",
+			sources: [
+				{
+					type: "source-url",
+					sourceId: "source",
+					url: "https://example.com/guide",
+					title: "Guide",
+				},
+			],
+		});
 	});
 	jest
 		.mocked(client.POST)
@@ -117,6 +128,14 @@ test("retries the last answer with its original attachments and replaces the sav
 				body: expect.objectContaining({
 					id: "assistant",
 					content: "New response",
+					sources: JSON.stringify([
+						{
+							type: "source-url",
+							sourceId: "source",
+							url: "https://example.com/guide",
+							title: "Guide",
+						},
+					]),
 				}),
 			}),
 		),

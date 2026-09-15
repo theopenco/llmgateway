@@ -750,6 +750,23 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 				return;
 			}
 
+			if (userMessage.includes("TRIGGER_SOURCES")) {
+				await stream.writeSSE({
+					data: JSON.stringify({
+						type: "response.output_text.annotation.added",
+						annotation: {
+							type: "url_citation",
+							url: "https://example.com/guide",
+							title: "Lounge test source",
+							start_index: 0,
+							end_index: 5,
+						},
+						response: responseBase,
+					}),
+					id: String(eventId++),
+				});
+			}
+
 			await stream.writeSSE({
 				data: JSON.stringify({
 					type: "response.completed",
