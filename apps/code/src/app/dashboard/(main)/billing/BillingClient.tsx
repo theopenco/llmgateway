@@ -2,7 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNowStrict } from "date-fns";
-import { Info, Loader2 } from "lucide-react";
+import { AlertCircle, Info, Loader2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
@@ -30,6 +30,7 @@ import { useStripe } from "@/lib/stripe";
 import { cn } from "@/lib/utils";
 
 import { formatDateTime, useDisplayTimeZone } from "@llmgateway/shared";
+import { useRerenderAt } from "@llmgateway/shared/components";
 
 import type { TierChangeTiming } from "@/app/dashboard/components/ActivePlanChangeTier";
 import type { PlanTier } from "@/app/dashboard/types";
@@ -60,6 +61,32 @@ interface BillingClientProps {
 	initialPaymentMethod?: PaymentMethod | null;
 }
 
+/**
+ * The plan's next renewal instant. Prefers Stripe's real `current_period_end`;
+ * only falls back to projecting a cycle from `billingCycleStart` for legacy
+ * rows missing the recorded end. The projection diverges from the actual
+ * billing schedule after a mid-cycle proration upgrade (the anchor is
+ * preserved, the cycle start is not).
+ */
+function resolveRenewAt(status: DevPlanStatus | null | undefined): Date | null {
+	if (!status) {
+		return null;
+	}
+	if (status.devPlanExpiresAt) {
+		return new Date(status.devPlanExpiresAt);
+	}
+	if (!status.devPlanBillingCycleStart) {
+		return null;
+	}
+	const projected = new Date(status.devPlanBillingCycleStart);
+	if ((status.devPlanCycle ?? "monthly") === "annual") {
+		projected.setFullYear(projected.getFullYear() + 1);
+	} else {
+		projected.setMonth(projected.getMonth() + 1);
+	}
+	return projected;
+}
+
 export default function BillingClient({
 	initialDevPlanStatus,
 	initialPaymentMethod,
@@ -73,6 +100,13 @@ export default function BillingClient({
 	const { timeZone: displayTimeZone } = useDisplayTimeZone();
 
 	const { data: devPlanStatus } = useDevPlanStatus(initialDevPlanStatus);
+
+	// Resolved up here, above the early returns below, so the boundary timer is
+	// an unconditional hook call. `renewalProcessing` is clock-derived and the
+	// status poll keeps returning the same row until the paid invoice advances
+	// it, so nothing else would re-render the hint when the moment passes.
+	const renewAt = resolveRenewAt(devPlanStatus);
+	useRerenderAt(renewAt);
 
 	const invalidateInvoices = () =>
 		queryClient.invalidateQueries({
@@ -321,35 +355,26 @@ export default function BillingClient({
 	const showPendingChange = pendingTier !== null && !cancelled;
 	const pendingIsUpgrade =
 		(pendingPlanData?.price ?? 0) > (currentPlanData?.price ?? 0);
-	const billingCycleStart = devPlanStatus.devPlanBillingCycleStart ?? null;
-	const currentPeriodEnd = devPlanStatus.devPlanExpiresAt ?? null;
+	const paymentPastDue = devPlanStatus.subscriptionPaymentStatus === "past_due";
 
-	// Prefer Stripe's real `current_period_end`; only fall back to projecting a
-	// cycle from `billingCycleStart` for legacy rows missing the recorded end.
-	// The projection diverges from the actual schedule after a mid-cycle
-	// proration upgrade (the anchor is preserved, the cycle start is not).
-	const renewAt = currentPeriodEnd
-		? new Date(currentPeriodEnd)
-		: billingCycleStart
-			? (() => {
-					const d = new Date(billingCycleStart);
-					if (cycle === "annual") {
-						d.setFullYear(d.getFullYear() + 1);
-					} else {
-						d.setMonth(d.getMonth() + 1);
-					}
-					return d;
-				})()
-			: null;
+	// Plan lifecycle moments are rendered to the minute with the zone name:
+	// "when exactly does my plan stop working" is a support question a bare
+	// date can't answer, and the zone suffix makes clear whose clock it is.
 	const renewWhen = renewAt
 		? formatDateTime(renewAt, displayTimeZone, "monthDayYearHourMinuteZone")
 		: null;
+	const renewalProcessing =
+		!cancelled && !paymentPastDue && renewAt !== null && renewAt <= new Date();
 
-	const renewalHint = !renewAt
-		? "—"
-		: cancelled
-			? `Ends ${renewWhen}`
-			: `Renews ${renewWhen} (in ${formatDistanceToNowStrict(renewAt)})`;
+	const renewalHint = paymentPastDue
+		? "Renewal payment failed"
+		: renewalProcessing
+			? "Renewal payment processing"
+			: !renewAt
+				? "—"
+				: cancelled
+					? `Ends ${renewWhen}`
+					: `Renews ${renewWhen} (in ${formatDistanceToNowStrict(renewAt)})`;
 
 	// A scheduled tier change keeps the current tier active until renewal, then
 	// switches. Surface both the pending tier and the date it applies.
@@ -378,6 +403,16 @@ export default function BillingClient({
 							{cancelled && (
 								<span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">
 									Cancelling
+								</span>
+							)}
+							{paymentPastDue && (
+								<span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">
+									Payment failed
+								</span>
+							)}
+							{renewalProcessing && (
+								<span className="rounded-md bg-amber-500/10 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+									Renewal processing
 								</span>
 							)}
 							{showPendingChange && pendingPlanData && (
@@ -462,6 +497,17 @@ export default function BillingClient({
 					)}
 				</div>
 
+				{paymentPastDue && (
+					<div className="mt-5 flex gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3.5">
+						<AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+						<p className="text-xs leading-relaxed text-destructive">
+							We could not collect your renewal payment. Update your card below
+							to retry payment now. Your allowance refreshes when payment
+							succeeds.
+						</p>
+					</div>
+				)}
+
 				{/* Clarify DevPass vs pay-as-you-go billing */}
 				<div className="mt-5 flex gap-3 rounded-lg border border-border/60 bg-muted/40 p-3.5">
 					<Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -490,7 +536,7 @@ export default function BillingClient({
 			/>
 
 			{/* Past invoices */}
-			<DevPassInvoices />
+			<DevPassInvoices key={devPlanStatus.devPlanBillingCycleStart} />
 
 			{/* Billing details (invoice details) */}
 			<DevPassBillingDetails />
