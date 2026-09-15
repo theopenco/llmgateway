@@ -35,15 +35,24 @@ pnpm --filter mobile test:upstream
 pnpm --filter mobile test:gateway
 ```
 
-The launcher replaces environment provider credentials with the OpenAI mock at
+The launcher replaces environment provider credentials with OpenAI and xAI mocks at
 `GATEWAY_PORT + 8`. The flows select the seeded test organization. Stop both
 processes after testing.
+
+For video flows, export a temporary `LOUNGE_TEST_VIDEO_SIGNING_KEY` and set
+`LLM_VIDEO_CONTENT_JWT_SECRET` to the same value before starting the API.
+Run `pnpm --filter mobile test:video-worker` alongside the mock and gateway.
+This worker only polls video jobs. The fixture is a four-second synthetic MP4.
+
+The iOS Podfile builds React Native core from source because the prebuilt
+0.87 JSI headers conflict with Nitro video imports. The first build takes longer.
 
 Verified during development:
 
 - Full repository build: 20 workspaces passed.
 - Repository unit suite: 7,058 passed, 2 skipped; chat history/search tests: 7 passed.
-- Native tests: 78 passed; shared image configuration tests: 3 passed.
+- Native tests: 84 passed; shared image configuration tests: 3 passed.
+- Video configuration: 25 passed; gateway video and byte-range tests: 57 passed.
 - Signed Release build launched on the iOS simulator with local service URLs.
 - Maestro account flow: sign-in errors, session restoration, workspace switching,
   project and skill persistence/deletion, profile access, and sign-out passed.
@@ -63,6 +72,9 @@ Verified during development:
   one model, opening its conversation, and stopping all models passed.
 - Native group discussion: five alternating turns, transcript sharing, starting
   over, stopping, and continuing with the next model passed.
+- Native video checks with a mock provider: starting-frame generation, two-model
+  playback, restored jobs after restart, Files export, sharing, renaming, and
+  deletion passed. Exported MP4 bytes matched the generated fixture.
 - Native image checks with a mock provider: generation/editing, model comparison,
   settings, history after restart, Files export/import, sharing, renaming, and
   deletion passed. Exported PNG bytes matched the generated fixture.

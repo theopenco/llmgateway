@@ -62,7 +62,7 @@ export function ModelPicker({
 	return (
 		<>
 			<Button
-				title={`${label}: ${value === "auto" ? "Auto" : value}`}
+				title={`${label}: ${value === "auto" ? "Auto" : value || "Choose"}`}
 				disabled={disabled}
 				secondary
 				onPress={() => {
@@ -92,11 +92,13 @@ export function ModelPicker({
 									value={search}
 									onChangeText={setSearch}
 								/>
-								<Button
-									title="Auto route"
-									secondary
-									onPress={() => choose("auto")}
-								/>
+								{(output === "text" || output === "image") && (
+									<Button
+										title="Auto route"
+										secondary
+										onPress={() => choose("auto")}
+									/>
+								)}
 								<ErrorNotice
 									error={
 										models.error ?? favorites.error ?? add.error ?? remove.error
