@@ -161,9 +161,9 @@ const termsCards: SummaryCard[] = [
 		body: (
 			<>
 				No illegal or harmful use, no circumventing rate limits or auth.
-				Accounts abusing the Service may be suspended or terminated, and so may
-				accounts that trigger a high rate of content filter violations — a call
-				we make at our discretion.
+				Accounts abusing the Service may be suspended or terminated. From
+				October 15, 2026, so may accounts that trigger a high rate of content
+				filter violations — a call we make at our discretion.
 			</>
 		),
 	},
