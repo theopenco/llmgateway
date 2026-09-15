@@ -161,10 +161,11 @@ export default function TermsPage() {
 			<p>
 				Billing is processed securely through <strong>Stripe</strong>, as
 				described in the Base Terms. By subscribing, you authorize us to charge
-				your payment method for the selected plan and any applicable taxes. All
-				fees are generally non-refundable except where required by law or under
-				the limited goodwill refund option below. You may cancel at any time;
-				your plan remains active until the end of the current billing period.
+				your payment method for the selected plan and any applicable taxes.
+				Subscriptions renew automatically each month until cancelled. All fees
+				are generally non-refundable except where required by law or under the
+				limited goodwill refund option below. You may cancel at any time; your
+				plan remains active until the end of the current billing period.
 			</p>
 			<p>
 				<strong>Limited first-month goodwill refund.</strong> Once you start
@@ -210,15 +211,99 @@ export default function TermsPage() {
 				automated abuse, key sharing, resale, or sustained traffic patterns
 				inconsistent with interactive coding workflows.
 			</p>
+			<h3 id="october-2026-plan-changes">Plan changes from October 15, 2026</h3>
+			<p>
+				These changes apply to both new and existing subscribers. Subscription
+				prices stay the same, but included usage decreases. If you subscribe
+				before October 15, 2026, your initial monthly allowance is 3&times; your
+				plan price. It becomes 2&times; at your first renewal on or after that
+				date. New subscriptions and new billing cycles started by an immediate
+				upgrade on or after that date receive the 2&times; allowance, subject to
+				the upgrade rollover rule above.
+			</p>
+			<p>
+				Daily and weekly limits and Reset Pass changes take effect on October
+				15, 2026, including during a billing cycle that started earlier. The
+				percentages below use the new standard monthly allowance for your tier,
+				even if your current cycle still has its earlier monthly allowance. Pro
+				no longer includes a free Reset Pass; Max continues to include two per
+				billing cycle.
+			</p>
+			<div className="overflow-x-auto">
+				<table className="w-full text-left [&_th]:px-3 [&_th]:py-2 [&_td]:px-3 [&_td]:py-2 [&_tr]:border-b [&_tr]:border-border">
+					<caption className="mb-3 text-left font-medium text-foreground">
+						DevPass allowances and Reset Pass benefits from October 15, 2026
+					</caption>
+					<thead>
+						<tr>
+							<th scope="col">Benefit or limit</th>
+							<th scope="col">Lite</th>
+							<th scope="col">Pro</th>
+							<th scope="col">Max</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr>
+							<th scope="row">
+								Standard monthly allowance (provider-rate usage)
+							</th>
+							<td>$58</td>
+							<td>$158</td>
+							<td>$358</td>
+						</tr>
+						<tr>
+							<th scope="row">
+								Daily cap across all models (rolling 24 hours)
+							</th>
+							<td>8%</td>
+							<td>9%</td>
+							<td>10%</td>
+						</tr>
+						<tr>
+							<th scope="row">Premium weekly cap</th>
+							<td>10%</td>
+							<td>12%</td>
+							<td>15%</td>
+						</tr>
+						<tr>
+							<th scope="row">Price per Reset Pass</th>
+							<td>$5</td>
+							<td>$15</td>
+							<td>$45</td>
+						</tr>
+						<tr>
+							<th scope="row">Included Reset Passes per billing cycle</th>
+							<td>0</td>
+							<td>0</td>
+							<td>2</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+			<p>
+				Daily and premium weekly caps limit how quickly you can use your monthly
+				allowance; they are not additional usage. A Reset Pass restores only the
+				premium weekly allowance and does not reset or increase your daily or
+				monthly allowance. At a daily or premium weekly cap, requests pause
+				unless you have opted into pay-as-you-go overflow and have available
+				credits. Overflow is billed separately from your subscription and is not
+				enabled by accepting these terms.
+			</p>
+			<p>
+				Review these changes before subscribing. You may change plans or cancel
+				in your&nbsp;<Link href="/dashboard/billing">billing dashboard</Link>.
+				To avoid a renewal under the new monthly allowance, cancel before your
+				next renewal on or after October 15, 2026. Cancellation stops future
+				renewal charges; access continues until the end of the paid billing
+				period and remains subject to the limits effective during that period.
+			</p>
 			<hr />
 			<h2>3. One Account Per Developer</h2>
 			<p>
 				DevPass is sold to <strong>one developer, on one account</strong>. The
-				flat-rate price and{" "}
-				<strong>3&times; your subscription in included usage</strong> only work
-				because each person uses a single account in good faith. Splitting that
-				usage across multiple accounts is the fastest way to break the deal for
-				everyone.
+				flat-rate price and included usage allowance only work because each
+				person uses a single account in good faith. Splitting that usage across
+				multiple accounts is the fastest way to break the deal for everyone.
 			</p>
 			<p>
 				To keep the pricing sustainable for the developers who use DevPass

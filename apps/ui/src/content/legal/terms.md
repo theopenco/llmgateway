@@ -71,7 +71,7 @@ You agree to the following billing terms:
 - All fees are **exclusive of taxes**. You are responsible for all applicable taxes, duties, and similar charges, other than taxes based on our net income.
 - You are responsible for all charges incurred under your account, including charges resulting from unauthorized use of your credentials or API keys.
 - If a payment fails, is reversed, or is charged back, we may **suspend or terminate** your access and recover amounts owed. Initiating a chargeback for legitimate charges is a breach of these Terms.
-- We may change our pricing or plan features at any time. Price changes apply prospectively from the date posted or otherwise communicated.
+- We may change our pricing or plan features at any time. Price changes apply prospectively from the date posted or otherwise communicated. For DevPass, the [dated plan-change notice](https://devpass.llmgateway.io/legal/terms#october-2026-plan-changes) specifies the allowance, usage-limit, and Reset Pass changes from October 15, 2026, including which changes apply at renewal.
 
 Any service levels, support commitments, or uptime targets apply **only** if expressly stated in a separate written agreement signed by us (see Section 16). The free and standard PAYG Service is provided **without any service-level commitment**.
 

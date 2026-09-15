@@ -10,6 +10,7 @@ import {
 	UserRound,
 	Wallet,
 } from "lucide-react";
+import Link from "next/link";
 
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
@@ -42,6 +43,26 @@ const termsCards: SummaryCard[] = [
 				except when you upgrade mid-cycle. Fees are generally non-refundable
 				once usage begins; a first-payment refund within 14 days may be offered
 				as goodwill only while usage remains below 20%.
+			</>
+		),
+	},
+	{
+		icon: Clock,
+		title: "Plan changes from October 15, 2026",
+		body: (
+			<>
+				The price stays the same, but included usage decreases. Monthly
+				allowance falls from 3&times; to 2&times; your plan price at the first
+				renewal on or after that date; new subscriptions from that date start at
+				2&times;. Daily and weekly caps and Reset Pass benefits change on
+				October 15, including for existing cycles. Read the&nbsp;
+				<Link
+					href="#october-2026-plan-changes"
+					className="underline underline-offset-4"
+				>
+					full plan-change notice
+				</Link>
+				.
 			</>
 		),
 	},
