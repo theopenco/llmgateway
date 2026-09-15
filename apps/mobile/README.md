@@ -83,6 +83,9 @@ Verified during development:
 - Native speech checks with a mock provider: voice/format/speed/instructions,
   playback in all five formats, saved audio after restart, Files export, sharing,
   renaming, and deletion passed. Exported WAV bytes matched the generated fixture.
+- Native live transcription with a local WebSocket upstream: automatic/manual
+  turns, mute, final-turn preservation, copy/clear, background shutdown, and
+  permission recovery through iOS Settings passed.
 - Native image checks with a mock provider: generation/editing, model comparison,
   settings, history after restart, Files export/import, sharing, renaming, and
   deletion passed. Exported PNG bytes matched the generated fixture.
@@ -109,7 +112,7 @@ A checkbox requires observed behavior, not just a screen or passing type check.
 - [ ] Connectors: connect, authorize, use, disconnect
 - [x] Image creation/editing, settings, multi-model comparison, history, save/share
 - [ ] Video creation, input frames, polling, playback, history, save/share
-- [ ] Speech generation/transcription, playback, history
+- [x] Speech generation/transcription, playback, history
 - [ ] Realtime voice calls and call history
 - [ ] Canvas generation and interactive rendering
 - [ ] Escape gameplay and saved runs

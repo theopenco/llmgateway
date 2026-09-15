@@ -16,6 +16,16 @@ Voice Calls turns Lounge into a phone line to a model. Pick a realtime model and
 	height={900}
 />
 
+## Live transcription on iOS
+
+In **The Lounge** iOS app, open **Live transcription**, choose a model, and tap **Start transcription**. Allow microphone access when prompted. The selector shows active transcription-capable providers from the [model catalogue](https://llmgateway.io/models).
+
+Use **Automatic speech detection** to complete turns when you pause, where supported. Otherwise, tap **Transcribe turn** after speaking. **Mute microphone** stops sending audio while keeping the session connected.
+
+**Stop transcription** releases the microphone, submits an unfinished turn, and waits up to five seconds for pending text. **Stop now** ends that wait. Backgrounding the app also stops recording. Partial text remains visible if the connection fails or a turn cannot finish.
+
+Use **Copy transcript** before leaving the screen. Transcription sessions are not saved to call history. **Clear transcript** removes the current text after the session ends.
+
 ## Starting a Call
 
 1. Pick a model from the selector — only models with an active realtime mapping appear, newest first
