@@ -1,3 +1,4 @@
+import { executeAgentRequest } from "./agent.js";
 import {
 	answerEntropy,
 	bootstrapRateInterval,
@@ -7,6 +8,7 @@ import {
 import { executeStreamingRequest } from "./stream.js";
 
 import type {
+	BenchmarkAgentSummary,
 	BenchmarkAgreementSummary,
 	BenchmarkCase,
 	BenchmarkCaseSummary,
@@ -113,6 +115,72 @@ function isValid(trial: BenchmarkTrial): boolean {
 		return false;
 	}
 	return trial.kind === "performance" || trial.evaluation?.passed === true;
+}
+
+function agentSummary(trials: BenchmarkTrial[]): BenchmarkAgentSummary | null {
+	const agentTrials = trials.filter(
+		(trial) => trial.kind === "agentic" && trial.response.agent !== null,
+	);
+	if (agentTrials.length === 0) {
+		return null;
+	}
+	const traces = agentTrials.map((trial) => trial.response.agent);
+	const solvedTrials = agentTrials.filter(
+		(trial) => trial.evaluation?.passed === true,
+	);
+	const toolCallTotal = traces.reduce(
+		(total, trace) => total + (trace?.toolCallCount ?? 0),
+		0,
+	);
+	const stopReasons: Record<string, number> = {};
+	for (const trace of traces) {
+		const reason = trace?.stopReason ?? "error";
+		stopReasons[reason] = (stopReasons[reason] ?? 0) + 1;
+	}
+	const solvedCost = solvedTrials.reduce(
+		(total, trial) => total + (trial.estimatedCostUsd ?? 0),
+		0,
+	);
+	return {
+		attempted: agentTrials.length,
+		solved: solvedTrials.length,
+		solveRate: solvedTrials.length / agentTrials.length,
+		turns: summarizeNumbers(traces.map((trace) => trace?.turnCount ?? null)),
+		toolCalls: summarizeNumbers(
+			traces.map((trace) => trace?.toolCallCount ?? null),
+		),
+		invalidToolCallRate:
+			toolCallTotal === 0
+				? null
+				: traces.reduce(
+						(total, trace) => total + (trace?.invalidToolCallCount ?? 0),
+						0,
+					) / toolCallTotal,
+		repeatedToolCallRate:
+			toolCallTotal === 0
+				? null
+				: traces.reduce(
+						(total, trace) => total + (trace?.repeatedToolCallCount ?? 0),
+						0,
+					) / toolCallTotal,
+		wallClockMs: summarizeNumbers(
+			agentTrials.map((trial) => trial.response.timing.totalMs),
+		),
+		firstTurnTtftMs: summarizeNumbers(
+			traces.map((trace) => trace?.turns[0]?.timing.firstContentMs ?? null),
+		),
+		totalTokens: summarizeNumbers(
+			agentTrials.map((trial) => {
+				const usage = trial.response.usage;
+				return usage.promptTokens === null || usage.completionTokens === null
+					? null
+					: usage.promptTokens + usage.completionTokens;
+			}),
+		),
+		costPerSolvedTaskUsd:
+			solvedTrials.length === 0 ? null : solvedCost / solvedTrials.length,
+		stopReasons,
+	};
 }
 
 function qualitySummary(trials: BenchmarkTrial[]): BenchmarkQualitySummary {
@@ -605,6 +673,7 @@ function summarize(
 						: agreementBetween(measured, referenceTargetId, targetId),
 				fingerprint: fingerprint(measured, targetId, referenceTargetId),
 				performance: metrics(validPerformance),
+				agent: agentSummary(targetTrials),
 				reliability: reliability(targetTrials),
 				efficiency: efficiency(targetTrials),
 				robustnessDrop: robustnessDrop(measured, targetId, cases),
@@ -695,7 +764,8 @@ function estimateCost(
 	}
 	const inputCost = response.usage.promptTokens * inputPrice;
 	const outputCost = response.usage.completionTokens * outputPrice;
-	const fixedCost = Number.isFinite(requestPrice) ? requestPrice : 0;
+	const requests = response.agent?.turnCount ?? 1;
+	const fixedCost = Number.isFinite(requestPrice) ? requestPrice * requests : 0;
 	return inputCost + outputCost + fixedCost;
 }
 
@@ -796,15 +866,31 @@ export async function runBenchmark(
 					? group.caseDefinition.request(context)
 					: group.caseDefinition.request;
 			const startedOffsetMs = performance.now() - started;
-			const response = await executeStreamingRequest({
-				client: options.client,
-				request: mergeRequest(definedRequest, options.request),
-				model: target.model,
-				timeoutMs,
-				fetch: fetchImplementation,
-			});
+			const mergedRequest = mergeRequest(definedRequest, options.request);
 			let evaluation: BenchmarkEvaluation | null = null;
-			if (!response.error && group.caseDefinition.evaluate) {
+			let response: BenchmarkResponse;
+			if (group.caseDefinition.agent) {
+				const outcome = await executeAgentRequest({
+					client: options.client,
+					request: mergedRequest,
+					model: target.model,
+					timeoutMs,
+					fetch: fetchImplementation,
+					agent: group.caseDefinition.agent,
+					context,
+				});
+				response = outcome.response;
+				evaluation = outcome.evaluation;
+			} else {
+				response = await executeStreamingRequest({
+					client: options.client,
+					request: mergedRequest,
+					model: target.model,
+					timeoutMs,
+					fetch: fetchImplementation,
+				});
+			}
+			if (!response.error && !evaluation && group.caseDefinition.evaluate) {
 				try {
 					evaluation = await group.caseDefinition.evaluate(response, context);
 				} catch (error) {
