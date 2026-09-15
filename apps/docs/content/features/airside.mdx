@@ -22,13 +22,19 @@ A listing covers your whole team. Under **Crew**, company owners invite teammate
 
 ## Registering a new carrier
 
-Not in the [provider catalogue](https://llmgateway.io/providers) yet? Register your provider as a **new carrier** from the onboarding page: pick a carrier id, display name, and the base URL of your **OpenAI-compatible API** (the gateway calls `<base URL>/v1/chat/completions`). The endpoint must live on your verified email's domain — the same anti-squatting rule as claiming — and registrations go through the same review. Once approved, your carrier appears on the public providers and models pages and its listings route like any other provider's.
+Not in the [provider catalogue](https://llmgateway.io/providers) yet? Register your provider as a **new carrier** from the onboarding page: pick a carrier id, display name, and the base URL of your **OpenAI-compatible API** (the gateway calls `<base URL>/v1/chat/completions`, unless a listing picks a different [upstream API](#upstream-api-and-preflight)). The endpoint must live on your verified email's domain — the same anti-squatting rule as claiming — and registrations go through the same review. Once approved, your carrier appears on the public providers and models pages and its listings route like any other provider's.
 
 ## Listing your fleet
 
 Once your claim is active, register models under **Fleet**: model name, display name, description, context size, max output, capability flags (streaming, vision, audio input, tools, JSON output, reasoning), and the supported `reasoning_effort` tiers. A new listing is created as a draft together with an **initial price filing**; when the LLM Gateway team approves that filing, the model goes active. Everything except pricing stays freely editable afterward.
 
 Carriers claiming a catalogue provider can also **import their catalogue models** in one click: each active catalogue model becomes a managed listing with its current price as an approved filing. Routing keeps using the catalogue entry until the LLM Gateway team retires it — from then on the Airside listing (and its filed fares) takes over. This is how a provider's models migrate from the static catalogue into carrier self-management.
+
+### Upstream API and preflight
+
+Each listing also picks the **upstream API** the gateway speaks to it: the carrier default, OpenAI Chat Completions, OpenAI Responses, or Google Vertex `generateContent`. The choice is independent of the capabilities you declare — tool calls, JSON output, vision, reasoning, and web search are all probed and served through whichever API you picked, so pick the one your endpoint actually implements. It is fixed once the model is listed.
+
+Before a listing can be filed, Airside runs a **preflight** against your endpoint through that API: one check per declared capability, using a provider key that is used only for that run and erased when it finishes. Editing the model invalidates the run, so a listing never ships with checks made against different settings.
 
 ## Price filings
 

@@ -1,8 +1,10 @@
 import {
 	type BaseMessage,
 	type OpenAIRequestBody,
+	type OpenAIResponsesRequestBody,
 	type OpenAIToolInput,
 	type ProviderId,
+	type ProviderRequestBody,
 	type ToolChoiceType,
 	type WebSearchTool,
 	providers,
@@ -707,7 +709,7 @@ async function runCheck(
 	);
 	const useResponsesApi = options.target.apiFormat === "openai-responses";
 	const { functionTools, webSearchTool } = splitTools(definition.request.tools);
-	const payload = await prepareRequestBody(
+	let payload = await prepareRequestBody(
 		transportProvider,
 		options.target.modelName,
 		null,
@@ -735,6 +737,22 @@ async function runCheck(
 		definition.id === "reasoning_budget" ? 256 : undefined,
 		useResponsesApi,
 	);
+	// The OpenAI Responses body always carries a reasoning block (every OpenAI
+	// model on that surface reasons). A carrier listing that declares no
+	// reasoning runs against an endpoint that rejects it, so drop it — and the
+	// encrypted reasoning payload it would return — from the preflight.
+	if (
+		useResponsesApi &&
+		!options.target.reasoning &&
+		!(payload instanceof FormData)
+	) {
+		const {
+			reasoning: _reasoning,
+			include: _include,
+			...withoutReasoning
+		} = payload as OpenAIResponsesRequestBody;
+		payload = withoutReasoning as ProviderRequestBody;
+	}
 	const headers = getProviderHeaders(transportProvider, requestToken, {
 		providerKeyOptions: options.providerKeyOptions,
 		skipEnvVars: options.skipEnvVars,
