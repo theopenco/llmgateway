@@ -47,12 +47,14 @@ const termsCards: SummaryCard[] = [
 	},
 	{
 		icon: Terminal,
-		title: "For approved coding tools only",
+		title: "Coding agents only",
 		body: (
 			<>
 				Your key works from whitelisted tools like Claude Code, Codex, Cursor
-				and Cline — not from your own apps, backends or scripts. Embeddings,
-				image and video generation aren&rsquo;t included.
+				and Cline — not from your own apps, backends, scripts or automations.
+				Non-coding use such as role play, companion chat or content generation
+				is out of scope too; that list is illustrative, not exhaustive.
+				Embeddings, image and video generation aren&rsquo;t included.
 			</>
 		),
 	},
@@ -83,9 +85,9 @@ const termsCards: SummaryCard[] = [
 		title: "Fair use",
 		body: (
 			<>
-				Abuse, fraud, key sharing or bad-faith payment disputes can get every
-				related account banned immediately, with no refund for the cycle in
-				progress.
+				API or automation use, non-coding use, abuse, fraud, key sharing or
+				bad-faith payment disputes can get every related account banned
+				immediately, with no refund for the cycle in progress.
 			</>
 		),
 	},
