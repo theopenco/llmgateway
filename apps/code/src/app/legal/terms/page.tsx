@@ -322,10 +322,11 @@ export default function TermsPage() {
 				We reserve the right to <strong>permanently ban</strong> accounts — and
 				every related account — that engage in abuse, fraud, payment disputes
 				filed in bad faith, or any other policy violation, including
-				provider-level violations. Banned accounts lose access immediately; fees
-				paid for the current billing cycle are not refunded. This supplements
-				the suspension and termination rights in Section&nbsp;11 of the Base
-				Terms.
+				provider-level violations and a high rate of content filter violations
+				as described in Section&nbsp;6 of the Base Terms. Banned accounts lose
+				access immediately; fees paid for the current billing cycle are not
+				refunded. This supplements the suspension and termination rights in
+				Section&nbsp;11 of the Base Terms.
 			</p>
 			<p>
 				<strong>
