@@ -46,9 +46,24 @@ export function ModelPicker({
 		onSuccess: refresh,
 	});
 	const choices = (models.data?.models ?? [])
+		.map((model) =>
+			output === "audio"
+				? {
+						...model,
+						mappings: model.mappings.filter(
+							(mapping) =>
+								mapping.speechGenerations &&
+								mapping.status === "active" &&
+								(!mapping.deactivatedAt ||
+									new Date(mapping.deactivatedAt).getTime() > Date.now()),
+						),
+					}
+				: model,
+		)
 		.filter(
 			(model) =>
 				model.status === "active" &&
+				(output !== "audio" || model.mappings.length > 0) &&
 				(model.output ? model.output.includes(output) : output === "text") &&
 				`${model.name} ${model.id}`
 					.toLowerCase()

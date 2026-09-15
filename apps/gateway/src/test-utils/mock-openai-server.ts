@@ -557,6 +557,16 @@ export function getMockVideos(): MockVideoJobState[] {
 	return [...videoJobs.values()];
 }
 
+const mockAudioAssets = new Map<string, Uint8Array<ArrayBuffer>>();
+
+export function setMockAudioAsset(format: string, bytes: Uint8Array) {
+	mockAudioAssets.set(format, new Uint8Array(bytes));
+}
+
+export function resetMockAudioState() {
+	mockAudioAssets.clear();
+}
+
 let videoAsset: Uint8Array<ArrayBuffer> | undefined;
 
 export function setMockVideoAsset(bytes: Uint8Array) {
@@ -1467,8 +1477,10 @@ mockOpenAIServer.post("/v1/audio/speech", async (c) => {
 		wav: "audio/wav",
 		pcm: "audio/pcm",
 	};
-	// Deterministic mock audio payload (not a real encoded stream).
-	const audio = Buffer.from("MOCK_OPENAI_AUDIO");
+	const fixture = mockAudioAssets.get(format);
+	const audio = fixture
+		? Buffer.from(fixture)
+		: Buffer.from("MOCK_OPENAI_AUDIO");
 
 	// gpt-4o-mini-tts requests stream_format=sse: emit audio deltas followed by a
 	// done event carrying token usage, mirroring OpenAI's SSE schema.

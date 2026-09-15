@@ -131,6 +131,7 @@ const modelProviderMappingSchema = z.object({
 	webSearch: z.boolean().nullable(),
 	webSearchPrice: z.string().nullable(),
 	realtime: z.boolean().nullable(),
+	speechGenerations: z.boolean().nullable(),
 	realtimeTranscription: z.boolean().nullable(),
 	realtimeTranscriptionTurnDetection: z.boolean().nullable(),
 	supportedVoices: z.array(z.string()).nullable(),
@@ -259,6 +260,7 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				audio: mapping.audio ?? sharedMapping?.audio ?? null,
 				document: sharedMapping?.document ?? null,
 				realtime: sharedMapping?.realtime ?? null,
+				speechGenerations: sharedMapping?.speechGenerations ?? null,
 				realtimeTranscription: sharedMapping?.realtimeTranscription ?? null,
 				realtimeTranscriptionTurnDetection:
 					sharedMapping?.realtimeTranscriptionTurnDetection ?? null,

@@ -5,6 +5,7 @@ import {
 	mockOpenAIServer,
 	getMockVideos,
 	setMockVideoAsset,
+	setMockAudioAsset,
 	setMockVideoStatus,
 	startMockServer,
 } from "../../gateway/dist/test-utils/mock-openai-server.js";
@@ -21,6 +22,18 @@ const image = readFileSync(
 setMockVideoAsset(
 	readFileSync(new URL("./fixtures/test-video.mp4", import.meta.url)),
 );
+setMockAudioAsset(
+	"wav",
+	readFileSync(
+		new URL("../../gateway/src/test-fixtures/test-audio.wav", import.meta.url),
+	),
+);
+for (const format of ["mp3", "aac", "flac", "opus"]) {
+	setMockAudioAsset(
+		format,
+		readFileSync(new URL(`./fixtures/test-audio.${format}`, import.meta.url)),
+	);
+}
 setInterval(() => {
 	for (const job of getMockVideos()) {
 		const createdAtMs = job.created_at * 1000;
