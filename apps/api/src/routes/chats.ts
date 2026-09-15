@@ -372,6 +372,8 @@ const searchChats = createRoute({
 	request: {
 		query: z.object({
 			q: z.string().optional(),
+			organizationId: z.string().trim().min(1).optional(),
+			status: z.enum(["active", "archived"]).optional().default("active"),
 			limit: z.coerce.number().min(1).max(100).default(50).optional(),
 			offset: z.coerce.number().min(0).default(0).optional(),
 		}),
@@ -397,8 +399,18 @@ chats.openapi(searchChats, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
-	const { q = "", limit = 50, offset = 0 } = c.req.valid("query");
+	const {
+		q = "",
+		limit = 50,
+		offset = 0,
+		organizationId,
+		status,
+	} = c.req.valid("query");
 	const search = q.trim();
+	const orgFilter = await buildOrgHistoryFilter(
+		tables.chat.organizationId,
+		organizationId,
+	);
 
 	const searchCondition = search
 		? or(
@@ -412,17 +424,13 @@ chats.openapi(searchChats, async (c) => {
 			)
 		: undefined;
 
-	const conditions = [
+	const where = and(
 		eq(tables.chat.userId, user.id),
-		eq(tables.chat.status, "active"),
+		eq(tables.chat.status, status),
 		isNull(tables.chat.parentChatId),
-	];
-
-	if (searchCondition) {
-		conditions.push(searchCondition);
-	}
-
-	const where = and(...conditions);
+		orgFilter,
+		searchCondition,
+	);
 
 	const [chatsWithCount, totalResult] = await Promise.all([
 		db
