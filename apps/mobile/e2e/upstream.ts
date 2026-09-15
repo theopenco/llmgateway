@@ -3,6 +3,9 @@ import process from "node:process";
 
 import {
 	mockOpenAIServer,
+	getMockVideos,
+	setMockVideoAsset,
+	setMockVideoStatus,
 	startMockServer,
 } from "../../gateway/dist/test-utils/mock-openai-server.js";
 
@@ -15,6 +18,20 @@ if (!process.env.STACK_SUFFIX || !process.env.GATEWAY_PORT) {
 const image = readFileSync(
 	new URL("../../gateway/src/test-fixtures/test-image.png", import.meta.url),
 ).toString("base64");
+setMockVideoAsset(
+	readFileSync(new URL("./fixtures/test-video.mp4", import.meta.url)),
+);
+setInterval(() => {
+	for (const job of getMockVideos()) {
+		const createdAtMs = job.created_at * 1000;
+		const age = Date.now() - createdAtMs;
+		if (job.status === "queued" && age >= 2000) {
+			setMockVideoStatus(job.id, "in_progress", { progress: 50 });
+		} else if (job.status === "in_progress" && age >= 5000) {
+			setMockVideoStatus(job.id, "completed");
+		}
+	}
+}, 1000).unref();
 function imageResponse(count: number, stream: boolean, type: string) {
 	if (stream) {
 		return new Response(
