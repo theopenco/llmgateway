@@ -16,9 +16,9 @@ import { MessageBubble } from "@/components/MessageBubble";
 import { ModelPicker } from "@/components/ModelPicker";
 import { Button, ErrorNotice, Field, styles } from "@/components/ui";
 import { defaultChatSettings, usePreferences } from "@/lib/preferences";
+import { useFollowingList } from "@/lib/use-following-list";
 
 import type { DebateTurn } from "@/api/debate";
-import type { NativeScrollEvent, NativeSyntheticEvent } from "react-native";
 
 export function GroupConversation({ projectId }: { projectId: string }) {
 	const insets = useSafeAreaInsets();
@@ -28,34 +28,14 @@ export function GroupConversation({ projectId }: { projectId: string }) {
 	const [models, setModels] = useState<string[]>([]);
 	const [turns, setTurns] = useState<DebateTurn[]>([]);
 	const controller = useRef<AbortController | null>(null);
-	const list = useRef<FlatList<DebateTurn>>(null);
-	const follow = useRef(true);
-	const contentHeight = useRef(0);
-	const viewportHeight = useRef(0);
-	const scrollToLatest = () => {
-		if (turns.length && follow.current && viewportHeight.current) {
-			list.current?.scrollToOffset({
-				offset: Math.max(0, contentHeight.current - viewportHeight.current),
-				animated: false,
-			});
-		}
-	};
-	const updateFollow = ({
-		nativeEvent,
-	}: NativeSyntheticEvent<NativeScrollEvent>) => {
-		follow.current =
-			nativeEvent.contentSize.height -
-				nativeEvent.layoutMeasurement.height -
-				nativeEvent.contentOffset.y <
-			80;
-	};
+	const following = useFollowingList<DebateTurn>(turns.length > 0);
 	useEffect(() => () => controller.current?.abort(), []);
 	const run = useMutation({
 		mutationFn: async () => {
 			Keyboard.dismiss();
 			const abort = new AbortController();
 			controller.current = abort;
-			follow.current = true;
+			following.startFollowing();
 			await runDebate({
 				projectId,
 				models,
@@ -93,25 +73,12 @@ export function GroupConversation({ projectId }: { projectId: string }) {
 			keyboardVerticalOffset={insets.top + 44}
 		>
 			<FlatList
-				ref={list}
+				{...following.listProps}
 				data={turns}
 				keyExtractor={(_, index) => String(index)}
 				contentContainerStyle={{ padding: 22, gap: 18 }}
 				keyboardShouldPersistTaps="handled"
 				keyboardDismissMode="interactive"
-				onScrollBeginDrag={() => {
-					follow.current = false;
-				}}
-				onScrollEndDrag={updateFollow}
-				onMomentumScrollEnd={updateFollow}
-				onLayout={({ nativeEvent }) => {
-					viewportHeight.current = nativeEvent.layout.height;
-					scrollToLatest();
-				}}
-				onContentSizeChange={(_, height) => {
-					contentHeight.current = height;
-					scrollToLatest();
-				}}
 				ListHeaderComponent={
 					<View style={{ gap: 14 }}>
 						<Text style={styles.title}>Around the table</Text>

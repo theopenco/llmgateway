@@ -13,10 +13,14 @@ export function ModelPicker({
 	value,
 	onChange,
 	output = "text",
+	label = "Model",
+	disabled = false,
 }: {
 	value: string;
 	onChange: (model: string) => void;
 	output?: "text" | "image" | "video" | "audio";
+	label?: string;
+	disabled?: boolean;
 }) {
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");
@@ -58,7 +62,8 @@ export function ModelPicker({
 	return (
 		<>
 			<Button
-				title={`Model: ${value === "auto" ? "Auto" : value}`}
+				title={`${label}: ${value === "auto" ? "Auto" : value}`}
+				disabled={disabled}
 				secondary
 				onPress={() => {
 					setProviderModel(null);
