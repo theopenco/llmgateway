@@ -12,6 +12,7 @@ import { verifyVideoContentAccessToken } from "@llmgateway/shared/video-access";
 
 import {
 	resetMockVideoState,
+	resetMockAudioState,
 	startMockServer,
 	stopMockServer,
 } from "./mock-openai-server.js";
@@ -176,6 +177,7 @@ export function createGatewayApiTestHarness() {
 		]);
 		await clearCache();
 		resetMockVideoState();
+		resetMockAudioState();
 		await resetGatewayTestData();
 		await seedGatewayTestData();
 	});
