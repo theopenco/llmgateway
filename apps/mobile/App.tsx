@@ -15,6 +15,7 @@ import { GroupConversation } from "@/screens/GroupConversation";
 import { ImageStudio } from "@/screens/ImageStudio";
 import { ProjectDetail } from "@/screens/ProjectDetail";
 import { SharedConversations } from "@/screens/SharedConversations";
+import { VideoStudio } from "@/screens/VideoStudio";
 
 import { api, queryClient } from "./src/api/client";
 import { restoreSession, clearSession } from "./src/auth/session";
@@ -39,6 +40,7 @@ import { Workspaces, type Workspace } from "./src/screens/Workspaces";
 type Routes = {
 	Home: undefined;
 	ImageStudio: undefined;
+	VideoStudio: undefined;
 	Workspaces: undefined;
 	Chat: { id?: string; knowledgeProjectId?: string; single?: boolean };
 	Comparison: { id?: string };
@@ -157,6 +159,11 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 								onPress={() => navigation.navigate("ImageStudio")}
 							/>
 							<Button
+								title="Video Studio"
+								secondary
+								onPress={() => navigation.navigate("VideoStudio")}
+							/>
+							<Button
 								title="Switch workspace"
 								secondary
 								onPress={() => navigation.navigate("Workspaces")}
@@ -243,6 +250,14 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 				<Stack.Screen name="ImageStudio" options={{ title: "Image Studio" }}>
 					{() => (
 						<ImageStudio
+							organizationId={organizationId}
+							projectId={projectId}
+						/>
+					)}
+				</Stack.Screen>
+				<Stack.Screen name="VideoStudio" options={{ title: "Video Studio" }}>
+					{() => (
+						<VideoStudio
 							organizationId={organizationId}
 							projectId={projectId}
 						/>

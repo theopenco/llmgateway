@@ -8,13 +8,44 @@ import { Dirs, FileSystem } from "react-native-file-access";
 
 let exportSequence = 0;
 
+function temporaryPath(name: string) {
+	return `${Dirs.CacheDir}/Lounge-${Date.now()}-${++exportSequence}-${name.replace(/[\\/]/g, "-")}`;
+}
+
+export async function exportRemoteFile(
+	file: { url: string; name: string },
+	action: "save" | "share",
+) {
+	const path = temporaryPath(file.name);
+	try {
+		const response = await FileSystem.fetch(file.url, { path });
+		if (!response.ok) {
+			throw new Error(
+				`Download failed (${response.status}). Try refreshing the video.`,
+			);
+		}
+		await exportLocalFile(path, action);
+	} finally {
+		if (await FileSystem.exists(path)) {
+			await FileSystem.unlink(path);
+		}
+	}
+}
+
 export async function exportFile(
 	file: { base64: string; name: string },
 	action: "save" | "share",
 ) {
-	const name = file.name.replace(/[\\/]/g, "-");
-	const path = `${Dirs.CacheDir}/Lounge-${Date.now()}-${++exportSequence}-${name}`;
+	const path = temporaryPath(file.name);
 	await FileSystem.writeFile(path, file.base64, "base64");
+	try {
+		await exportLocalFile(path, action);
+	} finally {
+		await FileSystem.unlink(path);
+	}
+}
+
+export async function exportLocalFile(path: string, action: "save" | "share") {
 	try {
 		const url = `file://${path.split("/").map(encodeURIComponent).join("/")}`;
 		if (action === "share") {
@@ -33,7 +64,5 @@ export async function exportFile(
 		) {
 			throw error;
 		}
-	} finally {
-		await FileSystem.unlink(path);
 	}
 }

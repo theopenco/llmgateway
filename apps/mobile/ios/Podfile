@@ -6,6 +6,8 @@ require Pod::Executable.execute_command('node', ['-p',
   )', __dir__]).strip
 
 platform :ios, min_ios_version_supported
+# Nitro video headers require the source JSI module layout on React Native 0.87.
+ENV['RCT_USE_PREBUILT_RNCORE'] = '0'
 prepare_react_native_project!
 
 linkage = ENV['USE_FRAMEWORKS']
