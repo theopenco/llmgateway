@@ -8,6 +8,14 @@ export default mergeConfig(getDefaultConfig(projectRoot), {
 	watchFolders: [workspaceRoot],
 	resolver: {
 		resolveRequest(context, moduleName, platform) {
+			const nativePackage = /^(react|react-native)(\/|$)/.test(moduleName);
+			if (nativePackage) {
+				return context.resolveRequest(
+					{ ...context, originModulePath: path.join(projectRoot, "index.js") },
+					moduleName,
+					platform,
+				);
+			}
 			const resolved = moduleName.startsWith("@/")
 				? path.resolve(projectRoot, "src", moduleName.slice(2))
 				: moduleName;
@@ -17,9 +25,5 @@ export default mergeConfig(getDefaultConfig(projectRoot), {
 			path.join(projectRoot, "node_modules"),
 			path.join(workspaceRoot, "node_modules"),
 		],
-		extraNodeModules: {
-			react: path.join(projectRoot, "node_modules/react"),
-			"react-native": path.join(projectRoot, "node_modules/react-native"),
-		},
 	},
 });

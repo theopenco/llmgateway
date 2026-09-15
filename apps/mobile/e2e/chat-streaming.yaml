@@ -1,0 +1,39 @@
+appId: io.llmgateway.lounge
+---
+- evalScript: ${output.reasoningPrompt = "TRIGGER_REASONING native " + Date.now()}
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- tapOn: "Start a conversation"
+- tapOn: "Model: Auto"
+- tapOn:
+    id: "field-search-models"
+- inputText: "gpt-5-nano"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT-5 Nano"
+- tapOn: "Message.*"
+- inputText: ${output.reasoningPrompt}
+- tapOn: "Send message"
+- extendedWaitUntil:
+    visible: "Show reasoning"
+    timeout: 30000
+- tapOn: "Show reasoning"
+- assertVisible: "Let me think about this step by step."
+- tapOn: "Hide reasoning"
+- assertNotVisible: "Let me think about this step by step."
+- tapOn: "Message.*"
+- inputText: "Pending next question"
+- tapOn: "Retry last response"
+- extendedWaitUntil:
+    visible: "Retry last response"
+    timeout: 30000
+- assertVisible: ".*Pending next question.*"
+- tapOn: "Message.*"
+- eraseText
+- inputText: "TRIGGER_TIMEOUT_20000 native stop check"
+- tapOn: "Send message"
+- tapOn: "Stop response"
+- extendedWaitUntil:
+    visible: "Retry last response"
+    timeout: 15000
+- assertVisible: "Response stopped."
+- assertNotVisible: "Stop response"

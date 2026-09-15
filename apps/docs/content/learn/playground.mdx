@@ -51,6 +51,8 @@ Click **Image Studio** in the sidebar to switch to the image generation interfac
 
 The native iOS client lives in `apps/mobile` in the repository and is under development. It uses the same LLM Gateway account and Lounge data. Membership purchases and billing stay on the Lounge website.
 
+Conversations support Markdown, reasoning, attachments, copying, editing, retries, and forking. Chat settings include system instructions, temperature, output limits, reasoning effort, and web search where supported by the model. Settings stay on the device until sign-out. Temporary conversations stay out of Lounge history; normal gateway usage and organization retention settings still apply.
+
 The iOS Image Studio supports reference-image edits, model comparison, model-specific size and quality settings, and synchronized history. Save images to Files or share them through the iOS share sheet. If saving history fails, the generated images remain available and you can retry saving without generating them again.
 
 Its conversation history separates active and archived chats. Archiving hides a conversation from the active list; restoring brings it back. Deleting a conversation is permanent.
