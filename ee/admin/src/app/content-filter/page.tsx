@@ -218,7 +218,7 @@ export default async function ContentFilterPage({
 			: violations.models.map((model) => ({
 					...model,
 					key: `${model.usedProvider}/${model.usedModel}`,
-					label: model.usedModel,
+					label: shortModelName(model.usedModel, model.usedProvider),
 					focus: {
 						usedProvider: model.usedProvider,
 						usedModel: model.usedModel,
