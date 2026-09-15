@@ -53,7 +53,7 @@ describe("insertLog stealth provider error redaction", () => {
 		async (retentionLevel) => {
 			await insertLog(
 				baseLogData({
-					usedProvider: "granite",
+					usedProvider: "glacier",
 					errorDetails: { ...rawErrorDetails },
 				}),
 				{ retentionLevel },
@@ -90,7 +90,7 @@ describe("insertLog stealth provider error redaction", () => {
 	it("does nothing when there are no error details", async () => {
 		await insertLog(
 			baseLogData({
-				usedProvider: "granite",
+				usedProvider: "glacier",
 				hasError: false,
 				finishReason: "stop",
 				errorDetails: null,

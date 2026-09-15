@@ -12,6 +12,7 @@ import {
 	effectiveTtftTotals,
 	excludeRegionalMappingRows,
 	gte,
+	getCatalogueProviderIds,
 	sql,
 } from "@llmgateway/db";
 import { deriveStabilityMetrics } from "@llmgateway/shared";
@@ -91,6 +92,7 @@ function windowToStartDate(window: string): Date {
 }
 
 publicProvidersStats.openapi(listRoute, async (c) => {
+	const catalogueProviderIds = await getCatalogueProviderIds();
 	const { window = "7d" } = c.req.valid("query");
 
 	// Every supported window except 24h is longer than the hourly threshold, so
@@ -187,5 +189,10 @@ publicProvidersStats.openapi(listRoute, async (c) => {
 		};
 	});
 
-	return c.json({ providers, window });
+	return c.json({
+		providers: providers.filter((provider) =>
+			catalogueProviderIds.has(provider.providerId),
+		),
+		window,
+	});
 });

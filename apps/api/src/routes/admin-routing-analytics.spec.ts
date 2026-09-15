@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { cdb, db, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { models, type ProviderModelMapping } from "@llmgateway/models";
 
 const originalAdminEmails = process.env.ADMIN_EMAILS;
@@ -122,6 +122,67 @@ describe("admin routing analytics endpoint", () => {
 	it("returns 404 for an unknown model", async () => {
 		const res = await get("?modelId=does-not-exist", cookie);
 		expect(res.status).toBe(404);
+	});
+
+	it("reads deleted-provider labels, pricing, and history from retained database rows", async () => {
+		const providerId = "removed-analytics-provider";
+		await db.insert(tables.provider).values({
+			id: providerId,
+			name: "Historical carrier",
+			description: "Test provider",
+			status: "inactive",
+		});
+		await db
+			.insert(tables.model)
+			.values({ id: testModel.id, family: "test" })
+			.onConflictDoNothing();
+		await db.insert(tables.modelProviderMapping).values({
+			id: providerId,
+			providerId,
+			modelId: testModel.id,
+			externalId: "old-model",
+			inputPrice: "1.4e-6",
+			outputPrice: "4.4e-6",
+			status: "inactive",
+		});
+		await db.insert(tables.modelProviderMappingHistoryHourly).values({
+			modelId: testModel.id,
+			providerId,
+			modelProviderMappingId: providerId,
+			hourTimestamp: currentHourStart(),
+			logsCount: 42,
+		});
+		try {
+			const response = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+			expect(response.status).toBe(200);
+			const body = (await response.json()) as {
+				mappings: {
+					providerId: string;
+					providerName: string;
+					routable: boolean;
+					listPrice: number;
+					excludedReasons: string[];
+				}[];
+				summary: { providerId: string; requestCount: number }[];
+			};
+			const mapping = body.mappings.find(
+				(entry) => entry.providerId === providerId,
+			);
+			expect(mapping).toMatchObject({
+				providerName: "Historical carrier",
+				routable: false,
+			});
+			expect(mapping?.listPrice).toBeGreaterThan(0);
+			expect(mapping?.excludedReasons).toContain("removed from catalogue");
+			expect(
+				body.summary.find((entry) => entry.providerId === providerId)
+					?.requestCount,
+			).toBe(42);
+		} finally {
+			await db
+				.delete(tables.provider)
+				.where(eq(tables.provider.id, providerId));
+		}
 	});
 
 	it("derives hourly metrics and scores from mapping history", async () => {
