@@ -1,13 +1,13 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
 
 // Removed API key manager for playground; we rely on server-set cookie
+import { TopUpCreditsDialog } from "@/components/credits/top-up-credits-dialog";
 import { ModelSelector } from "@/components/model-selector";
 import { AuthDialog } from "@/components/playground/auth-dialog";
 import { ChatHeader } from "@/components/playground/chat-header";
@@ -76,15 +76,6 @@ interface ToolPart {
 /**
  * Type guard to check if an object is a ToolPart (type starts with "tool-")
  */
-
-// The top-up dialog pulls in @stripe/react-stripe-js; load it lazily so the
-// payment stack stays out of the chat page bundle until credits run out.
-const TopUpCreditsDialog = dynamic(() =>
-	import("@/components/credits/top-up-credits-dialog").then(
-		(mod) => mod.TopUpCreditsDialog,
-	),
-);
-
 function isToolPart(obj: unknown): obj is ToolPart {
 	return (
 		typeof obj === "object" &&
@@ -378,8 +369,6 @@ export default function ChatPageClient({
 	const [finishReason, setFinishReason] = useState<string | null>(null);
 	const [ocrPending, setOcrPending] = useState(false);
 	const [showTopUp, setShowTopUp] = useState(false);
-	// Latched: once needed, keep it mounted so Radix close animations still run.
-	const [topUpNeeded, setTopUpNeeded] = useState(false);
 	const [isTemporaryChat, setIsTemporaryChat] = useState(false);
 	const [pendingVideoModel, setPendingVideoModel] = useState<string | null>(
 		null,
@@ -1345,7 +1334,6 @@ export default function ChatPageClient({
 				isOrganizationAdmin(selectedOrganization.role) &&
 				Number(selectedOrganization.credits) <= 0
 			) {
-				setTopUpNeeded(true);
 				setShowTopUp(true);
 				return false;
 			}
@@ -2427,13 +2415,11 @@ export default function ChatPageClient({
 					</section>
 				</main>
 			</div>
-			{topUpNeeded && (
-				<TopUpCreditsDialog
-					open={showTopUp}
-					onOpenChange={setShowTopUp}
-					organizationId={selectedOrganization?.id ?? chatOrg?.id}
-				/>
-			)}
+			<TopUpCreditsDialog
+				open={showTopUp}
+				onOpenChange={setShowTopUp}
+				organizationId={selectedOrganization?.id ?? chatOrg?.id}
+			/>
 			<AuthDialog open={showAuthDialog} returnUrl={returnUrl} />
 			<Dialog
 				open={pendingVideoModel !== null}

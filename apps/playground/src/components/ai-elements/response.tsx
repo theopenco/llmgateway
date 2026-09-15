@@ -61,12 +61,6 @@ export const Response = memo(
 			{...props}
 		/>
 	),
-	// isStreaming must participate: when a stream finishes, children are
-	// unchanged but isAnimating has to flip off or the completed message keeps
-	// running the per-token animation machinery.
-	(prevProps, nextProps) =>
-		prevProps.children === nextProps.children &&
-		prevProps.isStreaming === nextProps.isStreaming,
 );
 
 Response.displayName = "Response";

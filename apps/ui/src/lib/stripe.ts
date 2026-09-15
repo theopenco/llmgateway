@@ -15,10 +15,7 @@ function getStripePromise() {
 	return stripePromise;
 }
 
-/**
- * Pass `enabled: false` to skip loading Stripe.js entirely until the caller
- * actually needs it — the script is ~200KB and phones home on load.
- */
+// Pass `false` to skip loading Stripe.js (~200KB, phones home) until needed.
 export function useStripe(enabled = true) {
 	const [stripe, setStripe] = useState<Stripe | null>(null);
 	const [isLoading, setIsLoading] = useState(true);

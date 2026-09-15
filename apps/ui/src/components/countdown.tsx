@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import { useHasMounted } from "@/hooks/useHasMounted";
+
 interface CountdownProps {
 	expiresAt: string;
 }
@@ -32,6 +34,7 @@ function getTimeRemaining(expiresAt: string) {
 }
 
 export function Countdown({ expiresAt }: CountdownProps) {
+	const hasMounted = useHasMounted();
 	const [time, setTime] = useState(() => getTimeRemaining(expiresAt));
 
 	useEffect(() => {
@@ -52,30 +55,26 @@ export function Countdown({ expiresAt }: CountdownProps) {
 		return () => clearInterval(interval);
 	}, [expiresAt]);
 
-	// The server-rendered value is computed at (possibly ISR-cached) render
-	// time, so the first client render always disagrees with it; the mismatch
-	// is expected and corrected by the interval.
+	// Clock-derived text can never match between the server render and
+	// hydration, so render it only once mounted; reserve its width meanwhile.
+	if (!hasMounted) {
+		return <span className="tabular-nums invisible">0d 0h 0m remaining</span>;
+	}
+
 	if (time.expired) {
-		return (
-			<span suppressHydrationWarning className="text-destructive font-medium">
-				Expired
-			</span>
-		);
+		return <span className="text-destructive font-medium">Expired</span>;
 	}
 
 	if (time.days > 0) {
 		return (
-			<span suppressHydrationWarning className="tabular-nums">
+			<span className="tabular-nums">
 				{time.days}d {time.hours}h {time.minutes}m remaining
 			</span>
 		);
 	}
 
 	return (
-		<span
-			suppressHydrationWarning
-			className="tabular-nums text-orange-600 dark:text-orange-400"
-		>
+		<span className="tabular-nums text-orange-600 dark:text-orange-400">
 			{time.hours}h {time.minutes}m {time.seconds}s remaining
 		</span>
 	);

@@ -30,27 +30,19 @@ export interface Feedback {
 	message: string;
 }
 
-export interface ActionResponse {
-	githubUrl: string;
-}
-
-interface Result extends Feedback {
-	response?: ActionResponse;
-}
-
 // localStorage throws outright in Safari Private Browsing and when site data is
 // blocked, so persistence is best-effort: it must never take the widget down or
 // block the confirmation UI.
-function readStoredFeedback(url: string): Result | null {
+function readStoredFeedback(url: string): Feedback | null {
 	try {
 		const item = localStorage.getItem(`docs-feedback-${url}`);
-		return item === null ? null : (JSON.parse(item) as Result);
+		return item === null ? null : (JSON.parse(item) as Feedback);
 	} catch {
 		return null;
 	}
 }
 
-function writeStoredFeedback(url: string, result: Result | null) {
+function writeStoredFeedback(url: string, result: Feedback | null) {
 	try {
 		if (result) {
 			localStorage.setItem(`docs-feedback-${url}`, JSON.stringify(result));
@@ -66,7 +58,7 @@ export function Feedback({ githubUrl }: { githubUrl: string }) {
 	const url = usePathname();
 	const posthog = usePostHog();
 	const [previous, replacePrevious] = useReducer(
-		(_previous: Result | null, nextPrevious: Result | null) => nextPrevious,
+		(_previous: Feedback | null, nextPrevious: Feedback | null) => nextPrevious,
 		null,
 	);
 	const [opinion, setOpinion] = useState<"good" | "bad" | null>(null);
@@ -87,16 +79,12 @@ export function Feedback({ githubUrl }: { githubUrl: string }) {
 		};
 
 		posthog.capture("on_rate_docs", { ...feedback, url });
-		const result: Result = {
-			response: { githubUrl },
-			...feedback,
-		};
 		// Commit the UI first: a storage failure must not swallow the
 		// confirmation panel and leave Submit looking unresponsive.
-		replacePrevious(result);
+		replacePrevious(feedback);
 		setMessage("");
 		setOpinion(null);
-		writeStoredFeedback(url, result);
+		writeStoredFeedback(url, feedback);
 
 		e?.preventDefault();
 	}
@@ -150,7 +138,7 @@ export function Feedback({ githubUrl }: { githubUrl: string }) {
 						<p>Thank you for your feedback!</p>
 						<div className="flex flex-row items-center gap-2">
 							<a
-								href={previous.response?.githubUrl ?? githubUrl}
+								href={githubUrl}
 								rel="noreferrer noopener"
 								target="_blank"
 								className={cn(

@@ -727,38 +727,43 @@ export async function POST(req: Request) {
 	if (project_id) {
 		projectQueryText = getLastUserText(messages).slice(0, 10_000);
 	}
-	// Retrieval and connector tool loading are independent, so start both
-	// before awaiting either — serialized they would stack both latencies onto
-	// the stream's time to first token. fetchServerData resolves to null on
-	// failure, so only the connector promise can reject, and it is awaited via
-	// Promise.all immediately below.
-	const retrievalPromise = project_id
-		? fetchServerData<ProjectRetrievalResponse>(
-				"POST",
-				"/chat-projects/{id}/retrieve",
-				{
-					params: { path: { id: project_id } },
-					body: {
-						query: projectQueryText.trim() || "Project knowledge base overview",
-					},
-					// Bill the query embedding to the same gateway key as the chat.
-					headers: { "x-llmgateway-key": finalApiKey },
-					// Don't let a slow retrieval stall the chat; on timeout the
-					// request proceeds without project context.
-					signal: AbortSignal.timeout(15_000),
-				},
-			)
-		: null;
-	const connectorToolsPromise = selectedConnectors.data.length
-		? createServerApiClient().then(async (client) => ({
-				client,
-				response: await client.POST("/connectors/tools", {
-					body: { connectors: selectedConnectors.data },
-					signal: req.signal,
-				}),
-			}))
-		: null;
 	try {
+		// Validate the message shape before firing the retrieval, which bills a
+		// query embedding to the user's key.
+		const modelMessages = await convertToModelMessages(
+			messages.filter((m) => m.role !== "system"),
+		);
+		// Retrieval and connector tool loading are independent, so start both
+		// before awaiting either — serialized they would stack both latencies
+		// onto the stream's time to first token. fetchServerData resolves to null
+		// on failure, so only the connector promise can reject.
+		const retrievalPromise = project_id
+			? fetchServerData<ProjectRetrievalResponse>(
+					"POST",
+					"/chat-projects/{id}/retrieve",
+					{
+						params: { path: { id: project_id } },
+						body: {
+							query:
+								projectQueryText.trim() || "Project knowledge base overview",
+						},
+						// Bill the query embedding to the same gateway key as the chat.
+						headers: { "x-llmgateway-key": finalApiKey },
+						// Don't let a slow retrieval stall the chat; on timeout the
+						// request proceeds without project context.
+						signal: AbortSignal.timeout(15_000),
+					},
+				)
+			: null;
+		const connectorToolsPromise = selectedConnectors.data.length
+			? createServerApiClient().then(async (client) => ({
+					client,
+					response: await client.POST("/connectors/tools", {
+						body: { connectors: selectedConnectors.data },
+						signal: req.signal,
+					}),
+				}))
+			: null;
 		const [retrieval, connectorTools] = await Promise.all([
 			retrievalPromise,
 			connectorToolsPromise,
@@ -855,9 +860,7 @@ export async function POST(req: Request) {
 				.join("\n\n") || undefined;
 		const result = streamText({
 			model: llmgateway.chat(selectedModel, { usage: { include: true } }),
-			messages: await convertToModelMessages(
-				messages.filter((m) => m.role !== "system"),
-			),
+			messages: modelMessages,
 			...(resolvedSystem ? { instructions: resolvedSystem } : {}),
 			...(hasTools
 				? {

@@ -1,5 +1,4 @@
 import { Bricolage_Grotesque, Inter, Geist_Mono } from "next/font/google";
-import { Suspense } from "react";
 
 import { GoogleTag } from "@/components/google-tag";
 import { Providers } from "@/components/providers";
@@ -89,19 +88,16 @@ const webSiteSchema = {
 	},
 };
 
-// Fetched inside Suspense so the document shell streams immediately instead
-// of gating TTFB of every page on the banner API round trip.
-async function SystemBanner() {
-	return <SystemBannerBar banner={await fetchSystemBanner()} />;
-}
-
 export default async function RootLayout({
 	children,
 }: {
 	children: ReactNode;
 }) {
 	const config = getConfig();
-	const timeZone = await getTimeZonePreference();
+	const [timeZone, systemBanner] = await Promise.all([
+		getTimeZonePreference(),
+		fetchSystemBanner(),
+	]);
 
 	return (
 		<html
@@ -119,9 +115,7 @@ export default async function RootLayout({
 				/>
 			</head>
 			<body className="antialiased">
-				<Suspense fallback={null}>
-					<SystemBanner />
-				</Suspense>
+				<SystemBannerBar banner={systemBanner} />
 				<GoogleTag
 					googleTagId={config.googleTagId}
 					googleAdsSignupConversion={config.googleAdsSignupConversion}

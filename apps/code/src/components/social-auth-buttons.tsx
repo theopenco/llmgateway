@@ -58,32 +58,37 @@ export function SocialAuthButtons({
 	const { signIn } = useAuth();
 	const { githubAuth, googleAuth } = useAppConfig();
 
-	// Captured in a mount effect: these pages are server-rendered, so reading
-	// the URL and sessionStorage during render would make the dialog's `open`
-	// prop differ between server HTML and hydration. `provider: null` means the
-	// round trip that failed with `signup_disabled` can't be retried (no stored
-	// provider), so the dialog sends the user to the signup page instead of
-	// re-running the same provider.
+	// Captured lazily during the first render, before any effect strips
+	// `?error=` from the URL. `provider: null` means the round trip that failed
+	// with `signup_disabled` can't be retried (no stored provider), so the dialog
+	// sends the user to the signup page instead of re-running the same provider.
 	const [signupDisabledState, setSignupDisabledState] = useState<{
 		provider: SocialProvider | null;
-	} | null>(null);
-
-	useEffect(() => {
-		if (requestSignUp) {
-			return;
+	} | null>(() => {
+		if (typeof window === "undefined" || requestSignUp) {
+			return null;
 		}
 		const params = new URLSearchParams(window.location.search);
 		if (params.get("error") !== "signup_disabled") {
-			return;
+			return null;
 		}
 		const stored = sessionStorage.getItem(PENDING_PROVIDER_KEY);
-		setSignupDisabledState({
+		return {
 			provider: stored === "github" || stored === "google" ? stored : null,
-		});
+		};
+	});
+
+	useEffect(() => {
+		if (!signupDisabledState) {
+			return;
+		}
 		sessionStorage.removeItem(PENDING_PROVIDER_KEY);
-		params.delete("error");
-		const query = params.toString();
-		router.replace(window.location.pathname + (query ? `?${query}` : ""));
+		const params = new URLSearchParams(window.location.search);
+		if (params.get("error") === "signup_disabled") {
+			params.delete("error");
+			const query = params.toString();
+			router.replace(window.location.pathname + (query ? `?${query}` : ""));
+		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
