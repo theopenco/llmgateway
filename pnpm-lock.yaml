@@ -351,6 +351,9 @@ importers:
       '@llmgateway/audit':
         specifier: workspace:*
         version: link:../../ee/audit
+      '@llmgateway/benchmarks':
+        specifier: workspace:*
+        version: link:../../packages/benchmarks
       '@llmgateway/cache':
         specifier: workspace:*
         version: link:../../packages/cache
@@ -1376,6 +1379,9 @@ importers:
       '@llmgateway/actions':
         specifier: workspace:*
         version: link:../../packages/actions
+      '@llmgateway/benchmarks':
+        specifier: workspace:*
+        version: link:../../packages/benchmarks
       '@llmgateway/cache':
         specifier: workspace:*
         version: link:../../packages/cache

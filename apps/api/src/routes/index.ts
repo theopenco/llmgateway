@@ -4,6 +4,7 @@ import { apiAuth as auth } from "@/auth/config.js";
 
 import { activity } from "./activity.js";
 import { adminAirside } from "./admin-airside.js";
+import { adminBenchmarks } from "./admin-benchmarks.js";
 import { adminContentFilter } from "./admin-content-filter.js";
 import { adminLicense } from "./admin-license.js";
 import { adminLimitHits } from "./admin-limit-hits.js";
@@ -81,6 +82,7 @@ routes.route("/admin", adminOrgDetails);
 routes.route("/admin", adminRoutingAnalytics);
 routes.route("/admin", adminContentFilter);
 routes.route("/admin", adminLimitHits);
+routes.route("/admin", adminBenchmarks);
 routes.route("/admin", adminAirside);
 routes.route("/admin", adminModelVerifications);
 

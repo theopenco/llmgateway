@@ -7,6 +7,7 @@ import {
 	BarChart3,
 	Building2,
 	Cpu,
+	FlaskConical,
 	Gauge,
 	GitMerge,
 	KeyRound,
@@ -124,6 +125,12 @@ const navItems: NavItem[] = [
 		href: "/unstable-mappings",
 		label: "Unstable Mappings",
 		icon: Activity,
+		match: "prefix",
+	},
+	{
+		href: "/benchmarks",
+		label: "Benchmarks",
+		icon: FlaskConical,
 		match: "prefix",
 	},
 	{
