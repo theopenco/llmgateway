@@ -2,8 +2,9 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { FlatList, Modal, Text, View } from "react-native";
 
+import { refreshChatHistory } from "@/api/chat-history";
 import { readChatMessage } from "@/api/chat-messages";
-import { api, client, queryClient } from "@/api/client";
+import { api, client } from "@/api/client";
 import { MessageBubble } from "@/components/MessageBubble";
 import {
 	Button,
@@ -79,7 +80,7 @@ function Snapshot({
 			if (!result.data) {
 				throw new Error("Could not fork this conversation.");
 			}
-			await queryClient.invalidateQueries({ queryKey: ["get", "/chats"] });
+			await refreshChatHistory();
 			return result.data.chat.id;
 		},
 		onSuccess: (id) => {

@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { chatContext } from "@/api/chat-context";
+import { refreshChatHistory } from "@/api/chat-history";
 import {
 	completionMessage,
 	readChat,
@@ -121,7 +122,7 @@ export function Chat({
 	};
 	useEffect(() => () => controllerRef.current?.abort(), []);
 	const refresh = async () => {
-		await queryClient.invalidateQueries({ queryKey: ["get", "/chats"] });
+		await refreshChatHistory();
 		await queryClient.invalidateQueries({ queryKey: ["get", "/chats/{id}"] });
 	};
 	const send = useMutation({

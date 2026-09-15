@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { Alert, Modal, Share, Switch, Text, View } from "react-native";
 
+import { refreshChatHistory } from "@/api/chat-history";
 import { api, client, queryClient } from "@/api/client";
 import { Choice } from "@/components/Choice";
 import { Button, ErrorNotice, Screen, styles } from "@/components/ui";
@@ -54,7 +55,7 @@ function SharingForm({
 	const refresh = async () => {
 		await queryClient.invalidateQueries({ queryKey: ["native-share"] });
 		await queryClient.invalidateQueries({ queryKey: ["get", "/chats/{id}"] });
-		await queryClient.invalidateQueries({ queryKey: ["get", "/chats"] });
+		await refreshChatHistory();
 		await queryClient.invalidateQueries({
 			queryKey: ["get", "/chats/org/{organizationId}/shares"],
 		});
