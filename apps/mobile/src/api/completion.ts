@@ -63,6 +63,9 @@ export async function streamCompletion({
 		request.setRequestHeader("Authorization", `Bearer ${token}`);
 		request.setRequestHeader("Content-Type", "application/json");
 		request.setRequestHeader("x-source", LOUNGE_SOURCE);
+		if (model.includes("/")) {
+			request.setRequestHeader("x-no-fallback", "true");
+		}
 		request.timeout = 300_000;
 		const consume = () => {
 			if (request.status !== 200 || ended) {

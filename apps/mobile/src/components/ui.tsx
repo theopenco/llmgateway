@@ -101,12 +101,14 @@ export function Screen({
 }
 export function Button({
 	title,
+	accessibilityLabel,
 	onPress,
 	secondary = false,
 	busy = false,
 	disabled = false,
 }: {
 	title: string;
+	accessibilityLabel?: string;
 	onPress: () => void;
 	secondary?: boolean;
 	busy?: boolean;
@@ -115,7 +117,7 @@ export function Button({
 	return (
 		<Pressable
 			role="button"
-			aria-label={title}
+			aria-label={accessibilityLabel ?? title}
 			aria-disabled={disabled || busy}
 			disabled={disabled || busy}
 			onPress={onPress}

@@ -8,11 +8,15 @@ import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 
 import type { paths } from "@/lib/api/gateway";
 
-export async function gatewayClient(projectId: string) {
+export async function gatewayClient(projectId: string, model = "auto") {
 	const token = await ensureGatewayKey(projectId);
 	const gateway = createClient<paths>({
 		baseUrl: config.gatewayUrl.replace(/\/v1\/?$/, ""),
-		headers: { Authorization: `Bearer ${token}`, "x-source": LOUNGE_SOURCE },
+		headers: {
+			Authorization: `Bearer ${token}`,
+			"x-source": LOUNGE_SOURCE,
+			...(model.includes("/") && { "x-no-fallback": "true" }),
+		},
 	});
 	gateway.use({ onResponse: ({ response }) => assertResponseOk(response) });
 	return gateway;
