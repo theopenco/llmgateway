@@ -1,0 +1,88 @@
+appId: io.llmgateway.lounge
+---
+- evalScript: ${output.imagePrompt = "Native image " + Date.now()}
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- tapOn: "Image Studio"
+- tapOn: "Model: Auto"
+- tapOn:
+    id: "field-search-models"
+- inputText: "gpt-image-2"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT Image 2"
+- assertVisible: "Size: 1024x1024"
+- tapOn: "Quality: low"
+- tapOn: "medium"
+- tapOn:
+    id: "field-image-prompt"
+- inputText: ${output.imagePrompt}
+- tapOn: "Done typing"
+- scrollUntilVisible:
+    element: "Generate image"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Generate image"
+- scrollUntilVisible:
+    element: "Generated image 1.1"
+    direction: DOWN
+    centerElement: true
+- assertVisible: "Generated image 1.1"
+- scrollUntilVisible:
+    element: "Share image 1.1"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Share image 1.1"
+- assertVisible: "Copy"
+- swipe:
+    start: 50%, 35%
+    end: 50%, 95%
+- scrollUntilVisible:
+    element: "Edit image 1.1"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Edit image 1.1"
+- scrollUntilVisible:
+    element: "Edit images"
+    direction: UP
+    centerElement: true
+- tapOn: "Edit images"
+- scrollUntilVisible:
+    element: "Generated image 1.1"
+    direction: DOWN
+    centerElement: true
+- assertVisible: "Generated image 1.1"
+- launchApp
+- runFlow: helpers/organization.yaml
+- tapOn: "Image Studio"
+- scrollUntilVisible:
+    element:
+      id: "field-search-images"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "field-search-images"
+- inputText: ${output.imagePrompt}
+- tapOn: "Done typing"
+- scrollUntilVisible:
+    element: "View .*"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    text: "View .*"
+    index: 0
+- scrollUntilVisible:
+    element: "Generated image 1.1"
+    direction: UP
+    centerElement: true
+- assertVisible: "Generated image 1.1"
+- scrollUntilVisible:
+    element: "Save image 1.1"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Save image 1.1"
+# iOS 26's remote Files picker omits its Save button from the accessibility tree.
+- waitForAnimationToEnd:
+    timeout: 5000
+- tapOn:
+    point: 88%, 12%
+- assertVisible: "Share image 1.1"

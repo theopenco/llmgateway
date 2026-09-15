@@ -43,12 +43,17 @@ Verified during development:
 
 - Full repository build: 20 workspaces passed.
 - Repository unit suite: 7,058 passed, 2 skipped; archive history tests: 3 passed.
-- Native tests: 21 passed.
+- Native tests: 31 passed; shared image configuration tests: 3 passed.
 - Signed Release build launched on the iOS simulator with local service URLs.
 - Maestro account flow: sign-in errors, session restoration, workspace switching,
   project and skill persistence/deletion, profile access, and sign-out passed.
 - Maestro chat flow with a mock provider: generation, retry without duplicate
   messages, pinning, restart persistence, archive/restore, and deletion passed.
+- Native image checks with a mock provider: generation/editing, model comparison,
+  settings, history after restart, Files export/import, sharing, renaming, and
+  deletion passed. Exported PNG bytes matched the generated fixture.
+  The iOS 26 Files picker needs the coordinate taps documented in the flows.
+  Rerun the complete flows after later app changes.
 
 ## Delivery checklist
 
@@ -61,7 +66,7 @@ A checkbox requires observed behavior, not just a screen or passing type check.
 - [ ] Projects: instructions, files, retrieval, memory, associated chats
 - [ ] Skills: create, edit, generate, enable, delete, apply in chat
 - [ ] Connectors: connect, authorize, use, disconnect
-- [ ] Image creation/editing, settings, multi-model comparison, history, save/share
+- [x] Image creation/editing, settings, multi-model comparison, history, save/share
 - [ ] Video creation, input frames, polling, playback, history, save/share
 - [ ] Speech generation/transcription, playback, history
 - [ ] Realtime voice calls and call history
