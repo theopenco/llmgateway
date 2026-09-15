@@ -70,9 +70,13 @@ export const SELF_REFUNDABLE_TYPES = [
 	"credit_topup",
 	"dev_plan_start",
 	"dev_plan_renewal",
+	// An upgrade charges the new tier in full and starts a fresh billing cycle,
+	// so it is refundable on the same terms as a start or a renewal.
+	"dev_plan_upgrade",
 	"dev_plan_reset_pass",
 	"chat_plan_start",
 	"chat_plan_renewal",
+	"chat_plan_upgrade",
 ] as const;
 
 export type SelfRefundableType = (typeof SELF_REFUNDABLE_TYPES)[number];
@@ -83,6 +87,17 @@ export function isSelfRefundCandidateType(
 	return (SELF_REFUNDABLE_TYPES as readonly string[]).includes(type);
 }
 
+/**
+ * Whether a billing-history row should surface a refund control at all. Every
+ * customer charge gets one — disabled, with a reason, when it cannot actually
+ * be refunded — so a payment never silently lacks the button. Refund rows and
+ * zero-amount lifecycle bookkeeping (plan cancelled/resumed/ended, gifts,
+ * rewards) get nothing.
+ */
+export function hasRefundAction(transaction: TransactionRow): boolean {
+	return transaction.type !== "credit_refund" && dec(transaction.amount).gt(0);
+}
+
 const REFUND_FEEDBACK_KIND_BY_TYPE: Record<
 	SelfRefundableType,
 	RefundFeedbackKind
@@ -90,9 +105,11 @@ const REFUND_FEEDBACK_KIND_BY_TYPE: Record<
 	credit_topup: "credits",
 	dev_plan_start: "devpass",
 	dev_plan_renewal: "devpass",
+	dev_plan_upgrade: "devpass",
 	dev_plan_reset_pass: "devpass",
 	chat_plan_start: "chat",
 	chat_plan_renewal: "chat",
+	chat_plan_upgrade: "chat",
 };
 
 export function refundFeedbackKindForType(type: string): RefundFeedbackKind {
@@ -376,6 +393,7 @@ export function computeSelfRefundEligibility({
 			);
 		case "dev_plan_start":
 		case "dev_plan_renewal":
+		case "dev_plan_upgrade":
 			return checkPlanEligibility(
 				organization,
 				transactions,
@@ -386,6 +404,7 @@ export function computeSelfRefundEligibility({
 			return checkResetPassEligibility(organization, transactions, transaction);
 		case "chat_plan_start":
 		case "chat_plan_renewal":
+		case "chat_plan_upgrade":
 			return checkPlanEligibility(
 				organization,
 				transactions,
