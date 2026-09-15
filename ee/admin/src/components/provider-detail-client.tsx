@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DetailStatCards } from "@/components/detail-stat-cards";
 import { HistoryChart, windowOptions } from "@/components/history-chart";
@@ -9,10 +9,12 @@ import { ProviderModelsTable } from "@/components/provider-models-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getProviderDetail, getProviderHistory } from "@/lib/admin-history";
+import { useApi } from "@/lib/fetch-client";
 
 import { getProviderIcon } from "@llmgateway/shared";
 
 import type { HistoryWindow } from "@/components/history-chart";
+import type { ModelVerification } from "@/components/model-verification-dialog";
 import type { ProviderDetailResponse, ProviderModelStats } from "@/lib/types";
 
 type ProviderInfo = ProviderDetailResponse["provider"];
@@ -74,6 +76,34 @@ export function ProviderDetailClient({
 		[providerId],
 	);
 
+	const $api = useApi();
+	const verificationsQuery = $api.useQuery(
+		"get",
+		"/admin/model-verifications",
+		{ params: { query: { providerId } } },
+		{
+			// Follow queued and running runs so per-check progress lands in the
+			// table without a manual refresh.
+			refetchInterval: (query) =>
+				query.state.data?.entries.some(
+					(entry) =>
+						entry.verification.status === "queued" ||
+						entry.verification.status === "running",
+				)
+					? 2_000
+					: false,
+		},
+	);
+	const verifications = useMemo(() => {
+		const byMapping = new Map<string, ModelVerification>();
+		for (const entry of verificationsQuery.data?.entries ?? []) {
+			if (entry.mappingId) {
+				byMapping.set(entry.mappingId, entry.verification as ModelVerification);
+			}
+		}
+		return byMapping;
+	}, [verificationsQuery.data]);
+
 	const ProviderIcon = getProviderIcon(providerId);
 
 	return (
@@ -130,7 +160,12 @@ export function ProviderDetailClient({
 					</span>
 				</h2>
 				<div className="min-w-0 overflow-x-auto rounded-lg border border-border/60 bg-card">
-					<ProviderModelsTable providerId={providerId} models={models} />
+					<ProviderModelsTable
+						providerId={providerId}
+						models={models}
+						verifications={verifications}
+						onVerificationSettled={() => void verificationsQuery.refetch()}
+					/>
 				</div>
 			</section>
 		</>
