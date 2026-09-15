@@ -394,18 +394,7 @@ export function ImageControls({
 								<SelectValue placeholder="Image Size" />
 							</SelectTrigger>
 							<SelectContent>
-								{(config.isMuseImage
-									? config.availableSizes
-									: [
-											"1024x1024",
-											"720x1280",
-											"1280x720",
-											"1024x1536",
-											"1536x1024",
-											"2048x1024",
-											"1024x2048",
-										]
-								).map((size) => (
+								{config.availableSizes.map((size) => (
 									<SelectItem key={size} value={size}>
 										{size}
 									</SelectItem>
