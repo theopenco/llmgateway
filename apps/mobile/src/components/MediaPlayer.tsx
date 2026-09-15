@@ -4,19 +4,9 @@ import { Text, View } from "react-native";
 import { useEvent, useVideoPlayer, VideoView } from "react-native-video";
 
 import { Button, ErrorNotice, styles } from "@/components/ui";
+import { playbackTime } from "@/lib/playback-time";
 
-function time(seconds: number) {
-	const value = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
-	return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, "0")}`;
-}
-
-export function MediaPlayer({
-	uri,
-	audio = false,
-}: {
-	uri: string;
-	audio?: boolean;
-}) {
+export function MediaPlayer({ uri }: { uri: string }) {
 	const focused = useIsFocused();
 	const [playing, setPlaying] = useState(false);
 	const [ended, setEnded] = useState(false);
@@ -77,26 +67,24 @@ export function MediaPlayer({
 	};
 	return (
 		<View style={{ gap: 10 }}>
-			{!audio && (
-				<VideoView
-					player={player}
-					controls
-					resizeMode="contain"
-					keepScreenAwake={playing}
-					style={{
-						width: "100%",
-						aspectRatio: 16 / 9,
-						backgroundColor: "#000000",
-						borderRadius: 12,
-					}}
-				/>
-			)}
+			<VideoView
+				player={player}
+				controls
+				resizeMode="contain"
+				keepScreenAwake={playing}
+				style={{
+					width: "100%",
+					aspectRatio: 16 / 9,
+					backgroundColor: "#000000",
+					borderRadius: 12,
+				}}
+			/>
 			<ErrorNotice error={error} />
 			<Text
 				style={styles.muted}
-				accessibilityLabel={`Playback ${time(position)} of ${time(duration)}`}
+				accessibilityLabel={`Playback ${playbackTime(position)} of ${playbackTime(duration)}`}
 			>
-				{time(position)} / {time(duration)}
+				{playbackTime(position)} / {playbackTime(duration)}
 			</Text>
 			<View style={[styles.row, { flexWrap: "wrap" }]}>
 				<Button
@@ -116,26 +104,6 @@ export function MediaPlayer({
 						})
 					}
 				/>
-				{audio && (
-					<>
-						<Button
-							title="Back 10 seconds"
-							secondary
-							disabled={!ready || !!error}
-							onPress={() =>
-								control(() => player.seekTo(Math.max(0, position - 10)))
-							}
-						/>
-						<Button
-							title="Forward 10 seconds"
-							secondary
-							disabled={!ready || !!error}
-							onPress={() =>
-								control(() => player.seekTo(Math.min(duration, position + 10)))
-							}
-						/>
-					</>
-				)}
 			</View>
 		</View>
 	);

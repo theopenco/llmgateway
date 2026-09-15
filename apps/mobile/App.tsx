@@ -9,6 +9,7 @@ import { useState } from "react";
 import { StatusBar, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { AudioStudio } from "@/screens/AudioStudio";
 import { Comparison } from "@/screens/Comparison";
 import { Conversation } from "@/screens/Conversation";
 import { GroupConversation } from "@/screens/GroupConversation";
@@ -41,6 +42,7 @@ type Routes = {
 	Home: undefined;
 	ImageStudio: undefined;
 	VideoStudio: undefined;
+	AudioStudio: undefined;
 	Workspaces: undefined;
 	Chat: { id?: string; knowledgeProjectId?: string; single?: boolean };
 	Comparison: { id?: string };
@@ -164,6 +166,11 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 								onPress={() => navigation.navigate("VideoStudio")}
 							/>
 							<Button
+								title="Audio Studio"
+								secondary
+								onPress={() => navigation.navigate("AudioStudio")}
+							/>
+							<Button
 								title="Switch workspace"
 								secondary
 								onPress={() => navigation.navigate("Workspaces")}
@@ -258,6 +265,14 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 				<Stack.Screen name="VideoStudio" options={{ title: "Video Studio" }}>
 					{() => (
 						<VideoStudio
+							organizationId={organizationId}
+							projectId={projectId}
+						/>
+					)}
+				</Stack.Screen>
+				<Stack.Screen name="AudioStudio" options={{ title: "Audio Studio" }}>
+					{() => (
+						<AudioStudio
 							organizationId={organizationId}
 							projectId={projectId}
 						/>

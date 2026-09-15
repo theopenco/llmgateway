@@ -1,0 +1,22 @@
+diff --git a/common/cpp/audioapi/core/utils/worklets/WorkletsRunner.cpp b/common/cpp/audioapi/core/utils/worklets/WorkletsRunner.cpp
+index 3e4300c50fd247f5aa4da7d2e3302b3c18e9f882..a23a208e8e7384431ac17c67b776a01b36b25924 100644
+--- a/common/cpp/audioapi/core/utils/worklets/WorkletsRunner.cpp
++++ b/common/cpp/audioapi/core/utils/worklets/WorkletsRunner.cpp
+@@ -15,7 +15,7 @@ WorkletsRunner::WorkletsRunner(
+   }
+ #if RN_AUDIO_API_ENABLE_WORKLETS
+   unsafeRuntimePtr = &strongRuntime->getJSIRuntime();
+-  strongRuntime->executeSync([this, shareableWorklet](jsi::Runtime &rt) -> jsi::Value {
++  strongRuntime->runSync([this, shareableWorklet](jsi::Runtime &rt) -> jsi::Value {
+     /// Placement new to avoid dynamic memory allocation
+     new (reinterpret_cast<jsi::Function *>(&unsafeWorklet))
+         jsi::Function(shareableWorklet->toJSValue(*unsafeRuntimePtr)
+@@ -62,7 +62,7 @@ std::optional<jsi::Value> WorkletsRunner::executeOnRuntimeGuarded(
+     return std::nullopt;
+   }
+ #if RN_AUDIO_API_ENABLE_WORKLETS
+-  return strongRuntime->executeSync(std::move(job));
++  return strongRuntime->runSync(std::move(job));
+ #else
+   return std::nullopt;
+ #endif
