@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "38722508-0d03-44c8-897d-9c0d8fff8bbe",
+  "id": "f7e3bed3-bce7-41a0-90d5-bf0ce944cf0b",
   "prevId": "c4ea53b3-c8c0-4c59-a456-748839a79660",
   "ddl": [
     {
@@ -109,12 +109,6 @@
     {
       "isRlsEnabled": false,
       "name": "chat_support_read_status",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "content_filter_hourly_model_stats",
       "entityType": "tables",
       "schema": "public"
     },
@@ -4973,177 +4967,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "chat_support_read_status"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "content_filter_hourly_model_stats"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "content_filter_hourly_model_stats"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "now()",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "content_filter_hourly_model_stats"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "hour_timestamp",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "content_filter_hourly_model_stats"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "organization_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "content_filter_hourly_model_stats"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "project_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "content_filter_hourly_model_stats"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "used_model",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "content_filter_hourly_model_stats"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "used_provider",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "content_filter_hourly_model_stats"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "category",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "content_filter_hourly_model_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "sampled_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "content_filter_hourly_model_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "violation_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "content_filter_hourly_model_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "blocked_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "content_filter_hourly_model_stats"
     },
     {
       "type": "text",
@@ -23393,12 +23216,28 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
       "name": "provider_company_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_model_verification"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'carrier'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "initiated_by",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_model_verification"
@@ -23412,6 +23251,19 @@
       "generated": null,
       "identity": null,
       "name": "draft_model_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_model_verification"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "model_provider_mapping_id",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_model_verification"
@@ -30010,83 +29862,6 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "content_filter_hourly_model_stats_org_ts_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "content_filter_hourly_model_stats"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "used_model",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "hour_timestamp",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "content_filter_hourly_model_stats_model_ts_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "content_filter_hourly_model_stats"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "hour_timestamp",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "content_filter_hourly_model_stats_ts_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "content_filter_hourly_model_stats"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "organization_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "hour_timestamp",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
       "name": "content_filter_hourly_stats_org_ts_idx",
       "entityType": "indexes",
       "schema": "public",
@@ -33813,6 +33588,34 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "model_provider_mapping_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "provider_model_verification_mapping_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "provider_model_verification"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "status",
           "isExpression": false,
           "asc": true,
@@ -33854,6 +33657,27 @@
       "method": "btree",
       "concurrently": false,
       "name": "provider_model_verification_active_model_uidx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "provider_model_verification"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "model_provider_mapping_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "model_provider_mapping_id IS NOT NULL AND status IN ('queued', 'running')",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "provider_model_verification_active_mapping_uidx",
       "entityType": "indexes",
       "schema": "public",
       "table": "provider_model_verification"
@@ -37392,6 +37216,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "model_provider_mapping_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "model_provider_mapping",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "provider_model_verification_5NHEPU3skzoF_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "provider_model_verification"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "requested_by"
       ],
       "schemaTo": "public",
@@ -38560,16 +38401,6 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "content_filter_hourly_model_stats_pkey",
-      "schema": "public",
-      "table": "content_filter_hourly_model_stats",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
       "name": "content_filter_hourly_stats_pkey",
       "schema": "public",
       "table": "content_filter_hourly_stats",
@@ -39623,22 +39454,6 @@
       "entityType": "uniques",
       "schema": "public",
       "table": "api_key_hourly_stats"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "hour_timestamp",
-        "organization_id",
-        "project_id",
-        "used_model",
-        "used_provider",
-        "category"
-      ],
-      "nullsNotDistinct": false,
-      "name": "content_filter_hourly_model_stats_hour_timestamp_organization_id_project_id_used_model_used_provider_category_unique",
-      "entityType": "uniques",
-      "schema": "public",
-      "table": "content_filter_hourly_model_stats"
     },
     {
       "nameExplicit": false,
