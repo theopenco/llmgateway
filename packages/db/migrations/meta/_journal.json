@@ -1849,6 +1849,13 @@
       "when": 1789471978163,
       "tag": "1789471978_skinny_black_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 264,
+      "version": "8",
+      "when": 1789473211372,
+      "tag": "1789473211_blushing_shaman",
+      "breakpoints": true
     }
   ]
 }
