@@ -1110,6 +1110,27 @@ organization.openapi(updateOrganization, async (c) => {
 	});
 });
 
+/** Refuses (409) when credits are positive or the org served requests recently. */
+async function assertOrganizationDeletionAllowed(org: {
+	id: string;
+	credits: string | null;
+}): Promise<void> {
+	const blockers = await getOrganizationDeletionBlockers(org);
+
+	if (blockers.positiveCredits) {
+		throw new HTTPException(409, {
+			message:
+				"This organization still has a positive credit balance and cannot be deleted. Please contact support instead.",
+		});
+	}
+
+	if (blockers.recentRequests) {
+		throw new HTTPException(409, {
+			message: `This organization served requests within the last ${ORGANIZATION_DELETE_IDLE_HOURS} hours and cannot be deleted yet. Stop all traffic and try again later.`,
+		});
+	}
+}
+
 const deleteOrganization = createRoute({
 	method: "delete",
 	path: "/{id}",
@@ -1229,32 +1250,58 @@ organization.openapi(deleteOrganization, async (c) => {
 	}
 
 	const org = userOrganization.organization!;
-	const blockers = await getOrganizationDeletionBlockers(org);
-
-	if (blockers.positiveCredits) {
-		throw new HTTPException(409, {
-			message:
-				"This organization still has a positive credit balance and cannot be deleted. Please contact support instead.",
-		});
-	}
-
-	if (blockers.recentRequests) {
-		throw new HTTPException(409, {
-			message: `This organization served requests within the last ${ORGANIZATION_DELETE_IDLE_HOURS} hours and cannot be deleted yet. Stop all traffic and try again later.`,
-		});
-	}
+	await assertOrganizationDeletionAllowed(org);
 
 	// Stripe first: a failed cancel aborts the delete instead of leaving a
 	// subscription billing an organization nobody can reach anymore.
 	const cancelledSubscriptionIds = await cancelOrganizationSubscriptions(org);
 
-	await db
-		.update(tables.organization)
-		.set({
-			status: "deleted",
-			...getCancelledOrganizationPlanState(),
-		})
-		.where(eq(tables.organization.id, id));
+	// Re-validate at the write boundary: a top-up, a request, or an ownership
+	// change can land while the Stripe call is in flight. The update itself is
+	// conditional on the balance so a concurrent credit write cannot slip past
+	// the check. If this refuses after Stripe already cancelled, the trailing
+	// `customer.subscription.deleted` webhook still clears the plan state.
+	const deleted = await db.transaction(async (tx) => {
+		const membership = await tx.query.userOrganization.findFirst({
+			where: {
+				userId: { eq: user.id },
+				organizationId: { eq: id },
+			},
+			with: { organization: true },
+		});
+		const current = membership?.organization;
+		if (
+			!current ||
+			current.status === "deleted" ||
+			membership.role !== "owner"
+		) {
+			return false;
+		}
+		await assertOrganizationDeletionAllowed(current);
+
+		const rows = await tx
+			.update(tables.organization)
+			.set({
+				status: "deleted",
+				...getCancelledOrganizationPlanState(),
+			})
+			.where(
+				and(
+					eq(tables.organization.id, id),
+					sql`${tables.organization.status} IS DISTINCT FROM 'deleted'`,
+					sql`CAST(${tables.organization.credits} AS NUMERIC) <= 0`,
+				),
+			)
+			.returning({ id: tables.organization.id });
+		return rows.length === 1;
+	});
+
+	if (!deleted) {
+		throw new HTTPException(409, {
+			message:
+				"The organization changed while it was being deleted. Refresh and try again.",
+		});
+	}
 
 	await logAuditEvent({
 		organizationId: id,
@@ -1302,6 +1349,16 @@ const getDeletionEligibility = createRoute({
 			},
 			description: "Unauthorized.",
 		},
+		403: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						message: z.string(),
+					}),
+				},
+			},
+			description: "Only owners can check deletion eligibility.",
+		},
 		404: {
 			content: {
 				"application/json": {
@@ -1344,13 +1401,21 @@ organization.openapi(getDeletionEligibility, async (c) => {
 		});
 	}
 
-	const blockers = await getOrganizationDeletionBlockers(
-		userOrganization.organization!,
-	);
+	if (userOrganization.role !== "owner") {
+		throw new HTTPException(403, {
+			message: "Only owners can delete organizations",
+		});
+	}
+
+	const org = userOrganization.organization!;
+	const blockers = await getOrganizationDeletionBlockers(org);
 
 	return c.json(
 		{
-			canDelete: !blockers.positiveCredits && !blockers.recentRequests,
+			canDelete:
+				org.kind === "default" &&
+				!blockers.positiveCredits &&
+				!blockers.recentRequests,
 			...blockers,
 			idleHours: ORGANIZATION_DELETE_IDLE_HOURS,
 		},

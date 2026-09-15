@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
+import { orgRequestActivityKey } from "@llmgateway/actions";
+import { redisClient } from "@llmgateway/cache";
 import { db, eq, tables } from "@llmgateway/db";
 
 import type * as PaymentsModule from "@/routes/payments.js";
@@ -92,6 +94,7 @@ describe("DELETE /orgs/{id}", () => {
 	});
 
 	afterEach(async () => {
+		await redisClient.del(orgRequestActivityKey(ORG_ID));
 		await deleteAll();
 	});
 
@@ -125,6 +128,38 @@ describe("DELETE /orgs/{id}", () => {
 		expect((await getOrg())?.status).toBe("active");
 	});
 
+	it("refuses an organization whose gateway activity marker is still live", async () => {
+		await seedOrg();
+		await redisClient.set(orgRequestActivityKey(ORG_ID), String(Date.now()));
+
+		const res = await deleteOrg(token);
+		expect(res.status).toBe(409);
+		expect((await getOrg())?.status).toBe("active");
+	});
+
+	it("refuses a personal (devpass) organization", async () => {
+		await seedOrg({ kind: "devpass" });
+
+		const res = await deleteOrg(token);
+		expect(res.status).toBe(403);
+		expect((await eligibility(token)).canDelete).toBe(false);
+	});
+
+	it("refuses when credits arrive while the Stripe cancel is in flight", async () => {
+		await seedOrg({ plan: "pro", stripeSubscriptionId: "sub_race" });
+		stripeMock.subscriptions.cancel.mockImplementation(async () => {
+			await db
+				.update(tables.organization)
+				.set({ credits: "3.00" })
+				.where(eq(tables.organization.id, ORG_ID));
+			return { status: "canceled" };
+		});
+
+		const res = await deleteOrg(token);
+		expect(res.status).toBe(409);
+		expect((await getOrg())?.status).toBe("active");
+	});
+
 	it("deletes an idle organization with no credits and cancels its subscriptions", async () => {
 		await seedOrg({
 			credits: "-2.50",
@@ -150,6 +185,15 @@ describe("DELETE /orgs/{id}", () => {
 			organizations: { id: string }[];
 		};
 		expect(organizations.find((o) => o.id === ORG_ID)).toBeUndefined();
+	});
+
+	it("hides deletion eligibility from non-owners", async () => {
+		await seedOrg({}, "admin");
+
+		const res = await app.request(`/orgs/${ORG_ID}/deletion-eligibility`, {
+			headers: { Cookie: token },
+		});
+		expect(res.status).toBe(403);
 	});
 
 	it("reports deletion blockers", async () => {

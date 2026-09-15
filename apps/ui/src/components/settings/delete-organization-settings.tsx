@@ -31,7 +31,12 @@ export function DeleteOrganizationSettings() {
 	const orgId = selectedOrganization?.id ?? "";
 	const isOwner = selectedOrganization?.role === "owner";
 
-	const { data: eligibility, isLoading } = api.useQuery(
+	const {
+		data: eligibility,
+		isLoading,
+		error: eligibilityError,
+		refetch: refetchEligibility,
+	} = api.useQuery(
 		"get",
 		"/orgs/{id}/deletion-eligibility",
 		{ params: { path: { id: orgId } } },
@@ -142,6 +147,24 @@ export function DeleteOrganizationSettings() {
 						Stop all traffic and come back once it has been idle for {idleHours}{" "}
 						hours.
 					</p>
+				)}
+
+				{eligibilityError && !eligibility && (
+					<div className="flex flex-wrap items-center gap-3">
+						<p className="text-sm text-destructive">
+							{getApiErrorMessage(
+								eligibilityError,
+								"Could not check whether this organization can be deleted.",
+							)}
+						</p>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => void refetchEligibility()}
+						>
+							Retry
+						</Button>
+					</div>
 				)}
 
 				<AlertDialog>

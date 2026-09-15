@@ -1,3 +1,4 @@
+import { hasOrgRequestActivity } from "@llmgateway/actions";
 import {
 	and,
 	db,
@@ -40,10 +41,19 @@ export function getRecentRequestsCutoff(now = new Date()): Date {
 	return cutoff;
 }
 
+/**
+ * The Redis marker is stamped on the gateway write path, so it catches a
+ * request served seconds ago; the hourly stats cover the marker being absent
+ * (Redis eviction, activity from before the marker existed).
+ */
 export async function hasRecentRequests(
 	organizationId: string,
 	now = new Date(),
 ): Promise<boolean> {
+	if (await hasOrgRequestActivity(organizationId)) {
+		return true;
+	}
+
 	const [row] = await db
 		.select({
 			requestCount: sql<string>`COALESCE(SUM(${projectHourlyStats.requestCount}), 0)`,

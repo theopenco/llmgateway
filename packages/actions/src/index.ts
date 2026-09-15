@@ -20,5 +20,6 @@ export * from "./gcp-access-token.js";
 export * from "./topup-velocity.js";
 export * from "./limit-hits.js";
 export * from "./org-spend.js";
+export * from "./org-activity.js";
 export * from "./model-verification.js";
 export * from "./provider-api-format.js";
