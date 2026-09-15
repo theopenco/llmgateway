@@ -47,11 +47,17 @@ function formatCost(n: number) {
 	return `$${n.toFixed(4)}`;
 }
 
+function stabilityOf(m: ProviderModelStats) {
+	return deriveStabilityMetrics({
+		logsCount: m.logsCount,
+		clientErrorsCount: m.clientErrorsCount,
+		gatewayErrorsCount: m.gatewayErrorsCount,
+		upstreamErrorsCount: m.upstreamErrorsCount,
+	});
+}
+
 function errorRateOf(m: ProviderModelStats) {
-	return (
-		deriveStabilityMetrics(m.logsCount, m.errorsCount, m.clientErrorsCount)
-			.errorRate ?? 0
-	);
+	return stabilityOf(m).errorRate ?? 0;
 }
 
 function getValue(m: ProviderModelStats, key: SortKey): number {
@@ -59,11 +65,7 @@ function getValue(m: ProviderModelStats, key: SortKey): number {
 		case "errorRate":
 			return errorRateOf(m);
 		case "errorsCount":
-			return deriveStabilityMetrics(
-				m.logsCount,
-				m.errorsCount,
-				m.clientErrorsCount,
-			).errorsCount;
+			return stabilityOf(m).errorsCount;
 		case "avgTimeToFirstToken":
 			return m.avgTimeToFirstToken ?? -1;
 		default:
@@ -188,11 +190,7 @@ export function ProviderModelsTable({
 			</TableHeader>
 			<TableBody>
 				{sortedModels.map((m) => {
-					const stability = deriveStabilityMetrics(
-						m.logsCount,
-						m.errorsCount,
-						m.clientErrorsCount,
-					);
+					const stability = stabilityOf(m);
 					const errorRate = (stability.errorRate ?? 0).toFixed(1);
 					return (
 						<TableRow key={m.mappingId} className="hover:bg-muted/50">

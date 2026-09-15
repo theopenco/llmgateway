@@ -134,11 +134,12 @@ function ProviderRow({
 	usageMode: UsageMode;
 }) {
 	const [expanded, setExpanded] = useState(false);
-	const stability = deriveStabilityMetrics(
-		provider.logsCount,
-		provider.errorsCount + provider.clientErrorsCount,
-		provider.clientErrorsCount,
-	);
+	const stability = deriveStabilityMetrics({
+		logsCount: provider.logsCount,
+		clientErrorsCount: provider.clientErrorsCount,
+		gatewayErrorsCount: provider.gatewayErrorsCount,
+		upstreamErrorsCount: provider.upstreamErrorsCount,
+	});
 	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
 	const ProviderIcon = getProviderIcon(provider.id);

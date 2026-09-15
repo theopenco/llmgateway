@@ -230,6 +230,7 @@ export {
 
 export {
 	deriveStabilityMetrics,
+	type StabilityCounts,
 	type StabilityMetrics,
 } from "./stability-metrics.js";
 

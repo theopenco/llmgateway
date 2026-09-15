@@ -255,8 +255,9 @@ const routingAnalyticsResponseSchema = z
 
 interface HourlyTotals {
 	requestCount: number;
-	errorCount: number;
 	clientErrorCount: number;
+	gatewayErrorCount: number;
+	upstreamErrorCount: number;
 	totalDuration: number;
 	totalOutputTokens: number;
 	totalTimeToFirstToken: number;
@@ -272,8 +273,9 @@ interface HourlyTotals {
 function emptyTotals(): HourlyTotals {
 	return {
 		requestCount: 0,
-		errorCount: 0,
 		clientErrorCount: 0,
+		gatewayErrorCount: 0,
+		upstreamErrorCount: 0,
 		totalDuration: 0,
 		totalOutputTokens: 0,
 		totalTimeToFirstToken: 0,
@@ -292,8 +294,9 @@ function addRow(
 	row: typeof modelProviderMappingHistoryHourly.$inferSelect,
 ): void {
 	totals.requestCount += row.logsCount;
-	totals.errorCount += row.errorsCount;
 	totals.clientErrorCount += row.clientErrorsCount;
+	totals.gatewayErrorCount += row.gatewayErrorsCount;
+	totals.upstreamErrorCount += row.upstreamErrorsCount;
 	totals.totalDuration += row.totalDuration;
 	totals.totalOutputTokens += row.totalOutputTokens;
 	totals.totalTimeToFirstToken += row.totalTimeToFirstToken;
@@ -331,11 +334,12 @@ function deriveMetrics(totals: HourlyTotals): DerivedMetrics {
 	if (totals.requestCount <= 0) {
 		return { uptime: null, latency: null, throughput: null };
 	}
-	const { uptime } = deriveStabilityMetrics(
-		totals.requestCount,
-		totals.errorCount,
-		totals.clientErrorCount,
-	);
+	const { uptime } = deriveStabilityMetrics({
+		logsCount: totals.requestCount,
+		clientErrorsCount: totals.clientErrorCount,
+		gatewayErrorsCount: totals.gatewayErrorCount,
+		upstreamErrorsCount: totals.upstreamErrorCount,
+	});
 	const { total: effectiveTtft, count: effectiveTtftCount } =
 		effectiveTtftTotals(totals);
 	const latency =
@@ -703,7 +707,7 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 				return {
 					providerId: mapping.providerId,
 					requestCount: totals.requestCount,
-					errorCount: totals.errorCount,
+					errorCount: totals.gatewayErrorCount + totals.upstreamErrorCount,
 					clientErrorCount: totals.clientErrorCount,
 					uptime: metrics.uptime !== null ? round(metrics.uptime, 2) : null,
 					latency: metrics.latency !== null ? round(metrics.latency, 0) : null,
@@ -740,7 +744,7 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 		return {
 			providerId: mapping.providerId,
 			requestCount: totals.requestCount,
-			errorCount: totals.errorCount,
+			errorCount: totals.gatewayErrorCount + totals.upstreamErrorCount,
 			uptime: metrics.uptime !== null ? round(metrics.uptime, 2) : null,
 			latency: metrics.latency !== null ? round(metrics.latency, 0) : null,
 			throughput:

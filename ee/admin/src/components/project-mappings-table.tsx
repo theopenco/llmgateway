@@ -33,6 +33,8 @@ export interface ProjectMappingEntry {
 	logsCount: number;
 	errorsCount: number;
 	clientErrorsCount: number;
+	gatewayErrorsCount: number;
+	upstreamErrorsCount: number;
 	cachedCount: number;
 	cost: number;
 	totalTokens: number;
@@ -126,11 +128,12 @@ function MappingRow({
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const ProviderIcon = getProviderIcon(mapping.providerId);
-	const stability = deriveStabilityMetrics(
-		mapping.logsCount,
-		mapping.errorsCount,
-		mapping.clientErrorsCount,
-	);
+	const stability = deriveStabilityMetrics({
+		logsCount: mapping.logsCount,
+		clientErrorsCount: mapping.clientErrorsCount,
+		gatewayErrorsCount: mapping.gatewayErrorsCount,
+		upstreamErrorsCount: mapping.upstreamErrorsCount,
+	});
 	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 	const displayModel = mapping.modelId.includes("/")
 		? mapping.modelId.split("/").slice(1).join("/")

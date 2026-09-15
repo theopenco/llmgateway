@@ -6649,6 +6649,8 @@ const providerStatsSchema = z.object({
 	logsCount: z.number(),
 	errorsCount: z.number(),
 	clientErrorsCount: z.number(),
+	gatewayErrorsCount: z.number(),
+	upstreamErrorsCount: z.number(),
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
 	modelCount: z.number(),
@@ -6740,6 +6742,14 @@ admin.openapi(getProviderStats, async (c) => {
 					sql<number>`COALESCE(SUM(${mph.clientErrorsCount}), 0)`.as(
 						"clientErrorsCount",
 					),
+				gatewayErrorsCount:
+					sql<number>`COALESCE(SUM(${mph.gatewayErrorsCount}), 0)`.as(
+						"gatewayErrorsCount",
+					),
+				upstreamErrorsCount:
+					sql<number>`COALESCE(SUM(${mph.upstreamErrorsCount}), 0)`.as(
+						"upstreamErrorsCount",
+					),
 				cachedCount: sql<number>`COALESCE(SUM(${mph.cachedCount}), 0)`.as(
 					"cachedCount",
 				),
@@ -6775,7 +6785,7 @@ admin.openapi(getProviderStats, async (c) => {
 			name: tables.provider.name,
 			status: tables.provider.status,
 			logsCount: sql`COALESCE(${providerStatsSub.logsCount}, 0)`,
-			errorsCount: sql`GREATEST(COALESCE(${providerStatsSub.errorsCount}, 0) - COALESCE(${providerStatsSub.clientErrorsCount}, 0), 0)`,
+			errorsCount: sql`COALESCE(${providerStatsSub.gatewayErrorsCount}, 0) + COALESCE(${providerStatsSub.upstreamErrorsCount}, 0)`,
 			clientErrorsCount: sql`COALESCE(${providerStatsSub.clientErrorsCount}, 0)`,
 			cachedCount: sql`COALESCE(${providerStatsSub.cachedCount}, 0)`,
 			totalCost: sql`COALESCE(${providerStatsSub.totalCost}, 0)`,
@@ -6824,6 +6834,14 @@ admin.openapi(getProviderStats, async (c) => {
 						sql<number>`COALESCE(${providerStatsSub.clientErrorsCount}, 0)`.as(
 							"clientErrorsCount",
 						),
+					gatewayErrorsCount:
+						sql<number>`COALESCE(${providerStatsSub.gatewayErrorsCount}, 0)`.as(
+							"gatewayErrorsCount",
+						),
+					upstreamErrorsCount:
+						sql<number>`COALESCE(${providerStatsSub.upstreamErrorsCount}, 0)`.as(
+							"upstreamErrorsCount",
+						),
 					cachedCount:
 						sql<number>`COALESCE(${providerStatsSub.cachedCount}, 0)`.as(
 							"cachedCount",
@@ -6870,6 +6888,8 @@ admin.openapi(getProviderStats, async (c) => {
 				logsCount: Number(r.logsCount ?? 0),
 				errorsCount: Number(r.errorsCount ?? 0),
 				clientErrorsCount: Number(r.clientErrorsCount ?? 0),
+				gatewayErrorsCount: Number(r.gatewayErrorsCount ?? 0),
+				upstreamErrorsCount: Number(r.upstreamErrorsCount ?? 0),
 				cachedCount: Number(r.cachedCount ?? 0),
 				avgTimeToFirstToken: r.avgTimeToFirstToken,
 				modelCount: Number(r.modelCount ?? 0),
@@ -6891,7 +6911,7 @@ admin.openapi(getProviderStats, async (c) => {
 		name: tables.provider.name,
 		status: tables.provider.status,
 		logsCount: tables.provider.logsCount,
-		errorsCount: sql`GREATEST(${tables.provider.errorsCount} - ${tables.provider.clientErrorsCount}, 0)`,
+		errorsCount: sql`${tables.provider.gatewayErrorsCount} + ${tables.provider.upstreamErrorsCount}`,
 		clientErrorsCount: tables.provider.clientErrorsCount,
 		cachedCount: tables.provider.cachedCount,
 		totalCost: sql`0`,
@@ -6911,6 +6931,8 @@ admin.openapi(getProviderStats, async (c) => {
 			logsCount: tables.provider.logsCount,
 			errorsCount: tables.provider.errorsCount,
 			clientErrorsCount: tables.provider.clientErrorsCount,
+			gatewayErrorsCount: tables.provider.gatewayErrorsCount,
+			upstreamErrorsCount: tables.provider.upstreamErrorsCount,
 			cachedCount: tables.provider.cachedCount,
 			avgTimeToFirstToken: sql<
 				number | null
@@ -6935,6 +6957,8 @@ admin.openapi(getProviderStats, async (c) => {
 			logsCount: r.logsCount,
 			errorsCount: r.errorsCount,
 			clientErrorsCount: r.clientErrorsCount,
+			gatewayErrorsCount: r.gatewayErrorsCount,
+			upstreamErrorsCount: r.upstreamErrorsCount,
 			cachedCount: r.cachedCount,
 			avgTimeToFirstToken: r.avgTimeToFirstToken,
 			modelCount: Number(r.modelCount),
@@ -11527,6 +11551,8 @@ const projectModelProviderStatsEntrySchema = z.object({
 	logsCount: z.number(),
 	errorsCount: z.number(),
 	clientErrorsCount: z.number(),
+	gatewayErrorsCount: z.number(),
+	upstreamErrorsCount: z.number(),
 	cachedCount: z.number(),
 	cost: z.number(),
 	totalTokens: z.number(),
@@ -11624,6 +11650,14 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 	const errorsCountExpr = errorsCountSql.as("errors_count");
 	const clientErrorsCountSql = sql<number>`COALESCE(SUM(${projectHourlyModelStats.clientErrorCount}), 0)`;
 	const clientErrorsCountExpr = clientErrorsCountSql.as("client_errors_count");
+	const gatewayErrorsCountSql = sql<number>`COALESCE(SUM(${projectHourlyModelStats.gatewayErrorCount}), 0)`;
+	const gatewayErrorsCountExpr = gatewayErrorsCountSql.as(
+		"gateway_errors_count",
+	);
+	const upstreamErrorsCountSql = sql<number>`COALESCE(SUM(${projectHourlyModelStats.upstreamErrorCount}), 0)`;
+	const upstreamErrorsCountExpr = upstreamErrorsCountSql.as(
+		"upstream_errors_count",
+	);
 	const cachedCountExpr =
 		sql<number>`COALESCE(SUM(${projectHourlyModelStats.cacheCount}), 0)`.as(
 			"cached_count",
@@ -11642,7 +11676,7 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			case "logsCount":
 				return logsCountExpr;
 			case "errorsCount":
-				return sql`GREATEST(${errorsCountSql} - ${clientErrorsCountSql}, 0)`;
+				return sql`${gatewayErrorsCountSql} + ${upstreamErrorsCountSql}`;
 			case "cost":
 				return costExpr;
 			case "modelId":
@@ -11661,6 +11695,8 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			logsCount: logsCountExpr,
 			errorsCount: errorsCountExpr,
 			clientErrorsCount: clientErrorsCountExpr,
+			gatewayErrorsCount: gatewayErrorsCountExpr,
+			upstreamErrorsCount: upstreamErrorsCountExpr,
 			cachedCount: cachedCountExpr,
 			cost: costExpr,
 			totalTokens: totalTokensExpr,
@@ -11725,6 +11761,8 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			logsCount: Number(r.logsCount),
 			errorsCount: Number(r.errorsCount),
 			clientErrorsCount: Number(r.clientErrorsCount),
+			gatewayErrorsCount: Number(r.gatewayErrorsCount),
+			upstreamErrorsCount: Number(r.upstreamErrorsCount),
 			cachedCount: Number(r.cachedCount),
 			cost: Number(r.cost),
 			totalTokens: Number(r.totalTokens),

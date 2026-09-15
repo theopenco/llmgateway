@@ -220,28 +220,30 @@ export function HistoryChart({
 		0,
 	);
 	const totalRequests = data.reduce((sum, d) => sum + d.logsCount, 0);
-	const rawErrors = data.reduce((sum, d) => sum + d.errorsCount, 0);
 	const totalClientErrors = data.reduce(
 		(sum, d) => sum + (d.clientErrorsCount ?? 0),
 		0,
 	);
-	const stability = deriveStabilityMetrics(
-		totalRequests,
-		rawErrors,
-		totalClientErrors,
+	const totalGatewayErrors = data.reduce(
+		(sum, d) => sum + (d.gatewayErrorsCount ?? 0),
+		0,
 	);
+	const totalUpstreamErrors = data.reduce(
+		(sum, d) => sum + (d.upstreamErrorsCount ?? 0),
+		0,
+	);
+	const stability = deriveStabilityMetrics({
+		logsCount: totalRequests,
+		clientErrorsCount: totalClientErrors,
+		gatewayErrorsCount: totalGatewayErrors,
+		upstreamErrorsCount: totalUpstreamErrors,
+	});
 	const summaryStats = {
 		totalRequests,
 		totalErrors: stability.errorsCount,
 		totalClientErrors,
-		totalGatewayErrors: data.reduce(
-			(sum, d) => sum + (d.gatewayErrorsCount ?? 0),
-			0,
-		),
-		totalUpstreamErrors: data.reduce(
-			(sum, d) => sum + (d.upstreamErrorsCount ?? 0),
-			0,
-		),
+		totalGatewayErrors,
+		totalUpstreamErrors,
 		totalTokens: data.reduce((sum, d) => sum + d.totalTokens, 0),
 		totalCost: data.reduce((sum, d) => sum + d.totalCost, 0),
 		breakdown: {
