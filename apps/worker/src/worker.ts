@@ -382,6 +382,31 @@ async function resolveDevPassStripePaymentMethodId(org: {
 	return null;
 }
 
+/**
+ * Whether auto top-up will actually refill this org. Enabled alone is not
+ * enough: risk-flagged and DevPass-without-PAYG orgs are skipped by
+ * `processAutoTopUp`, and an org in payment-failure backoff may never get
+ * charged before it runs dry.
+ */
+export function isAutoTopUpEffective(org: {
+	autoTopUpEnabled: boolean;
+	riskFlagged?: boolean | null;
+	kind?: string | null;
+	devPlanPaygEnabled?: boolean | null;
+	paymentFailureStartedAt?: Date | null;
+}): boolean {
+	if (!org.autoTopUpEnabled) {
+		return false;
+	}
+	if (org.riskFlagged) {
+		return false;
+	}
+	if (org.kind === "devpass" && !org.devPlanPaygEnabled) {
+		return false;
+	}
+	return !org.paymentFailureStartedAt;
+}
+
 export async function processAutoTopUp(): Promise<void> {
 	const lockAcquired = await acquireLock(AUTO_TOPUP_LOCK_KEY);
 	if (!lockAcquired) {
@@ -1874,7 +1899,7 @@ export async function batchProcessLogs(): Promise<number> {
 	return processedCount;
 }
 
-async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {
+export async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {
 	try {
 		const orgs = await db
 			.select()
@@ -1883,6 +1908,12 @@ async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {
 
 		for (const org of orgs) {
 			try {
+				// The whole point of these emails is "top up / enable auto-reload";
+				// an org whose auto top-up will refill it does not need either.
+				if (isAutoTopUpEffective(org)) {
+					continue;
+				}
+
 				const lastTopUp = Number(org.lastTopUpAmount ?? 0);
 				if (lastTopUp <= 0) {
 					continue;
