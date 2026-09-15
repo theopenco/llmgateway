@@ -70,7 +70,7 @@ export function History({
 						<View style={styles.card}>
 							<Pressable
 								role="button"
-								aria-label={item.title}
+								aria-label={`${item.title}, ${item.model}, ${item.messageCount} messages`}
 								onPress={() => onChat(item.id)}
 								style={{ minHeight: 48 }}
 							>
@@ -111,7 +111,7 @@ export function History({
 											[
 												{ text: "Cancel", style: "cancel" },
 												{
-													text: "Delete",
+													text: "Delete conversation",
 													style: "destructive",
 													onPress: () =>
 														remove.mutate({

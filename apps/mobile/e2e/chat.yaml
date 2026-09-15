@@ -1,0 +1,43 @@
+appId: io.llmgateway.lounge
+---
+- evalScript: ${output.chatTitle = "Native conversation " + Date.now()}
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- tapOn: "Start a conversation"
+- tapOn: "Model: Auto"
+- tapOn:
+    id: "field-search-models"
+- inputText: "gpt-4o-mini"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT-4o Mini"
+- tapOn: "Message.*"
+- inputText: ${output.chatTitle}
+- tapOn: "Send message"
+- extendedWaitUntil:
+    visible: ".*This is a mock response from the test server.*"
+    timeout: 30000
+- tapOn: "Retry last response"
+- extendedWaitUntil:
+    visible: "Retry last response"
+    timeout: 30000
+- tapOn: "Pin"
+- assertVisible: "Unpin"
+- launchApp
+- runFlow: helpers/organization.yaml
+- tapOn: "Conversations"
+- tapOn:
+    id: "field-search-conversations"
+- inputText: ${output.chatTitle}
+- tapOn: "Done typing"
+- assertVisible: ".*2 messages"
+- tapOn: "Archive"
+- assertNotVisible: ".*2 messages"
+- tapOn: "Show archived conversations"
+- assertVisible: ".*2 messages"
+- tapOn: "Restore"
+- tapOn: "Show active conversations"
+- assertVisible: ".*2 messages"
+- tapOn: "Delete"
+- assertVisible: "Delete this conversation?"
+- tapOn: "Delete conversation"
+- assertNotVisible: ".*2 messages"

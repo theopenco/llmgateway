@@ -66,14 +66,14 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 	const context = api.useQuery("get", "/playground/chat-org", {});
 	if (context.isPending) {
 		return (
-			<Screen>
+			<Screen fullScreen>
 				<Loading />
 			</Screen>
 		);
 	}
 	if (!context.data) {
 		return (
-			<Screen>
+			<Screen fullScreen>
 				<ErrorNotice error={context.error} />
 				<Button title="Try again" onPress={() => void context.refetch()} />
 				<ErrorNotice error={reset.error} />
@@ -230,14 +230,14 @@ function Session() {
 	const [token, setToken] = useState<string | null | undefined>(undefined);
 	if (restored.isPending) {
 		return (
-			<Screen>
+			<Screen fullScreen>
 				<Loading />
 			</Screen>
 		);
 	}
 	if (restored.isError) {
 		return (
-			<Screen>
+			<Screen fullScreen>
 				<ErrorNotice error={restored.error} />
 				<Button title="Try again" onPress={() => void restored.refetch()} />
 			</Screen>

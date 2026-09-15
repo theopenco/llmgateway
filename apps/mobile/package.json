@@ -5,11 +5,13 @@
 	"scripts": {
 		"ios": "react-native run-ios",
 		"start": "react-native start",
-		"build": "pnpm generate && tsc --noEmit",
+		"build": "pnpm generate && tsc --noEmit && tsc --project e2e/tsconfig.json",
 		"generate": "openapi-typescript ../api/openapi.json -o src/lib/api/v1.d.ts && openapi-typescript ../gateway/openapi.json -o src/lib/api/gateway.d.ts",
 		"format": "eslint --fix . && prettier --write .",
 		"lint": "eslint . && prettier --check .",
 		"test": "jest --runInBand",
+		"test:upstream": "tsx e2e/upstream.ts",
+		"test:gateway": "node --env-file=../../.env --import tsx --import ./e2e/gateway-env.ts ../gateway/dist/serve.js",
 		"pods": "pod install --project-directory=ios"
 	},
 	"dependencies": {

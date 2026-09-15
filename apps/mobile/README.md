@@ -27,6 +27,18 @@ maestro test apps/mobile/e2e/account-and-workspaces.yaml
 Run suites sequentially. The Maestro flow needs an app built for the seeded
 local API and clears the simulator's Keychain. Use a dedicated test simulator.
 
+For `e2e/chat.yaml`, build the stack and start the local API, then run these in
+separate terminals with the same isolated environment loaded:
+
+```sh
+pnpm --filter mobile test:upstream
+pnpm --filter mobile test:gateway
+```
+
+The launcher replaces environment provider credentials with the OpenAI mock at
+`GATEWAY_PORT + 8`. The flows select the seeded test organization. Stop both
+processes after testing.
+
 Verified during development:
 
 - Full repository build: 20 workspaces passed.
@@ -35,6 +47,8 @@ Verified during development:
 - Signed Release build launched on the iOS simulator with local service URLs.
 - Maestro account flow: sign-in errors, session restoration, workspace switching,
   project and skill persistence/deletion, profile access, and sign-out passed.
+- Maestro chat flow with a mock provider: generation, retry without duplicate
+  messages, pinning, restart persistence, archive/restore, and deletion passed.
 
 ## Delivery checklist
 
