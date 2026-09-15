@@ -127,3 +127,14 @@ export type ModelProviderMappingsResponse =
 	GetJsonResponse<"/admin/model-provider-mappings">;
 export type ModelProviderMappingEntry =
 	ModelProviderMappingsResponse["mappings"][number];
+
+// Benchmarks
+export type BenchmarkOptionsResponse =
+	GetJsonResponse<"/admin/benchmarks/options">;
+export type BenchmarkModelOption = BenchmarkOptionsResponse["models"][number];
+export type BenchmarkProfileOption =
+	BenchmarkOptionsResponse["profiles"][number];
+export type BenchmarkRunsResponse = GetJsonResponse<"/admin/benchmarks/runs">;
+export type BenchmarkRunSummary = BenchmarkRunsResponse["runs"][number];
+export type BenchmarkRunDetailResponse =
+	GetJsonResponse<"/admin/benchmarks/runs/{id}">;

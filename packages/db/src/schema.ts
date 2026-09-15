@@ -6453,3 +6453,51 @@ export const loungeConnectorAuthorization = pgTable(
 		index("lounge_connector_authorization_expiry_idx").on(table.expiresAt),
 	],
 );
+
+export interface BenchmarkRunTargetSummary {
+	targetId: string;
+	displayName: string;
+	mapping: string;
+	source: "airside" | "catalogue";
+}
+
+export const benchmarkRun = pgTable(
+	"benchmark_run",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
+		modelId: text().notNull(),
+		// Mapping selectors exactly as submitted, e.g. ["openai", "vertex:us"].
+		// Empty means every active mapping of the model.
+		mappings: json().$type<string[]>().notNull().default([]),
+		profile: text({ enum: ["smoke", "standard", "coding", "load"] })
+			.notNull()
+			.default("smoke"),
+		budgetMs: integer().notNull().default(120000),
+		timeoutMs: integer().notNull().default(60000),
+		runs: integer(),
+		seed: integer().notNull().default(1),
+		status: text({
+			enum: ["queued", "running", "completed", "failed", "canceled"],
+		})
+			.notNull()
+			.default("queued"),
+		attempts: integer().notNull().default(0),
+		startedAt: timestamp(),
+		completedAt: timestamp(),
+		targets: json().$type<BenchmarkRunTargetSummary[]>(),
+		// The rendered BenchmarkResult with per-trial response bodies stripped;
+		// full transcripts would be megabytes per run.
+		result: jsonb().$type<Record<string, unknown>>(),
+		error: text(),
+	},
+	(table) => [
+		index("benchmark_run_queue_idx").on(table.status, table.createdAt),
+		index("benchmark_run_model_idx").on(table.modelId, table.createdAt),
+	],
+);

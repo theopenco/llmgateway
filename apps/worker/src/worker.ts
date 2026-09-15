@@ -57,6 +57,7 @@ import {
 } from "@llmgateway/shared/log-retention";
 
 import { posthog } from "./posthog.js";
+import { processNextBenchmarkRun } from "./services/benchmark-runs.js";
 import {
 	runFollowUpEmailsLoop,
 	sendLowBalanceEmail,
@@ -160,6 +161,8 @@ const MODEL_VERIFICATION_POLL_INTERVAL_SECONDS =
 	configuredModelVerificationPollIntervalSeconds > 0
 		? configuredModelVerificationPollIntervalSeconds
 		: 2;
+const BENCHMARK_RUN_POLL_INTERVAL_SECONDS =
+	Number(process.env.BENCHMARK_RUN_POLL_INTERVAL_SECONDS) || 10;
 
 interface ApiKeyUsageEvent {
 	cost: Decimal;
@@ -2375,6 +2378,33 @@ async function runModelVerificationLoop() {
 	}
 }
 
+async function runBenchmarkRunLoop() {
+	activeLoops++;
+	const interval = BENCHMARK_RUN_POLL_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting benchmark run loop (interval: ${BENCHMARK_RUN_POLL_INTERVAL_SECONDS} seconds)...`,
+	);
+	try {
+		while (!isStopRequested()) {
+			try {
+				const processed = await processNextBenchmarkRun();
+				if (!processed) {
+					await interruptibleSleep(interval);
+				}
+			} catch (error) {
+				logger.error(
+					"Error in benchmark run loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Benchmark run loop stopped");
+	}
+}
+
 async function runVideoWebhookLoop() {
 	activeLoops++;
 	const interval = VIDEO_WEBHOOK_POLL_INTERVAL_SECONDS * 1000;
@@ -3223,6 +3253,9 @@ export async function startWorker() {
 		`- Model verification: runs every ${MODEL_VERIFICATION_POLL_INTERVAL_SECONDS} seconds`,
 	);
 	logger.info(
+		`- Benchmark runs: runs every ${BENCHMARK_RUN_POLL_INTERVAL_SECONDS} seconds for admin-queued benchmarks`,
+	);
+	logger.info(
 		"- Aggregated stats: runs every 1 minute at the start of each minute",
 	);
 	logger.info(
@@ -3243,6 +3276,7 @@ export async function startWorker() {
 	void runVideoJobsLoop();
 	void runVideoWebhookLoop();
 	void runModelVerificationLoop();
+	void runBenchmarkRunLoop();
 	void runAggregatedStatsLoop();
 	void runProjectStatsLoop();
 	void runGlobalStatsLoop();

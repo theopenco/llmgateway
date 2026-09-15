@@ -2,6 +2,7 @@ export type BenchmarkKind = "agentic" | "performance" | "quality";
 export type BenchmarkOutputFormat = "html" | "json" | "markdown";
 export type BenchmarkDifficulty = "easy" | "hard" | "medium";
 export type BenchmarkProfileName = "coding" | "load" | "smoke" | "standard";
+export type BenchmarkTargetSource = "airside" | "catalogue";
 
 export interface BenchmarkMessageToolCall {
 	id: string;
