@@ -27,6 +27,7 @@ import {
 } from "@/lib/admin-settings";
 import {
 	MIN_SAMPLED_FOR_RATE,
+	type ContentFilterViolationsGroupBy,
 	type ContentFilterViolationsSort,
 	type ContentFilterViolationsWindow,
 } from "@/lib/content-filter-ranking";
@@ -40,6 +41,11 @@ const WINDOWS: { value: ContentFilterViolationsWindow; label: string }[] = [
 const SORTS: { value: ContentFilterViolationsSort; label: string }[] = [
 	{ value: "violations", label: "Most violations" },
 	{ value: "rate", label: "Highest rate" },
+];
+
+const GROUP_BYS: { value: ContentFilterViolationsGroupBy; label: string }[] = [
+	{ value: "model", label: "By model" },
+	{ value: "provider", label: "By provider" },
 ];
 
 // The org page shares one window param across its charts; map ours onto it.
@@ -59,9 +65,16 @@ function parseSort(value: string | undefined): ContentFilterViolationsSort {
 	return value === "rate" ? "rate" : "violations";
 }
 
+function parseGroupBy(
+	value: string | undefined,
+): ContentFilterViolationsGroupBy {
+	return value === "provider" ? "provider" : "model";
+}
+
 function pageHref(
 	window: ContentFilterViolationsWindow,
 	sort: ContentFilterViolationsSort,
+	groupBy: ContentFilterViolationsGroupBy,
 ): string {
 	const params = new URLSearchParams();
 	if (window !== "24h") {
@@ -70,8 +83,21 @@ function pageHref(
 	if (sort !== "violations") {
 		params.set("sort", sort);
 	}
+	if (groupBy !== "model") {
+		params.set("groupBy", groupBy);
+	}
 	const query = params.toString();
 	return query ? `/content-filter?${query}` : "/content-filter";
+}
+
+// The ranking toggle only changes which table is shown, so keep the reader on
+// it rather than scrolling them back to the organization table.
+function rankingHref(
+	window: ContentFilterViolationsWindow,
+	sort: ContentFilterViolationsSort,
+	groupBy: ContentFilterViolationsGroupBy,
+): string {
+	return `${pageHref(window, sort, groupBy)}#ranking`;
 }
 
 // usedModel is stored as "<provider>/<model>", and the provider already has its
@@ -111,11 +137,16 @@ function SignInPrompt() {
 export default async function ContentFilterPage({
 	searchParams,
 }: {
-	searchParams?: Promise<{ window?: string; sort?: string }>;
+	searchParams?: Promise<{
+		window?: string;
+		sort?: string;
+		groupBy?: string;
+	}>;
 }) {
 	const params = await searchParams;
 	const window = parseWindow(params?.window);
 	const sort = parseSort(params?.sort);
+	const groupBy = parseGroupBy(params?.groupBy);
 	const [settings, violations] = await Promise.all([
 		getContentFilterSettings(),
 		getContentFilterViolations(window, sort),
@@ -124,6 +155,21 @@ export default async function ContentFilterPage({
 	if (settings === null || violations === null) {
 		return <SignInPrompt />;
 	}
+
+	// Both groupings come back in the same payload, so switching is a re-render
+	// rather than another round trip.
+	const ranking =
+		groupBy === "provider"
+			? violations.providers.map((provider) => ({
+					...provider,
+					key: provider.usedProvider,
+					label: provider.usedProvider,
+				}))
+			: violations.models.map((model) => ({
+					...model,
+					key: `${model.usedProvider}/${model.usedModel}`,
+					label: model.usedModel,
+				}));
 
 	async function handleSave(input: ContentFilterSettingsInput) {
 		"use server";
@@ -188,7 +234,7 @@ export default async function ContentFilterPage({
 										variant={window === option.value ? "default" : "outline"}
 										size="sm"
 									>
-										<Link href={pageHref(option.value, sort)}>
+										<Link href={pageHref(option.value, sort, groupBy)}>
 											{option.label}
 										</Link>
 									</Button>
@@ -202,7 +248,7 @@ export default async function ContentFilterPage({
 										variant={sort === option.value ? "default" : "outline"}
 										size="sm"
 									>
-										<Link href={pageHref(window, option.value)}>
+										<Link href={pageHref(window, option.value, groupBy)}>
 											{option.label}
 										</Link>
 									</Button>
@@ -328,56 +374,43 @@ export default async function ContentFilterPage({
 				</CardContent>
 			</Card>
 
-			<Card>
+			<Card id="ranking" className="scroll-mt-6">
 				<CardHeader>
-					<CardTitle>Violations by provider and model</CardTitle>
-					<CardDescription>
-						The same window, grouped by what served the request instead of the
-						organization that sent it. Counts are cross-tenant, so one provider
-						can appear here without any single organization standing out.
-						{sort === "rate"
-							? ` Ranked by violation rate among models with at least ${MIN_SAMPLED_FOR_RATE} sampled requests.`
-							: " Ranked by violation count."}
-					</CardDescription>
-				</CardHeader>
-				<CardContent className="flex flex-col gap-6">
-					{violations.providers.length > 0 ? (
-						<div className="overflow-x-auto">
-							<Table>
-								<TableHeader>
-									<TableRow>
-										<TableHead>Provider</TableHead>
-										<TableHead className="text-right">Sampled</TableHead>
-										<TableHead className="text-right">Violations</TableHead>
-										<TableHead className="text-right">Rate</TableHead>
-										<TableHead className="text-right">Blocked</TableHead>
-									</TableRow>
-								</TableHeader>
-								<TableBody>
-									{violations.providers.map((provider) => (
-										<TableRow key={provider.usedProvider}>
-											<TableCell className="font-medium">
-												{provider.usedProvider}
-											</TableCell>
-											<TableCell className="text-right tabular-nums">
-												{provider.sampledCount.toLocaleString("en-US")}
-											</TableCell>
-											<TableCell className="text-right tabular-nums">
-												{provider.violationCount.toLocaleString("en-US")}
-											</TableCell>
-											<TableCell className="text-right tabular-nums">
-												{percentFormatter.format(provider.violationRate)}
-											</TableCell>
-											<TableCell className="text-right tabular-nums">
-												{provider.blockedCount.toLocaleString("en-US")}
-											</TableCell>
-										</TableRow>
-									))}
-								</TableBody>
-							</Table>
+					<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+						<div>
+							<CardTitle>
+								{groupBy === "provider"
+									? "Violations by provider"
+									: "Violations by model"}
+							</CardTitle>
+							<CardDescription>
+								The same window, grouped by what served the request instead of
+								the organization that sent it. Counts are cross-tenant, so one{" "}
+								{groupBy} can appear here without any single organization
+								standing out.
+								{sort === "rate"
+									? ` Ranked by violation rate among ${groupBy}s with at least ${MIN_SAMPLED_FOR_RATE} sampled requests.`
+									: " Ranked by violation count."}
+							</CardDescription>
 						</div>
-					) : null}
-					{violations.models.length === 0 ? (
+						<div className="flex flex-wrap items-center gap-1">
+							{GROUP_BYS.map((option) => (
+								<Button
+									key={option.value}
+									asChild
+									variant={groupBy === option.value ? "default" : "outline"}
+									size="sm"
+								>
+									<Link href={rankingHref(window, sort, option.value)}>
+										{option.label}
+									</Link>
+								</Button>
+							))}
+						</div>
+					</div>
+				</CardHeader>
+				<CardContent>
+					{ranking.length === 0 ? (
 						<p className="text-sm text-muted-foreground">
 							No moderated requests in this window.
 						</p>
@@ -386,8 +419,14 @@ export default async function ContentFilterPage({
 							<Table>
 								<TableHeader>
 									<TableRow>
-										<TableHead>Model</TableHead>
-										<TableHead>Provider</TableHead>
+										{groupBy === "provider" ? (
+											<TableHead>Provider</TableHead>
+										) : (
+											<>
+												<TableHead>Model</TableHead>
+												<TableHead>Provider</TableHead>
+											</>
+										)}
 										<TableHead className="text-right">Sampled</TableHead>
 										<TableHead className="text-right">Violations</TableHead>
 										<TableHead className="text-right">Rate</TableHead>
@@ -395,25 +434,33 @@ export default async function ContentFilterPage({
 									</TableRow>
 								</TableHeader>
 								<TableBody>
-									{violations.models.map((model) => (
-										<TableRow key={`${model.usedProvider}/${model.usedModel}`}>
-											<TableCell className="font-medium">
-												{model.usedModel}
-											</TableCell>
-											<TableCell className="text-muted-foreground">
-												{model.usedProvider}
+									{ranking.map((row) => (
+										<TableRow key={row.key}>
+											{groupBy === "provider" ? (
+												<TableCell className="font-medium">
+													{row.usedProvider}
+												</TableCell>
+											) : (
+												<>
+													<TableCell className="font-medium">
+														{row.label}
+													</TableCell>
+													<TableCell className="text-muted-foreground">
+														{row.usedProvider}
+													</TableCell>
+												</>
+											)}
+											<TableCell className="text-right tabular-nums">
+												{row.sampledCount.toLocaleString("en-US")}
 											</TableCell>
 											<TableCell className="text-right tabular-nums">
-												{model.sampledCount.toLocaleString("en-US")}
+												{row.violationCount.toLocaleString("en-US")}
 											</TableCell>
 											<TableCell className="text-right tabular-nums">
-												{model.violationCount.toLocaleString("en-US")}
+												{percentFormatter.format(row.violationRate)}
 											</TableCell>
 											<TableCell className="text-right tabular-nums">
-												{percentFormatter.format(model.violationRate)}
-											</TableCell>
-											<TableCell className="text-right tabular-nums">
-												{model.blockedCount.toLocaleString("en-US")}
+												{row.blockedCount.toLocaleString("en-US")}
 											</TableCell>
 										</TableRow>
 									))}
