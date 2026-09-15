@@ -30,13 +30,18 @@ import {
 	quantizationValue,
 	REASONING_EFFORT_VALUES,
 } from "@/lib/airside-metadata.js";
+import {
+	buildVerificationTarget,
+	enqueueModelVerification,
+	modelVerificationSchema,
+	serializeVerification,
+	verificationCredentialSource,
+	verificationTargetsMatch,
+	type ModelVerificationRow,
+} from "@/lib/model-verification.js";
 import { notifyAirsideCrewInvite } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
-import {
-	createQueuedModelVerificationChecks,
-	encryptModelVerificationCredential,
-} from "@llmgateway/actions";
 import {
 	AIRSIDE_BASELINE_MARGIN,
 	AIRSIDE_DISCOUNT_MAX,
@@ -50,12 +55,10 @@ import {
 	eq,
 	gte,
 	inArray,
-	shortid,
 	sql,
 	tables,
 } from "@llmgateway/db";
 import {
-	hasProviderEnvironmentToken,
 	models as catalogueModels,
 	PROVIDER_API_FORMATS,
 	providers as catalogueProviders,
@@ -71,8 +74,6 @@ import { getStripe } from "./payments.js";
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
 import type { ProviderModelMapping } from "@llmgateway/models";
-
-type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
  * Airside — the self-serve provider portal. Provider companies ("carriers")
@@ -293,23 +294,6 @@ const filingSchema = z.object({
 	createdAt: z.string(),
 });
 
-const modelVerificationSchema = z.object({
-	id: z.string(),
-	status: z.enum(["queued", "running", "passed", "failed"]),
-	checks: z.array(
-		z.object({
-			id: z.string(),
-			label: z.string(),
-			status: z.enum(["queued", "running", "passed", "failed", "skipped"]),
-			feedback: z.string().optional(),
-		}),
-	),
-	summary: z.string().nullable(),
-	createdAt: z.string(),
-	startedAt: z.string().nullable(),
-	completedAt: z.string().nullable(),
-});
-
 const modelSchema = z.object({
 	quantization: quantizationValue.nullable(),
 	id: z.string(),
@@ -411,8 +395,6 @@ function serializeRoutingFiling(row: RoutingFilingRow) {
 type ProviderClaimRow = typeof tables.providerClaim.$inferSelect;
 type PriceFilingRow = typeof tables.providerPriceFiling.$inferSelect;
 type DraftModelRow = typeof tables.providerDraftModel.$inferSelect;
-type ModelVerificationRow =
-	typeof tables.providerModelVerification.$inferSelect;
 
 function serializeClaim(
 	row: ProviderClaimRow,
@@ -471,22 +453,7 @@ async function credentialedProviderIds(
 function verificationTarget(
 	body: z.infer<typeof verificationMappingSchema>,
 ): ProviderModelVerificationTarget {
-	return {
-		providerId: body.providerId,
-		modelName: body.modelName,
-		externalId: body.externalId ?? body.modelName,
-		apiFormat: body.apiFormat ?? "openai-chat-completions",
-		streaming: body.streaming ?? true,
-		vision: body.vision ?? false,
-		audio: body.audio ?? false,
-		tools: body.tools ?? false,
-		jsonOutput: body.jsonOutput ?? false,
-		jsonOutputSchema: body.jsonOutputSchema ?? false,
-		reasoning: body.reasoning ?? false,
-		reasoningMaxTokens: body.reasoningMaxTokens ?? false,
-		reasoningEfforts: body.reasoningEfforts ?? null,
-		webSearch: body.webSearch ?? false,
-	};
+	return buildVerificationTarget(body);
 }
 
 function draftVerificationTarget(
@@ -510,96 +477,6 @@ function draftVerificationTarget(
 			(typeof REASONING_EFFORT_VALUES)[number][] | null,
 		webSearch: model.webSearch,
 	});
-}
-
-function verificationTargetsMatch(
-	left: ProviderModelVerificationTarget,
-	right: ProviderModelVerificationTarget,
-): boolean {
-	return (
-		left.providerId === right.providerId &&
-		left.modelName === right.modelName &&
-		left.externalId === right.externalId &&
-		(left.apiFormat ?? "openai-chat-completions") ===
-			(right.apiFormat ?? "openai-chat-completions") &&
-		left.streaming === right.streaming &&
-		left.vision === right.vision &&
-		left.audio === right.audio &&
-		left.tools === right.tools &&
-		left.jsonOutput === right.jsonOutput &&
-		left.jsonOutputSchema === right.jsonOutputSchema &&
-		left.reasoning === right.reasoning &&
-		left.reasoningMaxTokens === right.reasoningMaxTokens &&
-		JSON.stringify(left.reasoningEfforts) ===
-			JSON.stringify(right.reasoningEfforts) &&
-		left.webSearch === right.webSearch
-	);
-}
-
-async function verificationCredentialSource(
-	target: ProviderModelVerificationTarget,
-	apiKey: string | undefined,
-): Promise<ModelVerificationRow["credentialSource"]> {
-	if (apiKey) {
-		return "supplied";
-	}
-	const managedKeys = await db.query.providerKey.findMany({
-		where: {
-			provider: { eq: target.providerId },
-			managed: { eq: true },
-			status: { eq: "active" },
-		},
-		columns: { allowedModels: true },
-	});
-	if (
-		managedKeys.some(
-			(key) =>
-				!key.allowedModels?.length ||
-				key.allowedModels.includes(target.externalId),
-		)
-	) {
-		return "managed";
-	}
-	if (hasProviderEnvironmentToken(target.providerId)) {
-		return "environment";
-	}
-	throw new HTTPException(400, {
-		message: "Enter a provider API key to run this verification.",
-	});
-}
-
-async function enqueueModelVerification(
-	input: {
-		providerCompanyId: string;
-		draftModelId?: string;
-		target: ProviderModelVerificationTarget;
-		apiKey?: string;
-		requestedBy: string;
-		credentialSource: ModelVerificationRow["credentialSource"];
-	},
-	transaction?: DbTransaction,
-): Promise<ModelVerificationRow> {
-	const id = shortid();
-	const [created] = await (transaction ?? db)
-		.insert(tables.providerModelVerification)
-		.values({
-			id,
-			providerCompanyId: input.providerCompanyId,
-			draftModelId: input.draftModelId ?? null,
-			requestedBy: input.requestedBy,
-			target: input.target,
-			checks: createQueuedModelVerificationChecks(input.target),
-			credentialSource: input.credentialSource,
-			credentialCiphertext: input.apiKey
-				? encryptModelVerificationCredential(
-						input.apiKey,
-						id,
-						input.providerCompanyId,
-					)
-				: null,
-		})
-		.returning();
-	return created;
 }
 
 function serializeFiling(row: PriceFilingRow) {
@@ -627,18 +504,6 @@ function serializeFiling(row: PriceFilingRow) {
 		reviewNote: row.reviewNote,
 		reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
 		createdAt: row.createdAt.toISOString(),
-	};
-}
-
-function serializeVerification(row: ModelVerificationRow) {
-	return {
-		id: row.id,
-		status: row.status,
-		checks: row.checks,
-		summary: row.summary,
-		createdAt: row.createdAt.toISOString(),
-		startedAt: row.startedAt?.toISOString() ?? null,
-		completedAt: row.completedAt?.toISOString() ?? null,
 	};
 }
 
@@ -2301,6 +2166,9 @@ airside.openapi(getModelVerification, async (c) => {
 		where: { id: { eq: id } },
 	});
 	if (!verification) {
+		throw new HTTPException(404, { message: "Verification not found" });
+	}
+	if (!verification.providerCompanyId) {
 		throw new HTTPException(404, { message: "Verification not found" });
 	}
 	await requireCompanyMembership(user.id, verification.providerCompanyId);

@@ -698,7 +698,7 @@ async function runCheck(
 		options.providerKeyOptions,
 		undefined,
 		false,
-		undefined,
+		options.target.region ?? undefined,
 		options.skipEnvVars,
 		options.target.modelName,
 		transportProvider === "google-vertex" && provider !== "google-vertex"
@@ -870,14 +870,20 @@ function verificationCredentialRowId(id: string): string {
 	return `model-verification:${id}`;
 }
 
-function verificationCredentialScope(providerCompanyId: string): string {
-	return `provider-company:${providerCompanyId}`;
+// Admin-initiated runs belong to no carrier, so they get their own fixed
+// encryption scope instead of a company id.
+const ADMIN_VERIFICATION_SCOPE = "admin-verification";
+
+function verificationCredentialScope(providerCompanyId: string | null): string {
+	return providerCompanyId
+		? `provider-company:${providerCompanyId}`
+		: ADMIN_VERIFICATION_SCOPE;
 }
 
 export function encryptModelVerificationCredential(
 	plaintext: string,
 	id: string,
-	providerCompanyId: string,
+	providerCompanyId: string | null,
 ): string {
 	return encryptProviderKey(
 		plaintext,
@@ -889,7 +895,7 @@ export function encryptModelVerificationCredential(
 export function decryptModelVerificationCredential(
 	ciphertext: string,
 	id: string,
-	providerCompanyId: string,
+	providerCompanyId: string | null,
 ): string {
 	return decryptProviderKey(
 		ciphertext,
