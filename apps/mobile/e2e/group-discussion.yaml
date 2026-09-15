@@ -1,0 +1,68 @@
+appId: io.llmgateway.lounge
+---
+- evalScript: ${output.stopTopic = "TRIGGER_TIMEOUT_20000 discuss gardens " + Date.now()}
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- scrollUntilVisible:
+    element: "Group discussion"
+    direction: DOWN
+- tapOn: "Group discussion"
+- tapOn: "Model: Auto"
+- tapOn:
+    id: "field-search-models"
+- inputText: "gpt-4o-mini"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT-4o Mini"
+- tapOn: "Add model to discussion"
+- tapOn: "Model: gpt-4o-mini"
+- tapOn:
+    id: "field-search-models"
+- eraseText
+- inputText: "gpt-5-nano"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT-5 Nano"
+- tapOn: "Add model to discussion"
+- scrollUntilVisible:
+    element:
+      id: "field-discussion-topic"
+    direction: DOWN
+- tapOn:
+    id: "field-discussion-topic"
+- inputText: "Discuss the benefits of city gardens"
+- tapOn: "Done typing"
+- tapOn: "Start discussion"
+- extendedWaitUntil:
+    visible: "Discussion complete"
+    timeout: 45000
+- scrollUntilVisible:
+    element: "5. gpt-4o-mini"
+    direction: UP
+    timeout: 45000
+- assertVisible: "5. gpt-4o-mini"
+- tapOn: "Share transcript"
+- extendedWaitUntil:
+    visible: "Copy"
+    timeout: 15000
+- tapOn: "Copy"
+- tapOn: "New discussion"
+- scrollUntilVisible:
+    element:
+      id: "field-discussion-topic"
+    direction: DOWN
+- tapOn:
+    id: "field-discussion-topic"
+- eraseText
+- inputText: ${output.stopTopic}
+- tapOn: "Done typing"
+- tapOn: "Start discussion"
+- tapOn: "Stop discussion"
+- extendedWaitUntil:
+    visible: "Discussion paused"
+    timeout: 15000
+- assertVisible: "Response stopped."
+- tapOn: "Continue discussion"
+- tapOn: "Stop discussion"
+- extendedWaitUntil:
+    visible: "Discussion paused"
+    timeout: 15000
+- assertVisible: "2. gpt-5-nano"
