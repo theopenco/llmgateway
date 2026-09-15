@@ -3209,6 +3209,7 @@ async function seedAirside() {
 		website: "https://mistral.ai",
 		paymentStatus: "paid",
 		paidAt: daysAgo(21),
+		createdAt: daysAgo(21),
 	});
 
 	await upsert(tables.providerCompanyMember, {
@@ -3216,6 +3217,7 @@ async function seedAirside() {
 		providerCompanyId: "airside-company-mistral",
 		userId: "airside-user-mistral",
 		role: "owner",
+		createdAt: daysAgo(21),
 	});
 
 	await upsert(tables.providerClaim, {
@@ -3227,6 +3229,7 @@ async function seedAirside() {
 		status: "active",
 		reviewedBy: "test-user-id",
 		reviewedAt: daysAgo(20),
+		createdAt: daysAgo(21),
 	});
 
 	// A second carrier whose claim is still pending review, so the admin
@@ -3252,6 +3255,7 @@ async function seedAirside() {
 		website: "https://moonshot.ai",
 		paymentStatus: "paid",
 		paidAt: daysAgo(2),
+		createdAt: daysAgo(2),
 	});
 
 	await upsert(tables.providerCompanyMember, {
@@ -3259,6 +3263,7 @@ async function seedAirside() {
 		providerCompanyId: "airside-company-moonshot",
 		userId: "airside-user-moonshot",
 		role: "owner",
+		createdAt: daysAgo(2),
 	});
 
 	await upsert(tables.providerClaim, {
@@ -3268,6 +3273,7 @@ async function seedAirside() {
 		matchedDomain: "moonshot.ai",
 		claimedBy: "airside-user-moonshot",
 		status: "pending",
+		createdAt: daysAgo(2),
 	});
 
 	// Accepting a larger gateway margin plus a small discount → routing boost
@@ -3296,6 +3302,7 @@ async function seedAirside() {
 		jsonOutput: true,
 		status: "active",
 		createdBy: "airside-user-mistral",
+		createdAt: daysAgo(13),
 	});
 
 	await upsert(tables.providerPriceFiling, {
@@ -3309,6 +3316,7 @@ async function seedAirside() {
 		requestedBy: "airside-user-mistral",
 		reviewedBy: "test-user-id",
 		reviewedAt: daysAgo(12),
+		createdAt: daysAgo(13),
 	});
 	await materializeSeedAirsideModel({
 		modelName: "mistral-medium-4",
@@ -3337,6 +3345,7 @@ async function seedAirside() {
 		reasoning: true,
 		status: "active",
 		createdBy: "airside-user-mistral",
+		createdAt: daysAgo(10),
 	});
 
 	await upsert(tables.providerPriceFiling, {
@@ -3350,6 +3359,7 @@ async function seedAirside() {
 		requestedBy: "airside-user-mistral",
 		reviewedBy: "test-user-id",
 		reviewedAt: daysAgo(9),
+		createdAt: daysAgo(10),
 	});
 	await materializeSeedAirsideModel({
 		modelName: "codestral-3",
@@ -3373,6 +3383,7 @@ async function seedAirside() {
 		status: "pending",
 		requestedBy: "airside-user-mistral",
 		note: "Price cut to win more agentic traffic.",
+		createdAt: daysAgo(2),
 	});
 
 	await upsert(tables.providerDraftModel, {
@@ -3392,6 +3403,7 @@ async function seedAirside() {
 		reasoning: true,
 		status: "draft",
 		createdBy: "airside-user-mistral",
+		createdAt: daysAgo(4),
 	});
 
 	// 30 days of hourly rollups for the claimed provider so the traffic pages
@@ -3472,6 +3484,7 @@ async function seedAirside() {
 		status: "pending",
 		requestedBy: "airside-user-mistral",
 		note: "Initial listing for our new flagship.",
+		createdAt: daysAgo(4),
 	});
 }
 
