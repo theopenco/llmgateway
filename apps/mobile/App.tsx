@@ -9,6 +9,7 @@ import { useState } from "react";
 import { StatusBar, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { GroupConversation } from "@/screens/GroupConversation";
 import { ImageStudio } from "@/screens/ImageStudio";
 import { ProjectDetail } from "@/screens/ProjectDetail";
 import { SharedConversations } from "@/screens/SharedConversations";
@@ -42,6 +43,7 @@ type Routes = {
 	ProjectDetail: { id: string };
 	History: undefined;
 	SharedConversations: undefined;
+	GroupConversation: undefined;
 	Projects: undefined;
 	Skills: undefined;
 	Profile: undefined;
@@ -113,6 +115,11 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 							<Button
 								title="Start a conversation"
 								onPress={() => navigation.navigate("Chat", {})}
+							/>
+							<Button
+								title="Group discussion"
+								secondary
+								onPress={() => navigation.navigate("GroupConversation")}
 							/>
 							<View style={styles.card}>
 								<Text style={styles.heading}>Pick up where you left off</Text>
@@ -192,6 +199,12 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 							onProject={(id) => navigation.navigate("ProjectDetail", { id })}
 						/>
 					)}
+				</Stack.Screen>
+				<Stack.Screen
+					name="GroupConversation"
+					options={{ title: "Group discussion" }}
+				>
+					{() => <GroupConversation projectId={projectId} />}
 				</Stack.Screen>
 				<Stack.Screen name="ProjectDetail" options={{ title: "Project" }}>
 					{({ route, navigation }) => (

@@ -43,7 +43,7 @@ Verified during development:
 
 - Full repository build: 20 workspaces passed.
 - Repository unit suite: 7,058 passed, 2 skipped; chat history/settings tests: 4 passed.
-- Native tests: 60 passed; shared image configuration tests: 3 passed.
+- Native tests: 64 passed; shared image configuration tests: 3 passed.
 - Signed Release build launched on the iOS simulator with local service URLs.
 - Maestro account flow: sign-in errors, session restoration, workspace switching,
   project and skill persistence/deletion, profile access, and sign-out passed.
@@ -55,6 +55,8 @@ Verified during development:
 - Native citations: source links and web-search settings survived restart.
 - Native sharing: public links, fork permissions, pasted-link reading, revocation,
   workspace snapshots, and forking into a conversation passed.
+- Native group discussion: five alternating turns, transcript sharing, starting
+  over, stopping, and continuing with the next model passed.
 - Native image checks with a mock provider: generation/editing, model comparison,
   settings, history after restart, Files export/import, sharing, renaming, and
   deletion passed. Exported PNG bytes matched the generated fixture.
