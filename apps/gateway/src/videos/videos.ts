@@ -41,7 +41,6 @@ import {
 	hasManagedProviderCredential,
 	type GatewayApiKey,
 } from "@/lib/cached-queries.js";
-import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	complianceBlockMessage,
 	filterCompliantProviders,
@@ -115,6 +114,7 @@ import {
 	getVideoProxyRedisKey,
 	VIDEO_PROXY_REDIS_TTL_SECONDS,
 } from "@llmgateway/shared";
+import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 import {
 	buildVertexVideoOutputStorageUri,
 	createSignedGcsReadUrl,

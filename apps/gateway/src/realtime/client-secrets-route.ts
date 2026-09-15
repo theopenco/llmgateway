@@ -1,13 +1,13 @@
 import { OpenAPIHono, z } from "@hono/zod-openapi";
 
 import { validateSource } from "@/chat/tools/validate-source.js";
-import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import { isZeroDataRetentionEnabled } from "@/lib/compliance.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
 
 import { logger } from "@llmgateway/logger";
 import { estimateTokensFromText } from "@llmgateway/shared";
+import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 
 import { findRealtimeTranscriptionMapping } from "./catalog.js";
 import {
