@@ -21,8 +21,7 @@ import {
 	storedAttachments,
 } from "@/api/chat-messages";
 import { api, client, queryClient } from "@/api/client";
-import { streamCompletion } from "@/api/completion";
-import { mergeSources } from "@/api/sources";
+import { generateReply, saveReply } from "@/api/reply";
 import { ChatSettings } from "@/components/ChatSettings";
 import { ChatSharing } from "@/components/ChatSharing";
 import { Markdown } from "@/components/Markdown";
@@ -37,8 +36,9 @@ import {
 	Screen,
 	styles,
 } from "@/components/ui";
-import { pickFile } from "@/lib/files";
+import { pickChatAttachment } from "@/lib/chat-files";
 import { defaultChatSettings, usePreferences } from "@/lib/preferences";
+import { useFollowingList } from "@/lib/use-following-list";
 
 import type { Attachment, ChatMessage } from "@/api/chat-messages";
 import type { Source } from "@/api/sources";
@@ -99,8 +99,7 @@ export function Chat({
 	const [editing, setEditing] = useState<ChatMessage>();
 	const [editText, setEditText] = useState("");
 	const controllerRef = useRef<AbortController | null>(null);
-	const listRef = useRef<FlatList<ChatMessage>>(null);
-	const followRef = useRef(true);
+	const following = useFollowingList<ChatMessage>();
 	const preferences = usePreferences();
 	const chat = api.useQuery(
 		"get",
@@ -123,6 +122,7 @@ export function Chat({
 	useEffect(() => () => controllerRef.current?.abort(), []);
 	const refresh = async () => {
 		await refreshChatHistory();
+		await queryClient.invalidateQueries({ queryKey: ["comparison-session"] });
 		await queryClient.invalidateQueries({ queryKey: ["get", "/chats/{id}"] });
 	};
 	const send = useMutation({
@@ -162,7 +162,7 @@ export function Chat({
 			const controller = new AbortController();
 			controllerRef.current = controller;
 			Keyboard.dismiss();
-			followRef.current = true;
+			following.startFollowing();
 			setDraft("");
 			setReasoning("");
 			setDraftSources([]);
@@ -233,47 +233,32 @@ export function Chat({
 			if (!temporary) {
 				await refresh();
 			}
-			let response = "";
-			let thought = "";
-			let sources: Source[] = [];
-			let generationError: Error | undefined;
-			try {
-				await streamCompletion({
-					projectId,
-					model,
-					settings,
-					messages: [
-						...(system ? [{ role: "system" as const, content: system }] : []),
-						...contextMessages,
-					],
-					signal: controller.signal,
-					onDelta: (delta) => {
-						response += delta.content;
-						thought += delta.reasoning;
-						sources = mergeSources(sources, delta.sources ?? []);
-						setDraftSources(sources);
-						setDraft(response);
-						setReasoning(thought);
-					},
-				});
-			} catch (error) {
-				generationError =
-					error instanceof Error
-						? error
-						: new Error("The response failed. Please try again.");
-			}
-			const answer =
-				response ||
-				(thought
-					? ""
-					: controller.signal.aborted
-						? "Response stopped."
-						: "The response ended before any content arrived.");
+			const reply = await generateReply({
+				projectId,
+				model,
+				settings,
+				messages: [
+					...(system ? [{ role: "system" as const, content: system }] : []),
+					...contextMessages,
+				],
+				signal: controller.signal,
+				onReply: (value) => {
+					setDraftSources(value.sources);
+					setDraft(value.content);
+					setReasoning(value.reasoning);
+				},
+			});
 			if (temporary) {
 				setTemporaryMessages([
 					...prefix,
 					localMessage("user", content, files),
-					localMessage("assistant", answer, [], thought, sources),
+					localMessage(
+						"assistant",
+						reply.content,
+						[],
+						reply.reasoning,
+						reply.sources,
+					),
 				]);
 			} else if (currentId) {
 				const lastAssistant =
@@ -282,17 +267,7 @@ export function Chat({
 								.slice(userIndex + 1)
 								.find((message) => message.role === "assistant")
 						: undefined;
-				await client.POST("/chats/{id}/messages", {
-					params: { path: { id: currentId } },
-					body: {
-						id: lastAssistant?.id,
-						role: "assistant",
-						...(answer && { content: answer }),
-						...(thought && { reasoning: thought }),
-						...(sources.length && { sources: JSON.stringify(sources) }),
-						metadata: { model, interrupted: !!generationError },
-					},
-				});
+				await saveReply(currentId, reply, lastAssistant?.id);
 			}
 			setDraft("");
 			setReasoning("");
@@ -300,32 +275,16 @@ export function Chat({
 			if (!temporary) {
 				await refresh();
 			}
-			if (generationError && !controller.signal.aborted) {
-				throw generationError;
+			if (reply.error && !controller.signal.aborted) {
+				throw reply.error;
 			}
 		},
 	});
 	const attach = useMutation({
 		mutationFn: async () => {
-			const file = await pickFile([
-				"public.image",
-				"public.audio",
-				"com.adobe.pdf",
-				"public.text",
-				"public.comma-separated-values-text",
-				"org.openxmlformats.wordprocessingml.document",
-				"org.openxmlformats.spreadsheetml.sheet",
-			]);
+			const file = await pickChatAttachment();
 			if (file) {
-				setAttachments((current) => [
-					...current,
-					{
-						id: `attachment-${++localSequence}`,
-						name: file.name,
-						mediaType: file.mimeType,
-						url: `data:${file.mimeType};base64,${file.base64}`,
-					},
-				]);
+				setAttachments((current) => [...current, file]);
 			}
 		},
 	});
@@ -441,24 +400,11 @@ export function Chat({
 				)}
 			</View>
 			<FlatList
-				ref={listRef}
+				{...following.listProps}
 				data={messages}
 				keyExtractor={(message) => message.id}
 				contentContainerStyle={{ padding: 18, gap: 14 }}
 				keyboardShouldPersistTaps="handled"
-				onScroll={({ nativeEvent }) => {
-					followRef.current =
-						nativeEvent.contentSize.height -
-							nativeEvent.layoutMeasurement.height -
-							nativeEvent.contentOffset.y <
-						80;
-				}}
-				scrollEventThrottle={100}
-				onContentSizeChange={() => {
-					if (followRef.current) {
-						listRef.current?.scrollToEnd({ animated: send.isPending });
-					}
-				}}
 				ListEmptyComponent={
 					<Text style={styles.muted}>
 						Ask a question. Explore an idea. Make something new.

@@ -1,0 +1,56 @@
+appId: io.llmgateway.lounge
+---
+- evalScript: ${output.title = "Native model comparison " + Date.now()}
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- runFlow: helpers/comparison.yaml
+- scrollUntilVisible:
+    element: "Add a third model"
+    direction: DOWN
+- tapOn: "Add a third model"
+- scrollUntilVisible:
+    element: "Model 3: Auto"
+    direction: DOWN
+- tapOn: "Model 3: Auto"
+- tapOn:
+    id: "field-search-models"
+- inputText: "gpt-4o-mini"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT-4o Mini"
+- tapOn:
+    id: "field-message-to-all-models"
+- inputText: ${output.title}
+- tapOn: "Done typing"
+- tapOn: "Send to all models"
+- extendedWaitUntil:
+    visible: "Retry this model"
+    timeout: 45000
+- assertVisible: "Model: gpt-4o-mini"
+- assertVisible: ".*This is a mock response from the test server.*"
+- tapOn: "Model 2"
+- assertVisible: "Model: gpt-5-nano"
+- assertVisible: ".*This is a mock response from the test server.*"
+- tapOn: "Model 3"
+- assertVisible: "Model: gpt-4o-mini"
+- assertVisible: ".*This is a mock response from the test server.*"
+- launchApp
+- runFlow: helpers/organization.yaml
+- tapOn: "Conversations"
+- tapOn:
+    id: "field-search-conversations"
+- inputText: ${output.title}
+- tapOn: "Done typing"
+- tapOn: ".*gpt-4o-mini, 2 messages"
+- assertVisible: "Model 1"
+- assertVisible: "Model 2"
+- assertVisible: "Model 3"
+- tapOn: "Model 2"
+- assertVisible: "Model: gpt-5-nano"
+- tapOn: "Retry this model"
+- extendedWaitUntil:
+    visible: "Retry this model"
+    timeout: 45000
+- assertVisible: ".*This is a mock response from the test server.*"
+- tapOn: "Open this conversation"
+- assertVisible: "Model: gpt-5-nano"
+- assertVisible: "Retry last response"

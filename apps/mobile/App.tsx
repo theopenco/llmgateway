@@ -9,6 +9,8 @@ import { useState } from "react";
 import { StatusBar, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { Comparison } from "@/screens/Comparison";
+import { Conversation } from "@/screens/Conversation";
 import { GroupConversation } from "@/screens/GroupConversation";
 import { ImageStudio } from "@/screens/ImageStudio";
 import { ProjectDetail } from "@/screens/ProjectDetail";
@@ -24,7 +26,6 @@ import {
 	Screen,
 	styles,
 } from "./src/components/ui";
-import { Chat } from "./src/screens/Chat";
 import { DeleteAccount } from "./src/screens/DeleteAccount";
 import { History } from "./src/screens/History";
 import { Profile } from "./src/screens/Profile";
@@ -39,7 +40,8 @@ type Routes = {
 	Home: undefined;
 	ImageStudio: undefined;
 	Workspaces: undefined;
-	Chat: { id?: string; knowledgeProjectId?: string };
+	Chat: { id?: string; knowledgeProjectId?: string; single?: boolean };
+	Comparison: { id?: string };
 	ProjectDetail: { id: string };
 	History: undefined;
 	SharedConversations: undefined;
@@ -117,6 +119,11 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 								onPress={() => navigation.navigate("Chat", {})}
 							/>
 							<Button
+								title="Compare models"
+								secondary
+								onPress={() => navigation.navigate("Comparison", {})}
+							/>
+							<Button
 								title="Group discussion"
 								secondary
 								onPress={() => navigation.navigate("GroupConversation")}
@@ -163,13 +170,26 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 					)}
 				</Stack.Screen>
 				<Stack.Screen name="Chat" options={{ title: "Conversation" }}>
-					{({ route }) => (
-						<Chat
+					{({ route, navigation }) => (
+						<Conversation
 							key={route.params.id ?? route.params.knowledgeProjectId ?? "new"}
 							chatId={route.params.id}
+							single={route.params.single}
+							onOpenChat={(id) => navigation.push("Chat", { id, single: true })}
 							knowledgeProjectId={route.params.knowledgeProjectId}
 							organizationId={organizationId}
 							projectId={projectId}
+						/>
+					)}
+				</Stack.Screen>
+				<Stack.Screen name="Comparison" options={{ title: "Compare models" }}>
+					{({ route, navigation }) => (
+						<Comparison
+							key={route.params.id ?? "new"}
+							chatId={route.params.id}
+							organizationId={organizationId}
+							projectId={projectId}
+							onOpenChat={(id) => navigation.push("Chat", { id, single: true })}
 						/>
 					)}
 				</Stack.Screen>
