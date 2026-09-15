@@ -35,7 +35,10 @@ function fixedOutputCase(
 					content: `Respond with exactly one line whose entire content is "FINAL: ${sequence}". Do not repeat the sequence. Ignore benchmark nonce ${context.seed}.`,
 				},
 			],
-			maxTokens: Math.max(128, Math.ceil(length * 1.8)),
+			// Tokenizers vary widely on " 1 2 3 …" runs (DeepSeek spends ~2.05
+			// tokens per item), and a truncated sequence fails the exact-output
+			// check, which drops every timing sample for the target.
+			maxTokens: Math.max(256, Math.ceil(length * 4) + 32),
 			reasoningEffort: "none",
 			temperature: 0,
 		}),
