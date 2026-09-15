@@ -74,6 +74,15 @@ function pageHref(
 	return query ? `/content-filter?${query}` : "/content-filter";
 }
 
+// usedModel is stored as "<provider>/<model>", and the provider already has its
+// own column here, so drop the redundant prefix to keep the row scannable.
+function shortModelName(usedModel: string, usedProvider: string): string {
+	const prefix = `${usedProvider}/`;
+	return usedModel.startsWith(prefix)
+		? usedModel.slice(prefix.length)
+		: usedModel;
+}
+
 const percentFormatter = new Intl.NumberFormat("en-US", {
 	style: "percent",
 	maximumFractionDigits: 1,
@@ -303,7 +312,8 @@ export default async function ContentFilterPage({
 																key={`${m.usedProvider}/${m.usedModel}`}
 																className="whitespace-nowrap"
 															>
-																{m.usedModel} ({m.violationCount})
+																{shortModelName(m.usedModel, m.usedProvider)} (
+																{m.violationCount})
 															</span>
 														))}
 													</div>
