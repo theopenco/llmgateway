@@ -139,13 +139,15 @@ function getResponsesApiUserMessage(input: unknown): string {
 		return "";
 	}
 
-	const userItem = input.find(
-		(item) =>
-			item &&
-			typeof item === "object" &&
-			"role" in item &&
-			item.role === "user",
-	);
+	const userItem = [...input]
+		.reverse()
+		.find(
+			(item) =>
+				item &&
+				typeof item === "object" &&
+				"role" in item &&
+				item.role === "user",
+		);
 	if (!userItem || typeof userItem !== "object" || !("content" in userItem)) {
 		return "";
 	}
@@ -595,6 +597,13 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 	// content is an array of parts, so extract the text rather than calling
 	// `.includes` on the raw content (which would miss array-form messages).
 	const userMessage = getResponsesApiUserMessage(body.input);
+	const timeoutDelay = extractTimeoutDelay(userMessage);
+	if (timeoutDelay) {
+		await delay(timeoutDelay);
+	}
+	const reasoning = userMessage.includes("TRIGGER_REASONING")
+		? "Let me think about this step by step."
+		: undefined;
 
 	// Check if this request should trigger an error response
 	const statusTrigger = extractStatusCodeTrigger(userMessage);
@@ -659,12 +668,26 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 				id: String(eventId++),
 			});
 
+			if (reasoning) {
+				await stream.writeSSE({
+					data: JSON.stringify({
+						type: "response.reasoning_summary_text.delta",
+						delta: reasoning,
+						item_id: "rs_123",
+						output_index: 0,
+						summary_index: 0,
+						response: responseBase,
+					}),
+					id: String(eventId++),
+				});
+			}
+
 			await stream.writeSSE({
 				data: JSON.stringify({
 					type: "response.content_part.added",
 					content_index: 0,
 					item_id: "msg_123",
-					output_index: 0,
+					output_index: reasoning ? 1 : 0,
 					part: {
 						type: "output_text",
 						text: assistantContent,
@@ -683,7 +706,7 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 					type: "response.output_text.done",
 					content_index: 0,
 					item_id: "msg_123",
-					output_index: 0,
+					output_index: reasoning ? 1 : 0,
 					response: {
 						...responseBase,
 						status: shouldEndAfterDoneEvent ? "completed" : "in_progress",
@@ -704,7 +727,7 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 					type: "response.content_part.done",
 					content_index: 0,
 					item_id: "msg_123",
-					output_index: 0,
+					output_index: reasoning ? 1 : 0,
 					part: {
 						type: "output_text",
 						text: assistantContent,
@@ -752,6 +775,14 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 		created_at: Math.floor(Date.now() / 1000),
 		model: body.model ?? "gpt-5-nano",
 		output: [
+			...(reasoning
+				? [
+						{
+							type: "reasoning",
+							summary: [{ type: "summary_text", text: reasoning }],
+						},
+					]
+				: []),
 			{
 				type: "message",
 				role: "assistant",

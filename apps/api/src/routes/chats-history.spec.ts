@@ -73,4 +73,18 @@ describe("chat history status", () => {
 		});
 		expect(response.status).toBe(400);
 	});
+
+	test("persists model and web search changes in history", async () => {
+		const response = await app.request("/chats/active-chat", {
+			method: "PATCH",
+			headers: { Cookie: token, "Content-Type": "application/json" },
+			body: JSON.stringify({ model: "gpt-4o-mini", webSearch: true }),
+		});
+		expect(response.status).toBe(200);
+		const history = await app.request("/chats", { headers: { Cookie: token } });
+		expect((await history.json()).chats[0]).toMatchObject({
+			model: "gpt-4o-mini",
+			webSearch: true,
+		});
+	});
 });

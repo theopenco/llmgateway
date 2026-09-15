@@ -42,8 +42,10 @@ export function parseDelta(payload: string): CompletionDelta | null {
 	return {
 		content: typeof delta.content === "string" ? delta.content : "",
 		reasoning:
-			typeof delta.reasoning_content === "string"
-				? delta.reasoning_content
-				: "",
+			typeof delta.reasoning === "string"
+				? delta.reasoning
+				: typeof delta.reasoning_content === "string"
+					? delta.reasoning_content
+					: "",
 	};
 }

@@ -151,6 +151,7 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 				<Stack.Screen name="Chat" options={{ title: "Conversation" }}>
 					{({ route }) => (
 						<Chat
+							key={route.params.id ?? route.params.knowledgeProjectId ?? "new"}
 							chatId={route.params.id}
 							knowledgeProjectId={route.params.knowledgeProjectId}
 							organizationId={organizationId}

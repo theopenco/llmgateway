@@ -1,3 +1,4 @@
+import { errorMessage } from "@/api/errors";
 import { config } from "@/config";
 
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
@@ -6,12 +7,20 @@ import { ensureGatewayKey } from "./gateway-key";
 import { SSEDecoder, parseDelta } from "./sse";
 
 import type { CompletionDelta } from "./sse";
+import type { ChatSettings } from "@/lib/preferences";
 
 export { clearGatewayKey, ensureGatewayKey } from "./gateway-key";
 
 export interface Message {
 	role: "user" | "assistant" | "system";
-	content: string;
+	content:
+		| string
+		| Array<
+				| { type: "text"; text: string }
+				| { type: "image_url"; image_url: { url: string } }
+				| { type: "input_audio"; input_audio: { data: string; format: string } }
+				| { type: "file"; file: { filename: string; file_data: string } }
+		  >;
 }
 
 export async function streamCompletion({
@@ -20,12 +29,14 @@ export async function streamCompletion({
 	messages,
 	signal,
 	onDelta,
+	settings,
 }: {
 	projectId: string;
 	model: string;
 	messages: Message[];
 	signal: AbortSignal;
 	onDelta: (delta: CompletionDelta) => void;
+	settings?: ChatSettings;
 }): Promise<void> {
 	const token = await ensureGatewayKey(projectId);
 	if (signal.aborted) {
@@ -83,11 +94,17 @@ export async function streamCompletion({
 				return;
 			}
 			if (request.status !== 200) {
+				let message = `The model request failed (${request.status}). Please try again.`;
+				try {
+					message = errorMessage(JSON.parse(request.responseText), message);
+				} catch {
+					/* Non-JSON errors retain their HTTP status. */
+				}
 				fail(
 					new Error(
 						request.status === 402
 							? "Your Lounge allowance is used up. Manage your membership on the website."
-							: `The model request failed (${request.status}). Please try again.`,
+							: message,
 					),
 				);
 				return;
@@ -109,6 +126,19 @@ export async function streamCompletion({
 		request.ontimeout = () =>
 			fail(new Error("The model took too long to respond. Please try again."));
 		signal.addEventListener("abort", abort);
-		request.send(JSON.stringify({ model, messages, stream: true }));
+		request.send(
+			JSON.stringify({
+				model,
+				messages,
+				stream: true,
+				temperature: settings?.temperature,
+				max_tokens: settings?.maxTokens,
+				...(settings?.reasoningEffort &&
+					settings.reasoningEffort !== "auto" && {
+						reasoning_effort: settings.reasoningEffort,
+					}),
+				...(settings?.webSearch && { web_search: true }),
+			}),
+		);
 	});
 }

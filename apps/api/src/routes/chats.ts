@@ -155,6 +155,8 @@ const createChatSchema = z.object({
 
 const updateChatSchema = z.object({
 	title: z.string().min(1).max(200).optional(),
+	model: z.string().min(1).optional(),
+	webSearch: z.boolean().optional(),
 	status: z.enum(["active", "archived"]).optional(),
 	pinned: z.boolean().optional(),
 });
@@ -861,6 +863,8 @@ chats.openapi(updateChat, async (c) => {
 	const isPinOnlyUpdate =
 		body.pinned !== undefined &&
 		body.title === undefined &&
+		body.model === undefined &&
+		body.webSearch === undefined &&
 		body.status === undefined;
 
 	const updateValues = isPinOnlyUpdate

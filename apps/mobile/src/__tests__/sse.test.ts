@@ -24,14 +24,19 @@ describe("stream decoding", () => {
 			),
 		).toEqual(["first\nsecond"]);
 	});
-	test("keeps content and reasoning separate", () => {
-		expect(
-			parseDelta(
-				'{"choices":[{"delta":{"content":"Answer", "reasoning_content":"Thinking"}}]}',
-			),
-		).toEqual({ content: "Answer", reasoning: "Thinking" });
-		expect(parseDelta("[DONE]")).toBeNull();
-	});
+	test.each(["reasoning", "reasoning_content"])(
+		"keeps content and %s separate",
+		(field) => {
+			expect(
+				parseDelta(
+					JSON.stringify({
+						choices: [{ delta: { content: "Answer", [field]: "Thinking" } }],
+					}),
+				),
+			).toEqual({ content: "Answer", reasoning: "Thinking" });
+			expect(parseDelta("[DONE]")).toBeNull();
+		},
+	);
 	test("surfaces provider errors inside a successful HTTP stream", () => {
 		expect(() =>
 			parseDelta('{"error":{"message":"Model unavailable"}}'),
