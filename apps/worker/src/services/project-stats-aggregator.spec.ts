@@ -90,7 +90,7 @@ describe("batched project stats refresh", () => {
 	beforeEach(async () => {
 		vi.useFakeTimers({ toFake: ["Date"] });
 		vi.setSystemTime(new Date("2026-09-12T10:30:00Z"));
-		resetProjectStatsRefreshState();
+		await resetProjectStatsRefreshState();
 		await cleanup();
 		await db
 			.insert(tables.user)
@@ -410,6 +410,42 @@ describe("batched project stats refresh", () => {
 		for (const rows of await readAllStats()) {
 			expect(rows.reduce((sum, row) => sum + row.requestCount, 0)).toBe(4);
 			expect(rows.reduce((sum, row) => sum + row.cost, 0)).toBeCloseTo(2);
+		}
+	});
+
+	test("recomputes fully after a failed incremental pass", async () => {
+		await db.insert(tables.log).values(logValues());
+		await refreshProjectHourlyStats();
+		await db
+			.insert(tables.log)
+			.values(logValues({ createdAt: new Date("2026-09-12T10:30:05Z") }));
+		vi.setSystemTime(new Date("2026-09-12T10:30:30Z"));
+
+		// The project table takes the slice, then the model table write fails.
+		const insert = db.insert.bind(db);
+		let inserts = 0;
+		vi.spyOn(db, "insert").mockImplementation(((
+			table: Parameters<typeof db.insert>[0],
+		) => {
+			if (++inserts === 2) {
+				throw new Error("model stats write failed");
+			}
+			return insert(table);
+		}) as typeof db.insert);
+		await expect(refreshProjectHourlyStats()).rejects.toThrow(
+			"model stats write failed",
+		);
+		vi.restoreAllMocks();
+		const [partial, partialModel] = await readAllStats();
+		expect(partial[0]).toMatchObject({ requestCount: 2 });
+		expect(partialModel[0]).toMatchObject({ requestCount: 1 });
+
+		// The retry must not add the slice a second time.
+		vi.setSystemTime(new Date("2026-09-12T10:30:35Z"));
+		await refreshProjectHourlyStats();
+		for (const rows of await readAllStats()) {
+			expect(rows).toHaveLength(1);
+			expect(rows[0]).toMatchObject({ requestCount: 2, cost: 0.5 });
 		}
 	});
 

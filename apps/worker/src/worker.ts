@@ -79,6 +79,7 @@ import {
 	calculateCurrentMinuteHistory,
 	calculateHourlyHistory,
 	calculateMinutelyHistory,
+	resetHourlyHistoryState,
 } from "./services/stats-calculator.js";
 import { syncProvidersAndModels } from "./services/sync-models.js";
 import {
@@ -124,6 +125,7 @@ const LIMIT_HIT_FLUSH_LOCK_KEY = "limit_hit_flush";
 const STALE_TOPUP_PI_LOCK_KEY = "stale_topup_pi_cancel";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
+const PROJECT_STATS_LOCK_KEY = "project_stats_refresh";
 const LOCK_DURATION_MINUTES = 5;
 // LLM SDK: emit a wallet.low_balance webhook when a wallet's balance
 // crosses below this (USD) on a usage debit.
@@ -2494,7 +2496,15 @@ async function runProjectStatsLoop() {
 	try {
 		while (!isStopRequested()) {
 			try {
-				await refreshProjectHourlyStats();
+				// The live refresh accumulates onto shared buckets, so only one
+				// replica may run a pass at a time.
+				if (await acquireLock(PROJECT_STATS_LOCK_KEY)) {
+					try {
+						await refreshProjectHourlyStats();
+					} finally {
+						await releaseLock(PROJECT_STATS_LOCK_KEY);
+					}
+				}
 
 				await interruptibleSleep(interval);
 			} catch (error) {
@@ -3220,6 +3230,9 @@ export async function startWorker() {
 			logger.info("Hourly history backfill check completed");
 			// Hourly rollups are now populated, so minute-history pruning is safe.
 			hourlyBackfillComplete = true;
+			// The hourly loop may have rolled up the previous hour from minute
+			// rows this backfill was still filling; roll it up once more.
+			resetHourlyHistoryState();
 		})
 		.catch((error) => {
 			logger.error(

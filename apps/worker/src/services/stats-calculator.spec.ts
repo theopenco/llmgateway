@@ -1784,6 +1784,14 @@ describe("stats-calculator", () => {
 			await db.insert(modelProviderMappingHistory).values(minuteRow(31, 6));
 			await calculateHourlyHistory();
 			expect(await previousHourCount()).toBe(12);
+
+			// Startup backfill completion re-arms exactly one more rollup.
+			resetHourlyHistoryState();
+			await calculateHourlyHistory();
+			expect(await previousHourCount()).toBe(18);
+			await db.insert(modelProviderMappingHistory).values(minuteRow(32, 7));
+			await calculateHourlyHistory();
+			expect(await previousHourCount()).toBe(18);
 		});
 
 		it("preserves mapping identities and billing modes across rollups", async () => {
