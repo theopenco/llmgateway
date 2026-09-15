@@ -147,6 +147,7 @@ describe("admin content filter violations", () => {
 				{
 					organizationId: "cf-org-a",
 					organizationName: "Org A",
+					billingEmail: "a@test.example",
 					plan: "free",
 					sampledCount: 10,
 					violationCount: 4,
@@ -194,6 +195,7 @@ describe("admin content filter violations", () => {
 				{
 					organizationId: "cf-org-b",
 					organizationName: "Org B",
+					billingEmail: "b@test.example",
 					plan: "free",
 					sampledCount: 20,
 					violationCount: 1,

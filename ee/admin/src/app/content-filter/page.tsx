@@ -344,6 +344,7 @@ export default async function ContentFilterPage({
 								<TableHeader>
 									<TableRow>
 										<TableHead>Organization</TableHead>
+										<TableHead>Billing email</TableHead>
 										<TableHead className="text-right">Sampled</TableHead>
 										<TableHead className="text-right">Violations</TableHead>
 										<TableHead className="text-right">Rate</TableHead>
@@ -368,6 +369,9 @@ export default async function ContentFilterPage({
 														{org.plan}
 													</Badge>
 												) : null}
+											</TableCell>
+											<TableCell className="text-sm">
+												{org.billingEmail ?? "—"}
 											</TableCell>
 											<TableCell className="text-right tabular-nums">
 												{org.sampledCount.toLocaleString("en-US")}

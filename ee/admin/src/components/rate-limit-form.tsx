@@ -26,13 +26,24 @@ import {
 
 import { getProviderIcon } from "@llmgateway/shared";
 
-import type { RateLimitModelMapping } from "@/lib/types";
+import type {
+	RateLimitModelMapping,
+	RateLimitProviderOption,
+} from "@/lib/types";
+
+function AirsideBadge() {
+	return (
+		<span className="rounded-sm bg-muted px-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+			Airside
+		</span>
+	);
+}
 
 type RateLimitType = "rpm" | "rpd";
 type RateLimitEnforcement = "per_org" | "global";
 
 interface RateLimitFormProps {
-	providers: Array<{ id: string; name: string }>;
+	providers: RateLimitProviderOption[];
 	mappings: RateLimitModelMapping[];
 	showEnforcement?: boolean;
 	onSubmit: (data: {
@@ -80,6 +91,7 @@ export function RateLimitForm({
 				modelId: string;
 				modelName: string;
 				family: string;
+				source: RateLimitModelMapping["source"];
 			}
 		>();
 		for (const mapping of filteredMappings) {
@@ -88,6 +100,7 @@ export function RateLimitForm({
 					modelId: mapping.modelId,
 					modelName: mapping.modelName,
 					family: mapping.family,
+					source: mapping.source,
 				});
 			}
 		}
@@ -246,6 +259,7 @@ export function RateLimitForm({
 											<span className="flex items-center gap-2">
 												<Icon className="h-4 w-4" />
 												{p.name}
+												{p.source === "airside" && <AirsideBadge />}
 											</span>
 										</SelectItem>
 									);
@@ -268,11 +282,14 @@ export function RateLimitForm({
 								<SelectItem value="__all__">All Models</SelectItem>
 								{availableModels.map((m) => (
 									<SelectItem key={m.modelId} value={m.modelId}>
-										<span className="truncate">
-											{m.modelName}{" "}
-											<span className="text-muted-foreground">
-												({m.modelId})
+										<span className="flex items-center gap-2">
+											<span className="truncate">
+												{m.modelName}{" "}
+												<span className="text-muted-foreground">
+													({m.modelId})
+												</span>
 											</span>
+											{m.source === "airside" && <AirsideBadge />}
 										</span>
 									</SelectItem>
 								))}

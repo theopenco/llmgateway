@@ -4964,6 +4964,8 @@ export interface ProviderModelVerificationTarget {
 	modelName: string;
 	externalId: string;
 	apiFormat?: ProviderApiFormat;
+	/** Regional deployment of the mapping; undefined targets the default region. */
+	region?: string | null;
 	streaming: boolean;
 	vision: boolean;
 	audio: boolean;
@@ -4976,9 +4978,10 @@ export interface ProviderModelVerificationTarget {
 	webSearch: boolean;
 }
 
-// One queued verification of an Airside mapping. The target is frozen when
-// queued so an edit cannot change what a completed run proved. A supplied
-// credential is encrypted for this row only and erased on terminal status.
+// One queued verification of an Airside mapping or a catalogue mapping. The
+// target is frozen when queued so an edit cannot change what a completed run
+// proved. A supplied credential is encrypted for this row only and erased on
+// terminal status.
 export const providerModelVerification = pgTable(
 	"provider_model_verification",
 	{
@@ -4988,12 +4991,24 @@ export const providerModelVerification = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		providerCompanyId: text()
+		// Null for admin-initiated runs against a catalogue mapping, which
+		// belong to no carrier.
+		providerCompanyId: text().references(() => providerCompany.id, {
+			onDelete: "cascade",
+		}),
+		// "carrier" runs are queued from Airside and always carry a company;
+		// "admin" runs are queued from the admin dashboard and resolve their
+		// credential without an active provider claim.
+		initiatedBy: text({ enum: ["carrier", "admin"] })
 			.notNull()
-			.references(() => providerCompany.id, { onDelete: "cascade" }),
+			.default("carrier"),
 		// Null for an unsubmitted new mapping; populated for an existing mapping
 		// and when a successful new-mapping verification is consumed.
 		draftModelId: text().references(() => providerDraftModel.id, {
+			onDelete: "cascade",
+		}),
+		// Set when the run targets a live catalogue mapping instead of a draft.
+		modelProviderMappingId: text().references(() => modelProviderMapping.id, {
 			onDelete: "cascade",
 		}),
 		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
@@ -5022,6 +5037,10 @@ export const providerModelVerification = pgTable(
 			table.draftModelId,
 			table.createdAt,
 		),
+		index("provider_model_verification_mapping_idx").on(
+			table.modelProviderMappingId,
+			table.createdAt,
+		),
 		index("provider_model_verification_queue_idx").on(
 			table.status,
 			table.createdAt,
@@ -5030,6 +5049,11 @@ export const providerModelVerification = pgTable(
 			.on(table.draftModelId)
 			.where(
 				sql`draft_model_id IS NOT NULL AND status IN ('queued', 'running')`,
+			),
+		uniqueIndex("provider_model_verification_active_mapping_uidx")
+			.on(table.modelProviderMappingId)
+			.where(
+				sql`model_provider_mapping_id IS NOT NULL AND status IN ('queued', 'running')`,
 			),
 	],
 );

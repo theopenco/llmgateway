@@ -186,6 +186,62 @@ describe("model verification worker", () => {
 		expect(stored?.checks[0]).toMatchObject({ status: "failed" });
 	});
 
+	it("runs an admin job without a carrier from the managed credential", async () => {
+		process.env.GATEWAY_API_KEY_HASH_SECRET = "model-verification-test-secret";
+		const suffix = randomUUID();
+		const providerId = `verification-provider-${suffix}`;
+		const verificationId = `verification-job-${suffix}`;
+		const providerKeyId = `verification-key-${suffix}`;
+		providerKeyIds.push(providerKeyId);
+		await db.insert(tables.providerKey).values({
+			id: providerKeyId,
+			provider: providerId,
+			...encryptProviderKeyForStorage(
+				"platform-provider-key",
+				providerKeyId,
+				null,
+			),
+			managed: true,
+		});
+		await db.insert(tables.providerModelVerification).values({
+			id: verificationId,
+			providerCompanyId: null,
+			initiatedBy: "admin",
+			requestedBy: null,
+			target: {
+				providerId,
+				modelName: "model-x",
+				externalId: "upstream-model-x",
+				streaming: false,
+				vision: false,
+				audio: false,
+				tools: false,
+				jsonOutput: false,
+				jsonOutputSchema: false,
+				reasoning: false,
+				reasoningMaxTokens: false,
+				reasoningEfforts: null,
+				webSearch: false,
+			},
+			checks: [{ id: "basic", label: "Basic completion", status: "queued" }],
+			credentialSource: "managed",
+		});
+
+		await processNextModelVerification(async (options) => {
+			// No provider claim exists, so the run must still resolve a token.
+			expect(options.token).toBe("platform-provider-key");
+			return {
+				passed: true,
+				checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
+				summary: "1 verification check passed.",
+			};
+		});
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: verificationId } },
+		});
+		expect(stored?.status).toBe("passed");
+	});
+
 	it("selects managed credentials by upstream model ID", async () => {
 		const verificationId = await enqueueVerification({
 			credentialSource: "managed",

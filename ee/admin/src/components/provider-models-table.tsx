@@ -1,11 +1,16 @@
 "use client";
 
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
+import {
+	ModelVerificationDialog,
+	VerificationStatusBadge,
+} from "@/components/model-verification-dialog";
 import { TokenBreakdownCell } from "@/components/token-breakdown";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
 	Table,
 	TableBody,
@@ -18,6 +23,7 @@ import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
 
+import type { ModelVerification } from "@/components/model-verification-dialog";
 import type { ProviderModelStats } from "@/lib/types";
 
 type SortKey =
@@ -105,9 +111,13 @@ function SortableHeader({
 export function ProviderModelsTable({
 	providerId,
 	models,
+	verifications,
+	onVerificationSettled,
 }: {
 	providerId: string;
 	models: ProviderModelStats[];
+	verifications?: Map<string, ModelVerification>;
+	onVerificationSettled?: () => void;
 }) {
 	const [sortBy, setSortBy] = useState<SortKey | null>("logsCount");
 	const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
@@ -173,6 +183,7 @@ export function ProviderModelsTable({
 					{sh("Error Rate", "errorRate")}
 					{sh("Cached", "cachedCount")}
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
+					<TableHead>Verification</TableHead>
 				</TableRow>
 			</TableHeader>
 			<TableBody>
@@ -237,6 +248,29 @@ export function ProviderModelsTable({
 								{m.avgTimeToFirstToken !== null
 									? `${Math.round(m.avgTimeToFirstToken)}ms`
 									: "—"}
+							</TableCell>
+							<TableCell>
+								<div className="flex items-center gap-2">
+									<VerificationStatusBadge
+										verification={verifications?.get(m.mappingId)}
+									/>
+									<ModelVerificationDialog
+										title={`${providerId}/${m.modelId}${m.region ? `:${m.region}` : ""}`}
+										mappingId={m.mappingId}
+										latest={verifications?.get(m.mappingId)}
+										onSettled={onVerificationSettled}
+									>
+										<Button
+											variant="outline"
+											size="sm"
+											className="h-7 px-2 text-xs"
+											data-testid={`verify-mapping-${m.mappingId}`}
+										>
+											<ShieldCheck className="mr-1 h-3.5 w-3.5" />
+											Verify
+										</Button>
+									</ModelVerificationDialog>
+								</div>
 							</TableCell>
 						</TableRow>
 					);

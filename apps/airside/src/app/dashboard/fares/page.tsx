@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { useCompany } from "@/components/dashboard/company-context";
 import { ProviderBrandingFields } from "@/components/ProviderBrandingFields";
+import { RelativeDate } from "@/components/RelativeDate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -246,6 +247,9 @@ function FareEditor({
 					<p className="text-muted-foreground mt-1 font-mono text-xs">
 						discount {formatPercent(pending.discountPercent)} · landing fee{" "}
 						{formatPercent(pending.marginPercent)}
+					</p>
+					<p className="text-muted-foreground mt-1 text-xs">
+						Filed <RelativeDate date={pending.createdAt} />.
 					</p>
 					<p className="text-muted-foreground mt-1 text-xs">
 						Our team reviews every fare change before it reaches dispatch. Your
