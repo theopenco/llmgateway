@@ -372,3 +372,11 @@ function verifyWebhook(
 - [Image Generation](/features/image-generation)
 - [Routing](/features/routing)
 - [Models API](/v1_models)
+
+### Playback and seeking
+
+Video content endpoints forward `Range` and `If-Range` requests to the upstream
+storage service and preserve partial-content responses. Inline video results also
+support single byte ranges. A satisfiable range returns `206` with `Content-Range`;
+an unsatisfiable range returns `416`. This lets native players load and seek
+without downloading the entire video first when the upstream supports ranges.

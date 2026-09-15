@@ -6,6 +6,7 @@ import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harne
 import {
 	getMockVideo,
 	setMockVideoStatus,
+	setMockVideoAsset,
 	setMockVideoStatusResponse,
 } from "@/test-utils/mock-openai-server.js";
 
@@ -1723,6 +1724,32 @@ describe("videos", () => {
 			expect(await contentRes.text()).toBe(
 				`mock-video-${videoJob!.upstreamId}`,
 			);
+
+			setMockVideoAsset(new Uint8Array([0, 1, 2, 3, 4]));
+			const signedUrl = new URL(jobJson.content[0].url);
+			for (const endpoint of [
+				`/v1/videos/${created.id}/content`,
+				`${signedUrl.pathname}${signedUrl.search}`,
+			]) {
+				const partial = await app.request(endpoint, {
+					headers: { Authorization: "Bearer real-token", Range: "bytes=0-1" },
+				});
+				expect(
+					partial.status,
+					endpoint.includes("/logs/")
+						? "signed content range"
+						: "authenticated content range",
+				).toBe(206);
+				expect(partial.headers.get("Content-Range")).toBe("bytes 0-1/5");
+				expect([...new Uint8Array(await partial.arrayBuffer())]).toEqual([
+					0, 1,
+				]);
+				const outside = await app.request(endpoint, {
+					headers: { Authorization: "Bearer real-token", Range: "bytes=5-" },
+				});
+				expect(outside.status).toBe(416);
+				expect(outside.headers.get("Content-Range")).toBe("bytes */5");
+			}
 
 			expect(logs[0].usedModelMapping).toBe("veo-3.1-generate-001");
 			expect(logs[0].content).toBe(buildGatewayVideoLogContentUrl(logs[0].id));
