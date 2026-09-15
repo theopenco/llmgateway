@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Image, Linking, Text, View } from "react-native";
 
 import { Markdown } from "@/components/Markdown";
+import { Sources } from "@/components/Sources";
 import { Button, ErrorNotice, styles } from "@/components/ui";
 import { exportFile } from "@/lib/export-file";
 
@@ -83,6 +84,7 @@ export function MessageBubble({
 			{message.attachments.map((attachment) => (
 				<AttachmentPreview key={attachment.id} attachment={attachment} />
 			))}
+			<Sources sources={message.sourceLinks ?? []} />
 			<View style={styles.row}>
 				{!!message.content && (
 					<Button

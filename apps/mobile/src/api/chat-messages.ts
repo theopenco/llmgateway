@@ -1,12 +1,18 @@
 import { z } from "zod";
 
+import { readSources } from "@/api/sources";
+
 import type { Message } from "@/api/completion";
+import type { Source } from "@/api/sources";
 import type { paths } from "@/lib/api/v1";
 
 type ChatResponse =
 	paths["/chats/{id}"]["get"]["responses"][200]["content"]["application/json"];
 type StoredMessage = ChatResponse["messages"][number];
-export type ChatMessage = StoredMessage & { attachments: Attachment[] };
+export type ChatMessage = StoredMessage & {
+	attachments: Attachment[];
+	sourceLinks: Source[];
+};
 export interface Attachment {
 	id: string;
 	name: string;
@@ -73,7 +79,7 @@ export function readChatMessage(message: StoredMessage): ChatMessage {
 			{ cause },
 		);
 	}
-	return { ...message, attachments };
+	return { ...message, attachments, sourceLinks: readSources(message.sources) };
 }
 
 export function storedAttachments(attachments: Attachment[]) {
