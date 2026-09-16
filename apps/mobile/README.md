@@ -67,7 +67,7 @@ Verified during development:
 - Repository unit suite before the UTC revenue fix: 7,102 passed, 2 skipped,
   one admin date-range failure. After the fix, all five admin revenue tests pass
   under Stockholm, Los Angeles, and UTC timezones.
-- Native tests: 284 passed; shared image configuration tests: 3 passed.
+- Native tests: 298 passed; shared image configuration tests: 3 passed.
 - Chat message persistence tests: 5 passed, including tool-only replies.
 - Gateway speech tests: 20 passed.
 - Video configuration: 25 passed; gateway video and byte-range tests: 57 passed.
@@ -103,6 +103,9 @@ Verified during development:
   workspace snapshots, and forking into a conversation passed.
 - Native comparison: three models, synchronized history after restart, retrying
   one model, opening its conversation, and stopping all models passed.
+- Primary comparison tools: approval/rejection, isolated child retries, saved
+  pending/completed requests after restart, and interrupted-action continuation
+  without replay passed. Stored final replies and tool states were also checked.
 - Native group discussion: five alternating turns, transcript sharing, starting
   over, stopping, and continuing with the next model passed.
 - Native video checks with a mock provider: starting-frame generation, two-model
@@ -189,7 +192,7 @@ A checkbox requires observed behavior, not just a screen or passing type check.
 - [ ] Sign-in, secure session restoration, sign-out, signup/reset, account deletion
 - [ ] Chat: streaming, model selection/favorites, search, reasoning, attachments, web search, stop/retry/edit/fork, settings
 - [ ] History: synchronization, search, pin, archive, delete, public and organization sharing
-- [ ] Model comparison and group conversations (connector approvals remain)
+- [x] Model comparison and group conversations
 - [x] Projects: instructions, files, retrieval, memory, associated chats
 - [x] Skills: create, edit, generate, enable, delete, apply in chat
 - [x] Connectors: connect, authorize, use in conversations, disconnect

@@ -5,10 +5,13 @@ import {
 	storedAttachments,
 } from "@/api/chat-messages";
 import { client } from "@/api/client";
+import { generateLoungeReply, loungeMessage } from "@/api/lounge-completion";
 import { rememberProjectExchange } from "@/api/project-memory";
 import { generateReply, saveReply } from "@/api/reply";
+import { pendingTool } from "@/api/tool-parts";
 
 import type { Attachment } from "@/api/chat-messages";
+import type { Message } from "@/api/completion";
 import type { Reply } from "@/api/reply";
 import type { ChatSettings } from "@/lib/preferences";
 
@@ -82,6 +85,7 @@ export async function completeComparisonPanel({
 	onReply,
 	onSaved,
 	retry = false,
+	primary = false,
 }: {
 	panel: ComparisonPanel;
 	projectId: string;
@@ -92,6 +96,7 @@ export async function completeComparisonPanel({
 	onReply: (reply: Reply) => void;
 	onSaved: () => void;
 	retry?: boolean;
+	primary?: boolean;
 }) {
 	const saved = await client.GET("/chats/{id}", {
 		params: { path: { id: panel.id } },
@@ -100,6 +105,16 @@ export async function completeComparisonPanel({
 		throw new Error("Could not load the model's conversation.");
 	}
 	const history = readChat(saved.data);
+
+	if (history.chat.status === "archived") {
+		throw new Error("Restore this comparison before continuing.");
+	}
+	if (
+		primary &&
+		history.messages.some((message) => message.toolParts?.some(pendingTool))
+	) {
+		throw new Error("Review the requests in Model 1 before continuing.");
+	}
 	const userIndex = history.messages
 		.map((message) => message.role)
 		.lastIndexOf("user");
@@ -135,24 +150,44 @@ export async function completeComparisonPanel({
 	const previous = retry
 		? history.messages.slice(0, userIndex)
 		: history.messages;
-	const reply = await generateReply({
-		projectId,
-		model: panel.model,
-		settings,
-		signal,
-		messages: [
-			...(system ? [{ role: "system" as const, content: system }] : []),
-			...previous.map((message) =>
-				completionMessage(
-					message.role,
-					message.content ?? "",
-					message.attachments,
-				),
+	const plainMessages: Message[] = [
+		...(system ? [{ role: "system" as const, content: system }] : []),
+		...previous.map((message) =>
+			completionMessage(
+				message.role,
+				message.content ?? "",
+				message.attachments,
 			),
-			completionMessage("user", content, files),
-		],
-		onReply,
-	});
+		),
+		completionMessage("user", content, files),
+	];
+	const options = { projectId, model: panel.model, settings, signal, onReply };
+	const reply = primary
+		? await generateLoungeReply({
+				...options,
+				plainMessages,
+				messages: [
+					...(system
+						? [
+								{
+									id: "system",
+									role: "system" as const,
+									parts: [{ type: "text", text: system }],
+								},
+							]
+						: []),
+					...previous.map(loungeMessage),
+					loungeMessage({
+						id: user?.id ?? "current-user",
+						role: "user",
+						content,
+						attachments: files,
+						reasoning: null,
+						tools: null,
+					}),
+				],
+			})
+		: await generateReply({ ...options, messages: plainMessages });
 	const lastAssistant = retry
 		? history.messages
 				.slice(userIndex + 1)

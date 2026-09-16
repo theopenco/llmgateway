@@ -1,6 +1,7 @@
 import { client } from "@/api/client";
 import { completeComparisonPanel, createComparison } from "@/api/comparison";
 import { streamCompletion } from "@/api/completion";
+import * as loungeCompletion from "@/api/lounge-completion";
 
 jest.mock("@/api/client", () => ({
 	client: { GET: jest.fn(), POST: jest.fn(), PATCH: jest.fn() },
@@ -145,4 +146,104 @@ test("exposes a completed draft when saving fails so it can be saved without reg
 		expect.objectContaining({ content: "New answer", reasoning: "Thought" }),
 	);
 	expect(onSaved).not.toHaveBeenCalled();
+});
+
+afterEach(() => jest.restoreAllMocks());
+
+test.each([true, false])(
+	"only the primary panel can use connector transport (primary=%s)",
+	async (primary) => {
+		const tool = {
+			type: "dynamic-tool",
+			toolName: "gmail__search_messages",
+			toolCallId: "search",
+			state: "output-available",
+			input: { query: "demo" },
+			output: { messages: [] },
+		};
+		(client.GET as jest.Mock).mockResolvedValue({
+			data: {
+				...history,
+				chat: { ...history.chat, comparisonEnabled: primary },
+				messages: [
+					history.messages[0],
+					{ ...history.messages[1], tools: JSON.stringify([tool]) },
+				],
+			},
+		});
+		const generate = jest
+			.spyOn(loungeCompletion, "generateLoungeReply")
+			.mockResolvedValue({
+				model: "model-a",
+				content: "Tool-aware answer",
+				reasoning: "",
+				sources: [],
+				tools: [],
+			});
+		await completeComparisonPanel({
+			panel: { id: "root", model: "model-a" },
+			primary,
+			projectId: "project",
+			prompt: "Next question",
+			attachments: [],
+			settings,
+			signal: new AbortController().signal,
+			onReply: jest.fn(),
+			onSaved: jest.fn(),
+		});
+		if (primary) {
+			expect(generate).toHaveBeenCalledWith(
+				expect.objectContaining({
+					messages: expect.arrayContaining([
+						expect.objectContaining({
+							id: "assistant",
+							parts: expect.arrayContaining([tool]),
+						}),
+					]),
+				}),
+			);
+			expect(streamCompletion).not.toHaveBeenCalled();
+		} else {
+			expect(generate).not.toHaveBeenCalled();
+			expect(streamCompletion).toHaveBeenCalledTimes(1);
+		}
+	},
+);
+
+test("a pending primary request blocks a new prompt before saving it", async () => {
+	(client.GET as jest.Mock).mockResolvedValue({
+		data: {
+			...history,
+			messages: [
+				history.messages[0],
+				{
+					...history.messages[1],
+					tools: JSON.stringify([
+						{
+							type: "dynamic-tool",
+							toolName: "gmail__search_messages",
+							toolCallId: "search",
+							state: "approval-requested",
+							input: { query: "demo" },
+						},
+					]),
+				},
+			],
+		},
+	});
+	await expect(
+		completeComparisonPanel({
+			panel: { id: "root", model: "model-a" },
+			primary: true,
+			projectId: "project",
+			prompt: "Next question",
+			attachments: [],
+			settings,
+			signal: new AbortController().signal,
+			onReply: jest.fn(),
+			onSaved: jest.fn(),
+		}),
+	).rejects.toThrow("Review the requests");
+	expect(client.POST).not.toHaveBeenCalled();
+	expect(streamCompletion).not.toHaveBeenCalled();
 });

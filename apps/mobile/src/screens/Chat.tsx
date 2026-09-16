@@ -25,6 +25,7 @@ import { api, client, queryClient } from "@/api/client";
 import { generateLoungeReply, loungeMessage } from "@/api/lounge-completion";
 import { rememberProjectExchange } from "@/api/project-memory";
 import { saveReply } from "@/api/reply";
+import { messageReply, withReply } from "@/api/reply-messages";
 import { answerToolCall, pendingTool, readToolParts } from "@/api/tool-parts";
 import { ChatSettings } from "@/components/ChatSettings";
 import { ChatSharing } from "@/components/ChatSharing";
@@ -46,7 +47,6 @@ import { defaultChatSettings, usePreferences } from "@/lib/preferences";
 import { useFollowingList } from "@/lib/use-following-list";
 
 import type { Attachment, ChatMessage } from "@/api/chat-messages";
-import type { Reply } from "@/api/reply";
 import type { Source } from "@/api/sources";
 import type { ToolPart } from "@/api/tool-parts";
 
@@ -75,32 +75,6 @@ function localMessage(
 		metadata: null,
 		sequence: 0,
 		createdAt: new Date().toISOString(),
-	};
-}
-function messageReply(message: ChatMessage, model: string): Reply {
-	return {
-		model,
-		content: message.content ?? "",
-		reasoning: message.reasoning ?? "",
-		sources: message.sourceLinks ?? [],
-		tools: message.toolParts ?? readToolParts(message.tools),
-	};
-}
-function withReply(message: ChatMessage, reply: Reply): ChatMessage {
-	return {
-		...message,
-		content: reply.content,
-		reasoning: reply.reasoning,
-		sourceLinks: reply.sources,
-		sources: JSON.stringify(reply.sources),
-		tools: JSON.stringify(reply.tools ?? []),
-		toolParts: reply.tools ?? [],
-		metadata: {
-			...(message.metadata ?? {}),
-			model: reply.model,
-			interrupted: !!reply.error,
-			toolContinuation: !!reply.toolContinuation,
-		},
 	};
 }
 interface ToolAction {
