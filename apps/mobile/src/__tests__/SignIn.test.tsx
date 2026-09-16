@@ -257,15 +257,13 @@ test("offers a new code after a declined browser sign-in", async () => {
 });
 
 test("aborts a browser sign-in when its screen unmounts", async () => {
-	jest
-		.mocked(startBrowserSignIn)
-		.mockResolvedValue({
-			deviceCode: "fixture",
-			userCode: "DEMO1234",
-			verificationUrl: `${config.accountUrl}/connect/device?user_code=DEMO1234`,
-			expiresAt: Date.now() + 600000,
-			intervalMs: 5000,
-		});
+	jest.mocked(startBrowserSignIn).mockResolvedValue({
+		deviceCode: "fixture",
+		userCode: "DEMO1234",
+		verificationUrl: `${config.accountUrl}/connect/device?user_code=DEMO1234`,
+		expiresAt: Date.now() + 600000,
+		intervalMs: 5000,
+	});
 	jest.mocked(completeBrowserSignIn).mockImplementation(
 		(_request, signal) =>
 			new Promise((_resolve, reject) => {
