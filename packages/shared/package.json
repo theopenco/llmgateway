@@ -134,6 +134,16 @@
 			"import": "./dist/components/jelly/not-found-page.js",
 			"default": "./dist/components/jelly/not-found-page.js"
 		},
+		"./lounge-stream": {
+			"types": "./dist/lounge-stream.d.ts",
+			"import": "./dist/lounge-stream.js",
+			"default": "./dist/lounge-stream.js"
+		},
+		"./lounge-tool-approval": {
+			"types": "./dist/lounge-tool-approval.d.ts",
+			"import": "./dist/lounge-tool-approval.js",
+			"default": "./dist/lounge-tool-approval.js"
+		},
 		"./lounge-connectors": {
 			"types": "./dist/lounge-connectors.d.ts",
 			"import": "./dist/lounge-connectors.js",
