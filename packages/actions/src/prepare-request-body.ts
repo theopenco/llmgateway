@@ -1356,6 +1356,12 @@ export async function prepareRequestBody(
 	session_id?: string,
 	reasoning_context?: "auto" | "current_turn" | "all_turns",
 	safety_identifier?: string,
+	/**
+	 * The mapping routing actually selected. Only Airside-listed pairs differ
+	 * from the static catalogue lookup below — their capabilities live in the
+	 * carrier's row — and only the `tool_choice` resolution reads it so far.
+	 */
+	resolvedProviderMapping?: ProviderModelMapping,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 	// Anthropic's server-side tool search (`defer_loading` plus the tool search
@@ -2167,11 +2173,13 @@ export async function prepareRequestBody(
 
 	let resolvedToolChoice = isWebSearchToolChoice ? undefined : tool_choice;
 	if (tool_choice && !isWebSearchToolChoice) {
-		const mapping = modelDef?.providers.find(
-			(p) =>
-				p.providerId === usedProvider &&
-				((p as ProviderModelMapping).region ?? null) === usedRegion,
-		) as ProviderModelMapping | undefined;
+		const mapping =
+			resolvedProviderMapping ??
+			(modelDef?.providers.find(
+				(p) =>
+					p.providerId === usedProvider &&
+					((p as ProviderModelMapping).region ?? null) === usedRegion,
+			) as ProviderModelMapping | undefined);
 
 		// `reasoning_effort` is already normalized above, so "none" here means the
 		// mapping really turns thinking off upstream — which some mappings require

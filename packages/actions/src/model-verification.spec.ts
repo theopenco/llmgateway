@@ -323,50 +323,53 @@ describe("model verification", () => {
 		},
 	);
 
-	it("retries the tool check with tool_choice auto", async () => {
-		const toolOnly = {
-			...target,
-			providerId: "custom-carrier" as const,
-			streaming: false,
-			vision: false,
-			audio: false,
-			tools: true,
-			jsonOutput: false,
-			jsonOutputSchema: false,
-			reasoning: false,
-			reasoningMaxTokens: false,
-			webSearch: false,
-		};
+	const toolOnly = {
+		...target,
+		providerId: "custom-carrier" as const,
+		streaming: false,
+		vision: false,
+		audio: false,
+		tools: true,
+		jsonOutput: false,
+		jsonOutputSchema: false,
+		reasoning: false,
+		reasoningMaxTokens: false,
+		webSearch: false,
+	};
+	const okResponse = () =>
+		Response.json({ choices: [{ message: { content: "OK" } }] });
+	// Serving stacks that mishandle a forcing mode leak the model's raw tool
+	// markup into the assistant content instead of returning tool_calls.
+	const markupResponse = () =>
+		Response.json({
+			choices: [
+				{ message: { content: '<invoke name="get_weather">{}</invoke>' } },
+			],
+		});
+	const toolCallResponse = () =>
+		Response.json({
+			choices: [
+				{
+					message: {
+						tool_calls: [
+							{
+								type: "function",
+								function: { name: "get_weather", arguments: "{}" },
+							},
+						],
+					},
+				},
+			],
+		});
+	const toolChoiceOf = (call: Parameters<typeof fetch>[1] | undefined) =>
+		JSON.parse(String(call?.body)).tool_choice;
+
+	it("walks down the tool_choice ladder and reports what failed", async () => {
 		const fetchImplementation = vi
 			.fn<typeof fetch>()
-			.mockResolvedValueOnce(
-				Response.json({ choices: [{ message: { content: "OK" } }] }),
-			)
-			// Serving stacks that mishandle "required" leak the raw tool markup
-			// into the assistant content instead of returning tool_calls.
-			.mockResolvedValueOnce(
-				Response.json({
-					choices: [
-						{ message: { content: '<invoke name="get_weather">{}</invoke>' } },
-					],
-				}),
-			)
-			.mockResolvedValueOnce(
-				Response.json({
-					choices: [
-						{
-							message: {
-								tool_calls: [
-									{
-										type: "function",
-										function: { name: "get_weather", arguments: "{}" },
-									},
-								],
-							},
-						},
-					],
-				}),
-			);
+			.mockResolvedValueOnce(okResponse())
+			.mockResolvedValueOnce(markupResponse())
+			.mockResolvedValueOnce(toolCallResponse());
 
 		const result = await runProviderModelVerification({
 			target: toolOnly,
@@ -377,17 +380,34 @@ describe("model verification", () => {
 
 		expect(result.passed).toBe(true);
 		expect(fetchImplementation).toHaveBeenCalledTimes(3);
-		expect(
-			JSON.parse(String(fetchImplementation.mock.calls[1][1]?.body))
-				.tool_choice,
-		).toBe("required");
-		expect(
-			JSON.parse(String(fetchImplementation.mock.calls[2][1]?.body))
-				.tool_choice,
-		).toBe("auto");
+		expect(toolChoiceOf(fetchImplementation.mock.calls[1][1])).toBe("required");
+		expect(toolChoiceOf(fetchImplementation.mock.calls[2][1])).toEqual({
+			type: "function",
+			function: { name: "get_weather" },
+		});
+		expect(result.unsupportedToolChoices).toEqual(["required"]);
 	});
 
-	it("fails the tool check when neither tool_choice mode calls the tool", async () => {
+	it("only probes the tool_choice modes the listing declares", async () => {
+		const fetchImplementation = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(okResponse())
+			.mockResolvedValueOnce(toolCallResponse());
+
+		const result = await runProviderModelVerification({
+			target: { ...toolOnly, supportedToolChoices: ["auto", "none"] },
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		expect(result.passed).toBe(true);
+		expect(fetchImplementation).toHaveBeenCalledTimes(2);
+		expect(toolChoiceOf(fetchImplementation.mock.calls[1][1])).toBe("auto");
+		expect(result.unsupportedToolChoices).toBeUndefined();
+	});
+
+	it("fails the tool check when no tool_choice mode calls the tool", async () => {
 		const fetchImplementation = vi
 			.fn<typeof fetch>()
 			.mockImplementation(async () =>
@@ -395,27 +415,16 @@ describe("model verification", () => {
 			);
 
 		const result = await runProviderModelVerification({
-			target: {
-				...target,
-				providerId: "custom-carrier",
-				streaming: false,
-				vision: false,
-				audio: false,
-				tools: true,
-				jsonOutput: false,
-				jsonOutputSchema: false,
-				reasoning: false,
-				reasoningMaxTokens: false,
-				webSearch: false,
-			},
+			target: toolOnly,
 			token: "provider-key",
 			baseUrl: "https://carrier.example",
 			fetchImplementation,
 		});
 
 		expect(result.passed).toBe(false);
-		expect(fetchImplementation).toHaveBeenCalledTimes(3);
+		expect(fetchImplementation).toHaveBeenCalledTimes(4);
 		expect(disprovedCapabilities(result.checks)).toEqual(["tools"]);
+		expect(result.unsupportedToolChoices).toBeUndefined();
 	});
 
 	it("sends a vision image the serving stack can decode", async () => {

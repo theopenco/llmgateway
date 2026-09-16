@@ -372,6 +372,25 @@ const REASONING_EFFORTS = [
 ] as const;
 type ReasoningEffortOption = (typeof REASONING_EFFORTS)[number];
 
+// tool_choice modes a deployment can accept. All of them selected means no
+// restriction, which the API stores as null.
+const TOOL_CHOICE_MODES = ["auto", "none", "required", "function"] as const;
+type ToolChoiceModeOption = (typeof TOOL_CHOICE_MODES)[number];
+
+/** Null (no restriction) reads as every mode selected. */
+function toolChoiceSelection(
+	value: ToolChoiceModeOption[] | null | undefined,
+): ToolChoiceModeOption[] {
+	return value?.length ? value : [...TOOL_CHOICE_MODES];
+}
+
+/** Every mode selected is "unrestricted", which the API stores as null. */
+function toolChoicePayload(
+	selection: ToolChoiceModeOption[],
+): ToolChoiceModeOption[] | null {
+	return selection.length === TOOL_CHOICE_MODES.length ? null : selection;
+}
+
 type CapabilityKey = (typeof CAPABILITIES)[number]["key"];
 
 type RateLimitScope = "global" | "per_org";
@@ -485,6 +504,9 @@ export function RegisterModelDialog({
 	const [reasoningEfforts, setReasoningEfforts] = useState<
 		ReasoningEffortOption[]
 	>([]);
+	const [toolChoices, setToolChoices] = useState<ToolChoiceModeOption[]>([
+		...TOOL_CHOICE_MODES,
+	]);
 	const sortedProviderIds = [...providerIds].sort();
 	const [providerId, setProviderId] = useState(sortedProviderIds[0] ?? "");
 	const effectiveProviderId = sortedProviderIds.includes(providerId)
@@ -567,6 +589,9 @@ export function RegisterModelDialog({
 		externalId: externalId || undefined,
 		apiFormat,
 		...capabilities,
+		supportedToolChoices: capabilities.tools
+			? toolChoicePayload(toolChoices)
+			: null,
 		reasoningEfforts:
 			capabilities.reasoning && reasoningEfforts.length > 0
 				? reasoningEfforts
@@ -642,6 +667,9 @@ export function RegisterModelDialog({
 								contextSize: Number(contextSize) || undefined,
 								maxOutput: Number(maxOutput) || undefined,
 								...capabilities,
+								supportedToolChoices: capabilities.tools
+									? toolChoicePayload(toolChoices)
+									: null,
 								reasoningEfforts:
 									capabilities.reasoning && reasoningEfforts.length > 0
 										? reasoningEfforts
@@ -830,6 +858,46 @@ export function RegisterModelDialog({
 								</label>
 							))}
 						</div>
+						{capabilities.tools ? (
+							<div className="space-y-1 pt-1">
+								<Label className="text-muted-foreground text-xs">
+									Accepted tool_choice modes
+								</Label>
+								<div className="flex flex-wrap gap-1.5">
+									{TOOL_CHOICE_MODES.map((mode) => {
+										const active = toolChoices.includes(mode);
+										return (
+											<button
+												key={mode}
+												type="button"
+												aria-pressed={active}
+												disabled={verificationInProgress}
+												data-testid={`tool-choice-${mode}`}
+												onClick={() => {
+													setToolChoices((prev) =>
+														prev.includes(mode)
+															? prev.filter((m) => m !== mode)
+															: [...prev, mode],
+													);
+													resetVerification();
+												}}
+												className={
+													active
+														? "bg-primary/15 text-primary border-primary/40 rounded-full border px-2.5 py-1 font-mono text-xs"
+														: "border-border text-muted-foreground hover:text-foreground rounded-full border px-2.5 py-1 font-mono text-xs"
+												}
+											>
+												{mode}
+											</button>
+										);
+									})}
+								</div>
+								<p className="text-muted-foreground text-xs">
+									Deselect a mode your endpoint mishandles — requests asking for
+									it fall back to auto instead of reaching the deployment.
+								</p>
+							</div>
+						) : null}
 						{capabilities.reasoning ? (
 							<div className="space-y-1 pt-1">
 								<Label className="text-muted-foreground text-xs">
@@ -1098,7 +1166,8 @@ export function VerifyModelDialog({
 					</DialogTitle>
 					<DialogDescription>
 						Run the declared capabilities against the upstream model. Checks run
-						in the background and do not change the listing.
+						in the background, and a failed one drops the capability it
+						disproved from the listing.
 					</DialogDescription>
 				</DialogHeader>
 				<div className="space-y-4">
@@ -1197,6 +1266,9 @@ export function EditModelDialog({
 	const [reasoningEfforts, setReasoningEfforts] = useState<
 		ReasoningEffortOption[]
 	>((proposed.reasoningEfforts ?? []) as ReasoningEffortOption[]);
+	const [toolChoices, setToolChoices] = useState<ToolChoiceModeOption[]>(
+		toolChoiceSelection(proposed.supportedToolChoices),
+	);
 	const [maxRpm, setMaxRpm] = useState(
 		proposed.maxRpm ? String(proposed.maxRpm) : "",
 	);
@@ -1228,9 +1300,61 @@ export function EditModelDialog({
 		setReasoningEfforts(
 			(proposed.reasoningEfforts ?? []) as ReasoningEffortOption[],
 		);
+		setToolChoices(toolChoiceSelection(proposed.supportedToolChoices));
 		setMaxRpm(proposed.maxRpm ? String(proposed.maxRpm) : "");
 		setMaxRpd(proposed.maxRpd ? String(proposed.maxRpd) : "");
 		setRateLimitScope(proposed.rateLimitScope);
+	}
+
+	// The proposed capabilities, preflighted before they are filed. The pair
+	// itself never changes here, so the server takes it from the saved row.
+	const proposedCapabilities = {
+		...capabilities,
+		supportedToolChoices: capabilities.tools
+			? toolChoicePayload(toolChoices)
+			: null,
+		reasoningEfforts:
+			capabilities.reasoning && reasoningEfforts.length > 0
+				? reasoningEfforts
+				: null,
+	};
+	const [apiKey, setApiKey] = useState("");
+	const [verificationId, setVerificationId] = useState("");
+	const verificationQuery = api.useQuery(
+		"get",
+		"/airside/model-verifications/{id}",
+		{ params: { path: { id: verificationId } } },
+		{
+			enabled: open && Boolean(verificationId),
+			refetchInterval: (query) => {
+				const status = query.state.data?.verification.status;
+				return status === "queued" || status === "running" ? 1_000 : false;
+			},
+		},
+	);
+	const verification = verificationQuery.data?.verification;
+	const verificationInProgress =
+		verification?.status === "queued" || verification?.status === "running";
+	const queueVerification = api.useMutation(
+		"post",
+		"/airside/models/{id}/verifications",
+		{
+			onSuccess: async (data) => {
+				setVerificationId(data.verification.id);
+				setApiKey("");
+				await invalidate();
+			},
+			onError: (error) => {
+				toast.error(
+					(error as { message?: string })?.message ??
+						"Failed to queue preflight",
+				);
+			},
+		},
+	);
+	/** A capability edit invalidates results proving the previous shape. */
+	function resetVerification() {
+		setVerificationId("");
 	}
 
 	const updateModel = api.useMutation("patch", "/airside/models/{id}", {
@@ -1316,6 +1440,9 @@ export function EditModelDialog({
 								contextSize: contextSize ? Number(contextSize) : null,
 								maxOutput: maxOutput ? Number(maxOutput) : null,
 								...capabilities,
+								supportedToolChoices: capabilities.tools
+									? toolChoicePayload(toolChoices)
+									: null,
 								reasoningEfforts:
 									capabilities.reasoning && reasoningEfforts.length > 0
 										? reasoningEfforts
@@ -1408,16 +1535,58 @@ export function EditModelDialog({
 									{cap.label}
 									<Switch
 										checked={capabilities[cap.key]}
-										onCheckedChange={(checked) =>
+										disabled={verificationInProgress}
+										onCheckedChange={(checked) => {
 											setCapabilities((prev) => ({
 												...prev,
 												[cap.key]: checked,
-											}))
-										}
+											}));
+											resetVerification();
+										}}
 									/>
 								</label>
 							))}
 						</div>
+						{capabilities.tools ? (
+							<div className="space-y-1 pt-1">
+								<Label className="text-muted-foreground text-xs">
+									Accepted tool_choice modes
+								</Label>
+								<div className="flex flex-wrap gap-1.5">
+									{TOOL_CHOICE_MODES.map((mode) => {
+										const active = toolChoices.includes(mode);
+										return (
+											<button
+												key={mode}
+												type="button"
+												aria-pressed={active}
+												disabled={verificationInProgress}
+												data-testid={`edit-tool-choice-${mode}`}
+												onClick={() => {
+													setToolChoices((prev) =>
+														prev.includes(mode)
+															? prev.filter((m) => m !== mode)
+															: [...prev, mode],
+													);
+													resetVerification();
+												}}
+												className={
+													active
+														? "bg-primary/15 text-primary border-primary/40 rounded-full border px-2.5 py-1 font-mono text-xs"
+														: "border-border text-muted-foreground hover:text-foreground rounded-full border px-2.5 py-1 font-mono text-xs"
+												}
+											>
+												{mode}
+											</button>
+										);
+									})}
+								</div>
+								<p className="text-muted-foreground text-xs">
+									Deselect a mode your endpoint mishandles — requests asking for
+									it fall back to auto instead of reaching the deployment.
+								</p>
+							</div>
+						) : null}
 						{capabilities.reasoning ? (
 							<div className="space-y-1 pt-1">
 								<Label className="text-muted-foreground text-xs">
@@ -1431,14 +1600,16 @@ export function EditModelDialog({
 												key={effort}
 												type="button"
 												aria-pressed={active}
+												disabled={verificationInProgress}
 												data-testid={`effort-${effort}`}
-												onClick={() =>
+												onClick={() => {
 													setReasoningEfforts((prev) =>
 														prev.includes(effort)
 															? prev.filter((e) => e !== effort)
 															: [...prev, effort],
-													)
-												}
+													);
+													resetVerification();
+												}}
 												className={
 													active
 														? "bg-primary/15 text-primary border-primary/40 rounded-full border px-2.5 py-1 font-mono text-xs"
@@ -1483,10 +1654,55 @@ export function EditModelDialog({
 							onChange={setRateLimitScope}
 						/>
 					</div>
+					<div className="border-border space-y-2 rounded-lg border p-3">
+						<Label htmlFor={`edit-verify-api-key-${model.id}`}>
+							Preflight these capabilities (optional)
+						</Label>
+						<Input
+							id={`edit-verify-api-key-${model.id}`}
+							data-testid="edit-verify-api-key"
+							type="password"
+							autoComplete="off"
+							value={apiKey}
+							onChange={(event) => setApiKey(event.target.value)}
+							placeholder="A key that can call this model"
+							disabled={verificationInProgress}
+						/>
+						<p className="text-muted-foreground text-xs">
+							Runs the capabilities selected above against your endpoint before
+							you file them. A failed check drops the capability it disproved.
+						</p>
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							data-testid="edit-run-preflight"
+							disabled={
+								queueVerification.isPending ||
+								verificationInProgress ||
+								!apiKey.trim()
+							}
+							onClick={() =>
+								queueVerification.mutate({
+									params: { path: { id: model.id } },
+									body: { apiKey, proposed: proposedCapabilities },
+								})
+							}
+						>
+							{queueVerification.isPending
+								? "Queueing…"
+								: verification
+									? "Run preflight again"
+									: "Run preflight"}
+						</Button>
+						{verification ? (
+							<VerificationResults verification={verification} />
+						) : null}
+					</div>
 					<DialogFooter>
 						<Button
 							type="submit"
-							disabled={updateModel.isPending}
+							disabled={updateModel.isPending || verificationInProgress}
 							data-testid="edit-model-submit"
 							className="font-semibold"
 						>

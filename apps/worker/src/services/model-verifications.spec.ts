@@ -17,6 +17,7 @@ import type {
 	ProviderModelVerificationCheck,
 	ProviderModelVerificationTarget,
 } from "@llmgateway/db";
+import type { ToolChoiceMode } from "@llmgateway/models";
 
 const originalHashSecret = process.env.GATEWAY_API_KEY_HASH_SECRET;
 const STALE_AGE_MS = 60 * 60 * 1000;
@@ -142,6 +143,113 @@ async function enqueueVerification(
 				: null,
 	});
 	return verificationId;
+}
+
+/** An approved listing plus its materialized mapping and a queued job. */
+async function seedActiveListing(
+	overrides: {
+		streaming?: boolean;
+		tools?: boolean;
+		supportedToolChoices?: ToolChoiceMode[];
+		reasoning?: boolean;
+		reasoningMaxTokens?: boolean;
+		reasoningEfforts?: string[];
+	} = {},
+) {
+	const suffix = randomUUID();
+	const userId = `verification-user-${suffix}`;
+	const companyId = `verification-company-${suffix}`;
+	const providerId = `verification-provider-${suffix}`;
+	const modelName = `verification-model-${suffix}`;
+	const verificationId = `verification-job-${suffix}`;
+	userIds.push(userId);
+	companyIds.push(companyId);
+	catalogueProviderIds.push(providerId);
+	catalogueModelIds.push(modelName);
+	await db.insert(tables.user).values({
+		id: userId,
+		email: `${userId}@example.com`,
+		name: "Verification User",
+	});
+	await db.insert(tables.providerCompany).values({
+		id: companyId,
+		name: "Verification Provider",
+	});
+	await db.insert(tables.providerClaim).values({
+		providerCompanyId: companyId,
+		providerId,
+		kind: "custom",
+		matchedDomain: "example.com",
+		customBaseUrl: "https://provider.example.com/v1",
+		status: "active",
+		claimedBy: userId,
+	});
+	const listingValues = {
+		streaming: true,
+		tools: true,
+		reasoning: true,
+		reasoningMaxTokens: true,
+		reasoningEfforts: ["low", "high"],
+		...overrides,
+	};
+	const [draftModel] = await db
+		.insert(tables.providerDraftModel)
+		.values({
+			providerCompanyId: companyId,
+			providerId,
+			modelName,
+			externalId: "upstream-model-x",
+			family: "verification",
+			status: "active",
+			createdBy: userId,
+			...listingValues,
+		})
+		.returning();
+	await db.insert(tables.provider).values({
+		id: providerId,
+		name: "Verification Provider",
+		description: "Verification carrier",
+	});
+	await db
+		.insert(tables.model)
+		.values({ id: modelName, name: modelName, family: "verification" });
+	await db.insert(tables.modelProviderMapping).values({
+		modelId: modelName,
+		providerId,
+		externalId: "upstream-model-x",
+		source: "airside",
+		...listingValues,
+	});
+	process.env.GATEWAY_API_KEY_HASH_SECRET = "model-verification-test-secret";
+	await db.insert(tables.providerModelVerification).values({
+		id: verificationId,
+		providerCompanyId: companyId,
+		draftModelId: draftModel.id,
+		requestedBy: userId,
+		target: {
+			providerId,
+			modelName,
+			externalId: "upstream-model-x",
+			streaming: true,
+			vision: false,
+			audio: false,
+			tools: true,
+			jsonOutput: false,
+			jsonOutputSchema: false,
+			reasoning: true,
+			reasoningMaxTokens: true,
+			reasoningEfforts: ["low", "high"],
+			webSearch: false,
+		},
+		checks: [{ id: "basic", label: "Basic completion", status: "queued" }],
+		credentialSource: "supplied",
+		credentialCiphertext: encryptModelVerificationCredential(
+			"single-use-provider-key",
+			verificationId,
+			companyId,
+		),
+	});
+	return { draftModelId: draftModel.id, modelName, providerId };
 }
 
 describe("model verification worker", () => {
@@ -270,100 +378,7 @@ describe("model verification worker", () => {
 	});
 
 	it("drops the capabilities a failed re-verification disproved", async () => {
-		const suffix = randomUUID();
-		const userId = `verification-user-${suffix}`;
-		const companyId = `verification-company-${suffix}`;
-		const providerId = `verification-provider-${suffix}`;
-		const modelName = `verification-model-${suffix}`;
-		const verificationId = `verification-job-${suffix}`;
-		userIds.push(userId);
-		companyIds.push(companyId);
-		catalogueProviderIds.push(providerId);
-		catalogueModelIds.push(modelName);
-		await db.insert(tables.user).values({
-			id: userId,
-			email: `${userId}@example.com`,
-			name: "Verification User",
-		});
-		await db.insert(tables.providerCompany).values({
-			id: companyId,
-			name: "Verification Provider",
-		});
-		await db.insert(tables.providerClaim).values({
-			providerCompanyId: companyId,
-			providerId,
-			kind: "custom",
-			matchedDomain: "example.com",
-			customBaseUrl: "https://provider.example.com/v1",
-			status: "active",
-			claimedBy: userId,
-		});
-		const [draftModel] = await db
-			.insert(tables.providerDraftModel)
-			.values({
-				providerCompanyId: companyId,
-				providerId,
-				modelName,
-				externalId: "upstream-model-x",
-				family: "verification",
-				status: "active",
-				streaming: true,
-				tools: true,
-				reasoning: true,
-				reasoningMaxTokens: true,
-				reasoningEfforts: ["low", "high"],
-				createdBy: userId,
-			})
-			.returning();
-		await db.insert(tables.provider).values({
-			id: providerId,
-			name: "Verification Provider",
-			description: "Verification carrier",
-		});
-		await db
-			.insert(tables.model)
-			.values({ id: modelName, name: modelName, family: "verification" });
-		await db.insert(tables.modelProviderMapping).values({
-			modelId: modelName,
-			providerId,
-			externalId: "upstream-model-x",
-			source: "airside",
-			streaming: true,
-			tools: true,
-			reasoning: true,
-			reasoningMaxTokens: true,
-			reasoningEfforts: ["low", "high"],
-		});
-		process.env.GATEWAY_API_KEY_HASH_SECRET = "model-verification-test-secret";
-		await db.insert(tables.providerModelVerification).values({
-			id: verificationId,
-			providerCompanyId: companyId,
-			draftModelId: draftModel.id,
-			requestedBy: userId,
-			target: {
-				providerId,
-				modelName,
-				externalId: "upstream-model-x",
-				streaming: true,
-				vision: false,
-				audio: false,
-				tools: true,
-				jsonOutput: false,
-				jsonOutputSchema: false,
-				reasoning: true,
-				reasoningMaxTokens: true,
-				reasoningEfforts: ["low", "high"],
-				webSearch: false,
-			},
-			checks: [{ id: "basic", label: "Basic completion", status: "queued" }],
-			credentialSource: "supplied",
-			credentialCiphertext: encryptModelVerificationCredential(
-				"single-use-provider-key",
-				verificationId,
-				companyId,
-			),
-		});
-
+		const { draftModelId, modelName, providerId } = await seedActiveListing();
 		await processNextModelVerification(async () => ({
 			passed: false,
 			checks: [
@@ -392,7 +407,7 @@ describe("model verification worker", () => {
 		}));
 
 		const listing = await db.query.providerDraftModel.findFirst({
-			where: { id: { eq: draftModel.id } },
+			where: { id: { eq: draftModelId } },
 		});
 		expect(listing).toMatchObject({
 			streaming: true,
@@ -413,6 +428,51 @@ describe("model verification worker", () => {
 			reasoningMaxTokens: false,
 			reasoningEfforts: null,
 		});
+	});
+
+	it("narrows tool_choice support without dropping tool calls", async () => {
+		const { draftModelId, modelName, providerId } = await seedActiveListing();
+		await processNextModelVerification(async () => ({
+			passed: true,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{ id: "tools", label: "Tool calls", status: "passed" },
+			],
+			summary: "2 verification checks passed.",
+			unsupportedToolChoices: ["required"],
+		}));
+
+		const listing = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: draftModelId } },
+		});
+		expect(listing).toMatchObject({
+			tools: true,
+			supportedToolChoices: ["auto", "none", "function"],
+		});
+		const mapping = await db.query.modelProviderMapping.findFirst({
+			where: { modelId: { eq: modelName }, providerId: { eq: providerId } },
+		});
+		expect(mapping?.supportedToolChoices).toEqual(["auto", "none", "function"]);
+	});
+
+	it("keeps a carrier's own tool_choice narrowing", async () => {
+		const { draftModelId } = await seedActiveListing({
+			supportedToolChoices: ["auto", "required"],
+		});
+		await processNextModelVerification(async () => ({
+			passed: true,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{ id: "tools", label: "Tool calls", status: "passed" },
+			],
+			summary: "2 verification checks passed.",
+			unsupportedToolChoices: ["required"],
+		}));
+
+		const listing = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: draftModelId } },
+		});
+		expect(listing?.supportedToolChoices).toEqual(["auto"]);
 	});
 
 	it("does not let a stale attempt overwrite a reclaimed job", async () => {

@@ -22,6 +22,7 @@ import {
 	getProviderEnvVar,
 	type ModelDefinition,
 	type ProviderApiFormat,
+	type ToolChoiceMode,
 } from "@llmgateway/models";
 
 // Website verification resolves a real TXT record; the zone under test is
@@ -183,6 +184,9 @@ async function createModel(
 			vision: body.vision === true,
 			audio: body.audio === true,
 			tools: body.tools === true,
+			supportedToolChoices: Array.isArray(body.supportedToolChoices)
+				? (body.supportedToolChoices as ToolChoiceMode[])
+				: null,
 			jsonOutput: body.jsonOutput === true,
 			jsonOutputSchema: body.jsonOutputSchema === true,
 			reasoning: body.reasoning === true,
@@ -659,6 +663,47 @@ describe("airside provider portal", () => {
 				process.env[envVar] = originalToken;
 			}
 		}
+	});
+
+	it("carries a carrier's tool_choice narrowing and preflights an edit", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id, {
+			supportedToolChoices: ["auto", "none"],
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		expect(model.supportedToolChoices).toEqual(["auto", "none"]);
+
+		// A draft applies metadata in place, so the narrowing is editable.
+		const patched = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { supportedToolChoices: null }, "PATCH"),
+		);
+		expect(patched.status).toBe(200);
+		expect((await patched.json()).model.supportedToolChoices).toBeNull();
+
+		// A preflight of unsaved capabilities verifies the proposal, not the row.
+		const queued = await app.request(
+			`/airside/models/${model.id}/verifications`,
+			json(cookie, {
+				apiKey: "carrier-preflight-key",
+				proposed: { supportedToolChoices: ["auto"], vision: true },
+			}),
+		);
+		expect(queued.status).toBe(202);
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: (await queued.json()).verification.id } },
+		});
+		expect(stored?.target).toMatchObject({
+			supportedToolChoices: ["auto"],
+			vision: true,
+			// Untouched fields still come from the saved listing.
+			tools: true,
+			modelName: "mistral-large-3",
+		});
 	});
 
 	it("drafts a model with an initial price filing and blocks price edits", async () => {

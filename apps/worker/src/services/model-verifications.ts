@@ -8,10 +8,11 @@ import {
 } from "@llmgateway/actions";
 import { and, asc, cdb, db, eq, lt, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { getProviderEnvVar } from "@llmgateway/models";
+import { getProviderEnvVar, TOOL_CHOICE_MODES } from "@llmgateway/models";
 
 import type { RunModelVerificationOptions } from "@llmgateway/actions";
 import type { ProviderModelVerificationCheck } from "@llmgateway/db";
+import type { ToolChoiceMode } from "@llmgateway/models";
 
 type VerificationRow = typeof tables.providerModelVerification.$inferSelect;
 type VerificationRunner = (
@@ -332,6 +333,62 @@ async function demoteDisprovedCapabilities(
 	});
 }
 
+/**
+ * A `tool_choice` mode the tool check probed and the upstream did not honour,
+ * where a weaker mode then worked. Tool calling itself is proven, so the
+ * listing keeps `tools` and instead records the modes that do work — the
+ * gateway downgrades a request asking for a dropped mode rather than
+ * forwarding one the deployment answers with unusable output.
+ */
+async function narrowToolChoiceSupport(
+	job: VerificationRow,
+	unsupported: ToolChoiceMode[] | undefined,
+): Promise<void> {
+	if (!job.draftModelId || !unsupported?.length) {
+		return;
+	}
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: job.draftModelId } },
+	});
+	if (!model || model.status === "delisted") {
+		return;
+	}
+	const declared = model.supportedToolChoices ?? TOOL_CHOICE_MODES;
+	const supportedToolChoices = declared.filter(
+		(mode) => !unsupported.includes(mode),
+	);
+	if (supportedToolChoices.length === declared.length) {
+		return;
+	}
+	// cdb: the gateway caches listing resolution off both tables.
+	await cdb.transaction(async (tx) => {
+		await tx
+			.update(tables.providerDraftModel)
+			.set({ supportedToolChoices })
+			.where(eq(tables.providerDraftModel.id, model.id));
+		if (model.status !== "active") {
+			return;
+		}
+		await tx
+			.update(tables.modelProviderMapping)
+			.set({ supportedToolChoices })
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, model.modelName),
+					eq(tables.modelProviderMapping.providerId, model.providerId),
+					eq(tables.modelProviderMapping.source, "airside"),
+				),
+			);
+	});
+	logger.info("Narrowed an Airside listing's tool_choice support", {
+		verificationId: job.id,
+		draftModelId: model.id,
+		providerId: model.providerId,
+		unsupported,
+		supportedToolChoices,
+	});
+}
+
 export async function processNextModelVerification(
 	runner: VerificationRunner = runProviderModelVerification,
 ): Promise<boolean> {
@@ -391,6 +448,7 @@ export async function processNextModelVerification(
 		if (!result.passed) {
 			await demoteDisprovedCapabilities(job, result.checks);
 		}
+		await narrowToolChoiceSupport(job, result.unsupportedToolChoices);
 	} catch (error) {
 		if (error instanceof StaleModelVerificationAttemptError) {
 			return true;

@@ -29,6 +29,7 @@ import {
 	pickMetadataChanges,
 	quantizationValue,
 	REASONING_EFFORT_VALUES,
+	supportedToolChoicesValue,
 } from "@/lib/airside-metadata.js";
 import {
 	buildVerificationTarget,
@@ -195,6 +196,22 @@ const verificationMappingSchema = z.object({
 	vision: z.boolean().optional(),
 	audio: z.boolean().optional(),
 	tools: z.boolean().optional(),
+	supportedToolChoices: supportedToolChoicesValue.nullish(),
+	jsonOutput: z.boolean().optional(),
+	jsonOutputSchema: z.boolean().optional(),
+	reasoning: z.boolean().optional(),
+	reasoningMaxTokens: z.boolean().optional(),
+	reasoningEfforts: reasoningEffortsValue.nullish(),
+	webSearch: z.boolean().optional(),
+});
+
+/** The capability subset a carrier can preflight before saving an edit. */
+const proposedCapabilitiesSchema = z.object({
+	streaming: z.boolean().optional(),
+	vision: z.boolean().optional(),
+	audio: z.boolean().optional(),
+	tools: z.boolean().optional(),
+	supportedToolChoices: supportedToolChoicesValue.nullish(),
 	jsonOutput: z.boolean().optional(),
 	jsonOutputSchema: z.boolean().optional(),
 	reasoning: z.boolean().optional(),
@@ -312,6 +329,8 @@ const modelSchema = z.object({
 	vision: z.boolean(),
 	audio: z.boolean(),
 	tools: z.boolean(),
+	// Accepted tool_choice modes; null = all of them.
+	supportedToolChoices: supportedToolChoicesValue.nullable(),
 	jsonOutput: z.boolean(),
 	jsonOutputSchema: z.boolean(),
 	reasoning: z.boolean(),
@@ -456,26 +475,42 @@ function verificationTarget(
 	return buildVerificationTarget(body);
 }
 
+/**
+ * The target for a listing's own row, optionally with the capabilities a
+ * carrier is proposing but has not filed yet. The pair (provider, model,
+ * upstream id, protocol) always comes from the row — only capabilities differ.
+ */
 function draftVerificationTarget(
 	model: DraftModelRow,
+	proposed: z.infer<typeof proposedCapabilitiesSchema> = {},
 ): ProviderModelVerificationTarget {
+	// `null` is a meaningful proposal for the list-valued fields ("no
+	// restriction" / "parameter unsupported"), so they fall back on undefined
+	// only, not on nullish.
 	return verificationTarget({
 		providerCompanyId: model.providerCompanyId,
 		providerId: model.providerId,
 		modelName: model.modelName,
 		externalId: model.externalId,
 		apiFormat: model.apiFormat,
-		streaming: model.streaming,
-		vision: model.vision,
-		audio: model.audio,
-		tools: model.tools,
-		jsonOutput: model.jsonOutput,
-		jsonOutputSchema: model.jsonOutputSchema,
-		reasoning: model.reasoning,
-		reasoningMaxTokens: model.reasoningMaxTokens,
-		reasoningEfforts: model.reasoningEfforts as
-			(typeof REASONING_EFFORT_VALUES)[number][] | null,
-		webSearch: model.webSearch,
+		streaming: proposed.streaming ?? model.streaming,
+		vision: proposed.vision ?? model.vision,
+		audio: proposed.audio ?? model.audio,
+		tools: proposed.tools ?? model.tools,
+		supportedToolChoices:
+			proposed.supportedToolChoices === undefined
+				? model.supportedToolChoices
+				: proposed.supportedToolChoices,
+		jsonOutput: proposed.jsonOutput ?? model.jsonOutput,
+		jsonOutputSchema: proposed.jsonOutputSchema ?? model.jsonOutputSchema,
+		reasoning: proposed.reasoning ?? model.reasoning,
+		reasoningMaxTokens: proposed.reasoningMaxTokens ?? model.reasoningMaxTokens,
+		reasoningEfforts:
+			proposed.reasoningEfforts === undefined
+				? (model.reasoningEfforts as
+						(typeof REASONING_EFFORT_VALUES)[number][] | null)
+				: proposed.reasoningEfforts,
+		webSearch: proposed.webSearch ?? model.webSearch,
 	});
 }
 
@@ -535,6 +570,7 @@ function serializeModel(
 		vision: row.vision,
 		audio: row.audio,
 		tools: row.tools,
+		supportedToolChoices: row.supportedToolChoices ?? null,
 		jsonOutput: row.jsonOutput,
 		jsonOutputSchema: row.jsonOutputSchema,
 		reasoning: row.reasoning,
@@ -2185,6 +2221,10 @@ const queueExistingModelVerification = createRoute({
 				"application/json": {
 					schema: z.object({
 						apiKey: z.string().min(1).max(20_000).optional(),
+						// Capabilities to verify instead of the ones on the saved
+						// row, so a carrier can preflight an edit before filing it.
+						// The pair itself is immutable and always comes from the row.
+						proposed: proposedCapabilitiesSchema.optional(),
 					}),
 				},
 			},
@@ -2205,7 +2245,7 @@ const queueExistingModelVerification = createRoute({
 airside.openapi(queueExistingModelVerification, async (c) => {
 	const user = requireVerifiedUser(c.get("user"));
 	const { id } = c.req.valid("param");
-	const { apiKey } = c.req.valid("json");
+	const { apiKey, proposed } = c.req.valid("json");
 	const model = await db.query.providerDraftModel.findFirst({
 		where: { id: { eq: id } },
 	});
@@ -2218,7 +2258,7 @@ airside.openapi(queueExistingModelVerification, async (c) => {
 			message: "Delisted mappings cannot be verified.",
 		});
 	}
-	const target = draftVerificationTarget(model);
+	const target = draftVerificationTarget(model, proposed);
 	const credentialSource = await verificationCredentialSource(target, apiKey);
 	let verification: ModelVerificationRow;
 	try {
@@ -2304,6 +2344,7 @@ const createModel = createRoute({
 						vision: z.boolean().optional(),
 						audio: z.boolean().optional(),
 						tools: z.boolean().optional(),
+						supportedToolChoices: supportedToolChoicesValue.nullish(),
 						jsonOutput: z.boolean().optional(),
 						jsonOutputSchema: z.boolean().optional(),
 						reasoning: z.boolean().optional(),
@@ -2428,6 +2469,7 @@ airside.openapi(createModel, async (c) => {
 					vision: body.vision ?? false,
 					audio: body.audio ?? false,
 					tools: body.tools ?? false,
+					supportedToolChoices: body.supportedToolChoices ?? null,
 					jsonOutput: body.jsonOutput ?? false,
 					jsonOutputSchema: body.jsonOutputSchema ?? false,
 					reasoning: body.reasoning ?? false,
@@ -2620,6 +2662,7 @@ airside.openapi(importCatalogueModels, async (c) => {
 					vision: mapping.vision ?? false,
 					audio: Boolean(mapping.audio),
 					tools: mapping.tools ?? false,
+					supportedToolChoices: mapping.supportedToolChoices ?? null,
 					jsonOutput: mapping.jsonOutput ?? false,
 					jsonOutputSchema: mapping.jsonOutputSchema ?? false,
 					reasoning: mapping.reasoning ?? false,

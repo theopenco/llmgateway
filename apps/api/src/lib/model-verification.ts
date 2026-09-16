@@ -9,7 +9,7 @@ import { db, shortid, tables } from "@llmgateway/db";
 import { hasProviderEnvironmentToken } from "@llmgateway/models";
 
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
-import type { ProviderApiFormat } from "@llmgateway/models";
+import type { ProviderApiFormat, ToolChoiceMode } from "@llmgateway/models";
 
 export type ModelVerificationRow =
 	typeof tables.providerModelVerification.$inferSelect;
@@ -43,6 +43,7 @@ export interface VerificationTargetInput {
 	vision?: boolean | null;
 	audio?: boolean | null;
 	tools?: boolean | null;
+	supportedToolChoices?: ToolChoiceMode[] | null;
 	jsonOutput?: boolean | null;
 	jsonOutputSchema?: boolean | null;
 	reasoning?: boolean | null;
@@ -64,6 +65,7 @@ export function buildVerificationTarget(
 		vision: input.vision ?? false,
 		audio: input.audio ?? false,
 		tools: input.tools ?? false,
+		supportedToolChoices: input.supportedToolChoices ?? null,
 		jsonOutput: input.jsonOutput ?? false,
 		jsonOutputSchema: input.jsonOutputSchema ?? false,
 		reasoning: input.reasoning ?? false,
@@ -88,6 +90,8 @@ export function verificationTargetsMatch(
 		left.vision === right.vision &&
 		left.audio === right.audio &&
 		left.tools === right.tools &&
+		JSON.stringify(left.supportedToolChoices ?? null) ===
+			JSON.stringify(right.supportedToolChoices ?? null) &&
 		left.jsonOutput === right.jsonOutput &&
 		left.jsonOutputSchema === right.jsonOutputSchema &&
 		left.reasoning === right.reasoning &&

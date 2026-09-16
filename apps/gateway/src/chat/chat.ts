@@ -7467,6 +7467,7 @@ chat.openapi(completions, async (c) => {
 			sessionId,
 			reasoning_context,
 			organization.safetyIdentifier,
+			getUsedProviderMapping(),
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a
