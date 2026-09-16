@@ -34,7 +34,7 @@ Carriers claiming a catalogue provider can also **import their catalogue models*
 
 Each listing also picks the **upstream API** the gateway speaks to it: the carrier default, OpenAI Chat Completions, OpenAI Responses, or Google Vertex `generateContent`. The choice is independent of the capabilities you declare — tool calls, JSON output, vision, reasoning, and web search are all probed and served through whichever API you picked, so pick the one your endpoint actually implements. It is fixed once the model is listed.
 
-Before a listing can be filed, Airside runs a **preflight** against your endpoint through that API: one check per declared capability, using a provider key that is used only for that run and erased when it finishes. Editing the model invalidates the run, so a listing never ships with checks made against different settings.
+Before a listing can be filed, Airside runs a **preflight** against your endpoint through that API: one check per declared capability. You supply a provider API key that can call the model — it is used only by that run and erased when it finishes. Editing the model invalidates the run, so a listing never ships with checks made against different settings.
 
 ## Price filings
 

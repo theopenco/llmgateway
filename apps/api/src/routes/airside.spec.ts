@@ -4,7 +4,11 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 import * as emailUtils from "@/utils/email.js";
 
-import { encryptProviderKeyForStorage } from "@llmgateway/actions";
+import {
+	deleteProviderEnvInventory,
+	encryptProviderKeyForStorage,
+	publishProviderEnvInventory,
+} from "@llmgateway/actions";
 import {
 	db,
 	eq,
@@ -15,6 +19,7 @@ import {
 } from "@llmgateway/db";
 import {
 	models as catalogueModels,
+	getProviderEnvVar,
 	type ModelDefinition,
 	type ProviderApiFormat,
 } from "@llmgateway/models";
@@ -620,6 +625,40 @@ describe("airside provider portal", () => {
 			where: { id: { eq: queuedBody.verification.id } },
 		});
 		expect(stored?.credentialSource).toBe("managed");
+	});
+
+	it("asks for a key when only the gateway holds an environment credential", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		// The gateway publishes the `LLM_*` keys it can see, but the worker that
+		// runs the checks cannot read them — queueing against that snapshot only
+		// produces a run that fails for want of a credential.
+		const envVar = getProviderEnvVar("mistral")!;
+		const originalToken = process.env[envVar];
+		process.env[envVar] = "gateway-only-key";
+		await publishProviderEnvInventory();
+		Reflect.deleteProperty(process.env, envVar);
+		try {
+			const queued = await app.request(
+				"/airside/model-verifications",
+				json(cookie, {
+					providerCompanyId: company.id,
+					providerId: "mistral",
+					modelName: "mistral-unkeyed",
+				}),
+			);
+			expect(queued.status).toBe(400);
+			expect((await queued.json()).message).toContain("provider API key");
+		} finally {
+			await deleteProviderEnvInventory();
+			if (originalToken === undefined) {
+				Reflect.deleteProperty(process.env, envVar);
+			} else {
+				process.env[envVar] = originalToken;
+			}
+		}
 	});
 
 	it("drafts a model with an initial price filing and blocks price edits", async () => {

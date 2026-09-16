@@ -61,9 +61,10 @@ export default function ListingGuide() {
 					organizations or applies separately to each one.
 				</p>
 				<p className="mt-3">
-					Run preflight verification with your managed carrier key or a key
-					supplied for that run. Resolve failed checks before submitting the
-					model. Changing the verified mapping requires a new verification.
+					Paste a provider API key that can call this model and run preflight
+					verification. The key is used only by that run and erased when it
+					finishes. Resolve failed checks before submitting the model. Changing
+					the verified mapping requires a new verification.
 				</p>
 			</section>
 			<section>

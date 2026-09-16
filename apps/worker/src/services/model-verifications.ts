@@ -68,7 +68,7 @@ function environmentCredential(job: VerificationRow): string {
 		: "";
 	if (!token) {
 		throw new Error(
-			"No environment credential is configured for this provider.",
+			"No environment credential is configured for this provider. Re-run the verification with a provider API key.",
 		);
 	}
 	return token;
