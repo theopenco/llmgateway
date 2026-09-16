@@ -9,22 +9,17 @@ import {
 	Text,
 	TextInput,
 	View,
+	useColorScheme,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+import { colors } from "@/lib/colors";
 
 import type { PropsWithChildren } from "react";
 import type { TextInputProps } from "react-native";
 
-export const colors = {
-	background: "#101412",
-	panel: "#1A211D",
-	border: "#303A32",
-	text: "#F3F0E6",
-	muted: "#AFB8AE",
-	accent: "#D2EF9A",
-	ink: "#192511",
-	error: "#FFB4AB",
-};
+export { colors } from "@/lib/colors";
+
 export const styles = StyleSheet.create({
 	screen: { flex: 1, backgroundColor: colors.background },
 	content: { padding: 22, gap: 18, flexGrow: 1 },
@@ -139,12 +134,13 @@ export function Button({
 }
 export function Field({ label, ...props }: TextInputProps & { label: string }) {
 	const accessoryId = useId();
+	const scheme = useColorScheme();
 	return (
 		<View style={{ gap: 8 }}>
 			<Text style={styles.muted}>{label}</Text>
 			<TextInput
 				inputAccessoryViewID={accessoryId}
-				keyboardAppearance="dark"
+				keyboardAppearance={scheme === "dark" ? "dark" : "light"}
 				testID={`field-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
 				aria-label={label}
 				placeholderTextColor={colors.muted}

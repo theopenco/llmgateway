@@ -10,6 +10,7 @@ import {
 	Text,
 	TextInput,
 	View,
+	useColorScheme,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -124,6 +125,7 @@ export function Chat({
 	projectId: string;
 	knowledgeProjectId?: string;
 }) {
+	const scheme = useColorScheme();
 	const insets = useSafeAreaInsets();
 	const [id, setId] = useState(chatId);
 	const [prompt, setPrompt] = useState("");
@@ -756,7 +758,7 @@ export function Chat({
 					aria-label="Message"
 					placeholder="Ask anything…"
 					placeholderTextColor={colors.muted}
-					keyboardAppearance="dark"
+					keyboardAppearance={scheme === "dark" ? "dark" : "light"}
 					multiline
 					value={prompt}
 					onChangeText={setPrompt}

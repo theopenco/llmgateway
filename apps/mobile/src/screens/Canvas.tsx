@@ -10,6 +10,7 @@ import {
 	Text,
 	View,
 } from "react-native";
+import { useColorScheme } from "react-native";
 import {
 	SafeAreaProvider,
 	useSafeAreaInsets,
@@ -29,6 +30,7 @@ import type { CanvasPreviewHandle } from "@/components/CanvasPreview";
 import type { Spec } from "@llmgateway/canvas/spec";
 
 export function Canvas({ projectId }: { projectId: string }) {
+	const dark = useColorScheme() === "dark";
 	const insets = useSafeAreaInsets();
 	const model = useCanvasModel();
 	const [prompt, setPrompt] = useState("");
@@ -250,7 +252,12 @@ export function Canvas({ projectId }: { projectId: string }) {
 				/>
 			</View>
 			{canvas ? (
-				<CanvasPreview ref={previewRef} {...canvas} onError={setError} />
+				<CanvasPreview
+					dark={dark}
+					ref={previewRef}
+					{...canvas}
+					onError={setError}
+				/>
 			) : (
 				<View
 					style={{ flex: 1, padding: 24, justifyContent: "center", gap: 12 }}

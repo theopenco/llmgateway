@@ -5,6 +5,10 @@ appId: io.llmgateway.lounge
     element: "Your profile"
     direction: DOWN
 - tapOn: "Your profile"
+- scrollUntilVisible:
+    element: "View leaderboard"
+    direction: DOWN
+    centerElement: true
 - assertVisible: "Your profile is private."
 - tapOn: "Join the leaderboard"
 - assertVisible: "Use 3–30 letters, numbers, hyphens, or underscores."
@@ -27,6 +31,10 @@ appId: io.llmgateway.lounge
     element: "Your profile"
     direction: DOWN
 - tapOn: "Your profile"
+- scrollUntilVisible:
+    element: "View leaderboard"
+    direction: DOWN
+    centerElement: true
 - assertVisible: "Your profile is public as @native-member."
 - assertVisible:
     id: profile-picture-switch
@@ -59,6 +67,10 @@ appId: io.llmgateway.lounge
     element: "Your profile"
     direction: DOWN
 - tapOn: "Your profile"
+- scrollUntilVisible:
+    element: "View leaderboard"
+    direction: DOWN
+    centerElement: true
 - tapOn: "Make profile private"
 - extendedWaitUntil:
     visible: "Your profile is private."
@@ -72,6 +84,10 @@ appId: io.llmgateway.lounge
     element: "Your profile"
     direction: DOWN
 - tapOn: "Your profile"
+- scrollUntilVisible:
+    element: "View leaderboard"
+    direction: DOWN
+    centerElement: true
 - assertVisible: "Your profile is private."
 - tapOn: "Join the leaderboard"
 - assertVisible: "Your profile is public as @native-member."

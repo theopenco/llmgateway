@@ -3,6 +3,7 @@ import { Linking, Text, View } from "react-native";
 
 import { api } from "@/api/client";
 import { signOut } from "@/auth/session";
+import { AppearancePicker } from "@/components/AppearancePicker";
 import { ProfileProgress } from "@/components/ProfileProgress";
 import { PublicProfile } from "@/components/PublicProfile";
 import { Button, ErrorNotice, Loading, Screen, styles } from "@/components/ui";
@@ -47,6 +48,7 @@ export function Profile({
 						: user.data?.user.email}
 				</Text>
 			</View>
+			<AppearancePicker />
 			<PublicProfile onLeaderboard={onLeaderboard} />
 			<ProfileProgress />
 			<Text style={styles.muted}>

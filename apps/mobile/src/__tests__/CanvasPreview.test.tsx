@@ -55,12 +55,18 @@ async function show() {
 test("sends specs as bridge data after readiness and blocks remote navigation", async () => {
 	await show();
 	expect(JSON.parse(postMessage.mock.calls[0][0])).toEqual({
+		type: "theme",
+		dark: true,
+	});
+	expect(JSON.parse(postMessage.mock.calls[1][0])).toEqual({
 		type: "render",
 		spec,
 		revision: 1,
-		dark: true,
 	});
 	expect(webProps.sharedCookiesEnabled).toBe(false);
+	expect(webProps.source).toMatchObject({
+		html: expect.stringContaining('class="dark"'),
+	});
 	const navigate = webProps.onShouldStartLoadWithRequest!;
 	expect(
 		navigate({ url: "https://example.com" } as Parameters<typeof navigate>[0]),
@@ -142,4 +148,35 @@ test("rejects executable links and surfaces external opening failures", async ()
 	await event({ type: "link", url: "https://example.com" });
 	expect(onError).toHaveBeenLastCalledWith(new Error("Browser unavailable"));
 	open.mockRestore();
+});
+
+test("theme changes do not send a new render or replace the interactive preview", async () => {
+	const { view, ref, onError } = await show();
+	const source = webProps.source;
+	postMessage.mockClear();
+	await view.rerender(
+		<CanvasPreview
+			ref={ref}
+			spec={spec}
+			revision={1}
+			dark={false}
+			onError={onError}
+		/>,
+	);
+	expect(postMessage.mock.calls.map(([value]) => JSON.parse(value))).toEqual([
+		{ type: "theme", dark: false },
+	]);
+	expect(reload).not.toHaveBeenCalled();
+	expect(webProps.source).toBe(source);
+	const promise = ref.current!.export("png");
+	const command = JSON.parse(postMessage.mock.calls.at(-1)![0]) as {
+		id: string;
+	};
+	await event({
+		type: "exported",
+		id: command.id,
+		format: "png",
+		base64: "iVBORw0KGgoAAA",
+	});
+	expect(await promise).toBe("iVBORw0KGgoAAA");
 });

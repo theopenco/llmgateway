@@ -67,7 +67,7 @@ Verified during development:
 - Repository unit suite before the UTC revenue fix: 7,102 passed, 2 skipped,
   one admin date-range failure. After the fix, all five admin revenue tests pass
   under Stockholm, Los Angeles, and UTC timezones.
-- Native tests: 273 passed; shared image configuration tests: 3 passed.
+- Native tests: 284 passed; shared image configuration tests: 3 passed.
 - Chat message persistence tests: 5 passed, including tool-only replies.
 - Gateway speech tests: 20 passed.
 - Video configuration: 25 passed; gateway video and byte-range tests: 57 passed.
@@ -127,6 +127,9 @@ Verified during development:
 - Native profile checks: public username opt-in, picture privacy, leaderboard
   membership/removal/rejoining, level progress, streaks, activity points, and
   persistence across restarts passed.
+- Native appearance checks: light/dark persistence through restart and sign-out,
+  system overrides, keyboard and Markdown colors, chat draft preservation, and
+  interactive Canvas state across a system theme change passed.
 - Native image checks with a mock provider: generation/editing, model comparison,
   settings, history after restart, Files export/import, sharing, renaming, and
   deletion passed. Exported PNG bytes matched the generated fixture.
@@ -144,6 +147,16 @@ to the isolated API to reset the seeded member's
 public username and privacy controls. Run the fixture again afterward. The flow
 checks opt-in, picture privacy, leaderboard removal/rejoining, points, and restart
 persistence; run it after `e2e/escape.yaml` so earned Escape points exist.
+
+Run appearance flows sequentially with the simulator's system appearance set
+using `xcrun simctl ui <device-id> appearance light` or `dark`:
+
+1. Light: `appearance.yaml`; then dark: `appearance-system.yaml`.
+2. Light: `appearance-chat-light.yaml`; then dark: `appearance-chat-dark.yaml`.
+3. Light: `appearance-canvas-light.yaml`; then dark: `appearance-canvas-dark.yaml`.
+
+Do not relaunch between each pair: the second flow checks live state preservation.
+Pause expired mock connectors before the chat flow so it can generate a reply.
 
 Escape flows use `POST /mock/escape` on the isolated upstream with a JSON
 `mode`: `win` for `escape.yaml`, `slow` for `escape-controls.yaml`, `wait` for
