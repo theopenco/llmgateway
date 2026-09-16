@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronRight } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import {
@@ -525,6 +526,59 @@ export function RoutingAnalyticsClient() {
 		() => Math.max(1, ...(data?.exclusions.map((e) => e.excludedCount) ?? [1])),
 		[data],
 	);
+
+	// Which mappings each constraint actually hit, and how often relative to the
+	// elections they were a candidate in. The model-wide total says a constraint
+	// is costly; only the per-provider rate says whether it is one mapping being
+	// throttled or the whole model being squeezed.
+	const exclusionProvidersByReason = useMemo(() => {
+		const byReason = new Map<
+			string,
+			{
+				providerId: string;
+				excludedCount: number;
+				candidateCount: number;
+				rate: number | null;
+			}[]
+		>();
+		for (const mapping of data?.eligibility ?? []) {
+			for (const exclusion of mapping.exclusions) {
+				const rows = byReason.get(exclusion.reason) ?? [];
+				rows.push({
+					providerId: mapping.providerId,
+					excludedCount: exclusion.excludedCount,
+					candidateCount: mapping.candidateCount,
+					// Capped: one election can fire the same constraint on several of
+					// a provider's regional mappings, so the ratio can exceed 1.
+					rate:
+						mapping.candidateCount > 0
+							? Math.min(exclusion.excludedCount / mapping.candidateCount, 1)
+							: null,
+				});
+				byReason.set(exclusion.reason, rows);
+			}
+		}
+		byReason.forEach((rows) => {
+			rows.sort(
+				(a, b) =>
+					(b.rate ?? -1) - (a.rate ?? -1) || b.excludedCount - a.excludedCount,
+			);
+		});
+		return byReason;
+	}, [data]);
+
+	const [expandedExclusions, setExpandedExclusions] = useState<Set<string>>(
+		new Set(),
+	);
+	const toggleExclusion = useCallback((reason: string) => {
+		setExpandedExclusions((current) => {
+			const next = new Set(current);
+			if (!next.delete(reason)) {
+				next.add(reason);
+			}
+			return next;
+		});
+	}, []);
 
 	// The election counts come from routing telemetry, a separate hourly rollup
 	// read from `log`, while every other count on this page comes from the
@@ -1278,10 +1332,11 @@ export function RoutingAnalyticsClient() {
 								Every constraint that dropped a mapping from an election in this
 								window, across all providers. One request can exclude a mapping
 								for several reasons, so these do not sum to a request count —
-								read them as relative pressure on routing freedom. Compliance
-								drops are broken down by the policy rule that fired; a mapping
-								can fail several rules at once, so those sub-rows can exceed
-								their parent.
+								read them as relative pressure on routing freedom. Expand a row
+								for the mappings it hit, with the share of the elections each
+								one was a candidate in, and — for compliance — which policy rule
+								fired. A mapping can fail several rules at once, so those
+								sub-rows can exceed their parent.
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="p-4 sm:p-6">
@@ -1291,50 +1346,138 @@ export function RoutingAnalyticsClient() {
 								</p>
 							) : (
 								<div className="space-y-2">
-									{data.exclusions.map((entry) => (
-										<div key={entry.reason} className="space-y-1">
-											<div className="flex items-center gap-3 text-xs">
-												<span className="w-44 shrink-0 truncate">
-													{exclusionReasonLabel(entry.reason)}
-												</span>
-												<div className="h-3 flex-1 overflow-hidden rounded-full bg-muted">
-													<div
-														className="h-full rounded-full bg-amber-500"
-														style={{
-															width: `${(entry.excludedCount / maxExclusionCount) * 100}%`,
-														}}
-													/>
-												</div>
-												<span className="w-20 shrink-0 text-right font-mono text-muted-foreground">
-													{numberFormatter.format(entry.excludedCount)}
-												</span>
-											</div>
-											{/* Sub-rows scale against their own parent, not the chart
-											    maximum: the question they answer is which rule drove
-											    this constraint, not how it compares to other ones. */}
-											{entry.details.map((detail) => (
-												<div
-													key={detail.reason}
-													className="flex items-center gap-3 text-[11px] text-muted-foreground"
+									{data.exclusions.map((entry) => {
+										const providerRows =
+											exclusionProvidersByReason.get(entry.reason) ?? [];
+										const expanded = expandedExclusions.has(entry.reason);
+										const expandable =
+											providerRows.length > 0 || entry.details.length > 0;
+										return (
+											<div key={entry.reason} className="space-y-1">
+												<button
+													type="button"
+													disabled={!expandable}
+													aria-expanded={expanded}
+													onClick={() => toggleExclusion(entry.reason)}
+													className={cn(
+														"flex w-full items-center gap-3 rounded text-left text-xs",
+														expandable && "hover:bg-muted/40",
+													)}
 												>
-													<span className="w-44 shrink-0 truncate pl-4">
-														{exclusionReasonLabel(detail.reason)}
+													<span className="flex w-44 shrink-0 items-center gap-1 truncate">
+														<ChevronRight
+															className={cn(
+																"size-3 shrink-0 text-muted-foreground transition-transform",
+																!expandable && "invisible",
+																expanded && "rotate-90",
+															)}
+														/>
+														<span className="truncate">
+															{exclusionReasonLabel(entry.reason)}
+														</span>
 													</span>
-													<div className="h-2 flex-1 overflow-hidden rounded-full bg-muted/60">
-														<div
-															className="h-full rounded-full bg-amber-500/50"
+													<span className="h-3 flex-1 overflow-hidden rounded-full bg-muted">
+														<span
+															className="block h-full rounded-full bg-amber-500"
 															style={{
-																width: `${Math.min(detail.excludedCount / Math.max(entry.excludedCount, 1), 1) * 100}%`,
+																width: `${(entry.excludedCount / maxExclusionCount) * 100}%`,
 															}}
 														/>
-													</div>
-													<span className="w-20 shrink-0 text-right font-mono">
-														{numberFormatter.format(detail.excludedCount)}
 													</span>
-												</div>
-											))}
-										</div>
-									))}
+													<span className="w-20 shrink-0 text-right font-mono text-muted-foreground">
+														{numberFormatter.format(entry.excludedCount)}
+													</span>
+												</button>
+												{expanded ? (
+													<div className="space-y-1 pb-2 pl-4">
+														{entry.details.length > 0 ? (
+															<>
+																<p className="pt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+																	By rule
+																</p>
+																{/* Sub-rows scale against their own parent, not
+																    the chart maximum: the question they answer is
+																    which rule drove this constraint, not how it
+																    compares to other ones. */}
+																{entry.details.map((detail) => (
+																	<div
+																		key={detail.reason}
+																		className="flex items-center gap-3 text-[11px] text-muted-foreground"
+																	>
+																		<span className="w-40 shrink-0 truncate">
+																			{exclusionReasonLabel(detail.reason)}
+																		</span>
+																		<div className="h-2 flex-1 overflow-hidden rounded-full bg-muted/60">
+																			<div
+																				className="h-full rounded-full bg-amber-500/50"
+																				style={{
+																					width: `${Math.min(detail.excludedCount / Math.max(entry.excludedCount, 1), 1) * 100}%`,
+																				}}
+																			/>
+																		</div>
+																		<span className="w-20 shrink-0 text-right font-mono">
+																			{numberFormatter.format(
+																				detail.excludedCount,
+																			)}
+																		</span>
+																	</div>
+																))}
+															</>
+														) : null}
+														{providerRows.length > 0 ? (
+															<>
+																<p className="pt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+																	By mapping — share of its own candidacies
+																</p>
+																{providerRows.map((row) => (
+																	<div
+																		key={row.providerId}
+																		className="flex items-center gap-3 text-[11px] text-muted-foreground"
+																	>
+																		<span className="w-40 shrink-0 truncate">
+																			{providerName(row.providerId)}
+																		</span>
+																		{/* Scaled by the rate, not by the count: a
+																		    small provider throttled on most of its
+																		    candidacies is the finding, and counts
+																		    alone would bury it under a large one. */}
+																		<div className="h-2 flex-1 overflow-hidden rounded-full bg-muted/60">
+																			<div
+																				className="h-full rounded-full bg-amber-500/50"
+																				style={{
+																					width: `${(row.rate ?? 0) * 100}%`,
+																				}}
+																			/>
+																		</div>
+																		<span
+																			className={cn(
+																				"w-14 shrink-0 text-right font-mono",
+																				row.rate !== null &&
+																					row.rate > 0.5 &&
+																					"font-semibold text-amber-600",
+																			)}
+																		>
+																			{row.rate !== null
+																				? `${(row.rate * 100).toFixed(0)}%`
+																				: "—"}
+																		</span>
+																		<span
+																			className="w-20 shrink-0 text-right font-mono"
+																			title={`${numberFormatter.format(row.excludedCount)} of ${numberFormatter.format(row.candidateCount)} candidacies`}
+																		>
+																			{numberFormatter.format(
+																				row.excludedCount,
+																			)}
+																		</span>
+																	</div>
+																))}
+															</>
+														) : null}
+													</div>
+												) : null}
+											</div>
+										);
+									})}
 								</div>
 							)}
 						</CardContent>
