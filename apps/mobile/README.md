@@ -86,6 +86,9 @@ Verified during development:
 - Native live transcription with a local WebSocket upstream: automatic/manual
   turns, mute, final-turn preservation, copy/clear, background shutdown, and
   permission recovery through iOS Settings passed.
+- Native voice checks with local OpenAI and Gemini WebSocket upstreams: microphone
+  capture, replies, mute, saved audio replay/pause, OpenAI continuation, background
+  saving, transcript copy, restart restoration, rename, and deletion passed.
 - Native image checks with a mock provider: generation/editing, model comparison,
   settings, history after restart, Files export/import, sharing, renaming, and
   deletion passed. Exported PNG bytes matched the generated fixture.
@@ -118,7 +121,7 @@ A checkbox requires observed behavior, not just a screen or passing type check.
 - [x] Image creation/editing, settings, multi-model comparison, history, save/share
 - [ ] Video creation, input frames, polling, playback, history, save/share
 - [x] Speech generation/transcription, playback, history
-- [ ] Realtime voice calls and call history
+- [x] Realtime voice calls and call history
 - [ ] Canvas generation and interactive rendering
 - [ ] Escape gameplay and saved runs
 - [ ] Profile, points, levels, streaks, leaderboard
