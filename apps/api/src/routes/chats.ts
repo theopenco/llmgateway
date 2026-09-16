@@ -182,12 +182,12 @@ const createMessageSchema = z
 	})
 	.refine(
 		(data) =>
-			data.content ??
-			data.images ??
-			data.audios ??
-			data.documents ??
-			data.reasoning ??
-			data.tools ??
+			data.content ||
+			data.images ||
+			data.audios ||
+			data.documents ||
+			data.reasoning ||
+			data.tools ||
 			data.sources,
 		{
 			message:

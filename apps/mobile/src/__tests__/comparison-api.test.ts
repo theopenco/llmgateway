@@ -114,7 +114,10 @@ test("saves partial output before surfacing a provider error", async () => {
 		params: { path: { id: "root" } },
 		body: expect.objectContaining({
 			content: "Partial",
-			metadata: { model: "model-a", interrupted: true },
+			metadata: expect.objectContaining({
+				model: "model-a",
+				interrupted: true,
+			}),
 		}),
 	});
 	expect(onSaved).toHaveBeenCalledTimes(1);

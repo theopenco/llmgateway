@@ -1,6 +1,7 @@
 import Clipboard from "@react-native-clipboard/clipboard";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+	act,
 	fireEvent,
 	render,
 	screen,
@@ -11,15 +12,19 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { api, client } from "@/api/client";
 import { streamCompletion } from "@/api/completion";
+import * as loungeCompletion from "@/api/lounge-completion";
 import { rememberProjectExchange } from "@/api/project-memory";
+import { uncertainToolOutcome } from "@/api/tool-parts";
 import { Chat } from "@/screens/Chat";
+
+import type { ToolPart } from "@/api/tool-parts";
 
 jest.mock("@react-native-clipboard/clipboard", () => ({
 	setString: jest.fn(),
 }));
 jest.mock("@/api/client", () => ({
 	api: { useQuery: jest.fn(), useMutation: () => ({ mutate: jest.fn() }) },
-	client: { POST: jest.fn(), PATCH: jest.fn() },
+	client: { GET: jest.fn(), POST: jest.fn(), PATCH: jest.fn() },
 	queryClient: { invalidateQueries: jest.fn() },
 }));
 jest.mock("@/api/project-memory", () => ({
@@ -50,6 +55,10 @@ jest.mock("@/lib/export-file", () => ({ exportFile: jest.fn() }));
 jest.useFakeTimers();
 
 const query = api.useQuery as jest.Mock<unknown, unknown[]>;
+const post = client.POST as jest.Mock<
+	Promise<unknown>,
+	[string, { body?: { tools?: string } }?]
+>;
 const image = "data:image/png;base64,aW1hZ2U=";
 const savedImages = JSON.stringify([
 	{ type: "image_url", image_url: { url: image } },
@@ -72,7 +81,11 @@ const messages = [
 	},
 ];
 beforeEach(() => {
+	jest.restoreAllMocks();
 	jest.clearAllMocks();
+	jest
+		.mocked(client.GET)
+		.mockResolvedValue({ data: { connectors: [] }, response: new Response() });
 	query.mockReturnValue({
 		data: { chat: { title: "Fixture", model: "auto" }, messages },
 	});
@@ -96,6 +109,183 @@ beforeEach(() => {
 	jest
 		.mocked(client.PATCH)
 		.mockResolvedValue({ data: undefined, response: new Response() });
+});
+
+const proposal: ToolPart = {
+	type: "dynamic-tool",
+	toolCallId: "search",
+	toolName: "gmail__search_messages",
+	state: "approval-requested",
+	input: { query: "demo" },
+	approval: { id: "approval", signature: "fixture-signature" },
+};
+function withProposal() {
+	query.mockReturnValue({
+		data: {
+			chat: { title: "Fixture", model: "auto" },
+			messages: [
+				messages[0],
+				{
+					...messages[1],
+					tools: JSON.stringify([proposal]),
+					toolParts: [proposal],
+				},
+			],
+		},
+	});
+	return jest
+		.spyOn(loungeCompletion, "generateLoungeReply")
+		.mockImplementation(async ({ initial }) => ({
+			model: "auto",
+			content: "Mailbox checked",
+			reasoning: "",
+			sources: [],
+			tools: initial?.tools,
+		}));
+}
+
+test("requires approval, saves the outcome first, and prevents repeated taps from running twice", async () => {
+	const generate = withProposal();
+	let finish: (() => void) | undefined;
+	const events: string[] = [];
+	post.mockImplementation(async (path, options) => {
+		if (path === "/connectors/{connectorId}/tools/{toolName}") {
+			events.push("execute");
+			await new Promise<void>((resolve) => {
+				finish = resolve;
+			});
+			return { data: { result: '{"found":1}' }, response: new Response() };
+		}
+		const body = options?.body;
+		if (body && "tools" in body && typeof body.tools === "string") {
+			const parts = JSON.parse(body.tools) as ToolPart[];
+			events.push(parts[0].state);
+		}
+		return { data: undefined, response: new Response() };
+	});
+	await showChat("chat");
+	expect(client.POST).not.toHaveBeenCalled();
+	expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+	const approve = screen.getByRole("button", {
+		name: "Approve Gmail: search messages",
+	});
+	await fireEvent.press(approve);
+	await fireEvent.press(approve);
+	await waitFor(() => expect(events).toEqual(["output-error", "execute"]));
+	expect(generate).not.toHaveBeenCalled();
+	await act(async () => finish?.());
+	await waitFor(() =>
+		expect(screen.getByText("Mailbox checked")).toBeOnTheScreen(),
+	);
+	expect(events).toEqual([
+		"output-error",
+		"execute",
+		"output-available",
+		"output-available",
+	]);
+	expect(generate).toHaveBeenCalledTimes(1);
+	expect(generate).toHaveBeenCalledWith(
+		expect.objectContaining({
+			messages: expect.arrayContaining([
+				expect.objectContaining({
+					id: "assistant",
+					parts: expect.arrayContaining([
+						expect.objectContaining({
+							state: "output-available",
+							output: { found: 1 },
+							approval: expect.objectContaining({ approved: true }),
+						}),
+					]),
+				}),
+			]),
+		}),
+	);
+	expect(
+		screen.queryByRole("button", { name: "Approve Gmail: search messages" }),
+	).toBeNull();
+});
+
+test("declining saves the decision and continues without calling the connected app", async () => {
+	const generate = withProposal();
+	await showChat("chat");
+	await userEvent
+		.setup()
+		.press(
+			screen.getByRole("button", { name: "Decline Gmail: search messages" }),
+		);
+	await waitFor(() => expect(generate).toHaveBeenCalledTimes(1));
+	expect(client.POST).not.toHaveBeenCalledWith(
+		"/connectors/{connectorId}/tools/{toolName}",
+		expect.anything(),
+	);
+	expect(generate).toHaveBeenCalledWith(
+		expect.objectContaining({
+			initial: expect.objectContaining({
+				tools: [expect.objectContaining({ state: "output-denied" })],
+			}),
+		}),
+	);
+});
+
+test("leaves an approval available when its prerequisite save fails", async () => {
+	const generate = withProposal();
+	jest.mocked(client.POST).mockRejectedValue(new Error("History unavailable"));
+	await showChat("chat");
+	await userEvent
+		.setup()
+		.press(
+			screen.getByRole("button", { name: "Approve Gmail: search messages" }),
+		);
+	expect(await screen.findByText("History unavailable")).toBeOnTheScreen();
+	expect(generate).not.toHaveBeenCalled();
+	expect(client.POST).toHaveBeenCalledTimes(1);
+	expect(
+		screen.getByRole("button", { name: "Approve Gmail: search messages" }),
+	).toBeEnabled();
+});
+
+test("a lost tool result stays consumed locally and can continue without replaying it", async () => {
+	const generate = withProposal();
+	jest.mocked(client.POST).mockImplementation(async (path) => {
+		if (path === "/connectors/{connectorId}/tools/{toolName}") {
+			throw new Error("Connection lost");
+		}
+		return { data: undefined, response: new Response() };
+	});
+	await showChat("chat");
+	await userEvent
+		.setup()
+		.press(
+			screen.getByRole("button", { name: "Approve Gmail: search messages" }),
+		);
+	await waitFor(() =>
+		expect(screen.getAllByText(uncertainToolOutcome).length).toBeGreaterThan(0),
+	);
+	expect(
+		screen.queryByRole("button", { name: "Approve Gmail: search messages" }),
+	).toBeNull();
+	expect(generate).not.toHaveBeenCalled();
+	await userEvent
+		.setup()
+		.press(screen.getByRole("button", { name: "Continue response" }));
+	await waitFor(() => expect(generate).toHaveBeenCalledTimes(1));
+	expect(
+		post.mock.calls.filter(
+			([path]) => path === "/connectors/{connectorId}/tools/{toolName}",
+		),
+	).toHaveLength(1);
+	expect(generate).toHaveBeenCalledWith(
+		expect.objectContaining({
+			initial: expect.objectContaining({
+				tools: [
+					expect.objectContaining({
+						state: "output-error",
+						errorText: uncertainToolOutcome,
+					}),
+				],
+			}),
+		}),
+	);
 });
 async function showChat(chatId?: string) {
 	await render(
