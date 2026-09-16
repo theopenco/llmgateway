@@ -31,6 +31,7 @@ import {
 	Screen,
 	styles,
 } from "./src/components/ui";
+import { Connectors } from "./src/screens/Connectors";
 import { DeleteAccount } from "./src/screens/DeleteAccount";
 import { History } from "./src/screens/History";
 import { Profile } from "./src/screens/Profile";
@@ -57,6 +58,7 @@ type Routes = {
 	GroupConversation: undefined;
 	Projects: undefined;
 	Skills: undefined;
+	Connectors: undefined;
 	Profile: undefined;
 	DeleteAccount: undefined;
 };
@@ -163,6 +165,11 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 										title="Skills"
 										secondary
 										onPress={() => navigation.navigate("Skills")}
+									/>
+									<Button
+										title="Connectors"
+										secondary
+										onPress={() => navigation.navigate("Connectors")}
 									/>
 								</View>
 								<Button
@@ -313,6 +320,7 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 					<Stack.Screen name="Skills">
 						{() => <Skills projectId={projectId} />}
 					</Stack.Screen>
+					<Stack.Screen name="Connectors" component={Connectors} />
 					<Stack.Screen name="VoiceCalls" options={{ title: "Voice calls" }}>
 						{() => <VoiceCalls organizationId={organizationId} />}
 					</Stack.Screen>

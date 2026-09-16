@@ -39,6 +39,11 @@ The launcher replaces environment provider credentials with OpenAI, xAI, and Gem
 `GATEWAY_PORT + 8`. The flows select the seeded test organization. Stop both
 processes after testing.
 
+For `e2e/connectors.yaml`, start the API with `pnpm --filter mobile test:api`
+and the same isolated environment. This launcher replaces connector OAuth and
+mailbox requests with the local upstream fixture. The flow uses the system
+sign-in browser and the API's real session checks and encrypted credential store.
+
 For video flows, export a temporary `LOUNGE_TEST_VIDEO_SIGNING_KEY` and set
 `LLM_VIDEO_CONTENT_JWT_SECRET` to the same value before starting the API.
 Run `pnpm --filter mobile test:video-worker` alongside the mock and gateway.
@@ -54,8 +59,9 @@ two C++ calls to Worklets 0.12's `runSync` API.
 Verified during development:
 
 - Full repository build: 20 workspaces passed.
-- Repository unit suite: 7,058 passed, 2 skipped; chat history/search tests: 7 passed.
-- Native tests: 157 passed; shared image configuration tests: 3 passed.
+- Repository unit suite: 7,102 passed, 2 skipped; one existing admin revenue
+  date-range test failed because local-time SQL parameters shift UTC boundaries.
+- Native tests: 177 passed; shared image configuration tests: 3 passed.
 - Gateway speech tests: 20 passed.
 - Video configuration: 25 passed; gateway video and byte-range tests: 57 passed.
 - Signed Release build launched on the iOS simulator with local service URLs.
@@ -74,6 +80,9 @@ Verified during development:
 - Native skills: cancel generation, review/edit a generated draft, save, restart,
   enable/disable, edit instructions, and delete passed. Gateway probes verified
   the expected instructions after each change.
+- Native connector management: system-browser sign-in/cancellation, restart
+  persistence, pause/resume, declined reconnection, and disconnect passed.
+  Connector tool calls in native chat remain unfinished.
 - Native model selection: provider pinning, favorites across restart, removing
   favorites, and switching back to Auto passed.
 - Native citations: source links and web-search settings survived restart.
