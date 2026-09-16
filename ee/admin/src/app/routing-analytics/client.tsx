@@ -45,11 +45,7 @@ import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
 import { models, providers } from "@llmgateway/models";
-import {
-	formatMappingValue,
-	ModelMappingSelector,
-	parseMappingValue,
-} from "@llmgateway/shared/components";
+import { ModelMappingSelector } from "@llmgateway/shared/components";
 import { isDeactivationScheduledSoon } from "@llmgateway/shared/deactivation";
 import {
 	ROUTING_EXCLUSION_REASON_LABELS,
@@ -317,7 +313,6 @@ export function RoutingAnalyticsClient() {
 	const searchParams = useSearchParams();
 
 	const modelId = searchParams.get("modelId");
-	const selectedProviderId = searchParams.get("providerId");
 	const window = parseWindow(searchParams.get("window"));
 	const metric = parseMetric(searchParams.get("metric"));
 	const [chartType, setChartType] = useState<ChartType>("line");
@@ -338,19 +333,11 @@ export function RoutingAnalyticsClient() {
 		[searchParams, router, pathname],
 	);
 
-	const selectorValue = modelId
-		? selectedProviderId
-			? formatMappingValue(selectedProviderId, modelId)
-			: modelId
-		: null;
-
-	const handleMappingChange = useCallback(
+	const handleModelChange = useCallback(
 		(value: string) => {
-			const parsed = parseMappingValue(value);
-			updateParams({
-				modelId: parsed.modelId,
-				providerId: parsed.providerId,
-			});
+			// `providerId` was only ever a highlight for the old mapping picker;
+			// drop it so bookmarked links don't keep a dead param around.
+			updateParams({ modelId: value, providerId: null });
 		},
 		[updateParams],
 	);
@@ -477,11 +464,13 @@ export function RoutingAnalyticsClient() {
 	);
 
 	const electedProviderId = scoredSummary[0]?.providerId ?? null;
-	const selectedRank = selectedProviderId
-		? scoredSummary.findIndex((s) => s.providerId === selectedProviderId)
-		: -1;
-	const selectedSummary =
-		selectedRank >= 0 ? scoredSummary[selectedRank] : undefined;
+	const electedScore = scoredSummary[0]?.score ?? null;
+	const runnerUp = scoredSummary[1];
+	const runnerUpScore = runnerUp?.score ?? null;
+	const runnerUpMargin =
+		runnerUpScore !== null && electedScore !== null
+			? runnerUpScore - electedScore
+			: null;
 	const routableCount =
 		data?.mappings.filter((mapping) => mapping.routable).length ?? 0;
 
@@ -559,13 +548,6 @@ export function RoutingAnalyticsClient() {
 		data?.mappings.find((m) => m.providerId === providerId)?.providerName ??
 		providerId;
 
-	const seriesEmphasis = (providerId: string) => {
-		if (!selectedProviderId || selectedProviderId === providerId) {
-			return { strokeWidth: 2, opacity: 1 };
-		}
-		return { strokeWidth: 1.5, opacity: 0.35 };
-	};
-
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
 			<header className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -586,9 +568,11 @@ export function RoutingAnalyticsClient() {
 					<ModelMappingSelector
 						models={selectableModels}
 						providers={providers}
-						value={selectorValue}
-						onValueChange={handleMappingChange}
-						placeholder="Select a mapping…"
+						value={modelId}
+						onValueChange={handleModelChange}
+						includeCanonicalModels
+						includeMappings={false}
+						placeholder="Select a model…"
 					/>
 					<div className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1">
 						{WINDOW_OPTIONS.map((option) => (
@@ -608,7 +592,7 @@ export function RoutingAnalyticsClient() {
 
 			{!modelId ? (
 				<EmptyState>
-					Select a provider mapping to inspect how its model is routed.
+					Select a model to inspect how the gateway routes it.
 				</EmptyState>
 			) : isError ? (
 				<EmptyState>Failed to load routing analytics for {modelId}.</EmptyState>
@@ -640,21 +624,22 @@ export function RoutingAnalyticsClient() {
 							value={`${routableCount} / ${data.mappings.length}`}
 						/>
 						<StatCard
-							label="Selected mapping"
+							label="Runner-up"
 							value={
-								selectedSummary ? (
+								runnerUp ? (
 									<span className="text-xl">
-										#{selectedRank + 1} of {scoredSummary.length}
-										<span className="ml-2 text-sm font-normal text-muted-foreground">
-											score {selectedSummary.score?.toFixed(3)}
-										</span>
+										{providerName(runnerUp.providerId)}
+										{runnerUpMargin !== null ? (
+											<span className="ml-2 text-sm font-normal text-muted-foreground">
+												+{runnerUpMargin.toFixed(3)}
+											</span>
+										) : null}
 									</span>
 								) : (
-									<span className="text-xl text-muted-foreground">
-										{selectedProviderId ? "not scored" : "none selected"}
-									</span>
+									<span className="text-xl text-muted-foreground">—</span>
 								)
 							}
+							hint="score behind the elected mapping"
 						/>
 						<StatCard
 							label="Score-decided"
@@ -885,13 +870,7 @@ export function RoutingAnalyticsClient() {
 												(e) => e.providerId === summary.providerId,
 											);
 											return (
-												<TableRow
-													key={summary.providerId}
-													className={cn(
-														selectedProviderId === summary.providerId &&
-															"bg-muted/60",
-													)}
-												>
+												<TableRow key={summary.providerId}>
 													<TableCell>
 														<div className="flex items-center gap-2">
 															<span
@@ -1133,16 +1112,14 @@ export function RoutingAnalyticsClient() {
 										}
 									/>
 									<ChartLegend content={<ChartLegendContent />} />
-									{providerChartSeries.map((mapping) => {
-										const emphasis = seriesEmphasis(mapping.providerId);
-										return chartType === "line" ? (
+									{providerChartSeries.map((mapping) =>
+										chartType === "line" ? (
 											<Line
 												key={mapping.providerId}
 												dataKey={mapping.chartKey}
 												type="monotone"
 												stroke={`var(--color-${mapping.chartKey})`}
-												strokeWidth={emphasis.strokeWidth}
-												strokeOpacity={emphasis.opacity}
+												strokeWidth={2}
 												dot={false}
 												connectNulls={false}
 											/>
@@ -1151,12 +1128,11 @@ export function RoutingAnalyticsClient() {
 												key={mapping.providerId}
 												dataKey={mapping.chartKey}
 												fill={`var(--color-${mapping.chartKey})`}
-												fillOpacity={emphasis.opacity}
 												maxBarSize={30}
 												radius={[2, 2, 0, 0]}
 											/>
-										);
-									})}
+										),
+									)}
 								</MetricChart>
 							</ChartContainer>
 							{metric === "score" ? (
@@ -1213,7 +1189,6 @@ export function RoutingAnalyticsClient() {
 											dataKey={mapping.chartKey}
 											stackId="requests"
 											fill={`var(--color-${mapping.chartKey})`}
-											fillOpacity={seriesEmphasis(mapping.providerId).opacity}
 										/>
 									))}
 								</BarChart>
@@ -1349,13 +1324,7 @@ export function RoutingAnalyticsClient() {
 													(m) => m.providerId === summary.providerId,
 												)!;
 												return (
-													<TableRow
-														key={summary.providerId}
-														className={cn(
-															selectedProviderId === summary.providerId &&
-																"bg-muted/60",
-														)}
-													>
+													<TableRow key={summary.providerId}>
 														<TableCell>
 															<div className="flex items-center gap-2">
 																<span
