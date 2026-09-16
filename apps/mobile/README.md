@@ -62,7 +62,8 @@ Verified during development:
 - Repository unit suite before the UTC revenue fix: 7,102 passed, 2 skipped,
   one admin date-range failure. After the fix, all five admin revenue tests pass
   under Stockholm, Los Angeles, and UTC timezones.
-- Native tests: 177 passed; shared image configuration tests: 3 passed.
+- Native tests: 207 passed; shared image configuration tests: 3 passed.
+- Chat message persistence tests: 5 passed, including tool-only replies.
 - Gateway speech tests: 20 passed.
 - Video configuration: 25 passed; gateway video and byte-range tests: 57 passed.
 - Signed Release build launched on the iOS simulator with local service URLs.
@@ -83,7 +84,9 @@ Verified during development:
   the expected instructions after each change.
 - Native connector management: system-browser sign-in/cancellation, restart
   persistence, pause/resume, declined reconnection, and disconnect passed.
-  Connector tool calls in native chat remain unfinished.
+- Native conversation tools: explicit search/read approval, rejection, pending
+  and completed history after restart, temporary history exclusion, and stopping
+  an approved request before restarting and continuing without replay passed.
 - Native model selection: provider pinning, favorites across restart, removing
   favorites, and switching back to Auto passed.
 - Native citations: source links and web-search settings survived restart.
@@ -136,10 +139,10 @@ A checkbox requires observed behavior, not just a screen or passing type check.
 - [ ] Sign-in, secure session restoration, sign-out, signup/reset, account deletion
 - [ ] Chat: streaming, model selection/favorites, search, reasoning, attachments, web search, stop/retry/edit/fork, settings
 - [ ] History: synchronization, search, pin, archive, delete, public and organization sharing
-- [x] Model comparison and group conversations
+- [ ] Model comparison and group conversations (connector approvals remain)
 - [x] Projects: instructions, files, retrieval, memory, associated chats
 - [x] Skills: create, edit, generate, enable, delete, apply in chat
-- [ ] Connectors: connect, authorize, use, disconnect
+- [x] Connectors: connect, authorize, use in conversations, disconnect
 - [x] Image creation/editing, settings, multi-model comparison, history, save/share
 - [ ] Video creation, input frames, polling, playback, history, save/share
 - [x] Speech generation/transcription, playback, history

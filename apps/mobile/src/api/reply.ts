@@ -4,6 +4,7 @@ import { mergeSources } from "@/api/sources";
 
 import type { Message } from "@/api/completion";
 import type { Source } from "@/api/sources";
+import type { ToolPart } from "@/api/tool-parts";
 import type { ChatSettings } from "@/lib/preferences";
 
 export interface Reply {
@@ -11,6 +12,8 @@ export interface Reply {
 	content: string;
 	reasoning: string;
 	sources: Source[];
+	tools?: ToolPart[];
+	toolContinuation?: boolean;
 	error?: Error;
 }
 
@@ -71,10 +74,15 @@ export async function saveReply(
 		body: {
 			id: messageId,
 			role: "assistant",
-			...(reply.content && { content: reply.content }),
-			...(reply.reasoning && { reasoning: reply.reasoning }),
-			...(reply.sources.length && { sources: JSON.stringify(reply.sources) }),
-			metadata: { model: reply.model, interrupted: !!reply.error },
+			content: reply.content,
+			reasoning: reply.reasoning,
+			sources: JSON.stringify(reply.sources),
+			tools: JSON.stringify(reply.tools ?? []),
+			metadata: {
+				model: reply.model,
+				interrupted: !!reply.error,
+				toolContinuation: !!reply.toolContinuation,
+			},
 		},
 	});
 }

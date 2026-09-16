@@ -21,14 +21,17 @@ import {
 	storedAttachments,
 } from "@/api/chat-messages";
 import { api, client, queryClient } from "@/api/client";
+import { generateLoungeReply, loungeMessage } from "@/api/lounge-completion";
 import { rememberProjectExchange } from "@/api/project-memory";
-import { generateReply, saveReply } from "@/api/reply";
+import { saveReply } from "@/api/reply";
+import { answerToolCall, pendingTool, readToolParts } from "@/api/tool-parts";
 import { ChatSettings } from "@/components/ChatSettings";
 import { ChatSharing } from "@/components/ChatSharing";
 import { Markdown } from "@/components/Markdown";
 import { MessageBubble } from "@/components/MessageBubble";
 import { ModelPicker } from "@/components/ModelPicker";
 import { Sources } from "@/components/Sources";
+import { ToolCalls } from "@/components/ToolCalls";
 import {
 	Button,
 	colors,
@@ -42,7 +45,9 @@ import { defaultChatSettings, usePreferences } from "@/lib/preferences";
 import { useFollowingList } from "@/lib/use-following-list";
 
 import type { Attachment, ChatMessage } from "@/api/chat-messages";
+import type { Reply } from "@/api/reply";
 import type { Source } from "@/api/sources";
+import type { ToolPart } from "@/api/tool-parts";
 
 let localSequence = 0;
 function localMessage(
@@ -51,6 +56,7 @@ function localMessage(
 	attachments: Attachment[],
 	reasoning = "",
 	sourceLinks: Source[] = [],
+	toolParts: ToolPart[] = [],
 ): ChatMessage {
 	return {
 		id: `local-${Date.now()}-${++localSequence}`,
@@ -62,12 +68,44 @@ function localMessage(
 		images: null,
 		audios: null,
 		documents: null,
-		tools: null,
+		tools: JSON.stringify(toolParts),
+		toolParts,
 		sources: null,
 		metadata: null,
 		sequence: 0,
 		createdAt: new Date().toISOString(),
 	};
+}
+function messageReply(message: ChatMessage, model: string): Reply {
+	return {
+		model,
+		content: message.content ?? "",
+		reasoning: message.reasoning ?? "",
+		sources: message.sourceLinks ?? [],
+		tools: message.toolParts ?? readToolParts(message.tools),
+	};
+}
+function withReply(message: ChatMessage, reply: Reply): ChatMessage {
+	return {
+		...message,
+		content: reply.content,
+		reasoning: reply.reasoning,
+		sourceLinks: reply.sources,
+		sources: JSON.stringify(reply.sources),
+		tools: JSON.stringify(reply.tools ?? []),
+		toolParts: reply.tools ?? [],
+		metadata: {
+			...(message.metadata ?? {}),
+			model: reply.model,
+			interrupted: !!reply.error,
+			toolContinuation: !!reply.toolContinuation,
+		},
+	};
+}
+interface ToolAction {
+	messageId?: string;
+	toolCallId?: string;
+	approved?: boolean;
 }
 interface SendAction {
 	kind: "send" | "retry" | "edit";
@@ -94,9 +132,15 @@ export function Chat({
 	const [selectedWebSearch, setSelectedWebSearch] = useState<boolean>();
 	const [temporary, setTemporary] = useState(false);
 	const [temporaryMessages, setTemporaryMessages] = useState<ChatMessage[]>([]);
+	const [toolMessages, setToolMessages] = useState<Record<string, ChatMessage>>(
+		{},
+	);
 	const [draft, setDraft] = useState("");
 	const [reasoning, setReasoning] = useState("");
 	const [draftSources, setDraftSources] = useState<Source[]>([]);
+	const [draftTools, setDraftTools] = useState<ToolPart[]>([]);
+	const [continuingId, setContinuingId] = useState<string>();
+	const toolLock = useRef(false);
 	const [editing, setEditing] = useState<ChatMessage>();
 	const [editText, setEditText] = useState("");
 	const controllerRef = useRef<AbortController | null>(null);
@@ -111,7 +155,14 @@ export function Chat({
 			select: readChat,
 		},
 	);
-	const messages = temporary ? temporaryMessages : (chat.data?.messages ?? []);
+	const messages = temporary
+		? temporaryMessages
+		: (chat.data?.messages ?? []).map(
+				(message) => toolMessages[message.id] ?? message,
+			);
+	const hasPendingTools = messages.some((message) =>
+		(message.toolParts ?? readToolParts(message.tools)).some(pendingTool),
+	);
 	const model = selectedModel ?? chat.data?.chat.model ?? "auto";
 	const currentProject = chat.data
 		? (chat.data.chat.projectId ?? undefined)
@@ -146,6 +197,9 @@ export function Chat({
 	};
 	const send = useMutation({
 		mutationFn: async (action: SendAction) => {
+			if (toolLock.current) {
+				return;
+			}
 			const previous = messages;
 			const userIndex =
 				action.kind === "edit"
@@ -185,6 +239,7 @@ export function Chat({
 			setDraft("");
 			setReasoning("");
 			setDraftSources([]);
+			setDraftTools([]);
 			const context = await chatContext(
 				content || files.map((file) => file.name).join(" "),
 				projectId,
@@ -252,16 +307,30 @@ export function Chat({
 			if (!temporary) {
 				await refresh();
 			}
-			const reply = await generateReply({
+			const reply = await generateLoungeReply({
 				projectId,
 				model,
 				settings,
-				messages: [
+				plainMessages: [
 					...(system ? [{ role: "system" as const, content: system }] : []),
 					...contextMessages,
 				],
+				messages: [
+					...(system
+						? [
+								{
+									id: "system",
+									role: "system" as const,
+									parts: [{ type: "text", text: system }],
+								},
+							]
+						: []),
+					...prefix.map(loungeMessage),
+					loungeMessage(localMessage("user", content, files)),
+				],
 				signal: controller.signal,
 				onReply: (value) => {
+					setDraftTools(value.tools ?? []);
 					setDraftSources(value.sources);
 					setDraft(value.content);
 					setReasoning(value.reasoning);
@@ -277,6 +346,7 @@ export function Chat({
 						[],
 						reply.reasoning,
 						reply.sources,
+						reply.tools,
 					),
 				]);
 			} else if (currentId) {
@@ -287,6 +357,12 @@ export function Chat({
 								.find((message) => message.role === "assistant")
 						: undefined;
 				await saveReply(currentId, reply, lastAssistant?.id);
+				if (lastAssistant) {
+					setToolMessages((current) => ({
+						...current,
+						[lastAssistant.id]: withReply(lastAssistant, reply),
+					}));
+				}
 				void rememberProjectExchange({
 					knowledgeProjectId: currentProject,
 					billingProjectId: projectId,
@@ -298,6 +374,7 @@ export function Chat({
 			setDraft("");
 			setReasoning("");
 			setDraftSources([]);
+			setDraftTools([]);
 			if (!temporary) {
 				await refresh();
 			}
@@ -306,6 +383,164 @@ export function Chat({
 			}
 		},
 	});
+	const toolAction = useMutation({
+		mutationFn: async (action: ToolAction) => {
+			const controller = new AbortController();
+			controllerRef.current = controller;
+			let snapshot = messages;
+			try {
+				if (action.messageId && action.toolCallId) {
+					const message = snapshot.find((item) => item.id === action.messageId);
+					if (!message || message.role !== "assistant") {
+						throw new Error(
+							"Reload this conversation before answering the request.",
+						);
+					}
+					await answerToolCall({
+						parts: message.toolParts ?? readToolParts(message.tools),
+						toolCallId: action.toolCallId,
+						approved: action.approved === true,
+						signal: controller.signal,
+						persist: async (parts) => {
+							const reply = {
+								...messageReply(message, model),
+								tools: parts,
+								toolContinuation: true,
+							};
+							if (!temporary) {
+								if (!id) {
+									throw new Error("The conversation has not been saved.");
+								}
+								await saveReply(id, reply, message.id);
+								setToolMessages((current) => ({
+									...current,
+									[message.id]: withReply(message, reply),
+								}));
+							}
+							snapshot = snapshot.map((item) =>
+								item.id === message.id ? withReply(item, reply) : item,
+							);
+							if (temporary) {
+								setTemporaryMessages(snapshot);
+							} else {
+								await refresh();
+							}
+						},
+					});
+				}
+				if (
+					snapshot.some((message) =>
+						(message.toolParts ?? readToolParts(message.tools)).some(
+							pendingTool,
+						),
+					)
+				) {
+					return;
+				}
+				controller.signal.throwIfAborted();
+				const user = [...snapshot]
+					.reverse()
+					.find((message) => message.role === "user");
+				const last = snapshot.at(-1);
+				if (!user || !last) {
+					return;
+				}
+				const initial =
+					last.role === "assistant" ? messageReply(last, model) : undefined;
+				setContinuingId(initial ? last.id : undefined);
+				setDraft(initial?.content ?? "");
+				setReasoning(initial?.reasoning ?? "");
+				setDraftSources(initial?.sources ?? []);
+				setDraftTools(initial?.tools ?? []);
+				following.startFollowing();
+				const context = await chatContext(
+					user.content ?? "",
+					projectId,
+					currentProject,
+				);
+				const system = [settings.systemPrompt, context]
+					.filter(Boolean)
+					.join("\n\n");
+				const reply = await generateLoungeReply({
+					projectId,
+					model,
+					settings,
+					signal: controller.signal,
+					initial,
+					messages: [
+						...(system
+							? [
+									{
+										id: "system",
+										role: "system" as const,
+										parts: [{ type: "text", text: system }],
+									},
+								]
+							: []),
+						...snapshot.map(loungeMessage),
+					],
+					onReply: (value) => {
+						setDraft(value.content);
+						setReasoning(value.reasoning);
+						setDraftSources(value.sources);
+						setDraftTools(value.tools ?? []);
+					},
+				});
+				if (temporary) {
+					setTemporaryMessages(
+						initial
+							? snapshot.map((item) =>
+									item.id === last.id ? withReply(item, reply) : item,
+								)
+							: [
+									...snapshot,
+									localMessage(
+										"assistant",
+										reply.content,
+										[],
+										reply.reasoning,
+										reply.sources,
+										reply.tools,
+									),
+								],
+					);
+				} else if (id) {
+					await saveReply(id, reply, initial ? last.id : undefined);
+					if (initial) {
+						setToolMessages((current) => ({
+							...current,
+							[last.id]: withReply(last, reply),
+						}));
+					}
+					await refresh();
+					void rememberProjectExchange({
+						knowledgeProjectId: currentProject,
+						billingProjectId: projectId,
+						userMessage: user.content ?? "",
+						reply,
+						aborted: controller.signal.aborted,
+					});
+				}
+				if (reply.error && !controller.signal.aborted) {
+					throw reply.error;
+				}
+			} finally {
+				toolLock.current = false;
+				setContinuingId(undefined);
+				setDraft("");
+				setReasoning("");
+				setDraftSources([]);
+				setDraftTools([]);
+			}
+		},
+	});
+	const answerTool = (action: ToolAction) => {
+		if (toolLock.current || send.isPending || fork.isPending) {
+			return;
+		}
+		toolLock.current = true;
+		toolAction.mutate(action);
+	};
 	const attach = useMutation({
 		mutationFn: async () => {
 			const file = await pickChatAttachment();
@@ -393,7 +628,7 @@ export function Chat({
 						<Button
 							title="Rename"
 							secondary
-							disabled={send.isPending}
+							disabled={send.isPending || toolAction.isPending}
 							onPress={() =>
 								Alert.prompt(
 									"Rename conversation",
@@ -414,7 +649,7 @@ export function Chat({
 						<Button
 							title="Fork"
 							secondary
-							disabled={send.isPending}
+							disabled={send.isPending || toolAction.isPending}
 							busy={fork.isPending}
 							onPress={() => fork.mutate()}
 						/>
@@ -441,8 +676,21 @@ export function Chat({
 				}
 				renderItem={({ item }) => (
 					<MessageBubble
-						message={item}
-						busy={send.isPending || fork.isPending}
+						message={
+							continuingId === item.id
+								? withReply(item, {
+										model,
+										content: draft,
+										reasoning,
+										sources: draftSources,
+										tools: draftTools,
+									})
+								: item
+						}
+						onToolAnswer={(toolCallId, approved) =>
+							answerTool({ messageId: item.id, toolCallId, approved })
+						}
+						busy={send.isPending || toolAction.isPending || fork.isPending}
 						onEdit={
 							item.role === "user"
 								? () => {
@@ -454,7 +702,8 @@ export function Chat({
 					/>
 				)}
 				ListFooterComponent={
-					draft || reasoning || draftSources.length ? (
+					!continuingId &&
+					(draft || reasoning || draftSources.length || draftTools.length) ? (
 						<View style={styles.card}>
 							<Text style={styles.eyebrow}>THE LOUNGE</Text>
 							{!!reasoning && (
@@ -463,6 +712,7 @@ export function Chat({
 								</Text>
 							)}
 							{!!draft && <Markdown>{draft}</Markdown>}
+							<ToolCalls parts={draftTools} busy />
 							<Sources sources={draftSources} />
 						</View>
 					) : undefined
@@ -478,6 +728,7 @@ export function Chat({
 				<ErrorNotice
 					error={
 						send.error ??
+						toolAction.error ??
 						chat.error ??
 						update.error ??
 						fork.error ??
@@ -515,11 +766,13 @@ export function Chat({
 					<Button
 						title="Attach file"
 						secondary
-						disabled={send.isPending || attachments.length >= 4}
+						disabled={
+							send.isPending || toolAction.isPending || attachments.length >= 4
+						}
 						busy={attach.isPending}
 						onPress={() => attach.mutate()}
 					/>
-					{send.isPending ? (
+					{send.isPending || toolAction.isPending ? (
 						<Button
 							title="Stop response"
 							secondary
@@ -530,6 +783,7 @@ export function Chat({
 							title="Send message"
 							onPress={() => send.mutate({ kind: "send" })}
 							disabled={
+								hasPendingTools ||
 								(!prompt.trim() && !attachments.length) ||
 								preferences.isPending ||
 								!!preferences.error ||
@@ -539,13 +793,32 @@ export function Chat({
 						/>
 					)}
 				</View>
+				{hasPendingTools && (
+					<Text style={styles.muted}>
+						Review the tool requests above to continue.
+					</Text>
+				)}
+				{!hasPendingTools &&
+					!send.isPending &&
+					!toolAction.isPending &&
+					messages.at(-1)?.metadata?.toolContinuation === true && (
+						<Button
+							title="Continue response"
+							secondary
+							onPress={() => answerTool({})}
+						/>
+					)}
 				{!send.isPending &&
+					!toolAction.isPending &&
 					messages.some((message) => message.role === "user") && (
 						<Button
 							title="Retry last response"
 							secondary
 							disabled={
-								fork.isPending || preferences.isPending || !!preferences.error
+								fork.isPending ||
+								toolAction.isPending ||
+								preferences.isPending ||
+								!!preferences.error
 							}
 							onPress={() => send.mutate({ kind: "retry" })}
 						/>

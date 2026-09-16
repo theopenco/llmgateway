@@ -1,9 +1,11 @@
 import { z } from "zod";
 
 import { readSources } from "@/api/sources";
+import { readToolParts } from "@/api/tool-parts";
 
 import type { Message } from "@/api/completion";
 import type { Source } from "@/api/sources";
+import type { ToolPart } from "@/api/tool-parts";
 import type { paths } from "@/lib/api/v1";
 
 type ChatResponse =
@@ -12,6 +14,7 @@ type StoredMessage = ChatResponse["messages"][number];
 export type ChatMessage = StoredMessage & {
 	attachments: Attachment[];
 	sourceLinks: Source[];
+	toolParts?: ToolPart[];
 };
 export interface Attachment {
 	id: string;
@@ -79,7 +82,12 @@ export function readChatMessage(message: StoredMessage): ChatMessage {
 			{ cause },
 		);
 	}
-	return { ...message, attachments, sourceLinks: readSources(message.sources) };
+	return {
+		...message,
+		attachments,
+		sourceLinks: readSources(message.sources),
+		toolParts: readToolParts(message.tools),
+	};
 }
 
 export function storedAttachments(attachments: Attachment[]) {

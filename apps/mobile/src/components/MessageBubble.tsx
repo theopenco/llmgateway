@@ -5,6 +5,7 @@ import { Image, Linking, Text, View } from "react-native";
 
 import { Markdown } from "@/components/Markdown";
 import { Sources } from "@/components/Sources";
+import { ToolCalls } from "@/components/ToolCalls";
 import { Button, ErrorNotice, styles } from "@/components/ui";
 import { exportFile } from "@/lib/export-file";
 
@@ -50,10 +51,12 @@ export function AttachmentPreview({ attachment }: { attachment: Attachment }) {
 export function MessageBubble({
 	message,
 	onEdit,
+	onToolAnswer,
 	busy,
 }: {
 	message: ChatMessage;
 	onEdit?: () => void;
+	onToolAnswer?: (id: string, approved: boolean) => void;
 	busy?: boolean;
 }) {
 	const [copiedText, setCopiedText] = useState<string>();
@@ -84,6 +87,11 @@ export function MessageBubble({
 			{message.attachments.map((attachment) => (
 				<AttachmentPreview key={attachment.id} attachment={attachment} />
 			))}
+			<ToolCalls
+				parts={message.toolParts ?? []}
+				busy={busy}
+				onAnswer={onToolAnswer}
+			/>
 			<Sources sources={message.sourceLinks ?? []} />
 			<View style={styles.row}>
 				{!!message.content && (

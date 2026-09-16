@@ -1,6 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
 import process from "node:process";
 
+import {
+	connectorChatStats,
+	connectorChatUpstream,
+} from "./connector-chat-upstream";
+
 const authorizations = new Map<
 	string,
 	{ callback: URL; challenge: string; code?: string }
@@ -12,7 +17,11 @@ export async function connectorUpstream(
 ): Promise<Response | null> {
 	const url = new URL(request.url);
 	if (url.pathname === "/mock/connectors") {
-		return Response.json(stats);
+		return Response.json({ ...stats, ...connectorChatStats });
+	}
+	const chat = await connectorChatUpstream(request);
+	if (chat) {
+		return chat;
 	}
 	if (!url.pathname.startsWith("/fixture-connectors/")) {
 		return null;
@@ -91,6 +100,25 @@ export async function connectorUpstream(
 			return new Response("Unauthorized", { status: 401 });
 		}
 		stats.toolCalls++;
+		if (url.searchParams.get("q") === "NATIVE_CONNECTOR_STOP") {
+			await new Promise((resolve) => setTimeout(resolve, 12000));
+		}
+		if (url.pathname.endsWith("/fixture-message")) {
+			return Response.json({
+				id: "fixture-message",
+				threadId: "fixture-thread",
+				snippet: "A demo meeting",
+				payload: {
+					mimeType: "text/plain",
+					headers: [{ name: "Subject", value: "Demo meeting" }],
+					body: {
+						data: Buffer.from("The demo meeting starts at noon.").toString(
+							"base64url",
+						),
+					},
+				},
+			});
+		}
 		return Response.json({
 			messages: [{ id: "fixture-message", threadId: "fixture-thread" }],
 			resultSizeEstimate: 1,
