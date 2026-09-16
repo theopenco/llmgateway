@@ -12,6 +12,7 @@ import {
 	MIN_PASSWORD_LENGTH,
 } from "@/auth/password-policy.js";
 import { serializedPasswordReset } from "@/auth/password-reset.js";
+import { verificationCallback } from "@/auth/verification-callback.js";
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
 import { getClientIpFromHeaders } from "@/lib/client-ip.js";
@@ -912,14 +913,20 @@ If you didn't request this, you can safely ignore this email. Your password won'
 							{
 								user,
 								token,
+								url: verificationUrl,
 							}: {
 								user: { email: string; name?: string | null };
 								token: string;
+								url: string;
 							},
 							request?: Request,
 						) => {
 							const callbackBase = resolveCallbackBaseUrl(request);
-							const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${encodeURIComponent(`${callbackBase}/dashboard?emailVerified=true`)}`;
+							const callback = verificationCallback(
+								verificationUrl,
+								callbackBase,
+							);
+							const url = `${apiUrl}/auth/verify-email?token=${token}&callbackURL=${encodeURIComponent(callback)}`;
 
 							const text = `Hey${user.name ? ` ${user.name}` : ""}!
 
