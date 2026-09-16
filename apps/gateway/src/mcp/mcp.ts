@@ -106,9 +106,9 @@ const generateImageInputSchema = z.object({
 	model: z
 		.string()
 		.optional()
-		.default("qwen-image-plus")
+		.default("qwen-image-3.0")
 		.describe(
-			'Image generation model to use (e.g., "qwen-image-plus", "qwen-image-max")',
+			'Image generation model to use (e.g., "qwen-image-3.0", "qwen-image-3.0-pro")',
 		),
 	size: z
 		.string()
@@ -887,7 +887,7 @@ function createMcpServer(
 				responseText += `\`\`\`\n`;
 				responseText += `generate-image(\n`;
 				responseText += `  prompt: "A serene mountain landscape at sunset",\n`;
-				responseText += `  model: "qwen-image-plus",\n`;
+				responseText += `  model: "qwen-image-3.0",\n`;
 				responseText += `  size: "1024x1024"\n`;
 				responseText += `)\n`;
 				responseText += `\`\`\`\n`;
