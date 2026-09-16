@@ -162,7 +162,7 @@ export function formatTokens(count: number): string {
 	if (count >= 1_000) {
 		return `${(count / 1_000).toFixed(1)}K`;
 	}
-	return count.toLocaleString();
+	return count.toLocaleString("en-US");
 }
 
 export function formatLastActive(date: Date): string {

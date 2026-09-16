@@ -887,6 +887,14 @@ export default function ChatPageClient({
 		[sendMessage, buildRequestOptions],
 	);
 
+	// Hot-path callbacks read messages through a ref so their identity stays
+	// stable across streamed tokens; depending on the messages array directly
+	// would defeat the memoized message components on every delta.
+	const messagesRef = useRef(messages);
+	useEffect(() => {
+		messagesRef.current = messages;
+	}, [messages]);
+
 	const answeringApprovals = useRef(new Set<string>());
 	const answeredApprovals = useRef(new Set<string>());
 	const continuedApprovals = useRef(new Set<string>());
@@ -896,10 +904,12 @@ export default function ChatPageClient({
 				return;
 			}
 			answeringApprovals.current.add(id);
-			await addToolApprovalResponse({ id, approved });
-			answeredApprovals.current.add(id);
+			// Snapshot the pending set before awaiting: the ref advances as the
+			// store commits, so after the await a near-simultaneous second
+			// approval could see an already-emptied set, and both answers would
+			// pass the guard below and each send a continuation.
 			const pendingIds =
-				messages
+				messagesRef.current
 					.at(-1)
 					?.parts.flatMap((part) =>
 						(part.type === "dynamic-tool" || part.type.startsWith("tool-")) &&
@@ -910,6 +920,8 @@ export default function ChatPageClient({
 							? [part.approval.id]
 							: [],
 					) ?? [];
+			await addToolApprovalResponse({ id, approved });
+			answeredApprovals.current.add(id);
 			if (
 				pendingIds.some(
 					(pendingId) =>
@@ -926,12 +938,12 @@ export default function ChatPageClient({
 			streamingChatIdRef.current = chatIdRef.current;
 			await sendMessage(undefined, buildRequestOptions(false));
 		},
-		[addToolApprovalResponse, messages, sendMessage, buildRequestOptions],
+		[addToolApprovalResponse, sendMessage, buildRequestOptions],
 	);
 
 	const regenerateWithHeaders = useCallback(
 		(options?: any) => {
-			const lastUserMessage = [...messages]
+			const lastUserMessage = [...messagesRef.current]
 				.reverse()
 				.find((m) => m.role === "user");
 			const hasImageAttachments = lastUserMessage?.parts?.some(
@@ -942,7 +954,7 @@ export default function ChatPageClient({
 			streamingChatIdRef.current = chatIdRef.current;
 			return regenerate(buildRequestOptions(!!hasImageAttachments, options));
 		},
-		[regenerate, messages, buildRequestOptions],
+		[regenerate, buildRequestOptions],
 	);
 
 	// Additional comparison chat windows (primary + up to two comparison panels)
@@ -1728,9 +1740,10 @@ export default function ChatPageClient({
 				},
 			});
 
-			const messageIndex = messages.findIndex((m) => m.id === message.id);
+			const current = messagesRef.current;
+			const messageIndex = current.findIndex((m) => m.id === message.id);
 			const previousMessages =
-				messageIndex === -1 ? messages : messages.slice(0, messageIndex);
+				messageIndex === -1 ? current : current.slice(0, messageIndex);
 			setMessages(previousMessages);
 			await new Promise<void>((resolve) => {
 				setTimeout(resolve, 0);
@@ -3024,9 +3037,16 @@ function ExtraChatPanel({
 		[sendMessage, buildRequestOptions],
 	);
 
+	// Same stable-identity pattern as the primary panel: read messages via a
+	// ref so streamed tokens do not re-create the callback.
+	const messagesRef = useRef(messages);
+	useEffect(() => {
+		messagesRef.current = messages;
+	}, [messages]);
+
 	const regenerateWithHeaders = useCallback(
 		(options?: any) => {
-			const lastUserMessage = [...messages]
+			const lastUserMessage = [...messagesRef.current]
 				.reverse()
 				.find((m) => m.role === "user");
 			const hasImageAttachments = lastUserMessage?.parts?.some(
@@ -3036,7 +3056,7 @@ function ExtraChatPanel({
 			);
 			return regenerate(buildRequestOptions(!!hasImageAttachments, options));
 		},
-		[regenerate, messages, buildRequestOptions],
+		[regenerate, buildRequestOptions],
 	);
 
 	const effectiveText = syncInput ? syncedText : text;

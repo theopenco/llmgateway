@@ -14,11 +14,11 @@ import {
 	ShieldCheck,
 	Users,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Fragment } from "react";
 
-import { EnterpriseFeatureShowcase } from "@/components/enterprise/feature-showcase";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { Badge } from "@/lib/components/badge";
@@ -35,6 +35,14 @@ interface PageProps {
 }
 
 const SHOWCASE_SLUGS = new Set(["organization-analytics", "member-budgets"]);
+
+// The showcase pulls the recharts-based analytics cards; load it lazily so the
+// chart stack stays out of the route bundle shared by all enterprise slugs.
+const EnterpriseFeatureShowcase = dynamic(() =>
+	import("@/components/enterprise/feature-showcase").then(
+		(mod) => mod.EnterpriseFeatureShowcase,
+	),
+);
 
 const iconMap = {
 	"shield-check": ShieldCheck,
