@@ -7,6 +7,10 @@ import {
 } from "@testing-library/react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import {
+	startBrowserSignIn,
+	completeBrowserSignIn,
+} from "@/auth/browser-sign-in";
 import { auth, signIn } from "@/auth/session";
 import { config } from "@/config";
 import { SignIn } from "@/screens/SignIn";
@@ -14,6 +18,10 @@ import { SignIn } from "@/screens/SignIn";
 jest.mock("../auth/session", () => ({
 	signIn: jest.fn(),
 	auth: { signUp: { email: jest.fn() }, requestPasswordReset: jest.fn() },
+}));
+jest.mock("@/auth/browser-sign-in", () => ({
+	startBrowserSignIn: jest.fn(),
+	completeBrowserSignIn: jest.fn(),
 }));
 jest.useFakeTimers();
 beforeEach(() => jest.resetAllMocks());
@@ -146,4 +154,139 @@ test("shows reset delivery failures so a user can retry", async () => {
 		"Could not send the reset email.",
 	);
 	expect(screen.getByRole("button", { name: "Send reset link" })).toBeEnabled();
+});
+
+test("shows the matching code before opening the browser and can cancel", async () => {
+	jest.mocked(startBrowserSignIn).mockResolvedValue({
+		deviceCode: "fixture",
+		userCode: "DEMO1234",
+		verificationUrl: `${config.accountUrl}/connect/device?user_code=DEMO1234`,
+		expiresAt: Date.now() + 600000,
+		intervalMs: 5000,
+	});
+	const onSignedIn = await renderSignIn();
+	const user = userEvent.setup();
+	await user.press(
+		screen.getByRole("button", { name: "Sign in with browser" }),
+	);
+	expect(
+		await screen.findByLabelText("Sign-in code: DEMO1234"),
+	).toBeOnTheScreen();
+	expect(completeBrowserSignIn).not.toHaveBeenCalled();
+	await user.press(screen.getByRole("button", { name: "Cancel sign-in" }));
+	expect(jest.mocked(startBrowserSignIn).mock.calls[0][0].aborted).toBe(true);
+	expect(
+		screen.getByRole("button", { name: "Enter the Lounge" }),
+	).toBeOnTheScreen();
+	expect(onSignedIn).not.toHaveBeenCalled();
+});
+
+test("reports browser setup failures without hiding email sign-in", async () => {
+	jest
+		.mocked(startBrowserSignIn)
+		.mockRejectedValue(new Error("Browser sign-in unavailable"));
+	await renderSignIn();
+	await userEvent
+		.setup()
+		.press(screen.getByRole("button", { name: "Sign in with browser" }));
+	expect(await screen.findByRole("alert")).toHaveTextContent(
+		"Browser sign-in unavailable",
+	);
+	expect(screen.getByLabelText("Email")).toBeOnTheScreen();
+});
+
+test("opens the browser only on confirmation and returns the approved session", async () => {
+	const request = {
+		deviceCode: "fixture",
+		userCode: "DEMO1234",
+		verificationUrl: `${config.accountUrl}/connect/device?user_code=DEMO1234`,
+		expiresAt: Date.now() + 600000,
+		intervalMs: 5000,
+	};
+	jest.mocked(startBrowserSignIn).mockResolvedValue(request);
+	jest.mocked(completeBrowserSignIn).mockResolvedValue("fixture-session");
+	const onSignedIn = await renderSignIn();
+	const user = userEvent.setup();
+	await user.press(
+		screen.getByRole("button", { name: "Sign in with browser" }),
+	);
+	await user.press(
+		await screen.findByRole("button", { name: "Continue in browser" }),
+	);
+	await waitFor(() =>
+		expect(onSignedIn).toHaveBeenCalledWith("fixture-session"),
+	);
+	expect(completeBrowserSignIn).toHaveBeenCalledWith(
+		request,
+		expect.any(AbortSignal),
+	);
+});
+
+test("offers a new code after a declined browser sign-in", async () => {
+	const request = {
+		deviceCode: "fixture",
+		userCode: "DEMO1234",
+		verificationUrl: `${config.accountUrl}/connect/device?user_code=DEMO1234`,
+		expiresAt: Date.now() + 600000,
+		intervalMs: 5000,
+	};
+	jest
+		.mocked(startBrowserSignIn)
+		.mockResolvedValueOnce(request)
+		.mockResolvedValueOnce({ ...request, userCode: "NEXT1234" });
+	jest
+		.mocked(completeBrowserSignIn)
+		.mockRejectedValue(new Error("You declined this sign-in request."));
+	const onSignedIn = await renderSignIn();
+	const user = userEvent.setup();
+	await user.press(
+		screen.getByRole("button", { name: "Sign in with browser" }),
+	);
+	await user.press(
+		await screen.findByRole("button", { name: "Continue in browser" }),
+	);
+	expect(await screen.findByRole("alert")).toHaveTextContent(
+		"You declined this sign-in request.",
+	);
+	await user.press(screen.getByRole("button", { name: "Get a new code" }));
+	expect(
+		await screen.findByLabelText("Sign-in code: NEXT1234"),
+	).toBeOnTheScreen();
+	expect(jest.mocked(startBrowserSignIn).mock.calls[0][0].aborted).toBe(true);
+	expect(onSignedIn).not.toHaveBeenCalled();
+});
+
+test("aborts a browser sign-in when its screen unmounts", async () => {
+	jest
+		.mocked(startBrowserSignIn)
+		.mockResolvedValue({
+			deviceCode: "fixture",
+			userCode: "DEMO1234",
+			verificationUrl: `${config.accountUrl}/connect/device?user_code=DEMO1234`,
+			expiresAt: Date.now() + 600000,
+			intervalMs: 5000,
+		});
+	jest.mocked(completeBrowserSignIn).mockImplementation(
+		(_request, signal) =>
+			new Promise((_resolve, reject) => {
+				signal.addEventListener(
+					"abort",
+					() => reject(new Error("Sign-in cancelled.")),
+					{ once: true },
+				);
+			}),
+	);
+	const onSignedIn = await renderSignIn();
+	const user = userEvent.setup();
+	await user.press(
+		screen.getByRole("button", { name: "Sign in with browser" }),
+	);
+	await user.press(
+		await screen.findByRole("button", { name: "Continue in browser" }),
+	);
+	await screen.unmount();
+	expect(jest.mocked(completeBrowserSignIn).mock.calls[0][1].aborted).toBe(
+		true,
+	);
+	expect(onSignedIn).not.toHaveBeenCalled();
 });
