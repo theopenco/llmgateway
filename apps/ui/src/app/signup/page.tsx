@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
@@ -14,6 +14,11 @@ import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { useAuthErrorToast } from "@/lib/auth-errors";
+import {
+	getAuthPagePath,
+	getAuthRedirect,
+	isCliAuthRedirect,
+} from "@/lib/auth-redirect";
 import { Button } from "@/lib/components/button";
 import {
 	Form,
@@ -28,6 +33,8 @@ import { Switch } from "@/lib/components/switch";
 import { toast } from "@/lib/components/use-toast";
 import { useAppConfig } from "@/lib/config";
 import { useFetchClient } from "@/lib/fetch-client";
+
+import type { Route } from "next";
 
 const createFormSchema = (isHosted: boolean) =>
 	z.object({
@@ -53,6 +60,10 @@ const createFormSchema = (isHosted: boolean) =>
 export default function Signup() {
 	const queryClient = useQueryClient();
 	const router = useRouter();
+	const searchParams = useSearchParams();
+	const redirectTarget = getAuthRedirect(searchParams.get("redirect"));
+	const signupTarget =
+		redirectTarget === "/dashboard" ? "/onboarding" : redirectTarget;
 	const posthog = usePostHog();
 	const [isLoading, setIsLoading] = useState(false);
 	const [showPassword, setShowPassword] = useState(false);
@@ -65,9 +76,9 @@ export default function Signup() {
 	const { isAuthenticated } = useSessionStatus();
 
 	useUser({
-		redirectTo: "/dashboard",
+		redirectTo: redirectTarget,
 		redirectWhen: "authenticated",
-		checkOnboarding: true,
+		checkOnboarding: !isCliAuthRedirect(redirectTarget),
 		enabled: isAuthenticated,
 	});
 
@@ -95,6 +106,7 @@ export default function Signup() {
 				name: values.name?.trim() ?? "",
 				email: values.email,
 				password: values.password,
+				callbackURL: new URL(signupTarget, window.location.origin).toString(),
 			},
 			{
 				onSuccess: async (ctx) => {
@@ -121,7 +133,7 @@ export default function Signup() {
 						description:
 							"Please check your email to verify your account before signing in.",
 					});
-					router.push("/onboarding");
+					router.push(signupTarget as Route);
 				},
 				onError: (ctx) => {
 					toast({
@@ -285,9 +297,9 @@ export default function Signup() {
 				<SocialAuthButtons
 					isLoading={isLoading}
 					setIsLoading={setIsLoading}
-					callbackPath="/dashboard"
-					errorCallbackPath="/signup"
-					newUserCallbackPath="/dashboard"
+					callbackPath={redirectTarget}
+					errorCallbackPath={getAuthPagePath("/signup", redirectTarget)}
+					newUserCallbackPath={redirectTarget}
 					requestSignUp
 				/>
 				<p className="text-center text-xs leading-relaxed text-muted-foreground">
@@ -304,7 +316,7 @@ export default function Signup() {
 
 			<p className="mt-6 text-center text-sm text-muted-foreground">
 				<Link
-					href="/login"
+					href={getAuthPagePath("/login", redirectTarget) as Route}
 					className="hover:text-foreground underline underline-offset-4 transition-colors"
 				>
 					Already have an account? Sign in

@@ -22,7 +22,11 @@ import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { useAuthErrorToast } from "@/lib/auth-errors";
-import { getAuthRedirect, isCliAuthRedirect } from "@/lib/auth-redirect";
+import {
+	getAuthPagePath,
+	getAuthRedirect,
+	isCliAuthRedirect,
+} from "@/lib/auth-redirect";
 import { Button } from "@/lib/components/button";
 import {
 	Form,
@@ -397,7 +401,7 @@ export default function Login() {
 
 			<p className="mt-6 text-center text-sm text-muted-foreground">
 				<Link
-					href="/signup"
+					href={getAuthPagePath("/signup", redirectTarget) as Route}
 					className="hover:text-foreground underline underline-offset-4 transition-colors"
 				>
 					Don&apos;t have an account? Sign up

@@ -59,6 +59,13 @@ session, then tests restoration, sign-out, denial, and cancellation. Browser
 sign-in requires the native client allowlist in the API and the device approval
 page to be deployed together.
 
+The browser signup return-path suite uses the account-mail fixture above:
+`PW_BASE_URL=<main-ui-url> LOUNGE_ACCOUNT_FIXTURE_URL=<mock-upstream-url> pnpm --filter ui test:e2e e2e/signup-return.pw.ts`.
+To include mocked social signup, start only the UI with dummy `GITHUB_CLIENT_ID`
+and `GOOGLE_CLIENT_ID` values and run with `PW_SOCIAL_AUTH_FIXTURE=true`.
+Provider requests are intercepted; the email test verifies and deletes its own
+disposable account using the real API.
+
 For video flows, export a temporary `LOUNGE_TEST_VIDEO_SIGNING_KEY` and set
 `LLM_VIDEO_CONTENT_JWT_SECRET` to the same value before starting the API.
 Run `pnpm --filter mobile test:video-worker` alongside the mock and gateway.
