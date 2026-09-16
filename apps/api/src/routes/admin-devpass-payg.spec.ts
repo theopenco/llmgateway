@@ -220,6 +220,50 @@ describe("admin devpass PAYG overflow reporting", () => {
 		});
 	});
 
+	it("uses UTC month and day boundaries for top-ups and refunds", async () => {
+		await db.delete(tables.transaction);
+		const now = new Date();
+		const monthStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+		const dayMs = 24 * 60 * 60 * 1000;
+		const offsets = [-1, 0, 30 * 60 * 1000, dayMs - 1, dayMs];
+		const topups = await db
+			.insert(tables.transaction)
+			.values(
+				offsets.map((offset, index) => ({
+					organizationId: ORG_ID,
+					type: "credit_topup" as const,
+					amount: String(2 ** index),
+					creditAmount: String(2 ** index),
+					status: "completed" as const,
+					createdAt: new Date(monthStart + offset),
+				})),
+			)
+			.returning();
+		await db.insert(tables.transaction).values(
+			topups.map((topup) => ({
+				organizationId: ORG_ID,
+				type: "credit_refund" as const,
+				amount: "1",
+				creditAmount: "0",
+				status: "completed" as const,
+				relatedTransactionId: topup.id,
+				createdAt: topup.createdAt,
+			})),
+		);
+		const day = new Date(monthStart).toISOString().slice(0, 10);
+		const response = await app.request(
+			`/admin/devpass/payg?from=${day}&to=${day}`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as { topups: unknown };
+		expect(body.topups).toEqual({
+			allTime: { gross: 31, refunds: 5, net: 26 },
+			thisMonth: { gross: 30, refunds: 4, net: 26 },
+			range: { from: day, to: day, gross: 14, refunds: 3, net: 11 },
+		});
+	});
+
 	it("ignores refunds whose original top-up is not counted as gross", async () => {
 		// Legacy rows can link a refund to a `credit_topup` no gross top-up sum
 		// ever counted: one that never completed, one carrying no amount, and

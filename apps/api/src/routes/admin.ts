@@ -16565,9 +16565,9 @@ admin.openapi(getDevpassPaygStats, async (c) => {
 	const [grossRow] = await db
 		.select({
 			allTime: sql<string>`COALESCE(SUM(${amountExpr}), 0)`,
-			thisMonth: sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart}), 0)`,
+			thisMonth: sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart.toISOString()}), 0)`,
 			range: hasRange
-				? sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${rangeStart} AND ${tables.transaction.createdAt} <= ${rangeEnd}), 0)`
+				? sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${rangeStart?.toISOString()} AND ${tables.transaction.createdAt} <= ${rangeEnd?.toISOString()}), 0)`
 				: sql<string>`0`,
 		})
 		.from(tables.transaction)
@@ -16591,9 +16591,9 @@ admin.openapi(getDevpassPaygStats, async (c) => {
 	const [refundRow] = await db
 		.select({
 			allTime: sql<string>`COALESCE(SUM(${amountExpr}), 0)`,
-			thisMonth: sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart}), 0)`,
+			thisMonth: sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart.toISOString()}), 0)`,
 			range: hasRange
-				? sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${rangeStart} AND ${tables.transaction.createdAt} <= ${rangeEnd}), 0)`
+				? sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${rangeStart?.toISOString()} AND ${tables.transaction.createdAt} <= ${rangeEnd?.toISOString()}), 0)`
 				: sql<string>`0`,
 		})
 		.from(tables.transaction)

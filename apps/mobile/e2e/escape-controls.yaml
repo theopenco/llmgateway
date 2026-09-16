@@ -1,0 +1,51 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- scrollUntilVisible:
+    element: "Sandbox Escape"
+    direction: DOWN
+    timeout: 20000
+- tapOn: "Sandbox Escape"
+- tapOn: "Level"
+- tapOn: "2. Rate Limited"
+- assertVisible: "Rate Limited"
+- scrollUntilVisible:
+    element: "Start run"
+    direction: DOWN
+- tapOn: "Start run"
+- tapOn: "Pause run"
+- extendedWaitUntil:
+    visible: "Step 1 /.*"
+    timeout: 30000
+- assertVisible: "Resume run"
+- assertVisible: "One step"
+- tapOn: "Resume run"
+- pressKey: Home
+- launchApp:
+    stopApp: false
+- extendedWaitUntil:
+    visible: "Resume run"
+    timeout: 30000
+- extendedWaitUntil:
+    notVisible: "Finishing the current turn…"
+    timeout: 30000
+- tapOn: "One step"
+- tapOn: "New run"
+- tapOn: "Start new run"
+- assertVisible: "Step 0 /.*"
+- assertVisible: "Start run"
+- scrollUntilVisible:
+    element: "Level"
+    direction: UP
+- tapOn: "Level"
+- tapOn: "5. Air Gap"
+- assertVisible: "Air Gap"
+- takeScreenshot: artifacts/escape-level-five
+- tapOn: "Rankings"
+- assertVisible: "Escape rankings"
+- tapOn: "All levels"
+- tapOn: "Hello, World"
+- assertVisible: "Level: Hello, World"
+- assertVisible: ".*success.*"
+- takeScreenshot: artifacts/escape-rankings

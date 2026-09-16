@@ -5,6 +5,11 @@
 	"license": "SEE LICENSE IN ../../LICENSE",
 	"type": "module",
 	"exports": {
+		"./image-generation-config": {
+			"types": "./dist/image-generation-config.d.ts",
+			"import": "./dist/image-generation-config.js",
+			"default": "./dist/image-generation-config.js"
+		},
 		".": {
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js",
@@ -85,6 +90,11 @@
 			"import": "./dist/lounge-source.js",
 			"default": "./dist/lounge-source.js"
 		},
+		"./playground-key-cookie": {
+			"types": "./dist/playground-key-cookie.d.ts",
+			"import": "./dist/playground-key-cookie.js",
+			"default": "./dist/playground-key-cookie.js"
+		},
 		"./gateway-url": {
 			"types": "./dist/gateway-url.d.ts",
 			"import": "./dist/gateway-url.js"
@@ -124,10 +134,45 @@
 			"import": "./dist/components/jelly/not-found-page.js",
 			"default": "./dist/components/jelly/not-found-page.js"
 		},
+		"./lounge-stream": {
+			"types": "./dist/lounge-stream.d.ts",
+			"import": "./dist/lounge-stream.js",
+			"default": "./dist/lounge-stream.js"
+		},
+		"./lounge-tool-approval": {
+			"types": "./dist/lounge-tool-approval.d.ts",
+			"import": "./dist/lounge-tool-approval.js",
+			"default": "./dist/lounge-tool-approval.js"
+		},
 		"./lounge-connectors": {
 			"types": "./dist/lounge-connectors.d.ts",
 			"import": "./dist/lounge-connectors.js",
 			"default": "./dist/lounge-connectors.js"
+		},
+		"./video-generation-config": {
+			"types": "./dist/video-generation-config.d.ts",
+			"import": "./dist/video-generation-config.js",
+			"default": "./dist/video-generation-config.js"
+		},
+		"./audio-generation-config": {
+			"types": "./dist/audio-generation-config.d.ts",
+			"import": "./dist/audio-generation-config.js",
+			"default": "./dist/audio-generation-config.js"
+		},
+		"./realtime-pcm": {
+			"types": "./dist/realtime-pcm.d.ts",
+			"import": "./dist/realtime-pcm.js",
+			"default": "./dist/realtime-pcm.js"
+		},
+		"./escape-reasoning": {
+			"types": "./dist/escape-reasoning.d.ts",
+			"import": "./dist/escape-reasoning.js",
+			"default": "./dist/escape-reasoning.js"
+		},
+		"./lounge-points": {
+			"types": "./dist/lounge-points.d.ts",
+			"import": "./dist/lounge-points.js",
+			"default": "./dist/lounge-points.js"
 		}
 	},
 	"module": "./dist/index.js",

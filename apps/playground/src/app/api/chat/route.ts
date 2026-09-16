@@ -1,5 +1,3 @@
-import { createHmac } from "node:crypto";
-
 import {
 	streamText,
 	generateImage,
@@ -31,13 +29,19 @@ import {
 import { createServerApiClient, fetchServerData } from "@/lib/server-api";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
-import { getApiKeyHashSecret } from "@llmgateway/shared/api-key-hash";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import {
 	loungeConnectorIds,
 	type LoungeConnectorId,
 } from "@llmgateway/shared/lounge-connectors";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
+import {
+	extractUrlCitations,
+	inspectGatewayStream,
+	withSseKeepalive,
+	type GatewaySourceCitation,
+} from "@llmgateway/shared/lounge-stream";
+import { getLoungeToolApprovalSecret } from "@llmgateway/shared/lounge-tool-approval";
 
 export const maxDuration = 300; // 5 minutes
 
@@ -136,100 +140,19 @@ function mergeGatewayResponseMetadata(
 	};
 }
 
-interface GatewaySourceCitation {
-	url: string;
-	title?: string;
-}
-
-// The gateway surfaces web search results as OpenAI-style `url_citation`
-// annotations, which the AI SDK provider does not forward as source parts
-// when streaming — so they are captured here from the raw SSE side-channel.
-function extractUrlCitations(value: unknown): GatewaySourceCitation[] {
-	if (!isRecord(value) || !Array.isArray(value.choices)) {
-		return [];
-	}
-
-	const citations: GatewaySourceCitation[] = [];
-	for (const choice of value.choices) {
-		if (!isRecord(choice)) {
-			continue;
-		}
-		for (const container of [choice.delta, choice.message]) {
-			if (!isRecord(container) || !Array.isArray(container.annotations)) {
-				continue;
-			}
-			for (const annotation of container.annotations) {
-				if (
-					!isRecord(annotation) ||
-					annotation.type !== "url_citation" ||
-					!isRecord(annotation.url_citation)
-				) {
-					continue;
-				}
-				const url = readString(annotation.url_citation.url);
-				if (url) {
-					citations.push({
-						url,
-						title: readString(annotation.url_citation.title),
-					});
-				}
-			}
-		}
-	}
-
-	return citations;
-}
-
 function createGatewayMetadataCaptureStream(
 	onMetadata: (metadata: GatewayResponseMetadata) => void,
 	onCitations?: (citations: GatewaySourceCitation[]) => void,
 ): TransformStream<Uint8Array, Uint8Array> {
-	const decoder = new TextDecoder();
-	let buffer = "";
-
-	const parseEvents = (events: string[]) => {
-		for (const event of events) {
-			const data = event
-				.split("\n")
-				.filter((line) => line.startsWith("data:"))
-				.map((line) => line.slice(5).trimStart())
-				.join("\n");
-			if (!data || data === "[DONE]") {
-				continue;
-			}
-
-			try {
-				const parsed: unknown = JSON.parse(data);
-				const metadata = extractGatewayResponseMetadata(parsed);
-				if (metadata) {
-					onMetadata(metadata);
-				}
-				if (onCitations) {
-					const citations = extractUrlCitations(parsed);
-					if (citations.length > 0) {
-						onCitations(citations);
-					}
-				}
-			} catch {
-				// Ignore non-JSON stream events.
-			}
+	return inspectGatewayStream((parsed) => {
+		const metadata = extractGatewayResponseMetadata(parsed);
+		if (metadata) {
+			onMetadata(metadata);
 		}
-	};
-
-	return new TransformStream<Uint8Array, Uint8Array>({
-		transform(chunk, controller) {
-			buffer += decoder.decode(chunk, { stream: true });
-			const events = buffer.split("\n\n");
-			buffer = events.pop() ?? "";
-			parseEvents(events);
-			controller.enqueue(chunk);
-		},
-		flush() {
-			buffer += decoder.decode();
-			if (buffer) {
-				parseEvents([buffer]);
-			}
-		},
+		const citations = extractUrlCitations(parsed);
+		if (citations.length) {
+			onCitations?.(citations);
+		}
 	});
 }
 
@@ -361,58 +284,6 @@ interface ProjectRetrievalResponse {
 		fileName: string;
 	}[];
 	memories: string[];
-}
-
-/**
- * Wrap an SSE body with periodic `: ping` comment lines so proxies and load
- * balancers don't cut the connection during long silent stretches (tool
- * calls, reasoning, image generation). Uses a push-based ReadableStream with
- * setInterval so pings flush independently of consumer backpressure.
- */
-function withSseKeepalive(
-	body: ReadableStream<Uint8Array | string>,
-	intervalMs: number,
-): ReadableStream<Uint8Array> {
-	const encoder = new TextEncoder();
-	const reader = body.getReader();
-	let keepaliveTimer: ReturnType<typeof setInterval> | undefined;
-
-	return new ReadableStream<Uint8Array>({
-		start(controller) {
-			keepaliveTimer = setInterval(() => {
-				try {
-					controller.enqueue(encoder.encode(": ping\n\n"));
-				} catch {
-					// Stream already closed, clean up.
-					clearInterval(keepaliveTimer);
-				}
-			}, intervalMs);
-
-			// Read upstream chunks in a loop and forward them.
-			void (async () => {
-				try {
-					while (true) {
-						const { done, value } = await reader.read();
-						if (done) {
-							clearInterval(keepaliveTimer);
-							controller.close();
-							return;
-						}
-						controller.enqueue(
-							typeof value === "string" ? encoder.encode(value) : value,
-						);
-					}
-				} catch (err) {
-					clearInterval(keepaliveTimer);
-					controller.error(err);
-				}
-			})();
-		},
-		cancel() {
-			clearInterval(keepaliveTimer);
-			void reader.cancel();
-		},
-	});
 }
 
 const KEEPALIVE_INTERVAL_MS = 15_000;
@@ -875,12 +746,9 @@ export async function POST(req: Request) {
 						tools: allTools,
 						stopWhen: isStepCount(10),
 						toolApproval: () => "user-approval" as const,
-						experimental_toolApprovalSecret: createHmac(
-							"sha256",
-							getApiKeyHashSecret(),
-						)
-							.update(`lounge-tools:${user.id}`)
-							.digest("hex"),
+						experimental_toolApprovalSecret: getLoungeToolApprovalSecret(
+							user.id,
+						),
 					}
 				: {}),
 			onEnd: async ({ text }) => {

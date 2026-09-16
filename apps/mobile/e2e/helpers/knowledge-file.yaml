@@ -1,0 +1,13 @@
+appId: io.llmgateway.lounge
+---
+# iOS 26's remote Files picker omits its controls from the accessibility tree.
+- waitForAnimationToEnd:
+    timeout: 5000
+- tapOn:
+    point: "71%,94%"
+- tapOn:
+    point: "37%,19%"
+- eraseText: 80
+- inputText: "lounge-knowledge"
+- tapOn:
+    point: "18%,41%"

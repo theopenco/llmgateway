@@ -1,0 +1,26 @@
+appId: io.llmgateway.lounge
+---
+- scrollUntilVisible:
+    element: "Sign in with browser"
+    direction: DOWN
+- tapOn: "Sign in with browser"
+- extendedWaitUntil:
+    visible: "Continue in browser"
+    timeout: 20000
+- copyTextFrom:
+    id: "browser-sign-in-code"
+- evalScript: ${output.userCode = maestro.copiedText.replace(/^Sign-in code\x3A /, "").replace(/[^A-Z0-9]/g, "")}
+- assertTrue: ${output.userCode.length === 8}
+- tapOn: "Continue in browser"
+- extendedWaitUntil:
+    visible: "Continue|Authorize your device"
+    timeout: 20000
+- runFlow:
+    when:
+      visible: "Continue"
+    commands:
+      - tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Authorize your device"
+    timeout: 30000
+- assertVisible: ${output.userCode}

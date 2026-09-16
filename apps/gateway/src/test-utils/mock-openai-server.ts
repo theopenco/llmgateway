@@ -139,13 +139,15 @@ function getResponsesApiUserMessage(input: unknown): string {
 		return "";
 	}
 
-	const userItem = input.find(
-		(item) =>
-			item &&
-			typeof item === "object" &&
-			"role" in item &&
-			item.role === "user",
-	);
+	const userItem = [...input]
+		.reverse()
+		.find(
+			(item) =>
+				item &&
+				typeof item === "object" &&
+				"role" in item &&
+				item.role === "user",
+		);
 	if (!userItem || typeof userItem !== "object" || !("content" in userItem)) {
 		return "";
 	}
@@ -500,6 +502,7 @@ export function resetFailOnceCounter() {
 
 export function resetMockVideoState() {
 	videoCounter = 0;
+	videoAsset = undefined;
 	videoJobs.clear();
 	videoStatusResponses.clear();
 	webhookDeliveries.length = 0;
@@ -550,6 +553,26 @@ export function getMockVideo(videoId: string): MockVideoJobState | undefined {
 	return videoJobs.get(videoId);
 }
 
+export function getMockVideos(): MockVideoJobState[] {
+	return [...videoJobs.values()];
+}
+
+const mockAudioAssets = new Map<string, Uint8Array<ArrayBuffer>>();
+
+export function setMockAudioAsset(format: string, bytes: Uint8Array) {
+	mockAudioAssets.set(format, new Uint8Array(bytes));
+}
+
+export function resetMockAudioState() {
+	mockAudioAssets.clear();
+}
+
+let videoAsset: Uint8Array<ArrayBuffer> | undefined;
+
+export function setMockVideoAsset(bytes: Uint8Array) {
+	videoAsset = new Uint8Array(bytes);
+}
+
 export function setMockVideoStatusResponse(
 	videoId: string,
 	status: number,
@@ -595,6 +618,13 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 	// content is an array of parts, so extract the text rather than calling
 	// `.includes` on the raw content (which would miss array-form messages).
 	const userMessage = getResponsesApiUserMessage(body.input);
+	const timeoutDelay = extractTimeoutDelay(userMessage);
+	if (timeoutDelay) {
+		await delay(timeoutDelay);
+	}
+	const reasoning = userMessage.includes("TRIGGER_REASONING")
+		? "Let me think about this step by step."
+		: undefined;
 
 	// Check if this request should trigger an error response
 	const statusTrigger = extractStatusCodeTrigger(userMessage);
@@ -659,12 +689,26 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 				id: String(eventId++),
 			});
 
+			if (reasoning) {
+				await stream.writeSSE({
+					data: JSON.stringify({
+						type: "response.reasoning_summary_text.delta",
+						delta: reasoning,
+						item_id: "rs_123",
+						output_index: 0,
+						summary_index: 0,
+						response: responseBase,
+					}),
+					id: String(eventId++),
+				});
+			}
+
 			await stream.writeSSE({
 				data: JSON.stringify({
 					type: "response.content_part.added",
 					content_index: 0,
 					item_id: "msg_123",
-					output_index: 0,
+					output_index: reasoning ? 1 : 0,
 					part: {
 						type: "output_text",
 						text: assistantContent,
@@ -683,7 +727,7 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 					type: "response.output_text.done",
 					content_index: 0,
 					item_id: "msg_123",
-					output_index: 0,
+					output_index: reasoning ? 1 : 0,
 					response: {
 						...responseBase,
 						status: shouldEndAfterDoneEvent ? "completed" : "in_progress",
@@ -704,7 +748,7 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 					type: "response.content_part.done",
 					content_index: 0,
 					item_id: "msg_123",
-					output_index: 0,
+					output_index: reasoning ? 1 : 0,
 					part: {
 						type: "output_text",
 						text: assistantContent,
@@ -725,6 +769,23 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 
 			if (shouldEndAfterDoneEvent || shouldEndAfterIntermediateDoneEvent) {
 				return;
+			}
+
+			if (userMessage.includes("TRIGGER_SOURCES")) {
+				await stream.writeSSE({
+					data: JSON.stringify({
+						type: "response.output_text.annotation.added",
+						annotation: {
+							type: "url_citation",
+							url: "https://example.com/guide",
+							title: "Lounge test source",
+							start_index: 0,
+							end_index: 5,
+						},
+						response: responseBase,
+					}),
+					id: String(eventId++),
+				});
 			}
 
 			await stream.writeSSE({
@@ -752,6 +813,14 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 		created_at: Math.floor(Date.now() / 1000),
 		model: body.model ?? "gpt-5-nano",
 		output: [
+			...(reasoning
+				? [
+						{
+							type: "reasoning",
+							summary: [{ type: "summary_text", text: reasoning }],
+						},
+					]
+				: []),
 			{
 				type: "message",
 				role: "assistant",
@@ -1408,8 +1477,10 @@ mockOpenAIServer.post("/v1/audio/speech", async (c) => {
 		wav: "audio/wav",
 		pcm: "audio/pcm",
 	};
-	// Deterministic mock audio payload (not a real encoded stream).
-	const audio = Buffer.from("MOCK_OPENAI_AUDIO");
+	const fixture = mockAudioAssets.get(format);
+	const audio = fixture
+		? Buffer.from(fixture)
+		: Buffer.from("MOCK_OPENAI_AUDIO");
 
 	// gpt-4o-mini-tts requests stream_format=sse: emit audio deltas followed by a
 	// done event carrying token usage, mirroring OpenAI's SSE schema.
@@ -2687,12 +2758,7 @@ mockOpenAIServer.get("/mock-gcs/:bucket/*", async (c) => {
 			videoJob.storageUri === `gs://${bucket}/${objectPath}`,
 	);
 
-	return new Response(`mock-video-${job?.id ?? objectPath}`, {
-		status: 200,
-		headers: {
-			"Content-Type": "video/mp4",
-		},
-	});
+	return mockVideoContentResponse(job?.id ?? objectPath, c.req.header("range"));
 });
 
 mockOpenAIServer.get("/api/v1/model/prediction/:id", async (c) => {
@@ -2725,12 +2791,46 @@ mockOpenAIServer.get("/api/v1/model/prediction/:id", async (c) => {
 	});
 });
 
-mockOpenAIServer.get("/mock-assets/:id", async (c) => {
-	const id = c.req.param("id");
-	return c.body(`mock-video-${id}`, 200, {
-		"Content-Type": "video/mp4",
+function mockVideoContentResponse(id: string, range?: string) {
+	if (videoAsset) {
+		const headers = { "Content-Type": "video/mp4", "Accept-Ranges": "bytes" };
+		if (range) {
+			const match = /^bytes=(\d+)-(\d*)$/.exec(range);
+			const start = Number(match?.[1]);
+			const end = Math.min(
+				Number(match?.[2] || videoAsset.length - 1),
+				videoAsset.length - 1,
+			);
+			if (!match || start > end || start >= videoAsset.length) {
+				return new Response(null, {
+					status: 416,
+					headers: {
+						...headers,
+						"Content-Range": `bytes */${videoAsset.length}`,
+					},
+				});
+			}
+			return new Response(videoAsset.slice(start, end + 1), {
+				status: 206,
+				headers: {
+					...headers,
+					"Content-Length": String(end - start + 1),
+					"Content-Range": `bytes ${start}-${end}/${videoAsset.length}`,
+				},
+			});
+		}
+		return new Response(videoAsset, {
+			headers: { ...headers, "Content-Length": String(videoAsset.length) },
+		});
+	}
+	return new Response(`mock-video-${id}`, {
+		headers: { "Content-Type": "video/mp4" },
 	});
-});
+}
+
+mockOpenAIServer.get("/mock-assets/:id", (c) =>
+	mockVideoContentResponse(c.req.param("id"), c.req.header("range")),
+);
 
 mockOpenAIServer.post("/mock-callback/:name", async (c) => {
 	const name = c.req.param("name");
@@ -2929,7 +3029,12 @@ mockOpenAIServer.post("/model/:model/converse-stream", async (c) => {
 
 let server: any = null;
 
-export function startMockServer(port = 0): Promise<string> {
+export function startMockServer(
+	port = 0,
+	handleRequest: (request: Request) => Response | Promise<Response> = (
+		request,
+	) => mockOpenAIServer.fetch(request),
+): Promise<string> {
 	return new Promise((resolve) => {
 		if (server) {
 			resolve(currentMockServerUrl);
@@ -2938,7 +3043,7 @@ export function startMockServer(port = 0): Promise<string> {
 
 		server = serve(
 			{
-				fetch: mockOpenAIServer.fetch,
+				fetch: handleRequest,
 				port,
 			},
 			(info) => {

@@ -5,6 +5,7 @@ import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { getEscapeReasoningEffort } from "@llmgateway/shared/escape-reasoning";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 import {
@@ -114,11 +115,8 @@ export async function POST(req: Request) {
 		apiKey,
 		baseURL: getGatewayApiBaseUrl(),
 		headers: { "x-source": LOUNGE_SOURCE },
-		// Picking one of five directions is a decision, not an essay. Left at
-		// their default effort, reasoning models spend ~1.3k thinking tokens per
-		// move, which makes a single level cost more and take minutes. Providers
-		// that do not support the field ignore it.
-		extraBody: { reasoning_effort: "low" },
+		// Keep turns short without sending unsupported reasoning parameters.
+		extraBody: { reasoning_effort: getEscapeReasoningEffort(model) },
 	});
 
 	const startedAt = Date.now();

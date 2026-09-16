@@ -1,3 +1,5 @@
+export const loungeConnectorCallbackScheme = "io.llmgateway.lounge";
+
 export const loungeConnectorIds = [
 	"posthog",
 	"slack",

@@ -23,24 +23,18 @@ import { useLoungePoints } from "@/hooks/useLoungePoints";
 import { useUpdateUser, useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
 
-const BREAKDOWN_LABELS: Record<
-	string,
-	{ label: string; icon: typeof MessageSquare }
-> = {
-	chat_message: { label: "Messages sent", icon: MessageSquare },
-	chat_created: { label: "Chats started", icon: MessageSquarePlus },
-	image_generation: { label: "Images created", icon: ImagePlus },
-	video_generation: { label: "Videos created", icon: Film },
-	audio_generation: { label: "Audio created", icon: AudioLines },
-};
+import {
+	LOUNGE_ACTIVITIES,
+	loungeActivity,
+} from "@llmgateway/shared/lounge-points";
 
-const EARNING_HINTS = [
-	{ label: "Send a message", points: 5 },
-	{ label: "Start a chat", points: 10 },
-	{ label: "Create an image", points: 10 },
-	{ label: "Create audio", points: 10 },
-	{ label: "Create a video", points: 15 },
-];
+const BREAKDOWN_ICONS: Record<string, typeof MessageSquare> = {
+	chat_message: MessageSquare,
+	chat_created: MessageSquarePlus,
+	image_generation: ImagePlus,
+	video_generation: Film,
+	audio_generation: AudioLines,
+};
 
 function StatTile({
 	label,
@@ -251,8 +245,8 @@ export function LoungeProfileClient() {
 						) : (
 							<ul className="divide-y divide-border overflow-hidden rounded-xl border">
 								{stats.breakdown.map((row) => {
-									const meta = BREAKDOWN_LABELS[row.kind];
-									const Icon = meta?.icon ?? Sparkles;
+									const meta = loungeActivity(row.kind);
+									const Icon = BREAKDOWN_ICONS[row.kind] ?? Sparkles;
 									return (
 										<li
 											key={row.kind}
@@ -329,12 +323,12 @@ export function LoungeProfileClient() {
 					How to earn points
 				</h2>
 				<ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-					{EARNING_HINTS.map((hint) => (
+					{Object.values(LOUNGE_ACTIVITIES).map((hint) => (
 						<li
-							key={hint.label}
+							key={hint.action}
 							className="flex items-center justify-between rounded-lg border px-3 py-2 text-xs"
 						>
-							<span className="text-muted-foreground">{hint.label}</span>
+							<span className="text-muted-foreground">{hint.action}</span>
 							<span className="font-semibold text-lounge-gold">
 								+{hint.points}
 							</span>
