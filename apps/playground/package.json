@@ -25,6 +25,7 @@
 		"@json-render/react": "0.11.0",
 		"@json-render/shadcn": "0.11.0",
 		"@llmgateway/ai-sdk-provider": "4.0.0",
+		"@llmgateway/canvas": "workspace:*",
 		"@llmgateway/models": "workspace:*",
 		"@llmgateway/shared": "workspace:*",
 		"@radix-ui/react-alert-dialog": "1.1.15",

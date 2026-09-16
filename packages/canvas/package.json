@@ -1,0 +1,34 @@
+{
+	"name": "@llmgateway/canvas",
+	"version": "0.0.0",
+	"private": true,
+	"license": "SEE LICENSE IN ../../LICENSE",
+	"type": "module",
+	"exports": {
+		"./catalog": {
+			"types": "./dist/catalog.d.ts",
+			"import": "./dist/catalog.js",
+			"default": "./dist/catalog.js"
+		},
+		"./templates": {
+			"types": "./dist/templates.d.ts",
+			"import": "./dist/templates.js",
+			"default": "./dist/templates.js"
+		}
+	},
+	"files": [
+		"dist/"
+	],
+	"scripts": {
+		"build": "tsc && resolve-tspaths",
+		"dev": "tsc-watch --onSuccess 'resolve-tspaths'",
+		"format": "eslint --fix . && prettier --write .",
+		"lint": "eslint . && prettier --check ."
+	},
+	"dependencies": {
+		"@json-render/core": "0.11.0",
+		"@json-render/react": "0.11.0",
+		"@json-render/shadcn": "0.11.0",
+		"zod": "4.3.6"
+	}
+}

@@ -1021,6 +1021,9 @@ importers:
       '@llmgateway/ai-sdk-provider':
         specifier: 4.0.0
         version: 4.0.0(ai@7.0.96(zod@4.3.6))(zod@4.3.6)
+      '@llmgateway/canvas':
+        specifier: workspace:*
+        version: link:../../packages/canvas
       '@llmgateway/models':
         specifier: workspace:*
         version: link:../../packages/models
@@ -1814,6 +1817,21 @@ importers:
       '@types/node':
         specifier: ^26.2.0
         version: 26.2.0
+
+  packages/canvas:
+    dependencies:
+      '@json-render/core':
+        specifier: 0.11.0
+        version: 0.11.0(zod@4.3.6)
+      '@json-render/react':
+        specifier: 0.11.0
+        version: 0.11.0(react@19.3.0)(zod@4.3.6)
+      '@json-render/shadcn':
+        specifier: 0.11.0
+        version: 0.11.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.0)(zod@4.3.6)
+      zod:
+        specifier: 4.3.6
+        version: 4.3.6
 
   packages/db:
     dependencies:
@@ -17656,6 +17674,25 @@ snapshots:
       react-dom: 19.3.0(react@19.3.0)
       tailwind-merge: 3.6.0
       tailwindcss: 4.1.16
+      vaul: 1.1.2(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      zod: 4.3.6
+    transitivePeerDependencies:
+      - '@types/react'
+      - '@types/react-dom'
+
+  '@json-render/shadcn@0.11.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(tailwindcss@4.3.0)(zod@4.3.6)':
+    dependencies:
+      '@json-render/core': 0.11.0(zod@4.3.6)
+      '@json-render/react': 0.11.0(react@19.3.0)(zod@4.3.6)
+      class-variance-authority: 0.7.1
+      clsx: 2.1.1
+      embla-carousel-react: 8.6.0(react@19.3.0)
+      lucide-react: 0.564.0(react@19.3.0)
+      radix-ui: 1.6.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+      tailwind-merge: 3.6.0
+      tailwindcss: 4.3.0
       vaul: 1.1.2(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       zod: 4.3.6
     transitivePeerDependencies:
