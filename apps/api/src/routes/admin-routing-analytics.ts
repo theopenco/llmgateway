@@ -33,7 +33,10 @@ import {
 import { deriveStabilityMetrics } from "@llmgateway/shared";
 import { isMappingDeactivated } from "@llmgateway/shared/deactivation";
 import { getDefaultRoutingConfig } from "@llmgateway/shared/routing-config";
-import { routingSelectionKind } from "@llmgateway/shared/routing-telemetry";
+import {
+	routingExclusionReasonParent,
+	routingSelectionKind,
+} from "@llmgateway/shared/routing-telemetry";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -124,12 +127,63 @@ const serviceTierCountsSchema = z
 	})
 	.openapi({});
 
-const exclusionEntrySchema = z
+const exclusionDetailSchema = z
 	.object({
 		reason: z.string(),
 		excludedCount: z.number(),
 	})
 	.openapi({});
+
+const exclusionEntrySchema = z
+	.object({
+		reason: z.string(),
+		excludedCount: z.number(),
+		/**
+		 * Finer-grained reasons that break this one down — currently which
+		 * compliance rule fired. Recorded alongside the parent, never instead of
+		 * it, so they are nested here rather than listed as siblings: a consumer
+		 * summing both would count every drop twice.
+		 */
+		details: z.array(exclusionDetailSchema),
+	})
+	.openapi({});
+
+/**
+ * Turn a flat reason -> count map into top-level entries with their detail
+ * reasons nested. A detail whose parent has no row (data written before the
+ * detail codes existed, or a partially rerun rollup) stays top-level rather
+ * than being attached to an invented parent count.
+ */
+function toExclusionEntries(
+	reasonMap: Map<string, number> | undefined,
+): z.infer<typeof exclusionEntrySchema>[] {
+	const totals = new Map<string, number>();
+	const detailsByParent = new Map<string, Map<string, number>>();
+	for (const [reason, excludedCount] of reasonMap ?? []) {
+		const parent = routingExclusionReasonParent(reason);
+		if (parent && reasonMap?.has(parent)) {
+			let details = detailsByParent.get(parent);
+			if (!details) {
+				details = new Map();
+				detailsByParent.set(parent, details);
+			}
+			details.set(reason, (details.get(reason) ?? 0) + excludedCount);
+			continue;
+		}
+		totals.set(reason, (totals.get(reason) ?? 0) + excludedCount);
+	}
+	return Array.from(totals, ([reason, excludedCount]) => ({
+		reason,
+		excludedCount,
+		details: Array.from(
+			detailsByParent.get(reason) ?? [],
+			([detailReason, detailCount]) => ({
+				reason: detailReason,
+				excludedCount: detailCount,
+			}),
+		).sort((a, b) => b.excludedCount - a.excludedCount),
+	})).sort((a, b) => b.excludedCount - a.excludedCount);
+}
 
 /**
  * Runtime eligibility for one mapping: how often it was actually a candidate,
@@ -761,14 +815,9 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 	});
 
 	const eligibility = mappings.map((mapping) => {
-		const reasonMap = exclusionsByProvider.get(mapping.providerId);
-		const exclusions = Array.from(
-			reasonMap ?? [],
-			([reason, excludedCount]) => ({
-				reason,
-				excludedCount,
-			}),
-		).sort((a, b) => b.excludedCount - a.excludedCount);
+		const exclusions = toExclusionEntries(
+			exclusionsByProvider.get(mapping.providerId),
+		);
 		// One request can drop a mapping for several reasons at once, so the
 		// per-reason counts in `exclusions` sum to more than the requests the
 		// mapping was actually unavailable for. `excludedCount` is the decision
@@ -856,10 +905,7 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 			).sort((a, b) => b.requestCount - a.requestCount),
 		},
 		eligibility,
-		exclusions: Array.from(modelExclusionTotals, ([reason, excludedCount]) => ({
-			reason,
-			excludedCount,
-		})).sort((a, b) => b.excludedCount - a.excludedCount),
+		exclusions: toExclusionEntries(modelExclusionTotals),
 		serviceTier: serviceTierCounts(modelServiceTierTotals),
 	});
 });
