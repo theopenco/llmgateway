@@ -1,15 +1,12 @@
 import { NavigationContainer, DarkTheme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import {
-	QueryClientProvider,
-	useQuery,
-	useMutation,
-} from "@tanstack/react-query";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { StatusBar, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { VoiceCallsProvider } from "@/components/VoiceCallsProvider";
+import { WorkspaceGate } from "@/components/WorkspaceGate";
 import { AudioStudio } from "@/screens/AudioStudio";
 import { Comparison } from "@/screens/Comparison";
 import { Conversation } from "@/screens/Conversation";
@@ -21,8 +18,8 @@ import { Transcription } from "@/screens/Transcription";
 import { VideoStudio } from "@/screens/VideoStudio";
 import { VoiceCalls } from "@/screens/VoiceCalls";
 
-import { api, queryClient } from "./src/api/client";
-import { restoreSession, clearSession } from "./src/auth/session";
+import { queryClient } from "./src/api/client";
+import { restoreSession } from "./src/auth/session";
 import {
 	Button,
 	colors,
@@ -38,7 +35,9 @@ import { Profile } from "./src/screens/Profile";
 import { Projects } from "./src/screens/Projects";
 import { SignIn } from "./src/screens/SignIn";
 import { Skills } from "./src/screens/Skills";
-import { Workspaces, type Workspace } from "./src/screens/Workspaces";
+import { Workspaces } from "./src/screens/Workspaces";
+
+import type { Workspace } from "@/lib/workspace";
 
 // Navigation route maps must be type aliases to preserve their exact keys.
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
@@ -74,36 +73,14 @@ const theme = {
 		border: colors.border,
 	},
 };
-function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
-	const [workspace, setWorkspace] = useState<Workspace>();
-	const reset = useMutation({
-		mutationFn: clearSession,
-		onSuccess: onSignedOut,
-	});
-	const context = api.useQuery("get", "/playground/chat-org", {});
-	if (context.isPending) {
-		return (
-			<Screen fullScreen>
-				<Loading />
-			</Screen>
-		);
-	}
-	if (!context.data) {
-		return (
-			<Screen fullScreen>
-				<ErrorNotice error={context.error} />
-				<Button title="Try again" onPress={() => void context.refetch()} />
-				<ErrorNotice error={reset.error} />
-				<Button
-					title="Sign in again"
-					secondary
-					onPress={() => reset.mutate()}
-					busy={reset.isPending}
-				/>
-			</Screen>
-		);
-	}
-	const { organizationId, projectId } = workspace ?? context.data;
+function Lounge({
+	onSignedOut,
+	workspace,
+}: {
+	onSignedOut: () => void;
+	workspace: Workspace;
+}) {
+	const { organizationId, projectId } = workspace;
 	return (
 		<VoiceCallsProvider
 			key={organizationId}
@@ -125,6 +102,12 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 									<Text style={styles.eyebrow}>MAKE YOURSELF AT HOME</Text>
 									<Text style={styles.title}>
 										Where ideas{"\n"}find their people.
+									</Text>
+									<Text
+										accessibilityLabel={`Current workspace: ${workspace.name}`}
+										style={styles.muted}
+									>
+										{workspace.name}
 									</Text>
 									<Text style={styles.muted}>
 										A conversation away from something new.
@@ -325,8 +308,11 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 						{() => <VoiceCalls organizationId={organizationId} />}
 					</Stack.Screen>
 					<Stack.Screen name="Workspaces">
-						{() => (
-							<Workspaces currentId={organizationId} onSelect={setWorkspace} />
+						{({ navigation }) => (
+							<Workspaces
+								currentId={organizationId}
+								onSelect={() => navigation.navigate("Home")}
+							/>
 						)}
 					</Stack.Screen>
 					<Stack.Screen
@@ -372,7 +358,11 @@ function Session() {
 		);
 	}
 	return (token === undefined ? restored.data : token) ? (
-		<Lounge onSignedOut={() => setToken(null)} />
+		<WorkspaceGate onSignedOut={() => setToken(null)}>
+			{(workspace) => (
+				<Lounge workspace={workspace} onSignedOut={() => setToken(null)} />
+			)}
+		</WorkspaceGate>
 	) : (
 		<SignIn onSignedIn={setToken} />
 	);

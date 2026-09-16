@@ -62,13 +62,17 @@ Verified during development:
 - Repository unit suite before the UTC revenue fix: 7,102 passed, 2 skipped,
   one admin date-range failure. After the fix, all five admin revenue tests pass
   under Stockholm, Los Angeles, and UTC timezones.
-- Native tests: 207 passed; shared image configuration tests: 3 passed.
+- Native tests: 226 passed; shared image configuration tests: 3 passed.
 - Chat message persistence tests: 5 passed, including tool-only replies.
 - Gateway speech tests: 20 passed.
 - Video configuration: 25 passed; gateway video and byte-range tests: 57 passed.
 - Signed Release build launched on the iOS simulator with local service URLs.
 - Maestro account flow: sign-in errors, session restoration, workspace switching,
   project and skill persistence/deletion, profile access, and sign-out passed.
+- Native workspace restoration: organization/project selection, chat billing and
+  history after restart, switching back to personal, and clearing the choice on
+  sign-out passed. An offline API required retry; an inactive saved project
+  required an explicit replacement. Both recovered without an automatic switch.
 - Maestro chat flow with a mock provider: generation, retry without duplicate
   messages, pinning, restart persistence, archive/restore, and deletion passed.
 - Native chat controls: editing, forking, renaming, saved settings, temporary
@@ -123,6 +127,11 @@ pnpm exec tsx apps/mobile/e2e/prepare-projects.ts <simulator-device-id>
 Additional chat flows cover controls, streaming, sources, and sharing in
 `e2e/chat-*.yaml`. Run `e2e/images.yaml` before `e2e/chat-attachments.yaml`
 to place its generated PNG in Files.
+
+Run `workspace-offline.yaml` after `workspace-persistence.yaml` with the isolated
+API stopped; restart it before `workspace-retry.yaml`. For
+`workspace-unavailable.yaml`, mark the selected seeded project inactive and
+restore its original status afterward, including when the flow fails.
 
 The Markdown renderer patch supplies accessibility bounds alongside its
 VoiceOver outlines so iOS automation can inspect rendered text.

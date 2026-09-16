@@ -1,0 +1,20 @@
+appId: io.llmgateway.lounge
+---
+# Mark the selected project's isolated fixture inactive before running this flow.
+# Restore its original status afterward, including when the flow fails.
+- launchApp
+- extendedWaitUntil:
+    visible: "Your saved workspace or project is no longer available.*"
+    timeout: 20000
+- assertNotVisible: "Start a conversation"
+- assertNotVisible: "Current workspace: Personal Lounge"
+- tapOn: "Choose workspace"
+- scrollUntilVisible:
+    element: "Use Personal Lounge"
+    direction: DOWN
+- tapOn: "Use Personal Lounge"
+- extendedWaitUntil:
+    visible: "Current workspace: Personal Lounge"
+    timeout: 20000
+- launchApp
+- assertVisible: "Current workspace: Personal Lounge"

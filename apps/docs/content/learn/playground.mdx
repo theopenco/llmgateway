@@ -55,6 +55,8 @@ Projects combine instructions, reference files, and memories for related convers
 
 The native iOS client lives in `apps/mobile` in the repository and is under development. It uses the same LLM Gateway account and Lounge data. Membership purchases and billing stay on the Lounge website.
 
+Use **Switch workspace** to choose where conversations and usage belong. The home screen shows the selected workspace, and the app restores that workspace and its project after restart. If access changes or restoration fails, retry or explicitly choose another workspace before continuing. Signing out clears the device's saved selection.
+
 Conversations support Markdown, reasoning, attachments, copying, editing, retries, and forking. Chat settings include system instructions, temperature, output limits, reasoning effort, and web search where supported by the model. Settings stay on the device until sign-out. Temporary conversations stay out of Lounge history; normal gateway usage and organization retention settings still apply.
 
 The model picker supports favorites and provider selection. Choosing a provider pins requests to that provider without fallback; choosing the model itself or Auto keeps automatic provider routing. Favorites sync with your account.
