@@ -5,6 +5,7 @@ import { getSessionToken, queryClient, setSessionToken } from "@/api/client";
 import { clearGatewayKey } from "@/api/completion";
 import { config } from "@/config";
 import { clearCanvasModel } from "@/lib/canvas-model";
+import { clearEscapeModel } from "@/lib/escape-model";
 import { clearPreferences } from "@/lib/preferences";
 import { clearWorkspace } from "@/lib/workspace";
 
@@ -50,6 +51,7 @@ export async function signOut() {
 export async function clearSession() {
 	await clearWorkspace();
 	await clearCanvasModel();
+	await clearEscapeModel();
 	await clearPreferences();
 	await Keychain.resetGenericPassword({ service });
 	setSessionToken(null);
