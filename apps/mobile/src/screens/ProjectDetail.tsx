@@ -12,7 +12,7 @@ import {
 	Screen,
 	styles,
 } from "@/components/ui";
-import { pickFile } from "@/lib/files";
+import { pickKnowledgeFile } from "@/lib/knowledge-files";
 
 export function ProjectDetail({
 	id,
@@ -49,7 +49,7 @@ export function ProjectDetail({
 		});
 	const upload = useMutation({
 		mutationFn: async () => {
-			const file = await pickFile();
+			const file = await pickKnowledgeFile();
 			if (!file) {
 				return;
 			}
@@ -63,8 +63,8 @@ export function ProjectDetail({
 				},
 				headers: { "x-llmgateway-key": token },
 			});
-			await refreshFiles();
 		},
+		onSettled: refreshFiles,
 	});
 	const deleteFile = api.useMutation(
 		"delete",
@@ -116,7 +116,8 @@ export function ProjectDetail({
 			<Button title="Start project conversation" onPress={onNewChat} />
 			<Text style={styles.heading}>Knowledge files</Text>
 			<Text style={styles.muted}>
-				Add PDF, spreadsheet, or text files up to 10 MB.
+				Add PDF, XLSX, text, or source-code files up to 10 MB. Each file can
+				contain up to 500,000 characters of extracted text.
 			</Text>
 			<Button
 				title="Add knowledge file"
@@ -133,6 +134,7 @@ export function ProjectDetail({
 					<Button
 						title={`Remove ${file.name}`}
 						secondary
+						disabled={deleteFile.isPending}
 						onPress={() =>
 							Alert.alert("Remove knowledge file?", file.name, [
 								{ text: "Cancel", style: "cancel" },
@@ -150,6 +152,10 @@ export function ProjectDetail({
 				</View>
 			))}
 			<Text style={styles.heading}>Project memory</Text>
+			<Text style={styles.muted}>
+				Facts carry across this project's conversations. Add them here or let
+				the assistant learn them as you chat.
+			</Text>
 			<Field
 				label="Memory"
 				value={memory}
@@ -176,6 +182,9 @@ export function ProjectDetail({
 			{memories.data?.memories.map((item) => (
 				<View key={item.id} style={styles.card}>
 					<Text style={styles.body}>{item.content}</Text>
+					{item.source === "auto" && (
+						<Text style={styles.muted}>Learned from a conversation</Text>
+					)}
 					<Button
 						title="Edit memory"
 						secondary

@@ -21,6 +21,7 @@ import {
 	storedAttachments,
 } from "@/api/chat-messages";
 import { api, client, queryClient } from "@/api/client";
+import { rememberProjectExchange } from "@/api/project-memory";
 import { generateReply, saveReply } from "@/api/reply";
 import { ChatSettings } from "@/components/ChatSettings";
 import { ChatSharing } from "@/components/ChatSharing";
@@ -112,7 +113,17 @@ export function Chat({
 	);
 	const messages = temporary ? temporaryMessages : (chat.data?.messages ?? []);
 	const model = selectedModel ?? chat.data?.chat.model ?? "auto";
-	const currentProject = chat.data?.chat.projectId ?? knowledgeProjectId;
+	const currentProject = chat.data
+		? (chat.data.chat.projectId ?? undefined)
+		: knowledgeProjectId;
+	const project = api.useQuery(
+		"get",
+		"/chat-projects/{id}",
+		{
+			params: { path: { id: currentProject ?? "" } },
+		},
+		{ enabled: !!currentProject },
+	);
 	const baseSettings = preferences.data?.chat ?? defaultChatSettings;
 	const settings = {
 		...baseSettings,
@@ -124,6 +135,14 @@ export function Chat({
 		await refreshChatHistory();
 		await queryClient.invalidateQueries({ queryKey: ["comparison-session"] });
 		await queryClient.invalidateQueries({ queryKey: ["get", "/chats/{id}"] });
+		if (currentProject) {
+			await queryClient.invalidateQueries({
+				queryKey: ["get", "/chat-projects"],
+			});
+			await queryClient.invalidateQueries({
+				queryKey: ["get", "/chat-projects/{id}"],
+			});
+		}
 	};
 	const send = useMutation({
 		mutationFn: async (action: SendAction) => {
@@ -268,6 +287,13 @@ export function Chat({
 								.find((message) => message.role === "assistant")
 						: undefined;
 				await saveReply(currentId, reply, lastAssistant?.id);
+				void rememberProjectExchange({
+					knowledgeProjectId: currentProject,
+					billingProjectId: projectId,
+					userMessage: content,
+					reply,
+					aborted: controller.signal.aborted,
+				});
 			}
 			setDraft("");
 			setReasoning("");
@@ -346,6 +372,9 @@ export function Chat({
 						/>
 					)}
 				</View>
+				{project.data?.project && (
+					<Text style={styles.muted}>Project: {project.data.project.name}</Text>
+				)}
 				{!id && (
 					<View style={styles.row}>
 						<Text style={[styles.muted, { flex: 1 }]}>

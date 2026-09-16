@@ -26,8 +26,17 @@ export function Projects({
 	const [name, setName] = useState("");
 	const [description, setDescription] = useState("");
 	const [instructions, setInstructions] = useState("");
-	const refresh = () =>
-		queryClient.invalidateQueries({ queryKey: ["get", "/chat-projects"] });
+	const refresh = async () => {
+		await queryClient.invalidateQueries({
+			queryKey: ["get", "/chat-projects"],
+		});
+		await queryClient.invalidateQueries({
+			queryKey: ["get", "/chat-projects/{id}"],
+		});
+		await queryClient.invalidateQueries({ queryKey: ["get", "/chats"] });
+		await queryClient.invalidateQueries({ queryKey: ["get", "/chats/{id}"] });
+		await queryClient.invalidateQueries({ queryKey: ["get", "/chats/search"] });
+	};
 	const saved = () => {
 		setEditing(false);
 		void refresh();
@@ -131,7 +140,7 @@ export function Projects({
 						onPress={() =>
 							Alert.alert(
 								"Delete project?",
-								"This removes the project and its knowledge files.",
+								"This removes the project's files and memories. Its conversations are kept without project context.",
 								[
 									{ text: "Cancel", style: "cancel" },
 									{

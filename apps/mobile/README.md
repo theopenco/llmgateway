@@ -55,7 +55,7 @@ Verified during development:
 
 - Full repository build: 20 workspaces passed.
 - Repository unit suite: 7,058 passed, 2 skipped; chat history/search tests: 7 passed.
-- Native tests: 137 passed; shared image configuration tests: 3 passed.
+- Native tests: 154 passed; shared image configuration tests: 3 passed.
 - Gateway speech tests: 20 passed.
 - Video configuration: 25 passed; gateway video and byte-range tests: 57 passed.
 - Signed Release build launched on the iOS simulator with local service URLs.
@@ -68,6 +68,9 @@ Verified during development:
   persistence through restart/retry/edit passed.
 - Native history search: message text, restart persistence, archived results,
   and restoring a match to active history passed.
+- Native projects: file import/retrieval, manual memory editing/deletion, automatic
+  learning across conversations and restart, file removal, project editing, and
+  keeping conversations without context after project deletion passed.
 - Native model selection: provider pinning, favorites across restart, removing
   favorites, and switching back to Auto passed.
 - Native citations: source links and web-search settings survived restart.
@@ -95,6 +98,12 @@ Verified during development:
   The iOS 26 Files picker needs the coordinate taps documented in the flows.
   Rerun the complete flows after later app changes.
 
+For `e2e/projects.yaml`, place the sample document in the dedicated simulator's Files storage first:
+
+```sh
+pnpm exec tsx apps/mobile/e2e/prepare-projects.ts <simulator-device-id>
+```
+
 Additional chat flows cover controls, streaming, sources, and sharing in
 `e2e/chat-*.yaml`. Run `e2e/images.yaml` before `e2e/chat-attachments.yaml`
 to place its generated PNG in Files.
@@ -115,7 +124,7 @@ A checkbox requires observed behavior, not just a screen or passing type check.
 - [ ] Chat: streaming, model selection/favorites, search, reasoning, attachments, web search, stop/retry/edit/fork, settings
 - [ ] History: synchronization, search, pin, archive, delete, public and organization sharing
 - [x] Model comparison and group conversations
-- [ ] Projects: instructions, files, retrieval, memory, associated chats
+- [x] Projects: instructions, files, retrieval, memory, associated chats
 - [ ] Skills: create, edit, generate, enable, delete, apply in chat
 - [ ] Connectors: connect, authorize, use, disconnect
 - [x] Image creation/editing, settings, multi-model comparison, history, save/share
