@@ -9,6 +9,7 @@ import { useState } from "react";
 import { StatusBar, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { VoiceCallsProvider } from "@/components/VoiceCallsProvider";
 import { AudioStudio } from "@/screens/AudioStudio";
 import { Comparison } from "@/screens/Comparison";
 import { Conversation } from "@/screens/Conversation";
@@ -18,6 +19,7 @@ import { ProjectDetail } from "@/screens/ProjectDetail";
 import { SharedConversations } from "@/screens/SharedConversations";
 import { Transcription } from "@/screens/Transcription";
 import { VideoStudio } from "@/screens/VideoStudio";
+import { VoiceCalls } from "@/screens/VoiceCalls";
 
 import { api, queryClient } from "./src/api/client";
 import { restoreSession, clearSession } from "./src/auth/session";
@@ -45,6 +47,7 @@ type Routes = {
 	VideoStudio: undefined;
 	AudioStudio: undefined;
 	Transcription: undefined;
+	VoiceCalls: undefined;
 	Workspaces: undefined;
 	Chat: { id?: string; knowledgeProjectId?: string; single?: boolean };
 	Comparison: { id?: string };
@@ -100,219 +103,239 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 	}
 	const { organizationId, projectId } = workspace ?? context.data;
 	return (
-		<NavigationContainer theme={theme} key={organizationId}>
-			<Stack.Navigator
-				screenOptions={{
-					headerShadowVisible: false,
-					headerBackButtonDisplayMode: "minimal",
-					contentStyle: { backgroundColor: colors.background },
-				}}
-			>
-				<Stack.Screen name="Home" options={{ title: "The Lounge" }}>
-					{({ navigation }) => (
-						<Screen>
-							<View style={{ paddingVertical: 25, gap: 18 }}>
-								<Text style={styles.eyebrow}>MAKE YOURSELF AT HOME</Text>
-								<Text style={styles.title}>
-									Where ideas{"\n"}find their people.
-								</Text>
-								<Text style={styles.muted}>
-									A conversation away from something new.
-								</Text>
-							</View>
-							<Button
-								title="Start a conversation"
-								onPress={() => navigation.navigate("Chat", {})}
-							/>
-							<Button
-								title="Compare models"
-								secondary
-								onPress={() => navigation.navigate("Comparison", {})}
-							/>
-							<Button
-								title="Group discussion"
-								secondary
-								onPress={() => navigation.navigate("GroupConversation")}
-							/>
-							<View style={styles.card}>
-								<Text style={styles.heading}>Pick up where you left off</Text>
+		<VoiceCallsProvider
+			key={organizationId}
+			organizationId={organizationId}
+			projectId={projectId}
+		>
+			<NavigationContainer theme={theme} key={organizationId}>
+				<Stack.Navigator
+					screenOptions={{
+						headerShadowVisible: false,
+						headerBackButtonDisplayMode: "minimal",
+						contentStyle: { backgroundColor: colors.background },
+					}}
+				>
+					<Stack.Screen name="Home" options={{ title: "The Lounge" }}>
+						{({ navigation }) => (
+							<Screen>
+								<View style={{ paddingVertical: 25, gap: 18 }}>
+									<Text style={styles.eyebrow}>MAKE YOURSELF AT HOME</Text>
+									<Text style={styles.title}>
+										Where ideas{"\n"}find their people.
+									</Text>
+									<Text style={styles.muted}>
+										A conversation away from something new.
+									</Text>
+								</View>
 								<Button
-									title="Conversations"
-									secondary
-									onPress={() => navigation.navigate("History")}
+									title="Start a conversation"
+									onPress={() => navigation.navigate("Chat", {})}
 								/>
 								<Button
-									title="Shared conversations"
+									title="Compare models"
 									secondary
-									onPress={() => navigation.navigate("SharedConversations")}
+									onPress={() => navigation.navigate("Comparison", {})}
 								/>
 								<Button
-									title="Projects"
+									title="Group discussion"
 									secondary
-									onPress={() => navigation.navigate("Projects")}
+									onPress={() => navigation.navigate("GroupConversation")}
+								/>
+								<View style={styles.card}>
+									<Text style={styles.heading}>Pick up where you left off</Text>
+									<Button
+										title="Conversations"
+										secondary
+										onPress={() => navigation.navigate("History")}
+									/>
+									<Button
+										title="Shared conversations"
+										secondary
+										onPress={() => navigation.navigate("SharedConversations")}
+									/>
+									<Button
+										title="Projects"
+										secondary
+										onPress={() => navigation.navigate("Projects")}
+									/>
+									<Button
+										title="Skills"
+										secondary
+										onPress={() => navigation.navigate("Skills")}
+									/>
+								</View>
+								<Button
+									title="Image Studio"
+									secondary
+									onPress={() => navigation.navigate("ImageStudio")}
 								/>
 								<Button
-									title="Skills"
+									title="Video Studio"
 									secondary
-									onPress={() => navigation.navigate("Skills")}
+									onPress={() => navigation.navigate("VideoStudio")}
 								/>
-							</View>
-							<Button
-								title="Image Studio"
-								secondary
-								onPress={() => navigation.navigate("ImageStudio")}
+								<Button
+									title="Audio Studio"
+									secondary
+									onPress={() => navigation.navigate("AudioStudio")}
+								/>
+								<Button
+									title="Live transcription"
+									secondary
+									onPress={() => navigation.navigate("Transcription")}
+								/>
+								<Button
+									title="Voice calls"
+									secondary
+									onPress={() => navigation.navigate("VoiceCalls")}
+								/>
+								<Button
+									title="Switch workspace"
+									secondary
+									onPress={() => navigation.navigate("Workspaces")}
+								/>
+								<Button
+									title="Your profile"
+									secondary
+									onPress={() => navigation.navigate("Profile")}
+								/>
+							</Screen>
+						)}
+					</Stack.Screen>
+					<Stack.Screen name="Chat" options={{ title: "Conversation" }}>
+						{({ route, navigation }) => (
+							<Conversation
+								key={
+									route.params.id ?? route.params.knowledgeProjectId ?? "new"
+								}
+								chatId={route.params.id}
+								single={route.params.single}
+								onOpenChat={(id) =>
+									navigation.push("Chat", { id, single: true })
+								}
+								knowledgeProjectId={route.params.knowledgeProjectId}
+								organizationId={organizationId}
+								projectId={projectId}
 							/>
-							<Button
-								title="Video Studio"
-								secondary
-								onPress={() => navigation.navigate("VideoStudio")}
+						)}
+					</Stack.Screen>
+					<Stack.Screen name="Comparison" options={{ title: "Compare models" }}>
+						{({ route, navigation }) => (
+							<Comparison
+								key={route.params.id ?? "new"}
+								chatId={route.params.id}
+								organizationId={organizationId}
+								projectId={projectId}
+								onOpenChat={(id) =>
+									navigation.push("Chat", { id, single: true })
+								}
 							/>
-							<Button
-								title="Audio Studio"
-								secondary
-								onPress={() => navigation.navigate("AudioStudio")}
+						)}
+					</Stack.Screen>
+					<Stack.Screen name="History" options={{ title: "Conversations" }}>
+						{({ navigation }) => (
+							<History
+								organizationId={organizationId}
+								onChat={(id) => navigation.navigate("Chat", { id })}
 							/>
-							<Button
-								title="Live transcription"
-								secondary
-								onPress={() => navigation.navigate("Transcription")}
+						)}
+					</Stack.Screen>
+					<Stack.Screen
+						name="SharedConversations"
+						options={{ title: "Shared conversations" }}
+					>
+						{({ navigation }) => (
+							<SharedConversations
+								organizationId={organizationId}
+								onChat={(id) => navigation.navigate("Chat", { id })}
 							/>
-							<Button
-								title="Switch workspace"
-								secondary
-								onPress={() => navigation.navigate("Workspaces")}
+						)}
+					</Stack.Screen>
+					<Stack.Screen name="Projects">
+						{({ navigation }) => (
+							<Projects
+								organizationId={organizationId}
+								onProject={(id) => navigation.navigate("ProjectDetail", { id })}
 							/>
-							<Button
-								title="Your profile"
-								secondary
-								onPress={() => navigation.navigate("Profile")}
+						)}
+					</Stack.Screen>
+					<Stack.Screen
+						name="GroupConversation"
+						options={{ title: "Group discussion" }}
+					>
+						{() => <GroupConversation projectId={projectId} />}
+					</Stack.Screen>
+					<Stack.Screen name="ProjectDetail" options={{ title: "Project" }}>
+						{({ route, navigation }) => (
+							<ProjectDetail
+								id={route.params.id}
+								billingProjectId={projectId}
+								onChat={(id) => navigation.navigate("Chat", { id })}
+								onNewChat={() =>
+									navigation.navigate("Chat", {
+										knowledgeProjectId: route.params.id,
+									})
+								}
 							/>
-						</Screen>
-					)}
-				</Stack.Screen>
-				<Stack.Screen name="Chat" options={{ title: "Conversation" }}>
-					{({ route, navigation }) => (
-						<Conversation
-							key={route.params.id ?? route.params.knowledgeProjectId ?? "new"}
-							chatId={route.params.id}
-							single={route.params.single}
-							onOpenChat={(id) => navigation.push("Chat", { id, single: true })}
-							knowledgeProjectId={route.params.knowledgeProjectId}
-							organizationId={organizationId}
-							projectId={projectId}
-						/>
-					)}
-				</Stack.Screen>
-				<Stack.Screen name="Comparison" options={{ title: "Compare models" }}>
-					{({ route, navigation }) => (
-						<Comparison
-							key={route.params.id ?? "new"}
-							chatId={route.params.id}
-							organizationId={organizationId}
-							projectId={projectId}
-							onOpenChat={(id) => navigation.push("Chat", { id, single: true })}
-						/>
-					)}
-				</Stack.Screen>
-				<Stack.Screen name="History" options={{ title: "Conversations" }}>
-					{({ navigation }) => (
-						<History
-							organizationId={organizationId}
-							onChat={(id) => navigation.navigate("Chat", { id })}
-						/>
-					)}
-				</Stack.Screen>
-				<Stack.Screen
-					name="SharedConversations"
-					options={{ title: "Shared conversations" }}
-				>
-					{({ navigation }) => (
-						<SharedConversations
-							organizationId={organizationId}
-							onChat={(id) => navigation.navigate("Chat", { id })}
-						/>
-					)}
-				</Stack.Screen>
-				<Stack.Screen name="Projects">
-					{({ navigation }) => (
-						<Projects
-							organizationId={organizationId}
-							onProject={(id) => navigation.navigate("ProjectDetail", { id })}
-						/>
-					)}
-				</Stack.Screen>
-				<Stack.Screen
-					name="GroupConversation"
-					options={{ title: "Group discussion" }}
-				>
-					{() => <GroupConversation projectId={projectId} />}
-				</Stack.Screen>
-				<Stack.Screen name="ProjectDetail" options={{ title: "Project" }}>
-					{({ route, navigation }) => (
-						<ProjectDetail
-							id={route.params.id}
-							billingProjectId={projectId}
-							onChat={(id) => navigation.navigate("Chat", { id })}
-							onNewChat={() =>
-								navigation.navigate("Chat", {
-									knowledgeProjectId: route.params.id,
-								})
-							}
-						/>
-					)}
-				</Stack.Screen>
-				<Stack.Screen name="ImageStudio" options={{ title: "Image Studio" }}>
-					{() => (
-						<ImageStudio
-							organizationId={organizationId}
-							projectId={projectId}
-						/>
-					)}
-				</Stack.Screen>
-				<Stack.Screen name="VideoStudio" options={{ title: "Video Studio" }}>
-					{() => (
-						<VideoStudio
-							organizationId={organizationId}
-							projectId={projectId}
-						/>
-					)}
-				</Stack.Screen>
-				<Stack.Screen name="AudioStudio" options={{ title: "Audio Studio" }}>
-					{() => (
-						<AudioStudio
-							organizationId={organizationId}
-							projectId={projectId}
-						/>
-					)}
-				</Stack.Screen>
-				<Stack.Screen
-					name="Transcription"
-					options={{ title: "Live transcription" }}
-				>
-					{() => <Transcription projectId={projectId} />}
-				</Stack.Screen>
-				<Stack.Screen name="Skills" component={Skills} />
-				<Stack.Screen name="Workspaces">
-					{() => (
-						<Workspaces currentId={organizationId} onSelect={setWorkspace} />
-					)}
-				</Stack.Screen>
-				<Stack.Screen
-					name="DeleteAccount"
-					options={{ title: "Delete account" }}
-				>
-					{() => <DeleteAccount onDeleted={onSignedOut} />}
-				</Stack.Screen>
-				<Stack.Screen name="Profile">
-					{({ navigation }) => (
-						<Profile
-							onSignedOut={onSignedOut}
-							onDelete={() => navigation.navigate("DeleteAccount")}
-						/>
-					)}
-				</Stack.Screen>
-			</Stack.Navigator>
-		</NavigationContainer>
+						)}
+					</Stack.Screen>
+					<Stack.Screen name="ImageStudio" options={{ title: "Image Studio" }}>
+						{() => (
+							<ImageStudio
+								organizationId={organizationId}
+								projectId={projectId}
+							/>
+						)}
+					</Stack.Screen>
+					<Stack.Screen name="VideoStudio" options={{ title: "Video Studio" }}>
+						{() => (
+							<VideoStudio
+								organizationId={organizationId}
+								projectId={projectId}
+							/>
+						)}
+					</Stack.Screen>
+					<Stack.Screen name="AudioStudio" options={{ title: "Audio Studio" }}>
+						{() => (
+							<AudioStudio
+								organizationId={organizationId}
+								projectId={projectId}
+							/>
+						)}
+					</Stack.Screen>
+					<Stack.Screen
+						name="Transcription"
+						options={{ title: "Live transcription" }}
+					>
+						{() => <Transcription projectId={projectId} />}
+					</Stack.Screen>
+					<Stack.Screen name="Skills" component={Skills} />
+					<Stack.Screen name="VoiceCalls" options={{ title: "Voice calls" }}>
+						{() => <VoiceCalls organizationId={organizationId} />}
+					</Stack.Screen>
+					<Stack.Screen name="Workspaces">
+						{() => (
+							<Workspaces currentId={organizationId} onSelect={setWorkspace} />
+						)}
+					</Stack.Screen>
+					<Stack.Screen
+						name="DeleteAccount"
+						options={{ title: "Delete account" }}
+					>
+						{() => <DeleteAccount onDeleted={onSignedOut} />}
+					</Stack.Screen>
+					<Stack.Screen name="Profile">
+						{({ navigation }) => (
+							<Profile
+								onSignedOut={onSignedOut}
+								onDelete={() => navigation.navigate("DeleteAccount")}
+							/>
+						)}
+					</Stack.Screen>
+				</Stack.Navigator>
+			</NavigationContainer>
+		</VoiceCallsProvider>
 	);
 }
 function Session() {

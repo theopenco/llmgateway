@@ -35,7 +35,7 @@ pnpm --filter mobile test:upstream
 pnpm --filter mobile test:gateway
 ```
 
-The launcher replaces environment provider credentials with OpenAI and xAI mocks at
+The launcher replaces environment provider credentials with OpenAI, xAI, and Gemini mocks at
 `GATEWAY_PORT + 8`. The flows select the seeded test organization. Stop both
 processes after testing.
 
@@ -55,7 +55,7 @@ Verified during development:
 
 - Full repository build: 20 workspaces passed.
 - Repository unit suite: 7,058 passed, 2 skipped; chat history/search tests: 7 passed.
-- Native tests: 92 passed; shared image configuration tests: 3 passed.
+- Native tests: 137 passed; shared image configuration tests: 3 passed.
 - Gateway speech tests: 20 passed.
 - Video configuration: 25 passed; gateway video and byte-range tests: 57 passed.
 - Signed Release build launched on the iOS simulator with local service URLs.
@@ -98,6 +98,11 @@ to place its generated PNG in Files.
 
 The Markdown renderer patch supplies accessibility bounds alongside its
 VoiceOver outlines so iOS automation can inspect rendered text.
+
+The audio patch adapts iOS voice processing from upstream
+[react-native-audio-api #1210](https://github.com/software-mansion/react-native-audio-api/pull/1210)
+for 0.13.3. Voice calls enable echo cancellation before resolving the microphone
+format. It also keeps the existing Worklets compatibility fix.
 
 ## Delivery checklist
 

@@ -16,7 +16,11 @@ export interface Microphone {
 	stop: () => Promise<void>;
 }
 
-export function createMicrophone(): Microphone {
+export function createMicrophone(
+	sampleRate = REALTIME_SAMPLE_RATE,
+	permissionMessage = "Allow microphone access in iOS Settings to transcribe speech.",
+	voiceProcessing = false,
+): Microphone {
 	const abort = new AbortController();
 	let recorder: AudioRecorder | undefined;
 	let active = false;
@@ -30,9 +34,7 @@ export function createMicrophone(): Microphone {
 				const permission = await AudioManager.requestRecordingPermissions();
 				abort.signal.throwIfAborted();
 				if (permission !== "Granted") {
-					throw new Error(
-						"Allow microphone access in iOS Settings to transcribe speech.",
-					);
+					throw new Error(permissionMessage);
 				}
 				AudioManager.setAudioSessionOptions({
 					iosCategory: "playAndRecord",
@@ -43,7 +45,7 @@ export function createMicrophone(): Microphone {
 				await AudioManager.setAudioSessionActivity(true);
 				active = true;
 				abort.signal.throwIfAborted();
-				recorder = new AudioRecorder();
+				recorder = new AudioRecorder({ iosVoiceProcessing: voiceProcessing });
 				AudioManager.observeAudioInterruptions(true);
 				interruption = AudioManager.addSystemEventListener(
 					"interruption",
@@ -60,8 +62,8 @@ export function createMicrophone(): Microphone {
 				recorder.onError(({ message }) => onError(new Error(message)));
 				const callback = recorder.onAudioReady(
 					{
-						sampleRate: REALTIME_SAMPLE_RATE,
-						bufferLength: 2400,
+						sampleRate,
+						bufferLength: sampleRate / 10,
 						channelCount: 1,
 					},
 					({ buffer, numFrames }) => {
@@ -71,6 +73,7 @@ export function createMicrophone(): Microphone {
 						const samples = resampleLinear(
 							buffer.getChannelData(0).subarray(0, numFrames),
 							buffer.sampleRate,
+							sampleRate,
 						);
 						onAudio(
 							floatToPcm16Base64(samples),

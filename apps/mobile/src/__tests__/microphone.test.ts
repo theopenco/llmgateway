@@ -63,6 +63,22 @@ test("resamples the actual device rate into mono 24 kHz PCM and releases native 
 	expect(AudioManager.setAudioSessionActivity).toHaveBeenLastCalledWith(false);
 });
 
+test("opts voice calls into echo cancellation and converts device audio to 16 kHz", async () => {
+	const microphone = createMicrophone(16000, "Enable microphone access", true);
+	const audio = jest.fn();
+	await microphone.start(audio, jest.fn());
+	expect(AudioRecorder).toHaveBeenCalledWith({ iosVoiceProcessing: true });
+	recorder.onAudioReady.mock.calls[0][1]({
+		buffer: {
+			sampleRate: 48000,
+			getChannelData: () => new Float32Array([1, 1, 1, -1, -1, -1]),
+		},
+		numFrames: 6,
+	});
+	expect(audio).toHaveBeenCalledWith("/38BgA==", 1);
+	await microphone.stop();
+});
+
 test("does not activate recording when cancelled while the permission dialog is open", async () => {
 	let allow!: (permission: "Granted") => void;
 	jest.mocked(AudioManager.requestRecordingPermissions).mockReturnValue(

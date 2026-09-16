@@ -23,12 +23,22 @@ const image = readFileSync(
 setMockVideoAsset(
 	readFileSync(new URL("./fixtures/test-video.mp4", import.meta.url)),
 );
-setMockAudioAsset(
-	"wav",
-	readFileSync(
-		new URL("../../gateway/src/test-fixtures/test-audio.wav", import.meta.url),
-	),
+const voiceWav = readFileSync(
+	new URL("../../gateway/src/test-fixtures/test-audio.wav", import.meta.url),
 );
+setMockAudioAsset("wav", voiceWav);
+let voicePcm: Buffer | undefined;
+for (let offset = 12; offset + 8 <= voiceWav.length;) {
+	const length = voiceWav.readUInt32LE(offset + 4);
+	if (voiceWav.toString("ascii", offset, offset + 4) === "data") {
+		voicePcm = voiceWav.subarray(offset + 8, offset + 8 + length);
+		break;
+	}
+	offset += 8 + length + (length % 2);
+}
+if (!voicePcm?.length) {
+	throw new Error("The voice fixture has no PCM data.");
+}
 for (const format of ["mp3", "aac", "flac", "opus"]) {
 	setMockAudioAsset(
 		format,
@@ -81,9 +91,15 @@ mockOpenAIServer.post("/v1/images/edits", async (context) => {
 	);
 });
 
+const voiceFixture = Buffer.concat(Array<Buffer>(4).fill(voicePcm));
+
 void startMockServer(Number(process.env.GATEWAY_PORT) + 8)
 	.then((url) => {
-		startMockRealtimeServer(Number(process.env.GATEWAY_PORT) + 9, url);
+		startMockRealtimeServer(
+			Number(process.env.GATEWAY_PORT) + 9,
+			url,
+			voiceFixture,
+		);
 	})
 	.catch((error: unknown) => {
 		process.stderr.write(

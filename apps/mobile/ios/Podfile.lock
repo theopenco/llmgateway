@@ -2722,7 +2722,7 @@ SPEC CHECKSUMS:
   ReactNativeEnrichedMarkdown: 96ab4154f69a8f93f1cfe2e51bd2cf35193e287b
   ReactNativeFileAccess: dc6b9332ae13192961c3464c20e52df51d34cb7d
   ReactNativeVideo: 87d692c653ba257abd9a6e3dab1e768ee75b9483
-  RNAudioAPI: c0c4010096277c5b0297e2b3d0a71dcc9464bdb4
+  RNAudioAPI: abf55db32e548ce611cbb2a3614ce3e48729ba57
   RNCClipboard: 93375695275b24a6738ea21e78cb865e1ed869d9
   RNGestureHandler: 9a5c2dece6095151dd94d99d6c428720f08bdae8
   RNKeychain: 9a6ea3f5824cfeea8652d70f59a16d9e73e6c817
