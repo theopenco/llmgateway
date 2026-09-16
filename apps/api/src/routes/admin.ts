@@ -10880,9 +10880,11 @@ const costByModelTimeseriesPointSchema = z.object({
 	entries: z.array(costByModelTimeseriesBucketSchema),
 });
 
+const costTimeseriesBucketSchema = z.enum(["hour", "day"]);
+
 const costByModelTimeseriesResponseSchema = z.object({
 	window: tokenWindowSchema,
-	bucket: z.enum(["hour", "day"]),
+	bucket: costTimeseriesBucketSchema,
 	modelView: costByModelViewSchema,
 	groupBy: z.enum(["model", "source", "project", "api-key", "user"]),
 	models: z.array(z.string()),
@@ -10931,6 +10933,7 @@ const getOrgCostByModelTimeseries = createRoute({
 			groupBy: organizationCostTimeseriesGroupBySchema
 				.default("model")
 				.optional(),
+			bucket: costTimeseriesBucketSchema.optional(),
 		}),
 	},
 	responses: {
@@ -10956,7 +10959,7 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 	const modelView = query.modelView ?? "mapping";
 	const groupBy = query.groupBy ?? "model";
 	const startDate = getTokenWindowStartDate(window);
-	const bucketUnit = getBucketUnitForWindow(window);
+	const bucketUnit = query.bucket ?? getBucketUnitForWindow(window);
 
 	const org = await db.query.organization.findFirst({
 		where: { id: { eq: orgId } },
@@ -11027,6 +11030,7 @@ const getProjectCostByModelTimeseries = createRoute({
 			window: tokenWindowSchema.default("7d").optional(),
 			modelView: costByModelViewSchema.default("mapping").optional(),
 			groupBy: costTimeseriesGroupBySchema.default("model").optional(),
+			bucket: costTimeseriesBucketSchema.optional(),
 		}),
 	},
 	responses: {
@@ -11051,7 +11055,7 @@ admin.openapi(getProjectCostByModelTimeseries, async (c) => {
 	const modelView = query.modelView ?? "mapping";
 	const groupBy = query.groupBy ?? "model";
 	const startDate = getTokenWindowStartDate(window);
-	const bucketUnit = getBucketUnitForWindow(window);
+	const bucketUnit = query.bucket ?? getBucketUnitForWindow(window);
 
 	const project = await db.query.project.findFirst({
 		where: {

@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 import type { ChartConfig } from "@/components/ui/chart";
 import type {
 	CostByModelTimeseriesResponse,
+	CostTimeseriesBucket,
 	CostTimeseriesGroupBy,
 	ModelView,
 	TokenWindow,
@@ -39,6 +40,25 @@ const metricTabs: { key: ActiveMetric; label: string }[] = [
 	{ key: "requestCount", label: "Requests" },
 	{ key: "totalTokens", label: "Tokens" },
 ];
+
+type BucketOption = "auto" | CostTimeseriesBucket;
+
+const bucketTabs: { key: BucketOption; label: string }[] = [
+	{ key: "auto", label: "Auto" },
+	{ key: "hour", label: "Hourly" },
+	{ key: "day", label: "Daily" },
+];
+
+// Hourly buckets over a long window produce thousands of bars, so the override
+// is only offered for windows where the chart stays readable.
+const hourlyBucketWindows = new Set<TokenWindow>([
+	"1h",
+	"4h",
+	"12h",
+	"1d",
+	"7d",
+	"30d",
+]);
 
 const modelViewTabs: { key: ModelView; label: string }[] = [
 	{ key: "mapping", label: "Mappings" },
@@ -92,6 +112,7 @@ export function CostByModelTimeseriesChart({
 		window: TokenWindow,
 		modelView: ModelView,
 		groupBy: CostTimeseriesGroupBy,
+		bucket: CostTimeseriesBucket | undefined,
 	) => Promise<CostByModelTimeseriesResponse | null>;
 	externalWindow: TokenWindow;
 	groupBy?: CostTimeseriesGroupBy;
@@ -107,14 +128,25 @@ export function CostByModelTimeseriesChart({
 		useState<ModelView>("mapping");
 	const modelView = controlledModelView ?? internalModelView;
 	const setModelView = onModelViewChange ?? setInternalModelView;
+	const [bucketOption, setBucketOption] = useState<BucketOption>("auto");
 	const latestRequestRef = useRef(0);
 	const activeGroupBy = groupBy ?? "model";
+	const hourlyAllowed = hourlyBucketWindows.has(externalWindow);
+	const activeBucketOption: BucketOption =
+		bucketOption === "hour" && !hourlyAllowed ? "auto" : bucketOption;
+	const bucketOverride =
+		activeBucketOption === "auto" ? undefined : activeBucketOption;
 
 	const loadData = useCallback(async () => {
 		const requestId = ++latestRequestRef.current;
 		setLoading(true);
 		try {
-			const result = await fetchData(externalWindow, modelView, activeGroupBy);
+			const result = await fetchData(
+				externalWindow,
+				modelView,
+				activeGroupBy,
+				bucketOverride,
+			);
 			if (requestId !== latestRequestRef.current) {
 				return;
 			}
@@ -130,7 +162,7 @@ export function CostByModelTimeseriesChart({
 				setLoading(false);
 			}
 		}
-	}, [fetchData, externalWindow, modelView, activeGroupBy]);
+	}, [fetchData, externalWindow, modelView, activeGroupBy, bucketOverride]);
 
 	useEffect(() => {
 		void loadData();
@@ -244,6 +276,38 @@ export function CostByModelTimeseriesChart({
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
 						<UsageModeSelector />
+						<div
+							className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5"
+							role="group"
+							aria-label="Bucket size"
+						>
+							{bucketTabs.map((tab) => {
+								const disabled = tab.key === "hour" && !hourlyAllowed;
+								return (
+									<button
+										key={tab.key}
+										type="button"
+										disabled={disabled}
+										title={
+											disabled
+												? "Hourly buckets are only available for windows up to 30 days"
+												: undefined
+										}
+										aria-pressed={activeBucketOption === tab.key}
+										className={cn(
+											"rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
+											activeBucketOption === tab.key
+												? "bg-primary text-primary-foreground"
+												: "text-muted-foreground hover:text-foreground",
+											disabled && "cursor-not-allowed opacity-50",
+										)}
+										onClick={() => setBucketOption(tab.key)}
+									>
+										{tab.label}
+									</button>
+								);
+							})}
+						</div>
 						{onGroupByChange && (
 							<div
 								className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-0.5"
