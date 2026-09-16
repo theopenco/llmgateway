@@ -1,10 +1,19 @@
 appId: io.llmgateway.lounge
 ---
 - scrollUntilVisible:
-    element: "Switch workspace"
-    direction: DOWN
+    element: "Start a conversation"
+    direction: UP
     timeout: 45000
     waitToSettleTimeoutMs: 500
-- tapOn: "Switch workspace"
-- tapOn: "Use Test Organization"
+- runFlow:
+    when:
+      notVisible: "Current workspace: Test Organization"
+    commands:
+      - scrollUntilVisible:
+          element: "Switch workspace"
+          direction: DOWN
+          timeout: 45000
+          waitToSettleTimeoutMs: 500
+      - tapOn: "Switch workspace"
+      - tapOn: "Use Test Organization"
 - assertVisible: "Start a conversation"

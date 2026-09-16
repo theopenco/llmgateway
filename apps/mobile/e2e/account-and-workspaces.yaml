@@ -57,12 +57,7 @@ appId: io.llmgateway.lounge
 - assertVisible: "A shared writing workspace"
 - assertVisible: "Write concise, helpful explanations."
 - launchApp
-- scrollUntilVisible:
-    element: "Switch workspace"
-    direction: DOWN
-    centerElement: true
-- tapOn: "Switch workspace"
-- tapOn: "Use Test Organization"
+- assertVisible: "Current workspace: Test Organization"
 - tapOn: "Projects"
 - assertVisible: "Native writing project"
 - tapOn: "Delete Native writing project"

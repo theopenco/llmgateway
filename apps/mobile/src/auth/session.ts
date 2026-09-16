@@ -5,6 +5,7 @@ import { getSessionToken, queryClient, setSessionToken } from "@/api/client";
 import { clearGatewayKey } from "@/api/completion";
 import { config } from "@/config";
 import { clearPreferences } from "@/lib/preferences";
+import { clearWorkspace } from "@/lib/workspace";
 
 const service = "io.llmgateway.lounge.session";
 export const auth = createAuthClient({
@@ -46,6 +47,7 @@ export async function signOut() {
 }
 
 export async function clearSession() {
+	await clearWorkspace();
 	await clearPreferences();
 	await Keychain.resetGenericPassword({ service });
 	setSessionToken(null);
