@@ -1,11 +1,13 @@
 import { useMutation } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Linking, Text, View } from "react-native";
 
+import { startBrowserSignIn } from "@/auth/browser-sign-in";
 import { auth, signIn } from "@/auth/session";
 import { AppearancePicker } from "@/components/AppearancePicker";
 import { Button, ErrorNotice, Field, Screen, styles } from "@/components/ui";
 import { config } from "@/config";
+import { BrowserSignIn } from "@/screens/BrowserSignIn";
 
 type Mode = "signin" | "signup" | "reset";
 export function SignIn({
@@ -18,6 +20,20 @@ export function SignIn({
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [notice, setNotice] = useState("");
+	const browserControllerRef = useRef<AbortController | null>(null);
+	useEffect(
+		() => () =>
+			browserControllerRef.current?.abort(new Error("Sign-in cancelled.")),
+		[],
+	);
+	const browser = useMutation({ mutationFn: startBrowserSignIn });
+	function startBrowser() {
+		browserControllerRef.current?.abort(new Error("Sign-in cancelled."));
+		const controller = new AbortController();
+		browserControllerRef.current = controller;
+		browser.reset();
+		browser.mutate(controller.signal);
+	}
 	const login = useMutation({
 		mutationFn: () => signIn(email, password),
 		onSuccess: (token) => onSignedIn(token),
@@ -61,13 +77,28 @@ export function SignIn({
 	const openWebsite = useMutation({
 		mutationFn: (url: string) => Linking.openURL(url),
 	});
-	const busy = login.isPending || signup.isPending || reset.isPending;
+	const accountBusy = login.isPending || signup.isPending || reset.isPending;
+	const busy = accountBusy || browser.isPending;
 	function changeMode(next: Mode) {
 		setMode(next);
 		setNotice("");
 		login.reset();
 		signup.reset();
 		reset.reset();
+	}
+	if (browser.data && browserControllerRef.current) {
+		return (
+			<BrowserSignIn
+				request={browser.data}
+				signal={browserControllerRef.current.signal}
+				onSignedIn={onSignedIn}
+				onRestart={startBrowser}
+				onCancel={() => {
+					browserControllerRef.current?.abort(new Error("Sign-in cancelled."));
+					browser.reset();
+				}}
+			/>
+		);
 	}
 	return (
 		<Screen fullScreen>
@@ -112,7 +143,13 @@ export function SignIn({
 				</Text>
 			)}
 			<ErrorNotice
-				error={login.error ?? signup.error ?? reset.error ?? openWebsite.error}
+				error={
+					login.error ??
+					signup.error ??
+					reset.error ??
+					browser.error ??
+					openWebsite.error
+				}
 			/>
 			{!!notice && (
 				<Text role="alert" style={styles.body}>
@@ -127,8 +164,9 @@ export function SignIn({
 							? "Create account"
 							: "Send reset link"
 				}
-				busy={busy}
+				busy={accountBusy}
 				disabled={
+					busy ||
 					!email.trim() ||
 					(mode !== "reset" && !password) ||
 					(mode === "signup" &&
@@ -145,13 +183,25 @@ export function SignIn({
 			{mode === "signin" ? (
 				<>
 					<Button
+						title="Sign in with browser"
+						secondary
+						busy={browser.isPending}
+						disabled={busy}
+						onPress={startBrowser}
+					/>
+					<Text style={styles.muted}>
+						Use a passkey, social sign-in, or SSO.
+					</Text>
+					<Button
 						title="Create an account"
 						secondary
+						disabled={busy}
 						onPress={() => changeMode("signup")}
 					/>
 					<Button
 						title="Forgot password?"
 						secondary
+						disabled={busy}
 						onPress={() => changeMode("reset")}
 					/>
 					<Text style={styles.muted}>
@@ -162,6 +212,7 @@ export function SignIn({
 				<Button
 					title="Back to sign in"
 					secondary
+					disabled={busy}
 					onPress={() => changeMode("signin")}
 				/>
 			)}

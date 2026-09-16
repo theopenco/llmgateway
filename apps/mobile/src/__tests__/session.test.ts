@@ -2,7 +2,13 @@ import * as Keychain from "react-native-keychain";
 
 import { getSessionToken, setSessionToken } from "@/api/client";
 import { clearGatewayKey } from "@/api/completion";
-import { auth, restoreSession, signIn, signOut } from "@/auth/session";
+import {
+	acceptSession,
+	auth,
+	restoreSession,
+	signIn,
+	signOut,
+} from "@/auth/session";
 
 jest.mock("@/api/completion", () => ({ clearGatewayKey: jest.fn() }));
 
@@ -12,6 +18,9 @@ jest.mock("react-native-keychain", () => ({
 	resetGenericPassword: jest.fn(),
 	ACCESSIBLE: { WHEN_UNLOCKED_THIS_DEVICE_ONLY: "WhenUnlockedThisDeviceOnly" },
 	STORAGE_TYPE: { AES_GCM_NO_AUTH: "AES_GCM_NO_AUTH" },
+}));
+jest.mock("better-auth/client/plugins", () => ({
+	deviceAuthorizationClient: jest.fn(),
 }));
 jest.mock("better-auth/client", () => ({
 	createAuthClient: () => ({
@@ -33,6 +42,10 @@ jest.mock("../api/client", () => {
 beforeEach(() => {
 	jest.clearAllMocks();
 	setSessionToken(null);
+	jest.mocked(Keychain.setGenericPassword).mockReset();
+	jest
+		.mocked(auth.signOut)
+		.mockResolvedValue({ data: { success: true }, error: null });
 });
 
 test("restores a credential from device Keychain", async () => {
@@ -86,4 +99,52 @@ test("clears gateway credentials when signing out", async () => {
 	expect(Keychain.resetGenericPassword).toHaveBeenCalledWith({
 		service: "io.llmgateway.lounge.workspace",
 	});
+});
+
+test("rejects a false Keychain result and revokes the unused password session", async () => {
+	jest.mocked(auth.signIn.email).mockResolvedValue({
+		data: { token: "fixture-session" },
+		error: null,
+	} as Awaited<ReturnType<typeof auth.signIn.email>>);
+	jest.mocked(Keychain.setGenericPassword).mockResolvedValue(false);
+	await expect(
+		signIn("admin@example.com", "admin@example.com"),
+	).rejects.toThrow("saved securely");
+	expect(getSessionToken()).toBeNull();
+	expect(auth.signOut).toHaveBeenCalledWith({
+		fetchOptions: {
+			auth: { type: "Bearer", token: "fixture-session" },
+			credentials: "omit",
+		},
+	});
+});
+
+test("removes a session saved while sign-in was cancelled", async () => {
+	const controller = new AbortController();
+	jest.mocked(Keychain.setGenericPassword).mockImplementation(async () => {
+		controller.abort(new Error("Sign-in cancelled."));
+		return {
+			service: "io.llmgateway.lounge.session",
+			storage: Keychain.STORAGE_TYPE.AES_GCM_NO_AUTH,
+		};
+	});
+	await expect(
+		acceptSession("fixture-session", controller.signal),
+	).rejects.toThrow("cancelled");
+	expect(getSessionToken()).toBeNull();
+	expect(Keychain.resetGenericPassword).toHaveBeenCalledWith({
+		service: "io.llmgateway.lounge.session",
+	});
+});
+
+test("activates the session only after secure storage succeeds", async () => {
+	jest.mocked(Keychain.setGenericPassword).mockImplementation(async () => {
+		expect(getSessionToken()).toBeNull();
+		return {
+			service: "io.llmgateway.lounge.session",
+			storage: Keychain.STORAGE_TYPE.AES_GCM_NO_AUTH,
+		};
+	});
+	expect(await acceptSession("fixture-session")).toBe("fixture-session");
+	expect(getSessionToken()).toBe("fixture-session");
 });

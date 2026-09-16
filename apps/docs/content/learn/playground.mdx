@@ -63,6 +63,8 @@ The native iOS client lives in `apps/mobile` in the repository and is under deve
 
 Sign in with your LLM Gateway email and password, or create an account and verify your email before returning to sign in. **Forgot password?** emails a link to the account website, where you can choose a new password. To permanently delete your account across LLM Gateway products, open **Your profile → Delete account**, review the affected workspaces, and confirm deletion.
 
+Choose **Sign in with browser** to use the website's passkey, social sign-in, or SSO options. Note the code shown in the app, choose **Continue in browser**, and approve only if the website shows the same code. The app returns automatically after approval and saves its separate session in iOS Keychain. Cancelling or denying the request leaves the app signed out; choose **Get a new code** to start again.
+
 Use **Switch workspace** to choose where conversations and usage belong. The home screen shows the selected workspace, and the app restores that workspace and its project after restart. If access changes or restoration fails, retry or explicitly choose another workspace before continuing. Signing out clears the device's saved selection.
 
 Conversations support Markdown, reasoning, attachments, copying, editing, retries, and forking. Chat settings include system instructions, temperature, output limits, reasoning effort, and web search where supported by the model. Settings stay on the device until sign-out. Temporary conversations stay out of Lounge history; normal gateway usage and organization retention settings still apply.
