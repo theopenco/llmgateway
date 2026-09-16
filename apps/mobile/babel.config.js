@@ -3,7 +3,14 @@ module.exports = {
 		"@babel/plugin-transform-export-namespace-from",
 		[
 			"transform-inline-environment-variables",
-			{ include: ["LOUNGE_API_URL", "LOUNGE_GATEWAY_URL", "LOUNGE_WEB_URL"] },
+			{
+				include: [
+					"LOUNGE_API_URL",
+					"LOUNGE_GATEWAY_URL",
+					"LOUNGE_WEB_URL",
+					"LOUNGE_ACCOUNT_URL",
+				],
+			},
 		],
 		"react-native-worklets/plugin",
 	],

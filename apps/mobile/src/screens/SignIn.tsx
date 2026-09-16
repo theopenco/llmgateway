@@ -45,7 +45,7 @@ export function SignIn({
 		mutationFn: async () => {
 			const result = await auth.requestPasswordReset({
 				email: email.trim(),
-				redirectTo: "https://llmgateway.io/reset-password",
+				redirectTo: `${config.accountUrl}/reset-password`,
 			});
 			if (result.error) {
 				throw new Error(
@@ -171,14 +171,14 @@ export function SignIn({
 						title="Terms"
 						secondary
 						onPress={() =>
-							openWebsite.mutate("https://llmgateway.io/legal/terms")
+							openWebsite.mutate(`${config.accountUrl}/legal/terms`)
 						}
 					/>
 					<Button
 						title="Privacy"
 						secondary
 						onPress={() =>
-							openWebsite.mutate("https://llmgateway.io/legal/privacy")
+							openWebsite.mutate(`${config.accountUrl}/legal/privacy`)
 						}
 					/>
 				</View>

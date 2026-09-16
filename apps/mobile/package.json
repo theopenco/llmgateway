@@ -22,6 +22,7 @@
 		"test": "jest --runInBand",
 		"test:upstream": "tsx e2e/upstream.ts",
 		"test:api": "node --env-file=../../.env --experimental-test-module-mocks --import tsx --import ./e2e/connector-env.mts ../api/dist/serve.js",
+		"test:account-api": "node --env-file=../../.env --experimental-test-module-mocks --import tsx --import ./e2e/account-env.mts --import ./e2e/connector-env.mts ../api/dist/serve.js",
 		"test:gateway": "node --env-file=../../.env --import tsx --import ./e2e/gateway-env.mts ../gateway/dist/serve.js",
 		"pods": "pod install --project-directory=ios",
 		"test:video-worker": "node --env-file=../../.env --import tsx --import ./e2e/gateway-env.mts ./e2e/video-worker.mts",

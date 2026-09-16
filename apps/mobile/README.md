@@ -15,8 +15,9 @@ pnpm --filter mobile ios
 ## Local verification
 
 Use an isolated stack from the root `AGENTS.md`. Set `LOUNGE_API_URL`,
-`LOUNGE_GATEWAY_URL` (including `/v1`), and `LOUNGE_WEB_URL` when building the
-simulator app to use that stack. Without overrides, builds use production URLs.
+`LOUNGE_GATEWAY_URL` (including `/v1`), `LOUNGE_WEB_URL`, and
+`LOUNGE_ACCOUNT_URL` (the main account website) when building the simulator app
+to use that stack. Without overrides, builds use production URLs.
 Restart Metro with `--reset-cache` after changing these values.
 
 ```sh
@@ -44,6 +45,13 @@ and the same isolated environment. This launcher replaces connector OAuth and
 mailbox requests with the local upstream fixture. The flow uses the system
 sign-in browser and the API's real session checks and encrypted credential store.
 
+For `e2e/accounts.yaml`, run `pnpm --filter mobile test:account-api` in place of
+the normal API launcher, alongside the mock upstream and the main UI. Build the
+app with `LOUNGE_ACCOUNT_URL` pointing to that UI. This enables hosted account
+verification, captures mail for disposable `native-account-<timestamp>@example.test`
+accounts, and disables external mail/contact notifications. The flow verifies an
+email, resets the password in Safari, and deletes only the account it created.
+
 For video flows, export a temporary `LOUNGE_TEST_VIDEO_SIGNING_KEY` and set
 `LLM_VIDEO_CONTENT_JWT_SECRET` to the same value before starting the API.
 Run `pnpm --filter mobile test:video-worker` alongside the mock and gateway.
@@ -67,13 +75,16 @@ Verified during development:
 - Repository unit suite before the UTC revenue fix: 7,102 passed, 2 skipped,
   one admin date-range failure. After the fix, all five admin revenue tests pass
   under Stockholm, Los Angeles, and UTC timezones.
-- Native tests: 298 passed; shared image configuration tests: 3 passed.
+- Native tests: 306 passed; shared image configuration tests: 3 passed.
 - Chat message persistence tests: 5 passed, including tool-only replies.
 - Gateway speech tests: 20 passed.
 - Video configuration: 25 passed; gateway video and byte-range tests: 57 passed.
 - Signed Release build launched on the iOS simulator with local service URLs.
 - Maestro account flow: sign-in errors, session restoration, workspace switching,
   project and skill persistence/deletion, profile access, and sign-out passed.
+- Native email lifecycle: signup, email verification, Safari password reset,
+  revoked sessions, rejected old passwords, deletion cancellation, permanent
+  deletion, and rejected sign-in after deletion passed.
 - Native workspace restoration: organization/project selection, chat billing and
   history after restart, switching back to personal, and clearing the choice on
   sign-out passed. An offline API required retry; an inactive saved project
