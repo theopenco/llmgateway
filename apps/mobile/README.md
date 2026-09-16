@@ -251,6 +251,11 @@ the website. Review the
 [data-use definitions](https://developer.apple.com/documentation/bundleresources/describing-data-use-in-privacy-manifests)
 when changing collection or completing App Store Connect disclosures.
 
+`Info.plist` sets `ITSAppUsesNonExemptEncryption` to `NO`: the app links only
+standard-algorithm encryption (iOS TLS plus the OpenSSL bundled by the audio
+dependency) and the beta is not distributed in France, so Apple requires no
+export documentation. Revisit this before adding France or proprietary crypto.
+
 ## Delivery checklist
 
 A checkbox requires observed behavior, not just a screen or passing type check.
@@ -275,7 +280,8 @@ A checkbox requires observed behavior, not just a screen or passing type check.
 - [x] Production JavaScript bundle and signed simulator build
 - [x] Signed device archive
 - [ ] Recorded simulator demo
-- [ ] TestFlight upload and successful processing under the requested account
+- [x] TestFlight upload under the requested account (1.0 build 1)
+- [ ] TestFlight processing and export compliance confirmed in App Store Connect
 
 Production configuration lives in `src/config.ts`. Do not publish credentials or
 local test recordings containing personal accounts. Test against seeded local data.
