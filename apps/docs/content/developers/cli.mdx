@@ -297,6 +297,8 @@ npx @llmgateway/cli docs [topic]
 
 Manage authentication (dashboard session and gateway API key).
 
+For browser-based device sign-in, the approval page is titled **Authorize your device**. Check that its code matches the one on your device before choosing **Authorize device**. Approval creates a separate account session; signing the device out leaves the browser signed in. Choose **Deny** for a request you did not start.
+
 ```bash
 # Sign in with email & password (full access), or paste an API key
 npx @llmgateway/cli auth login
