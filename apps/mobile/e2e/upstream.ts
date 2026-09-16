@@ -3,6 +3,7 @@ import process from "node:process";
 
 import { canvasUpstream } from "./canvas-upstream";
 import { connectorUpstream } from "./connector-upstream";
+import { escapeUpstream } from "./escape-upstream";
 import { projectUpstream } from "./project-upstream";
 import { skillUpstream } from "./skill-upstream";
 import {
@@ -100,7 +101,8 @@ const voiceFixture = Buffer.concat(Array<Buffer>(4).fill(voicePcm));
 void startMockServer(
 	Number(process.env.GATEWAY_PORT) + 8,
 	async (request) =>
-		await ((await canvasUpstream(request)) ??
+		await ((await escapeUpstream(request)) ??
+			(await canvasUpstream(request)) ??
 			(await connectorUpstream(request)) ??
 			(await skillUpstream(request)) ??
 			(await projectUpstream(request)) ??

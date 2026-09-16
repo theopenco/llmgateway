@@ -11,6 +11,10 @@ import { AudioStudio } from "@/screens/AudioStudio";
 import { Canvas } from "@/screens/Canvas";
 import { Comparison } from "@/screens/Comparison";
 import { Conversation } from "@/screens/Conversation";
+import { Escape } from "@/screens/Escape";
+import { EscapeLeaderboard } from "@/screens/EscapeLeaderboard";
+import { EscapeReplay } from "@/screens/EscapeReplay";
+import { EscapeRuns } from "@/screens/EscapeRuns";
 import { GroupConversation } from "@/screens/GroupConversation";
 import { ImageStudio } from "@/screens/ImageStudio";
 import { ProjectDetail } from "@/screens/ProjectDetail";
@@ -45,6 +49,10 @@ import type { Workspace } from "@/lib/workspace";
 type Routes = {
 	Home: undefined;
 	Canvas: undefined;
+	Escape: undefined;
+	EscapeRuns: undefined;
+	EscapeReplay: { id: string };
+	EscapeLeaderboard: undefined;
 	ImageStudio: undefined;
 	VideoStudio: undefined;
 	AudioStudio: undefined;
@@ -158,6 +166,11 @@ function Lounge({
 									/>
 								</View>
 								<Button
+									title="Sandbox Escape"
+									secondary
+									onPress={() => navigation.navigate("Escape")}
+								/>
+								<Button
 									title="Canvas"
 									secondary
 									onPress={() => navigation.navigate("Canvas")}
@@ -200,6 +213,39 @@ function Lounge({
 							</Screen>
 						)}
 					</Stack.Screen>
+					<Stack.Screen name="Escape" options={{ title: "Sandbox Escape" }}>
+						{({ navigation }) => (
+							<Escape
+								key={projectId}
+								projectId={projectId}
+								organizationId={organizationId}
+								onHistory={() => navigation.navigate("EscapeRuns")}
+								onLeaderboard={() => navigation.navigate("EscapeLeaderboard")}
+								onReplay={(id) => navigation.navigate("EscapeReplay", { id })}
+							/>
+						)}
+					</Stack.Screen>
+					<Stack.Screen name="EscapeRuns" options={{ title: "Saved runs" }}>
+						{({ navigation }) => (
+							<EscapeRuns
+								organizationId={organizationId}
+								onReplay={(id) => navigation.navigate("EscapeReplay", { id })}
+							/>
+						)}
+					</Stack.Screen>
+					<Stack.Screen
+						name="EscapeReplay"
+						options={{ title: "Escape replay" }}
+					>
+						{({ route }) => (
+							<EscapeReplay key={route.params.id} id={route.params.id} />
+						)}
+					</Stack.Screen>
+					<Stack.Screen
+						name="EscapeLeaderboard"
+						options={{ title: "Rankings" }}
+						component={EscapeLeaderboard}
+					/>
 					<Stack.Screen name="Canvas" options={{ title: "Canvas" }}>
 						{() => <Canvas projectId={projectId} />}
 					</Stack.Screen>

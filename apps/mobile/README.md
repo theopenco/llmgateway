@@ -67,7 +67,7 @@ Verified during development:
 - Repository unit suite before the UTC revenue fix: 7,102 passed, 2 skipped,
   one admin date-range failure. After the fix, all five admin revenue tests pass
   under Stockholm, Los Angeles, and UTC timezones.
-- Native tests: 246 passed; shared image configuration tests: 3 passed.
+- Native tests: 266 passed; shared image configuration tests: 3 passed.
 - Chat message persistence tests: 5 passed, including tool-only replies.
 - Gateway speech tests: 20 passed.
 - Video configuration: 25 passed; gateway video and byte-range tests: 57 passed.
@@ -121,6 +121,9 @@ Verified during development:
   invalid input/output recovery, templates, stopping, model restoration, reset,
   PNG/PDF Files export, and both share sheets passed. Exported files were opened
   and visually checked. WebKit also verified all four templates and bound input.
+- Native Escape checks: complete wins and timeout runs, saving/replay, model
+  restoration, turn stepping, scrubbing, sharing, pasted links, pause/background,
+  reset during a pending turn, level selection, rankings, and error recovery passed.
 - Native image checks with a mock provider: generation/editing, model comparison,
   settings, history after restart, Files export/import, sharing, renaming, and
   deletion passed. Exported PNG bytes matched the generated fixture.
@@ -132,6 +135,13 @@ For `e2e/projects.yaml`, place the sample document in the dedicated simulator's 
 ```sh
 pnpm exec tsx apps/mobile/e2e/prepare-projects.ts <simulator-device-id>
 ```
+
+Escape flows use `POST /mock/escape` on the isolated upstream with a JSON
+`mode`: `win` for `escape.yaml`, `slow` for `escape-controls.yaml`, `wait` for
+`escape-loss.yaml`, and `error` for `escape-errors.yaml`. Switch back to `win`
+before running `escape-recovery.yaml` without resetting the app. Run
+`escape-links.yaml` with `-e REPLAY_URL=<saved-winning-run-url>` after a winning
+run; it verifies shared-link input and rejects links from other websites.
 
 Additional chat flows cover controls, streaming, sources, and sharing in
 `e2e/chat-*.yaml`. Run `e2e/images.yaml` before `e2e/chat-attachments.yaml`
@@ -166,7 +176,7 @@ A checkbox requires observed behavior, not just a screen or passing type check.
 - [x] Speech generation/transcription, playback, history
 - [x] Realtime voice calls and call history
 - [x] Canvas generation and interactive rendering
-- [ ] Escape gameplay and saved runs
+- [x] Escape gameplay and saved runs
 - [ ] Profile, points, levels, streaks, leaderboard
 - [ ] Organization switching, membership/usage, web-only payments
 - [ ] Accessibility, keyboard/safe-area handling, light/dark appearance
