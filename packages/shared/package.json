@@ -163,6 +163,11 @@
 			"types": "./dist/realtime-pcm.d.ts",
 			"import": "./dist/realtime-pcm.js",
 			"default": "./dist/realtime-pcm.js"
+		},
+		"./escape-reasoning": {
+			"types": "./dist/escape-reasoning.d.ts",
+			"import": "./dist/escape-reasoning.js",
+			"default": "./dist/escape-reasoning.js"
 		}
 	},
 	"module": "./dist/index.js",

@@ -51,6 +51,12 @@ Click **Image Studio** in the sidebar to switch to the image generation interfac
 
 Projects combine instructions, reference files, and memories for related conversations. File indexing, retrieval, and memory learning use the supplied workspace gateway key; requests without one use your personal Lounge workspace.
 
+## Sandbox Escape
+
+Choose a level and a model to play the grid-based Escape game. Each step makes one model request, billed to the selected workspace. Escape uses low reasoning effort when the selected model and provider support it. Collect the key fragments and reach the exit while avoiding the daemons. You can run continuously, pause, step once, or reset; completed runs have shareable replays and contribute to the model leaderboard.
+
+Authenticated clients can call `POST /escape/move` on the account API with `projectId`, `levelId`, `moves`, and `model`. The API checks project access, reconstructs the board from the move history, and returns the next state and usage. It rejects finished runs and does not automatically retry model requests. An unparseable model reply consumes a wait turn. Save completed runs with `POST /escape/runs`; `GET /escape/runs` lists your saved runs with optional `organizationId`, `limit`, and `offset` filters.
+
 ## iOS app development
 
 The native iOS client lives in `apps/mobile` in the repository and is under development. It uses the same LLM Gateway account and Lounge data. Membership purchases and billing stay on the Lounge website.
