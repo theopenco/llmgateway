@@ -9,14 +9,24 @@ env:
 - evalScript: ${output.callsBefore = JSON.parse(http.get(FIXTURE_URL + "/mock/connectors").body).toolCalls}
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Start a conversation"
-- runFlow: helpers/chat-model.yaml
-- tapOn: "Message.*"
+- runFlow: helpers/comparison.yaml
+- tapOn:
+    id: "field-message-to-all-models"
 - inputText: ${output.chatTitle}
-- tapOn: "Send message"
+- tapOn: "Done typing"
+- tapOn: "Send to all models"
 - extendedWaitUntil:
     visible: "Approve Gmail: search messages"
     timeout: 30000
+- assertTrue: ${JSON.parse(http.get(FIXTURE_URL + "/mock/connectors").body).toolCalls === output.callsBefore}
+- tapOn: "Model 2"
+- assertNotVisible: "Approve Gmail:.*"
+- assertVisible: ".*This is a mock response from the test server.*"
+- tapOn: "Retry this model"
+- extendedWaitUntil:
+    visible: "Retry this model"
+    timeout: 30000
+- assertNotVisible: "Approve Gmail:.*"
 - assertTrue: ${JSON.parse(http.get(FIXTURE_URL + "/mock/connectors").body).toolCalls === output.callsBefore}
 - launchApp
 - runFlow: helpers/organization.yaml
@@ -25,7 +35,7 @@ env:
     id: "field-search-conversations"
 - inputText: ${output.chatTitle}
 - tapOn: "Done typing"
-- tapOn: ".*2 messages"
+- tapOn: ".*gpt-4o-mini, 2 messages"
 - scrollUntilVisible:
     element: "Approve Gmail: search messages"
     direction: DOWN
@@ -49,14 +59,16 @@ env:
     id: "field-search-conversations"
 - inputText: ${output.chatTitle}
 - tapOn: "Done typing"
-- tapOn: ".*2 messages"
+- tapOn: ".*gpt-4o-mini, 2 messages"
 - assertNotVisible: "Approve Gmail:.*"
 - scrollUntilVisible:
     element: "The demo meeting starts at noon."
     direction: UP
-- tapOn: "Message.*"
+- tapOn:
+    id: "field-message-to-all-models"
 - inputText: ${"NATIVE_CONNECTOR_REJECT " + Date.now()}
-- tapOn: "Send message"
+- tapOn: "Done typing"
+- tapOn: "Send to all models"
 - scrollUntilVisible:
     element: "Decline Gmail: search messages"
     direction: DOWN
@@ -67,5 +79,6 @@ env:
     timeout: 30000
 - assertTrue: ${JSON.parse(http.get(FIXTURE_URL + "/mock/connectors").body).toolCalls === output.callsBefore + 2}
 - extendedWaitUntil:
-    visible: "Retry last response"
+    visible: "Retry this model"
     timeout: 30000
+- takeScreenshot: comparison-tools-complete

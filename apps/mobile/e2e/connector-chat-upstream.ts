@@ -5,6 +5,9 @@ import { z } from "zod";
 const schema = z.object({
 	model: z.string(),
 	stream: z.boolean().optional(),
+	tools: z
+		.array(z.object({ function: z.object({ name: z.string() }) }))
+		.optional(),
 	messages: z.array(
 		z.object({
 			role: z.string(),
@@ -33,6 +36,9 @@ export async function connectorChatUpstream(
 		return null;
 	}
 	const body = parsed.data;
+	if (!body.tools?.some((tool) => tool.function.name.startsWith("gmail__"))) {
+		return null;
+	}
 	const userIndex = body.messages
 		.map((message) => message.role)
 		.lastIndexOf("user");
