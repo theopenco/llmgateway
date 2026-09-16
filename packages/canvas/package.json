@@ -14,6 +14,11 @@
 			"types": "./dist/templates.d.ts",
 			"import": "./dist/templates.js",
 			"default": "./dist/templates.js"
+		},
+		"./spec": {
+			"types": "./dist/spec.d.ts",
+			"import": "./dist/spec.js",
+			"default": "./dist/spec.js"
 		}
 	},
 	"files": [

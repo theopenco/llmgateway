@@ -6,6 +6,7 @@ export default [
 	{
 		ignores: [
 			"ios/**",
+			"src/generated/**",
 			"build/**",
 			"artifacts/**",
 			"coverage/**",
