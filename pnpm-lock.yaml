@@ -69,7 +69,7 @@ patchedDependencies:
     hash: 5e73cf5a4218f9a21d163ff21105495be3eea8c20af0f515db916ab0157fe5bc
     path: patches/gray-matter@4.0.3.patch
   react-native-audio-api@0.13.3:
-    hash: 45a1f19b30fe6a039df46b8aa9b96549534ed5bd8def4308b827384125a9729c
+    hash: a98584d00c66ed36de651fdb05006823332b06e965e43a69a905bffb6747a366
     path: patches/react-native-audio-api@0.13.3.patch
   react-native-enriched-markdown@1.0.2:
     hash: 7784d01d4cf8da548ea9a6a628bfd4bae6d53f5f6a42884fd63996caa0c38fb6
@@ -887,7 +887,7 @@ importers:
         version: 0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@5.9.2))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3)
       react-native-audio-api:
         specifier: 0.13.3
-        version: 0.13.3(patch_hash=45a1f19b30fe6a039df46b8aa9b96549534ed5bd8def4308b827384125a9729c)(react-native-worklets@0.12.2(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@5.9.2))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@5.9.2))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+        version: 0.13.3(patch_hash=a98584d00c66ed36de651fdb05006823332b06e965e43a69a905bffb6747a366)(react-native-worklets@0.12.2(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@5.9.2))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@5.9.2))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
       react-native-enriched-markdown:
         specifier: 1.0.2
         version: 1.0.2(patch_hash=7784d01d4cf8da548ea9a6a628bfd4bae6d53f5f6a42884fd63996caa0c38fb6)(katex@0.16.47)(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@5.9.2))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
@@ -28516,7 +28516,7 @@ snapshots:
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
 
-  react-native-audio-api@0.13.3(patch_hash=45a1f19b30fe6a039df46b8aa9b96549534ed5bd8def4308b827384125a9729c)(react-native-worklets@0.12.2(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@5.9.2))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@5.9.2))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3):
+  react-native-audio-api@0.13.3(patch_hash=a98584d00c66ed36de651fdb05006823332b06e965e43a69a905bffb6747a366)(react-native-worklets@0.12.2(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@5.9.2))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@5.9.2))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3):
     dependencies:
       react: 19.2.3
       react-native: 0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@5.9.2))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3)
