@@ -14,4 +14,10 @@ Pausing a configured connection retains its credentials and stops tool access. D
 
 Authorization must finish in the same session that started it and expires after ten minutes. If you sign out or the request expires during consent, start connecting again. Cancelling reconnection keeps the existing connection.
 
+## Client integrations
+
+Authenticated clients can stream chat and signed tool proposals from `POST /lounge/chat`, using `x-llmgateway-key` to select the billing key. The endpoint accepts AI SDK UI messages and connector IDs. It does not execute tools or save conversations.
+
+After the user approves a proposal, execute it through `POST /connectors/{connectorId}/tools/{toolName}` and record its result before continuing. Send completed, failed, or denied tool parts with the next chat request. Pending approvals must be resolved first; never automatically retry a tool whose outcome is unknown.
+
 For deployment variables and callback setup, see the [connector setup guide](https://github.com/theopenco/llmgateway/blob/main/docs/lounge-connectors.md).
