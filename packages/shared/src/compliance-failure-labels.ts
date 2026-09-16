@@ -19,6 +19,9 @@ export const FAILURE_LABELS: Record<ComplianceFailureReason, string> = {
 	allowedCountries: "Headquarters not in an allowed country",
 	blockedProviders: "On the blocked-providers list",
 	allowedProviders: "Not on the allowed-providers list",
+	blockedModels: "On the blocked-models list",
+	allowedModels: "Not on the allowed-models list",
+	unknownProvider: "Provider not in the catalogue",
 	noAttestation: "No compliance attestation on file",
 };
 

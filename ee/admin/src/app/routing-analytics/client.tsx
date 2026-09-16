@@ -1011,10 +1011,13 @@ export function RoutingAnalyticsClient() {
 																	<div
 																		className="font-sans text-[11px] text-muted-foreground"
 																		title={eligibility.exclusions
-																			.map(
-																				(entry) =>
-																					`${exclusionReasonLabel(entry.reason)}: ${numberFormatter.format(entry.excludedCount)}`,
-																			)
+																			.flatMap((entry) => [
+																				`${exclusionReasonLabel(entry.reason)}: ${numberFormatter.format(entry.excludedCount)}`,
+																				...entry.details.map(
+																					(detail) =>
+																						`  ${exclusionReasonLabel(detail.reason)}: ${numberFormatter.format(detail.excludedCount)}`,
+																				),
+																			])
 																			.join("\n")}
 																	>
 																		{exclusionReasonLabel(
@@ -1275,7 +1278,10 @@ export function RoutingAnalyticsClient() {
 								Every constraint that dropped a mapping from an election in this
 								window, across all providers. One request can exclude a mapping
 								for several reasons, so these do not sum to a request count —
-								read them as relative pressure on routing freedom.
+								read them as relative pressure on routing freedom. Compliance
+								drops are broken down by the policy rule that fired; a mapping
+								can fail several rules at once, so those sub-rows can exceed
+								their parent.
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="p-4 sm:p-6">
@@ -1286,24 +1292,47 @@ export function RoutingAnalyticsClient() {
 							) : (
 								<div className="space-y-2">
 									{data.exclusions.map((entry) => (
-										<div
-											key={entry.reason}
-											className="flex items-center gap-3 text-xs"
-										>
-											<span className="w-44 shrink-0 truncate">
-												{exclusionReasonLabel(entry.reason)}
-											</span>
-											<div className="h-3 flex-1 overflow-hidden rounded-full bg-muted">
-												<div
-													className="h-full rounded-full bg-amber-500"
-													style={{
-														width: `${(entry.excludedCount / maxExclusionCount) * 100}%`,
-													}}
-												/>
+										<div key={entry.reason} className="space-y-1">
+											<div className="flex items-center gap-3 text-xs">
+												<span className="w-44 shrink-0 truncate">
+													{exclusionReasonLabel(entry.reason)}
+												</span>
+												<div className="h-3 flex-1 overflow-hidden rounded-full bg-muted">
+													<div
+														className="h-full rounded-full bg-amber-500"
+														style={{
+															width: `${(entry.excludedCount / maxExclusionCount) * 100}%`,
+														}}
+													/>
+												</div>
+												<span className="w-20 shrink-0 text-right font-mono text-muted-foreground">
+													{numberFormatter.format(entry.excludedCount)}
+												</span>
 											</div>
-											<span className="w-20 shrink-0 text-right font-mono text-muted-foreground">
-												{numberFormatter.format(entry.excludedCount)}
-											</span>
+											{/* Sub-rows scale against their own parent, not the chart
+											    maximum: the question they answer is which rule drove
+											    this constraint, not how it compares to other ones. */}
+											{entry.details.map((detail) => (
+												<div
+													key={detail.reason}
+													className="flex items-center gap-3 text-[11px] text-muted-foreground"
+												>
+													<span className="w-44 shrink-0 truncate pl-4">
+														{exclusionReasonLabel(detail.reason)}
+													</span>
+													<div className="h-2 flex-1 overflow-hidden rounded-full bg-muted/60">
+														<div
+															className="h-full rounded-full bg-amber-500/50"
+															style={{
+																width: `${Math.min(detail.excludedCount / Math.max(entry.excludedCount, 1), 1) * 100}%`,
+															}}
+														/>
+													</div>
+													<span className="w-20 shrink-0 text-right font-mono">
+														{numberFormatter.format(detail.excludedCount)}
+													</span>
+												</div>
+											))}
 										</div>
 									))}
 								</div>
