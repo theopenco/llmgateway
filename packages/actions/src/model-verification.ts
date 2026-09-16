@@ -371,6 +371,47 @@ function verificationDefinitions(
 	return definitions;
 }
 
+/**
+ * The listing capability each check proves. A failed check disproves exactly
+ * its own flag, so a listing can be demoted to what it actually does instead
+ * of keeping a claim the endpoint just rejected. `basic` maps to nothing: a
+ * model that cannot complete at all has no single flag to blame.
+ */
+export const MODEL_VERIFICATION_CHECK_CAPABILITY = {
+	streaming: "streaming",
+	vision: "vision",
+	audio: "audio",
+	tools: "tools",
+	json_output: "jsonOutput",
+	structured_json: "jsonOutputSchema",
+	reasoning: "reasoning",
+	reasoning_budget: "reasoningMaxTokens",
+	web_search: "webSearch",
+} as const satisfies Partial<Record<ModelVerificationCheckId, string>>;
+
+export type ModelVerificationCapability =
+	(typeof MODEL_VERIFICATION_CHECK_CAPABILITY)[keyof typeof MODEL_VERIFICATION_CHECK_CAPABILITY];
+
+/** The capabilities a completed run disproved, from its failed checks only. */
+export function disprovedCapabilities(
+	checks: ProviderModelVerificationCheck[],
+): ModelVerificationCapability[] {
+	const capabilities: ModelVerificationCapability[] = [];
+	for (const check of checks) {
+		if (check.status !== "failed") {
+			continue;
+		}
+		const capability =
+			MODEL_VERIFICATION_CHECK_CAPABILITY[
+				check.id as keyof typeof MODEL_VERIFICATION_CHECK_CAPABILITY
+			];
+		if (capability) {
+			capabilities.push(capability);
+		}
+	}
+	return capabilities;
+}
+
 export function createQueuedModelVerificationChecks(
 	target: ProviderModelVerificationTarget,
 ): ProviderModelVerificationCheck[] {

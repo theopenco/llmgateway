@@ -4,7 +4,6 @@ import { z } from "zod";
 import {
 	createQueuedModelVerificationChecks,
 	encryptModelVerificationCredential,
-	readProviderEnvInventory,
 } from "@llmgateway/actions";
 import { db, shortid, tables } from "@llmgateway/db";
 import { hasProviderEnvironmentToken } from "@llmgateway/models";
@@ -103,6 +102,13 @@ export function verificationTargetsMatch(
  * Picks the credential the worker will run the checks with. A pasted key wins;
  * otherwise a managed platform key that may serve this model, then the
  * provider's environment credential.
+ *
+ * Only credentials the worker can actually read count. `LLM_*` variables live
+ * on the gateway deployment, so the snapshot it publishes describes a process
+ * that never runs a verification: picking a source off it queues a run the
+ * worker then fails with "no environment credential", instead of asking for
+ * the key the carrier could have pasted. This process shares the worker's
+ * deployment environment, so its own `process.env` is the honest signal.
  */
 export async function verificationCredentialSource(
 	target: ProviderModelVerificationTarget,
@@ -128,26 +134,12 @@ export async function verificationCredentialSource(
 	) {
 		return "managed";
 	}
-	if (await hasEnvironmentCredential(target.providerId)) {
+	if (hasProviderEnvironmentToken(target.providerId)) {
 		return "environment";
 	}
 	throw new HTTPException(400, {
 		message: "Enter a provider API key to run this verification.",
 	});
-}
-
-/**
- * `LLM_*` variables live on the gateway deployment, so this process's own
- * environment reports nothing in production. Ask the snapshot the gateway
- * publishes first and fall back to `process.env` only when no gateway has
- * published one.
- */
-async function hasEnvironmentCredential(providerId: string): Promise<boolean> {
-	const inventory = await readProviderEnvInventory();
-	if (inventory) {
-		return (inventory.providers[providerId]?.length ?? 0) > 0;
-	}
-	return hasProviderEnvironmentToken(providerId);
 }
 
 export async function enqueueModelVerification(

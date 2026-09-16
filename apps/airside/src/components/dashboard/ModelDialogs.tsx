@@ -981,21 +981,20 @@ export function RegisterModelDialog({
 					</div>
 
 					<div className="border-border space-y-2 rounded-lg border p-3">
-						<Label htmlFor="verification-api-key">
-							Provider API key{" "}
-							<span className="text-muted-foreground">(if needed)</span>
-						</Label>
+						<Label htmlFor="verification-api-key">Provider API key</Label>
 						<Input
 							id="verification-api-key"
 							type="password"
 							autoComplete="off"
+							required
 							value={apiKey}
 							onChange={(event) => setApiKey(event.target.value)}
-							placeholder="Uses the managed carrier key when left blank"
+							placeholder="A key that can call this model"
 							disabled={verificationInProgress}
 						/>
 						<p className="text-muted-foreground text-xs">
-							Used only by the queued preflight and erased when it finishes.
+							The preflight calls your endpoint with this key. It is used only
+							by that run and erased when it finishes.
 						</p>
 					</div>
 
@@ -1010,7 +1009,8 @@ export function RegisterModelDialog({
 								createModel.isPending ||
 								queueVerification.isPending ||
 								verificationInProgress ||
-								!effectiveProviderId
+								!effectiveProviderId ||
+								(verification?.status !== "passed" && !apiKey.trim())
 							}
 							data-testid="register-model-submit"
 							className="font-semibold"
@@ -1104,16 +1104,16 @@ export function VerifyModelDialog({
 				<div className="space-y-4">
 					<div className="space-y-2">
 						<Label htmlFor={`verify-api-key-${model.id}`}>
-							Provider API key{" "}
-							<span className="text-muted-foreground">(if needed)</span>
+							Provider API key
 						</Label>
 						<Input
 							id={`verify-api-key-${model.id}`}
 							type="password"
 							autoComplete="off"
+							required
 							value={apiKey}
 							onChange={(event) => setApiKey(event.target.value)}
-							placeholder="Uses the managed carrier key when left blank"
+							placeholder="A key that can call this model"
 						/>
 						<p className="text-muted-foreground text-xs">
 							The key is scoped to this run and erased at completion.
@@ -1130,6 +1130,7 @@ export function VerifyModelDialog({
 						type="button"
 						disabled={
 							queueVerification.isPending ||
+							!apiKey.trim() ||
 							verification?.status === "queued" ||
 							verification?.status === "running"
 						}

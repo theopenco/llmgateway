@@ -1,11 +1,12 @@
 import {
 	decryptModelVerificationCredential,
+	disprovedCapabilities,
 	managedCredentialOptions,
 	readProviderKey,
 	redactToken,
 	runProviderModelVerification,
 } from "@llmgateway/actions";
-import { and, asc, db, eq, lt, tables } from "@llmgateway/db";
+import { and, asc, cdb, db, eq, lt, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getProviderEnvVar } from "@llmgateway/models";
 
@@ -68,7 +69,7 @@ function environmentCredential(job: VerificationRow): string {
 		: "";
 	if (!token) {
 		throw new Error(
-			"No environment credential is configured for this provider.",
+			"No environment credential is configured for this provider. Re-run the verification with a provider API key.",
 		);
 	}
 	return token;
@@ -243,6 +244,94 @@ function terminalChecks(
 	});
 }
 
+type CapabilityDemotion = Partial<
+	Pick<
+		typeof tables.providerDraftModel.$inferInsert,
+		| "streaming"
+		| "vision"
+		| "audio"
+		| "tools"
+		| "jsonOutput"
+		| "jsonOutputSchema"
+		| "reasoning"
+		| "reasoningMaxTokens"
+		| "reasoningEfforts"
+		| "webSearch"
+	>
+>;
+
+/**
+ * A failed check is the endpoint disproving a claim the listing advertises,
+ * so the listing drops to what it actually does rather than keeping a flag
+ * routing would send matching traffic to. Only the listing's own capabilities
+ * move: a run against a static catalogue mapping never rewrites the
+ * catalogue. Active listings serve off their materialized mapping row, so the
+ * demotion has to reach that too.
+ */
+async function demoteDisprovedCapabilities(
+	job: VerificationRow,
+	checks: ProviderModelVerificationCheck[],
+): Promise<void> {
+	if (!job.draftModelId) {
+		return;
+	}
+	const disproved = disprovedCapabilities(checks);
+	if (disproved.length === 0) {
+		return;
+	}
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: job.draftModelId } },
+	});
+	if (!model || model.status === "delisted") {
+		return;
+	}
+	const updates: CapabilityDemotion = {};
+	for (const capability of disproved) {
+		if (model[capability]) {
+			updates[capability] = false;
+		}
+	}
+	// Effort tiers and a thinking budget mean nothing once reasoning itself
+	// fails, so they go with it rather than outliving their own capability.
+	if (updates.reasoning === false) {
+		if (model.reasoningMaxTokens) {
+			updates.reasoningMaxTokens = false;
+		}
+		if (model.reasoningEfforts?.length) {
+			updates.reasoningEfforts = null;
+		}
+	}
+	if (Object.keys(updates).length === 0) {
+		return;
+	}
+	// cdb: the gateway caches listing resolution off both tables.
+	await cdb.transaction(async (tx) => {
+		await tx
+			.update(tables.providerDraftModel)
+			.set(updates)
+			.where(eq(tables.providerDraftModel.id, model.id));
+		if (model.status !== "active") {
+			return;
+		}
+		await tx
+			.update(tables.modelProviderMapping)
+			.set(updates)
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, model.modelName),
+					eq(tables.modelProviderMapping.providerId, model.providerId),
+					eq(tables.modelProviderMapping.source, "airside"),
+				),
+			);
+	});
+	logger.info("Demoted an Airside listing after a failed verification", {
+		verificationId: job.id,
+		draftModelId: model.id,
+		providerId: model.providerId,
+		capabilities: Object.keys(updates),
+	});
+}
+
 export async function processNextModelVerification(
 	runner: VerificationRunner = runProviderModelVerification,
 ): Promise<boolean> {
@@ -298,6 +387,9 @@ export async function processNextModelVerification(
 			.returning({ id: tables.providerModelVerification.id });
 		if (completed.length === 0) {
 			return true;
+		}
+		if (!result.passed) {
+			await demoteDisprovedCapabilities(job, result.checks);
 		}
 	} catch (error) {
 		if (error instanceof StaleModelVerificationAttemptError) {
