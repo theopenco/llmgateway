@@ -36,6 +36,8 @@ Each listing also picks the **upstream API** the gateway speaks to it: the carri
 
 Before a listing can be filed, Airside runs a **preflight** against your endpoint through that API: one check per declared capability. You supply a provider API key that can call the model — it is used only by that run and erased when it finishes. Editing the model invalidates the run, so a listing never ships with checks made against different settings.
 
+Re-verifying a live listing has teeth: every capability a check disproves is switched off on the listing (and on the mapping that serves it), so routing stops sending it traffic it just failed. A failed check on reasoning also clears the reasoning budget and effort tiers. The listing keeps serving on what still works, and Fleet marks it **In service · unverified** until a run passes again.
+
 ## Price filings
 
 Listed prices are what developers are billed, so pricing never changes silently: it only changes through a reviewed **price filing**.

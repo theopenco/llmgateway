@@ -407,13 +407,20 @@ export default function FleetPage() {
 				<ul className="space-y-3">
 					{models.map((model) => {
 						const status = STATUS_META[model.status];
+						// A live listing whose last preflight failed still serves
+						// traffic, so the badge says so rather than claiming a clean
+						// bill of health it no longer has.
+						const unverified =
+							model.status === "active" &&
+							model.latestVerification?.status === "failed";
 						return (
 							<li
 								key={model.id}
 								data-testid={`model-strip-${model.modelName}`}
 								className={cn(
 									"border-border bg-card rounded-lg border border-l-4 p-4",
-									model.status === "active" && "border-l-signal",
+									model.status === "active" &&
+										(unverified ? "border-l-primary" : "border-l-signal"),
 									model.status === "draft" && "border-l-primary",
 									model.status === "rejected" && "border-l-destructive",
 									model.status === "delisted" && "border-l-muted opacity-60",
@@ -425,7 +432,19 @@ export default function FleetPage() {
 											<span className="font-mono font-bold tracking-wide">
 												{model.modelName}
 											</span>
-											<Badge variant={status.variant}>{status.label}</Badge>
+											<Badge
+												variant={unverified ? "pending" : status.variant}
+												title={
+													unverified
+														? (model.latestVerification?.summary ??
+															"The last preflight failed.")
+														: undefined
+												}
+											>
+												{unverified
+													? `${status.label} · unverified`
+													: status.label}
+											</Badge>
 											{model.pendingFiling ? (
 												<Badge variant="pending">
 													<Stamp className="size-3" />

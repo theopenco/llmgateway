@@ -23,6 +23,8 @@ const STALE_AGE_MS = 60 * 60 * 1000;
 const companyIds: string[] = [];
 const providerKeyIds: string[] = [];
 const userIds: string[] = [];
+const catalogueProviderIds: string[] = [];
+const catalogueModelIds: string[] = [];
 
 beforeEach(async () => {
 	await db
@@ -43,6 +45,12 @@ afterEach(async () => {
 	}
 	for (const id of userIds.splice(0)) {
 		await db.delete(tables.user).where(eq(tables.user.id, id));
+	}
+	for (const id of catalogueModelIds.splice(0)) {
+		await db.delete(tables.model).where(eq(tables.model.id, id));
+	}
+	for (const id of catalogueProviderIds.splice(0)) {
+		await db.delete(tables.provider).where(eq(tables.provider.id, id));
 	}
 	if (originalHashSecret === undefined) {
 		delete process.env.GATEWAY_API_KEY_HASH_SECRET;
@@ -259,6 +267,152 @@ describe("model verification worker", () => {
 			where: { id: { eq: verificationId } },
 		});
 		expect(stored?.status).toBe("passed");
+	});
+
+	it("drops the capabilities a failed re-verification disproved", async () => {
+		const suffix = randomUUID();
+		const userId = `verification-user-${suffix}`;
+		const companyId = `verification-company-${suffix}`;
+		const providerId = `verification-provider-${suffix}`;
+		const modelName = `verification-model-${suffix}`;
+		const verificationId = `verification-job-${suffix}`;
+		userIds.push(userId);
+		companyIds.push(companyId);
+		catalogueProviderIds.push(providerId);
+		catalogueModelIds.push(modelName);
+		await db.insert(tables.user).values({
+			id: userId,
+			email: `${userId}@example.com`,
+			name: "Verification User",
+		});
+		await db.insert(tables.providerCompany).values({
+			id: companyId,
+			name: "Verification Provider",
+		});
+		await db.insert(tables.providerClaim).values({
+			providerCompanyId: companyId,
+			providerId,
+			kind: "custom",
+			matchedDomain: "example.com",
+			customBaseUrl: "https://provider.example.com/v1",
+			status: "active",
+			claimedBy: userId,
+		});
+		const [draftModel] = await db
+			.insert(tables.providerDraftModel)
+			.values({
+				providerCompanyId: companyId,
+				providerId,
+				modelName,
+				externalId: "upstream-model-x",
+				family: "verification",
+				status: "active",
+				streaming: true,
+				tools: true,
+				reasoning: true,
+				reasoningMaxTokens: true,
+				reasoningEfforts: ["low", "high"],
+				createdBy: userId,
+			})
+			.returning();
+		await db.insert(tables.provider).values({
+			id: providerId,
+			name: "Verification Provider",
+			description: "Verification carrier",
+		});
+		await db
+			.insert(tables.model)
+			.values({ id: modelName, name: modelName, family: "verification" });
+		await db.insert(tables.modelProviderMapping).values({
+			modelId: modelName,
+			providerId,
+			externalId: "upstream-model-x",
+			source: "airside",
+			streaming: true,
+			tools: true,
+			reasoning: true,
+			reasoningMaxTokens: true,
+			reasoningEfforts: ["low", "high"],
+		});
+		process.env.GATEWAY_API_KEY_HASH_SECRET = "model-verification-test-secret";
+		await db.insert(tables.providerModelVerification).values({
+			id: verificationId,
+			providerCompanyId: companyId,
+			draftModelId: draftModel.id,
+			requestedBy: userId,
+			target: {
+				providerId,
+				modelName,
+				externalId: "upstream-model-x",
+				streaming: true,
+				vision: false,
+				audio: false,
+				tools: true,
+				jsonOutput: false,
+				jsonOutputSchema: false,
+				reasoning: true,
+				reasoningMaxTokens: true,
+				reasoningEfforts: ["low", "high"],
+				webSearch: false,
+			},
+			checks: [{ id: "basic", label: "Basic completion", status: "queued" }],
+			credentialSource: "supplied",
+			credentialCiphertext: encryptModelVerificationCredential(
+				"single-use-provider-key",
+				verificationId,
+				companyId,
+			),
+		});
+
+		await processNextModelVerification(async () => ({
+			passed: false,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{ id: "streaming", label: "Streaming", status: "passed" },
+				{
+					id: "tools",
+					label: "Tool calls",
+					status: "failed",
+					feedback: "The required tool call was not returned.",
+				},
+				{
+					id: "reasoning",
+					label: "Reasoning",
+					status: "failed",
+					feedback: "No reasoning content was returned.",
+				},
+				{
+					id: "reasoning_budget",
+					label: "Reasoning budget",
+					status: "skipped",
+					feedback: "Skipped after verification failed.",
+				},
+			],
+			summary: "2 of 5 verification checks failed.",
+		}));
+
+		const listing = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: draftModel.id } },
+		});
+		expect(listing).toMatchObject({
+			streaming: true,
+			tools: false,
+			reasoning: false,
+			// Effort tiers and the budget go with the reasoning they describe,
+			// even though only the reasoning check itself failed.
+			reasoningMaxTokens: false,
+			reasoningEfforts: null,
+		});
+		const mapping = await db.query.modelProviderMapping.findFirst({
+			where: { modelId: { eq: modelName }, providerId: { eq: providerId } },
+		});
+		expect(mapping).toMatchObject({
+			streaming: true,
+			tools: false,
+			reasoning: false,
+			reasoningMaxTokens: false,
+			reasoningEfforts: null,
+		});
 	});
 
 	it("does not let a stale attempt overwrite a reclaimed job", async () => {
