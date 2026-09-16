@@ -59,8 +59,9 @@ two C++ calls to Worklets 0.12's `runSync` API.
 Verified during development:
 
 - Full repository build: 20 workspaces passed.
-- Repository unit suite: 7,102 passed, 2 skipped; one existing admin revenue
-  date-range test failed because local-time SQL parameters shift UTC boundaries.
+- Repository unit suite before the UTC revenue fix: 7,102 passed, 2 skipped,
+  one admin date-range failure. After the fix, all five admin revenue tests pass
+  under Stockholm, Los Angeles, and UTC timezones.
 - Native tests: 177 passed; shared image configuration tests: 3 passed.
 - Gateway speech tests: 20 passed.
 - Video configuration: 25 passed; gateway video and byte-range tests: 57 passed.
