@@ -387,7 +387,8 @@ skills.openapi(generateSkill, async (c) => {
 
 	const { prompt } = c.req.valid("json");
 
-	const token = await resolvePlaygroundToken(c, user);
+	const token =
+		c.req.header("x-llmgateway-key") ?? (await resolvePlaygroundToken(c, user));
 
 	const gatewayUrl = getGatewayUrl();
 
@@ -410,7 +411,10 @@ skills.openapi(generateSkill, async (c) => {
 			}),
 		},
 		toolChoice: "required",
-		abortSignal: AbortSignal.timeout(SKILL_GENERATION_TIMEOUT_MS),
+		abortSignal: AbortSignal.any([
+			c.req.raw.signal,
+			AbortSignal.timeout(SKILL_GENERATION_TIMEOUT_MS),
+		]),
 	});
 
 	const saveCall = result.toolCalls.find(

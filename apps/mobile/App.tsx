@@ -310,7 +310,9 @@ function Lounge({ onSignedOut }: { onSignedOut: () => void }) {
 					>
 						{() => <Transcription projectId={projectId} />}
 					</Stack.Screen>
-					<Stack.Screen name="Skills" component={Skills} />
+					<Stack.Screen name="Skills">
+						{() => <Skills projectId={projectId} />}
+					</Stack.Screen>
 					<Stack.Screen name="VoiceCalls" options={{ title: "Voice calls" }}>
 						{() => <VoiceCalls organizationId={organizationId} />}
 					</Stack.Screen>
