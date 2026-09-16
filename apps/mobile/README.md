@@ -67,7 +67,7 @@ Verified during development:
 - Repository unit suite before the UTC revenue fix: 7,102 passed, 2 skipped,
   one admin date-range failure. After the fix, all five admin revenue tests pass
   under Stockholm, Los Angeles, and UTC timezones.
-- Native tests: 266 passed; shared image configuration tests: 3 passed.
+- Native tests: 273 passed; shared image configuration tests: 3 passed.
 - Chat message persistence tests: 5 passed, including tool-only replies.
 - Gateway speech tests: 20 passed.
 - Video configuration: 25 passed; gateway video and byte-range tests: 57 passed.
@@ -124,6 +124,9 @@ Verified during development:
 - Native Escape checks: complete wins and timeout runs, saving/replay, model
   restoration, turn stepping, scrubbing, sharing, pasted links, pause/background,
   reset during a pending turn, level selection, rankings, and error recovery passed.
+- Native profile checks: public username opt-in, picture privacy, leaderboard
+  membership/removal/rejoining, level progress, streaks, activity points, and
+  persistence across restarts passed.
 - Native image checks with a mock provider: generation/editing, model comparison,
   settings, history after restart, Files export/import, sharing, renaming, and
   deletion passed. Exported PNG bytes matched the generated fixture.
@@ -135,6 +138,12 @@ For `e2e/projects.yaml`, place the sample document in the dedicated simulator's 
 ```sh
 pnpm exec tsx apps/mobile/e2e/prepare-projects.ts <simulator-device-id>
 ```
+
+Before `e2e/profile.yaml`, run `pnpm exec tsx apps/mobile/e2e/prepare-profile.ts` with `LOUNGE_API_URL` set
+to the isolated API to reset the seeded member's
+public username and privacy controls. Run the fixture again afterward. The flow
+checks opt-in, picture privacy, leaderboard removal/rejoining, points, and restart
+persistence; run it after `e2e/escape.yaml` so earned Escape points exist.
 
 Escape flows use `POST /mock/escape` on the isolated upstream with a JSON
 `mode`: `win` for `escape.yaml`, `slow` for `escape-controls.yaml`, `wait` for
@@ -177,7 +186,7 @@ A checkbox requires observed behavior, not just a screen or passing type check.
 - [x] Realtime voice calls and call history
 - [x] Canvas generation and interactive rendering
 - [x] Escape gameplay and saved runs
-- [ ] Profile, points, levels, streaks, leaderboard
+- [x] Profile, points, levels, streaks, leaderboard
 - [ ] Organization switching, membership/usage, web-only payments
 - [ ] Accessibility, keyboard/safe-area handling, light/dark appearance
 - [ ] Component/unit tests, isolated backend tests, complete iOS e2e flows
