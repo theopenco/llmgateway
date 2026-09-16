@@ -11,6 +11,15 @@ Lounge origin. OAuth callbacks are
 `GATEWAY_API_KEY_HASH_SECRET` configured in the API and Lounge: it protects stored
 credentials and signs tool approvals. Rotation uses the existing keyring.
 
+Native iOS clients start authorization with `platform: "ios"`. The same provider
+callback redirects to `io.llmgateway.lounge://connector/{connector-id}` with the
+original query. This handoff does not link the account. The app verifies the
+returned state, then posts the query as `callbackQuery` to
+`/connectors/{connector-id}/complete` using the session that started authorization.
+State expires after ten minutes and can be completed once. Browser authorization
+continues to require its initiating browser session. No additional provider
+redirect URI is needed for iOS.
+
 | Connector                               | Setup                                                                                                                                                                                                                                                                                                                                                   |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PostHog, Notion, Linear, Sentry, Stripe | Set `LOUNGE_<CONNECTOR>_CLIENT_ID` and `LOUNGE_<CONNECTOR>_CLIENT_SECRET` for a registered OAuth client, using the uppercase connector ID.                                                                                                                                                                                                                                                                                  |
@@ -39,6 +48,7 @@ Temporary chats do not save their results.
 
 Run connector unit and integration coverage with `pnpm exec vitest run
 apps/api/src/lib/connectors apps/api/src/routes/connectors.spec.ts
+apps/api/src/routes/native-connector-callback.spec.ts
 apps/playground/src/app/api/chat/route.spec.ts --no-file-parallelism` against the
 isolated test database. Run Lounge browser coverage with
 `PW_BASE_URL=http://localhost:3103 PW_API_URL=http://localhost:4102 pnpm --filter
