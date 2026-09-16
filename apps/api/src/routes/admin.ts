@@ -84,6 +84,7 @@ import {
 	asc,
 	avgEffectiveTtftSql,
 	cdb,
+	computeAirsideAdjustment,
 	db,
 	desc,
 	effectiveTtftTotals,
@@ -10006,6 +10007,19 @@ const providerDetailSchema = z.object({
 		...tokenBreakdownShape,
 		updatedAt: z.string(),
 	}),
+	// Present only when the provider is an Airside carrier, i.e. a provider
+	// company holds an active claim on it.
+	airside: z
+		.object({
+			company: z.object({ id: z.string(), name: z.string() }),
+			claimKind: z.enum(["catalogue", "custom"]),
+			discountPercent: z.number(),
+			marginPercent: z.number(),
+			// Signed routing-price adjustment (negative = boosted).
+			routingAdjustment: z.number(),
+			settingsUpdatedAt: z.string(),
+		})
+		.nullable(),
 	models: z.array(providerModelStatsSchema),
 });
 
@@ -10047,7 +10061,7 @@ admin.openapi(getProviderDetail, async (c) => {
 	const { table: mph, bucket: mphTs } = pickMappingHistoryTable(
 		isHourlyWindow(window),
 	);
-	const [mappings, statsRows] = await Promise.all([
+	const [mappings, statsRows, airsideRows] = await Promise.all([
 		db
 			.select({
 				id: tables.modelProviderMapping.id,
@@ -10121,9 +10135,47 @@ admin.openapi(getProviderDetail, async (c) => {
 				),
 			)
 			.groupBy(mph.modelId),
+		db
+			.select({
+				claimKind: tables.providerClaim.kind,
+				claimUpdatedAt: tables.providerClaim.updatedAt,
+				companyId: tables.providerCompany.id,
+				companyName: tables.providerCompany.name,
+				discountPercent: tables.providerRoutingSettings.discountPercent,
+				marginPercent: tables.providerRoutingSettings.marginPercent,
+				settingsUpdatedAt: tables.providerRoutingSettings.updatedAt,
+			})
+			.from(tables.providerClaim)
+			.innerJoin(
+				tables.providerCompany,
+				eq(tables.providerClaim.providerCompanyId, tables.providerCompany.id),
+			)
+			.leftJoin(
+				tables.providerRoutingSettings,
+				and(
+					eq(
+						tables.providerRoutingSettings.providerId,
+						tables.providerClaim.providerId,
+					),
+					isNull(tables.providerRoutingSettings.modelId),
+				),
+			)
+			.where(
+				and(
+					eq(tables.providerClaim.providerId, providerId),
+					eq(tables.providerClaim.status, "active"),
+				),
+			)
+			.limit(1),
 	]);
 
 	const statsByModel = new Map(statsRows.map((r) => [r.modelId, r]));
+
+	const carrier = airsideRows[0];
+	// Approving a claim always creates the default routing row, but fall back
+	// to the column defaults so a carrier still renders if it is missing.
+	const carrierDiscount = Number(carrier?.discountPercent ?? 0);
+	const carrierMargin = Number(carrier?.marginPercent ?? 0.2);
 
 	const modelsOut = mappings.map((m) => {
 		const s = statsByModel.get(m.modelId);
@@ -10229,6 +10281,21 @@ admin.openapi(getProviderDetail, async (c) => {
 			...agg.breakdown,
 			updatedAt: providerRow.updatedAt.toISOString(),
 		},
+		airside: carrier
+			? {
+					company: { id: carrier.companyId, name: carrier.companyName },
+					claimKind: carrier.claimKind,
+					discountPercent: carrierDiscount,
+					marginPercent: carrierMargin,
+					routingAdjustment: computeAirsideAdjustment(
+						carrierDiscount,
+						carrierMargin,
+					),
+					settingsUpdatedAt: (
+						carrier.settingsUpdatedAt ?? carrier.claimUpdatedAt
+					).toISOString(),
+				}
+			: null,
 		models: modelsOut,
 	});
 });

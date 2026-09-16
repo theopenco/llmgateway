@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -18,6 +19,7 @@ import type { ModelVerification } from "@/components/model-verification-dialog";
 import type { ProviderDetailResponse, ProviderModelStats } from "@/lib/types";
 
 type ProviderInfo = ProviderDetailResponse["provider"];
+type AirsideCarrier = ProviderDetailResponse["airside"];
 
 const validWindows = new Set<HistoryWindow>(windowOptions.map((o) => o.value));
 
@@ -28,14 +30,82 @@ function parseHistoryWindow(value: string | null): HistoryWindow {
 	return "4h";
 }
 
+function formatPercent(fraction: number): string {
+	return `${(fraction * 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%`;
+}
+
+function AirsideCarrierCard({
+	carrier,
+}: {
+	carrier: NonNullable<AirsideCarrier>;
+}) {
+	return (
+		<section
+			className="rounded-lg border border-border/60 bg-card p-4"
+			data-testid="provider-airside-card"
+		>
+			<div className="flex flex-wrap items-center justify-between gap-3">
+				<div>
+					<h2 className="text-sm font-semibold">Airside carrier</h2>
+					<p className="text-xs text-muted-foreground">
+						Operated by {carrier.company.name} · {carrier.claimKind} claim
+					</p>
+				</div>
+				<Button variant="outline" size="sm" asChild>
+					<Link href="/airside-carriers">All carriers</Link>
+				</Button>
+			</div>
+			<dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+				<div>
+					<dt className="text-xs text-muted-foreground">Discount</dt>
+					<dd className="text-sm tabular-nums">
+						{formatPercent(carrier.discountPercent)}
+					</dd>
+				</div>
+				<div>
+					<dt className="text-xs text-muted-foreground">Margin</dt>
+					<dd className="text-sm tabular-nums">
+						{formatPercent(carrier.marginPercent)}
+					</dd>
+				</div>
+				<div>
+					<dt className="text-xs text-muted-foreground">Routing adjustment</dt>
+					<dd className="text-sm">
+						<Badge
+							variant={
+								carrier.routingAdjustment < 0
+									? "secondary"
+									: carrier.routingAdjustment > 0
+										? "destructive"
+										: "outline"
+							}
+						>
+							{carrier.routingAdjustment > 0 ? "+" : ""}
+							{formatPercent(carrier.routingAdjustment)}
+						</Badge>
+					</dd>
+				</div>
+				<div>
+					<dt className="text-xs text-muted-foreground">Settings updated</dt>
+					<dd className="text-sm">
+						{new Date(carrier.settingsUpdatedAt).toLocaleDateString()}
+					</dd>
+				</div>
+			</dl>
+		</section>
+	);
+}
+
 export function ProviderDetailClient({
 	providerId,
 	providerInfo,
 	models: initialModels,
+	airside,
 }: {
 	providerId: string;
 	providerInfo: ProviderInfo;
 	models: ProviderModelStats[];
+	airside: AirsideCarrier;
 }) {
 	const searchParams = useSearchParams();
 	const router = useRouter();
@@ -117,9 +187,14 @@ export function ProviderDetailClient({
 						<Badge variant={info.status === "active" ? "secondary" : "outline"}>
 							{info.status}
 						</Badge>
+						{airside ? (
+							<Badge variant="outline">Airside · {airside.company.name}</Badge>
+						) : null}
 					</div>
 				</div>
 			</header>
+
+			{airside ? <AirsideCarrierCard carrier={airside} /> : null}
 
 			<div className="flex flex-wrap items-center gap-1">
 				{windowOptions.map((opt) => (
