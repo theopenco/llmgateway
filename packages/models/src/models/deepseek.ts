@@ -843,6 +843,9 @@ export const deepseekModels = [
 			{
 				providerId: "together-ai",
 				externalId: "deepseek-ai/DeepSeek-V4-Flash-0731",
+				// Together retires the serverless deployment; successor is
+				// deepseek-v4.1-flash on the same provider.
+				deactivatedAt: new Date("2026-09-29"),
 				inputPrice: "0.14e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "0.28e-6",
