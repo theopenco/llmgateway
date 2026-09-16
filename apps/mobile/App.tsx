@@ -1,8 +1,12 @@
-import { NavigationContainer, DarkTheme } from "@react-navigation/native";
+import {
+	NavigationContainer,
+	DarkTheme,
+	DefaultTheme,
+} from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { StatusBar, Text, View } from "react-native";
+import { Text, View, useColorScheme } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { VoiceCallsProvider } from "@/components/VoiceCallsProvider";
@@ -27,12 +31,12 @@ import { queryClient } from "./src/api/client";
 import { restoreSession } from "./src/auth/session";
 import {
 	Button,
-	colors,
 	ErrorNotice,
 	Loading,
 	Screen,
 	styles,
 } from "./src/components/ui";
+import { usePalette } from "./src/lib/colors";
 import { Connectors } from "./src/screens/Connectors";
 import { DeleteAccount } from "./src/screens/DeleteAccount";
 import { History } from "./src/screens/History";
@@ -74,17 +78,6 @@ type Routes = {
 	DeleteAccount: undefined;
 };
 const Stack = createNativeStackNavigator<Routes>();
-const theme = {
-	...DarkTheme,
-	colors: {
-		...DarkTheme.colors,
-		background: colors.background,
-		card: colors.background,
-		text: colors.text,
-		primary: colors.accent,
-		border: colors.border,
-	},
-};
 function Lounge({
 	onSignedOut,
 	workspace,
@@ -92,6 +85,20 @@ function Lounge({
 	onSignedOut: () => void;
 	workspace: Workspace;
 }) {
+	const scheme = useColorScheme();
+	const colors = usePalette();
+	const baseTheme = scheme === "dark" ? DarkTheme : DefaultTheme;
+	const theme = {
+		...baseTheme,
+		colors: {
+			...baseTheme.colors,
+			background: colors.background,
+			card: colors.background,
+			text: colors.text,
+			primary: colors.accent,
+			border: colors.border,
+		},
+	};
 	const { organizationId, projectId } = workspace;
 	return (
 		<VoiceCallsProvider
@@ -104,6 +111,7 @@ function Lounge({
 					screenOptions={{
 						headerShadowVisible: false,
 						headerBackButtonDisplayMode: "minimal",
+						statusBarStyle: scheme === "dark" ? "light" : "dark",
 						contentStyle: { backgroundColor: colors.background },
 					}}
 				>
@@ -431,7 +439,6 @@ export default function App() {
 	return (
 		<SafeAreaProvider>
 			<QueryClientProvider client={queryClient}>
-				<StatusBar barStyle="light-content" />
 				<Session />
 			</QueryClientProvider>
 		</SafeAreaProvider>

@@ -110,8 +110,8 @@ export const previewCommand = z.discriminatedUnion("type", [
 		type: z.literal("render"),
 		spec: z.unknown(),
 		revision: z.number().int(),
-		dark: z.boolean(),
 	}),
+	z.object({ type: z.literal("theme"), dark: z.boolean() }),
 	z.object({
 		type: z.literal("export"),
 		id: z.string(),

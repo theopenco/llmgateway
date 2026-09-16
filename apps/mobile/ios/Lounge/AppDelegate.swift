@@ -22,6 +22,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     reactNativeFactory = factory
 
     window = UIWindow(frame: UIScreen.main.bounds)
+    switch UserDefaults.standard.string(forKey: "loungeAppearance") {
+    case "light": window?.overrideUserInterfaceStyle = .light
+    case "dark": window?.overrideUserInterfaceStyle = .dark
+    default: window?.overrideUserInterfaceStyle = .unspecified
+    }
 
     factory.startReactNative(
       withModuleName: "Lounge",

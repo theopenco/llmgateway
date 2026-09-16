@@ -7,7 +7,14 @@ import { AppState, Share, Text, View } from "react-native";
 import { client } from "@/api/client";
 import { escapeReplayFrames, escapeRunUrl } from "@/api/escape";
 import { EscapeBoard, EscapeHud } from "@/components/EscapeBoard";
-import { Button, ErrorNotice, Loading, Screen, styles } from "@/components/ui";
+import {
+	Button,
+	colors,
+	ErrorNotice,
+	Loading,
+	Screen,
+	styles,
+} from "@/components/ui";
 
 import type { GameState } from "@llmgateway/shared/sandbox-escape";
 
@@ -115,14 +122,14 @@ function ReplayScrubber({
 		>
 			<View
 				pointerEvents="none"
-				style={{ height: 6, backgroundColor: "#31483B", borderRadius: 3 }}
+				style={{ height: 6, backgroundColor: colors.border, borderRadius: 3 }}
 			>
 				<View
 					style={{
 						height: 6,
 						width: `${last ? (position / last) * 100 : 0}%`,
 						borderRadius: 3,
-						backgroundColor: "#D2EF9A",
+						backgroundColor: colors.accent,
 					}}
 				/>
 			</View>

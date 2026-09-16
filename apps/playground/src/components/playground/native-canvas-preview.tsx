@@ -102,8 +102,9 @@ function Preview() {
 				const command = previewCommand.parse(JSON.parse(String(event.data)));
 				if (command.type === "export") {
 					void exportCanvas(command.id, command.format);
-				} else {
+				} else if (command.type === "theme") {
 					document.documentElement.classList.toggle("dark", command.dark);
+				} else {
 					setCanvas({
 						spec: validateCanvas(command.spec),
 						revision: command.revision,

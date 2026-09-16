@@ -1,4 +1,5 @@
 module.exports = {
+	setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
 	moduleNameMapper: {
 		"^react$": "<rootDir>/node_modules/react",
 		"^react/(.*)$": "<rootDir>/node_modules/react/$1",

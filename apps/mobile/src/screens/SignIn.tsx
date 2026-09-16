@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Linking, Text, View } from "react-native";
 
 import { auth, signIn } from "@/auth/session";
+import { AppearancePicker } from "@/components/AppearancePicker";
 import { Button, ErrorNotice, Field, Screen, styles } from "@/components/ui";
 import { config } from "@/config";
 
@@ -187,6 +188,7 @@ export function SignIn({
 				secondary
 				onPress={() => openWebsite.mutate(config.webUrl)}
 			/>
+			<AppearancePicker />
 		</Screen>
 	);
 }

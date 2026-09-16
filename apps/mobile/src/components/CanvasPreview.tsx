@@ -18,7 +18,6 @@ interface PendingExport {
 	reject: (error: Error) => void;
 	timeout: ReturnType<typeof setTimeout>;
 }
-const source = { html: canvasPreviewHTML, baseUrl: "https://canvas.invalid" };
 
 export const CanvasPreview = function CanvasPreview({
 	ref,
@@ -32,6 +31,13 @@ export const CanvasPreview = function CanvasPreview({
 	dark?: boolean;
 	onError: (error: Error) => void;
 } & { ref?: React.RefObject<CanvasPreviewHandle | null> }) {
+	const [source] = useState(() => ({
+		html: canvasPreviewHTML.replace(
+			"<html>",
+			dark ? '<html class="dark">' : "<html>",
+		),
+		baseUrl: "https://canvas.invalid",
+	}));
 	const webRef = useRef<WebView<object>>(null);
 	const pendingRef = useRef<PendingExport | null>(null);
 	const [ready, setReady] = useState(false);
@@ -52,9 +58,14 @@ export const CanvasPreview = function CanvasPreview({
 	);
 	useEffect(() => {
 		if (ready) {
-			post({ type: "render", spec, revision, dark });
+			post({ type: "theme", dark });
 		}
-	}, [ready, spec, revision, dark]);
+	}, [ready, dark]);
+	useEffect(() => {
+		if (ready) {
+			post({ type: "render", spec, revision });
+		}
+	}, [ready, spec, revision]);
 	useImperativeHandle(
 		ref,
 		() => ({
