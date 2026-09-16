@@ -39,48 +39,46 @@ export function ProviderOptions({
 		).entries(),
 	];
 	return (
-		<>
-			<View style={{ padding: 22, gap: 14 }}>
-				<Text style={styles.heading}>{model.name ?? model.id}</Text>
-				<Text style={styles.muted}>
-					Choose a provider to pin this model. Requests will not fall back to
-					another provider.
-				</Text>
-				<Button title="Back to models" secondary onPress={onBack} />
-				<ErrorNotice error={providers.error} />
-			</View>
-			<FlatList
-				data={mappings}
-				keyExtractor={([id]) => id}
-				contentContainerStyle={{ padding: 22, gap: 12 }}
-				ListEmptyComponent={
+		<FlatList
+			ListHeaderComponent={
+				<View style={{ gap: 14 }}>
+					<Text style={styles.heading}>{model.name ?? model.id}</Text>
 					<Text style={styles.muted}>
-						No active providers are available for this model.
+						Choose a provider to pin this model. Requests will not fall back to
+						another provider.
 					</Text>
-				}
-				renderItem={({ item: [id, mapping] }) => {
-					const provider = providers.data?.providers.find(
-						(item) => item.id === mapping.providerId,
-					);
-					const name = `${provider?.name ?? mapping.providerId}${mapping.region ? ` · ${mapping.region}` : ""}`;
-					const capabilities = [
-						mapping.vision && "Images",
-						mapping.reasoning && "Reasoning",
-						mapping.webSearch && "Web search",
-						mapping.tools && "Tools",
-					]
-						.filter(Boolean)
-						.join(" · ");
-					return (
-						<View style={styles.card}>
-							<Button title={`Use ${name}`} onPress={() => onChoose(id)} />
-							{!!capabilities && (
-								<Text style={styles.muted}>{capabilities}</Text>
-							)}
-						</View>
-					);
-				}}
-			/>
-		</>
+					<Button title="Back to models" secondary onPress={onBack} />
+					<ErrorNotice error={providers.error} />
+				</View>
+			}
+			data={mappings}
+			keyExtractor={([id]) => id}
+			contentContainerStyle={{ padding: 22, gap: 12 }}
+			ListEmptyComponent={
+				<Text style={styles.muted}>
+					No active providers are available for this model.
+				</Text>
+			}
+			renderItem={({ item: [id, mapping] }) => {
+				const provider = providers.data?.providers.find(
+					(item) => item.id === mapping.providerId,
+				);
+				const name = `${provider?.name ?? mapping.providerId}${mapping.region ? ` · ${mapping.region}` : ""}`;
+				const capabilities = [
+					mapping.vision && "Images",
+					mapping.reasoning && "Reasoning",
+					mapping.webSearch && "Web search",
+					mapping.tools && "Tools",
+				]
+					.filter(Boolean)
+					.join(" · ");
+				return (
+					<View style={styles.card}>
+						<Button title={`Use ${name}`} onPress={() => onChoose(id)} />
+						{!!capabilities && <Text style={styles.muted}>{capabilities}</Text>}
+					</View>
+				);
+			}}
+		/>
 	);
 }

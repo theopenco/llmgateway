@@ -11,6 +11,7 @@ import {
 	TextInput,
 	View,
 	useColorScheme,
+	useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -100,6 +101,8 @@ export function Chat({
 	knowledgeProjectId?: string;
 }) {
 	const scheme = useColorScheme();
+	const { fontScale, height } = useWindowDimensions();
+	const scrollControls = fontScale > 1.3 || height < 500;
 	const insets = useSafeAreaInsets();
 	const [id, setId] = useState(chatId);
 	const [prompt, setPrompt] = useState("");
@@ -544,103 +547,107 @@ export function Chat({
 		},
 	});
 
+	const controls = (
+		<View style={{ gap: 10 }}>
+			<Text numberOfLines={1} style={styles.heading}>
+				{temporary
+					? "Temporary conversation"
+					: (chat.data?.chat.title ?? "A fresh conversation")}
+			</Text>
+			<ModelPicker value={model} onChange={setSelectedModel} />
+			<View style={[styles.row, { flexWrap: "wrap" }]}>
+				<ChatSettings
+					webSearch={settings.webSearch}
+					onSaved={(value) => {
+						setSelectedWebSearch(value.webSearch);
+						if (id) {
+							update.mutate({
+								params: { path: { id } },
+								body: { webSearch: value.webSearch },
+							});
+						}
+					}}
+				/>
+				{!!id && (
+					<Button
+						title={chat.data?.chat.pinned ? "Unpin" : "Pin"}
+						secondary
+						onPress={() =>
+							update.mutate({
+								params: { path: { id } },
+								body: { pinned: !chat.data?.chat.pinned },
+							})
+						}
+					/>
+				)}
+			</View>
+			{project.data?.project && (
+				<Text style={styles.muted}>Project: {project.data.project.name}</Text>
+			)}
+			{!id && (
+				<View style={styles.row}>
+					<Text style={[styles.muted, { flex: 1 }]}>
+						Keep out of Lounge history
+					</Text>
+					<Switch
+						accessibilityLabel="Temporary conversation"
+						value={temporary}
+						disabled={!!messages.length || send.isPending}
+						onValueChange={setTemporary}
+					/>
+				</View>
+			)}
+			{!!id && (
+				<View style={[styles.row, { flexWrap: "wrap" }]}>
+					<Button
+						title="Rename"
+						secondary
+						disabled={send.isPending || toolAction.isPending}
+						onPress={() =>
+							Alert.prompt(
+								"Rename conversation",
+								undefined,
+								(title) => {
+									if (title.trim()) {
+										update.mutate({
+											params: { path: { id } },
+											body: { title: title.trim().slice(0, 200) },
+										});
+									}
+								},
+								"plain-text",
+								chat.data?.chat.title,
+							)
+						}
+					/>
+					<Button
+						title="Fork"
+						secondary
+						disabled={send.isPending || toolAction.isPending}
+						busy={fork.isPending}
+						onPress={() => fork.mutate()}
+					/>
+					<ChatSharing
+						chatId={id}
+						organizationId={organizationId}
+						publicShareId={chat.data?.chat.shareId}
+						orgShares={chat.data?.chat.orgShares ?? []}
+						disabled={send.isPending || fork.isPending}
+					/>
+				</View>
+			)}
+		</View>
+	);
 	return (
 		<KeyboardAvoidingView
 			behavior="padding"
 			keyboardVerticalOffset={insets.top + 44}
 			style={styles.screen}
 		>
-			<View style={{ padding: 18, gap: 10 }}>
-				<Text numberOfLines={1} style={styles.heading}>
-					{temporary
-						? "Temporary conversation"
-						: (chat.data?.chat.title ?? "A fresh conversation")}
-				</Text>
-				<ModelPicker value={model} onChange={setSelectedModel} />
-				<View style={[styles.row, { flexWrap: "wrap" }]}>
-					<ChatSettings
-						webSearch={settings.webSearch}
-						onSaved={(value) => {
-							setSelectedWebSearch(value.webSearch);
-							if (id) {
-								update.mutate({
-									params: { path: { id } },
-									body: { webSearch: value.webSearch },
-								});
-							}
-						}}
-					/>
-					{!!id && (
-						<Button
-							title={chat.data?.chat.pinned ? "Unpin" : "Pin"}
-							secondary
-							onPress={() =>
-								update.mutate({
-									params: { path: { id } },
-									body: { pinned: !chat.data?.chat.pinned },
-								})
-							}
-						/>
-					)}
-				</View>
-				{project.data?.project && (
-					<Text style={styles.muted}>Project: {project.data.project.name}</Text>
-				)}
-				{!id && (
-					<View style={styles.row}>
-						<Text style={[styles.muted, { flex: 1 }]}>
-							Keep out of Lounge history
-						</Text>
-						<Switch
-							accessibilityLabel="Temporary conversation"
-							value={temporary}
-							disabled={!!messages.length || send.isPending}
-							onValueChange={setTemporary}
-						/>
-					</View>
-				)}
-				{!!id && (
-					<View style={styles.row}>
-						<Button
-							title="Rename"
-							secondary
-							disabled={send.isPending || toolAction.isPending}
-							onPress={() =>
-								Alert.prompt(
-									"Rename conversation",
-									undefined,
-									(title) => {
-										if (title.trim()) {
-											update.mutate({
-												params: { path: { id } },
-												body: { title: title.trim().slice(0, 200) },
-											});
-										}
-									},
-									"plain-text",
-									chat.data?.chat.title,
-								)
-							}
-						/>
-						<Button
-							title="Fork"
-							secondary
-							disabled={send.isPending || toolAction.isPending}
-							busy={fork.isPending}
-							onPress={() => fork.mutate()}
-						/>
-						<ChatSharing
-							chatId={id}
-							organizationId={organizationId}
-							publicShareId={chat.data?.chat.shareId}
-							orgShares={chat.data?.chat.orgShares ?? []}
-							disabled={send.isPending || fork.isPending}
-						/>
-					</View>
-				)}
-			</View>
+			{!scrollControls && <View style={{ padding: 18 }}>{controls}</View>}
 			<FlatList
 				{...following.listProps}
+				ListHeaderComponent={scrollControls ? controls : undefined}
 				data={messages}
 				keyExtractor={(message) => message.id}
 				contentContainerStyle={{ padding: 18, gap: 14 }}
@@ -738,7 +745,7 @@ export function Chat({
 					onChangeText={setPrompt}
 					style={[styles.input, { maxHeight: 140 }]}
 				/>
-				<View style={styles.row}>
+				<View style={[styles.row, { flexWrap: "wrap" }]}>
 					<Button
 						title="Attach file"
 						secondary
