@@ -11,6 +11,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { api, client } from "@/api/client";
 import { streamCompletion } from "@/api/completion";
+import { rememberProjectExchange } from "@/api/project-memory";
 import { Chat } from "@/screens/Chat";
 
 jest.mock("@react-native-clipboard/clipboard", () => ({
@@ -20,6 +21,9 @@ jest.mock("@/api/client", () => ({
 	api: { useQuery: jest.fn(), useMutation: () => ({ mutate: jest.fn() }) },
 	client: { POST: jest.fn(), PATCH: jest.fn() },
 	queryClient: { invalidateQueries: jest.fn() },
+}));
+jest.mock("@/api/project-memory", () => ({
+	rememberProjectExchange: jest.fn(),
 }));
 jest.mock("@/api/completion", () => ({ streamCompletion: jest.fn() }));
 jest.mock("@/api/chat-context", () => ({ chatContext: async () => "" }));
@@ -208,8 +212,36 @@ test("keeps temporary messages out of persisted history and supports copying and
 	expect(await screen.findByText("New response")).toBeOnTheScreen();
 	expect(client.POST).not.toHaveBeenCalled();
 	expect(client.PATCH).not.toHaveBeenCalled();
+	expect(rememberProjectExchange).not.toHaveBeenCalled();
 	await user.press(screen.getByRole("button", { name: "Show reasoning" }));
 	expect(screen.getByText("Considered the question")).toBeOnTheScreen();
 	await user.press(screen.getAllByRole("button", { name: "Copy message" })[1]);
 	expect(Clipboard.setString).toHaveBeenCalledWith("New response");
+});
+
+test("learns project memory only after saving the completed assistant reply", async () => {
+	query.mockReturnValue({
+		data: {
+			chat: { title: "Fixture", model: "auto", projectId: "knowledge" },
+			messages,
+		},
+	});
+	await showChat("chat");
+	await userEvent
+		.setup()
+		.press(screen.getByRole("button", { name: "Retry last response" }));
+	await waitFor(() =>
+		expect(rememberProjectExchange).toHaveBeenCalledWith(
+			expect.objectContaining({
+				knowledgeProjectId: "knowledge",
+				billingProjectId: "project",
+				userMessage: "Original question",
+				reply: expect.objectContaining({ content: "New response" }),
+				aborted: false,
+			}),
+		),
+	);
+	expect(jest.mocked(client.POST).mock.invocationCallOrder[0]).toBeLessThan(
+		jest.mocked(rememberProjectExchange).mock.invocationCallOrder[0],
+	);
 });

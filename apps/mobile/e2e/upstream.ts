@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import process from "node:process";
 
+import { projectUpstream } from "./project-upstream";
 import {
 	mockOpenAIServer,
 	getMockVideos,
@@ -93,7 +94,11 @@ mockOpenAIServer.post("/v1/images/edits", async (context) => {
 
 const voiceFixture = Buffer.concat(Array<Buffer>(4).fill(voicePcm));
 
-void startMockServer(Number(process.env.GATEWAY_PORT) + 8)
+void startMockServer(
+	Number(process.env.GATEWAY_PORT) + 8,
+	async (request) =>
+		await ((await projectUpstream(request)) ?? mockOpenAIServer.fetch(request)),
+)
 	.then((url) => {
 		startMockRealtimeServer(
 			Number(process.env.GATEWAY_PORT) + 9,

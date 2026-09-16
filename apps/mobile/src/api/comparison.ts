@@ -5,6 +5,7 @@ import {
 	storedAttachments,
 } from "@/api/chat-messages";
 import { client } from "@/api/client";
+import { rememberProjectExchange } from "@/api/project-memory";
 import { generateReply, saveReply } from "@/api/reply";
 
 import type { Attachment } from "@/api/chat-messages";
@@ -159,6 +160,13 @@ export async function completeComparisonPanel({
 		: undefined;
 	onReply(reply);
 	await saveReply(panel.id, reply, lastAssistant?.id);
+	void rememberProjectExchange({
+		knowledgeProjectId: history.chat.projectId,
+		billingProjectId: projectId,
+		userMessage: content,
+		reply,
+		aborted: signal.aborted,
+	});
 	onSaved();
 	if (reply.error && !signal.aborted) {
 		throw reply.error;

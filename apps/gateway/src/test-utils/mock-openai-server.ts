@@ -3029,7 +3029,12 @@ mockOpenAIServer.post("/model/:model/converse-stream", async (c) => {
 
 let server: any = null;
 
-export function startMockServer(port = 0): Promise<string> {
+export function startMockServer(
+	port = 0,
+	handleRequest: (request: Request) => Response | Promise<Response> = (
+		request,
+	) => mockOpenAIServer.fetch(request),
+): Promise<string> {
 	return new Promise((resolve) => {
 		if (server) {
 			resolve(currentMockServerUrl);
@@ -3038,7 +3043,7 @@ export function startMockServer(port = 0): Promise<string> {
 
 		server = serve(
 			{
-				fetch: mockOpenAIServer.fetch,
+				fetch: handleRequest,
 				port,
 			},
 			(info) => {
