@@ -66,6 +66,16 @@ and `GOOGLE_CLIENT_ID` values and run with `PW_SOCIAL_AUTH_FIXTURE=true`.
 Provider requests are intercepted; the email test verifies and deletes its own
 disposable account using the real API.
 
+`e2e/ipad-browser-signup.yaml` uses a fresh iPad simulator and the same account
+fixture. It verifies signup in the app's browser, email verification and approval
+in Safari, returning to the app, session restoration, and account deletion.
+
+After signing in on the iPad, set its text size with
+`xcrun simctl ui <device-id> content_size accessibility-extra-extra-extra-large`
+and run `e2e/ipad-large-text.yaml`. It checks model/provider selection, draft
+preservation, rotation, and keyboard controls. Restore the size with
+`xcrun simctl ui <device-id> content_size large` before other flows.
+
 For video flows, export a temporary `LOUNGE_TEST_VIDEO_SIGNING_KEY` and set
 `LLM_VIDEO_CONTENT_JWT_SECRET` to the same value before starting the API.
 Run `pnpm --filter mobile test:video-worker` alongside the mock and gateway.
@@ -103,6 +113,10 @@ Verified during development:
   process restart, sign-out, denial, new-code recovery, and browser cancellation
   passed. Backend tests cover both native and CLI clients; browser tests also
   cover SSO return-path recovery.
+- iPad browser signup: original verification email opened in Safari, matching-code
+  approval, native sign-in, process restart, and account deletion passed.
+- iPad maximum text size: model/provider selection, portrait and landscape
+  composer visibility, keyboard editing, and draft preservation on rotation passed.
 - Native workspace restoration: organization/project selection, chat billing and
   history after restart, switching back to personal, and clearing the choice on
   sign-out passed. An offline API required retry; an inactive saved project
@@ -218,7 +232,7 @@ format. It also keeps the existing Worklets compatibility fix.
 
 A checkbox requires observed behavior, not just a screen or passing type check.
 
-- [ ] Sign-in, secure session restoration, sign-out, signup/reset, account deletion
+- [x] Sign-in, secure session restoration, sign-out, signup/reset, account deletion
 - [ ] Chat: streaming, model selection/favorites, search, reasoning, attachments, web search, stop/retry/edit/fork, settings
 - [ ] History: synchronization, search, pin, archive, delete, public and organization sharing
 - [x] Model comparison and group conversations

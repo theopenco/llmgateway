@@ -106,78 +106,87 @@ export function ModelPicker({
 							onBack={() => setProviderModel(null)}
 						/>
 					) : (
-						<>
-							<View style={{ padding: 22, gap: 14 }}>
-								<Text style={styles.title}>Choose your model</Text>
-								<Field
-									label="Search models"
-									value={search}
-									onChangeText={setSearch}
-								/>
-								{!capability && (output === "text" || output === "image") && (
-									<Button
-										title="Auto route"
-										secondary
-										onPress={() => choose("auto")}
-									/>
-								)}
-								<ErrorNotice
-									error={
-										models.error ?? favorites.error ?? add.error ?? remove.error
-									}
-								/>
-								<Button title="Done" onPress={() => setOpen(false)} />
-							</View>
-							{models.isPending && <Loading />}
-							<FlatList
-								data={choices}
-								keyExtractor={(model) => model.id}
-								contentContainerStyle={{ padding: 22, gap: 12 }}
-								renderItem={({ item }) => (
-									<View style={styles.card}>
-										<View style={styles.row}>
-											<Pressable
-												style={{ flex: 1 }}
-												role="button"
-												aria-label={`Choose ${item.name ?? item.id}`}
-												onPress={() =>
-													choose(
-														capability
-															? `${item.mappings[0].providerId}/${item.id}${item.mappings[0].region ? `:${item.mappings[0].region}` : ""}`
-															: item.id,
-													)
-												}
-											>
-												<Text style={styles.body}>{item.name ?? item.id}</Text>
-												<Text style={styles.muted}>{item.id}</Text>
-											</Pressable>
-											<Button
-												title={
-													favorites.data?.favorites.includes(item.id)
-														? "Unfavorite"
-														: "Favorite"
-												}
-												accessibilityLabel={`${favorites.data?.favorites.includes(item.id) ? "Unfavorite" : "Favorite"} ${item.name ?? item.id}`}
-												busy={add.isPending || remove.isPending}
-												secondary
-												onPress={() =>
-													favorites.data?.favorites.includes(item.id)
-														? remove.mutate({
-																params: { query: { modelId: item.id } },
-															})
-														: add.mutate({ body: { modelId: item.id } })
-												}
-											/>
-										</View>
+						<FlatList
+							keyboardShouldPersistTaps="handled"
+							keyboardDismissMode="interactive"
+							automaticallyAdjustKeyboardInsets
+							ListHeaderComponent={
+								<>
+									<View style={{ gap: 14 }}>
+										<Text style={styles.title}>Choose your model</Text>
+										<Field
+											label="Search models"
+											value={search}
+											onChangeText={setSearch}
+										/>
+										{!capability &&
+											(output === "text" || output === "image") && (
+												<Button
+													title="Auto route"
+													secondary
+													onPress={() => choose("auto")}
+												/>
+											)}
+										<ErrorNotice
+											error={
+												models.error ??
+												favorites.error ??
+												add.error ??
+												remove.error
+											}
+										/>
+										<Button title="Done" onPress={() => setOpen(false)} />
+									</View>
+									{models.isPending && <Loading />}
+								</>
+							}
+							data={choices}
+							keyExtractor={(model) => model.id}
+							contentContainerStyle={{ padding: 22, gap: 12 }}
+							renderItem={({ item }) => (
+								<View style={styles.card}>
+									<View style={[styles.row, { flexWrap: "wrap" }]}>
+										<Pressable
+											style={{ flexGrow: 1, flexBasis: 180 }}
+											role="button"
+											aria-label={`Choose ${item.name ?? item.id}`}
+											onPress={() =>
+												choose(
+													capability
+														? `${item.mappings[0].providerId}/${item.id}${item.mappings[0].region ? `:${item.mappings[0].region}` : ""}`
+														: item.id,
+												)
+											}
+										>
+											<Text style={styles.body}>{item.name ?? item.id}</Text>
+											<Text style={styles.muted}>{item.id}</Text>
+										</Pressable>
 										<Button
-											title={`Providers for ${item.name ?? item.id}`}
+											title={
+												favorites.data?.favorites.includes(item.id)
+													? "Unfavorite"
+													: "Favorite"
+											}
+											accessibilityLabel={`${favorites.data?.favorites.includes(item.id) ? "Unfavorite" : "Favorite"} ${item.name ?? item.id}`}
+											busy={add.isPending || remove.isPending}
 											secondary
-											onPress={() => setProviderModel(item)}
+											onPress={() =>
+												favorites.data?.favorites.includes(item.id)
+													? remove.mutate({
+															params: { query: { modelId: item.id } },
+														})
+													: add.mutate({ body: { modelId: item.id } })
+											}
 										/>
 									</View>
-								)}
-							/>
-						</>
+									<Button
+										title={`Providers for ${item.name ?? item.id}`}
+										secondary
+										onPress={() => setProviderModel(item)}
+									/>
+								</View>
+							)}
+						/>
 					)}
 				</SafeAreaView>
 			</Modal>

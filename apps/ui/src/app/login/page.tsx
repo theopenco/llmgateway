@@ -301,8 +301,8 @@ export default function Login() {
 											Forgot password?
 										</Link>
 									</div>
-									<FormControl>
-										<div className="relative">
+									<div className="relative">
+										<FormControl>
 											<Input
 												placeholder="••••••••"
 												type={showPassword ? "text" : "password"}
@@ -310,25 +310,25 @@ export default function Login() {
 												className="pr-10"
 												{...field}
 											/>
-											<Button
-												type="button"
-												variant="ghost"
-												size="sm"
-												className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-												onClick={() => setShowPassword(!showPassword)}
-												tabIndex={-1}
-											>
-												{showPassword ? (
-													<EyeOff className="h-4 w-4 text-muted-foreground" />
-												) : (
-													<Eye className="h-4 w-4 text-muted-foreground" />
-												)}
-												<span className="sr-only">
-													{showPassword ? "Hide password" : "Show password"}
-												</span>
-											</Button>
-										</div>
-									</FormControl>
+										</FormControl>
+										<Button
+											type="button"
+											variant="ghost"
+											size="sm"
+											className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+											onClick={() => setShowPassword(!showPassword)}
+											tabIndex={-1}
+										>
+											{showPassword ? (
+												<EyeOff className="h-4 w-4 text-muted-foreground" />
+											) : (
+												<Eye className="h-4 w-4 text-muted-foreground" />
+											)}
+											<span className="sr-only">
+												{showPassword ? "Hide password" : "Show password"}
+											</span>
+										</Button>
+									</div>
 									<FormMessage />
 								</FormItem>
 							)}
