@@ -15,7 +15,7 @@ export const templates: CanvasTemplate[] = [
 			elements: {
 				root: {
 					type: "Stack",
-					props: { direction: "column", gap: 6 },
+					props: { direction: "vertical", gap: "lg" },
 					children: ["heading", "kpis", "charts"],
 				},
 				heading: {
@@ -24,7 +24,7 @@ export const templates: CanvasTemplate[] = [
 				},
 				kpis: {
 					type: "Grid",
-					props: { columns: 4, gap: 4 },
+					props: { columns: 4, gap: "md" },
 					children: ["kpi1", "kpi2", "kpi3", "kpi4"],
 				},
 				kpi1: {
@@ -65,7 +65,7 @@ export const templates: CanvasTemplate[] = [
 				},
 				charts: {
 					type: "Grid",
-					props: { columns: 2, gap: 4 },
+					props: { columns: 2, gap: "md" },
 					children: ["barChart", "lineChart"],
 				},
 				barChart: {
@@ -128,12 +128,12 @@ export const templates: CanvasTemplate[] = [
 				},
 				form: {
 					type: "Stack",
-					props: { direction: "column", gap: 4 },
+					props: { direction: "vertical", gap: "md" },
 					children: ["nameRow", "email", "subject", "message", "actions"],
 				},
 				nameRow: {
 					type: "Grid",
-					props: { columns: 2, gap: 4 },
+					props: { columns: 2, gap: "md" },
 					children: ["firstName", "lastName"],
 				},
 				firstName: {
@@ -167,10 +167,10 @@ export const templates: CanvasTemplate[] = [
 						label: "Subject",
 						name: "subject",
 						options: [
-							{ label: "General Inquiry", value: "general" },
-							{ label: "Technical Support", value: "support" },
-							{ label: "Billing", value: "billing" },
-							{ label: "Partnership", value: "partnership" },
+							"General Inquiry",
+							"Technical Support",
+							"Billing",
+							"Partnership",
 						],
 					},
 				},
@@ -185,16 +185,16 @@ export const templates: CanvasTemplate[] = [
 				},
 				actions: {
 					type: "Grid",
-					props: { columns: 2, gap: 2 },
+					props: { columns: 2, gap: "sm" },
 					children: ["resetBtn", "submitBtn"],
 				},
 				resetBtn: {
 					type: "Button",
-					props: { label: "Reset", variant: "outline" },
+					props: { label: "Reset", variant: "secondary" },
 				},
 				submitBtn: {
 					type: "Button",
-					props: { label: "Send Message", variant: "default" },
+					props: { label: "Send Message", variant: "primary" },
 				},
 			},
 		},
@@ -207,12 +207,12 @@ export const templates: CanvasTemplate[] = [
 			elements: {
 				root: {
 					type: "Stack",
-					props: { direction: "column", gap: 6 },
+					props: { direction: "vertical", gap: "lg" },
 					children: ["header", "cards"],
 				},
 				header: {
 					type: "Stack",
-					props: { direction: "column", gap: 2, align: "center" },
+					props: { direction: "vertical", gap: "sm", align: "center" },
 					children: ["title", "subtitle"],
 				},
 				title: {
@@ -228,7 +228,7 @@ export const templates: CanvasTemplate[] = [
 				},
 				cards: {
 					type: "Stack",
-					props: { direction: "row", gap: 4 },
+					props: { direction: "horizontal", gap: "md" },
 					children: ["free", "pro", "enterprise"],
 				},
 				free: {
@@ -238,7 +238,7 @@ export const templates: CanvasTemplate[] = [
 				},
 				freeFeatures: {
 					type: "Stack",
-					props: { direction: "column", gap: 2 },
+					props: { direction: "vertical", gap: "sm" },
 					children: ["f1", "f2", "f3"],
 				},
 				f1: { type: "Text", props: { text: "1,000 API calls / month" } },
@@ -246,7 +246,7 @@ export const templates: CanvasTemplate[] = [
 				f3: { type: "Text", props: { text: "Community support" } },
 				freeBtn: {
 					type: "Button",
-					props: { label: "Get Started", variant: "outline" },
+					props: { label: "Get Started", variant: "secondary" },
 				},
 				pro: {
 					type: "Card",
@@ -255,7 +255,7 @@ export const templates: CanvasTemplate[] = [
 				},
 				proFeatures: {
 					type: "Stack",
-					props: { direction: "column", gap: 2 },
+					props: { direction: "vertical", gap: "sm" },
 					children: ["p1", "p2", "p3", "p4"],
 				},
 				p1: {
@@ -267,7 +267,7 @@ export const templates: CanvasTemplate[] = [
 				p4: { type: "Text", props: { text: "Custom models" } },
 				proBtn: {
 					type: "Button",
-					props: { label: "Start Free Trial", variant: "default" },
+					props: { label: "Start Free Trial", variant: "primary" },
 				},
 				enterprise: {
 					type: "Card",
@@ -276,7 +276,7 @@ export const templates: CanvasTemplate[] = [
 				},
 				entFeatures: {
 					type: "Stack",
-					props: { direction: "column", gap: 2 },
+					props: { direction: "vertical", gap: "sm" },
 					children: ["e1", "e2", "e3", "e4"],
 				},
 				e1: { type: "Text", props: { text: "Unlimited API calls" } },
@@ -285,7 +285,7 @@ export const templates: CanvasTemplate[] = [
 				e4: { type: "Text", props: { text: "24/7 phone support" } },
 				entBtn: {
 					type: "Button",
-					props: { label: "Contact Sales", variant: "outline" },
+					props: { label: "Contact Sales", variant: "secondary" },
 				},
 			},
 		},
@@ -298,7 +298,7 @@ export const templates: CanvasTemplate[] = [
 			elements: {
 				root: {
 					type: "Stack",
-					props: { direction: "column", gap: 6 },
+					props: { direction: "vertical", gap: "lg" },
 					children: ["heading", "row1", "row2"],
 				},
 				heading: {
@@ -307,7 +307,7 @@ export const templates: CanvasTemplate[] = [
 				},
 				row1: {
 					type: "Grid",
-					props: { columns: 2, gap: 4 },
+					props: { columns: 2, gap: "md" },
 					children: ["areaChart", "pieChart"],
 				},
 				areaChart: {
@@ -349,7 +349,7 @@ export const templates: CanvasTemplate[] = [
 				},
 				row2: {
 					type: "Grid",
-					props: { columns: 2, gap: 4 },
+					props: { columns: 2, gap: "md" },
 					children: ["radarChart", "radialChart"],
 				},
 				radarChart: {
@@ -397,7 +397,7 @@ export const emptySpec: Spec = {
 	elements: {
 		root: {
 			type: "Stack",
-			props: { direction: "column", gap: 4, align: "center" },
+			props: { direction: "vertical", gap: "md", align: "center" },
 			children: ["heading", "text"],
 		},
 		heading: {

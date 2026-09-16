@@ -8,6 +8,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { VoiceCallsProvider } from "@/components/VoiceCallsProvider";
 import { WorkspaceGate } from "@/components/WorkspaceGate";
 import { AudioStudio } from "@/screens/AudioStudio";
+import { Canvas } from "@/screens/Canvas";
 import { Comparison } from "@/screens/Comparison";
 import { Conversation } from "@/screens/Conversation";
 import { GroupConversation } from "@/screens/GroupConversation";
@@ -43,6 +44,7 @@ import type { Workspace } from "@/lib/workspace";
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
 type Routes = {
 	Home: undefined;
+	Canvas: undefined;
 	ImageStudio: undefined;
 	VideoStudio: undefined;
 	AudioStudio: undefined;
@@ -156,6 +158,11 @@ function Lounge({
 									/>
 								</View>
 								<Button
+									title="Canvas"
+									secondary
+									onPress={() => navigation.navigate("Canvas")}
+								/>
+								<Button
 									title="Image Studio"
 									secondary
 									onPress={() => navigation.navigate("ImageStudio")}
@@ -192,6 +199,9 @@ function Lounge({
 								/>
 							</Screen>
 						)}
+					</Stack.Screen>
+					<Stack.Screen name="Canvas" options={{ title: "Canvas" }}>
+						{() => <Canvas projectId={projectId} />}
 					</Stack.Screen>
 					<Stack.Screen name="Chat" options={{ title: "Conversation" }}>
 						{({ route, navigation }) => (

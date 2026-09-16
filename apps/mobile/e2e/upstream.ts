@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import process from "node:process";
 
+import { canvasUpstream } from "./canvas-upstream";
 import { connectorUpstream } from "./connector-upstream";
 import { projectUpstream } from "./project-upstream";
 import { skillUpstream } from "./skill-upstream";
@@ -99,7 +100,8 @@ const voiceFixture = Buffer.concat(Array<Buffer>(4).fill(voicePcm));
 void startMockServer(
 	Number(process.env.GATEWAY_PORT) + 8,
 	async (request) =>
-		await ((await connectorUpstream(request)) ??
+		await ((await canvasUpstream(request)) ??
+			(await connectorUpstream(request)) ??
 			(await skillUpstream(request)) ??
 			(await projectUpstream(request)) ??
 			mockOpenAIServer.fetch(request)),

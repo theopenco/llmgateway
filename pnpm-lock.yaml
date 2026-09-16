@@ -852,6 +852,9 @@ importers:
 
   apps/mobile:
     dependencies:
+      '@llmgateway/canvas':
+        specifier: workspace:*
+        version: link:../../packages/canvas
       '@llmgateway/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -915,6 +918,9 @@ importers:
       react-native-video:
         specifier: 7.0.0-beta.11
         version: 7.0.0-beta.11(react-dom@19.3.0(react@19.2.3))(react-native-nitro-modules@0.37.1(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@5.9.2))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3))(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@5.9.2))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
+      react-native-webview:
+        specifier: 14.0.1
+        version: 14.0.1(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@5.9.2))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
       react-native-worklets:
         specifier: 0.12.2
         version: 0.12.2(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@5.9.2))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3)
@@ -925,6 +931,9 @@ importers:
       '@babel/core':
         specifier: ^7.29.6
         version: 7.29.7
+      '@babel/plugin-transform-export-namespace-from':
+        specifier: 7.29.7
+        version: 7.29.7(@babel/core@7.29.7)
       '@babel/preset-env':
         specifier: ^7.25.3
         version: 7.29.7(@babel/core@7.29.7)
@@ -982,6 +991,9 @@ importers:
       openapi-typescript:
         specifier: 7.10.1
         version: 7.10.1(typescript@5.9.2)
+      playground:
+        specifier: workspace:*
+        version: link:../playground
       prettier:
         specifier: ^3.9.6
         version: 3.9.6
@@ -1247,6 +1259,9 @@ importers:
       '@types/react-syntax-highlighter':
         specifier: 15.5.13
         version: 15.5.13
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
       eslint:
         specifier: ^9.38.0
         version: 9.38.0(jiti@2.6.1)
@@ -1256,6 +1271,9 @@ importers:
       openapi-typescript:
         specifier: 7.10.1
         version: 7.10.1(typescript@5.9.3)
+      postcss:
+        specifier: 8.5.23
+        version: 8.5.23
       tailwindcss:
         specifier: ^4.1.16
         version: 4.1.16
@@ -13219,6 +13237,12 @@ packages:
       react-native: '*'
       react-native-nitro-modules: '>=0.35.0'
 
+  react-native-webview@14.0.1:
+    resolution: {integrity: sha512-lBUuvFk459Mo+5vUNqwzGvn+I8rDJE6zvOulG2hWWudeEOJfWTsQwOfuYnRu+27djUIXrESFfC+EQE3PGu+FWA==}
+    peerDependencies:
+      react: '*'
+      react-native: '*'
+
   react-native-worklets@0.12.2:
     resolution: {integrity: sha512-TB6Aze0WJg/U0XOu4Zfx/yV8i5i7C/lbMymUXPbq1izDy2nuzZ9ujQAMwAHM2Ygyhzi8sdRk/7FukuTTfuil9A==}
     peerDependencies:
@@ -23645,8 +23669,8 @@ snapshots:
     dependencies:
       '@drizzle-team/brocli': 0.10.2
       '@js-temporal/polyfill': 0.5.1
-      esbuild: 0.28.1
-      esbuild-register: 3.6.0(esbuild@0.28.1)
+      esbuild: 0.28.2
+      esbuild-register: 3.6.0(esbuild@0.28.2)
     transitivePeerDependencies:
       - supports-color
 
@@ -23901,10 +23925,10 @@ snapshots:
 
   esbuild-fix-imports-plugin@1.0.23: {}
 
-  esbuild-register@3.6.0(esbuild@0.28.1):
+  esbuild-register@3.6.0(esbuild@0.28.2):
     dependencies:
       debug: 4.4.3
-      esbuild: 0.28.1
+      esbuild: 0.28.2
     transitivePeerDependencies:
       - supports-color
 
@@ -23965,7 +23989,6 @@ snapshots:
       '@esbuild/win32-arm64': 0.28.2
       '@esbuild/win32-ia32': 0.28.2
       '@esbuild/win32-x64': 0.28.2
-    optional: true
 
   escalade@3.2.0: {}
 
@@ -28253,7 +28276,6 @@ snapshots:
       nanoid: 3.3.18
       picocolors: 1.1.1
       source-map-js: 1.2.1
-    optional: true
 
   postgres-array@2.0.0: {}
 
@@ -28637,6 +28659,13 @@ snapshots:
       - '@videojs/wistia-video'
       - '@videojs/youtube-video'
       - react-dom
+
+  react-native-webview@14.0.1(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@5.9.2))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3):
+    dependencies:
+      escape-string-regexp: 4.0.0
+      invariant: 2.2.4
+      react: 19.2.3
+      react-native: 0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@5.9.2))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3)
 
   react-native-worklets@0.12.2(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(react-native@0.87.1(@babel/core@7.29.7)(@react-native-community/cli@20.2.0(typescript@5.9.2))(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.14)(react@19.2.3))(react@19.2.3):
     dependencies:
@@ -30351,14 +30380,14 @@ snapshots:
 
   tsx@4.20.6:
     dependencies:
-      esbuild: 0.28.1
+      esbuild: 0.28.2
       get-tsconfig: 4.13.0
     optionalDependencies:
       fsevents: 2.3.3
 
   tsx@4.22.4:
     dependencies:
-      esbuild: 0.28.1
+      esbuild: 0.28.2
     optionalDependencies:
       fsevents: 2.3.3
 
@@ -30748,10 +30777,10 @@ snapshots:
 
   vite@7.3.5(@types/node@26.2.0)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.51.2)(tsx@4.22.4)(yaml@2.8.3):
     dependencies:
-      esbuild: 0.28.1
+      esbuild: 0.28.2
       fdir: 6.5.0(picomatch@4.0.4)
       picomatch: 4.0.4
-      postcss: 8.5.26
+      postcss: 8.5.28
       rollup: 4.62.0
       tinyglobby: 0.2.17
     optionalDependencies:

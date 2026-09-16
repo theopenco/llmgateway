@@ -52,17 +52,22 @@ This worker only polls video jobs. The fixture is a four-second synthetic MP4.
 The iOS Podfile builds React Native core from source because the prebuilt
 0.87 JSI headers conflict with Nitro video imports. The first build takes longer.
 
+Canvas bundles the shared web component registry into an offline WebView. Run
+`pnpm --filter mobile canvas:bundle` after editing its renderer; the mobile build
+also regenerates it. Generation, model selection, editing, and exports use native
+controls.
+
 Audio playback uses Audio API with FFmpeg for the studio's encoded formats.
 Its controls import Reanimated and Gesture Handler. The Audio API patch updates
 two C++ calls to Worklets 0.12's `runSync` API.
 
 Verified during development:
 
-- Full repository build: 20 workspaces passed.
+- Full repository build: 21 workspaces passed.
 - Repository unit suite before the UTC revenue fix: 7,102 passed, 2 skipped,
   one admin date-range failure. After the fix, all five admin revenue tests pass
   under Stockholm, Los Angeles, and UTC timezones.
-- Native tests: 226 passed; shared image configuration tests: 3 passed.
+- Native tests: 246 passed; shared image configuration tests: 3 passed.
 - Chat message persistence tests: 5 passed, including tool-only replies.
 - Gateway speech tests: 20 passed.
 - Video configuration: 25 passed; gateway video and byte-range tests: 57 passed.
@@ -112,6 +117,10 @@ Verified during development:
 - Native voice checks with local OpenAI and Gemini WebSocket upstreams: microphone
   capture, replies, mute, saved audio replay/pause, OpenAI continuation, background
   saving, transcript copy, restart restoration, rename, and deletion passed.
+- Native Canvas checks: streamed generation, interactive state, JSON editing,
+  invalid input/output recovery, templates, stopping, model restoration, reset,
+  PNG/PDF Files export, and both share sheets passed. Exported files were opened
+  and visually checked. WebKit also verified all four templates and bound input.
 - Native image checks with a mock provider: generation/editing, model comparison,
   settings, history after restart, Files export/import, sharing, renaming, and
   deletion passed. Exported PNG bytes matched the generated fixture.
@@ -156,7 +165,7 @@ A checkbox requires observed behavior, not just a screen or passing type check.
 - [ ] Video creation, input frames, polling, playback, history, save/share
 - [x] Speech generation/transcription, playback, history
 - [x] Realtime voice calls and call history
-- [ ] Canvas generation and interactive rendering
+- [x] Canvas generation and interactive rendering
 - [ ] Escape gameplay and saved runs
 - [ ] Profile, points, levels, streaks, leaderboard
 - [ ] Organization switching, membership/usage, web-only payments
