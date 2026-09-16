@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
 	createQueuedModelVerificationChecks,
+	disprovedCapabilities,
 	decryptModelVerificationCredential,
 	encryptModelVerificationCredential,
 	runProviderModelVerification,
@@ -321,6 +322,136 @@ describe("model verification", () => {
 			);
 		},
 	);
+
+	it("retries the tool check with tool_choice auto", async () => {
+		const toolOnly = {
+			...target,
+			providerId: "custom-carrier" as const,
+			streaming: false,
+			vision: false,
+			audio: false,
+			tools: true,
+			jsonOutput: false,
+			jsonOutputSchema: false,
+			reasoning: false,
+			reasoningMaxTokens: false,
+			webSearch: false,
+		};
+		const fetchImplementation = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(
+				Response.json({ choices: [{ message: { content: "OK" } }] }),
+			)
+			// Serving stacks that mishandle "required" leak the raw tool markup
+			// into the assistant content instead of returning tool_calls.
+			.mockResolvedValueOnce(
+				Response.json({
+					choices: [
+						{ message: { content: '<invoke name="get_weather">{}</invoke>' } },
+					],
+				}),
+			)
+			.mockResolvedValueOnce(
+				Response.json({
+					choices: [
+						{
+							message: {
+								tool_calls: [
+									{
+										type: "function",
+										function: { name: "get_weather", arguments: "{}" },
+									},
+								],
+							},
+						},
+					],
+				}),
+			);
+
+		const result = await runProviderModelVerification({
+			target: toolOnly,
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		expect(result.passed).toBe(true);
+		expect(fetchImplementation).toHaveBeenCalledTimes(3);
+		expect(
+			JSON.parse(String(fetchImplementation.mock.calls[1][1]?.body))
+				.tool_choice,
+		).toBe("required");
+		expect(
+			JSON.parse(String(fetchImplementation.mock.calls[2][1]?.body))
+				.tool_choice,
+		).toBe("auto");
+	});
+
+	it("fails the tool check when neither tool_choice mode calls the tool", async () => {
+		const fetchImplementation = vi
+			.fn<typeof fetch>()
+			.mockImplementation(async () =>
+				Response.json({ choices: [{ message: { content: "It is sunny." } }] }),
+			);
+
+		const result = await runProviderModelVerification({
+			target: {
+				...target,
+				providerId: "custom-carrier",
+				streaming: false,
+				vision: false,
+				audio: false,
+				tools: true,
+				jsonOutput: false,
+				jsonOutputSchema: false,
+				reasoning: false,
+				reasoningMaxTokens: false,
+				webSearch: false,
+			},
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		expect(result.passed).toBe(false);
+		expect(fetchImplementation).toHaveBeenCalledTimes(3);
+		expect(disprovedCapabilities(result.checks)).toEqual(["tools"]);
+	});
+
+	it("sends a vision image the serving stack can decode", async () => {
+		const fetchImplementation = vi
+			.fn<typeof fetch>()
+			.mockImplementation(async () =>
+				Response.json({ choices: [{ message: { content: "It is red." } }] }),
+			);
+
+		await runProviderModelVerification({
+			target: {
+				...target,
+				providerId: "custom-carrier",
+				streaming: false,
+				vision: true,
+				audio: false,
+				tools: false,
+				jsonOutput: false,
+				jsonOutputSchema: false,
+				reasoning: false,
+				reasoningMaxTokens: false,
+				webSearch: false,
+			},
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		const payload = JSON.parse(
+			String(fetchImplementation.mock.calls[1][1]?.body),
+		);
+		const url = payload.messages[0].content[1].image_url.url;
+		const png = Buffer.from(url.split(",")[1], "base64");
+		expect(png.readUInt32BE(16)).toBeGreaterThan(1);
+		expect(png.readUInt32BE(20)).toBeGreaterThan(1);
+	});
 
 	it("derives queued checks from mapping-level capabilities", () => {
 		expect(

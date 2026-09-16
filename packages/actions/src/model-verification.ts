@@ -76,8 +76,11 @@ export interface ModelVerificationRunResult {
 	summary: string;
 }
 
-const RED_PIXEL_DATA_URL =
-	"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z7h8AAAAASUVORK5CYII=";
+// A 64x64 solid red PNG. Deliberately not a 1x1 pixel: several OpenAI-compatible
+// serving stacks reject a degenerate image before the model ever sees it, which
+// fails the check on endpoints whose vision support is fine.
+const RED_IMAGE_DATA_URL =
+	"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAb0lEQVR4nO3PAQkAAAyEwO9feoshgnABdLep8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3IPanc8OLDQitxAAAAAElFTkSuQmCC";
 
 const COUNTRY_SCHEMA = {
 	type: "object",
@@ -123,7 +126,7 @@ export function createVisionVerificationRequest(
 					{ type: "text", text: "What color is this image?" },
 					{
 						type: "image_url",
-						image_url: { url: RED_PIXEL_DATA_URL },
+						image_url: { url: RED_IMAGE_DATA_URL },
 					},
 				],
 			},
@@ -695,7 +698,52 @@ function redactSecrets(text: string, secrets: Iterable<string>): string {
 	return redacted;
 }
 
+async function attemptCheck(
+	definition: ModelVerificationDefinition,
+	options: RunModelVerificationOptions,
+	secrets: Set<string>,
+): Promise<string | null> {
+	try {
+		return await executeCheck(definition, options, secrets);
+	} catch (error) {
+		return redactSecrets(
+			(error instanceof Error
+				? error.message
+				: "Verification request failed."
+			).slice(0, 500),
+			secrets,
+		);
+	}
+}
+
 async function runCheck(
+	definition: ModelVerificationDefinition,
+	options: RunModelVerificationOptions,
+	secrets: Set<string>,
+): Promise<string | null> {
+	const failure = await attemptCheck(definition, options, secrets);
+	// Several OpenAI-compatible serving stacks mishandle tool_choice "required"
+	// and emit the raw tool markup as assistant content instead of tool_calls.
+	// The listing claims tool calls, not a tool_choice mode, so retry with the
+	// mode every such endpoint does honour before disproving the capability.
+	if (
+		failure &&
+		definition.id === "tools" &&
+		definition.request.tool_choice === "required"
+	) {
+		return await attemptCheck(
+			{
+				...definition,
+				request: { ...definition.request, tool_choice: "auto" },
+			},
+			options,
+			secrets,
+		);
+	}
+	return failure;
+}
+
+async function executeCheck(
 	definition: ModelVerificationDefinition,
 	options: RunModelVerificationOptions,
 	secrets: Set<string>,
@@ -854,18 +902,7 @@ export async function runProviderModelVerification(
 		};
 		checks[index] = running;
 		await options.onCheck?.(running);
-		let failure: string | null;
-		try {
-			failure = await runCheck(definition, options, secrets);
-		} catch (error) {
-			failure = redactSecrets(
-				(error instanceof Error
-					? error.message
-					: "Verification request failed."
-				).slice(0, 500),
-				secrets,
-			);
-		}
+		const failure = await runCheck(definition, options, secrets);
 		const completed: ProviderModelVerificationCheck = failure
 			? {
 					id: definition.id,
