@@ -104,8 +104,7 @@ appId: io.llmgateway.lounge
     element: "Save video"
     direction: DOWN
 - tapOn: "Save video"
-- waitForAnimationToEnd:
-    timeout: 5000
-- tapOn:
-    point: 88%, 12%
-- assertVisible: "Share video"
+- runFlow:
+    file: helpers/save-file.yaml
+    env:
+      RETURN_TO: "Share video"

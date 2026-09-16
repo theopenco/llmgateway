@@ -69,17 +69,10 @@ appId: io.llmgateway.lounge
     element: "Save audio"
     direction: DOWN
 - tapOn: "Save audio"
-- waitForAnimationToEnd:
-    timeout: 5000
-- tapOn:
-    point: 88%, 12%
 - runFlow:
-    when:
-      notVisible: "Share audio"
-    commands:
-      - tapOn:
-          point: 88%, 12%
-- assertVisible: "Share audio"
+    file: helpers/save-file.yaml
+    env:
+      RETURN_TO: "Share audio"
 - tapOn: "Share audio"
 - waitForAnimationToEnd:
     timeout: 5000

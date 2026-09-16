@@ -3,6 +3,9 @@ appId: io.llmgateway.lounge
 - evalScript: ${output.imagePrompt = "Native comparison " + Date.now()}
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
+- scrollUntilVisible:
+    element: "Image Studio"
+    direction: DOWN
 - tapOn: "Image Studio"
 - tapOn: "Model: Auto"
 - tapOn:
@@ -68,12 +71,10 @@ appId: io.llmgateway.lounge
     centerElement: true
     timeout: 45000
 - tapOn: "Save image 2.2"
-# The iOS 26 remote Files picker omits controls from its accessibility tree.
-- waitForAnimationToEnd:
-    timeout: 5000
-- tapOn:
-    point: 88%, 12%
-- assertVisible: "Share image 2.2"
+- runFlow:
+    file: helpers/save-file.yaml
+    env:
+      RETURN_TO: "Share image 2.2"
 - scrollUntilVisible:
     element: "Add reference image"
     direction: UP
@@ -118,6 +119,9 @@ appId: io.llmgateway.lounge
 - eraseText
 - inputText: ${output.imagePrompt + " renamed"}
 - tapOn: "OK"
+- tapOn:
+    text: "Done typing"
+    optional: true
 - assertVisible: ${"View " + output.imagePrompt + " renamed"}
 - repeat:
     times: 2
@@ -131,4 +135,7 @@ appId: io.llmgateway.lounge
           text: "Delete image"
           index: 0
       - tapOn: "Delete generation"
+      - tapOn:
+          text: "Done typing"
+          optional: true
 - assertNotVisible: ${"View " + output.imagePrompt + ".*"}

@@ -3,6 +3,9 @@ appId: io.llmgateway.lounge
 - evalScript: ${output.imagePrompt = "Native image " + Date.now()}
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
+- scrollUntilVisible:
+    element: "Image Studio"
+    direction: DOWN
 - tapOn: "Image Studio"
 - tapOn: "Model: Auto"
 - tapOn:
@@ -53,6 +56,9 @@ appId: io.llmgateway.lounge
 - assertVisible: "Generated image 1.1"
 - launchApp
 - runFlow: helpers/organization.yaml
+- scrollUntilVisible:
+    element: "Image Studio"
+    direction: DOWN
 - tapOn: "Image Studio"
 - scrollUntilVisible:
     element:
@@ -80,9 +86,7 @@ appId: io.llmgateway.lounge
     direction: DOWN
     centerElement: true
 - tapOn: "Save image 1.1"
-# iOS 26's remote Files picker omits its Save button from the accessibility tree.
-- waitForAnimationToEnd:
-    timeout: 5000
-- tapOn:
-    point: 88%, 12%
-- assertVisible: "Share image 1.1"
+- runFlow:
+    file: helpers/save-file.yaml
+    env:
+      RETURN_TO: "Share image 1.1"

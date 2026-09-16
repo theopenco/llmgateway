@@ -14,25 +14,16 @@ appId: io.llmgateway.lounge
     timeout: 20000
 - tapOn: "Export"
 - tapOn: "Save PNG"
-- waitForAnimationToEnd:
-    timeout: 5000
-# The iOS 26 Files picker's Save button is absent from its accessibility tree.
-- retry:
-    maxRetries: 3
-    commands:
-      - tapOn:
-          point: 88%, 12%
-      - assertVisible: "Analytics Dashboard"
+- runFlow:
+    file: helpers/save-file.yaml
+    env:
+      RETURN_TO: "Analytics Dashboard"
 - tapOn: "Export"
 - tapOn: "Save PDF"
-- waitForAnimationToEnd:
-    timeout: 5000
-- retry:
-    maxRetries: 3
-    commands:
-      - tapOn:
-          point: 88%, 12%
-      - assertVisible: "Analytics Dashboard"
+- runFlow:
+    file: helpers/save-file.yaml
+    env:
+      RETURN_TO: "Analytics Dashboard"
 - tapOn: "Export"
 - tapOn: "Share PNG"
 - extendedWaitUntil:

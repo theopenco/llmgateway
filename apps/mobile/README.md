@@ -228,6 +228,29 @@ The audio patch adapts iOS voice processing from upstream
 for 0.13.3. Voice calls enable echo cancellation before resolving the microphone
 format. It also keeps the existing Worklets compatibility fix.
 
+## Release metadata
+
+`ios/Lounge/PrivacyInfo.xcprivacy` declares account-linked data used by the app.
+Keep it aligned with the account API and saved-content features:
+
+| Data                                    | Collection path                                                                 |
+| --------------------------------------- | ------------------------------------------------------------------------------- |
+| Name, email, user ID                    | Account creation/sign-in, profile, session, and account communications          |
+| Email/message content                   | Approved connector results saved with conversations                             |
+| Photos/video, audio, other user content | Attachments, prompts, documents, generated media, and saved conversations/calls |
+| Gameplay content                        | Saved Escape runs and replays                                                   |
+| Product interaction                     | Model usage, activity points, and usage analytics                               |
+| Other data                              | Session IP address, user agent, and security metadata                           |
+| Performance and diagnostics             | Request duration, time to first token, and error details                        |
+
+These entries are linked to the account and are not used for tracking. Account
+names/emails also cover the service's marketing communications. Identifiers,
+product interactions, and request diagnostics cover analytics. Payments stay on
+the website. Review the
+[privacy policy](https://llmgateway.io/legal/privacy) and Apple's
+[data-use definitions](https://developer.apple.com/documentation/bundleresources/describing-data-use-in-privacy-manifests)
+when changing collection or completing App Store Connect disclosures.
+
 ## Delivery checklist
 
 A checkbox requires observed behavior, not just a screen or passing type check.
@@ -250,7 +273,7 @@ A checkbox requires observed behavior, not just a screen or passing type check.
 - [ ] Accessibility, keyboard/safe-area handling, light/dark appearance
 - [ ] Component/unit tests, isolated backend tests, complete iOS e2e flows
 - [x] Production JavaScript bundle and signed simulator build
-- [ ] Signed device archive
+- [x] Signed device archive
 - [ ] Recorded simulator demo
 - [ ] TestFlight upload and successful processing under the requested account
 
