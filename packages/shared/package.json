@@ -168,6 +168,11 @@
 			"types": "./dist/escape-reasoning.d.ts",
 			"import": "./dist/escape-reasoning.js",
 			"default": "./dist/escape-reasoning.js"
+		},
+		"./lounge-points": {
+			"types": "./dist/lounge-points.d.ts",
+			"import": "./dist/lounge-points.js",
+			"default": "./dist/lounge-points.js"
 		}
 	},
 	"module": "./dist/index.js",

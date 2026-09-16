@@ -3,21 +3,21 @@ import { Linking, Text, View } from "react-native";
 
 import { api } from "@/api/client";
 import { signOut } from "@/auth/session";
+import { ProfileProgress } from "@/components/ProfileProgress";
+import { PublicProfile } from "@/components/PublicProfile";
 import { Button, ErrorNotice, Loading, Screen, styles } from "@/components/ui";
 import { config } from "@/config";
 
 export function Profile({
 	onSignedOut,
 	onDelete,
+	onLeaderboard,
 }: {
 	onSignedOut: () => void;
 	onDelete: () => void;
+	onLeaderboard: () => void;
 }) {
 	const user = api.useQuery("get", "/user/me", {});
-	const leaderboard = api.useQuery("get", "/public/lounge-leaderboard", {
-		params: { query: { limit: 10 } },
-	});
-	const points = api.useQuery("get", "/lounge/points/me", {});
 	const logout = useMutation({
 		mutationFn: signOut,
 		onSuccess: () => {
@@ -30,58 +30,25 @@ export function Profile({
 	return (
 		<Screen>
 			<Text style={styles.title}>Your Lounge</Text>
-			<ErrorNotice
-				error={
-					user.error ??
-					points.error ??
-					leaderboard.error ??
-					logout.error ??
-					website.error
-				}
-			/>
+			<ErrorNotice error={user.error ?? logout.error ?? website.error} />
 			{user.isPending && <Loading />}
+			{user.isError && (
+				<Button
+					title="Retry loading profile"
+					onPress={() => void user.refetch()}
+				/>
+			)}
 			<View style={styles.card}>
 				<Text style={styles.eyebrow}>MEMBER PROFILE</Text>
 				<Text style={styles.heading}>{user.data?.user.name}</Text>
-				<Text style={styles.muted}>{user.data?.user.email}</Text>
+				<Text style={styles.muted}>
+					{user.data?.user.username
+						? `@${user.data.user.username}`
+						: user.data?.user.email}
+				</Text>
 			</View>
-			{points.data && (
-				<View style={styles.card}>
-					<Text style={styles.eyebrow}>YOUR PROGRESS</Text>
-					<Text style={styles.title}>
-						{points.data.stats.totalPoints} points
-					</Text>
-					<Text style={styles.muted}>
-						Keep creating, learning, and exploring.
-					</Text>
-				</View>
-			)}
-			{points.data && (
-				<View style={styles.card}>
-					<Text style={styles.heading}>
-						Level {points.data.stats.level} · {points.data.stats.levelTitle}
-					</Text>
-					<Text style={styles.muted}>
-						{points.data.stats.currentStreak} day streak ·{" "}
-						{points.data.stats.activeDays} active days
-					</Text>
-					<Text style={styles.muted}>
-						{points.data.stats.nextLevelAt - points.data.stats.totalPoints}{" "}
-						points to the next level
-					</Text>
-				</View>
-			)}
-			<Text style={styles.heading}>Lounge leaderboard</Text>
-			{leaderboard.data?.entries.map((entry) => (
-				<View key={entry.username} style={styles.card}>
-					<Text style={styles.body}>
-						#{entry.rank} · {entry.name ?? entry.username}
-					</Text>
-					<Text style={styles.muted}>
-						{entry.points} points · {entry.levelTitle}
-					</Text>
-				</View>
-			))}
+			<PublicProfile onLeaderboard={onLeaderboard} />
+			<ProfileProgress />
 			<Text style={styles.muted}>
 				Manage your membership and billing on the Lounge website.
 			</Text>

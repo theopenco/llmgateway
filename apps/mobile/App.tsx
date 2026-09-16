@@ -36,6 +36,7 @@ import {
 import { Connectors } from "./src/screens/Connectors";
 import { DeleteAccount } from "./src/screens/DeleteAccount";
 import { History } from "./src/screens/History";
+import { Leaderboard } from "./src/screens/Leaderboard";
 import { Profile } from "./src/screens/Profile";
 import { Projects } from "./src/screens/Projects";
 import { SignIn } from "./src/screens/SignIn";
@@ -69,6 +70,7 @@ type Routes = {
 	Skills: undefined;
 	Connectors: undefined;
 	Profile: undefined;
+	Leaderboard: undefined;
 	DeleteAccount: undefined;
 };
 const Stack = createNativeStackNavigator<Routes>();
@@ -377,11 +379,13 @@ function Lounge({
 					>
 						{() => <DeleteAccount onDeleted={onSignedOut} />}
 					</Stack.Screen>
+					<Stack.Screen name="Leaderboard" component={Leaderboard} />
 					<Stack.Screen name="Profile">
 						{({ navigation }) => (
 							<Profile
 								onSignedOut={onSignedOut}
 								onDelete={() => navigation.navigate("DeleteAccount")}
+								onLeaderboard={() => navigation.navigate("Leaderboard")}
 							/>
 						)}
 					</Stack.Screen>

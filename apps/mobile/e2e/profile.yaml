@@ -1,0 +1,79 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: helpers/sign-in.yaml
+- scrollUntilVisible:
+    element: "Your profile"
+    direction: DOWN
+- tapOn: "Your profile"
+- assertVisible: "Your profile is private."
+- tapOn: "Join the leaderboard"
+- assertVisible: "Use 3–30 letters, numbers, hyphens, or underscores."
+- tapOn:
+    id: field-public-username
+- inputText: "native-member"
+- tapOn: "Done typing"
+- tapOn: "Join the leaderboard"
+- extendedWaitUntil:
+    visible: "Your profile is public as @native-member."
+    timeout: 15000
+- tapOn:
+    id: profile-picture-switch
+- tapOn: "View leaderboard"
+- assertVisible: "Lounge leaderboard"
+- assertVisible: "@native-member · You"
+- takeScreenshot: artifacts/profile-leaderboard
+- launchApp
+- scrollUntilVisible:
+    element: "Your profile"
+    direction: DOWN
+- tapOn: "Your profile"
+- assertVisible: "Your profile is public as @native-member."
+- assertVisible:
+    id: profile-picture-switch
+    checked: true
+- scrollUntilVisible:
+    element: "Progress to next level"
+    direction: DOWN
+    centerElement: true
+- assertVisible: "Level [0-9]+ · .*"
+- takeScreenshot: artifacts/profile-progress
+- scrollUntilVisible:
+    element: "Longest streak.*"
+    direction: DOWN
+    centerElement: true
+- assertVisible: "Current streak.*"
+- takeScreenshot: artifacts/profile-streaks
+- scrollUntilVisible:
+    element: "Sandbox escapes"
+    direction: DOWN
+- assertVisible: "Sandbox escapes"
+- scrollUntilVisible:
+    element: "How to earn points"
+    direction: DOWN
+- scrollUntilVisible:
+    element: "Escape the sandbox"
+    direction: DOWN
+- assertVisible: "Escape the sandbox"
+- launchApp
+- scrollUntilVisible:
+    element: "Your profile"
+    direction: DOWN
+- tapOn: "Your profile"
+- tapOn: "Make profile private"
+- extendedWaitUntil:
+    visible: "Your profile is private."
+    timeout: 15000
+- assertVisible: "Username: @native-member"
+- tapOn: "View leaderboard"
+- assertVisible: "Lounge leaderboard"
+- assertNotVisible: "@native-member · You"
+- launchApp
+- scrollUntilVisible:
+    element: "Your profile"
+    direction: DOWN
+- tapOn: "Your profile"
+- assertVisible: "Your profile is private."
+- tapOn: "Join the leaderboard"
+- assertVisible: "Your profile is public as @native-member."
+- tapOn: "View leaderboard"
+- assertVisible: "@native-member · You"
