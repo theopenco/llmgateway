@@ -55,7 +55,7 @@ Verified during development:
 
 - Full repository build: 20 workspaces passed.
 - Repository unit suite: 7,058 passed, 2 skipped; chat history/search tests: 7 passed.
-- Native tests: 154 passed; shared image configuration tests: 3 passed.
+- Native tests: 157 passed; shared image configuration tests: 3 passed.
 - Gateway speech tests: 20 passed.
 - Video configuration: 25 passed; gateway video and byte-range tests: 57 passed.
 - Signed Release build launched on the iOS simulator with local service URLs.
@@ -71,6 +71,9 @@ Verified during development:
 - Native projects: file import/retrieval, manual memory editing/deletion, automatic
   learning across conversations and restart, file removal, project editing, and
   keeping conversations without context after project deletion passed.
+- Native skills: cancel generation, review/edit a generated draft, save, restart,
+  enable/disable, edit instructions, and delete passed. Gateway probes verified
+  the expected instructions after each change.
 - Native model selection: provider pinning, favorites across restart, removing
   favorites, and switching back to Auto passed.
 - Native citations: source links and web-search settings survived restart.
@@ -125,7 +128,7 @@ A checkbox requires observed behavior, not just a screen or passing type check.
 - [ ] History: synchronization, search, pin, archive, delete, public and organization sharing
 - [x] Model comparison and group conversations
 - [x] Projects: instructions, files, retrieval, memory, associated chats
-- [ ] Skills: create, edit, generate, enable, delete, apply in chat
+- [x] Skills: create, edit, generate, enable, delete, apply in chat
 - [ ] Connectors: connect, authorize, use, disconnect
 - [x] Image creation/editing, settings, multi-model comparison, history, save/share
 - [ ] Video creation, input frames, polling, playback, history, save/share
