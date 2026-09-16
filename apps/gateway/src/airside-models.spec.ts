@@ -21,7 +21,7 @@ import {
 	waitForLogByRequestId,
 } from "./test-utils/test-helpers.js";
 
-import type { ProviderApiFormat } from "@llmgateway/models";
+import type { ProviderApiFormat, ToolChoiceMode } from "@llmgateway/models";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 
 interface CapturedRequest {
@@ -195,6 +195,7 @@ describe("airside-listed models", () => {
 		contextSize?: number;
 		maxOutput?: number;
 		tools?: boolean;
+		supportedToolChoices?: ToolChoiceMode[];
 		vision?: boolean;
 		apiFormat?: ProviderApiFormat;
 	}) {
@@ -224,6 +225,7 @@ describe("airside-listed models", () => {
 			maxOutput: options.maxOutput ?? null,
 			streaming: true,
 			tools: options.tools ?? false,
+			supportedToolChoices: options.supportedToolChoices ?? null,
 			vision: options.vision ?? false,
 			status: "active" as const,
 			deactivatedAt: null,
@@ -302,6 +304,7 @@ describe("airside-listed models", () => {
 			modelName?: string;
 			maxOutput?: number;
 			vision?: boolean;
+			supportedToolChoices?: ToolChoiceMode[];
 		} = {},
 	) {
 		const modelName = options.modelName ?? "gpt-5.6-luna";
@@ -365,6 +368,7 @@ describe("airside-listed models", () => {
 				contextSize: 128000,
 				maxOutput: options.maxOutput,
 				tools: true,
+				supportedToolChoices: options.supportedToolChoices,
 				vision: options.vision ?? true,
 			});
 		} else {
@@ -622,6 +626,48 @@ describe("airside-listed models", () => {
 		expect(log).toBeTruthy();
 		expect(Number(log!.inputCost)).toBeCloseTo(0.002, 6);
 		expect(Number(log!.outputCost)).toBeCloseTo(0.005, 6);
+	});
+
+	test("downgrades a tool_choice the listing does not accept", async () => {
+		// The carrier's deployment mishandles "required" — it answers with the
+		// model's raw tool markup instead of tool_calls — so the listing drops
+		// that mode and the gateway sends "auto" rather than routing elsewhere.
+		const token = "airside-tool-choice-token";
+		await setup(token, {
+			modelName: "mistral-small-2506",
+			supportedToolChoices: ["auto", "none"],
+		});
+		await clearCache();
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "mistral/mistral-small-2506",
+				messages: [{ role: "user", content: "Weather in Berlin?" }],
+				tools: [
+					{
+						type: "function",
+						function: {
+							name: "get_weather",
+							parameters: {
+								type: "object",
+								properties: { city: { type: "string" } },
+							},
+						},
+					},
+				],
+				tool_choice: "required",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(captured).toHaveLength(1);
+		expect(captured[0].body.tool_choice).toBe("auto");
 	});
 
 	test("validates requests against the carrier's canonical mapping", async () => {

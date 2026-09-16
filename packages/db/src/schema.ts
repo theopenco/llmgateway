@@ -25,6 +25,7 @@ import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type {
 	Quantization,
 	ProviderApiFormat,
+	ToolChoiceMode,
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
@@ -3403,6 +3404,10 @@ export const modelProviderMapping = pgTable(
 		// keep null and are served from the shared mapping definition instead.
 		reasoningEfforts: json().$type<string[]>(),
 		tools: boolean(),
+		// Which `tool_choice` modes the upstream accepts; null/empty means all
+		// of them. Populated for Airside-materialized mappings only — static
+		// rows keep their catalogue definition.
+		supportedToolChoices: json().$type<ToolChoiceMode[]>(),
 		jsonOutput: boolean().default(false).notNull(),
 		jsonOutputSchema: boolean().default(false).notNull(),
 		webSearch: boolean().default(false).notNull(),
@@ -4854,6 +4859,7 @@ export interface AirsideModelMetadataChanges {
 	vision?: boolean;
 	audio?: boolean;
 	tools?: boolean;
+	supportedToolChoices?: ToolChoiceMode[] | null;
 	jsonOutput?: boolean;
 	jsonOutputSchema?: boolean;
 	reasoning?: boolean;
@@ -4910,6 +4916,11 @@ export const providerDraftModel = pgTable(
 		vision: boolean().notNull().default(false),
 		audio: boolean().notNull().default(false),
 		tools: boolean().notNull().default(false),
+		// Which `tool_choice` modes the deployment accepts (subset of
+		// ToolChoiceMode); null = all of them. Carriers narrow this when their
+		// serving stack mishandles a mode, e.g. answering "required" with the
+		// raw tool markup as assistant content.
+		supportedToolChoices: jsonb().$type<ToolChoiceMode[]>(),
 		jsonOutput: boolean().notNull().default(false),
 		jsonOutputSchema: boolean().notNull().default(false),
 		reasoning: boolean().notNull().default(false),
@@ -4970,6 +4981,8 @@ export interface ProviderModelVerificationTarget {
 	vision: boolean;
 	audio: boolean;
 	tools: boolean;
+	/** Declared `tool_choice` modes; null/empty means all of them. */
+	supportedToolChoices?: ToolChoiceMode[] | null;
 	jsonOutput: boolean;
 	jsonOutputSchema: boolean;
 	reasoning: boolean;

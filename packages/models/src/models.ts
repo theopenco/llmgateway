@@ -256,7 +256,14 @@ export interface ProviderRegion {
  * The distinct `tool_choice` modes a provider/model mapping may accept.
  * "function" represents a named function choice (`{type:"function",...}`).
  */
-export type ToolChoiceMode = "auto" | "none" | "required" | "function";
+export const TOOL_CHOICE_MODES = [
+	"auto",
+	"none",
+	"required",
+	"function",
+] as const;
+
+export type ToolChoiceMode = (typeof TOOL_CHOICE_MODES)[number];
 
 export interface ProviderModelMapping {
 	providerId: (typeof providers)[number]["id"];
