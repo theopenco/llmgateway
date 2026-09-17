@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { Fragment, useState } from "react";
 
@@ -143,7 +143,11 @@ function ErrorDetails({
 
 	if (isLoading) {
 		return (
-			<div className="space-y-2 p-4">
+			<div className="space-y-2 p-4" aria-busy>
+				<p className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+					<Loader2 className="h-3.5 w-3.5 animate-spin" />
+					Scanning logs for error details…
+				</p>
 				{[0, 1, 2].map((i) => (
 					<div key={i} className="h-8 animate-pulse rounded bg-muted/40" />
 				))}
