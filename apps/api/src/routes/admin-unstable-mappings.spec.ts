@@ -15,6 +15,7 @@ interface MappingEntry {
 	providerKeyManaged: boolean | null;
 	logsCount: number;
 	errorsCount: number;
+	errorRate: number;
 }
 
 interface ListBody {
@@ -79,6 +80,7 @@ describe("admin unstable mappings", () => {
 
 	afterEach(async () => {
 		vi.unstubAllEnvs();
+		await db.delete(tables.ignoredErrorMatcher);
 		await deleteAll();
 	});
 
@@ -88,10 +90,14 @@ describe("admin unstable mappings", () => {
 		hasError = false,
 		statusCode = 500,
 		classification,
+		usedModel = "openai/gpt-4o-mini",
+		usedProvider = "openai",
 	}: {
 		providerKeyId?: string | null;
 		hasError?: boolean;
 		statusCode?: number;
+		usedModel?: string;
+		usedProvider?: string;
 		classification?: "client_error" | "gateway_error" | "upstream_error";
 	}) {
 		logIndex++;
@@ -113,10 +119,10 @@ describe("admin unstable mappings", () => {
 				: null,
 			duration: 100,
 			usedMode: providerKeyId === "um-key-b" ? "api-keys" : "credits",
-			requestedModel: "openai/gpt-4o-mini",
-			requestedProvider: "openai",
-			usedModel: "gpt-4o-mini",
-			usedProvider: "openai",
+			requestedModel: usedModel,
+			requestedProvider: usedProvider,
+			usedModel,
+			usedProvider,
 			responseSize: 10,
 			mode: "credits",
 		});
@@ -187,6 +193,60 @@ describe("admin unstable mappings", () => {
 		expect(body.mappings).toHaveLength(0);
 	});
 
+	test.each([false, true])(
+		"shows client-classified speech errors when ignoring is disabled (matcher: %s)",
+		async (withMatcher) => {
+			const mapping = {
+				usedModel: "alibaba/qwen-audio-3.0-tts-plus",
+				usedProvider: "alibaba",
+			};
+			await seedLog({ ...mapping });
+			await seedLog({
+				...mapping,
+				hasError: true,
+				statusCode: 400,
+				classification: "client_error",
+			});
+			if (withMatcher) {
+				await db.insert(tables.ignoredErrorMatcher).values({ statusCode: 400 });
+			}
+
+			expect((await getMappings()).mappings).toHaveLength(0);
+			for (const splitByKey of [false, true]) {
+				const body = await getMappings(
+					`?ignoreExpected=false&splitByKey=${splitByKey}`,
+				);
+				expect(body.mappings).toHaveLength(1);
+				expect(body.mappings[0]).toMatchObject({
+					usedModel: mapping.usedModel,
+					providerId: mapping.usedProvider,
+					logsCount: 2,
+					errorsCount: 1,
+					errorRate: 0.5,
+				});
+			}
+
+			for (const ignoreExpected of [true, false]) {
+				const res = await app.request(
+					`/admin/unstable-mappings/errors?model=${mapping.usedModel}&provider=${mapping.usedProvider}&ignoreExpected=${ignoreExpected}`,
+					{ headers: { Cookie: cookie } },
+				);
+				expect(res.status).toBe(200);
+				const body = (await res.json()) as ErrorsBody;
+				expect(body.sampledErrors).toBe(ignoreExpected ? 0 : 1);
+				if (!ignoreExpected) {
+					expect(body.errors).toEqual([
+						expect.objectContaining({
+							statusCode: 400,
+							classification: "client_error",
+							count: 1,
+						}),
+					]);
+				}
+			}
+		},
+	);
+
 	test("splits the mapping per provider key with labels", async () => {
 		await seedMixedTraffic();
 
@@ -222,7 +282,7 @@ describe("admin unstable mappings", () => {
 
 		async function getErrors(extra = ""): Promise<ErrorsBody> {
 			const res = await app.request(
-				`/admin/unstable-mappings/errors?model=gpt-4o-mini&provider=openai${extra}`,
+				`/admin/unstable-mappings/errors?model=openai/gpt-4o-mini&provider=openai${extra}`,
 				{ headers: { Cookie: cookie } },
 			);
 			expect(res.status).toBe(200);

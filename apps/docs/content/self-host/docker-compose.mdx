@@ -159,6 +159,14 @@ them. Authentication checks every retained entry, while new hashes use the
 first entry. Removing an old entry makes its provider credentials undecryptable
 and its remaining hashes unusable.
 
+## Investigating mapping errors
+
+The admin dashboard's **Unstable Mappings** page ranks mappings over a bounded
+sample of retained request logs. **Ignore expected** excludes client-classified
+errors and applies saved error matchers. **Show all errors** includes those
+errors in both the ranking and the error details. The time window, log limit,
+retried-request filter, and BYOK filter still apply independently.
+
 ## Multiple API keys and load balancing
 
 LLM Gateway supports multiple API keys per provider for load balancing and increased availability. Provide comma-separated values:

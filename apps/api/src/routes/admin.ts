@@ -12285,6 +12285,9 @@ function resolveUnstableMappingsWindow(
 // those as non-retried so they are not silently dropped from the rankings.
 const unstableMappingsNotRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM true`;
 
+// Client errors are expected by default, but "Show all errors" must include them.
+const unstableMappingsNonClientErrorClause = sql`AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'`;
+
 // Customer-owned keys are useful when debugging a customer report, but they
 // should not affect the platform credential health ranking by default.
 const unstableMappingsPlatformOnlyClause = sql`AND ${tables.log.usedMode} <> 'api-keys'`;
@@ -12407,6 +12410,9 @@ admin.openapi(getUnstableMappings, async (c) => {
 		? sql``
 		: unstableMappingsNotRetriedClause;
 	const ignoreExpected = query.ignoreExpected !== "false";
+	const clientErrorClause = ignoreExpected
+		? unstableMappingsNonClientErrorClause
+		: sql``;
 	const splitByKey = query.splitByKey === "true";
 	const includeByok = query.includeByok === "true";
 	const byokClause = includeByok ? sql`` : unstableMappingsPlatformOnlyClause;
@@ -12446,7 +12452,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 				${hasErrorExpr} AS has_error
 			FROM ${tables.log}
 			WHERE ${tables.log.createdAt} >= ${windowInterval}
-				AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'
+				${clientErrorClause}
 				${retriedClause}
 				${byokClause}
 			ORDER BY ${tables.log.createdAt} DESC
@@ -12612,6 +12618,8 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		providerKeyId,
 	} = c.req.valid("query");
 	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
+	const clientErrorClause =
+		ignoreExpected !== "false" ? unstableMappingsNonClientErrorClause : sql``;
 	const retriedClause =
 		includeRetried === "true" ? sql`` : unstableMappingsNotRetriedClause;
 	const byokClause =
@@ -12649,7 +12657,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 				COALESCE(${tables.log.streamed}, false) AS streamed
 			FROM ${tables.log}
 			WHERE ${tables.log.hasError} = true
-				AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'
+				${clientErrorClause}
 				AND ${tables.log.usedModel} = ${model}
 				AND ${tables.log.usedProvider} = ${provider}
 				AND ${tables.log.createdAt} >= ${windowInterval}
