@@ -161,11 +161,10 @@ and its remaining hashes unusable.
 
 ## Investigating mapping errors
 
-The admin dashboard's **Unstable Mappings** page ranks mappings over a bounded
-sample of retained request logs. **Ignore expected** excludes client-classified
-errors and applies saved error matchers. **Show all errors** includes those
-errors in both the ranking and the error details. The time window, log limit,
-retried-request filter, and BYOK filter still apply independently.
+The admin dashboard's **Unstable Mappings** page excludes BYOK traffic by default.
+Enable **Bring your own key errors** to include it in both rankings and error
+details. This filter is independent of **Show all errors**, the time window,
+the log limit, and the retried-request filter.
 
 ## Multiple API keys and load balancing
 

@@ -137,3 +137,10 @@ curl -X POST "https://api.llmgateway.io/v1/audio/speech" \
   }' \
   --output speech.mp3
 ```
+
+## Audio download failures
+
+If the provider returns an audio URL but the download is rejected with HTTP 403,
+the gateway returns HTTP 502 with `upstream_error`. Error details and routing
+history record the download's 403 status, rather than the successful synthesis
+response's 200 status. A missing URL or empty download is recorded with status 502.

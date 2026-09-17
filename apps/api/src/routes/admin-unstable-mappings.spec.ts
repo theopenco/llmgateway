@@ -4,7 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 interface MappingEntry {
@@ -80,7 +80,6 @@ describe("admin unstable mappings", () => {
 
 	afterEach(async () => {
 		vi.unstubAllEnvs();
-		await db.delete(tables.ignoredErrorMatcher);
 		await deleteAll();
 	});
 
@@ -193,59 +192,43 @@ describe("admin unstable mappings", () => {
 		expect(body.mappings).toHaveLength(0);
 	});
 
-	test.each([false, true])(
-		"shows client-classified speech errors when ignoring is disabled (matcher: %s)",
-		async (withMatcher) => {
-			const mapping = {
-				usedModel: "alibaba/qwen-audio-3.0-tts-plus",
-				usedProvider: "alibaba",
-			};
-			await seedLog({ ...mapping });
-			await seedLog({
-				...mapping,
-				hasError: true,
-				statusCode: 400,
-				classification: "client_error",
-			});
-			if (withMatcher) {
-				await db.insert(tables.ignoredErrorMatcher).values({ statusCode: 400 });
-			}
+	test("includes BYOK speech failures only when BYOK traffic is requested", async () => {
+		await db
+			.update(tables.providerKey)
+			.set({ provider: "alibaba" })
+			.where(eq(tables.providerKey.id, "um-key-b"));
+		const usedModel = "alibaba/qwen-audio-3.0-tts-flash";
+		await seedLog({
+			usedModel,
+			usedProvider: "alibaba",
+			providerKeyId: "um-key-b",
+			hasError: true,
+			statusCode: 200,
+			classification: "upstream_error",
+		});
 
-			expect((await getMappings()).mappings).toHaveLength(0);
-			for (const splitByKey of [false, true]) {
-				const body = await getMappings(
-					`?ignoreExpected=false&splitByKey=${splitByKey}`,
-				);
-				expect(body.mappings).toHaveLength(1);
+		for (const includeByok of [false, true]) {
+			const query = `ignoreExpected=false&includeByok=${includeByok}`;
+			const body = await getMappings(`?${query}`);
+			expect(body.mappings).toHaveLength(includeByok ? 1 : 0);
+			if (includeByok) {
 				expect(body.mappings[0]).toMatchObject({
-					usedModel: mapping.usedModel,
-					providerId: mapping.usedProvider,
-					logsCount: 2,
+					usedModel,
+					providerId: "alibaba",
+					logsCount: 1,
 					errorsCount: 1,
-					errorRate: 0.5,
+					errorRate: 1,
 				});
 			}
-
-			for (const ignoreExpected of [true, false]) {
-				const res = await app.request(
-					`/admin/unstable-mappings/errors?model=${mapping.usedModel}&provider=${mapping.usedProvider}&ignoreExpected=${ignoreExpected}`,
-					{ headers: { Cookie: cookie } },
-				);
-				expect(res.status).toBe(200);
-				const body = (await res.json()) as ErrorsBody;
-				expect(body.sampledErrors).toBe(ignoreExpected ? 0 : 1);
-				if (!ignoreExpected) {
-					expect(body.errors).toEqual([
-						expect.objectContaining({
-							statusCode: 400,
-							classification: "client_error",
-							count: 1,
-						}),
-					]);
-				}
-			}
-		},
-	);
+			const res = await app.request(
+				`/admin/unstable-mappings/errors?model=${usedModel}&provider=alibaba&${query}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			const errors = (await res.json()) as ErrorsBody;
+			expect(errors.sampledErrors).toBe(includeByok ? 1 : 0);
+		}
+	});
 
 	test("splits the mapping per provider key with labels", async () => {
 		await seedMixedTraffic();
