@@ -5,6 +5,10 @@ import {
 	HoverCardContent,
 	HoverCardTrigger,
 } from "@/components/ui/hover-card";
+import {
+	formatProviderCacheRate,
+	providerCacheRate,
+} from "@/lib/provider-cache-rate";
 import { cn } from "@/lib/utils";
 
 import {
@@ -136,6 +140,17 @@ function SegmentHoverCard({
 	);
 }
 
+function ProviderCacheRate({ breakdown }: { breakdown: TokenBreakdownData }) {
+	return (
+		<span title="Provider-cached input tokens divided by total input tokens; excludes gateway cache hits.">
+			Provider cache rate:{" "}
+			<strong className="font-medium tabular-nums text-foreground">
+				{formatProviderCacheRate(providerCacheRate(breakdown))}
+			</strong>
+		</span>
+	);
+}
+
 /**
  * Inline `In 15.1M · Cached 3.0M · Out 2.2M` breakdown where hovering any
  * segment reveals the cost that segment accounts for.
@@ -190,6 +205,8 @@ export function TokenBreakdown({
 					</span>
 				);
 			})}
+			<span aria-hidden="true">·</span>
+			<ProviderCacheRate breakdown={breakdown} />
 		</span>
 	);
 }
@@ -303,6 +320,16 @@ export function TokenBreakdownCards({
 						<p className="mt-1 text-xs text-muted-foreground tabular-nums">
 							{formatCost(breakdown[segment.costKey])}
 						</p>
+						{segment.kind === "cached" && (
+							<p
+								className={cn(
+									"mt-1 text-xs text-muted-foreground",
+									loading && "opacity-50",
+								)}
+							>
+								<ProviderCacheRate breakdown={breakdown} />
+							</p>
+						)}
 					</button>
 				</SegmentHoverCard>
 			))}

@@ -59,7 +59,7 @@ export function DetailStatCards({
 					loading={loading}
 				/>
 				<StatCard
-					label="Cached"
+					label="Gateway Cached"
 					value={formatNumber(stats.cachedCount)}
 					loading={loading}
 				/>
