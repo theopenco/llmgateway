@@ -416,6 +416,43 @@ describe("validateModelCapabilities - reasoning.max_tokens", () => {
 	});
 });
 
+describe("validateModelCapabilities - reasoning.mode", () => {
+	const proModel = getModel("gpt-5.6-sol");
+	const nonProModel = getModel("gpt-4o-mini");
+
+	it("rejects reasoning.mode for a model no mapping serves in that mode", () => {
+		expect(() =>
+			validateModelCapabilities(nonProModel, nonProModel.id, undefined, {
+				reasoning_mode: "pro",
+			}),
+		).toThrow(/does not support reasoning.mode "pro"/);
+	});
+
+	it("accepts reasoning.mode when some mapping declares it", () => {
+		expect(() =>
+			validateModelCapabilities(proModel, proModel.id, undefined, {
+				reasoning_mode: "pro",
+			}),
+		).not.toThrow();
+	});
+
+	it("rejects reasoning.mode on a pinned provider that does not declare it", () => {
+		expect(() =>
+			validateModelCapabilities(proModel, proModel.id, "aws-mantle", {
+				reasoning_mode: "pro",
+			}),
+		).toThrow(HTTPException);
+	});
+
+	it("accepts reasoning.mode on a pinned provider that declares it", () => {
+		expect(() =>
+			validateModelCapabilities(proModel, proModel.id, "openai", {
+				reasoning_mode: "standard",
+			}),
+		).not.toThrow();
+	});
+});
+
 describe("validateModelCapabilities - JSON output", () => {
 	it("rejects json_object for a model without jsonOutput", () => {
 		const m = getModelByJsonCapability("none");

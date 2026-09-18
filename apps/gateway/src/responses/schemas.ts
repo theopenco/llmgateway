@@ -414,6 +414,7 @@ export const responsesRequestSchema = z.object({
 				.optional(),
 			summary: z.enum(["detailed", "auto"]).optional(),
 			context: z.enum(["auto", "current_turn", "all_turns"]).optional(),
+			mode: z.enum(["standard", "pro"]).optional(),
 		})
 		.nullable()
 		.optional()

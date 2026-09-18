@@ -101,6 +101,13 @@ const modelSchema = z.object({
 					description:
 						"Exact reasoning_effort values this provider mapping accepts, in ascending order of effort. Omitted when the supported values are not declared for the mapping.",
 				}),
+			reasoning_modes: z
+				.array(z.enum(["standard", "pro"]))
+				.optional()
+				.openapi({
+					description:
+						"Exact reasoning.mode values this provider mapping accepts. Omitted when the mapping accepts no explicit mode.",
+				}),
 			min_cacheable_tokens: z.number().optional().openapi({
 				description:
 					"Minimum prompt length (in tokens) the provider requires before a prompt-cache write can occur. cache_control markers on shorter prompts are accepted but silently not cached by the provider.",
@@ -555,6 +562,7 @@ function serializeProviderMapping(
 		parallelToolCalls: provider.parallelToolCalls ?? false,
 		reasoning: provider.reasoning ?? false,
 		reasoning_efforts: provider.reasoningEfforts,
+		reasoning_modes: provider.reasoningModes,
 		min_cacheable_tokens: provider.minCacheableTokens,
 		max_output: provider.maxOutput,
 		stability: provider.stability ?? model.stability,
