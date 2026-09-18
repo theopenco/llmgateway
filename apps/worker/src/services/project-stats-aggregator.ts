@@ -1,3 +1,4 @@
+import { redisClient } from "@llmgateway/cache";
 import {
 	type AnyColumn,
 	type SQL,
@@ -991,13 +992,41 @@ const LIVE_FULL_REFRESH_MS = 5 * 60 * 1000;
 // Closed hours are re-checked for late logs at most this often.
 const STALE_CHECK_INTERVAL_MS = 60 * 1000;
 
-let liveRefresh: { watermark: string; fullRefreshedAt: number } | undefined;
+// Accumulating is only correct when every pass continues from the point the
+// previous one stopped, whichever worker replica ran it. The watermark lives
+// in Redis and the worker holds a lock around each pass; the key expires when
+// a full refresh would be due anyway.
+const LIVE_REFRESH_KEY = `project_stats_live_refresh_${process.env.NODE_ENV}`;
+
+interface LiveRefreshState {
+	watermark: string;
+	fullRefreshedAt: number;
+}
+
+async function readLiveRefresh(): Promise<LiveRefreshState | undefined> {
+	const raw = await redisClient.get(LIVE_REFRESH_KEY);
+	return raw ? (JSON.parse(raw) as LiveRefreshState) : undefined;
+}
+
+async function writeLiveRefresh(state: LiveRefreshState) {
+	await redisClient.set(
+		LIVE_REFRESH_KEY,
+		JSON.stringify(state),
+		"PX",
+		LIVE_FULL_REFRESH_MS,
+	);
+}
+
+async function clearLiveRefresh() {
+	await redisClient.del(LIVE_REFRESH_KEY);
+}
+
 let finalizedHour: string | undefined;
 let lastStaleCheckAt = 0;
 
-/** Forget the in-memory refresh watermarks (tests). */
-export function resetProjectStatsRefreshState() {
-	liveRefresh = undefined;
+/** Forget the refresh watermarks (tests). */
+export async function resetProjectStatsRefreshState() {
+	await clearLiveRefresh();
 	finalizedHour = undefined;
 	lastStaleCheckAt = 0;
 }
@@ -1005,27 +1034,33 @@ export function resetProjectStatsRefreshState() {
 async function refreshLiveStats() {
 	const now = Date.now();
 	const until = formatUTCTimestamp(new Date(now - LIVE_SETTLE_MS));
+	const state = await readLiveRefresh();
 
-	if (
-		!liveRefresh ||
-		now - liveRefresh.fullRefreshedAt >= LIVE_FULL_REFRESH_MS
-	) {
+	if (!state || now - state.fullRefreshedAt >= LIVE_FULL_REFRESH_MS) {
 		await refreshCurrentHourStats(new Date(now - LIVE_SETTLE_MS));
-		liveRefresh = { watermark: until, fullRefreshedAt: now };
+		await writeLiveRefresh({ watermark: until, fullRefreshedAt: now });
 		return;
 	}
 
-	if (until <= liveRefresh.watermark) {
+	if (until <= state.watermark) {
 		return;
 	}
 
-	const since = liveRefresh.watermark;
-	const projects = await refreshHourStats(getCurrentHourStart(), {
-		since,
-		until,
-		accumulate: true,
-	});
-	liveRefresh.watermark = until;
+	const since = state.watermark;
+	let projects: number;
+	try {
+		projects = await refreshHourStats(getCurrentHourStart(), {
+			since,
+			until,
+			accumulate: true,
+		});
+	} catch (error) {
+		// Some tables may already hold the slice; the next pass must recompute
+		// rather than add it again.
+		await clearLiveRefresh();
+		throw error;
+	}
+	await writeLiveRefresh({ ...state, watermark: until });
 
 	logger.info(
 		`Added live stats for ${projects} projects (${since} to ${until})`,
