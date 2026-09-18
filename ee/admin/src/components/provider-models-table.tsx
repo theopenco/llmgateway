@@ -22,6 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { ModelVerification } from "@/components/model-verification-dialog";
 import type { ProviderModelStats } from "@/lib/types";
@@ -38,10 +39,6 @@ type SortKey =
 	| "totalCost";
 
 type SortOrder = "asc" | "desc";
-
-function formatNumber(n: number) {
-	return new Intl.NumberFormat("en-US").format(n);
-}
 
 function formatCost(n: number) {
 	return `$${n.toFixed(4)}`;

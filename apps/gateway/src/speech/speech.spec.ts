@@ -537,6 +537,67 @@ describe("speech", () => {
 		expect(Number(log?.inputCost)).toBeCloseTo(input.length * 20e-6, 12);
 	});
 
+	test.each([403, 500, 200])(
+		"records failed speech downloads as upstream errors (download status %s)",
+		async (downloadStatus) => {
+			await seedKeys(
+				"test-token-speech-download",
+				"speech-download-key",
+				"alibaba",
+			);
+			const originalFetch = globalThis.fetch;
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation((input, init) => {
+					if (
+						String(input) ===
+						`${harness.mockServerUrl}/mock-dashscope-audio.wav`
+					) {
+						return Promise.resolve(
+							new Response(null, { status: downloadStatus }),
+						);
+					}
+					return originalFetch(input, init);
+				});
+			try {
+				const res = await app.request("/v1/audio/speech", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						Authorization: "Bearer test-token-speech-download",
+					},
+					body: JSON.stringify({
+						model: "qwen-audio-3.0-tts-flash",
+						input: "Hello",
+					}),
+				});
+				expect(res.status).toBe(502);
+				expect(await res.json()).toMatchObject({
+					error: { type: "upstream_error", code: "no_audio" },
+				});
+				const [log] = await waitForLogs(1);
+				const expectedStatus = downloadStatus === 200 ? 502 : downloadStatus;
+				expect(log).toMatchObject({
+					hasError: true,
+					unifiedFinishReason: "upstream_error",
+					usedMode: "api-keys",
+					errorDetails: { statusCode: expectedStatus },
+					routingMetadata: {
+						routing: [
+							expect.objectContaining({
+								status_code: expectedStatus,
+								error_type: "upstream_error",
+								succeeded: false,
+							}),
+						],
+					},
+				});
+			} finally {
+				fetchSpy.mockRestore();
+			}
+		},
+	);
+
 	test("/v1/audio/speech rejects unsupported Qwen TTS response_format", async () => {
 		await seedKeys(
 			"real-token-speech-qwen-mp3",

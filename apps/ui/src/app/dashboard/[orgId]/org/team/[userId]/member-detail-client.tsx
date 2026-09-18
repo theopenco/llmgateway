@@ -36,6 +36,8 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageMode, pickCost, pickRequests } from "@/lib/usage-mode";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import type { Route } from "next";
 
 function periodLabel(value: number, unit: string): string {
@@ -156,18 +158,18 @@ export function MemberDetailClient() {
 		},
 		{
 			label: "Total Tokens",
-			value: (summary?.totalTokens ?? 0).toLocaleString(),
+			value: formatNumber(summary?.totalTokens ?? 0),
 		},
 		{
 			label: "Requests",
-			value: (summary ? pickRequests(summary, usageMode) : 0).toLocaleString(),
+			value: formatNumber(summary ? pickRequests(summary, usageMode) : 0),
 		},
 		{ label: "Error Rate", value: `${errorRate.toFixed(1)}%` },
 		{
 			label: "Client Errors",
-			value: (summary?.clientErrorCount ?? 0).toLocaleString(),
+			value: formatNumber(summary?.clientErrorCount ?? 0),
 		},
-		{ label: "API Keys", value: (summary?.apiKeyCount ?? 0).toLocaleString() },
+		{ label: "API Keys", value: formatNumber(summary?.apiKeyCount ?? 0) },
 	];
 
 	const mostUsed = [
@@ -429,7 +431,7 @@ export function MemberDetailClient() {
 														{currencyFormatter.format(p.cost)}
 													</TableCell>
 													<TableCell className="text-right">
-														{p.requestCount.toLocaleString()}
+														{formatNumber(p.requestCount)}
 													</TableCell>
 												</TableRow>
 											))

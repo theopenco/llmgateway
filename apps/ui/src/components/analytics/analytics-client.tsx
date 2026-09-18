@@ -42,6 +42,8 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageModeToDaily } from "@/lib/usage-mode";
 
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
+
 import type { DailyActivity } from "@/types/activity";
 
 interface AnalyticsClientProps {
@@ -71,8 +73,6 @@ const COPY: Record<
 		description: UNATTRIBUTED_NOTE,
 	},
 };
-
-const compactNumber = new Intl.NumberFormat("en-US", { notation: "compact" });
 
 export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 	const router = useRouter();
@@ -245,7 +245,7 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 					/>
 					<MetricCard
 						label="Requests"
-						value={compactNumber.format(totals.requestCount)}
+						value={formatCompactNumber(totals.requestCount)}
 						accent="blue"
 						icon={<Hash className="h-4 w-4" />}
 						trend={activity.map((day) => day.requestCount)}
@@ -253,7 +253,7 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 					/>
 					<MetricCard
 						label="Tokens"
-						value={compactNumber.format(totals.totalTokens)}
+						value={formatCompactNumber(totals.totalTokens)}
 						accent="purple"
 						icon={<Layers className="h-4 w-4" />}
 						trend={activity.map((day) => day.totalTokens)}

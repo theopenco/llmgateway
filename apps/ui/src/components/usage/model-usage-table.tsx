@@ -1,4 +1,5 @@
 "use client";
+
 import { format } from "date-fns";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { useSearchParams } from "next/navigation";
@@ -21,6 +22,7 @@ import { useApi } from "@/lib/fetch-client";
 import { applyUsageMode } from "@/lib/usage-mode";
 
 import { useDisplayTimeZone } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { ActivityModelUsage, ActivitT } from "@/types/activity";
 
@@ -230,8 +232,8 @@ export function ModelUsageTable({
 							<TableRow key={`${model.provider}-${model.id}-${index}`}>
 								<TableCell className="font-medium">{model.id}</TableCell>
 								<TableCell>{model.provider}</TableCell>
-								<TableCell>{model.requestCount.toLocaleString()}</TableCell>
-								<TableCell>{model.totalTokens.toLocaleString()}</TableCell>
+								<TableCell>{formatNumber(model.requestCount)}</TableCell>
+								<TableCell>{formatNumber(model.totalTokens)}</TableCell>
 								<TableCell className="w-[200px]">
 									<div className="flex items-center gap-2">
 										<Progress value={percentage} className="h-2" />

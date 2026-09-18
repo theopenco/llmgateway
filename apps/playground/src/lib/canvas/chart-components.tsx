@@ -38,6 +38,8 @@ import {
 	type ChartConfig,
 } from "@/components/ui/chart";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 const CHART_COLORS = [
 	"var(--chart-1)",
 	"var(--chart-2)",
@@ -330,7 +332,7 @@ export function PieChartComponent({
 													fill="currentColor"
 													style={{ fontSize: "1.875rem", fontWeight: 700 }}
 												>
-													{total.toLocaleString()}
+													{formatNumber(total)}
 												</tspan>
 												<tspan
 													x={viewBox.cx}

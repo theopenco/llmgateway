@@ -21,6 +21,8 @@ Open it from the **Analytics** item in the project sidebar. Like the rest of the
 
 Three cards at the top show the project's **total cost**, **requests**, and **tokens** for the selected range, each with a sparkline of its daily values. They are computed from the same data as the charts below, so the total and the breakdown always agree.
 
+Request and token counts use commas every three digits, regardless of browser locale. Chart axes and compact summaries use `k`, `M`, `B`, or `T` for thousands through trillions; hover chart points to inspect full counts.
+
 ## Choosing a breakdown
 
 The **Group by** selector switches which dimension the two charts break the project down by:
@@ -61,6 +63,8 @@ The **Mappings / Canonical** toggle is specific to models — the API key and us
 ## Token breakdown
 
 **Tokens over time** separates uncached input, cache reads, and output. Input includes cache-write tokens; the note below the chart shows how many were written to cache. Cache reads appear only in the cache series, so the three categories do not double-count input tokens.
+
+The model selector above the chart narrows all three series to a single model, so you can see where one model's cache reads or output actually land. It lists the models used in the selected range and is available on the model breakdown.
 
 Token counts always include credits and BYOK traffic. The billing-mode selector filters spend and requests, but the historical token counters are combined.
 

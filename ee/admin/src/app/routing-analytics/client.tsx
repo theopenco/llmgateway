@@ -48,6 +48,7 @@ import { cn } from "@/lib/utils";
 import { models, providers } from "@llmgateway/models";
 import { ModelMappingSelector } from "@llmgateway/shared/components";
 import { isDeactivationScheduledSoon } from "@llmgateway/shared/deactivation";
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
 import {
 	ROUTING_EXCLUSION_REASON_LABELS,
 	ROUTING_SELECTION_KIND_LABELS,
@@ -1229,7 +1230,12 @@ export function RoutingAnalyticsClient() {
 										minTickGap={48}
 										tickFormatter={formatAxisHour}
 									/>
-									<YAxis tickLine={false} axisLine={false} width={50} />
+									<YAxis
+										tickLine={false}
+										axisLine={false}
+										width={60}
+										tickFormatter={formatCompactNumber}
+									/>
 									<ChartTooltip
 										content={
 											<ChartTooltipContent
@@ -1280,7 +1286,12 @@ export function RoutingAnalyticsClient() {
 										minTickGap={48}
 										tickFormatter={formatAxisHour}
 									/>
-									<YAxis tickLine={false} axisLine={false} width={50} />
+									<YAxis
+										tickLine={false}
+										axisLine={false}
+										width={60}
+										tickFormatter={formatCompactNumber}
+									/>
 									<ChartTooltip
 										content={
 											<ChartTooltipContent labelFormatter={formatTooltipHour} />

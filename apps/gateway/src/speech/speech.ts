@@ -1615,6 +1615,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				const audioUrl = dashScopeJson.output?.audio?.url;
 				let out: Buffer | null = null;
 				let downloadError: string | null = null;
+				let downloadStatusCode: number | null = null;
 				let redirectBlocked = false;
 				if (typeof audioUrl === "string" && audioUrl) {
 					try {
@@ -1627,6 +1628,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						if (audioResponse.ok) {
 							out = Buffer.from(await audioResponse.arrayBuffer());
 						} else {
+							downloadStatusCode = audioResponse.status;
 							downloadError = `Audio download failed with status ${audioResponse.status}`;
 						}
 					} catch (error) {
@@ -1637,6 +1639,9 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				}
 
 				if (out === null || out.length === 0) {
+					const errorStatusCode = redirectBlocked
+						? 400
+						: (downloadStatusCode ?? 502);
 					logger.warn("Speech API - no audio in DashScope response", {
 						requestId,
 						model: upstreamModel,
@@ -1646,7 +1651,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						buildRoutingAttempt(
 							providerId,
 							modelDefId,
-							redirectBlocked ? 400 : upstreamResponse.status,
+							errorStatusCode,
 							redirectBlocked ? "client_error" : "upstream_error",
 							false,
 							{
@@ -1682,7 +1687,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						streamed: false,
 						canceled: false,
 						errorDetails: {
-							statusCode: redirectBlocked ? 400 : upstreamResponse.status,
+							statusCode: errorStatusCode,
 							statusText: redirectBlocked ? "Bad Request" : "no_audio",
 							responseText: (downloadError ?? upstreamText).slice(0, 2000),
 						},

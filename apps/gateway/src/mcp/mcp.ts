@@ -36,6 +36,7 @@ import {
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { ServerTypes } from "@/vars.js";
 import type { OpenAPIHono } from "@hono/zod-openapi";
@@ -415,7 +416,7 @@ function createMcpServer(
 						responseText += `  - Providers: ${model.providers.join(", ")}\n`;
 						responseText += `  - Pricing: ${model.pricing.input} input, ${model.pricing.output} output\n`;
 						if (model.context_length) {
-							responseText += `  - Context: ${model.context_length.toLocaleString()} tokens\n`;
+							responseText += `  - Context: ${formatNumber(model.context_length)} tokens\n`;
 						}
 						if (capabilities.length > 0) {
 							responseText += `  - Capabilities: ${capabilities.join(", ")}\n`;

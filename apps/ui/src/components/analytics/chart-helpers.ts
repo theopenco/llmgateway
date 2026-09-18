@@ -56,7 +56,10 @@ export function extractCanonicalModelId(usedModel: string): string {
  * the provider-specific model (e.g. "azure/gpt-image-2"); the "canonical" view
  * collapses providers/tags into the base model id.
  */
-export function modelKey(entry: ModelBreakdownEntry, view: ModelView): string {
+export function modelKey(
+	entry: Pick<ModelBreakdownEntry, "id" | "provider">,
+	view: ModelView,
+): string {
 	if (view === "canonical") {
 		return extractCanonicalModelId(entry.id);
 	}

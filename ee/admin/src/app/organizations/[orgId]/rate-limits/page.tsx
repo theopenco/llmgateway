@@ -24,6 +24,8 @@ import {
 } from "@/lib/admin-rate-limits";
 import { createServerApiClient } from "@/lib/server-api";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 const LIMIT_HIT_TYPE_LABELS: Record<string, string> = {
 	rpm: "Endpoint RPM",
 	concurrency: "Concurrency",
@@ -221,7 +223,7 @@ export default async function OrganizationRateLimitsPage({
 									</TableCell>
 									<TableCell>
 										<span className="font-medium">
-											{rateLimit.maxRequests.toLocaleString()}{" "}
+											{formatNumber(rateLimit.maxRequests)}{" "}
 											{rateLimit.limitType.toUpperCase()}
 										</span>
 									</TableCell>
@@ -293,7 +295,7 @@ export default async function OrganizationRateLimitsPage({
 											{hit.endpointKey || "—"}
 										</TableCell>
 										<TableCell className="text-right font-medium tabular-nums">
-											{hit.hitCount.toLocaleString()}
+											{formatNumber(hit.hitCount)}
 										</TableCell>
 										<TableCell className="text-right tabular-nums">
 											{hit.blockedUsd > 0

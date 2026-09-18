@@ -46,6 +46,7 @@ import {
 	CREDIT_TOP_UP_MIN_AMOUNT,
 	isCreditTopUpAmountInRange,
 } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type React from "react";
@@ -299,7 +300,7 @@ function AmountStep({
 		: maxCheckoutAmount < CREDIT_TOP_UP_MIN_AMOUNT
 			? "Your account tier's 24-hour top-up allowance is currently used up"
 			: amount > maxCheckoutAmount
-				? `Maximum $${maxCheckoutAmount.toLocaleString("en-US")} from your account tier's remaining 24-hour allowance`
+				? `Maximum $${formatNumber(maxCheckoutAmount)} from your account tier's remaining 24-hour allowance`
 				: amount < CREDIT_TOP_UP_MIN_AMOUNT
 					? `Minimum $${CREDIT_TOP_UP_MIN_AMOUNT}`
 					: !Number.isInteger(amount)
@@ -429,7 +430,7 @@ function AmountStep({
 						{amountValidationMessage ??
 							(amount > maxCardAmount
 								? `Card maximum $${maxCardAmount} after processing fees; use checkout below for this amount`
-								: `Type any amount from $${CREDIT_TOP_UP_MIN_AMOUNT} to $${maxCheckoutAmount.toLocaleString("en-US")}`)}
+								: `Type any amount from $${CREDIT_TOP_UP_MIN_AMOUNT} to $${formatNumber(maxCheckoutAmount)}`)}
 					</p>
 					{topUpLimitLoaded && !topUpLimitError ? (
 						<div
