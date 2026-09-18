@@ -70,8 +70,8 @@ export const SELF_REFUNDABLE_TYPES = [
 	"credit_topup",
 	"dev_plan_start",
 	"dev_plan_renewal",
-	// Plan charges remain candidates so billing history reports why a payment
-	// is ineligible; DevPass only allows the initial plan payment.
+	// An upgrade charges the new tier in full and starts a fresh billing cycle,
+	// so it is refundable on the same terms as a start or a renewal.
 	"dev_plan_upgrade",
 	"dev_plan_reset_pass",
 	"chat_plan_start",
@@ -271,15 +271,6 @@ function checkPlanEligibility(
 	const latestPayment = latestOf(planPayments);
 	if (latestPayment?.id !== transaction.id) {
 		return ineligible("not_latest_purchase");
-	}
-
-	// Renewals, upgrades, and restarts reset usage counters. They must not open
-	// another goodwill refund, even if an earlier payment was refunded.
-	if (
-		isDev &&
-		(transaction.type !== "dev_plan_start" || planPayments.length !== 1)
-	) {
-		return ineligible("unsupported_type");
 	}
 
 	if (!creditsLimit.gt(0) || usageExceedsThreshold(creditsUsed, creditsLimit)) {
