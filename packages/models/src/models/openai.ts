@@ -1902,26 +1902,28 @@ export const openaiModels = [
 				externalId: "gpt-5.6-sol",
 				serviceTiers: ["flex", "priority"],
 				serviceTierMultipliers: { priority: 2 },
-				inputPrice: "5.0e-6",
-				outputPrice: "30.0e-6",
-				cachedInputPrice: "0.5e-6",
-				cacheWriteInputPrice: "6.25e-6",
+				// Promotional pricing through at least 2026-11-21; standard rates are
+				// 5.0/30.0 short context and 10.0/45.0 long context.
+				inputPrice: "4.0e-6",
+				outputPrice: "20.0e-6",
+				cachedInputPrice: "0.4e-6",
+				cacheWriteInputPrice: "5.0e-6",
 				pricingTiers: [
 					{
 						name: "Up to 272K",
 						upToTokens: 272000,
-						inputPrice: "5.0e-6",
-						outputPrice: "30.0e-6",
-						cachedInputPrice: "0.5e-6",
-						cacheWriteInputPrice: "6.25e-6",
+						inputPrice: "4.0e-6",
+						outputPrice: "20.0e-6",
+						cachedInputPrice: "0.4e-6",
+						cacheWriteInputPrice: "5.0e-6",
 					},
 					{
 						name: "Over 272K",
 						upToTokens: Infinity,
-						inputPrice: "10.0e-6",
-						outputPrice: "45.0e-6",
-						cachedInputPrice: "1.0e-6",
-						cacheWriteInputPrice: "12.5e-6",
+						inputPrice: "8.0e-6",
+						outputPrice: "30.0e-6",
+						cachedInputPrice: "0.8e-6",
+						cacheWriteInputPrice: "10.0e-6",
 					},
 				],
 				requestPrice: "0",
@@ -1954,26 +1956,28 @@ export const openaiModels = [
 				providerId: "azure",
 				externalId: "gpt-5.6-sol",
 				deactivatedAt: new Date("2028-01-11"),
-				inputPrice: "5.0e-6",
-				outputPrice: "30.0e-6",
-				cachedInputPrice: "0.5e-6",
-				cacheWriteInputPrice: "6.25e-6",
+				// Promotional pricing through at least 2026-11-21; standard rates are
+				// 5.0/30.0 short context and 10.0/45.0 long context.
+				inputPrice: "4.0e-6",
+				outputPrice: "20.0e-6",
+				cachedInputPrice: "0.4e-6",
+				cacheWriteInputPrice: "5.0e-6",
 				pricingTiers: [
 					{
 						name: "Up to 272K",
 						upToTokens: 272000,
-						inputPrice: "5.0e-6",
-						outputPrice: "30.0e-6",
-						cachedInputPrice: "0.5e-6",
-						cacheWriteInputPrice: "6.25e-6",
+						inputPrice: "4.0e-6",
+						outputPrice: "20.0e-6",
+						cachedInputPrice: "0.4e-6",
+						cacheWriteInputPrice: "5.0e-6",
 					},
 					{
 						name: "Over 272K",
 						upToTokens: Infinity,
-						inputPrice: "10.0e-6",
-						outputPrice: "45.0e-6",
-						cachedInputPrice: "1.0e-6",
-						cacheWriteInputPrice: "12.5e-6",
+						inputPrice: "8.0e-6",
+						outputPrice: "30.0e-6",
+						cachedInputPrice: "0.8e-6",
+						cacheWriteInputPrice: "10.0e-6",
 					},
 				],
 				requestPrice: "0",
@@ -2013,12 +2017,13 @@ export const openaiModels = [
 				// pricing as "coming soon"), and AWS prices in-region inference at
 				// OpenAI's data-residency tier — a flat 10% premium over the
 				// standard first-party rates. Unlike the usual Bedrock geo/global
-				// split there is no cheaper global rate to route to yet.
-				// AWS displays the cache-write rate rounded to $6.88/M.
-				inputPrice: "5.5e-6",
-				outputPrice: "33.0e-6",
-				cachedInputPrice: "0.55e-6",
-				cacheWriteInputPrice: "6.875e-6",
+				// split there is no cheaper global rate to route to yet. The base rates
+				// are OpenAI's promotional ones (through at least 2026-11-21); the
+				// standard in-region rates are 5.5/33.0.
+				inputPrice: "4.4e-6",
+				outputPrice: "22.0e-6",
+				cachedInputPrice: "0.44e-6",
+				cacheWriteInputPrice: "5.5e-6",
 				requestPrice: "0",
 				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
 				// first-party). AWS's "272K" is 272 * 1024: upstream rejects prompts
