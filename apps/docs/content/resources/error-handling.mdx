@@ -46,6 +46,7 @@ The gateway maps HTTP status codes to OpenAI error types and codes as follows:
 | 403    | `invalid_request_error` | `permission_denied`      |
 | 404    | `invalid_request_error` | `not_found`              |
 | 408    | `timeout_error`         | `timeout`                |
+| 410    | `invalid_request_error` | _(varies / `null`)_      |
 | 413    | `invalid_request_error` | `request_too_large`      |
 | 415    | `invalid_request_error` | `unsupported_media_type` |
 | 429    | `rate_limit_error`      | `rate_limit_exceeded`    |
@@ -60,6 +61,15 @@ The gateway maps HTTP status codes to OpenAI error types and codes as follows:
 	example `invalid_json`, `model_not_found`, or
 	`unsupported_parameter_combination`.
 </Callout>
+
+## Blocked Accounts
+
+When an administrator blocks an account, gateway requests return HTTP `410`.
+If a reason was provided, it appears in `error.message`. The same reason is shown
+when affected members try to sign in (HTTP `403`) and in authenticated API errors.
+Older blocks and blocks without a reason retain the generic error message.
+Blocking also signs out all members and cancels the organization's subscriptions.
+Re-enabling the organization does not reactivate its members or restore subscriptions.
 
 ## Streaming Errors
 

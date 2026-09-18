@@ -286,7 +286,10 @@ export async function releaseDevPlanCardFingerprint(
 	return { success: true };
 }
 
-export async function blockOrganization(orgId: string): Promise<{
+export async function blockOrganization(
+	orgId: string,
+	reason?: string,
+): Promise<{
 	success: boolean;
 	error?: string;
 	cancelledSubscriptionIds?: string[];
@@ -296,6 +299,7 @@ export async function blockOrganization(orgId: string): Promise<{
 		"/admin/organizations/{orgId}/block",
 		{
 			params: { path: { orgId } },
+			body: { reason },
 		},
 	);
 

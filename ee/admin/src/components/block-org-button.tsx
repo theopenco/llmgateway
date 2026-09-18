@@ -14,6 +14,8 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
 	Tooltip,
 	TooltipContent,
@@ -31,7 +33,10 @@ interface BlockOrgButtonProps {
 	 */
 	disabledReason?: string;
 	variant?: "icon" | "full";
-	onBlock: (orgId: string) => Promise<{
+	onBlock: (
+		orgId: string,
+		reason?: string,
+	) => Promise<{
 		success: boolean;
 		error?: string;
 		cancelledSubscriptionIds?: string[];
@@ -48,6 +53,7 @@ export function BlockOrgButton({
 }: BlockOrgButtonProps) {
 	const router = useRouter();
 	const [open, setOpen] = useState(false);
+	const [reason, setReason] = useState("");
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const actionTitle =
@@ -57,7 +63,7 @@ export function BlockOrgButton({
 		setLoading(true);
 		setError(null);
 		try {
-			const result = await onBlock(orgId);
+			const result = await onBlock(orgId, reason.trim() || undefined);
 			if (result.success) {
 				setOpen(false);
 				router.refresh();
@@ -83,6 +89,7 @@ export function BlockOrgButton({
 				setOpen(next);
 				if (!next) {
 					setError(null);
+					setReason("");
 				}
 			}}
 		>
@@ -147,6 +154,22 @@ export function BlockOrgButton({
 						</div>
 					</DialogDescription>
 				</DialogHeader>
+
+				<div className="space-y-2">
+					<Label htmlFor="block-reason">Reason (optional)</Label>
+					<Textarea
+						id="block-reason"
+						value={reason}
+						onChange={(event) => setReason(event.target.value)}
+						maxLength={1000}
+						disabled={loading}
+						aria-describedby="block-reason-help"
+						placeholder="Explain why this account is being blocked"
+					/>
+					<p id="block-reason-help" className="text-sm text-muted-foreground">
+						Shown to members when they sign in and in API and gateway errors.
+					</p>
+				</div>
 
 				{error && (
 					<p className="text-sm text-destructive" role="alert">

@@ -124,6 +124,24 @@ describe("v1/master cache invalidation", () => {
 		};
 	}
 
+	test("returns the organization block reason", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				status: "deleted",
+				blockReason: "Key sharing violates our terms.",
+			})
+			.where(eq(tables.organization.id, "test-org-id"));
+		const response = await app.request("/v1/master/keys", {
+			headers: { Authorization: `Bearer ${masterToken}` },
+		});
+		expect(response.status).toBe(403);
+		expect(await response.json()).toMatchObject({
+			message:
+				"Your account has been blocked. Reason: Key sharing violates our terms.",
+		});
+	});
+
 	test("authenticates master keys hashed with a retained secret", async () => {
 		setHashSecret("retained-secret");
 		const retainedHash = getApiKeyFingerprint(masterToken);

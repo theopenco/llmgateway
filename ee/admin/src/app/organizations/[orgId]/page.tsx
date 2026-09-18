@@ -617,9 +617,9 @@ export default async function OrganizationPage({
 									disabledReason={
 										getOrgDeletionBlockedReason(org.credits) ?? undefined
 									}
-									onBlock={async (id) => {
+									onBlock={async (id, reason) => {
 										"use server";
-										return await blockOrganization(id);
+										return await blockOrganization(id, reason);
 									}}
 								/>
 							</div>
