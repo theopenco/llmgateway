@@ -71,6 +71,19 @@ Older blocks and blocks without a reason retain the generic error message.
 Blocking also signs out all members and cancels the organization's subscriptions.
 Re-enabling the organization does not reactivate its members or restore subscriptions.
 
+## Rejected Request Logs
+
+Rejected inference requests with a recognized API key are recorded in request logs,
+including account review or disabled-account errors, billing restrictions, and
+rate or concurrency limits. These rejections have no inference or storage charge.
+Requests rejected before body parsing may have an unknown model and no request payload.
+Unrecognized or missing keys cannot be attributed to an organization and are not recorded.
+
+Logs include a nullable `errorCategory` for distinguishing account restrictions,
+authentication, permissions, billing, rate limits, concurrency limits, validation,
+guardrails, upstream failures, and gateway failures. Older rows may have no category.
+Payload retention settings still apply. This metadata does not enable alerts.
+
 ## Streaming Errors
 
 For streaming requests (`"stream": true`), an error that occurs **after** the stream has started is delivered as an SSE `error` event whose payload uses the same `{ "error": { ... } }` envelope. Errors that occur **before** streaming begins (such as authentication failures) are returned as a normal JSON error response with the appropriate status code.
