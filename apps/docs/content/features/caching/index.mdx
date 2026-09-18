@@ -16,6 +16,8 @@ This is the type of caching that powers efficient chat-based and assistant-based
 
 You see it in your usage as `prompt_tokens_details.cached_tokens`. For most providers it works automatically; some (notably Anthropic) also let you mark blocks explicitly with `cache_control` and choose a longer TTL.
 
+The admin model stats show **Provider cache rate** beside cached token totals and in model and per-provider history charts. It is provider-cached input tokens divided by total input tokens (which already include cached tokens), multiplied by 100. Window summaries use summed token counts; output tokens and gateway cache hits are excluded. A dash means there are no input tokens in the selected window.
+
 → **[Read the Provider Cache Control docs](/features/caching/provider-cache-control)**
 
 ## Gateway Caching
