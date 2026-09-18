@@ -68,6 +68,10 @@ Billing follows the same schedule automatically at request time; there is
 nothing to set on your side. To pay off-peak rates, move batch or backfill work
 into the off-peak window.
 
+## Provider performance
+
+Open a model's uptime page from the public [models directory](https://llmgateway.io/models) to compare provider requests, errors, latency, and token volume over the last four hours. Chart axes abbreviate large values as thousands (`k`), millions (`M`), billions (`B`), or trillions (`T`); hover a point for the full value with commas separating groups of three digits.
+
 ## Compliance eligibility
 
 When your organization is on the Enterprise plan and its provider compliance policy is enabled, every row is evaluated with the same fail-closed rules the gateway enforces at request time — certifications (SOC 2, ISO 27001, GDPR), data-policy requirements (no training on prompts, no prompt logging), country restrictions, and provider/model allow and deny lists.
