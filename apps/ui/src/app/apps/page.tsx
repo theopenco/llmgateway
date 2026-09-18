@@ -7,6 +7,8 @@ import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { fetchServerData } from "@/lib/server-api";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -37,8 +39,6 @@ interface AppsResponse {
 	totalRequests: number;
 }
 
-const numberFormatter = new Intl.NumberFormat("en-US");
-
 function formatBigNumber(n: number): string {
 	if (n >= 1_000_000_000) {
 		return `${(n / 1_000_000_000).toFixed(2)}B`;
@@ -49,7 +49,7 @@ function formatBigNumber(n: number): string {
 	if (n >= 1_000) {
 		return `${(n / 1_000).toFixed(1)}K`;
 	}
-	return numberFormatter.format(n);
+	return formatNumber(n);
 }
 
 function HeroStat({
@@ -126,7 +126,7 @@ export default async function AppsPage() {
 
 							<div className="mt-14 flex flex-wrap items-center justify-center gap-x-12 md:gap-x-20 gap-y-8">
 								<HeroStat
-									value={numberFormatter.format(totalApps)}
+									value={formatNumber(totalApps)}
 									label="apps tracked"
 								/>
 								<span

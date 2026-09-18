@@ -1902,26 +1902,28 @@ export const openaiModels = [
 				externalId: "gpt-5.6-sol",
 				serviceTiers: ["flex", "priority"],
 				serviceTierMultipliers: { priority: 2 },
-				inputPrice: "5.0e-6",
-				outputPrice: "30.0e-6",
-				cachedInputPrice: "0.5e-6",
-				cacheWriteInputPrice: "6.25e-6",
+				// Promotional pricing through at least 2026-11-21; standard rates are
+				// 5.0/30.0 short context and 10.0/45.0 long context.
+				inputPrice: "4.0e-6",
+				outputPrice: "20.0e-6",
+				cachedInputPrice: "0.4e-6",
+				cacheWriteInputPrice: "5.0e-6",
 				pricingTiers: [
 					{
 						name: "Up to 272K",
 						upToTokens: 272000,
-						inputPrice: "5.0e-6",
-						outputPrice: "30.0e-6",
-						cachedInputPrice: "0.5e-6",
-						cacheWriteInputPrice: "6.25e-6",
+						inputPrice: "4.0e-6",
+						outputPrice: "20.0e-6",
+						cachedInputPrice: "0.4e-6",
+						cacheWriteInputPrice: "5.0e-6",
 					},
 					{
 						name: "Over 272K",
 						upToTokens: Infinity,
-						inputPrice: "10.0e-6",
-						outputPrice: "45.0e-6",
-						cachedInputPrice: "1.0e-6",
-						cacheWriteInputPrice: "12.5e-6",
+						inputPrice: "8.0e-6",
+						outputPrice: "30.0e-6",
+						cachedInputPrice: "0.8e-6",
+						cacheWriteInputPrice: "10.0e-6",
 					},
 				],
 				requestPrice: "0",
@@ -1954,26 +1956,28 @@ export const openaiModels = [
 				providerId: "azure",
 				externalId: "gpt-5.6-sol",
 				deactivatedAt: new Date("2028-01-11"),
-				inputPrice: "5.0e-6",
-				outputPrice: "30.0e-6",
-				cachedInputPrice: "0.5e-6",
-				cacheWriteInputPrice: "6.25e-6",
+				// Promotional pricing through at least 2026-11-21; standard rates are
+				// 5.0/30.0 short context and 10.0/45.0 long context.
+				inputPrice: "4.0e-6",
+				outputPrice: "20.0e-6",
+				cachedInputPrice: "0.4e-6",
+				cacheWriteInputPrice: "5.0e-6",
 				pricingTiers: [
 					{
 						name: "Up to 272K",
 						upToTokens: 272000,
-						inputPrice: "5.0e-6",
-						outputPrice: "30.0e-6",
-						cachedInputPrice: "0.5e-6",
-						cacheWriteInputPrice: "6.25e-6",
+						inputPrice: "4.0e-6",
+						outputPrice: "20.0e-6",
+						cachedInputPrice: "0.4e-6",
+						cacheWriteInputPrice: "5.0e-6",
 					},
 					{
 						name: "Over 272K",
 						upToTokens: Infinity,
-						inputPrice: "10.0e-6",
-						outputPrice: "45.0e-6",
-						cachedInputPrice: "1.0e-6",
-						cacheWriteInputPrice: "12.5e-6",
+						inputPrice: "8.0e-6",
+						outputPrice: "30.0e-6",
+						cachedInputPrice: "0.8e-6",
+						cacheWriteInputPrice: "10.0e-6",
 					},
 				],
 				requestPrice: "0",
@@ -2006,7 +2010,9 @@ export const openaiModels = [
 				// Global cross-region inference (global.openai.gpt-5.6-sol)
 				// runs on the Runtime endpoint at OpenAI's own rates; the 10%
 				// data-residency premium below applies to the in-region Mantle
-				// deployments only. In-region pricing is identical across the
+				// deployments only. Both are promotional through at least
+				// 2026-11-21; the standard rates are 5.0/30.0 global and
+				// 5.5/33.0 in-region. In-region pricing is identical across the
 				// concrete regions, so those entries carry no overrides.
 				// Sol is the one family member AWS has not deployed to us-west-2 —
 				// that region 404s with "The model 'openai.gpt-5.6-sol' does not

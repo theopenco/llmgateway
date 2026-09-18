@@ -5,6 +5,10 @@ import {
 	type ProviderDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
 
 // ─── Active-provider helpers ─────────────────────────────────────────────────
 
@@ -251,15 +255,9 @@ export function formatPricePerMillion(pricePerToken: number): string {
 }
 
 export function formatTokenCount(tokens: number): string {
-	if (tokens >= 1_000_000) {
-		return `${(tokens / 1_000_000).toFixed(tokens >= 10_000_000 ? 0 : 1)}M`;
-	}
-	if (tokens >= 1_000) {
-		return `${(tokens / 1_000).toFixed(tokens >= 10_000 ? 0 : 1)}K`;
-	}
-	return tokens.toLocaleString();
+	return formatCompactNumber(tokens);
 }
 
 export function formatInt(n: number): string {
-	return Math.round(n).toLocaleString();
+	return formatNumber(Math.round(n));
 }

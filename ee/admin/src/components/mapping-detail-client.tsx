@@ -16,6 +16,7 @@ import { getMappingDetail, getMappingHistory } from "@/lib/admin-history";
 import { useApi } from "@/lib/fetch-client";
 
 import { getProviderIcon } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { ModelVerification } from "@/components/model-verification-dialog";
@@ -199,9 +200,7 @@ export function MappingDetailClient({
 				<StatCard
 					label="Max Output"
 					value={
-						mapping.maxOutput
-							? `${mapping.maxOutput.toLocaleString("en-US")}`
-							: "\u2014"
+						mapping.maxOutput ? `${formatNumber(mapping.maxOutput)}` : "\u2014"
 					}
 				/>
 			</section>

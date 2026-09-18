@@ -30,6 +30,7 @@ import {
 	isMappingDeactivated,
 	ScxIcon,
 } from "@llmgateway/shared/components";
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
 import type { paths } from "@/lib/api/v1";
 import type { Metadata } from "next";
@@ -87,8 +88,6 @@ function formatPerMillion(perTokenPrice: string | undefined): string | null {
 	}
 	return `$${perMillion % 1 === 0 ? perMillion.toFixed(0) : perMillion.toFixed(2)}`;
 }
-
-const compactNumber = new Intl.NumberFormat("en", { notation: "compact" });
 
 // Derived per render, not at module load: isMappingDeactivated() is
 // time-based, so a mapping whose deactivatedAt passes must drop out on the
@@ -506,7 +505,7 @@ export default async function PartnersPage() {
 											)}
 											{model.contextSize ? (
 												<span className="tabular-nums">
-													{compactNumber.format(model.contextSize)} context
+													{formatCompactNumber(model.contextSize)} context
 												</span>
 											) : null}
 										</div>
@@ -519,7 +518,7 @@ export default async function PartnersPage() {
 											</span>
 											{hasUsage && tokens > 0 ? (
 												<span className="tabular-nums text-muted-foreground/70">
-													{compactNumber.format(tokens)} tokens
+													{formatCompactNumber(tokens)} tokens
 												</span>
 											) : null}
 										</div>

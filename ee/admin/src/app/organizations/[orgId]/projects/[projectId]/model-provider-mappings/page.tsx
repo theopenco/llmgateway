@@ -11,6 +11,8 @@ import { parsePageWindow, windowToFromTo } from "@/lib/page-window";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
+
 type SortBy = "logsCount" | "errorsCount" | "cost" | "modelId" | "providerId";
 type SortOrder = "asc" | "desc";
 
@@ -19,19 +21,6 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 	currency: "USD",
 	maximumFractionDigits: 4,
 });
-
-function formatCompactNumber(value: number): string {
-	if (value >= 1_000_000_000) {
-		return `${(value / 1_000_000_000).toFixed(1)}B`;
-	}
-	if (value >= 1_000_000) {
-		return `${(value / 1_000_000).toFixed(1)}M`;
-	}
-	if (value >= 1_000) {
-		return `${(value / 1_000).toFixed(1)}k`;
-	}
-	return value.toLocaleString("en-US");
-}
 
 export default async function ProjectModelProviderMappingsPage({
 	params,

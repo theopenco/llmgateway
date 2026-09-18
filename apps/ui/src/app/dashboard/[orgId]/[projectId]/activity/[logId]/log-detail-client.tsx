@@ -52,6 +52,7 @@ import {
 	RoutingMetadataExpired,
 } from "@llmgateway/shared/components";
 import { isRoutingMetadataExpired } from "@llmgateway/shared/log-retention";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
@@ -557,7 +558,7 @@ export function LogDetailClient({
 							<span className="text-xs">Tokens</span>
 						</div>
 						<p className="text-lg font-semibold tabular-nums">
-							{Number(log.totalTokens ?? 0).toLocaleString()}
+							{formatNumber(Number(log.totalTokens ?? 0))}
 						</p>
 					</div>
 					<div className="rounded-lg border bg-card p-3">

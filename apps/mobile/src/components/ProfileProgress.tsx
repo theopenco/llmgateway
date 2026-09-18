@@ -7,6 +7,7 @@ import {
 	LOUNGE_ACTIVITIES,
 	loungeActivity,
 } from "@llmgateway/shared/lounge-points";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 function Stat({ label, value }: { label: string; value: string }) {
 	return (
@@ -57,7 +58,7 @@ export function ProfileProgress() {
 					<View style={styles.card}>
 						<Text style={styles.eyebrow}>YOUR PROGRESS</Text>
 						<Text style={styles.title}>
-							{stats.totalPoints.toLocaleString()} points
+							{formatNumber(stats.totalPoints)} points
 						</Text>
 						<Text style={styles.heading}>
 							Level {stats.level} · {stats.levelTitle}
@@ -83,23 +84,18 @@ export function ProfileProgress() {
 							/>
 						</View>
 						<Text style={styles.muted}>
-							{Math.max(
-								0,
-								stats.nextLevelAt - stats.totalPoints,
-							).toLocaleString()}{" "}
+							{formatNumber(Math.max(0, stats.nextLevelAt - stats.totalPoints))}{" "}
 							points to level {stats.level + 1}
 						</Text>
 					</View>
 					<View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
 						<Stat
 							label="Today"
-							value={`+${stats.todayPoints.toLocaleString()} points`}
+							value={`+${formatNumber(stats.todayPoints)} points`}
 						/>
 						<Stat
 							label="Global rank"
-							value={
-								stats.rank ? `#${stats.rank.toLocaleString()}` : "Unranked"
-							}
+							value={stats.rank ? `#${formatNumber(stats.rank)}` : "Unranked"}
 						/>
 						<Stat
 							label="Current streak"
@@ -123,8 +119,8 @@ export function ProfileProgress() {
 								{loungeActivity(row.kind)?.label ?? row.kind}
 							</Text>
 							<Text style={styles.muted}>
-								{row.count.toLocaleString()} activities ·{" "}
-								{row.points.toLocaleString()} points
+								{formatNumber(row.count)} activities ·{" "}
+								{formatNumber(row.points)} points
 							</Text>
 						</View>
 					))}

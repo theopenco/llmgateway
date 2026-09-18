@@ -11,6 +11,8 @@ import {
 } from "@/lib/components/card";
 import { mockMetrics, generateMockActivityData } from "@/lib/mock-feature-data";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 export function ErrorsMonitoringDemo() {
 	const data = generateMockActivityData();
 
@@ -58,22 +60,20 @@ export function ErrorsMonitoringDemo() {
 						<div className="space-y-2">
 							<div className="flex items-center justify-between text-sm">
 								<span className="text-muted-foreground">Failed Requests</span>
-								<span className="font-medium">
-									{totalErrors.toLocaleString()}
-								</span>
+								<span className="font-medium">{formatNumber(totalErrors)}</span>
 							</div>
 							<div className="flex items-center justify-between text-sm">
 								<span className="text-muted-foreground">
 									Successful Requests
 								</span>
 								<span className="font-medium">
-									{(totalRequests - totalErrors).toLocaleString()}
+									{formatNumber(totalRequests - totalErrors)}
 								</span>
 							</div>
 							<div className="flex items-center justify-between text-sm border-t pt-2">
 								<span className="text-muted-foreground">Total Requests</span>
 								<span className="font-semibold">
-									{totalRequests.toLocaleString()}
+									{formatNumber(totalRequests)}
 								</span>
 							</div>
 						</div>
@@ -107,9 +107,7 @@ export function ErrorsMonitoringDemo() {
 						<div className="space-y-2">
 							<div className="flex items-center justify-between text-sm">
 								<span className="text-muted-foreground">Cached Responses</span>
-								<span className="font-medium">
-									{totalCached.toLocaleString()}
-								</span>
+								<span className="font-medium">{formatNumber(totalCached)}</span>
 							</div>
 							<div className="flex items-center justify-between text-sm">
 								<span className="text-muted-foreground">Estimated Savings</span>

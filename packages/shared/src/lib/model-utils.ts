@@ -1,3 +1,5 @@
+import { formatCompactNumber } from "@/number-format";
+
 import type { ModelDefinition, ProviderDefinition } from "@llmgateway/models";
 
 export function formatPrice(price: number | string | undefined): string {
@@ -24,16 +26,7 @@ export function formatPrice(price: number | string | undefined): string {
 }
 
 export function formatContextSize(size: number | undefined): string {
-	if (!size) {
-		return "Unknown";
-	}
-	if (size >= 1000000) {
-		return `${(size / 1000000).toFixed(1)}M tokens`;
-	}
-	if (size >= 1000) {
-		return `${(size / 1000).toFixed(0)}K tokens`;
-	}
-	return `${size} tokens`;
+	return size ? `${formatCompactNumber(size)} tokens` : "Unknown";
 }
 
 export function getProviderForModel(

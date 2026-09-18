@@ -40,6 +40,10 @@ import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
 
 import { MIN_BULK_BLOCK_SEARCH_LENGTH } from "@llmgateway/shared";
+import {
+	formatNumber,
+	formatCompactNumber,
+} from "@llmgateway/shared/number-format";
 
 type SortBy =
 	| "name"
@@ -146,13 +150,6 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
 	currency: "USD",
 	maximumFractionDigits: 2,
-});
-
-const numberFormatter = new Intl.NumberFormat("en-US");
-
-const compactNumberFormatter = new Intl.NumberFormat("en-US", {
-	notation: "compact",
-	maximumFractionDigits: 1,
 });
 
 function formatDate(dateString: string) {
@@ -559,13 +556,13 @@ export default async function OrganizationsPage({
 										)}
 									</TableCell>
 									<TableCell className="tabular-nums text-muted-foreground">
-										{numberFormatter.format(org.totalRequests ?? 0)}
+										{formatNumber(org.totalRequests ?? 0)}
 									</TableCell>
 									<TableCell
 										className="tabular-nums text-muted-foreground"
-										title={numberFormatter.format(org.totalTokens ?? 0)}
+										title={formatNumber(org.totalTokens ?? 0)}
 									>
-										{compactNumberFormatter.format(org.totalTokens ?? 0)}
+										{formatCompactNumber(org.totalTokens ?? 0)}
 									</TableCell>
 									<TableCell className="text-muted-foreground">
 										{formatDate(org.createdAt)}

@@ -24,6 +24,11 @@ import {
 } from "@/components/usage-mode-selector";
 import { cn } from "@/lib/utils";
 
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
+
 import type { ChartConfig } from "@/components/ui/chart";
 import type {
 	CostByModelTimeseriesResponse,
@@ -397,9 +402,7 @@ export function CostByModelTimeseriesChart({
 										if (activeMetric === "cost") {
 											return `$${value >= 1 ? value.toFixed(2) : value.toFixed(4)}`;
 										}
-										return value >= 1000
-											? `${(value / 1000).toFixed(1)}k`
-											: String(value);
+										return formatCompactNumber(value);
 									}}
 								/>
 								<ChartTooltip
@@ -427,7 +430,7 @@ export function CostByModelTimeseriesChart({
 													if (activeMetric === "cost") {
 														formatted = currencyFormatter.format(Number(value));
 													} else {
-														formatted = Number(value).toLocaleString();
+														formatted = formatNumber(Number(value));
 													}
 													return (
 														<span>

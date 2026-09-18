@@ -27,6 +27,7 @@ import {
 	LOUNGE_ACTIVITIES,
 	loungeActivity,
 } from "@llmgateway/shared/lounge-points";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 const BREAKDOWN_ICONS: Record<string, typeof MessageSquare> = {
 	chat_message: MessageSquare,
@@ -176,17 +177,16 @@ export function LoungeProfileClient() {
 						<div className="flex flex-wrap items-baseline justify-between gap-2">
 							<div>
 								<span className="text-3xl font-semibold tabular-nums">
-									{stats.totalPoints.toLocaleString()}
+									{formatNumber(stats.totalPoints)}
 								</span>
 								<span className="ml-2 text-sm text-muted-foreground">
 									points
 								</span>
 							</div>
 							<span className="text-xs text-muted-foreground">
-								{Math.max(
-									stats.nextLevelAt - stats.totalPoints,
-									0,
-								).toLocaleString()}{" "}
+								{formatNumber(
+									Math.max(stats.nextLevelAt - stats.totalPoints, 0),
+								)}{" "}
 								to Lv {stats.level + 1}
 							</span>
 						</div>
@@ -208,12 +208,12 @@ export function LoungeProfileClient() {
 					<section className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3">
 						<StatTile
 							label="Today"
-							value={`+${stats.todayPoints.toLocaleString()}`}
+							value={`+${formatNumber(stats.todayPoints)}`}
 							icon={Sparkles}
 						/>
 						<StatTile
 							label="Global rank"
-							value={stats.rank ? `#${stats.rank.toLocaleString()}` : "—"}
+							value={stats.rank ? `#${formatNumber(stats.rank)}` : "—"}
 							icon={Trophy}
 						/>
 						<StatTile
@@ -255,10 +255,10 @@ export function LoungeProfileClient() {
 											<Icon className="h-4 w-4 text-muted-foreground" />
 											<span className="flex-1">{meta?.label ?? row.kind}</span>
 											<span className="text-xs text-muted-foreground">
-												×{row.count.toLocaleString()}
+												×{formatNumber(row.count)}
 											</span>
 											<span className="w-20 text-right font-medium tabular-nums">
-												{row.points.toLocaleString()}
+												{formatNumber(row.points)}
 											</span>
 										</li>
 									);

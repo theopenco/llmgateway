@@ -47,6 +47,7 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { isRoutingMetadataExpired } from "@/log-retention.js";
+import { formatNumber } from "@/number-format";
 import { regionFromUsedModel } from "@/used-model.js";
 
 import {
@@ -1407,7 +1408,7 @@ export function LogCard({
 											</p>
 										</TooltipContent>
 									</Tooltip>
-									<span>{log.reasoningMaxTokens.toLocaleString()}</span>
+									<span>{formatNumber(log.reasoningMaxTokens)}</span>
 								</div>
 							)}
 							{log.effort && (
