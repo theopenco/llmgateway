@@ -2003,28 +2003,74 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-sol",
+				// Global cross-region inference (global.openai.gpt-5.6-sol)
+				// runs on the Runtime endpoint at OpenAI's own rates; the 10%
+				// data-residency premium below applies to the in-region Mantle
+				// deployments only. In-region pricing is identical across the
+				// concrete regions, so those entries carry no overrides.
 				// Sol is the one family member AWS has not deployed to us-west-2 —
 				// that region 404s with "The model 'openai.gpt-5.6-sol' does not
-				// exist". Pricing is identical across regions, so the entries carry
-				// no per-region overrides.
-				regions: [{ id: "us-east-1" }, { id: "us-east-2" }],
-				// Mantle is in-region-only (the model cards list Geo and Global
-				// cross-region as unsupported, and AWS lists global cross-region
-				// pricing as "coming soon"), and AWS prices in-region inference at
-				// OpenAI's data-residency tier — a flat 10% premium over the
-				// standard first-party rates. Unlike the usual Bedrock geo/global
-				// split there is no cheaper global rate to route to yet.
-				// AWS displays the cache-write rate rounded to $6.88/M.
-				inputPrice: "5.5e-6",
-				outputPrice: "33.0e-6",
-				cachedInputPrice: "0.55e-6",
-				cacheWriteInputPrice: "6.875e-6",
+				// exist".
+				regions: [
+					{
+						id: "global",
+						inputPrice: "4.0e-6",
+						outputPrice: "20.0e-6",
+						cachedInputPrice: "0.4e-6",
+						cacheWriteInputPrice: "5.0e-6",
+						pricingTiers: [
+							{
+								name: "Up to 272K",
+								upToTokens: 272000,
+								inputPrice: "4.0e-6",
+								outputPrice: "20.0e-6",
+								cachedInputPrice: "0.4e-6",
+								cacheWriteInputPrice: "5.0e-6",
+							},
+							{
+								name: "Over 272K",
+								upToTokens: Infinity,
+								inputPrice: "8.0e-6",
+								outputPrice: "30.0e-6",
+								cachedInputPrice: "0.8e-6",
+								cacheWriteInputPrice: "10.0e-6",
+							},
+						],
+						// Global cross-region carries the model's full documented
+						// window. AWS writes it as "1M", and this family's "272K"
+						// proved to be 272 * 1024, so read it as 1024 * 1024.
+						contextSize: 1048576,
+					},
+					{ id: "us-east-1" },
+					{ id: "us-east-2" },
+				],
+				inputPrice: "4.4e-6",
+				outputPrice: "22.0e-6",
+				cachedInputPrice: "0.44e-6",
+				cacheWriteInputPrice: "5.5e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "4.4e-6",
+						outputPrice: "22.0e-6",
+						cachedInputPrice: "0.44e-6",
+						cacheWriteInputPrice: "5.5e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "8.8e-6",
+						outputPrice: "33.0e-6",
+						cachedInputPrice: "0.88e-6",
+						cacheWriteInputPrice: "11.0e-6",
+					},
+				],
 				requestPrice: "0",
-				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
-				// first-party). AWS's "272K" is 272 * 1024: upstream rejects prompts
-				// of 278528 tokens or more. No pricingTiers because AWS publishes a
-				// single flat rate for Mantle and does not expose OpenAI's
-				// long-context tier at all.
+				// The Mantle deployment rejects prompts of 278528 tokens or more
+				// (AWS's "272K" is 272 * 1024), even though the model card now
+				// documents a 1M window; the global route above carries the full
+				// window.
 				contextSize: 278528,
 				maxOutput: 128000,
 				streaming: true,
@@ -2165,29 +2211,72 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-terra",
-				// Pricing is identical across regions, so the entries carry no
-				// per-region overrides.
+				// Global cross-region inference (global.openai.gpt-5.6-terra)
+				// runs on the Runtime endpoint at OpenAI's own rates; the 10%
+				// data-residency premium below applies to the in-region Mantle
+				// deployments only. In-region pricing is identical across the
+				// concrete regions, so those entries carry no overrides.
 				regions: [
+					{
+						id: "global",
+						inputPrice: "2.0e-6",
+						outputPrice: "12.0e-6",
+						cachedInputPrice: "0.2e-6",
+						cacheWriteInputPrice: "2.5e-6",
+						pricingTiers: [
+							{
+								name: "Up to 272K",
+								upToTokens: 272000,
+								inputPrice: "2.0e-6",
+								outputPrice: "12.0e-6",
+								cachedInputPrice: "0.2e-6",
+								cacheWriteInputPrice: "2.5e-6",
+							},
+							{
+								name: "Over 272K",
+								upToTokens: Infinity,
+								inputPrice: "4.0e-6",
+								outputPrice: "18.0e-6",
+								cachedInputPrice: "0.4e-6",
+								cacheWriteInputPrice: "5.0e-6",
+							},
+						],
+						// Global cross-region carries the model's full documented
+						// window. AWS writes it as "1M", and this family's "272K"
+						// proved to be 272 * 1024, so read it as 1024 * 1024.
+						contextSize: 1048576,
+					},
 					{ id: "us-east-1" },
 					{ id: "us-east-2" },
 					{ id: "us-west-2" },
 				],
-				// Mantle is in-region-only (the model cards list Geo and Global
-				// cross-region as unsupported, and AWS lists global cross-region
-				// pricing as "coming soon"), and AWS prices in-region inference at
-				// OpenAI's data-residency tier — a flat 10% premium over the
-				// standard first-party rates. Unlike the usual Bedrock geo/global
-				// split there is no cheaper global rate to route to yet.
 				inputPrice: "2.2e-6",
 				outputPrice: "13.2e-6",
 				cachedInputPrice: "0.22e-6",
 				cacheWriteInputPrice: "2.75e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "2.2e-6",
+						outputPrice: "13.2e-6",
+						cachedInputPrice: "0.22e-6",
+						cacheWriteInputPrice: "2.75e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "4.4e-6",
+						outputPrice: "19.8e-6",
+						cachedInputPrice: "0.44e-6",
+						cacheWriteInputPrice: "5.5e-6",
+					},
+				],
 				requestPrice: "0",
-				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
-				// first-party). AWS's "272K" is 272 * 1024: upstream rejects prompts
-				// of 278528 tokens or more. No pricingTiers because AWS publishes a
-				// single flat rate for Mantle and does not expose OpenAI's
-				// long-context tier at all.
+				// The Mantle deployment rejects prompts of 278528 tokens or more
+				// (AWS's "272K" is 272 * 1024), even though the model card now
+				// documents a 1M window; the global route above carries the full
+				// window.
 				contextSize: 278528,
 				maxOutput: 128000,
 				streaming: true,
@@ -2328,29 +2417,72 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-luna",
-				// Pricing is identical across regions, so the entries carry no
-				// per-region overrides.
+				// Global cross-region inference (global.openai.gpt-5.6-luna)
+				// runs on the Runtime endpoint at OpenAI's own rates; the 10%
+				// data-residency premium below applies to the in-region Mantle
+				// deployments only. In-region pricing is identical across the
+				// concrete regions, so those entries carry no overrides.
 				regions: [
+					{
+						id: "global",
+						inputPrice: "0.2e-6",
+						outputPrice: "1.2e-6",
+						cachedInputPrice: "0.02e-6",
+						cacheWriteInputPrice: "0.25e-6",
+						pricingTiers: [
+							{
+								name: "Up to 272K",
+								upToTokens: 272000,
+								inputPrice: "0.2e-6",
+								outputPrice: "1.2e-6",
+								cachedInputPrice: "0.02e-6",
+								cacheWriteInputPrice: "0.25e-6",
+							},
+							{
+								name: "Over 272K",
+								upToTokens: Infinity,
+								inputPrice: "0.4e-6",
+								outputPrice: "1.8e-6",
+								cachedInputPrice: "0.04e-6",
+								cacheWriteInputPrice: "0.5e-6",
+							},
+						],
+						// Global cross-region carries the model's full documented
+						// window. AWS writes it as "1M", and this family's "272K"
+						// proved to be 272 * 1024, so read it as 1024 * 1024.
+						contextSize: 1048576,
+					},
 					{ id: "us-east-1" },
 					{ id: "us-east-2" },
 					{ id: "us-west-2" },
 				],
-				// Mantle is in-region-only (the model cards list Geo and Global
-				// cross-region as unsupported, and AWS lists global cross-region
-				// pricing as "coming soon"), and AWS prices in-region inference at
-				// OpenAI's data-residency tier — a flat 10% premium over the
-				// standard first-party rates. Unlike the usual Bedrock geo/global
-				// split there is no cheaper global rate to route to yet.
 				inputPrice: "0.22e-6",
 				outputPrice: "1.32e-6",
 				cachedInputPrice: "0.022e-6",
 				cacheWriteInputPrice: "0.275e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "0.22e-6",
+						outputPrice: "1.32e-6",
+						cachedInputPrice: "0.022e-6",
+						cacheWriteInputPrice: "0.275e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "0.44e-6",
+						outputPrice: "1.98e-6",
+						cachedInputPrice: "0.044e-6",
+						cacheWriteInputPrice: "0.55e-6",
+					},
+				],
 				requestPrice: "0",
-				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
-				// first-party). AWS's "272K" is 272 * 1024: upstream rejects prompts
-				// of 278528 tokens or more. No pricingTiers because AWS publishes a
-				// single flat rate for Mantle and does not expose OpenAI's
-				// long-context tier at all.
+				// The Mantle deployment rejects prompts of 278528 tokens or more
+				// (AWS's "272K" is 272 * 1024), even though the model card now
+				// documents a 1M window; the global route above carries the full
+				// window.
 				contextSize: 278528,
 				maxOutput: 128000,
 				streaming: true,
