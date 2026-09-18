@@ -2035,8 +2035,29 @@ describe("prepareRequestBody - reasoning summaries", () => {
 	});
 
 	test.each([
+		{ region: "global", prefix: "global." },
+		{ region: "us-east-1", prefix: "" },
+		{ region: "us-east-2", prefix: "" },
+	])(
+		"routes GPT-5.6 through the $region deployment",
+		async ({ region, prefix }) => {
+			const requestBody = (await prepareOpenAITextRequest({
+				provider: "aws-mantle",
+				model: "gpt-5.6-sol",
+				region,
+				useResponsesApi: true,
+			})) as OpenAIResponsesRequestBody;
+
+			expect(requestBody.model).toBe(`${prefix}openai.gpt-5.6-sol`);
+			expect(requestBody.store).toBe(false);
+		},
+	);
+
+	test.each([
 		{ provider: "aws-mantle", model: "gpt-6-astra", summary: "auto" },
-		{ provider: "aws-mantle", model: "gpt-5.6-sol", summary: "detailed" },
+		// AWS rejects `detailed` for GPT-5.6 on both the Mantle and the
+		// cross-region Runtime route.
+		{ provider: "aws-mantle", model: "gpt-5.6-sol", summary: "auto" },
 		{ provider: "openai", model: "gpt-6-astra", summary: "detailed" },
 	] as const)(
 		"uses the summary mode for $provider/$model",
