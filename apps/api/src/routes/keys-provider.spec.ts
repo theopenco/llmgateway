@@ -983,6 +983,15 @@ describe("provider keys route", () => {
 			}
 		});
 
+		test("rejects reserved and built-in provider names", async () => {
+			await seedCustomKey();
+
+			for (const name of ["dynamic", "custom", "openai", "llmgateway"]) {
+				const res = await patchName("test-custom-key-id", name);
+				expect(res.status).toBe(400);
+			}
+		});
+
 		test("writes an audit log entry with old and new name", async () => {
 			await seedCustomKey();
 
