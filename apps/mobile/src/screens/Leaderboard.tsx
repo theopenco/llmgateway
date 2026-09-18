@@ -4,6 +4,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { api } from "@/api/client";
 import { Button, colors, ErrorNotice, Loading, styles } from "@/components/ui";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 export function Leaderboard() {
 	const board = api.useQuery(
 		"get",
@@ -40,9 +42,9 @@ export function Leaderboard() {
 						{points.data && (
 							<Text style={styles.body}>
 								{points.data.stats.rank
-									? `Your global rank: #${points.data.stats.rank.toLocaleString()}`
+									? `Your global rank: #${formatNumber(points.data.stats.rank)}`
 									: "You are not ranked yet."}{" "}
-								· {points.data.stats.totalPoints.toLocaleString()} points
+								· {formatNumber(points.data.stats.totalPoints)} points
 							</Text>
 						)}
 						{points.data && (
@@ -112,9 +114,7 @@ export function Leaderboard() {
 								</Text>
 							</View>
 						</View>
-						<Text style={styles.body}>
-							{item.points.toLocaleString()} points
-						</Text>
+						<Text style={styles.body}>{formatNumber(item.points)} points</Text>
 						<Text style={styles.muted}>
 							Level {item.level} · {item.levelTitle}
 						</Text>

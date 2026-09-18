@@ -22,6 +22,8 @@ import {
 	getRateLimitOptions,
 } from "@/lib/admin-rate-limits";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 function formatDate(dateString: string) {
 	return new Date(dateString).toLocaleDateString("en-US", {
 		year: "numeric",
@@ -187,7 +189,7 @@ export default async function GlobalRateLimitsPage() {
 									</TableCell>
 									<TableCell>
 										<span className="font-medium">
-											{rateLimit.maxRequests.toLocaleString()}{" "}
+											{formatNumber(rateLimit.maxRequests)}{" "}
 											{rateLimit.limitType.toUpperCase()}
 										</span>
 									</TableCell>

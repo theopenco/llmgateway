@@ -19,6 +19,10 @@ import { getMappingHistory } from "@/lib/admin-history";
 import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
+import {
+	formatNumber,
+	formatCompactNumber,
+} from "@llmgateway/shared/number-format";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
@@ -51,23 +55,6 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 	currency: "USD",
 	maximumFractionDigits: 4,
 });
-
-function formatNumber(n: number) {
-	return new Intl.NumberFormat("en-US").format(n);
-}
-
-function formatCompactNumber(value: number): string {
-	if (value >= 1_000_000_000) {
-		return `${(value / 1_000_000_000).toFixed(1)}B`;
-	}
-	if (value >= 1_000_000) {
-		return `${(value / 1_000_000).toFixed(1)}M`;
-	}
-	if (value >= 1_000) {
-		return `${(value / 1_000).toFixed(1)}k`;
-	}
-	return value.toLocaleString("en-US");
-}
 
 function toHistoryWindow(pageWindow: PageWindow): HistoryWindow {
 	return pageWindow as HistoryWindow;

@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
 import { getProviderIcon } from "@llmgateway/shared/components";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { paths } from "@/lib/api/v1";
 
@@ -180,7 +181,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 						label="Throughput"
 						value={
 							hasEnoughData && provider.tokensPerSecond !== null
-								? `${provider.tokensPerSecond.toLocaleString()} t/s`
+								? `${formatNumber(provider.tokensPerSecond)} t/s`
 								: "—"
 						}
 					/>
@@ -256,12 +257,8 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 								tickLine={false}
 								axisLine={false}
 								tickMargin={4}
-								width={50}
-								tickFormatter={(value: number) =>
-									value >= 1000
-										? `${(value / 1000).toFixed(1)}k`
-										: String(value)
-								}
+								width={60}
+								tickFormatter={formatCompact}
 							/>
 							<ChartTooltip
 								content={
@@ -274,7 +271,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 											const formatted =
 												activeMetric === "latency"
 													? `${Math.round(Number(value))}ms`
-													: Number(value).toLocaleString();
+													: formatNumber(Number(value));
 											return (
 												<span>
 													{label}: <strong>{formatted}</strong>

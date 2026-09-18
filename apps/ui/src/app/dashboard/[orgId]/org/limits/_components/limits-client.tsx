@@ -30,6 +30,8 @@ import {
 import { useDashboardContext } from "@/lib/dashboard-context";
 import { useApi } from "@/lib/fetch-client";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import type { ReactNode } from "react";
 
 const usd = (n: number) => currencyFormatter.format(n);
@@ -296,7 +298,7 @@ export function LimitsClient() {
 															{e.path}
 														</TableCell>
 														<TableCell className="text-right tabular-nums">
-															{e.rpm > 0 ? e.rpm.toLocaleString() : "Unlimited"}
+															{e.rpm > 0 ? formatNumber(e.rpm) : "Unlimited"}
 														</TableCell>
 													</TableRow>
 												))}

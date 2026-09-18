@@ -18,6 +18,8 @@ import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { parseUsageMode } from "@/lib/usage-mode";
 
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
+
 type MappingSortBy =
 	| "providerId"
 	| "modelId"
@@ -31,19 +33,6 @@ type MappingSortBy =
 	| "updatedAt";
 
 type SortOrder = "asc" | "desc";
-
-function formatCompactNumber(value: number): string {
-	if (value >= 1_000_000_000) {
-		return `${(value / 1_000_000_000).toFixed(1)}B`;
-	}
-	if (value >= 1_000_000) {
-		return `${(value / 1_000_000).toFixed(1)}M`;
-	}
-	if (value >= 1_000) {
-		return `${(value / 1_000).toFixed(1)}k`;
-	}
-	return value.toLocaleString("en-US");
-}
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",

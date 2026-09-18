@@ -173,6 +173,11 @@
 			"types": "./dist/lounge-points.d.ts",
 			"import": "./dist/lounge-points.js",
 			"default": "./dist/lounge-points.js"
+		},
+		"./number-format": {
+			"types": "./dist/number-format.d.ts",
+			"import": "./dist/number-format.js",
+			"default": "./dist/number-format.js"
 		}
 	},
 	"module": "./dist/index.js",

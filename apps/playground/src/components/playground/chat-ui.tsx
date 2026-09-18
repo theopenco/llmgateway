@@ -1,4 +1,5 @@
 "use client";
+
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
 	isToolUIPart,
@@ -114,6 +115,8 @@ import {
 } from "@/lib/message-metadata";
 import { getFallbackReasoningEffortOptions } from "@/lib/model-utils";
 import { cn } from "@/lib/utils";
+
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { ReasoningEffortOption } from "@/lib/fetch-models";
 import type { PropsWithChildren } from "react";
@@ -393,7 +396,6 @@ function getFinishReasonLabel(reason: string): string {
 	}
 }
 
-const tokenCountFormat = new Intl.NumberFormat("en-US");
 const smallCostFormat = new Intl.NumberFormat("en-US", {
 	style: "currency",
 	currency: "USD",
@@ -408,7 +410,7 @@ const costFormat = new Intl.NumberFormat("en-US", {
 });
 
 function formatTokenCount(value?: number): string {
-	return value === undefined ? "-" : tokenCountFormat.format(value);
+	return value === undefined ? "-" : formatNumber(value);
 }
 
 function formatCost(value?: number): string {

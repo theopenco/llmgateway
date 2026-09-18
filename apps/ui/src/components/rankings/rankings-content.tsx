@@ -35,6 +35,7 @@ import { formatCompact } from "@/lib/provider-stats";
 import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 export interface RankingsModelMeta {
 	name: string;
@@ -393,7 +394,7 @@ export function RankingsContent({
 					},
 					{
 						label: "Models ranked",
-						value: data ? models.length.toLocaleString() : null,
+						value: data ? formatNumber(models.length) : null,
 					},
 				].map((stat) => (
 					<div key={stat.label} className="rounded-lg border border-border p-4">
