@@ -68,6 +68,11 @@ import {
 	refundsCountedTopupFilter,
 } from "@/utils/devpass-filter.js";
 import {
+	blockedEmailDomainSchema,
+	getBlockedSignupEmailDomains,
+	setBlockedSignupEmailDomains,
+} from "@/utils/email-domain-blocking.js";
+import {
 	HOURLY_BUCKET_THRESHOLD_MINUTES,
 	floorToHourStart,
 	isHourlyRange,
@@ -6013,6 +6018,62 @@ admin.openapi(updateBlockedSignupCountries, async (c) => {
 	}
 
 	return c.json({ countries: await setBlockedSignupCountries(countries) });
+});
+
+// --- Signup Email Domain Blocking ---
+
+const blockedSignupEmailDomainsSchema = z
+	.object({ domains: z.array(z.string()) })
+	.openapi({});
+
+const getBlockedSignupEmailDomainsRoute = createRoute({
+	method: "get",
+	path: "/settings/blocked-signup-email-domains",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: blockedSignupEmailDomainsSchema },
+			},
+			description:
+				"Email domains whose sign-ups are blocked, including subdomains.",
+		},
+	},
+});
+
+const updateBlockedSignupEmailDomainsRoute = createRoute({
+	method: "put",
+	path: "/settings/blocked-signup-email-domains",
+	request: {
+		body: {
+			required: true,
+			content: {
+				"application/json": {
+					schema: z.object({
+						domains: z.array(blockedEmailDomainSchema).max(10000),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: blockedSignupEmailDomainsSchema },
+			},
+			description: "Updated blocked sign-up email domains.",
+		},
+	},
+});
+
+admin.openapi(getBlockedSignupEmailDomainsRoute, async (c) => {
+	return c.json({ domains: await getBlockedSignupEmailDomains() });
+});
+
+admin.openapi(updateBlockedSignupEmailDomainsRoute, async (c) => {
+	return c.json({
+		domains: await setBlockedSignupEmailDomains(c.req.valid("json").domains),
+	});
 });
 
 // --- Forced 3D Secure ---

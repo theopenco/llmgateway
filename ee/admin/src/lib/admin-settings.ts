@@ -126,3 +126,27 @@ export async function updateSystemBanner(input: SystemBannerSettingInput) {
 	}
 	return { banner: data, message: null };
 }
+
+export async function getBlockedSignupEmailDomains() {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET(
+		"/admin/settings/blocked-signup-email-domains",
+	);
+	return data ?? null;
+}
+
+export async function updateBlockedSignupEmailDomains(domains: string[]) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.PUT(
+		"/admin/settings/blocked-signup-email-domains",
+		{
+			body: { domains },
+		},
+	);
+	return {
+		domains: data?.domains ?? null,
+		message: data
+			? null
+			: "Could not save. Use valid domains without email addresses, URLs or wildcards (maximum 10,000 entries).",
+	};
+}
