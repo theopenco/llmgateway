@@ -15,6 +15,7 @@ import { cookies } from "next/headers";
 import { z } from "zod";
 
 import { getPlaygroundKeyForRequest } from "@/lib/constants";
+import { describeGatewayError } from "@/lib/gateway-error";
 import { getUser } from "@/lib/getUser";
 import {
 	describeImageGenerationError,
@@ -781,6 +782,11 @@ export async function POST(req: Request) {
 			originalMessages: messages,
 			sendReasoning: true,
 			sendSources: true,
+			// Without this the AI SDK masks every mid-stream failure as
+			// "An error occurred.", hiding the gateway's actual message
+			// (rate limits, credit exhaustion, provider errors).
+			onError: (error) =>
+				describeGatewayError(error, "LLM Gateway request failed").message,
 			messageMetadata: ({ part }) => {
 				if (part.type === "finish") {
 					return mergeGatewayResponseMetadata(
@@ -844,15 +850,10 @@ export async function POST(req: Request) {
 			},
 		});
 	} catch (error: unknown) {
-		const message =
-			error instanceof Error ? error.message : "LLM Gateway request failed";
-		const status =
-			typeof error === "object" &&
-			error !== null &&
-			"status" in error &&
-			typeof (error as { status: unknown }).status === "number"
-				? (error as { status: number }).status
-				: 500;
+		const { message, status } = describeGatewayError(
+			error,
+			"LLM Gateway request failed",
+		);
 		return new Response(JSON.stringify({ error: message }), {
 			status,
 		});
