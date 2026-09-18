@@ -7,6 +7,7 @@ import {
 	getProviderDefinition,
 	expandAllProviderRegions,
 	type ProviderModelMapping,
+	type ReasoningMode,
 	type ProviderId,
 	type BaseMessage,
 	type FunctionParameter,
@@ -1362,6 +1363,7 @@ export async function prepareRequestBody(
 	 * carrier's row — and only the `tool_choice` resolution reads it so far.
 	 */
 	resolvedProviderMapping?: ProviderModelMapping,
+	reasoning_mode?: ReasoningMode,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 	// Anthropic's server-side tool search (`defer_loading` plus the tool search
@@ -2327,6 +2329,14 @@ export async function prepareRequestBody(
 										(usedProvider === "openai" || usedProvider === "azure") && {
 											context: reasoning_context,
 										}),
+									// Capability validation already rejected requests no
+									// mapping can serve; the mapping check here keeps a
+									// fallback route from sending the field to a deployment
+									// that rejects it.
+									...(reasoning_mode !== undefined &&
+										providerMappingForOptions?.reasoningModes?.includes(
+											reasoning_mode,
+										) && { mode: reasoning_mode }),
 								},
 				};
 

@@ -192,6 +192,38 @@ If you specify `reasoning.max_tokens` for a model that doesn't support it, you'l
 }
 ```
 
+## Reasoning Mode
+
+OpenAI's GPT-5.6 models accept a `reasoning.mode` of `standard` (the default) or `pro`. Pro mode spends additional model work on difficult tasks at higher latency and token usage. It is independent of effort: `mode` selects standard or pro execution, `effort` controls how much reasoning happens within that mode.
+
+```json
+{
+	"model": "gpt-5.6-sol",
+	"messages": [
+		{
+			"role": "user",
+			"content": "Review this migration plan for failure modes."
+		}
+	],
+	"reasoning": {
+		"mode": "pro",
+		"effort": "medium"
+	}
+}
+```
+
+The same `reasoning.mode` field works on the `/v1/responses` endpoint. Each mapping lists the values it accepts as `reasoning_modes` on [`/v1/models`](https://api.llmgateway.io/v1/models); auto-routing only considers mappings that list the requested mode, and a request for a model that does not list it is rejected with a 400 rather than silently run in standard mode:
+
+```json
+{
+	"error": {
+		"message": "Model gpt-4o does not support reasoning.mode \"pro\". Remove the reasoning.mode parameter or use a model whose reasoning_modes on /v1/models include it.",
+		"type": "invalid_request_error",
+		"code": "model_not_supported"
+	}
+}
+```
+
 ## Controlling Response Verbosity
 
 For OpenAI GPT-5 and later models, you can control how detailed the model's final answer is with the top-level `verbosity` parameter. This is independent of `reasoning_effort`: `reasoning_effort` controls how much the model thinks, while `verbosity` controls how much it writes in its response.

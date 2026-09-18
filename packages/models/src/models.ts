@@ -49,6 +49,15 @@ export type Price = string;
 export type ReasoningEffort =
 	"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
+/**
+ * Execution strategy accepted by the unified `reasoning.mode` parameter.
+ * `pro` spends additional model work on hard problems, at higher latency and
+ * token usage. Orthogonal to `reasoning_effort`, which controls how much
+ * reasoning happens within the selected mode. Which subset a given provider
+ * mapping supports is declared per mapping via `reasoningModes`.
+ */
+export type ReasoningMode = "standard" | "pro";
+
 export const PROVIDER_API_FORMATS = [
 	"provider-native",
 	"openai-chat-completions",
@@ -591,6 +600,15 @@ export interface ProviderModelMapping {
 	 * supported values are not (yet) declared for this mapping.
 	 */
 	reasoningEfforts?: ReasoningEffort[];
+	/**
+	 * Exact `reasoning.mode` values this provider mapping supports. Only
+	 * OpenAI's Responses API documents this parameter, and only for the GPT-5.6
+	 * family; every other deployment rejects an unknown `reasoning.mode`, so a
+	 * mapping that does not declare it makes the gateway reject the request
+	 * rather than drop the field on the way upstream. When unset, the mapping
+	 * accepts no explicit mode.
+	 */
+	reasoningModes?: ReasoningMode[];
 	/**
 	 * Whether this specific model supports tool calling for this provider
 	 */
