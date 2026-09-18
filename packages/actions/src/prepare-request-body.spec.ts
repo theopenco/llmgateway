@@ -38,6 +38,7 @@ async function prepareOpenAIImageRequest(imageConfig: {
 	aspect_ratio?: string;
 	image_size?: string;
 	image_quality?: string;
+	moderation?: string;
 	n?: number;
 }) {
 	return await prepareRequestBody(
@@ -102,8 +103,9 @@ async function prepareMetaImageRequest(imageConfig: {
 }
 
 async function prepareOpenAITextRequest(options: {
-	provider?: "openai" | "azure";
+	provider?: "openai" | "azure" | "aws-mantle";
 	model?: string;
+	region?: string;
 	useResponsesApi?: boolean;
 	promptCacheKey?: string;
 	promptCacheRetention?: "in_memory" | "24h";
@@ -117,8 +119,8 @@ async function prepareOpenAITextRequest(options: {
 	return await prepareRequestBody(
 		options.provider ?? "openai",
 		model,
-		null,
-		model,
+		options.region ?? null,
+		options.provider === "aws-mantle" ? `openai.${model}` : model,
 		(options.messages as any) ?? [{ role: "user", content: "Hello!" }],
 		false,
 		undefined,
@@ -1528,6 +1530,35 @@ describe("prepareRequestBody - OpenAI image generation", () => {
 		expect(requestBody.size).toBe("1024x1024");
 		expect(requestBody.quality).toBeUndefined();
 	});
+
+	test.each(["auto", "low"])(
+		"should forward moderation %s",
+		async (moderation) => {
+			const requestBody = (await prepareOpenAIImageRequest({
+				image_size: "1024x1024",
+				moderation,
+			})) as any;
+
+			expect(requestBody.moderation).toBe(moderation);
+		},
+	);
+
+	test("should omit moderation when not requested", async () => {
+		const requestBody = (await prepareOpenAIImageRequest({
+			image_size: "1024x1024",
+		})) as any;
+
+		expect(requestBody.moderation).toBeUndefined();
+	});
+
+	test("should drop unsupported moderation values", async () => {
+		const requestBody = (await prepareOpenAIImageRequest({
+			image_size: "1024x1024",
+			moderation: "strict",
+		})) as any;
+
+		expect(requestBody.moderation).toBeUndefined();
+	});
 });
 
 describe("prepareRequestBody - Meta image generation", () => {
@@ -1980,6 +2011,69 @@ describe("prepareRequestBody - Fireworks service tiers", () => {
 
 		expect(requestBody.service_tier).toBeUndefined();
 	});
+});
+
+describe("prepareRequestBody - reasoning summaries", () => {
+	test.each([
+		{ region: "global", prefix: "global." },
+		{ region: "us", prefix: "us." },
+		{ region: "us-west-2", prefix: "" },
+	])("routes Astra through the $region profile", async ({ region, prefix }) => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "aws-mantle",
+			model: "gpt-6-astra",
+			region,
+			useResponsesApi: true,
+		})) as OpenAIResponsesRequestBody;
+
+		expect(requestBody.model).toBe(`${prefix}openai.gpt-6-astra`);
+		expect(requestBody.reasoning).toEqual({
+			effort: "medium",
+			summary: "auto",
+		});
+		expect(requestBody.store).toBe(false);
+	});
+
+	test.each([
+		{ region: "global", prefix: "global." },
+		{ region: "us-east-1", prefix: "" },
+		{ region: "us-east-2", prefix: "" },
+	])(
+		"routes GPT-5.6 through the $region deployment",
+		async ({ region, prefix }) => {
+			const requestBody = (await prepareOpenAITextRequest({
+				provider: "aws-mantle",
+				model: "gpt-5.6-sol",
+				region,
+				useResponsesApi: true,
+			})) as OpenAIResponsesRequestBody;
+
+			expect(requestBody.model).toBe(`${prefix}openai.gpt-5.6-sol`);
+			expect(requestBody.store).toBe(false);
+		},
+	);
+
+	test.each([
+		{ provider: "aws-mantle", model: "gpt-6-astra", summary: "auto" },
+		// AWS rejects `detailed` for GPT-5.6 on both the Mantle and the
+		// cross-region Runtime route.
+		{ provider: "aws-mantle", model: "gpt-5.6-sol", summary: "auto" },
+		{ provider: "openai", model: "gpt-6-astra", summary: "detailed" },
+	] as const)(
+		"uses the summary mode for $provider/$model",
+		async ({ provider, model, summary }) => {
+			const requestBody = (await prepareOpenAITextRequest({
+				provider,
+				model,
+				useResponsesApi: true,
+			})) as OpenAIResponsesRequestBody;
+
+			expect(requestBody.reasoning).toEqual({
+				effort: "medium",
+				summary,
+			});
+		},
+	);
 });
 
 describe("prepareRequestBody - verbosity", () => {
@@ -8239,4 +8333,60 @@ describe("prepareRequestBody - tool_choice with thinking disabled", () => {
 
 		expect(requestBody).toMatchObject({ tool_choice: "auto" });
 	});
+});
+
+describe("prepareRequestBody - alibaba forced tool use", () => {
+	const tools = [
+		{
+			type: "function" as const,
+			function: {
+				name: "get_weather",
+				parameters: {
+					type: "object",
+					properties: { city: { type: "string" } },
+				},
+			},
+		},
+	];
+
+	const prepare = (model: string, region: string | null) =>
+		prepareRequestBody(
+			"alibaba",
+			model,
+			region,
+			model,
+			[{ role: "user", content: "What is the weather in Paris?" }],
+			false, // stream
+			undefined, // temperature
+			undefined, // max_tokens
+			undefined, // top_p
+			undefined, // frequency_penalty
+			undefined, // presence_penalty
+			undefined, // response_format
+			tools,
+			"required",
+			undefined, // reasoning_effort
+			true, // supportsReasoning
+		) as Promise<any>;
+
+	test.each([null, "singapore", "cn-beijing", "eu-frankfurt"])(
+		"keeps thinking on for glm-5.3 in region %s",
+		async (region) => {
+			// glm-5.3 rejects enable_thinking: false outright, so the always-thinking
+			// mapping must be resolved through region expansion too.
+			const requestBody = await prepare("glm-5.3", region);
+
+			expect(requestBody.enable_thinking).toBeUndefined();
+			expect(requestBody.tool_choice).toBe("required");
+		},
+	);
+
+	test.each([null, "singapore", "cn-beijing"])(
+		"still disables thinking for a non-reasoning mapping in region %s",
+		async (region) => {
+			const requestBody = await prepare("qwen-max", region);
+
+			expect(requestBody.enable_thinking).toBe(false);
+		},
+	);
 });

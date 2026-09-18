@@ -1,5 +1,6 @@
 import {
 	AnthropicIcon,
+	AnvilIcon,
 	AutohandIcon,
 	ClineIcon,
 	CodexIcon,
@@ -15,6 +16,8 @@ import {
 
 import type { paths } from "@/lib/api/v1";
 import type { ComponentType, SVGProps } from "react";
+
+export { formatCompactNumber as formatTokens } from "@llmgateway/shared/number-format";
 
 export type ApiLog =
 	paths["/logs"]["get"]["responses"][200]["content"]["application/json"]["logs"][number];
@@ -64,6 +67,13 @@ export const AGENTS: AgentDefinition[] = [
 		icon: AutohandIcon,
 		sources: ["autohand"],
 		guideUrl: "/guides/autohand",
+	},
+	{
+		id: "anvil",
+		label: "Anvil",
+		icon: AnvilIcon,
+		sources: ["anvil"],
+		guideUrl: "/guides/anvil",
 	},
 	{
 		id: "empryo",
@@ -139,22 +149,6 @@ export interface AgentStats {
 	lastActive: Date;
 	logs: ApiLog[];
 	modelBreakdown: ModelUsage[];
-}
-
-export function formatTokens(count: number): string {
-	if (count >= 1_000_000_000_000) {
-		return `${(count / 1_000_000_000_000).toFixed(1)}T`;
-	}
-	if (count >= 1_000_000_000) {
-		return `${(count / 1_000_000_000).toFixed(1)}B`;
-	}
-	if (count >= 1_000_000) {
-		return `${(count / 1_000_000).toFixed(1)}M`;
-	}
-	if (count >= 1_000) {
-		return `${(count / 1_000).toFixed(1)}K`;
-	}
-	return count.toLocaleString();
 }
 
 export function formatLastActive(date: Date): string {

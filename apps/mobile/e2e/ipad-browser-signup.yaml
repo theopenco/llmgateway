@@ -1,0 +1,93 @@
+appId: io.llmgateway.lounge
+env:
+  API_URL: http://localhost:4902
+  FIXTURE_URL: http://localhost:4909
+---
+- evalScript: ${output.email = "native-account-" + Date.now() + "@example.test"}
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- runFlow: helpers/browser-sign-in.yaml
+- tapOn: "Sign in"
+- extendedWaitUntil:
+    visible: "Email"
+    timeout: 30000
+- swipe:
+    start: "50%, 68%"
+    end: "50%, 35%"
+    duration: 500
+- tapOn: "Don't have an account.*Sign up"
+- extendedWaitUntil:
+    visible: "Create your free account"
+    timeout: 30000
+- tapOn: "Email"
+- inputText: ${output.email}
+- tapOn:
+    id: "_nextTapped"
+- runFlow:
+    when:
+      visible: "Not Now"
+    commands:
+      - tapOn: "Not Now"
+- tapOn: "Password"
+- eraseText
+- inputText: "Lounge-browser-signup-2026"
+- tapOn: "Show password"
+- assertVisible: "Lounge-browser-signup-2026"
+- tapOn: "Hide password"
+- tapOn:
+    text: "Hide keyboard"
+    optional: true
+- tapOn: "Subscribe to product updates"
+- tapOn: "Start free"
+- extendedWaitUntil:
+    visible: "Authorize your device|Save Password.*"
+    timeout: 30000
+- runFlow:
+    when:
+      visible: "Not Now"
+    commands:
+      - tapOn: "Not Now"
+- extendedWaitUntil:
+    visible: "Authorize your device"
+    timeout: 30000
+- assertVisible: ${output.userCode}
+- evalScript: ${output.verification = JSON.parse(http.get(FIXTURE_URL + "/fixture-accounts/mail?email=" + output.email).body).verify}
+- assertTrue: ${!!output.verification}
+- assertTrue: ${output.verification.includes(encodeURIComponent(output.userCode))}
+- openLink: ${output.verification}
+- extendedWaitUntil:
+    visible: "The code above matches the code on my device."
+    timeout: 30000
+- assertVisible: ${output.userCode}
+- tapOn: "The code above matches the code on my device."
+- tapOn: "Authorize device"
+# Resume after Safari without discarding the pending sign-in.
+- launchApp:
+    stopApp: false
+- extendedWaitUntil:
+    visible: "Start a conversation"
+    timeout: 30000
+- stopApp
+- launchApp
+- assertVisible: "Start a conversation"
+- scrollUntilVisible:
+    element: "Your profile"
+    direction: DOWN
+- tapOn: "Your profile"
+- scrollUntilVisible:
+    element: "Delete account"
+    direction: DOWN
+- tapOn: "Delete account"
+- tapOn:
+    id: "field-type-delete-to-confirm"
+- inputText: "DELETE"
+- tapOn: "Done typing"
+- tapOn: "Permanently delete account"
+- tapOn:
+    text: "Delete account"
+    below: "Your account and its personal data cannot be recovered."
+- extendedWaitUntil:
+    visible: "Enter the Lounge"
+    timeout: 30000
+- takeScreenshot: ipad-browser-signup-complete

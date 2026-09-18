@@ -19,6 +19,10 @@ import { getMappingHistory } from "@/lib/admin-history";
 import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
+import {
+	formatNumber,
+	formatCompactNumber,
+} from "@llmgateway/shared/number-format";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
@@ -33,6 +37,8 @@ export interface ProjectMappingEntry {
 	logsCount: number;
 	errorsCount: number;
 	clientErrorsCount: number;
+	gatewayErrorsCount: number;
+	upstreamErrorsCount: number;
 	cachedCount: number;
 	cost: number;
 	totalTokens: number;
@@ -49,23 +55,6 @@ const currencyFormatter = new Intl.NumberFormat("en-US", {
 	currency: "USD",
 	maximumFractionDigits: 4,
 });
-
-function formatNumber(n: number) {
-	return new Intl.NumberFormat("en-US").format(n);
-}
-
-function formatCompactNumber(value: number): string {
-	if (value >= 1_000_000_000) {
-		return `${(value / 1_000_000_000).toFixed(1)}B`;
-	}
-	if (value >= 1_000_000) {
-		return `${(value / 1_000_000).toFixed(1)}M`;
-	}
-	if (value >= 1_000) {
-		return `${(value / 1_000).toFixed(1)}k`;
-	}
-	return value.toLocaleString("en-US");
-}
 
 function toHistoryWindow(pageWindow: PageWindow): HistoryWindow {
 	return pageWindow as HistoryWindow;
@@ -126,11 +115,12 @@ function MappingRow({
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const ProviderIcon = getProviderIcon(mapping.providerId);
-	const stability = deriveStabilityMetrics(
-		mapping.logsCount,
-		mapping.errorsCount,
-		mapping.clientErrorsCount,
-	);
+	const stability = deriveStabilityMetrics({
+		logsCount: mapping.logsCount,
+		clientErrorsCount: mapping.clientErrorsCount,
+		gatewayErrorsCount: mapping.gatewayErrorsCount,
+		upstreamErrorsCount: mapping.upstreamErrorsCount,
+	});
 	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 	const displayModel = mapping.modelId.includes("/")
 		? mapping.modelId.split("/").slice(1).join("/")

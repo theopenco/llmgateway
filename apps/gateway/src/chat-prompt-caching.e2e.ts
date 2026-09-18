@@ -260,6 +260,9 @@ describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 				// Also verify the log has cachedTokens recorded
 				// Note: cachedTokens is stored as a string in the database
 				expect(Number(secondLog.cachedTokens)).toBeGreaterThan(0);
+				expect(Number(secondLog.cachedTokens)).toBe(
+					secondJson.usage.prompt_tokens_details.cached_tokens,
+				);
 
 				// Verify cached input cost is recorded (should be lower than regular input cost)
 				// Note: cachedInputCost is stored as a string in the database
@@ -341,6 +344,9 @@ describe("e2e prompt caching", getConcurrentTestOptions(), () => {
 					);
 					expect(streamingLog.streamed).toBe(true);
 					expect(Number(streamingLog.cachedTokens)).toBeGreaterThan(0);
+					expect(Number(streamingLog.cachedTokens)).toBe(
+						streamResult.usage?.prompt_tokens_details?.cached_tokens,
+					);
 					expect(Number(streamingLog.cachedInputCost)).toBeGreaterThan(0);
 				}
 			},

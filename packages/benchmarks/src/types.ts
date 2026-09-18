@@ -1,7 +1,8 @@
-export type BenchmarkKind = "performance" | "quality";
+export type BenchmarkKind = "agentic" | "performance" | "quality";
 export type BenchmarkOutputFormat = "html" | "json" | "markdown";
 export type BenchmarkDifficulty = "easy" | "hard" | "medium";
-export type BenchmarkProfileName = "load" | "smoke" | "standard";
+export type BenchmarkProfileName = "coding" | "load" | "smoke" | "standard";
+export type BenchmarkTargetSource = "airside" | "catalogue";
 
 export interface BenchmarkMessageToolCall {
 	id: string;
@@ -34,6 +35,42 @@ export interface BenchmarkRequest {
 	tools?: BenchmarkTool[];
 	toolChoice?: unknown;
 	parameters?: Readonly<Record<string, unknown>>;
+}
+
+export interface BenchmarkAgentToolResult {
+	content: string;
+	isError?: boolean;
+}
+
+export interface BenchmarkAgentToolInvocation {
+	turn: number;
+	name: string;
+	arguments: string;
+	ok: boolean;
+	detail?: string;
+	durationMs: number;
+}
+
+export interface BenchmarkAgentTurn {
+	turn: number;
+	toolCallCount: number;
+	finishReason: string | null;
+	timing: BenchmarkTiming;
+	usage: BenchmarkUsage;
+	error: BenchmarkError | null;
+}
+
+export type BenchmarkAgentStopReason = "error" | "max_turns" | "no_tool_calls";
+
+export interface BenchmarkAgentTrace {
+	turnCount: number;
+	toolCallCount: number;
+	invalidToolCallCount: number;
+	repeatedToolCallCount: number;
+	toolCallsByName: Readonly<Record<string, number>>;
+	stopReason: BenchmarkAgentStopReason;
+	turns: BenchmarkAgentTurn[];
+	invocations: BenchmarkAgentToolInvocation[];
 }
 
 export interface BenchmarkTarget {
@@ -110,6 +147,18 @@ export interface BenchmarkResponse {
 	timing: BenchmarkTiming;
 	streamChunks: BenchmarkStreamChunk[];
 	error: BenchmarkError | null;
+	agent: BenchmarkAgentTrace | null;
+}
+
+export interface BenchmarkAgentSession {
+	tools: BenchmarkTool[];
+	callTool: (call: BenchmarkMessageToolCall) => BenchmarkAgentToolResult;
+	evaluate: (response: BenchmarkResponse) => BenchmarkEvaluation;
+}
+
+export interface BenchmarkAgentSpec {
+	maxTurns: number;
+	createSession: (context: BenchmarkRunContext) => BenchmarkAgentSession;
 }
 
 export interface BenchmarkCase {
@@ -135,6 +184,7 @@ export interface BenchmarkCase {
 		response: BenchmarkResponse,
 		context: BenchmarkRunContext,
 	) => BenchmarkEvaluation | Promise<BenchmarkEvaluation>;
+	agent?: BenchmarkAgentSpec;
 }
 
 export interface BenchmarkCaseDescriptor {
@@ -300,6 +350,21 @@ export interface BenchmarkSliceSummary {
 	score: number | null;
 }
 
+export interface BenchmarkAgentSummary {
+	attempted: number;
+	solved: number;
+	solveRate: number | null;
+	turns: NumericSummary | null;
+	toolCalls: NumericSummary | null;
+	invalidToolCallRate: number | null;
+	repeatedToolCallRate: number | null;
+	wallClockMs: NumericSummary | null;
+	firstTurnTtftMs: NumericSummary | null;
+	totalTokens: NumericSummary | null;
+	costPerSolvedTaskUsd: number | null;
+	stopReasons: Readonly<Record<string, number>>;
+}
+
 export interface BenchmarkTargetSummary {
 	targetId: string;
 	attempted: number;
@@ -309,6 +374,7 @@ export interface BenchmarkTargetSummary {
 	referenceAgreement: BenchmarkAgreementSummary | null;
 	fingerprint: BenchmarkFingerprintSummary | null;
 	performance: BenchmarkMetricSummary;
+	agent: BenchmarkAgentSummary | null;
 	reliability: BenchmarkReliabilitySummary;
 	efficiency: BenchmarkEfficiencySummary;
 	robustnessDrop: number | null;

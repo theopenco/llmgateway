@@ -106,6 +106,11 @@ const nextConfig: NextConfig = {
 		};
 		return [
 			{
+				source: "/add-provider",
+				destination: "https://airside.llmgateway.io",
+				permanent: true,
+			},
+			{
 				source: "/blog/embeddable-ai-credits-stripe-for-ai",
 				destination: "/blog/embeddable-payments-sdk",
 				permanent: true,

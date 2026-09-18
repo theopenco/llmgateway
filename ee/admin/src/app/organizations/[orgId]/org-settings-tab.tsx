@@ -174,9 +174,9 @@ function SettingRow({
 	children: ReactNode;
 }) {
 	return (
-		<div className="flex items-center justify-between gap-4 border-b border-border/40 py-2 last:border-b-0">
+		<div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-border/40 py-2 last:border-b-0">
 			<span className="text-sm text-muted-foreground">{label}</span>
-			<span className="text-sm font-medium">{children}</span>
+			<span className="min-w-0 text-sm font-medium">{children}</span>
 		</div>
 	);
 }
@@ -368,6 +368,18 @@ export function OrgSettingsTab({
 								{org.retentionLevel === "retain"
 									? "Retain payloads"
 									: "Metadata only"}
+							</Badge>
+						</SettingRow>
+						<SettingRow label="Content filter tier override">
+							{org.contentFilterTierOverride === null
+								? "Automatic (trust tier)"
+								: `Tier ${org.contentFilterTierOverride}`}
+						</SettingRow>
+						<SettingRow label="Content filter enforcement">
+							<Badge
+								variant={org.contentFilterLogOnly ? "outline" : "secondary"}
+							>
+								{org.contentFilterLogOnly ? "Log only" : "Global setting"}
 							</Badge>
 						</SettingRow>
 						<SettingRow label="Seats">{org.seats ?? "plan default"}</SettingRow>

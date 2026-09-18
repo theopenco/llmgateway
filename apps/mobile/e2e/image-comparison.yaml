@@ -1,0 +1,141 @@
+appId: io.llmgateway.lounge
+---
+- evalScript: ${output.imagePrompt = "Native comparison " + Date.now()}
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- scrollUntilVisible:
+    element: "Image Studio"
+    direction: DOWN
+- tapOn: "Image Studio"
+- tapOn: "Model: Auto"
+- tapOn:
+    id: "field-search-models"
+- inputText: "gpt-image-2"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT Image 2"
+- scrollUntilVisible:
+    element: "Compare another model"
+    direction: DOWN
+    centerElement: true
+    timeout: 45000
+- tapOn: "Compare another model"
+- scrollUntilVisible:
+    element: "Model: Auto"
+    direction: DOWN
+    centerElement: true
+    timeout: 45000
+- tapOn: "Model: Auto"
+- tapOn:
+    id: "field-search-models"
+- inputText: "gpt-image-2.5-flare"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT Image 2.5 Flare"
+- scrollUntilVisible:
+    element:
+      id: "field-image-prompt"
+    direction: DOWN
+    centerElement: true
+    timeout: 45000
+- tapOn:
+    id: "field-image-prompt"
+- inputText: ${output.imagePrompt}
+- tapOn: "Done typing"
+- scrollUntilVisible:
+    element: "Images per model: 1"
+    direction: DOWN
+    centerElement: true
+    timeout: 45000
+- tapOn: "Images per model: 1"
+- tapOn: "2"
+- scrollUntilVisible:
+    element: "Generate image"
+    direction: DOWN
+    centerElement: true
+    timeout: 45000
+- tapOn: "Generate image"
+- scrollUntilVisible:
+    element: "Generated image 1.2"
+    direction: DOWN
+    centerElement: true
+    timeout: 45000
+- assertVisible: "Generated image 1.2"
+- scrollUntilVisible:
+    element: "Generated image 2.2"
+    direction: DOWN
+    centerElement: true
+    timeout: 45000
+- assertVisible: "Generated image 2.2"
+- scrollUntilVisible:
+    element: "Save image 2.2"
+    direction: DOWN
+    centerElement: true
+    timeout: 45000
+- tapOn: "Save image 2.2"
+- runFlow:
+    file: helpers/save-file.yaml
+    env:
+      RETURN_TO: "Share image 2.2"
+- scrollUntilVisible:
+    element: "Add reference image"
+    direction: UP
+    centerElement: true
+    timeout: 45000
+- tapOn: "Add reference image"
+- waitForAnimationToEnd:
+    timeout: 5000
+- tapOn:
+    point: 18%, 30%
+- assertVisible: "Reference image 1"
+- scrollUntilVisible:
+    element: "Edit images"
+    direction: DOWN
+    centerElement: true
+    timeout: 45000
+- tapOn: "Edit images"
+- scrollUntilVisible:
+    element: "Generated image 2.2"
+    direction: DOWN
+    centerElement: true
+    timeout: 45000
+- assertVisible: "Generated image 2.2"
+- scrollUntilVisible:
+    element:
+      id: "field-search-images"
+    direction: DOWN
+    centerElement: true
+    timeout: 45000
+- tapOn:
+    id: "field-search-images"
+- inputText: ${output.imagePrompt}
+- tapOn: "Done typing"
+- scrollUntilVisible:
+    element: "Rename image"
+    direction: DOWN
+    centerElement: true
+    timeout: 45000
+- tapOn:
+    text: "Rename image"
+    index: 0
+- eraseText
+- inputText: ${output.imagePrompt + " renamed"}
+- tapOn: "OK"
+- tapOn:
+    text: "Done typing"
+    optional: true
+- assertVisible: ${"View " + output.imagePrompt + " renamed"}
+- repeat:
+    times: 2
+    commands:
+      - scrollUntilVisible:
+          element: "Delete image"
+          direction: DOWN
+          centerElement: true
+          timeout: 45000
+      - tapOn:
+          text: "Delete image"
+          index: 0
+      - tapOn: "Delete generation"
+      - tapOn:
+          text: "Done typing"
+          optional: true
+- assertNotVisible: ${"View " + output.imagePrompt + ".*"}

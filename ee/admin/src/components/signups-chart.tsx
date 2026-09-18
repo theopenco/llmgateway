@@ -21,6 +21,8 @@ import {
 	ChartTooltipContent,
 } from "@/components/ui/chart";
 
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
+
 import type { ChartConfig } from "@/components/ui/chart";
 import type { TimeseriesDataPoint } from "@/lib/types";
 
@@ -36,12 +38,6 @@ const chartConfig = {
 } satisfies ChartConfig;
 
 type ActiveChart = keyof typeof chartConfig;
-
-const numberFormatter = new Intl.NumberFormat("en-US", {
-	notation: "compact",
-	compactDisplay: "short",
-	maximumFractionDigits: 1,
-});
 
 export function SignupsChart({
 	data,
@@ -68,7 +64,7 @@ export function SignupsChart({
 
 	return (
 		<Card>
-			<CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0 sm:flex-row">
+			<CardHeader className="flex flex-col items-stretch space-y-0 border-b p-0">
 				<div className="flex flex-1 flex-col justify-center gap-1.5 px-6 py-5 sm:py-6">
 					<div className="flex flex-wrap items-center justify-between gap-3">
 						<CardTitle className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
@@ -85,14 +81,14 @@ export function SignupsChart({
 						<button
 							key={key}
 							data-active={activeChart === key}
-							className="relative z-30 flex flex-1 flex-col justify-center gap-1.5 border-t px-6 py-4 text-left even:border-l data-[active=true]:bg-muted/50 sm:border-l sm:border-t-0 sm:px-8 sm:py-6"
+							className="relative z-30 flex min-w-0 flex-1 flex-col justify-center gap-1.5 border-l border-t px-4 py-4 text-left first:border-l-0 data-[active=true]:bg-muted/50 sm:px-6"
 							onClick={() => setActiveChart(key)}
 						>
 							<span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
 								{chartConfig[key].label}
 							</span>
 							<span className="font-mono text-lg font-medium leading-none tabular-nums tracking-tight sm:text-3xl">
-								{numberFormatter.format(totals[key])}
+								{formatCompactNumber(totals[key])}
 							</span>
 						</button>
 					))}
@@ -175,7 +171,7 @@ export function SignupsChart({
 													New {chartConfig[activeChart].label.toLowerCase()}
 												</span>
 												<span className="ml-auto font-mono font-medium tabular-nums">
-													{numberFormatter.format(Number(value))}
+													{formatCompactNumber(Number(value))}
 												</span>
 											</>
 										)}

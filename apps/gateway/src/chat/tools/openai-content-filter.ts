@@ -10,10 +10,10 @@ import {
 	readProviderKey,
 } from "@llmgateway/actions";
 import { logger } from "@llmgateway/logger";
-import { getProviderEnvValue } from "@llmgateway/models";
+import { getProviderEnvValue, getProviderEnvVar } from "@llmgateway/models";
 
 import { extractErrorCause } from "./extract-error-cause.js";
-import { getProviderEnv } from "./get-provider-env.js";
+import { getEnvKeyCount, getProviderEnv } from "./get-provider-env.js";
 
 import type { ModerationApiPayload } from "@llmgateway/db";
 import type { BaseMessage, MessageContent } from "@llmgateway/models";
@@ -52,7 +52,7 @@ interface OpenAIModerationRequest {
 	input: OpenAIModerationInput;
 }
 
-interface OpenAIModerationResult {
+export interface OpenAIModerationResult {
 	flagged?: boolean;
 	categories?: Record<string, boolean>;
 	category_scores?: Record<string, number>;
@@ -400,6 +400,17 @@ async function resolveContentFilterCredential(): Promise<ContentFilterCredential
 	const baseUrl =
 		getProviderEnvValue("openai", "baseUrl", env.configIndex) ?? defaultBaseUrl;
 	return { providerToken: env.token, moderationUrl: moderationUrl(baseUrl) };
+}
+
+/**
+ * Whether a moderation call could be made at all. Lets deployments without an
+ * OpenAI credential skip the tiered filter instead of failing open per request.
+ */
+export async function hasOpenAIContentFilterCredential(): Promise<boolean> {
+	if (await hasManagedProviderCredential("openai")) {
+		return true;
+	}
+	return getEnvKeyCount(getProviderEnvVar("openai")) > 0;
 }
 
 async function runOpenAIContentFilterRequest(

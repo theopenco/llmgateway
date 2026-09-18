@@ -41,6 +41,8 @@ interface ImageControlsProps {
 	setAlibabaImageSize: (value: string) => void;
 	imageQuality: string;
 	setImageQuality: (value: string) => void;
+	imageModeration: string;
+	setImageModeration: (value: string) => void;
 	imageCount: 1 | 2 | 3 | 4;
 	setImageCount: (value: 1 | 2 | 3 | 4) => void;
 	isGenerating: boolean;
@@ -81,6 +83,8 @@ export function ImageControls({
 	setAlibabaImageSize,
 	imageQuality,
 	setImageQuality,
+	imageModeration,
+	setImageModeration,
 	imageCount,
 	setImageCount,
 	isGenerating,
@@ -390,18 +394,7 @@ export function ImageControls({
 								<SelectValue placeholder="Image Size" />
 							</SelectTrigger>
 							<SelectContent>
-								{(config.isMuseImage
-									? config.availableSizes
-									: [
-											"1024x1024",
-											"720x1280",
-											"1280x720",
-											"1024x1536",
-											"1536x1024",
-											"2048x1024",
-											"1024x2048",
-										]
-								).map((size) => (
+								{config.availableSizes.map((size) => (
 									<SelectItem key={size} value={size}>
 										{size}
 									</SelectItem>
@@ -418,6 +411,20 @@ export function ImageControls({
 								{config.availableQualities.map((q) => (
 									<SelectItem key={q} value={q}>
 										{q.charAt(0).toUpperCase() + q.slice(1)}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					)}
+					{config.supportsModeration && (
+						<Select value={imageModeration} onValueChange={setImageModeration}>
+							<SelectTrigger size="sm" className="min-w-[150px]">
+								<SelectValue placeholder="Moderation" />
+							</SelectTrigger>
+							<SelectContent>
+								{config.availableModerations.map((m) => (
+									<SelectItem key={m} value={m}>
+										Moderation: {m}
 									</SelectItem>
 								))}
 							</SelectContent>

@@ -61,7 +61,6 @@ export const Response = memo(
 			{...props}
 		/>
 	),
-	(prevProps, nextProps) => prevProps.children === nextProps.children,
 );
 
 Response.displayName = "Response";

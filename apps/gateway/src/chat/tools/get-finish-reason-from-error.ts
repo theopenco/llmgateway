@@ -1,4 +1,5 @@
 import { hasInvalidProviderCredentialError } from "@/lib/provider-auth-errors.js";
+import { hasExhaustedProviderAccountError } from "@/lib/provider-funding-errors.js";
 
 import { isContentFilterErrorText } from "@llmgateway/shared";
 
@@ -90,12 +91,7 @@ export function getFinishReasonFromError(
 	// case above this is a funding problem on our provider account, not a client
 	// fault, so classify as gateway_error to allow fallback to another key or
 	// provider.
-	if (
-		errorText &&
-		/credit balance is too low|insufficient balance|reaching the monthly spending limit/i.test(
-			errorText,
-		)
-	) {
+	if (hasExhaustedProviderAccountError(errorText)) {
 		return "gateway_error";
 	}
 

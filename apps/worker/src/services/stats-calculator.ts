@@ -20,8 +20,11 @@ import {
 	type SQL,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { getLogRetentionCutoff } from "@llmgateway/shared/log-retention";
 
+import { calculateContentFilterStatsForHour } from "./content-filter-stats-aggregator.js";
 import { excludeRecoveredSameProviderRegionRetry } from "./log-filters.js";
+import { formatUTCTimestamp } from "./project-stats-aggregator.js";
 import { calculateRoutingTelemetryForHour } from "./routing-telemetry-aggregator.js";
 
 // Environment variable for backfill duration in seconds (defaults to 300 seconds = 5 minutes)
@@ -48,6 +51,13 @@ const serviceTierSourceSql = sql<
 >`(${log.routingMetadata}::jsonb ->> 'serviceTierSource')`;
 const HISTORY_USAGE_MODES = ["credits", "api-keys"] as const;
 type HistoryUsageMode = (typeof HISTORY_USAGE_MODES)[number];
+
+// A mapping ID identifies one model/provider pair. Keep its historical labels
+// without adding redundant grouping keys that inflate PostgreSQL's estimates.
+const mappingHistoryLabels = {
+	modelId: sql<string>`min(${modelProviderMappingHistory.modelId})`,
+	providerId: sql<string>`min(${modelProviderMappingHistory.providerId})`,
+};
 
 interface MappingMinuteStats {
 	modelId: string | null;
@@ -293,6 +303,9 @@ function getCurrentHourStart(): Date {
  */
 async function calculateModelHistoryForMinute(targetMinute: Date) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
+	if (roundedTargetMinute < getLogRetentionCutoff()) {
+		return { totalModels: 0, activeModels: 0, inactiveModels: 0 };
+	}
 
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
 	const database = db;
@@ -592,6 +605,9 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
  */
 async function calculateHistoryForMinute(targetMinute: Date) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
+	if (roundedTargetMinute < getLogRetentionCutoff()) {
+		return { totalMappings: 0, activeMappings: 0, inactiveMappings: 0 };
+	}
 
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
 	const database = db;
@@ -991,12 +1007,21 @@ export async function backfillHistoryIfNeeded() {
 		}
 
 		const previousMinute = getPreviousMinuteStart();
+		const earliestRetainedMinute = new Date(
+			Math.ceil(getLogRetentionCutoff().getTime() / ONE_MINUTE_MS) *
+				ONE_MINUTE_MS,
+		);
 
 		if (!lastMinute) {
 			// No history exists, start from configured backfill duration ago
 			const backfillMs = BACKFILL_DURATION_SECONDS * 1000;
 			const backfillStart = new Date(Date.now() - backfillMs);
-			const backfillStartRounded = roundToMinuteStart(backfillStart);
+			const backfillStartRounded = new Date(
+				Math.max(
+					roundToMinuteStart(backfillStart).getTime(),
+					earliestRetainedMinute.getTime(),
+				),
+			);
 
 			logger.info(
 				`No existing history found. Starting backfill from ${backfillStartRounded.toISOString()} to ${previousMinute.toISOString()}`,
@@ -1051,7 +1076,12 @@ export async function backfillHistoryIfNeeded() {
 				`Found gap of ${minutesBehind} minutes. Backfilling from ${lastMinute.toISOString()}`,
 			);
 
-			let minute = new Date(lastMinute.getTime() + ONE_MINUTE_MS); // Start from the minute after the last recorded
+			let minute = new Date(
+				Math.max(
+					lastMinute.getTime() + ONE_MINUTE_MS,
+					earliestRetainedMinute.getTime(),
+				),
+			);
 			let iterationCount = 0;
 			const maxIterations = 1440; // Safety limit for 24 hours of backfill
 
@@ -1256,8 +1286,7 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 		.select({
 			modelProviderMappingId:
 				modelProviderMappingHistory.modelProviderMappingId,
-			modelId: modelProviderMappingHistory.modelId,
-			providerId: modelProviderMappingHistory.providerId,
+			...mappingHistoryLabels,
 			usedMode: modelProviderMappingHistory.usedMode,
 			logsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.logsCount}), 0)::int`,
 			errorsCount: sql<number>`coalesce(sum(${modelProviderMappingHistory.errorsCount}), 0)::int`,
@@ -1299,8 +1328,6 @@ async function calculateMappingHistoryForHour(targetHour: Date) {
 		)
 		.groupBy(
 			modelProviderMappingHistory.modelProviderMappingId,
-			modelProviderMappingHistory.modelId,
-			modelProviderMappingHistory.providerId,
 			modelProviderMappingHistory.usedMode,
 		);
 
@@ -1378,20 +1405,49 @@ async function calculateHistoryForHour(targetHour: Date) {
 			error as Error,
 		);
 	}
-	return { mappingResult, modelResult, routingResult };
+	// Same posture: a diagnostic rollup over `log` that must never cost the hour
+	// its usage stats.
+	let contentFilterResult: Awaited<
+		ReturnType<typeof calculateContentFilterStatsForHour>
+	> | null = null;
+	try {
+		contentFilterResult = await calculateContentFilterStatsForHour(targetHour);
+	} catch (error) {
+		logger.error(
+			`Error calculating content filter stats for ${targetHour.toISOString()}:`,
+			error as Error,
+		);
+	}
+	return { mappingResult, modelResult, routingResult, contentFilterResult };
+}
+
+// A closed hour keeps being rolled up until this long after it ends, so logs
+// still being inserted from the queue are counted, then once more and never
+// again. A restart forgets the marker and simply recomputes it one more time.
+const HOURLY_SETTLE_MS = 5 * 60 * 1000;
+let settledHour: number | undefined;
+
+/** Forget which closed hour is settled (tests). */
+export function resetHourlyHistoryState() {
+	settledHour = undefined;
 }
 
 /**
- * Calculate the hourly summary for the previous (now-complete) hour and refresh
- * the current in-progress hour so dashboards see recent data without waiting for
- * the hour to close. Called once per minutely tick.
+ * Calculate the hourly summary for the previous (now-complete) hour until it
+ * settles, and refresh the current in-progress hour so dashboards see recent
+ * data without waiting for the hour to close. Called once per minutely tick.
  */
 export async function calculateHourlyHistory() {
 	const currentHourStart = getCurrentHourStart();
 	const previousHourStart = new Date(currentHourStart.getTime() - ONE_HOUR_MS);
 
 	try {
-		await calculateHistoryForHour(previousHourStart);
+		if (settledHour !== previousHourStart.getTime()) {
+			await calculateHistoryForHour(previousHourStart);
+			if (Date.now() - currentHourStart.getTime() >= HOURLY_SETTLE_MS) {
+				settledHour = previousHourStart.getTime();
+			}
+		}
 		await calculateHistoryForHour(currentHourStart);
 
 		logger.debug(
@@ -1407,7 +1463,7 @@ export async function calculateHourlyHistory() {
  * Backfill missing hourly summary rows by walking every completed hour from the
  * earliest minute-history entry up to the previous complete hour and recomputing
  * only the hours absent from ANY summary table — the two history rollups, plus
- * routing telemetry for hours whose logs still exist. Detecting missing hours
+ * routing telemetry for hours within log retention. Detecting missing hours
  * (rather than resuming from the latest entry) is what makes this robust: the
  * minutely loop writes the current and previous hour on startup, so the latest
  * hourly entry is never a reliable "everything before this is done" watermark —
@@ -1467,38 +1523,53 @@ export async function backfillHourlyHistoryIfNeeded() {
 			return;
 		}
 
-		// Oldest hour that still has logs to aggregate. Routing telemetry is derived
-		// from `log` rather than from minute history, so hours whose logs retention
-		// has already pruned can never produce routing rows — requiring them below
-		// would recompute the same empty hours on every worker start.
+		// Only complete hours within retention can reconstruct routing details.
+		const earliestRetainedHour = new Date(
+			Math.ceil(getLogRetentionCutoff().getTime() / ONE_HOUR_MS) * ONE_HOUR_MS,
+		);
 		const earliestLog = await database
 			.select({ createdAt: log.createdAt })
 			.from(log)
+			.where(gte(log.createdAt, earliestRetainedHour))
 			.orderBy(asc(log.createdAt))
 			.limit(1);
 		const earliestLogHourMs = earliestLog[0]
 			? roundToHourStart(earliestLog[0].createdAt).getTime()
 			: null;
 
-		// Hours already summarized in each table (excluding the in-progress current
-		// hour). An hour is recomputed only when it is missing from any set.
-		const [mappingHours, modelHours, routingHours] = await Promise.all([
-			database
-				.select({
-					hourTimestamp: modelProviderMappingHistoryHourly.hourTimestamp,
-				})
-				.from(modelProviderMappingHistoryHourly)
-				.where(
-					lt(modelProviderMappingHistoryHourly.hourTimestamp, currentHourStart),
+		// Probe each backfillable hour once instead of reading every historical row.
+		// Restrict probes to hours the capped loop can visit.
+		const lastHourOffset =
+			(Math.ceil(HOURLY_BACKFILL_MAX_ITERATIONS) - 1) * ONE_HOUR_MS;
+		const lastScannedHour = new Date(
+			Math.min(
+				previousHourStart.getTime(),
+				startHour.getTime() + lastHourOffset,
+			),
+		);
+		const summarizedHours = (
+			table:
+				| typeof modelProviderMappingHistoryHourly
+				| typeof modelHistoryHourly
+				| typeof routingElectionHourly,
+		) =>
+			database.select({
+				hourTimestamp: sql<Date>`candidate.hour_timestamp`.mapWith(
+					table.hourTimestamp,
 				),
-			database
-				.select({ hourTimestamp: modelHistoryHourly.hourTimestamp })
-				.from(modelHistoryHourly)
-				.where(lt(modelHistoryHourly.hourTimestamp, currentHourStart)),
-			database
-				.selectDistinct({ hourTimestamp: routingElectionHourly.hourTimestamp })
-				.from(routingElectionHourly)
-				.where(lt(routingElectionHourly.hourTimestamp, currentHourStart)),
+			}).from(sql`generate_series(
+					${formatUTCTimestamp(startHour)}::timestamp,
+					${formatUTCTimestamp(lastScannedHour)}::timestamp,
+					interval '1 hour'
+				) as candidate(hour_timestamp)`).where(sql`exists (
+					select 1 from ${table}
+					where ${table.hourTimestamp} = candidate.hour_timestamp
+				)`);
+
+		const [mappingHours, modelHours, routingHours] = await Promise.all([
+			summarizedHours(modelProviderMappingHistoryHourly),
+			summarizedHours(modelHistoryHourly),
+			summarizedHours(routingElectionHourly),
 		]);
 
 		const mappingHourSet = new Set(
@@ -1589,8 +1660,7 @@ export async function calculateAggregatedStatistics() {
 			.select({
 				modelProviderMappingId:
 					modelProviderMappingHistory.modelProviderMappingId,
-				providerId: modelProviderMappingHistory.providerId,
-				modelId: modelProviderMappingHistory.modelId,
+				...mappingHistoryLabels,
 				totalLogs:
 					sql<number>`coalesce(sum(${modelProviderMappingHistory.logsCount}), 0)::bigint`.as(
 						"total_logs",
@@ -1618,11 +1688,7 @@ export async function calculateAggregatedStatistics() {
 			})
 			.from(modelProviderMappingHistory)
 			.where(gte(modelProviderMappingHistory.minuteTimestamp, oneHourAgo))
-			.groupBy(
-				modelProviderMappingHistory.modelProviderMappingId,
-				modelProviderMappingHistory.providerId,
-				modelProviderMappingHistory.modelId,
-			);
+			.groupBy(modelProviderMappingHistory.modelProviderMappingId);
 
 		interface RollupAgg {
 			totalLogs: number;

@@ -229,6 +229,83 @@ describe("activity endpoint", () => {
 		expect(modelData).toHaveProperty("cost");
 	});
 
+	test("GET /activity splits cache tokens per model", async () => {
+		await db.delete(tables.log);
+
+		const today = new Date();
+		await db.insert(tables.log).values([
+			{
+				id: "model-cache-1",
+				requestId: "model-cache-1",
+				createdAt: today,
+				updatedAt: today,
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 100,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				responseSize: 1000,
+				promptTokens: "1000",
+				completionTokens: "200",
+				cachedTokens: "600",
+				cacheWriteTokens: "100",
+				totalTokens: "1200",
+				cost: 0.5,
+				messages: JSON.stringify([{ role: "user", content: "Test" }]),
+				mode: "api-keys",
+				usedMode: "api-keys",
+			},
+			{
+				id: "model-cache-2",
+				requestId: "model-cache-2",
+				createdAt: today,
+				updatedAt: today,
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 100,
+				requestedModel: "claude-3-sonnet",
+				requestedProvider: "anthropic",
+				usedModel: "claude-3-sonnet",
+				usedProvider: "anthropic",
+				responseSize: 1000,
+				promptTokens: "300",
+				completionTokens: "50",
+				totalTokens: "350",
+				cost: 0.2,
+				messages: JSON.stringify([{ role: "user", content: "Test" }]),
+				mode: "api-keys",
+				usedMode: "api-keys",
+			},
+		]);
+
+		await aggregateLogsForTesting();
+
+		const res = await app.request("/activity?days=7", {
+			headers: {
+				Cookie: token,
+			},
+		});
+
+		expect(res.status).toBe(200);
+		const data = await res.json();
+		const models = data.activity[0].modelBreakdown;
+
+		expect(models.find((m: any) => m.id === "gpt-4")).toMatchObject({
+			inputTokens: 1000,
+			cachedTokens: 600,
+			cacheWriteTokens: 100,
+		});
+		expect(models.find((m: any) => m.id === "claude-3-sonnet")).toMatchObject({
+			inputTokens: 300,
+			cachedTokens: 0,
+			cacheWriteTokens: 0,
+		});
+	});
+
 	test("GET /activity should zero-fill missing days for from/to range", async () => {
 		const today = new Date();
 		const fiveDaysAgo = new Date(today);
@@ -1345,6 +1422,7 @@ describe("activity endpoint", () => {
 				completionTokens: "0",
 				totalTokens: "10",
 				hasError: true,
+				unifiedFinishReason: "upstream_error",
 				messages: JSON.stringify([{ role: "user", content: "Test" }]),
 				mode: "api-keys",
 				usedMode: "api-keys",
@@ -1367,6 +1445,7 @@ describe("activity endpoint", () => {
 				completionTokens: "0",
 				totalTokens: "10",
 				hasError: true,
+				unifiedFinishReason: "upstream_error",
 				messages: JSON.stringify([{ role: "user", content: "Test" }]),
 				mode: "api-keys",
 				usedMode: "api-keys",
@@ -1668,6 +1747,7 @@ describe("activity endpoint", () => {
 				totalTokens: "300",
 				cost: 0.5,
 				hasError: true,
+				unifiedFinishReason: "upstream_error",
 				cached: false,
 				messages: JSON.stringify([{ role: "user", content: "Test" }]),
 				mode: "api-keys",
@@ -1790,6 +1870,7 @@ describe("activity endpoint", () => {
 				totalTokens: "50",
 				cost: 0.1,
 				hasError: true,
+				unifiedFinishReason: "upstream_error",
 				cached: false,
 				messages: JSON.stringify([{ role: "user", content: "Test" }]),
 				mode: "api-keys",

@@ -171,7 +171,11 @@ const REFUND_INELIGIBILITY_COPY: Record<string, string> = {
 };
 
 function isPlanPayment(type: Transaction["type"]): boolean {
-	return type === "chat_plan_start" || type === "chat_plan_renewal";
+	return (
+		type === "chat_plan_start" ||
+		type === "chat_plan_renewal" ||
+		type === "chat_plan_upgrade"
+	);
 }
 
 function RefundButton({

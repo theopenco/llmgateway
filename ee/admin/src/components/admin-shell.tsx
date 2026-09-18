@@ -7,6 +7,7 @@ import {
 	BarChart3,
 	Building2,
 	Cpu,
+	FlaskConical,
 	Gauge,
 	GitMerge,
 	KeyRound,
@@ -23,6 +24,7 @@ import {
 	Server,
 	Settings,
 	ShieldAlert,
+	ShieldCheck,
 	Sparkles,
 } from "lucide-react";
 import Link from "next/link";
@@ -126,6 +128,12 @@ const navItems: NavItem[] = [
 		match: "prefix",
 	},
 	{
+		href: "/benchmarks",
+		label: "Benchmarks",
+		icon: FlaskConical,
+		match: "prefix",
+	},
+	{
 		href: "/contact-submissions",
 		label: "Contact Submissions",
 		icon: Mail,
@@ -172,6 +180,12 @@ const navItems: NavItem[] = [
 		label: "Limit Hits",
 		icon: ShieldAlert,
 		match: "prefix",
+	},
+	{
+		href: "/content-filter",
+		label: "Content Filter",
+		icon: ShieldCheck,
+		match: "exact",
 	},
 	{ href: "/settings", label: "Settings", icon: Settings, match: "exact" },
 ];

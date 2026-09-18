@@ -6,6 +6,8 @@ export interface ActivityModelUsage {
 	requestCount: number;
 	inputTokens: number;
 	outputTokens: number;
+	cachedTokens: number;
+	cacheWriteTokens: number;
 	totalTokens: number;
 	cost: number;
 	creditsRequestCount: number;

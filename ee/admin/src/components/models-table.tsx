@@ -20,6 +20,7 @@ import { getModelHistory } from "@/lib/admin-history";
 import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
@@ -111,10 +112,6 @@ function SortableHeader({
 	);
 }
 
-function formatNumber(n: number) {
-	return new Intl.NumberFormat("en-US").format(n);
-}
-
 function formatDate(dateString: string) {
 	return new Date(dateString).toLocaleDateString("en-US", {
 		year: "numeric",
@@ -149,11 +146,12 @@ function ModelRow({
 	usageMode: UsageMode;
 }) {
 	const [expanded, setExpanded] = useState(false);
-	const stability = deriveStabilityMetrics(
-		model.logsCount,
-		model.errorsCount + model.clientErrorsCount,
-		model.clientErrorsCount,
-	);
+	const stability = deriveStabilityMetrics({
+		logsCount: model.logsCount,
+		clientErrorsCount: model.clientErrorsCount,
+		gatewayErrorsCount: model.gatewayErrorsCount,
+		upstreamErrorsCount: model.upstreamErrorsCount,
+	});
 	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
 	const fetchData = useCallback(

@@ -97,6 +97,10 @@ jobs:
           set -eux
           pnpm run setup
           export DATABASE_URL=postgres://postgres:pw@localhost:5432/test
+          # GitHub only masks a secret's exact value: a single key out of a
+          # comma-separated list, or a service-account `private_key`, would
+          # otherwise reach the log in plaintext.
+          node scripts/mask-ci-credentials.mjs
           # Never fail here: the merge job reports the combined result, and a
           # failing shard must still upload its blob so that report is complete.
           E2E_TEST=true pnpm vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism \

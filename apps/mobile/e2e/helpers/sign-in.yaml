@@ -1,0 +1,17 @@
+appId: io.llmgateway.lounge
+---
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- tapOn:
+    id: "field-email"
+- inputText: "admin@example.com"
+- tapOn: "Done typing"
+- tapOn:
+    id: "field-password"
+- inputText: "admin@example.com"
+- tapOn: "Done typing"
+- tapOn: "Enter the Lounge"
+- extendedWaitUntil:
+    visible: "Start a conversation"
+    timeout: 20000

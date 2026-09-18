@@ -4,6 +4,7 @@ import Link from "next/link";
 import { BlockedSignupCountriesForm } from "@/components/blocked-signup-countries-form";
 import { CreditPurchaseBlockToggle } from "@/components/credit-purchase-block-toggle";
 import { ForceThreeDSecureForm } from "@/components/force-three-d-secure-form";
+import { SystemBannerForm } from "@/components/system-banner-form";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -16,12 +17,17 @@ import {
 	getBlockedSignupCountries,
 	getCreditPurchaseBlock,
 	getForceThreeDSecure,
+	getSystemBanner,
 	updateBlockedSignupCountries,
 	updateCreditPurchaseBlock,
 	updateForceThreeDSecure,
+	updateSystemBanner,
 } from "@/lib/admin-settings";
 
-import type { ForceThreeDSecureMode } from "@/lib/admin-settings";
+import type {
+	ForceThreeDSecureMode,
+	SystemBannerSettingInput,
+} from "@/lib/admin-settings";
 
 function SignInPrompt() {
 	return (
@@ -44,17 +50,23 @@ function SignInPrompt() {
 }
 
 export default async function SettingsPage() {
-	const [creditPurchaseBlock, blockedSignupCountries, forceThreeDSecure] =
-		await Promise.all([
-			getCreditPurchaseBlock(),
-			getBlockedSignupCountries(),
-			getForceThreeDSecure(),
-		]);
+	const [
+		creditPurchaseBlock,
+		blockedSignupCountries,
+		forceThreeDSecure,
+		systemBanner,
+	] = await Promise.all([
+		getCreditPurchaseBlock(),
+		getBlockedSignupCountries(),
+		getForceThreeDSecure(),
+		getSystemBanner(),
+	]);
 
 	if (
 		creditPurchaseBlock === null ||
 		blockedSignupCountries === null ||
-		forceThreeDSecure === null
+		forceThreeDSecure === null ||
+		systemBanner === null
 	) {
 		return <SignInPrompt />;
 	}
@@ -70,6 +82,13 @@ export default async function SettingsPage() {
 		"use server";
 
 		return await updateBlockedSignupCountries(countries);
+	}
+
+	async function handleSaveBanner(input: SystemBannerSettingInput) {
+		"use server";
+
+		const result = await updateSystemBanner(input);
+		return { ok: result.banner !== null, message: result.message };
 	}
 
 	async function handleSaveThreeDSecure(mode: ForceThreeDSecureMode) {
@@ -88,10 +107,24 @@ export default async function SettingsPage() {
 				<div>
 					<h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
 					<p className="text-sm text-muted-foreground">
-						Platform-wide emergency switches
+						Platform-wide announcements and emergency switches
 					</p>
 				</div>
 			</header>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Announcement banner</CardTitle>
+					<CardDescription>
+						Shown at the top of the main dashboard and landing pages, DevPass,
+						the docs and Airside. Use it for incidents and short-lived notices —
+						switch it off as soon as it stops being true.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<SystemBannerForm banner={systemBanner} onSave={handleSaveBanner} />
+				</CardContent>
+			</Card>
 
 			<Card>
 				<CardHeader>

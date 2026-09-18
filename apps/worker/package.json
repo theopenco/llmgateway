@@ -24,6 +24,7 @@
 	},
 	"dependencies": {
 		"@llmgateway/actions": "workspace:*",
+		"@llmgateway/benchmarks": "workspace:*",
 		"@llmgateway/cache": "workspace:*",
 		"@llmgateway/db": "workspace:*",
 		"@llmgateway/logger": "workspace:*",
@@ -32,6 +33,6 @@
 		"decimal.js": "10.5.0",
 		"posthog-node": "5.10.4",
 		"stripe": "18.1.1",
-		"zod": "3.25.75"
+		"zod": "3.25.76"
 	}
 }

@@ -17,6 +17,7 @@ import { CostByModelCard } from "@/components/analytics/cost-by-model-card";
 import { CostByModelOverTimeCard } from "@/components/analytics/cost-by-model-over-time-card";
 import { DimensionUsageCard } from "@/components/analytics/dimension-usage-card";
 import { DimensionUsageOverTimeCard } from "@/components/analytics/dimension-usage-over-time-card";
+import { TokenUsageCard } from "@/components/analytics/token-usage-card";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import {
 	UsageModeSelector,
@@ -40,6 +41,8 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageModeToDaily } from "@/lib/usage-mode";
+
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
 import type { DailyActivity } from "@/types/activity";
 
@@ -70,8 +73,6 @@ const COPY: Record<
 		description: UNATTRIBUTED_NOTE,
 	},
 };
-
-const compactNumber = new Intl.NumberFormat("en-US", { notation: "compact" });
 
 export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 	const router = useRouter();
@@ -244,7 +245,7 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 					/>
 					<MetricCard
 						label="Requests"
-						value={compactNumber.format(totals.requestCount)}
+						value={formatCompactNumber(totals.requestCount)}
 						accent="blue"
 						icon={<Hash className="h-4 w-4" />}
 						trend={activity.map((day) => day.requestCount)}
@@ -252,7 +253,7 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 					/>
 					<MetricCard
 						label="Tokens"
-						value={compactNumber.format(totals.totalTokens)}
+						value={formatCompactNumber(totals.totalTokens)}
 						accent="purple"
 						icon={<Layers className="h-4 w-4" />}
 						trend={activity.map((day) => day.totalTokens)}
@@ -260,29 +261,26 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 					/>
 				</div>
 
-				{/* The model dimension keeps its dedicated cards: they carry the
-				    Mappings/Canonical toggle, which is model-specific and has no
-				    equivalent for api keys or users. */}
 				{groupBy === "model" ? (
-					<>
-						<CostByModelOverTimeCard activity={activity} loading={isLoading} />
-						<CostByModelCard activity={activity} loading={isLoading} />
-					</>
+					<CostByModelOverTimeCard activity={activity} loading={isLoading} />
 				) : (
-					<>
-						<DimensionUsageOverTimeCard
-							rows={rows}
-							loading={isLoading}
-							title={copy.overTime}
-							description={`Stacked ${dimensionNoun} spend across the selected range`}
-						/>
-						<DimensionUsageCard
-							rows={rows}
-							loading={isLoading}
-							title={copy.ranked}
-							description={`Ranked ${dimensionNoun} totals across the selected range`}
-						/>
-					</>
+					<DimensionUsageOverTimeCard
+						rows={rows}
+						loading={isLoading}
+						title={copy.overTime}
+						description={`Compare ${dimensionNoun} usage across the selected range`}
+					/>
+				)}
+				<TokenUsageCard activity={activity} loading={isLoading} />
+				{groupBy === "model" ? (
+					<CostByModelCard activity={activity} loading={isLoading} />
+				) : (
+					<DimensionUsageCard
+						rows={rows}
+						loading={isLoading}
+						title={copy.ranked}
+						description={`Ranked ${dimensionNoun} totals across the selected range`}
+					/>
 				)}
 			</div>
 		</div>

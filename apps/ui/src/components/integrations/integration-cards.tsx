@@ -7,6 +7,7 @@ import { Card } from "@/lib/components/card";
 
 import {
 	AnthropicIcon,
+	AnvilIcon,
 	AutohandIcon,
 	CodexIcon,
 	ContinueIcon,
@@ -47,6 +48,14 @@ const integrations: Integration[] = [
 			"Our open-source terminal coding agent built for LLM Gateway. One browser login, every model, no per-provider keys.",
 		href: "/guides/devpass-code",
 		icon: DevPassCodeIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Anvil",
+		description:
+			"Use LLM Gateway with Anvil, the chat-first desktop workspace for repo-aware agent delivery — connect with one browser login.",
+		href: "/guides/anvil",
+		icon: AnvilIcon,
 		comingSoon: false,
 	},
 	{

@@ -109,6 +109,7 @@ services:
       - PAYLOAD_STORAGE_S3_FORCE_PATH_STYLE=${PAYLOAD_STORAGE_S3_FORCE_PATH_STYLE:-}
       - PAYLOAD_STORAGE_S3_PREFIX=${PAYLOAD_STORAGE_S3_PREFIX:-}
       - UI_URL=${UI_URL:-http://localhost:3002}
+      - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
       - API_URL=${API_URL:-http://localhost:4002}
       - ORIGIN_URLS=${ORIGIN_URLS:-http://localhost:3002,http://localhost:3003,http://localhost:3004,http://localhost:3006,http://localhost:3007,http://localhost:4002}
       - COOKIE_DOMAIN=${COOKIE_DOMAIN:-localhost}
@@ -122,6 +123,28 @@ services:
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+
+      # Lounge OAuth connectors (optional)
+      - LOUNGE_GOOGLE_CLIENT_ID=${LOUNGE_GOOGLE_CLIENT_ID:-}
+      - LOUNGE_GOOGLE_CLIENT_SECRET=${LOUNGE_GOOGLE_CLIENT_SECRET:-}
+      - LOUNGE_SLACK_CLIENT_ID=${LOUNGE_SLACK_CLIENT_ID:-}
+      - LOUNGE_SLACK_CLIENT_SECRET=${LOUNGE_SLACK_CLIENT_SECRET:-}
+      - LOUNGE_GITHUB_CLIENT_ID=${LOUNGE_GITHUB_CLIENT_ID:-}
+      - LOUNGE_GITHUB_CLIENT_SECRET=${LOUNGE_GITHUB_CLIENT_SECRET:-}
+      - LOUNGE_SHOPIFY_CLIENT_ID=${LOUNGE_SHOPIFY_CLIENT_ID:-}
+      - LOUNGE_SHOPIFY_CLIENT_SECRET=${LOUNGE_SHOPIFY_CLIENT_SECRET:-}
+      - LOUNGE_FIGMA_CLIENT_ID=${LOUNGE_FIGMA_CLIENT_ID:-}
+      - LOUNGE_FIGMA_CLIENT_SECRET=${LOUNGE_FIGMA_CLIENT_SECRET:-}
+      - LOUNGE_POSTHOG_CLIENT_ID=${LOUNGE_POSTHOG_CLIENT_ID:-}
+      - LOUNGE_POSTHOG_CLIENT_SECRET=${LOUNGE_POSTHOG_CLIENT_SECRET:-}
+      - LOUNGE_NOTION_CLIENT_ID=${LOUNGE_NOTION_CLIENT_ID:-}
+      - LOUNGE_NOTION_CLIENT_SECRET=${LOUNGE_NOTION_CLIENT_SECRET:-}
+      - LOUNGE_LINEAR_CLIENT_ID=${LOUNGE_LINEAR_CLIENT_ID:-}
+      - LOUNGE_LINEAR_CLIENT_SECRET=${LOUNGE_LINEAR_CLIENT_SECRET:-}
+      - LOUNGE_SENTRY_CLIENT_ID=${LOUNGE_SENTRY_CLIENT_ID:-}
+      - LOUNGE_SENTRY_CLIENT_SECRET=${LOUNGE_SENTRY_CLIENT_SECRET:-}
+      - LOUNGE_STRIPE_CLIENT_ID=${LOUNGE_STRIPE_CLIENT_ID:-}
+      - LOUNGE_STRIPE_CLIENT_SECRET=${LOUNGE_STRIPE_CLIENT_SECRET:-}
       - GATEWAY_API_KEY_HASH_SECRET=${GATEWAY_API_KEY_HASH_SECRET}
       - LLMGATEWAY_ENTERPRISE_LICENSE=${LLMGATEWAY_ENTERPRISE_LICENSE:-}
       - ONBOARDING_SPONSOR_SECRET=${ONBOARDING_SPONSOR_SECRET:-}
@@ -190,6 +213,7 @@ services:
     environment:
       - API_URL=${API_URL:-http://localhost:4002}
       - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
+      - GATEWAY_API_KEY_HASH_SECRET=${GATEWAY_API_KEY_HASH_SECRET}
       - DOCS_URL=${DOCS_URL:-http://localhost:3005}
       - ADMIN_URL=${ADMIN_URL:-http://localhost:3006}
       - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
@@ -409,7 +433,7 @@ services:
 
   # MinIO: local S3-compatible object storage for offloaded log payload blobs
   minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     container_name: llmgateway-minio
     restart: unless-stopped
     command: ["server", "/data", "--console-address", ":9001"]
@@ -432,7 +456,7 @@ services:
   # One-shot bucket bootstrap: creates the payload bucket and its 30-day
   # expiry lifecycle rule (blob retention lives here, not in the app).
   minio-init:
-    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
     container_name: llmgateway-minio-init
     depends_on:
       minio:

@@ -24,6 +24,7 @@ import {
 	RegisterModelDialog,
 	VerifyModelDialog,
 } from "@/components/dashboard/ModelDialogs";
+import { RelativeDate } from "@/components/RelativeDate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useApi } from "@/lib/fetch-client";
@@ -406,13 +407,20 @@ export default function FleetPage() {
 				<ul className="space-y-3">
 					{models.map((model) => {
 						const status = STATUS_META[model.status];
+						// A live listing whose last preflight failed still serves
+						// traffic, so the badge says so rather than claiming a clean
+						// bill of health it no longer has.
+						const unverified =
+							model.status === "active" &&
+							model.latestVerification?.status === "failed";
 						return (
 							<li
 								key={model.id}
 								data-testid={`model-strip-${model.modelName}`}
 								className={cn(
 									"border-border bg-card rounded-lg border border-l-4 p-4",
-									model.status === "active" && "border-l-signal",
+									model.status === "active" &&
+										(unverified ? "border-l-primary" : "border-l-signal"),
 									model.status === "draft" && "border-l-primary",
 									model.status === "rejected" && "border-l-destructive",
 									model.status === "delisted" && "border-l-muted opacity-60",
@@ -424,7 +432,19 @@ export default function FleetPage() {
 											<span className="font-mono font-bold tracking-wide">
 												{model.modelName}
 											</span>
-											<Badge variant={status.variant}>{status.label}</Badge>
+											<Badge
+												variant={unverified ? "pending" : status.variant}
+												title={
+													unverified
+														? (model.latestVerification?.summary ??
+															"The last preflight failed.")
+														: undefined
+												}
+											>
+												{unverified
+													? `${status.label} · unverified`
+													: status.label}
+											</Badge>
 											{model.pendingFiling ? (
 												<Badge variant="pending">
 													<Stamp className="size-3" />
@@ -432,7 +452,12 @@ export default function FleetPage() {
 														? "Awaiting clearance"
 														: model.pendingFiling.kind === "metadata"
 															? "Change filed"
-															: "Fare filed"}
+															: "Fare filed"}{" "}
+													·{" "}
+													<RelativeDate
+														date={model.pendingFiling.createdAt}
+														className="font-normal"
+													/>
 												</Badge>
 											) : null}
 											{model.latestVerification ? (
@@ -447,7 +472,11 @@ export default function FleetPage() {
 													title={model.latestVerification.summary ?? undefined}
 												>
 													<ShieldCheck className="size-3" />
-													Verification {model.latestVerification.status}
+													Verification {model.latestVerification.status} ·{" "}
+													<RelativeDate
+														date={model.latestVerification.createdAt}
+														className="font-normal"
+													/>
 												</Badge>
 											) : null}
 										</div>
@@ -483,6 +512,9 @@ export default function FleetPage() {
 													{Math.round(model.contextSize / 1000)}k ctx
 												</span>
 											) : null}
+											<span>
+												Registered <RelativeDate date={model.createdAt} />
+											</span>
 										</div>
 									</div>
 

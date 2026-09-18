@@ -64,7 +64,7 @@ export function TrafficChart({ daily }: { daily: DailyPoint[] }) {
 					<YAxis
 						tickLine={false}
 						axisLine={false}
-						width={40}
+						width={60}
 						tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
 						tickFormatter={(value: number) => formatCompact(value)}
 					/>

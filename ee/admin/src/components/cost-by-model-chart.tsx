@@ -23,6 +23,11 @@ import {
 } from "@/components/usage-mode-selector";
 import { cn } from "@/lib/utils";
 
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
+
 import type { ChartConfig } from "@/components/ui/chart";
 import type {
 	GlobalStatsModelView,
@@ -233,7 +238,7 @@ export function CostByModelChart({
 						<CardTitle className="text-base">{title}</CardTitle>
 						{description && <CardDescription>{description}</CardDescription>}
 						{data && (
-							<div className="mt-1 flex items-center gap-4 text-xs text-muted-foreground">
+							<div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
 								<span>
 									{usageMode === "credits"
 										? "Credits Cost: "
@@ -251,7 +256,7 @@ export function CostByModelChart({
 											? "BYOK Requests: "
 											: "Total Requests: "}
 									<strong className="text-foreground">
-										{displayTotalRequests.toLocaleString()}
+										{formatNumber(displayTotalRequests)}
 									</strong>
 								</span>
 							</div>
@@ -260,7 +265,7 @@ export function CostByModelChart({
 				</div>
 				<div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
 					<div
-						className="flex items-center gap-1"
+						className="flex flex-wrap items-center gap-1"
 						role="group"
 						aria-label="Metric"
 					>
@@ -285,7 +290,7 @@ export function CostByModelChart({
 						<UsageModeSelector />
 						{showGroupBy && (
 							<div
-								className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1"
+								className="flex flex-wrap items-center gap-1 rounded-md border border-border/60 bg-background p-1"
 								role="group"
 								aria-label="Break down by"
 							>
@@ -309,7 +314,7 @@ export function CostByModelChart({
 						)}
 						{showModelView && groupBy === "model" && (
 							<div
-								className="flex items-center gap-1 rounded-md border border-border/60 bg-background p-1"
+								className="flex flex-wrap items-center gap-1 rounded-md border border-border/60 bg-background p-1"
 								role="group"
 								aria-label="Model view"
 							>
@@ -382,9 +387,7 @@ export function CostByModelChart({
 									if (activeView === "cost") {
 										return `$${value >= 1 ? value.toFixed(2) : value.toFixed(4)}`;
 									}
-									return value >= 1000
-										? `${(value / 1000).toFixed(1)}k`
-										: String(value);
+									return formatCompactNumber(value);
 								}}
 							/>
 							<ChartTooltip
@@ -394,7 +397,7 @@ export function CostByModelChart({
 											if (activeView === "cost") {
 												return currencyFormatter.format(Number(value));
 											}
-											return Number(value).toLocaleString();
+											return formatNumber(Number(value));
 										}}
 									/>
 								}

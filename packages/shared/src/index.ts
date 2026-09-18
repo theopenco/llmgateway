@@ -230,6 +230,7 @@ export {
 
 export {
 	deriveStabilityMetrics,
+	type StabilityCounts,
 	type StabilityMetrics,
 } from "./stability-metrics.js";
 
@@ -241,7 +242,15 @@ export {
 	getOnboardingSponsorSecret,
 } from "./onboarding.js";
 
-export { isContentFilterErrorText } from "./content-filter.js";
+export {
+	CONTENT_FILTER_SETTING_ID,
+	contentFilterSettingsSchema,
+	DEFAULT_CONTENT_FILTER_SETTINGS,
+	GATEWAY_CONTENT_FILTER_MESSAGE,
+	isContentFilterErrorText,
+	parseContentFilterSettings,
+	type ContentFilterSettings,
+} from "./content-filter.js";
 
 export { FAILURE_LABELS, failureLabel } from "./compliance-failure-labels.js";
 
@@ -276,6 +285,7 @@ export {
 
 export {
 	buildProviderPriorityDefaults,
+	DEFAULT_CACHE_PRICING_BY_ORG_KIND,
 	DEFAULT_ROUTING_HISTORY,
 	DEFAULT_ROUTING_RETRY,
 	DEFAULT_ROUTING_SESSION,
@@ -283,6 +293,7 @@ export {
 	DEFAULT_ROUTING_THRESHOLDS,
 	DEFAULT_ROUTING_TIMEOUTS,
 	DEFAULT_ROUTING_WEIGHTS,
+	getDefaultCachePricing,
 	getDefaultRoutingConfig,
 	historyMatchesDefaults,
 	type ProviderPriorityOverrides,
@@ -292,6 +303,7 @@ export {
 	routingHistoryCacheKey,
 	type RoutingConfigOverrides,
 	type RoutingHistoryConfig,
+	type RoutingOrganizationKind,
 	type RoutingRetryConfig,
 	type RoutingSessionConfig,
 	type RoutingStickyConfig,
@@ -301,19 +313,24 @@ export {
 } from "./routing-config.js";
 
 export {
+	COMPLIANCE_EXCLUSION_REASONS,
+	complianceExclusionReason,
 	isRoutingCredentialSource,
+	isRoutingExclusionDetailReason,
 	isRoutingExclusionReason,
 	isRoutingSelectionReason,
 	ROUTING_CREDENTIAL_SOURCE_DESCRIPTIONS,
 	ROUTING_CREDENTIAL_SOURCE_LABELS,
 	ROUTING_EXCLUSION_REASON_LABELS,
 	ROUTING_EXCLUSION_REASON_MESSAGES,
+	ROUTING_EXCLUSION_REASON_PARENTS,
 	ROUTING_EXCLUSION_REASONS,
 	ROUTING_SELECTION_KIND_LABELS,
 	ROUTING_SELECTION_KINDS,
 	ROUTING_SELECTION_REASON_LABELS,
 	ROUTING_SELECTION_REASONS,
 	routingExclusionReasonMessage,
+	routingExclusionReasonParent,
 	routingSelectionKind,
 	type RoutingCredentialSource,
 	type RoutingExclusionReason,
@@ -369,6 +386,13 @@ export {
 	TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
 	TOPUP_VELOCITY_WINDOW_MS,
 	topUpVelocityKey,
+	contentFilterLevelForTier,
+	getOrgContentFilterTier,
+	LENIENT_CONTENT_FILTER_TIER_MIN,
+	resolveContentFilterTierOverride,
+	type ContentFilterLevel,
+	type ContentFilterTierOrg,
+	type ResolvedContentFilterTier,
 	type NextSpendTierInfo,
 	type OrgLimitType,
 	type PathRateLimitConfig,
@@ -413,3 +437,17 @@ export {
 	UNKNOWN_MONTH_KEY,
 	withinOneEdit,
 } from "./model-search.js";
+
+export {
+	isSystemBannerSeverity,
+	isValidSystemBannerLink,
+	normalizeSystemBanner,
+	parseSystemBanner,
+	serializeSystemBanner,
+	SYSTEM_BANNER_DEFAULT_LINK_LABEL,
+	SYSTEM_BANNER_LINK_LABEL_MAX_LENGTH,
+	SYSTEM_BANNER_MESSAGE_MAX_LENGTH,
+	SYSTEM_BANNER_SEVERITIES,
+	type SystemBanner,
+	type SystemBannerSeverity,
+} from "./system-banner.js";

@@ -867,6 +867,45 @@ export const providers: ProviderDefinition[] = [
 		},
 	},
 	{
+		id: "runpod",
+		name: "Runpod",
+		forwardsSafetyIdentifier: false,
+		description: "Runpod's serverless public inference endpoints",
+		env: {
+			required: {
+				apiKey: "LLM_RUNPOD_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_RUNPOD_BASE_URL",
+			},
+		},
+		streaming: true,
+		website: "https://www.runpod.io",
+		termsUrl: "https://www.runpod.io/legal/terms-of-service",
+		privacyPolicyUrl: "https://www.runpod.io/legal/privacy-policy",
+		usagePolicyUrl: "https://www.runpod.io/legal/terms-of-service",
+		legalEntity: "Runpod, Inc.",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: null,
+			promptLogging: null,
+			retentionPeriod: null,
+			soc2: 2,
+			iso27001: true,
+			gdpr: true,
+		},
+		additionalLinks: [
+			{
+				desc: "Compliance",
+				link: "https://www.runpod.io/legal/compliance",
+			},
+			{
+				desc: "Trust Center",
+				link: "https://trust.runpod.io/",
+			},
+		],
+	},
+	{
 		id: "novita",
 		name: "NovitaAI",
 		forwardsSafetyIdentifier: false,
@@ -1048,7 +1087,7 @@ export const providers: ProviderDefinition[] = [
 		name: "AWS Mantle",
 		forwardsSafetyIdentifier: false,
 		description:
-			"Amazon Bedrock Mantle - OpenAI frontier models served on AWS via the Responses API",
+			"OpenAI frontier models on Amazon Bedrock's Mantle and Runtime Responses APIs",
 		env: {
 			required: {
 				apiKey: "LLM_AWS_MANTLE_API_KEY",
@@ -1068,21 +1107,21 @@ export const providers: ProviderDefinition[] = [
 		regionConfig: {
 			optionsKey: "aws_mantle_region",
 			defaultRegion: "us-east-1",
-			// Mantle has no cross-region inference profiles at all — the model
-			// cards mark Geo and Global as unsupported — so every entry is a
-			// concrete AWS region and `pinDefaultRegion` stays unset, letting the
-			// gateway route across regions like Alibaba instead of pinning to a
-			// synthetic global default the way aws-bedrock does.
 			regions: [
+				{ id: "global", label: "Global" },
+				{ id: "us", label: "US cross-region" },
 				{ id: "us-east-1", label: "US East (N. Virginia)" },
 				{ id: "us-east-2", label: "US East (Ohio)" },
 				{ id: "us-west-2", label: "US West (Oregon)" },
 			],
 			endpointMap: {
+				global: "https://bedrock-runtime.us-east-1.amazonaws.com",
+				us: "https://bedrock-runtime.us-east-1.amazonaws.com",
 				"us-east-1": "https://bedrock-mantle.us-east-1.api.aws",
 				"us-east-2": "https://bedrock-mantle.us-east-2.api.aws",
 				"us-west-2": "https://bedrock-mantle.us-west-2.api.aws",
 			},
+			modelPrefixMap: { global: "global.", us: "us." },
 			// Bedrock long-term API keys are IAM-global: one ABSK key authenticates
 			// against every regional Mantle endpoint, so non-default regions do not
 			// need their own `LLM_AWS_MANTLE_API_KEY__<REGION>` env key.
@@ -2110,6 +2149,66 @@ export const providers: ProviderDefinition[] = [
 			},
 		],
 	},
+	{
+		id: "tencent",
+		name: "Tencent Cloud",
+		forwardsSafetyIdentifier: false,
+		description:
+			"Tencent Cloud's TokenHub model gateway, serving Tencent's own Hunyuan models alongside third-party models through a single OpenAI-compatible API.",
+		env: {
+			required: {
+				apiKey: "LLM_TENCENT_API_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#0052D9",
+		website: "https://www.tencentcloud.com/act/pro/tokenhub",
+		statusPageUrl: null,
+		announcement: null,
+		// TokenHub publishes a separate rate card per region (Singapore,
+		// Guangzhou, Silicon Valley) with genuinely different prices — GLM-5.1 is
+		// flat in Singapore but input-length-tiered in Guangzhou. Only the
+		// Singapore endpoint is wired up, so the mappings carry Singapore prices
+		// and there is no `regionConfig`; adding a region means adding its own
+		// mappings with its own prices, never reusing these.
+		termsUrl: "https://www.tencentcloud.com/document/product/301/78869",
+		privacyPolicyUrl: "https://www.tencentcloud.com/document/product/301/17345",
+		usagePolicyUrl: "https://www.tencentcloud.com/document/product/301/9245",
+		legalEntity: "Tencent Cloud LLC.",
+		headquarters: "CN",
+		dataPolicy: {
+			apiTraining: false,
+			promptLogging: false,
+			retentionPeriod: null,
+		},
+		priority: 1.2,
+	},
+	{
+		id: "atria",
+		name: "Atria",
+		forwardsSafetyIdentifier: false,
+		description:
+			"Atria ASI serves the Atria Dawn agentic research model through an OpenAI-compatible inference API.",
+		env: {
+			required: {
+				apiKey: "LLM_ATRIA_KEY",
+			},
+		},
+		streaming: true,
+		cancellation: true,
+		color: "#0f172a",
+		// Atria publishes no terms, privacy or usage policy, so the provider
+		// carries no website rather than linking one without its legal metadata.
+		website: null,
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: null,
+		privacyPolicyUrl: null,
+		legalEntity: null,
+		headquarters: "CN",
+		dataPolicy: null,
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];
@@ -2232,6 +2331,9 @@ export type ComplianceFailureReason =
 	| "allowedCountries"
 	| "blockedProviders"
 	| "allowedProviders"
+	| "blockedModels"
+	| "allowedModels"
+	| "unknownProvider"
 	| "noAttestation";
 
 /**
@@ -2378,20 +2480,33 @@ export function isModelAllowedByPolicy(
 	modelRefs: readonly string[],
 	policy: ProviderCompliancePolicy,
 ): boolean {
+	return getModelPolicyListFailures(modelRefs, policy).length === 0;
+}
+
+/**
+ * The fine-grained model-list checks a model fails: an entry on the deny list,
+ * or absence from a non-empty allow list. Empty when the model passes both
+ * lists; always empty for a disabled policy.
+ */
+export function getModelPolicyListFailures(
+	modelRefs: readonly string[],
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
 	if (!policy.enabled) {
-		return true;
+		return [];
 	}
+	const failures: ComplianceFailureReason[] = [];
 	if (policy.blockedModels?.some((ref) => modelRefs.includes(ref))) {
-		return false;
+		failures.push("blockedModels");
 	}
 	if (
 		policy.allowedModels &&
 		policy.allowedModels.length > 0 &&
 		!policy.allowedModels.some((ref) => modelRefs.includes(ref))
 	) {
-		return false;
+		failures.push("allowedModels");
 	}
-	return true;
+	return failures;
 }
 
 /**

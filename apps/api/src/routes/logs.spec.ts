@@ -726,6 +726,21 @@ describe("logs route", () => {
 					statusText: `${SECRET} exploded`,
 					responseText: `{"error":{"message":"${SECRET} quota exceeded on api.secretvendor.com"}}`,
 				},
+				gatewayContentFilterEvaluation: {
+					sampled: true,
+					provider: "granite",
+					tier: 1,
+					overridden: true,
+					level: "strict",
+					violation: true,
+					action: "logged",
+					enforced: false,
+					exemptReason: "org_log_only",
+					flagged: true,
+					matchedCategories: ["violence"],
+					categoryScores: { violence: 0.9 },
+					moderationFailed: false,
+				},
 				messages: JSON.stringify([{ role: "user", content: "Hello" }]),
 				mode: "credits",
 				usedMode: "credits",
@@ -759,6 +774,28 @@ describe("logs route", () => {
 				statusText: "Internal Server Error",
 				responseText: "Upstream provider error (500 Internal Server Error)",
 			});
+		});
+
+		// The evaluation carries the admin-set pin and exemption state.
+		test("list and detail endpoints omit gatewayContentFilterEvaluation", async () => {
+			const params = new URLSearchParams({ projectId: "test-project-id" });
+			const listRes = await app.request("/logs?" + params, {
+				method: "GET",
+				headers: { Cookie: token },
+			});
+			expect(listRes.status).toBe(200);
+			const listText = await listRes.text();
+			expect(listText).not.toContain("gatewayContentFilterEvaluation");
+			expect(listText).not.toContain("org_log_only");
+
+			const detailRes = await app.request("/logs/stealth-error-log-id", {
+				method: "GET",
+				headers: { Cookie: token },
+			});
+			expect(detailRes.status).toBe(200);
+			const detailText = await detailRes.text();
+			expect(detailText).not.toContain("gatewayContentFilterEvaluation");
+			expect(detailText).not.toContain("org_log_only");
 		});
 
 		test("detail endpoint omits internalErrorDetails and its content", async () => {

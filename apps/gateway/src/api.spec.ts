@@ -6,6 +6,7 @@ import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { GATEWAY_CONTENT_FILTER_MESSAGE } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
@@ -1724,6 +1725,70 @@ describe("api", () => {
 		});
 
 		expect(res.status).toBe(200);
+	});
+
+	test("/v1/chat/completions records which compliance rule dropped a provider", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: {
+					enabled: true,
+					blockedProviders: ["azure", "aws-mantle"],
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-reasons",
+			...hashApiKeyForStorage("real-token-compliance-reasons"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-reasons",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-compliance-reasons",
+				"org-id",
+			),
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-reasons",
+			},
+			body: JSON.stringify({
+				model: "gpt-5.6-sol",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const filtered = (logs[0].routingMetadata?.filteredProviders ?? []).filter(
+			(f) => f.codes?.includes("compliance"),
+		);
+		expect(filtered.map((f) => f.providerId).sort()).toEqual([
+			"aws-mantle",
+			"azure",
+		]);
+		// The coarse code stays, so the exclusion totals are unchanged; the rule
+		// that actually fired is recorded next to it.
+		for (const entry of filtered) {
+			expect(entry.codes).toContain("compliance_blocked_provider");
+			expect(entry.reasons).toContain(
+				"compliance: on the blocked-providers list",
+			);
+		}
 	});
 
 	test("/v1/chat/completions enforces an enabled compliance policy on non-enterprise plans", async () => {
@@ -6380,7 +6445,9 @@ describe("api", () => {
 			expect(res.status).toBe(200);
 
 			const json = await res.json();
-			expect(json.choices[0].message.content).toBeNull();
+			expect(json.choices[0].message.content).toBe(
+				GATEWAY_CONTENT_FILTER_MESSAGE,
+			);
 			expect(json.choices[0].finish_reason).toBe("content_filter");
 			expect(json.usage.total_tokens).toBe(0);
 			expect(fetchSpy).toHaveBeenCalledOnce();

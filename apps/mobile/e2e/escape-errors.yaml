@@ -1,0 +1,19 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- scrollUntilVisible:
+    element: "Sandbox Escape"
+    direction: DOWN
+    timeout: 20000
+- tapOn: "Sandbox Escape"
+- scrollUntilVisible:
+    element: "One step"
+    direction: DOWN
+- tapOn: "One step"
+- extendedWaitUntil:
+    visible: "The model could not take a turn. Try again."
+    timeout: 30000
+- assertVisible: "Step 0 /.*"
+- assertVisible: "Start run"
+- takeScreenshot: artifacts/escape-error

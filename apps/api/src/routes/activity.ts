@@ -53,6 +53,8 @@ const modelUsageSchema = z.object({
 	requestCount: z.number(),
 	inputTokens: z.number(),
 	outputTokens: z.number(),
+	cachedTokens: z.number(),
+	cacheWriteTokens: z.number(),
 	totalTokens: z.number(),
 	cost: z.number(),
 	...modeSplitSchema,
@@ -392,13 +394,17 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(cast(${apiKeyHourlyStats.dataStorageCost} as double precision)), 0)`.as(
 						"dataStorageCost",
 					),
-				errorCount:
-					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.errorCount}), 0)`.as(
-						"errorCount",
-					),
 				clientErrorCount:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.clientErrorCount}), 0)`.as(
 						"clientErrorCount",
+					),
+				gatewayErrorCount:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.gatewayErrorCount}), 0)`.as(
+						"gatewayErrorCount",
+					),
+				upstreamErrorCount:
+					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.upstreamErrorCount}), 0)`.as(
+						"upstreamErrorCount",
 					),
 				cacheCount:
 					sql<number>`COALESCE(SUM(${apiKeyHourlyStats.cacheCount}), 0)`.as(
@@ -504,6 +510,14 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.outputTokens} AS NUMERIC)), 0)`.as(
 						"outputTokens",
 					),
+				cachedTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.cachedTokens} AS NUMERIC)), 0)`.as(
+						"cachedTokens",
+					),
+				cacheWriteTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.cacheWriteTokens} AS NUMERIC)), 0)`.as(
+						"cacheWriteTokens",
+					),
 				totalTokens:
 					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
@@ -545,6 +559,8 @@ activity.openapi(getActivity, async (c) => {
 				requestCount: Number(breakdown.requestCount),
 				inputTokens: Number(breakdown.inputTokens),
 				outputTokens: Number(breakdown.outputTokens),
+				cachedTokens: Number(breakdown.cachedTokens),
+				cacheWriteTokens: Number(breakdown.cacheWriteTokens),
 				totalTokens: Number(breakdown.totalTokens),
 				cost: Number(breakdown.cost),
 				...mapModeSplit(breakdown),
@@ -637,11 +653,12 @@ activity.openapi(getActivity, async (c) => {
 			const requestCost = Number(day.requestCost);
 			const dataStorageCost = Number(day.dataStorageCost);
 			const clientErrorCount = Number(day.clientErrorCount);
-			const stability = deriveStabilityMetrics(
-				requestCount,
-				Number(day.errorCount),
-				clientErrorCount,
-			);
+			const stability = deriveStabilityMetrics({
+				logsCount: requestCount,
+				clientErrorsCount: clientErrorCount,
+				gatewayErrorsCount: Number(day.gatewayErrorCount),
+				upstreamErrorsCount: Number(day.upstreamErrorCount),
+			});
 			const cacheCount = Number(day.cacheCount);
 			const discountSavings = Number(day.discountSavings);
 			const imageInputCost = Number(day.imageInputCost);
@@ -794,13 +811,17 @@ activity.openapi(getActivity, async (c) => {
 				sql<number>`COALESCE(SUM(cast(${projectHourlyStats.cacheWriteInputCost} as double precision)), 0)`.as(
 					"cacheWriteInputCost",
 				),
-			errorCount:
-				sql<number>`COALESCE(SUM(${projectHourlyStats.errorCount}), 0)`.as(
-					"errorCount",
-				),
 			clientErrorCount:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.clientErrorCount}), 0)`.as(
 					"clientErrorCount",
+				),
+			gatewayErrorCount:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.gatewayErrorCount}), 0)`.as(
+					"gatewayErrorCount",
+				),
+			upstreamErrorCount:
+				sql<number>`COALESCE(SUM(${projectHourlyStats.upstreamErrorCount}), 0)`.as(
+					"upstreamErrorCount",
 				),
 			cacheCount:
 				sql<number>`COALESCE(SUM(${projectHourlyStats.cacheCount}), 0)`.as(
@@ -875,6 +896,14 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC)), 0)`.as(
 						"outputTokens",
 					),
+				cachedTokens:
+					sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.cachedTokens} AS NUMERIC)), 0)`.as(
+						"cachedTokens",
+					),
+				cacheWriteTokens:
+					sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.cacheWriteTokens} AS NUMERIC)), 0)`.as(
+						"cacheWriteTokens",
+					),
 				totalTokens:
 					sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
@@ -907,6 +936,8 @@ activity.openapi(getActivity, async (c) => {
 				requestCount: Number(breakdown.requestCount),
 				inputTokens: Number(breakdown.inputTokens),
 				outputTokens: Number(breakdown.outputTokens),
+				cachedTokens: Number(breakdown.cachedTokens),
+				cacheWriteTokens: Number(breakdown.cacheWriteTokens),
 				totalTokens: Number(breakdown.totalTokens),
 				cost: Number(breakdown.cost),
 				...mapModeSplit(breakdown),
@@ -1036,11 +1067,12 @@ activity.openapi(getActivity, async (c) => {
 		const cachedInputCost = Number(day.cachedInputCost);
 		const cacheWriteInputCost = Number(day.cacheWriteInputCost);
 		const clientErrorCount = Number(day.clientErrorCount);
-		const stability = deriveStabilityMetrics(
-			requestCount,
-			Number(day.errorCount),
-			clientErrorCount,
-		);
+		const stability = deriveStabilityMetrics({
+			logsCount: requestCount,
+			clientErrorsCount: clientErrorCount,
+			gatewayErrorsCount: Number(day.gatewayErrorCount),
+			upstreamErrorsCount: Number(day.upstreamErrorCount),
+		});
 		const cacheCount = Number(day.cacheCount);
 		const discountSavings = Number(day.discountSavings);
 

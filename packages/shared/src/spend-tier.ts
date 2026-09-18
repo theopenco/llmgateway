@@ -393,6 +393,61 @@ export function getOrgSpendTier(
 	return resolveTier(SPEND_TIER_DEFAULTS[0]);
 }
 
+/** Content filter tiers at or above this value use the lenient thresholds. */
+export const LENIENT_CONTENT_FILTER_TIER_MIN = 3;
+
+export type ContentFilterLevel = "strict" | "lenient";
+
+export interface ContentFilterTierOrg extends SpendTierOrg {
+	/** Admin-set content filter tier pin (0-4); NULL follows the trust tier. */
+	contentFilterTierOverride?: number | null;
+}
+
+export interface ResolvedContentFilterTier {
+	tier: number;
+	/** True when `contentFilterTierOverride` decided the tier. */
+	overridden: boolean;
+	level: ContentFilterLevel;
+}
+
+/** The org's content filter pin, clamped to the ladder, or null when unpinned. */
+export function resolveContentFilterTierOverride(org: {
+	contentFilterTierOverride?: number | null;
+}): number | null {
+	const override = org.contentFilterTierOverride;
+	if (override === null || override === undefined) {
+		return null;
+	}
+	const max = SPEND_TIER_DEFAULTS.length - 1;
+	return Math.min(max, Math.max(0, Math.floor(override)));
+}
+
+export function contentFilterLevelForTier(tier: number): ContentFilterLevel {
+	return tier >= LENIENT_CONTENT_FILTER_TIER_MIN ? "lenient" : "strict";
+}
+
+/**
+ * Resolve the tier the gateway content filter applies to an org. A content
+ * filter pin wins outright; otherwise the tier is the trust tier, so it rises
+ * with account age or spend and follows a `trustTierOverride` pin.
+ */
+export function getOrgContentFilterTier(
+	org: ContentFilterTierOrg,
+	lifetimeSpend: number,
+	now: number = Date.now(),
+): ResolvedContentFilterTier {
+	const override = resolveContentFilterTierOverride(org);
+	if (override !== null) {
+		return {
+			tier: override,
+			overridden: true,
+			level: contentFilterLevelForTier(override),
+		};
+	}
+	const { tier } = getOrgSpendTier(org, lifetimeSpend, now);
+	return { tier, overridden: false, level: contentFilterLevelForTier(tier) };
+}
+
 export interface NextSpendTierInfo extends ResolvedSpendTier {
 	/** Account age (days) that qualifies for this tier. */
 	ageDaysRequired: number;

@@ -89,6 +89,15 @@ describe("getFinishReasonFromError", () => {
 		).toBe("gateway_error");
 	});
 
+	it("returns gateway_error for an exhausted trial quota on 400", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"code":"401008","message":"The free trial quota for the service has been exhausted and postpaid billing is not enabled, so the service cannot be accessed."}}',
+			),
+		).toBe("gateway_error");
+	});
+
 	it("returns gateway_error for 405 method not allowed", () => {
 		expect(getFinishReasonFromError(405)).toBe("gateway_error");
 		expect(getFinishReasonFromError(405, "Method Not Allowed")).toBe(
@@ -113,6 +122,29 @@ describe("getFinishReasonFromError", () => {
 					"The response was filtered due to the prompt triggering Azure OpenAI's content management policy.",
 				param: "prompt",
 				type: null,
+			},
+		});
+		expect(getFinishReasonFromError(400, azureError)).toBe("content_filter");
+	});
+
+	it("returns content_filter for an Azure prompt filter without inner_error", () => {
+		const azureError = JSON.stringify({
+			error: {
+				message:
+					"The response was filtered due to the prompt triggering Azure OpenAI\u2019s content management policy. Please modify your prompt and retry.",
+				type: "invalid_request_error",
+				param: "prompt",
+				code: "content_filter",
+				content_filters: [
+					{
+						blocked: true,
+						source_type: "prompt",
+						content_filter_results: {
+							violence: { filtered: true, severity: "medium" },
+						},
+					},
+				],
+				innererror: { code: "ContentFiltered" },
 			},
 		});
 		expect(getFinishReasonFromError(400, azureError)).toBe("content_filter");

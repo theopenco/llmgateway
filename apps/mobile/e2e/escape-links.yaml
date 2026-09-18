@@ -1,0 +1,35 @@
+appId: io.llmgateway.lounge
+---
+- launchApp
+- scrollUntilVisible:
+    element: "Sandbox Escape"
+    direction: DOWN
+    timeout: 20000
+- tapOn: "Sandbox Escape"
+- tapOn: "Saved runs"
+- tapOn:
+    id: field-escape-replay-link
+- inputText: "https://example.com/escape/r/not-a-lounge-run"
+- tapOn: "Done typing"
+- tapOn: "Open replay link"
+- assertVisible: "Paste a Lounge Escape replay link."
+- launchApp
+- scrollUntilVisible:
+    element: "Sandbox Escape"
+    direction: DOWN
+    timeout: 20000
+- tapOn: "Sandbox Escape"
+- tapOn: "Saved runs"
+- tapOn:
+    id: field-escape-replay-link
+- inputText: ${REPLAY_URL}
+- tapOn: "Done typing"
+- tapOn: "Open replay link"
+- assertVisible: "Escape replay"
+- assertVisible: "Hello, World · escaped"
+- scrollUntilVisible:
+    element: "Replay position"
+    direction: DOWN
+- tapOn: "Replay position"
+- assertVisible: "Replay position [78] / 15"
+- takeScreenshot: artifacts/escape-shared-link

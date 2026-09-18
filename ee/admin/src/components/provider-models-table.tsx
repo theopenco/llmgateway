@@ -1,11 +1,16 @@
 "use client";
 
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
+import {
+	ModelVerificationDialog,
+	VerificationStatusBadge,
+} from "@/components/model-verification-dialog";
 import { TokenBreakdownCell } from "@/components/token-breakdown";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
 	Table,
 	TableBody,
@@ -17,7 +22,9 @@ import {
 import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
+import type { ModelVerification } from "@/components/model-verification-dialog";
 import type { ProviderModelStats } from "@/lib/types";
 
 type SortKey =
@@ -33,19 +40,21 @@ type SortKey =
 
 type SortOrder = "asc" | "desc";
 
-function formatNumber(n: number) {
-	return new Intl.NumberFormat("en-US").format(n);
-}
-
 function formatCost(n: number) {
 	return `$${n.toFixed(4)}`;
 }
 
+function stabilityOf(m: ProviderModelStats) {
+	return deriveStabilityMetrics({
+		logsCount: m.logsCount,
+		clientErrorsCount: m.clientErrorsCount,
+		gatewayErrorsCount: m.gatewayErrorsCount,
+		upstreamErrorsCount: m.upstreamErrorsCount,
+	});
+}
+
 function errorRateOf(m: ProviderModelStats) {
-	return (
-		deriveStabilityMetrics(m.logsCount, m.errorsCount, m.clientErrorsCount)
-			.errorRate ?? 0
-	);
+	return stabilityOf(m).errorRate ?? 0;
 }
 
 function getValue(m: ProviderModelStats, key: SortKey): number {
@@ -53,11 +62,7 @@ function getValue(m: ProviderModelStats, key: SortKey): number {
 		case "errorRate":
 			return errorRateOf(m);
 		case "errorsCount":
-			return deriveStabilityMetrics(
-				m.logsCount,
-				m.errorsCount,
-				m.clientErrorsCount,
-			).errorsCount;
+			return stabilityOf(m).errorsCount;
 		case "avgTimeToFirstToken":
 			return m.avgTimeToFirstToken ?? -1;
 		default:
@@ -105,9 +110,13 @@ function SortableHeader({
 export function ProviderModelsTable({
 	providerId,
 	models,
+	verifications,
+	onVerificationSettled,
 }: {
 	providerId: string;
 	models: ProviderModelStats[];
+	verifications?: Map<string, ModelVerification>;
+	onVerificationSettled?: () => void;
 }) {
 	const [sortBy, setSortBy] = useState<SortKey | null>("logsCount");
 	const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
@@ -173,15 +182,12 @@ export function ProviderModelsTable({
 					{sh("Error Rate", "errorRate")}
 					{sh("Cached", "cachedCount")}
 					{sh("Avg TTFT", "avgTimeToFirstToken")}
+					<TableHead>Verification</TableHead>
 				</TableRow>
 			</TableHeader>
 			<TableBody>
 				{sortedModels.map((m) => {
-					const stability = deriveStabilityMetrics(
-						m.logsCount,
-						m.errorsCount,
-						m.clientErrorsCount,
-					);
+					const stability = stabilityOf(m);
 					const errorRate = (stability.errorRate ?? 0).toFixed(1);
 					return (
 						<TableRow key={m.mappingId} className="hover:bg-muted/50">
@@ -237,6 +243,29 @@ export function ProviderModelsTable({
 								{m.avgTimeToFirstToken !== null
 									? `${Math.round(m.avgTimeToFirstToken)}ms`
 									: "—"}
+							</TableCell>
+							<TableCell>
+								<div className="flex items-center gap-2">
+									<VerificationStatusBadge
+										verification={verifications?.get(m.mappingId)}
+									/>
+									<ModelVerificationDialog
+										title={`${providerId}/${m.modelId}${m.region ? `:${m.region}` : ""}`}
+										mappingId={m.mappingId}
+										latest={verifications?.get(m.mappingId)}
+										onSettled={onVerificationSettled}
+									>
+										<Button
+											variant="outline"
+											size="sm"
+											className="h-7 px-2 text-xs"
+											data-testid={`verify-mapping-${m.mappingId}`}
+										>
+											<ShieldCheck className="mr-1 h-3.5 w-3.5" />
+											Verify
+										</Button>
+									</ModelVerificationDialog>
+								</div>
 							</TableCell>
 						</TableRow>
 					);

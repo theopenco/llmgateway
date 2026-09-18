@@ -65,7 +65,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useUser } from "@/hooks/useUser";
 import { registry } from "@/lib/canvas/registry";
-import { emptySpec, templates } from "@/lib/canvas/templates";
 import { canvasSuggestions, sampleSuggestions } from "@/lib/hero-suggestions";
 import {
 	CANVAS_MODEL_COOKIE,
@@ -73,6 +72,8 @@ import {
 	setModelPreferenceCookie,
 } from "@/lib/model-preferences";
 import { getErrorMessage } from "@/lib/utils";
+
+import { emptySpec, templates } from "@llmgateway/canvas/templates";
 
 import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { Organization, Project } from "@/lib/types";

@@ -39,6 +39,33 @@ describe("calculateCosts", () => {
 		expect(result.estimatedCost).toBe(false); // Not estimated
 	});
 
+	it.each([
+		{ prompt: 90, completion: 40, reasoning: 24, cached: 0, cost: 0.00087 },
+		{
+			prompt: 22612,
+			completion: 38,
+			reasoning: 22,
+			cached: 22528,
+			cost: 0.0075804,
+		},
+	])("matches Runpod usage with $cached cached tokens", async (usage) => {
+		const result = await calculateCosts(
+			"kimi-k3",
+			"runpod",
+			null,
+			usage.prompt,
+			usage.completion,
+			usage.cached,
+			undefined,
+			usage.reasoning,
+		);
+
+		expect(result.totalCost).toBeCloseTo(usage.cost, 10);
+		expect(result.cachedInputCost).toBeCloseTo(usage.cached * 0.3e-6, 10);
+		expect(result.outputCost).toBeCloseTo(usage.completion * 15e-6, 10);
+		expect(result.estimatedCost).toBe(false);
+	});
+
 	it("should calculate costs with null token counts but provided text", async () => {
 		const result = await calculateCosts(
 			"gpt-4",
@@ -208,10 +235,10 @@ describe("calculateCosts", () => {
 			},
 		);
 
-		expect(result.inputCost).toBeCloseTo(46 * 5e-6, 10); // 2006 - 1920 - 40 uncached
-		expect(result.cachedInputCost).toBeCloseTo(1920 * 0.5e-6, 10);
-		expect(result.cacheWriteInputCost).toBeCloseTo(40 * 6.25e-6, 10);
-		expect(result.outputCost).toBeCloseTo(300 * 30e-6, 10);
+		expect(result.inputCost).toBeCloseTo(46 * 4e-6, 10); // 2006 - 1920 - 40 uncached
+		expect(result.cachedInputCost).toBeCloseTo(1920 * 0.4e-6, 10);
+		expect(result.cacheWriteInputCost).toBeCloseTo(40 * 5e-6, 10);
+		expect(result.outputCost).toBeCloseTo(300 * 20e-6, 10);
 		expect(result.pricingTier).toBe("Up to 272K");
 	});
 
@@ -240,10 +267,10 @@ describe("calculateCosts", () => {
 
 		// The whole request bills at the long-context tier: 2x input, 2x cached,
 		// 2x cache write, 1.5x output.
-		expect(result.inputCost).toBeCloseTo(150000 * 10e-6, 6); // 300000 - 100000 - 50000 uncached
-		expect(result.cachedInputCost).toBeCloseTo(100000 * 1e-6, 6);
-		expect(result.cacheWriteInputCost).toBeCloseTo(50000 * 12.5e-6, 6);
-		expect(result.outputCost).toBeCloseTo(1000 * 45e-6, 6);
+		expect(result.inputCost).toBeCloseTo(150000 * 8e-6, 6); // 300000 - 100000 - 50000 uncached
+		expect(result.cachedInputCost).toBeCloseTo(100000 * 0.8e-6, 6);
+		expect(result.cacheWriteInputCost).toBeCloseTo(50000 * 10e-6, 6);
+		expect(result.outputCost).toBeCloseTo(1000 * 30e-6, 6);
 		expect(result.pricingTier).toBe("Over 272K");
 	});
 
@@ -259,8 +286,8 @@ describe("calculateCosts", () => {
 			null,
 		);
 
-		expect(result.inputCost).toBeCloseTo(272000 * 5e-6, 6);
-		expect(result.outputCost).toBeCloseTo(1000 * 30e-6, 6);
+		expect(result.inputCost).toBeCloseTo(272000 * 4e-6, 6);
+		expect(result.outputCost).toBeCloseTo(1000 * 20e-6, 6);
 		expect(result.pricingTier).toBe("Up to 272K");
 	});
 
@@ -274,8 +301,8 @@ describe("calculateCosts", () => {
 			null,
 		);
 
-		expect(result.inputCost).toBeCloseTo(272001 * 10e-6, 6);
-		expect(result.outputCost).toBeCloseTo(1000 * 45e-6, 6);
+		expect(result.inputCost).toBeCloseTo(272001 * 8e-6, 6);
+		expect(result.outputCost).toBeCloseTo(1000 * 30e-6, 6);
 		expect(result.pricingTier).toBe("Over 272K");
 	});
 
@@ -2251,7 +2278,7 @@ describe("output-token estimation guardrails", () => {
 
 		// gpt-5.6-sol advertises maxOutput 128000; the raw estimate is far larger.
 		expect(result.completionTokens).toBe(128000);
-		expect(result.outputCost).toBeCloseTo(128000 * 30e-6, 6);
+		expect(result.outputCost).toBeCloseTo(128000 * 20e-6, 6);
 	});
 
 	it("never clamps a provider-reported output count", async () => {
@@ -2265,7 +2292,7 @@ describe("output-token estimation guardrails", () => {
 		);
 
 		expect(result.completionTokens).toBe(reported);
-		expect(result.outputCost).toBeCloseTo(reported * 30e-6, 6);
+		expect(result.outputCost).toBeCloseTo(reported * 20e-6, 6);
 	});
 
 	it("does not re-encode tool-call arguments when estimating", async () => {

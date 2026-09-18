@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { TOOL_CHOICE_MODES } from "@llmgateway/models";
+
 import type { AirsideModelMetadataChanges, tables } from "@llmgateway/db";
 
 export const REASONING_EFFORT_VALUES = [
@@ -15,6 +17,10 @@ export const REASONING_EFFORT_VALUES = [
 export const reasoningEffortsValue = z
 	.array(z.enum(REASONING_EFFORT_VALUES))
 	.max(7);
+
+export const supportedToolChoicesValue = z
+	.array(z.enum(TOOL_CHOICE_MODES))
+	.max(TOOL_CHOICE_MODES.length);
 
 export const quantizationValue = z.enum([
 	"int4",
@@ -40,6 +46,10 @@ export const airsideModelMetadataSchema = z.object({
 	vision: z.boolean().optional(),
 	audio: z.boolean().optional(),
 	tools: z.boolean().optional(),
+	// Narrowing what the upstream accepts, unlike jsonOutputSchema/
+	// reasoningMaxTokens/webSearch, which stay out of this schema because a
+	// carrier may not raise them without a verification proving them.
+	supportedToolChoices: supportedToolChoicesValue.nullish(),
 	jsonOutput: z.boolean().optional(),
 	reasoning: z.boolean().optional(),
 	reasoningEfforts: reasoningEffortsValue.nullish(),

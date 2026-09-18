@@ -16,6 +16,10 @@ import { formatUsageDateRange } from "@/components/dashboard/usage-comparison";
 import { getDateRangeFromParams } from "@/components/date-range-picker";
 
 import { useDisplayTimeZone } from "@llmgateway/shared";
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
 
 import { buildUsageChartData, type ChartPoint } from "./overview-data";
 
@@ -114,7 +118,7 @@ function TooltipSection({
 			</div>
 			{metric === "requests" ? (
 				<p className="mt-1 text-sm font-medium tabular-nums">
-					{(requests ?? 0).toLocaleString()} requests
+					{formatNumber(requests ?? 0)} requests
 				</p>
 			) : costView === "total" ? (
 				<p className="mt-1 text-sm font-medium tabular-nums">
@@ -359,7 +363,7 @@ export function Overview({
 						tickFormatter={(value: number) =>
 							metric === "costs"
 								? formatAxisCost(value)
-								: value.toLocaleString()
+								: formatCompactNumber(value)
 						}
 					/>
 					<Tooltip

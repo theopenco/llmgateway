@@ -135,7 +135,7 @@ You can mix all three reference types in one request. The `prompt` can be a ligh
 - **Reference video resolution.** Seedance requires reference video frames to be at least ~409,600 pixels (roughly 480p or larger). Low-resolution clips such as 360p are rejected with a `400`.
 - **Not combinable with frames.** Reference inputs (`reference_images`, `reference_videos`, `reference_audios`) cannot be combined with the first/last frame inputs (`image`, `last_frame`).
 - **Provider scope.** Reference videos and audio are only supported on Seedance 2.x models; sending them to other models returns a `400`. **KLING v3.0** does not support any reference inputs (`reference_images`, `reference_videos`, `reference_audios`); use first/last frame inputs instead.
-- **Moderation still applies.** The output is subject to the provider's content moderation. Blocked generations finish as `failed` and are logged with a `content_filter` finish reason.
+- **Moderation still applies.** The output is subject to the provider's content moderation. Blocked generations finish as `failed` and are logged with a `content_filter` finish reason. The [gateway content filter](/resources/error-handling#gateway-content-filter) may also reject the request with a `403` before a job is created.
 
 #### Examples
 
@@ -372,3 +372,11 @@ function verifyWebhook(
 - [Image Generation](/features/image-generation)
 - [Routing](/features/routing)
 - [Models API](/v1_models)
+
+### Playback and seeking
+
+Video content endpoints forward `Range` and `If-Range` requests to the upstream
+storage service and preserve partial-content responses. Inline video results also
+support single byte ranges. A satisfiable range returns `206` with `Content-Range`;
+an unsatisfiable range returns `416`. This lets native players load and seek
+without downloading the entire video first when the upstream supports ranges.

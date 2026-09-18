@@ -18,6 +18,7 @@ import { CrewChannelCard } from "@/components/CrewChannelCard";
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import { Logo } from "@/components/Logo";
 import { ProviderBrandingFields } from "@/components/ProviderBrandingFields";
+import { RelativeDate } from "@/components/RelativeDate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,6 +38,7 @@ import { useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
 
 import { providerBaseUrlHasEndpointPath } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 function ClaimDialog({
 	providerName,
@@ -617,7 +619,7 @@ function OnboardingContent() {
 													className="text-foreground font-mono font-semibold"
 													data-testid="listing-fee-amount"
 												>
-													${company.listingFeeAmount.toLocaleString("en-US")}
+													${formatNumber(company.listingFeeAmount)}
 												</span>
 											</>
 										) : null}{" "}
@@ -746,6 +748,13 @@ function OnboardingContent() {
 											claim.providerId === p.providerId &&
 											claim.status === "rejected",
 									);
+									const myClaim = p.claimedByMyCompany
+										? company?.claims.find(
+												(claim) =>
+													claim.providerId === p.providerId &&
+													claim.status === p.myClaimStatus,
+											)
+										: undefined;
 									return (
 										<li
 											key={p.providerId}
@@ -756,6 +765,11 @@ function OnboardingContent() {
 												<div className="text-muted-foreground font-mono text-xs">
 													{p.providerId} · matched {p.matchedDomain}
 												</div>
+												{myClaim ? (
+													<div className="text-muted-foreground mt-1 text-xs">
+														Filed <RelativeDate date={myClaim.createdAt} />
+													</div>
+												) : null}
 												{rejectedClaim && !p.claimedByMyCompany ? (
 													<div className="text-destructive mt-1 text-xs">
 														Previous claim rejected
@@ -819,6 +833,9 @@ function OnboardingContent() {
 										<div className="font-medium">{claim.providerName}</div>
 										<div className="text-muted-foreground font-mono text-xs">
 											{claim.providerId} · {claim.customBaseUrl}
+										</div>
+										<div className="text-muted-foreground mt-1 text-xs">
+											Filed <RelativeDate date={claim.createdAt} />
 										</div>
 										{claim.status === "rejected" ? (
 											<div className="text-destructive mt-1 text-xs">

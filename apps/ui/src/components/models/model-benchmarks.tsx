@@ -21,6 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 export function ModelBenchmarks({ modelId }: { modelId: string }) {
 	const { data, isLoading } = useModelBenchmarks(modelId);
@@ -182,8 +183,8 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 						Real performance data from LLM Gateway over the last{" "}
 						{sorted[0]?.windowHours ?? 24} hours. Higher uptime and throughput
 						are better. Stats are hidden for providers with under{" "}
-						{MIN_SIGNIFICANT_REQUESTS.toLocaleString()} requests, where the
-						sample is too small to be reliable.
+						{formatNumber(MIN_SIGNIFICANT_REQUESTS)} requests, where the sample
+						is too small to be reliable.
 					</p>
 
 					<div className="grid gap-3">
@@ -192,7 +193,7 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 							const isMostStable = provider.providerId === mostStableProviderId;
 							const isSignificant =
 								provider.logsCount >= MIN_SIGNIFICANT_REQUESTS;
-							const insufficientDataTitle = `Not enough traffic for reliable stats (under ${MIN_SIGNIFICANT_REQUESTS.toLocaleString()} requests)`;
+							const insufficientDataTitle = `Not enough traffic for reliable stats (under ${formatNumber(MIN_SIGNIFICANT_REQUESTS)} requests)`;
 
 							return (
 								<div
@@ -227,7 +228,7 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 													)}
 												</div>
 												<span className="text-xs text-muted-foreground">
-													{provider.logsCount.toLocaleString()} requests
+													{formatNumber(provider.logsCount)} requests
 												</span>
 											</div>
 										</div>
@@ -252,7 +253,7 @@ export function ModelBenchmarks({ modelId }: { modelId: string }) {
 													}
 												>
 													{isSignificant && provider.tokensPerSecond !== null
-														? `${provider.tokensPerSecond.toLocaleString()} tok/s`
+														? `${formatNumber(provider.tokensPerSecond)} tok/s`
 														: "\u2014"}
 												</span>
 											</div>

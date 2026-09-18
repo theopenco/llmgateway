@@ -4,8 +4,11 @@ import { apiAuth as auth } from "@/auth/config.js";
 
 import { activity } from "./activity.js";
 import { adminAirside } from "./admin-airside.js";
+import { adminBenchmarks } from "./admin-benchmarks.js";
+import { adminContentFilter } from "./admin-content-filter.js";
 import { adminLicense } from "./admin-license.js";
 import { adminLimitHits } from "./admin-limit-hits.js";
+import { adminModelVerifications } from "./admin-model-verifications.js";
 import { adminOrgDetails } from "./admin-org-details.js";
 import adminProviderCredentials from "./admin-provider-credentials.js";
 import { adminRoutingAnalytics } from "./admin-routing-analytics.js";
@@ -17,6 +20,7 @@ import { chatPlans } from "./chat-plans.js";
 import { chatProjects } from "./chat-projects.js";
 import { chat } from "./chat.js";
 import { chats } from "./chats.js";
+import { connectors } from "./connectors.js";
 import { customModels } from "./custom-models.js";
 import { devPlanCancellationFeedback } from "./dev-plan-cancellation-feedback.js";
 import { devPlans } from "./dev-plans.js";
@@ -26,10 +30,12 @@ import { guardrails } from "./guardrails.js";
 import keysApi from "./keys-api.js";
 import keysProvider from "./keys-provider.js";
 import { logs } from "./logs.js";
+import { loungeChat } from "./lounge-chat.js";
 import { lounge } from "./lounge.js";
 import masterKeys from "./master-keys.js";
 import { modelRatings } from "./model-ratings.js";
 import { modelSurvey } from "./model-survey.js";
+import { notifications } from "./notifications.js";
 import { organizationSkills } from "./organization-skills.js";
 import { organizationTeams } from "./organization-teams.js";
 import organization from "./organization.js";
@@ -63,6 +69,8 @@ routes.use("/*", async (c, next) => {
 });
 
 routes.route("/user", user);
+routes.route("/connectors", connectors);
+routes.route("/notifications", notifications);
 
 routes.route("/logs", logs);
 
@@ -73,8 +81,11 @@ routes.route("/admin", admin);
 routes.route("/admin", adminProviderCredentials);
 routes.route("/admin", adminOrgDetails);
 routes.route("/admin", adminRoutingAnalytics);
+routes.route("/admin", adminContentFilter);
 routes.route("/admin", adminLimitHits);
+routes.route("/admin", adminBenchmarks);
 routes.route("/admin", adminAirside);
+routes.route("/admin", adminModelVerifications);
 
 routes.route("/airside", airside);
 
@@ -100,6 +111,7 @@ routes.route("/dev-plans", devPlans);
 routes.route("/dev-plan-cancellation-feedback", devPlanCancellationFeedback);
 routes.route("/chat-plans", chatPlans);
 routes.route("/lounge", lounge);
+routes.route("/lounge", loungeChat);
 routes.route("/escape", escape);
 routes.route("/audit-logs", auditLogs);
 routes.route("/model-ratings", modelRatings);

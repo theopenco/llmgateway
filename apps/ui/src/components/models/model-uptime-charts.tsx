@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
 import { getProviderIcon } from "@llmgateway/shared/components";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { paths } from "@/lib/api/v1";
 
@@ -85,14 +86,21 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 	const hasEnoughTtftData =
 		hasEnoughData && hasEnoughTtftSamplesForStats(provider.ttftCount);
 
-	const errorRate =
-		Math.round(
-			(deriveStabilityMetrics(
-				provider.logsCount,
-				provider.errorsCount + provider.clientErrorsCount,
-				provider.clientErrorsCount,
-			).errorRate ?? 0) * 10,
-		) / 10;
+	const stability = deriveStabilityMetrics({
+		logsCount: provider.logsCount,
+		clientErrorsCount: provider.clientErrorsCount,
+		gatewayErrorsCount: provider.gatewayErrorsCount,
+		upstreamErrorsCount: provider.upstreamErrorsCount,
+	});
+	const errorRate = Math.round((stability.errorRate ?? 0) * 10) / 10;
+	// Client errors are excluded from the uptime denominator, so the upstream
+	// rate has to use the same base or the two headline numbers disagree.
+	const upstreamErrorRate =
+		stability.requestCount > 0
+			? Math.round(
+					(provider.upstreamErrorsCount / stability.requestCount) * 10000,
+				) / 100
+			: null;
 
 	const uptimeColor =
 		!hasEnoughData || provider.uptime === null
@@ -150,8 +158,8 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 						value={formatCompact(provider.logsCount)}
 						sub={
 							hasEnoughData
-								? `${formatCompact(provider.errorsCount)} errors (${errorRate}%)`
-								: `${formatCompact(provider.errorsCount)} errors`
+								? `${formatCompact(stability.errorsCount)} errors (${errorRate}%)`
+								: `${formatCompact(stability.errorsCount)} errors`
 						}
 					/>
 					<Stat
@@ -173,7 +181,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 						label="Throughput"
 						value={
 							hasEnoughData && provider.tokensPerSecond !== null
-								? `${provider.tokensPerSecond.toLocaleString()} t/s`
+								? `${formatNumber(provider.tokensPerSecond)} t/s`
 								: "—"
 						}
 					/>
@@ -182,13 +190,8 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 						label="Upstream errors"
 						value={formatCompact(provider.upstreamErrorsCount)}
 						sub={
-							hasEnoughData && provider.logsCount > 0
-								? `${(
-										Math.round(
-											(provider.upstreamErrorsCount / provider.logsCount) *
-												10000,
-										) / 100
-									).toFixed(2)}% rate`
+							hasEnoughData && upstreamErrorRate !== null
+								? `${upstreamErrorRate.toFixed(2)}% rate`
 								: undefined
 						}
 					/>
@@ -254,12 +257,8 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 								tickLine={false}
 								axisLine={false}
 								tickMargin={4}
-								width={50}
-								tickFormatter={(value: number) =>
-									value >= 1000
-										? `${(value / 1000).toFixed(1)}k`
-										: String(value)
-								}
+								width={60}
+								tickFormatter={formatCompact}
 							/>
 							<ChartTooltip
 								content={
@@ -272,7 +271,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 											const formatted =
 												activeMetric === "latency"
 													? `${Math.round(Number(value))}ms`
-													: Number(value).toLocaleString();
+													: formatNumber(Number(value));
 											return (
 												<span>
 													{label}: <strong>{formatted}</strong>

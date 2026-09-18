@@ -2,6 +2,7 @@ import { Inter, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
+import { fetchSystemBanner } from "@/lib/system-banner";
 import { getTimeZonePreference } from "@/lib/timezone-server";
 
 import "./globals.css";
@@ -154,7 +155,10 @@ export default async function RootLayout({
 	children: ReactNode;
 }) {
 	const config = getConfig();
-	const timeZone = await getTimeZonePreference();
+	const [timeZone, systemBanner] = await Promise.all([
+		getTimeZonePreference(),
+		fetchSystemBanner(),
+	]);
 
 	return (
 		<html
@@ -187,7 +191,11 @@ export default async function RootLayout({
 				/>
 			</head>
 			<body className="min-h-screen antialiased">
-				<Providers config={config} timeZone={timeZone}>
+				<Providers
+					config={config}
+					timeZone={timeZone}
+					systemBanner={systemBanner}
+				>
 					{children}
 				</Providers>
 			</body>

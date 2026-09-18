@@ -2,9 +2,9 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { ListFilter, Loader2, Plus, Trash2 } from "lucide-react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 
+import { useFilterNavigation } from "@/components/filter-navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,47 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { useApi } from "@/lib/fetch-client";
 
-export function IgnoredErrorsToggle({
-	ignoreExpected,
-}: {
-	ignoreExpected: boolean;
-}) {
-	const router = useRouter();
-	const pathname = usePathname();
-	const searchParams = useSearchParams();
-
-	const handleSelect = useCallback(
-		(value: boolean) => {
-			const params = new URLSearchParams(searchParams.toString());
-			if (value) {
-				params.delete("ignoreExpected");
-			} else {
-				params.set("ignoreExpected", "false");
-			}
-			router.push(`${pathname}?${params.toString()}`);
-		},
-		[router, pathname, searchParams],
-	);
-
-	return (
-		<div className="flex items-center gap-1">
-			<Button
-				variant={ignoreExpected ? "default" : "outline"}
-				size="sm"
-				onClick={() => handleSelect(true)}
-			>
-				Ignore expected
-			</Button>
-			<Button
-				variant={ignoreExpected ? "outline" : "default"}
-				size="sm"
-				onClick={() => handleSelect(false)}
-			>
-				Show all errors
-			</Button>
-		</div>
-	);
-}
+const REFRESH_KEY = "ignoredErrors";
 
 export function IgnoredErrorMatchersDialog({
 	matcherCount,
@@ -67,7 +27,7 @@ export function IgnoredErrorMatchersDialog({
 }) {
 	const $api = useApi();
 	const queryClient = useQueryClient();
-	const router = useRouter();
+	const { isPending, pendingKey, refresh } = useFilterNavigation();
 	const [open, setOpen] = useState(false);
 	const [pattern, setPattern] = useState("");
 	const [statusCode, setStatusCode] = useState("");
@@ -87,7 +47,9 @@ export function IgnoredErrorMatchersDialog({
 				"/admin/unstable-mappings/ignored-errors",
 			).queryKey,
 		});
-		router.refresh();
+		// The page data is server-rendered from a slow log scan, so route the
+		// refresh through the shared pending state instead of refreshing silently.
+		refresh(REFRESH_KEY);
 	};
 
 	const createMutation = $api.useMutation(
@@ -155,8 +117,12 @@ export function IgnoredErrorMatchersDialog({
 			}}
 		>
 			<DialogTrigger asChild>
-				<Button variant="outline" size="sm">
-					<ListFilter className="h-4 w-4" />
+				<Button variant="outline" size="sm" disabled={isPending}>
+					{pendingKey === REFRESH_KEY ? (
+						<Loader2 className="h-4 w-4 animate-spin" />
+					) : (
+						<ListFilter className="h-4 w-4" />
+					)}
 					Ignored errors ({matcherCount})
 				</Button>
 			</DialogTrigger>

@@ -93,6 +93,10 @@ export function extractTokenUsage(
 	fullContent?: string,
 	imageByteSize?: number,
 ) {
+	if (provider === "runpod" && !data.usage && data.choices?.[0]?.usage) {
+		data = { ...data, usage: data.choices[0].usage };
+	}
+
 	let promptTokens = null;
 	let completionTokens = null;
 	let totalTokens = null;

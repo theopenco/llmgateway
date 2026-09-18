@@ -206,7 +206,10 @@ describe(
 				expect(providerKey?.provider).toBe(providerId);
 				// Stored encrypted at rest; the ciphertext decrypts to the submitted key.
 				expect(providerKey?.tokenCiphertext).toMatch(/^llmgw:v2:/);
-				expect(readProviderKey(providerKey!)).toBe(envVarValue);
+				// Compared as a boolean: a failing `toBe` would print the plaintext
+				// provider key into the vitest blob report CI uploads as an artifact,
+				// where GitHub's secret masking does not apply.
+				expect(readProviderKey(providerKey!) === envVarValue).toBe(true);
 			},
 		);
 
