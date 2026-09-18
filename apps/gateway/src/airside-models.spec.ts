@@ -1353,6 +1353,40 @@ describe("airside-listed models", () => {
 		expect((await send("second")).status).toBe(429);
 	});
 
+	test.each(["global", "per_org"] as const)(
+		"zero global caps block the only provider with %s enforcement",
+		async (enforcement) => {
+			await setupCustomCarrier("airside-rate-limit-token");
+			await db.insert(tables.rateLimit).values({
+				organizationId: null,
+				provider: "acme-sky",
+				maxRpd: 0,
+				enforcement,
+			});
+			await clearCache();
+
+			for (const model of ["sky-large", "acme-sky/sky-large"]) {
+				for (const stream of [false, true]) {
+					const response = await app.request("/v1/chat/completions", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: "Bearer airside-rate-limit-token",
+						},
+						body: JSON.stringify({
+							model,
+							stream,
+							messages: [{ role: "user", content: "Say hi" }],
+						}),
+					});
+					expect(response.status).toBe(429);
+					expect(await response.text()).toContain("maximum 0 requests per day");
+				}
+			}
+			expect(captured).toHaveLength(0);
+		},
+	);
+
 	test("does not route an unregistered provider prefix", async () => {
 		await setupCustomCarrier("airside-unknown-token");
 		const res = await app.request("/v1/chat/completions", {

@@ -167,6 +167,64 @@ describe("admin rate limits for airside listings", () => {
 		expect(response.status).toBe(201);
 	});
 
+	test.each(["rpm", "rpd"] as const)(
+		"accepts zero global %s caps with either enforcement",
+		async (limitType) => {
+			for (const enforcement of ["global", "per_org"]) {
+				const response = await app.request("/admin/rate-limits", {
+					method: "POST",
+					headers: { Cookie: cookie, "Content-Type": "application/json" },
+					body: JSON.stringify({
+						provider: CARRIER_ID,
+						limitType,
+						maxRequests: 0,
+						enforcement,
+					}),
+				});
+				expect(response.status).toBe(201);
+				expect(await response.json()).toMatchObject({
+					maxRequests: 0,
+					enforcement,
+				});
+				await db
+					.delete(tables.rateLimit)
+					.where(eq(tables.rateLimit.provider, CARRIER_ID));
+			}
+		},
+	);
+
+	test.each([-1, 0.5])(
+		"rejects invalid global limit %s",
+		async (maxRequests) => {
+			const response = await app.request("/admin/rate-limits", {
+				method: "POST",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					provider: CARRIER_ID,
+					limitType: "rpd",
+					maxRequests,
+				}),
+			});
+			expect(response.status).toBe(400);
+		},
+	);
+
+	test("still rejects zero on organization-specific limits", async () => {
+		const response = await app.request(
+			"/admin/organizations/test-org/rate-limits",
+			{
+				method: "POST",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({
+					provider: CARRIER_ID,
+					limitType: "rpd",
+					maxRequests: 0,
+				}),
+			},
+		);
+		expect(response.status).toBe(400);
+	});
+
 	test("unknown providers and models are still rejected", async () => {
 		const unknownProvider = await app.request("/admin/rate-limits", {
 			method: "POST",
