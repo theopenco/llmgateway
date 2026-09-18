@@ -20,6 +20,7 @@ import {
 } from "@llmgateway/instrumentation";
 import { logger, toError } from "@llmgateway/logger";
 import { HealthChecker } from "@llmgateway/shared";
+import { getClientIpFromContext } from "@llmgateway/shared/client-ip";
 
 import { aisdk } from "./aisdk/aisdk.js";
 import { creditsRoute } from "./aisdk/credits.js";
@@ -263,6 +264,7 @@ const root = createRoute({
 						.object({
 							message: z.string(),
 							version: z.string(),
+							clientIp: z.string().nullable(),
 							health: z.object({
 								status: z.string(),
 								redis: z.object({
@@ -287,6 +289,7 @@ const root = createRoute({
 						.object({
 							message: z.string(),
 							version: z.string(),
+							clientIp: z.string().nullable(),
 							health: z.object({
 								status: z.string(),
 								redis: z.object({
@@ -344,7 +347,12 @@ app.openapi(root, async (c) => {
 
 	const { response, statusCode } = healthChecker.createHealthResponse(health);
 
-	return c.json(response, statusCode as 200 | 503);
+	// Echo the address this service resolves for the caller so a deployment can
+	// be checked against a known client IP before any per-IP limit is relied on.
+	return c.json(
+		{ ...response, clientIp: getClientIpFromContext(c) },
+		statusCode as 200 | 503,
+	);
 });
 
 const v1 = new OpenAPIHono<ServerTypes>();

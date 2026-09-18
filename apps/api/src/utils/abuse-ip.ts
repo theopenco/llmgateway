@@ -1,7 +1,6 @@
-import { isPublicIp } from "@/lib/client-ip.js";
-
 import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
+import { isPublicIp } from "@llmgateway/shared/client-ip";
 
 import type { AbuseIpReport } from "@llmgateway/db";
 

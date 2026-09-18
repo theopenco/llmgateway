@@ -31,6 +31,7 @@ services:
     networks:
       - llmgateway-network
     environment:
+      - CLIENT_IP_HEADER=${CLIENT_IP_HEADER:-X-Forwarded-For}
       - NODE_ENV=production
       - PORT=80
       - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-llmgateway_dev_password}@postgres:5432/${POSTGRES_DB:-llmgateway}
@@ -74,6 +75,7 @@ services:
     networks:
       - llmgateway-network
     environment:
+      - CLIENT_IP_HEADER=${CLIENT_IP_HEADER:-X-Forwarded-For}
       - NODE_ENV=production
       - RUN_MIGRATIONS=true
       - PORT=80
@@ -147,6 +149,7 @@ services:
     environment:
       - API_URL=${API_URL:-http://localhost:4002}
       - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
+      - CLIENT_IP_HEADER=${CLIENT_IP_HEADER:-X-Forwarded-For}
       - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
       - DOCS_URL=${DOCS_URL:-http://localhost:3005}
       - ADMIN_URL=${ADMIN_URL:-http://localhost:3006}
@@ -179,6 +182,7 @@ services:
     environment:
       - API_URL=${API_URL:-http://localhost:4002}
       - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
+      - CLIENT_IP_HEADER=${CLIENT_IP_HEADER:-X-Forwarded-For}
       - GATEWAY_API_KEY_HASH_SECRET=${GATEWAY_API_KEY_HASH_SECRET}
       - DOCS_URL=${DOCS_URL:-http://localhost:3005}
       - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
@@ -211,6 +215,7 @@ services:
     environment:
       - API_URL=${API_URL:-http://localhost:4002}
       - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
+      - CLIENT_IP_HEADER=${CLIENT_IP_HEADER:-X-Forwarded-For}
       - ADMIN_URL=${ADMIN_URL:-http://localhost:3006}
       - CI=${CI}
 
@@ -237,6 +242,7 @@ services:
     networks:
       - llmgateway-network
     environment:
+      - CLIENT_IP_HEADER=${CLIENT_IP_HEADER:-X-Forwarded-For}
       - DOCS_URL=${DOCS_URL:-http://localhost:3005}
       - PLAYGROUND_URL=${PLAYGROUND_URL:-http://localhost:3003}
       - ADMIN_URL=${ADMIN_URL:-http://localhost:3006}
@@ -269,6 +275,7 @@ services:
     environment:
       - API_URL=${API_URL:-http://localhost:4002}
       - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
+      - CLIENT_IP_HEADER=${CLIENT_IP_HEADER:-X-Forwarded-For}
       - CODE_URL=${CODE_URL:-http://localhost:3004}
       - POSTHOG_HOST=${POSTHOG_HOST}
       - POSTHOG_KEY=${POSTHOG_KEY}
@@ -299,6 +306,7 @@ services:
     environment:
       - API_URL=${API_URL:-http://localhost:4002}
       - API_BACKEND_URL=${API_BACKEND_URL:-http://api:80}
+      - CLIENT_IP_HEADER=${CLIENT_IP_HEADER:-X-Forwarded-For}
       - AIRSIDE_URL=${AIRSIDE_URL:-http://localhost:3007}
       - POSTHOG_HOST=${POSTHOG_HOST}
       - POSTHOG_KEY=${POSTHOG_KEY}

@@ -15,7 +15,6 @@ import { serializedPasswordReset } from "@/auth/password-reset.js";
 import { verificationCallback } from "@/auth/verification-callback.js";
 import { flagUserIfAbusiveIp } from "@/lib/account-risk.js";
 import { getApiBaseUrl } from "@/lib/api-url.js";
-import { getClientIpFromHeaders } from "@/lib/client-ip.js";
 import { acceptPendingInvitesForUser } from "@/lib/team-invites.js";
 import {
 	getBlockedSignupCountries,
@@ -36,6 +35,7 @@ import {
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, lt, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { getClientIpFromHeaders } from "@llmgateway/shared/client-ip";
 import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
