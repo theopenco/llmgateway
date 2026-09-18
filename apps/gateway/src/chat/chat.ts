@@ -6038,9 +6038,14 @@ chat.openapi(completions, async (c) => {
 		);
 
 		// Race condition: between peek and consume, the window may have filled.
-		// Only hard-block if the user explicitly requested this provider with no-fallback.
+		// Zero global caps always block, including when every routing candidate is capped.
 		if (!providerRateLimitResult.allowed) {
-			if (noFallback && requestedProvider) {
+			if (
+				(noFallback && requestedProvider) ||
+				providerRateLimitResult.blockedBy.some(
+					(window) => providerRateLimitResult.limits[window].limit === 0,
+				)
+			) {
 				const retryAfter = providerRateLimitResult.retryAfter;
 				if (retryAfter) {
 					c.header("Retry-After", retryAfter.toString());

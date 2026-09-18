@@ -134,9 +134,16 @@ export function RateLimitForm({
 		setError(null);
 		setLoading(true);
 
-		const parsedLimit = parseInt(maxRequests, 10);
-		if (isNaN(parsedLimit) || parsedLimit < 1) {
-			setError(`Max ${limitType.toUpperCase()} must be a positive integer`);
+		const parsedLimit = Number(maxRequests);
+		const minimum = showEnforcement ? 0 : 1;
+		if (
+			maxRequests.trim() === "" ||
+			!Number.isInteger(parsedLimit) ||
+			parsedLimit < minimum
+		) {
+			setError(
+				`Max ${limitType.toUpperCase()} must be a whole number of at least ${minimum}`,
+			);
 			setLoading(false);
 			return;
 		}
@@ -307,7 +314,7 @@ export function RateLimitForm({
 						<Input
 							id="maxRequests"
 							type="number"
-							min="1"
+							min={showEnforcement ? 0 : 1}
 							step="1"
 							placeholder={limitType === "rpm" ? "e.g., 60" : "e.g., 5000"}
 							value={maxRequests}
@@ -318,6 +325,7 @@ export function RateLimitForm({
 							{limitType === "rpm"
 								? "Maximum requests per minute allowed"
 								: "Maximum requests per day allowed"}
+							{showEnforcement && ". Set 0 to block matching requests"}
 						</p>
 					</div>
 

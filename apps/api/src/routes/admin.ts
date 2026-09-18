@@ -5516,16 +5516,21 @@ const createRateLimitBodySchema = z.object({
 	maxRequests: z.coerce
 		.number()
 		.int("Limit must be a whole number")
-		.min(1, "Limit must be at least 1"),
+		.min(0, "Limit must be at least 0"),
 	enforcement: z.enum(["per_org", "global"]).optional().default("per_org"),
 	reason: z.string().nullable().optional(),
 });
 
 // Org-specific limits are always enforced per-org, so they don't expose the
 // enforcement choice.
-const createOrganizationRateLimitBodySchema = createRateLimitBodySchema.omit({
-	enforcement: true,
-});
+const createOrganizationRateLimitBodySchema = createRateLimitBodySchema
+	.omit({ enforcement: true })
+	.extend({
+		maxRequests: z.coerce
+			.number()
+			.int("Limit must be a whole number")
+			.min(1, "Limit must be at least 1"),
+	});
 
 // --- Global Rate Limits ---
 
