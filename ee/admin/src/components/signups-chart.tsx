@@ -21,6 +21,8 @@ import {
 	ChartTooltipContent,
 } from "@/components/ui/chart";
 
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
+
 import type { ChartConfig } from "@/components/ui/chart";
 import type { TimeseriesDataPoint } from "@/lib/types";
 
@@ -36,12 +38,6 @@ const chartConfig = {
 } satisfies ChartConfig;
 
 type ActiveChart = keyof typeof chartConfig;
-
-const numberFormatter = new Intl.NumberFormat("en-US", {
-	notation: "compact",
-	compactDisplay: "short",
-	maximumFractionDigits: 1,
-});
 
 export function SignupsChart({
 	data,
@@ -92,7 +88,7 @@ export function SignupsChart({
 								{chartConfig[key].label}
 							</span>
 							<span className="font-mono text-lg font-medium leading-none tabular-nums tracking-tight sm:text-3xl">
-								{numberFormatter.format(totals[key])}
+								{formatCompactNumber(totals[key])}
 							</span>
 						</button>
 					))}
@@ -175,7 +171,7 @@ export function SignupsChart({
 													New {chartConfig[activeChart].label.toLowerCase()}
 												</span>
 												<span className="ml-auto font-mono font-medium tabular-nums">
-													{numberFormatter.format(Number(value))}
+													{formatCompactNumber(Number(value))}
 												</span>
 											</>
 										)}

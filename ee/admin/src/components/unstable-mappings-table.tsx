@@ -17,6 +17,7 @@ import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
 import { getProviderIcon } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { UnstableWindow } from "@/lib/unstable-mappings-params";
 
@@ -192,7 +193,7 @@ function ErrorDetails({
 		<div className="space-y-4 p-4">
 			<p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
 				Top {errors.length} error{errors.length === 1 ? "" : "s"} ·{" "}
-				{data?.sampledErrors.toLocaleString()} sampled
+				{data ? formatNumber(data.sampledErrors) : null} sampled
 			</p>
 			{groups.map((group) => (
 				<div key={group.label} className="space-y-2">
@@ -203,9 +204,9 @@ function ErrorDetails({
 						<span className="text-xs text-muted-foreground">
 							{group.errors.length} error
 							{group.errors.length === 1 ? "" : "s"} ·{" "}
-							{group.errors
-								.reduce((sum, error) => sum + error.count, 0)
-								.toLocaleString()}
+							{formatNumber(
+								group.errors.reduce((sum, error) => sum + error.count, 0),
+							)}
 							× total
 						</span>
 					</div>
@@ -232,7 +233,7 @@ function ErrorDetails({
 										/>
 									</div>
 									<span className="shrink-0 text-sm font-semibold tabular-nums">
-										{error.count.toLocaleString()}×
+										{formatNumber(error.count)}×
 									</span>
 								</div>
 								{error.responseText && (
@@ -384,10 +385,10 @@ export function UnstableMappingsTable({
 									</Badge>
 								</TableCell>
 								<TableCell className="text-right tabular-nums">
-									{mapping.errorsCount.toLocaleString()}
+									{formatNumber(mapping.errorsCount)}
 								</TableCell>
 								<TableCell className="text-right tabular-nums text-muted-foreground">
-									{mapping.logsCount.toLocaleString()}
+									{formatNumber(mapping.logsCount)}
 								</TableCell>
 							</TableRow>
 							{isOpen && (

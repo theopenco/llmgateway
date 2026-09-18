@@ -32,6 +32,11 @@ import {
 } from "@/components/ui/table";
 import { getOrganizationContentFilterActivity } from "@/lib/admin-content-filter";
 
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
+
 import type { ChartConfig } from "@/components/ui/chart";
 import type { TokenWindow } from "@/lib/types";
 
@@ -142,13 +147,13 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 							<div>
 								<span className="text-muted-foreground">Sampled</span>
 								<p className="text-xl font-semibold tabular-nums">
-									{data.totals.sampledCount.toLocaleString("en-US")}
+									{formatNumber(data.totals.sampledCount)}
 								</p>
 							</div>
 							<div>
 								<span className="text-muted-foreground">Violations</span>
 								<p className="text-xl font-semibold tabular-nums">
-									{data.totals.violationCount.toLocaleString("en-US")}
+									{formatNumber(data.totals.violationCount)}
 								</p>
 							</div>
 							<div>
@@ -160,7 +165,7 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 							<div>
 								<span className="text-muted-foreground">Blocked</span>
 								<p className="text-xl font-semibold tabular-nums">
-									{data.totals.blockedCount.toLocaleString("en-US")}
+									{formatNumber(data.totals.blockedCount)}
 								</p>
 							</div>
 							{data.topCategories.length > 0 ? (
@@ -193,10 +198,11 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 									tickFormatter={formatTimestamp}
 								/>
 								<YAxis
+									tickFormatter={formatCompactNumber}
 									tickLine={false}
 									axisLine={false}
 									tickMargin={4}
-									width={40}
+									width={60}
 									allowDecimals={false}
 								/>
 								<ChartTooltip
@@ -246,16 +252,16 @@ export function OrgContentFilterActivity({ orgId }: { orgId: string }) {
 													{model.usedModel}
 												</TableCell>
 												<TableCell className="text-right tabular-nums">
-													{model.sampledCount.toLocaleString("en-US")}
+													{formatNumber(model.sampledCount)}
 												</TableCell>
 												<TableCell className="text-right tabular-nums">
-													{model.violationCount.toLocaleString("en-US")}
+													{formatNumber(model.violationCount)}
 												</TableCell>
 												<TableCell className="text-right tabular-nums">
 													{percentFormatter.format(model.violationRate)}
 												</TableCell>
 												<TableCell className="text-right tabular-nums">
-													{model.blockedCount.toLocaleString("en-US")}
+													{formatNumber(model.blockedCount)}
 												</TableCell>
 											</TableRow>
 										))}

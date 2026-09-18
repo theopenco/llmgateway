@@ -30,6 +30,7 @@ import { useUser } from "@/hooks/useUser";
 import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import { Time, buildAgentLogsCsv } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 // The model usage chart pulls in recharts and renders below the fold, so
 // keep it out of the agent detail page's initial bundle.
@@ -235,7 +236,7 @@ function ModelUsageBreakdown({ models }: { models: ModelUsage[] }) {
 											{model.provider}
 										</td>
 										<td className="px-4 py-2.5 text-right tabular-nums">
-											{model.requestCount.toLocaleString()}
+											{formatNumber(model.requestCount)}
 										</td>
 										<td className="px-4 py-2.5 text-right tabular-nums">
 											{formatTokens(model.totalTokens)}
@@ -303,7 +304,7 @@ function RequestRow({ log }: { log: ApiLog }) {
 				</span>
 				<span title="Tokens">
 					<Cpu className="mr-1 inline h-3 w-3" />
-					{Number(log.totalTokens ?? 0).toLocaleString()}
+					{formatNumber(Number(log.totalTokens ?? 0))}
 				</span>
 				<span title="Cost" className="font-medium text-foreground">
 					<Coins className="mr-1 inline h-3 w-3" />${(log.cost ?? 0).toFixed(4)}
@@ -516,7 +517,7 @@ function AgentDetailBody({
 					</h3>
 					<div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
 						<span>
-							{logs.length.toLocaleString()} of {requestTotal.toLocaleString()}{" "}
+							{formatNumber(logs.length)} of {formatNumber(requestTotal)}{" "}
 							request{requestTotal !== 1 ? "s" : ""}
 						</span>
 						<span className="text-border">·</span>

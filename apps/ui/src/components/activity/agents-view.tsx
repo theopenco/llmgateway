@@ -49,6 +49,10 @@ import {
 	OpenCodeIcon,
 	SoulForgeIcon,
 } from "@llmgateway/shared/components";
+import {
+	formatCompactNumber as formatTokens,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
 
 import type { paths } from "@/lib/api/v1";
 import type { SourceActivityData, SourceUsage } from "@/types/activity";
@@ -200,16 +204,6 @@ function formatDuration(ms: number): string {
 	return `${seconds}s`;
 }
 
-function formatTokens(count: number): string {
-	if (count >= 1_000_000) {
-		return `${(count / 1_000_000).toFixed(1)}M`;
-	}
-	if (count >= 1_000) {
-		return `${(count / 1_000).toFixed(1)}K`;
-	}
-	return count.toLocaleString();
-}
-
 function formatLastActive(date: Date | null): string {
 	if (!date) {
 		return "—";
@@ -304,7 +298,7 @@ function AgentCard({
 						Requests
 					</p>
 					<p className="text-sm font-medium tabular-nums">
-						{stats.requestCount.toLocaleString()}
+						{formatNumber(stats.requestCount)}
 					</p>
 				</div>
 				<div>
@@ -366,7 +360,7 @@ function SessionCard({
 						</div>
 						<div className="flex items-center gap-1" title="Total tokens">
 							<Cpu className="h-3.5 w-3.5" />
-							{session.totalTokens.toLocaleString()}
+							{formatNumber(session.totalTokens)}
 						</div>
 						<div className="flex items-center gap-1" title="Duration">
 							<Clock className="h-3.5 w-3.5" />
@@ -561,8 +555,8 @@ function AgentDetail({
 						</h3>
 						<div className="flex items-center gap-3 text-sm text-muted-foreground">
 							<span>
-								{logs.length.toLocaleString()} of{" "}
-								{stats.requestCount.toLocaleString()} request
+								{formatNumber(logs.length)} of{" "}
+								{formatNumber(stats.requestCount)} request
 								{stats.requestCount !== 1 ? "s" : ""}
 							</span>
 							<span className="text-border">&middot;</span>
@@ -737,7 +731,7 @@ export function AgentsView({
 							{agentStats.length !== 1 ? "s" : ""}
 						</span>
 						<span className="text-border">&middot;</span>
-						<span>{totalRequests.toLocaleString()} requests</span>
+						<span>{formatNumber(totalRequests)} requests</span>
 						<span className="text-border">&middot;</span>
 						<span className="font-medium text-foreground">
 							${totalCost.toFixed(2)}

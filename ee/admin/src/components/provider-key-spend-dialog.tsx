@@ -43,6 +43,8 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { formatUsd } from "@/lib/provider-key-spend";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import type { ChartConfig } from "@/components/ui/chart";
 
 type SpendWindow = "1d" | "7d" | "30d" | "90d";
@@ -166,9 +168,9 @@ export function ProviderKeySpendDialog({
 							/>
 							<Stat
 								label="Requests"
-								value={(data?.totalRequests ?? 0).toLocaleString()}
+								value={formatNumber(data?.totalRequests ?? 0)}
 							/>
-							<Stat label="Tokens" value={windowTokens.toLocaleString()} />
+							<Stat label="Tokens" value={formatNumber(windowTokens)} />
 							<Stat
 								label="Lifetime spend"
 								value={
@@ -263,7 +265,7 @@ export function ProviderKeySpendDialog({
 														{org.organizationName ?? org.organizationId}
 													</TableCell>
 													<TableCell className="text-right tabular-nums">
-														{org.requestCount.toLocaleString()}
+														{formatNumber(org.requestCount)}
 													</TableCell>
 													<TableCell className="text-right tabular-nums">
 														{currencyFormatter.format(org.cost)}

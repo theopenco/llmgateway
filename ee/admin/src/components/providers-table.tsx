@@ -20,6 +20,7 @@ import { getProviderHistory } from "@/lib/admin-history";
 import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
@@ -102,10 +103,6 @@ function SortableHeader({
 			)}
 		</Link>
 	);
-}
-
-function formatNumber(n: number) {
-	return new Intl.NumberFormat("en-US").format(n);
 }
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {

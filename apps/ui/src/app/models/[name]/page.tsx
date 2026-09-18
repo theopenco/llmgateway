@@ -59,6 +59,7 @@ import {
 	getMinPerSecondPrice,
 	isMappingDeactivated,
 } from "@llmgateway/shared/components";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { Metadata } from "next";
 
@@ -320,9 +321,9 @@ export default async function ModelPage({ params }: PageProps) {
 
 						<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-sm text-muted-foreground mb-4">
 							<div>
-								{Math.max(
-									...visibleProviders.map((p) => p.contextSize ?? 0),
-								).toLocaleString()}{" "}
+								{formatNumber(
+									Math.max(...visibleProviders.map((p) => p.contextSize ?? 0)),
+								)}{" "}
 								context
 							</div>
 							{modelDef.releasedAt && (

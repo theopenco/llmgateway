@@ -39,6 +39,10 @@ import {
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
+import {
+	formatCompactNumber as formatNumber,
+	formatNumber as formatDisplayNumber,
+} from "@llmgateway/shared/number-format";
 
 import type { ProviderDefinition } from "@llmgateway/models";
 
@@ -235,16 +239,6 @@ function formatCurrency(value: number): string {
 		return `$${value.toFixed(2)}`;
 	}
 	return `$${value.toFixed(4)}`;
-}
-
-function formatNumber(value: number): string {
-	if (value >= 1_000_000) {
-		return `${(value / 1_000_000).toFixed(1)}M`;
-	}
-	if (value >= 1_000) {
-		return `${(value / 1_000).toFixed(0)}K`;
-	}
-	return value.toLocaleString();
 }
 
 function formatPrice(price: number): string {
@@ -819,7 +813,7 @@ function ImageSimulator() {
 							</div>
 							<div className="border-t border-border pt-3 flex items-center justify-between text-sm">
 								<span className="text-muted-foreground">
-									Monthly ({(imagesPerDay * 30).toLocaleString()} images)
+									Monthly ({formatDisplayNumber(imagesPerDay * 30)} images)
 								</span>
 								<span className="font-mono font-medium">
 									{formatCurrency(costs.monthlyCost)}

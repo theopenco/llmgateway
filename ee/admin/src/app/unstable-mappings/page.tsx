@@ -18,6 +18,8 @@ import {
 	UNSTABLE_WINDOW_OPTIONS,
 } from "@/lib/unstable-mappings-params";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 export default async function UnstableMappingsPage({
 	searchParams,
 }: {
@@ -70,15 +72,15 @@ export default async function UnstableMappingsPage({
 						</h1>
 						<p className="mt-1 text-sm text-muted-foreground">
 							Model-provider mappings ranked by error rate over the latest{" "}
-							{data.logLimit.toLocaleString()}{" "}
+							{formatNumber(data.logLimit)}{" "}
 							{data.includeRetried ? "logs" : "non-retried logs"} from the last{" "}
-							{UNSTABLE_WINDOW_LABELS[window]} (
-							{data.sampledLogs.toLocaleString()} sampled).{" "}
+							{UNSTABLE_WINDOW_LABELS[window]} ({formatNumber(data.sampledLogs)}{" "}
+							sampled).{" "}
 							{data.includeRetried
 								? "Retried requests are included."
 								: "Retried requests are excluded."}{" "}
 							{data.ignoreExpected
-								? `${data.ignoredMatcherCount.toLocaleString()} expected-error matcher${data.ignoredMatcherCount === 1 ? "" : "s"} applied.`
+								? `${formatNumber(data.ignoredMatcherCount)} expected-error matcher${data.ignoredMatcherCount === 1 ? "" : "s"} applied.`
 								: "Expected-error matchers are disabled."}{" "}
 							{data.splitByKey
 								? "Each row is one provider key's share of a mapping. "

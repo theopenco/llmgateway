@@ -7,6 +7,11 @@ import {
 } from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
 
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
+
 /**
  * Token counts split by billed token type, plus the cost each type accounts
  * for. Every admin stats payload carries this shape, so a single set of
@@ -58,19 +63,7 @@ const SEGMENTS: {
 ];
 
 export function formatCompactTokens(value: number): string {
-	if (!Number.isFinite(value)) {
-		return "0";
-	}
-	if (value >= 1_000_000_000) {
-		return `${(value / 1_000_000_000).toFixed(1)}B`;
-	}
-	if (value >= 1_000_000) {
-		return `${(value / 1_000_000).toFixed(1)}M`;
-	}
-	if (value >= 1_000) {
-		return `${(value / 1_000).toFixed(1)}k`;
-	}
-	return Math.round(value).toLocaleString("en-US");
+	return formatCompactNumber(Number.isFinite(value) ? Math.round(value) : 0);
 }
 
 function formatCost(value: number): string {
@@ -84,7 +77,7 @@ function formatCost(value: number): string {
 }
 
 function formatExactTokens(value: number): string {
-	return Math.round(value).toLocaleString("en-US");
+	return formatNumber(Math.round(value));
 }
 
 // Effective blended rate for the segment, which is the number that actually
