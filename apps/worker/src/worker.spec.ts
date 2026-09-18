@@ -626,6 +626,7 @@ describe("worker", () => {
 					messages: [{ role: "user", content: "hello" }],
 					rawRequest: { input: "hello" },
 					upstreamResponse: { output: "response content" },
+					payloadRef: "logs/org/project/retention-test.json.zst",
 					userAgent: "test-user-agent",
 					routingMetadata: { selectedProvider: "openai" },
 					gatewayContentFilterResponse: [
@@ -674,6 +675,7 @@ describe("worker", () => {
 			expect(cleanedLog?.upstreamResponse).toBeNull();
 			expect(cleanedLog?.userAgent).toBeNull();
 			expect(cleanedLog?.gatewayContentFilterResponse).toBeNull();
+			expect(cleanedLog?.payloadRef).toBeNull();
 			expect(cleanedLog?.routingMetadata).toBeNull();
 			expect(cleanedLog?.dataRetentionCleanedUp).toBe(true);
 
@@ -681,6 +683,7 @@ describe("worker", () => {
 				where: { id: { eq: "retention-recent-log" } },
 			});
 			expect(recentLog?.routingMetadata).toEqual(expiredLog.routingMetadata);
+			expect(recentLog?.payloadRef).toBe(expiredLog.payloadRef);
 			expect(recentLog?.dataRetentionCleanedUp).toBe(false);
 		});
 	});
