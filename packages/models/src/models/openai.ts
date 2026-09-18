@@ -2036,10 +2036,6 @@ export const openaiModels = [
 								cacheWriteInputPrice: "10.0e-6",
 							},
 						],
-						// Global cross-region carries the model's full documented
-						// window. AWS writes it as "1M", and this family's "272K"
-						// proved to be 272 * 1024, so read it as 1024 * 1024.
-						contextSize: 1048576,
 					},
 					{ id: "us-east-1" },
 					{ id: "us-east-2" },
@@ -2067,11 +2063,11 @@ export const openaiModels = [
 					},
 				],
 				requestPrice: "0",
-				// The Mantle deployment rejects prompts of 278528 tokens or more
-				// (AWS's "272K" is 272 * 1024), even though the model card now
-				// documents a 1M window; the global route above carries the full
-				// window.
-				contextSize: 278528,
+				// AWS documents a 1M window but both routes reject the prompt
+				// well before that: 921600 tokens is accepted and 922000 is
+				// rejected with `context_length_exceeded`, identically on the
+				// Mantle and global endpoints (probed on Luna).
+				contextSize: 921600,
 				maxOutput: 128000,
 				streaming: true,
 				// Bedrock Mantle only accepts data:/s3:// image URLs; the gateway
@@ -2079,19 +2075,22 @@ export const openaiModels = [
 				// (see prepare-request-body.ts).
 				vision: true,
 				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
 				reasoning: true,
+				// AWS rejects the explicit `detailed` and `concise` summary modes
+				// with `unsupported_parameter` on both routes; `auto` is accepted.
+				reasoningSummary: "auto",
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
 				verbosity: true,
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
-					"temperature",
-					"top_p",
-					"frequency_penalty",
-					"presence_penalty",
+					"max_tokens",
 					"response_format",
 					"verbosity",
+					"tools",
+					"tool_choice",
 				],
 				jsonOutput: true,
 			},
@@ -2241,10 +2240,6 @@ export const openaiModels = [
 								cacheWriteInputPrice: "5.0e-6",
 							},
 						],
-						// Global cross-region carries the model's full documented
-						// window. AWS writes it as "1M", and this family's "272K"
-						// proved to be 272 * 1024, so read it as 1024 * 1024.
-						contextSize: 1048576,
 					},
 					{ id: "us-east-1" },
 					{ id: "us-east-2" },
@@ -2273,11 +2268,11 @@ export const openaiModels = [
 					},
 				],
 				requestPrice: "0",
-				// The Mantle deployment rejects prompts of 278528 tokens or more
-				// (AWS's "272K" is 272 * 1024), even though the model card now
-				// documents a 1M window; the global route above carries the full
-				// window.
-				contextSize: 278528,
+				// AWS documents a 1M window but both routes reject the prompt
+				// well before that: 921600 tokens is accepted and 922000 is
+				// rejected with `context_length_exceeded`, identically on the
+				// Mantle and global endpoints (probed on Luna).
+				contextSize: 921600,
 				maxOutput: 128000,
 				streaming: true,
 				// Bedrock Mantle only accepts data:/s3:// image URLs; the gateway
@@ -2285,19 +2280,22 @@ export const openaiModels = [
 				// (see prepare-request-body.ts).
 				vision: true,
 				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
 				reasoning: true,
+				// AWS rejects the explicit `detailed` and `concise` summary modes
+				// with `unsupported_parameter` on both routes; `auto` is accepted.
+				reasoningSummary: "auto",
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
 				verbosity: true,
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
-					"temperature",
-					"top_p",
-					"frequency_penalty",
-					"presence_penalty",
+					"max_tokens",
 					"response_format",
 					"verbosity",
+					"tools",
+					"tool_choice",
 				],
 				jsonOutput: true,
 			},
@@ -2447,10 +2445,6 @@ export const openaiModels = [
 								cacheWriteInputPrice: "0.5e-6",
 							},
 						],
-						// Global cross-region carries the model's full documented
-						// window. AWS writes it as "1M", and this family's "272K"
-						// proved to be 272 * 1024, so read it as 1024 * 1024.
-						contextSize: 1048576,
 					},
 					{ id: "us-east-1" },
 					{ id: "us-east-2" },
@@ -2479,11 +2473,11 @@ export const openaiModels = [
 					},
 				],
 				requestPrice: "0",
-				// The Mantle deployment rejects prompts of 278528 tokens or more
-				// (AWS's "272K" is 272 * 1024), even though the model card now
-				// documents a 1M window; the global route above carries the full
-				// window.
-				contextSize: 278528,
+				// AWS documents a 1M window but both routes reject the prompt
+				// well before that: 921600 tokens is accepted and 922000 is
+				// rejected with `context_length_exceeded`, identically on the
+				// Mantle and global endpoints (probed on Luna).
+				contextSize: 921600,
 				maxOutput: 128000,
 				streaming: true,
 				// Bedrock Mantle only accepts data:/s3:// image URLs; the gateway
@@ -2491,19 +2485,22 @@ export const openaiModels = [
 				// (see prepare-request-body.ts).
 				vision: true,
 				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
 				reasoning: true,
+				// AWS rejects the explicit `detailed` and `concise` summary modes
+				// with `unsupported_parameter` on both routes; `auto` is accepted.
+				reasoningSummary: "auto",
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
 				verbosity: true,
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
-					"temperature",
-					"top_p",
-					"frequency_penalty",
-					"presence_penalty",
+					"max_tokens",
 					"response_format",
 					"verbosity",
+					"tools",
+					"tool_choice",
 				],
 				jsonOutput: true,
 			},

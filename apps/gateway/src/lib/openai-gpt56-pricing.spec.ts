@@ -125,15 +125,13 @@ describe("OpenAI GPT-5.6 family pricing", () => {
 });
 
 // AWS serves GPT-5.6 two ways: in-region Mantle deployments, priced at
-// OpenAI's data-residency tier (a flat 10% premium over the global rate) and
-// capped at a 272 * 1024 token context (upstream rejects prompts of 278528
-// tokens or more), and the global cross-region profile on the Runtime
-// endpoint, which carries the full 1024 * 1024 window at the undiscounted
-// rate. Both routes expose AWS's own long-context tier, which no longer
-// tracks OpenAI's first-party rates — Bedrock discounted Sol separately.
+// OpenAI's data-residency tier (a flat 10% premium over the global rate), and
+// the global cross-region profile on the Runtime endpoint at the undiscounted
+// rate. Both routes expose AWS's own long-context tier, which no longer tracks
+// OpenAI's first-party rates — Bedrock discounted Sol separately — and both
+// enforce the same prompt cap, measured well below AWS's documented 1M window.
 const BEDROCK_PREMIUM = 1.1;
-const MANTLE_CONTEXT_SIZE = 272 * 1024;
-const GLOBAL_CONTEXT_SIZE = 1024 * 1024;
+const BEDROCK_CONTEXT_SIZE = 921600;
 
 describe("GPT-5.6 on AWS Bedrock", () => {
 	const mantleEntries = models.flatMap((model) =>
@@ -233,13 +231,14 @@ describe("GPT-5.6 on AWS Bedrock", () => {
 	);
 
 	it.each(mantleEntries)(
-		"$modelId caps in-region at 272 * 1024 and global at the full window",
+		"$modelId caps both routes at the measured prompt window",
 		({ modelId, provider, global }) => {
 			expect(provider.contextSize, `${modelId}: aws-mantle context size`).toBe(
-				MANTLE_CONTEXT_SIZE,
+				BEDROCK_CONTEXT_SIZE,
 			);
+			// The global route inherits the cap rather than overriding it.
 			expect(global?.contextSize, `${modelId}: global context size`).toBe(
-				GLOBAL_CONTEXT_SIZE,
+				undefined,
 			);
 		},
 	);
@@ -313,8 +312,9 @@ describe("GPT-5.6 on AWS Bedrock", () => {
 				expect(entry.outputPrice, `${modelId} ${entry.region}`).toBe(
 					expected?.outputPrice,
 				);
+				// Every route inherits the mapping's prompt cap.
 				expect(entry.contextSize, `${modelId} ${entry.region}`).toBe(
-					expected?.contextSize,
+					provider.contextSize,
 				);
 			}
 		}
