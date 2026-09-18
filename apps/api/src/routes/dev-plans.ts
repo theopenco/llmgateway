@@ -2649,8 +2649,8 @@ devPlans.openapi(getInvoices, async (c) => {
 	return c.json({ invoices });
 });
 
-// Self-service refund for a DevPass billing event. Only the first (or latest)
-// barely-used payment qualifies; refunding a plan payment also cancels the
+// Self-service refund for a DevPass billing event. Only the initial barely-used
+// plan payment qualifies; refunding a plan payment also cancels the
 // DevPass immediately, while refunding an unused Reset Pass just returns the
 // pass and leaves the plan running. See lib/self-refund.ts for the
 // eligibility rules.
