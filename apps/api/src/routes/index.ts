@@ -2,6 +2,9 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 
 import { apiAuth as auth } from "@/auth/config.js";
 
+import { db } from "@llmgateway/db";
+import { accountBlockMessage } from "@llmgateway/shared/account-block";
+
 import { activity } from "./activity.js";
 import { adminAirside } from "./admin-airside.js";
 import { adminBenchmarks } from "./admin-benchmarks.js";
@@ -60,6 +63,14 @@ routes.use("/*", async (c, next) => {
 
 	if (!session?.user) {
 		return c.json({ message: "Unauthorized" }, 401);
+	}
+
+	const user = await db.query.user.findFirst({
+		where: { id: { eq: session.user.id } },
+		columns: { status: true, blockReason: true },
+	});
+	if (user?.status === "deactivated") {
+		return c.json({ message: accountBlockMessage(user.blockReason) }, 403);
 	}
 
 	c.set("user", session.user);

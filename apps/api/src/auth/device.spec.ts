@@ -256,9 +256,17 @@ describe.each(["llmgateway-cli", "llmgateway-lounge-ios"])(
 			await approve(code.user_code);
 			await db
 				.update(tables.user)
-				.set({ status: "deactivated" })
+				.set({
+					status: "deactivated",
+					blockReason: "Key sharing violates our terms.",
+				})
 				.where(eq(tables.user.id, userId));
-			expect((await poll(code.device_code)).status).toBe(403);
+			const response = await poll(code.device_code);
+			expect(response.status).toBe(403);
+			expect(await response.json()).toMatchObject({
+				message:
+					"Your account has been blocked. Reason: Key sharing violates our terms.",
+			});
 			expect(
 				await db.query.session.findMany({ where: { userId: { eq: userId } } }),
 			).toHaveLength(0);

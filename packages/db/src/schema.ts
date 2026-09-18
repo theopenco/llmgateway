@@ -86,6 +86,7 @@ export const user = pgTable(
 		})
 			.notNull()
 			.default("active"),
+		blockReason: text(),
 		// High-risk flag raised when the sign-up or email-verification request came
 		// from an IP that AbuseIPDB reports as abusive. A flagged user cannot buy
 		// credits or run inference in any of their organizations (mirrored onto
@@ -323,6 +324,7 @@ export const organization = pgTable(
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
+		blockReason: text(),
 		// Mirror of the AbuseIPDB high-risk flag on the member who created this
 		// organization (see `user.riskStatus`). Denormalized because the gateway
 		// already loads the organization on every request, so inference can be

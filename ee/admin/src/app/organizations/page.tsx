@@ -288,10 +288,10 @@ export default async function OrganizationsPage({
 		return await setOrganizationStatus(orgId, status);
 	}
 
-	async function handleBlockOrganization(orgId: string) {
+	async function handleBlockOrganization(orgId: string, reason?: string) {
 		"use server";
 
-		return await blockOrganization(orgId);
+		return await blockOrganization(orgId, reason);
 	}
 
 	async function handlePreviewBulkBlock(searchValue: string) {
