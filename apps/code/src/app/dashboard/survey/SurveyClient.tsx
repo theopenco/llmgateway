@@ -32,6 +32,8 @@ import { useAppConfig } from "@/lib/config";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import type { paths } from "@/lib/api/v1";
 
 export type SurveyEligibility =
@@ -365,7 +367,7 @@ export default function SurveyClient({
 												<span className="mt-0.5 block text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
 													{model.alreadySubmitted
 														? "Filed"
-														: `${model.requestCount.toLocaleString()} reqs / ${eligibility.windowDays}d`}
+														: `${formatNumber(model.requestCount)} reqs / ${eligibility.windowDays}d`}
 												</span>
 											</button>
 										);

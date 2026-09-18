@@ -21,6 +21,10 @@ import { useAppConfig } from "@/lib/config";
 import { resolveCanonicalModel } from "@/lib/model-family";
 
 import { getProviderIcon } from "@llmgateway/shared/components";
+import {
+	formatCompactNumber as formatCompact,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
 
 import type { paths } from "@/lib/api/v1";
 
@@ -82,15 +86,6 @@ function aggregateCanonicalModels(
 	return Array.from(byCanonical.values()).sort(
 		(a, b) => b.requestCount - a.requestCount,
 	);
-}
-
-function formatCompact(n: number): string {
-	// Pinned locale: this component is SSR'd, and the server's default locale
-	// differing from the visitor's would be a hydration text mismatch.
-	return new Intl.NumberFormat("en-US", {
-		notation: "compact",
-		maximumFractionDigits: 1,
-	}).format(n);
 }
 
 function joinedLabel(iso: string): string {
@@ -319,7 +314,7 @@ export function ProfileView({ profile }: { profile: ProfileData }) {
 												{model.name}
 											</span>
 											<span className="text-xs text-muted-foreground tabular-nums">
-												{model.requestCount.toLocaleString("en-US")}
+												{formatNumber(model.requestCount)}
 											</span>
 										</>
 									);

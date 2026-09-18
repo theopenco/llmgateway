@@ -33,6 +33,10 @@ import {
 import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
 
 import type { ChartConfig } from "@/components/ui/chart";
 
@@ -278,19 +282,6 @@ export function HistoryChart({
 		errorRate: (stability.errorRate ?? 0).toFixed(1),
 	};
 
-	function formatCompact(n: number): string {
-		if (n >= 1_000_000_000) {
-			return `${(n / 1_000_000_000).toFixed(1)}B`;
-		}
-		if (n >= 1_000_000) {
-			return `${(n / 1_000_000).toFixed(1)}M`;
-		}
-		if (n >= 1_000) {
-			return `${(n / 1_000).toFixed(1)}k`;
-		}
-		return n.toLocaleString();
-	}
-
 	return (
 		<Card>
 			<CardHeader className="space-y-4 pb-2">
@@ -331,31 +322,31 @@ export function HistoryChart({
 					<span>
 						Reqs:{" "}
 						<strong className="text-foreground">
-							{summaryStats.totalRequests.toLocaleString()}
+							{formatNumber(summaryStats.totalRequests)}
 						</strong>
 					</span>
 					<span>
 						Errors:{" "}
 						<strong className="text-foreground">
-							{summaryStats.totalErrors.toLocaleString()}
+							{formatNumber(summaryStats.totalErrors)}
 						</strong>{" "}
 						({summaryStats.errorRate}%) — client:{" "}
 						<strong className="text-foreground">
-							{summaryStats.totalClientErrors.toLocaleString()}
+							{formatNumber(summaryStats.totalClientErrors)}
 						</strong>
 						, gateway:{" "}
 						<strong className="text-foreground">
-							{summaryStats.totalGatewayErrors.toLocaleString()}
+							{formatNumber(summaryStats.totalGatewayErrors)}
 						</strong>
 						, upstream:{" "}
 						<strong className="text-foreground">
-							{summaryStats.totalUpstreamErrors.toLocaleString()}
+							{formatNumber(summaryStats.totalUpstreamErrors)}
 						</strong>
 					</span>
 					<span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
 						Tokens:{" "}
 						<strong className="text-foreground">
-							{formatCompact(summaryStats.totalTokens)}
+							{formatCompactNumber(summaryStats.totalTokens)}
 						</strong>
 						<TokenBreakdown breakdown={summaryStats.breakdown} short />
 					</span>
@@ -385,7 +376,7 @@ export function HistoryChart({
 						<span>
 							t/s:{" "}
 							<strong className="text-foreground">
-								{summaryStats.tokensPerSecond.toLocaleString()}
+								{formatNumber(summaryStats.tokensPerSecond)}
 							</strong>
 						</span>
 					)}
@@ -465,14 +456,12 @@ export function HistoryChart({
 								tickLine={false}
 								axisLine={false}
 								tickMargin={4}
-								width={50}
+								width={60}
 								tickFormatter={(value: number) => {
 									if (activeMetric === "cost") {
 										return `$${value >= 0.01 ? value.toFixed(2) : value.toFixed(4)}`;
 									}
-									return value >= 1000
-										? `${(value / 1000).toFixed(1)}k`
-										: String(value);
+									return formatCompactNumber(value);
 								}}
 							/>
 							<ChartTooltip
@@ -489,7 +478,7 @@ export function HistoryChart({
 											} else if (activeMetric === "cost") {
 												formatted = `$${Number(value).toFixed(4)}`;
 											} else {
-												formatted = Number(value).toLocaleString();
+												formatted = formatNumber(Number(value));
 											}
 											// Token series carry the spend they account for, so the
 											// tooltip answers "what did these tokens cost?" directly.

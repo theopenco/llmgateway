@@ -38,6 +38,7 @@ import { useUser } from "@/hooks/useUser";
 import { useApi } from "@/lib/fetch-client";
 
 import { providerBaseUrlHasEndpointPath } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 function ClaimDialog({
 	providerName,
@@ -618,7 +619,7 @@ function OnboardingContent() {
 													className="text-foreground font-mono font-semibold"
 													data-testid="listing-fee-amount"
 												>
-													${company.listingFeeAmount.toLocaleString("en-US")}
+													${formatNumber(company.listingFeeAmount)}
 												</span>
 											</>
 										) : null}{" "}

@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
 import { getProviderIcon } from "@llmgateway/shared/components";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { paths } from "@/lib/api/v1";
 
@@ -180,7 +181,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 						label="Throughput"
 						value={
 							hasEnoughData && provider.tokensPerSecond !== null
-								? `${provider.tokensPerSecond.toLocaleString()} t/s`
+								? `${formatNumber(provider.tokensPerSecond)} t/s`
 								: "—"
 						}
 					/>
@@ -270,7 +271,7 @@ function ProviderUptimeCard({ provider }: { provider: UptimeProvider }) {
 											const formatted =
 												activeMetric === "latency"
 													? `${Math.round(Number(value))}ms`
-													: Number(value).toLocaleString("en-US");
+													: formatNumber(Number(value));
 											return (
 												<span>
 													{label}: <strong>{formatted}</strong>

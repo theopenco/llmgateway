@@ -1,3 +1,5 @@
+import { formatCompactNumber as formatCompact } from "@llmgateway/shared/number-format";
+
 /* eslint-disable no-mixed-operators -- canvas layout math is dense with
  * mixed arithmetic, and prettier strips the clarifying parentheses the rule
  * would otherwise require (same trade-off as packages/db/src/logs.ts). */
@@ -67,13 +69,6 @@ function fitText(
 		trimmed = trimmed.slice(0, -1);
 	}
 	return trimmed + "…";
-}
-
-function formatCompact(n: number): string {
-	return new Intl.NumberFormat("en", {
-		notation: "compact",
-		maximumFractionDigits: 1,
-	}).format(n);
 }
 
 /** Cream paper with faint guilloche waves and a hairline frame. */

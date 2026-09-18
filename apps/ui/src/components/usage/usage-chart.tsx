@@ -1,4 +1,5 @@
 "use client";
+
 import { addDays, differenceInCalendarDays, format } from "date-fns";
 import { useSearchParams } from "next/navigation";
 import {
@@ -22,6 +23,10 @@ import {
 	formatBucketLabelWithZone,
 	useDisplayTimeZone,
 } from "@llmgateway/shared";
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
 
 import type { ActivitT } from "@/types/activity";
 import type { TooltipProps } from "recharts";
@@ -50,7 +55,8 @@ const CustomTooltip = ({
 					{label && formatBucketLabelWithZone(label, "monthDayYear", timeZone)}
 				</p>
 				<p className="text-sm">
-					<span className="font-medium">{payload[0].value}</span> Requests
+					<span className="font-medium">{formatNumber(payload[0].value)}</span>{" "}
+					Requests
 				</p>
 			</div>
 		);
@@ -184,6 +190,7 @@ export function UsageChart({
 						axisLine={false}
 					/>
 					<YAxis
+						tickFormatter={formatCompactNumber}
 						stroke="#888888"
 						fontSize={12}
 						tickLine={false}

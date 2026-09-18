@@ -5,6 +5,11 @@ import { useMemo, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
+
 import { AppLogo } from "./app-logo";
 import { getAppMetadata, type AppMetadata } from "./app-metadata";
 
@@ -34,19 +39,8 @@ const CATEGORIES: Array<{
 	{ value: "other", label: "Other" },
 ];
 
-const numberFormatter = new Intl.NumberFormat("en-US");
-
 function formatTokens(n: number): string {
-	if (n >= 1_000_000_000) {
-		return `${(n / 1_000_000_000).toFixed(2)}B`;
-	}
-	if (n >= 1_000_000) {
-		return `${(n / 1_000_000).toFixed(2)}M`;
-	}
-	if (n >= 1_000) {
-		return `${(n / 1_000).toFixed(1)}K`;
-	}
-	return numberFormatter.format(n);
+	return formatCompactNumber(n);
 }
 
 function formatRelative(iso: string | null): string | null {
@@ -186,7 +180,7 @@ function PodiumCard({
 						/>
 					</div>
 					<div className="flex items-center justify-between text-xs text-muted-foreground">
-						<span>{numberFormatter.format(app.totalRequests)} requests</span>
+						<span>{formatNumber(app.totalRequests)} requests</span>
 						{lastUsed && (
 							<span className="flex items-center gap-1.5">
 								<span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -251,7 +245,7 @@ function GridCard({ app, maxTokens }: { app: RankedApp; maxTokens: number }) {
 					/>
 				</div>
 				<div className="flex items-center justify-between text-[11px] text-muted-foreground">
-					<span>{numberFormatter.format(app.totalRequests)} requests</span>
+					<span>{formatNumber(app.totalRequests)} requests</span>
 					{lastUsed && <span>{lastUsed}</span>}
 				</div>
 			</div>
@@ -303,7 +297,7 @@ function ListRow({ app, maxTokens }: { app: RankedApp; maxTokens: number }) {
 				</div>
 			</div>
 			<div className="hidden text-right text-xs text-muted-foreground tabular-nums sm:block">
-				{numberFormatter.format(app.totalRequests)}
+				{formatNumber(app.totalRequests)}
 			</div>
 			<div className="text-right text-xs text-muted-foreground">
 				{lastUsed ?? "—"}

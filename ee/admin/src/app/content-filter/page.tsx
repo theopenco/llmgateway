@@ -35,6 +35,8 @@ import {
 	type ContentFilterViolationsWindow,
 } from "@/lib/content-filter-ranking";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 const WINDOWS: { value: ContentFilterViolationsWindow; label: string }[] = [
 	{ value: "24h", label: "24 hours" },
 	{ value: "7d", label: "7 days" },
@@ -316,19 +318,19 @@ export default async function ContentFilterPage({
 						<div>
 							<span className="text-muted-foreground">Sampled</span>
 							<p className="text-xl font-semibold tabular-nums">
-								{violations.totals.sampledCount.toLocaleString("en-US")}
+								{formatNumber(violations.totals.sampledCount)}
 							</p>
 						</div>
 						<div>
 							<span className="text-muted-foreground">Violations</span>
 							<p className="text-xl font-semibold tabular-nums">
-								{violations.totals.violationCount.toLocaleString("en-US")}
+								{formatNumber(violations.totals.violationCount)}
 							</p>
 						</div>
 						<div>
 							<span className="text-muted-foreground">Blocked</span>
 							<p className="text-xl font-semibold tabular-nums">
-								{violations.totals.blockedCount.toLocaleString("en-US")}
+								{formatNumber(violations.totals.blockedCount)}
 							</p>
 						</div>
 					</div>
@@ -374,16 +376,16 @@ export default async function ContentFilterPage({
 												{org.billingEmail ?? "—"}
 											</TableCell>
 											<TableCell className="text-right tabular-nums">
-												{org.sampledCount.toLocaleString("en-US")}
+												{formatNumber(org.sampledCount)}
 											</TableCell>
 											<TableCell className="text-right tabular-nums">
-												{org.violationCount.toLocaleString("en-US")}
+												{formatNumber(org.violationCount)}
 											</TableCell>
 											<TableCell className="text-right tabular-nums">
 												{percentFormatter.format(org.violationRate)}
 											</TableCell>
 											<TableCell className="text-right tabular-nums">
-												{org.blockedCount.toLocaleString("en-US")}
+												{formatNumber(org.blockedCount)}
 											</TableCell>
 											<TableCell className="text-xs text-muted-foreground">
 												{org.topCategories
@@ -526,16 +528,16 @@ export default async function ContentFilterPage({
 													</>
 												)}
 												<TableCell className="text-right tabular-nums">
-													{row.sampledCount.toLocaleString("en-US")}
+													{formatNumber(row.sampledCount)}
 												</TableCell>
 												<TableCell className="text-right tabular-nums">
-													{row.violationCount.toLocaleString("en-US")}
+													{formatNumber(row.violationCount)}
 												</TableCell>
 												<TableCell className="text-right tabular-nums">
 													{percentFormatter.format(row.violationRate)}
 												</TableCell>
 												<TableCell className="text-right tabular-nums">
-													{row.blockedCount.toLocaleString("en-US")}
+													{formatNumber(row.blockedCount)}
 												</TableCell>
 											</TableRow>
 										);
@@ -600,16 +602,16 @@ export default async function ContentFilterPage({
 														) : null}
 													</TableCell>
 													<TableCell className="text-right tabular-nums">
-														{org.sampledCount.toLocaleString("en-US")}
+														{formatNumber(org.sampledCount)}
 													</TableCell>
 													<TableCell className="text-right tabular-nums">
-														{org.violationCount.toLocaleString("en-US")}
+														{formatNumber(org.violationCount)}
 													</TableCell>
 													<TableCell className="text-right tabular-nums">
 														{percentFormatter.format(org.violationRate)}
 													</TableCell>
 													<TableCell className="text-right tabular-nums">
-														{org.blockedCount.toLocaleString("en-US")}
+														{formatNumber(org.blockedCount)}
 													</TableCell>
 												</TableRow>
 											))}

@@ -11,6 +11,8 @@ import {
 } from "@/lib/components/card";
 import { cn } from "@/lib/utils";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import type { DailyActivity } from "@/types/activity";
 
 interface ErrorsReliabilityCardProps {
@@ -141,13 +143,13 @@ export function ErrorsReliabilityCard({
 					<RateStat
 						label="Error rate"
 						rate={errorRate}
-						detail={`${totalErrors.toLocaleString()} failed of ${uptimeRequests.toLocaleString()} valid requests`}
+						detail={`${formatNumber(totalErrors)} failed of ${formatNumber(uptimeRequests)} valid requests`}
 						tone={errorTone}
 					/>
 					<RateStat
 						label="Cache hit rate"
 						rate={cacheRate}
-						detail={`${totalCached.toLocaleString()} cached responses`}
+						detail={`${formatNumber(totalCached)} cached responses`}
 						tone="neutral"
 					/>
 				</div>

@@ -56,6 +56,7 @@ import {
 } from "@/deactivation";
 import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
+import { formatNumber } from "@/number-format";
 
 import { getDefaultProviderMapping } from "./default-provider-mapping";
 import {
@@ -1383,8 +1384,8 @@ export function ProviderSection({
 												activeMapping.pricingTiers![index - 1]?.upToTokens ?? 0;
 											const label =
 												tier.upToTokens === null
-													? `>${(prevTokens / 1000).toLocaleString()}K tokens`
-													: `≤${(tier.upToTokens / 1000).toLocaleString()}K tokens`;
+													? `>${formatNumber(prevTokens / 1000)}K tokens`
+													: `≤${formatNumber(tier.upToTokens / 1000)}K tokens`;
 											return (
 												<div
 													key={index}

@@ -37,6 +37,8 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageMode } from "@/lib/usage-mode";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import type { DimensionRow } from "@/components/analytics/chart-helpers";
 import type { Route } from "next";
 
@@ -303,12 +305,12 @@ export function OrgAnalyticsClient() {
 							/>
 							<SummaryStat
 								label="Requests"
-								value={totals.requestCount.toLocaleString()}
+								value={formatNumber(totals.requestCount)}
 								icon={Zap}
 							/>
 							<SummaryStat
 								label="Tokens"
-								value={totals.totalTokens.toLocaleString()}
+								value={formatNumber(totals.totalTokens)}
 								icon={Hash}
 							/>
 						</div>

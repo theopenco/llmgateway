@@ -3,12 +3,9 @@
 import { TokenBreakdownCards } from "@/components/token-breakdown";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { TokenBreakdownData } from "@/components/token-breakdown";
-
-function formatNumber(n: number) {
-	return new Intl.NumberFormat("en-US").format(n);
-}
 
 export interface DetailStats extends TokenBreakdownData {
 	logsCount: number;
