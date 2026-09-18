@@ -30,6 +30,10 @@ import {
 	ChartTooltip,
 	ChartTooltipContent,
 } from "@/components/ui/chart";
+import {
+	formatProviderCacheRate,
+	providerCacheRate,
+} from "@/lib/provider-cache-rate";
 import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics } from "@llmgateway/shared";
@@ -84,12 +88,13 @@ const TOKEN_COST_KEY: Record<string, keyof HistoryDataPoint> = {
 	outputTokens: "outputCost",
 };
 
-type ActiveMetric = "requests" | "errors" | "latency" | "tokens" | "cost";
+type ActiveMetric =
+	"requests" | "errors" | "latency" | "tokens" | "cost" | "providerCacheRate";
 
 const chartConfigs: Record<ActiveMetric, ChartConfig> = {
 	requests: {
 		logsCount: { label: "Requests", color: "hsl(221 83% 53%)" },
-		cachedCount: { label: "Cached", color: "hsl(142 71% 45%)" },
+		cachedCount: { label: "Gateway cached", color: "hsl(142 71% 45%)" },
 	},
 	errors: {
 		clientErrorsCount: { label: "Client", color: "hsl(38 92% 50%)" },
@@ -104,6 +109,12 @@ const chartConfigs: Record<ActiveMetric, ChartConfig> = {
 		inputTokens: { label: "Input", color: "hsl(221 83% 53%)" },
 		cachedTokens: { label: "Cached", color: "hsl(142 71% 45%)" },
 		outputTokens: { label: "Output", color: "hsl(32 95% 44%)" },
+	},
+	providerCacheRate: {
+		providerCacheRate: {
+			label: "Provider cache rate",
+			color: "hsl(142 71% 45%)",
+		},
 	},
 	cost: {
 		totalCost: { label: "Cost ($)", color: "hsl(142 71% 45%)" },
@@ -132,6 +143,7 @@ const metricTabs: { key: ActiveMetric; label: string }[] = [
 	{ key: "errors", label: "Errors" },
 	{ key: "latency", label: "Latency" },
 	{ key: "tokens", label: "Tokens" },
+	{ key: "providerCacheRate", label: "Provider cache rate" },
 	{ key: "cost", label: "Cost" },
 ];
 
@@ -205,6 +217,10 @@ export function HistoryChart({
 
 	const config = chartConfigs[activeMetric];
 	const dataKeys = Object.keys(config);
+	const chartData = data.map((point) => ({
+		...point,
+		providerCacheRate: providerCacheRate(point),
+	}));
 
 	const ttftPoints = data.filter((d) => d.avgTtft !== null);
 	const durationPoints = data.filter((d) => d.avgDuration !== null);
@@ -437,7 +453,7 @@ export function HistoryChart({
 						className="aspect-auto h-[200px] w-full"
 					>
 						<ChartRoot
-							data={data}
+							data={chartData}
 							accessibilityLayer
 							margin={{ left: 0, right: 8, top: 4, bottom: 0 }}
 						>
@@ -457,7 +473,13 @@ export function HistoryChart({
 								axisLine={false}
 								tickMargin={4}
 								width={60}
+								domain={
+									activeMetric === "providerCacheRate" ? [0, 100] : undefined
+								}
 								tickFormatter={(value: number) => {
+									if (activeMetric === "providerCacheRate") {
+										return `${value}%`;
+									}
 									if (activeMetric === "cost") {
 										return `$${value >= 0.01 ? value.toFixed(2) : value.toFixed(4)}`;
 									}
@@ -475,6 +497,8 @@ export function HistoryChart({
 											let formatted: string;
 											if (activeMetric === "latency") {
 												formatted = `${Math.round(Number(value))}ms`;
+											} else if (activeMetric === "providerCacheRate") {
+												formatted = formatProviderCacheRate(Number(value));
 											} else if (activeMetric === "cost") {
 												formatted = `$${Number(value).toFixed(4)}`;
 											} else {

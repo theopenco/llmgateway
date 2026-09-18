@@ -32,6 +32,7 @@ export function serializeOrganization(
 		providerCompliancePolicy: organization.providerCompliancePolicy,
 		ssoAutoJoinDomain: organization.ssoAutoJoinDomain,
 		status: organization.status,
+		blockReason: organization.blockReason,
 		autoTopUpEnabled: organization.autoTopUpEnabled,
 		autoTopUpThreshold: organization.autoTopUpThreshold,
 		autoTopUpAmount: organization.autoTopUpAmount,

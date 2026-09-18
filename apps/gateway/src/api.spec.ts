@@ -8256,6 +8256,69 @@ describe("api", () => {
 		}
 	});
 
+	test("/v1/chat/completions logs a provider rate-limit rejection", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			...encryptProviderKeyForStorage(
+				"openai-key",
+				"provider-key-id",
+				"org-id",
+			),
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await db.insert(tables.rateLimit).values({
+			id: "rate-limit-openai",
+			organizationId: "org-id",
+			provider: "openai",
+			model: "gpt-4o-mini",
+			maxRpm: 1,
+		});
+
+		const makeRequest = (content: string) =>
+			app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "openai/gpt-4o-mini",
+					messages: [{ role: "user", content }],
+				}),
+			});
+
+		const firstRes = await makeRequest("Rate limit log request one");
+		expect(firstRes.status).toBe(200);
+
+		const secondRes = await makeRequest("Rate limit log request two");
+		expect(secondRes.status).toBe(429);
+		const secondJson = await secondRes.json();
+		expect(secondJson.error.message).toContain("Rate limit exceeded");
+
+		const logs = await waitForLogs(2);
+		const rejectionLog = logs.find(
+			(log) => log.finishReason === "client_error",
+		);
+		expect(rejectionLog).toBeDefined();
+		expect(rejectionLog?.hasError).toBe(true);
+		expect(rejectionLog?.errorDetails?.statusCode).toBe(429);
+		expect(rejectionLog?.errorDetails?.responseText).toContain(
+			"Rate limit exceeded",
+		);
+	});
+
 	// Non-streaming responses are cached in OpenAI format, so the stored
 	// finish_reason is normalized (e.g. "stop"). The cache-hit log must classify
 	// it using the OpenAI mapping, not the upstream provider's native format —

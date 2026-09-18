@@ -5,6 +5,11 @@
 	"license": "SEE LICENSE IN ../../LICENSE",
 	"type": "module",
 	"exports": {
+		"./account-block": {
+			"types": "./dist/account-block.d.ts",
+			"import": "./dist/account-block.js",
+			"default": "./dist/account-block.js"
+		},
 		"./image-generation-config": {
 			"types": "./dist/image-generation-config.d.ts",
 			"import": "./dist/image-generation-config.js",

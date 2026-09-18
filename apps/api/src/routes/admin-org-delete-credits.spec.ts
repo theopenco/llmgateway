@@ -75,6 +75,102 @@ describe("admin organization deletion credit guard", () => {
 		await deleteAll();
 	});
 
+	it.each(["Key sharing violates our terms.", "", "   "])(
+		"persists and displays the block reason %j",
+		async (reason) => {
+			await insertOrg("reason-org", "0");
+			await db.insert(tables.user).values({
+				id: "reason-member",
+				email: "member@example.com",
+			});
+			await db.insert(tables.userOrganization).values({
+				userId: "reason-member",
+				organizationId: "reason-org",
+			});
+			const response = await app.request(
+				"/admin/organizations/reason-org/block",
+				{
+					method: "POST",
+					headers: { Cookie: cookie, "Content-Type": "application/json" },
+					body: JSON.stringify({ reason: `  ${reason}  ` }),
+				},
+			);
+			expect(response.status).toBe(200);
+			const blockReason = reason.trim() || null;
+			expect(
+				await db.query.organization.findFirst({
+					where: { id: { eq: "reason-org" } },
+				}),
+			).toMatchObject({ status: "deleted", blockReason });
+			expect(
+				await db.query.user.findFirst({
+					where: { id: { eq: "reason-member" } },
+				}),
+			).toMatchObject({ status: "deactivated", blockReason });
+			const login = await app.request("/auth/sign-in/email", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					email: "member@example.com",
+					password: "password123",
+				}),
+			});
+			expect(login.status).toBe(403);
+			expect(await login.json()).toMatchObject({
+				error: "account_deactivated",
+				message: blockReason
+					? `Your account has been blocked. Reason: ${blockReason}`
+					: "Your account has been deactivated. Please contact support.",
+			});
+			expect((await setStatus("reason-org", "active", cookie)).status).toBe(
+				200,
+			);
+			expect(
+				await db.query.organization.findFirst({
+					where: { id: { eq: "reason-org" } },
+				}),
+			).toMatchObject({ status: "active", blockReason: null });
+			expect(
+				await db.query.user.findFirst({
+					where: { id: { eq: "reason-member" } },
+				}),
+			).toMatchObject({ status: "deactivated", blockReason });
+		},
+	);
+
+	it("rejects oversized reasons without blocking the account", async () => {
+		await insertOrg("reason-org", "0");
+		const response = await app.request(
+			"/admin/organizations/reason-org/block",
+			{
+				method: "POST",
+				headers: { Cookie: cookie, "Content-Type": "application/json" },
+				body: JSON.stringify({ reason: "a".repeat(1001) }),
+			},
+		);
+		expect(response.status).toBe(400);
+		expect(await getStatus("reason-org")).toBe("active");
+		expect(stripeMock.subscriptions.cancel).not.toHaveBeenCalled();
+	});
+
+	it("shows the reason to an authenticated but deactivated member", async () => {
+		await db
+			.update(tables.user)
+			.set({
+				status: "deactivated",
+				blockReason: "Key sharing violates our terms.",
+			})
+			.where(eq(tables.user.id, "test-user-id"));
+		const response = await app.request("/user/me", {
+			headers: { Cookie: cookie },
+		});
+		expect(response.status).toBe(403);
+		expect(await response.json()).toMatchObject({
+			message:
+				"Your account has been blocked. Reason: Key sharing violates our terms.",
+		});
+	});
+
 	it("refuses to block an organization with positive credits", async () => {
 		await insertOrg("credit-positive", "12.34");
 

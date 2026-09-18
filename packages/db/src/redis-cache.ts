@@ -17,7 +17,8 @@ interface CacheConfig {
 
 export class RedisCache extends Cache {
 	private readonly redisClient: Redis;
-	private readonly keyPrefix = "drizzle:cache:";
+	// Bump when cached row layouts change; tagged queries bypass the SQL hash.
+	private readonly keyPrefix = "drizzle:cache:v2:";
 	private readonly tablePrefix = "drizzle:tables:";
 	private readonly tagPrefix = "drizzle:tags:";
 	private readonly tableKeysPrefix = "drizzle:table_keys:";

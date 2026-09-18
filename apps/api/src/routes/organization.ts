@@ -173,6 +173,7 @@ const organizationSchema = z
 		providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
 		ssoAutoJoinDomain: z.string().nullable(),
 		status: z.enum(["active", "inactive", "deleted"]).nullable(),
+		blockReason: z.string().nullable(),
 		autoTopUpEnabled: z.boolean(),
 		autoTopUpThreshold: z.string().nullable(),
 		autoTopUpAmount: z.string().nullable(),

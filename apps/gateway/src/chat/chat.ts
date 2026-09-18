@@ -2388,6 +2388,98 @@ chat.openapi(completions, async (c) => {
 			? "none"
 			: getEffectiveRetentionLevel(organization);
 
+	// Surface gateway-side rejections (guardrails, unsupported parameters,
+	// rate limits) in the activity feed as a client_error so users can see why
+	// the request never reached a provider. Uses _insertLog directly: the local
+	// insertLog wrapper is declared further down and would be in its temporal
+	// dead zone here.
+	const logGatewayRejection = async (rejection: {
+		message: string;
+		statusCode: number;
+		statusText: string;
+		cause: string;
+		responseText?: string;
+	}) => {
+		try {
+			await _insertLog(
+				{
+					...createLogEntry(
+						requestId,
+						project,
+						apiKey,
+						undefined,
+						"",
+						undefined,
+						"llmgateway",
+						requestedModel,
+						requestedProvider,
+						messages as any[],
+						temperature,
+						max_tokens,
+						top_p,
+						frequency_penalty,
+						presence_penalty,
+						reasoning_effort,
+						reasoning_max_tokens,
+						effort as "low" | "medium" | "high" | undefined,
+						response_format,
+						tools,
+						tool_choice,
+						source,
+						customHeaders,
+						debugMode,
+						userAgent,
+						image_config,
+					),
+					...(logIdOverride ? { id: logIdOverride } : {}),
+					apiOrigin,
+					sessionId: sessionId ?? null,
+					content: null,
+					responseSize: 0,
+					finishReason: "client_error",
+					promptTokens: null,
+					completionTokens: null,
+					totalTokens: null,
+					reasoningTokens: null,
+					cachedTokens: null,
+					hasError: true,
+					streamed: !!stream,
+					canceled: false,
+					errorDetails: {
+						statusCode: rejection.statusCode,
+						statusText: rejection.statusText,
+						responseText: rejection.responseText ?? rejection.message,
+						cause: rejection.cause,
+					},
+					duration: 0,
+					timeToFirstToken: null,
+					inputCost: 0,
+					outputCost: 0,
+					cachedInputCost: 0,
+					requestCost: 0,
+					webSearchCost: 0,
+					imageInputTokens: null,
+					imageOutputTokens: null,
+					imageInputCost: null,
+					imageOutputCost: null,
+					cost: 0,
+					estimatedCost: false,
+					discount: null,
+					pricingTier: null,
+					requestedServiceTier,
+					usedServiceTier: null,
+					dataStorageCost: "0",
+				},
+				{ retentionLevel },
+			);
+		} catch (error) {
+			logger.error("Failed to log gateway rejection", {
+				error: toError(error),
+				cause: rejection.cause,
+			});
+		}
+	};
+
 	// Note: the end-user-wallet credits substitution (withWalletCredits) happens
 	// further below — orgs backing end-user wallets are always regular
 	// PAYG/credits orgs, never dev-plan orgs, so it cannot affect the dev-plan
@@ -2484,86 +2576,17 @@ chat.openapi(completions, async (c) => {
 					: modelInfo.id;
 			const errorMessage = `Service tier '${service_tier}' is not available for model ${scopedModel}.`;
 
-			try {
-				await _insertLog(
-					{
-						...createLogEntry(
-							requestId,
-							project,
-							apiKey,
-							undefined,
-							"",
-							undefined,
-							"llmgateway",
-							requestedModel,
-							requestedProvider,
-							messages as any[],
-							temperature,
-							max_tokens,
-							top_p,
-							frequency_penalty,
-							presence_penalty,
-							reasoning_effort,
-							reasoning_max_tokens,
-							effort as "low" | "medium" | "high" | undefined,
-							response_format,
-							tools,
-							tool_choice,
-							source,
-							customHeaders,
-							debugMode,
-							userAgent,
-							image_config,
-						),
-						...(logIdOverride ? { id: logIdOverride } : {}),
-						apiOrigin,
-						content: null,
-						responseSize: 0,
-						finishReason: "client_error",
-						promptTokens: null,
-						completionTokens: null,
-						totalTokens: null,
-						reasoningTokens: null,
-						cachedTokens: null,
-						hasError: true,
-						streamed: !!stream,
-						canceled: false,
-						errorDetails: {
-							statusCode: 400,
-							statusText: "Bad Request",
-							responseText: JSON.stringify({
-								message: errorMessage,
-								service_tier,
-								model: scopedModel,
-							}),
-							cause: "unsupported_service_tier",
-						},
-						duration: 0,
-						timeToFirstToken: null,
-						inputCost: 0,
-						outputCost: 0,
-						cachedInputCost: 0,
-						requestCost: 0,
-						webSearchCost: 0,
-						imageInputTokens: null,
-						imageOutputTokens: null,
-						imageInputCost: null,
-						imageOutputCost: null,
-						cost: 0,
-						estimatedCost: false,
-						discount: null,
-						pricingTier: null,
-						requestedServiceTier,
-						usedServiceTier: null,
-						dataStorageCost: "0",
-					},
-					{ retentionLevel },
-				);
-			} catch (error) {
-				logger.error("Failed to log unsupported service tier rejection", {
-					error: toError(error),
-				});
-			}
+			await logGatewayRejection({
+				message: errorMessage,
+				statusCode: 400,
+				statusText: "Bad Request",
+				cause: "unsupported_service_tier",
+				responseText: JSON.stringify({
+					message: errorMessage,
+					service_tier,
+					model: scopedModel,
+				}),
+			});
 
 			return c.json(
 				{
@@ -2746,75 +2769,16 @@ chat.openapi(completions, async (c) => {
 			// Surface the block in the activity feed as a client_error so users
 			// can see that the gateway rejected their request before any provider
 			// was contacted.
-			try {
-				await insertLogEntry({
-					...createLogEntry(
-						requestId,
-						project,
-						apiKey,
-						undefined,
-						"",
-						undefined,
-						"llmgateway",
-						requestedModel,
-						requestedProvider,
-						messages as any[],
-						temperature,
-						max_tokens,
-						top_p,
-						frequency_penalty,
-						presence_penalty,
-						reasoning_effort,
-						reasoning_max_tokens,
-						effort as "low" | "medium" | "high" | undefined,
-						response_format,
-						tools,
-						tool_choice,
-						source,
-						customHeaders,
-						debugMode,
-						userAgent,
-					),
-					content: null,
-					responseSize: 0,
-					finishReason: "client_error",
-					promptTokens: null,
-					completionTokens: null,
-					totalTokens: null,
-					reasoningTokens: null,
-					cachedTokens: null,
-					hasError: true,
-					streamed: !!stream,
-					canceled: false,
-					errorDetails: {
-						statusCode: 400,
-						statusText: "Bad Request",
-						responseText: JSON.stringify({
-							message: errorMessage,
-							violations: blockedViolations,
-						}),
-						cause: "guardrail_violation",
-					},
-					duration: 0,
-					timeToFirstToken: null,
-					inputCost: 0,
-					outputCost: 0,
-					cachedInputCost: 0,
-					requestCost: 0,
-					webSearchCost: 0,
-					imageInputTokens: null,
-					imageOutputTokens: null,
-					imageInputCost: null,
-					imageOutputCost: null,
-					cost: 0,
-					estimatedCost: false,
-					discount: null,
-					pricingTier: null,
-					dataStorageCost: "0",
-				});
-			} catch {
-				// Silently ignore logging failures
-			}
+			await logGatewayRejection({
+				message: errorMessage,
+				statusCode: 400,
+				statusText: "Bad Request",
+				cause: "guardrail_violation",
+				responseText: JSON.stringify({
+					message: errorMessage,
+					violations: blockedViolations,
+				}),
+			});
 
 			// Return the structured violation details directly. HTTPException's
 			// `cause` is dropped by the global error handler, so callers would
@@ -2979,85 +2943,12 @@ chat.openapi(completions, async (c) => {
 			const message = supportsAdaptiveThinking
 				? `"thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive" and "output_config.effort" to control thinking behavior.`
 				: `"thinking" is not supported for this model. Remove the "thinking" parameter or use a model that supports extended thinking.`;
-			try {
-				// Use _insertLog directly (not insertLogEntry): the local insertLog
-				// wrapper is declared further down and would be in its temporal dead
-				// zone here. Mirrors the early service-tier rejection log above.
-				await _insertLog(
-					{
-						...createLogEntry(
-							requestId,
-							project,
-							apiKey,
-							undefined,
-							"",
-							undefined,
-							"llmgateway",
-							requestedModel,
-							requestedProvider,
-							messages as any[],
-							temperature,
-							max_tokens,
-							top_p,
-							frequency_penalty,
-							presence_penalty,
-							reasoning_effort,
-							reasoning_max_tokens,
-							effort as "low" | "medium" | "high" | undefined,
-							response_format,
-							tools,
-							tool_choice,
-							source,
-							customHeaders,
-							debugMode,
-							userAgent,
-							image_config,
-						),
-						...(logIdOverride ? { id: logIdOverride } : {}),
-						apiOrigin,
-						content: null,
-						responseSize: 0,
-						finishReason: "client_error",
-						promptTokens: null,
-						completionTokens: null,
-						totalTokens: null,
-						reasoningTokens: null,
-						cachedTokens: null,
-						hasError: true,
-						streamed: !!stream,
-						canceled: false,
-						errorDetails: {
-							statusCode: 400,
-							statusText: "Bad Request",
-							responseText: message,
-							cause: "unsupported_reasoning_budget",
-						},
-						duration: 0,
-						timeToFirstToken: null,
-						inputCost: 0,
-						outputCost: 0,
-						cachedInputCost: 0,
-						requestCost: 0,
-						webSearchCost: 0,
-						imageInputTokens: null,
-						imageOutputTokens: null,
-						imageInputCost: null,
-						imageOutputCost: null,
-						cost: 0,
-						estimatedCost: false,
-						discount: null,
-						pricingTier: null,
-						requestedServiceTier,
-						usedServiceTier: null,
-						dataStorageCost: "0",
-					},
-					{ retentionLevel },
-				);
-			} catch (error) {
-				logger.error("Failed to log budget-thinking rejection", {
-					error: toError(error),
-				});
-			}
+			await logGatewayRejection({
+				message,
+				statusCode: 400,
+				statusText: "Bad Request",
+				cause: "unsupported_reasoning_budget",
+			});
 			throw new HTTPException(400, { message });
 		}
 		throw capabilityError;
@@ -4612,9 +4503,14 @@ chat.openapi(completions, async (c) => {
 					)
 					.join(" and ");
 
-				throw new HTTPException(429, {
-					message: `Rate limit exceeded: maximum ${blockedLimits} for ${requestedProvider}/${baseModelId}. Please try again later.`,
+				const message = `Rate limit exceeded: maximum ${blockedLimits} for ${requestedProvider}/${baseModelId}. Please try again later.`;
+				await logGatewayRejection({
+					message,
+					statusCode: 429,
+					statusText: "Too Many Requests",
+					cause: "rate_limit_exceeded",
 				});
+				throw new HTTPException(429, { message });
 			}
 
 			// Attempt to re-route to alternative providers (same pattern as low-uptime fallback)
@@ -6142,9 +6038,14 @@ chat.openapi(completions, async (c) => {
 		);
 
 		// Race condition: between peek and consume, the window may have filled.
-		// Only hard-block if the user explicitly requested this provider with no-fallback.
+		// Zero global caps always block, including when every routing candidate is capped.
 		if (!providerRateLimitResult.allowed) {
-			if (noFallback && requestedProvider) {
+			if (
+				(noFallback && requestedProvider) ||
+				providerRateLimitResult.blockedBy.some(
+					(window) => providerRateLimitResult.limits[window].limit === 0,
+				)
+			) {
 				const retryAfter = providerRateLimitResult.retryAfter;
 				if (retryAfter) {
 					c.header("Retry-After", retryAfter.toString());
@@ -6161,9 +6062,14 @@ chat.openapi(completions, async (c) => {
 					)
 					.join(" and ");
 
-				throw new HTTPException(429, {
-					message: `Rate limit exceeded: maximum ${blockedLimits} for this provider/model. Please try again later.`,
+				const message = `Rate limit exceeded: maximum ${blockedLimits} for this provider/model. Please try again later.`;
+				await logGatewayRejection({
+					message,
+					statusCode: 429,
+					statusText: "Too Many Requests",
+					cause: "rate_limit_exceeded",
 				});
+				throw new HTTPException(429, { message });
 			}
 			// Otherwise proceed — the provider was the best available option from routing
 			logger.warn(

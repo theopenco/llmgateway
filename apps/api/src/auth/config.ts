@@ -36,6 +36,7 @@ import {
 import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, lt, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { accountBlockMessage } from "@llmgateway/shared/account-block";
 import { getResendClient, resendAudienceId } from "@llmgateway/shared/email";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
@@ -983,14 +984,13 @@ The LLM Gateway Team`.trim();
 						if (email) {
 							const existingUser = await db.query.user.findFirst({
 								where: { email: { eq: email } },
-								columns: { status: true },
+								columns: { status: true, blockReason: true },
 							});
 							if (existingUser?.status === "deactivated") {
 								return new Response(
 									JSON.stringify({
 										error: "account_deactivated",
-										message:
-											"Your account has been deactivated. Please contact support.",
+										message: accountBlockMessage(existingUser.blockReason),
 									}),
 									{
 										status: 403,
@@ -1178,7 +1178,12 @@ The LLM Gateway Team`.trim();
 
 					const dbUser = await db.query.user.findFirst({
 						where: { id: { eq: userId } },
-						columns: { status: true, name: true, email: true },
+						columns: {
+							status: true,
+							blockReason: true,
+							name: true,
+							email: true,
+						},
 					});
 
 					if (dbUser && !dbUser.name?.trim() && dbUser.email) {
@@ -1199,8 +1204,7 @@ The LLM Gateway Team`.trim();
 						return new Response(
 							JSON.stringify({
 								error: "account_deactivated",
-								message:
-									"Your account has been deactivated. Please contact support.",
+								message: accountBlockMessage(dbUser.blockReason),
 							}),
 							{
 								status: 403,

@@ -3,20 +3,14 @@ import { ImageResponse } from "next/og";
 import { discountFraction, getEffectiveProviderDiscount } from "@/lib/discount";
 import Logo from "@/lib/icons/Logo";
 import { getModelOgData } from "@/lib/model-og";
+import { getOgModelFamilyIcon, getOgProviderIcon } from "@/lib/og-icons";
 import { formatContextSize } from "@/lib/utils";
 
 import {
 	providers as providerDefinitions,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
-import {
-	AWSBedrockIconStatic,
-	FireworksIconStatic,
-	getProviderIcon,
-	GoogleStudioAIIconStatic,
-	MinimaxIconStatic,
-	XAIIconStatic,
-} from "@llmgateway/shared/components";
+import { ogIconSize } from "@llmgateway/shared/components";
 
 export const size = {
 	width: 1200,
@@ -24,25 +18,6 @@ export const size = {
 };
 export const contentType = "image/png";
 export const revalidate = 60;
-
-const getOgProviderIcon = (providerId: string) => {
-	if (providerId === "aws-bedrock" || providerId === "aws-mantle") {
-		return AWSBedrockIconStatic;
-	}
-	if (providerId === "minimax") {
-		return MinimaxIconStatic;
-	}
-	if (providerId === "google-ai-studio") {
-		return GoogleStudioAIIconStatic;
-	}
-	if (providerId === "xai") {
-		return XAIIconStatic;
-	}
-	if (providerId === "fireworks") {
-		return FireworksIconStatic;
-	}
-	return getProviderIcon(providerId);
-};
 
 interface ImageProps {
 	params: Promise<{ name: string; provider: string }>;
@@ -150,9 +125,10 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 		const providerInfo =
 			providerDefinitions.find((p) => p.id === selectedMapping.providerId) ??
 			apiProviders.find((p) => p.id === selectedMapping.providerId);
-		const ProviderIcon = selectedMapping
-			? getOgProviderIcon(selectedMapping.providerId)
-			: null;
+		// The card leads with the model maker's mark, not the mark of whichever
+		// provider mapping generated it — `/models/gpt-5.6-sol` would otherwise
+		// share as an AWS card.
+		const FamilyIcon = getOgModelFamilyIcon(model.family);
 		const effectiveDiscount = selectedMapping
 			? getEffectiveProviderDiscount(
 					discounts,
@@ -413,23 +389,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 								overflow: "hidden",
 							}}
 						>
-							{ProviderIcon ? (
-								<ProviderIcon width={56} height={56} />
-							) : (
-								<span
-									style={{
-										fontSize: 36,
-										fontWeight: 700,
-									}}
-								>
-									{(
-										providerInfo?.name ??
-										(selectedMapping?.providerId || "LLM")
-									)
-										.charAt(0)
-										.toUpperCase()}
-								</span>
-							)}
+							<FamilyIcon {...ogIconSize(FamilyIcon, 56)} />
 						</div>
 						<div
 							style={{
@@ -464,7 +424,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 						</div>
 					</div>
 
-					{supportingProviders.length > 1 && (
+					{supportingProviders.length > 0 && (
 						<div
 							style={{
 								display: "flex",
@@ -488,7 +448,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 										overflow: "hidden",
 									}}
 								>
-									<Icon width={30} height={30} />
+									<Icon {...ogIconSize(Icon, 30)} />
 								</div>
 							))}
 						</div>

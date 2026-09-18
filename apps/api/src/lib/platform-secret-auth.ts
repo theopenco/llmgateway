@@ -1,6 +1,7 @@
 import { HTTPException } from "hono/http-exception";
 
 import { db } from "@llmgateway/db";
+import { accountBlockMessage } from "@llmgateway/shared/account-block";
 import { getApiKeyFingerprints } from "@llmgateway/shared/api-key-hash";
 
 import type { Context, Next } from "hono";
@@ -71,7 +72,12 @@ export async function platformSecretAuth(c: Context, next: Next) {
 		row.project.organization &&
 		row.project.organization.status !== "active"
 	) {
-		throw new HTTPException(403, { message: "Organization is not active" });
+		throw new HTTPException(403, {
+			message: accountBlockMessage(
+				row.project.organization.blockReason,
+				"Organization is not active",
+			),
+		});
 	}
 
 	if (!row.project.endUserEnabled) {

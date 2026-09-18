@@ -1,4 +1,4 @@
-import { isRecord } from "@/lib/message-metadata";
+import { describeGatewayError } from "@/lib/gateway-error";
 
 export {
 	getModelImageConfig,
@@ -192,39 +192,13 @@ export class ImageGenerationError extends Error {
 
 /**
  * Derive a user-facing message and HTTP status from an image generation
- * failure. Prefers the gateway's detailed message embedded in the provider
- * error's responseBody, falling back to the Error message and status 500.
+ * failure, falling back to a generation-specific message.
  */
 export function describeImageGenerationError(error: unknown): {
 	message: string;
 	status: number;
 } {
-	const status =
-		typeof error === "object" &&
-		error !== null &&
-		"status" in error &&
-		typeof (error as { status: unknown }).status === "number"
-			? (error as { status: number }).status
-			: 500;
-
-	let message =
-		error instanceof Error ? error.message : "Image generation failed";
-
-	if (typeof error === "object" && error !== null) {
-		const err = error as Record<string, unknown>;
-		if (typeof err.responseBody === "string") {
-			try {
-				const body: unknown = JSON.parse(err.responseBody);
-				if (isRecord(body) && typeof body.message === "string") {
-					message = body.message;
-				}
-			} catch {
-				// ignore parse errors
-			}
-		}
-	}
-
-	return { message, status };
+	return describeGatewayError(error, "Image generation failed");
 }
 
 /**

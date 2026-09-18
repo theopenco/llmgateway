@@ -25,7 +25,7 @@ export default function TermsPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> September 16, 2026
+				<strong>Last Updated:</strong> September 18, 2026
 			</p>
 			<LegalSummary variant="terms" />
 			<p>
@@ -168,17 +168,28 @@ export default function TermsPage() {
 				plan remains active until the end of the current billing period.
 			</p>
 			<p>
-				<strong>Limited first-month goodwill refund.</strong> Once you start
-				using your included allowance, you are not entitled to a refund because
-				each processed request causes us to incur real, non-recoverable AI
-				provider costs. As a limited goodwill exception, we may make a full
-				self-service refund available for your initial DevPass plan payment if
-				you request it from your billing dashboard within 14 days of purchase
-				and have used less than 20% of the monthly allowance. The payment and
-				account must also meet the eligibility requirements shown in the billing
-				dashboard. Once usage reaches 20% or more, a refund is not available.
-				Any reference to a &ldquo;first-month guarantee&rdquo; means only this
+				<strong>Limited goodwill refund.</strong> Once you start using your
+				included allowance, you are not entitled to a refund because each
+				processed request causes us to incur real, non-recoverable AI provider
+				costs. As a limited goodwill exception, we may make a full self-service
+				refund available for an eligible DevPass plan payment if you request it
+				from your billing dashboard within 14 days of purchase and have used
+				less than 20% of the monthly allowance. The payment and account must
+				also meet the eligibility requirements shown in the billing dashboard.
+				Once usage reaches the applicable limit, a refund is not available. Any
+				reference to a &ldquo;first-month guarantee&rdquo; means only this
 				limited goodwill option and does not create a broader right to a refund.
+			</p>
+			<p>
+				<strong>Refund usage limit from October 15, 2026.</strong> For DevPass
+				plan payments made on or after October 15, 2026, at 00:00 UTC, the limit
+				above decreases from 20% to <strong>10%</strong> of the applicable
+				monthly allowance, not of the payment amount. Usage must remain below
+				10%; usage at or above 10% is ineligible. Payments made before that date
+				retain the 20% limit for their existing 14-day refund window. Eligible
+				renewals, upgrades, and subscription restarts remain subject to the same
+				checks; a later payment does not automatically qualify for a refund. The
+				separate unused Reset Pass refund policy is unchanged.
 			</p>
 			<p>
 				If the refund option is available, select <strong>Refund</strong> on the
@@ -431,8 +442,8 @@ export default function TermsPage() {
 				account &mdash; immediately and without prior notice, at any point in
 				the billing cycle. Fees already paid are retained, no refund or credit
 				is issued for the remainder of the cycle or for any unused allowance,
-				and the first-month goodwill refund in Section&nbsp;2 does not apply to
-				an account terminated for a violation.
+				and the goodwill refund in Section&nbsp;2 does not apply to an account
+				terminated for a violation.
 			</p>
 			<hr />
 			<h2>5. Data and Privacy</h2>

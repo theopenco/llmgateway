@@ -92,6 +92,7 @@ import {
 	excludeRegionalMappingRows,
 	gte,
 	inArray,
+	invalidateOrganizationsCache,
 	isNotNull,
 	isNull,
 	lt,
@@ -5515,16 +5516,21 @@ const createRateLimitBodySchema = z.object({
 	maxRequests: z.coerce
 		.number()
 		.int("Limit must be a whole number")
-		.min(1, "Limit must be at least 1"),
+		.min(0, "Limit must be at least 0"),
 	enforcement: z.enum(["per_org", "global"]).optional().default("per_org"),
 	reason: z.string().nullable().optional(),
 });
 
 // Org-specific limits are always enforced per-org, so they don't expose the
 // enforcement choice.
-const createOrganizationRateLimitBodySchema = createRateLimitBodySchema.omit({
-	enforcement: true,
-});
+const createOrganizationRateLimitBodySchema = createRateLimitBodySchema
+	.omit({ enforcement: true })
+	.extend({
+		maxRequests: z.coerce
+			.number()
+			.int("Limit must be a whole number")
+			.min(1, "Limit must be at least 1"),
+	});
 
 // --- Global Rate Limits ---
 
@@ -8912,6 +8918,7 @@ admin.openapi(setOrganizationStatusRoute, async (c) => {
 			.update(tables.organization)
 			.set({
 				status,
+				...(status === "active" ? { blockReason: null } : {}),
 				...(status === "deleted" ? getCancelledOrganizationPlanState() : {}),
 			})
 			.where(eq(tables.organization.id, orgId));
@@ -8961,6 +8968,13 @@ const blockOrganizationRoute = createRoute({
 	method: "post",
 	path: "/organizations/{orgId}/block",
 	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ reason: z.string().trim().max(1000).optional() }),
+				},
+			},
+		},
 		params: z.object({
 			orgId: z.string(),
 		}),
@@ -9016,7 +9030,9 @@ interface BlockOrganizationOutcome {
 async function blockOrganizationById(
 	orgId: string,
 	adminUserId: string,
+	reason?: string,
 ): Promise<BlockOrganizationOutcome> {
+	const blockReason = reason?.trim() || null;
 	const org = await db.query.organization.findFirst({
 		where: { id: { eq: orgId } },
 	});
@@ -9044,6 +9060,7 @@ async function blockOrganizationById(
 			.update(tables.organization)
 			.set({
 				status: "deleted",
+				blockReason,
 				...getCancelledOrganizationPlanState(),
 			})
 			.where(eq(tables.organization.id, orgId));
@@ -9051,7 +9068,7 @@ async function blockOrganizationById(
 		if (memberUserIds.length > 0) {
 			await tx
 				.update(tables.user)
-				.set({ status: "deactivated" })
+				.set({ status: "deactivated", blockReason })
 				.where(inArray(tables.user.id, memberUserIds));
 
 			await tx
@@ -9059,6 +9076,8 @@ async function blockOrganizationById(
 				.where(inArray(tables.session.userId, memberUserIds));
 		}
 	});
+
+	await invalidateOrganizationsCache([orgId]);
 
 	if (memberUserIds.length > 0) {
 		const members = await db.query.user.findMany({
@@ -9080,6 +9099,7 @@ async function blockOrganizationById(
 		metadata: {
 			resourceName: org.name,
 			previousStatus: org.status ?? "active",
+			blockReason,
 			cancelledSubscriptionIds,
 			memberCount: memberUserIds.length,
 			deactivatedUserCount: memberUserIds.length,
@@ -9097,10 +9117,12 @@ async function blockOrganizationById(
 admin.openapi(blockOrganizationRoute, async (c) => {
 	const user = c.get("user");
 	const { orgId } = c.req.valid("param");
+	const { reason } = c.req.valid("json");
 
 	const { cancelledSubscriptionIds } = await blockOrganizationById(
 		orgId,
 		user!.id,
+		reason,
 	);
 
 	return c.json({

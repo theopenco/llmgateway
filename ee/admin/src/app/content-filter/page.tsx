@@ -354,6 +354,7 @@ export default async function ContentFilterPage({
 										<TableHead>Top categories</TableHead>
 										<TableHead>Top providers</TableHead>
 										<TableHead>Top models</TableHead>
+										<TableHead>Top mappings</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
@@ -420,6 +421,22 @@ export default async function ContentFilterPage({
 															>
 																{shortModelName(m.usedModel, m.usedProvider)} (
 																{m.violationCount})
+															</span>
+														))}
+													</div>
+												)}
+											</TableCell>
+											<TableCell className="text-xs text-muted-foreground">
+												{org.topModels.length === 0 ? (
+													"—"
+												) : (
+													<div className="flex flex-col gap-0.5">
+														{org.topModels.map((m) => (
+															<span
+																key={`${m.usedProvider}/${m.usedModel}`}
+																className="whitespace-nowrap"
+															>
+																{m.usedModel} ({formatNumber(m.violationCount)})
 															</span>
 														))}
 													</div>

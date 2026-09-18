@@ -10,6 +10,20 @@ LLMGateway provides flexible and intelligent routing options to help you get the
 
 LLMGateway also includes **automatic retry and fallback** — if a provider fails, your request is seamlessly retried on the next best provider, all within the same API call.
 
+## Global Provider Rate Limits
+
+Administrators can set a global RPM or RPD limit to `0` to block matching
+provider/model requests, with either **Global** or **Per-organization**
+enforcement. Remove the limit or set a positive value to resume traffic; changes
+propagate through the rate-limit cache (default 60 seconds).
+
+Existing precedence still applies: organization-specific limits and more specific
+global provider/model limits can override a provider-wide limit for the same
+window. Routing can fall back to another available provider. If a zero-limited
+provider remains selected, the request returns `429` without calling it, even
+when every candidate is rate-limited. No configured limit still means unlimited;
+other rate-limit settings retain their existing behavior.
+
 ## Model Selection
 
 ### Any Model Name
