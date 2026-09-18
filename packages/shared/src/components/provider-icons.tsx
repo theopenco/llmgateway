@@ -1795,6 +1795,48 @@ export const ModelFamilyIcons: Record<
 	zai: ZaiIcon,
 };
 
+// Aspect ratio (width / height) of every mark whose artwork is not square, read
+// off its own viewBox. Satori stretches an SVG to the width and height it is
+// given, so OpenGraph cards letterbox these themselves via `ogIconSize`; in the
+// browser `preserveAspectRatio` handles it and this map is unused. Keyed by
+// component so an icon can never drift away from its entry.
+// A `provider-icons.spec.ts` case fails when a non-square viewBox has no entry.
+export const iconAspectRatios = new Map<
+	React.FC<React.SVGProps<SVGSVGElement>>,
+	number
+>([
+	[AWSBedrockIcon, 304 / 182],
+	[AWSBedrockIconStatic, 304 / 182],
+	[CanopyWaveIcon, 1628 / 1561],
+	[DeepInfraIcon, 28 / 32],
+	[DeepseekIcon, 57.86 / 43.38],
+	[EmberCloudIcon, 141 / 89],
+	[FireworksIcon, 88 / 44],
+	[GroqIcon, 200.18 / 69.76],
+	[InferenceNetIcon, 256 / 235.039],
+	[MistralIcon, 41 / 29],
+	[NanoGPTIcon, 181.45 / 186.88],
+	[ReveIcon, 182 / 148],
+	[RunpodIcon, 195 / 206],
+	[RunwareWordmarkIcon, 445 / 51],
+	[ScxIcon, 760 / 277.2],
+	[XAIIcon, 759 / 290.2],
+	[ZaiIcon, 161 / 129],
+]);
+
+/**
+ * Width and height that fit a mark inside a square box without distorting it.
+ */
+export const ogIconSize = (
+	Icon: React.FC<React.SVGProps<SVGSVGElement>>,
+	box: number,
+) => {
+	const aspect = iconAspectRatios.get(Icon) ?? 1;
+	return aspect >= 1
+		? { width: box, height: Math.round(box / aspect) }
+		: { width: Math.round(box * aspect), height: box };
+};
+
 // Helper function to get an icon by a model's family, falling back to the LLM
 // Gateway logo for families without a dedicated brand icon.
 export const getModelFamilyIcon = (

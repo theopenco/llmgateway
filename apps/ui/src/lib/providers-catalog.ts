@@ -37,3 +37,17 @@ export const publicProviderDefinitions = providerDefinitions.filter(
 export const listedProviders = publicProviderDefinitions.filter(
 	(provider) => (activeModelCounts[provider.id] ?? 0) > 0,
 );
+
+/** Distinct models routable through at least one of the given providers. */
+export function countModelsForProviders(providerIds: Set<string>) {
+	return (modelDefinitions as readonly ModelDefinition[]).filter((model) =>
+		model.providers.some(
+			(mapping) =>
+				!isMappingDeactivated(mapping) && providerIds.has(mapping.providerId),
+		),
+	).length;
+}
+
+export const listedModelCount = countModelsForProviders(
+	new Set(listedProviders.map((provider) => provider.id)),
+);

@@ -53,6 +53,8 @@ const modelUsageSchema = z.object({
 	requestCount: z.number(),
 	inputTokens: z.number(),
 	outputTokens: z.number(),
+	cachedTokens: z.number(),
+	cacheWriteTokens: z.number(),
 	totalTokens: z.number(),
 	cost: z.number(),
 	...modeSplitSchema,
@@ -508,6 +510,14 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.outputTokens} AS NUMERIC)), 0)`.as(
 						"outputTokens",
 					),
+				cachedTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.cachedTokens} AS NUMERIC)), 0)`.as(
+						"cachedTokens",
+					),
+				cacheWriteTokens:
+					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.cacheWriteTokens} AS NUMERIC)), 0)`.as(
+						"cacheWriteTokens",
+					),
 				totalTokens:
 					sql<number>`COALESCE(SUM(CAST(${apiKeyHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
@@ -549,6 +559,8 @@ activity.openapi(getActivity, async (c) => {
 				requestCount: Number(breakdown.requestCount),
 				inputTokens: Number(breakdown.inputTokens),
 				outputTokens: Number(breakdown.outputTokens),
+				cachedTokens: Number(breakdown.cachedTokens),
+				cacheWriteTokens: Number(breakdown.cacheWriteTokens),
 				totalTokens: Number(breakdown.totalTokens),
 				cost: Number(breakdown.cost),
 				...mapModeSplit(breakdown),
@@ -884,6 +896,14 @@ activity.openapi(getActivity, async (c) => {
 					sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.outputTokens} AS NUMERIC)), 0)`.as(
 						"outputTokens",
 					),
+				cachedTokens:
+					sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.cachedTokens} AS NUMERIC)), 0)`.as(
+						"cachedTokens",
+					),
+				cacheWriteTokens:
+					sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.cacheWriteTokens} AS NUMERIC)), 0)`.as(
+						"cacheWriteTokens",
+					),
 				totalTokens:
 					sql<number>`COALESCE(SUM(CAST(${projectHourlyModelStats.totalTokens} AS NUMERIC)), 0)`.as(
 						"totalTokens",
@@ -916,6 +936,8 @@ activity.openapi(getActivity, async (c) => {
 				requestCount: Number(breakdown.requestCount),
 				inputTokens: Number(breakdown.inputTokens),
 				outputTokens: Number(breakdown.outputTokens),
+				cachedTokens: Number(breakdown.cachedTokens),
+				cacheWriteTokens: Number(breakdown.cacheWriteTokens),
 				totalTokens: Number(breakdown.totalTokens),
 				cost: Number(breakdown.cost),
 				...mapModeSplit(breakdown),
