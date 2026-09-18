@@ -28,7 +28,7 @@ import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import {
 	isRefundFeedbackComplete,
-	SELF_REFUND_USAGE_PERCENT,
+	getSelfRefundUsagePercent,
 	SELF_REFUND_WINDOW_DAYS,
 	type RefundReason,
 } from "@llmgateway/shared";
@@ -167,7 +167,7 @@ const REFUND_INELIGIBILITY_COPY: Record<string, string> = {
 	not_latest_purchase: "Only your most recent payment can be self-refunded",
 	plan_inactive: "The plan for this payment is no longer active",
 	credits_frozen: "Refunds are unavailable while credits are frozen",
-	usage_exceeded: `More than ${SELF_REFUND_USAGE_PERCENT}% of these credits have been used`,
+	usage_exceeded: "This payment has reached its refund usage limit",
 };
 
 function isPlanPayment(type: Transaction["type"]): boolean {
@@ -245,8 +245,11 @@ function RefundButton({
 						</span>
 					</TooltipTrigger>
 					<TooltipContent>
-						{REFUND_INELIGIBILITY_COPY[refund.reason ?? "unsupported_type"] ??
-							"This payment cannot be refunded"}
+						{refund.reason === "usage_exceeded"
+							? `At least ${getSelfRefundUsagePercent(transaction.createdAt)}% of these credits have been used`
+							: (REFUND_INELIGIBILITY_COPY[
+									refund.reason ?? "unsupported_type"
+								] ?? "This payment cannot be refunded")}
 					</TooltipContent>
 				</Tooltip>
 			</TooltipProvider>

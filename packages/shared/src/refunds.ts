@@ -7,7 +7,14 @@
 // drift from what the endpoint actually allows.
 export const SELF_REFUND_WINDOW_DAYS = 14;
 export const RESET_PASS_SELF_REFUND_WINDOW_DAYS = 7;
-export const SELF_REFUND_USAGE_PERCENT = 20;
+export const SELF_REFUND_USAGE_PERCENT = 10;
+
+// Earlier payments retain their original limit through their refund window.
+export function getSelfRefundUsagePercent(purchasedAt: Date | string): number {
+	return new Date(purchasedAt).getTime() < Date.parse("2026-10-15T00:00:00Z")
+		? 20
+		: SELF_REFUND_USAGE_PERCENT;
+}
 
 export const REFUND_REASONS = [
 	"not_working",

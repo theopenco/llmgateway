@@ -27,7 +27,7 @@ import { useApi, useFetchClient } from "@/lib/fetch-client";
 
 import {
 	RESET_PASS_SELF_REFUND_WINDOW_DAYS,
-	SELF_REFUND_USAGE_PERCENT,
+	getSelfRefundUsagePercent,
 	SELF_REFUND_WINDOW_DAYS,
 	Time,
 	isRefundFeedbackComplete,
@@ -143,12 +143,14 @@ const REFUND_INELIGIBILITY_COPY: Record<string, string> = {
 	not_latest_purchase: "Only your most recent payment can be self-refunded",
 	plan_inactive: "Your DevPass is no longer active",
 	credits_frozen: "Refunds are unavailable while credits are frozen",
-	usage_exceeded: `More than ${SELF_REFUND_USAGE_PERCENT}% of this period's credits have been used`,
 	pass_already_used: "This Reset Pass has already been redeemed",
 };
 
 function refundIneligibilityCopy(invoice: Invoice): string {
 	const reason = invoice.refund?.reason ?? "unsupported_type";
+	if (reason === "usage_exceeded") {
+		return `At least ${getSelfRefundUsagePercent(invoice.date)}% of this period's credits have been used`;
+	}
 	// Reset Passes have a shorter return window than plan payments.
 	if (reason === "window_expired" && invoice.type === "dev_plan_reset_pass") {
 		return `Unused Reset Passes can be refunded for ${RESET_PASS_SELF_REFUND_WINDOW_DAYS} days after purchase`;
