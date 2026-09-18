@@ -506,6 +506,7 @@ This allows you to distinguish between unrecovered failures and failures that we
 Failed attempts still count against the provider's uptime score, even when the request was successfully retried on another provider. This means:
 
 - A provider that keeps failing will see its uptime score drop
+- Only gateway and upstream errors count: requests rejected as client errors (invalid request bodies, unsupported parameters) are excluded from both the error count and the request total, so your own bad requests never mark a provider as down
 - The exponential uptime penalty kicks in below 95% (see [Smart Routing Algorithm](#smart-routing-algorithm))
 - Future requests are automatically routed away from unreliable providers
 - Your application stays reliable without any code changes on your side

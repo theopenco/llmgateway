@@ -48,6 +48,7 @@ import {
 import {
 	complianceBlockMessage,
 	getActiveCompliancePolicy,
+	getComplianceFailureReasons,
 	getEffectiveRetentionLevel,
 	isModelIdCompliant,
 	isProviderIdCompliant,
@@ -206,6 +207,7 @@ import {
 	getRegionSpecificEnvVarName,
 } from "@llmgateway/models";
 import {
+	complianceExclusionReason,
 	detectCodingAgentFromReferer,
 	detectCodingAgentFromTitle,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
@@ -1706,6 +1708,9 @@ chat.openapi(completions, async (c) => {
 		after: readonly ProviderModelMapping[],
 		reason: string,
 		code: ProviderFilterReason["code"],
+		// Finer-grained reasons recorded alongside `code`, e.g. which compliance
+		// rule the mapping failed. Per mapping, since they depend on the mapping.
+		details?: (mapping: ProviderModelMapping) => ProviderFilterReason[],
 	) => {
 		// Provider-level, not mapping-level: with regional expansion a provider is
 		// only "filtered out" once none of its mappings survived.
@@ -1715,7 +1720,7 @@ chat.openapi(completions, async (c) => {
 				recordFilteredProvider(
 					preRoutingFilteredProviders,
 					mapping.providerId,
-					[{ code, message: reason }],
+					[{ code, message: reason }, ...(details?.(mapping) ?? [])],
 				);
 			}
 		}
@@ -3352,20 +3357,39 @@ chat.openapi(completions, async (c) => {
 	// none remain. Applied after every (re)computation of the IAM-filtered arrays.
 	const compliancePolicy = getActiveCompliancePolicy(organization);
 
+	const complianceContextFor = (
+		provider: ProviderModelMapping,
+	): ComplianceCheckContext =>
+		isCustomAutoRoutingMapping(provider)
+			? {
+					customAttestation:
+						routingCustomProviderKeysById.get(provider.customProviderKeyId)
+							?.complianceAttestation ?? null,
+					customProviderName: provider.customProviderName,
+				}
+			: complianceContext;
+
+	// Which policy rules a dropped mapping failed, recorded next to the coarse
+	// "compliance" code so the routing analytics can break the total down by rule
+	// instead of reporting one opaque bucket.
+	const complianceDetailReasons = (
+		provider: ProviderModelMapping,
+	): ProviderFilterReason[] =>
+		compliancePolicy
+			? getComplianceFailureReasons(
+					provider.providerId,
+					modelInfo.id,
+					compliancePolicy,
+					complianceContextFor(provider),
+				).map((failure) => exclusionReason(complianceExclusionReason(failure)))
+			: [];
+
 	const applyCompliancePolicy = <T extends ProviderModelMapping>(
 		list: T[],
 	): T[] =>
 		compliancePolicy
 			? list.filter((provider) => {
-					const context = isCustomAutoRoutingMapping(provider)
-						? {
-								customAttestation:
-									routingCustomProviderKeysById.get(
-										provider.customProviderKeyId,
-									)?.complianceAttestation ?? null,
-								customProviderName: provider.customProviderName,
-							}
-						: complianceContext;
+					const context = complianceContextFor(provider);
 					return (
 						isProviderIdCompliant(
 							provider.providerId,
@@ -3386,6 +3410,7 @@ chat.openapi(completions, async (c) => {
 			compliantProviders,
 			"excluded by compliance policy",
 			"compliance",
+			complianceDetailReasons,
 		);
 		iamFilteredModelProviders = compliantProviders;
 		expandedIamFilteredModelProviders = applyCompliancePolicy(
@@ -4031,6 +4056,24 @@ chat.openapi(completions, async (c) => {
 				if (!compliantProviders.has(provider)) {
 					recordFilteredProvider(filteredOutForModel, provider.providerId, [
 						exclusionReason("compliance"),
+						...(compliancePolicy
+							? getComplianceFailureReasons(
+									provider.providerId,
+									modelDef.id,
+									compliancePolicy,
+									isCustomAutoRoutingMapping(provider)
+										? {
+												customAttestation:
+													customProviderKeysById.get(
+														provider.customProviderKeyId,
+													)?.complianceAttestation ?? null,
+												customProviderName: provider.customProviderName,
+											}
+										: complianceContext,
+								).map((failure) =>
+									exclusionReason(complianceExclusionReason(failure)),
+								)
+							: []),
 					]);
 				}
 			}
@@ -7424,6 +7467,7 @@ chat.openapi(completions, async (c) => {
 			sessionId,
 			reasoning_context,
 			organization.safetyIdentifier,
+			getUsedProviderMapping(),
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a

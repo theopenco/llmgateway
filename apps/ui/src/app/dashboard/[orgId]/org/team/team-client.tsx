@@ -89,6 +89,7 @@ import { useApi } from "@/lib/fetch-client";
 import { applyUsageMode } from "@/lib/usage-mode";
 
 import { SSO_TEAM_DEFAULT_DEVELOPER_BUDGET, Time } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 import {
 	isOrganizationAdmin,
 	isProjectScopedRole,
@@ -1304,10 +1305,10 @@ export function TeamClient({ initialData }: { initialData?: TeamMembersData }) {
 																	{currencyFormatter.format(usage?.cost ?? 0)}
 																</TableCell>
 																<TableCell className="text-right">
-																	{(usage?.totalTokens ?? 0).toLocaleString()}
+																	{formatNumber(usage?.totalTokens ?? 0)}
 																</TableCell>
 																<TableCell className="text-right">
-																	{(usage?.requestCount ?? 0).toLocaleString()}
+																	{formatNumber(usage?.requestCount ?? 0)}
 																</TableCell>
 																<TableCell className="text-right">
 																	{usage?.apiKeyCount ?? 0}

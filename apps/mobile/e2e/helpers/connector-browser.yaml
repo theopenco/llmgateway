@@ -1,0 +1,13 @@
+appId: io.llmgateway.lounge
+---
+- extendedWaitUntil:
+    visible: "Continue|Demo mailbox"
+    timeout: 20000
+- runFlow:
+    when:
+      visible: "Continue"
+    commands:
+      - tapOn: "Continue"
+- extendedWaitUntil:
+    visible: "Demo mailbox"
+    timeout: 20000

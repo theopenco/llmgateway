@@ -1,0 +1,12 @@
+appId: io.llmgateway.lounge
+---
+- assertVisible: "Keep this appearance draft"
+- takeScreenshot: artifacts/appearance-keyboard-dark
+- hideKeyboard
+- assertVisible: ".*This is a mock response from the test server.*"
+- takeScreenshot: artifacts/appearance-chat-dark
+- tapOn: "Send message"
+- extendedWaitUntil:
+    notVisible: "Stop response"
+    timeout: 30000
+- assertVisible: ".*Keep this appearance draft.*"

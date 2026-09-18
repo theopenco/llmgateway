@@ -5,6 +5,8 @@ import * as RechartsPrimitive from "recharts";
 
 import { cn } from "@/lib/utils";
 
+import { formatChartValue } from "@llmgateway/shared/number-format";
+
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const;
 
@@ -238,7 +240,7 @@ function ChartTooltipContent({
 											</div>
 											{item.value !== null && item.value !== undefined && (
 												<span className="font-mono font-medium text-foreground tabular-nums">
-													{item.value.toLocaleString()}
+													{formatChartValue(item.value)}
 												</span>
 											)}
 										</div>

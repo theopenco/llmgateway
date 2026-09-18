@@ -677,7 +677,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "alibaba/qwen-image-plus",
+    "model": "alibaba/qwen-image-3.0",
     "messages": [
       {
         "role": "user",
@@ -702,9 +702,6 @@ Available Alibaba models (see the [models page](https://llmgateway.io/models?fil
 
 | Model                        | Description                                                                          |
 | ---------------------------- | ------------------------------------------------------------------------------------ |
-| `alibaba/qwen-image`         | Standard quality image generation                                                    |
-| `alibaba/qwen-image-plus`    | Good balance of quality and cost                                                     |
-| `alibaba/qwen-image-max`     | Highest quality image generation                                                     |
 | `alibaba/qwen-image-3.0`     | Third-generation image generation and editing                                        |
 | `alibaba/qwen-image-3.0-pro` | Highest quality third-generation generation and editing. Priced per output size tier |
 

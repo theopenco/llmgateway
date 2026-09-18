@@ -1,0 +1,22 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- tapOn: "Start a conversation"
+- tapOn: "Model: Auto"
+- tapOn:
+    id: field-search-models
+- inputText: "gpt-4o-mini"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT-4o Mini"
+- tapOn: "Message.*"
+- inputText: ${"NATIVE_APPEARANCE " + Date.now() + "\n\n## Theme sample\n\n```ts\nconst value = 2;\n```\n\n| Feature | State |\n| --- | --- |\n| Appearance | Ready |\n\nA [Lounge link](https://llmgateway.io)."}
+- tapOn: "Send message"
+- extendedWaitUntil:
+    visible: ".*This is a mock response from the test server.*"
+    timeout: 30000
+- takeScreenshot: artifacts/appearance-chat-light
+- tapOn: "Message.*"
+- inputText: "Keep this appearance draft"
+- assertVisible: "Keep this appearance draft"
+- takeScreenshot: artifacts/appearance-keyboard-light

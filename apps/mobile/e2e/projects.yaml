@@ -1,0 +1,189 @@
+appId: io.llmgateway.lounge
+---
+# Place fixtures/lounge-knowledge.md in the simulator's local Files storage.
+- evalScript: ${output.projectName = "Native knowledge " + Date.now()}
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- tapOn: "Projects"
+- tapOn: "Create project"
+- tapOn:
+    id: "field-project-name"
+- inputText: ${output.projectName}
+- tapOn: "Done typing"
+- tapOn:
+    id: "field-description"
+- inputText: "A native knowledge workspace"
+- tapOn: "Done typing"
+- scrollUntilVisible:
+    element:
+      id: "field-project-instructions"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "field-project-instructions"
+- inputText: "Use metric units."
+- tapOn: "Done typing"
+- tapOn: "Save project"
+- tapOn: ${"Open " + output.projectName}
+- scrollUntilVisible:
+    element:
+      id: "field-memory"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "field-memory"
+- inputText: "Preferred timezone is GMT."
+- tapOn: "Done typing"
+- tapOn: "Add memory"
+- assertVisible: "Preferred timezone is GMT."
+- scrollUntilVisible:
+    element: "Edit memory"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Edit memory"
+- scrollUntilVisible:
+    element:
+      id: "field-memory"
+    direction: UP
+    centerElement: true
+- tapOn:
+    id: "field-memory"
+    point: "95%,50%"
+- eraseText: 100
+- inputText: "Preferred timezone is UTC."
+- tapOn: "Done typing"
+- tapOn: "Update memory"
+- assertVisible: "Preferred timezone is UTC."
+- scrollUntilVisible:
+    element: "Add knowledge file"
+    direction: UP
+    centerElement: true
+- tapOn: "Add knowledge file"
+- runFlow: helpers/knowledge-file.yaml
+- scrollUntilVisible:
+    element: "ready.*excerpts"
+    direction: DOWN
+    timeout: 30000
+- scrollUntilVisible:
+    element: "Start project conversation"
+    direction: UP
+    centerElement: true
+- tapOn: "Start project conversation"
+- runFlow: helpers/chat-model.yaml
+- tapOn: "Message.*"
+- inputText: ${"PROJECT_CONTEXT_PROBE. I prefer concise answers. " + output.projectName}
+- tapOn: "Send message"
+- extendedWaitUntil:
+    visible: "Project context verified.*"
+    timeout: 30000
+- tapOn: "Project"
+- scrollUntilVisible:
+    element: "Prefers concise answers."
+    direction: DOWN
+    timeout: 30000
+- assertVisible: "Learned from a conversation"
+- launchApp
+- runFlow: helpers/organization.yaml
+- tapOn: "Projects"
+- tapOn: ${"Open " + output.projectName}
+- assertVisible: "Use metric units."
+- scrollUntilVisible:
+    element: "Prefers concise answers."
+    direction: DOWN
+- scrollUntilVisible:
+    element: "Start project conversation"
+    direction: UP
+    centerElement: true
+- tapOn: "Start project conversation"
+- runFlow: helpers/chat-model.yaml
+- tapOn: "Message.*"
+- inputText: ${"PROJECT_MEMORY_PROBE " + output.projectName}
+- tapOn: "Send message"
+- extendedWaitUntil:
+    visible: "Learned memory verified."
+    timeout: 30000
+- tapOn: "Rename"
+- eraseText: 200
+- inputText: ${output.projectName}
+- tapOn: "OK"
+- tapOn: "Project"
+- scrollUntilVisible:
+    element: "Remove lounge-knowledge.md"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Remove lounge-knowledge.md"
+- tapOn: "Remove"
+- scrollUntilVisible:
+    element: ${output.projectName}
+    direction: DOWN
+    centerElement: true
+- tapOn: ${output.projectName}
+- tapOn: "Message.*"
+- inputText: "PROJECT_REMOVED_FILE_PROBE"
+- tapOn: "Send message"
+- extendedWaitUntil:
+    visible: "File removal verified; memory retained."
+    timeout: 30000
+- tapOn: "Project"
+- scrollUntilVisible:
+    element: "Preferred timezone is UTC."
+    direction: UP
+    centerElement: true
+- scrollUntilVisible:
+    element:
+      text: "Delete memory"
+      index: 0
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    text: "Delete memory"
+    index: 0
+- tapOn: "Delete"
+- assertNotVisible: "Preferred timezone is UTC."
+- assertVisible: "Prefers concise answers."
+- tapOn: "Projects"
+- scrollUntilVisible:
+    element: ${"Edit " + output.projectName}
+    direction: UP
+    centerElement: true
+- tapOn: ${"Edit " + output.projectName}
+- scrollUntilVisible:
+    element:
+      id: "field-description"
+    direction: UP
+    centerElement: true
+- tapOn:
+    id: "field-description"
+    point: "95%,50%"
+- eraseText: 200
+- inputText: "Updated native knowledge workspace"
+- tapOn: "Done typing"
+- tapOn: "Save project"
+- extendedWaitUntil:
+    notVisible: "Save project"
+    timeout: 15000
+- tapOn: ${"Open " + output.projectName}
+- assertVisible: "Updated native knowledge workspace"
+- tapOn: "Projects"
+- scrollUntilVisible:
+    element: "Create project"
+    direction: UP
+    centerElement: true
+- tapOn: ${"Delete " + output.projectName}
+- tapOn: "Delete"
+- assertNotVisible: ${"Open " + output.projectName}
+- launchApp
+- runFlow: helpers/organization.yaml
+- tapOn: "Conversations"
+- tapOn:
+    id: "field-search-conversations"
+- inputText: ${output.projectName}
+- tapOn: "Done typing"
+- tapOn: ${output.projectName + ",.*4 messages"}
+- assertNotVisible: '${"Project: " + output.projectName}'
+- tapOn: "Message.*"
+- inputText: "PROJECT_DETACHED_PROBE"
+- tapOn: "Send message"
+- extendedWaitUntil:
+    visible: "Detached conversation verified."
+    timeout: 30000

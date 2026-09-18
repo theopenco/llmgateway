@@ -1,11 +1,11 @@
 import { streamText } from "ai";
 import { cookies } from "next/headers";
 
-import { catalog } from "@/lib/canvas/catalog";
 import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
+import { catalog } from "@llmgateway/canvas/catalog";
 import { getGatewayApiBaseUrl } from "@llmgateway/shared/gateway-url";
 import { LOUNGE_SOURCE } from "@llmgateway/shared/lounge-source";
 

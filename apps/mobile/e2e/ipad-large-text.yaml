@@ -1,0 +1,52 @@
+appId: io.llmgateway.lounge
+---
+- setOrientation: PORTRAIT
+- launchApp
+- scrollUntilVisible:
+    element: Start a conversation
+    direction: DOWN
+- tapOn: Start a conversation
+- scrollUntilVisible:
+    element: "Model: Auto"
+    direction: UP
+- tapOn: "Model: Auto"
+- scrollUntilVisible:
+    element:
+      id: field-search-models
+    direction: DOWN
+- tapOn:
+    id: field-search-models
+- inputText: gpt-4o-mini
+- tapOn: Done typing
+- scrollUntilVisible:
+    element: Providers for GPT-4o Mini
+    direction: DOWN
+    timeout: 30000
+- takeScreenshot: lounge-ipad-large-models
+- tapOn: Providers for GPT-4o Mini
+- scrollUntilVisible:
+    element: Use OpenAI
+    direction: DOWN
+- takeScreenshot: lounge-ipad-large-providers
+- tapOn: Use OpenAI
+- scrollUntilVisible:
+    element: "Model: openai/gpt-4o-mini"
+    direction: UP
+- assertVisible: "Model: openai/gpt-4o-mini"
+- takeScreenshot: lounge-ipad-large-chat
+- tapOn: "Message.*"
+- inputText: "Large text draft stays visible"
+- assertVisible: "Large text draft stays visible"
+- takeScreenshot: lounge-ipad-large-keyboard
+- tapOn: Hide keyboard
+- setOrientation: LANDSCAPE_LEFT
+- assertVisible: Send message
+- takeScreenshot: lounge-ipad-large-landscape
+- assertVisible: "Large text draft stays visible"
+- tapOn: "Message.*"
+- inputText: " after rotation"
+- assertVisible: ".*after rotation.*"
+- assertVisible: Send message
+- takeScreenshot: lounge-ipad-large-landscape-keyboard
+- setOrientation: PORTRAIT
+- tapOn: Hide keyboard

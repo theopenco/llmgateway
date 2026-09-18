@@ -20,6 +20,7 @@ import { getMappingHistory } from "@/lib/admin-history";
 import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
@@ -106,10 +107,6 @@ function SortableHeader({
 	);
 }
 
-function formatNumber(n: number) {
-	return new Intl.NumberFormat("en-US").format(n);
-}
-
 function formatCost(n: number) {
 	return `$${n.toFixed(4)}`;
 }
@@ -139,11 +136,12 @@ function MappingRow({
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const ProviderIcon = getProviderIcon(mapping.providerId);
-	const stability = deriveStabilityMetrics(
-		mapping.logsCount,
-		mapping.errorsCount + mapping.clientErrorsCount,
-		mapping.clientErrorsCount,
-	);
+	const stability = deriveStabilityMetrics({
+		logsCount: mapping.logsCount,
+		clientErrorsCount: mapping.clientErrorsCount,
+		gatewayErrorsCount: mapping.gatewayErrorsCount,
+		upstreamErrorsCount: mapping.upstreamErrorsCount,
+	});
 	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
 	const fetchData = useCallback(

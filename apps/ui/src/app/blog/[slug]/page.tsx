@@ -35,9 +35,10 @@ interface BlogEntryPageProps {
 }
 
 export default async function BlogEntryPage({ params }: BlogEntryPageProps) {
-	const { allBlogs } = await import("content-collections");
-
-	const { slug } = await params;
+	const [{ allBlogs }, { slug }] = await Promise.all([
+		import("content-collections"),
+		params,
+	]);
 
 	const entry = allBlogs.find((entry: Blog) => entry.slug === slug);
 
@@ -267,9 +268,10 @@ export async function generateStaticParams() {
 export async function generateMetadata({
 	params,
 }: BlogEntryPageProps): Promise<Metadata> {
-	const { allBlogs } = await import("content-collections");
-
-	const { slug } = await params;
+	const [{ allBlogs }, { slug }] = await Promise.all([
+		import("content-collections"),
+		params,
+	]);
 
 	const entry = allBlogs.find((entry: Blog) => entry.slug === slug);
 

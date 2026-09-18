@@ -230,6 +230,7 @@ export {
 
 export {
 	deriveStabilityMetrics,
+	type StabilityCounts,
 	type StabilityMetrics,
 } from "./stability-metrics.js";
 
@@ -312,19 +313,24 @@ export {
 } from "./routing-config.js";
 
 export {
+	COMPLIANCE_EXCLUSION_REASONS,
+	complianceExclusionReason,
 	isRoutingCredentialSource,
+	isRoutingExclusionDetailReason,
 	isRoutingExclusionReason,
 	isRoutingSelectionReason,
 	ROUTING_CREDENTIAL_SOURCE_DESCRIPTIONS,
 	ROUTING_CREDENTIAL_SOURCE_LABELS,
 	ROUTING_EXCLUSION_REASON_LABELS,
 	ROUTING_EXCLUSION_REASON_MESSAGES,
+	ROUTING_EXCLUSION_REASON_PARENTS,
 	ROUTING_EXCLUSION_REASONS,
 	ROUTING_SELECTION_KIND_LABELS,
 	ROUTING_SELECTION_KINDS,
 	ROUTING_SELECTION_REASON_LABELS,
 	ROUTING_SELECTION_REASONS,
 	routingExclusionReasonMessage,
+	routingExclusionReasonParent,
 	routingSelectionKind,
 	type RoutingCredentialSource,
 	type RoutingExclusionReason,

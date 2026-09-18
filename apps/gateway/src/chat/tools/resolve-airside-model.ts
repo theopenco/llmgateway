@@ -301,6 +301,7 @@ export function airsideListingToModelDefinition(listed: AirsideListedModel): {
 		vision: listed.mapping.vision ?? undefined,
 		audio: listed.mapping.audio ?? undefined,
 		tools: listed.mapping.tools ?? undefined,
+		supportedToolChoices: listed.mapping.supportedToolChoices ?? undefined,
 		jsonOutput: listed.mapping.jsonOutput,
 		reasoning: listed.mapping.reasoning ?? undefined,
 		reasoningEfforts: (listed.mapping.reasoningEfforts ??

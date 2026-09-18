@@ -2331,6 +2331,9 @@ export type ComplianceFailureReason =
 	| "allowedCountries"
 	| "blockedProviders"
 	| "allowedProviders"
+	| "blockedModels"
+	| "allowedModels"
+	| "unknownProvider"
 	| "noAttestation";
 
 /**
@@ -2477,20 +2480,33 @@ export function isModelAllowedByPolicy(
 	modelRefs: readonly string[],
 	policy: ProviderCompliancePolicy,
 ): boolean {
+	return getModelPolicyListFailures(modelRefs, policy).length === 0;
+}
+
+/**
+ * The fine-grained model-list checks a model fails: an entry on the deny list,
+ * or absence from a non-empty allow list. Empty when the model passes both
+ * lists; always empty for a disabled policy.
+ */
+export function getModelPolicyListFailures(
+	modelRefs: readonly string[],
+	policy: ProviderCompliancePolicy,
+): ComplianceFailureReason[] {
 	if (!policy.enabled) {
-		return true;
+		return [];
 	}
+	const failures: ComplianceFailureReason[] = [];
 	if (policy.blockedModels?.some((ref) => modelRefs.includes(ref))) {
-		return false;
+		failures.push("blockedModels");
 	}
 	if (
 		policy.allowedModels &&
 		policy.allowedModels.length > 0 &&
 		!policy.allowedModels.some((ref) => modelRefs.includes(ref))
 	) {
-		return false;
+		failures.push("allowedModels");
 	}
-	return true;
+	return failures;
 }
 
 /**

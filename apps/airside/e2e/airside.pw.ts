@@ -267,7 +267,7 @@ test("registering a model requires provider preflight", async ({ page }) => {
 	// Prices are entered as dollars per million tokens.
 	await page.getByTestId("input-price").fill("1");
 	await page.getByTestId("output-price").fill("3");
-	await expect(page.getByLabel("Provider API key (if needed)")).toHaveAttribute(
+	await expect(page.getByLabel("Provider API key")).toHaveAttribute(
 		"type",
 		"password",
 	);
@@ -275,7 +275,7 @@ test("registering a model requires provider preflight", async ({ page }) => {
 		"Run preflight",
 	);
 	await expect(page.getByTestId("verification-results")).not.toBeVisible();
-	await page.getByLabel("Provider API key (if needed)").fill("pw-provider-key");
+	await page.getByLabel("Provider API key").fill("pw-provider-key");
 	await page.getByTestId("register-model-submit").click();
 	await expect(page.getByTestId("verification-results")).toContainText(
 		"Passed",
@@ -346,7 +346,7 @@ test("existing mappings report failed verification checks", async ({
 	await login(page);
 	await page.goto("/dashboard/fleet");
 	await page.getByTestId("verify-mistral-medium-4").click();
-	await page.getByLabel("Provider API key (if needed)").fill("pw-provider-key");
+	await page.getByLabel("Provider API key").fill("pw-provider-key");
 	await page.getByRole("button", { name: "Run verification" }).click();
 	await expect(page.getByTestId("verification-results")).toContainText(
 		"The required tool call was not returned.",

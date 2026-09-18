@@ -1,0 +1,12 @@
+appId: io.llmgateway.lounge
+---
+- extendedWaitUntil:
+    visible: "Cancel"
+    timeout: 15000
+# iOS 26 exposes Cancel, but omits the remote Files picker's Save button.
+- retry:
+    maxRetries: 3
+    commands:
+      - tapOn:
+          point: 88%, 13%
+      - assertVisible: ${RETURN_TO}

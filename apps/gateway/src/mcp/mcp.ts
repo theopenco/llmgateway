@@ -36,6 +36,7 @@ import {
 	type ModelDefinition,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { ServerTypes } from "@/vars.js";
 import type { OpenAPIHono } from "@hono/zod-openapi";
@@ -106,9 +107,9 @@ const generateImageInputSchema = z.object({
 	model: z
 		.string()
 		.optional()
-		.default("qwen-image-plus")
+		.default("qwen-image-3.0")
 		.describe(
-			'Image generation model to use (e.g., "qwen-image-plus", "qwen-image-max")',
+			'Image generation model to use (e.g., "qwen-image-3.0", "qwen-image-3.0-pro")',
 		),
 	size: z
 		.string()
@@ -415,7 +416,7 @@ function createMcpServer(
 						responseText += `  - Providers: ${model.providers.join(", ")}\n`;
 						responseText += `  - Pricing: ${model.pricing.input} input, ${model.pricing.output} output\n`;
 						if (model.context_length) {
-							responseText += `  - Context: ${model.context_length.toLocaleString()} tokens\n`;
+							responseText += `  - Context: ${formatNumber(model.context_length)} tokens\n`;
 						}
 						if (capabilities.length > 0) {
 							responseText += `  - Capabilities: ${capabilities.join(", ")}\n`;
@@ -887,7 +888,7 @@ function createMcpServer(
 				responseText += `\`\`\`\n`;
 				responseText += `generate-image(\n`;
 				responseText += `  prompt: "A serene mountain landscape at sunset",\n`;
-				responseText += `  model: "qwen-image-plus",\n`;
+				responseText += `  model: "qwen-image-3.0",\n`;
 				responseText += `  size: "1024x1024"\n`;
 				responseText += `)\n`;
 				responseText += `\`\`\`\n`;

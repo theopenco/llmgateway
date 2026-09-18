@@ -20,9 +20,10 @@ interface ChangelogEntryPageProps {
 export default async function ChangelogEntryPage({
 	params,
 }: ChangelogEntryPageProps) {
-	const { allChangelogs } = await import("content-collections");
-
-	const { slug } = await params;
+	const [{ allChangelogs }, { slug }] = await Promise.all([
+		import("content-collections"),
+		params,
+	]);
 
 	const entry = allChangelogs.find((entry: Changelog) => entry.slug === slug);
 
@@ -178,9 +179,10 @@ export async function generateStaticParams() {
 export async function generateMetadata({
 	params,
 }: ChangelogEntryPageProps): Promise<Metadata> {
-	const { allChangelogs } = await import("content-collections");
-
-	const { slug } = await params;
+	const [{ allChangelogs }, { slug }] = await Promise.all([
+		import("content-collections"),
+		params,
+	]);
 
 	const entry = allChangelogs.find((entry: Changelog) => entry.slug === slug);
 

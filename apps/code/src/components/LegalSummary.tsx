@@ -10,6 +10,7 @@ import {
 	UserRound,
 	Wallet,
 } from "lucide-react";
+import Link from "next/link";
 
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
@@ -46,15 +47,35 @@ const termsCards: SummaryCard[] = [
 		),
 	},
 	{
+		icon: Clock,
+		title: "Plan changes from October 15, 2026",
+		body: (
+			<>
+				The price stays the same, but included usage decreases. Monthly
+				allowance falls from 3&times; to 2&times; your plan price at the first
+				renewal on or after that date; new subscriptions from that date start at
+				2&times;. Daily and weekly caps and Reset Pass benefits change on
+				October 15, including for existing cycles. Read the&nbsp;
+				<Link
+					href="#october-2026-plan-changes"
+					className="underline underline-offset-4"
+				>
+					full plan-change notice
+				</Link>
+				.
+			</>
+		),
+	},
+	{
 		icon: Terminal,
-		title: "Coding agents only",
+		title: "For approved coding tools only",
 		body: (
 			<>
 				Your key works from whitelisted tools like Claude Code, Codex, Cursor
-				and Cline — not from your own apps, backends, scripts or automations.
-				Non-coding use such as role play, companion chat or content generation
-				is out of scope too; that list is illustrative, not exhaustive.
-				Embeddings, image and video generation aren&rsquo;t included.
+				and Cline — not from your own apps, backends or scripts. Embeddings,
+				image and video generation aren&rsquo;t included. From October 15, 2026,
+				for billing periods starting on or after that date, non-coding use such
+				as role play, companion chat or content generation is out of scope too.
 			</>
 		),
 	},
@@ -85,9 +106,10 @@ const termsCards: SummaryCard[] = [
 		title: "Fair use",
 		body: (
 			<>
-				API or automation use, non-coding use, abuse, fraud, key sharing or
-				bad-faith payment disputes can get every related account banned
-				immediately, with no refund for the cycle in progress.
+				Abuse, fraud, key sharing or bad-faith payment disputes can get every
+				related account banned immediately, with no refund for the cycle in
+				progress. From October 15, 2026, API, automation or non-coding use
+				counts too.
 			</>
 		),
 	},

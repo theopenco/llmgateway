@@ -5,6 +5,7 @@ import {
 	type OpenAIToolInput,
 	type ProviderId,
 	type ProviderRequestBody,
+	type ToolChoiceMode,
 	type ToolChoiceType,
 	type WebSearchTool,
 	providers,
@@ -74,10 +75,20 @@ export interface ModelVerificationRunResult {
 	passed: boolean;
 	checks: ProviderModelVerificationCheck[];
 	summary: string;
+	/**
+	 * `tool_choice` modes the tool check probed and the upstream did not
+	 * honour. Present only when a weaker mode then worked, so the listing can
+	 * narrow `supportedToolChoices` instead of keeping a mode that returns
+	 * unusable responses.
+	 */
+	unsupportedToolChoices?: ToolChoiceMode[];
 }
 
-const RED_PIXEL_DATA_URL =
-	"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z7h8AAAAASUVORK5CYII=";
+// A 64x64 solid red PNG. Deliberately not a 1x1 pixel: several OpenAI-compatible
+// serving stacks reject a degenerate image before the model ever sees it, which
+// fails the check on endpoints whose vision support is fine.
+const RED_IMAGE_DATA_URL =
+	"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAb0lEQVR4nO3PAQkAAAyEwO9feoshgnABdLep8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3I8QUNyPEFDcjxBQ3IPanc8OLDQitxAAAAAElFTkSuQmCC";
 
 const COUNTRY_SCHEMA = {
 	type: "object",
@@ -123,7 +134,7 @@ export function createVisionVerificationRequest(
 					{ type: "text", text: "What color is this image?" },
 					{
 						type: "image_url",
-						image_url: { url: RED_PIXEL_DATA_URL },
+						image_url: { url: RED_IMAGE_DATA_URL },
 					},
 				],
 			},
@@ -181,8 +192,36 @@ export function createAudioVerificationRequest(
 	};
 }
 
+const TOOL_VERIFICATION_NAME = "get_weather";
+
+/**
+ * The `tool_choice` modes the tool check probes, strongest first. A listing
+ * declares `tools`, not a tool_choice mode, so a mode the upstream mishandles
+ * must narrow the mapping rather than disprove tool calling itself. "none" is
+ * never probed: it asks for no tool call at all.
+ */
+const TOOL_CHOICE_LADDER = ["required", "function", "auto"] as const;
+
+export function toolVerificationChoice(mode: ToolChoiceMode): ToolChoiceType {
+	return mode === "function"
+		? { type: "function", function: { name: TOOL_VERIFICATION_NAME } }
+		: mode;
+}
+
+/** The ladder narrowed to what the listing claims, strongest mode first. */
+export function toolVerificationModes(
+	supported: ToolChoiceMode[] | null | undefined,
+): ToolChoiceMode[] {
+	if (!supported || supported.length === 0) {
+		return [...TOOL_CHOICE_LADDER];
+	}
+	const modes = TOOL_CHOICE_LADDER.filter((mode) => supported.includes(mode));
+	return modes.length > 0 ? modes : ["auto"];
+}
+
 export function createToolVerificationRequest(
 	model: string,
+	mode: ToolChoiceMode = "required",
 ): ModelVerificationRequest {
 	return {
 		model,
@@ -196,7 +235,7 @@ export function createToolVerificationRequest(
 			{
 				type: "function",
 				function: {
-					name: "get_weather",
+					name: TOOL_VERIFICATION_NAME,
 					description: "Get the current weather for a city",
 					parameters: {
 						type: "object",
@@ -206,7 +245,7 @@ export function createToolVerificationRequest(
 				},
 			},
 		],
-		tool_choice: "required",
+		tool_choice: toolVerificationChoice(mode),
 	};
 }
 
@@ -327,7 +366,10 @@ function verificationDefinitions(
 		definitions.push({
 			id: "tools",
 			label: "Tool calls",
-			request: createToolVerificationRequest(target.modelName),
+			request: createToolVerificationRequest(
+				target.modelName,
+				toolVerificationModes(target.supportedToolChoices)[0],
+			),
 		});
 	}
 	if (target.jsonOutput) {
@@ -369,6 +411,47 @@ function verificationDefinitions(
 		});
 	}
 	return definitions;
+}
+
+/**
+ * The listing capability each check proves. A failed check disproves exactly
+ * its own flag, so a listing can be demoted to what it actually does instead
+ * of keeping a claim the endpoint just rejected. `basic` maps to nothing: a
+ * model that cannot complete at all has no single flag to blame.
+ */
+export const MODEL_VERIFICATION_CHECK_CAPABILITY = {
+	streaming: "streaming",
+	vision: "vision",
+	audio: "audio",
+	tools: "tools",
+	json_output: "jsonOutput",
+	structured_json: "jsonOutputSchema",
+	reasoning: "reasoning",
+	reasoning_budget: "reasoningMaxTokens",
+	web_search: "webSearch",
+} as const satisfies Partial<Record<ModelVerificationCheckId, string>>;
+
+export type ModelVerificationCapability =
+	(typeof MODEL_VERIFICATION_CHECK_CAPABILITY)[keyof typeof MODEL_VERIFICATION_CHECK_CAPABILITY];
+
+/** The capabilities a completed run disproved, from its failed checks only. */
+export function disprovedCapabilities(
+	checks: ProviderModelVerificationCheck[],
+): ModelVerificationCapability[] {
+	const capabilities: ModelVerificationCapability[] = [];
+	for (const check of checks) {
+		if (check.status !== "failed") {
+			continue;
+		}
+		const capability =
+			MODEL_VERIFICATION_CHECK_CAPABILITY[
+				check.id as keyof typeof MODEL_VERIFICATION_CHECK_CAPABILITY
+			];
+		if (capability) {
+			capabilities.push(capability);
+		}
+	}
+	return capabilities;
 }
 
 export function createQueuedModelVerificationChecks(
@@ -654,7 +737,66 @@ function redactSecrets(text: string, secrets: Iterable<string>): string {
 	return redacted;
 }
 
+async function attemptCheck(
+	definition: ModelVerificationDefinition,
+	options: RunModelVerificationOptions,
+	secrets: Set<string>,
+): Promise<string | null> {
+	try {
+		return await executeCheck(definition, options, secrets);
+	} catch (error) {
+		return redactSecrets(
+			(error instanceof Error
+				? error.message
+				: "Verification request failed."
+			).slice(0, 500),
+			secrets,
+		);
+	}
+}
+
+interface CheckOutcome {
+	failure: string | null;
+	/** Probed `tool_choice` modes the upstream did not honour. */
+	unsupportedToolChoices?: ToolChoiceMode[];
+}
+
 async function runCheck(
+	definition: ModelVerificationDefinition,
+	options: RunModelVerificationOptions,
+	secrets: Set<string>,
+): Promise<CheckOutcome> {
+	if (definition.id !== "tools") {
+		return { failure: await attemptCheck(definition, options, secrets) };
+	}
+	// Several OpenAI-compatible serving stacks mishandle the forcing modes and
+	// answer "required" with the model's raw tool markup as assistant content.
+	// Walk down the ladder so a mishandled mode narrows the mapping instead of
+	// disproving tool calling, and so each narrowing rests on a real probe.
+	const modes = toolVerificationModes(options.target.supportedToolChoices);
+	const unsupportedToolChoices: ToolChoiceMode[] = [];
+	let failure: string | null = null;
+	for (const mode of modes) {
+		failure = await attemptCheck(
+			{
+				...definition,
+				request: {
+					...definition.request,
+					tool_choice: toolVerificationChoice(mode),
+				},
+			},
+			options,
+			secrets,
+		);
+		if (!failure) {
+			return { failure: null, unsupportedToolChoices };
+		}
+		unsupportedToolChoices.push(mode);
+	}
+	return { failure };
+}
+
+async function executeCheck(
 	definition: ModelVerificationDefinition,
 	options: RunModelVerificationOptions,
 	secrets: Set<string>,
@@ -804,6 +946,7 @@ export async function runProviderModelVerification(
 	const definitions = verificationDefinitions(options.target);
 	const checks = createQueuedModelVerificationChecks(options.target);
 	const secrets = new Set([options.token]);
+	let unsupportedToolChoices: ToolChoiceMode[] | undefined;
 	for (let index = 0; index < definitions.length; index++) {
 		const definition = definitions[index];
 		const running: ProviderModelVerificationCheck = {
@@ -813,17 +956,10 @@ export async function runProviderModelVerification(
 		};
 		checks[index] = running;
 		await options.onCheck?.(running);
-		let failure: string | null;
-		try {
-			failure = await runCheck(definition, options, secrets);
-		} catch (error) {
-			failure = redactSecrets(
-				(error instanceof Error
-					? error.message
-					: "Verification request failed."
-				).slice(0, 500),
-				secrets,
-			);
+		const outcome = await runCheck(definition, options, secrets);
+		const failure = outcome.failure;
+		if (outcome.unsupportedToolChoices?.length) {
+			unsupportedToolChoices = outcome.unsupportedToolChoices;
 		}
 		const completed: ProviderModelVerificationCheck = failure
 			? {
@@ -859,6 +995,7 @@ export async function runProviderModelVerification(
 	return {
 		passed: failed === 0 && passed === checks.length,
 		checks,
+		unsupportedToolChoices,
 		summary:
 			failed === 0 && passed === checks.length
 				? `${passed} verification check${passed === 1 ? "" : "s"} passed.`

@@ -21,6 +21,8 @@ import { loadMetricsAction } from "@/lib/admin-organizations";
 import { pickCost, pickRequests } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
+
 import type { OrganizationMetrics, TokenWindow } from "@/lib/types";
 
 const validWindows = new Set<TokenWindow>([
@@ -39,22 +41,6 @@ function parseWindow(value: string | null): TokenWindow {
 		return value as TokenWindow;
 	}
 	return "1d";
-}
-
-function formatCompactNumber(value: number): string {
-	if (value >= 1_000_000_000) {
-		const formatted = value / 1_000_000_000;
-		return `${formatted % 1 === 0 ? formatted.toFixed(0) : formatted.toFixed(1)}B`;
-	}
-	if (value >= 1_000_000) {
-		const formatted = value / 1_000_000;
-		return `${formatted % 1 === 0 ? formatted.toFixed(0) : formatted.toFixed(1)}M`;
-	}
-	if (value >= 1_000) {
-		const formatted = value / 1_000;
-		return `${formatted % 1 === 0 ? formatted.toFixed(0) : formatted.toFixed(1)}k`;
-	}
-	return value.toLocaleString("en-US");
 }
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {

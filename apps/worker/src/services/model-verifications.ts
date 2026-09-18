@@ -1,16 +1,18 @@
 import {
 	decryptModelVerificationCredential,
+	disprovedCapabilities,
 	managedCredentialOptions,
 	readProviderKey,
 	redactToken,
 	runProviderModelVerification,
 } from "@llmgateway/actions";
-import { and, asc, db, eq, lt, tables } from "@llmgateway/db";
+import { and, asc, cdb, db, eq, lt, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { getProviderEnvVar } from "@llmgateway/models";
+import { getProviderEnvVar, TOOL_CHOICE_MODES } from "@llmgateway/models";
 
 import type { RunModelVerificationOptions } from "@llmgateway/actions";
 import type { ProviderModelVerificationCheck } from "@llmgateway/db";
+import type { ToolChoiceMode } from "@llmgateway/models";
 
 type VerificationRow = typeof tables.providerModelVerification.$inferSelect;
 type VerificationRunner = (
@@ -68,7 +70,7 @@ function environmentCredential(job: VerificationRow): string {
 		: "";
 	if (!token) {
 		throw new Error(
-			"No environment credential is configured for this provider.",
+			"No environment credential is configured for this provider. Re-run the verification with a provider API key.",
 		);
 	}
 	return token;
@@ -243,6 +245,150 @@ function terminalChecks(
 	});
 }
 
+type CapabilityDemotion = Partial<
+	Pick<
+		typeof tables.providerDraftModel.$inferInsert,
+		| "streaming"
+		| "vision"
+		| "audio"
+		| "tools"
+		| "jsonOutput"
+		| "jsonOutputSchema"
+		| "reasoning"
+		| "reasoningMaxTokens"
+		| "reasoningEfforts"
+		| "webSearch"
+	>
+>;
+
+/**
+ * A failed check is the endpoint disproving a claim the listing advertises,
+ * so the listing drops to what it actually does rather than keeping a flag
+ * routing would send matching traffic to. Only the listing's own capabilities
+ * move: a run against a static catalogue mapping never rewrites the
+ * catalogue. Active listings serve off their materialized mapping row, so the
+ * demotion has to reach that too.
+ */
+async function demoteDisprovedCapabilities(
+	job: VerificationRow,
+	checks: ProviderModelVerificationCheck[],
+): Promise<void> {
+	if (!job.draftModelId) {
+		return;
+	}
+	const disproved = disprovedCapabilities(checks);
+	if (disproved.length === 0) {
+		return;
+	}
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: job.draftModelId } },
+	});
+	if (!model || model.status === "delisted") {
+		return;
+	}
+	const updates: CapabilityDemotion = {};
+	for (const capability of disproved) {
+		if (model[capability]) {
+			updates[capability] = false;
+		}
+	}
+	// Effort tiers and a thinking budget mean nothing once reasoning itself
+	// fails, so they go with it rather than outliving their own capability.
+	if (updates.reasoning === false) {
+		if (model.reasoningMaxTokens) {
+			updates.reasoningMaxTokens = false;
+		}
+		if (model.reasoningEfforts?.length) {
+			updates.reasoningEfforts = null;
+		}
+	}
+	if (Object.keys(updates).length === 0) {
+		return;
+	}
+	// cdb: the gateway caches listing resolution off both tables.
+	await cdb.transaction(async (tx) => {
+		await tx
+			.update(tables.providerDraftModel)
+			.set(updates)
+			.where(eq(tables.providerDraftModel.id, model.id));
+		if (model.status !== "active") {
+			return;
+		}
+		await tx
+			.update(tables.modelProviderMapping)
+			.set(updates)
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, model.modelName),
+					eq(tables.modelProviderMapping.providerId, model.providerId),
+					eq(tables.modelProviderMapping.source, "airside"),
+				),
+			);
+	});
+	logger.info("Demoted an Airside listing after a failed verification", {
+		verificationId: job.id,
+		draftModelId: model.id,
+		providerId: model.providerId,
+		capabilities: Object.keys(updates),
+	});
+}
+
+/**
+ * A `tool_choice` mode the tool check probed and the upstream did not honour,
+ * where a weaker mode then worked. Tool calling itself is proven, so the
+ * listing keeps `tools` and instead records the modes that do work — the
+ * gateway downgrades a request asking for a dropped mode rather than
+ * forwarding one the deployment answers with unusable output.
+ */
+async function narrowToolChoiceSupport(
+	job: VerificationRow,
+	unsupported: ToolChoiceMode[] | undefined,
+): Promise<void> {
+	if (!job.draftModelId || !unsupported?.length) {
+		return;
+	}
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: job.draftModelId } },
+	});
+	if (!model || model.status === "delisted") {
+		return;
+	}
+	const declared = model.supportedToolChoices ?? TOOL_CHOICE_MODES;
+	const supportedToolChoices = declared.filter(
+		(mode) => !unsupported.includes(mode),
+	);
+	if (supportedToolChoices.length === declared.length) {
+		return;
+	}
+	// cdb: the gateway caches listing resolution off both tables.
+	await cdb.transaction(async (tx) => {
+		await tx
+			.update(tables.providerDraftModel)
+			.set({ supportedToolChoices })
+			.where(eq(tables.providerDraftModel.id, model.id));
+		if (model.status !== "active") {
+			return;
+		}
+		await tx
+			.update(tables.modelProviderMapping)
+			.set({ supportedToolChoices })
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, model.modelName),
+					eq(tables.modelProviderMapping.providerId, model.providerId),
+					eq(tables.modelProviderMapping.source, "airside"),
+				),
+			);
+	});
+	logger.info("Narrowed an Airside listing's tool_choice support", {
+		verificationId: job.id,
+		draftModelId: model.id,
+		providerId: model.providerId,
+		unsupported,
+		supportedToolChoices,
+	});
+}
+
 export async function processNextModelVerification(
 	runner: VerificationRunner = runProviderModelVerification,
 ): Promise<boolean> {
@@ -299,6 +445,10 @@ export async function processNextModelVerification(
 		if (completed.length === 0) {
 			return true;
 		}
+		if (!result.passed) {
+			await demoteDisprovedCapabilities(job, result.checks);
+		}
+		await narrowToolChoiceSupport(job, result.unsupportedToolChoices);
 	} catch (error) {
 		if (error instanceof StaleModelVerificationAttemptError) {
 			return true;

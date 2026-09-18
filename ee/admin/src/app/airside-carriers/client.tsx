@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
+import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -39,7 +40,8 @@ export function AirsideCarriersClient() {
 				<h1 className="text-2xl font-bold">Airside carriers</h1>
 				<p className="text-muted-foreground text-sm">
 					Every carrier's routing settings and the gateway margin accrued on
-					their traffic.
+					their traffic. Open a carrier to review its mappings and verify them
+					against the upstream.
 				</p>
 			</div>
 
@@ -84,10 +86,20 @@ export function AirsideCarriersClient() {
 										data-testid={`carrier-${provider.providerId}`}
 									>
 										<TableCell className="font-medium">
-											{provider.company.name}
+											<Link
+												href={`/providers/${provider.providerId}`}
+												className="hover:underline"
+											>
+												{provider.company.name}
+											</Link>
 										</TableCell>
 										<TableCell className="font-mono text-sm">
-											{provider.providerId}
+											<Link
+												href={`/providers/${provider.providerId}`}
+												className="hover:underline"
+											>
+												{provider.providerId}
+											</Link>
 										</TableCell>
 										<TableCell className="text-right">
 											{formatPercent(provider.discountPercent)}

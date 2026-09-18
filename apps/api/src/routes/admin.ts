@@ -84,6 +84,7 @@ import {
 	asc,
 	avgEffectiveTtftSql,
 	cdb,
+	computeAirsideAdjustment,
 	db,
 	desc,
 	effectiveTtftTotals,
@@ -6649,6 +6650,8 @@ const providerStatsSchema = z.object({
 	logsCount: z.number(),
 	errorsCount: z.number(),
 	clientErrorsCount: z.number(),
+	gatewayErrorsCount: z.number(),
+	upstreamErrorsCount: z.number(),
 	cachedCount: z.number(),
 	avgTimeToFirstToken: z.number().nullable(),
 	modelCount: z.number(),
@@ -6740,6 +6743,14 @@ admin.openapi(getProviderStats, async (c) => {
 					sql<number>`COALESCE(SUM(${mph.clientErrorsCount}), 0)`.as(
 						"clientErrorsCount",
 					),
+				gatewayErrorsCount:
+					sql<number>`COALESCE(SUM(${mph.gatewayErrorsCount}), 0)`.as(
+						"gatewayErrorsCount",
+					),
+				upstreamErrorsCount:
+					sql<number>`COALESCE(SUM(${mph.upstreamErrorsCount}), 0)`.as(
+						"upstreamErrorsCount",
+					),
 				cachedCount: sql<number>`COALESCE(SUM(${mph.cachedCount}), 0)`.as(
 					"cachedCount",
 				),
@@ -6775,7 +6786,7 @@ admin.openapi(getProviderStats, async (c) => {
 			name: tables.provider.name,
 			status: tables.provider.status,
 			logsCount: sql`COALESCE(${providerStatsSub.logsCount}, 0)`,
-			errorsCount: sql`GREATEST(COALESCE(${providerStatsSub.errorsCount}, 0) - COALESCE(${providerStatsSub.clientErrorsCount}, 0), 0)`,
+			errorsCount: sql`COALESCE(${providerStatsSub.gatewayErrorsCount}, 0) + COALESCE(${providerStatsSub.upstreamErrorsCount}, 0)`,
 			clientErrorsCount: sql`COALESCE(${providerStatsSub.clientErrorsCount}, 0)`,
 			cachedCount: sql`COALESCE(${providerStatsSub.cachedCount}, 0)`,
 			totalCost: sql`COALESCE(${providerStatsSub.totalCost}, 0)`,
@@ -6824,6 +6835,14 @@ admin.openapi(getProviderStats, async (c) => {
 						sql<number>`COALESCE(${providerStatsSub.clientErrorsCount}, 0)`.as(
 							"clientErrorsCount",
 						),
+					gatewayErrorsCount:
+						sql<number>`COALESCE(${providerStatsSub.gatewayErrorsCount}, 0)`.as(
+							"gatewayErrorsCount",
+						),
+					upstreamErrorsCount:
+						sql<number>`COALESCE(${providerStatsSub.upstreamErrorsCount}, 0)`.as(
+							"upstreamErrorsCount",
+						),
 					cachedCount:
 						sql<number>`COALESCE(${providerStatsSub.cachedCount}, 0)`.as(
 							"cachedCount",
@@ -6870,6 +6889,8 @@ admin.openapi(getProviderStats, async (c) => {
 				logsCount: Number(r.logsCount ?? 0),
 				errorsCount: Number(r.errorsCount ?? 0),
 				clientErrorsCount: Number(r.clientErrorsCount ?? 0),
+				gatewayErrorsCount: Number(r.gatewayErrorsCount ?? 0),
+				upstreamErrorsCount: Number(r.upstreamErrorsCount ?? 0),
 				cachedCount: Number(r.cachedCount ?? 0),
 				avgTimeToFirstToken: r.avgTimeToFirstToken,
 				modelCount: Number(r.modelCount ?? 0),
@@ -6891,7 +6912,7 @@ admin.openapi(getProviderStats, async (c) => {
 		name: tables.provider.name,
 		status: tables.provider.status,
 		logsCount: tables.provider.logsCount,
-		errorsCount: sql`GREATEST(${tables.provider.errorsCount} - ${tables.provider.clientErrorsCount}, 0)`,
+		errorsCount: sql`${tables.provider.gatewayErrorsCount} + ${tables.provider.upstreamErrorsCount}`,
 		clientErrorsCount: tables.provider.clientErrorsCount,
 		cachedCount: tables.provider.cachedCount,
 		totalCost: sql`0`,
@@ -6911,6 +6932,8 @@ admin.openapi(getProviderStats, async (c) => {
 			logsCount: tables.provider.logsCount,
 			errorsCount: tables.provider.errorsCount,
 			clientErrorsCount: tables.provider.clientErrorsCount,
+			gatewayErrorsCount: tables.provider.gatewayErrorsCount,
+			upstreamErrorsCount: tables.provider.upstreamErrorsCount,
 			cachedCount: tables.provider.cachedCount,
 			avgTimeToFirstToken: sql<
 				number | null
@@ -6935,6 +6958,8 @@ admin.openapi(getProviderStats, async (c) => {
 			logsCount: r.logsCount,
 			errorsCount: r.errorsCount,
 			clientErrorsCount: r.clientErrorsCount,
+			gatewayErrorsCount: r.gatewayErrorsCount,
+			upstreamErrorsCount: r.upstreamErrorsCount,
 			cachedCount: r.cachedCount,
 			avgTimeToFirstToken: r.avgTimeToFirstToken,
 			modelCount: Number(r.modelCount),
@@ -9982,6 +10007,19 @@ const providerDetailSchema = z.object({
 		...tokenBreakdownShape,
 		updatedAt: z.string(),
 	}),
+	// Present only when the provider is an Airside carrier, i.e. a provider
+	// company holds an active claim on it.
+	airside: z
+		.object({
+			company: z.object({ id: z.string(), name: z.string() }),
+			claimKind: z.enum(["catalogue", "custom"]),
+			discountPercent: z.number(),
+			marginPercent: z.number(),
+			// Signed routing-price adjustment (negative = boosted).
+			routingAdjustment: z.number(),
+			settingsUpdatedAt: z.string(),
+		})
+		.nullable(),
 	models: z.array(providerModelStatsSchema),
 });
 
@@ -10023,7 +10061,7 @@ admin.openapi(getProviderDetail, async (c) => {
 	const { table: mph, bucket: mphTs } = pickMappingHistoryTable(
 		isHourlyWindow(window),
 	);
-	const [mappings, statsRows] = await Promise.all([
+	const [mappings, statsRows, airsideRows] = await Promise.all([
 		db
 			.select({
 				id: tables.modelProviderMapping.id,
@@ -10097,9 +10135,47 @@ admin.openapi(getProviderDetail, async (c) => {
 				),
 			)
 			.groupBy(mph.modelId),
+		db
+			.select({
+				claimKind: tables.providerClaim.kind,
+				claimUpdatedAt: tables.providerClaim.updatedAt,
+				companyId: tables.providerCompany.id,
+				companyName: tables.providerCompany.name,
+				discountPercent: tables.providerRoutingSettings.discountPercent,
+				marginPercent: tables.providerRoutingSettings.marginPercent,
+				settingsUpdatedAt: tables.providerRoutingSettings.updatedAt,
+			})
+			.from(tables.providerClaim)
+			.innerJoin(
+				tables.providerCompany,
+				eq(tables.providerClaim.providerCompanyId, tables.providerCompany.id),
+			)
+			.leftJoin(
+				tables.providerRoutingSettings,
+				and(
+					eq(
+						tables.providerRoutingSettings.providerId,
+						tables.providerClaim.providerId,
+					),
+					isNull(tables.providerRoutingSettings.modelId),
+				),
+			)
+			.where(
+				and(
+					eq(tables.providerClaim.providerId, providerId),
+					eq(tables.providerClaim.status, "active"),
+				),
+			)
+			.limit(1),
 	]);
 
 	const statsByModel = new Map(statsRows.map((r) => [r.modelId, r]));
+
+	const carrier = airsideRows[0];
+	// Approving a claim always creates the default routing row, but fall back
+	// to the column defaults so a carrier still renders if it is missing.
+	const carrierDiscount = Number(carrier?.discountPercent ?? 0);
+	const carrierMargin = Number(carrier?.marginPercent ?? 0.2);
 
 	const modelsOut = mappings.map((m) => {
 		const s = statsByModel.get(m.modelId);
@@ -10205,6 +10281,21 @@ admin.openapi(getProviderDetail, async (c) => {
 			...agg.breakdown,
 			updatedAt: providerRow.updatedAt.toISOString(),
 		},
+		airside: carrier
+			? {
+					company: { id: carrier.companyId, name: carrier.companyName },
+					claimKind: carrier.claimKind,
+					discountPercent: carrierDiscount,
+					marginPercent: carrierMargin,
+					routingAdjustment: computeAirsideAdjustment(
+						carrierDiscount,
+						carrierMargin,
+					),
+					settingsUpdatedAt: (
+						carrier.settingsUpdatedAt ?? carrier.claimUpdatedAt
+					).toISOString(),
+				}
+			: null,
 		models: modelsOut,
 	});
 });
@@ -10856,9 +10947,11 @@ const costByModelTimeseriesPointSchema = z.object({
 	entries: z.array(costByModelTimeseriesBucketSchema),
 });
 
+const costTimeseriesBucketSchema = z.enum(["hour", "day"]);
+
 const costByModelTimeseriesResponseSchema = z.object({
 	window: tokenWindowSchema,
-	bucket: z.enum(["hour", "day"]),
+	bucket: costTimeseriesBucketSchema,
 	modelView: costByModelViewSchema,
 	groupBy: z.enum(["model", "source", "project", "api-key", "user"]),
 	models: z.array(z.string()),
@@ -10907,6 +11000,7 @@ const getOrgCostByModelTimeseries = createRoute({
 			groupBy: organizationCostTimeseriesGroupBySchema
 				.default("model")
 				.optional(),
+			bucket: costTimeseriesBucketSchema.optional(),
 		}),
 	},
 	responses: {
@@ -10932,7 +11026,7 @@ admin.openapi(getOrgCostByModelTimeseries, async (c) => {
 	const modelView = query.modelView ?? "mapping";
 	const groupBy = query.groupBy ?? "model";
 	const startDate = getTokenWindowStartDate(window);
-	const bucketUnit = getBucketUnitForWindow(window);
+	const bucketUnit = query.bucket ?? getBucketUnitForWindow(window);
 
 	const org = await db.query.organization.findFirst({
 		where: { id: { eq: orgId } },
@@ -11003,6 +11097,7 @@ const getProjectCostByModelTimeseries = createRoute({
 			window: tokenWindowSchema.default("7d").optional(),
 			modelView: costByModelViewSchema.default("mapping").optional(),
 			groupBy: costTimeseriesGroupBySchema.default("model").optional(),
+			bucket: costTimeseriesBucketSchema.optional(),
 		}),
 	},
 	responses: {
@@ -11027,7 +11122,7 @@ admin.openapi(getProjectCostByModelTimeseries, async (c) => {
 	const modelView = query.modelView ?? "mapping";
 	const groupBy = query.groupBy ?? "model";
 	const startDate = getTokenWindowStartDate(window);
-	const bucketUnit = getBucketUnitForWindow(window);
+	const bucketUnit = query.bucket ?? getBucketUnitForWindow(window);
 
 	const project = await db.query.project.findFirst({
 		where: {
@@ -11527,6 +11622,8 @@ const projectModelProviderStatsEntrySchema = z.object({
 	logsCount: z.number(),
 	errorsCount: z.number(),
 	clientErrorsCount: z.number(),
+	gatewayErrorsCount: z.number(),
+	upstreamErrorsCount: z.number(),
 	cachedCount: z.number(),
 	cost: z.number(),
 	totalTokens: z.number(),
@@ -11624,6 +11721,14 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 	const errorsCountExpr = errorsCountSql.as("errors_count");
 	const clientErrorsCountSql = sql<number>`COALESCE(SUM(${projectHourlyModelStats.clientErrorCount}), 0)`;
 	const clientErrorsCountExpr = clientErrorsCountSql.as("client_errors_count");
+	const gatewayErrorsCountSql = sql<number>`COALESCE(SUM(${projectHourlyModelStats.gatewayErrorCount}), 0)`;
+	const gatewayErrorsCountExpr = gatewayErrorsCountSql.as(
+		"gateway_errors_count",
+	);
+	const upstreamErrorsCountSql = sql<number>`COALESCE(SUM(${projectHourlyModelStats.upstreamErrorCount}), 0)`;
+	const upstreamErrorsCountExpr = upstreamErrorsCountSql.as(
+		"upstream_errors_count",
+	);
 	const cachedCountExpr =
 		sql<number>`COALESCE(SUM(${projectHourlyModelStats.cacheCount}), 0)`.as(
 			"cached_count",
@@ -11642,7 +11747,7 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			case "logsCount":
 				return logsCountExpr;
 			case "errorsCount":
-				return sql`GREATEST(${errorsCountSql} - ${clientErrorsCountSql}, 0)`;
+				return sql`${gatewayErrorsCountSql} + ${upstreamErrorsCountSql}`;
 			case "cost":
 				return costExpr;
 			case "modelId":
@@ -11661,6 +11766,8 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			logsCount: logsCountExpr,
 			errorsCount: errorsCountExpr,
 			clientErrorsCount: clientErrorsCountExpr,
+			gatewayErrorsCount: gatewayErrorsCountExpr,
+			upstreamErrorsCount: upstreamErrorsCountExpr,
 			cachedCount: cachedCountExpr,
 			cost: costExpr,
 			totalTokens: totalTokensExpr,
@@ -11725,6 +11832,8 @@ admin.openapi(getProjectModelProviderStats, async (c) => {
 			logsCount: Number(r.logsCount),
 			errorsCount: Number(r.errorsCount),
 			clientErrorsCount: Number(r.clientErrorsCount),
+			gatewayErrorsCount: Number(r.gatewayErrorsCount),
+			upstreamErrorsCount: Number(r.upstreamErrorsCount),
 			cachedCount: Number(r.cachedCount),
 			cost: Number(r.cost),
 			totalTokens: Number(r.totalTokens),
@@ -16456,9 +16565,9 @@ admin.openapi(getDevpassPaygStats, async (c) => {
 	const [grossRow] = await db
 		.select({
 			allTime: sql<string>`COALESCE(SUM(${amountExpr}), 0)`,
-			thisMonth: sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart}), 0)`,
+			thisMonth: sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart.toISOString()}), 0)`,
 			range: hasRange
-				? sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${rangeStart} AND ${tables.transaction.createdAt} <= ${rangeEnd}), 0)`
+				? sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${rangeStart?.toISOString()} AND ${tables.transaction.createdAt} <= ${rangeEnd?.toISOString()}), 0)`
 				: sql<string>`0`,
 		})
 		.from(tables.transaction)
@@ -16482,9 +16591,9 @@ admin.openapi(getDevpassPaygStats, async (c) => {
 	const [refundRow] = await db
 		.select({
 			allTime: sql<string>`COALESCE(SUM(${amountExpr}), 0)`,
-			thisMonth: sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart}), 0)`,
+			thisMonth: sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${monthStart.toISOString()}), 0)`,
 			range: hasRange
-				? sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${rangeStart} AND ${tables.transaction.createdAt} <= ${rangeEnd}), 0)`
+				? sql<string>`COALESCE(SUM(${amountExpr}) FILTER (WHERE ${tables.transaction.createdAt} >= ${rangeStart?.toISOString()} AND ${tables.transaction.createdAt} <= ${rangeEnd?.toISOString()}), 0)`
 				: sql<string>`0`,
 		})
 		.from(tables.transaction)

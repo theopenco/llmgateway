@@ -20,6 +20,7 @@ import {
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
+import type { ProviderModelMapping } from "@llmgateway/models";
 
 /**
  * Admin-run capability verification ("preflight e2e") for any served mapping.
@@ -44,23 +45,26 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 /**
- * Static-catalogue mapping rows keep `reasoning_efforts` null in the database
- * — the tiers live in the shared definition — so the target reads them from
- * the catalogue and falls back to the row for Airside-materialized mappings.
+ * Static-catalogue mapping rows keep declaration-only columns such as
+ * `reasoning_efforts` and `supported_tool_choices` null in the database — those
+ * live in the shared definition — so the target reads them from the catalogue
+ * and falls back to the row for Airside-materialized mappings.
  */
-function catalogueReasoningEfforts(mapping: MappingRow): string[] | null {
+function catalogueMappingFor(
+	mapping: MappingRow,
+): ProviderModelMapping | undefined {
 	const model = catalogueModels.find((entry) => entry.id === mapping.modelId);
 	if (!model) {
-		return mapping.reasoningEfforts ?? null;
+		return undefined;
 	}
 	const expanded = expandAllProviderRegions(model.providers);
-	const match =
+	return (
 		expanded.find(
 			(entry) =>
 				entry.providerId === mapping.providerId &&
 				(entry.region ?? null) === mapping.region,
-		) ?? expanded.find((entry) => entry.providerId === mapping.providerId);
-	return match?.reasoningEfforts ?? mapping.reasoningEfforts ?? null;
+		) ?? expanded.find((entry) => entry.providerId === mapping.providerId)
+	);
 }
 
 function mappingTarget(mapping: MappingRow): ProviderModelVerificationTarget {
@@ -74,11 +78,18 @@ function mappingTarget(mapping: MappingRow): ProviderModelVerificationTarget {
 		vision: mapping.vision,
 		audio: mapping.audio,
 		tools: mapping.tools,
+		supportedToolChoices:
+			catalogueMappingFor(mapping)?.supportedToolChoices ??
+			mapping.supportedToolChoices ??
+			null,
 		jsonOutput: mapping.jsonOutput,
 		jsonOutputSchema: mapping.jsonOutputSchema,
 		reasoning: mapping.reasoning,
 		reasoningMaxTokens: mapping.reasoningMaxTokens,
-		reasoningEfforts: catalogueReasoningEfforts(mapping),
+		reasoningEfforts:
+			catalogueMappingFor(mapping)?.reasoningEfforts ??
+			mapping.reasoningEfforts ??
+			null,
 		webSearch: mapping.webSearch,
 	});
 }
@@ -95,6 +106,7 @@ function draftModelTarget(
 		vision: model.vision,
 		audio: model.audio,
 		tools: model.tools,
+		supportedToolChoices: model.supportedToolChoices,
 		jsonOutput: model.jsonOutput,
 		jsonOutputSchema: model.jsonOutputSchema,
 		reasoning: model.reasoning,

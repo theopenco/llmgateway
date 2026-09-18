@@ -4,7 +4,11 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 import * as emailUtils from "@/utils/email.js";
 
-import { encryptProviderKeyForStorage } from "@llmgateway/actions";
+import {
+	deleteProviderEnvInventory,
+	encryptProviderKeyForStorage,
+	publishProviderEnvInventory,
+} from "@llmgateway/actions";
 import {
 	db,
 	eq,
@@ -15,8 +19,10 @@ import {
 } from "@llmgateway/db";
 import {
 	models as catalogueModels,
+	getProviderEnvVar,
 	type ModelDefinition,
 	type ProviderApiFormat,
+	type ToolChoiceMode,
 } from "@llmgateway/models";
 
 // Website verification resolves a real TXT record; the zone under test is
@@ -178,6 +184,9 @@ async function createModel(
 			vision: body.vision === true,
 			audio: body.audio === true,
 			tools: body.tools === true,
+			supportedToolChoices: Array.isArray(body.supportedToolChoices)
+				? (body.supportedToolChoices as ToolChoiceMode[])
+				: null,
 			jsonOutput: body.jsonOutput === true,
 			jsonOutputSchema: body.jsonOutputSchema === true,
 			reasoning: body.reasoning === true,
@@ -620,6 +629,81 @@ describe("airside provider portal", () => {
 			where: { id: { eq: queuedBody.verification.id } },
 		});
 		expect(stored?.credentialSource).toBe("managed");
+	});
+
+	it("asks for a key when only the gateway holds an environment credential", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		// The gateway publishes the `LLM_*` keys it can see, but the worker that
+		// runs the checks cannot read them — queueing against that snapshot only
+		// produces a run that fails for want of a credential.
+		const envVar = getProviderEnvVar("mistral")!;
+		const originalToken = process.env[envVar];
+		process.env[envVar] = "gateway-only-key";
+		await publishProviderEnvInventory();
+		Reflect.deleteProperty(process.env, envVar);
+		try {
+			const queued = await app.request(
+				"/airside/model-verifications",
+				json(cookie, {
+					providerCompanyId: company.id,
+					providerId: "mistral",
+					modelName: "mistral-unkeyed",
+				}),
+			);
+			expect(queued.status).toBe(400);
+			expect((await queued.json()).message).toContain("provider API key");
+		} finally {
+			await deleteProviderEnvInventory();
+			if (originalToken === undefined) {
+				Reflect.deleteProperty(process.env, envVar);
+			} else {
+				process.env[envVar] = originalToken;
+			}
+		}
+	});
+
+	it("carries a carrier's tool_choice narrowing and preflights an edit", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id, {
+			supportedToolChoices: ["auto", "none"],
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		expect(model.supportedToolChoices).toEqual(["auto", "none"]);
+
+		// A draft applies metadata in place, so the narrowing is editable.
+		const patched = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { supportedToolChoices: null }, "PATCH"),
+		);
+		expect(patched.status).toBe(200);
+		expect((await patched.json()).model.supportedToolChoices).toBeNull();
+
+		// A preflight of unsaved capabilities verifies the proposal, not the row.
+		const queued = await app.request(
+			`/airside/models/${model.id}/verifications`,
+			json(cookie, {
+				apiKey: "carrier-preflight-key",
+				proposed: { supportedToolChoices: ["auto"], vision: true },
+			}),
+		);
+		expect(queued.status).toBe(202);
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: (await queued.json()).verification.id } },
+		});
+		expect(stored?.target).toMatchObject({
+			supportedToolChoices: ["auto"],
+			vision: true,
+			// Untouched fields still come from the saved listing.
+			tools: true,
+			modelName: "mistral-large-3",
+		});
 	});
 
 	it("drafts a model with an initial price filing and blocks price edits", async () => {

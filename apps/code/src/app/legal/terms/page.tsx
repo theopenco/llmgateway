@@ -7,7 +7,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
 	title: "Terms of Use",
 	description:
-		"Supplemental DevPass Terms of Use for the flat-rate subscription: coding-agent-only use, fair-use limits, one account per developer, and AI provider policies.",
+		"Supplemental DevPass Terms of Use for the flat-rate subscription: fair-use limits, one account per developer, approved coding tools, and AI provider policies. Coding-agent-only scope applies from October 15, 2026.",
 	alternates: { canonical: "/legal/terms" },
 	openGraph: {
 		title: "DevPass Supplemental Terms of Use",
@@ -25,7 +25,7 @@ export default function TermsPage() {
 			<p>
 				<strong>Effective Date:</strong> April 26, 2026
 				<br />
-				<strong>Last Updated:</strong> September 15, 2026
+				<strong>Last Updated:</strong> September 16, 2026
 			</p>
 			<LegalSummary variant="terms" />
 			<p>
@@ -86,41 +86,50 @@ export default function TermsPage() {
 				<li>Manage a single API key shared across every supported tool</li>
 			</ul>
 			<p>
-				<strong>Coding agents only.</strong> DevPass is licensed solely for
-				software development work carried out interactively through an approved
-				coding agent or coding tool. It is <strong>not</strong> a
-				general-purpose API and <strong>not</strong> a general-purpose AI
-				assistant. The flat-rate pricing assumes interactive, human-in-the-loop
-				coding usage from a whitelisted tool — anything else breaks the
-				economics of the Service and is prohibited under Section&nbsp;4.
-			</p>
-			<p>
-				Two categories of usage are therefore excluded. First,{" "}
-				<strong>API and automation usage</strong>: you may not use your DevPass
-				API key to power your own applications, products, services, backends,
-				scripts, cron jobs, batch pipelines, bots, or any other direct or
-				automated API integration, whether or not a coding agent is involved.
-				Second, <strong>non-coding usage</strong>: you may not use DevPass for
-				purposes unrelated to software development. By way of example only, and
-				without limitation, this includes role play, companion or character
-				chat, creative and fiction writing, general-purpose chat and
-				question-answering, research and summarization, translation, marketing
-				or SEO content generation, dataset generation, synthetic data, model
-				distillation, evaluations, and benchmarking.
+				DevPass is licensed solely for interactive use through approved coding
+				and agent tools. It is <strong>not</strong> a general-purpose API: you
+				may not use your DevPass API key to power your own applications,
+				products, services, backends, scripts, batch jobs, or any other direct
+				API integration. The flat-rate pricing assumes interactive,
+				human-in-the-loop usage from a whitelisted tool — any other usage breaks
+				the economics of the Service and is prohibited under Section&nbsp;4.
+				Embeddings, image generation, and video generation are not included in
+				DevPass and are blocked at the gateway. If you need API access for an
+				application or for non-inference workloads (such as embeddings, image
+				generation, or video generation), use a standard LLM Gateway credits
+				plan under the Base Terms instead.
 			</p>
 			<p>
 				<strong>
-					The examples above are illustrative and are not an exhaustive list.
+					Scope change effective October&nbsp;15, 2026 &mdash; coding agents
+					only.
+				</strong>{" "}
+				This paragraph does not apply today. It takes effect on October&nbsp;15,
+				2026 and then applies only to DevPass billing periods that begin on or
+				after that date; a billing period that started earlier stays governed by
+				the paragraph above until your next renewal. From then on, DevPass is
+				licensed solely for software development work carried out interactively
+				through an approved coding agent or coding tool. It is{" "}
+				<strong>not</strong> a general-purpose API and <strong>not</strong> a
+				general-purpose AI assistant. Two categories of usage are excluded.
+				First, <strong>API and automation usage</strong>: you may not use your
+				DevPass API key to power your own applications, products, services,
+				backends, scripts, cron jobs, batch pipelines, bots, or any other direct
+				or automated API integration, whether or not a coding agent is involved.
+				Second, <strong>non-coding usage</strong>: you may not use DevPass for
+				purposes unrelated to software development &mdash; by way of example
+				only, and without limitation, role play, companion or character chat,
+				creative and fiction writing, general-purpose chat and
+				question-answering, research and summarization, translation, marketing
+				or SEO content generation, dataset generation, synthetic data, model
+				distillation, evaluations, and benchmarking.{" "}
+				<strong>
+					These examples are illustrative and are not an exhaustive list.
 				</strong>{" "}
 				Any use that is not interactive software development through an approved
-				coding tool is outside the scope of DevPass, even if it is not named
-				here, and we determine in our reasonable discretion whether a given
-				usage pattern qualifies. Embeddings, image generation, and video
-				generation are likewise not included in DevPass and are blocked at the
-				gateway. If you need API access for an application, for automation, for
-				non-coding workloads, or for non-inference workloads (such as
-				embeddings, image generation, or video generation), use a standard LLM
-				Gateway credits plan under the Base Terms instead.
+				coding tool is outside the scope of DevPass from that date, even if it
+				is not named here, and we determine in our reasonable discretion whether
+				a given usage pattern qualifies.
 			</p>
 			<p>
 				<strong>Automatic routing.</strong> When DevPass selects a provider
@@ -152,10 +161,11 @@ export default function TermsPage() {
 			<p>
 				Billing is processed securely through <strong>Stripe</strong>, as
 				described in the Base Terms. By subscribing, you authorize us to charge
-				your payment method for the selected plan and any applicable taxes. All
-				fees are generally non-refundable except where required by law or under
-				the limited goodwill refund option below. You may cancel at any time;
-				your plan remains active until the end of the current billing period.
+				your payment method for the selected plan and any applicable taxes.
+				Subscriptions renew automatically each month until cancelled. All fees
+				are generally non-refundable except where required by law or under the
+				limited goodwill refund option below. You may cancel at any time; your
+				plan remains active until the end of the current billing period.
 			</p>
 			<p>
 				<strong>Limited first-month goodwill refund.</strong> Once you start
@@ -201,15 +211,99 @@ export default function TermsPage() {
 				automated abuse, key sharing, resale, or sustained traffic patterns
 				inconsistent with interactive coding workflows.
 			</p>
+			<h3 id="october-2026-plan-changes">Plan changes from October 15, 2026</h3>
+			<p>
+				These changes apply to both new and existing subscribers. Subscription
+				prices stay the same, but included usage decreases. If you subscribe
+				before October 15, 2026, your initial monthly allowance is 3&times; your
+				plan price. It becomes 2&times; at your first renewal on or after that
+				date. New subscriptions and new billing cycles started by an immediate
+				upgrade on or after that date receive the 2&times; allowance, subject to
+				the upgrade rollover rule above.
+			</p>
+			<p>
+				Daily and weekly limits and Reset Pass changes take effect on October
+				15, 2026, including during a billing cycle that started earlier. The
+				percentages below use the new standard monthly allowance for your tier,
+				even if your current cycle still has its earlier monthly allowance. Pro
+				no longer includes a free Reset Pass; Max continues to include two per
+				billing cycle.
+			</p>
+			<div className="overflow-x-auto">
+				<table className="w-full text-left [&_th]:px-3 [&_th]:py-2 [&_td]:px-3 [&_td]:py-2 [&_tr]:border-b [&_tr]:border-border">
+					<caption className="mb-3 text-left font-medium text-foreground">
+						DevPass allowances and Reset Pass benefits from October 15, 2026
+					</caption>
+					<thead>
+						<tr>
+							<th scope="col">Benefit or limit</th>
+							<th scope="col">Lite</th>
+							<th scope="col">Pro</th>
+							<th scope="col">Max</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr>
+							<th scope="row">
+								Standard monthly allowance (provider-rate usage)
+							</th>
+							<td>$58</td>
+							<td>$158</td>
+							<td>$358</td>
+						</tr>
+						<tr>
+							<th scope="row">
+								Daily cap across all models (rolling 24 hours)
+							</th>
+							<td>8%</td>
+							<td>9%</td>
+							<td>10%</td>
+						</tr>
+						<tr>
+							<th scope="row">Premium weekly cap</th>
+							<td>10%</td>
+							<td>12%</td>
+							<td>15%</td>
+						</tr>
+						<tr>
+							<th scope="row">Price per Reset Pass</th>
+							<td>$5</td>
+							<td>$15</td>
+							<td>$45</td>
+						</tr>
+						<tr>
+							<th scope="row">Included Reset Passes per billing cycle</th>
+							<td>0</td>
+							<td>0</td>
+							<td>2</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+			<p>
+				Daily and premium weekly caps limit how quickly you can use your monthly
+				allowance; they are not additional usage. A Reset Pass restores only the
+				premium weekly allowance and does not reset or increase your daily or
+				monthly allowance. At a daily or premium weekly cap, requests pause
+				unless you have opted into pay-as-you-go overflow and have available
+				credits. Overflow is billed separately from your subscription and is not
+				enabled by accepting these terms.
+			</p>
+			<p>
+				Review these changes before subscribing. You may change plans or cancel
+				in your&nbsp;<Link href="/dashboard/billing">billing dashboard</Link>.
+				To avoid a renewal under the new monthly allowance, cancel before your
+				next renewal on or after October 15, 2026. Cancellation stops future
+				renewal charges; access continues until the end of the paid billing
+				period and remains subject to the limits effective during that period.
+			</p>
 			<hr />
 			<h2>3. One Account Per Developer</h2>
 			<p>
 				DevPass is sold to <strong>one developer, on one account</strong>. The
-				flat-rate price and{" "}
-				<strong>3&times; your subscription in included usage</strong> only work
-				because each person uses a single account in good faith. Splitting that
-				usage across multiple accounts is the fastest way to break the deal for
-				everyone.
+				flat-rate price and included usage allowance only work because each
+				person uses a single account in good faith. Splitting that usage across
+				multiple accounts is the fastest way to break the deal for everyone.
 			</p>
 			<p>
 				To keep the pricing sustainable for the developers who use DevPass
@@ -285,23 +379,12 @@ export default function TermsPage() {
 				</li>
 				<li>
 					Use your DevPass API key directly from your own applications,
-					backends, products, services, scripts, cron jobs, batch pipelines,
-					bots, or any other direct or automated integration outside of an
-					approved coding or agent tool. DevPass is only usable from whitelisted
-					clients such as Claude Code, Codex, Cursor, Cline, OpenCode, OpenClaw,
-					Hermes, and Autohand. The list of approved tools is maintained at our
-					discretion and may change over time
-				</li>
-				<li>
-					Use DevPass for anything other than interactive software development,
-					even from an approved tool. Excluded uses include, by way of example
-					only and <strong>without limitation</strong>, role play, companion or
-					character chat, creative and fiction writing, general-purpose chat and
-					question-answering, research and summarization, translation, marketing
-					or SEO content generation, dataset generation, synthetic data, model
-					distillation, evaluations, and benchmarking. This list is illustrative
-					and not exhaustive; any use outside interactive coding work is
-					prohibited whether or not it appears here
+					backends, products, services, scripts, batch pipelines, or any other
+					integration outside of an approved coding or agent tool. DevPass is
+					only usable from whitelisted clients such as Claude Code, Codex,
+					Cursor, Cline, OpenCode, OpenClaw, Hermes, and Autohand. The list of
+					approved tools is maintained at our discretion and may change over
+					time
 				</li>
 				<li>
 					Use DevPass for non-inference workloads — embeddings, image
@@ -322,26 +405,34 @@ export default function TermsPage() {
 				We reserve the right to <strong>permanently ban</strong> accounts — and
 				every related account — that engage in abuse, fraud, payment disputes
 				filed in bad faith, or any other policy violation, including
-				provider-level violations and a high rate of content filter violations
-				as described in Section&nbsp;6 of the Base Terms. Banned accounts lose
-				access immediately; fees paid for the current billing cycle are not
-				refunded. This supplements the suspension and termination rights in
-				Section&nbsp;11 of the Base Terms.
+				provider-level violations. Banned accounts lose access immediately; fees
+				paid for the current billing cycle are not refunded. This supplements
+				the suspension and termination rights in Section&nbsp;11 of the Base
+				Terms.
 			</p>
 			<p>
 				<strong>
-					API, automation, or non-coding usage can get your DevPass account
-					banned without a refund.
+					Additional restriction effective October&nbsp;15, 2026, for new
+					billing periods.
 				</strong>{" "}
-				Where the violation is limited and appears inadvertent, we may first
-				warn you, rate-limit the account, or block the offending traffic. We are
-				not required to do so: depending on the scale and nature of the usage we
-				may terminate the subscription and permanently ban the account —
-				together with every related account — immediately and without prior
-				notice, at any point in the billing cycle. Fees already paid are
-				retained, no refund or credit is issued for the remainder of the cycle
-				or for any unused allowance, and the first-month goodwill refund in
-				Section&nbsp;2 does not apply to an account terminated for a violation.
+				The restriction and enforcement rules in this paragraph do not apply
+				today. They take effect on October&nbsp;15, 2026 and then apply only to
+				DevPass billing periods that begin on or after that date. From then on,
+				you also agree not to use DevPass for anything other than interactive
+				software development, even from an approved tool; excluded uses are
+				described in Section&nbsp;1 and that list is illustrative, not
+				exhaustive. API, automation, or non-coding usage in a billing period
+				covered by this paragraph can get your DevPass account{" "}
+				<strong>banned without a refund</strong>. Where the violation is limited
+				and appears inadvertent, we may first warn you, rate-limit the account,
+				or block the offending traffic. We are not required to do so: depending
+				on the scale and nature of the usage we may terminate the subscription
+				and permanently ban the account &mdash; together with every related
+				account &mdash; immediately and without prior notice, at any point in
+				the billing cycle. Fees already paid are retained, no refund or credit
+				is issued for the remainder of the cycle or for any unused allowance,
+				and the first-month goodwill refund in Section&nbsp;2 does not apply to
+				an account terminated for a violation.
 			</p>
 			<hr />
 			<h2>5. Data and Privacy</h2>

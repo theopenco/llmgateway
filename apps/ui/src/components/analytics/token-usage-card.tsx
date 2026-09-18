@@ -28,6 +28,10 @@ import {
 } from "@/lib/components/chart";
 
 import { formatBucketLabel } from "@llmgateway/shared";
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
 
 import type { DailyActivity } from "@/types/activity";
 
@@ -36,7 +40,6 @@ const config = {
 	cache: { label: "Cache reads", color: "hsl(142 71% 45%)" },
 	output: { label: "Output", color: "hsl(262 83% 58%)" },
 };
-const compact = new Intl.NumberFormat("en-US", { notation: "compact" });
 
 export function TokenUsageCard({
 	activity,
@@ -83,9 +86,9 @@ export function TokenUsageCard({
 							</p>
 							<p
 								className="mt-1 text-xl font-semibold tabular-nums"
-								title={totals[key].toLocaleString()}
+								title={formatNumber(totals[key])}
 							>
-								{loading ? "—" : compact.format(totals[key])}
+								{loading ? "—" : formatCompactNumber(totals[key])}
 							</p>
 						</div>
 					))}
@@ -124,7 +127,7 @@ export function TokenUsageCard({
 								minTickGap={40}
 							/>
 							<YAxis
-								tickFormatter={(value: number) => compact.format(value)}
+								tickFormatter={(value: number) => formatCompactNumber(value)}
 								tickLine={false}
 								axisLine={false}
 								width={60}
@@ -169,8 +172,8 @@ export function TokenUsageCard({
 				)}
 				<p className="mt-3 text-xs text-muted-foreground">
 					Input excludes cache reads and includes{" "}
-					{compact.format(totals.cacheWrites)} cache-write tokens. Token counts
-					include both credits and BYOK requests.
+					{formatCompactNumber(totals.cacheWrites)} cache-write tokens. Token
+					counts include both credits and BYOK requests.
 				</p>
 			</CardContent>
 		</Card>
