@@ -1012,9 +1012,7 @@ export function LogCard({
 								{log.errorCategory && (
 									<>
 										<div className="text-muted-foreground">Error Category</div>
-										<div className="font-mono text-xs break-all">
-											{log.errorCategory}
-										</div>
+										<div>{log.errorCategory}</div>
 									</>
 								)}
 								<div className="text-muted-foreground">Streamed</div>

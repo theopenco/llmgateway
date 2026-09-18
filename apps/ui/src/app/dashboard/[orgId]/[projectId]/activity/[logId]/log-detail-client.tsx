@@ -1170,11 +1170,7 @@ export function LogDetailClient({
 										value={log.unifiedFinishReason ?? "-"}
 									/>
 									{log.errorCategory && (
-										<Field
-											label="Error Category"
-											value={log.errorCategory}
-											mono
-										/>
+										<Field label="Error Category" value={log.errorCategory} />
 									)}
 								</TooltipProvider>
 							</div>
