@@ -111,6 +111,23 @@ const credentialSchema = z.object({
 	allowedModels: z.array(z.string()).nullable(),
 });
 
+/**
+ * Rolling 24h request/error counts for one credential, from
+ * `provider_key_hourly_stats`. Zeroes mean the credential served no attributed
+ * traffic in the window, not that the counts are unknown.
+ */
+const credentialRecentStatsSchema = z.object({
+	requestCount: z.number(),
+	errorCount: z.number(),
+	/** Subset of `errorCount`: failures the provider itself returned. */
+	upstreamErrorCount: z.number(),
+});
+
+/** List view only — the mutation responses do not compute the rollup. */
+const listedCredentialSchema = credentialSchema.extend({
+	last24h: credentialRecentStatsSchema,
+});
+
 const configKeySchema = z.object({
 	key: z.string(),
 	envVar: z.string(),
@@ -655,7 +672,7 @@ const listCredentials = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						credentials: z.array(credentialSchema),
+						credentials: z.array(listedCredentialSchema),
 					}),
 				},
 			},
@@ -684,8 +701,74 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 		},
 	});
 
-	return c.json({ credentials: rows.map(toCredential) });
+	const recent = await getRecentCredentialStats(rows.map((row) => row.id));
+
+	return c.json({
+		credentials: rows.map((row) => ({
+			...toCredential(row),
+			last24h: recent.get(row.id) ?? NO_RECENT_STATS,
+		})),
+	});
 });
+
+const NO_RECENT_STATS = {
+	requestCount: 0,
+	errorCount: 0,
+	upstreamErrorCount: 0,
+};
+
+/**
+ * Rolling 24h request/error counts per credential, so the table can show how
+ * healthy each one has been lately next to its lifetime spend. Read from the
+ * hourly rollup rather than `log`, which retention prunes per organization and
+ * which is far too large to scan for this.
+ *
+ * Buckets are hourly, so the window edge is coarse: the oldest bucket is
+ * included whole. That matches the "24h" window the spend charts use.
+ */
+async function getRecentCredentialStats(providerKeyIds: string[]) {
+	const stats = new Map<string, z.infer<typeof credentialRecentStatsSchema>>();
+	if (providerKeyIds.length === 0) {
+		return stats;
+	}
+
+	const rows = await db
+		.select({
+			providerKeyId: tables.providerKeyHourlyStats.providerKeyId,
+			requestCount:
+				sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.requestCount}), 0)`.as(
+					"request_count",
+				),
+			errorCount:
+				sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.errorCount}), 0)`.as(
+					"error_count",
+				),
+			upstreamErrorCount:
+				sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.upstreamErrorCount}), 0)`.as(
+					"upstream_error_count",
+				),
+		})
+		.from(tables.providerKeyHourlyStats)
+		.where(
+			and(
+				inArray(tables.providerKeyHourlyStats.providerKeyId, providerKeyIds),
+				gte(
+					tables.providerKeyHourlyStats.hourTimestamp,
+					getTokenWindowStartDate("1d"),
+				),
+			),
+		)
+		.groupBy(tables.providerKeyHourlyStats.providerKeyId);
+
+	for (const row of rows) {
+		stats.set(row.providerKeyId, {
+			requestCount: Number(row.requestCount),
+			errorCount: Number(row.errorCount),
+			upstreamErrorCount: Number(row.upstreamErrorCount),
+		});
+	}
+	return stats;
+}
 
 /**
  * ISO-8601 UTC label for a truncated bucket, formatted the same way
