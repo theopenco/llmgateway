@@ -124,12 +124,86 @@ describe("OpenAI GPT-5.6 family pricing", () => {
 	);
 });
 
-// AWS serves GPT-5.6 two ways: in-region Mantle deployments, priced at
-// OpenAI's data-residency tier (a flat 10% premium over the global rate), and
-// the global cross-region profile on the Runtime endpoint at the undiscounted
-// rate. Both routes expose AWS's own long-context tier, which no longer tracks
-// OpenAI's first-party rates — Bedrock discounted Sol separately — and both
-// enforce the same prompt cap, measured well below AWS's documented 1M window.
+// Azure resells GPT-5.6 at OpenAI's own rates on Standard Global deployments,
+// Sol's promotional rates included — Azure runs that promo on its own window
+// (2026-09-01 through at least 2026-11-30). The rates come from the
+// `5.6 <model> … Std Gl` meters in the Azure retail prices API, which bill
+// lower than the pricing page still publishes. Data Zone (+10%) and Priority
+// Processing (2x) are separate deployment types that the catalogue does not
+// map, so nothing here should track them.
+describe("GPT-5.6 on Azure", () => {
+	const azureEntries = models.flatMap((model) =>
+		model.id.startsWith("gpt-5.6")
+			? model.providers
+					.filter((provider) => provider.providerId === "azure")
+					.map((provider) => ({
+						modelId: model.id,
+						provider: provider as ProviderModelMapping,
+						firstParty: model.providers.find(
+							(candidate) => candidate.providerId === "openai",
+						) as ProviderModelMapping | undefined,
+					}))
+			: [],
+	);
+
+	it("has the three azure mappings to validate", () => {
+		expect(azureEntries.map((e) => e.modelId).sort()).toEqual([
+			"gpt-5.6-luna",
+			"gpt-5.6-sol",
+			"gpt-5.6-terra",
+		]);
+	});
+
+	it.each(azureEntries)(
+		"$modelId bills Standard Global at the first-party rate",
+		({ modelId, provider, firstParty }) => {
+			expect(
+				firstParty,
+				`${modelId}: openai mapping must be defined`,
+			).toBeDefined();
+			for (const field of [
+				"inputPrice",
+				"outputPrice",
+				"cachedInputPrice",
+				"cacheWriteInputPrice",
+			] as const) {
+				expect(provider[field], `${modelId} azure ${field}`).toBe(
+					firstParty?.[field],
+				);
+			}
+			expect(provider.cacheWriteInputPrice1h).toBeUndefined();
+
+			const tiers = provider.pricingTiers ?? [];
+			const firstPartyTiers = firstParty?.pricingTiers ?? [];
+			expect(tiers, `${modelId} azure pricingTiers`).toHaveLength(
+				firstPartyTiers.length,
+			);
+			tiers.forEach((tier, index) => {
+				const firstPartyTier = firstPartyTiers[index];
+				expect(tier.upToTokens, `${modelId} azure tier ${index}`).toBe(
+					firstPartyTier.upToTokens,
+				);
+				for (const field of [
+					"inputPrice",
+					"outputPrice",
+					"cachedInputPrice",
+					"cacheWriteInputPrice",
+				] as const) {
+					expect(
+						tier[field],
+						`${modelId} azure tier "${tier.name}" ${field}`,
+					).toBe(firstPartyTier[field]);
+				}
+			});
+		},
+	);
+});
+
+// AWS serves GPT-5.6 two ways: the global cross-region profile on the Runtime
+// endpoint at OpenAI's own rates, and in-region Mantle deployments at OpenAI's
+// data-residency tier, a flat 10% premium over those. Both routes carry the
+// 272K long-context tier and the same prompt cap, measured well below AWS's
+// documented 1M window.
 const BEDROCK_PREMIUM = 1.1;
 const BEDROCK_CONTEXT_SIZE = 921600;
 
