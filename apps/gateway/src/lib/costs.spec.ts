@@ -1344,44 +1344,47 @@ describe("calculateCosts", () => {
 		},
 	);
 
-	it("should split azure image/text input pricing for gpt-image-2", async () => {
-		const promptTokens = 524;
-		const reportedImageInputTokens = 512;
-		const completionTokens = 196;
-		const reportedImageOutputTokens = 196;
+	it.each(["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
+		"should split azure image/text input pricing for %s",
+		async (model) => {
+			const promptTokens = 524;
+			const reportedImageInputTokens = 512;
+			const completionTokens = 196;
+			const reportedImageOutputTokens = 196;
 
-		const result = await calculateCosts(
-			"gpt-image-2",
-			"azure",
-			null,
-			promptTokens,
-			completionTokens,
-			null,
-			undefined,
-			null,
-			1,
-			"1024x1024",
-			0,
-			null,
-			null,
-			"low",
-			reportedImageInputTokens,
-			reportedImageOutputTokens,
-		);
+			const result = await calculateCosts(
+				model,
+				"azure",
+				null,
+				promptTokens,
+				completionTokens,
+				null,
+				undefined,
+				null,
+				1,
+				"1024x1024",
+				0,
+				null,
+				null,
+				"low",
+				reportedImageInputTokens,
+				reportedImageOutputTokens,
+			);
 
-		const expectedTextInputCost =
-			(promptTokens - reportedImageInputTokens) * (5 / 1e6);
-		const expectedImageInputCost = reportedImageInputTokens * (8 / 1e6);
-		const expectedImageOutputCost = reportedImageOutputTokens * (30 / 1e6);
+			const expectedTextInputCost =
+				(promptTokens - reportedImageInputTokens) * (5 / 1e6);
+			const expectedImageInputCost = reportedImageInputTokens * (8 / 1e6);
+			const expectedImageOutputCost = reportedImageOutputTokens * (30 / 1e6);
 
-		expect(result.imageInputTokens).toBe(reportedImageInputTokens);
-		expect(result.imageInputCost).toBeCloseTo(expectedImageInputCost);
-		expect(result.inputCost).toBeCloseTo(
-			expectedTextInputCost + expectedImageInputCost,
-		);
-		expect(result.outputCost).toBeCloseTo(expectedImageOutputCost);
-		expect(result.discount).toBeUndefined();
-	});
+			expect(result.imageInputTokens).toBe(reportedImageInputTokens);
+			expect(result.imageInputCost).toBeCloseTo(expectedImageInputCost);
+			expect(result.inputCost).toBeCloseTo(
+				expectedTextInputCost + expectedImageInputCost,
+			);
+			expect(result.outputCost).toBeCloseTo(expectedImageOutputCost);
+			expect(result.discount).toBeUndefined();
+		},
+	);
 
 	it.each(["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
 		"should split cached tokens between text and image rates for %s",
