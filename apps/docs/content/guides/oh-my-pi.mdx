@@ -1,0 +1,78 @@
+---
+title: Oh My Pi Integration
+description: Install Oh My Pi, connect a DevPass API key through LLM Gateway, and run a coding task.
+icon: PiAgent
+---
+
+[Oh My Pi](https://omp.sh) (`omp`) is a terminal coding agent with file, shell, editor, language-server, and debugger tools. Connect it to LLM Gateway to use DevPass with the [live model catalogue](https://llmgateway.io/models) and review usage in one dashboard.
+
+## Install Oh My Pi
+
+Install `omp` on macOS or Linux, then check the installed version:
+
+```bash
+curl -fsSL https://omp.sh/install | sh
+omp --version
+```
+
+See the [Oh My Pi installation guide](https://omp.sh/docs) for Homebrew, Bun, Nix, and Windows options.
+
+## Configure DevPass
+
+Create a DevPass API key, then create or update `$HOME/.omp/agent/models.yml`. Merge this provider with any existing providers:
+
+```yaml
+providers:
+  llm-gateway-devpass:
+    baseUrl: https://api.llmgateway.io/v1
+    api: openai-completions
+    apiKey: <API-KEY-DEVPASS>
+    discovery:
+      type: litellm
+```
+
+`discovery: { type: litellm }` loads the available models from LLM Gateway. Keep the provider name as `llm-gateway-devpass`; select models as `llm-gateway-devpass/model-id`.
+
+> **DevPass model IDs:** Use canonical IDs without an upstream provider prefix, such as `claude-sonnet-4-5`, so DevPass can select the serving provider.
+
+## Select a model
+
+Start Oh My Pi from your project directory:
+
+```bash
+omp
+```
+
+Run `/model`, choose **llm-gateway-devpass**, then select a model from the list. You can also choose one when launching:
+
+```bash
+omp --model llm-gateway-devpass/claude-sonnet-4-5
+```
+
+Choose a text model with tool support from the [live catalogue](https://llmgateway.io/models?features=tools).
+
+## Verify the connection
+
+Give Oh My Pi a small task with a clear check:
+
+```text
+Fix slugify.ts so all tests pass. Read the files, make the smallest fix,
+run node --test slugify.test.ts, and summarize. Do not edit the tests.
+```
+
+Inspect the resulting diff and test output. Requests appear in your [LLM Gateway dashboard](https://llmgateway.io/dashboard), with the model and DevPass usage.
+
+For a one-shot task:
+
+```bash
+omp --model llm-gateway-devpass/claude-sonnet-4-5 -p "Explain this project"
+```
+
+## Troubleshooting
+
+- **Provider or models missing:** Confirm the file is `$HOME/.omp/agent/models.yml`, then restart `omp` and reopen `/model`.
+- **Authentication error:** Replace `<API-KEY-DEVPASS>` with an active DevPass API key.
+- **Wrong endpoint:** Use `https://api.llmgateway.io/v1` with `api: openai-completions`.
+- **Model rejected:** Use a canonical model ID without a provider prefix; DevPass does not support provider-pinned routing.
+
+See the [Oh My Pi provider documentation](https://omp.sh/docs/providers) for additional provider settings.
