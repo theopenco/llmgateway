@@ -199,6 +199,7 @@ export interface LogCardData {
 	effort?: string | null;
 	plugins?: string[] | null;
 	routingMetadata?: unknown;
+	errorCategory?: string | null;
 	errorDetails?: unknown;
 	pluginResults?: unknown;
 	toolResults?: unknown;
@@ -1008,6 +1009,12 @@ export function LogCard({
 									Unified Finish Reason
 								</div>
 								<div>{log.unifiedFinishReason}</div>
+								{log.errorCategory && (
+									<>
+										<div className="text-muted-foreground">Error Category</div>
+										<div>{log.errorCategory}</div>
+									</>
+								)}
 								<div className="text-muted-foreground">Streamed</div>
 								<div className="flex items-center gap-1">
 									{log.streamed ? (
