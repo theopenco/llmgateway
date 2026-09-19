@@ -10,32 +10,39 @@ import {
 } from "@llmgateway/db";
 
 /**
- * How long an organization has to be idle before its owner may delete it. An
- * org that served requests this recently is probably still wired into a
- * production app.
+ * How long an organization has to be free of spend activity before its owner
+ * may delete it. An org that served requests this recently is probably still
+ * wired into a production app.
  */
-export const ORGANIZATION_DELETE_IDLE_HOURS = 72;
+export const ORGANIZATION_DELETE_IDLE_DAYS = 30;
+
+/**
+ * Balance an organization has to be below to be deletable from the dashboard.
+ * Anything at or above this is real money the owner should reclaim through
+ * support rather than forfeit.
+ */
+export const ORGANIZATION_DELETE_MAX_CREDITS = 5;
 
 export interface OrganizationDeletionBlockers {
-	/** Balance is above zero (or unreadable), so deleting would forfeit money. */
-	positiveCredits: boolean;
-	/** The org served inference requests within the idle window. */
-	recentRequests: boolean;
+	/** Balance is at or above the threshold (or unreadable). */
+	blockingCredits: boolean;
+	/** The org had spend activity within the idle window. */
+	recentActivity: boolean;
 }
 
-export function hasPositiveCredits(credits: string | null): boolean {
-	// `!(credits <= 0)` so an unparseable balance (NaN) also counts as positive:
-	// refusing the delete is the safe direction.
-	return !(Number(credits ?? "0") <= 0);
+export function hasBlockingCredits(credits: string | null): boolean {
+	// `!(credits < max)` so an unparseable balance (NaN) also blocks: refusing
+	// the delete is the safe direction.
+	return !(Number(credits ?? "0") < ORGANIZATION_DELETE_MAX_CREDITS);
 }
 
 /**
  * Start of the hour bucket that contains `now - idle window`, so a bucket
  * straddling the cutoff still counts.
  */
-const IDLE_WINDOW_MS = ORGANIZATION_DELETE_IDLE_HOURS * 60 * 60 * 1000;
+const IDLE_WINDOW_MS = ORGANIZATION_DELETE_IDLE_DAYS * 24 * 60 * 60 * 1000;
 
-export function getRecentRequestsCutoff(now = new Date()): Date {
+export function getRecentActivityCutoff(now = new Date()): Date {
 	const cutoff = new Date(now.getTime() - IDLE_WINDOW_MS);
 	cutoff.setUTCMinutes(0, 0, 0);
 	return cutoff;
@@ -46,7 +53,7 @@ export function getRecentRequestsCutoff(now = new Date()): Date {
  * request served seconds ago; the hourly stats cover the marker being absent
  * (Redis eviction, activity from before the marker existed).
  */
-export async function hasRecentRequests(
+export async function hasRecentActivity(
 	organizationId: string,
 	now = new Date(),
 ): Promise<boolean> {
@@ -66,7 +73,7 @@ export async function hasRecentRequests(
 		.where(
 			and(
 				eq(tables.project.organizationId, organizationId),
-				gte(projectHourlyStats.hourTimestamp, getRecentRequestsCutoff(now)),
+				gte(projectHourlyStats.hourTimestamp, getRecentActivityCutoff(now)),
 			),
 		);
 
@@ -78,7 +85,7 @@ export async function getOrganizationDeletionBlockers(org: {
 	credits: string | null;
 }): Promise<OrganizationDeletionBlockers> {
 	return {
-		positiveCredits: hasPositiveCredits(org.credits),
-		recentRequests: await hasRecentRequests(org.id),
+		blockingCredits: hasBlockingCredits(org.credits),
+		recentActivity: await hasRecentActivity(org.id),
 	};
 }

@@ -47,8 +47,8 @@ async function seedOrg(
 	});
 }
 
-async function seedRequests(hoursAgo: number) {
-	const ageMs = hoursAgo * 60 * 60 * 1000;
+async function seedActivity(daysAgo: number) {
+	const ageMs = daysAgo * 24 * 60 * 60 * 1000;
 	const hour = new Date(Date.now() - ageMs);
 	hour.setUTCMinutes(0, 0, 0);
 	await db.insert(tables.projectHourlyStats).values({
@@ -72,9 +72,10 @@ async function eligibility(token: string) {
 	expect(res.status).toBe(200);
 	return (await res.json()) as {
 		canDelete: boolean;
-		positiveCredits: boolean;
-		recentRequests: boolean;
-		idleHours: number;
+		blockingCredits: boolean;
+		recentActivity: boolean;
+		idleDays: number;
+		maxCredits: number;
 	};
 }
 
@@ -106,8 +107,8 @@ describe("DELETE /orgs/{id}", () => {
 		expect((await getOrg())?.status).toBe("active");
 	});
 
-	it("refuses an organization with a positive credit balance", async () => {
-		await seedOrg({ credits: "0.01" });
+	it("refuses an organization holding $5 or more in credits", async () => {
+		await seedOrg({ credits: "5.00" });
 
 		const res = await deleteOrg(token);
 		expect(res.status).toBe(409);
@@ -117,14 +118,22 @@ describe("DELETE /orgs/{id}", () => {
 		expect(stripeMock.subscriptions.cancel).not.toHaveBeenCalled();
 	});
 
-	it("refuses an organization that served requests in the last 72 hours", async () => {
+	it("allows an organization holding less than $5 in credits", async () => {
+		await seedOrg({ credits: "4.99" });
+
+		const res = await deleteOrg(token);
+		expect(res.status).toBe(200);
+		expect((await getOrg())?.status).toBe("deleted");
+	});
+
+	it("refuses an organization with spend activity in the last 30 days", async () => {
 		await seedOrg();
-		await seedRequests(71);
+		await seedActivity(29);
 
 		const res = await deleteOrg(token);
 		expect(res.status).toBe(409);
 		const json = (await res.json()) as { message: string };
-		expect(json.message).toContain("72 hours");
+		expect(json.message).toContain("30 days");
 		expect((await getOrg())?.status).toBe("active");
 	});
 
@@ -150,7 +159,7 @@ describe("DELETE /orgs/{id}", () => {
 		stripeMock.subscriptions.cancel.mockImplementation(async () => {
 			await db
 				.update(tables.organization)
-				.set({ credits: "3.00" })
+				.set({ credits: "25.00" })
 				.where(eq(tables.organization.id, ORG_ID));
 			return { status: "canceled" };
 		});
@@ -166,7 +175,7 @@ describe("DELETE /orgs/{id}", () => {
 			plan: "pro",
 			stripeSubscriptionId: "sub_pro",
 		});
-		await seedRequests(80);
+		await seedActivity(31);
 
 		const res = await deleteOrg(token);
 		expect(res.status).toBe(200);
@@ -197,14 +206,15 @@ describe("DELETE /orgs/{id}", () => {
 	});
 
 	it("reports deletion blockers", async () => {
-		await seedOrg({ credits: "5" });
-		await seedRequests(1);
+		await seedOrg({ credits: "10" });
+		await seedActivity(1);
 
 		expect(await eligibility(token)).toEqual({
 			canDelete: false,
-			positiveCredits: true,
-			recentRequests: true,
-			idleHours: 72,
+			blockingCredits: true,
+			recentActivity: true,
+			idleDays: 30,
+			maxCredits: 5,
 		});
 
 		await db
@@ -212,13 +222,14 @@ describe("DELETE /orgs/{id}", () => {
 			.set({ credits: "0" })
 			.where(eq(tables.organization.id, ORG_ID));
 		await db.delete(tables.projectHourlyStats);
-		await seedRequests(73);
+		await seedActivity(31);
 
 		expect(await eligibility(token)).toEqual({
 			canDelete: true,
-			positiveCredits: false,
-			recentRequests: false,
-			idleHours: 72,
+			blockingCredits: false,
+			recentActivity: false,
+			idleDays: 30,
+			maxCredits: 5,
 		});
 	});
 });

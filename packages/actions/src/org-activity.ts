@@ -4,9 +4,9 @@ import { logger } from "@llmgateway/logger";
 /**
  * Window in which an organization counts as actively serving requests. The
  * marker expires on its own, so its mere existence answers "any request in the
- * last 72 hours?" without a Postgres read.
+ * last 30 days?" without a Postgres read.
  */
-export const ORG_REQUEST_ACTIVITY_TTL_SECONDS = 72 * 60 * 60;
+export const ORG_REQUEST_ACTIVITY_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 export function orgRequestActivityKey(organizationId: string): string {
 	return `org_activity:last_request:${organizationId}`;

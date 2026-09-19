@@ -79,9 +79,10 @@ export function DeleteOrganizationSettings() {
 		);
 	}
 
-	const blockedByCredits = eligibility?.positiveCredits ?? false;
-	const blockedByUsage = eligibility?.recentRequests ?? false;
-	const idleHours = eligibility?.idleHours ?? 72;
+	const blockedByCredits = eligibility?.blockingCredits ?? false;
+	const blockedByUsage = eligibility?.recentActivity ?? false;
+	const idleDays = eligibility?.idleDays ?? 30;
+	const maxCredits = eligibility?.maxCredits ?? 5;
 	const canDelete = eligibility?.canDelete ?? false;
 	const disabled = isLoading || !canDelete || deleteOrganization.isPending;
 
@@ -129,8 +130,8 @@ export function DeleteOrganizationSettings() {
 
 				{blockedByCredits && (
 					<p className="text-sm text-muted-foreground">
-						This organization still has a positive credit balance, so it cannot
-						be deleted from here. Please contact support at{" "}
+						This organization still holds a credit balance of ${maxCredits} or
+						more, so it cannot be deleted from here. Please contact support at{" "}
 						<a
 							href="mailto:contact@llmgateway.io"
 							className="font-medium underline underline-offset-2 whitespace-nowrap"
@@ -143,9 +144,9 @@ export function DeleteOrganizationSettings() {
 
 				{blockedByUsage && (
 					<p className="text-sm text-muted-foreground">
-						This organization served requests within the last {idleHours} hours.
-						Stop all traffic and come back once it has been idle for {idleHours}{" "}
-						hours.
+						This organization had spend activity within the last {idleDays}{" "}
+						days. Stop all traffic and come back once it has been idle for{" "}
+						{idleDays} days.
 					</p>
 				)}
 

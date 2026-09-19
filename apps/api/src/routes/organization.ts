@@ -9,7 +9,8 @@ import {
 import { isUserHighRisk } from "@/lib/account-risk.js";
 import {
 	getOrganizationDeletionBlockers,
-	ORGANIZATION_DELETE_IDLE_HOURS,
+	ORGANIZATION_DELETE_IDLE_DAYS,
+	ORGANIZATION_DELETE_MAX_CREDITS,
 } from "@/lib/organization-deletion.js";
 import {
 	computeSelfRefundEligibility,
@@ -1117,16 +1118,15 @@ async function assertOrganizationDeletionAllowed(org: {
 }): Promise<void> {
 	const blockers = await getOrganizationDeletionBlockers(org);
 
-	if (blockers.positiveCredits) {
+	if (blockers.blockingCredits) {
 		throw new HTTPException(409, {
-			message:
-				"This organization still has a positive credit balance and cannot be deleted. Please contact support instead.",
+			message: `This organization still holds a credit balance of $${ORGANIZATION_DELETE_MAX_CREDITS} or more and cannot be deleted. Please contact support instead.`,
 		});
 	}
 
-	if (blockers.recentRequests) {
+	if (blockers.recentActivity) {
 		throw new HTTPException(409, {
-			message: `This organization served requests within the last ${ORGANIZATION_DELETE_IDLE_HOURS} hours and cannot be deleted yet. Stop all traffic and try again later.`,
+			message: `This organization had spend activity within the last ${ORGANIZATION_DELETE_IDLE_DAYS} days and cannot be deleted yet. Stop all traffic and try again later.`,
 		});
 	}
 }
@@ -1289,7 +1289,7 @@ organization.openapi(deleteOrganization, async (c) => {
 				and(
 					eq(tables.organization.id, id),
 					sql`${tables.organization.status} IS DISTINCT FROM 'deleted'`,
-					sql`CAST(${tables.organization.credits} AS NUMERIC) <= 0`,
+					sql`CAST(${tables.organization.credits} AS NUMERIC) < ${ORGANIZATION_DELETE_MAX_CREDITS}`,
 				),
 			)
 			.returning({ id: tables.organization.id });
@@ -1331,9 +1331,10 @@ const getDeletionEligibility = createRoute({
 				"application/json": {
 					schema: z.object({
 						canDelete: z.boolean(),
-						positiveCredits: z.boolean(),
-						recentRequests: z.boolean(),
-						idleHours: z.number(),
+						blockingCredits: z.boolean(),
+						recentActivity: z.boolean(),
+						idleDays: z.number(),
+						maxCredits: z.number(),
 					}),
 				},
 			},
@@ -1414,10 +1415,11 @@ organization.openapi(getDeletionEligibility, async (c) => {
 		{
 			canDelete:
 				org.kind === "default" &&
-				!blockers.positiveCredits &&
-				!blockers.recentRequests,
+				!blockers.blockingCredits &&
+				!blockers.recentActivity,
 			...blockers,
-			idleHours: ORGANIZATION_DELETE_IDLE_HOURS,
+			idleDays: ORGANIZATION_DELETE_IDLE_DAYS,
+			maxCredits: ORGANIZATION_DELETE_MAX_CREDITS,
 		},
 		200,
 	);
