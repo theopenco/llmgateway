@@ -486,7 +486,6 @@ export async function validateProviderKey(
 				effectiveModelId,
 				provider === "google-ai-studio" ||
 					provider === "glacier" ||
-					provider === "iceberg" ||
 					provider === "google-vertex" ||
 					provider === "quartz" ||
 					provider === "vertex-anthropic"

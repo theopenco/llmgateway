@@ -39,13 +39,7 @@ function oneModelPerProvider<T extends { model: string }>(list: T[]): T[] {
 // - bytedance/gpt-oss-120b: the adapter does not emit stable tool_call ids —
 //   the id returned in the first turn is not recognized when sent back as
 //   tool_call_id, so the second turn fails.
-// - granite/qwen3.7-max: in thinking mode the upstream emits reasoning text
-//   instead of a structured tool call when tool_choice is forced, so the first
-//   turn returns no function call.
-const TOOL_CALL_DENYLIST = new Set<string>([
-	"bytedance/gpt-oss-120b",
-	"granite/qwen3.7-max",
-]);
+const TOOL_CALL_DENYLIST = new Set<string>(["bytedance/gpt-oss-120b"]);
 
 const responsesTestModels = oneModelPerProvider(testModels);
 // Image-generation mappings answer every request with an image (the Responses

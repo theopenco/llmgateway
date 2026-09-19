@@ -722,7 +722,6 @@ function isGoogleQueryTokenProvider(provider: ProviderId): boolean {
 	return [
 		"google-ai-studio",
 		"glacier",
-		"iceberg",
 		"google-vertex",
 		"quartz",
 		"vertex-anthropic",
