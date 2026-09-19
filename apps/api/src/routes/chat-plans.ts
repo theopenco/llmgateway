@@ -486,6 +486,10 @@ chatPlans.openapi(changeTier, async (c) => {
 					chatPlanCreditsLimit: newCreditsLimit.toString(),
 					chatPlanCreditsUsed: "0",
 					chatPlanBillingCycleStart: new Date(),
+					chatPlanExpiresAt: updated.items.data[0]?.current_period_end
+						? new Date(updated.items.data[0].current_period_end * 1000)
+						: undefined,
+					subscriptionPaymentStatus: "current",
 				})
 				.where(eq(tables.organization.id, personalOrg.id));
 		} else {
@@ -609,6 +613,7 @@ const getStatus = createRoute({
 						chatPlanBillingCycleStart: z.string().nullable(),
 						chatPlanCancelled: z.boolean(),
 						chatPlanExpiresAt: z.string().nullable(),
+						subscriptionPaymentStatus: z.enum(["current", "past_due"]),
 						regularCredits: z.string(),
 						organizationId: z.string().nullable(),
 					}),
@@ -652,6 +657,7 @@ chatPlans.openapi(getStatus, async (c) => {
 			chatPlanBillingCycleStart: null,
 			chatPlanCancelled: false,
 			chatPlanExpiresAt: null,
+			subscriptionPaymentStatus: "current" as const,
 			regularCredits: "0",
 			organizationId: null,
 		});
@@ -672,6 +678,7 @@ chatPlans.openapi(getStatus, async (c) => {
 			personalOrg.chatPlanBillingCycleStart?.toISOString() ?? null,
 		chatPlanCancelled: personalOrg.chatPlanCancelled,
 		chatPlanExpiresAt: personalOrg.chatPlanExpiresAt?.toISOString() ?? null,
+		subscriptionPaymentStatus: personalOrg.subscriptionPaymentStatus,
 		regularCredits: personalOrg.credits,
 		organizationId: personalOrg.id,
 	});
