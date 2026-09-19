@@ -231,7 +231,9 @@ Web search responses include citations to show where information was sourced fro
 			"url": "https://example.com/article",
 			"title": "Article Title",
 			"start_index": 0,
-			"end_index": 50
+			"end_index": 50,
+			"date": "2026-09-16",
+			"last_updated": "2026-09-17"
 		}
 	]
 }
@@ -239,8 +241,14 @@ Web search responses include citations to show where information was sourced fro
 
 <Callout type="info">
 	Citation format may vary slightly between providers, but LLM Gateway
-	normalizes them into a consistent structure.
+	normalizes them into a consistent structure. `date` and `last_updated` are
+	only present when the provider reports them for that source.
 </Callout>
+
+Search-grounded models that return their sources as a set rather than as inline
+citations also include a top-level `search_results` array alongside `choices`,
+with one entry per source (`url`, `title`, `snippet`, `date`, `last_updated`).
+Streaming responses carry it on the chunk that delivers the sources.
 
 ## Cost Tracking
 

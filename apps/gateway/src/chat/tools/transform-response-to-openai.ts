@@ -11,7 +11,7 @@ import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
 import { formatUsedModelForDisplay } from "./resolve-provider-context.js";
 
 import type { RoutingAttempt } from "./retry-with-fallback.js";
-import type { Annotation, ImageObject } from "./types.js";
+import type { Annotation, ImageObject, SearchResult } from "./types.js";
 import type { Provider } from "@llmgateway/models";
 
 export interface CostData {
@@ -425,10 +425,20 @@ export function transformResponseToOpenai(
 	serviceTier?: string,
 	options?: { cacheThoughtSignatures?: boolean },
 	responseProvider: Provider = usedProvider,
+	searchResults: SearchResult[] | null = null,
 ) {
 	let transformedResponse = json;
 
-	switch (responseProvider) {
+	// Perplexity serves two upstream shapes until Sonar's chat/completions
+	// retires on 2026-09-27: the Agent API's `output` items, and the
+	// OpenAI-shaped Sonar body. Only the former needs its own case; the latter
+	// is already in the response format and just gets metadata added.
+	const responseShape: Provider | "perplexity-agent" =
+		responseProvider === "perplexity" && Array.isArray(json.output)
+			? "perplexity-agent"
+			: responseProvider;
+
+	switch (responseShape) {
 		case "google-ai-studio":
 		case "glacier":
 		case "iceberg":
@@ -644,6 +654,65 @@ export function transformResponseToOpenai(
 						),
 					},
 				],
+				usage: buildUsageObject(
+					promptTokens,
+					completionTokens,
+					totalTokens,
+					reasoningTokens,
+					cachedTokens,
+					costs,
+					showUpgradeMessage,
+					cacheCreationTokens,
+					imageInputTokens,
+					imageOutputTokens,
+					cacheCreation5mTokens,
+					cacheCreation1hTokens,
+					audioInputTokens,
+				),
+				metadata: buildMetadata(
+					requestedModel,
+					requestedProvider,
+					baseModelName,
+					usedProvider,
+					usedModel,
+					requestId,
+					routing,
+					usedRegion,
+				),
+			};
+			break;
+		}
+		case "perplexity-agent": {
+			// The Agent API answers in Responses shape (`output` items), so build
+			// the chat-completions response here. `search_results` and `citations`
+			// stay top-level: that is where Sonar put them and where callers
+			// already read the per-source dates from.
+			transformedResponse = {
+				id: json.id ?? `chatcmpl-${Date.now()}`,
+				object: "chat.completion",
+				created: json.created_at ?? Math.floor(Date.now() / 1000),
+				model: formatUsedModelForDisplay(
+					usedProvider,
+					baseModelName,
+					undefined,
+					usedRegion,
+				),
+				choices: [
+					{
+						index: 0,
+						message: {
+							role: "assistant",
+							content: content,
+							...(toolResults && { tool_calls: toolResults }),
+							...(annotations && annotations.length > 0 && { annotations }),
+						},
+						finish_reason: finishReason ?? "stop",
+					},
+				],
+				...(searchResults && {
+					search_results: searchResults,
+					citations: searchResults.map((result) => result.url),
+				}),
 				usage: buildUsageObject(
 					promptTokens,
 					completionTokens,
