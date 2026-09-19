@@ -1055,3 +1055,87 @@ describe("transformResponseToOpenai", () => {
 		});
 	});
 });
+
+describe("perplexity agent api", () => {
+	const searchResults = [
+		{
+			url: "https://www.nasa.gov/artemis",
+			title: "Artemis News",
+			date: "2026-09-16",
+			last_updated: "2026-09-17",
+		},
+	];
+
+	test("returns sources top-level, where Sonar callers already read them", () => {
+		const response = transformResponseToOpenai(
+			"perplexity",
+			"sonar",
+			{
+				id: "resp_1",
+				object: "response",
+				created_at: 1789819970,
+				status: "completed",
+				model: "perplexity/sonar",
+				output: [
+					{ type: "search_results", results: searchResults },
+					{
+						type: "message",
+						role: "assistant",
+						content: [{ type: "output_text", text: "Artemis II flew." }],
+					},
+				],
+				usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+			},
+			"Artemis II flew.",
+			null,
+			"stop",
+			10,
+			5,
+			15,
+			null,
+			null,
+			null,
+			[],
+			"perplexity/sonar",
+			"perplexity",
+			"sonar",
+			null,
+			false,
+			[
+				{
+					type: "url_citation",
+					url_citation: {
+						url: "https://www.nasa.gov/artemis",
+						title: "Artemis News",
+						date: "2026-09-16",
+						last_updated: "2026-09-17",
+					},
+				},
+			],
+			null,
+			"req_1",
+			undefined,
+			null,
+			null,
+			null,
+			null,
+			null,
+			null,
+			undefined,
+			undefined,
+			"perplexity",
+			searchResults,
+		);
+
+		expect(response.choices[0].message.content).toBe("Artemis II flew.");
+		expect(response.choices[0].finish_reason).toBe("stop");
+		expect(response.search_results).toEqual(searchResults);
+		expect(response.citations).toEqual(["https://www.nasa.gov/artemis"]);
+		expect(response.choices[0].message.annotations[0].url_citation).toEqual({
+			url: "https://www.nasa.gov/artemis",
+			title: "Artemis News",
+			date: "2026-09-16",
+			last_updated: "2026-09-17",
+		});
+	});
+});

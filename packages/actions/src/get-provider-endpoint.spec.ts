@@ -1462,4 +1462,23 @@ describe("getProviderEndpoint", () => {
 			);
 		});
 	});
+	describe("perplexity", () => {
+		it("routes the Agent API mapping to /v1/agent", () => {
+			expect(
+				getProviderEndpoint("perplexity", undefined, "sonar", undefined, false),
+			).toBe("https://api.perplexity.ai/v1/agent");
+		});
+
+		it("keeps mappings still on Sonar chat/completions", () => {
+			expect(
+				getProviderEndpoint(
+					"perplexity",
+					undefined,
+					"sonar-pro",
+					undefined,
+					false,
+				),
+			).toBe("https://api.perplexity.ai/chat/completions");
+		});
+	});
 });

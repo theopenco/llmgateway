@@ -7309,12 +7309,12 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 	});
 
 	describe("perplexity", () => {
-		test("forwards caller-supplied max_tokens verbatim", async () => {
+		test("forwards caller-supplied max_tokens verbatim on the legacy Sonar path", async () => {
 			const requestBody = (await prepareRequestBody(
 				"perplexity",
-				"sonar",
+				"sonar-pro",
 				null,
-				"sonar",
+				"sonar-pro",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7331,14 +7331,17 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			)) as any;
 
 			expect(requestBody.max_tokens).toBe(32000);
+			expect(requestBody.messages).toEqual([
+				{ role: "user", content: "Hello!" },
+			]);
 		});
 
 		test("leaves max_tokens unset when caller omits", async () => {
 			const requestBody = (await prepareRequestBody(
 				"perplexity",
-				"sonar",
+				"sonar-pro",
 				null,
-				"sonar",
+				"sonar-pro",
 				[{ role: "user", content: "Hello!" }],
 				false,
 				undefined,
@@ -7355,6 +7358,142 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			)) as any;
 
 			expect(requestBody.max_tokens).toBeUndefined();
+		});
+
+		test("builds an Agent API body for sonar", async () => {
+			const requestBody = (await prepareRequestBody(
+				"perplexity",
+				"sonar",
+				null,
+				"perplexity/sonar",
+				[
+					{ role: "system", content: "Be brief." },
+					{ role: "user", content: "Hello!" },
+				],
+				true,
+				0.3,
+				32000,
+				0.9,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.model).toBe("perplexity/sonar");
+			expect(requestBody.messages).toBeUndefined();
+			expect(requestBody.input).toEqual([
+				{
+					role: "system",
+					content: [{ type: "input_text", text: "Be brief." }],
+				},
+				{
+					role: "user",
+					content: [{ type: "input_text", text: "Hello!" }],
+				},
+			]);
+			// Sonar always searched; the Agent API only does when forced.
+			expect(requestBody.tools).toEqual([{ type: "web_search" }]);
+			expect(requestBody.tool_choice).toBe("required");
+			expect(requestBody.stream).toBe(true);
+			expect(requestBody.temperature).toBe(0.3);
+			expect(requestBody.top_p).toBe(0.9);
+			expect(requestBody.max_output_tokens).toBe(32000);
+			expect(requestBody.max_tokens).toBeUndefined();
+		});
+
+		test("maps web search options onto the Agent web_search tool", async () => {
+			const requestBody = (await prepareRequestBody(
+				"perplexity",
+				"sonar",
+				null,
+				"perplexity/sonar",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{
+					type: "web_search",
+					max_uses: 7,
+					search_context_size: "high",
+					allowed_domains: ["nasa.gov"],
+					blocked_domains: ["example.com"],
+				},
+			)) as any;
+
+			expect(requestBody.tools).toEqual([
+				{
+					type: "web_search",
+					max_results: 7,
+					search_context_size: "high",
+					filters: {
+						search_domain_filter: ["nasa.gov", "-example.com"],
+					},
+				},
+			]);
+		});
+
+		test("maps json_schema response_format to text.format", async () => {
+			const requestBody = (await prepareRequestBody(
+				"perplexity",
+				"sonar",
+				null,
+				"perplexity/sonar",
+				[{ role: "user", content: "Hello!" }],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{
+					type: "json_schema",
+					json_schema: {
+						name: "answer",
+						strict: true,
+						schema: {
+							type: "object",
+							properties: { answer: { type: "string" } },
+						},
+					},
+				},
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			expect(requestBody.response_format).toBeUndefined();
+			expect(requestBody.text).toEqual({
+				format: {
+					type: "json_schema",
+					name: "answer",
+					schema: {
+						type: "object",
+						properties: { answer: { type: "string" } },
+					},
+				},
+			});
 		});
 	});
 

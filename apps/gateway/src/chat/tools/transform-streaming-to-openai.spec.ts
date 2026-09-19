@@ -961,3 +961,104 @@ describe("transformStreamingToOpenai", () => {
 		]);
 	});
 });
+
+describe("perplexity agent api streaming", () => {
+	it("emits sources with dates on the search_results item", () => {
+		const result = transformStreamingToOpenai(
+			"perplexity",
+			"perplexity/sonar",
+			{
+				type: "response.output_item.done",
+				output_index: 0,
+				response: { id: "resp_1", created_at: 1789819970 },
+				item: {
+					type: "search_results",
+					queries: ["artemis"],
+					results: [
+						{
+							id: 1,
+							url: "https://www.nasa.gov/artemis",
+							title: "Artemis News",
+							snippet: "Artemis II flew.",
+							date: "2026-09-16",
+							last_updated: "2026-09-17",
+							source: "web",
+						},
+					],
+				},
+			},
+			[],
+		);
+
+		expect(result.search_results).toEqual([
+			{
+				url: "https://www.nasa.gov/artemis",
+				title: "Artemis News",
+				snippet: "Artemis II flew.",
+				date: "2026-09-16",
+				last_updated: "2026-09-17",
+				source: "web",
+			},
+		]);
+		expect(result.citations).toEqual(["https://www.nasa.gov/artemis"]);
+		expect(result.choices[0].delta.annotations).toEqual([
+			{
+				type: "url_citation",
+				url_citation: {
+					url: "https://www.nasa.gov/artemis",
+					title: "Artemis News",
+					date: "2026-09-16",
+					last_updated: "2026-09-17",
+				},
+			},
+		]);
+	});
+
+	it("maps output_text deltas to content", () => {
+		const result = transformStreamingToOpenai(
+			"perplexity",
+			"perplexity/sonar",
+			{
+				type: "response.output_text.delta",
+				delta: "Artemis",
+				response: { id: "resp_1", created_at: 1789819970 },
+			},
+			[],
+		);
+
+		expect(result.choices[0].delta.content).toBe("Artemis");
+	});
+
+	it("drops Perplexity's search progress events", () => {
+		expect(
+			transformStreamingToOpenai(
+				"perplexity",
+				"perplexity/sonar",
+				{ type: "response.reasoning.search_queries", queries: ["artemis"] },
+				[],
+			),
+		).toBeNull();
+	});
+
+	it("still handles Sonar chat/completions chunks", () => {
+		const result = transformStreamingToOpenai(
+			"perplexity",
+			"perplexity/sonar-pro",
+			{
+				id: "chunk-1",
+				object: "chat.completion.chunk",
+				created: 1234567890,
+				model: "sonar-pro",
+				choices: [{ index: 0, delta: { content: "hi" }, finish_reason: null }],
+				search_results: [{ url: "https://example.com", date: "2026-09-01" }],
+			},
+			[],
+		);
+
+		expect(result.choices[0].delta.content).toBe("hi");
+		// Top-level passthrough is how Sonar callers already receive sources.
+		expect(result.search_results).toEqual([
+			{ url: "https://example.com", date: "2026-09-01" },
+		]);
+	});
+});

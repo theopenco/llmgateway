@@ -833,7 +833,9 @@ export function getProviderEndpoint(
 			return `${url}/v1/projects/${vaProjectId}/locations/${vaRegion}/publishers/anthropic/models/${vaModel}:${vaEndpoint}`;
 		}
 		case "perplexity":
-			return `${url}/chat/completions`;
+			return providerMapping?.usesPerplexityAgentApi
+				? `${url}/v1/agent`
+				: `${url}/chat/completions`;
 		case "novita":
 			return `${url}/chat/completions`;
 		case "runpod":
