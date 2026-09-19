@@ -455,6 +455,7 @@ export interface OpenAIResponsesRequestBody {
 		effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 		summary: "auto" | "detailed";
 		context?: "auto" | "current_turn" | "all_turns";
+		mode?: "standard" | "pro";
 	};
 	/**
 	 * Provider-side response storage (Responses API statefulness). The gateway

@@ -52,6 +52,27 @@ describe("completionsRequestSchema reasoning_effort", () => {
 		expect(result.data?.reasoning?.effort).toBe("max");
 	});
 
+	it("preserves reasoning.mode so it reaches the provider", () => {
+		const result = completionsRequestSchema.safeParse({
+			model: "gpt-5.6-sol",
+			messages: [{ role: "user", content: "hi" }],
+			reasoning: { effort: "high", mode: "pro" },
+		});
+
+		expect(result.success).toBe(true);
+		expect(result.data?.reasoning).toEqual({ effort: "high", mode: "pro" });
+	});
+
+	it("rejects an unknown reasoning.mode", () => {
+		const result = completionsRequestSchema.safeParse({
+			model: "gpt-5.6-sol",
+			messages: [{ role: "user", content: "hi" }],
+			reasoning: { mode: "turbo" },
+		});
+
+		expect(result.success).toBe(false);
+	});
+
 	it("leaves other effort levels unchanged", () => {
 		const result = completionsRequestSchema.safeParse({
 			model: "deepseek-v4",

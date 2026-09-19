@@ -2,6 +2,7 @@ import { ShieldAlert } from "lucide-react";
 import Link from "next/link";
 
 import { BlockedSignupCountriesForm } from "@/components/blocked-signup-countries-form";
+import { BlockedSignupEmailDomainsForm } from "@/components/blocked-signup-email-domains-form";
 import { CreditPurchaseBlockToggle } from "@/components/credit-purchase-block-toggle";
 import { ForceThreeDSecureForm } from "@/components/force-three-d-secure-form";
 import { SystemBannerForm } from "@/components/system-banner-form";
@@ -15,10 +16,12 @@ import {
 } from "@/components/ui/card";
 import {
 	getBlockedSignupCountries,
+	getBlockedSignupEmailDomains,
 	getCreditPurchaseBlock,
 	getForceThreeDSecure,
 	getSystemBanner,
 	updateBlockedSignupCountries,
+	updateBlockedSignupEmailDomains,
 	updateCreditPurchaseBlock,
 	updateForceThreeDSecure,
 	updateSystemBanner,
@@ -53,11 +56,13 @@ export default async function SettingsPage() {
 	const [
 		creditPurchaseBlock,
 		blockedSignupCountries,
+		blockedSignupEmailDomains,
 		forceThreeDSecure,
 		systemBanner,
 	] = await Promise.all([
 		getCreditPurchaseBlock(),
 		getBlockedSignupCountries(),
+		getBlockedSignupEmailDomains(),
 		getForceThreeDSecure(),
 		getSystemBanner(),
 	]);
@@ -65,6 +70,7 @@ export default async function SettingsPage() {
 	if (
 		creditPurchaseBlock === null ||
 		blockedSignupCountries === null ||
+		blockedSignupEmailDomains === null ||
 		forceThreeDSecure === null ||
 		systemBanner === null
 	) {
@@ -82,6 +88,11 @@ export default async function SettingsPage() {
 		"use server";
 
 		return await updateBlockedSignupCountries(countries);
+	}
+
+	async function handleSaveEmailDomains(domains: string[]) {
+		"use server";
+		return await updateBlockedSignupEmailDomains(domains);
 	}
 
 	async function handleSaveBanner(input: SystemBannerSettingInput) {
@@ -159,6 +170,23 @@ export default async function SettingsPage() {
 					<BlockedSignupCountriesForm
 						countries={blockedSignupCountries.countries}
 						onSave={handleSaveCountries}
+					/>
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Blocked sign-up email domains</CardTitle>
+					<CardDescription>
+						In hosted mode, email sign-ups from these domains and their
+						subdomains are rejected. Existing users can still sign in.
+						Disposable email and plus-address checks remain active.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<BlockedSignupEmailDomainsForm
+						domains={blockedSignupEmailDomains.domains}
+						onSave={handleSaveEmailDomains}
 					/>
 				</CardContent>
 			</Card>

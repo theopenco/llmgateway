@@ -1936,6 +1936,7 @@ export const openaiModels = [
 				webSearchPrice: "0.01",
 				reasoning: true,
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningModes: ["standard", "pro"],
 				reasoningOutput: "omit",
 				verbosity: true,
 				supportsResponsesApi: true,
@@ -1956,8 +1957,12 @@ export const openaiModels = [
 				providerId: "azure",
 				externalId: "gpt-5.6-sol",
 				deactivatedAt: new Date("2028-01-11"),
-				// Promotional pricing through at least 2026-11-21; standard rates are
-				// 5.0/30.0 short context and 10.0/45.0 long context.
+				// Azure runs its own promo on these rates, 2026-09-01 through at
+				// least 2026-11-30 — a different window from OpenAI's 2026-11-21.
+				// Standard rates are 5.0/30.0 short context and 10.0/45.0 long
+				// context, which is still all the public pricing page shows; the
+				// Global Standard meters in the Azure retail prices API bill the
+				// promotional rates below.
 				inputPrice: "4.0e-6",
 				outputPrice: "20.0e-6",
 				cachedInputPrice: "0.4e-6",
@@ -2147,6 +2152,7 @@ export const openaiModels = [
 				webSearchPrice: "0.01",
 				reasoning: true,
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningModes: ["standard", "pro"],
 				reasoningOutput: "omit",
 				verbosity: true,
 				supportsResponsesApi: true,
@@ -2352,6 +2358,7 @@ export const openaiModels = [
 				webSearchPrice: "0.01",
 				reasoning: true,
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningModes: ["standard", "pro"],
 				reasoningOutput: "omit",
 				verbosity: true,
 				supportsResponsesApi: true,

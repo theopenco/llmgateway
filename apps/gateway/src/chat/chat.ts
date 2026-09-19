@@ -1804,6 +1804,7 @@ chat.openapi(completions, async (c) => {
 	const reasoning_object_effort = validationResult.data.reasoning?.effort;
 	const reasoning_max_tokens = validationResult.data.reasoning?.max_tokens;
 	const reasoning_context = validationResult.data.reasoning?.context;
+	const reasoning_mode = validationResult.data.reasoning?.mode;
 
 	// Validate that reasoning_effort and reasoning.effort are not both specified
 	if (
@@ -2904,6 +2905,7 @@ chat.openapi(completions, async (c) => {
 			response_format,
 			reasoning_effort,
 			reasoning_max_tokens,
+			reasoning_mode,
 			verbosity,
 			tools,
 			tool_choice,
@@ -3554,6 +3556,13 @@ chat.openapi(completions, async (c) => {
 					message: `Model '${requestedModel}' is not configured to support reasoning. Remove the reasoning parameters or enable reasoning for this custom model.`,
 				});
 			}
+			// Custom upstreams are called with chat-completions bodies, which have
+			// no reasoning.mode field to carry the value.
+			if (reasoning_mode !== undefined) {
+				throw new HTTPException(400, {
+					message: `Model '${requestedModel}' does not support reasoning.mode. Remove the reasoning.mode parameter; it is only available on OpenAI GPT-5.6 models.`,
+				});
+			}
 			if (customModelEntry.streaming === "false" && stream) {
 				throw new HTTPException(400, {
 					message: `Model '${requestedModel}' is configured as non-streaming. Set stream: false.`,
@@ -3717,6 +3726,7 @@ chat.openapi(completions, async (c) => {
 			strictToolChoice: !dynamicRouteSelection,
 			reasoningEffort: reasoning_effort,
 			reasoningMaxTokens: reasoning_max_tokens,
+			reasoningMode: reasoning_mode,
 			noReasoning: no_reasoning,
 			maxTokens: max_tokens,
 			n,
@@ -7374,6 +7384,7 @@ chat.openapi(completions, async (c) => {
 			reasoning_context,
 			organization.safetyIdentifier,
 			getUsedProviderMapping(),
+			reasoning_mode,
 		);
 	} catch (e) {
 		// Surface typed pre-upstream input errors in the activity feed as a

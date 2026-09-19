@@ -2,9 +2,10 @@ import { logger } from "@llmgateway/logger";
 
 import { redisClient } from "./redis.js";
 
-export const SWR_PREFIX = "swr:";
-export const SWR_TABLE_INDEX_PREFIX = "swr:tables:";
-export const SWR_THROTTLE_PREFIX = "swr:throttle:";
+// Bump with the Drizzle cache namespace to discard incompatible fallback rows.
+export const SWR_PREFIX = "swr:v2:";
+export const SWR_TABLE_INDEX_PREFIX = "swr:v2:tables:";
+export const SWR_THROTTLE_PREFIX = "swr:v2:throttle:";
 export const SWR_DEFAULT_TTL_SECONDS = 14400;
 export const SWR_BATCH_SIZE = 500;
 
