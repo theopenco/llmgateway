@@ -1509,6 +1509,113 @@ describe("managed credential reorder cache invalidation", () => {
 			expect(quiet?.totalTokens).toBe("0");
 		});
 	});
+	describe("recent error rate", () => {
+		const providerKeyId = "errors-cred";
+		const orgId = "errors-org";
+		const projectId = "errors-project";
+		const apiKeyId = "errors-api-key";
+
+		async function seedTraffic(
+			entries: { hasError: boolean; finishReason: string }[],
+		) {
+			await db.insert(tables.organization).values({
+				id: orgId,
+				name: "Errors Org",
+				billingEmail: "errors@example.com",
+				credits: "100",
+			});
+			await db.insert(tables.project).values({
+				id: projectId,
+				name: "Errors Project",
+				organizationId: orgId,
+				mode: "credits",
+			});
+			await db.insert(tables.apiKey).values({
+				id: apiKeyId,
+				...hashApiKeyForStorage("errors-api-key-token"),
+				projectId,
+				description: "Errors Key",
+				createdBy: "test-user-id",
+			});
+			await db.insert(tables.providerKey).values({
+				id: providerKeyId,
+				...encryptProviderKeyForStorage("sk-errors-cred", providerKeyId, null),
+				provider: "openai",
+				managed: true,
+				organizationId: null,
+			});
+
+			let index = 0;
+			for (const entry of entries) {
+				await db.insert(tables.log).values({
+					id: `errors-log-${index}`,
+					requestId: `errors-request-${index}`,
+					organizationId: orgId,
+					projectId,
+					apiKeyId,
+					providerKeyId,
+					cost: 0.01,
+					duration: 1000,
+					usedMode: "credits",
+					requestedModel: "openai/gpt-4o-mini",
+					requestedProvider: "openai",
+					usedModel: "gpt-4o-mini",
+					usedProvider: "openai",
+					responseSize: 100,
+					mode: "credits",
+					hasError: entry.hasError,
+					unifiedFinishReason: entry.finishReason,
+				});
+				index++;
+			}
+
+			await aggregateLogsForTesting();
+		}
+
+		async function listCredential() {
+			const res = await app.request("/admin/provider-credentials", {
+				headers: { Cookie: cookie },
+			});
+			const body = (await res.json()) as {
+				credentials: {
+					id: string;
+					last24h: {
+						requestCount: number;
+						errorCount: number;
+						upstreamErrorCount: number;
+					};
+				}[];
+			};
+			return body.credentials.find(
+				(credential) => credential.id === providerKeyId,
+			);
+		}
+
+		test("reports 24h request and error counts per credential", async () => {
+			await seedTraffic([
+				{ hasError: false, finishReason: "completed" },
+				{ hasError: false, finishReason: "completed" },
+				{ hasError: true, finishReason: "upstream_error" },
+				{ hasError: true, finishReason: "client_error" },
+			]);
+
+			expect((await listCredential())?.last24h).toEqual({
+				requestCount: 4,
+				errorCount: 2,
+				upstreamErrorCount: 1,
+			});
+		});
+
+		test("reports zeroes for a credential with no attributed traffic", async () => {
+			await seedTraffic([]);
+
+			expect((await listCredential())?.last24h).toEqual({
+				requestCount: 0,
+				errorCount: 0,
+				upstreamErrorCount: 0,
+			});
+		});
+	});
 });
 
 describe("managed credential allowed models", () => {

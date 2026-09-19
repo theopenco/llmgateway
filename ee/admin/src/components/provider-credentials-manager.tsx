@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { ProviderCredentialsSpendOverview } from "@/components/provider-credentials-spend-overview";
+import { ProviderKeyErrorRateCell } from "@/components/provider-key-error-rate-cell";
 import { ProviderKeySpendCell } from "@/components/provider-key-spend-cell";
 import { ProviderKeySpendDialog } from "@/components/provider-key-spend-dialog";
 import { ProviderKeyStatusBadge } from "@/components/provider-key-status-badge";
@@ -281,6 +282,14 @@ function EnvCredentialRow({
 				<span
 					className="text-sm text-muted-foreground"
 					title="Spend tracking and limits apply to managed credentials only; env keys are not attributed individually."
+				>
+					—
+				</span>
+			</TableCell>
+			<TableCell>
+				<span
+					className="text-xs text-muted-foreground"
+					title="Requests are only attributed per credential for managed credentials, so env keys have no error rate."
 				>
 					—
 				</span>
@@ -712,6 +721,11 @@ export function ProviderCredentialsManager({
 								<TableHead>Models</TableHead>
 								<TableHead>Settings</TableHead>
 								<TableHead>Spend</TableHead>
+								<TableHead className="whitespace-nowrap">
+									<span title="Share of requests attributed to this credential that failed in the last 24 hours.">
+										Errors
+									</span>
+								</TableHead>
 								<TableHead>Status</TableHead>
 								<TableHead className="text-right">Actions</TableHead>
 							</TableRow>
@@ -726,7 +740,7 @@ export function ProviderCredentialsManager({
 							<TableBody>
 								<TableRow>
 									<TableCell
-										colSpan={11}
+										colSpan={12}
 										className="py-10 text-center text-muted-foreground"
 									>
 										{envSource === "gateway" ? (
@@ -751,7 +765,7 @@ export function ProviderCredentialsManager({
 							<TableBody>
 								<TableRow>
 									<TableCell
-										colSpan={11}
+										colSpan={12}
 										className="py-10 text-center text-muted-foreground"
 									>
 										No credentials for this provider.{" "}
@@ -896,6 +910,11 @@ export function ProviderCredentialsManager({
 															</TableCell>
 															<TableCell className="text-sm">
 																<ProviderKeySpendCell keyRow={credential} />
+															</TableCell>
+															<TableCell>
+																<ProviderKeyErrorRateCell
+																	stats={credential.last24h}
+																/>
 															</TableCell>
 															<TableCell>
 																<ProviderKeyStatusBadge keyRow={credential} />
