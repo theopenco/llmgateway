@@ -29,6 +29,15 @@ const ORG_ID = "test-org-id";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+beforeEach(() => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	vi.setSystemTime(new Date("2026-10-16T12:00:00Z"));
+});
+
+afterEach(() => {
+	vi.useRealTimers();
+});
+
 function daysAgo(days: number): Date {
 	const offsetMs = days * DAY_MS;
 	return new Date(Date.now() - offsetMs);
@@ -57,6 +66,7 @@ async function seedTransaction(overrides: Record<string, unknown> = {}) {
 			amount: "100",
 			creditAmount: "100",
 			stripePaymentIntentId: "pi_test_1",
+			createdAt: new Date(),
 			...overrides,
 		} as typeof tables.transaction.$inferInsert)
 		.returning();
@@ -95,15 +105,15 @@ describe("computeSelfRefundEligibility", () => {
 		expect(await getEligibility(tx.id)).toEqual({ eligible: true });
 	});
 
-	test("first credit top-up with usage just under 20% is eligible", async () => {
-		await seedOrg({ credits: "81" });
+	test("first credit top-up with usage just under 10% is eligible", async () => {
+		await seedOrg({ credits: "91" });
 		const tx = await seedTransaction();
 
 		expect(await getEligibility(tx.id)).toEqual({ eligible: true });
 	});
 
-	test("first credit top-up with 20% usage is not eligible", async () => {
-		await seedOrg({ credits: "80" });
+	test("first credit top-up with 10% usage is not eligible", async () => {
+		await seedOrg({ credits: "90" });
 		const tx = await seedTransaction();
 
 		expect(await getEligibility(tx.id)).toEqual({
@@ -159,7 +169,7 @@ describe("computeSelfRefundEligibility", () => {
 		expect(await getEligibility(latest.id)).toEqual({ eligible: true });
 	});
 
-	test("repeat top-up: balance below 80% of the purchase is not eligible", async () => {
+	test("repeat top-up: balance at or below 90% of the purchase is not eligible", async () => {
 		await seedOrg({ credits: "39" });
 		await seedTransaction({
 			createdAt: daysAgo(5),
@@ -230,7 +240,7 @@ describe("computeSelfRefundEligibility", () => {
 		});
 	});
 
-	test("a dev plan upgrade under 20% of the new allowance is eligible", async () => {
+	test("a dev plan upgrade under 10% of the new allowance is eligible", async () => {
 		await seedOrg({
 			devPlan: "max",
 			devPlanCreditsUsed: "47",
@@ -256,10 +266,10 @@ describe("computeSelfRefundEligibility", () => {
 		expect(await getEligibility(upgrade.id)).toEqual({ eligible: true });
 	});
 
-	test("first dev plan purchase under 20% of the credit allowance is eligible", async () => {
+	test("first dev plan purchase under 10% of the credit allowance is eligible", async () => {
 		await seedOrg({
 			devPlan: "pro",
-			devPlanCreditsUsed: "47",
+			devPlanCreditsUsed: "23",
 			devPlanCreditsLimit: "237",
 			devPlanStripeSubscriptionId: "sub_test_1",
 		});
@@ -274,10 +284,10 @@ describe("computeSelfRefundEligibility", () => {
 		expect(await getEligibility(tx.id)).toEqual({ eligible: true });
 	});
 
-	test("first dev plan purchase at 20% of the allowance is not eligible", async () => {
+	test("first dev plan purchase at 10% of the allowance is not eligible", async () => {
 		await seedOrg({
 			devPlan: "pro",
-			devPlanCreditsUsed: "47.4",
+			devPlanCreditsUsed: "23.7",
 			devPlanCreditsLimit: "237",
 			devPlanStripeSubscriptionId: "sub_test_1",
 		});
@@ -295,10 +305,10 @@ describe("computeSelfRefundEligibility", () => {
 		});
 	});
 
-	test("dev plan renewal at 20% of the allowance is not eligible", async () => {
+	test("dev plan renewal at 10% of the allowance is not eligible", async () => {
 		await seedOrg({
 			devPlan: "pro",
-			devPlanCreditsUsed: "47.4",
+			devPlanCreditsUsed: "23.7",
 			devPlanCreditsLimit: "237",
 			devPlanStripeSubscriptionId: "sub_test_1",
 		});
@@ -329,11 +339,11 @@ describe("computeSelfRefundEligibility", () => {
 		"dev_plan_renewal",
 		"dev_plan_upgrade",
 	] as const)(
-		"repeat %s under 20% of the allowance is eligible; the older payment is not",
+		"repeat %s under 10% of the allowance is eligible; the older payment is not",
 		async (type) => {
 			await seedOrg({
 				devPlan: "pro",
-				devPlanCreditsUsed: "47",
+				devPlanCreditsUsed: "23",
 				devPlanCreditsLimit: "237",
 				devPlanStripeSubscriptionId: "sub_test_1",
 			});
@@ -403,11 +413,11 @@ describe("computeSelfRefundEligibility", () => {
 		});
 	});
 
-	test("first chat plan purchase under 20% of the allowance is eligible", async () => {
+	test("first chat plan purchase under 10% of the allowance is eligible", async () => {
 		await seedOrg({
 			kind: "chat",
 			chatPlan: "plus",
-			chatPlanCreditsUsed: "9",
+			chatPlanCreditsUsed: "4.5",
 			chatPlanCreditsLimit: "47.5",
 			chatPlanStripeSubscriptionId: "sub_test_chat",
 		});
@@ -428,8 +438,8 @@ describe("computeSelfRefundEligibility", () => {
 		"chat_plan_upgrade",
 	] as const)("repeat %s", (type) => {
 		test.each([
-			{ used: "9", limit: "47.5", eligible: true },
-			{ used: "9.5", limit: "47.5", eligible: false },
+			{ used: "4.5", limit: "47.5", eligible: true },
+			{ used: "4.75", limit: "47.5", eligible: false },
 			{ used: "0", limit: "0", eligible: false },
 		])(
 			"usage $used of $limit: eligible=$eligible",
@@ -461,6 +471,77 @@ describe("computeSelfRefundEligibility", () => {
 			},
 		);
 	});
+
+	test.each([
+		"credit_topup",
+		"dev_plan_start",
+		"dev_plan_renewal",
+		"dev_plan_upgrade",
+		"chat_plan_start",
+		"chat_plan_renewal",
+		"chat_plan_upgrade",
+	] as const)(
+		"%s honors the payment date and strict usage boundary",
+		async (type) => {
+			await seedOrg({
+				devPlan: "pro",
+				devPlanStripeSubscriptionId: "sub_test_1",
+				devPlanCreditsLimit: "100",
+				chatPlan: "plus",
+				chatPlanStripeSubscriptionId: "sub_test_chat",
+				chatPlanCreditsLimit: "100",
+			});
+			const organization = await db.query.organization.findFirst({
+				where: { id: { eq: ORG_ID } },
+			});
+			const row = await seedTransaction({ type });
+			for (const { date, used, eligible } of [
+				{ date: "2026-10-14T23:59:59.999Z", used: 15, eligible: true },
+				{ date: "2026-10-14T23:59:59.999Z", used: 20, eligible: false },
+				{ date: "2026-10-15T00:00:00Z", used: 9.99, eligible: true },
+				{ date: "2026-10-15T00:00:00Z", used: 10, eligible: false },
+				{ date: "2026-10-15T00:00:00Z", used: 15, eligible: false },
+			]) {
+				const transaction = { ...row, createdAt: new Date(date) };
+				expect(
+					computeSelfRefundEligibility({
+						organization: {
+							...organization!,
+							credits: String(100 - used),
+							devPlanCreditsUsed: String(used),
+							chatPlanCreditsUsed: String(used),
+						},
+						role: "owner",
+						transactions: [transaction],
+						transaction,
+					}),
+					`${type}: ${date}, ${used}% usage`,
+				).toEqual(
+					eligible
+						? { eligible: true }
+						: { eligible: false, reason: "usage_exceeded" },
+				);
+			}
+		},
+	);
+
+	test.each([
+		{ credits: "90.01", eligible: true },
+		{ credits: "90", eligible: false },
+		{ credits: "89.99", eligible: false },
+	])(
+		"repeat top-up boundary with $credits remaining",
+		async ({ credits, eligible }) => {
+			await seedOrg({ credits });
+			await seedTransaction({ createdAt: daysAgo(5) });
+			const latest = await seedTransaction();
+			expect(await getEligibility(latest.id)).toEqual(
+				eligible
+					? { eligible: true }
+					: { eligible: false, reason: "usage_exceeded" },
+			);
+		},
+	);
 
 	test("unused reset pass within 7 days is eligible", async () => {
 		await seedOrg({
@@ -966,8 +1047,8 @@ describe("self-refund endpoints", () => {
 		"dev_plan_upgrade",
 	] as const)("repeat DevPass %s", (type) => {
 		test.each([
-			{ used: "12", eligible: true },
-			{ used: "17.4", eligible: false },
+			{ used: "8", eligible: true },
+			{ used: "8.7", eligible: false },
 		])(
 			"billing and refund enforce the credit threshold at $used used",
 			async ({ used, eligible }) => {
@@ -1026,6 +1107,53 @@ describe("self-refund endpoints", () => {
 			},
 		);
 	});
+
+	test.each([
+		{ date: "2026-10-14T23:59:59.999Z", eligible: true },
+		{ date: "2026-10-15T00:00:00Z", eligible: false },
+	])(
+		"billing and refund honor the cutoff for $date payments",
+		async ({ date, eligible }) => {
+			await seedOrg({
+				kind: "devpass",
+				devPlan: "pro",
+				devPlanCreditsUsed: "15",
+				devPlanCreditsLimit: "100",
+				devPlanStripeSubscriptionId: "sub_test_1",
+			});
+			await seedTransaction({ type: "dev_plan_start", createdAt: daysAgo(30) });
+			const tx = await seedTransaction({
+				type: "dev_plan_renewal",
+				createdAt: new Date(date),
+			});
+			for (const path of [
+				"/dev-plans/invoices",
+				`/orgs/${ORG_ID}/transactions`,
+			]) {
+				const list = await app.request(path, { headers: { Cookie: token } });
+				expect(list.status).toBe(200);
+				const key =
+					path === "/dev-plans/invoices" ? "invoices" : "transactions";
+				expect(await list.json()).toMatchObject({
+					[key]: expect.arrayContaining([
+						expect.objectContaining({
+							id: tx.id,
+							refund: eligible
+								? { eligible: true }
+								: { eligible: false, reason: "usage_exceeded" },
+						}),
+					]),
+				});
+				const response = await app.request(`${path}/${tx.id}/refund`, {
+					method: "POST",
+					headers: { Cookie: token, "Content-Type": "application/json" },
+					body: JSON.stringify({ reason: "too_expensive" }),
+				});
+				expect(response.status).toBe(eligible ? 200 : 400);
+			}
+			expect(stripeMock.refunds.create).toHaveBeenCalledTimes(eligible ? 2 : 0);
+		},
+	);
 
 	// Every charge must carry an eligibility verdict so the billing history can
 	// render a disabled refund button with a reason, rather than nothing at all.
