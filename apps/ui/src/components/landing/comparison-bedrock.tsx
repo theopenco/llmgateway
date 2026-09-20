@@ -51,7 +51,7 @@ const comparisonData = [
 				title: "Frontier model coverage",
 				description: "OpenAI, Anthropic, Google, xAI, and more",
 				llmgateway: "All major labs",
-				bedrock: "No Google Gemini",
+				bedrock: "OpenAI, Claude, Gemma — no Gemini",
 			},
 			{
 				title: "Fast inference hosts",

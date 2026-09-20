@@ -55,7 +55,7 @@ interface HeroCompareProps {
 const defaultContent: HeroContent = {
 	heading: "Why Choose LLM Gateway Over OpenRouter?",
 	description:
-		"Compare our unified API gateway with advanced routing, analytics, and cost optimization against OpenRouter's basic proxy service.",
+		"Compare our open-source, self-hostable gateway — routing, analytics, and cost optimization included — against OpenRouter's hosted model marketplace.",
 	badges: [
 		"Advanced Analytics",
 		"Smart Routing",

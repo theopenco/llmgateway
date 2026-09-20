@@ -14,12 +14,12 @@ const copilotFaqs: CompareFaqItem[] = [
 	{
 		question: "What changed with GitHub Copilot pricing in June 2026?",
 		answer:
-			"On June 1, 2026, GitHub replaced Premium Request Units with usage-based AI Credits (1 credit = $0.01). Base seats stayed at $10–$39 per user per month, but Copilot Chat, agent mode, code review, and CLI now bill by tokens consumed — with no spending ceiling unless you manually configure a budget.",
+			"On June 1, 2026, GitHub replaced Premium Request Units with usage-based AI Credits (1 credit = $0.01). Base seats stayed at $10–$39 per user per month, but Copilot Chat, agent mode, code review, and CLI now bill by tokens consumed — and paid overage is enabled by default, so there is no spending ceiling unless an admin sets a budget. On September 1, 2026 the promotional allowances for existing Business ($30) and Enterprise ($70) customers reverted to the standard $19 and $39 per user.",
 	},
 	{
 		question: "How much does GitHub Copilot cost after the change?",
 		answer:
-			"The seat price is unchanged — Pro $10, Pro+ $39, Business $19, and Enterprise $39 per user per month — but included credits run out fast under real usage. Heavy chat users on premium models report $150–$250 per month in overages, and agentic teams have projected 10–50x cost increases.",
+			"The seat price is unchanged — Pro $10, Pro+ $39, Max $100, Business $19, and Enterprise $39 per user per month — with included credits of $15, $70, $200, $19, and $39 respectively. Those run out fast under real usage: heavy chat users on premium models have reported $150–$250 per month in overages, and agentic teams have projected 10–50x cost increases.",
 	},
 	{
 		question: "How does LLM Gateway keep AI coding costs predictable?",

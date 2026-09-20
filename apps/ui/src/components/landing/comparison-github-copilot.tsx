@@ -22,7 +22,7 @@ const comparisonData = [
 				title: "Spending ceiling",
 				description: "Hard caps so usage can never run away",
 				llmgateway: "Budgets and hard limits per org, project, and API key",
-				copilot: "Off by default — manual budget in billing settings",
+				copilot: "Paid overage on by default; budgets are opt-in",
 			},
 			{
 				title: "Prompt caching",
@@ -40,7 +40,7 @@ const comparisonData = [
 				title: "Free option",
 				description: "Use it without paying anything",
 				llmgateway: "Self-host free (AGPLv3)",
-				copilot: "2,000 completions/month",
+				copilot: "Copilot Free: limited completions and credits",
 			},
 		],
 	},

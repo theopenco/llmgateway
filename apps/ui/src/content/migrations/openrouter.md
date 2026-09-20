@@ -2,12 +2,15 @@
 id: openrouter
 slug: openrouter
 title: Migrate from OpenRouter
-description: Switch to LLM Gateway for built-in analytics, self-hosting options, and simpler API. Two-line code change.
+description: Switch to LLM Gateway for built-in analytics, self-hosting options, and free bring-your-own-keys at any volume. Two-line code change.
 date: 2026-01-20
+updatedAt: 2026-09-20
 fromProvider: OpenRouter
 ---
 
-LLM Gateway works just like OpenRouter—same API format, same model names—but with built-in analytics and the option to self-host. Migration takes two lines of code.
+LLM Gateway works just like OpenRouter — same OpenAI-compatible API, same `provider/model` naming — with built-in analytics and the option to self-host. Migration takes two lines of code.
+
+If [Stripe's acquisition of OpenRouter](/blog/stripe-openrouter-acquisition) (announced August 19, 2026) is what brought you here: OpenRouter says nothing changes for customers, so there is no fire to put out. This guide is for teams that want an open-source gateway they can run themselves, or that want to stop paying 5% on bring-your-own-key traffic above $25,000 a month.
 
 ## Quick Migration
 
@@ -40,16 +43,20 @@ LLM_GATEWAY_API_KEY=llmgtwy_your_key_here
 
 #### Using fetch/axios
 
+The OpenRouter-only `HTTP-Referer` and `X-Title` headers can go; nothing on LLM Gateway reads them.
+
 ```typescript
 // Before (OpenRouter)
 const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
   method: "POST",
   headers: {
     Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+    "HTTP-Referer": "https://example.com",
+    "X-Title": "My App",
     "Content-Type": "application/json",
   },
   body: JSON.stringify({
-    model: "gpt-5.2",
+    model: "openai/gpt-6-astra",
     messages: [{ role: "user", content: "Hello!" }],
   }),
 });
@@ -62,7 +69,7 @@ const response = await fetch("https://api.llmgateway.io/v1/chat/completions", {
     "Content-Type": "application/json",
   },
   body: JSON.stringify({
-    model: "gpt-5.2",
+    model: "openai/gpt-6-astra",
     messages: [{ role: "user", content: "Hello!" }],
   }),
 });
@@ -87,7 +94,7 @@ const client = new OpenAI({
 
 // Usage remains the same
 const completion = await client.chat.completions.create({
-  model: "anthropic/claude-3-5-sonnet-20241022",
+  model: "anthropic/claude-sonnet-5",
   messages: [{ role: "user", content: "Hello!" }],
 });
 ```
@@ -107,7 +114,7 @@ const openrouter = createOpenRouter({
 });
 
 const { text } = await generateText({
-  model: openrouter("gpt-5.2"),
+  model: openrouter("openai/gpt-6-astra"),
   prompt: "Hello!",
 });
 
@@ -115,26 +122,40 @@ const { text } = await generateText({
 import { createLLMGateway } from "@llmgateway/ai-sdk-provider";
 
 const llmgateway = createLLMGateway({
-  apiKey: process.env.LLMGATEWAY_API_KEY,
+  apiKey: process.env.LLM_GATEWAY_API_KEY,
 });
 
 const { text } = await generateText({
-  model: llmgateway("gpt-5.2"),
+  model: llmgateway("openai/gpt-6-astra"),
   prompt: "Hello!",
 });
 ```
 
 ## Model Name Mapping
 
-Most model names are compatible, but here are some common mappings:
+Most OpenRouter IDs work unchanged. A bare ID (no prefix) turns on smart routing across every provider that serves the model; a `provider/model` ID pins one provider. Anthropic versions use dashes instead of OpenRouter's dots.
 
-| OpenRouter Model                 | LLM Gateway Model        |
-| -------------------------------- | ------------------------ |
-| openai/gpt-5.2                   | gpt-5.2                  |
-| gemini/gemini-3-flash-preview    | gemini-3-flash-preview   |
-| bedrock/claude-opus-4-5-20251101 | claude-opus-4-5-20251101 |
+| OpenRouter Model              | LLM Gateway Model                                                 |
+| ----------------------------- | ----------------------------------------------------------------- |
+| openai/gpt-6-astra            | gpt-6-astra or openai/gpt-6-astra                                 |
+| anthropic/claude-sonnet-5     | claude-sonnet-5 or anthropic/claude-sonnet-5                      |
+| anthropic/claude-opus-4.8     | claude-opus-4-8 or anthropic/claude-opus-4-8                      |
+| google/gemini-3.1-pro-preview | gemini-3.1-pro-preview or google-ai-studio/gemini-3.1-pro-preview |
 
 Check the [models page](/models) for the full list of available models.
+
+## Provider Routing
+
+OpenRouter selects the upstream through a `provider` object in the request body. LLM Gateway puts that choice in the model ID and a header:
+
+| OpenRouter                        | LLM Gateway                                                                    |
+| --------------------------------- | ------------------------------------------------------------------------------ |
+| No `provider` object              | Bare model ID — routes on live uptime, throughput, price, and latency          |
+| `provider.order: ["Anthropic"]`   | `anthropic/claude-sonnet-5` — pinned, with failover if the provider degrades   |
+| `provider.allow_fallbacks: false` | Add the `x-no-fallback: true` header to fail instead of retrying elsewhere     |
+| Your own provider keys (BYOK)     | Add keys under Settings > Provider Keys — 0% gateway fee at any monthly volume |
+
+See the [routing documentation](https://docs.llmgateway.io/features/routing) for the details.
 
 ## Streaming Support
 
@@ -142,7 +163,7 @@ LLM Gateway supports streaming responses identically to OpenRouter:
 
 ```typescript
 const stream = await client.chat.completions.create({
-  model: "anthropic/claude-3-5-sonnet-20241022",
+  model: "anthropic/claude-sonnet-5",
   messages: [{ role: "user", content: "Write a story" }],
   stream: true,
 });
@@ -154,7 +175,7 @@ for await (const chunk of stream) {
 
 ## Full Comparison
 
-Want to see a detailed breakdown of all features? Check out our [LLM Gateway vs OpenRouter comparison page](/compare/open-router).
+Want to see a detailed breakdown of all features? Check out our [LLM Gateway vs OpenRouter comparison page](/compare/open-router), or the [best OpenRouter alternatives in 2026](/blog/openrouter-alternatives) if you are still weighing options.
 
 ## Need Help?
 

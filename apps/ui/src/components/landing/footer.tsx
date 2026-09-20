@@ -551,7 +551,7 @@ export default function Footer() {
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
 									>
-										Azure AI Foundry
+										Microsoft Foundry
 									</Link>
 								</li>
 								<li>

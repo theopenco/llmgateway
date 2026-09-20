@@ -4,22 +4,23 @@ slug: github-copilot
 title: Migrate from GitHub Copilot
 description: Move your chat and agentic coding workloads off Copilot's usage-based AI Credits. Any coding agent, 200+ models, zero token markup, hard budget caps.
 date: 2026-07-12
+updatedAt: 2026-09-20
 fromProvider: GitHub Copilot
 ---
 
-On June 1, 2026, GitHub Copilot replaced its flat-fee model with usage-based AI Credits: seat prices didn't change — individual plans run $10 (Pro), $39 (Pro+), and $100 (Max), while organizations pay $19 (Business) or $39 (Enterprise) per user per month — but Copilot Chat, agent mode, code review, and CLI now bill by tokens consumed, with no spending ceiling unless you manually configure one. Teams running agentic workflows have reported projected jumps from $50 to $3,000 per month.
+On June 1, 2026, GitHub Copilot replaced its flat-fee model with usage-based AI Credits: seat prices didn't change — individual plans run $10 (Pro), $39 (Pro+), and $100 (Max), while organizations pay $19 (Business) or $39 (Enterprise) per user per month — but Copilot Chat, agent mode, code review, and CLI now bill by tokens consumed, and paid overage is on by default unless an admin sets a budget. On September 1, 2026 the promotional allowances for existing Business ($30) and Enterprise ($70) customers reverted to the standard $19 and $39 of included credits per user. Teams running agentic workflows have reported projected jumps from $50 to $3,000 per month.
 
 LLM Gateway gives you the same workflows — chat, agents, code review — through any coding tool you choose, with provider token rates passed through at zero markup, prompt caching, and hard budget caps per organization, project, and API key.
 
 ## What Changed in Copilot Billing
 
-|                                    | Before June 2026                          | After June 2026                             |
-| ---------------------------------- | ----------------------------------------- | ------------------------------------------- |
-| Base seat                          | $10–$100 (individual), $19–$39/user (org) | Unchanged                                   |
-| Inline completions                 | Flat-fee                                  | Still flat-fee                              |
-| Chat, agent mode, code review, CLI | Premium Request Units within plan         | Metered AI Credits (1 credit = $0.01)       |
-| Spending ceiling                   | The subscription price                    | None by default — manual budget only        |
-| Included credits                   | —                                         | $15 (Pro), $70 (Pro+), $200 (Max) per month |
+|                                    | Before June 2026                          | After June 2026                                                              |
+| ---------------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------- |
+| Base seat                          | $10–$100 (individual), $19–$39/user (org) | Unchanged                                                                    |
+| Inline completions                 | Flat-fee                                  | Still flat-fee                                                               |
+| Chat, agent mode, code review, CLI | Premium Request Units within plan         | Metered AI Credits (1 credit = $0.01)                                        |
+| Spending ceiling                   | The subscription price                    | None by default — budgets are opt-in                                         |
+| Included credits                   | —                                         | $15 (Pro), $70 (Pro+), $200 (Max); $19 (Business), $39 (Enterprise) per user |
 
 A single chat session on a premium model costs roughly $0.21; at 20 sessions a day across 20 working days, that's about $84 per month per developer — on top of the seat, and an estimate that varies with the model and token volume. Heavy users report $150–$250 per month in overages.
 
@@ -48,12 +49,12 @@ Sign up at [llmgateway.io/signup](/signup) and create an API key from your dashb
 Each of these takes minutes to set up and works with every model on the gateway:
 
 - **[DevPass Code](/guides/devpass-code)** — open-source terminal agent built for LLM Gateway. One browser login, no API keys to juggle.
-- **[Claude Code](/guides/claude-code)** — three environment variables point it at the gateway, and it can run GPT-5, Gemini, or any other model:
+- **[Claude Code](/guides/claude-code)** — three environment variables point it at the gateway, and it can run GPT, Gemini, or any other model:
 
 ```bash
 export ANTHROPIC_BASE_URL=https://api.llmgateway.io
 export ANTHROPIC_AUTH_TOKEN=llmgtwy_your_api_key_here
-export ANTHROPIC_MODEL=gpt-5  # optional: any model from the catalog
+export ANTHROPIC_MODEL=gpt-6-astra  # optional: any model from the catalog
 
 claude
 ```
@@ -71,14 +72,14 @@ curl https://api.llmgateway.io/v1/chat/completions \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "claude-opus-4-5-20251101",
+    "model": "claude-sonnet-5",
     "messages": [{"role": "user", "content": "Review this diff for bugs:\n..."}]
   }'
 ```
 
 ### 4. Set Budgets Before You Roll Out
 
-This is where the gateway goes further than Copilot's off-by-default spending budgets. In the dashboard, set spend limits per organization, per project, and per API key — hard caps, not alerts. Give each team its own project so a runaway agent burns through one budget, not the company's.
+This is where the gateway goes further than Copilot, where paid overage is on by default and budgets are something an admin has to add. In the dashboard, set spend limits per organization, per project, and per API key — hard caps, not alerts. Give each team its own project so a runaway agent burns through one budget, not the company's.
 
 ### 5. Watch Caching Cut Your Bill
 

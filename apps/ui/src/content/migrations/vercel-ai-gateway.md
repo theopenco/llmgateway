@@ -4,8 +4,26 @@ slug: vercel-ai-gateway
 title: Migrate from Vercel AI Gateway
 description: Keep your Vercel AI SDK code, add response caching, detailed analytics, and smart routing. One provider for all models.
 date: 2026-01-20
+updatedAt: 2026-09-20
 fromProvider: Vercel AI Gateway
 ---
+
+Vercel AI Gateway and LLM Gateway both pass provider token prices through with zero markup. The differences are portability and what sits on separate meters: Vercel's bring-your-own-keys needs the paid tier, purchased credits expire after a year, and custom reporting, team-wide allowlists, zero data retention, and trace drains each bill on their own. LLM Gateway is open source, self-hostable, charges a flat 5% on credits or 0% with your own keys, and needs no Vercel team account. See the [full comparison](/compare/vercel-ai-gateway).
+
+## Zero-Diff Migration: Repoint the Base URL
+
+If your app passes bare model strings (`model: "anthropic/claude-sonnet-5"`), it resolves them through `@ai-sdk/gateway`, the AI SDK's default provider. LLM Gateway implements that protocol, so you can keep every line of application code and repoint the provider instead:
+
+```typescript
+import { createGateway } from "@ai-sdk/gateway";
+
+globalThis.AI_SDK_DEFAULT_PROVIDER = createGateway({
+  baseURL: "https://api.llmgateway.io/v4/ai",
+  apiKey: process.env.LLM_GATEWAY_API_KEY,
+});
+```
+
+No import changes, no model-string changes. See the [AI SDK gateway protocol docs](https://docs.llmgateway.io/developers/ai-sdk-gateway-protocol). Prefer the explicit provider migration below when you want the gateway's own model IDs and options surfaced as first-class provider settings.
 
 ## Quick Migration
 
@@ -22,8 +40,8 @@ Swap your provider imports—your AI SDK code stays the same:
 + });
 
 const { text } = await generateText({
--   model: openai("gpt-5.2"),
-+   model: llmgateway("gpt-5.2"),
+-   model: openai("gpt-6-astra"),
++   model: llmgateway("gpt-6-astra"),
   prompt: "Hello!"
 });
 ```
@@ -57,12 +75,12 @@ import { anthropic } from "@ai-sdk/anthropic";
 import { generateText } from "ai";
 
 const { text: openaiText } = await generateText({
-  model: openai("gpt-4o"),
+  model: openai("gpt-6-astra"),
   prompt: "Hello!",
 });
 
 const { text: claudeText } = await generateText({
-  model: anthropic("claude-3-5-sonnet-20241022"),
+  model: anthropic("claude-sonnet-5"),
   prompt: "Hello!",
 });
 
@@ -75,12 +93,12 @@ const llmgateway = createLLMGateway({
 });
 
 const { text: openaiText } = await generateText({
-  model: llmgateway("gpt-4o"),
+  model: llmgateway("gpt-6-astra"),
   prompt: "Hello!",
 });
 
 const { text: claudeText } = await generateText({
-  model: llmgateway("anthropic/claude-3-5-sonnet-20241022"),
+  model: llmgateway("anthropic/claude-sonnet-5"),
   prompt: "Hello!",
 });
 ```
@@ -96,7 +114,7 @@ const llmgateway = createLLMGateway({
 });
 
 const { textStream } = await streamText({
-  model: llmgateway("anthropic/claude-3-5-sonnet-20241022"),
+  model: llmgateway("anthropic/claude-sonnet-5"),
   prompt: "Write a poem about coding",
 });
 
@@ -120,11 +138,11 @@ export async function POST(req: Request) {
   const { messages } = await req.json();
 
   const result = await streamText({
-    model: llmgateway("gpt-4o"),
+    model: llmgateway("gpt-6-astra"),
     messages,
   });
 
-  return result.toDataStreamResponse();
+  return result.toUIMessageStreamResponse();
 }
 ```
 
@@ -142,7 +160,7 @@ const llmgateway = createOpenAI({
 });
 
 const { text } = await generateText({
-  model: llmgateway("gpt-4o"),
+  model: llmgateway("gpt-6-astra"),
   prompt: "Hello!",
 });
 ```
@@ -165,28 +183,28 @@ LLM Gateway supports two model ID formats:
 **Canonical Model IDs** (without provider prefix) - Uses smart routing to automatically select the best provider based on uptime, throughput, price, and latency:
 
 ```
-gpt-4o
-claude-3-5-sonnet-20241022
-gemini-1.5-pro
+gpt-6-astra
+claude-sonnet-5
+gemini-3.1-pro-preview
 ```
 
 **Provider-Prefixed Model IDs** - Routes to a specific provider with automatic failover if uptime drops below 90%:
 
 ```
-openai/gpt-4o
-anthropic/claude-3-5-sonnet-20241022
-google-ai-studio/gemini-1.5-pro
+openai/gpt-6-astra
+anthropic/claude-sonnet-5
+google-ai-studio/gemini-3.1-pro-preview
 ```
 
 For more details on routing behavior, see the [routing documentation](https://docs.llmgateway.io/features/routing).
 
 ### Model Mapping Examples
 
-| Vercel AI SDK                             | LLM Gateway                                |
-| ----------------------------------------- | ------------------------------------------ |
-| `openai("gpt-4o")`                        | `llmgateway("gpt-4o")`                     |
-| `anthropic("claude-3-5-sonnet-20241022")` | `llmgateway("claude-3-5-sonnet-20241022")` |
-| `google("gemini-1.5-pro")`                | `llmgateway("gemini-1.5-pro")`             |
+| Vercel AI SDK                      | LLM Gateway                            |
+| ---------------------------------- | -------------------------------------- |
+| `openai("gpt-6-astra")`            | `llmgateway("gpt-6-astra")`            |
+| `anthropic("claude-sonnet-5")`     | `llmgateway("claude-sonnet-5")`        |
+| `google("gemini-3.1-pro-preview")` | `llmgateway("gemini-3.1-pro-preview")` |
 
 Check the [models page](/models) for the full list of available models.
 
@@ -204,11 +222,11 @@ const llmgateway = createLLMGateway({
 });
 
 const { text, toolResults } = await generateText({
-  model: llmgateway("gpt-4o"),
+  model: llmgateway("gpt-6-astra"),
   tools: {
     weather: tool({
       description: "Get the weather for a location",
-      parameters: z.object({
+      inputSchema: z.object({
         location: z.string(),
       }),
       execute: async ({ location }) => {
@@ -225,10 +243,10 @@ const { text, toolResults } = await generateText({
 If you prefer self-hosting, LLM Gateway is available under AGPLv3:
 
 ```bash
-git clone https://github.com/llmgateway/llmgateway
+git clone https://github.com/theopenco/llmgateway
 cd llmgateway
 pnpm install
-pnpm setup
+pnpm run setup
 pnpm dev
 ```
 
