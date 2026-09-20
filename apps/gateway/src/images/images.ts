@@ -76,6 +76,14 @@ const imageGenerationsRequestSchema = z.object({
 			"Content moderation strictness for models that support it (GPT Image). 'auto' applies the default filtering, 'low' is less restrictive. Ignored by models without a moderation control.",
 		example: "low",
 	}),
+	service_tier: z
+		.enum(["auto", "default", "flex", "priority"])
+		.optional()
+		.openapi({
+			description:
+				"Processing tier for the request, forwarded to the underlying chat completion. `flex` and `priority` are only accepted for provider/model mappings that support the tier; an unsupported tier returns a 400 `unsupported_service_tier` error.",
+			example: "flex",
+		}),
 });
 
 type ImageGenerationsRequest = z.infer<typeof imageGenerationsRequestSchema>;
@@ -751,6 +759,10 @@ images.openapi(generations, async (c): Promise<any> => {
 		stream: false,
 	};
 
+	if (request.service_tier) {
+		chatRequest.service_tier = request.service_tier;
+	}
+
 	const normalizedQuality = normalizeQuality(request.quality);
 
 	// Pass image configuration if we have an aspect ratio, size, quality, or n > 1
@@ -873,6 +885,14 @@ const imageEditsRequestSchema = z.object({
 			"Content moderation strictness for models that support it (GPT Image). 'auto' applies the default filtering, 'low' is less restrictive. Ignored by models without a moderation control.",
 		example: "low",
 	}),
+	service_tier: z
+		.enum(["auto", "default", "flex", "priority"])
+		.optional()
+		.openapi({
+			description:
+				"Processing tier for the request, forwarded to the underlying chat completion. `flex` and `priority` are only accepted for provider/model mappings that support the tier; an unsupported tier returns a 400 `unsupported_service_tier` error.",
+			example: "flex",
+		}),
 });
 
 type ImageEditsRequest = z.infer<typeof imageEditsRequestSchema>;
@@ -1189,6 +1209,10 @@ async function processImageEdit(
 		],
 		stream: false,
 	};
+
+	if (request.service_tier) {
+		chatRequest.service_tier = request.service_tier;
+	}
 
 	const normalizedEditQuality = normalizeQuality(request.quality);
 

@@ -2,6 +2,10 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { getCookie } from "hono/cookie";
 import { HTTPException } from "hono/http-exception";
 
+import {
+	isImageVariant,
+	renderImageVariant,
+} from "@/utils/image-derivatives.js";
 import { awardLoungePoints } from "@/utils/lounge-points.js";
 import { buildOrgHistoryFilter } from "@/utils/org-history-filter.js";
 import { getOrCreateChatOrg } from "@/utils/personal-org.js";
@@ -14,6 +18,7 @@ import {
 import { db, tables, desc, eq, and, sql } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
+import type { Context } from "hono";
 
 const playground = new OpenAPIHono<ServerTypes>();
 
@@ -176,7 +181,8 @@ const imageHistoryItemSchema = z.object({
 });
 
 // Lightweight list representation: no base64 payloads. Full image data is
-// served per item by GET /image-history/{id} and the thumbnail endpoint.
+// served per item by GET /image-history/{id}, and as binary variants by the
+// thumbnail, images and input-images endpoints.
 const imageHistoryListModelSchema = z.object({
 	modelId: z.string(),
 	modelName: z.string(),
@@ -188,6 +194,7 @@ const imageHistoryListItemSchema = z.object({
 	id: z.string(),
 	prompt: z.string(),
 	createdAt: z.string(),
+	inputImageCount: z.number(),
 	models: z.array(imageHistoryListModelSchema),
 });
 
@@ -270,6 +277,7 @@ playground.openapi(listImageHistory, async (c) => {
 			id: tables.playgroundImageHistory.id,
 			prompt: tables.playgroundImageHistory.prompt,
 			createdAt: tables.playgroundImageHistory.createdAt,
+			inputImageCount: sql<number>`case when jsonb_typeof(${tables.playgroundImageHistory.inputImages}) = 'array' then jsonb_array_length(${tables.playgroundImageHistory.inputImages}) else 0 end`,
 			models: sql<
 				{
 					modelId: string;
@@ -302,6 +310,7 @@ playground.openapi(listImageHistory, async (c) => {
 			id: row.id,
 			prompt: row.prompt,
 			createdAt: row.createdAt.toISOString(),
+			inputImageCount: row.inputImageCount,
 			models: row.models.map((m) => ({
 				modelId: m.modelId,
 				modelName: m.modelName,
@@ -360,9 +369,8 @@ playground.openapi(getImageHistoryItem, async (c) => {
 });
 
 // ── GET /image-history/:id/thumbnail ─────────────────────────────────────────
-// Serves the first generated image as binary for sidebar thumbnails so the
-// list endpoint can stay free of base64 payloads. Items are immutable, hence
-// the aggressive cache header.
+// Serves the first generated image downscaled for sidebar rows so the list
+// endpoint can stay free of base64 payloads.
 
 playground.get("/image-history/:id/thumbnail", async (c) => {
 	const user = c.get("user");
@@ -385,9 +393,117 @@ playground.get("/image-history/:id/thumbnail", async (c) => {
 		throw new HTTPException(404, { message: "No image available" });
 	}
 
-	c.header("Content-Type", image.mediaType);
-	c.header("Cache-Control", "private, max-age=31536000, immutable");
-	return c.body(Buffer.from(image.base64, "base64"));
+	if (notModified(c, `"${row.id}:thumbnail"`)) {
+		return c.body(null, 304);
+	}
+	const rendered = await renderImageVariant(image, "thumbnail");
+	c.header("Content-Type", rendered.mediaType);
+	return c.body(rendered.body);
+});
+
+// Stored images never change, but a cached copy must still pass the ownership
+// check above on every use, so the browser revalidates and gets a 304 instead
+// of a re-rendered variant.
+function notModified(c: Context, etag: string): boolean {
+	c.header("Cache-Control", "private, no-cache");
+	c.header("ETag", etag);
+	return c.req.header("if-none-match") === etag;
+}
+
+function parseImageIndex(value: string): number {
+	const index = Number(value);
+	if (!Number.isInteger(index) || index < 0) {
+		throw new HTTPException(400, { message: "Invalid index" });
+	}
+	return index;
+}
+
+function parseImageVariant(value: string | undefined) {
+	if (value === undefined) {
+		return "full" as const;
+	}
+	if (!isImageVariant(value)) {
+		throw new HTTPException(400, { message: "Invalid variant" });
+	}
+	return value;
+}
+
+// ── GET /image-history/:id/images/:modelIndex/:imageIndex ────────────────────
+// Serves one generated image as binary. `variant=thumbnail|preview` returns a
+// downscaled WebP for grids and rows; the default `full` variant returns the
+// original bytes for zoom, download and reuse as a reference image.
+
+playground.get(
+	"/image-history/:id/images/:modelIndex/:imageIndex",
+	async (c) => {
+		const user = c.get("user");
+		if (!user) {
+			throw new HTTPException(401, { message: "Unauthorized" });
+		}
+
+		const id = c.req.param("id");
+		const modelIndex = parseImageIndex(c.req.param("modelIndex"));
+		const imageIndex = parseImageIndex(c.req.param("imageIndex"));
+		const variant = parseImageVariant(c.req.query("variant"));
+
+		const row = await db.query.playgroundImageHistory.findFirst({
+			where: { id: { eq: id }, userId: { eq: user.id } },
+		});
+
+		if (!row) {
+			throw new HTTPException(404, { message: "Not found" });
+		}
+
+		const image = row.models[modelIndex]?.images[imageIndex];
+		if (!image) {
+			throw new HTTPException(404, { message: "No image available" });
+		}
+
+		if (notModified(c, `"${row.id}:${modelIndex}:${imageIndex}:${variant}"`)) {
+			return c.body(null, 304);
+		}
+		const rendered = await renderImageVariant(image, variant);
+		c.header("Content-Type", rendered.mediaType);
+		return c.body(rendered.body);
+	},
+);
+
+// ── GET /image-history/:id/input-images/:index ───────────────────────────────
+// Serves a reference image the user attached to the generation, matching the
+// `inputImageCount` returned by the list endpoint.
+
+playground.get("/image-history/:id/input-images/:index", async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const id = c.req.param("id");
+	const index = parseImageIndex(c.req.param("index"));
+	const variant = parseImageVariant(c.req.query("variant"));
+
+	const row = await db.query.playgroundImageHistory.findFirst({
+		where: { id: { eq: id }, userId: { eq: user.id } },
+	});
+
+	if (!row) {
+		throw new HTTPException(404, { message: "Not found" });
+	}
+
+	const input = row.inputImages?.[index];
+	if (!input) {
+		throw new HTTPException(404, { message: "No input image available" });
+	}
+
+	if (notModified(c, `"${row.id}:input:${index}:${variant}"`)) {
+		return c.body(null, 304);
+	}
+	const rendered = await renderImageVariant(
+		{ base64: input.dataUrl.split(",")[1] ?? "", mediaType: input.mediaType },
+		variant,
+	);
+	c.header("Content-Type", rendered.mediaType);
+	return c.body(rendered.body);
 });
 
 // ── POST /image-history ──────────────────────────────────────────────────────
@@ -456,6 +572,7 @@ playground.openapi(saveImageHistory, async (c) => {
 				id: row.id,
 				prompt: row.prompt,
 				createdAt: row.createdAt.toISOString(),
+				inputImageCount: body.inputImages?.length ?? 0,
 				models: body.models.map((m) => ({
 					modelId: m.modelId,
 					modelName: m.modelName,
