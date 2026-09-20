@@ -23,7 +23,7 @@ const comparisonData = [
 				description: "Hard caps so usage can never run away",
 				llmgateway: "Budgets and hard limits per org, project, and API key",
 				copilot:
-					"Business/Enterprise: paid usage on by default until an admin sets a budget; Pro/Pro+/Max: user must set a budget",
+					"Business/Enterprise: paid usage on by default; only disabling the paid-usage policy or a budget with hard stop on caps it. Pro/Pro+/Max: user must set a budget",
 			},
 			{
 				title: "Prompt caching",
