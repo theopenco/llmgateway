@@ -158,6 +158,7 @@ describe("tiered gateway content filter", () => {
 		expect(log.internalContentFilter).toBe(true);
 		expect(log.gatewayContentFilterEvaluation).toEqual({
 			sampled: true,
+			classifier: "openai",
 			provider: "llmgateway",
 			tier: 0,
 			overridden: false,

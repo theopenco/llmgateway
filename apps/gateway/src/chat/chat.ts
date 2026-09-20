@@ -208,6 +208,7 @@ import {
 } from "@llmgateway/models";
 import {
 	complianceExclusionReason,
+	type ContentFilterClassifier,
 	detectCodingAgentFromReferer,
 	detectCodingAgentFromTitle,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
@@ -234,6 +235,12 @@ import {
 import { chunkMayCompleteSseEvent } from "./tools/chunk-may-complete-sse-event.js";
 import { clampTemperature } from "./tools/clamp-temperature.js";
 import { collapseImageGenSse } from "./tools/collapse-image-gen-sse.js";
+import {
+	CONTENT_FILTER_CLASSIFIER_PROVIDERS,
+	evaluateContentFilterWithClassifiers,
+	runContentFilterClassifier,
+	type ContentFilterCheckResult,
+} from "./tools/content-filter-classifier.js";
 import { convertImagesToBase64 } from "./tools/convert-images-to-base64.js";
 import { countInputImages } from "./tools/count-input-images.js";
 import { createLogEntry } from "./tools/create-log-entry.js";
@@ -283,10 +290,6 @@ import {
 	isUpstreamTermination,
 	normalizeStreamingError,
 } from "./tools/normalize-streaming-error.js";
-import {
-	checkOpenAIContentFilter,
-	hasOpenAIContentFilterCredential,
-} from "./tools/openai-content-filter.js";
 import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
@@ -337,11 +340,7 @@ import {
 	mappingSupportsRequestedServiceTier,
 	providerKeySupportsServiceTier,
 } from "./tools/service-tier.js";
-import {
-	buildGatewayContentFilterEvaluation,
-	evaluateTieredContentFilter,
-	resolveTieredContentFilterPlan,
-} from "./tools/tiered-content-filter.js";
+import { resolveTieredContentFilterPlan } from "./tools/tiered-content-filter.js";
 import {
 	encodeChatMessages,
 	messageContentToString,
@@ -4449,31 +4448,43 @@ chat.openapi(completions, async (c) => {
 		shouldApplyGatewayContentFilter && contentFilterMethod === "keywords"
 			? checkContentFilter(messages as BaseMessage[])
 			: null;
-	// The OpenAI content filter sends prompts to OpenAI's moderation API. When the
-	// org's compliance policy disallows OpenAI, skip it so prompt data never
-	// reaches a non-compliant provider (fail closed on the data guarantee).
-	const openAiContentFilterAllowed =
-		!compliancePolicy || isProviderIdCompliant("openai", compliancePolicy);
-	const openAIContentFilterContext = {
+	// A model-backed content filter sends prompts to its classifier's provider.
+	// When the org's compliance policy disallows that provider, skip it so prompt
+	// data never reaches a non-compliant one (fail closed on the data guarantee).
+	const contentFilterClassifierAllowed = (
+		classifier: ContentFilterClassifier,
+	) =>
+		!compliancePolicy ||
+		isProviderIdCompliant(
+			CONTENT_FILTER_CLASSIFIER_PROVIDERS[classifier],
+			compliancePolicy,
+		);
+	// Jev is text-only and delegates image parts to OpenAI moderation, which is
+	// only permitted when OpenAI itself is compliant for this organization.
+	const openAiContentFilterAllowed = contentFilterClassifierAllowed("openai");
+	const contentFilterContext = {
 		requestId,
 		organizationId: project.organizationId,
 		projectId: project.id,
 		apiKeyId: apiKey.id,
 	};
-	// Reassigned below when only the tiered filter needs the moderation call.
-	let openAIContentFilterResult =
+	const envFilterClassifier: ContentFilterClassifier | null =
+		contentFilterMethod === "keywords" ? null : contentFilterMethod;
+	const envContentFilterResult: ContentFilterCheckResult | null =
 		shouldApplyGatewayContentFilter &&
-		contentFilterMethod === "openai" &&
-		openAiContentFilterAllowed
-			? await checkOpenAIContentFilter(
+		envFilterClassifier !== null &&
+		contentFilterClassifierAllowed(envFilterClassifier)
+			? await runContentFilterClassifier(
+					envFilterClassifier,
 					messages as BaseMessage[],
-					openAIContentFilterContext,
+					contentFilterContext,
 					c.req.raw.signal,
+					{ imagesAllowed: openAiContentFilterAllowed },
 				)
 			: null;
 	const contentFilterMatched =
 		keywordContentFilterMatch !== null ||
-		openAIContentFilterResult?.flagged === true;
+		envContentFilterResult?.flagged === true;
 	const shouldRerouteContentFilter =
 		contentFilterMode === "enabled" && contentFilterMatched;
 	let contentFilterRoutingExcludedProviders: ProviderModelMapping[] = [];
@@ -6144,49 +6155,51 @@ chat.openapi(completions, async (c) => {
 		!contentFilterRoutingApplied;
 
 	// Tiered gateway content filter, keyed on the provider the request was routed
-	// to. Reuses the env filter's moderation result when it already ran so a
-	// request never triggers more than one moderation call.
+	// to. Reuses the env filter's moderation result when it ran on the same
+	// classifier so a request never triggers a duplicate moderation call.
 	let gatewayContentFilterEvaluation: GatewayContentFilterEvaluation | null =
 		null;
 	let tierContentFilterBlocked = false;
-	if (openAiContentFilterAllowed) {
-		const tieredPlan = await resolveTieredContentFilterPlan(
-			organization,
-			usedProvider,
-			await getContentFilterSettings(),
-		);
-		if (
-			tieredPlan &&
-			(openAIContentFilterResult !== null ||
-				(await hasOpenAIContentFilterCredential()))
-		) {
-			openAIContentFilterResult ??= await checkOpenAIContentFilter(
-				messages as BaseMessage[],
-				openAIContentFilterContext,
-				c.req.raw.signal,
-			);
-			const tieredEvaluation = evaluateTieredContentFilter(
-				openAIContentFilterResult.results,
-				tieredPlan.level,
-			);
-			gatewayContentFilterEvaluation = buildGatewayContentFilterEvaluation(
-				tieredPlan,
-				tieredEvaluation,
-				openAIContentFilterResult.results.length === 0,
-			);
-			tierContentFilterBlocked =
-				gatewayContentFilterEvaluation.action === "blocked";
-			if (tieredEvaluation.violation) {
-				logger.debug("gateway_content_filter_tier", {
-					requestId,
-					organizationId: project.organizationId,
-					provider: usedProvider,
-					tier: tieredPlan.tier,
-					level: tieredPlan.level,
-					action: gatewayContentFilterEvaluation.action,
-					matchedCategories: tieredEvaluation.matchedCategories,
-				});
+	const contentFilterResults: ContentFilterCheckResult[] = [];
+	if (envContentFilterResult) {
+		contentFilterResults.push(envContentFilterResult);
+	}
+	const tieredContentFilterPlan = await resolveTieredContentFilterPlan(
+		organization,
+		usedProvider,
+		await getContentFilterSettings(),
+	);
+	const tieredContentFilter = tieredContentFilterPlan
+		? await evaluateContentFilterWithClassifiers({
+				plan: tieredContentFilterPlan,
+				messages: messages as BaseMessage[],
+				context: contentFilterContext,
+				signal: c.req.raw.signal,
+				imagesAllowed: openAiContentFilterAllowed,
+				classifierAllowed: contentFilterClassifierAllowed,
+				existing: envContentFilterResult,
+			})
+		: null;
+	if (tieredContentFilterPlan && tieredContentFilter) {
+		gatewayContentFilterEvaluation = tieredContentFilter.evaluation;
+		tierContentFilterBlocked =
+			gatewayContentFilterEvaluation.action === "blocked";
+		for (const result of tieredContentFilter.results) {
+			if (!contentFilterResults.includes(result)) {
+				contentFilterResults.push(result);
 			}
+		}
+		if (gatewayContentFilterEvaluation.violation) {
+			logger.debug("gateway_content_filter_tier", {
+				requestId,
+				organizationId: project.organizationId,
+				provider: usedProvider,
+				tier: tieredContentFilterPlan.tier,
+				level: tieredContentFilterPlan.level,
+				classifier: tieredContentFilterPlan.classifier,
+				action: gatewayContentFilterEvaluation.action,
+				matchedCategories: gatewayContentFilterEvaluation.matchedCategories,
+			});
 		}
 	}
 
@@ -6198,9 +6211,10 @@ chat.openapi(completions, async (c) => {
 		gatewayContentFilterEvaluation?.violation === true;
 	// Stored for every moderated request; the 30-day data retention cleanup
 	// nulls it again, so the extra jsonb per sampled row is bounded.
-	const gatewayContentFilterResponse = openAIContentFilterResult?.responses
-		.length
-		? openAIContentFilterResult.responses
+	const gatewayContentFilterResponse = contentFilterResults.some(
+		(result) => result.responses.length > 0,
+	)
+		? contentFilterResults.flatMap((result) => result.responses)
 		: null;
 	const insertLog = (
 		logData: Parameters<typeof _insertLog>[0],

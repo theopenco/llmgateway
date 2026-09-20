@@ -26,6 +26,7 @@ The default limits (requests per minute, per organization) are:
 | Embeddings                                         | `/v1/embeddings`           | 1200           |
 | Moderations                                        | `/v1/moderations`          | 1200           |
 | Rerank                                             | `/v1/rerank`               | 1200           |
+| System One                                         | `/v1/systemone`            | 600            |
 | Models                                             | `/v1/models`               | 1200           |
 | OCR                                                | `/v1/ocr`                  | 300            |
 | Images                                             | `/v1/images`               | 300            |
@@ -111,7 +112,7 @@ Organizations on the **[Enterprise plan](https://llmgateway.io/enterprise) have 
 
 ## Concurrent Request Limits
 
-Separately from the per-minute request limits above, each organization has one fleet-wide budget of **concurrent in-flight requests** across all inference endpoints (chat completions, messages, responses, embeddings, moderations, rerank, OCR, images, speech, transcriptions, videos, and the AI SDK surface). A slot is held for a request's full lifetime — including the entire duration of a streamed response — and freed when the response finishes or the connection closes.
+Separately from the per-minute request limits above, each organization has one fleet-wide budget of **concurrent in-flight requests** across all inference endpoints (chat completions, messages, responses, embeddings, moderations, rerank, System One, OCR, images, speech, transcriptions, videos, and the AI SDK surface). A slot is held for a request's full lifetime — including the entire duration of a streamed response — and freed when the response finishes or the connection closes.
 
 This bounds what a per-minute limit cannot: long-running requests. Six hundred requests per minute that each stream for two minutes hold 1,200 connections open; the concurrency budget is what keeps that pile-up from exhausting shared gateway capacity.
 

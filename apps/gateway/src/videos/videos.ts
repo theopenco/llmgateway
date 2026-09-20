@@ -1,12 +1,12 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
+import {
+	CONTENT_FILTER_CLASSIFIER_PROVIDERS,
+	evaluateContentFilterWithClassifiers,
+} from "@/chat/tools/content-filter-classifier.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
-import {
-	checkOpenAIContentFilter,
-	hasOpenAIContentFilterCredential,
-} from "@/chat/tools/openai-content-filter.js";
 import {
 	getCredentialSetting,
 	resolvePlatformCredential,
@@ -17,11 +17,7 @@ import {
 	shouldRetryRequest,
 	type RoutingAttempt,
 } from "@/chat/tools/retry-with-fallback.js";
-import {
-	buildGatewayContentFilterEvaluation,
-	evaluateTieredContentFilter,
-	resolveTieredContentFilterPlan,
-} from "@/chat/tools/tiered-content-filter.js";
+import { resolveTieredContentFilterPlan } from "@/chat/tools/tiered-content-filter.js";
 import { getAirsideRoutingSnapshot } from "@/lib/airside-routing-snapshot.js";
 import {
 	assertApiKeyWithinUsageLimits,
@@ -116,6 +112,7 @@ import {
 	type VertexTokenType,
 } from "@llmgateway/models";
 import {
+	type ContentFilterClassifier,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
 	getVideoProxyRedisKey,
 	VIDEO_PROXY_REDIS_TTL_SECONDS,
@@ -4238,36 +4235,42 @@ async function evaluateVideoContentFilter(options: {
 	images: Array<ProcessedVideoImageInput | null>;
 	signal: AbortSignal;
 }): Promise<GatewayContentFilterEvaluation | null> {
-	// Prompts must never reach OpenAI when the org's compliance policy excludes it.
-	if (
-		options.compliancePolicy &&
-		!isProviderIdCompliant("openai", options.compliancePolicy)
-	) {
-		return null;
-	}
+	// Prompts must never reach a classifier's provider when the org's compliance
+	// policy excludes it.
+	const classifierAllowed = (classifier: ContentFilterClassifier) =>
+		!options.compliancePolicy ||
+		isProviderIdCompliant(
+			CONTENT_FILTER_CLASSIFIER_PROVIDERS[classifier],
+			options.compliancePolicy,
+		);
 	const plan = await resolveTieredContentFilterPlan(
 		options.organization,
 		options.providerId,
 		await getContentFilterSettings(),
 	);
-	if (!plan || !(await hasOpenAIContentFilterCredential())) {
+	if (!plan) {
 		return null;
 	}
-	const moderation = await checkOpenAIContentFilter(
-		buildVideoModerationMessages(options.request.prompt, options.images),
-		{
+	const tiered = await evaluateContentFilterWithClassifiers({
+		plan,
+		messages: buildVideoModerationMessages(
+			options.request.prompt,
+			options.images,
+		),
+		context: {
 			requestId: options.requestId,
 			organizationId: options.organization.id,
 			projectId: options.project.id,
 			apiKeyId: options.apiKey.id,
 		},
-		options.signal,
-	);
-	const evaluation = buildGatewayContentFilterEvaluation(
-		plan,
-		evaluateTieredContentFilter(moderation.results, plan.level),
-		moderation.results.length === 0,
-	);
+		signal: options.signal,
+		imagesAllowed: classifierAllowed("openai"),
+		classifierAllowed,
+	});
+	if (!tiered) {
+		return null;
+	}
+	const evaluation = tiered.evaluation;
 	if (evaluation.violation) {
 		logger.debug("gateway_content_filter_tier", {
 			requestId: options.requestId,
@@ -4275,6 +4278,7 @@ async function evaluateVideoContentFilter(options: {
 			provider: options.providerId,
 			tier: plan.tier,
 			level: plan.level,
+			classifier: plan.classifier,
 			action: evaluation.action,
 			matchedCategories: evaluation.matchedCategories,
 		});

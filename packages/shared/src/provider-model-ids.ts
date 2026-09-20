@@ -51,9 +51,12 @@ export function getProviderModelKind(
 		mapping.speechGenerations ||
 		mapping.transcriptions ||
 		mapping.rerank ||
+		mapping.decisions ||
 		mapping.realtime ||
 		mapping.realtimeTranscription ||
-		output.some((kind) => ["audio", "transcription", "rerank"].includes(kind))
+		output.some((kind) =>
+			["audio", "transcription", "rerank", "decision"].includes(kind),
+		)
 	) {
 		return null;
 	}

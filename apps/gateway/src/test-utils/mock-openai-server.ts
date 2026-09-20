@@ -1413,6 +1413,70 @@ mockOpenAIServer.post("/v1/moderations", async (c) => {
 	});
 });
 
+mockOpenAIServer.post("/v1/systemone", async (c) => {
+	const body = await c.req.json();
+	const stateText =
+		typeof body.state === "string" ? body.state : JSON.stringify(body.state);
+
+	const statusTrigger = extractStatusCodeTrigger(stateText);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+	if (stateText.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	// Answers are keyword-driven so tests can assert a specific verdict: a
+	// harmful-looking state scores high on every noul question.
+	const harmful = /harm|kill|attack|threat/i.test(stateText);
+	const answers: Record<string, unknown> = {};
+	for (const [id, question] of Object.entries(
+		(body.questions ?? {}) as Record<string, { type: string; criteria?: any }>,
+	)) {
+		if (question.type === "noul") {
+			answers[id] = { type: "noul", noul: harmful ? 0.97 : 0.01 };
+			continue;
+		}
+		if (question.type === "choice") {
+			const options = Object.keys(question.criteria ?? {});
+			answers[id] = {
+				type: "choice",
+				choice: options[0],
+				confidence: 0.9,
+				probabilities: Object.fromEntries(
+					options.map((option, index) => [option, index === 0 ? 1 : 0]),
+				),
+			};
+			continue;
+		}
+		const levels: unknown[] = Array.isArray(question.criteria)
+			? question.criteria
+			: [];
+		answers[id] = {
+			type: "score",
+			score: levels.length - 1,
+			confidence: 0.9,
+			legend: Object.fromEntries(
+				levels.map((level, index) => [String(index), String(level)]),
+			),
+			probabilities: Object.fromEntries(
+				levels.map((_level, index) => [
+					String(index),
+					index === levels.length - 1 ? 1 : 0,
+				]),
+			),
+		};
+	}
+
+	return c.json({
+		model: body.model === "jev-latest" ? "jev-1.13.0" : body.model,
+		answers,
+		usage: { input_tokens: 441, output_tokens: 69 },
+	});
+});
+
 mockOpenAIServer.post("/v1/ocr", async (c) => {
 	const body = await c.req.json();
 	const document = body.document ?? {};

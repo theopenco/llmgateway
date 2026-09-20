@@ -1,7 +1,7 @@
 import type { BaseMessage, MessageContent } from "@llmgateway/models";
 
 export type ContentFilterMode = "disabled" | "monitor" | "enabled";
-export type ContentFilterMethod = "keywords" | "openai";
+export type ContentFilterMethod = "keywords" | "openai" | "jev";
 
 /**
  * Returns the content filter mode from LLM_CONTENT_FILTER_MODE env var.
@@ -30,6 +30,7 @@ export function getContentFilterMode(): ContentFilterMode {
  * Returns the content filter method from LLM_CONTENT_FILTER_METHOD env var.
  * - "keywords" (default): use the configured keyword list
  * - "openai": use OpenAI's moderation endpoint
+ * - "jev": use TypeSafe's Jev decision model (image parts still go to OpenAI)
  *
  * Legacy compatibility:
  * - LLM_CONTENT_FILTER_MODE=openai implies method=openai
@@ -37,6 +38,10 @@ export function getContentFilterMode(): ContentFilterMode {
 export function getContentFilterMethod(): ContentFilterMethod {
 	const envValue = process.env.LLM_CONTENT_FILTER_METHOD;
 	const legacyModeEnvValue = process.env.LLM_CONTENT_FILTER_MODE;
+
+	if (envValue === "jev") {
+		return "jev";
+	}
 
 	if (envValue === "openai" || legacyModeEnvValue === "openai") {
 		return "openai";

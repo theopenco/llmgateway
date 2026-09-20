@@ -15,7 +15,8 @@ export type ModelOutput =
 	| "audio"
 	| "ocr"
 	| "transcription"
-	| "rerank";
+	| "rerank"
+	| "decision";
 
 const OUTPUT_ENDPOINT: Record<
 	ModelOutput,
@@ -32,6 +33,7 @@ const OUTPUT_ENDPOINT: Record<
 		endpoint: "/v1/audio/transcriptions",
 	},
 	rerank: { label: "a rerank", endpoint: "/v1/rerank" },
+	decision: { label: "a typed-decision", endpoint: "/v1/systemone" },
 };
 
 /**

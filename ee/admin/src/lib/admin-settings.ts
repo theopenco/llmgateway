@@ -85,6 +85,8 @@ export interface ContentFilterSettingsInput {
 	sampleRatePercent: number;
 	enforce: boolean;
 	enforceEnterprise: boolean;
+	classifier: "openai" | "jev";
+	shadowClassifier: "openai" | "jev" | "none";
 }
 
 export async function getContentFilterSettings() {
