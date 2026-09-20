@@ -29,6 +29,43 @@ pnpm push-dev
 pnpm seed
 ```
 
+Run these as separate commands. Never pipe one whose failure must stop the
+chain into `tail` or `head`: a pipeline reports the _last_ command's status, so
+`docker compose up -d | tail && pnpm wait-for-services | tail && pnpm push-dev`
+runs the schema push even when the stack never came up.
+
+Then confirm your own containers are serving the ports before any
+`push-*`, `seed`, or test command:
+
+```bash
+docker compose ps --format '{{.Name}}\t{{.State}}\t{{.Ports}}'
+```
+
+A port that was free when the slot was chosen is not a guarantee. Worktrees
+come and go, and another one can claim the port while this stack is down, so a
+`DATABASE_URL` that answers is not necessarily this worktree's database — a
+`push-dev` or `seed` against another worktree's Postgres destroys its data
+silently. If `docker ps` shows the port held by a container whose name lacks
+this worktree's `STACK_SUFFIX`, move to a different slot; never stop or reuse
+the other container.
+
+If `docker compose up` fails with `all predefined address pools have been fully
+subnetted`, pin this worktree's subnet rather than pruning networks, which
+other worktrees depend on:
+
+```yaml
+# docker-compose-override-<worktree>.yml (gitignored)
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.99.<slot>.0/24
+```
+
+Pass it alongside the base file on every compose command for the worktree,
+including `down`:
+`docker compose -f docker-compose.yml -f docker-compose-override-<worktree>.yml up -d`.
+
 Use `pnpm setup` only when a full reset is required and `STACK_SUFFIX` is set;
 it removes the selected stack's volumes.
 
