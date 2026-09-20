@@ -40,7 +40,7 @@
 	"prettier": "@steebchen/prettier-config",
 	"devDependencies": {
 		"@abinnovision/eslint-config-react": "3.1.1",
-		"@playwright/test": "1.61.1",
+		"@playwright/test": "1.63.0",
 		"@semantic-release/exec": "^7.1.0",
 		"@semantic-release/npm": "^13.1.5",
 		"@steebchen/commitlint-config": "^1.7.0",
