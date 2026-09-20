@@ -19,7 +19,7 @@ LLM Gateway gives you the same workflows — chat, agents, code review — throu
 | Base seat                          | $10–$100 (individual), $19–$39/user (org) | Unchanged                                                                                                                                    |
 | Inline completions                 | Flat-fee                                  | Still flat-fee                                                                                                                               |
 | Chat, agent mode, code review, CLI | Premium Request Units within plan         | Metered AI Credits (1 credit = $0.01)                                                                                                        |
-| Spending ceiling                   | The subscription price                    | Orgs: uncapped unless paid usage is disabled or a budget has hard stop on; individuals: opt-in budget                                        |
+| Spending ceiling                   | The subscription price                    | Orgs: uncapped unless paid usage is disabled or a budget has "Stop usage when budget limit is reached" enabled; individuals: opt-in budget   |
 | Included credits                   | —                                         | 1,500 ($15) Pro, 7,000 ($70) Pro+, 20,000 ($200) Max; 1,900 ($19) Business and 3,900 ($39) Enterprise per user, pooled at the billing entity |
 
 A single chat session on a premium model costs roughly $0.21; at 20 sessions a day across 20 working days, that's about $84 per month per developer — on top of the seat, and an estimate that varies with the model and token volume. Heavy users report $150–$250 per month in overages.
