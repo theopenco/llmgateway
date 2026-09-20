@@ -22,7 +22,7 @@ LLM Gateway gives you the same workflows — chat, agents, code review — throu
 | Spending ceiling                   | The subscription price                    | Orgs: uncapped unless paid usage is disabled or a budget has "Stop usage when budget limit is reached" enabled; individuals: opt-in budget   |
 | Included credits                   | —                                         | 1,500 ($15) Pro, 7,000 ($70) Pro+, 20,000 ($200) Max; 1,900 ($19) Business and 3,900 ($39) Enterprise per user, pooled at the billing entity |
 
-A single chat session on a premium model costs roughly $0.21; at 20 sessions a day across 20 working days, that's about $84 per month per developer — on top of the seat, and an estimate that varies with the model and token volume.
+A single chat session on a premium model costs roughly $0.21; at 20 sessions a day across 20 working days, that's about $84 of AI Credits consumed per month per developer — an estimate that varies with the model and token volume. Only consumption beyond your plan's included credits (or your organization's pooled credits) is billed as additional usage, and only where the paid-usage policy and budgets allow it.
 
 Estimate your own team's exposure with the [Copilot cost calculator](/copilot-cost-calculator).
 
