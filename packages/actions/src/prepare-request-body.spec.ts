@@ -7452,6 +7452,45 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 			]);
 		});
 
+		test("drops empty text parts and the messages left empty", async () => {
+			const requestBody = (await prepareRequestBody(
+				"perplexity",
+				"sonar",
+				null,
+				"perplexity/sonar",
+				[
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: "describe this" },
+							{ type: "text", text: "" },
+						],
+					},
+					{ role: "assistant", content: "   " },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			)) as any;
+
+			// Perplexity 400s on an empty text part where chat/completions did not.
+			expect(requestBody.input).toEqual([
+				{
+					role: "user",
+					content: [{ type: "input_text", text: "describe this" }],
+				},
+			]);
+		});
+
 		test("maps json_schema response_format to text.format", async () => {
 			const requestBody = (await prepareRequestBody(
 				"perplexity",

@@ -4417,9 +4417,32 @@ export async function prepareRequestBody(
 			// flagged for the Agent API send a Responses-shaped body to
 			// `/v1/agent` instead; the rest keep the legacy path below until then.
 			if (providerMappingForOptions?.usesPerplexityAgentApi) {
+				// Perplexity rejects an empty text part outright ("content part N:
+				// text cannot be empty") where the chat-completions upstreams
+				// tolerated it, so drop the empties and any message left with
+				// nothing to say. Both carry no information, so nothing is lost.
+				const agentInput = transformMessagesForResponsesApi(
+					messagesWithReasoningDetails,
+				)
+					.map((item) => {
+						if (!Array.isArray(item?.content)) {
+							return item;
+						}
+						return {
+							...item,
+							content: item.content.filter(
+								(part: { text?: unknown }) =>
+									typeof part?.text !== "string" || part.text.trim() !== "",
+							),
+						};
+					})
+					.filter(
+						(item) => !Array.isArray(item?.content) || item.content.length > 0,
+					);
+
 				const agentBody: PerplexityAgentRequestBody = {
 					model: usedExternalId,
-					input: transformMessagesForResponsesApi(messagesWithReasoningDetails),
+					input: agentInput,
 				};
 
 				// Sonar searched on every call. The Agent API leaves the decision to

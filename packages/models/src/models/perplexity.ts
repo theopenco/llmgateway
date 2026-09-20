@@ -70,7 +70,11 @@ export const perplexityModels = [
 				usesPerplexityAgentApi: true,
 				inputPrice: "0.25e-6",
 				outputPrice: "2.5e-6",
-				cachedInputPrice: "0.0625e-6",
+				// Perplexity publishes a $0.0625/M cache-read rate, but the Agent
+				// API only ever reports cache *writes* for this model: repeated
+				// identical requests come back with cache_read_input_tokens 0
+				// because each turn injects fresh search results. Declaring
+				// cachedInputPrice would claim a discount that never applies.
 				cacheWriteInputPrice: "0.25e-6",
 				webSearch: true,
 				webSearchPrice: "0.0025",
