@@ -17,7 +17,9 @@ vi.mock("@/lib/org-rate-limit.js", () => ({
 	getOrganizationLifetimeSpend: vi.fn(async () => 0),
 }));
 
-const NOW = Date.parse("2026-09-13T00:00:00Z");
+// Relative to now: the resolved tier is a function of account age, so a
+// hard-coded creation date silently ages into the next tier as time passes.
+const NOW = Date.now();
 
 function org(
 	overrides: Partial<Parameters<typeof resolveTieredContentFilterPlan>[0]> = {},
@@ -67,6 +69,26 @@ describe("resolveTieredContentFilterPlan", () => {
 		).toBeNull();
 	});
 
+	test("carries the configured classifier and drops a self-shadow", async () => {
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", {
+				...enabledSettings,
+				classifier: "jev",
+				shadowClassifier: "openai",
+			}),
+		).toMatchObject({ classifier: "jev", shadowClassifier: "openai" });
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", {
+				...enabledSettings,
+				classifier: "jev",
+				shadowClassifier: "jev",
+			}),
+		).toMatchObject({ classifier: "jev", shadowClassifier: null });
+		expect(
+			await resolveTieredContentFilterPlan(org(), "openai", enabledSettings),
+		).toMatchObject({ classifier: "openai", shadowClassifier: null });
+	});
+
 	test("is log-only by default and reports the inherited tier", async () => {
 		expect(
 			await resolveTieredContentFilterPlan(org(), "openai", enabledSettings),
@@ -77,6 +99,8 @@ describe("resolveTieredContentFilterPlan", () => {
 			level: "strict",
 			enforce: false,
 			exemptReason: "global_log_only",
+			classifier: "openai",
+			shadowClassifier: null,
 		});
 	});
 
@@ -233,6 +257,8 @@ describe("buildGatewayContentFilterEvaluation", () => {
 		overridden: false,
 		level: "strict" as const,
 		enforce: true,
+		classifier: "openai" as const,
+		shadowClassifier: null,
 	};
 	const violation = {
 		violation: true,
@@ -245,6 +271,7 @@ describe("buildGatewayContentFilterEvaluation", () => {
 		expect(buildGatewayContentFilterEvaluation(plan, violation, false)).toEqual(
 			{
 				sampled: true,
+				classifier: "openai",
 				provider: "openai",
 				tier: 1,
 				overridden: false,
@@ -275,5 +302,29 @@ describe("buildGatewayContentFilterEvaluation", () => {
 				true,
 			),
 		).toMatchObject({ action: "passed", moderationFailed: true });
+	});
+
+	test("records a shadow classifier's verdict without changing the action", () => {
+		const evaluation = buildGatewayContentFilterEvaluation(
+			{ ...plan, shadowClassifier: "jev" },
+			{ ...violation, violation: false, matchedCategories: [] },
+			false,
+			{
+				classifier: "jev",
+				evaluation: violation,
+				moderationFailed: false,
+			},
+		);
+
+		expect(evaluation.action).toBe("passed");
+		expect(evaluation.shadow).toEqual({
+			classifier: "jev",
+			violation: true,
+			flagged: true,
+			matchedCategories: ["violence"],
+			categoryScores: { violence: 0.9 },
+			moderationFailed: false,
+			disagreed: true,
+		});
 	});
 });

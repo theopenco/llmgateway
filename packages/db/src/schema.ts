@@ -2080,6 +2080,7 @@ export const API_ORIGINS = [
 	"speech",
 	"transcriptions",
 	"rerank",
+	"systemone",
 ] as const;
 
 export type ApiOrigin = (typeof API_ORIGINS)[number];

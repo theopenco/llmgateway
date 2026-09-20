@@ -256,9 +256,9 @@ export default async function ContentFilterPage({
 					<CardTitle>Settings</CardTitle>
 					<CardDescription>
 						Requests routed to an enabled provider are sampled through the
-						OpenAI moderation API. Organizations at trust tier 0–2 use the
-						strict thresholds, tier 3–4 the lenient ones; an admin pin on the
-						organization overrides the tier. Off for every provider until
+						selected moderation classifier. Organizations at trust tier 0–2 use
+						the strict thresholds, tier 3–4 the lenient ones; an admin pin on
+						the organization overrides the tier. Off for every provider until
 						enabled here. Moderation outages always fail open.
 					</CardDescription>
 				</CardHeader>

@@ -1,24 +1,19 @@
-import {
-	findManagedProviderKey,
-	hasManagedProviderCredential,
-} from "@/lib/cached-queries.js";
 import { isCancellationError, isTimeoutError } from "@/lib/timeout-config.js";
 
-import {
-	getProviderDefaultBaseUrl,
-	getProviderHeaders,
-	readProviderKey,
-} from "@llmgateway/actions";
+import { getProviderHeaders } from "@llmgateway/actions";
 import { logger } from "@llmgateway/logger";
-import { getProviderEnvValue, getProviderEnvVar } from "@llmgateway/models";
 
+import {
+	hasContentFilterCredential,
+	resolveContentFilterCredential,
+	type ContentFilterCredential,
+} from "./content-filter-credential.js";
 import { extractErrorCause } from "./extract-error-cause.js";
-import { getEnvKeyCount, getProviderEnv } from "./get-provider-env.js";
 
 import type { ModerationApiPayload } from "@llmgateway/db";
 import type { BaseMessage, MessageContent } from "@llmgateway/models";
 
-interface GatewayContentFilterContext {
+export interface GatewayContentFilterContext {
 	requestId: string;
 	organizationId: string;
 	projectId: string;
@@ -364,53 +359,12 @@ function createFailedOpenAIContentFilterResult(
 	};
 }
 
-interface ContentFilterCredential {
-	providerToken: string;
-	moderationUrl: string;
-}
-
-/**
- * The OpenAI credential the moderation call runs on. A managed credential
- * supersedes the env vars for its provider entirely, so once one exists the
- * environment is never read — and a provider whose managed credentials cannot
- * serve the call has no env key left to fall back to. The base URL follows
- * the same credential, so a proxied deployment moderates through its proxy.
- */
-async function resolveContentFilterCredential(): Promise<ContentFilterCredential> {
-	const defaultBaseUrl = getProviderDefaultBaseUrl("openai") ?? "";
-	const moderationUrl = (baseUrl: string) =>
-		`${baseUrl.replace(/\/+$/, "")}${OPENAI_MODERATION_PATH}`;
-	if (await hasManagedProviderCredential("openai")) {
-		const managedKey = await findManagedProviderKey("openai", {
-			selectionScope: OPENAI_MODERATION_MODEL,
-		});
-		if (!managedKey) {
-			throw new Error(
-				"No managed credential available for provider: openai (content filter)",
-			);
-		}
-		return {
-			providerToken: readProviderKey(managedKey),
-			moderationUrl: moderationUrl(
-				managedKey.config?.baseUrl ?? defaultBaseUrl,
-			),
-		};
-	}
-	const env = getProviderEnv("openai", { advanceRoundRobin: false });
-	const baseUrl =
-		getProviderEnvValue("openai", "baseUrl", env.configIndex) ?? defaultBaseUrl;
-	return { providerToken: env.token, moderationUrl: moderationUrl(baseUrl) };
-}
-
 /**
  * Whether a moderation call could be made at all. Lets deployments without an
  * OpenAI credential skip the tiered filter instead of failing open per request.
  */
 export async function hasOpenAIContentFilterCredential(): Promise<boolean> {
-	if (await hasManagedProviderCredential("openai")) {
-		return true;
-	}
-	return getEnvKeyCount(getProviderEnvVar("openai")) > 0;
+	return await hasContentFilterCredential("openai");
 }
 
 async function runOpenAIContentFilterRequest(
@@ -424,7 +378,7 @@ async function runOpenAIContentFilterRequest(
 	let upstreamText: string;
 
 	try {
-		upstreamResponse = await fetch(credential.moderationUrl, {
+		upstreamResponse = await fetch(credential.url, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -522,10 +476,22 @@ export async function checkOpenAIContentFilter(
 	messages: BaseMessage[],
 	context: GatewayContentFilterContext,
 	requestSignal?: AbortSignal,
+	options?: {
+		/**
+		 * Input kinds to moderate. Defaults to both. The Jev classifier is text
+		 * only, so it delegates just the image parts here.
+		 */
+		kinds?: ("text" | "image")[];
+	},
 ): Promise<OpenAIContentFilterCheckResult> {
 	const startTime = Date.now();
-	const moderationRequests = buildOpenAIContentFilterRequests(messages);
-	const imageInputs = buildOpenAIContentFilterImageInputs(messages);
+	const kinds = options?.kinds ?? ["text", "image"];
+	const moderationRequests = buildOpenAIContentFilterRequests(messages).filter(
+		(request) => kinds.includes(request.kind),
+	);
+	const imageInputs = kinds.includes("image")
+		? buildOpenAIContentFilterImageInputs(messages)
+		: [];
 
 	if (moderationRequests.length === 0) {
 		logModerationResult(context, {
@@ -556,7 +522,11 @@ export async function checkOpenAIContentFilter(
 		// vars for their provider, so once OpenAI has one the moderation call
 		// uses it and never reads `LLM_OPENAI_API_KEY`; when none can serve it,
 		// this throws and the filter fails open below.
-		const credential = await resolveContentFilterCredential();
+		const credential = await resolveContentFilterCredential(
+			"openai",
+			OPENAI_MODERATION_PATH,
+			OPENAI_MODERATION_MODEL,
+		);
 		const moderationResults = await Promise.all(
 			moderationRequests.map((request) =>
 				runOpenAIContentFilterRequest(request, context, credential, signal),

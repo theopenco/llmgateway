@@ -50,6 +50,7 @@ const modelSchema = z.object({
 				"ocr",
 				"transcription",
 				"rerank",
+				"decision",
 			]),
 		),
 		tokenizer: z.string().optional(),
@@ -379,6 +380,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 							| "ocr"
 							| "transcription"
 							| "rerank"
+							| "decision"
 						)[] = model.output ?? ["text"];
 
 						return {
@@ -460,6 +462,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 				| "ocr"
 				| "transcription"
 				| "rerank"
+				| "decision"
 			)[] = model.output ?? ["text"];
 
 			// Source the model-level pricing from the cheapest provider mapping

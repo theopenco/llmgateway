@@ -2209,6 +2209,46 @@ export const providers: ProviderDefinition[] = [
 		headquarters: "CN",
 		dataPolicy: null,
 	},
+	{
+		id: "typesafe",
+		name: "TypeSafe AI",
+		forwardsSafetyIdentifier: false,
+		description:
+			"TypeSafe AI serves Jev, a System One decision model that answers typed questions about a state with calibrated probabilities instead of generated text.",
+		env: {
+			required: {
+				apiKey: "LLM_TYPESAFE_API_KEY",
+			},
+			optional: {
+				baseUrl: "LLM_TYPESAFE_BASE_URL",
+			},
+		},
+		streaming: false,
+		cancellation: true,
+		color: "#0f766e",
+		website: "https://typesafe.ai",
+		statusPageUrl: null,
+		announcement: null,
+		termsUrl: "https://typesafe.ai/legal/mca",
+		privacyPolicyUrl: "https://typesafe.ai/legal/privacy-policy",
+		// The Master Customer Agreement names an Acceptable Use Policy at
+		// typesafe.ai/legal/aup, but that page is not published yet; its license
+		// restrictions section is the operative acceptable-use text until it is.
+		usagePolicyUrl: "https://typesafe.ai/legal/mca",
+		legalEntity: "TypeSafe AI, Inc.",
+		headquarters: "US",
+		dataPolicy: {
+			apiTraining: false,
+			promptLogging: null,
+			retentionPeriod: null,
+		},
+		additionalLinks: [
+			{
+				desc: "Data Processing Agreement",
+				link: "https://typesafe.ai/legal/data-processing",
+			},
+		],
+	},
 ] as const satisfies ProviderDefinition[];
 
 export type ProviderId = (typeof providers)[number]["id"];

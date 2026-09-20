@@ -125,6 +125,7 @@ import {
 	getIncludedResetPassesRemaining,
 	MAX_BULK_BLOCK_ORGANIZATIONS,
 	MIN_BULK_BLOCK_SEARCH_LENGTH,
+	CONTENT_FILTER_CLASSIFIERS,
 	contentFilterSettingsSchema,
 	getOrgContentFilterTier,
 	getOrgSpendTier,
@@ -5881,6 +5882,8 @@ const contentFilterSettingsResponseSchema = z
 		sampleRatePercent: z.number(),
 		enforce: z.boolean(),
 		enforceEnterprise: z.boolean(),
+		classifier: z.enum(CONTENT_FILTER_CLASSIFIERS),
+		shadowClassifier: z.enum([...CONTENT_FILTER_CLASSIFIERS, "none"]),
 		providers: z.array(
 			z.object({
 				id: z.string(),
@@ -5936,6 +5939,8 @@ admin.openapi(getContentFilterSettingsRoute, async (c) => {
 		sampleRatePercent: settings.sampleRatePercent,
 		enforce: settings.enforce,
 		enforceEnterprise: settings.enforceEnterprise,
+		classifier: settings.classifier,
+		shadowClassifier: settings.shadowClassifier,
 		providers: listContentFilterProviders(settings),
 	});
 });
@@ -5947,6 +5952,8 @@ admin.openapi(updateContentFilterSettingsRoute, async (c) => {
 		sampleRatePercent: settings.sampleRatePercent,
 		enforce: settings.enforce,
 		enforceEnterprise: settings.enforceEnterprise,
+		classifier: settings.classifier,
+		shadowClassifier: settings.shadowClassifier,
 		providers: listContentFilterProviders(settings),
 	});
 });

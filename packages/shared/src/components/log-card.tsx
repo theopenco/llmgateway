@@ -255,6 +255,7 @@ export const API_ORIGIN_LABELS: Record<string, string> = {
 	speech: "Speech",
 	transcriptions: "Transcriptions",
 	rerank: "Rerank",
+	systemone: "System One",
 };
 
 function formatDuration(ms: number) {

@@ -3,6 +3,18 @@ import { z } from "zod";
 /** `system_setting` row holding the tiered gateway content filter settings. */
 export const CONTENT_FILTER_SETTING_ID = "content_filter";
 
+/**
+ * Moderation model family the tiered filter scores requests with.
+ * - `openai`: OpenAI's moderation endpoint (fixed categories, provider `flagged`
+ *   bit honoured in strict mode).
+ * - `jev`: TypeSafe's Jev decision model, asked one calibrated yes/no question
+ *   per policy category. Text only — image parts still go to OpenAI.
+ */
+export const CONTENT_FILTER_CLASSIFIERS = ["openai", "jev"] as const;
+
+export type ContentFilterClassifier =
+	(typeof CONTENT_FILTER_CLASSIFIERS)[number];
+
 export const contentFilterSettingsSchema = z.object({
 	// Master switch for sampling requests through the moderation API.
 	enabled: z.boolean().default(true),
@@ -13,6 +25,15 @@ export const contentFilterSettingsSchema = z.object({
 	enforce: z.boolean().default(false),
 	// Enterprise orgs stay log-only unless this is also on.
 	enforceEnterprise: z.boolean().default(false),
+	// Classifier whose scores decide the outcome.
+	classifier: z.enum(CONTENT_FILTER_CLASSIFIERS).default("openai"),
+	// Optional second classifier, run on the same request for comparison. Its
+	// verdict is recorded on the log's evaluation and never blocks. "none"
+	// disables the comparison run; the deciding classifier is never shadowed by
+	// itself.
+	shadowClassifier: z
+		.enum([...CONTENT_FILTER_CLASSIFIERS, "none"])
+		.default("none"),
 });
 
 export type ContentFilterSettings = z.infer<typeof contentFilterSettingsSchema>;

@@ -229,7 +229,8 @@ export function isTextOutput(output: string[] | null | undefined): boolean {
 		!output?.includes("image") &&
 		!output?.includes("video") &&
 		!output?.includes("embedding") &&
-		!output?.includes("rerank")
+		!output?.includes("rerank") &&
+		!output?.includes("decision")
 	);
 }
 

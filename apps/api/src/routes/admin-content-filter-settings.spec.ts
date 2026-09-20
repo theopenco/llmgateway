@@ -77,6 +77,8 @@ describe("admin content filter settings", () => {
 			sampleRatePercent: 25,
 			enforce: true,
 			enforceEnterprise: false,
+			classifier: "openai",
+			shadowClassifier: "none",
 		});
 	});
 

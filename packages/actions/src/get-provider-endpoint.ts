@@ -232,6 +232,7 @@ const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ProviderId, string>> = {
 	consensusprotocol: "https://api.consensusprotocol.org",
 	atria: "https://api.atria-asi.ai",
 	tencent: "https://tokenhub-intl.tencentcloudmaas.com",
+	typesafe: "https://api.typesafe.ai",
 };
 
 export function getProviderDefaultBaseUrl(

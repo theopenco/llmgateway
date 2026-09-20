@@ -243,12 +243,14 @@ export {
 } from "./onboarding.js";
 
 export {
+	CONTENT_FILTER_CLASSIFIERS,
 	CONTENT_FILTER_SETTING_ID,
 	contentFilterSettingsSchema,
 	DEFAULT_CONTENT_FILTER_SETTINGS,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
 	isContentFilterErrorText,
 	parseContentFilterSettings,
+	type ContentFilterClassifier,
 	type ContentFilterSettings,
 } from "./content-filter.js";
 

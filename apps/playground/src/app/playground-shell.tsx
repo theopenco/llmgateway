@@ -265,7 +265,9 @@ export async function renderPlaygroundShell({
 				}
 				models={models.filter(
 					(m) =>
-						!m.output?.includes("embedding") && !m.output?.includes("rerank"),
+						!m.output?.includes("embedding") &&
+						!m.output?.includes("rerank") &&
+						!m.output?.includes("decision"),
 				)}
 				providers={providers}
 				organizations={organizations}
