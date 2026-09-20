@@ -88,6 +88,11 @@ describe("systemone", () => {
 		// 441 input tokens at $0.042/M, output tokens are free.
 		expect(Number(log?.cost)).toBeCloseTo(441 * 0.042e-6, 12);
 		expect(Number(log?.outputCost)).toBe(0);
+		// The organization retains data, so the payload has to survive: it is
+		// charged for the storage either way.
+		expect(log?.messages).not.toBeNull();
+		expect(log?.content).toContain("urgency");
+		expect(Number(log?.dataStorageCost)).toBeGreaterThan(0);
 	});
 
 	test("/v1/systemone resolves the provider's moving alias to the pinned model", async () => {
