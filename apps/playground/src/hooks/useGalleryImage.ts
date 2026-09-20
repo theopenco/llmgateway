@@ -24,6 +24,9 @@ interface PreviewEntry {
 	ready: Promise<ResolvedGalleryImage>;
 	refs: number;
 	urls: string[];
+	// Set once the last consumer is gone and the URLs were revoked, so a
+	// preview that finishes encoding afterwards is not stored and leaked.
+	disposed: boolean;
 }
 
 const entries = new WeakMap<GalleryImage, PreviewEntry>();
@@ -80,6 +83,9 @@ async function buildPreview(
 			Math.round(bitmap.width * scale),
 			Math.round(bitmap.height * scale),
 		);
+		if (entry.disposed) {
+			return { ...base, previewUrl: fullUrl };
+		}
 		const previewUrl = URL.createObjectURL(preview);
 		entry.urls.push(previewUrl);
 		return { ...base, previewUrl };
@@ -98,6 +104,7 @@ function acquire(image: GalleryImage & { kind: "inline" }): PreviewEntry {
 			ready: Promise.resolve(null as never),
 			refs: 0,
 			urls: [fullUrl],
+			disposed: false,
 		};
 		created.ready = buildPreview(blob, fullUrl, created)
 			.catch((error: unknown) => {
@@ -124,6 +131,7 @@ function release(image: GalleryImage, entry: PreviewEntry) {
 			return;
 		}
 		entries.delete(image);
+		entry.disposed = true;
 		for (const url of entry.urls) {
 			URL.revokeObjectURL(url);
 		}

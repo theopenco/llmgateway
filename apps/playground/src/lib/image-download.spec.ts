@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { imageFileExtension, imageFileStem } from "@/lib/image-download";
+import {
+	imageFileExtension,
+	imageFileStem,
+	zipEntryName,
+} from "@/lib/image-download";
 import { historyImage, inlineImageFromDataUrl } from "@/lib/image-gen";
 
 describe("image download names", () => {
@@ -14,6 +18,13 @@ describe("image download names", () => {
 		expect(imageFileExtension("image/png")).toBe("png");
 		expect(imageFileExtension("image/jpeg")).toBe("jpg");
 		expect(imageFileExtension("image/webp; charset=binary")).toBe("webp");
+	});
+
+	it("keeps colliding archive entries apart", () => {
+		const taken = { "cat-1.png": true, "cat-1-2.png": true };
+		expect(zipEntryName(taken, "cat-1", "png")).toBe("cat-1-3.png");
+		expect(zipEntryName(taken, "cat-1", "jpg")).toBe("cat-1.jpg");
+		expect(zipEntryName({}, "cat-2", "png")).toBe("cat-2.png");
 	});
 });
 

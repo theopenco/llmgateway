@@ -83,6 +83,20 @@ export interface ZipEntry {
 	stem: string;
 }
 
+// Comparing the same model twice yields identical stems; suffix a counter so
+// no archive entry overwrites another.
+export function zipEntryName(
+	taken: Record<string, unknown>,
+	stem: string,
+	ext: string,
+): string {
+	let name = `${stem}.${ext}`;
+	for (let n = 2; name in taken; n++) {
+		name = `${stem}-${n}.${ext}`;
+	}
+	return name;
+}
+
 // Bundles every image of a gallery item into one archive. Generated images
 // are already compressed, so entries are stored rather than deflated.
 export async function downloadImagesAsZip(entries: ZipEntry[], stem: string) {
@@ -92,7 +106,11 @@ export async function downloadImagesAsZip(entries: ZipEntry[], stem: string) {
 	const files: Record<string, [Uint8Array, { level: 0 }]> = {};
 	for (let index = 0; index < blobs.length; index++) {
 		const blob = blobs[index]!;
-		const name = `${entries[index]!.stem}.${imageFileExtension(blob.type || "image/png")}`;
+		const name = zipEntryName(
+			files,
+			entries[index]!.stem,
+			imageFileExtension(blob.type || "image/png"),
+		);
 		files[name] = [new Uint8Array(await blob.arrayBuffer()), { level: 0 }];
 	}
 	const archive = await new Promise<Uint8Array>((resolve, reject) => {
