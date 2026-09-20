@@ -32,6 +32,18 @@ export const CONTENT_FILTER_CLASSIFIER_PROVIDERS: Record<
 
 export interface ContentFilterCheckResult extends OpenAIContentFilterCheckResult {
 	classifier: ContentFilterClassifier;
+	/**
+	 * A delegated image moderation call was attempted and came back empty. The
+	 * text verdict still stands, so this never adds a violation — it is what
+	 * stops the evaluation from recording a fully successful moderation when
+	 * the request's images went uncovered.
+	 */
+	imageModerationFailed?: boolean;
+}
+
+/** Whether a check covered everything it set out to cover. */
+function moderationFailed(result: ContentFilterCheckResult): boolean {
+	return result.results.length === 0 || result.imageModerationFailed === true;
 }
 
 export async function hasClassifierCredential(
@@ -90,8 +102,11 @@ export async function runContentFilterClassifier(
 		{ kinds: ["image"] },
 	);
 
+	// The OpenAI filter fails open by returning no results, and the delegation
+	// only runs when the request actually carries images — so an empty result
+	// here is a failed image check, not an absent one.
 	if (imageResult.results.length === 0) {
-		return { ...textResult, classifier };
+		return { ...textResult, classifier, imageModerationFailed: true };
 	}
 
 	logger.debug("gateway_content_filter_image_delegated", {
@@ -138,34 +153,54 @@ export async function evaluateContentFilterWithClassifiers(options: {
 } | null> {
 	const { plan, messages, context, signal, existing } = options;
 
+	/** Whether this classifier may run at all, before any provider call. */
+	const eligible = async (classifier: ContentFilterClassifier) =>
+		existing?.classifier === classifier ||
+		(options.classifierAllowed(classifier) &&
+			(await hasClassifierCredential(classifier)));
+
 	const run = async (
 		classifier: ContentFilterClassifier,
-	): Promise<ContentFilterCheckResult | null> => {
-		if (existing?.classifier === classifier) {
-			return existing;
-		}
-		if (!options.classifierAllowed(classifier)) {
-			return null;
-		}
-		if (!(await hasClassifierCredential(classifier))) {
-			return null;
-		}
-		return await runContentFilterClassifier(
-			classifier,
-			messages,
-			context,
-			signal,
-			{
-				imagesAllowed: options.imagesAllowed,
-			},
-		);
-	};
+	): Promise<ContentFilterCheckResult> =>
+		existing?.classifier === classifier
+			? existing
+			: await runContentFilterClassifier(
+					classifier,
+					messages,
+					context,
+					signal,
+					{ imagesAllowed: options.imagesAllowed },
+				);
 
-	const deciding = await run(plan.classifier);
-	if (!deciding) {
+	const [decidingEligible, shadowEligible] = await Promise.all([
+		eligible(plan.classifier),
+		plan.shadowClassifier ? eligible(plan.shadowClassifier) : false,
+	]);
+
+	// Nothing to decide with, so the shadow run is never paid for either.
+	if (!decidingEligible) {
 		return null;
 	}
 
+	// Both classifiers run in parallel: the caller is holding the client's
+	// request open across this, and each provider call has its own multi-minute
+	// timeout, so awaiting them in sequence would put the shadow run's full
+	// latency in front of the user for a verdict it is not allowed to change.
+	const [decidingSettled, shadowSettled] = await Promise.allSettled([
+		run(plan.classifier),
+		plan.shadowClassifier && shadowEligible
+			? run(plan.shadowClassifier)
+			: Promise.resolve(null),
+	]);
+
+	// A cancellation is the only thing either call rethrows, and both share the
+	// request's signal — so the deciding rejection carries it and the shadow's
+	// identical one is left alone rather than surfacing unhandled.
+	if (decidingSettled.status === "rejected") {
+		throw decidingSettled.reason;
+	}
+
+	const deciding = decidingSettled.value;
 	const evaluation = evaluateTieredContentFilter(deciding.results, plan.level);
 	const results = [deciding];
 
@@ -176,26 +211,22 @@ export async function evaluateContentFilterWithClassifiers(options: {
 				moderationFailed: boolean;
 		  }
 		| undefined;
-	if (plan.shadowClassifier) {
-		const shadowResult = await run(plan.shadowClassifier);
-		if (shadowResult) {
-			shadow = {
-				classifier: plan.shadowClassifier,
-				evaluation: evaluateTieredContentFilter(
-					shadowResult.results,
-					plan.level,
-				),
-				moderationFailed: shadowResult.results.length === 0,
-			};
-			results.push(shadowResult);
-		}
+	const shadowResult =
+		shadowSettled.status === "fulfilled" ? shadowSettled.value : null;
+	if (plan.shadowClassifier && shadowResult) {
+		shadow = {
+			classifier: plan.shadowClassifier,
+			evaluation: evaluateTieredContentFilter(shadowResult.results, plan.level),
+			moderationFailed: moderationFailed(shadowResult),
+		};
+		results.push(shadowResult);
 	}
 
 	return {
 		evaluation: buildGatewayContentFilterEvaluation(
 			plan,
 			evaluation,
-			deciding.results.length === 0,
+			moderationFailed(deciding),
 			shadow,
 		),
 		results,

@@ -114,6 +114,30 @@ describe("runContentFilterClassifier", () => {
 		expect(checked.model).toBe("jev-1.13.0");
 	});
 
+	it("marks a failed image delegation without changing the text verdict", async () => {
+		checkJev.mockResolvedValue(result(false, { violence: 0.1 }, "jev-1.13.0"));
+		// The OpenAI filter fails open by returning no results.
+		checkOpenAI.mockResolvedValue({
+			flagged: false,
+			model: "omni-moderation-latest",
+			upstreamRequestId: null,
+			results: [],
+			responses: [],
+		});
+
+		const checked = await runContentFilterClassifier(
+			"jev",
+			IMAGE_MESSAGES,
+			CONTEXT,
+			undefined,
+			{ imagesAllowed: true },
+		);
+
+		expect(checked.flagged).toBe(false);
+		expect(checked.imageModerationFailed).toBe(true);
+		expect(checked.results).toHaveLength(1);
+	});
+
 	it("skips image delegation when the policy excludes OpenAI", async () => {
 		checkJev.mockResolvedValue(result(false, { violence: 0.1 }, "jev-1.13.0"));
 
@@ -178,6 +202,53 @@ describe("evaluateContentFilterWithClassifiers", () => {
 			disagreed: true,
 		});
 		expect(evaluated?.results).toHaveLength(2);
+	});
+
+	it("runs the deciding and shadow classifiers concurrently", async () => {
+		const started: string[] = [];
+		const gate = (name: string, ms: number) => async () => {
+			started.push(name);
+			await new Promise((resolve) => setTimeout(resolve, ms));
+			return result(false, { violence: 0.1 }, name);
+		};
+		checkJev.mockImplementation(gate("jev", 60));
+		checkOpenAI.mockImplementation(gate("openai", 60));
+
+		const startedAt = Date.now();
+		await evaluateContentFilterWithClassifiers({
+			plan: { ...PLAN, shadowClassifier: "openai" },
+			messages: TEXT_MESSAGES,
+			context: CONTEXT,
+			imagesAllowed: true,
+			classifierAllowed: () => true,
+		});
+
+		expect(started).toHaveLength(2);
+		// Serial execution would take at least both delays end to end.
+		expect(Date.now() - startedAt).toBeLessThan(110);
+	});
+
+	it("reports a failed image delegation as a failed moderation", async () => {
+		checkJev.mockResolvedValue(result(false, { violence: 0.1 }, "jev-1.13.0"));
+		checkOpenAI.mockResolvedValue({
+			flagged: false,
+			model: "omni-moderation-latest",
+			upstreamRequestId: null,
+			results: [],
+			responses: [],
+		});
+
+		const evaluated = await evaluateContentFilterWithClassifiers({
+			plan: PLAN,
+			messages: IMAGE_MESSAGES,
+			context: CONTEXT,
+			imagesAllowed: true,
+			classifierAllowed: () => true,
+		});
+
+		expect(evaluated?.evaluation.moderationFailed).toBe(true);
+		// Fail open: an uncovered image is not a violation.
+		expect(evaluated?.evaluation.action).toBe("passed");
 	});
 
 	it("skips entirely when the deciding classifier is not permitted", async () => {

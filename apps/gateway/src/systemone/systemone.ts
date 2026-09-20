@@ -750,7 +750,9 @@ systemone.openapi(createSystemOne, async (c): Promise<any> => {
 				const isTimeout = isTimeoutError(fetchError);
 
 				const duration = Date.now() - startedAt;
-				if (attempt.envVarName !== undefined) {
+				// A client hanging up says nothing about the credential, and three
+				// of them in a row would otherwise cool a perfectly healthy key.
+				if (!isCanceled && attempt.envVarName !== undefined) {
 					reportKeyError(
 						attempt.envVarName,
 						attempt.configIndex,
@@ -761,7 +763,7 @@ systemone.openapi(createSystemOne, async (c): Promise<any> => {
 				}
 				const failedTrackedKeyId =
 					attempt.providerKey?.id ?? attempt.managedKey?.id;
-				if (failedTrackedKeyId) {
+				if (!isCanceled && failedTrackedKeyId) {
 					reportTrackedKeyError(
 						failedTrackedKeyId,
 						0,
