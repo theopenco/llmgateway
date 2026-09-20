@@ -979,6 +979,138 @@ adminProviderCredentials.openapi(getProviderKeySpend, async (c) => {
 	});
 });
 
+/**
+ * Per-model error counts for one credential. Unlike the rolling 24h rate in the
+ * list, this reads `global_provider_key_model_stats` — the only rollup carrying
+ * both `providerKeyId` and `usedModel`. That table is day-grained and written by
+ * the slower global aggregator, so its totals will not match the list cell
+ * exactly; `since` reports the window it actually covers.
+ */
+const credentialModelErrorRowSchema = z.object({
+	/** Display id as stored in the rollup: `provider/model[:region]`. */
+	usedModel: z.string(),
+	usedProvider: z.string(),
+	requestCount: z.number(),
+	errorCount: z.number(),
+	/** Subset of `errorCount`: failures the provider itself returned. */
+	upstreamErrorCount: z.number(),
+});
+
+const credentialModelErrorBreakdownSchema = z.object({
+	/** Start of the UTC day window, so the caller can label the real span. */
+	since: z.string(),
+	/** Highest error rate first, capped — the tail is folded into `rest`. */
+	models: z.array(credentialModelErrorRowSchema),
+	rest: z
+		.object({
+			modelCount: z.number(),
+			requestCount: z.number(),
+			errorCount: z.number(),
+			upstreamErrorCount: z.number(),
+		})
+		.nullable(),
+});
+
+/** Days of the day-grained rollup to include, counting today as one. */
+const MODEL_ERROR_WINDOW_DAYS = 2;
+/** Rows shown before the tail collapses into `rest`. */
+const MODEL_ERROR_ROW_LIMIT = 10;
+
+const getProviderKeyModelErrors = createRoute({
+	method: "get",
+	path: "/provider-keys/{providerKeyId}/model-errors",
+	request: {
+		params: z.object({ providerKeyId: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: credentialModelErrorBreakdownSchema,
+				},
+			},
+			description:
+				"Per-model request and error counts for one provider credential, worst error rate first.",
+		},
+		404: {
+			description: "Provider key not found.",
+		},
+	},
+});
+
+adminProviderCredentials.openapi(getProviderKeyModelErrors, async (c) => {
+	const { providerKeyId } = c.req.valid("param");
+
+	const key = await db.query.providerKey.findFirst({
+		where: { id: { eq: providerKeyId } },
+	});
+	if (!key) {
+		throw new HTTPException(404, { message: "Provider key not found" });
+	}
+
+	const since = new Date();
+	since.setUTCHours(0, 0, 0, 0);
+	since.setUTCDate(since.getUTCDate() - (MODEL_ERROR_WINDOW_DAYS - 1));
+
+	const stats = tables.globalProviderKeyModelStats;
+	const requestCount = sql<number>`COALESCE(SUM(${stats.requestCount}), 0)`;
+	const errorCount = sql<number>`COALESCE(SUM(${stats.errorCount}), 0)`;
+	// Ordering key: the rate itself, not the raw error count, so a model that
+	// fails every call still surfaces above a high-volume model with a few
+	// failures. Ties break on volume, which keeps the noisy one-request models
+	// below their busier neighbours.
+	const errorRate = sql<number>`COALESCE(SUM(${stats.errorCount})::float8 / NULLIF(SUM(${stats.requestCount}), 0), 0)`;
+
+	const rows = await db
+		.select({
+			usedModel: stats.usedModel,
+			usedProvider: stats.usedProvider,
+			requestCount: requestCount.as("request_count"),
+			errorCount: errorCount.as("error_count"),
+			upstreamErrorCount:
+				sql<number>`COALESCE(SUM(${stats.upstreamErrorCount}), 0)`.as(
+					"upstream_error_count",
+				),
+		})
+		.from(stats)
+		.where(
+			and(
+				eq(stats.providerKeyId, providerKeyId),
+				gte(stats.dayTimestamp, since),
+			),
+		)
+		.groupBy(stats.usedModel, stats.usedProvider)
+		.having(sql`SUM(${stats.requestCount}) > 0`)
+		.orderBy(desc(errorRate), desc(requestCount));
+
+	const models = rows.map((row) => ({
+		usedModel: row.usedModel,
+		usedProvider: row.usedProvider,
+		requestCount: Number(row.requestCount),
+		errorCount: Number(row.errorCount),
+		upstreamErrorCount: Number(row.upstreamErrorCount),
+	}));
+
+	const shown = models.slice(0, MODEL_ERROR_ROW_LIMIT);
+	const tail = models.slice(MODEL_ERROR_ROW_LIMIT);
+
+	return c.json({
+		since: since.toISOString(),
+		models: shown,
+		rest: tail.length
+			? {
+					modelCount: tail.length,
+					requestCount: tail.reduce((sum, row) => sum + row.requestCount, 0),
+					errorCount: tail.reduce((sum, row) => sum + row.errorCount, 0),
+					upstreamErrorCount: tail.reduce(
+						(sum, row) => sum + row.upstreamErrorCount,
+						0,
+					),
+				}
+			: null,
+	});
+});
+
 const spendOverviewKeySchema = z.object({
 	id: z.string(),
 	provider: z.string(),
