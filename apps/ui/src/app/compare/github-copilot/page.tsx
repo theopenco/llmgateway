@@ -19,7 +19,7 @@ const copilotFaqs: CompareFaqItem[] = [
 	{
 		question: "How much does GitHub Copilot cost after the change?",
 		answer:
-			"The seat price is unchanged — Pro $10, Pro+ $39, Max $100, Business $19, and Enterprise $39 per user per month — with included credits of $15, $70, $200, $19, and $39 respectively. Those run out fast under real usage: heavy chat users on premium models have reported $150–$250 per month in overages, and agentic teams have projected 10–50x cost increases.",
+			"The seat price is unchanged — Pro $10, Pro+ $39, Max $100, Business $19, and Enterprise $39 per user per month — with included credits of $15, $70, $200, $19, and $39 respectively. Those run out fast under real usage: at 20 premium-model chat sessions a working day, our calculator puts the overage at roughly $84 per developer per month on top of the seat, before any agent runs — see /copilot-cost-calculator for your own numbers.",
 	},
 	{
 		question: "How does LLM Gateway keep AI coding costs predictable?",
