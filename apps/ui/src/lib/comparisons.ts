@@ -115,7 +115,7 @@ export const comparisons: Comparison[] = [
 		competitor: "GitHub Copilot",
 		category: "Coding assistants",
 		positioning:
-			"GitHub's coding assistant, which since June 2026 bills chat and agent usage through usage-based AI Credits, with paid overage on by default.",
+			"GitHub's coding assistant, which since June 2026 bills chat and agent usage through usage-based AI Credits; Business and Enterprise enable paid additional usage by default, while individual plans stop until the user sets a budget.",
 		openSource: "No",
 		selfHostable: "No",
 		keyDifference:

@@ -12,7 +12,7 @@ const promptParts: Record<string, MigrationPromptParts> = {
 		intro: "Migrate this codebase from OpenRouter to LLM Gateway.",
 		steps: `1. Find every OpenRouter usage: the base URL https://openrouter.ai/api/v1, the OPENROUTER_API_KEY env var, and OpenRouter-only headers like HTTP-Referer and X-Title.
 2. Point the client at https://api.llmgateway.io/v1, read the key from LLM_GATEWAY_API_KEY, and drop the OpenRouter-only headers.
-3. Keep model names as they are — LLM Gateway supports the same provider/model format (Anthropic versions use dashes, e.g. anthropic/claude-opus-4-8). Replace any OpenRouter provider routing object: provider.order becomes a provider-prefixed model ID, and provider.allow_fallbacks: false becomes the x-no-fallback: true header.
+3. Keep model names as they are — LLM Gateway supports the same provider/model format (Anthropic versions use dashes, e.g. anthropic/claude-opus-4-8). Replace any OpenRouter provider routing object: a single-entry provider.order becomes a provider-prefixed model ID; a provider.order with several entries must keep that order, so map it to a dynamic route whose providers list is the same ordered allowlist (https://docs.llmgateway.io/features/dynamic-routes) and flag it for manual follow-up rather than collapsing it into one provider; provider.allow_fallbacks: false becomes the x-no-fallback: true header.
 4. Update .env.example and any README or docs that mention OpenRouter.`,
 	},
 	"vercel-ai-gateway": {

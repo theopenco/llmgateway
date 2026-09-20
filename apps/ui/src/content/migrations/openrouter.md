@@ -148,14 +148,15 @@ Check the [models page](/models) for the full list of available models.
 
 OpenRouter selects the upstream through a `provider` object in the request body. LLM Gateway puts that choice in the model ID and a header:
 
-| OpenRouter                        | LLM Gateway                                                                    |
-| --------------------------------- | ------------------------------------------------------------------------------ |
-| No `provider` object              | Bare model ID — routes on live uptime, throughput, price, and latency          |
-| `provider.order: ["Anthropic"]`   | `anthropic/claude-sonnet-5` — pinned, with failover if the provider degrades   |
-| `provider.allow_fallbacks: false` | Add the `x-no-fallback: true` header to fail instead of retrying elsewhere     |
-| Your own provider keys (BYOK)     | Add keys under Settings > Provider Keys — 0% gateway fee at any monthly volume |
+| OpenRouter                            | LLM Gateway                                                                    |
+| ------------------------------------- | ------------------------------------------------------------------------------ |
+| No `provider` object                  | Bare model ID — routes on live uptime, throughput, price, and latency          |
+| `provider.order: ["Anthropic"]`       | `anthropic/claude-sonnet-5` — pinned, with failover if the provider degrades   |
+| `provider.order` with several entries | A dynamic route whose `providers` list is the same ordered fallback preference |
+| `provider.allow_fallbacks: false`     | Add the `x-no-fallback: true` header to fail instead of retrying elsewhere     |
+| Your own provider keys (BYOK)         | Add keys under Settings > Provider Keys — 0% gateway fee at any monthly volume |
 
-See the [routing documentation](https://docs.llmgateway.io/features/routing) for the details.
+See the [routing](https://docs.llmgateway.io/features/routing) and [dynamic routes](https://docs.llmgateway.io/features/dynamic-routes) documentation for the details.
 
 ## Streaming Support
 

@@ -14,7 +14,7 @@ const copilotFaqs: CompareFaqItem[] = [
 	{
 		question: "What changed with GitHub Copilot pricing in June 2026?",
 		answer:
-			"On June 1, 2026, GitHub replaced Premium Request Units with usage-based AI Credits (1 credit = $0.01). Base seats stayed at $10–$39 per user per month, but Copilot Chat, agent mode, code review, and CLI now bill by tokens consumed — and paid overage is enabled by default, so there is no spending ceiling unless an admin sets a budget. On September 1, 2026 the promotional allowances for existing Business ($30) and Enterprise ($70) customers reverted to the standard $19 and $39 per user.",
+			"On June 1, 2026, GitHub replaced Premium Request Units with usage-based AI Credits (1 credit = $0.01). Base seats stayed at $10–$39 per user per month, but Copilot Chat, agent mode, code review, and CLI now bill by tokens consumed. On Business and Enterprise, paid additional usage is enabled by default unless an administrator disables it, so there is no spending ceiling until an admin sets a budget; on Pro, Pro+, and Max, usage stops at the included credits until the user sets a budget. On September 1, 2026 the promotional allowances for existing Business ($30) and Enterprise ($70) customers reverted to the standard $19 and $39 per user.",
 	},
 	{
 		question: "How much does GitHub Copilot cost after the change?",

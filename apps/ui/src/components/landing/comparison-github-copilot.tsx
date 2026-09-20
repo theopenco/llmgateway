@@ -22,7 +22,8 @@ const comparisonData = [
 				title: "Spending ceiling",
 				description: "Hard caps so usage can never run away",
 				llmgateway: "Budgets and hard limits per org, project, and API key",
-				copilot: "Paid overage on by default; budgets are opt-in",
+				copilot:
+					"Business/Enterprise: paid usage on by default until an admin sets a budget; Pro/Pro+/Max: user must set a budget",
 			},
 			{
 				title: "Prompt caching",
