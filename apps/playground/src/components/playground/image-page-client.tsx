@@ -575,6 +575,7 @@ export default function ImagePageClient({
 					modelId,
 					modelName: getModelName(modelId),
 					images: [],
+					imageCount,
 					isLoading: true,
 				})),
 			};
