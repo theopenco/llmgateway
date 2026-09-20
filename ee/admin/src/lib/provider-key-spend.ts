@@ -11,6 +11,18 @@ export interface SpendLimited {
 	usageLimit: string | null;
 }
 
+/**
+ * One UTC day of a managed credential's attributed traffic, as the credentials
+ * list returns it. Shared because the spend and error cells draw the same series
+ * from two angles.
+ */
+export interface DailyCredentialPoint {
+	date: string;
+	cost: number;
+	requestCount: number;
+	errorCount: number;
+}
+
 /** Share of the cap at which the UI starts warning. */
 const WARNING_THRESHOLD = 0.8;
 

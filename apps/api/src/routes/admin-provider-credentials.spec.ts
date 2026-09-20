@@ -1617,6 +1617,168 @@ describe("managed credential reorder cache invalidation", () => {
 		});
 	});
 
+	describe("7d daily series", () => {
+		const providerKeyId = "daily-cred";
+		const projectId = "daily-project";
+		const orgId = "daily-org";
+
+		/** Start of a UTC day, `daysAgo` days back from today. */
+		const DAY_MS = 24 * 60 * 60 * 1000;
+		const HOUR_MS = 60 * 60 * 1000;
+
+		function utcDay(daysAgo: number) {
+			const day = new Date();
+			day.setUTCHours(0, 0, 0, 0);
+			const offsetMs = daysAgo * DAY_MS;
+			return new Date(day.getTime() - offsetMs);
+		}
+
+		/** `hour` hours into the UTC day `daysAgo` days back. */
+		function utcHour(daysAgo: number, hour: number) {
+			const offsetMs = hour * HOUR_MS;
+			return new Date(utcDay(daysAgo).getTime() + offsetMs);
+		}
+
+		async function seedHourlyStats(
+			rows: {
+				hourTimestamp: Date;
+				cost: number;
+				requestCount: number;
+				errorCount?: number;
+			}[],
+		) {
+			await db.insert(tables.organization).values({
+				id: orgId,
+				name: "Daily Org",
+				billingEmail: "daily@example.com",
+				credits: "100",
+			});
+			await db.insert(tables.project).values({
+				id: projectId,
+				name: "Daily Project",
+				organizationId: orgId,
+				mode: "credits",
+			});
+			await db.insert(tables.providerKey).values({
+				id: providerKeyId,
+				...encryptProviderKeyForStorage("sk-daily-cred", providerKeyId, null),
+				provider: "openai",
+				managed: true,
+				organizationId: null,
+			});
+			// Written straight into the rollup: the series has to cover days the log
+			// aggregator cannot be made to backdate.
+			if (rows.length > 0) {
+				await db.insert(tables.providerKeyHourlyStats).values(
+					rows.map((row) => ({
+						providerKeyId,
+						projectId,
+						hourTimestamp: row.hourTimestamp,
+						cost: row.cost,
+						requestCount: row.requestCount,
+						errorCount: row.errorCount ?? 0,
+					})),
+				);
+			}
+		}
+
+		async function listDaily() {
+			const res = await app.request("/admin/provider-credentials", {
+				headers: { Cookie: cookie },
+			});
+			const body = (await res.json()) as {
+				credentials: {
+					id: string;
+					last7dDaily: {
+						date: string;
+						cost: number;
+						requestCount: number;
+						errorCount: number;
+					}[];
+				}[];
+			};
+			return body.credentials.find(
+				(credential) => credential.id === providerKeyId,
+			)?.last7dDaily;
+		}
+
+		test("returns one zero-filled entry per UTC day, oldest first", async () => {
+			await seedHourlyStats([
+				{
+					hourTimestamp: utcHour(6, 3),
+					cost: 0.5,
+					requestCount: 10,
+					errorCount: 1,
+				},
+				// Two buckets on the same day must collapse into one point.
+				{
+					hourTimestamp: utcHour(0, 1),
+					cost: 0.25,
+					requestCount: 4,
+					errorCount: 2,
+				},
+				{
+					hourTimestamp: utcHour(0, 2),
+					cost: 0.25,
+					requestCount: 6,
+					errorCount: 0,
+				},
+			]);
+
+			const daily = await listDaily();
+			expect(daily).toHaveLength(7);
+			expect(daily?.map((point) => point.date)).toEqual(
+				Array.from({ length: 7 }, (_, index) =>
+					utcDay(6 - index).toISOString(),
+				),
+			);
+			expect(daily?.[0]).toEqual({
+				date: utcDay(6).toISOString(),
+				cost: 0.5,
+				requestCount: 10,
+				errorCount: 1,
+			});
+			expect(daily?.slice(1, 6).map((point) => point.requestCount)).toEqual([
+				0, 0, 0, 0, 0,
+			]);
+			expect(daily?.[6]).toEqual({
+				date: utcDay(0).toISOString(),
+				cost: 0.5,
+				requestCount: 10,
+				errorCount: 2,
+			});
+		});
+
+		test("excludes days older than the window", async () => {
+			await seedHourlyStats([
+				{
+					hourTimestamp: utcHour(7, 12),
+					cost: 9,
+					requestCount: 99,
+					errorCount: 9,
+				},
+			]);
+
+			const daily = await listDaily();
+			expect(daily).toHaveLength(7);
+			expect(daily?.every((point) => point.requestCount === 0)).toBe(true);
+			expect(daily?.every((point) => point.cost === 0)).toBe(true);
+		});
+
+		test("zero-fills the whole window for a credential with no traffic", async () => {
+			await seedHourlyStats([]);
+
+			const daily = await listDaily();
+			expect(daily).toHaveLength(7);
+			expect(daily?.map((point) => point.date)).toEqual(
+				Array.from({ length: 7 }, (_, index) =>
+					utcDay(6 - index).toISOString(),
+				),
+			);
+			expect(daily?.every((point) => point.errorCount === 0)).toBe(true);
+		});
+	});
+
 	describe("per-model error breakdown", () => {
 		const providerKeyId = "model-errors-cred";
 
