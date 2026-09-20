@@ -801,6 +801,10 @@ usage varies by model, size, quality, and input; billing uses the provider's
 reported usage. See the [models page](https://llmgateway.io/models?filters=1&imageGeneration=true)
 for current pricing.
 
+GPT Image 2 and both GPT Image 2.5 variants are also served through Azure at
+the same rates — swap the `openai/` prefix for `azure/` to pin that route, or
+send the bare model id and let the gateway pick.
+
 ### ByteDance Models
 
 ```bash
