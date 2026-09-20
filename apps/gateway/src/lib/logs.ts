@@ -9,7 +9,7 @@ import { logger } from "@llmgateway/logger";
 
 import { getAirsideRoutingSnapshot } from "./airside-routing-snapshot.js";
 import { getLogErrorCategory } from "./log-error-category.js";
-import { requestLogContext } from "./request-log-context.js";
+import { markRequestLogged } from "./request-log-context.js";
 import { recordSpend } from "./spend-limit.js";
 import {
 	redactErrorDetails,
@@ -440,9 +440,6 @@ export async function insertLog(
 	await recordSpend(logData.organizationId, organizationBilledCost(logData));
 
 	await publishToQueue(LOG_QUEUE, logData);
-	const context = requestLogContext.getStore();
-	if (context) {
-		context.logged = true;
-	}
+	markRequestLogged();
 	return 1; // Return 1 to match test expectations
 }
