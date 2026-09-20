@@ -17,42 +17,11 @@ export function useImageHistory(enabled = true, organizationId?: string) {
 	);
 }
 
-// Full item including base64 image data, fetched only when the item is
-// actually viewed. Items are immutable apart from prompt renames (which
-// invalidate this query), so the data never goes stale.
-export function useImageHistoryItem(id: string | null) {
-	const api = useApi();
-	return api.useQuery(
-		"get",
-		"/playground/image-history/{id}",
-		{ params: { path: { id: id ?? "" } } },
-		{ enabled: !!id, staleTime: Infinity },
-	);
-}
-
 export function useSaveImageHistory() {
 	const queryClient = useQueryClient();
 	const api = useApi();
 	return api.useMutation("post", "/playground/image-history", {
-		onSuccess: (data, variables) => {
-			// Seed the detail cache from the request body so selecting the
-			// just-saved item doesn't re-download images we already have.
-			if (variables?.body) {
-				queryClient.setQueryData(
-					api.queryOptions("get", "/playground/image-history/{id}", {
-						params: { path: { id: data.item.id } },
-					}).queryKey,
-					{
-						item: {
-							id: data.item.id,
-							prompt: data.item.prompt,
-							createdAt: data.item.createdAt,
-							inputImages: variables.body.inputImages ?? null,
-							models: variables.body.models,
-						},
-					},
-				);
-			}
+		onSuccess: () => {
 			void queryClient.invalidateQueries({
 				queryKey: api.queryOptions("get", "/playground/image-history").queryKey,
 			});

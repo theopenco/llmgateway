@@ -66,6 +66,7 @@
 		"cmdk": "^1.1.1",
 		"date-fns": "4.1.0",
 		"embla-carousel-react": "8.6.0",
+		"fflate": "0.8.3",
 		"html-to-image": "^1.11.13",
 		"jspdf": "^4.2.1",
 		"katex": "0.16.28",

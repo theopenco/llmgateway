@@ -41,6 +41,7 @@ import {
 	useSidebar,
 } from "@/components/ui/sidebar";
 import { Wordmark } from "@/components/ui/wordmark";
+import { useGalleryImage } from "@/hooks/useGalleryImage";
 import { useOrganization } from "@/hooks/useOrganization";
 import {
 	useDeleteImageHistory,
@@ -169,6 +170,26 @@ function EditImagePromptInput({
 	);
 }
 
+// Saved rows load the API's downscaled thumbnail; an in-flight generation
+// reuses the preview already decoded for the gallery.
+function RowThumbnail({ item }: { item: GalleryItem }) {
+	const resolved = useGalleryImage(
+		item.thumbnailUrl ? undefined : item.models[0]?.images[0],
+	);
+	const src = item.thumbnailUrl ?? resolved?.previewUrl;
+	if (!src) {
+		return null;
+	}
+	return (
+		<img
+			src={src}
+			alt="Generated image thumbnail"
+			loading="lazy"
+			className="h-8 w-8 shrink-0 rounded border object-cover mt-0.5"
+		/>
+	);
+}
+
 function ImageHistoryRowComponent({
 	ariaAttributes,
 	index,
@@ -210,12 +231,6 @@ function ImageHistoryRowComponent({
 	const isEditing = editingId === item.id;
 	const isActive = currentItemId === item.id;
 	const isSaved = item.models.every((m) => !m.isLoading);
-	const firstImage = item.models[0]?.images[0];
-	const thumbnailSrc =
-		item.thumbnailUrl ??
-		(firstImage
-			? `data:${firstImage.mediaType};base64,${firstImage.base64}`
-			: null);
 
 	return (
 		<div {...ariaAttributes} style={style}>
@@ -242,14 +257,7 @@ function ImageHistoryRowComponent({
 							type="button"
 						>
 							<div className="flex items-start gap-2 min-w-0 w-full">
-								{thumbnailSrc && (
-									<img
-										src={thumbnailSrc}
-										alt="Generated image thumbnail"
-										loading="lazy"
-										className="h-8 w-8 shrink-0 rounded border object-cover mt-0.5"
-									/>
-								)}
+								<RowThumbnail item={item} />
 								<div className="flex-1 min-w-0">
 									<div className="truncate text-sm font-medium mb-0.5">
 										{item.prompt}
