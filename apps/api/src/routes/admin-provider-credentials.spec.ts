@@ -1616,6 +1616,151 @@ describe("managed credential reorder cache invalidation", () => {
 			});
 		});
 	});
+
+	describe("per-model error breakdown", () => {
+		const providerKeyId = "model-errors-cred";
+
+		/** Start of today UTC, which is inside the route's day window. */
+		function today() {
+			const day = new Date();
+			day.setUTCHours(0, 0, 0, 0);
+			return day;
+		}
+
+		async function seedCredential() {
+			await db.insert(tables.providerKey).values({
+				id: providerKeyId,
+				...encryptProviderKeyForStorage("sk-model-errors", providerKeyId, null),
+				provider: "openai",
+				managed: true,
+				organizationId: null,
+			});
+		}
+
+		async function seedModelStats(
+			rows: {
+				usedModel: string;
+				requestCount: number;
+				errorCount: number;
+				upstreamErrorCount?: number;
+			}[],
+		) {
+			if (rows.length === 0) {
+				return;
+			}
+			await db.insert(tables.globalProviderKeyModelStats).values(
+				rows.map((row) => ({
+					dayTimestamp: today(),
+					providerKeyId,
+					usedModel: row.usedModel,
+					usedProvider: "openai",
+					usedMode: "credits" as const,
+					orgKind: "default" as const,
+					requestCount: row.requestCount,
+					errorCount: row.errorCount,
+					upstreamErrorCount: row.upstreamErrorCount ?? 0,
+				})),
+			);
+		}
+
+		async function fetchBreakdown(id = providerKeyId) {
+			const res = await app.request(`/admin/provider-keys/${id}/model-errors`, {
+				headers: { Cookie: cookie },
+			});
+			return {
+				status: res.status,
+				body: (await res.json().catch(() => null)) as {
+					since: string;
+					models: {
+						usedModel: string;
+						usedProvider: string;
+						requestCount: number;
+						errorCount: number;
+						upstreamErrorCount: number;
+					}[];
+					rest: {
+						modelCount: number;
+						requestCount: number;
+						errorCount: number;
+						upstreamErrorCount: number;
+					} | null;
+				} | null,
+			};
+		}
+
+		test("returns per-model counts sorted by error rate", async () => {
+			await seedCredential();
+			await seedModelStats([
+				// Highest volume, lowest rate — must not lead just because it has
+				// the most errors in absolute terms.
+				{
+					usedModel: "openai/gpt-4o-mini",
+					requestCount: 1000,
+					errorCount: 10,
+					upstreamErrorCount: 4,
+				},
+				{
+					usedModel: "openai/gpt-4o",
+					requestCount: 20,
+					errorCount: 10,
+					upstreamErrorCount: 10,
+				},
+				{ usedModel: "openai/o3", requestCount: 4, errorCount: 4 },
+			]);
+
+			const { status, body } = await fetchBreakdown();
+			expect(status).toBe(200);
+			expect(body?.models.map((row) => row.usedModel)).toEqual([
+				"openai/o3",
+				"openai/gpt-4o",
+				"openai/gpt-4o-mini",
+			]);
+			expect(body?.models[1]).toEqual({
+				usedModel: "openai/gpt-4o",
+				usedProvider: "openai",
+				requestCount: 20,
+				errorCount: 10,
+				upstreamErrorCount: 10,
+			});
+			expect(body?.rest).toBeNull();
+		});
+
+		test("folds everything past the tenth model into rest", async () => {
+			await seedCredential();
+			await seedModelStats(
+				Array.from({ length: 12 }, (_, index) => ({
+					usedModel: `openai/model-${String(index).padStart(2, "0")}`,
+					requestCount: 100,
+					// Descending rate, so the two lowest-rate models are the ones cut.
+					errorCount: 12 - index,
+					upstreamErrorCount: 1,
+				})),
+			);
+
+			const { body } = await fetchBreakdown();
+			expect(body?.models).toHaveLength(10);
+			expect(body?.models[0]?.usedModel).toBe("openai/model-00");
+			expect(body?.rest).toEqual({
+				modelCount: 2,
+				requestCount: 200,
+				errorCount: 3,
+				upstreamErrorCount: 2,
+			});
+		});
+
+		test("returns an empty breakdown for a credential with no model rows", async () => {
+			await seedCredential();
+
+			const { status, body } = await fetchBreakdown();
+			expect(status).toBe(200);
+			expect(body?.models).toEqual([]);
+			expect(body?.rest).toBeNull();
+		});
+
+		test("404s for an unknown credential", async () => {
+			expect((await fetchBreakdown("does-not-exist")).status).toBe(404);
+		});
+	});
 });
 
 describe("managed credential allowed models", () => {

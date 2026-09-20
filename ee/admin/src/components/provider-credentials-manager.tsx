@@ -722,7 +722,7 @@ export function ProviderCredentialsManager({
 								<TableHead>Settings</TableHead>
 								<TableHead>Spend</TableHead>
 								<TableHead className="whitespace-nowrap">
-									<span title="Share of requests attributed to this credential that failed in the last 24 hours.">
+									<span title="Share of requests attributed to this credential that failed in the last 24 hours. Hover a rate for the per-model split.">
 										Errors
 									</span>
 								</TableHead>
@@ -913,6 +913,7 @@ export function ProviderCredentialsManager({
 															</TableCell>
 															<TableCell>
 																<ProviderKeyErrorRateCell
+																	providerKeyId={credential.id}
 																	stats={credential.last24h}
 																/>
 															</TableCell>
