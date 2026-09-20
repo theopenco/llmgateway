@@ -1,3 +1,5 @@
+import { isCancellationError } from "@/lib/timeout-config.js";
+
 import { logger } from "@llmgateway/logger";
 
 import {
@@ -33,17 +35,18 @@ export const CONTENT_FILTER_CLASSIFIER_PROVIDERS: Record<
 export interface ContentFilterCheckResult extends OpenAIContentFilterCheckResult {
 	classifier: ContentFilterClassifier;
 	/**
-	 * A delegated image moderation call was attempted and came back empty. The
-	 * text verdict still stands, so this never adds a violation — it is what
-	 * stops the evaluation from recording a fully successful moderation when
-	 * the request's images went uncovered.
+	 * Part of the check came back empty — the text scoring, or the image
+	 * moderation delegated alongside it. Whatever did return still stands, so
+	 * this never adds a violation; it is what stops the evaluation from
+	 * recording a fully successful moderation when one half of a request went
+	 * uncovered and the other half's results hide it.
 	 */
-	imageModerationFailed?: boolean;
+	partialModerationFailed?: boolean;
 }
 
 /** Whether a check covered everything it set out to cover. */
 function moderationFailed(result: ContentFilterCheckResult): boolean {
-	return result.results.length === 0 || result.imageModerationFailed === true;
+	return result.results.length === 0 || result.partialModerationFailed === true;
 }
 
 export async function hasClassifierCredential(
@@ -102,11 +105,12 @@ export async function runContentFilterClassifier(
 		{ kinds: ["image"] },
 	);
 
-	// The OpenAI filter fails open by returning no results, and the delegation
-	// only runs when the request actually carries images — so an empty result
-	// here is a failed image check, not an absent one.
+	// Both filters fail open by returning no results, and the delegation only
+	// runs when the request actually carries images — so an empty result on
+	// either side is a failed check, not an absent one.
+	const textFailed = textResult.results.length === 0;
 	if (imageResult.results.length === 0) {
-		return { ...textResult, classifier, imageModerationFailed: true };
+		return { ...textResult, classifier, partialModerationFailed: true };
 	}
 
 	logger.debug("gateway_content_filter_image_delegated", {
@@ -124,6 +128,9 @@ export async function runContentFilterClassifier(
 			textResult.upstreamRequestId ?? imageResult.upstreamRequestId,
 		results: [...textResult.results, ...imageResult.results],
 		responses: [...textResult.responses, ...imageResult.responses],
+		// The image results would otherwise make a merged check that never
+		// scored the request's text look complete.
+		...(textFailed ? { partialModerationFailed: true } : {}),
 	};
 }
 
@@ -193,11 +200,21 @@ export async function evaluateContentFilterWithClassifiers(options: {
 			: Promise.resolve(null),
 	]);
 
-	// A cancellation is the only thing either call rethrows, and both share the
-	// request's signal — so the deciding rejection carries it and the shadow's
-	// identical one is left alone rather than surfacing unhandled.
 	if (decidingSettled.status === "rejected") {
 		throw decidingSettled.reason;
+	}
+
+	// The shadow run shares the request's signal, so its rejection can be the
+	// only report that the client hung up (the deciding run may have already
+	// finished, or reused an earlier result). Swallowing it would let the
+	// caller carry on serving a request nobody is waiting for. Anything else
+	// the shadow throws stays swallowed: it must never fail a request it is
+	// not allowed to decide.
+	if (
+		shadowSettled.status === "rejected" &&
+		(signal?.aborted || isCancellationError(shadowSettled.reason))
+	) {
+		throw shadowSettled.reason;
 	}
 
 	const deciding = decidingSettled.value;

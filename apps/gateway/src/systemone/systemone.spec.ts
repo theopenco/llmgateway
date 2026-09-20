@@ -92,7 +92,12 @@ describe("systemone", () => {
 		// charged for the storage either way.
 		expect(log?.messages).not.toBeNull();
 		expect(log?.content).toContain("urgency");
-		expect(Number(log?.dataStorageCost)).toBeGreaterThan(0);
+		// Storage is charged on everything kept: 441 input + 69 output tokens at
+		// $0.01/M. Input alone would silently pass a "greater than zero" check.
+		expect(Number(log?.dataStorageCost)).toBeCloseTo(
+			((441 + 69) / 1_000_000) * 0.01,
+			12,
+		);
 	});
 
 	test("/v1/systemone resolves the provider's moving alias to the pinned model", async () => {

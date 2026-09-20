@@ -134,8 +134,33 @@ describe("runContentFilterClassifier", () => {
 		);
 
 		expect(checked.flagged).toBe(false);
-		expect(checked.imageModerationFailed).toBe(true);
+		expect(checked.partialModerationFailed).toBe(true);
 		expect(checked.results).toHaveLength(1);
+	});
+
+	it("marks a failed text check that a successful image check would hide", async () => {
+		// Jev fails open by returning no results.
+		checkJev.mockResolvedValue({
+			flagged: false,
+			model: "jev-1.13.0",
+			upstreamRequestId: null,
+			results: [],
+			responses: [],
+		});
+		checkOpenAI.mockResolvedValue(
+			result(false, { violence: 0.1 }, "omni-moderation-latest"),
+		);
+
+		const checked = await runContentFilterClassifier(
+			"jev",
+			IMAGE_MESSAGES,
+			CONTEXT,
+			undefined,
+			{ imagesAllowed: true },
+		);
+
+		expect(checked.results).toHaveLength(1);
+		expect(checked.partialModerationFailed).toBe(true);
 	});
 
 	it("skips image delegation when the policy excludes OpenAI", async () => {
@@ -205,17 +230,22 @@ describe("evaluateContentFilterWithClassifiers", () => {
 	});
 
 	it("runs the deciding and shadow classifiers concurrently", async () => {
+		// Both calls block on the same gate: they can only both be in flight if
+		// the second one started without waiting for the first to finish.
+		let release: () => void = () => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
 		const started: string[] = [];
-		const gate = (name: string, ms: number) => async () => {
+		const blockUntilReleased = (name: string) => async () => {
 			started.push(name);
-			await new Promise((resolve) => setTimeout(resolve, ms));
+			await gate;
 			return result(false, { violence: 0.1 }, name);
 		};
-		checkJev.mockImplementation(gate("jev", 60));
-		checkOpenAI.mockImplementation(gate("openai", 60));
+		checkJev.mockImplementation(blockUntilReleased("jev"));
+		checkOpenAI.mockImplementation(blockUntilReleased("openai"));
 
-		const startedAt = Date.now();
-		await evaluateContentFilterWithClassifiers({
+		const evaluating = evaluateContentFilterWithClassifiers({
 			plan: { ...PLAN, shadowClassifier: "openai" },
 			messages: TEXT_MESSAGES,
 			context: CONTEXT,
@@ -223,9 +253,48 @@ describe("evaluateContentFilterWithClassifiers", () => {
 			classifierAllowed: () => true,
 		});
 
-		expect(started).toHaveLength(2);
-		// Serial execution would take at least both delays end to end.
-		expect(Date.now() - startedAt).toBeLessThan(110);
+		await vi.waitFor(() => expect(started).toHaveLength(2));
+		release();
+
+		expect((await evaluating)?.results).toHaveLength(2);
+	});
+
+	it("propagates a cancellation seen only by the shadow classifier", async () => {
+		const abortError = new DOMException(
+			"The operation was aborted.",
+			"AbortError",
+		);
+		const controller = new AbortController();
+		controller.abort(abortError);
+		checkJev.mockResolvedValue(result(false, { violence: 0.1 }, "jev-1.13.0"));
+		checkOpenAI.mockRejectedValue(abortError);
+
+		await expect(
+			evaluateContentFilterWithClassifiers({
+				plan: { ...PLAN, shadowClassifier: "openai" },
+				messages: TEXT_MESSAGES,
+				context: CONTEXT,
+				signal: controller.signal,
+				imagesAllowed: true,
+				classifierAllowed: () => true,
+			}),
+		).rejects.toThrowError(abortError);
+	});
+
+	it("keeps a shadow classifier's own failure out of the request", async () => {
+		checkJev.mockResolvedValue(result(false, { violence: 0.1 }, "jev-1.13.0"));
+		checkOpenAI.mockRejectedValue(new Error("moderation exploded"));
+
+		const evaluated = await evaluateContentFilterWithClassifiers({
+			plan: { ...PLAN, shadowClassifier: "openai" },
+			messages: TEXT_MESSAGES,
+			context: CONTEXT,
+			imagesAllowed: true,
+			classifierAllowed: () => true,
+		});
+
+		expect(evaluated?.evaluation.action).toBe("passed");
+		expect(evaluated?.evaluation.shadow).toBeUndefined();
 	});
 
 	it("reports a failed image delegation as a failed moderation", async () => {

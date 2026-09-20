@@ -1157,8 +1157,8 @@ systemone.openapi(createSystemOne, async (c): Promise<any> => {
 					pricingTier: null,
 					dataStorageCost: calculateDataStorageCost(
 						inputTokens,
-						outputTokens,
 						null,
+						outputTokens,
 						null,
 						retentionLevel,
 					),
