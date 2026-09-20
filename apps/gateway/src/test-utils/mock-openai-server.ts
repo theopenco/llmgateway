@@ -1668,6 +1668,36 @@ mockOpenAIServer.post("/v1/text-to-speech/:voiceId", async (c) => {
 	return c.body(audio, 200, { "Content-Type": contentType });
 });
 
+// DeepInfra rerank: POST /v1/inference/{owner}/{model} scores each document
+// against the query and reports the input tokens the gateway bills on.
+mockOpenAIServer.post("/v1/inference/:owner/:model", async (c) => {
+	const body = await c.req.json();
+	const documents: string[] = Array.isArray(body.documents)
+		? body.documents
+		: [];
+	const queries: string[] = Array.isArray(body.queries) ? body.queries : [];
+	const combinedInput = [...queries, ...documents].join(" ");
+
+	const statusTrigger = extractStatusCodeTrigger(combinedInput);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	if (combinedInput.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	return c.json({
+		scores: documents.map((_, index) => {
+			const penalty = index * 0.1;
+			return 1 - penalty;
+		}),
+		input_tokens: combinedInput.length,
+	});
+});
+
 mockOpenAIServer.post("/v1/embeddings", async (c) => {
 	const body = await c.req.json();
 	const inputs = Array.isArray(body.input) ? body.input : [body.input];
