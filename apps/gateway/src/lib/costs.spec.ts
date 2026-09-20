@@ -2668,7 +2668,7 @@ describe("Baidu exact pricing", () => {
 		);
 		expect(costs.inputCost).toBeCloseTo(1.32);
 		expect(costs.outputCost).toBeCloseTo(3.96);
-		expect(costs.cachedInputCost).toBeCloseTo(0.132);
+		expect(costs.cachedInputCost).toBeCloseTo(0.042);
 	});
 
 	it("bills Baidu DeepSeek V4 Flash at its exact price", async () => {
@@ -2682,6 +2682,20 @@ describe("Baidu exact pricing", () => {
 		);
 		expect(costs.inputCost).toBeCloseTo(0.44);
 		expect(costs.outputCost).toBeCloseTo(1.32);
-		expect(costs.cachedInputCost).toBeCloseTo(0.044);
+		expect(costs.cachedInputCost).toBeCloseTo(0.014);
+	});
+
+	it("bills Baidu DeepSeek V4.1 Flash at its exact price", async () => {
+		const costs = await calculateCosts(
+			"deepseek-v4.1-flash",
+			"baidu",
+			null,
+			2_000_000,
+			1_000_000,
+			1_000_000,
+		);
+		expect(costs.inputCost).toBeCloseTo(0.3);
+		expect(costs.outputCost).toBeCloseTo(1.2);
+		expect(costs.cachedInputCost).toBeCloseTo(0.006);
 	});
 });
