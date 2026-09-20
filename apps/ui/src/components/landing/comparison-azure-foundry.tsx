@@ -45,13 +45,13 @@ const comparisonData = [
 				title: "Providers behind one API",
 				description: "Clouds, labs, and fast independent hosts",
 				llmgateway: "40+ providers",
-				foundry: "Azure-hosted catalog",
+				foundry: "Azure-hosted catalog (10,000+ models)",
 			},
 			{
 				title: "Frontier model coverage",
 				description: "OpenAI, Anthropic, Google, xAI, and more",
 				llmgateway: "All major labs",
-				foundry: "No Google Gemini",
+				foundry: "OpenAI, Claude — no Gemini",
 			},
 			{
 				title: "Fast inference hosts",
@@ -74,7 +74,7 @@ const comparisonData = [
 				title: "Automatic provider routing",
 				description: "Routes on live uptime, throughput, price, and latency",
 				llmgateway: true,
-				foundry: "Model router (OpenAI models)",
+				foundry: "Model router (OpenAI, Claude, OSS)",
 			},
 			{
 				title: "Failover across providers",
@@ -151,7 +151,8 @@ export function ComparisonAzureFoundry() {
 						Every model on Foundry — without the Azure ceremony
 					</h2>
 					<p className="text-muted-foreground">
-						Compare LLM Gateway and Azure AI Foundry features side by side
+						Compare LLM Gateway and Microsoft Foundry (formerly Azure AI
+						Foundry) features side by side
 					</p>
 				</div>
 
@@ -214,10 +215,10 @@ export function ComparisonAzureFoundry() {
 									<AzureIcon className="h-7 w-7" />
 								</div>
 								<h3 className="font-bold text-lg mb-1 text-foreground">
-									Azure AI Foundry
+									Microsoft Foundry
 								</h3>
 								<p className="text-sm text-muted-foreground mb-2">
-									MICROSOFT AI PLATFORM
+									FORMERLY AZURE AI FOUNDRY
 								</p>
 								<p className="text-2xl font-bold text-foreground">
 									Usage-based
@@ -265,7 +266,7 @@ export function ComparisonAzureFoundry() {
 						Already on Azure? Keep it — and stop depending on it.
 					</h3>
 					<p className="text-sm text-muted-foreground">
-						Azure OpenAI and Azure AI Foundry are built-in LLM Gateway
+						Azure OpenAI and Microsoft Foundry are built-in LLM Gateway
 						providers. Bring your Azure credentials and your traffic keeps
 						flowing with 0% markup — while every request gains automatic
 						failover to other providers, response caching, guardrails, and

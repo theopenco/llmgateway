@@ -32,7 +32,7 @@ const comparisonData = [
 				title: "No ecosystem lock-in",
 				description: "Use it without committing to one host or framework",
 				llmgateway: true,
-				vercel: "Tied to Vercel account",
+				vercel: "Requires a Vercel team account",
 			},
 		],
 	},
@@ -61,7 +61,7 @@ const comparisonData = [
 				title: "Response caching",
 				description: "Built-in caching for repeated requests",
 				llmgateway: "Redis, 10s–1yr TTL",
-				vercel: "Automatic",
+				vercel: "Provider prompt caching",
 			},
 		],
 	},
@@ -84,13 +84,13 @@ const comparisonData = [
 				title: "Transparent platform fee",
 				description: "Predictable, easy-to-reason-about pricing",
 				llmgateway: "5% or 0% (BYOK)",
-				vercel: "Pay-as-you-go credits",
+				vercel: "0% on tokens; metered add-ons",
 			},
 			{
 				title: "Free to start",
 				description: "Get going without a paid plan",
 				llmgateway: "Free self-host",
-				vercel: "Free tier (limited)",
+				vercel: "Monthly free credit, subset of models",
 			},
 		],
 	},
@@ -101,7 +101,7 @@ const comparisonData = [
 				title: "Model coverage",
 				description: "Models and providers available through one API",
 				llmgateway: "200+ models, 40+ providers",
-				vercel: "Hundreds, 45+ providers",
+				vercel: "300+ models",
 			},
 			{
 				title: "Image & video generation",
@@ -113,7 +113,7 @@ const comparisonData = [
 				title: "Guardrails",
 				description: "Prompt injection, PII, jailbreak, and secret detection",
 				llmgateway: true,
-				vercel: "Paid add-on",
+				vercel: "Allowlists & ZDR only (metered)",
 			},
 			{
 				title: "AI SDK integration",
@@ -125,7 +125,13 @@ const comparisonData = [
 				title: "API compatibility",
 				description: "Drop-in compatibility with existing clients",
 				llmgateway: "OpenAI-compatible",
-				vercel: "OpenAI + Anthropic",
+				vercel: "OpenAI, Anthropic, OpenResponses",
+			},
+			{
+				title: "OpenTelemetry trace export",
+				description: "Forward traces into an existing observability stack",
+				llmgateway: false,
+				vercel: "Trace Drains ($0.05 per 1k)",
 			},
 		],
 	},
@@ -174,7 +180,7 @@ export function ComparisonVercel() {
 							<Check className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
 							<span className="text-foreground">
 								<strong>No ecosystem lock-in</strong> — not tied to a Vercel
-								team account or deploy target
+								team account
 							</span>
 						</div>
 						<div className="flex items-start gap-2">
@@ -223,7 +229,7 @@ export function ComparisonVercel() {
 									Usage-based
 								</p>
 								<p className="text-xs text-muted-foreground mt-1">
-									Free tier, then credits
+									Free credit, then prepaid credits
 								</p>
 							</div>
 						</div>

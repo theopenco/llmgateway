@@ -33,11 +33,11 @@ export const comparisons: Comparison[] = [
 		competitor: "OpenRouter",
 		category: "AI gateways & routers",
 		positioning:
-			"A hosted marketplace that puts hundreds of models behind one OpenAI-compatible endpoint, with its own credit system on top.",
+			"A hosted marketplace that puts 400+ models behind one OpenAI-compatible endpoint, with its own credit system on top. Stripe announced its acquisition of OpenRouter in August 2026.",
 		openSource: "No",
 		selfHostable: "No",
 		keyDifference:
-			"LLM Gateway is open source and self-hostable, so the routing layer can run inside your own infrastructure instead of only as someone else's service.",
+			"LLM Gateway is open source, independent, and self-hostable, so the routing layer can run inside your own infrastructure instead of only as someone else's service.",
 		betterForThem:
 			"You want the widest possible catalogue of niche and community models and have no interest in running any infrastructure yourself.",
 		migrationSlug: "openrouter",
@@ -47,7 +47,7 @@ export const comparisons: Comparison[] = [
 		competitor: "Portkey",
 		category: "AI gateways & routers",
 		positioning:
-			"An AI gateway paired with a broader LLMOps suite covering prompt management, evaluations, and observability.",
+			"An AI gateway paired with a broader LLMOps suite covering prompt management, evaluations, and observability. Acquired by Palo Alto Networks in May 2026 and now sold as the Prisma AIRS AI Gateway.",
 		openSource: "Gateway + platform (MIT)",
 		selfHostable: "Most components",
 		keyDifference:
@@ -61,7 +61,7 @@ export const comparisons: Comparison[] = [
 		competitor: "LiteLLM",
 		category: "AI gateways & routers",
 		positioning:
-			"A widely used open-source Python proxy and SDK that normalises calls across providers, run and operated by you.",
+			"A widely used open-source Python proxy and SDK that normalises calls across providers, run, patched, and operated by you.",
 		openSource: "Yes (MIT)",
 		selfHostable: "Yes",
 		keyDifference:
@@ -75,13 +75,13 @@ export const comparisons: Comparison[] = [
 		competitor: "Vercel AI Gateway",
 		category: "AI gateways & routers",
 		positioning:
-			"A managed routing service built tightly around the Vercel AI SDK and the Vercel deployment platform.",
+			"A managed routing service built around the Vercel AI SDK, with zero token markup, BYOK on the paid tier, and metered add-ons for reporting, allowlists, and zero data retention.",
 		openSource: "No",
 		selfHostable: "No",
 		keyDifference:
-			"LLM Gateway is open source and self-hostable with zero token markup, and it is not tied to one hosting platform or SDK.",
+			"LLM Gateway is open source and self-hostable with zero token markup, and it is not tied to a Vercel team account or one SDK.",
 		betterForThem:
-			"Your stack already lives entirely on Vercel and you want routing that is one configuration line away inside the AI SDK.",
+			"Your team already lives on Vercel and you want routing that is one configuration line away inside the AI SDK.",
 		migrationSlug: "vercel-ai-gateway",
 	},
 	{
@@ -99,10 +99,10 @@ export const comparisons: Comparison[] = [
 	},
 	{
 		slug: "azure-ai-foundry",
-		competitor: "Azure AI Foundry",
+		competitor: "Microsoft Foundry",
 		category: "Cloud model platforms",
 		positioning:
-			"Microsoft's managed platform for the models Azure hosts, reached after you create resources, deployments, and quota.",
+			"Microsoft's managed platform for the models Azure hosts (renamed from Azure AI Foundry in late 2025), reached after you create resources, deployments, and quota.",
 		openSource: "No",
 		selfHostable: "No",
 		keyDifference:
@@ -115,7 +115,7 @@ export const comparisons: Comparison[] = [
 		competitor: "GitHub Copilot",
 		category: "Coding assistants",
 		positioning:
-			"GitHub's coding assistant, which since June 2026 bills chat and agent usage through usage-based AI Credits.",
+			"GitHub's coding assistant, which since June 2026 bills chat and agent usage through usage-based AI Credits; Business and Enterprise enable paid additional usage by default and only an admin disabling that policy or a budget with hard stop on caps it, while individual plans stop until the user sets a budget.",
 		openSource: "No",
 		selfHostable: "No",
 		keyDifference:

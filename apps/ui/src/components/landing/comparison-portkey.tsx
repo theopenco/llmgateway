@@ -34,6 +34,12 @@ const comparisonData = [
 				llmgateway: true,
 				portkey: "Gateway only",
 			},
+			{
+				title: "Independent vendor",
+				description: "Who sets the roadmap, pricing, and terms",
+				llmgateway: "Independent",
+				portkey: "Palo Alto Networks (since May 2026)",
+			},
 		],
 	},
 	{
@@ -78,7 +84,7 @@ const comparisonData = [
 				title: "Transparent platform fee",
 				description: "Predictable, easy-to-reason-about pricing",
 				llmgateway: "5% or 0% (BYOK)",
-				portkey: "Usage-based tiers",
+				portkey: "$49/mo + $9 per 100k logs",
 			},
 			{
 				title: "Real-time cost analytics",
@@ -90,7 +96,7 @@ const comparisonData = [
 				title: "Free to start",
 				description: "Get going without a paid plan",
 				llmgateway: "Free self-host",
-				portkey: "Free tier (limited)",
+				portkey: "Free tier (10k logs/mo)",
 			},
 		],
 	},
@@ -217,13 +223,13 @@ export function ComparisonPortkey() {
 									Portkey
 								</h3>
 								<p className="text-sm text-muted-foreground mb-2">
-									GATEWAY + LLMOPS PLATFORM
+									NOW PRISMA AIRS AI GATEWAY
 								</p>
 								<p className="text-2xl font-bold text-foreground">
-									Usage-based
+									From $49/mo
 								</p>
 								<p className="text-xs text-muted-foreground mt-1">
-									Free tier, then paid plans
+									Free dev tier, then usage overages
 								</p>
 							</div>
 						</div>

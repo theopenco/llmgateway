@@ -6,7 +6,32 @@ import { AuthLink } from "@/components/shared/auth-link";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 
+import { MARKETING_STATS } from "@llmgateway/shared";
+
 const comparisonData = [
+	{
+		category: "Platform & Ownership",
+		features: [
+			{
+				title: "Open-source license",
+				description: "What ships under an open-source license",
+				llmgateway: "Full platform (AGPLv3)",
+				openrouter: false,
+			},
+			{
+				title: "Independent vendor",
+				description: "Who sets the roadmap, fees, and terms",
+				llmgateway: "Independent",
+				openrouter: "Stripe (acquisition announced Aug 2026)",
+			},
+			{
+				title: "Model catalog",
+				description: "Models and providers behind one API",
+				llmgateway: `${MARKETING_STATS.models} models, ${MARKETING_STATS.providers} providers`,
+				openrouter: "400+ models, 80+ providers",
+			},
+		],
+	},
 	{
 		category: "Pricing & Fees",
 		features: [
@@ -43,7 +68,7 @@ const comparisonData = [
 				title: "Latency analytics",
 				description: "Real-time performance monitoring",
 				llmgateway: true,
-				openrouter: "Basic",
+				openrouter: "Per-provider stats",
 			},
 			{
 				title: "Request-level insights",

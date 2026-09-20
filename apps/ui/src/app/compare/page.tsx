@@ -51,7 +51,7 @@ const faqs = [
 export const metadata: Metadata = {
 	title: "Compare LLM Gateway — AI Gateway Comparisons",
 	description:
-		"Side-by-side comparisons of LLM Gateway against OpenRouter, Portkey, LiteLLM, Vercel AI Gateway, AWS Bedrock, Azure AI Foundry, and GitHub Copilot.",
+		"Side-by-side comparisons of LLM Gateway against OpenRouter, Portkey, LiteLLM, Vercel AI Gateway, AWS Bedrock, Microsoft Foundry (Azure AI Foundry), and GitHub Copilot.",
 	alternates: { canonical: "/compare" },
 	openGraph: {
 		title: "Compare LLM Gateway — AI Gateway Comparisons",
