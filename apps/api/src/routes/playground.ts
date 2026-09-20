@@ -18,6 +18,7 @@ import {
 import { db, tables, desc, eq, and, sql } from "@llmgateway/db";
 
 import type { ServerTypes } from "@/vars.js";
+import type { Context } from "hono";
 
 const playground = new OpenAPIHono<ServerTypes>();
 
@@ -369,8 +370,7 @@ playground.openapi(getImageHistoryItem, async (c) => {
 
 // ── GET /image-history/:id/thumbnail ─────────────────────────────────────────
 // Serves the first generated image downscaled for sidebar rows so the list
-// endpoint can stay free of base64 payloads. Items are immutable, hence the
-// aggressive cache header.
+// endpoint can stay free of base64 payloads.
 
 playground.get("/image-history/:id/thumbnail", async (c) => {
 	const user = c.get("user");
@@ -393,11 +393,22 @@ playground.get("/image-history/:id/thumbnail", async (c) => {
 		throw new HTTPException(404, { message: "No image available" });
 	}
 
+	if (notModified(c, `"${row.id}:thumbnail"`)) {
+		return c.body(null, 304);
+	}
 	const rendered = await renderImageVariant(image, "thumbnail");
 	c.header("Content-Type", rendered.mediaType);
-	c.header("Cache-Control", "private, max-age=31536000, immutable");
 	return c.body(rendered.body);
 });
+
+// Stored images never change, but a cached copy must still pass the ownership
+// check above on every use, so the browser revalidates and gets a 304 instead
+// of a re-rendered variant.
+function notModified(c: Context, etag: string): boolean {
+	c.header("Cache-Control", "private, no-cache");
+	c.header("ETag", etag);
+	return c.req.header("if-none-match") === etag;
+}
 
 function parseImageIndex(value: string): number {
 	const index = Number(value);
@@ -448,9 +459,11 @@ playground.get(
 			throw new HTTPException(404, { message: "No image available" });
 		}
 
+		if (notModified(c, `"${row.id}:${modelIndex}:${imageIndex}:${variant}"`)) {
+			return c.body(null, 304);
+		}
 		const rendered = await renderImageVariant(image, variant);
 		c.header("Content-Type", rendered.mediaType);
-		c.header("Cache-Control", "private, max-age=31536000, immutable");
 		return c.body(rendered.body);
 	},
 );
@@ -482,12 +495,14 @@ playground.get("/image-history/:id/input-images/:index", async (c) => {
 		throw new HTTPException(404, { message: "No input image available" });
 	}
 
+	if (notModified(c, `"${row.id}:input:${index}:${variant}"`)) {
+		return c.body(null, 304);
+	}
 	const rendered = await renderImageVariant(
 		{ base64: input.dataUrl.split(",")[1] ?? "", mediaType: input.mediaType },
 		variant,
 	);
 	c.header("Content-Type", rendered.mediaType);
-	c.header("Cache-Control", "private, max-age=31536000, immutable");
 	return c.body(rendered.body);
 });
 

@@ -83,13 +83,31 @@ describe("playground image history binary routes", () => {
 		const thumbnail = await get("/thumbnail");
 		expect(thumbnail.status).toBe(200);
 		expect(thumbnail.headers.get("content-type")).toBe("image/webp");
-		expect(thumbnail.headers.get("cache-control")).toContain("immutable");
 		expect(await dimensionsOf(thumbnail)).toEqual({ width: 128, height: 72 });
 
 		const preview = await get("/images/0/0?variant=preview");
 		expect(preview.status).toBe(200);
 		expect(preview.headers.get("content-type")).toBe("image/webp");
 		expect(await dimensionsOf(preview)).toEqual({ width: 1024, height: 576 });
+	});
+
+	test("revalidates cached copies through the ownership check", async () => {
+		const first = await get("/images/0/0?variant=preview");
+		const etag = first.headers.get("etag");
+		expect(etag).toBeTruthy();
+		expect(first.headers.get("cache-control")).toBe("private, no-cache");
+
+		const revalidated = await app.request(
+			`/playground/image-history/${itemId}/images/0/0?variant=preview`,
+			{ headers: { Cookie: authCookie, "If-None-Match": etag! } },
+		);
+		expect(revalidated.status).toBe(304);
+
+		const unauthenticated = await app.request(
+			`/playground/image-history/${itemId}/images/0/0?variant=preview`,
+			{ headers: { "If-None-Match": etag! } },
+		);
+		expect(unauthenticated.status).toBe(401);
 	});
 
 	test("serves the original bytes for the full variant", async () => {
