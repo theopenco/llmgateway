@@ -1582,6 +1582,8 @@ describe("managed credential reorder cache invalidation", () => {
 					last24h: {
 						requestCount: number;
 						errorCount: number;
+						clientErrorCount: number;
+						gatewayErrorCount: number;
 						upstreamErrorCount: number;
 					};
 				}[];
@@ -1596,12 +1598,15 @@ describe("managed credential reorder cache invalidation", () => {
 				{ hasError: false, finishReason: "completed" },
 				{ hasError: false, finishReason: "completed" },
 				{ hasError: true, finishReason: "upstream_error" },
+				{ hasError: true, finishReason: "gateway_error" },
 				{ hasError: true, finishReason: "client_error" },
 			]);
 
 			expect((await listCredential())?.last24h).toEqual({
-				requestCount: 4,
-				errorCount: 2,
+				requestCount: 5,
+				errorCount: 3,
+				clientErrorCount: 1,
+				gatewayErrorCount: 1,
 				upstreamErrorCount: 1,
 			});
 		});
@@ -1612,6 +1617,8 @@ describe("managed credential reorder cache invalidation", () => {
 			expect((await listCredential())?.last24h).toEqual({
 				requestCount: 0,
 				errorCount: 0,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
 				upstreamErrorCount: 0,
 			});
 		});
@@ -1645,6 +1652,8 @@ describe("managed credential reorder cache invalidation", () => {
 				cost: number;
 				requestCount: number;
 				errorCount?: number;
+				clientErrorCount?: number;
+				upstreamErrorCount?: number;
 			}[],
 		) {
 			await db.insert(tables.organization).values({
@@ -1677,6 +1686,8 @@ describe("managed credential reorder cache invalidation", () => {
 						cost: row.cost,
 						requestCount: row.requestCount,
 						errorCount: row.errorCount ?? 0,
+						clientErrorCount: row.clientErrorCount ?? 0,
+						upstreamErrorCount: row.upstreamErrorCount ?? 0,
 					})),
 				);
 			}
@@ -1694,6 +1705,9 @@ describe("managed credential reorder cache invalidation", () => {
 						cost: number;
 						requestCount: number;
 						errorCount: number;
+						clientErrorCount: number;
+						gatewayErrorCount: number;
+						upstreamErrorCount: number;
 					}[];
 				}[];
 			};
@@ -1716,6 +1730,8 @@ describe("managed credential reorder cache invalidation", () => {
 					cost: 0.25,
 					requestCount: 4,
 					errorCount: 2,
+					clientErrorCount: 1,
+					upstreamErrorCount: 1,
 				},
 				{
 					hourTimestamp: utcHour(0, 2),
@@ -1737,6 +1753,9 @@ describe("managed credential reorder cache invalidation", () => {
 				cost: 0.5,
 				requestCount: 10,
 				errorCount: 1,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 0,
 			});
 			expect(daily?.slice(1, 6).map((point) => point.requestCount)).toEqual([
 				0, 0, 0, 0, 0,
@@ -1746,6 +1765,9 @@ describe("managed credential reorder cache invalidation", () => {
 				cost: 0.5,
 				requestCount: 10,
 				errorCount: 2,
+				clientErrorCount: 1,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 1,
 			});
 		});
 
@@ -1804,6 +1826,7 @@ describe("managed credential reorder cache invalidation", () => {
 				usedModel: string;
 				requestCount: number;
 				errorCount: number;
+				clientErrorCount?: number;
 				upstreamErrorCount?: number;
 			}[],
 		) {
@@ -1820,6 +1843,7 @@ describe("managed credential reorder cache invalidation", () => {
 					orgKind: "default" as const,
 					requestCount: row.requestCount,
 					errorCount: row.errorCount,
+					clientErrorCount: row.clientErrorCount ?? 0,
 					upstreamErrorCount: row.upstreamErrorCount ?? 0,
 				})),
 			);
@@ -1838,19 +1862,23 @@ describe("managed credential reorder cache invalidation", () => {
 						usedProvider: string;
 						requestCount: number;
 						errorCount: number;
+						clientErrorCount: number;
+						gatewayErrorCount: number;
 						upstreamErrorCount: number;
 					}[];
 					rest: {
 						modelCount: number;
 						requestCount: number;
 						errorCount: number;
+						clientErrorCount: number;
+						gatewayErrorCount: number;
 						upstreamErrorCount: number;
 					} | null;
 				} | null,
 			};
 		}
 
-		test("returns per-model counts sorted by error rate", async () => {
+		test("returns per-model counts sorted by error rate, excluding client errors", async () => {
 			await seedCredential();
 			await seedModelStats([
 				// Highest volume, lowest rate — must not lead just because it has
@@ -1859,6 +1887,7 @@ describe("managed credential reorder cache invalidation", () => {
 					usedModel: "openai/gpt-4o-mini",
 					requestCount: 1000,
 					errorCount: 10,
+					clientErrorCount: 6,
 					upstreamErrorCount: 4,
 				},
 				{
@@ -1867,21 +1896,29 @@ describe("managed credential reorder cache invalidation", () => {
 					errorCount: 10,
 					upstreamErrorCount: 10,
 				},
-				{ usedModel: "openai/o3", requestCount: 4, errorCount: 4 },
+				// Only client errors: not a failing model, so it sorts last.
+				{
+					usedModel: "openai/o3",
+					requestCount: 4,
+					errorCount: 4,
+					clientErrorCount: 4,
+				},
 			]);
 
 			const { status, body } = await fetchBreakdown();
 			expect(status).toBe(200);
 			expect(body?.models.map((row) => row.usedModel)).toEqual([
-				"openai/o3",
 				"openai/gpt-4o",
 				"openai/gpt-4o-mini",
+				"openai/o3",
 			]);
-			expect(body?.models[1]).toEqual({
+			expect(body?.models[0]).toEqual({
 				usedModel: "openai/gpt-4o",
 				usedProvider: "openai",
 				requestCount: 20,
 				errorCount: 10,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
 				upstreamErrorCount: 10,
 			});
 			expect(body?.rest).toBeNull();
@@ -1895,7 +1932,7 @@ describe("managed credential reorder cache invalidation", () => {
 					requestCount: 100,
 					// Descending rate, so the two lowest-rate models are the ones cut.
 					errorCount: 12 - index,
-					upstreamErrorCount: 1,
+					upstreamErrorCount: 12 - index,
 				})),
 			);
 
@@ -1906,7 +1943,9 @@ describe("managed credential reorder cache invalidation", () => {
 				modelCount: 2,
 				requestCount: 200,
 				errorCount: 3,
-				upstreamErrorCount: 2,
+				clientErrorCount: 0,
+				gatewayErrorCount: 0,
+				upstreamErrorCount: 3,
 			});
 		});
 

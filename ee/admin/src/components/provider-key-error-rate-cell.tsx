@@ -12,14 +12,35 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import { deriveStabilityMetrics } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { DailyCredentialPoint } from "@/lib/provider-key-spend";
 
 export interface RecentCredentialStats {
 	requestCount: number;
-	errorCount: number;
+	clientErrorCount: number;
+	gatewayErrorCount: number;
 	upstreamErrorCount: number;
+}
+
+/**
+ * Gateway + upstream errors over non-client-error requests, like every other
+ * uptime surface: a caller's malformed request says nothing about the
+ * credential. `fraction` is null when no request counts toward the rate.
+ */
+function credentialErrorRate(stats: RecentCredentialStats) {
+	const { requestCount, errorsCount, errorRate } = deriveStabilityMetrics({
+		logsCount: stats.requestCount,
+		clientErrorsCount: stats.clientErrorCount,
+		gatewayErrorsCount: stats.gatewayErrorCount,
+		upstreamErrorsCount: stats.upstreamErrorCount,
+	});
+	return {
+		requestCount,
+		errorsCount,
+		fraction: errorRate === null ? null : errorRate / 100,
+	};
 }
 
 /** Share of failed requests at which the rate stops being background noise. */
@@ -67,12 +88,13 @@ export function ProviderKeyErrorRateCell({
 	// when the rate cannot.
 	const trend = daily ? <DailyErrorRateSparkline daily={daily} /> : null;
 
-	if (stats.requestCount === 0) {
+	const rate = credentialErrorRate(stats);
+	if (rate.fraction === null) {
 		return (
 			<div className="space-y-1">
 				<span
 					className="text-xs text-muted-foreground"
-					title="No requests attributed to this credential in the last 24 hours."
+					title="No requests other than client errors attributed to this credential in the last 24 hours."
 				>
 					—
 				</span>
@@ -81,7 +103,7 @@ export function ProviderKeyErrorRateCell({
 		);
 	}
 
-	const fraction = stats.errorCount / stats.requestCount;
+	const fraction = rate.fraction;
 
 	return (
 		<div className="space-y-1">
@@ -99,10 +121,11 @@ export function ProviderKeyErrorRateCell({
 					</TooltipTrigger>
 					<TooltipContent className="max-w-sm">
 						<p>
-							{formatNumber(stats.errorCount)} of{" "}
-							{formatNumber(stats.requestCount)} requests failed in the last 24
+							{formatNumber(rate.errorsCount)} of{" "}
+							{formatNumber(rate.requestCount)} requests failed in the last 24
 							hours ({formatNumber(stats.upstreamErrorCount)} returned by the
-							provider).
+							provider). {formatNumber(stats.clientErrorCount)} client errors
+							are excluded.
 						</p>
 						<ModelErrorBreakdown providerKeyId={providerKeyId} enabled={open} />
 					</TooltipContent>
@@ -121,9 +144,8 @@ export function ProviderKeyErrorRateCell({
  * while a 0.5% blip stays flat.
  */
 function DailyErrorRateSparkline({ daily }: { daily: DailyCredentialPoint[] }) {
-	const rates = daily.map((point) =>
-		point.requestCount === 0 ? null : point.errorCount / point.requestCount,
-	);
+	const pointRates = daily.map((point) => credentialErrorRate(point));
+	const rates = pointRates.map((rate) => rate.fraction);
 	if (rates.every((rate) => rate === null)) {
 		return null;
 	}
@@ -148,8 +170,8 @@ function DailyErrorRateSparkline({ daily }: { daily: DailyCredentialPoint[] }) {
 							rate === null
 								? "no requests"
 								: `${formatErrorPercent(rate)} (${formatNumber(
-										point.errorCount,
-									)}/${formatNumber(point.requestCount)})`
+										pointRates[index].errorsCount,
+									)}/${formatNumber(pointRates[index].requestCount)})`
 						}${suffix}`,
 					};
 				})}
@@ -191,41 +213,46 @@ function ModelErrorBreakdown({
 		return <p className="mt-2 opacity-70">No per-model data recorded yet.</p>;
 	}
 
+	const restRate = data.rest ? credentialErrorRate(data.rest) : null;
+
 	return (
 		<div className="mt-2 border-t border-background/20 pt-2">
 			<p className="mb-1 opacity-70">
 				By model, since {data.since.slice(0, 10)} (UTC days)
 			</p>
 			<ul className="space-y-0.5">
-				{data.models.map((row) => (
-					<li
-						key={`${row.usedProvider}:${row.usedModel}`}
-						className="flex items-baseline justify-between gap-3"
-					>
-						<span className="truncate">{row.usedModel}</span>
-						<span className="shrink-0 tabular-nums">
-							{formatErrorPercent(row.errorCount / row.requestCount)}
-							<span className="opacity-70">
-								{" "}
-								({formatNumber(row.errorCount)}/{formatNumber(row.requestCount)}
-								)
+				{data.models.map((row) => {
+					const rate = credentialErrorRate(row);
+					return (
+						<li
+							key={`${row.usedProvider}:${row.usedModel}`}
+							className="flex items-baseline justify-between gap-3"
+						>
+							<span className="truncate">{row.usedModel}</span>
+							<span className="shrink-0 tabular-nums">
+								{rate.fraction === null
+									? "—"
+									: formatErrorPercent(rate.fraction)}
+								<span className="opacity-70">
+									{" "}
+									({formatNumber(rate.errorsCount)}/
+									{formatNumber(rate.requestCount)})
+								</span>
 							</span>
-						</span>
-					</li>
-				))}
-				{data.rest ? (
+						</li>
+					);
+				})}
+				{data.rest && restRate ? (
 					<li className="flex items-baseline justify-between gap-3 opacity-70">
 						<span className="truncate">
 							{formatNumber(data.rest.modelCount)} more models
 						</span>
 						<span className="shrink-0 tabular-nums">
-							{formatErrorPercent(
-								data.rest.requestCount === 0
-									? 0
-									: data.rest.errorCount / data.rest.requestCount,
-							)}{" "}
-							({formatNumber(data.rest.errorCount)}/
-							{formatNumber(data.rest.requestCount)})
+							{restRate.fraction === null
+								? "—"
+								: formatErrorPercent(restRate.fraction)}{" "}
+							({formatNumber(restRate.errorsCount)}/
+							{formatNumber(restRate.requestCount)})
 						</span>
 					</li>
 				) : null}
