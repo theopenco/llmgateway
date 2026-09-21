@@ -433,9 +433,12 @@ export default function ImagePageClient({
 		}
 	}, [selectedModels]);
 
-	useEffect(() => {
-		setModelPreferenceCookie(IMAGE_SERVICE_TIER_COOKIE, imageServiceTier);
-	}, [imageServiceTier]);
+	// The tier only changes through this handler, so persist the cookie here
+	// instead of watching the state with an effect.
+	const handleServiceTierChange = useCallback((tier: ImageServiceTier) => {
+		setImageServiceTier(tier);
+		setModelPreferenceCookie(IMAGE_SERVICE_TIER_COOKIE, tier);
+	}, []);
 
 	// Sync URL → state for back/forward navigation
 	useEffect(() => {
@@ -952,7 +955,7 @@ export default function ImagePageClient({
 						imageCount={imageCount}
 						setImageCount={setImageCount}
 						serviceTier={imageServiceTier}
-						setServiceTier={setImageServiceTier}
+						setServiceTier={handleServiceTierChange}
 						supportsFlex={supportsFlex}
 						isGenerating={isGenerating}
 						onGenerate={generateImages}
