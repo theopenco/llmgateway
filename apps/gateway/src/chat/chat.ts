@@ -9048,7 +9048,11 @@ chat.openapi(completions, async (c) => {
 										image_config?.image_quality,
 										null,
 										null,
-										{ servedServiceTier, customPricing: customPricingMapping },
+										{
+											servedServiceTier,
+											customPricing: customPricingMapping,
+											safetyBlockWithoutOutput: true,
+										},
 										true,
 									)
 								: null;
@@ -11736,6 +11740,20 @@ chat.openapi(completions, async (c) => {
 											explicitCacheUsed,
 											servedServiceTier,
 											customPricing: customPricingMapping,
+											safetyBlockWithoutOutput:
+												isContentFilterFinishReason(
+													finishReason,
+													transportProvider,
+												) &&
+												(modelEmitsImages
+													? outputImageCount === 0
+													: !hasMeaningfulAssistantOutput({
+															completionTokens: calculatedCompletionTokens,
+															reasoningTokens,
+															content: fullContent,
+															toolResults: streamingToolCalls,
+															images: null,
+														})),
 										},
 										finishReason === "content_filter",
 									);
@@ -12092,6 +12110,20 @@ chat.openapi(completions, async (c) => {
 										// there is nothing to estimate from but the partial text
 										// and tool-call JSON that happened to arrive. Don't guess.
 										allowOutputEstimate: streamingError === null,
+										safetyBlockWithoutOutput:
+											isContentFilterFinishReason(
+												finishReason,
+												transportProvider,
+											) &&
+											(modelEmitsImages
+												? outputImageCount === 0
+												: !hasMeaningfulAssistantOutput({
+														completionTokens: calculatedCompletionTokens,
+														reasoningTokens,
+														content: fullContent,
+														toolResults: streamingToolCalls,
+														images: null,
+													})),
 									},
 									finishReason === "content_filter",
 								));
@@ -13416,7 +13448,11 @@ chat.openapi(completions, async (c) => {
 							image_config?.image_quality,
 							null,
 							null,
-							{ servedServiceTier, customPricing: customPricingMapping },
+							{
+								servedServiceTier,
+								customPricing: customPricingMapping,
+								safetyBlockWithoutOutput: true,
+							},
 							true,
 						)
 					: null;
@@ -14432,6 +14468,17 @@ chat.openapi(completions, async (c) => {
 			explicitCacheUsed,
 			servedServiceTier,
 			customPricing: customPricingMapping,
+			safetyBlockWithoutOutput:
+				isContentFilterFinishReason(finishReason, transportProvider) &&
+				(modelEmitsImages
+					? (convertedImages?.length ?? 0) === 0
+					: !hasMeaningfulAssistantOutput({
+							completionTokens: calculatedCompletionTokens,
+							reasoningTokens: calculatedReasoningTokens,
+							content,
+							toolResults,
+							images: convertedImages,
+						})),
 		},
 		finishReason === "content_filter",
 	);

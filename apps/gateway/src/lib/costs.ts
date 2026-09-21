@@ -299,6 +299,15 @@ export async function calculateCosts(
 		 * up charged for 1.17M of them.
 		 */
 		allowOutputEstimate?: boolean;
+		/**
+		 * The provider's safety filter blocked the request and nothing was
+		 * served: an error response carrying no usage (the token counts are
+		 * gateway estimates) or a filtered image generation with zero images.
+		 * Providers do not bill these, so only a mapping-declared rejection fee
+		 * (`contentFilterPrice`, e.g. xAI's) is charged; every other cost is
+		 * zeroed while the token counts stay for analytics.
+		 */
+		safetyBlockWithoutOutput?: boolean;
 	},
 	contentFilterTriggered = false,
 ) {
@@ -892,7 +901,8 @@ export async function calculateCosts(
 	// and if it turns out not to be rare that is itself the finding. The logger
 	// attaches the trace id in production, which is also stored on the log row,
 	// so a hit here pivots straight to the request it charged.
-	if (isEstimated && totalCost.greaterThan(0)) {
+	const rejectionFeeOnly = options?.safetyBlockWithoutOutput === true;
+	if (isEstimated && !rejectionFeeOnly && totalCost.greaterThan(0)) {
 		logger.warn("Billed a request on estimated token counts", {
 			model,
 			provider,
@@ -907,7 +917,7 @@ export async function calculateCosts(
 		});
 	}
 
-	return {
+	const costs = {
 		inputCost: inputCost.toNumber(),
 		outputCost: outputCost.toNumber(),
 		cachedInputCost: cachedInputCost.toNumber(),
@@ -938,8 +948,14 @@ export async function calculateCosts(
 		completionTokens: calculatedCompletionTokens,
 		cachedTokens,
 		cacheWriteTokens,
-		estimatedCost: isEstimated,
+		estimatedCost: isEstimated && !rejectionFeeOnly,
 		discount: Number(discount) !== 0 ? Number(discount) : undefined,
 		pricingTier: pricing.tierName,
 	};
+	if (rejectionFeeOnly) {
+		zeroInferenceCosts(costs);
+		costs.contentFilterCost = contentFilterCost.toNumber();
+		costs.totalCost = costs.contentFilterCost;
+	}
+	return costs;
 }
