@@ -48,10 +48,28 @@ function hasFlag(name: string): boolean {
 	return process.argv.includes(`--${name}`);
 }
 
+// A malformed selector must not silently widen a --commit run to every
+// subscription.
+function parseSubscriptionFlag(): string | undefined {
+	const provided = process.argv.some(
+		(a) => a === "--subscription" || a.startsWith("--subscription="),
+	);
+	if (!provided) {
+		return undefined;
+	}
+	const value = parseFlag("subscription");
+	if (!value || !/^sub_[A-Za-z0-9]+$/.test(value)) {
+		throw new Error(
+			"--subscription must be a Stripe subscription id, e.g. --subscription=sub_123",
+		);
+	}
+	return value;
+}
+
 async function main(): Promise<void> {
 	const stripe = getStripe();
 	const commit = hasFlag("commit");
-	const only = parseFlag("subscription");
+	const only = parseSubscriptionFlag();
 
 	console.log(
 		`Mode: ${commit ? "COMMIT (writes enabled)" : "DRY RUN (no writes)"}`,
