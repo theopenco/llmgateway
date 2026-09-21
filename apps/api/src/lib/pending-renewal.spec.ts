@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import { voidPendingCycleRenewalInvoices } from "./pending-renewal.js";
+import {
+	getPendingCycleRenewalInvoices,
+	voidPendingCycleRenewalInvoices,
+} from "./pending-renewal.js";
 
 import type * as PaymentsModule from "@/routes/payments.js";
 
@@ -34,11 +37,89 @@ function mockInvoiceLists(opts: {
 	);
 }
 
-describe("voidPendingCycleRenewalInvoices", () => {
+describe("pending cycle-renewal invoices", () => {
 	beforeEach(() => {
 		stripeMock.invoices.list.mockReset();
 		stripeMock.invoices.finalizeInvoice.mockReset();
 		stripeMock.invoices.voidInvoice.mockReset();
+	});
+
+	test("finds a draft cycle renewal on a later page", async () => {
+		stripeMock.invoices.list.mockImplementation(
+			(params: { status: "draft" | "open"; starting_after?: string }) => {
+				if (params.status === "open") {
+					return Promise.resolve({ data: [], has_more: false });
+				}
+				if (!params.starting_after) {
+					return Promise.resolve({
+						data: [
+							{
+								id: "in_draft_manual",
+								status: "draft",
+								billing_reason: "manual",
+							},
+						],
+						has_more: true,
+					});
+				}
+				expect(params.starting_after).toBe("in_draft_manual");
+				return Promise.resolve({
+					data: [
+						{
+							id: "in_draft_cycle_later",
+							status: "draft",
+							billing_reason: "subscription_cycle",
+						},
+					],
+					has_more: false,
+				});
+			},
+		);
+
+		const pending = await getPendingCycleRenewalInvoices(SUB_ID);
+
+		expect(pending.map((invoice) => invoice.id)).toEqual([
+			"in_draft_cycle_later",
+		]);
+	});
+
+	test("finds an open cycle renewal on a later page", async () => {
+		stripeMock.invoices.list.mockImplementation(
+			(params: { status: "draft" | "open"; starting_after?: string }) => {
+				if (params.status === "draft") {
+					return Promise.resolve({ data: [], has_more: false });
+				}
+				if (!params.starting_after) {
+					return Promise.resolve({
+						data: [
+							{
+								id: "in_open_update",
+								status: "open",
+								billing_reason: "subscription_update",
+							},
+						],
+						has_more: true,
+					});
+				}
+				expect(params.starting_after).toBe("in_open_update");
+				return Promise.resolve({
+					data: [
+						{
+							id: "in_open_cycle_later",
+							status: "open",
+							billing_reason: "subscription_cycle",
+						},
+					],
+					has_more: false,
+				});
+			},
+		);
+
+		const pending = await getPendingCycleRenewalInvoices(SUB_ID);
+
+		expect(pending.map((invoice) => invoice.id)).toEqual([
+			"in_open_cycle_later",
+		]);
 	});
 
 	test("finalizes without a payment attempt and voids a draft cycle-renewal invoice", async () => {
