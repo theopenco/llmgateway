@@ -86,7 +86,7 @@ The limit covers dashboard top-ups (card and hosted checkout), auto top-up, and 
 
 Organizations on a **Dev plan** (also called devpass) or a **Chat plan** have their own, tighter per-endpoint limits and do not receive the spend-based multiplier.
 
-Dev plans cover text inference only: **chat completions (including the AI SDK protocol), messages, responses, the models list, and moderations**, plus the key and credits endpoints, each at a flat 120 requests-per-minute floor. The other endpoints (embeddings, rerank, OCR, images, speech, transcriptions, videos, realtime) return a `403` on Dev plans and are marked **—** below; realtime is unavailable on Chat plans too.
+Dev plans cover text inference only: **chat completions (including the AI SDK protocol), messages, responses, the models list, and moderations**, plus the key and credits endpoints, each at a flat 120 requests-per-minute floor. The other endpoints (embeddings, rerank, System One, OCR, images, speech, transcriptions, videos, realtime) return a `403` on Dev plans and are marked **—** below; realtime is unavailable on Chat plans too.
 
 | Endpoint             | Dev plan / min | Chat plan / min |
 | -------------------- | -------------- | --------------- |
@@ -97,6 +97,7 @@ Dev plans cover text inference only: **chat completions (including the AI SDK pr
 | Moderations          | 120            | 120             |
 | Embeddings           | —              | 120             |
 | Rerank               | —              | 120             |
+| System One           | —              | 60              |
 | OCR                  | —              | 30              |
 | Images               | —              | 30              |
 | Speech               | —              | 30              |

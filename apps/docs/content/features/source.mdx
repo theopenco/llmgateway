@@ -39,7 +39,7 @@ All variations will be stripped down to the base domain (`example.com`) for aggr
 
 After stripping the protocol and `www.` prefix, the value must contain only alphanumeric characters, hyphens, dots, and slashes — a value with other characters (underscores, spaces, query strings) fails the whole request with a `400`.
 
-When no `X-Source` header is sent, the gateway falls back to the `HTTP-Referer` header, and recognizes well-known coding agents from the `User-Agent` and `X-Title` headers for source attribution.
+When no `X-Source` header is sent, the gateway falls back to the `HTTP-Referer` header, and recognizes well-known coding agents from the `User-Agent` header for source attribution.
 
 ## Public Statistics
 
