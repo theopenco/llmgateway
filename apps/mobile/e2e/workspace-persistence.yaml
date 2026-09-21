@@ -1,0 +1,67 @@
+appId: io.llmgateway.lounge
+---
+- evalScript: ${output.chatTitle = "Workspace restore " + Date.now()}
+- runFlow: helpers/sign-in.yaml
+- assertVisible: "Current workspace: Personal Lounge"
+- runFlow: helpers/organization.yaml
+- assertVisible: "Current workspace: Test Organization"
+- launchApp
+- assertVisible: "Current workspace: Test Organization"
+- tapOn: "Start a conversation"
+- runFlow: helpers/chat-model.yaml
+- tapOn: "Message.*"
+- inputText: ${output.chatTitle}
+- tapOn: "Send message"
+- extendedWaitUntil:
+    visible: ".*This is a mock response from the test server.*"
+    timeout: 30000
+- launchApp
+- assertVisible: "Current workspace: Test Organization"
+- tapOn: "Conversations"
+- tapOn:
+    id: "field-search-conversations"
+- inputText: ${output.chatTitle}
+- tapOn: "Done typing"
+- tapOn: ".*2 messages"
+- assertVisible: ".*This is a mock response from the test server.*"
+- launchApp
+- scrollUntilVisible:
+    element: "Switch workspace"
+    direction: DOWN
+- tapOn: "Switch workspace"
+- scrollUntilVisible:
+    element: "Use Personal Lounge"
+    direction: DOWN
+- tapOn: "Use Personal Lounge"
+- assertVisible: "Current workspace: Personal Lounge"
+- launchApp
+- assertVisible: "Current workspace: Personal Lounge"
+- runFlow: helpers/organization.yaml
+- scrollUntilVisible:
+    element: "Your profile"
+    direction: DOWN
+- tapOn: "Your profile"
+- scrollUntilVisible:
+    element: "Sign out"
+    direction: DOWN
+- tapOn: "Sign out"
+- extendedWaitUntil:
+    visible: "Enter the Lounge"
+    timeout: 10000
+- launchApp
+- assertVisible: "Enter the Lounge"
+- tapOn:
+    id: "field-email"
+- inputText: "admin@example.com"
+- tapOn: "Done typing"
+- tapOn:
+    id: "field-password"
+- inputText: "admin@example.com"
+- tapOn: "Done typing"
+- tapOn: "Enter the Lounge"
+- extendedWaitUntil:
+    visible: "Current workspace: Personal Lounge"
+    timeout: 20000
+- runFlow: helpers/organization.yaml
+- launchApp
+- assertVisible: "Current workspace: Test Organization"

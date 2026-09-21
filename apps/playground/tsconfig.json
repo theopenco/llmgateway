@@ -33,7 +33,8 @@
 		"src/**/*.tsx",
 		"e2e/**/*.ts",
 		"./.content-collections/generated/index.d.ts",
-		".next/types/**/*.ts"
+		".next/types/**/*.ts",
+		"src/scripts/*.mts"
 	],
 	"exclude": ["node_modules", ".next", ".next-dev"]
 }

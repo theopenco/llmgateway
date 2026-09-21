@@ -18,6 +18,11 @@ import {
 import { cn } from "@/lib/utils";
 
 import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
+
+import {
 	aggregateCostByModel,
 	currencyFormatter,
 	type ActivityRow,
@@ -80,7 +85,7 @@ export function CostByModelCard({
 							<span>
 								Total Requests:{" "}
 								<strong className="text-foreground">
-									{data.totalRequests.toLocaleString()}
+									{formatNumber(data.totalRequests)}
 								</strong>
 							</span>
 						</div>
@@ -144,9 +149,7 @@ export function CostByModelCard({
 									if (activeMetric === "cost") {
 										return `$${value >= 1 ? value.toFixed(2) : value.toFixed(4)}`;
 									}
-									return value >= 1000
-										? `${(value / 1000).toFixed(1)}k`
-										: String(value);
+									return formatCompactNumber(value);
 								}}
 							/>
 							<ChartTooltip
@@ -156,7 +159,7 @@ export function CostByModelCard({
 											if (activeMetric === "cost") {
 												return currencyFormatter.format(Number(value));
 											}
-											return Number(value).toLocaleString();
+											return formatNumber(Number(value));
 										}}
 									/>
 								}

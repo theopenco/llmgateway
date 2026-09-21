@@ -40,7 +40,7 @@
 		"@opentelemetry/sdk-node": "0.218.0",
 		"decimal.js": "10.5.0",
 		"dotenv": "17.4.2",
-		"hono": "^4.12.34",
+		"hono": "^4.13.5",
 		"hono-openapi": "^1.1.1",
 		"ioredis": "5.7.0",
 		"ipaddr.js": "2.2.0",
@@ -49,7 +49,7 @@
 		"undici": "8.9.0",
 		"worker": "workspace:*",
 		"ws": "8.21.0",
-		"zod": "3.25.75",
+		"zod": "3.25.76",
 		"zod-openapi": "^5.4.3"
 	},
 	"devDependencies": {

@@ -10,8 +10,17 @@ import {
 	models as allModels,
 	providers as allProviders,
 } from "@llmgateway/models";
-import { DEV_PLAN_PRICES, getDevPlanCreditsLimit } from "@llmgateway/shared";
-import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import {
+	DEV_PLAN_PRICES,
+	DEV_PLAN_RESET_PASS_PRICES,
+	getDevPlanCreditsLimit,
+} from "@llmgateway/shared";
+import {
+	getApiKeyFingerprint,
+	hashApiKeyForStorage,
+} from "@llmgateway/shared/api-key-hash";
+import { maskToken } from "@llmgateway/shared/mask-token";
+import { encryptProviderKey } from "@llmgateway/shared/provider-key-crypto";
 
 import { and, closeDatabase, db, eq, isNull, tables } from "./index.js";
 import { logs } from "./logs.js";
@@ -602,12 +611,15 @@ function generateProviderKeys(projects: ProjectDef[]) {
 	);
 	for (const orgId of orgIds) {
 		for (const provider of ["openai", "anthropic"]) {
+			const id = `seed-pk-${orgId}-${provider}`;
+			const token = `sk-seed-${provider}-${orgId}`;
 			keys.push({
-				id: `seed-pk-${orgId}-${provider}`,
+				id,
 				organizationId: orgId,
 				provider,
-				token: `sk-seed-${provider}-${orgId}`,
-				tokenMasked: `sk-...${orgId.slice(-4)}`,
+				tokenCiphertext: encryptProviderKey(token, id, orgId),
+				tokenMasked: maskToken(token),
+				tokenHash: getApiKeyFingerprint(token),
 				description: `${provider} production key`,
 				usage: String(randomFloat(0, 200)),
 			});
@@ -691,7 +703,7 @@ function generateLogs(
 				duration,
 				timeToFirstToken,
 				requestedModel: modelDef.model,
-				usedModel: modelDef.model,
+				usedModel: `${modelDef.provider}/${modelDef.model}`,
 				usedProvider: modelDef.provider,
 				responseSize: isError ? 0 : randomInt(100, 15000),
 				content: isError ? null : "Generated response content.",
@@ -1032,7 +1044,7 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 					id: `phms-${statIdx}`,
 					projectId: proj.id,
 					hourTimestamp: hourTs,
-					usedModel: modelDef.model,
+					usedModel: `${modelDef.provider}/${modelDef.model}`,
 					usedProvider: modelDef.provider,
 					requestCount: reqCount,
 					errorCount: errCount,
@@ -1088,6 +1100,7 @@ const AGENT_SOURCES: Array<{ source: string; weight: number }> = [
 	{ source: "codex", weight: 0.1 },
 	{ source: "opencode", weight: 0.1 },
 	{ source: "empryo", weight: 0.08 },
+	{ source: "anvil", weight: 0.07 },
 	{ source: "autohand", weight: 0.06 },
 	{ source: "n8n", weight: 0.04 },
 ];
@@ -1172,6 +1185,9 @@ function generateProjectHourlySourceStats(projects: ProjectDef[]) {
 	return stats;
 }
 
+// Matches the seeded mistral provider_routing_settings marginPercent.
+const airsideMarginPercent = 0.3;
+
 function minutesAgo(minutes: number) {
 	/* eslint-disable no-mixed-operators */
 	return new Date(Date.now() - minutes * 60 * 1000);
@@ -1212,6 +1228,9 @@ function generateSeedModels() {
 		output: m.output ?? ["text"],
 		imageInputRequired: m.imageInputRequired ?? false,
 		stability: m.stability ?? ("stable" as const),
+		// Dev only: the worker sync stamps createdAt on first insert in prod, so
+		// a fresh seed would otherwise land every model in the current month.
+		createdAt: m.releasedAt ?? new Date(),
 		releasedAt: m.releasedAt ?? new Date(),
 		status: "active" as const,
 		logsCount: randomInt(100, 30000),
@@ -1815,6 +1834,15 @@ async function seed() {
 			],
 		},
 		{
+			source: "anvil",
+			weight: 0.02,
+			models: [
+				{ model: "claude-3.5-sonnet", provider: "anthropic", weight: 0.6 },
+				{ model: "gpt-4o", provider: "openai", weight: 0.25 },
+				{ model: "deepseek-chat", provider: "deepseek", weight: 0.15 },
+			],
+		},
+		{
 			source: "empryo",
 			weight: 0.02,
 			models: [
@@ -1912,7 +1940,7 @@ async function seed() {
 			timeToFirstToken:
 				isStreamed && !isError ? randomInt(80, Math.min(duration, 2200)) : null,
 			requestedModel: modelDef.model,
-			usedModel: modelDef.model,
+			usedModel: `${modelDef.provider}/${modelDef.model}`,
 			usedProvider: modelDef.provider,
 			source: agent.source,
 			responseSize: isError ? 0 : randomInt(500, 18000),
@@ -2016,11 +2044,22 @@ async function seed() {
 	await bulkInsert(tables.projectHourlyStats, devpassHourlyStats);
 
 	// Split each hourly bucket across a few models so the Model Usage Overview chart has data.
-	const devpassModels: Array<{ provider: string; model: string }> = [
+	// The mistral share is routed through the seeded Airside carrier, so the
+	// admin DevPass page has gateway margin to show.
+	const devpassModels: Array<{
+		provider: string;
+		model: string;
+		marginPercent?: number;
+	}> = [
 		{ provider: "anthropic", model: "claude-3.5-sonnet" },
 		{ provider: "openai", model: "gpt-4o" },
 		{ provider: "anthropic", model: "claude-3-haiku" },
 		{ provider: "openai", model: "gpt-4o-mini" },
+		{
+			provider: "mistral",
+			model: "mistral-medium-4",
+			marginPercent: airsideMarginPercent,
+		},
 	];
 	const devpassHourlyModelStats: Array<Record<string, any>> = [];
 	for (const bucket of devpassHourlyStats) {
@@ -2038,7 +2077,7 @@ async function seed() {
 				id: `devpass-phms-${bucket.id}-${i}`,
 				projectId: "test-personal-project-id",
 				hourTimestamp: bucket.hourTimestamp,
-				usedModel: m.model,
+				usedModel: `${m.provider}/${m.model}`,
 				usedProvider: m.provider,
 				requestCount: reqs,
 				errorCount: errors,
@@ -2073,6 +2112,9 @@ async function seed() {
 				videoOutputCost: 0,
 				cachedInputCost: 0,
 				cacheWriteInputCost: 0,
+				providerMarginAmount: Number(
+					(bucket.cost * w * (m.marginPercent ?? 0)).toFixed(4),
+				),
 				creditsRequestCount: reqs,
 				apiKeysRequestCount: 0,
 				creditsCost: Number((bucket.cost * w).toFixed(4)),
@@ -2534,6 +2576,52 @@ async function seed() {
 		stripePaymentIntentId: "pi_seed_devpass_renewal",
 		stripeInvoiceId: "in_seed_devpass_renewal",
 		description: "Seeded DevPass Pro renewal for admin dashboard",
+	});
+
+	// Two Reset Pass sales (one inside the current 12-day cycle, one before
+	// it) and a PAYG overflow top-up carrying the 5% fee, so every component
+	// of the admin DevPass margin breakdown is populated locally.
+	const devpassResetPassCycleCreatedAt = daysAgo(3);
+	await upsert(tables.transaction, {
+		id: "test-devpass-reset-pass-cycle-transaction-id",
+		organizationId: "test-personal-org-id",
+		createdAt: devpassResetPassCycleCreatedAt,
+		updatedAt: devpassResetPassCycleCreatedAt,
+		type: "dev_plan_reset_pass",
+		amount: String(DEV_PLAN_RESET_PASS_PRICES.pro),
+		creditAmount: null,
+		currency: "USD",
+		status: "completed",
+		stripePaymentIntentId: "pi_seed_devpass_reset_pass_cycle",
+		description: "DevPass Reset Pass (PRO)",
+	});
+	const devpassResetPassPastCreatedAt = daysAgo(20);
+	await upsert(tables.transaction, {
+		id: "test-devpass-reset-pass-past-transaction-id",
+		organizationId: "test-personal-org-id",
+		createdAt: devpassResetPassPastCreatedAt,
+		updatedAt: devpassResetPassPastCreatedAt,
+		type: "dev_plan_reset_pass",
+		amount: String(DEV_PLAN_RESET_PASS_PRICES.pro),
+		creditAmount: null,
+		currency: "USD",
+		status: "completed",
+		stripePaymentIntentId: "pi_seed_devpass_reset_pass_past",
+		description: "DevPass Reset Pass (PRO)",
+	});
+	const devpassTopupCreatedAt = daysAgo(4);
+	await upsert(tables.transaction, {
+		id: "test-devpass-payg-topup-transaction-id",
+		organizationId: "test-personal-org-id",
+		createdAt: devpassTopupCreatedAt,
+		updatedAt: devpassTopupCreatedAt,
+		type: "credit_topup",
+		amount: "26.25",
+		creditAmount: "25",
+		currency: "USD",
+		status: "completed",
+		stripePaymentIntentId: "pi_seed_devpass_payg_topup",
+		description: "Credit purchase for 25 USD (including fees)",
 	});
 
 	const devpassRefundCreatedAt = new Date();
@@ -3121,6 +3209,7 @@ async function seedAirside() {
 		website: "https://mistral.ai",
 		paymentStatus: "paid",
 		paidAt: daysAgo(21),
+		createdAt: daysAgo(21),
 	});
 
 	await upsert(tables.providerCompanyMember, {
@@ -3128,6 +3217,7 @@ async function seedAirside() {
 		providerCompanyId: "airside-company-mistral",
 		userId: "airside-user-mistral",
 		role: "owner",
+		createdAt: daysAgo(21),
 	});
 
 	await upsert(tables.providerClaim, {
@@ -3139,6 +3229,7 @@ async function seedAirside() {
 		status: "active",
 		reviewedBy: "test-user-id",
 		reviewedAt: daysAgo(20),
+		createdAt: daysAgo(21),
 	});
 
 	// A second carrier whose claim is still pending review, so the admin
@@ -3164,6 +3255,7 @@ async function seedAirside() {
 		website: "https://moonshot.ai",
 		paymentStatus: "paid",
 		paidAt: daysAgo(2),
+		createdAt: daysAgo(2),
 	});
 
 	await upsert(tables.providerCompanyMember, {
@@ -3171,6 +3263,7 @@ async function seedAirside() {
 		providerCompanyId: "airside-company-moonshot",
 		userId: "airside-user-moonshot",
 		role: "owner",
+		createdAt: daysAgo(2),
 	});
 
 	await upsert(tables.providerClaim, {
@@ -3180,6 +3273,7 @@ async function seedAirside() {
 		matchedDomain: "moonshot.ai",
 		claimedBy: "airside-user-moonshot",
 		status: "pending",
+		createdAt: daysAgo(2),
 	});
 
 	// Accepting a larger gateway margin plus a small discount → routing boost
@@ -3208,6 +3302,7 @@ async function seedAirside() {
 		jsonOutput: true,
 		status: "active",
 		createdBy: "airside-user-mistral",
+		createdAt: daysAgo(13),
 	});
 
 	await upsert(tables.providerPriceFiling, {
@@ -3221,6 +3316,7 @@ async function seedAirside() {
 		requestedBy: "airside-user-mistral",
 		reviewedBy: "test-user-id",
 		reviewedAt: daysAgo(12),
+		createdAt: daysAgo(13),
 	});
 	await materializeSeedAirsideModel({
 		modelName: "mistral-medium-4",
@@ -3249,6 +3345,7 @@ async function seedAirside() {
 		reasoning: true,
 		status: "active",
 		createdBy: "airside-user-mistral",
+		createdAt: daysAgo(10),
 	});
 
 	await upsert(tables.providerPriceFiling, {
@@ -3262,6 +3359,7 @@ async function seedAirside() {
 		requestedBy: "airside-user-mistral",
 		reviewedBy: "test-user-id",
 		reviewedAt: daysAgo(9),
+		createdAt: daysAgo(10),
 	});
 	await materializeSeedAirsideModel({
 		modelName: "codestral-3",
@@ -3285,6 +3383,7 @@ async function seedAirside() {
 		status: "pending",
 		requestedBy: "airside-user-mistral",
 		note: "Price cut to win more agentic traffic.",
+		createdAt: daysAgo(2),
 	});
 
 	await upsert(tables.providerDraftModel, {
@@ -3304,6 +3403,7 @@ async function seedAirside() {
 		reasoning: true,
 		status: "draft",
 		createdBy: "airside-user-mistral",
+		createdAt: daysAgo(4),
 	});
 
 	// 30 days of hourly rollups for the claimed provider so the traffic pages
@@ -3317,8 +3417,6 @@ async function seedAirside() {
 		{ model: "mistral-medium-4", inputPrice: 4e-7, outputPrice: 2e-6 },
 		{ model: "codestral-3", inputPrice: 9e-7, outputPrice: 3e-6 },
 	];
-	// Matches the seeded mistral provider_routing_settings marginPercent.
-	const airsideMarginPercent = 0.3;
 	let airsideStatId = 0;
 	for (let day = 0; day < 30; day++) {
 		for (const entry of airsideModels) {
@@ -3339,7 +3437,7 @@ async function seedAirside() {
 					id: `airside-phms-${airsideStatId++}`,
 					projectId: "test-project-id",
 					hourTimestamp: bucket,
-					usedModel: entry.model,
+					usedModel: `mistral/${entry.model}`,
 					usedProvider: "mistral",
 					requestCount,
 					errorCount: randomInt(0, Math.ceil(requestCount / 50)),
@@ -3362,7 +3460,7 @@ async function seedAirside() {
 			airsideGlobalStats.push({
 				id: `airside-gms-${day}-${entry.model}`,
 				dayTimestamp: dayBucket,
-				usedModel: entry.model,
+				usedModel: `mistral/${entry.model}`,
 				usedProvider: "mistral",
 				usedMode: "credits",
 				orgKind: "default",
@@ -3386,6 +3484,7 @@ async function seedAirside() {
 		status: "pending",
 		requestedBy: "airside-user-mistral",
 		note: "Initial listing for our new flagship.",
+		createdAt: daysAgo(4),
 	});
 }
 

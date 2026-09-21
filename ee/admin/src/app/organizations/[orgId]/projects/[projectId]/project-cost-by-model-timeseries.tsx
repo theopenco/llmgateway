@@ -7,6 +7,7 @@ import { CostByModelTimeseriesChart } from "@/components/cost-by-model-timeserie
 import { getProjectCostByModelTimeseries } from "@/lib/admin-history";
 
 import type {
+	CostTimeseriesBucket,
 	CostTimeseriesGroupBy,
 	ModelView,
 	ProjectCostTimeseriesGroupBy,
@@ -50,13 +51,19 @@ export function ProjectCostByModelTimeseries({
 	const groupBy = parseGroupBy(searchParams.get("breakdown"));
 
 	const fetchData = useCallback(
-		async (w: TokenWindow, modelView: ModelView, g: CostTimeseriesGroupBy) => {
+		async (
+			w: TokenWindow,
+			modelView: ModelView,
+			g: CostTimeseriesGroupBy,
+			bucket: CostTimeseriesBucket | undefined,
+		) => {
 			return await getProjectCostByModelTimeseries(
 				orgId,
 				projectId,
 				w,
 				modelView,
 				g === "source" ? "source" : "model",
+				bucket,
 			);
 		},
 		[orgId, projectId],

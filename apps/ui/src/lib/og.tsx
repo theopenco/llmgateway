@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-import Logo from "@/lib/icons/Logo";
+import Logo, { LogoLockup } from "@/lib/icons/Logo";
 
 export const ogSize = {
 	width: 1200,
@@ -53,7 +53,7 @@ export function ogImage({ eyebrow, title, subtitle }: OgImageOptions) {
 				<Logo style={{ width: 440, height: 440 }} />
 			</div>
 
-			{/* Header: logo in the top-left corner + wordmark + eyebrow */}
+			{/* Header: official horizontal lockup + eyebrow */}
 			<div
 				style={{
 					display: "flex",
@@ -62,29 +62,9 @@ export function ogImage({ eyebrow, title, subtitle }: OgImageOptions) {
 					gap: 14,
 				}}
 			>
-				<div
-					style={{
-						display: "flex",
-						alignItems: "center",
-						justifyContent: "center",
-						color: "#ffffff",
-					}}
-				>
-					<Logo style={{ width: 44, height: 44 }} />
-				</div>
-				<div
-					style={{
-						display: "flex",
-						flexDirection: "row",
-						alignItems: "center",
-						gap: 10,
-						fontSize: 24,
-					}}
-				>
-					<span style={{ color: "#ffffff", fontWeight: 600 }}>LLM Gateway</span>
-					<span style={{ color: "#4B5563" }}>/</span>
-					<span style={{ color: "#9CA3AF" }}>{eyebrow}</span>
-				</div>
+				<LogoLockup style={{ width: 236, height: 36 }} />
+				<span style={{ color: "#4B5563", fontSize: 24 }}>/</span>
+				<span style={{ color: "#9CA3AF", fontSize: 24 }}>{eyebrow}</span>
 			</div>
 
 			{/* Main: title + subtitle */}

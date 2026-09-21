@@ -1,0 +1,80 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: helpers/sign-in.yaml
+- scrollUntilVisible:
+    element: "Connectors"
+    direction: DOWN
+- tapOn: "Connectors"
+- tapOn:
+    id: "field-search-connectors"
+- inputText: "Gmail"
+- tapOn: "Done typing"
+- runFlow:
+    when:
+      visible: "Disconnect Gmail"
+    commands:
+      - tapOn: "Disconnect Gmail"
+      - tapOn: "Disconnect"
+- tapOn: "Connect Gmail"
+- runFlow: helpers/connector-browser.yaml
+- tapOn: "Cancel"
+- extendedWaitUntil:
+    visible: "Sign-in cancelled.*"
+    timeout: 20000
+- tapOn: "Connect Gmail"
+- runFlow: helpers/connector-browser.yaml
+- tapOn: "Allow access"
+- extendedWaitUntil:
+    visible: "Connected to Gmail."
+    timeout: 20000
+- launchApp
+- scrollUntilVisible:
+    element: "Connectors"
+    direction: DOWN
+- tapOn: "Connectors"
+- tapOn:
+    id: "field-search-connectors"
+- inputText: "Gmail"
+- tapOn: "Done typing"
+- assertVisible: "Reconnect Gmail"
+- tapOn: "Enable Gmail"
+- extendedWaitUntil:
+    visible: "Paused"
+    timeout: 15000
+- launchApp
+- scrollUntilVisible:
+    element: "Connectors"
+    direction: DOWN
+- tapOn: "Connectors"
+- tapOn:
+    id: "field-search-connectors"
+- inputText: "Gmail"
+- tapOn: "Done typing"
+- assertVisible: "Paused"
+- tapOn: "Enable Gmail"
+- extendedWaitUntil:
+    visible: "Connected"
+    timeout: 15000
+- tapOn: "Reconnect Gmail"
+- runFlow: helpers/connector-browser.yaml
+- tapOn: "Decline access"
+- extendedWaitUntil:
+    visible: "Sign-in cancelled.*"
+    timeout: 20000
+- assertVisible: "Reconnect Gmail"
+- tapOn: "Disconnect Gmail"
+- tapOn: "Disconnect"
+- extendedWaitUntil:
+    visible: "Connect Gmail"
+    timeout: 15000
+- launchApp
+- scrollUntilVisible:
+    element: "Connectors"
+    direction: DOWN
+- tapOn: "Connectors"
+- tapOn:
+    id: "field-search-connectors"
+- inputText: "Gmail"
+- tapOn: "Done typing"
+- assertVisible: "Connect Gmail"
+- assertNotVisible: "Disconnect Gmail"

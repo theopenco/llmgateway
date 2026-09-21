@@ -9,6 +9,7 @@ import {
 	materializeAirsideModel,
 	staticCatalogueHasActiveMapping,
 	syncAirsideModelMetadata,
+	updateAirsideMappingPrices,
 } from "@/lib/airside-catalogue.js";
 import { domainPublishesToken } from "@/lib/airside-dns.js";
 import {
@@ -26,15 +27,22 @@ import {
 	type AirsideModelMetadataInput,
 	diffMetadataChanges,
 	pickMetadataChanges,
+	quantizationValue,
 	REASONING_EFFORT_VALUES,
+	supportedToolChoicesValue,
 } from "@/lib/airside-metadata.js";
+import {
+	buildVerificationTarget,
+	enqueueModelVerification,
+	modelVerificationSchema,
+	serializeVerification,
+	verificationCredentialSource,
+	verificationTargetsMatch,
+	type ModelVerificationRow,
+} from "@/lib/model-verification.js";
 import { notifyAirsideCrewInvite } from "@/utils/discord.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 
-import {
-	createQueuedModelVerificationChecks,
-	encryptModelVerificationCredential,
-} from "@llmgateway/actions";
 import {
 	AIRSIDE_BASELINE_MARGIN,
 	AIRSIDE_DISCOUNT_MAX,
@@ -48,16 +56,18 @@ import {
 	eq,
 	gte,
 	inArray,
-	shortid,
 	sql,
 	tables,
 } from "@llmgateway/db";
 import {
-	hasProviderEnvironmentToken,
 	models as catalogueModels,
 	PROVIDER_API_FORMATS,
 	providers as catalogueProviders,
 } from "@llmgateway/models";
+import {
+	PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
+	providerBaseUrlHasEndpointPath,
+} from "@llmgateway/shared";
 import { assertSafeProviderUrl } from "@llmgateway/shared/url-safety-node";
 
 import { getStripe } from "./payments.js";
@@ -65,8 +75,6 @@ import { getStripe } from "./payments.js";
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
 import type { ProviderModelMapping } from "@llmgateway/models";
-
-type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
  * Airside — the self-serve provider portal. Provider companies ("carriers")
@@ -140,11 +148,42 @@ const pendingBrandingSchema = z.object({
 	iconUrl: z.string().nullable().optional(),
 });
 
+// Region ids surface after ":" in "provider/model:region" requests and in the
+// mapping's region column — lowercase slugs only, none of the parser's
+// separators.
+const REGION_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const AIRSIDE_REGION_PRICES_MAX = 10;
+
+const regionPriceSchema = z.object({
+	region: z
+		.string()
+		.regex(
+			REGION_ID_PATTERN,
+			"Region must be a lowercase slug (e.g. 'au', 'eu-frankfurt')",
+		),
+	inputPrice: priceValue,
+	outputPrice: priceValue,
+	// Missing optional prices inherit the filing's default-region values.
+	cachedInputPrice: priceValue.optional(),
+	requestPrice: priceValue.optional(),
+});
+
+const regionPricesValue = z
+	.array(regionPriceSchema)
+	.max(AIRSIDE_REGION_PRICES_MAX)
+	.refine(
+		(entries) => new Set(entries.map((e) => e.region)).size === entries.length,
+		{ message: "Region ids must be unique" },
+	);
+
 const pricingSchema = z.object({
 	inputPrice: priceValue,
 	outputPrice: priceValue,
 	cachedInputPrice: priceValue.optional(),
 	requestPrice: priceValue.optional(),
+	// Per-region overrides. Each filing's set fully replaces the listing's
+	// regional pricing; omitted/empty keeps default-region pricing only.
+	regionPrices: regionPricesValue.optional(),
 });
 
 const verificationMappingSchema = z.object({
@@ -157,6 +196,22 @@ const verificationMappingSchema = z.object({
 	vision: z.boolean().optional(),
 	audio: z.boolean().optional(),
 	tools: z.boolean().optional(),
+	supportedToolChoices: supportedToolChoicesValue.nullish(),
+	jsonOutput: z.boolean().optional(),
+	jsonOutputSchema: z.boolean().optional(),
+	reasoning: z.boolean().optional(),
+	reasoningMaxTokens: z.boolean().optional(),
+	reasoningEfforts: reasoningEffortsValue.nullish(),
+	webSearch: z.boolean().optional(),
+});
+
+/** The capability subset a carrier can preflight before saving an edit. */
+const proposedCapabilitiesSchema = z.object({
+	streaming: z.boolean().optional(),
+	vision: z.boolean().optional(),
+	audio: z.boolean().optional(),
+	tools: z.boolean().optional(),
+	supportedToolChoices: supportedToolChoicesValue.nullish(),
 	jsonOutput: z.boolean().optional(),
 	jsonOutputSchema: z.boolean().optional(),
 	reasoning: z.boolean().optional(),
@@ -236,6 +291,17 @@ const filingSchema = z.object({
 	outputPrice: z.string(),
 	cachedInputPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
+	regionPrices: z
+		.array(
+			z.object({
+				region: z.string(),
+				inputPrice: z.string(),
+				outputPrice: z.string(),
+				cachedInputPrice: z.string().nullable(),
+				requestPrice: z.string().nullable(),
+			}),
+		)
+		.nullable(),
 	// Proposed non-price changes; set on "metadata" filings only.
 	metadata: airsideModelMetadataSchema.nullable(),
 	status: z.enum(["pending", "approved", "rejected"]),
@@ -245,24 +311,8 @@ const filingSchema = z.object({
 	createdAt: z.string(),
 });
 
-const modelVerificationSchema = z.object({
-	id: z.string(),
-	status: z.enum(["queued", "running", "passed", "failed"]),
-	checks: z.array(
-		z.object({
-			id: z.string(),
-			label: z.string(),
-			status: z.enum(["queued", "running", "passed", "failed", "skipped"]),
-			feedback: z.string().optional(),
-		}),
-	),
-	summary: z.string().nullable(),
-	createdAt: z.string(),
-	startedAt: z.string().nullable(),
-	completedAt: z.string().nullable(),
-});
-
 const modelSchema = z.object({
+	quantization: quantizationValue.nullable(),
 	id: z.string(),
 	providerCompanyId: z.string(),
 	providerId: z.string(),
@@ -279,6 +329,8 @@ const modelSchema = z.object({
 	vision: z.boolean(),
 	audio: z.boolean(),
 	tools: z.boolean(),
+	// Accepted tool_choice modes; null = all of them.
+	supportedToolChoices: supportedToolChoicesValue.nullable(),
 	jsonOutput: z.boolean(),
 	jsonOutputSchema: z.boolean(),
 	reasoning: z.boolean(),
@@ -362,8 +414,6 @@ function serializeRoutingFiling(row: RoutingFilingRow) {
 type ProviderClaimRow = typeof tables.providerClaim.$inferSelect;
 type PriceFilingRow = typeof tables.providerPriceFiling.$inferSelect;
 type DraftModelRow = typeof tables.providerDraftModel.$inferSelect;
-type ModelVerificationRow =
-	typeof tables.providerModelVerification.$inferSelect;
 
 function serializeClaim(
 	row: ProviderClaimRow,
@@ -422,135 +472,46 @@ async function credentialedProviderIds(
 function verificationTarget(
 	body: z.infer<typeof verificationMappingSchema>,
 ): ProviderModelVerificationTarget {
-	return {
-		providerId: body.providerId,
-		modelName: body.modelName,
-		externalId: body.externalId ?? body.modelName,
-		apiFormat: body.apiFormat ?? "openai-chat-completions",
-		streaming: body.streaming ?? true,
-		vision: body.vision ?? false,
-		audio: body.audio ?? false,
-		tools: body.tools ?? false,
-		jsonOutput: body.jsonOutput ?? false,
-		jsonOutputSchema: body.jsonOutputSchema ?? false,
-		reasoning: body.reasoning ?? false,
-		reasoningMaxTokens: body.reasoningMaxTokens ?? false,
-		reasoningEfforts: body.reasoningEfforts ?? null,
-		webSearch: body.webSearch ?? false,
-	};
+	return buildVerificationTarget(body);
 }
 
+/**
+ * The target for a listing's own row, optionally with the capabilities a
+ * carrier is proposing but has not filed yet. The pair (provider, model,
+ * upstream id, protocol) always comes from the row — only capabilities differ.
+ */
 function draftVerificationTarget(
 	model: DraftModelRow,
+	proposed: z.infer<typeof proposedCapabilitiesSchema> = {},
 ): ProviderModelVerificationTarget {
+	// `null` is a meaningful proposal for the list-valued fields ("no
+	// restriction" / "parameter unsupported"), so they fall back on undefined
+	// only, not on nullish.
 	return verificationTarget({
 		providerCompanyId: model.providerCompanyId,
 		providerId: model.providerId,
 		modelName: model.modelName,
 		externalId: model.externalId,
 		apiFormat: model.apiFormat,
-		streaming: model.streaming,
-		vision: model.vision,
-		audio: model.audio,
-		tools: model.tools,
-		jsonOutput: model.jsonOutput,
-		jsonOutputSchema: model.jsonOutputSchema,
-		reasoning: model.reasoning,
-		reasoningMaxTokens: model.reasoningMaxTokens,
-		reasoningEfforts: model.reasoningEfforts as
-			(typeof REASONING_EFFORT_VALUES)[number][] | null,
-		webSearch: model.webSearch,
+		streaming: proposed.streaming ?? model.streaming,
+		vision: proposed.vision ?? model.vision,
+		audio: proposed.audio ?? model.audio,
+		tools: proposed.tools ?? model.tools,
+		supportedToolChoices:
+			proposed.supportedToolChoices === undefined
+				? model.supportedToolChoices
+				: proposed.supportedToolChoices,
+		jsonOutput: proposed.jsonOutput ?? model.jsonOutput,
+		jsonOutputSchema: proposed.jsonOutputSchema ?? model.jsonOutputSchema,
+		reasoning: proposed.reasoning ?? model.reasoning,
+		reasoningMaxTokens: proposed.reasoningMaxTokens ?? model.reasoningMaxTokens,
+		reasoningEfforts:
+			proposed.reasoningEfforts === undefined
+				? (model.reasoningEfforts as
+						(typeof REASONING_EFFORT_VALUES)[number][] | null)
+				: proposed.reasoningEfforts,
+		webSearch: proposed.webSearch ?? model.webSearch,
 	});
-}
-
-function verificationTargetsMatch(
-	left: ProviderModelVerificationTarget,
-	right: ProviderModelVerificationTarget,
-): boolean {
-	return (
-		left.providerId === right.providerId &&
-		left.modelName === right.modelName &&
-		left.externalId === right.externalId &&
-		(left.apiFormat ?? "openai-chat-completions") ===
-			(right.apiFormat ?? "openai-chat-completions") &&
-		left.streaming === right.streaming &&
-		left.vision === right.vision &&
-		left.audio === right.audio &&
-		left.tools === right.tools &&
-		left.jsonOutput === right.jsonOutput &&
-		left.jsonOutputSchema === right.jsonOutputSchema &&
-		left.reasoning === right.reasoning &&
-		left.reasoningMaxTokens === right.reasoningMaxTokens &&
-		JSON.stringify(left.reasoningEfforts) ===
-			JSON.stringify(right.reasoningEfforts) &&
-		left.webSearch === right.webSearch
-	);
-}
-
-async function verificationCredentialSource(
-	target: ProviderModelVerificationTarget,
-	apiKey: string | undefined,
-): Promise<ModelVerificationRow["credentialSource"]> {
-	if (apiKey) {
-		return "supplied";
-	}
-	const managedKeys = await db.query.providerKey.findMany({
-		where: {
-			provider: { eq: target.providerId },
-			managed: { eq: true },
-			status: { eq: "active" },
-		},
-		columns: { allowedModels: true },
-	});
-	if (
-		managedKeys.some(
-			(key) =>
-				!key.allowedModels?.length ||
-				key.allowedModels.includes(target.externalId),
-		)
-	) {
-		return "managed";
-	}
-	if (hasProviderEnvironmentToken(target.providerId)) {
-		return "environment";
-	}
-	throw new HTTPException(400, {
-		message: "Enter a provider API key to run this verification.",
-	});
-}
-
-async function enqueueModelVerification(
-	input: {
-		providerCompanyId: string;
-		draftModelId?: string;
-		target: ProviderModelVerificationTarget;
-		apiKey?: string;
-		requestedBy: string;
-		credentialSource: ModelVerificationRow["credentialSource"];
-	},
-	transaction?: DbTransaction,
-): Promise<ModelVerificationRow> {
-	const id = shortid();
-	const [created] = await (transaction ?? db)
-		.insert(tables.providerModelVerification)
-		.values({
-			id,
-			providerCompanyId: input.providerCompanyId,
-			draftModelId: input.draftModelId ?? null,
-			requestedBy: input.requestedBy,
-			target: input.target,
-			checks: createQueuedModelVerificationChecks(input.target),
-			credentialSource: input.credentialSource,
-			credentialCiphertext: input.apiKey
-				? encryptModelVerificationCredential(
-						input.apiKey,
-						id,
-						input.providerCompanyId,
-					)
-				: null,
-		})
-		.returning();
-	return created;
 }
 
 function serializeFiling(row: PriceFilingRow) {
@@ -563,24 +524,21 @@ function serializeFiling(row: PriceFilingRow) {
 		outputPrice: row.outputPrice,
 		cachedInputPrice: row.cachedInputPrice,
 		requestPrice: row.requestPrice,
+		regionPrices: row.regionPrices
+			? row.regionPrices.map((entry) => ({
+					region: entry.region,
+					inputPrice: entry.inputPrice,
+					outputPrice: entry.outputPrice,
+					cachedInputPrice: entry.cachedInputPrice ?? null,
+					requestPrice: entry.requestPrice ?? null,
+				}))
+			: null,
 		metadata: (row.metadata ?? null) as AirsideModelMetadataInput | null,
 		status: row.status,
 		note: row.note,
 		reviewNote: row.reviewNote,
 		reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
 		createdAt: row.createdAt.toISOString(),
-	};
-}
-
-function serializeVerification(row: ModelVerificationRow) {
-	return {
-		id: row.id,
-		status: row.status,
-		checks: row.checks,
-		summary: row.summary,
-		createdAt: row.createdAt.toISOString(),
-		startedAt: row.startedAt?.toISOString() ?? null,
-		completedAt: row.completedAt?.toISOString() ?? null,
 	};
 }
 
@@ -604,6 +562,7 @@ function serializeModel(
 		apiFormat: row.apiFormat,
 		displayName: row.displayName,
 		description: row.description,
+		quantization: row.quantization,
 		family: row.family,
 		contextSize: row.contextSize,
 		maxOutput: row.maxOutput,
@@ -611,6 +570,7 @@ function serializeModel(
 		vision: row.vision,
 		audio: row.audio,
 		tools: row.tools,
+		supportedToolChoices: row.supportedToolChoices ?? null,
 		jsonOutput: row.jsonOutput,
 		jsonOutputSchema: row.jsonOutputSchema,
 		reasoning: row.reasoning,
@@ -1888,6 +1848,11 @@ airside.openapi(registerCarrier, async (c) => {
 		throw new HTTPException(409, { message: "This carrier id is taken." });
 	}
 
+	if (providerBaseUrlHasEndpointPath(body.baseUrl)) {
+		throw new HTTPException(400, {
+			message: PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
+		});
+	}
 	// The same anti-squatting rule as claiming: the registered endpoint must
 	// live on a domain the registrant proved — their verified email's domain,
 	// or one their company published our TXT token on. The SSRF guard keeps
@@ -2040,6 +2005,72 @@ airside.openapi(updateClaimBranding, async (c) => {
 // Models (fleet)
 // ---------------------------------------------------------------------------
 
+const getCatalogue = createRoute({
+	method: "get",
+	path: "/catalogue",
+	responses: {
+		200: {
+			description:
+				"Canonical model metadata and available flat catalogue prices.",
+			content: {
+				"application/json": {
+					schema: z.object({
+						models: z.array(
+							z.object({
+								id: z.string(),
+								family: z.string(),
+								prices: z.array(
+									z.object({
+										providerId: z.string(),
+										inputPrice: z.string(),
+										outputPrice: z.string(),
+										cachedInputPrice: z.string().optional(),
+										requestPrice: z.string().optional(),
+									}),
+								),
+							}),
+						),
+					}),
+				},
+			},
+		},
+	},
+});
+
+airside.openapi(getCatalogue, (c) => {
+	const now = new Date();
+	return c.json({
+		models: catalogueModels.map((model) => ({
+			id: model.id,
+			family: model.family,
+			prices: model.providers.flatMap((entry) => {
+				const mapping: ProviderModelMapping = entry;
+				if (
+					(mapping.deactivatedAt && new Date(mapping.deactivatedAt) <= now) ||
+					mapping.inputPrice === undefined ||
+					mapping.outputPrice === undefined ||
+					mapping.pricingTiers?.length ||
+					mapping.regions?.length ||
+					mapping.peakPricing ||
+					mapping.perImagePrice ||
+					mapping.perSecondPrice
+				) {
+					return [];
+				}
+				return [
+					{
+						providerId: mapping.providerId,
+						inputPrice: mapping.inputPrice,
+						outputPrice: mapping.outputPrice,
+						cachedInputPrice: mapping.cachedInputPrice,
+						requestPrice: mapping.requestPrice,
+					},
+				];
+			}),
+		})),
+	});
+});
+
 const queueNewModelVerification = createRoute({
 	method: "post",
 	path: "/model-verifications",
@@ -2106,7 +2137,9 @@ airside.openapi(queueNewModelVerification, async (c) => {
 				.select({ id: tables.providerCompany.id })
 				.from(tables.providerCompany)
 				.where(eq(tables.providerCompany.id, body.providerCompanyId))
-				.for("update");
+				.for("update")
+				// A cached read would skip the row lock entirely.
+				.$withCache(false);
 			const activeVerifications =
 				await tx.query.providerModelVerification.findMany({
 					where: {
@@ -2171,6 +2204,9 @@ airside.openapi(getModelVerification, async (c) => {
 	if (!verification) {
 		throw new HTTPException(404, { message: "Verification not found" });
 	}
+	if (!verification.providerCompanyId) {
+		throw new HTTPException(404, { message: "Verification not found" });
+	}
 	await requireCompanyMembership(user.id, verification.providerCompanyId);
 	return c.json({ verification: serializeVerification(verification) });
 });
@@ -2185,6 +2221,10 @@ const queueExistingModelVerification = createRoute({
 				"application/json": {
 					schema: z.object({
 						apiKey: z.string().min(1).max(20_000).optional(),
+						// Capabilities to verify instead of the ones on the saved
+						// row, so a carrier can preflight an edit before filing it.
+						// The pair itself is immutable and always comes from the row.
+						proposed: proposedCapabilitiesSchema.optional(),
 					}),
 				},
 			},
@@ -2205,7 +2245,7 @@ const queueExistingModelVerification = createRoute({
 airside.openapi(queueExistingModelVerification, async (c) => {
 	const user = requireVerifiedUser(c.get("user"));
 	const { id } = c.req.valid("param");
-	const { apiKey } = c.req.valid("json");
+	const { apiKey, proposed } = c.req.valid("json");
 	const model = await db.query.providerDraftModel.findFirst({
 		where: { id: { eq: id } },
 	});
@@ -2218,7 +2258,7 @@ airside.openapi(queueExistingModelVerification, async (c) => {
 			message: "Delisted mappings cannot be verified.",
 		});
 	}
-	const target = draftVerificationTarget(model);
+	const target = draftVerificationTarget(model, proposed);
 	const credentialSource = await verificationCredentialSource(target, apiKey);
 	let verification: ModelVerificationRow;
 	try {
@@ -2296,6 +2336,7 @@ const createModel = createRoute({
 						apiFormat: providerApiFormatValue.optional(),
 						displayName: z.string().max(200).optional(),
 						description: z.string().max(2000).optional(),
+						quantization: quantizationValue.nullish(),
 						family: z.string().min(1).max(100),
 						contextSize: z.number().int().positive().optional(),
 						maxOutput: z.number().int().positive().optional(),
@@ -2303,6 +2344,7 @@ const createModel = createRoute({
 						vision: z.boolean().optional(),
 						audio: z.boolean().optional(),
 						tools: z.boolean().optional(),
+						supportedToolChoices: supportedToolChoicesValue.nullish(),
 						jsonOutput: z.boolean().optional(),
 						jsonOutputSchema: z.boolean().optional(),
 						reasoning: z.boolean().optional(),
@@ -2419,6 +2461,7 @@ airside.openapi(createModel, async (c) => {
 					apiFormat: body.apiFormat ?? "openai-chat-completions",
 					displayName: body.displayName ?? null,
 					description: body.description ?? null,
+					quantization: body.quantization ?? null,
 					family: body.family,
 					contextSize: body.contextSize ?? null,
 					maxOutput: body.maxOutput ?? null,
@@ -2426,6 +2469,7 @@ airside.openapi(createModel, async (c) => {
 					vision: body.vision ?? false,
 					audio: body.audio ?? false,
 					tools: body.tools ?? false,
+					supportedToolChoices: body.supportedToolChoices ?? null,
 					jsonOutput: body.jsonOutput ?? false,
 					jsonOutputSchema: body.jsonOutputSchema ?? false,
 					reasoning: body.reasoning ?? false,
@@ -2448,6 +2492,9 @@ airside.openapi(createModel, async (c) => {
 					outputPrice: body.pricing.outputPrice,
 					cachedInputPrice: body.pricing.cachedInputPrice ?? null,
 					requestPrice: body.pricing.requestPrice ?? null,
+					regionPrices: body.pricing.regionPrices?.length
+						? body.pricing.regionPrices
+						: null,
 					requestedBy: user.id,
 					note: body.note ?? null,
 				})
@@ -2606,6 +2653,7 @@ airside.openapi(importCatalogueModels, async (c) => {
 					externalId: mapping.externalId,
 					apiFormat: mapping.apiFormat ?? "provider-native",
 					displayName: model.name ?? null,
+					quantization: mapping.quantization ?? null,
 					family: model.family,
 					contextSize: mapping.contextSize ?? null,
 					maxOutput: mapping.maxOutput ?? null,
@@ -2614,6 +2662,7 @@ airside.openapi(importCatalogueModels, async (c) => {
 					vision: mapping.vision ?? false,
 					audio: Boolean(mapping.audio),
 					tools: mapping.tools ?? false,
+					supportedToolChoices: mapping.supportedToolChoices ?? null,
 					jsonOutput: mapping.jsonOutput ?? false,
 					jsonOutputSchema: mapping.jsonOutputSchema ?? false,
 					reasoning: mapping.reasoning ?? false,
@@ -2673,7 +2722,7 @@ const updateModel = createRoute({
 				},
 			},
 			description:
-				"The model. Drafts are edited in place; on an active listing the change is filed for admin approval and surfaces as `pendingFiling`. Pricing is not editable here — file a price change instead.",
+				"The model. Drafts are edited in place; on an active listing the change is filed for admin approval and surfaces as `pendingFiling`. Filing again replaces a pending change, and saving the live values back withdraws it. Pricing is not editable here — file a price change instead.",
 		},
 	},
 });
@@ -2697,16 +2746,8 @@ airside.openapi(updateModel, async (c) => {
 			message: "Delisted models cannot be edited.",
 		});
 	}
-	const updates = diffMetadataChanges(model, pickMetadataChanges(body));
-	// An empty diff is a no-op, not a drizzle "No values to set" 500.
-	if (Object.keys(updates).length === 0) {
-		const unchangedFilings = await db.query.providerPriceFiling.findMany({
-			where: { draftModelId: { eq: id } },
-		});
-		return c.json({
-			model: serializeModel({ ...model, priceFilings: unchangedFilings }),
-		});
-	}
+	const changes = pickMetadataChanges(body);
+	const updates = diffMetadataChanges(model, changes);
 	if (model.status === "active") {
 		// Live listings only change through review: file the diff alongside
 		// the current prices so the filing row is self-describing.
@@ -2714,15 +2755,72 @@ airside.openapi(updateModel, async (c) => {
 			where: { draftModelId: { eq: id } },
 			orderBy: { createdAt: "desc" },
 		});
-		if (filings.some((f) => f.status === "pending")) {
+		const pending = filings.find((f) => f.status === "pending");
+		if (pending && pending.kind !== "metadata") {
 			throw new HTTPException(409, {
-				message: "A filing for this model is already pending review.",
+				message: "A fare filing for this model is already pending review.",
+			});
+		}
+		// A new save replaces the pending change rather than queueing behind
+		// it; saving the live values back withdraws it.
+		if (Object.keys(updates).length === 0) {
+			if (pending && Object.keys(changes).length > 0) {
+				const withdrawn = await db
+					.delete(tables.providerPriceFiling)
+					.where(
+						and(
+							eq(tables.providerPriceFiling.id, pending.id),
+							eq(tables.providerPriceFiling.status, "pending"),
+						),
+					)
+					.returning({ id: tables.providerPriceFiling.id });
+				if (withdrawn.length === 0) {
+					throw new HTTPException(409, {
+						message:
+							"The pending change was reviewed in the meantime — reload and edit again.",
+					});
+				}
+				return c.json({
+					model: serializeModel({
+						...model,
+						priceFilings: filings.filter((f) => f.id !== pending.id),
+					}),
+				});
+			}
+			return c.json({
+				model: serializeModel({ ...model, priceFilings: filings }),
 			});
 		}
 		const current = filings.find((f) => f.status === "approved");
 		if (!current) {
 			throw new HTTPException(409, {
 				message: "This listing has no approved pricing to file against.",
+			});
+		}
+		if (pending) {
+			const [replaced] = await db
+				.update(tables.providerPriceFiling)
+				.set({ metadata: updates, requestedBy: user.id })
+				.where(
+					and(
+						eq(tables.providerPriceFiling.id, pending.id),
+						eq(tables.providerPriceFiling.status, "pending"),
+					),
+				)
+				.returning();
+			if (!replaced) {
+				throw new HTTPException(409, {
+					message:
+						"The pending change was reviewed in the meantime — reload and edit again.",
+				});
+			}
+			return c.json({
+				model: serializeModel({
+					...model,
+					priceFilings: filings.map((f) =>
+						f.id === replaced.id ? replaced : f,
+					),
+				}),
 			});
 		}
 		const filing = await db
@@ -2735,6 +2833,7 @@ airside.openapi(updateModel, async (c) => {
 				outputPrice: current.outputPrice,
 				cachedInputPrice: current.cachedInputPrice,
 				requestPrice: current.requestPrice,
+				regionPrices: current.regionPrices,
 				metadata: updates,
 				requestedBy: user.id,
 			})
@@ -2752,6 +2851,15 @@ airside.openapi(updateModel, async (c) => {
 				...model,
 				priceFilings: [...filings, ...filing],
 			}),
+		});
+	}
+	// An empty diff is a no-op, not a drizzle "No values to set" 500.
+	if (Object.keys(updates).length === 0) {
+		const unchangedFilings = await db.query.providerPriceFiling.findMany({
+			where: { draftModelId: { eq: id } },
+		});
+		return c.json({
+			model: serializeModel({ ...model, priceFilings: unchangedFilings }),
 		});
 	}
 	const updated = await cdb.transaction(async (tx) => {
@@ -2863,6 +2971,100 @@ airside.openapi(deleteModel, async (c) => {
 	return c.json({ status: "delisted" as const });
 });
 
+const deleteModelRegion = createRoute({
+	method: "delete",
+	path: "/models/{id}/regions/{region}",
+	request: {
+		params: z.object({ id: z.string(), region: z.string() }),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({ model: modelSchema }),
+				},
+			},
+			description:
+				"The model with the region dropped. Removing an offered region changes no price, so — like delisting — it applies immediately: an auto-approved filing carrying the remaining regions becomes the effective pricing.",
+		},
+	},
+});
+
+airside.openapi(deleteModelRegion, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id, region } = c.req.valid("param");
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!model) {
+		throw new HTTPException(404, { message: "Model not found" });
+	}
+	await requireCompanyMembership(user.id, model.providerCompanyId);
+	// cdb: the gateway caches these tables for listing resolution. The model
+	// row is locked so a concurrent filing or second region removal serializes
+	// behind this write instead of resurrecting the removed region from a
+	// stale read of the approved filing.
+	await cdb.transaction(async (tx) => {
+		const [locked] = await tx
+			.select()
+			.from(tables.providerDraftModel)
+			.where(eq(tables.providerDraftModel.id, id))
+			.for("update")
+			// A cached read would skip the row lock entirely.
+			.$withCache(false);
+		if (!locked || locked.status !== "active") {
+			throw new HTTPException(409, {
+				message:
+					"Only active listings can drop a region — edit the pending filing instead.",
+			});
+		}
+		const filings = await tx
+			.select()
+			.from(tables.providerPriceFiling)
+			.where(eq(tables.providerPriceFiling.draftModelId, id))
+			.orderBy(desc(tables.providerPriceFiling.createdAt))
+			.$withCache(false);
+		if (filings.some((filing) => filing.status === "pending")) {
+			throw new HTTPException(409, {
+				message: "A filing for this model is already pending review.",
+			});
+		}
+		const current = filings.find((filing) => filing.status === "approved");
+		const remaining = (current?.regionPrices ?? []).filter(
+			(entry) => entry.region !== region,
+		);
+		if (!current || remaining.length === (current.regionPrices ?? []).length) {
+			throw new HTTPException(404, {
+				message: "This region is not part of the listing's pricing.",
+			});
+		}
+		const [filing] = await tx
+			.insert(tables.providerPriceFiling)
+			.values({
+				draftModelId: id,
+				providerCompanyId: locked.providerCompanyId,
+				kind: "update",
+				inputPrice: current.inputPrice,
+				outputPrice: current.outputPrice,
+				cachedInputPrice: current.cachedInputPrice,
+				requestPrice: current.requestPrice,
+				regionPrices: remaining.length > 0 ? remaining : null,
+				requestedBy: user.id,
+				status: "approved",
+				reviewNote: `Auto-approved: region '${region}' removed by the carrier`,
+				reviewedAt: new Date(),
+			})
+			.returning();
+		await updateAirsideMappingPrices(locked, filing, tx);
+	});
+	const updatedFilings = await db.query.providerPriceFiling.findMany({
+		where: { draftModelId: { eq: id } },
+	});
+	return c.json({
+		model: serializeModel({ ...model, priceFilings: updatedFilings }),
+	});
+});
+
 const createPriceFiling = createRoute({
 	method: "post",
 	path: "/models/{id}/price-filings",
@@ -2901,22 +3103,40 @@ airside.openapi(createPriceFiling, async (c) => {
 		throw new HTTPException(404, { message: "Model not found" });
 	}
 	await requireCompanyMembership(user.id, model.providerCompanyId);
-	if (model.status === "delisted") {
-		throw new HTTPException(409, {
-			message: "Delisted models cannot receive price filings.",
-		});
-	}
-	const pending = await db.query.providerPriceFiling.findFirst({
-		where: { draftModelId: { eq: id }, status: { eq: "pending" } },
-	});
-	if (pending) {
-		throw new HTTPException(409, {
-			message: "A filing for this model is already pending review.",
-		});
-	}
-	const kind = model.status === "active" ? "update" : "initial";
+	// The model row lock serializes filing creation against a concurrent
+	// region removal, whose auto-approved write must not interleave with a
+	// new filing's pending check.
 	const filing = await cdb.transaction(async (tx) => {
-		if (model.status === "rejected") {
+		const [locked] = await tx
+			.select()
+			.from(tables.providerDraftModel)
+			.where(eq(tables.providerDraftModel.id, id))
+			.for("update")
+			// A cached read would skip the row lock entirely.
+			.$withCache(false);
+		if (!locked || locked.status === "delisted") {
+			throw new HTTPException(409, {
+				message: "Delisted models cannot receive price filings.",
+			});
+		}
+		const pending = await tx
+			.select({ id: tables.providerPriceFiling.id })
+			.from(tables.providerPriceFiling)
+			.where(
+				and(
+					eq(tables.providerPriceFiling.draftModelId, id),
+					eq(tables.providerPriceFiling.status, "pending"),
+				),
+			)
+			.limit(1)
+			.$withCache(false);
+		if (pending.length > 0) {
+			throw new HTTPException(409, {
+				message: "A filing for this model is already pending review.",
+			});
+		}
+		const kind = locked.status === "active" ? "update" : "initial";
+		if (locked.status === "rejected") {
 			await tx
 				.update(tables.providerDraftModel)
 				.set({ status: "draft" })
@@ -2926,12 +3146,13 @@ airside.openapi(createPriceFiling, async (c) => {
 			.insert(tables.providerPriceFiling)
 			.values({
 				draftModelId: id,
-				providerCompanyId: model.providerCompanyId,
+				providerCompanyId: locked.providerCompanyId,
 				kind,
 				inputPrice: body.inputPrice,
 				outputPrice: body.outputPrice,
 				cachedInputPrice: body.cachedInputPrice ?? null,
 				requestPrice: body.requestPrice ?? null,
+				regionPrices: body.regionPrices?.length ? body.regionPrices : null,
 				requestedBy: user.id,
 				note: body.note ?? null,
 			})

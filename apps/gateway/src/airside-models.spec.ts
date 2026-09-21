@@ -21,7 +21,7 @@ import {
 	waitForLogByRequestId,
 } from "./test-utils/test-helpers.js";
 
-import type { ProviderApiFormat } from "@llmgateway/models";
+import type { ProviderApiFormat, ToolChoiceMode } from "@llmgateway/models";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 
 interface CapturedRequest {
@@ -195,6 +195,7 @@ describe("airside-listed models", () => {
 		contextSize?: number;
 		maxOutput?: number;
 		tools?: boolean;
+		supportedToolChoices?: ToolChoiceMode[];
 		vision?: boolean;
 		apiFormat?: ProviderApiFormat;
 	}) {
@@ -224,6 +225,7 @@ describe("airside-listed models", () => {
 			maxOutput: options.maxOutput ?? null,
 			streaming: true,
 			tools: options.tools ?? false,
+			supportedToolChoices: options.supportedToolChoices ?? null,
 			vision: options.vision ?? false,
 			status: "active" as const,
 			deactivatedAt: null,
@@ -302,6 +304,7 @@ describe("airside-listed models", () => {
 			modelName?: string;
 			maxOutput?: number;
 			vision?: boolean;
+			supportedToolChoices?: ToolChoiceMode[];
 		} = {},
 	) {
 		const modelName = options.modelName ?? "gpt-5.6-luna";
@@ -365,6 +368,7 @@ describe("airside-listed models", () => {
 				contextSize: 128000,
 				maxOutput: options.maxOutput,
 				tools: true,
+				supportedToolChoices: options.supportedToolChoices,
 				vision: options.vision ?? true,
 			});
 		} else {
@@ -428,6 +432,81 @@ describe("airside-listed models", () => {
 		expect(Number(log!.inputCost)).toBeCloseTo(0.002, 6);
 		expect(Number(log!.outputCost)).toBeCloseTo(0.005, 6);
 		expect(Number(log!.cost)).toBeCloseTo(0.007, 6);
+	});
+
+	test("routes a region-pinned listing and bills its regional fare", async () => {
+		await setup("airside-region-token");
+		await db.insert(tables.modelProviderMapping).values({
+			modelId: "gpt-5.6-luna",
+			providerId: "mistral",
+			region: "au",
+			externalId: "gpt-5.6-luna",
+			source: "airside",
+			inputPrice: "4e-6",
+			outputPrice: "2e-5",
+			contextSize: 128000,
+			streaming: true,
+			tools: true,
+			vision: true,
+			status: "active",
+		});
+		await clearCache();
+
+		const resolution = await resolveAirsideModel("mistral/gpt-5.6-luna:au");
+		expect(resolution).toBeTruthy();
+		expect(resolution?.parseResult.requestedRegion).toBe("au");
+		const regionalPricing = resolution?.pricingMappings.find(
+			(mapping) => mapping.region === "au",
+		);
+		expect(Number(regionalPricing?.inputPrice)).toBeCloseTo(4e-6);
+		expect(Number(regionalPricing?.outputPrice)).toBeCloseTo(2e-5);
+		// An unfiled region falls through to the (throwing) static parse.
+		await expect(
+			resolveAirsideModel("mistral/gpt-5.6-luna:mars"),
+		).resolves.toBeNull();
+
+		// Unpinned traffic routes to the cheaper default deployment and pays
+		// the default fare.
+		const defaultRequestId = "airside-region-req-1";
+		const defaultRes = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer airside-region-token",
+				"x-no-fallback": "true",
+				"x-request-id": defaultRequestId,
+			},
+			body: JSON.stringify({
+				model: "mistral/gpt-5.6-luna",
+				messages: [{ role: "user", content: "Say hi at the default fare" }],
+			}),
+		});
+		expect(defaultRes.status).toBe(200);
+		const defaultLog = await waitForLogByRequestId(defaultRequestId);
+		expect(defaultLog!.usedModel).toBe("mistral/gpt-5.6-luna");
+		expect(Number(defaultLog!.inputCost)).toBeCloseTo(0.002, 6);
+		expect(Number(defaultLog!.outputCost)).toBeCloseTo(0.005, 6);
+
+		const requestId = "airside-region-req-2";
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer airside-region-token",
+				"x-no-fallback": "true",
+				"x-request-id": requestId,
+			},
+			body: JSON.stringify({
+				model: "mistral/gpt-5.6-luna:au",
+				messages: [{ role: "user", content: "Say hi from down under" }],
+			}),
+		});
+		expect(res.status).toBe(200);
+		// 1000 tokens at $4/M in + 500 tokens at $20/M out.
+		const log = await waitForLogByRequestId(requestId);
+		expect(log!.usedProvider).toBe("mistral");
+		expect(Number(log!.inputCost)).toBeCloseTo(0.004, 6);
+		expect(Number(log!.outputCost)).toBeCloseTo(0.01, 6);
 	});
 
 	test("bills an approved Airside discount once", async () => {
@@ -547,6 +626,48 @@ describe("airside-listed models", () => {
 		expect(log).toBeTruthy();
 		expect(Number(log!.inputCost)).toBeCloseTo(0.002, 6);
 		expect(Number(log!.outputCost)).toBeCloseTo(0.005, 6);
+	});
+
+	test("downgrades a tool_choice the listing does not accept", async () => {
+		// The carrier's deployment mishandles "required" — it answers with the
+		// model's raw tool markup instead of tool_calls — so the listing drops
+		// that mode and the gateway sends "auto" rather than routing elsewhere.
+		const token = "airside-tool-choice-token";
+		await setup(token, {
+			modelName: "mistral-small-2506",
+			supportedToolChoices: ["auto", "none"],
+		});
+		await clearCache();
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${token}`,
+				"x-no-fallback": "true",
+			},
+			body: JSON.stringify({
+				model: "mistral/mistral-small-2506",
+				messages: [{ role: "user", content: "Weather in Berlin?" }],
+				tools: [
+					{
+						type: "function",
+						function: {
+							name: "get_weather",
+							parameters: {
+								type: "object",
+								properties: { city: { type: "string" } },
+							},
+						},
+					},
+				],
+				tool_choice: "required",
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		expect(captured).toHaveLength(1);
+		expect(captured[0].body.tool_choice).toBe("auto");
 	});
 
 	test("validates requests against the carrier's canonical mapping", async () => {
@@ -1201,6 +1322,70 @@ describe("airside-listed models", () => {
 			mapped.data.some((m) => m.id === "nebius/llama-3.1-8b-instruct"),
 		).toBe(true);
 	});
+
+	test("enforces a global rate limit set on a carrier listing", async () => {
+		await setupCustomCarrier("airside-rate-limit-token");
+		await db.insert(tables.rateLimit).values({
+			organizationId: null,
+			provider: "acme-sky",
+			model: "sky-large",
+			maxRpm: 1,
+			enforcement: "global",
+		});
+		await clearCache();
+
+		async function send(prompt: string) {
+			return await app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer airside-rate-limit-token",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "acme-sky/sky-large",
+					messages: [{ role: "user", content: prompt }],
+				}),
+			});
+		}
+
+		expect((await send("first")).status).toBe(200);
+		expect((await send("second")).status).toBe(429);
+	});
+
+	test.each(["global", "per_org"] as const)(
+		"zero global caps block the only provider with %s enforcement",
+		async (enforcement) => {
+			await setupCustomCarrier("airside-rate-limit-token");
+			await db.insert(tables.rateLimit).values({
+				organizationId: null,
+				provider: "acme-sky",
+				maxRpd: 0,
+				enforcement,
+			});
+			await clearCache();
+
+			for (const model of ["sky-large", "acme-sky/sky-large"]) {
+				for (const stream of [false, true]) {
+					const response = await app.request("/v1/chat/completions", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							Authorization: "Bearer airside-rate-limit-token",
+						},
+						body: JSON.stringify({
+							model,
+							stream,
+							messages: [{ role: "user", content: "Say hi" }],
+						}),
+					});
+					expect(response.status).toBe(429);
+					expect(await response.text()).toContain("maximum 0 requests per day");
+				}
+			}
+			expect(captured).toHaveLength(0);
+		},
+	);
 
 	test("does not route an unregistered provider prefix", async () => {
 		await setupCustomCarrier("airside-unknown-token");

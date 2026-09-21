@@ -14,6 +14,8 @@ import {
 	db,
 	eq,
 	findManagedProviderKeyById,
+	type GatewayContentFilterEvaluation,
+	gatewayContentFilterEvaluationSchema,
 	type InferSelectModel,
 	inArray,
 	isNull,
@@ -838,6 +840,21 @@ function getStoredVideoDebugPayload(
 	return null;
 }
 
+// Stamped by the gateway at submission when the tiered content filter sampled
+// the request; surfaces on the log row so violations aggregate per org.
+function getStoredContentFilterEvaluation(
+	job: VideoJobRecord,
+): GatewayContentFilterEvaluation | null {
+	for (const candidate of getVideoMetadataCandidates(job)) {
+		const value = candidate.llmgateway_content_filter_evaluation;
+		const parsed = gatewayContentFilterEvaluationSchema.safeParse(value);
+		if (parsed.success) {
+			return parsed.data;
+		}
+	}
+	return null;
+}
+
 function getFormattedRequestedVideoModel(job: VideoJobRecord): string {
 	return job.requestedProvider
 		? `${job.requestedProvider}/${job.model}`
@@ -1488,6 +1505,8 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 			const failureUnifiedFinishReason = isContentFilterFailure
 				? UnifiedFinishReason.CONTENT_FILTER
 				: UnifiedFinishReason.UPSTREAM_ERROR;
+			const contentFilterEvaluation =
+				getStoredContentFilterEvaluation(jobToLog);
 
 			const logValues: LogInsertData = {
 				id: logId,
@@ -1526,6 +1545,10 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				internalErrorDetails: redactStealthProviderError
 					? rawErrorDetails
 					: undefined,
+				internalContentFilter: contentFilterEvaluation?.violation
+					? true
+					: undefined,
+				gatewayContentFilterEvaluation: contentFilterEvaluation,
 				cost: totalCost,
 				requestCost: 0,
 				imageInputCost,

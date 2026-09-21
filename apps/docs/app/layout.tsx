@@ -7,6 +7,9 @@ import { Geist_Mono, Inter } from "next/font/google";
 import { docsBaseUrl } from "@/lib/base-url";
 import { ConfigProvider } from "@/lib/context";
 import { PostHogProvider } from "@/lib/providers";
+import { fetchSystemBanner } from "@/lib/system-banner";
+
+import { SystemBannerBar } from "@llmgateway/shared/system-banner";
 
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
@@ -47,10 +50,11 @@ export const metadata: Metadata = {
 	},
 };
 
-export default function Layout({ children }: { children: ReactNode }) {
+export default async function Layout({ children }: { children: ReactNode }) {
 	// Access environment variables directly on the server
 	const posthogKey = process.env.POSTHOG_KEY ?? "";
 	const posthogHost = process.env.POSTHOG_HOST ?? "";
+	const systemBanner = await fetchSystemBanner();
 
 	return (
 		<html
@@ -59,6 +63,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 			suppressHydrationWarning
 		>
 			<body className="flex flex-col min-h-screen">
+				<SystemBannerBar banner={systemBanner} />
 				<ConfigProvider posthogKey={posthogKey} posthogHost={posthogHost}>
 					<PostHogProvider>
 						<RootProvider>{children}</RootProvider>

@@ -21,7 +21,7 @@ const bedrockFaqs: CompareFaqItem[] = [
 	{
 		question: "Doesn't Bedrock already have OpenAI and Anthropic models?",
 		answer:
-			"It does — Bedrock hosts OpenAI's frontier models and Anthropic's Claude family, among others. But the catalog is limited to what AWS hosts: there's no Google Gemini and no fast independent hosts like Groq or Cerebras. LLM Gateway routes across all of them, including Bedrock itself, from one API.",
+			"It does — Bedrock hosts OpenAI's frontier models and Anthropic's Claude family, and Google's open-weight Gemma models arrived in 2026. But the catalog is limited to what AWS hosts: there's still no Google Gemini and no fast independent hosts like Groq or Cerebras. LLM Gateway routes across all of them, including Bedrock itself, from one API.",
 	},
 	{
 		question: "How does pricing compare to AWS Bedrock?",

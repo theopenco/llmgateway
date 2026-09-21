@@ -1,8 +1,10 @@
+import { isGoogleReasoningDetail } from "@llmgateway/actions";
 import { shortid } from "@llmgateway/db";
 
 import { toResponsesToolCallItem } from "./tool-registry.js";
 
 import type { ToolRegistry } from "./tool-registry.js";
+import type { GoogleExtraContent } from "@llmgateway/models";
 
 interface ChatCompletionsResponse {
 	id?: string;
@@ -22,6 +24,7 @@ interface ChatCompletionsResponse {
 			tool_calls?: Array<{
 				id: string;
 				type: string;
+				extra_content?: GoogleExtraContent;
 				function: {
 					name: string;
 					arguments: string;
@@ -177,6 +180,7 @@ export interface ResponsesEchoRequest {
 		effort?: string | null;
 		summary?: string | null;
 		context?: string | null;
+		mode?: string | null;
 	} | null;
 	max_output_tokens?: number;
 	max_tool_calls?: number;
@@ -361,6 +365,8 @@ export function convertChatResponseToResponses(
 	// previous_response_id it becomes a stray assistant message that separates
 	// the tool_calls assistant from its tool result, causing strict providers
 	// (deepseek, bytedance, aws-bedrock, kimi, etc.) to reject the request.
+	const googleDetails =
+		message?.reasoning_details?.filter(isGoogleReasoningDetail) ?? [];
 	const toolCalls = message?.tool_calls ?? [];
 	const messageItems: Array<{
 		precedingToolCalls: number;
@@ -376,16 +382,15 @@ export function convertChatResponseToResponses(
 			});
 		}
 	} else if (
-		message?.content !== null &&
-		message?.content !== undefined &&
-		message.content.trim() !== ""
+		(typeof message?.content === "string" && message.content.trim() !== "") ||
+		googleDetails.length > 0
 	) {
 		messageItems.push({
-			precedingToolCalls: message.content_before_tool_calls
+			precedingToolCalls: message?.content_before_tool_calls
 				? 0
 				: toolCalls.length,
-			text: message.content,
-			...(message.phase ? { phase: message.phase } : {}),
+			text: message?.content ?? "",
+			...(message?.phase ? { phase: message.phase } : {}),
 		});
 	}
 
@@ -396,6 +401,9 @@ export function convertChatResponseToResponses(
 		type: "message",
 		id: `msg_${shortid(24)}`,
 		role: "assistant",
+		...(isLast && googleDetails.length > 0
+			? { reasoning_details: googleDetails }
+			: {}),
 		content: [
 			{
 				type: "output_text",
@@ -434,6 +442,7 @@ export function convertChatResponseToResponses(
 			toResponsesToolCallItem(toolRegistry, {
 				id: `fc_${shortid(24)}`,
 				callId: toolCall.id,
+				extraContent: toolCall.extra_content,
 				name: toolCall.function.name,
 				arguments: toolCall.function.arguments,
 				status: "completed",
@@ -528,8 +537,9 @@ export function convertChatResponseToResponses(
 		reasoning: {
 			effort: request?.reasoning?.effort ?? null,
 			summary: request?.reasoning?.summary ?? null,
-			// Only the validated effective mode the provider applied is reported;
-			// the requested value is never echoed.
+			...(request?.reasoning?.mode && { mode: request.reasoning.mode }),
+			// Only the validated effective context the provider applied is
+			// reported; the requested value is never echoed.
 			...(resolveReasoningContext(chatResponse.reasoning_context) ?? {}),
 		},
 		usage,

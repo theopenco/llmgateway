@@ -1,0 +1,79 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- scrollUntilVisible:
+    element: "Sandbox Escape"
+    direction: DOWN
+    timeout: 20000
+- tapOn: "Sandbox Escape"
+- assertVisible: "Hello, World"
+- tapOn: "Model: .*gpt-.*mini"
+- tapOn:
+    id: field-search-models
+- inputText: gpt-4o-mini
+- tapOn: "Done typing"
+- tapOn: "Choose GPT-4o Mini"
+- scrollUntilVisible:
+    element: "One step"
+    direction: DOWN
+- tapOn: "One step"
+- extendedWaitUntil:
+    visible: "Step 1 /.*"
+    timeout: 30000
+- assertVisible: "Resume run"
+- assertVisible: "100 input.*"
+- tapOn: "Resume run"
+- extendedWaitUntil:
+    notVisible: "Pause run"
+    timeout: 90000
+- scrollUntilVisible:
+    element: "Replay and share"
+    direction: DOWN
+    timeout: 90000
+- assertVisible: "Escaped"
+- takeScreenshot: artifacts/escape-finished
+- tapOn: "Replay and share"
+- assertVisible: "Hello, World · escaped"
+- scrollUntilVisible:
+    element: "Next turn"
+    direction: DOWN
+- assertVisible: "Replay position 0 / 15"
+- tapOn: "Next turn"
+- assertVisible: "Replay position 1 / 15"
+- tapOn: "Previous turn"
+- assertVisible: "Replay position 0 / 15"
+- tapOn: "Play replay"
+- extendedWaitUntil:
+    visible: "Replay position 15 / 15"
+    timeout: 20000
+- tapOn: "Restart replay"
+- assertVisible: "Replay position 0 / 15"
+- tapOn: "Replay position"
+- assertVisible: "Replay position [78] / 15"
+- tapOn: "Restart replay"
+- scrollUntilVisible:
+    element: "Copy replay link"
+    direction: DOWN
+- tapOn: "Copy replay link"
+- assertVisible: "Replay link copied"
+- tapOn: "Share replay"
+- assertVisible: "Copy"
+- swipe:
+    start: 50%, 60%
+    end: 50%, 95%
+- launchApp
+- scrollUntilVisible:
+    element: "Sandbox Escape"
+    direction: DOWN
+    timeout: 20000
+- tapOn: "Sandbox Escape"
+- assertVisible: "Model: gpt-4o-mini"
+- tapOn: "Saved runs"
+- assertVisible: "Saved Escape runs"
+- assertVisible: "Hello, World · escaped"
+- tapOn:
+    text: "Replay Hello, World, escaped, 15 steps"
+    index: 0
+- assertVisible: "Hello, World · escaped"
+- takeScreenshot: artifacts/escape-replay

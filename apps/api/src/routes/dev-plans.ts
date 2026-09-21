@@ -9,11 +9,11 @@ import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import {
 	computeSelfRefundEligibility,
 	executeSelfRefund,
-	isSelfRefundCandidateType,
+	hasRefundAction,
 	refundFeedbackBodySchema,
 } from "@/lib/self-refund.js";
 import { getStripeCardErrorMessage } from "@/lib/stripe-card-error.js";
-import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
+import { forcedDevPlanThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import {
 	assertTopUpVelocityAllowed,
 	releaseTopUpReservation,
@@ -479,7 +479,7 @@ devPlans.openapi(subscribe, async (c) => {
 			customer: stripeCustomerId,
 			mode: "setup",
 			payment_method_types: ["card"],
-			...(await forcedThreeDSecureOptions()),
+			...(await forcedDevPlanThreeDSecureOptions()),
 			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?setup_session_id={CHECKOUT_SESSION_ID}`,
 			cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?canceled=true`,
 			metadata: {
@@ -2636,7 +2636,7 @@ devPlans.openapi(getInvoices, async (c) => {
 			currency: t.currency,
 			status: t.status,
 			description: t.description,
-			refund: isSelfRefundCandidateType(t.type)
+			refund: hasRefundAction(t)
 				? computeSelfRefundEligibility({
 						organization: personalOrg,
 						role: membership?.role,
@@ -3275,7 +3275,7 @@ devPlans.openapi(createSetupIntent, async (c) => {
 		customer: stripeCustomerId,
 		payment_method_types: ["card"],
 		usage: "off_session",
-		...(await forcedThreeDSecureOptions()),
+		...(await forcedDevPlanThreeDSecureOptions()),
 		metadata: {
 			organizationId: personalOrg.id,
 			subscriptionType: "dev_plan_update",

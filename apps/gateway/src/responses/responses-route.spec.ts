@@ -57,6 +57,49 @@ describe("responses streaming lifecycle", () => {
 		});
 	});
 
+	it.each([
+		{ path: "/", noFallback: "true" },
+		{ path: "/", noFallback: "false" },
+		{ path: "/", noFallback: undefined },
+		{ path: "/compact", noFallback: "true" },
+		{ path: "/compact", noFallback: "false" },
+		{ path: "/compact", noFallback: undefined },
+	])(
+		"preserves x-no-fallback=$noFallback on $path",
+		async ({ path, noFallback }) => {
+			mocks.appRequest.mockResolvedValue(
+				Response.json(
+					{ error: { message: "Upstream unavailable" } },
+					{ status: 503 },
+				),
+			);
+			const headers = new Headers({
+				authorization: "Bearer test-token",
+				"content-type": "application/json",
+			});
+			if (noFallback !== undefined) {
+				headers.set("X-No-Fallback", noFallback);
+			}
+
+			const response = await responses.request(path, {
+				method: "POST",
+				headers,
+				body: JSON.stringify({
+					model: "aws-mantle/gpt-6-astra:us-west-2",
+					input: "hello",
+					store: false,
+				}),
+			});
+
+			expect(response.status).toBe(503);
+			expect(mocks.appRequest).toHaveBeenCalledOnce();
+			const forwardedHeaders = new Headers(
+				mocks.appRequest.mock.calls[0]![1].headers,
+			);
+			expect(forwardedHeaders.get("x-no-fallback")).toBe(noFallback ?? null);
+		},
+	);
+
 	it("emits response.created before an early response.failed", async () => {
 		mocks.appRequest.mockResolvedValue(
 			new Response(

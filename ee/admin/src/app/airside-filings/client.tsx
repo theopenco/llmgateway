@@ -1,10 +1,14 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, X } from "lucide-react";
+import { Check, Loader2, ShieldCheck, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import {
+	ModelVerificationDialog,
+	VerificationStatusBadge,
+} from "@/components/model-verification-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +37,8 @@ import {
 } from "@/components/ui/table";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useApi } from "@/lib/fetch-client";
+
+import type { ModelVerification } from "@/components/model-verification-dialog";
 
 type FilingStatus = "pending" | "approved" | "rejected";
 
@@ -267,6 +273,31 @@ export function AirsideFilingsClient() {
 	);
 
 	const filings = query.data?.filings ?? [];
+	const filingModelIds = filings.map((filing) => filing.model.id);
+	const verificationsQuery = $api.useQuery(
+		"get",
+		"/admin/model-verifications",
+		{ params: { query: { draftModelIds: filingModelIds.join(",") } } },
+		{
+			enabled: filingModelIds.length > 0,
+			refetchInterval: (q) =>
+				q.state.data?.entries.some(
+					(entry) =>
+						entry.verification.status === "queued" ||
+						entry.verification.status === "running",
+				)
+					? 2_000
+					: false,
+		},
+	);
+	const verificationByModel = new Map(
+		(verificationsQuery.data?.entries ?? [])
+			.filter((entry) => entry.draftModelId)
+			.map((entry) => [
+				entry.draftModelId as string,
+				entry.verification as ModelVerification,
+			]),
+	);
 	const routingFilings = query.data?.routingFilings ?? [];
 	const pendingClaims = claimsQuery.data?.claims ?? [];
 	const activeClaims =
@@ -586,6 +617,7 @@ export function AirsideFilingsClient() {
 									<TableHead>Kind</TableHead>
 									<TableHead>Current → filed</TableHead>
 									<TableHead>Note</TableHead>
+									<TableHead>Verification</TableHead>
 									<TableHead>Status</TableHead>
 									<TableHead className="text-right">Actions</TableHead>
 								</TableRow>
@@ -673,11 +705,75 @@ export function AirsideFilingsClient() {
 															: ""}
 														{formatPerMillion(filing.outputPrice)}
 													</div>
+													{(() => {
+														const current = new Map(
+															(filing.currentPricing?.regionPrices ?? []).map(
+																(entry) => [entry.region, entry],
+															),
+														);
+														const filed = new Map(
+															(filing.regionPrices ?? []).map((entry) => [
+																entry.region,
+																entry,
+															]),
+														);
+														const fares = (
+															entry:
+																| { inputPrice: string; outputPrice: string }
+																| undefined,
+														) =>
+															entry
+																? `${formatPerMillion(entry.inputPrice)} in · ${formatPerMillion(entry.outputPrice)} out`
+																: null;
+														// Approving replaces the whole regional set, so a
+														// region absent from the filing is removed — show it.
+														return Array.from(
+															new Set([
+																...Array.from(current.keys()),
+																...Array.from(filed.keys()),
+															]),
+														).map((region) => {
+															const before = fares(current.get(region));
+															const after = fares(filed.get(region));
+															return (
+																<div key={region}>
+																	{region}:{" "}
+																	{before && before !== after
+																		? `${before} → `
+																		: ""}
+																	{after ?? "removed"}
+																</div>
+															);
+														});
+													})()}
 												</>
 											)}
 										</TableCell>
 										<TableCell className="text-muted-foreground max-w-48 truncate text-xs">
 											{filing.note ?? "—"}
+										</TableCell>
+										<TableCell>
+											<div className="flex items-center gap-2">
+												<VerificationStatusBadge
+													verification={verificationByModel.get(
+														filing.model.id,
+													)}
+												/>
+												<ModelVerificationDialog
+													title={`${filing.model.providerId}/${filing.model.modelName}`}
+													draftModelId={filing.model.id}
+													latest={verificationByModel.get(filing.model.id)}
+													onSettled={() => void verificationsQuery.refetch()}
+												>
+													<Button
+														size="sm"
+														variant="outline"
+														data-testid={`verify-filing-${filing.id}`}
+													>
+														<ShieldCheck className="size-3.5" /> Verify
+													</Button>
+												</ModelVerificationDialog>
+											</div>
 										</TableCell>
 										<TableCell>
 											<Badge variant={STATUS_BADGE[filing.status]}>

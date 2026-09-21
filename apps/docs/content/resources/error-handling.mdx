@@ -8,6 +8,8 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 On the OpenAI-compatible endpoints, LLMGateway returns errors in the same format as the OpenAI API, so existing OpenAI SDKs and tooling can parse gateway errors without changes. This applies to errors forwarded from upstream providers as well as errors raised by the gateway itself (authentication failures, usage limits, validation problems, timeouts, and so on). The Anthropic-compatible Messages endpoint (`/v1/messages`) instead returns Anthropic-native errors — see [Anthropic Endpoint](#anthropic-endpoint) below.
 
+Upstream rate limits are treated as provider errors and are eligible for retries and fallback. Rate-limit headers returned to clients describe only limits enforced by LLMGateway; upstream `Retry-After` and rate-limit headers are not forwarded.
+
 ## Error Format
 
 Errors on the OpenAI-compatible endpoints (`/v1/chat/completions`, `/v1/embeddings`, `/v1/images`, `/v1/models`, `/v1/moderations`, `/v1/rerank`, `/v1/responses`, `/v1/videos`) use the standard OpenAI error envelope:
@@ -44,6 +46,7 @@ For **gateway-raised** errors (authentication failures, usage limits, validation
 | 403    | `invalid_request_error` | `permission_denied`      |
 | 404    | `invalid_request_error` | `not_found`              |
 | 408    | `timeout_error`         | `timeout`                |
+| 410    | `invalid_request_error` | _(varies / `null`)_      |
 | 413    | `invalid_request_error` | `request_too_large`      |
 | 415    | `invalid_request_error` | `unsupported_media_type` |
 | 429    | `rate_limit_error`      | `rate_limit_exceeded`    |
@@ -67,9 +70,41 @@ Errors from the upstream provider follow different rules on the chat completions
 - **Upstream provider/gateway-side failures** (5xx, upstream 429/404, provider credential or funding problems) first go through [automatic retry and fallback](/features/routing#automatic-retry--fallback). If no provider succeeds, the gateway returns **HTTP 500** with `type`/`code` of `upstream_error` or `gateway_error` and the same diagnostic fields — the upstream status code is not passed through (it is recorded in the request log's error details). Some exhaustion paths instead return **HTTP 502** with `type` `upstream_error` and `code` `all_providers_failed`, without the diagnostic fields.
 - **Connection failures and upstream timeouts** return **HTTP 502** (`upstream_error`/`fetch_failed`) or **HTTP 504** (`upstream_timeout`/`timeout`).
 
+## Blocked Accounts
+
+When an administrator blocks an account, gateway requests return HTTP `410`.
+If a reason was provided, it appears in `error.message`. The same reason is shown
+when affected members try to sign in (HTTP `403`) and in authenticated API errors.
+Older blocks and blocks without a reason retain the generic error message.
+Blocking also signs out all members and cancels the organization's subscriptions.
+Re-enabling the organization does not reactivate its members or restore subscriptions.
+
 ## Streaming Errors
 
 For streaming requests (`"stream": true`), an error that occurs **after** the stream has started is delivered as an SSE `error` event whose payload uses the same `{ "error": { ... } }` envelope. Because the HTTP status is already `200` at that point, read the error from the event payload; its `type`/`code` values are gateway-specific (for example `upstream_timeout`/`timeout`, `upstream_error`/`all_providers_failed`, or `gateway_error`) rather than the status-code table above, and `param` may be absent. Errors that occur **before** streaming begins (such as authentication failures) are returned as a normal JSON error response with the appropriate status code.
+
+## Gateway Content Filter
+
+Requests routed to some providers may be screened by LLM Gateway's own content filter, which runs the prompt (and any image inputs) through a moderation model before the request reaches the provider. The filter runs on a sample of requests and its strictness follows your organization's [trust tier](/resources/rate-limits#trust-tiers-account-age-or-spend): tiers 0–2 use strict thresholds, tiers 3–4 lenient ones. LLM Gateway staff can pin an organization's content filter tier independently of its trust tier.
+
+By default the filter only records its findings. When blocking is active, a request over its tier's thresholds is rejected before dispatch and the response makes clear that the gateway filter, not the provider, stopped it:
+
+- **Chat Completions** (and the Responses endpoint): HTTP `200` with `finish_reason: "content_filter"`. The assistant message content explains that the request was blocked by LLM Gateway's content filter and how to contact support. Streaming responses send one chunk carrying that content and finish reason, then `[DONE]`.
+- **Messages** (`/v1/messages`): `stop_reason: "refusal"` with the same explanation as the text content.
+- **Images**: HTTP `200` with an empty `data` array.
+- **Videos**: HTTP `403` with the explanation in `error.message`; no job is created.
+
+A moderation outage never fails a request: if the moderation model is unavailable, the request goes through as normal.
+
+An occasional block is not a problem. From October 15, 2026, a high rate or volume of content filter violations can get the account rate-limited, restricted, suspended, or terminated at our discretion — see Section 6 of the [Terms of Use](https://llmgateway.io/legal/terms).
+
+<Callout type="info">
+	[**Enterprise**](https://llmgateway.io/enterprise) organizations are exempt
+	from blocking by default; they are only ever blocked if LLM Gateway staff
+	enable enterprise enforcement. If a legitimate request is blocked, email
+	[contact@llmgateway.io](mailto:contact@llmgateway.io) so we can review your
+	use case against the Terms of Use and help you get unblocked.
+</Callout>
 
 ## Anthropic Endpoint
 

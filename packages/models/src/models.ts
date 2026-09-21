@@ -1,6 +1,7 @@
 import { alibabaModels } from "./models/alibaba.js";
 import { anthropicModels } from "./models/anthropic.js";
 import { atlascloudModels } from "./models/atlascloud.js";
+import { atriaModels } from "./models/atria.js";
 import { baaiModels } from "./models/baai.js";
 import { baiduModels } from "./models/baidu.js";
 import { bytedanceModels } from "./models/bytedance.js";
@@ -8,6 +9,7 @@ import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
 import { googleModels } from "./models/google.js";
 import { inclusionaiModels } from "./models/inclusionai.js";
+import { kinfraModels } from "./models/kinfra.js";
 import { llmgatewayModels } from "./models/llmgateway.js";
 import { metaModels } from "./models/meta.js";
 import { microsoftModels } from "./models/microsoft.js";
@@ -22,6 +24,7 @@ import { perplexityModels } from "./models/perplexity.js";
 import { reveModels } from "./models/reve.js";
 import { sakanaModels } from "./models/sakana.js";
 import { tencentModels } from "./models/tencent.js";
+import { typesafeModels } from "./models/typesafe.js";
 import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
@@ -46,6 +49,15 @@ export type Price = string;
  */
 export type ReasoningEffort =
 	"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+/**
+ * Execution strategy accepted by the unified `reasoning.mode` parameter.
+ * `pro` spends additional model work on hard problems, at higher latency and
+ * token usage. Orthogonal to `reasoning_effort`, which controls how much
+ * reasoning happens within the selected mode. Which subset a given provider
+ * mapping supports is declared per mapping via `reasoningModes`.
+ */
+export type ReasoningMode = "standard" | "pro";
 
 export const PROVIDER_API_FORMATS = [
 	"provider-native",
@@ -105,6 +117,67 @@ export interface PricingTier {
 }
 
 /**
+ * Peak/off-peak time-of-day rates. `peak` applies while the current UTC hour
+ * falls inside `hoursUtc`; every other hour is off-peak.
+ */
+export interface PeakPricing {
+	/**
+	 * Prices charged during peak hours.
+	 */
+	peak: {
+		/**
+		 * Price per input token in USD during peak hours.
+		 */
+		inputPrice: Price;
+		/**
+		 * Price per output token in USD during peak hours.
+		 */
+		outputPrice: Price;
+		/**
+		 * Price per cached input token in USD during peak hours. When
+		 * unset, billing falls back to `inputPrice`, matching base-price
+		 * behavior.
+		 */
+		cachedInputPrice?: Price;
+	};
+	/**
+	 * Prices charged during off-peak hours.
+	 */
+	offPeak: {
+		/**
+		 * Price per input token in USD during off-peak hours.
+		 */
+		inputPrice: Price;
+		/**
+		 * Price per output token in USD during off-peak hours.
+		 */
+		outputPrice: Price;
+		/**
+		 * Price per cached input token in USD during off-peak hours. When
+		 * unset, billing falls back to `inputPrice`, matching base-price
+		 * behavior.
+		 */
+		cachedInputPrice?: Price;
+	};
+	/**
+	 * Peak hours in UTC as half-open [start, end) hour ranges (0-23). All
+	 * hours outside these ranges are off-peak.
+	 */
+	hoursUtc: readonly [start: number, end: number][];
+	/**
+	 * Local calendar days that are always billed off-peak. Days use
+	 * JavaScript's numbering (Sunday = 0, Saturday = 6), shifted from UTC by
+	 * `utcOffsetMinutes`.
+	 */
+	offPeakDays?: {
+		daysOfWeek: readonly number[];
+		utcOffsetMinutes: number;
+		/** Human-readable time zone used in pricing disclosures. */
+		timeZoneLabel: string;
+	};
+}
+
+/**
  * Pricing and availability for a specific geographic region.
  * When defined on a ProviderModelMapping, the first entry is the default region.
  * Top-level inputPrice/outputPrice always reflect the default (first) region
@@ -150,6 +223,14 @@ export interface ProviderRegion {
 	 */
 	pricingTiers?: PricingTier[];
 	/**
+	 * Peak/off-peak rates for this region. A mapping that prices peak hours
+	 * per region MUST set this on every region: the region-level price
+	 * overrides above are ignored while a peakPricing block is in effect, so a
+	 * region that only overrides `inputPrice` would silently bill at the
+	 * mapping-level peak rates.
+	 */
+	peakPricing?: PeakPricing;
+	/**
 	 * Price per request in USD for this region.
 	 * When absent, falls back to the mapping-level requestPrice.
 	 */
@@ -185,7 +266,14 @@ export interface ProviderRegion {
  * The distinct `tool_choice` modes a provider/model mapping may accept.
  * "function" represents a named function choice (`{type:"function",...}`).
  */
-export type ToolChoiceMode = "auto" | "none" | "required" | "function";
+export const TOOL_CHOICE_MODES = [
+	"auto",
+	"none",
+	"required",
+	"function",
+] as const;
+
+export type ToolChoiceMode = (typeof TOOL_CHOICE_MODES)[number];
 
 export interface ProviderModelMapping {
 	providerId: (typeof providers)[number]["id"];
@@ -330,64 +418,9 @@ export interface ProviderModelMapping {
 	 * Peak/off-peak time-of-day pricing. When present, `peak` applies while the
 	 * current UTC hour falls inside `hoursUtc` and `offPeak` applies otherwise.
 	 * `offPeakDays` can override those windows for provider-defined local
-	 * calendar days. Only DeepSeek's first-party API uses this today.
+	 * calendar days.
 	 */
-	peakPricing?: {
-		/**
-		 * Prices charged during peak hours.
-		 */
-		peak: {
-			/**
-			 * Price per input token in USD during peak hours.
-			 */
-			inputPrice: Price;
-			/**
-			 * Price per output token in USD during peak hours.
-			 */
-			outputPrice: Price;
-			/**
-			 * Price per cached input token in USD during peak hours. When
-			 * unset, billing falls back to `inputPrice`, matching base-price
-			 * behavior.
-			 */
-			cachedInputPrice?: Price;
-		};
-		/**
-		 * Prices charged during off-peak hours.
-		 */
-		offPeak: {
-			/**
-			 * Price per input token in USD during off-peak hours.
-			 */
-			inputPrice: Price;
-			/**
-			 * Price per output token in USD during off-peak hours.
-			 */
-			outputPrice: Price;
-			/**
-			 * Price per cached input token in USD during off-peak hours. When
-			 * unset, billing falls back to `inputPrice`, matching base-price
-			 * behavior.
-			 */
-			cachedInputPrice?: Price;
-		};
-		/**
-		 * Peak hours in UTC as half-open [start, end) hour ranges (0-23). All
-		 * hours outside these ranges are off-peak.
-		 */
-		hoursUtc: readonly [start: number, end: number][];
-		/**
-		 * Local calendar days that are always billed off-peak. Days use
-		 * JavaScript's numbering (Sunday = 0, Saturday = 6), shifted from UTC by
-		 * `utcOffsetMinutes`.
-		 */
-		offPeakDays?: {
-			daysOfWeek: readonly number[];
-			utcOffsetMinutes: number;
-			/** Human-readable time zone used in pricing disclosures. */
-			timeZoneLabel: string;
-		};
-	};
+	peakPricing?: PeakPricing;
 	/**
 	 * Maximum context window size in tokens
 	 */
@@ -543,6 +576,8 @@ export interface ProviderModelMapping {
 	 *   simpler prompts)
 	 */
 	reasoningOutput?: "omit";
+	/** Responses API reasoning summary mode. Defaults to detailed. */
+	reasoningSummary?: "auto" | "detailed";
 	/**
 	 * Whether this model supports explicit reasoning.max_tokens parameter.
 	 * When true, users can specify the exact token budget for reasoning instead of using reasoning_effort levels.
@@ -566,6 +601,15 @@ export interface ProviderModelMapping {
 	 * supported values are not (yet) declared for this mapping.
 	 */
 	reasoningEfforts?: ReasoningEffort[];
+	/**
+	 * Exact `reasoning.mode` values this provider mapping supports. Only
+	 * OpenAI's Responses API documents this parameter, and only for the GPT-5.6
+	 * family; every other deployment rejects an unknown `reasoning.mode`, so a
+	 * mapping that does not declare it makes the gateway reject the request
+	 * rather than drop the field on the way upstream. When unset, the mapping
+	 * accepts no explicit mode.
+	 */
+	reasoningModes?: ReasoningMode[];
 	/**
 	 * Whether this specific model supports tool calling for this provider
 	 */
@@ -756,6 +800,13 @@ export interface ProviderModelMapping {
 	 */
 	rerank?: boolean;
 	/**
+	 * Whether this model uses a dedicated typed-decision API (TypeSafe System
+	 * One). When true, requests are routed to the gateway's /v1/systemone
+	 * endpoint, which answers named questions with probabilities instead of
+	 * generated text. Billed on input tokens only.
+	 */
+	decisions?: boolean;
+	/**
 	 * Prebuilt voices supported for speech generation models. The first entry is
 	 * used as the default when the caller does not specify a `voice`.
 	 */
@@ -773,6 +824,14 @@ export interface ProviderModelMapping {
 	 * At sync/routing time, each region is expanded into a separate DB row / candidate.
 	 */
 	regions?: ProviderRegion[];
+	/**
+	 * The region-less root of this mapping is itself a real, routable
+	 * deployment (the provider's default endpoint) rather than a synthetic
+	 * aggregate of its regions, so routing keeps it as a candidate alongside
+	 * the regional variants. Set on Airside listings, whose regional fares are
+	 * add-ons to the default deployment.
+	 */
+	routableRoot?: boolean;
 	/**
 	 * Whether this model uses a dedicated video generation API.
 	 * When true, requests are routed to a provider-specific video generation endpoint.
@@ -850,6 +909,7 @@ export interface ModelDefinition {
 		| "ocr"
 		| "transcription"
 		| "rerank"
+		| "decision"
 	)[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
@@ -898,15 +958,18 @@ export const models = [
 	...moonshotModels,
 	...alibabaModels,
 	...atlascloudModels,
+	...atriaModels,
 	...baaiModels,
 	...baiduModels,
 	...bytedanceModels,
 	...nousresearchModels,
 	...reveModels,
 	...sakanaModels,
+	...kinfraModels,
 	...tencentModels,
 	...nvidiaModels,
 	...openbmbModels,
 	...zaiModels,
 	...elevenlabsModels,
+	...typesafeModels,
 ] as const satisfies ModelDefinition[];

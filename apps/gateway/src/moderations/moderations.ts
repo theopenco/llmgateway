@@ -44,6 +44,7 @@ import {
 	standardErrorResponses,
 } from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
+import { fetchProvider } from "@/lib/fetch-provider.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
@@ -688,7 +689,7 @@ moderations.openapi(createModeration, async (c): Promise<any> => {
 
 			try {
 				const fetchSignal = createCombinedSignal(controller);
-				upstreamResponse = await fetch(resolveUpstreamUrl(), {
+				upstreamResponse = await fetchProvider(resolveUpstreamUrl(), {
 					method: "POST",
 					// SSRF: never follow redirects on an authenticated provider request. A
 					// tenant-supplied baseUrl could 3xx to an internal host at request time,

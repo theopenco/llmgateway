@@ -15,6 +15,8 @@ import {
 import { createServerApiClient } from "@/lib/server-api";
 import { parseUsageMode } from "@/lib/usage-mode";
 
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
+
 import type { paths } from "@/lib/api/v1";
 
 type ProviderSortBy = NonNullable<
@@ -40,19 +42,6 @@ function SignInPrompt() {
 			</div>
 		</div>
 	);
-}
-
-function formatCompactNumber(value: number): string {
-	if (value >= 1_000_000_000) {
-		return `${(value / 1_000_000_000).toFixed(1)}B`;
-	}
-	if (value >= 1_000_000) {
-		return `${(value / 1_000_000).toFixed(1)}M`;
-	}
-	if (value >= 1_000) {
-		return `${(value / 1_000).toFixed(1)}k`;
-	}
-	return value.toLocaleString("en-US");
 }
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {

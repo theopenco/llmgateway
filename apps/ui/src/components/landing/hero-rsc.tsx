@@ -25,9 +25,6 @@ export const HeroRSC = ({
 		);
 	}
 
-	// Models/providers are intentionally not fetched here: serializing the full
-	// catalogue into the RSC payload added ~2MB to the landing page HTML. The
-	// navbar's ModelSearch lazily fetches them client-side when opened.
 	const hiddenMigrations = new Set(["vercel-ai-gateway", "portkey"]);
 	const migrations = allMigrations
 		.filter((m) => !hiddenMigrations.has(m.slug))

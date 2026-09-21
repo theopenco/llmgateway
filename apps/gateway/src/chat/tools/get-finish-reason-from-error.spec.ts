@@ -36,6 +36,35 @@ describe("getFinishReasonFromError", () => {
 		).toBe("gateway_error");
 	});
 
+	it.each([400, 401, 403, 422])(
+		"returns upstream_error for Anthropic account access restrictions on %i",
+		(statusCode) => {
+			const message =
+				"Access to Anthropic models is not allowed for this account";
+			expect(getFinishReasonFromError(statusCode, message)).toBe(
+				"upstream_error",
+			);
+			expect(
+				getFinishReasonFromError(
+					statusCode,
+					JSON.stringify({
+						error: {
+							type: "invalid_request_error",
+							message: message.toLowerCase(),
+						},
+					}),
+				),
+			).toBe("upstream_error");
+		},
+	);
+
+	it.each([
+		"This content type is not allowed for this model",
+		"The requested parameter is not supported for Anthropic models",
+	])("keeps request validation errors as client_error: %s", (message) => {
+		expect(getFinishReasonFromError(400, message)).toBe("client_error");
+	});
+
 	it("returns gateway_error for Anthropic low credit balance on 400", () => {
 		expect(
 			getFinishReasonFromError(
@@ -56,6 +85,15 @@ describe("getFinishReasonFromError", () => {
 			getFinishReasonFromError(
 				400,
 				'{"error":{"message":"Request rejected because the account is reaching the monthly spending limit."}}',
+			),
+		).toBe("gateway_error");
+	});
+
+	it("returns gateway_error for an exhausted trial quota on 400", () => {
+		expect(
+			getFinishReasonFromError(
+				400,
+				'{"error":{"code":"401008","message":"The free trial quota for the service has been exhausted and postpaid billing is not enabled, so the service cannot be accessed."}}',
 			),
 		).toBe("gateway_error");
 	});
@@ -84,6 +122,29 @@ describe("getFinishReasonFromError", () => {
 					"The response was filtered due to the prompt triggering Azure OpenAI's content management policy.",
 				param: "prompt",
 				type: null,
+			},
+		});
+		expect(getFinishReasonFromError(400, azureError)).toBe("content_filter");
+	});
+
+	it("returns content_filter for an Azure prompt filter without inner_error", () => {
+		const azureError = JSON.stringify({
+			error: {
+				message:
+					"The response was filtered due to the prompt triggering Azure OpenAI\u2019s content management policy. Please modify your prompt and retry.",
+				type: "invalid_request_error",
+				param: "prompt",
+				code: "content_filter",
+				content_filters: [
+					{
+						blocked: true,
+						source_type: "prompt",
+						content_filter_results: {
+							violence: { filtered: true, severity: "medium" },
+						},
+					},
+				],
+				innererror: { code: "ContentFiltered" },
 			},
 		});
 		expect(getFinishReasonFromError(400, azureError)).toBe("content_filter");

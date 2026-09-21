@@ -1,0 +1,96 @@
+appId: io.llmgateway.lounge
+---
+- evalScript: ${output.chatTitle = "Native controls " + Date.now()}
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- tapOn: "Start a conversation"
+- tapOn: "Chat settings"
+- tapOn:
+    id: "field-system-instructions"
+- inputText: "Be concise."
+- tapOn: "Done typing"
+- tapOn:
+    id: "field-temperature"
+- inputText: "0.7"
+- tapOn: "Done typing"
+- tapOn:
+    id: "field-maximum-output-tokens"
+- inputText: "512"
+- tapOn: "Done typing"
+- scrollUntilVisible:
+    element: "Save settings"
+    direction: DOWN
+- tapOn: "Save settings"
+- tapOn: "Model: Auto"
+- tapOn:
+    id: "field-search-models"
+- inputText: "gpt-4o-mini"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT-4o Mini"
+- tapOn: "Message.*"
+- inputText: ${output.chatTitle}
+- tapOn: "Send message"
+- extendedWaitUntil:
+    visible: "Retry last response"
+    timeout: 30000
+- tapOn:
+    text: "Copy message"
+    index: 1
+- assertVisible: "Copied"
+- scrollUntilVisible:
+    element: "Edit message"
+    direction: UP
+- tapOn: "Edit message"
+- tapOn:
+    id: "field-edited-message"
+- eraseText
+- inputText: "Revised native question"
+- tapOn: "Done typing"
+- tapOn: "Save and regenerate"
+- extendedWaitUntil:
+    visible: "Retry last response"
+    timeout: 30000
+- assertVisible: "Revised native question"
+- tapOn: "Fork"
+- extendedWaitUntil:
+    visible: ${output.chatTitle + " v2"}
+    timeout: 15000
+- tapOn: "Rename"
+- eraseText
+- inputText: ${output.chatTitle + " renamed"}
+- tapOn: "OK"
+- extendedWaitUntil:
+    visible: ${output.chatTitle + " renamed"}
+    timeout: 15000
+- launchApp
+- runFlow: helpers/organization.yaml
+- tapOn: "Start a conversation"
+- tapOn: "Chat settings"
+- assertVisible: "Be concise."
+- assertVisible: "0.7"
+- assertVisible: "512"
+- scrollUntilVisible:
+    element: "Reset settings"
+    direction: DOWN
+- tapOn: "Reset settings"
+- tapOn: "Temporary conversation"
+- tapOn: "Model: Auto"
+- tapOn:
+    id: "field-search-models"
+- inputText: "gpt-4o-mini"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT-4o Mini"
+- tapOn: "Message.*"
+- inputText: ${"Temporary " + output.chatTitle}
+- tapOn: "Send message"
+- extendedWaitUntil:
+    visible: "Retry last response"
+    timeout: 30000
+- launchApp
+- runFlow: helpers/organization.yaml
+- tapOn: "Conversations"
+- tapOn:
+    id: "field-search-conversations"
+- inputText: ${"Temporary " + output.chatTitle}
+- tapOn: "Done typing"
+- assertVisible: "Your conversations will appear here."

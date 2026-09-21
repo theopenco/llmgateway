@@ -36,9 +36,14 @@ export interface CacheControl {
 export type ProviderCacheControlMode = "auto" | "passthrough" | "off";
 
 // Base content types
+export interface GoogleExtraContent {
+	google?: { thought_signature?: string };
+}
+
 export interface TextContent {
 	type: "text";
 	text: string;
+	extra_content?: GoogleExtraContent;
 	cache_control?: CacheControl;
 	prompt_cache_breakpoint?: PromptCacheBreakpoint;
 }
@@ -138,6 +143,7 @@ export type MessageContent =
 export interface ToolCall {
 	id: string;
 	type: "function";
+	extra_content?: GoogleExtraContent;
 	function: {
 		name: string;
 		arguments: string;
@@ -447,8 +453,9 @@ export interface OpenAIResponsesRequestBody {
 	safety_identifier?: string;
 	reasoning: {
 		effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-		summary: "detailed";
+		summary: "auto" | "detailed";
 		context?: "auto" | "current_turn" | "all_turns";
+		mode?: "standard" | "pro";
 	};
 	/**
 	 * Provider-side response storage (Responses API statefulness). The gateway
@@ -638,6 +645,7 @@ export type RequestBodyPreparer = (
 		aspect_ratio?: string;
 		image_size?: string;
 		image_quality?: string;
+		moderation?: string;
 		n?: number;
 		seed?: number;
 	},

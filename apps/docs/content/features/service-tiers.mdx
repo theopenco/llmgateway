@@ -39,7 +39,11 @@ the request as a client error.
 
 The parameter works the same on the OpenAI-compatible **Responses API**
 (`/v1/responses`): the tier is forwarded to the provider and the response's
-`service_tier` field echoes the tier that was actually served.
+`service_tier` field echoes the tier that was actually served. The **Images
+API** (`/v1/images/generations` and `/v1/images/edits`) accepts it too and
+forwards it to the underlying image model, so image mappings that list Flex
+can be generated at the Flex rate. In Lounge, the Image Studio shows a
+**Flex** toggle whenever the selected model offers the tier.
 
 Coding (dev) plans are limited to `default`/`auto` and `flex` — the premium
 `priority` tier is not part of the plan and a request that asks for it returns a 403.

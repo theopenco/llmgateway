@@ -212,7 +212,7 @@ async function main(): Promise<void> {
 							apiKeyId: key.id,
 							projectId: key.projectId,
 							hourTimestamp: ts,
-							usedModel: model.model,
+							usedModel: `${model.provider}/${model.model}`,
 							usedProvider: model.provider,
 							requestCount,
 							errorCount,

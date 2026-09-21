@@ -92,7 +92,9 @@ While unconfigured, sessions still work: the app sends no reasoning effort and t
 
 ## GitHub Copilot in VS Code
 
-Copilot Chat in VS Code supports custom endpoints too:
+Install the official&nbsp;[LLM Gateway extension](https://marketplace.visualstudio.com/items?itemName=llmgateway.llmgateway-vscode) to add LLM Gateway directly to the Copilot Chat model picker. Open **Manage Models…**, choose **LLM Gateway**, and enter your PAYG or DevPass key. Follow the&nbsp;[VS Code integration guide](/guides/vscode) for setup, settings, and troubleshooting.
+
+You can also configure a custom endpoint manually:
 
 1. Run **Chat: Manage Language Models** from the Command Palette
 2. Choose **Add Models** → **Custom Endpoint**, enter your LLM Gateway API key, and select **Chat Completions** as the API type (LLM Gateway is OpenAI-compatible)

@@ -28,6 +28,7 @@ describe("image generation upstream streaming", () => {
 		stream: unknown;
 		partialImages: unknown;
 		quality?: unknown;
+		moderation?: unknown;
 	}> = [];
 	let failOpenai = false;
 
@@ -79,6 +80,7 @@ describe("image generation upstream streaming", () => {
 				stream: body.stream,
 				partialImages: body.partial_images,
 				quality: body.quality,
+				moderation: body.moderation,
 			});
 			if (endpoint === "edits") {
 				expect(multipart).toBe(true);
@@ -241,6 +243,83 @@ describe("image generation upstream streaming", () => {
 		},
 	);
 
+	describe.each(["openai", "azure"])("%s moderation", (provider) => {
+		describe.each(["generations", "edits", "chat"])("%s", (endpoint) => {
+			test.each(["auto", "low"])(
+				"forwards moderation=%s upstream",
+				async (moderation) => {
+					const res = await app.request(
+						endpoint === "chat"
+							? "/v1/chat/completions"
+							: `/v1/images/${endpoint}`,
+						{
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+								Authorization: "Bearer test-token",
+								"x-no-fallback": "true",
+							},
+							body: JSON.stringify({
+								model: `${provider}/gpt-image-2`,
+								...(endpoint === "chat"
+									? {
+											messages: [{ role: "user", content: "A blue circle" }],
+											image_config: { moderation },
+										}
+									: { prompt: "A blue circle", moderation }),
+								...(endpoint === "edits" && {
+									images: [{ image_url: inputImage }],
+								}),
+							}),
+						},
+					);
+					const json = await res.json();
+					expect(res.status, JSON.stringify(json)).toBe(200);
+					expect(upstreamRequests).toHaveLength(1);
+					expect(upstreamRequests[0]).toMatchObject({
+						provider,
+						endpoint: endpoint === "edits" ? "edits" : "generations",
+						moderation,
+					});
+				},
+			);
+		});
+
+		test("omits moderation when not requested", async () => {
+			const res = await app.request("/v1/images/generations", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer test-token",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: `${provider}/gpt-image-2`,
+					prompt: "A blue circle",
+				}),
+			});
+			expect(res.status).toBe(200);
+			expect(upstreamRequests[0].moderation).toBeUndefined();
+		});
+
+		test("rejects an unsupported moderation value", async () => {
+			const res = await app.request("/v1/images/generations", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer test-token",
+				},
+				body: JSON.stringify({
+					model: `${provider}/gpt-image-2`,
+					prompt: "A blue circle",
+					moderation: "strict",
+				}),
+			});
+			expect(res.status).toBe(400);
+			expect(upstreamRequests).toHaveLength(0);
+		});
+	});
+
 	describe.each(["generations", "edits"] as const)("%s", (endpoint) => {
 		describe.each(["openai", "azure"])("%s", (provider) => {
 			test.each([undefined, 1, 4, 10])(
@@ -287,6 +366,127 @@ describe("image generation upstream streaming", () => {
 					partialImages: n > 1 ? undefined : endpoint === "edits" ? "1" : 1,
 				});
 			}
+		});
+	});
+});
+
+describe("image service tiers", () => {
+	const harness = createGatewayApiTestHarness();
+	const upstreamBodies: Array<Record<string, unknown>> = [];
+
+	beforeEach(async () => {
+		upstreamBodies.length = 0;
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("test-token"),
+			projectId: "project-id",
+			createdBy: "user-id",
+			description: "Test API Key",
+		});
+		for (const provider of ["openai", "google-ai-studio"]) {
+			const id = `provider-key-${provider}`;
+			await db.insert(tables.providerKey).values({
+				id,
+				...encryptProviderKeyForStorage("test-token", id, "org-id"),
+				provider,
+				organizationId: "org-id",
+				baseUrl: harness.mockServerUrl,
+			});
+		}
+
+		const originalFetch = globalThis.fetch;
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const url = new URL(
+				typeof input === "string" || input instanceof URL ? input : input.url,
+			);
+			if (!url.href.startsWith(harness.mockServerUrl)) {
+				return await originalFetch(input, init);
+			}
+			upstreamBodies.push(JSON.parse(String(init?.body)));
+			return Response.json(
+				{
+					candidates: [
+						{
+							content: {
+								parts: [
+									{
+										inlineData: {
+											mimeType: "image/png",
+											data: Buffer.from("image").toString("base64"),
+										},
+									},
+								],
+								role: "model",
+							},
+							finishReason: "STOP",
+							index: 0,
+						},
+					],
+					usageMetadata: {
+						promptTokenCount: 10,
+						candidatesTokenCount: 1120,
+						totalTokenCount: 1130,
+					},
+				},
+				{ headers: { "x-gemini-service-tier": "flex" } },
+			);
+		});
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	describe.each(["generations", "edits"])("%s", (endpoint) => {
+		const requestImages = (
+			model: string,
+			service_tier: string,
+			requestId = randomUUID(),
+		) =>
+			app.request(`/v1/images/${endpoint}`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer test-token",
+					"x-request-id": requestId,
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model,
+					prompt: "A blue circle",
+					service_tier,
+					...(endpoint === "edits" && {
+						images: [{ image_url: inputImage }],
+					}),
+				}),
+			});
+
+		test("forwards flex to Google AI Studio", async () => {
+			const requestId = randomUUID();
+			const res = await requestImages(
+				"google-ai-studio/gemini-3-pro-image",
+				"flex",
+				requestId,
+			);
+			const json = await res.json();
+			expect(res.status, JSON.stringify(json)).toBe(200);
+			expect(json.data).toHaveLength(1);
+			expect(upstreamBodies).toHaveLength(1);
+			expect(upstreamBodies[0].service_tier).toBe("flex");
+			const log = await waitForLogByRequestId(requestId);
+			expect(log.hasError).toBe(false);
+			expect(log.requestedServiceTier).toBe("flex");
+			expect(log.usedServiceTier).toBe("flex");
+		});
+
+		test("rejects a tier the pinned mapping does not offer", async () => {
+			const res = await requestImages("openai/gpt-image-2", "flex");
+			const json = await res.json();
+			expect(res.status).toBe(400);
+			expect(JSON.stringify(json)).toContain(
+				"Service tier 'flex' is not available for model openai/gpt-image-2",
+			);
+			expect(upstreamBodies).toHaveLength(0);
 		});
 	});
 });

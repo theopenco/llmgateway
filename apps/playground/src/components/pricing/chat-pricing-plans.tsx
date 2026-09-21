@@ -19,6 +19,7 @@ import {
 	SELF_REFUND_WINDOW_DAYS,
 	type ChatPlanTier,
 } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 interface PlanContent {
 	name: string;
@@ -80,7 +81,7 @@ function formatCount(n: number): string {
 	}
 	const digits = Math.floor(Math.log10(n)) + 1;
 	const factor = Math.pow(10, Math.max(0, digits - 2));
-	return (Math.round(n / factor) * factor).toLocaleString("en-US");
+	return formatNumber(Math.round(n / factor) * factor);
 }
 
 interface ChatPricingPlansProps {

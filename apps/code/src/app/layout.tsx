@@ -3,7 +3,10 @@ import { Bricolage_Grotesque, Inter, Geist_Mono } from "next/font/google";
 import { GoogleTag } from "@/components/google-tag";
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
+import { fetchSystemBanner } from "@/lib/system-banner";
 import { getTimeZonePreference } from "@/lib/timezone-server";
+
+import { SystemBannerBar } from "@llmgateway/shared/system-banner";
 
 import "./globals.css";
 
@@ -91,7 +94,10 @@ export default async function RootLayout({
 	children: ReactNode;
 }) {
 	const config = getConfig();
-	const timeZone = await getTimeZonePreference();
+	const [timeZone, systemBanner] = await Promise.all([
+		getTimeZonePreference(),
+		fetchSystemBanner(),
+	]);
 
 	return (
 		<html
@@ -109,6 +115,7 @@ export default async function RootLayout({
 				/>
 			</head>
 			<body className="antialiased">
+				<SystemBannerBar banner={systemBanner} />
 				<GoogleTag
 					googleTagId={config.googleTagId}
 					googleAdsSignupConversion={config.googleAdsSignupConversion}

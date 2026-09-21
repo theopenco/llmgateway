@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { SidebarProvider } from "@/components/ui/sidebar";
 // No local api key. We'll call backend to ensure key cookie exists after login.
+import { useConnectors } from "@/hooks/use-connectors";
 import {
 	useAddMessage,
 	useCreateChat,
@@ -37,7 +38,6 @@ import {
 	useUpdateChat,
 	useUpdateMessage,
 } from "@/hooks/useChats";
-import { useMcpServers } from "@/hooks/useMcpServers";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useSkills, type Skill } from "@/hooks/useSkills";
 import { useUser } from "@/hooks/useUser";
@@ -82,7 +82,8 @@ function isToolPart(obj: unknown): obj is ToolPart {
 		obj !== null &&
 		"type" in obj &&
 		typeof (obj as ToolPart).type === "string" &&
-		(obj as ToolPart).type.startsWith("tool-")
+		((obj as ToolPart).type.startsWith("tool-") ||
+			(obj as ToolPart).type === "dynamic-tool")
 	);
 }
 
@@ -360,6 +361,10 @@ export default function ChatPageClient({
 		const config = getModelImageConfig(getInitialModel());
 		return config.defaultQuality ?? "auto";
 	});
+	const [imageModeration, setImageModeration] = useState<string>(() => {
+		const config = getModelImageConfig(getInitialModel());
+		return config.defaultModeration ?? "auto";
+	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(enableWebSearch);
 	const [activeSkills, setActiveSkills] = useState<Skill[]>([]);
@@ -376,15 +381,7 @@ export default function ChatPageClient({
 		null,
 	);
 
-	// MCP servers management
-	const {
-		servers: mcpServers,
-		addServer: addMcpServer,
-		updateServer: updateMcpServer,
-		removeServer: removeMcpServer,
-		toggleServer: toggleMcpServer,
-		getEnabledServers: getEnabledMcpServers,
-	} = useMcpServers();
+	const { data: connectorData } = useConnectors();
 
 	// Skills
 	const { data: skillsData } = useSkills();
@@ -436,173 +433,179 @@ export default function ChatPageClient({
 	// stale URL value while router navigation is catching up.
 	const pendingNewChatRef = useRef<string | null>(null);
 
-	const { messages, setMessages, sendMessage, status, stop, regenerate } =
-		useChat({
-			onError: async (e) => {
-				streamingChatIdRef.current = null;
-				isSendingRef.current = false;
-				errorOccurredRef.current = true;
-				const msg = selectedOrganization
-					? organizationCreditErrorMessage(
-							getErrorMessage(e),
-							selectedOrganization.role,
-						)
-					: getErrorMessage(e);
-				setError(msg);
-				toast.error(msg);
+	const {
+		messages,
+		setMessages,
+		sendMessage,
+		status,
+		stop,
+		regenerate,
+		addToolApprovalResponse,
+	} = useChat({
+		onError: async (e) => {
+			streamingChatIdRef.current = null;
+			isSendingRef.current = false;
+			errorOccurredRef.current = true;
+			const msg = selectedOrganization
+				? organizationCreditErrorMessage(
+						getErrorMessage(e),
+						selectedOrganization.role,
+					)
+				: getErrorMessage(e);
+			setError(msg);
+			toast.error(msg);
 
-				// If it was a new chat and AI failed to respond, delete the chat
-				if (isNewChatRef.current && chatIdRef.current) {
-					try {
-						await deleteChat.mutateAsync({
-							params: { path: { id: chatIdRef.current } },
-						});
-						// Reset state
-						setCurrentChatId(null);
-						clearingChatRef.current = true;
-						chatIdRef.current = null;
-						setMessages([]);
-						isNewChatRef.current = false;
-					} catch (cleanupError) {
-						toast.error(
-							"Failed to cleanup chat: " + getErrorMessage(cleanupError),
-						);
-					}
-				}
-			},
-			onFinish: async ({ message, finishReason: reason }) => {
-				isSendingRef.current = false;
-				isNewChatRef.current = false;
-
-				// Track finish reason for inline display
-				if (reason && reason !== "stop" && reason !== "tool-calls") {
-					setFinishReason(reason);
-				} else {
-					setFinishReason(null);
-				}
-
-				// If an error already occurred during streaming, skip saving the response
-				if (errorOccurredRef.current) {
-					errorOccurredRef.current = false;
-					return;
-				}
-				if (isTemporaryChat) {
-					return;
-				}
-
-				// Use the chat ID captured at stream-start. This ref is set before
-				// sendMessage is called so it's always available here, even if the
-				// user navigated to a different chat while the stream was running.
-				const chatId = streamingChatIdRef.current;
-				streamingChatIdRef.current = null;
-
-				if (!chatId) {
-					toast.error(
-						"Failed to save AI response: No chat ID found (chat may not have finished saving before the stream ended).",
-					);
-					return;
-				}
-				// Extract assistant text, images, and reasoning from UIMessage parts
-				const textContent = message.parts
-					.filter((p) => p.type === "text")
-					.map((p) => p.text)
-					.join("");
-
-				const reasoningContent = message.parts
-					.filter((p) => p.type === "reasoning")
-					.map((p) => p.text)
-					.join("");
-
-				const imageUrlParts = (message.parts as any[])
-					.filter((p: any) => p.type === "image_url" && p.image_url?.url)
-					.map((p: any) => ({
-						type: "image_url",
-						image_url: { url: p.image_url.url },
-					}));
-
-				// Handle file parts for images (supports multiple shapes from providers)
-				const fileParts = (message.parts as any[])
-					.filter((p) => {
-						if (p.type !== "file") {
-							return false;
-						}
-						const mediaType =
-							p.mediaType ??
-							p.mimeType ??
-							p.mime_type ??
-							p.file?.mediaType ??
-							p.file?.mimeType ??
-							p.file?.mime_type;
-						return (
-							typeof mediaType === "string" && mediaType.startsWith("image/")
-						);
-					})
-					.map((p) => {
-						const mediaType =
-							p.mediaType ??
-							p.mimeType ??
-							p.mime_type ??
-							p.file?.mediaType ??
-							p.file?.mimeType ??
-							p.file?.mime_type;
-						const url =
-							p.url ??
-							p.data ??
-							p.base64 ??
-							p.file?.url ??
-							p.file?.data ??
-							p.file?.base64;
-						const { dataUrl } = parseImageFile({
-							url,
-							mediaType,
-						});
-						return {
-							type: "image_url" as const,
-							image_url: { url: dataUrl },
-						};
-					});
-
-				const images = [...imageUrlParts, ...fileParts];
-
-				// Extract tool parts (AI SDK v6 uses tool-{toolName} as the part type)
-				const toolParts = message.parts.filter(isToolPart);
-				const metadata = parsePlaygroundMessageMetadata(message.metadata);
-
-				const bodyToSave = {
-					role: "assistant" as const,
-					content: textContent || undefined,
-					images: images.length > 0 ? JSON.stringify(images) : undefined,
-					reasoning: reasoningContent || undefined,
-					tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
-					sources: extractSourcePartsJson(message.parts),
-					...(metadata ? { metadata } : {}),
-				};
-
+			// If it was a new chat and AI failed to respond, delete the chat
+			if (isNewChatRef.current && chatIdRef.current) {
 				try {
-					await addMessage.mutateAsync({
-						params: { path: { id: chatId } },
-						body: bodyToSave,
+					await deleteChat.mutateAsync({
+						params: { path: { id: chatIdRef.current } },
 					});
-				} catch (error: any) {
-					// If chat not found, clear the stale chat ID
-					if (
-						error?.status === 404 &&
-						error?.message?.includes("Chat not found")
-					) {
-						clearingChatRef.current = true;
-						chatIdRef.current = null;
-						setCurrentChatId(null);
-						setMessages([]);
-						toast.error("Chat was deleted. Please start a new conversation.");
-					} else {
-						toast.error(
-							`Failed to save AI response: ${getErrorMessage(error)}`,
-						);
-					}
+					// Reset state
+					setCurrentChatId(null);
+					clearingChatRef.current = true;
+					chatIdRef.current = null;
+					setMessages([]);
+					isNewChatRef.current = false;
+				} catch (cleanupError) {
+					toast.error(
+						"Failed to cleanup chat: " + getErrorMessage(cleanupError),
+					);
 				}
-				// Note: useAddMessage already invalidates /chats query on success
-			},
-		});
+			}
+		},
+		onFinish: async ({ message, finishReason: reason }) => {
+			isSendingRef.current = false;
+			isNewChatRef.current = false;
+
+			// Track finish reason for inline display
+			if (reason && reason !== "stop" && reason !== "tool-calls") {
+				setFinishReason(reason);
+			} else {
+				setFinishReason(null);
+			}
+
+			// If an error already occurred during streaming, skip saving the response
+			if (errorOccurredRef.current) {
+				errorOccurredRef.current = false;
+				return;
+			}
+			if (isTemporaryChat) {
+				return;
+			}
+
+			// Use the chat ID captured at stream-start. This ref is set before
+			// sendMessage is called so it's always available here, even if the
+			// user navigated to a different chat while the stream was running.
+			const chatId = streamingChatIdRef.current;
+			streamingChatIdRef.current = null;
+
+			if (!chatId) {
+				toast.error(
+					"Failed to save AI response: No chat ID found (chat may not have finished saving before the stream ended).",
+				);
+				return;
+			}
+			// Extract assistant text, images, and reasoning from UIMessage parts
+			const textContent = message.parts
+				.filter((p) => p.type === "text")
+				.map((p) => p.text)
+				.join("");
+
+			const reasoningContent = message.parts
+				.filter((p) => p.type === "reasoning")
+				.map((p) => p.text)
+				.join("");
+
+			const imageUrlParts = (message.parts as any[])
+				.filter((p: any) => p.type === "image_url" && p.image_url?.url)
+				.map((p: any) => ({
+					type: "image_url",
+					image_url: { url: p.image_url.url },
+				}));
+
+			// Handle file parts for images (supports multiple shapes from providers)
+			const fileParts = (message.parts as any[])
+				.filter((p) => {
+					if (p.type !== "file") {
+						return false;
+					}
+					const mediaType =
+						p.mediaType ??
+						p.mimeType ??
+						p.mime_type ??
+						p.file?.mediaType ??
+						p.file?.mimeType ??
+						p.file?.mime_type;
+					return (
+						typeof mediaType === "string" && mediaType.startsWith("image/")
+					);
+				})
+				.map((p) => {
+					const mediaType =
+						p.mediaType ??
+						p.mimeType ??
+						p.mime_type ??
+						p.file?.mediaType ??
+						p.file?.mimeType ??
+						p.file?.mime_type;
+					const url =
+						p.url ??
+						p.data ??
+						p.base64 ??
+						p.file?.url ??
+						p.file?.data ??
+						p.file?.base64;
+					const { dataUrl } = parseImageFile({
+						url,
+						mediaType,
+					});
+					return {
+						type: "image_url" as const,
+						image_url: { url: dataUrl },
+					};
+				});
+
+			const images = [...imageUrlParts, ...fileParts];
+
+			// Preserve connector approvals and results with the conversation.
+			const toolParts = message.parts.filter(isToolPart);
+			const metadata = parsePlaygroundMessageMetadata(message.metadata);
+
+			const bodyToSave = {
+				id: message.id,
+				role: "assistant" as const,
+				content: textContent || undefined,
+				images: images.length > 0 ? JSON.stringify(images) : undefined,
+				reasoning: reasoningContent || undefined,
+				tools: toolParts.length > 0 ? JSON.stringify(toolParts) : undefined,
+				sources: extractSourcePartsJson(message.parts),
+				...(metadata ? { metadata } : {}),
+			};
+
+			try {
+				await addMessage.mutateAsync({
+					params: { path: { id: chatId } },
+					body: bodyToSave,
+				});
+			} catch (error: any) {
+				// If chat not found, clear the stale chat ID
+				if (
+					error?.status === 404 &&
+					error?.message?.includes("Chat not found")
+				) {
+					clearingChatRef.current = true;
+					chatIdRef.current = null;
+					setCurrentChatId(null);
+					setMessages([]);
+					toast.error("Chat was deleted. Please start a new conversation.");
+				} else {
+					toast.error(`Failed to save AI response: ${getErrorMessage(error)}`);
+				}
+			}
+			// Note: useAddMessage already invalidates /chats query on success
+		},
+	});
 
 	// Sync currentChatId with URL param changes
 	useEffect(() => {
@@ -777,6 +780,12 @@ export default function ChatPageClient({
 			// so it stays the single source of truth for both playground surfaces.
 			const includeQuality =
 				getModelImageConfig(selectedModel).supportsQuality && !!imageQuality;
+			// "auto" is the upstream default, so only forward an explicit
+			// relaxation to keep the request body minimal.
+			const includeModeration =
+				getModelImageConfig(selectedModel).supportsModeration &&
+				!!imageModeration &&
+				imageModeration !== "auto";
 
 			// Always send n explicitly to prevent providers from defaulting to >1
 			const imageConfig = useImageGen
@@ -790,6 +799,7 @@ export default function ChatPageClient({
 										image_size: alibabaImageSize,
 									}),
 							...(includeQuality && { image_quality: imageQuality }),
+							...(includeModeration && { moderation: imageModeration }),
 							n: imageCount,
 						}
 					: {
@@ -798,14 +808,20 @@ export default function ChatPageClient({
 							}),
 							...(imageSize !== "1K" && { image_size: imageSize }),
 							...(includeQuality && { image_quality: imageQuality }),
+							...(includeModeration && { moderation: imageModeration }),
 							n: imageCount,
 						}
 				: undefined;
 
 			const noFallback = shouldDisableFallback(selectedModel);
 
-			// Get enabled MCP servers
-			const enabledMcpServers = getEnabledMcpServers();
+			const connectorIds =
+				connectorData?.connectors
+					.filter(
+						(connector) =>
+							connector.available && connector.connected && connector.enabled,
+					)
+					.map((connector) => connector.id) ?? [];
 
 			return {
 				...options,
@@ -822,9 +838,7 @@ export default function ChatPageClient({
 					...(webSearchEnabled && supportsWebSearch
 						? { web_search: true }
 						: {}),
-					...(enabledMcpServers.length > 0
-						? { mcp_servers: enabledMcpServers }
-						: {}),
+					connector_ids: connectorIds,
 					...(isTemporaryChat ? { temporary_chat: true } : {}),
 					...(activeProjectId && !isTemporaryChat
 						? { project_id: activeProjectId }
@@ -848,11 +862,12 @@ export default function ChatPageClient({
 			imageSize,
 			alibabaImageSize,
 			imageQuality,
+			imageModeration,
 			imageCount,
 			selectedModel,
 			webSearchEnabled,
 			supportsWebSearch,
-			getEnabledMcpServers,
+			connectorData,
 			isTemporaryChat,
 			activeProjectId,
 			activeSkills,
@@ -872,9 +887,63 @@ export default function ChatPageClient({
 		[sendMessage, buildRequestOptions],
 	);
 
+	// Hot-path callbacks read messages through a ref so their identity stays
+	// stable across streamed tokens; depending on the messages array directly
+	// would defeat the memoized message components on every delta.
+	const messagesRef = useRef(messages);
+	useEffect(() => {
+		messagesRef.current = messages;
+	}, [messages]);
+
+	const answeringApprovals = useRef(new Set<string>());
+	const answeredApprovals = useRef(new Set<string>());
+	const continuedApprovals = useRef(new Set<string>());
+	const handleToolApproval = useCallback(
+		async (id: string, approved: boolean) => {
+			if (answeringApprovals.current.has(id)) {
+				return;
+			}
+			answeringApprovals.current.add(id);
+			// Snapshot the pending set before awaiting: the ref advances as the
+			// store commits, so after the await a near-simultaneous second
+			// approval could see an already-emptied set, and both answers would
+			// pass the guard below and each send a continuation.
+			const pendingIds =
+				messagesRef.current
+					.at(-1)
+					?.parts.flatMap((part) =>
+						(part.type === "dynamic-tool" || part.type.startsWith("tool-")) &&
+						"state" in part &&
+						part.state === "approval-requested" &&
+						"approval" in part &&
+						part.approval
+							? [part.approval.id]
+							: [],
+					) ?? [];
+			await addToolApprovalResponse({ id, approved });
+			answeredApprovals.current.add(id);
+			if (
+				pendingIds.some(
+					(pendingId) =>
+						!answeredApprovals.current.has(pendingId) ||
+						continuedApprovals.current.has(pendingId),
+				)
+			) {
+				return;
+			}
+			// Claim continuation before yielding so simultaneous answers send only once.
+			for (const pendingId of [...pendingIds, id]) {
+				continuedApprovals.current.add(pendingId);
+			}
+			streamingChatIdRef.current = chatIdRef.current;
+			await sendMessage(undefined, buildRequestOptions(false));
+		},
+		[addToolApprovalResponse, sendMessage, buildRequestOptions],
+	);
+
 	const regenerateWithHeaders = useCallback(
 		(options?: any) => {
-			const lastUserMessage = [...messages]
+			const lastUserMessage = [...messagesRef.current]
 				.reverse()
 				.find((m) => m.role === "user");
 			const hasImageAttachments = lastUserMessage?.parts?.some(
@@ -885,7 +954,7 @@ export default function ChatPageClient({
 			streamingChatIdRef.current = chatIdRef.current;
 			return regenerate(buildRequestOptions(!!hasImageAttachments, options));
 		},
-		[regenerate, messages, buildRequestOptions],
+		[regenerate, buildRequestOptions],
 	);
 
 	// Additional comparison chat windows (primary + up to two comparison panels)
@@ -1671,9 +1740,10 @@ export default function ChatPageClient({
 				},
 			});
 
-			const messageIndex = messages.findIndex((m) => m.id === message.id);
+			const current = messagesRef.current;
+			const messageIndex = current.findIndex((m) => m.id === message.id);
 			const previousMessages =
-				messageIndex === -1 ? messages : messages.slice(0, messageIndex);
+				messageIndex === -1 ? current : current.slice(0, messageIndex);
 			setMessages(previousMessages);
 			await new Promise<void>((resolve) => {
 				setTimeout(resolve, 0);
@@ -1985,6 +2055,14 @@ export default function ChatPageClient({
 		) {
 			setImageQuality(config.defaultQuality ?? "auto");
 		}
+		if (
+			config.supportsModeration &&
+			!(config.availableModerations as readonly string[]).includes(
+				imageModeration,
+			)
+		) {
+			setImageModeration(config.defaultModeration ?? "auto");
+		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedModel]);
 
@@ -2071,11 +2149,6 @@ export default function ChatPageClient({
 							showGlobalModelSelector={
 								!(comparisonEnabled && extraPanelIds.length > 0)
 							}
-							mcpServers={mcpServers}
-							onAddMcpServer={addMcpServer}
-							onUpdateMcpServer={updateMcpServer}
-							onRemoveMcpServer={removeMcpServer}
-							onToggleMcpServer={toggleMcpServer}
 							isTemporaryChat={isTemporaryChat}
 							onToggleTemporaryChat={handleToggleTemporaryChat}
 							showTemporaryChatSwitcher={!currentChatId}
@@ -2202,6 +2275,7 @@ export default function ChatPageClient({
 											supportsDocuments={supportsDocuments}
 											supportsImageGen={supportsImageGen}
 											sendMessage={sendMessageWithHeaders}
+											onToolApproval={handleToolApproval}
 											selectedModel={selectedModel}
 											text={primaryText}
 											setText={setPrimaryText}
@@ -2220,6 +2294,8 @@ export default function ChatPageClient({
 											setAlibabaImageSize={setAlibabaImageSize}
 											imageQuality={imageQuality}
 											setImageQuality={setImageQuality}
+											imageModeration={imageModeration}
+											setImageModeration={setImageModeration}
 											imageCount={imageCount}
 											setImageCount={setImageCount}
 											availableRegions={availableRegions}
@@ -2263,6 +2339,7 @@ export default function ChatPageClient({
 										supportsDocuments={supportsDocuments}
 										supportsImageGen={supportsImageGen}
 										sendMessage={sendMessageWithHeaders}
+										onToolApproval={handleToolApproval}
 										selectedModel={selectedModel}
 										text={primaryText}
 										setText={setPrimaryText}
@@ -2281,6 +2358,8 @@ export default function ChatPageClient({
 										setAlibabaImageSize={setAlibabaImageSize}
 										imageQuality={imageQuality}
 										setImageQuality={setImageQuality}
+										imageModeration={imageModeration}
+										setImageModeration={setImageModeration}
 										imageCount={imageCount}
 										setImageCount={setImageCount}
 										supportsWebSearch={supportsWebSearch}
@@ -2553,6 +2632,10 @@ function ExtraChatPanel({
 		const config = getModelImageConfig(initialModel);
 		return config.defaultQuality ?? "auto";
 	});
+	const [imageModeration, setImageModeration] = useState<string>(() => {
+		const config = getModelImageConfig(initialModel);
+		return config.defaultModeration ?? "auto";
+	});
 	const [imageCount, setImageCount] = useState<1 | 2 | 3 | 4>(1);
 	const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 	const [activeSkills, setActiveSkills] = useState<Skill[]>([]);
@@ -2623,6 +2706,7 @@ function ExtraChatPanel({
 				const metadata = parsePlaygroundMessageMetadata(message.metadata);
 
 				const bodyToSave = {
+					id: message.id,
 					role: "assistant" as const,
 					content: textContent || undefined,
 					reasoning: reasoningContent || undefined,
@@ -2825,6 +2909,14 @@ function ExtraChatPanel({
 		) {
 			setImageQuality(config.defaultQuality ?? "auto");
 		}
+		if (
+			config.supportsModeration &&
+			!(config.availableModerations as readonly string[]).includes(
+				imageModeration,
+			)
+		) {
+			setImageModeration(config.defaultModeration ?? "auto");
+		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [selectedModel]);
 
@@ -2854,6 +2946,12 @@ function ExtraChatPanel({
 			// so it stays the single source of truth for both playground surfaces.
 			const includeQuality =
 				getModelImageConfig(selectedModel).supportsQuality && !!imageQuality;
+			// "auto" is the upstream default, so only forward an explicit
+			// relaxation to keep the request body minimal.
+			const includeModeration =
+				getModelImageConfig(selectedModel).supportsModeration &&
+				!!imageModeration &&
+				imageModeration !== "auto";
 
 			// Always send n explicitly to prevent providers from defaulting to >1
 			const imageConfig = useImageGen
@@ -2867,6 +2965,7 @@ function ExtraChatPanel({
 										image_size: alibabaImageSize,
 									}),
 							...(includeQuality && { image_quality: imageQuality }),
+							...(includeModeration && { moderation: imageModeration }),
 							n: imageCount,
 						}
 					: {
@@ -2875,6 +2974,7 @@ function ExtraChatPanel({
 							}),
 							...(imageSize !== "1K" && { image_size: imageSize }),
 							...(includeQuality && { image_quality: imageQuality }),
+							...(includeModeration && { moderation: imageModeration }),
 							n: imageCount,
 						}
 				: undefined;
@@ -2915,6 +3015,7 @@ function ExtraChatPanel({
 			imageSize,
 			alibabaImageSize,
 			imageQuality,
+			imageModeration,
 			imageCount,
 			selectedModel,
 			webSearchEnabled,
@@ -2936,9 +3037,16 @@ function ExtraChatPanel({
 		[sendMessage, buildRequestOptions],
 	);
 
+	// Same stable-identity pattern as the primary panel: read messages via a
+	// ref so streamed tokens do not re-create the callback.
+	const messagesRef = useRef(messages);
+	useEffect(() => {
+		messagesRef.current = messages;
+	}, [messages]);
+
 	const regenerateWithHeaders = useCallback(
 		(options?: any) => {
-			const lastUserMessage = [...messages]
+			const lastUserMessage = [...messagesRef.current]
 				.reverse()
 				.find((m) => m.role === "user");
 			const hasImageAttachments = lastUserMessage?.parts?.some(
@@ -2948,7 +3056,7 @@ function ExtraChatPanel({
 			);
 			return regenerate(buildRequestOptions(!!hasImageAttachments, options));
 		},
-		[regenerate, messages, buildRequestOptions],
+		[regenerate, buildRequestOptions],
 	);
 
 	const effectiveText = syncInput ? syncedText : text;
@@ -3155,6 +3263,8 @@ function ExtraChatPanel({
 					setAlibabaImageSize={setAlibabaImageSize}
 					imageQuality={imageQuality}
 					setImageQuality={setImageQuality}
+					imageModeration={imageModeration}
+					setImageModeration={setImageModeration}
 					imageCount={imageCount}
 					setImageCount={setImageCount}
 					supportsWebSearch={supportsWebSearch}

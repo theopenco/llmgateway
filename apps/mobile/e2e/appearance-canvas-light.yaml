@@ -1,0 +1,14 @@
+appId: io.llmgateway.lounge
+---
+- launchApp
+- scrollUntilVisible:
+    element: "Canvas"
+    direction: DOWN
+- tapOn: "Canvas"
+- tapOn: "Templates"
+- tapOn: "Form"
+- assertVisible: "Contact Us"
+- tapOn: "(?s)Select.*"
+- tapOn: "(?s)Technical Support.*"
+- assertVisible: "(?s)Technical Support.*"
+- takeScreenshot: artifacts/appearance-canvas-light

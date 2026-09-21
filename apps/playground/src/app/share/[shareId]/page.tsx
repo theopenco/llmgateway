@@ -136,7 +136,7 @@ export async function generateMetadata({
 
 	let title = "Shared Chat";
 	let description = FALLBACK_SHARE_DESCRIPTION;
-	let indexable = true;
+	let indexable = false;
 
 	try {
 		const data = await getSharedChat(shareId);
@@ -148,7 +148,8 @@ export async function generateMetadata({
 			}
 			const derived = deriveShareDescription(data.share.messages);
 			description = derived.description;
-			indexable = meetsIndexThreshold(data.share.messages);
+			indexable =
+				data.share.allowDiscovery && meetsIndexThreshold(data.share.messages);
 		}
 	} catch {
 		// Fall back to defaults if the API call fails.
@@ -166,7 +167,7 @@ export async function generateMetadata({
 			? undefined
 			: {
 					index: false,
-					follow: true,
+					follow: false,
 				},
 		openGraph: {
 			title,
@@ -270,7 +271,9 @@ export default async function SharedChatPage({
 				<div className="min-h-0 flex-1 pb-20">
 					<ReadOnlyChatMessages messages={messages} />
 				</div>
-				<ForkChatButton shareId={data.share.id} />
+				{data.share.allowForking ? (
+					<ForkChatButton shareId={data.share.id} />
+				) : null}
 			</div>
 		</main>
 	);

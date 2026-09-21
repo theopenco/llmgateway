@@ -44,6 +44,8 @@ interface ModelMappingSelectorProps {
 	placeholder?: string;
 	/** Also offer the model itself (auto-routed across all of its providers). */
 	includeCanonicalModels?: boolean;
+	/** Offer the per-provider mappings. Turn off for a canonical-model-only picker. */
+	includeMappings?: boolean;
 	/** Offer one entry per region instead of one entry per provider. */
 	includeRegions?: boolean;
 	/** Include mappings whose `deactivatedAt` has passed. */
@@ -97,6 +99,7 @@ export function ModelMappingSelector({
 	onValueChange,
 	placeholder = "Select a mapping…",
 	includeCanonicalModels = false,
+	includeMappings = true,
 	includeRegions = false,
 	includeDeactivated = false,
 	filter,
@@ -126,6 +129,10 @@ export function ModelMappingSelector({
 					model,
 					searchText: normalize(`${modelName} ${model.id} auto`),
 				});
+			}
+
+			if (!includeMappings) {
+				continue;
 			}
 
 			for (const mapping of getModelMappings(model)) {
@@ -168,6 +175,7 @@ export function ModelMappingSelector({
 		models,
 		providers,
 		includeCanonicalModels,
+		includeMappings,
 		includeRegions,
 		includeDeactivated,
 		filter,
@@ -253,7 +261,9 @@ export function ModelMappingSelector({
 			>
 				<Command shouldFilter={false}>
 					<CommandInput
-						placeholder="Search model or provider…"
+						placeholder={
+							includeMappings ? "Search model or provider…" : "Search model…"
+						}
 						value={search}
 						onValueChange={setSearch}
 					/>
@@ -262,7 +272,7 @@ export function ModelMappingSelector({
 						    cmdk's own CommandEmpty would never see an empty result set. */}
 						{visibleEntries.length === 0 ? (
 							<div className="py-6 text-center text-sm text-muted-foreground">
-								No mappings found.
+								No {includeMappings ? "mappings" : "models"} found.
 							</div>
 						) : null}
 						<CommandGroup>

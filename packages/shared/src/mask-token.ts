@@ -9,26 +9,32 @@ const MIN_MASKED_CHARS = 4;
 const MAX_MASK_BULLETS = 5;
 
 /**
- * Returns a display-safe version of a secret token. The trailing
- * MIN_MASKED_CHARS characters are always replaced with bullets so a short
- * token (e.g. a custom-provider key shorter than visibleChars) cannot leak
- * through as plaintext into provider_key.token_masked or UI list responses.
+ * Returns a display-safe token with at least MIN_MASKED_CHARS hidden.
+ * Optional trailing characters take priority over the prefix on short tokens.
  *
  * Empty input returns empty.
  */
-export function maskToken(token: string, visibleChars = 12): string {
+export function maskToken(
+	token: string,
+	visibleChars = 12,
+	trailingChars = 0,
+): string {
 	if (token.length === 0) {
 		return "";
 	}
+	const effectiveTrailing = Math.max(
+		0,
+		Math.min(trailingChars, token.length - MIN_MASKED_CHARS),
+	);
 	const effectiveVisible = Math.max(
 		0,
-		Math.min(visibleChars, token.length - MIN_MASKED_CHARS),
+		Math.min(visibleChars, token.length - effectiveTrailing - MIN_MASKED_CHARS),
 	);
 	const maskedLength = Math.max(
-		token.length - effectiveVisible,
+		token.length - effectiveVisible - effectiveTrailing,
 		MIN_MASKED_CHARS,
 	);
 	return `${token.substring(0, effectiveVisible)}${"\u2022".repeat(
 		Math.min(maskedLength, MAX_MASK_BULLETS),
-	)}`;
+	)}${token.substring(token.length - effectiveTrailing)}`;
 }

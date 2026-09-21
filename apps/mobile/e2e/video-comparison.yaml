@@ -1,0 +1,146 @@
+appId: io.llmgateway.lounge
+---
+- evalScript: ${output.videoPrompt = "Native video comparison " + Date.now()}
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- scrollUntilVisible:
+    element: "Video Studio"
+    direction: DOWN
+- tapOn: "Video Studio"
+- tapOn: "Video model 1: Choose"
+- tapOn:
+    id: "field-search-models"
+- inputText: "grok-imagine-video-1-5"
+- tapOn: "Done typing"
+- tapOn:
+    text: "Choose Grok Imagine Video 1.5"
+    index: 0
+- scrollUntilVisible:
+    element: "Compare another video model"
+    direction: UP
+- tapOn: "Compare another video model"
+- tapOn: "Video model 2: Choose"
+- tapOn:
+    id: "field-search-models"
+- inputText: "grok-imagine-video-1-5-preview"
+- tapOn: "Done typing"
+- tapOn: "Choose Grok Imagine Video 1.5 Preview"
+- scrollUntilVisible:
+    element: "Choose start frame"
+    direction: DOWN
+- tapOn: "Choose start frame"
+- waitForAnimationToEnd:
+    timeout: 5000
+- tapOn:
+    point: 18%, 30%
+- runFlow:
+    when:
+      notVisible: "Video Studio"
+    commands:
+      - tapOn:
+          point: 18%, 30%
+- scrollUntilVisible:
+    element:
+      id: "field-video-prompt"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "field-video-prompt"
+- inputText: ${output.videoPrompt}
+- tapOn: "Done typing"
+- scrollUntilVisible:
+    element: "Generate video"
+    direction: DOWN
+- tapOn: "Generate video"
+- scrollUntilVisible:
+    element: "Refresh video"
+    direction: DOWN
+    timeout: 30000
+- extendedWaitUntil:
+    visible:
+      text: "Play"
+      enabled: true
+    timeout: 90000
+- scrollUntilVisible:
+    element:
+      text: "Play"
+      enabled: true
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    text: "Play"
+    enabled: true
+    waitToSettleTimeoutMs: 200
+- extendedWaitUntil:
+    visible: "Replay"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      text: "Play"
+      below: "grok-imagine-video-1-5-preview"
+    direction: DOWN
+- extendedWaitUntil:
+    visible:
+      text: "Play"
+      below: "grok-imagine-video-1-5-preview"
+      enabled: true
+    timeout: 90000
+- tapOn:
+    text: "Play"
+    below: "grok-imagine-video-1-5-preview"
+    enabled: true
+    waitToSettleTimeoutMs: 200
+- extendedWaitUntil:
+    visible:
+      text: "Replay"
+      below: "grok-imagine-video-1-5-preview"
+    timeout: 15000
+- launchApp
+- runFlow: helpers/organization.yaml
+- scrollUntilVisible:
+    element: "Video Studio"
+    direction: DOWN
+- tapOn: "Video Studio"
+- scrollUntilVisible:
+    element:
+      id: "field-search-videos"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "field-search-videos"
+- inputText: ${output.videoPrompt}
+- tapOn: "Done typing"
+- scrollUntilVisible:
+    element:
+      text: ${output.videoPrompt}
+      below:
+        id: "field-search-videos"
+    direction: DOWN
+- tapOn:
+    text: ${output.videoPrompt}
+    below:
+      id: "field-search-videos"
+- scrollUntilVisible:
+    element: "Generate video"
+    direction: UP
+- scrollUntilVisible:
+    element:
+      text: "Play"
+      below: "grok-imagine-video-1-5-preview"
+    direction: DOWN
+- extendedWaitUntil:
+    visible:
+      text: "Play"
+      below: "grok-imagine-video-1-5-preview"
+      enabled: true
+    timeout: 30000
+- tapOn:
+    text: "Play"
+    below: "grok-imagine-video-1-5-preview"
+    enabled: true
+    waitToSettleTimeoutMs: 200
+- extendedWaitUntil:
+    visible:
+      text: "Replay"
+      below: "grok-imagine-video-1-5-preview"
+    timeout: 15000

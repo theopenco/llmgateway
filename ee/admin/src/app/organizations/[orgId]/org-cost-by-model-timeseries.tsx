@@ -7,6 +7,7 @@ import { CostByModelTimeseriesChart } from "@/components/cost-by-model-timeserie
 import { getOrgCostByModelTimeseries } from "@/lib/admin-history";
 
 import type {
+	CostTimeseriesBucket,
 	CostTimeseriesGroupBy,
 	ModelView,
 	OrganizationCostGroupBy,
@@ -72,12 +73,18 @@ export function OrgCostByModelTimeseries({ orgId }: { orgId: string }) {
 	const breakdownNoun = breakdownNouns[groupBy];
 
 	const fetchData = useCallback(
-		async (w: TokenWindow, view: ModelView, group: CostTimeseriesGroupBy) => {
+		async (
+			w: TokenWindow,
+			view: ModelView,
+			group: CostTimeseriesGroupBy,
+			bucket: CostTimeseriesBucket | undefined,
+		) => {
 			return await getOrgCostByModelTimeseries(
 				orgId,
 				w,
 				view,
 				group === "source" ? "model" : group,
+				bucket,
 			);
 		},
 		[orgId],

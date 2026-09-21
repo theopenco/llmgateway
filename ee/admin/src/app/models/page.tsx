@@ -18,6 +18,8 @@ import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { parseUsageMode } from "@/lib/usage-mode";
 
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
+
 import type { paths } from "@/lib/api/v1";
 
 type ModelSortBy = NonNullable<
@@ -43,19 +45,6 @@ function SignInPrompt() {
 			</div>
 		</div>
 	);
-}
-
-function formatCompactNumber(value: number): string {
-	if (value >= 1_000_000_000) {
-		return `${(value / 1_000_000_000).toFixed(1)}B`;
-	}
-	if (value >= 1_000_000) {
-		return `${(value / 1_000_000).toFixed(1)}M`;
-	}
-	if (value >= 1_000) {
-		return `${(value / 1_000).toFixed(1)}k`;
-	}
-	return value.toLocaleString("en-US");
 }
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -142,7 +131,7 @@ export default async function ModelsPage({
 						{data.total} models found — click a row to view details
 					</p>
 				</div>
-				<div className="flex items-center gap-3">
+				<div className="flex w-full items-center gap-3 sm:w-auto">
 					<form
 						action={handleSearch}
 						className="flex w-full items-center gap-2 sm:w-auto"
@@ -151,14 +140,14 @@ export default async function ModelsPage({
 						<input type="hidden" name="sortOrder" value={sortOrder} />
 						<input type="hidden" name="window" value={pageWindow} />
 						<input type="hidden" name="mode" value={usageMode} />
-						<div className="relative flex-1 sm:flex-initial">
+						<div className="relative min-w-0 flex-1 sm:max-w-64">
 							<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 							<input
 								type="text"
 								name="search"
 								placeholder="Search by name or ID..."
 								defaultValue={search}
-								className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-64"
+								className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
 							/>
 						</div>
 						<Button type="submit" size="sm">

@@ -1,4 +1,5 @@
 import { hasInvalidProviderCredentialError } from "@/lib/provider-auth-errors.js";
+import { hasExhaustedProviderAccountError } from "@/lib/provider-funding-errors.js";
 
 import { isContentFilterErrorText } from "@llmgateway/shared";
 
@@ -31,6 +32,16 @@ export function getFinishReasonFromError(
 
 	// 404 from upstream provider indicates model/endpoint not found at provider
 	if (statusCode === 404) {
+		return "upstream_error";
+	}
+
+	// This restriction belongs to the upstream account, even on a 4xx response.
+	if (
+		errorText &&
+		/access to anthropic models is not allowed for this account/i.test(
+			errorText,
+		)
+	) {
 		return "upstream_error";
 	}
 
@@ -80,12 +91,7 @@ export function getFinishReasonFromError(
 	// case above this is a funding problem on our provider account, not a client
 	// fault, so classify as gateway_error to allow fallback to another key or
 	// provider.
-	if (
-		errorText &&
-		/credit balance is too low|insufficient balance|reaching the monthly spending limit/i.test(
-			errorText,
-		)
-	) {
+	if (hasExhaustedProviderAccountError(errorText)) {
 		return "gateway_error";
 	}
 

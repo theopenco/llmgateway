@@ -192,6 +192,38 @@ If you specify `reasoning.max_tokens` for a model that doesn't support it, you'l
 }
 ```
 
+## Reasoning Mode
+
+OpenAI's GPT-5.6 models accept a `reasoning.mode` of `standard` (the default) or `pro`. Pro mode spends additional model work on difficult tasks at higher latency and token usage. It is independent of effort: `mode` selects standard or pro execution, `effort` controls how much reasoning happens within that mode.
+
+```json
+{
+	"model": "gpt-5.6-sol",
+	"messages": [
+		{
+			"role": "user",
+			"content": "Review this migration plan for failure modes."
+		}
+	],
+	"reasoning": {
+		"mode": "pro",
+		"effort": "medium"
+	}
+}
+```
+
+The same `reasoning.mode` field works on the `/v1/responses` endpoint. Each mapping lists the values it accepts as `reasoning_modes` on [`/v1/models`](https://api.llmgateway.io/v1/models); auto-routing only considers mappings that list the requested mode, and a request for a model that does not list it is rejected with a 400 rather than silently run in standard mode:
+
+```json
+{
+	"error": {
+		"message": "Model gpt-4o does not support reasoning.mode \"pro\". Remove the reasoning.mode parameter or use a model whose reasoning_modes on /v1/models include it.",
+		"type": "invalid_request_error",
+		"code": "model_not_supported"
+	}
+}
+```
+
 ## Controlling Response Verbosity
 
 For OpenAI GPT-5 and later models, you can control how detailed the model's final answer is with the top-level `verbosity` parameter. This is independent of `reasoning_effort`: `reasoning_effort` controls how much the model thinks, while `verbosity` controls how much it writes in its response.
@@ -290,12 +322,9 @@ Agents work over many turns: the model reasons, calls a tool, and the tool resul
 LLMGateway preserves reasoning the same way OpenAI's Responses API does. The model returns an opaque **encrypted reasoning** payload, and you send it back unchanged along with the rest of the conversation on the next call. The payload is issued and verified by the provider — the gateway passes it through without inspecting or rewriting it.
 
 <Callout type="info">
-	Encrypted reasoning is produced by models served over OpenAI's Responses API
-	(OpenAI and Azure OpenAI reasoning models). Other reasoning models return
-	summary text only, and there is nothing to replay — asking for encrypted
-	reasoning is ignored rather than rejected, so the same client code works
-	against every model. Gemini thought signatures are handled automatically: the
-	gateway re-attaches them to replayed tool calls.
+	Readable reasoning summaries and opaque replay data are separate. Summaries
+	remain available when the model provides them; the gateway cannot decrypt
+	provider-issued reasoning payloads or Gemini thought signatures.
 </Callout>
 
 ### Responses API
@@ -406,7 +435,17 @@ The Chat Completions format has no reasoning items, so the gateway carries the s
 
 To preserve the reasoning, append the assistant message back into `messages` exactly as you received it (with `reasoning_details` intact) before the matching `tool` result. No opt-in parameter is required — the field is always present when the model produced one. When streaming, the entries arrive as a `delta.reasoning_details` chunk.
 
-Replaying is safe across models: entries a provider cannot consume are stripped before the upstream request, so the same conversation history can be sent to any model.
+The gateway converts supported `reasoning_details` formats to native provider fields and strips these entries from other upstream requests.
+
+### Gemini Thought Signatures
+
+Gemini text turns carry signatures in `reasoning_details` entries with `type: "reasoning.text"` and `format: "google-gemini-v1"`. Replay the entire assistant message, including these entries. Preserve each entry's `google_part` metadata: it lets the gateway restore the original signed text boundaries. Streaming clients must collect `delta.reasoning_details`, including entries arriving with empty text.
+
+When the gateway repairs JSON, clients receive the repaired answer. The entries also carry `google_response` metadata so replay can restore the original signed text. Editing the returned answer prevents that restoration.
+
+On the Responses API, replay the complete `output`: assistant message items carry `reasoning_details`, while function call items carry `extra_content.google.thought_signature`. These fields are returned without an `include` opt-in. Stored conversations using `previous_response_id` preserve them automatically. Gemini signatures are not converted into OpenAI `encrypted_content`.
+
+For Chat Completions, `content[]` text parts and `tool_calls[]` also accept `extra_content.google.thought_signature`. The tool-call signature cache remains a fallback, but replaying the metadata also works when signatures are not cached. Only replay signatures with the original content and the model/provider that issued them.
 
 ### Error Handling
 

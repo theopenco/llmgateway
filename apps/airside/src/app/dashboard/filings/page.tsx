@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import Link from "next/link";
 
 import { useCompany } from "@/components/dashboard/company-context";
+import { RelativeDate } from "@/components/RelativeDate";
 import { Badge } from "@/components/ui/badge";
 import {
 	Card,
@@ -127,11 +128,8 @@ export default function FilingsPage() {
 												{filing.status}
 											</Badge>
 										</TableCell>
-										<TableCell className="text-muted-foreground font-mono text-xs">
-											{new Date(filing.createdAt).toLocaleDateString("en-US", {
-												month: "short",
-												day: "numeric",
-											})}
+										<TableCell className="text-muted-foreground text-xs">
+											<RelativeDate date={filing.createdAt} />
 										</TableCell>
 										<TableCell className="text-muted-foreground max-w-56 truncate text-xs">
 											{filing.reviewNote ?? filing.note ?? "—"}
@@ -186,11 +184,8 @@ export default function FilingsPage() {
 												{filing.status}
 											</Badge>
 										</TableCell>
-										<TableCell className="text-muted-foreground font-mono text-xs">
-											{new Date(filing.createdAt).toLocaleDateString("en-US", {
-												month: "short",
-												day: "numeric",
-											})}
+										<TableCell className="text-muted-foreground text-xs">
+											<RelativeDate date={filing.createdAt} />
 										</TableCell>
 										<TableCell className="text-muted-foreground max-w-56 truncate text-xs">
 											{filing.reviewNote ?? "—"}

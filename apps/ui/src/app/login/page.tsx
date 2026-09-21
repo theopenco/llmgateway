@@ -22,7 +22,11 @@ import { SocialAuthButtons } from "@/components/social-auth-buttons";
 import { useSessionStatus, useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 import { useAuthErrorToast } from "@/lib/auth-errors";
-import { getAuthRedirect, isCliAuthRedirect } from "@/lib/auth-redirect";
+import {
+	getAuthPagePath,
+	getAuthRedirect,
+	isCliAuthRedirect,
+} from "@/lib/auth-redirect";
 import { Button } from "@/lib/components/button";
 import {
 	Form,
@@ -58,11 +62,13 @@ export default function Login() {
 
 	const searchParams = useSearchParams();
 	const redirectTarget = getAuthRedirect(searchParams.get("redirect"));
+	const reauthenticate = searchParams.get("reauthenticate") === "true";
+	const loginPath = reauthenticate ? "/login?reauthenticate=true" : "/login";
 
 	const { isAuthenticated } = useSessionStatus();
 
 	useUser({
-		redirectTo: redirectTarget,
+		redirectTo: reauthenticate ? undefined : redirectTarget,
 		redirectWhen: "authenticated",
 		checkOnboarding: !isCliAuthRedirect(redirectTarget),
 		enabled: isAuthenticated,
@@ -171,6 +177,7 @@ export default function Login() {
 				});
 				return;
 			}
+			queryClient.clear();
 			posthog.capture("user_logged_in", { method: "passkey" });
 			toast({ title: "Login successful" });
 			router.push(redirectTarget as Route);
@@ -192,6 +199,9 @@ export default function Login() {
 			// email — clearer than the full email+password form when SSO only needs
 			// the email. Carry over whatever they've already typed.
 			const query = new URLSearchParams({ redirect: redirectTarget });
+			if (reauthenticate) {
+				query.set("reauthenticate", "true");
+			}
 			if (email) {
 				query.set("email", email);
 			}
@@ -208,7 +218,7 @@ export default function Login() {
 			// Carry the validated `?redirect=` target through the error path too, so a
 			// failed SSO attempt returns to /login with the intended destination and a
 			// retry still lands the user there.
-			const errorUrl = new URL("/login", origin);
+			const errorUrl = new URL(loginPath, origin);
 			if (redirectTarget !== "/dashboard") {
 				errorUrl.searchParams.set("redirect", redirectTarget);
 			}
@@ -291,8 +301,8 @@ export default function Login() {
 											Forgot password?
 										</Link>
 									</div>
-									<FormControl>
-										<div className="relative">
+									<div className="relative">
+										<FormControl>
 											<Input
 												placeholder="••••••••"
 												type={showPassword ? "text" : "password"}
@@ -300,25 +310,25 @@ export default function Login() {
 												className="pr-10"
 												{...field}
 											/>
-											<Button
-												type="button"
-												variant="ghost"
-												size="sm"
-												className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-												onClick={() => setShowPassword(!showPassword)}
-												tabIndex={-1}
-											>
-												{showPassword ? (
-													<EyeOff className="h-4 w-4 text-muted-foreground" />
-												) : (
-													<Eye className="h-4 w-4 text-muted-foreground" />
-												)}
-												<span className="sr-only">
-													{showPassword ? "Hide password" : "Show password"}
-												</span>
-											</Button>
-										</div>
-									</FormControl>
+										</FormControl>
+										<Button
+											type="button"
+											variant="ghost"
+											size="sm"
+											className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+											onClick={() => setShowPassword(!showPassword)}
+											tabIndex={-1}
+										>
+											{showPassword ? (
+												<EyeOff className="h-4 w-4 text-muted-foreground" />
+											) : (
+												<Eye className="h-4 w-4 text-muted-foreground" />
+											)}
+											<span className="sr-only">
+												{showPassword ? "Hide password" : "Show password"}
+											</span>
+										</Button>
+									</div>
 									<FormMessage />
 								</FormItem>
 							)}
@@ -354,7 +364,7 @@ export default function Login() {
 					isLoading={isLoading}
 					setIsLoading={setIsLoading}
 					callbackPath={redirectTarget}
-					errorCallbackPath="/login"
+					errorCallbackPath={loginPath}
 					newUserCallbackPath={redirectTarget}
 				/>
 
@@ -391,7 +401,7 @@ export default function Login() {
 
 			<p className="mt-6 text-center text-sm text-muted-foreground">
 				<Link
-					href="/signup"
+					href={getAuthPagePath("/signup", redirectTarget) as Route}
 					className="hover:text-foreground underline underline-offset-4 transition-colors"
 				>
 					Don&apos;t have an account? Sign up

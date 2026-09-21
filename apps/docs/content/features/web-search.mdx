@@ -23,6 +23,17 @@ When you include the `web_search` tool in your request, the model can search the
 
 Native web search is available on select models. See all models with native web search support on our [models page](https://llmgateway.io/models?filters=1&webSearch=true).
 
+<Callout type="warn">
+	**Perplexity Sonar changes on September 25, 2026.** Perplexity retires its
+	Sonar chat completions API on September 27. On September 25,
+	`perplexity/sonar` moves to Perplexity's Agent API: the model id, the request
+	shape and the response fields stay the same, and the flat per-request fee is
+	replaced by per-search billing. `perplexity/sonar-pro` and
+	`perplexity/sonar-reasoning-pro` have no equivalent on that API and stop being
+	routable on September 27. Read the [full
+	announcement](https://llmgateway.io/blog/perplexity-sonar-api-retirement).
+</Callout>
+
 ## Basic Usage
 
 To enable web search, add the `web_search` tool to your request:

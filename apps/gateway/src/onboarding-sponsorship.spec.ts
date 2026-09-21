@@ -6,7 +6,7 @@ import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
-import { waitForLogs } from "./test-utils/test-helpers.js";
+import { waitForLogByRequestId } from "./test-utils/test-helpers.js";
 
 // A brand new organization is created with 0 credits, so the onboarding wizard's
 // first call would 402 on the very first thing a user does. The API proxy
@@ -104,9 +104,11 @@ describe("sponsored onboarding call", () => {
 	// worker debits that separately, even when inference was zeroed.
 	test("the logged call is billed nothing and belongs to the caller", async () => {
 		await setupZeroCreditKey("onboarding-cost");
+		const requestId = "onboarding-cost-request";
 
 		const res = await chatRequest("onboarding-cost", {
 			[ONBOARDING_SPONSOR_HEADER]: SECRET,
+			"x-request-id": requestId,
 		});
 		expect(res.status).toBe(200);
 
@@ -115,13 +117,12 @@ describe("sponsored onboarding call", () => {
 		};
 		expect(json.usage.cost).toBe(0);
 
-		const logs = await waitForLogs(1);
-		expect(logs).toHaveLength(1);
-		expect(logs[0].organizationId).toBe("org-id");
-		expect(logs[0].projectId).toBe("project-id");
-		expect(Number(logs[0].cost ?? 0)).toBe(0);
-		expect(Number(logs[0].inputCost ?? 0)).toBe(0);
-		expect(Number(logs[0].outputCost ?? 0)).toBe(0);
-		expect(Number(logs[0].dataStorageCost ?? 0)).toBe(0);
+		const log = await waitForLogByRequestId(requestId);
+		expect(log.organizationId).toBe("org-id");
+		expect(log.projectId).toBe("project-id");
+		expect(Number(log.cost ?? 0)).toBe(0);
+		expect(Number(log.inputCost ?? 0)).toBe(0);
+		expect(Number(log.outputCost ?? 0)).toBe(0);
+		expect(Number(log.dataStorageCost ?? 0)).toBe(0);
 	});
 });

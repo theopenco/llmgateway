@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 
+import { ChartStyleProvider } from "@/components/analytics/chart-style";
 import { DashboardLayoutClient } from "@/components/dashboard/dashboard-layout-client";
 import { UnauthorizedView } from "@/components/dashboard/unauthorized-view";
 import { UserProvider } from "@/components/providers/user-provider";
@@ -81,15 +82,23 @@ export default async function OrgLayout({ children, params }: OrgLayoutProps) {
 	return (
 		<UserProvider initialUserData={initialUserData}>
 			<SidebarProvider defaultOpen={sidebarDefaultOpen}>
-				<DashboardLayoutClient
-					initialOrganizationsData={initialOrganizationsData}
-					initialProjectsData={initialProjectsData}
-					selectedOrgId={orgId}
-					selectedProjectId={lastUsedProjectId}
-					announcementEntries={announcementEntries}
+				<ChartStyleProvider
+					initialStyle={
+						cookieStore.get("analytics_chart_style")?.value === "bar"
+							? "bar"
+							: "line"
+					}
 				>
-					{children}
-				</DashboardLayoutClient>
+					<DashboardLayoutClient
+						initialOrganizationsData={initialOrganizationsData}
+						initialProjectsData={initialProjectsData}
+						selectedOrgId={orgId}
+						selectedProjectId={lastUsedProjectId}
+						announcementEntries={announcementEntries}
+					>
+						{children}
+					</DashboardLayoutClient>
+				</ChartStyleProvider>
 			</SidebarProvider>
 		</UserProvider>
 	);

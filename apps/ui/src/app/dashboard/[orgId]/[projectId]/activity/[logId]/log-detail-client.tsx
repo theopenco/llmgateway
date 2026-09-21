@@ -49,7 +49,10 @@ import {
 import {
 	API_ORIGIN_LABELS,
 	CredentialSourceBadge,
+	RoutingMetadataExpired,
 } from "@llmgateway/shared/components";
+import { isRoutingMetadataExpired } from "@llmgateway/shared/log-retention";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { LogDetailData } from "@/types/activity";
 import type { Log } from "@llmgateway/db";
@@ -64,6 +67,7 @@ interface ImageConfig {
 	aspect_ratio?: string;
 	image_size?: string;
 	image_quality?: string;
+	moderation?: string;
 	n?: number;
 	output_format?: string;
 	output_compression?: number;
@@ -554,7 +558,7 @@ export function LogDetailClient({
 							<span className="text-xs">Tokens</span>
 						</div>
 						<p className="text-lg font-semibold tabular-nums">
-							{Number(log.totalTokens ?? 0).toLocaleString()}
+							{formatNumber(Number(log.totalTokens ?? 0))}
 						</p>
 					</div>
 					<div className="rounded-lg border bg-card p-3">
@@ -678,6 +682,13 @@ export function LogDetailClient({
 							</div>
 						</Section>
 
+						{isRoutingMetadataExpired(log) && (
+							<Section title="Routing">
+								<div className="rounded-lg border bg-card p-4">
+									<RoutingMetadataExpired />
+								</div>
+							</Section>
+						)}
 						{log.routingMetadata && (
 							<Section title="Routing">
 								<div className="rounded-lg border bg-card p-4">
@@ -1178,6 +1189,9 @@ export function LogDetailClient({
 										label="Image Quality"
 										value={imageConfig.image_quality ?? "-"}
 									/>
+									{imageConfig.moderation && (
+										<Field label="Moderation" value={imageConfig.moderation} />
+									)}
 									{imageConfig.n !== undefined && imageConfig.n !== null && (
 										<Field label="Image Count" value={imageConfig.n} />
 									)}

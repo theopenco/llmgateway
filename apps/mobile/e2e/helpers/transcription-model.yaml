@@ -1,0 +1,12 @@
+appId: io.llmgateway.lounge
+---
+- scrollUntilVisible:
+    element: "Live transcription"
+    direction: DOWN
+- tapOn: "Live transcription"
+- tapOn: "Model: Choose"
+- tapOn:
+    id: "field-search-models"
+- inputText: "gpt-4o-transcribe"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT-4o Transcribe"

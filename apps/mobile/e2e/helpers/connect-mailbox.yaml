@@ -1,0 +1,22 @@
+appId: io.llmgateway.lounge
+---
+- scrollUntilVisible:
+    element: "Connectors"
+    direction: DOWN
+- tapOn: "Connectors"
+- tapOn:
+    id: "field-search-connectors"
+- inputText: "Gmail"
+- tapOn: "Done typing"
+- runFlow:
+    when:
+      visible: "Disconnect Gmail"
+    commands:
+      - tapOn: "Disconnect Gmail"
+      - tapOn: "Disconnect"
+- tapOn: "Connect Gmail"
+- runFlow: connector-browser.yaml
+- tapOn: "Allow access"
+- extendedWaitUntil:
+    visible: "Connected to Gmail."
+    timeout: 20000

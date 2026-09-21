@@ -1,5 +1,15 @@
 import { z } from "@hono/zod-openapi";
 
+export const googleExtraContentSchema = z.object({
+	google: z.object({ thought_signature: z.string().optional() }).optional(),
+});
+
+export const reasoningDetailsSchema = z.array(
+	z
+		.object({ text: z.string().optional(), type: z.string().optional() })
+		.passthrough(),
+);
+
 export const completionsRequestSchema = z.object({
 	model: z.string().openapi({
 		example: "gpt-5",
@@ -21,6 +31,7 @@ export const completionsRequestSchema = z.object({
 							z.object({
 								type: z.literal("text"),
 								text: z.string(),
+								extra_content: googleExtraContentSchema.optional(),
 								cache_control: z
 									.object({
 										type: z.literal("ephemeral"),
@@ -110,6 +121,7 @@ export const completionsRequestSchema = z.object({
 					z.object({
 						id: z.string(),
 						type: z.literal("function"),
+						extra_content: googleExtraContentSchema.optional(),
 						function: z.object({
 							name: z.string(),
 							arguments: z.string(),
@@ -133,16 +145,7 @@ export const completionsRequestSchema = z.object({
 				}),
 			reasoning: z.string().optional(),
 			reasoning_content: z.string().optional(),
-			reasoning_details: z
-				.array(
-					z
-						.object({
-							text: z.string().optional(),
-							type: z.string().optional(),
-						})
-						.passthrough(),
-				)
-				.optional(),
+			reasoning_details: reasoningDetailsSchema.optional(),
 			phase: z.enum(["commentary", "final_answer"]).optional().openapi({
 				description:
 					"OpenAI Responses assistant-message phase. Replayed upstream for OpenAI Responses API models; stripped for other providers.",
@@ -405,6 +408,11 @@ export const completionsRequestSchema = z.object({
 						"How much replayed reasoning the model considers (OpenAI Responses API models only). Omitting the field is equivalent to 'auto'. Forwarded upstream as reasoning.context; ignored by other providers.",
 					example: "current_turn",
 				}),
+			mode: z.enum(["standard", "pro"]).optional().openapi({
+				description:
+					"Execution strategy: `pro` performs additional model work for difficult tasks at higher latency and token usage. Independent of effort, which controls how much reasoning happens within the mode. Only accepted by mappings that list it under `reasoning_modes` on `/v1/models` (OpenAI GPT-5.6 models); the request is rejected for any other model instead of the field being dropped.",
+				example: "pro",
+			}),
 		})
 		.optional()
 		.openapi({
@@ -477,6 +485,7 @@ export const completionsRequestSchema = z.object({
 			image_quality: z
 				.enum(["low", "medium", "high", "xhigh", "max", "auto"])
 				.optional(),
+			moderation: z.enum(["auto", "low"]).optional(),
 			n: z.number().optional(),
 			seed: z.number().optional(),
 		})

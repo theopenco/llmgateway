@@ -15,6 +15,10 @@ import {
 	formatDayKey,
 	useDisplayTimeZone,
 } from "@llmgateway/shared";
+import {
+	formatCompactNumber,
+	formatNumber,
+} from "@llmgateway/shared/number-format";
 
 import AllowanceExhaustedCard from "./AllowanceExhaustedCard";
 import PayAsYouGoCard from "./PayAsYouGoCard";
@@ -442,18 +446,12 @@ export default function UsageOverview({
 				/>
 				<MetricCard
 					label={`Requests ${cycleLengthLabel}`}
-					value={totalRequests.toLocaleString()}
+					value={formatNumber(totalRequests)}
 					icon={Activity}
 				/>
 				<MetricCard
 					label={`Tokens ${cycleLengthLabel}`}
-					value={
-						totalTokens >= 1_000_000
-							? `${(totalTokens / 1_000_000).toFixed(1)}M`
-							: totalTokens >= 1_000
-								? `${(totalTokens / 1_000).toFixed(0)}K`
-								: totalTokens.toLocaleString()
-					}
+					value={formatCompactNumber(totalTokens)}
 					hint={
 						cachedShare > 0
 							? `${cachedShare}% served from cache at a reduced rate`

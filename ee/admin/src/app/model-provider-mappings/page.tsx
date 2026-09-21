@@ -18,6 +18,8 @@ import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { parseUsageMode } from "@/lib/usage-mode";
 
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
+
 type MappingSortBy =
 	| "providerId"
 	| "modelId"
@@ -31,19 +33,6 @@ type MappingSortBy =
 	| "updatedAt";
 
 type SortOrder = "asc" | "desc";
-
-function formatCompactNumber(value: number): string {
-	if (value >= 1_000_000_000) {
-		return `${(value / 1_000_000_000).toFixed(1)}B`;
-	}
-	if (value >= 1_000_000) {
-		return `${(value / 1_000_000).toFixed(1)}M`;
-	}
-	if (value >= 1_000) {
-		return `${(value / 1_000).toFixed(1)}k`;
-	}
-	return value.toLocaleString("en-US");
-}
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
@@ -147,14 +136,14 @@ export default async function ModelProviderMappingsPage({
 					<input type="hidden" name="sortOrder" value={sortOrder} />
 					<input type="hidden" name="window" value={pageWindow} />
 					<input type="hidden" name="mode" value={usageMode} />
-					<div className="relative flex-1 sm:flex-initial">
+					<div className="relative min-w-0 flex-1 sm:max-w-64">
 						<Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
 						<input
 							type="text"
 							name="search"
 							placeholder="Search by model or provider..."
 							defaultValue={search}
-							className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:w-64"
+							className="h-9 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
 						/>
 					</div>
 					<Button type="submit" size="sm">

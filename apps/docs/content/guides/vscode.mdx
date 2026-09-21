@@ -1,0 +1,65 @@
+---
+title: VS Code Integration
+description: Install the official LLM Gateway extension and use your PAYG or DevPass key in VS Code's native chat and agent mode.
+icon: Code
+---
+
+The official&nbsp;[LLM Gateway extension](https://marketplace.visualstudio.com/items?itemName=llmgateway.llmgateway-vscode) adds LLM Gateway to the Copilot Chat model picker in VS Code. Connect your key once, then choose from the chat models available to your account.
+
+## Prerequisites
+
+- VS Code 1.134.0 or later with Copilot Chat available.
+- An LLM Gateway API key from your&nbsp;[dashboard](https://llmgateway.io/dashboard), or a&nbsp;[DevPass](https://devpass.llmgateway.io) plan key.
+
+## Install and connect
+
+1. Install **LLM Gateway**, published by **llmgateway**, from the&nbsp;[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=llmgateway.llmgateway-vscode).
+2. Open the chat view, click the model picker, and choose **Manage Models…**.
+3. Select **LLM Gateway** and enter your API key when prompted.
+4. Select an LLM Gateway model from the picker and send a message.
+
+You can also install from the terminal:
+
+```bash
+code --install-extension llmgateway.llmgateway-vscode
+```
+
+The gateway URL is already configured. Your key is stored in VS Code's secret storage, never in settings files. Run **LLM Gateway: Set API Key** from the Command Palette to replace it, or **LLM Gateway: Clear API Key** to remove it.
+
+## Choose a model
+
+The extension fetches models using your key and lists active chat models with streaming support. Your organization's model access rules and DevPass plan restrictions apply. Browse the&nbsp;[models page](https://llmgateway.io/models) for current capabilities and pricing.
+
+For agent mode, select a model with tool calling. Image attachments require a model with image input support. Responses stream into the chat view.
+
+Both PAYG and DevPass keys use the same setup. PAYG requests use your gateway billing configuration; DevPass requests follow your plan's model access and usage limits. The extension sends canonical model IDs, so no provider prefix is needed for DevPass.
+
+## Settings
+
+Search for **LLM Gateway** in VS Code Settings to configure:
+
+| Setting                      | Default                        | Purpose                                                                                                   |
+| ---------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `llmgateway.baseUrl`         | `https://api.llmgateway.io/v1` | Change the endpoint for a self-hosted gateway. Include `/v1`.                                             |
+| `llmgateway.models`          | `[]`                           | Limit the picker to specific model IDs. An empty list shows all eligible chat models your key can access. |
+| `llmgateway.reasoningEffort` | `default`                      | Override reasoning effort for reasoning-capable models. Choose a level supported by the selected model.   |
+
+Run **LLM Gateway: Refresh Models** to reload the model list, or **LLM Gateway: Open Dashboard** to review usage.
+
+## Troubleshooting
+
+### Models do not appear
+
+Check that the extension is enabled and VS Code meets the minimum version. Run **LLM Gateway: Set API Key**, then **LLM Gateway: Refresh Models**. If you configured `llmgateway.models`, clear it to `[]` to see all eligible models for your key.
+
+### Authentication fails
+
+A `401` response clears the stored key. Run **LLM Gateway: Set API Key** with an active key from your dashboard.
+
+### Credits or plan limits
+
+Read the gateway's error message. PAYG accounts may need credits; DevPass accounts may have reached a plan limit. Check the relevant dashboard before retrying.
+
+For connection errors, open **View → Output** and select **LLM Gateway**. If you use a self-hosted gateway, check `llmgateway.baseUrl`.
+
+Source code and issue reporting are available in the&nbsp;[extension repository](https://github.com/theopenco/llmgateway-vscode).

@@ -219,15 +219,41 @@ describe("computeSelfRefundEligibility", () => {
 	test("unsupported transaction types are not eligible", async () => {
 		await seedOrg({ credits: "100" });
 		const tx = await seedTransaction({
-			type: "dev_plan_upgrade",
+			type: "credit_manual_payment",
 			stripePaymentIntentId: null,
-			stripeInvoiceId: "in_test_upgrade",
+			stripeInvoiceId: "in_test_manual",
 		});
 
 		expect(await getEligibility(tx.id)).toEqual({
 			eligible: false,
 			reason: "unsupported_type",
 		});
+	});
+
+	test("a dev plan upgrade under 20% of the new allowance is eligible", async () => {
+		await seedOrg({
+			devPlan: "max",
+			devPlanCreditsUsed: "47",
+			devPlanCreditsLimit: "601.57",
+			devPlanStripeSubscriptionId: "sub_test_1",
+		});
+		await seedTransaction({
+			type: "dev_plan_renewal",
+			amount: "29",
+			creditAmount: "87",
+			stripePaymentIntentId: null,
+			stripeInvoiceId: "in_test_1",
+			createdAt: daysAgo(10),
+		});
+		const upgrade = await seedTransaction({
+			type: "dev_plan_upgrade",
+			amount: "179",
+			creditAmount: "601.57",
+			stripePaymentIntentId: null,
+			stripeInvoiceId: "in_test_2",
+		});
+
+		expect(await getEligibility(upgrade.id)).toEqual({ eligible: true });
 	});
 
 	test("first dev plan purchase under 20% of the credit allowance is eligible", async () => {
@@ -269,12 +295,10 @@ describe("computeSelfRefundEligibility", () => {
 		});
 	});
 
-	test("dev plan renewal gates on the dollar price, not the virtual allowance", async () => {
+	test("dev plan renewal at 20% of the allowance is not eligible", async () => {
 		await seedOrg({
 			devPlan: "pro",
-			// 16 > 20% of $79 ($15.80) while still far under 20% of the
-			// 237-credit allowance (47.4) — the dollar gate is what decides.
-			devPlanCreditsUsed: "16",
+			devPlanCreditsUsed: "47.4",
 			devPlanCreditsLimit: "237",
 			devPlanStripeSubscriptionId: "sub_test_1",
 		});
@@ -300,35 +324,42 @@ describe("computeSelfRefundEligibility", () => {
 		});
 	});
 
-	test("dev plan renewal under 20% of the price is eligible; the start is no longer refundable", async () => {
-		await seedOrg({
-			devPlan: "pro",
-			devPlanCreditsUsed: "15",
-			devPlanCreditsLimit: "237",
-			devPlanStripeSubscriptionId: "sub_test_1",
-		});
-		const start = await seedTransaction({
-			type: "dev_plan_start",
-			amount: "79",
-			creditAmount: "237",
-			stripePaymentIntentId: null,
-			stripeInvoiceId: "in_test_1",
-			createdAt: daysAgo(10),
-		});
-		const renewal = await seedTransaction({
-			type: "dev_plan_renewal",
-			amount: "79",
-			creditAmount: "237",
-			stripePaymentIntentId: null,
-			stripeInvoiceId: "in_test_2",
-		});
+	test.each([
+		"dev_plan_start",
+		"dev_plan_renewal",
+		"dev_plan_upgrade",
+	] as const)(
+		"repeat %s under 20% of the allowance is eligible; the older payment is not",
+		async (type) => {
+			await seedOrg({
+				devPlan: "pro",
+				devPlanCreditsUsed: "47",
+				devPlanCreditsLimit: "237",
+				devPlanStripeSubscriptionId: "sub_test_1",
+			});
+			const start = await seedTransaction({
+				type: "dev_plan_start",
+				amount: "79",
+				creditAmount: "237",
+				stripePaymentIntentId: null,
+				stripeInvoiceId: "in_test_1",
+				createdAt: daysAgo(10),
+			});
+			const renewal = await seedTransaction({
+				type,
+				amount: "79",
+				creditAmount: "237",
+				stripePaymentIntentId: null,
+				stripeInvoiceId: "in_test_2",
+			});
 
-		expect(await getEligibility(renewal.id)).toEqual({ eligible: true });
-		expect(await getEligibility(start.id)).toEqual({
-			eligible: false,
-			reason: "not_latest_purchase",
-		});
-	});
+			expect(await getEligibility(renewal.id)).toEqual({ eligible: true });
+			expect(await getEligibility(start.id)).toEqual({
+				eligible: false,
+				reason: "not_latest_purchase",
+			});
+		},
+	);
 
 	test("plan payments are not eligible once the plan is inactive", async () => {
 		await seedOrg({
@@ -389,6 +420,46 @@ describe("computeSelfRefundEligibility", () => {
 		});
 
 		expect(await getEligibility(tx.id)).toEqual({ eligible: true });
+	});
+
+	describe.each([
+		"chat_plan_start",
+		"chat_plan_renewal",
+		"chat_plan_upgrade",
+	] as const)("repeat %s", (type) => {
+		test.each([
+			{ used: "9", limit: "47.5", eligible: true },
+			{ used: "9.5", limit: "47.5", eligible: false },
+			{ used: "0", limit: "0", eligible: false },
+		])(
+			"usage $used of $limit: eligible=$eligible",
+			async ({ used, limit, eligible }) => {
+				await seedOrg({
+					kind: "chat",
+					chatPlan: "plus",
+					chatPlanCreditsUsed: used,
+					chatPlanCreditsLimit: limit,
+					chatPlanStripeSubscriptionId: "sub_test_chat",
+				});
+				await seedTransaction({
+					type: "chat_plan_start",
+					amount: "19",
+					creditAmount: "47.5",
+					createdAt: daysAgo(30),
+				});
+				const tx = await seedTransaction({
+					type,
+					amount: "19",
+					creditAmount: "47.5",
+				});
+
+				expect(await getEligibility(tx.id)).toEqual(
+					eligible
+						? { eligible: true }
+						: { eligible: false, reason: "usage_exceeded" },
+				);
+			},
+		);
 	});
 
 	test("unused reset pass within 7 days is eligible", async () => {
@@ -887,6 +958,106 @@ describe("self-refund endpoints", () => {
 		});
 		expect(feedback).toHaveLength(1);
 		expect(feedback[0]?.kind).toBe("devpass");
+	});
+
+	describe.each([
+		"dev_plan_start",
+		"dev_plan_renewal",
+		"dev_plan_upgrade",
+	] as const)("repeat DevPass %s", (type) => {
+		test.each([
+			{ used: "12", eligible: true },
+			{ used: "17.4", eligible: false },
+		])(
+			"billing and refund enforce the credit threshold at $used used",
+			async ({ used, eligible }) => {
+				await seedOrg({
+					kind: "devpass",
+					devPlan: "lite",
+					devPlanCreditsUsed: used,
+					devPlanCreditsLimit: "87",
+					devPlanStripeSubscriptionId: "sub_test_1",
+					devPlanCancelled: true,
+				});
+				await seedTransaction({
+					type: "dev_plan_start",
+					amount: "79",
+					creditAmount: "237",
+					createdAt: daysAgo(30),
+				});
+				const tx = await seedTransaction({
+					type,
+					amount: "29",
+					creditAmount: "87",
+				});
+
+				const invoices = await app.request("/dev-plans/invoices", {
+					headers: { Cookie: token },
+				});
+				expect(invoices.status).toBe(200);
+				expect(await invoices.json()).toMatchObject({
+					invoices: expect.arrayContaining([
+						expect.objectContaining({
+							id: tx.id,
+							refund: eligible
+								? { eligible: true }
+								: { eligible: false, reason: "usage_exceeded" },
+						}),
+					]),
+				});
+
+				const response = await app.request(
+					`/dev-plans/invoices/${tx.id}/refund`,
+					{
+						method: "POST",
+						headers: { Cookie: token, "Content-Type": "application/json" },
+						body: JSON.stringify({ reason: "too_expensive" }),
+					},
+				);
+				expect(response.status).toBe(eligible ? 200 : 400);
+				if (eligible) {
+					expect(stripeMock.refunds.create).toHaveBeenCalledWith(
+						{ payment_intent: "pi_test_1", reason: "requested_by_customer" },
+						{ idempotencyKey: `self-refund-${tx.id}` },
+					);
+				} else {
+					expect(stripeMock.refunds.create).not.toHaveBeenCalled();
+				}
+			},
+		);
+	});
+
+	// Every charge must carry an eligibility verdict so the billing history can
+	// render a disabled refund button with a reason, rather than nothing at all.
+	test("charges that are not refundable still report an eligibility verdict", async () => {
+		await seedOrg({ kind: "devpass", credits: "0" });
+		const manual = await seedTransaction({
+			type: "credit_manual_payment",
+			amount: "500",
+			creditAmount: "500",
+			stripePaymentIntentId: null,
+		});
+		const lifecycle = await seedTransaction({
+			type: "dev_plan_cancel",
+			amount: null,
+			creditAmount: null,
+			stripePaymentIntentId: null,
+		});
+
+		const invoices = await app.request("/dev-plans/invoices", {
+			headers: { Cookie: token },
+		});
+		expect(invoices.status).toBe(200);
+		const body = (await invoices.json()) as {
+			invoices: { id: string; refund?: unknown }[];
+		};
+		expect(body.invoices.find((i) => i.id === manual.id)?.refund).toEqual({
+			eligible: false,
+			reason: "unsupported_type",
+		});
+		expect(
+			body.invoices.find((i) => i.id === lifecycle.id)?.refund,
+		).toBeUndefined();
 	});
 
 	test("rejects ineligible transactions with 400 and does not call Stripe", async () => {

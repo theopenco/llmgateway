@@ -34,7 +34,7 @@ export default async function MigrationPage({ params }: MigrationPageProps) {
 		headline: migration.title,
 		description: migration.description ?? "Migration guide for LLM Gateway",
 		datePublished: migration.date,
-		dateModified: migration.date,
+		dateModified: migration.updatedAt ?? migration.date,
 		author: {
 			"@type": "Organization",
 			name: "LLM Gateway",
@@ -51,12 +51,13 @@ export default async function MigrationPage({ params }: MigrationPageProps) {
 		},
 	};
 
-	const formattedDate = new Date(migration.date).toLocaleDateString("en-US", {
-		year: "numeric",
-		month: "long",
-		day: "numeric",
-		timeZone: "UTC",
-	});
+	const formatDate = (date: string) =>
+		new Date(date).toLocaleDateString("en-US", {
+			year: "numeric",
+			month: "long",
+			day: "numeric",
+			timeZone: "UTC",
+		});
 
 	return (
 		<>
@@ -96,7 +97,19 @@ export default async function MigrationPage({ params }: MigrationPageProps) {
 								</p>
 							)}
 							<p className="text-sm text-muted-foreground">
-								Published <time dateTime={migration.date}>{formattedDate}</time>
+								Published{" "}
+								<time dateTime={migration.date}>
+									{formatDate(migration.date)}
+								</time>
+								{migration.updatedAt && (
+									<>
+										{" "}
+										· Updated{" "}
+										<time dateTime={migration.updatedAt}>
+											{formatDate(migration.updatedAt)}
+										</time>
+									</>
+								)}
 							</p>
 							<div className="not-prose mt-6 rounded-xl border border-border bg-muted/50 p-5">
 								<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

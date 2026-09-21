@@ -10,6 +10,7 @@ import {
 	type ModelDefinition,
 } from "@llmgateway/models";
 import { isMappingDeactivated } from "@llmgateway/shared/components";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 const RELATED_MODELS_LIMIT = 6;
 
@@ -102,7 +103,7 @@ export async function RelatedModels({
 							)}
 							<p className="mt-2 text-xs text-muted-foreground space-x-2">
 								{maxContext > 0 && (
-									<span>{maxContext.toLocaleString()} context</span>
+									<span>{formatNumber(maxContext)} context</span>
 								)}
 								{model.free ? (
 									<span>Free</span>

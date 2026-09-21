@@ -10,7 +10,7 @@ import type {
 
 interface ResponsesBody {
 	input: Array<Record<string, unknown>>;
-	reasoning?: { context?: string };
+	reasoning?: { effort?: string; context?: string; mode?: string };
 	tool_choice?: unknown;
 }
 
@@ -34,6 +34,7 @@ async function buildOpenAIResponsesBody(
 	messages: BaseMessage[],
 	opts: {
 		reasoning_context?: "auto" | "current_turn" | "all_turns";
+		reasoning_mode?: "standard" | "pro";
 		tool_choice?: ToolChoiceType;
 		provider?: { id: ProviderId; model: string; region: string | null };
 	} = {},
@@ -79,6 +80,9 @@ async function buildOpenAIResponsesBody(
 		undefined, // prompt_cache_options
 		undefined, // session_id
 		opts.reasoning_context, // reasoning_context
+		undefined, // safety_identifier
+		undefined, // resolvedProviderMapping
+		opts.reasoning_mode, // reasoning_mode
 	)) as unknown as ResponsesBody;
 }
 
@@ -240,5 +244,31 @@ describe("transform to OpenAI Responses API", () => {
 			{ role: "user", content: "hi" },
 		]);
 		expect(without.reasoning?.context).toBeUndefined();
+	});
+
+	test("forwards reasoning.mode only to mappings that declare it", async () => {
+		const gpt56 = {
+			id: "openai" as ProviderId,
+			model: "gpt-5.6-sol",
+			region: null,
+		};
+		const pro = await buildOpenAIResponsesBody(
+			[{ role: "user", content: "hi" }],
+			{ reasoning_mode: "pro", provider: gpt56 },
+		);
+		expect(pro.reasoning?.mode).toBe("pro");
+		expect(pro.reasoning?.effort).toBe("medium");
+
+		const unset = await buildOpenAIResponsesBody(
+			[{ role: "user", content: "hi" }],
+			{ provider: gpt56 },
+		);
+		expect(unset.reasoning?.mode).toBeUndefined();
+
+		const undeclared = await buildOpenAIResponsesBody(
+			[{ role: "user", content: "hi" }],
+			{ reasoning_mode: "pro" },
+		);
+		expect(undeclared.reasoning?.mode).toBeUndefined();
 	});
 });

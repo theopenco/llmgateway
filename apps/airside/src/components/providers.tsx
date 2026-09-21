@@ -3,7 +3,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { ThemeProvider } from "next-themes";
-import { useState } from "react";
+import posthog from "posthog-js";
+import { useEffect, useState } from "react";
 
 import { Toaster } from "@/components/ui/sonner";
 import { AppConfigProvider } from "@/lib/config";
@@ -17,6 +18,18 @@ interface ProvidersProps {
 }
 
 export function Providers({ children, config }: ProvidersProps) {
+	useEffect(() => {
+		if (!config.posthogKey) {
+			return;
+		}
+		posthog.init(config.posthogKey, {
+			api_host: config.posthogHost ?? "https://us.i.posthog.com",
+			capture_pageview: "history_change",
+			autocapture: false,
+			disable_session_recording: true,
+			person_profiles: "identified_only",
+		});
+	}, [config.posthogKey, config.posthogHost]);
 	// useState, not useMemo: React may discard a useMemo cache, which would
 	// silently swap in a fresh QueryClient and drop the whole query cache.
 	const [queryClient] = useState(

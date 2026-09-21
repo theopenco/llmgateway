@@ -6,6 +6,8 @@ import {
 	type AgentDefinition,
 } from "@/app/dashboard/components/coding-agents-shared";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import type { LeaderboardEntry } from "@/lib/leaderboard";
 
 const AGENT_BY_SOURCE = new Map<string, AgentDefinition>();
@@ -108,7 +110,7 @@ function LeaderboardRow({ entry }: { entry: LeaderboardEntry }) {
 					{formatTokens(entry.totalTokens)}
 				</p>
 				<p className="hidden text-[11px] text-muted-foreground sm:block">
-					{entry.totalRequests.toLocaleString()} requests
+					{formatNumber(entry.totalRequests)} requests
 				</p>
 			</div>
 		</Link>

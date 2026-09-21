@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 
-import { getAuthRedirect, isCliAuthRedirect } from "./auth-redirect";
+import {
+	getAuthPagePath,
+	getAuthRedirect,
+	isCliAuthRedirect,
+} from "./auth-redirect";
 
 describe("authentication redirects", () => {
 	test("preserves the CLI verification code through login and SSO", () => {
@@ -27,5 +31,19 @@ describe("authentication redirects", () => {
 		);
 		expect(isCliAuthRedirect("/dashboard")).toBe(false);
 		expect(isCliAuthRedirect("/connect/device-attacker")).toBe(false);
+	});
+
+	test("preserves the complete return path across authentication pages", () => {
+		const target = "/connect/device?user_code=ABCDEFGH&source=app#approve";
+		for (const page of ["/signup", "/login"] as const) {
+			const url = new URL(
+				getAuthPagePath(page, target),
+				"https://example.test",
+			);
+			expect(url.pathname).toBe(page);
+			expect(url.searchParams.get("redirect")).toBe(target);
+			expect(getAuthPagePath(page, "/dashboard")).toBe(page);
+			expect(getAuthPagePath(page, "//outside.example.com")).toBe(page);
+		}
 	});
 });

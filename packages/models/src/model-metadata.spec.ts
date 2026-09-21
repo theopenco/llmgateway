@@ -22,6 +22,7 @@ const REQUIRED_OUTPUT_BY_FLAG: {
 	{ flag: "ocr", output: "ocr" },
 	{ flag: "transcriptions", output: "transcription" },
 	{ flag: "rerank", output: "rerank" },
+	{ flag: "decisions", output: "decision" },
 ];
 
 describe("model metadata", () => {

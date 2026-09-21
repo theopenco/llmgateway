@@ -46,6 +46,7 @@ import {
 	providerRoutingSettings as providerRoutingSettingsTable,
 	providerKey as providerKeyTable,
 	routingScoreMultiplier as routingScoreMultiplierTable,
+	systemSetting as systemSettingTable,
 	user as userTable,
 	userIamRule as userIamRuleTable,
 	userOrganization as userOrganizationTable,
@@ -53,6 +54,10 @@ import {
 	wallet as walletTable,
 } from "@llmgateway/db";
 import { getRegionScopedDefaultRegion } from "@llmgateway/models";
+import {
+	CONTENT_FILTER_SETTING_ID,
+	parseContentFilterSettings,
+} from "@llmgateway/shared";
 import { isProjectScopedRole } from "@llmgateway/shared/organization-roles";
 
 import {
@@ -84,6 +89,7 @@ import type {
 	wallet,
 } from "@llmgateway/db";
 import type { EnvVarVariant } from "@llmgateway/models";
+import type { ContentFilterSettings } from "@llmgateway/shared";
 
 // Type aliases for cleaner function signatures
 type EndUserSession = InferSelectModel<typeof endUserSession>;
@@ -96,7 +102,11 @@ type Project = InferSelectModel<typeof project>;
 type ProviderKey = InferSelectModel<typeof providerKey>;
 export interface AirsideListedModel {
 	model: InferSelectModel<typeof modelTable>;
+	/** The canonical region-NULL row. */
 	mapping: InferSelectModel<typeof modelProviderMappingTable>;
+	/** Regional price rows of the same pair. Optional so cache entries written
+	 *  before regional pricing existed stay readable. */
+	regionMappings?: InferSelectModel<typeof modelProviderMappingTable>[];
 }
 type User = InferSelectModel<typeof user>;
 type UserOrganization = InferSelectModel<typeof userOrganization>;
@@ -415,6 +425,34 @@ export async function findOrganizationById(
 	return org;
 }
 
+const systemSettingTableName = getTableName(systemSettingTable);
+const CONTENT_FILTER_SETTINGS_TTL_SECONDS = 60;
+
+/**
+ * Admin-managed tiered content filter settings. Pinned to a fixed TTL: the
+ * admin API writes the row through the uncached client, so table-level
+ * auto-invalidation would never fire, and a minute of staleness is fine.
+ */
+export async function getContentFilterSettings(): Promise<ContentFilterSettings> {
+	return await swrWrap(
+		`systemSetting:${CONTENT_FILTER_SETTING_ID}`,
+		[systemSettingTableName],
+		async () => {
+			const rows = await db
+				.select({ value: systemSettingTable.value })
+				.from(systemSettingTable)
+				.where(eq(systemSettingTable.id, CONTENT_FILTER_SETTING_ID))
+				.limit(1)
+				.$withCache({
+					tag: `system-setting:${CONTENT_FILTER_SETTING_ID}`,
+					autoInvalidate: false,
+					config: { ex: CONTENT_FILTER_SETTINGS_TTL_SECONDS },
+				});
+			return parseContentFilterSettings(rows[0]?.value);
+		},
+	);
+}
+
 /**
  * Find an end-user wallet by ID with a short-TTL fresh read (for near-fresh
  * balance checks when the wallet shows <= 0 balance). Uses a distinct Drizzle
@@ -528,6 +566,35 @@ export async function findCustomModel(
 	return results[0];
 }
 
+/** Group airside mapping rows into listings keyed by their canonical
+ *  region-NULL row; regional price rows ride along on `regionMappings`. */
+function groupAirsideRows(
+	rows: {
+		model: InferSelectModel<typeof modelTable>;
+		mapping: InferSelectModel<typeof modelProviderMappingTable>;
+	}[],
+): AirsideListedModel[] {
+	const listings: AirsideListedModel[] = [];
+	const byPair = new Map<string, AirsideListedModel>();
+	for (const row of rows) {
+		if (row.mapping.region !== null) {
+			continue;
+		}
+		const listing: AirsideListedModel = { ...row, regionMappings: [] };
+		byPair.set(`${row.mapping.modelId}:${row.mapping.providerId}`, listing);
+		listings.push(listing);
+	}
+	for (const row of rows) {
+		if (row.mapping.region === null) {
+			continue;
+		}
+		byPair
+			.get(`${row.mapping.modelId}:${row.mapping.providerId}`)
+			?.regionMappings?.push(row.mapping);
+	}
+	return listings;
+}
+
 /** Find an active Airside-owned canonical mapping. */
 export async function findAirsideModel(
 	providerId: string,
@@ -537,26 +604,26 @@ export async function findAirsideModel(
 		`airsideModel:${providerId}:${modelName}`,
 		[modelTableName, modelProviderMappingTableName],
 		async () =>
-			await db
-				.select({
-					model: modelTable,
-					mapping: modelProviderMappingTable,
-				})
-				.from(modelProviderMappingTable)
-				.innerJoin(
-					modelTable,
-					eq(modelTable.id, modelProviderMappingTable.modelId),
-				)
-				.where(
-					and(
-						eq(modelProviderMappingTable.source, "airside"),
-						eq(modelProviderMappingTable.status, "active"),
-						eq(modelProviderMappingTable.providerId, providerId),
-						eq(modelProviderMappingTable.modelId, modelName),
-						isNull(modelProviderMappingTable.region),
+			groupAirsideRows(
+				await db
+					.select({
+						model: modelTable,
+						mapping: modelProviderMappingTable,
+					})
+					.from(modelProviderMappingTable)
+					.innerJoin(
+						modelTable,
+						eq(modelTable.id, modelProviderMappingTable.modelId),
+					)
+					.where(
+						and(
+							eq(modelProviderMappingTable.source, "airside"),
+							eq(modelProviderMappingTable.status, "active"),
+							eq(modelProviderMappingTable.providerId, providerId),
+							eq(modelProviderMappingTable.modelId, modelName),
+						),
 					),
-				)
-				.limit(1),
+			),
 	);
 	return results[0];
 }
@@ -614,24 +681,25 @@ export async function findAirsideModelsByBareName(
 		`airsideModelByName:${modelName}`,
 		[modelTableName, modelProviderMappingTableName],
 		async () =>
-			await db
-				.select({
-					model: modelTable,
-					mapping: modelProviderMappingTable,
-				})
-				.from(modelProviderMappingTable)
-				.innerJoin(
-					modelTable,
-					eq(modelTable.id, modelProviderMappingTable.modelId),
-				)
-				.where(
-					and(
-						eq(modelProviderMappingTable.source, "airside"),
-						eq(modelProviderMappingTable.status, "active"),
-						eq(modelProviderMappingTable.modelId, modelName),
-						isNull(modelProviderMappingTable.region),
+			groupAirsideRows(
+				await db
+					.select({
+						model: modelTable,
+						mapping: modelProviderMappingTable,
+					})
+					.from(modelProviderMappingTable)
+					.innerJoin(
+						modelTable,
+						eq(modelTable.id, modelProviderMappingTable.modelId),
+					)
+					.where(
+						and(
+							eq(modelProviderMappingTable.source, "airside"),
+							eq(modelProviderMappingTable.status, "active"),
+							eq(modelProviderMappingTable.modelId, modelName),
+						),
 					),
-				),
+			),
 	);
 	return rows;
 }
@@ -642,23 +710,24 @@ export async function listAirsideModels(): Promise<AirsideListedModel[]> {
 		"airsideModels:all",
 		[modelTableName, modelProviderMappingTableName],
 		async () =>
-			await db
-				.select({
-					model: modelTable,
-					mapping: modelProviderMappingTable,
-				})
-				.from(modelProviderMappingTable)
-				.innerJoin(
-					modelTable,
-					eq(modelTable.id, modelProviderMappingTable.modelId),
-				)
-				.where(
-					and(
-						eq(modelProviderMappingTable.source, "airside"),
-						eq(modelProviderMappingTable.status, "active"),
-						isNull(modelProviderMappingTable.region),
+			groupAirsideRows(
+				await db
+					.select({
+						model: modelTable,
+						mapping: modelProviderMappingTable,
+					})
+					.from(modelProviderMappingTable)
+					.innerJoin(
+						modelTable,
+						eq(modelTable.id, modelProviderMappingTable.modelId),
+					)
+					.where(
+						and(
+							eq(modelProviderMappingTable.source, "airside"),
+							eq(modelProviderMappingTable.status, "active"),
+						),
 					),
-				),
+			),
 	);
 	return rows;
 }

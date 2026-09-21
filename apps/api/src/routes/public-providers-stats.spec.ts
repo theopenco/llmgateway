@@ -20,6 +20,8 @@ async function seedMinute(
 		logsCount: number;
 		errorsCount?: number;
 		clientErrorsCount?: number;
+		gatewayErrorsCount?: number;
+		upstreamErrorsCount?: number;
 		totalTimeToFirstToken: number;
 		timeToFirstTokenCount: number;
 		totalTimeToFirstReasoningToken?: number;
@@ -115,6 +117,8 @@ describe("public providers stats", () => {
 			logsCount: 10,
 			errorsCount: 3,
 			clientErrorsCount: 1,
+			gatewayErrorsCount: 1,
+			upstreamErrorsCount: 1,
 			totalTimeToFirstToken: 0,
 			timeToFirstTokenCount: 0,
 		});
@@ -122,5 +126,23 @@ describe("public providers stats", () => {
 		const provider = await fetchProviderStats();
 		expect(provider.errorsCount).toBe(2);
 		expect(provider.uptime).toBeCloseTo((7 / 9) * 100);
+	});
+
+	test("counts upstream errors the hasError column never flagged", async () => {
+		// A provider that answers 200 but ends the stream with an upstream-error
+		// finish reason: classified upstream_error, but hasError stays false, so
+		// errorsCount is 0 while the mapping was in fact failing.
+		await seedMinute(1, {
+			logsCount: 100,
+			errorsCount: 0,
+			clientErrorsCount: 0,
+			upstreamErrorsCount: 20,
+			totalTimeToFirstToken: 0,
+			timeToFirstTokenCount: 0,
+		});
+
+		const provider = await fetchProviderStats();
+		expect(provider.errorsCount).toBe(20);
+		expect(provider.uptime).toBeCloseTo(80);
 	});
 });

@@ -4,6 +4,7 @@ import { ArrowRight, ArrowUpRight } from "lucide-react";
 
 import {
 	AnthropicIcon,
+	AnvilIcon,
 	EmpryoIcon,
 	KiloCodeIcon,
 	OpenCodeIcon,
@@ -34,6 +35,12 @@ const integrations: Integration[] = [
 		description: "Terminal AI assistant",
 		path: "/guides/claude-code",
 		icon: AnthropicIcon,
+	},
+	{
+		name: "Anvil",
+		description: "Repo-aware desktop workspace",
+		path: "/guides/anvil",
+		icon: AnvilIcon,
 	},
 	{
 		name: "Empryo",

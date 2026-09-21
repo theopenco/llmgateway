@@ -1,14 +1,16 @@
-"use client";
 import { GithubIcon } from "lucide-react";
 import Link from "next/link";
 
 import Newsletter from "@/components/landing/newsletter";
-import { useAppConfig } from "@/lib/config";
+import { getConfig } from "@/lib/config-server";
 import { XIcon } from "@/lib/icons/XIcon";
 import { listedProviders } from "@/lib/providers-catalog";
 
+// Server component on purpose: the provider directory below pulls the full
+// model catalogue via providers-catalog, which must stay out of the client
+// bundle of every marketing page that renders the footer.
 export default function Footer() {
-	const config = useAppConfig();
+	const config = getConfig();
 
 	return (
 		<footer className="relative py-12 bg-background">
@@ -153,7 +155,7 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
-										href="/add-provider"
+										href="https://airside.llmgateway.io"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
 									>
@@ -551,7 +553,7 @@ export default function Footer() {
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
 									>
-										Azure AI Foundry
+										Microsoft Foundry
 									</Link>
 								</li>
 								<li>

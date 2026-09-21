@@ -61,14 +61,35 @@ const messageSchema = z.object({
 
 const shareSchema = z.object({
 	id: z.string(),
+	allowDiscovery: z.boolean(),
+	allowForking: z.boolean(),
 	url: z.string(),
 	createdAt: z.string().datetime(),
 	organizationId: z.string().nullable().optional(),
 });
 
-const shareChatSchema = z.object({
-	organizationId: z.string().min(1).optional(),
-});
+const shareChatSchema = z
+	.object({
+		visibility: z.enum(["public", "organization"]),
+		organizationId: z.string().min(1).optional(),
+		allowDiscovery: z.boolean().default(false),
+		allowForking: z.boolean().default(false),
+	})
+	.superRefine((body, ctx) => {
+		if ((body.visibility === "organization") !== Boolean(body.organizationId)) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				message:
+					"Organization visibility requires an organization; public visibility must not include one.",
+			});
+		}
+		if (body.visibility === "organization" && body.allowDiscovery) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				message: "Organization shares cannot be listed publicly.",
+			});
+		}
+	});
 
 const orgShareListItemSchema = z.object({
 	id: z.string(),
@@ -80,6 +101,7 @@ const orgShareListItemSchema = z.object({
 
 const orgShareSchema = z.object({
 	id: z.string(),
+	allowForking: z.boolean(),
 	title: z.string(),
 	model: z.string(),
 	createdAt: z.string().datetime(),
@@ -133,6 +155,8 @@ const createChatSchema = z.object({
 
 const updateChatSchema = z.object({
 	title: z.string().min(1).max(200).optional(),
+	model: z.string().min(1).optional(),
+	webSearch: z.boolean().optional(),
 	status: z.enum(["active", "archived"]).optional(),
 	pinned: z.boolean().optional(),
 });
@@ -145,6 +169,7 @@ const forkChatResponseSchema = z.object({
 
 const createMessageSchema = z
 	.object({
+		id: z.string().min(1).max(128).optional(),
 		role: z.enum(["user", "assistant", "system"]),
 		content: z.string().optional(),
 		images: z.string().optional(), // JSON string
@@ -157,12 +182,12 @@ const createMessageSchema = z
 	})
 	.refine(
 		(data) =>
-			data.content ??
-			data.images ??
-			data.audios ??
-			data.documents ??
-			data.reasoning ??
-			data.tools ??
+			data.content ||
+			data.images ||
+			data.audios ||
+			data.documents ||
+			data.reasoning ||
+			data.tools ||
 			data.sources,
 		{
 			message:
@@ -226,6 +251,7 @@ const listChats = createRoute({
 		query: z.object({
 			organizationId: z.string().trim().min(1).optional(),
 			projectId: z.string().trim().min(1).optional(),
+			status: z.enum(["active", "archived"]).optional().default("active"),
 		}),
 	},
 	responses: {
@@ -248,7 +274,7 @@ chats.openapi(listChats, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
-	const { organizationId, projectId } = c.req.valid("query");
+	const { organizationId, projectId, status } = c.req.valid("query");
 	const orgFilter = await buildOrgHistoryFilter(
 		tables.chat.organizationId,
 		organizationId,
@@ -297,7 +323,7 @@ chats.openapi(listChats, async (c) => {
 		.where(
 			and(
 				eq(tables.chat.userId, user.id),
-				eq(tables.chat.status, "active"),
+				eq(tables.chat.status, status),
 				isNull(tables.chat.parentChatId),
 				orgFilter,
 				projectId ? eq(tables.chat.projectId, projectId) : undefined,
@@ -346,6 +372,8 @@ const searchChats = createRoute({
 	request: {
 		query: z.object({
 			q: z.string().optional(),
+			organizationId: z.string().trim().min(1).optional(),
+			status: z.enum(["active", "archived"]).optional().default("active"),
 			limit: z.coerce.number().min(1).max(100).default(50).optional(),
 			offset: z.coerce.number().min(0).default(0).optional(),
 		}),
@@ -371,8 +399,18 @@ chats.openapi(searchChats, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
-	const { q = "", limit = 50, offset = 0 } = c.req.valid("query");
+	const {
+		q = "",
+		limit = 50,
+		offset = 0,
+		organizationId,
+		status,
+	} = c.req.valid("query");
 	const search = q.trim();
+	const orgFilter = await buildOrgHistoryFilter(
+		tables.chat.organizationId,
+		organizationId,
+	);
 
 	const searchCondition = search
 		? or(
@@ -386,17 +424,13 @@ chats.openapi(searchChats, async (c) => {
 			)
 		: undefined;
 
-	const conditions = [
+	const where = and(
 		eq(tables.chat.userId, user.id),
-		eq(tables.chat.status, "active"),
+		eq(tables.chat.status, status),
 		isNull(tables.chat.parentChatId),
-	];
-
-	if (searchCondition) {
-		conditions.push(searchCondition);
-	}
-
-	const where = and(...conditions);
+		orgFilter,
+		searchCondition,
+	);
 
 	const [chatsWithCount, totalResult] = await Promise.all([
 		db
@@ -837,6 +871,8 @@ chats.openapi(updateChat, async (c) => {
 	const isPinOnlyUpdate =
 		body.pinned !== undefined &&
 		body.title === undefined &&
+		body.model === undefined &&
+		body.webSearch === undefined &&
 		body.status === undefined;
 
 	const updateValues = isPinOnlyUpdate
@@ -916,7 +952,7 @@ const shareChat = createRoute({
 			id: z.string(),
 		}),
 		body: {
-			required: false,
+			required: true,
 			content: {
 				"application/json": {
 					schema: shareChatSchema,
@@ -933,7 +969,8 @@ const shareChat = createRoute({
 					}),
 				},
 			},
-			description: "Chat share snapshot.",
+			description:
+				"Chat share snapshot. Reusing an existing share preserves its permissions; delete it and create a new share to change them.",
 		},
 	},
 });
@@ -945,14 +982,7 @@ chats.openapi(shareChat, async (c) => {
 	}
 
 	const { id } = c.req.valid("param");
-	const body = shareChatSchema.parse(
-		await c.req.json().catch((e: unknown) => {
-			if (e instanceof SyntaxError) {
-				throw new HTTPException(400, { message: "Invalid request body" });
-			}
-			return {};
-		}),
-	);
+	const body = c.req.valid("json");
 	const organizationId = body.organizationId ?? null;
 	if (organizationId) {
 		const hasAccess = await userHasOrganizationAccess(user.id, organizationId);
@@ -998,6 +1028,8 @@ chats.openapi(shareChat, async (c) => {
 		return c.json({
 			share: {
 				id: existingShare.id,
+				allowDiscovery: existingShare.allowDiscovery,
+				allowForking: existingShare.allowForking,
 				url: organizationId
 					? `/org/${organizationId}/chat/${existingShare.id}`
 					: `/share/${existingShare.id}`,
@@ -1047,6 +1079,8 @@ chats.openapi(shareChat, async (c) => {
 		.values({
 			chatId: chat.id,
 			organizationId,
+			allowDiscovery: body.allowDiscovery,
+			allowForking: body.allowForking,
 			userId: user.id,
 			title: chat.title,
 			model: chat.model,
@@ -1093,6 +1127,8 @@ chats.openapi(shareChat, async (c) => {
 		return c.json({
 			share: {
 				id: activeShare.id,
+				allowDiscovery: activeShare.allowDiscovery,
+				allowForking: activeShare.allowForking,
 				url: organizationId
 					? `/org/${organizationId}/chat/${activeShare.id}`
 					: `/share/${activeShare.id}`,
@@ -1105,6 +1141,8 @@ chats.openapi(shareChat, async (c) => {
 	return c.json({
 		share: {
 			id: share.id,
+			allowDiscovery: share.allowDiscovery,
+			allowForking: share.allowForking,
 			url: organizationId
 				? `/org/${organizationId}/chat/${share.id}`
 				: `/share/${share.id}`,
@@ -1271,6 +1309,7 @@ chats.openapi(getOrgShare, async (c) => {
 			title: tables.chatShare.title,
 			model: tables.chatShare.model,
 			messages: tables.chatShare.messages,
+			allowForking: tables.chatShare.allowForking,
 			createdAt: tables.chatShare.createdAt,
 			organizationId: tables.chatShare.organizationId,
 		})
@@ -1313,6 +1352,7 @@ chats.openapi(getOrgShare, async (c) => {
 			id: share.id,
 			title: share.title,
 			model: share.model,
+			allowForking: share.allowForking,
 			createdAt: share.createdAt.toISOString(),
 			messages,
 		},
@@ -1425,6 +1465,12 @@ const forkSharedChat = createRoute({
 			},
 			description: "Chat limit reached or validation error.",
 		},
+		403: {
+			content: {
+				"application/json": { schema: z.object({ message: z.string() }) },
+			},
+			description: "The owner has not allowed forks.",
+		},
 		404: {
 			content: {
 				"application/json": {
@@ -1451,6 +1497,7 @@ chats.openapi(forkSharedChat, async (c) => {
 			title: tables.chatShare.title,
 			model: tables.chatShare.model,
 			messages: tables.chatShare.messages,
+			allowForking: tables.chatShare.allowForking,
 			organizationId: tables.chatShare.organizationId,
 		})
 		.from(tables.chatShare)
@@ -1476,6 +1523,12 @@ chats.openapi(forkSharedChat, async (c) => {
 		if (!hasAccess) {
 			return c.json({ message: "Shared chat not found" }, 404);
 		}
+	}
+
+	if (!share.allowForking) {
+		throw new HTTPException(403, {
+			message: "The owner has not allowed forks of this share",
+		});
 	}
 
 	await enforceActiveChatLimit(user.id);
@@ -1761,6 +1814,62 @@ chats.openapi(addMessage, async (c) => {
 		throw new HTTPException(404, { message: "Chat not found" });
 	}
 
+	// A resumed assistant message (tool approval, reconnect) is sent again
+	// under the id the client already holds, so it replaces the stored row
+	// instead of appending a duplicate.
+	const resumeAssistantMessage = async (messageId: string) => {
+		const [updated] = await db
+			.update(tables.message)
+			.set({
+				content: body.content,
+				images: body.images,
+				audios: body.audios,
+				documents: body.documents,
+				reasoning: body.reasoning,
+				tools: body.tools,
+				sources: body.sources,
+				metadata: body.metadata,
+			})
+			.where(
+				and(
+					eq(tables.message.id, messageId),
+					eq(tables.message.chatId, id),
+					eq(tables.message.role, "assistant"),
+				),
+			)
+			.returning();
+		if (!updated) {
+			throw new HTTPException(409, {
+				message: "Message id belongs to another chat",
+			});
+		}
+		await db
+			.update(tables.chat)
+			.set({ updatedAt: new Date() })
+			.where(eq(tables.chat.id, id));
+		return c.json(
+			{
+				message: {
+					...updated,
+					role: "assistant" as const,
+					createdAt: updated.createdAt.toISOString(),
+				},
+			},
+			201,
+		);
+	};
+
+	if (body.id && body.role === "assistant") {
+		// Message ids are global, so an id from another chat must not reach
+		// the insert and surface as a unique-constraint error.
+		const existing = await db.query.message.findFirst({
+			where: { id: body.id },
+		});
+		if (existing) {
+			return await resumeAssistantMessage(existing.id);
+		}
+	}
+
 	// Check if user has unlimited access via API key
 	const isUnlimited = await hasActiveApiKey(user.id);
 
@@ -1792,6 +1901,7 @@ chats.openapi(addMessage, async (c) => {
 	const [newMessage] = await db
 		.insert(tables.message)
 		.values({
+			id: body.role === "assistant" ? body.id : undefined,
 			chatId: id,
 			role: body.role,
 			content: body.content ?? null,
@@ -1804,7 +1914,14 @@ chats.openapi(addMessage, async (c) => {
 			metadata: body.metadata ?? null,
 			sequence: nextSequence,
 		})
+		.onConflictDoNothing({ target: tables.message.id })
 		.returning();
+
+	// Two simultaneous resumes of the same id can both miss the lookup above;
+	// the one that loses the insert race updates the row the winner created.
+	if (!newMessage && body.id) {
+		return await resumeAssistantMessage(body.id);
+	}
 
 	// Update chat's updatedAt
 	await db

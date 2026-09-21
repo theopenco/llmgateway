@@ -155,7 +155,7 @@ export function collectProviderEnvCredentials(
 				variant: slot.variant,
 				region: slot.region,
 				index,
-				maskedToken: maskToken(key),
+				maskedToken: maskToken(key, 6, 4),
 				tokenHash: getApiKeyFingerprint(key),
 			});
 		});

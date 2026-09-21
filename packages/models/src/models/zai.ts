@@ -188,6 +188,43 @@ export const zaiModels = [
 				jsonOutput: true,
 			},
 			{
+				providerId: "alibaba",
+				externalId: "glm-5.3",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.28e-6",
+				outputPrice: "4.4e-6",
+				regions: [
+					{ id: "singapore" },
+					{
+						id: "cn-beijing",
+						inputPrice: "1.131e-6",
+						cachedInputPrice: "0.2262e-6",
+						outputPrice: "3.957e-6",
+					},
+					{
+						id: "eu-frankfurt",
+						inputPrice: "1.131e-6",
+						cachedInputPrice: "0.2262e-6",
+						outputPrice: "3.957e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 1048576,
+				maxOutput: 131072,
+				// DashScope validates temperature against [0, 2) rather than GLM's
+				// own [0, 1] ceiling, and above 1 the deployment intermittently
+				// never emits a stop token, so the request hangs instead of 400ing.
+				maxTemperature: 1,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["low", "high", "max"],
+				vision: false,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				jsonOutput: true,
+				supportsDeveloperRole: false,
+			},
+			{
 				providerId: "runware",
 				externalId: "zai:glm@5.3",
 				inputPrice: "1.2e-6",
@@ -401,6 +438,15 @@ export const zaiModels = [
 				quantization: "fp4",
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -466,6 +512,35 @@ export const zaiModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+			},
+			{
+				providerId: "tencent",
+				externalId: "glm-5.2",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				// Unlike Z.ai's own deployment, TokenHub's GLM mappings accept
+				// response_format: json_schema with a 200 and then ignore it —
+				// asked to extract a name and age under a strict schema they
+				// answer in markdown prose. json_object is genuinely enforced.
+				jsonOutputSchema: false,
 			},
 		],
 	},
@@ -661,6 +736,26 @@ export const zaiModels = [
 				tools: true,
 				jsonOutput: true,
 			},
+			{
+				providerId: "tencent",
+				externalId: "glm-5.1",
+				inputPrice: "1.4e-6",
+				cachedInputPrice: "0.26e-6",
+				outputPrice: "4.4e-6",
+				requestPrice: "0",
+				contextSize: 200000,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				// "none" and "minimal" are accepted but do not stop the model
+				// thinking (both still report ~125 reasoning tokens), so only the
+				// tiers that behave as advertised are declared.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: false,
+			},
 		],
 	},
 	{
@@ -846,6 +941,34 @@ export const zaiModels = [
 				// lists Structured Output as unsupported for this one. Left off until a
 				// live request settles it: an unsupported claim 400s, omitting it only
 				// routes JSON-mode traffic elsewhere.
+			},
+			{
+				providerId: "tencent",
+				externalId: "glm-5",
+				inputPrice: "1e-6",
+				cachedInputPrice: "0.2e-6",
+				outputPrice: "3.2e-6",
+				requestPrice: "0",
+				contextSize: 200000,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: [
+					"none",
+					"minimal",
+					"low",
+					"medium",
+					"high",
+					"xhigh",
+					"max",
+				],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				// This deployment hard-400s on json_schema rather than ignoring
+				// it, matching TokenHub's model list which omits Structured Output
+				// for GLM-5 alone.
+				jsonOutputSchema: false,
 			},
 		],
 	},
@@ -1653,6 +1776,62 @@ export const zaiModels = [
 				tools: false,
 				jsonOutput: false,
 				imageGenerations: true,
+			},
+		],
+	},
+	{
+		id: "glm-5-turbo",
+		name: "GLM-5 Turbo",
+		description:
+			"Zhipu's speed-optimised GLM-5 variant with a 200K context window and deep reasoning.",
+		family: "zai",
+		releasedAt: new Date("2026-03-15"),
+		providers: [
+			{
+				providerId: "tencent",
+				externalId: "glm-5-turbo",
+				inputPrice: "1.2e-6",
+				cachedInputPrice: "0.24e-6",
+				outputPrice: "4e-6",
+				requestPrice: "0",
+				contextSize: 200000,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				// "none"/"minimal" are accepted but still return ~140-200
+				// reasoning tokens, so the off tiers are not offered.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				vision: false,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: false,
+			},
+		],
+	},
+	{
+		id: "glm-5v-turbo",
+		name: "GLM-5V Turbo",
+		description:
+			"Zhipu's speed-optimised multimodal GLM-5 variant that accepts image input alongside text, with a 200K context window.",
+		family: "zai",
+		releasedAt: new Date("2026-04-01"),
+		providers: [
+			{
+				providerId: "tencent",
+				externalId: "glm-5v-turbo",
+				inputPrice: "1.2e-6",
+				cachedInputPrice: "0.24e-6",
+				outputPrice: "4e-6",
+				requestPrice: "0",
+				contextSize: 200000,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: false,
 			},
 		],
 	},

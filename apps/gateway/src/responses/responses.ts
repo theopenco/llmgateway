@@ -394,8 +394,12 @@ responses.post("/", async (c) => {
 	if (req.reasoning?.effort) {
 		chatRequest.reasoning_effort = req.reasoning.effort;
 	}
-	if (req.reasoning?.context) {
-		chatRequest.reasoning = { context: req.reasoning.context };
+	const unifiedReasoning = {
+		...(req.reasoning?.context && { context: req.reasoning.context }),
+		...(req.reasoning?.mode && { mode: req.reasoning.mode }),
+	};
+	if (Object.keys(unifiedReasoning).length > 0) {
+		chatRequest.reasoning = unifiedReasoning;
 	}
 	if (req.text?.verbosity !== undefined) {
 		chatRequest.verbosity = req.text.verbosity;
@@ -438,6 +442,9 @@ responses.post("/", async (c) => {
 		"x-request-id": c.req.header("x-request-id") ?? "",
 		"x-source": c.req.header("x-source") ?? "",
 		"x-debug": c.req.header("x-debug") ?? "",
+		...(c.req.header("x-no-fallback") !== undefined && {
+			"x-no-fallback": c.req.header("x-no-fallback") ?? "",
+		}),
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 		...internalApiOriginHeaders("responses"),
 	};
@@ -882,6 +889,9 @@ responses.post("/compact", async (c) => {
 		"x-request-id": c.req.header("x-request-id") ?? "",
 		"x-source": c.req.header("x-source") ?? "",
 		"x-debug": c.req.header("x-debug") ?? "",
+		...(c.req.header("x-no-fallback") !== undefined && {
+			"x-no-fallback": c.req.header("x-no-fallback") ?? "",
+		}),
 		"HTTP-Referer": c.req.header("HTTP-Referer") ?? "",
 		...internalApiOriginHeaders("responses"),
 	};

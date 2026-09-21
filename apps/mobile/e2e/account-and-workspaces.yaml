@@ -1,0 +1,110 @@
+appId: io.llmgateway.lounge
+---
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- assertVisible: "The Lounge"
+- tapOn:
+    id: "field-email"
+- inputText: "admin@example.com"
+- tapOn: "Done typing"
+- tapOn:
+    id: "field-password"
+- inputText: "incorrect-password"
+- tapOn: "Done typing"
+- tapOn: "Enter the Lounge"
+- assertVisible: "Invalid email or password"
+- tapOn:
+    id: "field-password"
+- eraseText
+- inputText: "admin@example.com"
+- tapOn: "Done typing"
+- tapOn: "Enter the Lounge"
+- extendedWaitUntil:
+    visible: "Start a conversation"
+    timeout: 20000
+- launchApp
+- assertVisible: "Start a conversation"
+- scrollUntilVisible:
+    element: "Switch workspace"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Switch workspace"
+- tapOn: "Use Test Organization"
+- assertVisible: "Start a conversation"
+- tapOn: "Projects"
+- tapOn: "Create project"
+- tapOn:
+    id: "field-project-name"
+- inputText: "Native writing project"
+- tapOn: "Done typing"
+- tapOn:
+    id: "field-description"
+- inputText: "A shared writing workspace"
+- tapOn: "Done typing"
+- scrollUntilVisible:
+    element:
+      id: "field-project-instructions"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "field-project-instructions"
+- inputText: "Write concise, helpful explanations."
+- tapOn: "Done typing"
+- tapOn: "Save project"
+- assertVisible: "Native writing project"
+- tapOn: "Open Native writing project"
+- assertVisible: "A shared writing workspace"
+- assertVisible: "Write concise, helpful explanations."
+- launchApp
+- assertVisible: "Current workspace: Test Organization"
+- tapOn: "Projects"
+- assertVisible: "Native writing project"
+- tapOn: "Delete Native writing project"
+- tapOn: "Delete"
+- assertNotVisible: "Native writing project"
+- launchApp
+- tapOn: "Skills"
+- tapOn: "Create skill"
+- tapOn:
+    id: "field-skill-name"
+- inputText: "Clear writing"
+- tapOn: "Done typing"
+- tapOn:
+    id: "field-description"
+- inputText: "Make each sentence useful."
+- tapOn: "Done typing"
+- scrollUntilVisible:
+    element:
+      id: "field-instructions"
+    direction: DOWN
+    centerElement: true
+- tapOn:
+    id: "field-instructions"
+- inputText: "Use short sentences and concrete examples."
+- tapOn: "Done typing"
+- tapOn: "Save skill"
+- assertVisible: "Clear writing"
+- launchApp
+- tapOn: "Skills"
+- assertVisible: "Clear writing"
+- tapOn: "Delete Clear writing"
+- tapOn: "Delete"
+- assertNotVisible: "Clear writing"
+- launchApp
+- scrollUntilVisible:
+    element: "Your profile"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Your profile"
+- assertVisible: "admin@example.com"
+- scrollUntilVisible:
+    element: "Sign out"
+    direction: DOWN
+    centerElement: true
+- tapOn: "Sign out"
+- extendedWaitUntil:
+    visible: "Enter the Lounge"
+    timeout: 10000
+- launchApp
+- assertVisible: "Enter the Lounge"

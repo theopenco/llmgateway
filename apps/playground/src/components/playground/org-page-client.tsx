@@ -187,7 +187,7 @@ function OrgSharedChatsPanel({
 						</div>
 					)}
 				</div>
-				{visibleShare ? (
+				{visibleShare?.allowForking ? (
 					<ForkChatButton shareId={visibleShare.id} contained />
 				) : null}
 			</div>

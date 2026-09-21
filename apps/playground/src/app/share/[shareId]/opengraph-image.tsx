@@ -1,6 +1,8 @@
 import { ImageResponse } from "next/og";
 
-import { getConfig } from "@/lib/config-server";
+import { createServerApiClient } from "@/lib/server-api";
+
+import type { paths } from "@/lib/api/v1";
 
 export const size = {
 	width: 1200,
@@ -8,26 +10,9 @@ export const size = {
 };
 export const contentType = "image/png";
 
-interface SharedMessage {
-	id: string;
-	role: "user" | "assistant" | "system";
-	content: string | null;
-	images: string | null;
-	reasoning: string | null;
-	tools: string | null;
-	sequence: number;
-	createdAt: string;
-}
-
-interface SharedChatResponse {
-	share: {
-		id: string;
-		title: string;
-		model: string;
-		createdAt: string;
-		messages: SharedMessage[];
-	};
-}
+type SharedChatResponse =
+	paths["/public/chats/share/{shareId}"]["get"]["responses"]["200"]["content"]["application/json"];
+type SharedMessage = SharedChatResponse["share"]["messages"][number];
 
 interface OgImageProps {
 	params: Promise<{ shareId: string }>;
@@ -460,16 +445,12 @@ function ImagePreview({ preview }: { preview: SharePreview }) {
 export default async function ShareOgImage({ params }: OgImageProps) {
 	try {
 		const { shareId } = await params;
-		const config = getConfig();
-		const response = await fetch(
-			`${config.apiBackendUrl}/public/chats/share/${shareId}`,
-			{ cache: "no-store" },
-		);
-
-		const data = response.ok
-			? ((await response.json()) as SharedChatResponse)
-			: null;
-		const preview = getPreview(data);
+		const client = await createServerApiClient();
+		const { data } = await client.GET("/public/chats/share/{shareId}", {
+			params: { path: { shareId } },
+			cache: "no-store",
+		});
+		const preview = getPreview(data ?? null);
 
 		return new ImageResponse(
 			preview.imageUrl ? (
@@ -477,7 +458,13 @@ export default async function ShareOgImage({ params }: OgImageProps) {
 			) : (
 				<TextPreview preview={preview} />
 			),
-			size,
+			{
+				...size,
+				headers: {
+					"Cache-Control": "no-store",
+					"X-Robots-Tag": "noindex, nofollow",
+				},
+			},
 		);
 	} catch (error) {
 		console.error("Error generating share OpenGraph image:", error);
@@ -499,7 +486,13 @@ export default async function ShareOgImage({ params }: OgImageProps) {
 			>
 				Lounge · Shared chat
 			</div>,
-			size,
+			{
+				...size,
+				headers: {
+					"Cache-Control": "no-store",
+					"X-Robots-Tag": "noindex, nofollow",
+				},
+			},
 		);
 	}
 }

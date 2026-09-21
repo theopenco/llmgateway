@@ -1,6 +1,10 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 
+import {
+	CONTENT_FILTER_CLASSIFIER_PROVIDERS,
+	evaluateContentFilterWithClassifiers,
+} from "@/chat/tools/content-filter-classifier.js";
 import { getFinishReasonFromError } from "@/chat/tools/get-finish-reason-from-error.js";
 import { getProviderEnv } from "@/chat/tools/get-provider-env.js";
 import {
@@ -13,6 +17,7 @@ import {
 	shouldRetryRequest,
 	type RoutingAttempt,
 } from "@/chat/tools/retry-with-fallback.js";
+import { resolveTieredContentFilterPlan } from "@/chat/tools/tiered-content-filter.js";
 import { getAirsideRoutingSnapshot } from "@/lib/airside-routing-snapshot.js";
 import {
 	assertApiKeyWithinUsageLimits,
@@ -28,6 +33,7 @@ import {
 	findOrganizationById,
 	findProjectById,
 	findProviderKey,
+	getContentFilterSettings,
 	hasManagedProviderCredential,
 	type GatewayApiKey,
 } from "@/lib/cached-queries.js";
@@ -49,6 +55,7 @@ import {
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
 import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
+import { fetchProvider } from "@/lib/fetch-provider.js";
 import { validateRequestModelAccess } from "@/lib/iam.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { getProviderMetricsForRouting } from "@/lib/provider-metrics-for-routing.js";
@@ -56,12 +63,18 @@ import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
 import { assertSpendLimit, recordSpend } from "@/lib/spend-limit.js";
 import { clientFacingUpstreamErrorMessage } from "@/lib/stealth-provider-errors.js";
+import {
+	inlineVideoResponse,
+	videoProxyResponse,
+	videoRangeHeaders,
+} from "@/videos/video-content.js";
 
 import {
 	getCheapestFromAvailableProviders,
 	getDiscountedProviderSelectionPrice,
 	getProviderHeaders,
 	managedCredentialOptions,
+	fetchNoRedirect,
 	processImageUrl,
 	providerKeyLabel,
 	readProviderKey,
@@ -81,10 +94,12 @@ import {
 	shortid,
 	tables,
 	UnifiedFinishReason,
+	type GatewayContentFilterEvaluation,
 	type InferSelectModel,
 } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 import {
+	type BaseMessage,
 	type EnvVarVariant,
 	getProviderEnvValue,
 	getProviderEnvVar,
@@ -97,6 +112,8 @@ import {
 	type VertexTokenType,
 } from "@llmgateway/models";
 import {
+	type ContentFilterClassifier,
+	GATEWAY_CONTENT_FILTER_MESSAGE,
 	getVideoProxyRedisKey,
 	VIDEO_PROXY_REDIS_TTL_SECONDS,
 } from "@llmgateway/shared";
@@ -577,6 +594,35 @@ const getVideo = createRoute({
 	},
 });
 
+const videoRangeRequestHeaders = z.object({
+	range: z
+		.string()
+		.optional()
+		.openapi({ description: "Requested byte range for playback or seeking." }),
+	"if-range": z.string().optional().openapi({
+		description: "Return the range only if the upstream validator matches.",
+	}),
+});
+const videoRangeResponses = {
+	206: {
+		description: "Partial video bytes.",
+		headers: z.object({
+			"Content-Range": z.string(),
+			"Accept-Ranges": z.string(),
+		}),
+		content: {
+			"video/mp4": { schema: z.string().openapi({ format: "binary" }) },
+			"application/octet-stream": {
+				schema: z.string().openapi({ format: "binary" }),
+			},
+		},
+	},
+	416: {
+		description: "The requested byte range is not satisfiable.",
+		headers: z.object({ "Content-Range": z.string() }),
+	},
+};
+
 const getVideoContent = createRoute({
 	operationId: "v1_videos_content",
 	summary: "Video content",
@@ -590,6 +636,7 @@ const getVideoContent = createRoute({
 		},
 	],
 	request: {
+		headers: videoRangeRequestHeaders,
 		params: z.object({
 			video_id: z.string(),
 		}),
@@ -609,6 +656,7 @@ const getVideoContent = createRoute({
 		},
 
 		...standardErrorResponses(),
+		...videoRangeResponses,
 	},
 });
 
@@ -620,6 +668,7 @@ const getVideoLogContent = createRoute({
 	method: "get",
 	path: "/logs/{log_id}/content",
 	request: {
+		headers: videoRangeRequestHeaders,
 		params: z.object({
 			log_id: z.string(),
 		}),
@@ -642,6 +691,7 @@ const getVideoLogContent = createRoute({
 		},
 
 		...standardErrorResponses(),
+		...videoRangeResponses,
 	},
 });
 
@@ -932,6 +982,7 @@ async function requireRequestContext(c: Context): Promise<RequestContext> {
 		project.id,
 		organization.id,
 		organization.plan,
+		organization.kind,
 	);
 
 	return {
@@ -2698,32 +2749,16 @@ async function getVideoSourceUrlFromCacheOrJob(
 
 async function streamVideoFromUrl(
 	contentUrl: string,
+	requestHeaders: Headers,
 	contentType?: string | null,
 ): Promise<Response> {
 	// SSRF: refuse redirects so a tenant-controlled content URL cannot 3xx the
 	// gateway onward to an internal host whose body would then be streamed back.
-	const upstreamResponse = await fetch(contentUrl, { redirect: "error" });
-	if (!upstreamResponse.ok || !upstreamResponse.body) {
-		throw new HTTPException(502, {
-			message: "Failed to fetch video content from upstream provider",
-		});
-	}
-
-	const headers = new Headers();
-	headers.set(
-		"Content-Type",
-		upstreamResponse.headers.get("Content-Type") ?? contentType ?? "video/mp4",
-	);
-
-	const contentLength = upstreamResponse.headers.get("Content-Length");
-	if (contentLength) {
-		headers.set("Content-Length", contentLength);
-	}
-
-	return new Response(upstreamResponse.body, {
-		status: 200,
-		headers,
+	const upstreamResponse = await fetchNoRedirect(contentUrl, {
+		redirect: "error",
+		headers: videoRangeHeaders(requestHeaders),
 	});
+	return videoProxyResponse(upstreamResponse, contentType);
 }
 
 function shouldProxyDirectUpstreamVideoContent(job: VideoJobRecord): boolean {
@@ -2834,6 +2869,7 @@ async function resolveVideoJobProviderContext(job: VideoJobRecord): Promise<{
 
 async function streamDirectUpstreamVideoContent(
 	job: VideoJobRecord,
+	requestHeaders: Headers,
 ): Promise<Response> {
 	const providerContext = await resolveVideoJobProviderContext(job);
 
@@ -2860,7 +2896,7 @@ async function streamDirectUpstreamVideoContent(
 			providerContext.baseUrl,
 			`/v1/files/retrieve?file_id=${fileId}`,
 		);
-		const retrieveResponse = await fetch(retrieveUrl, {
+		const retrieveResponse = await fetchNoRedirect(retrieveUrl, {
 			// SSRF: never follow redirects on a tenant-baseUrl provider request.
 			redirect: "error",
 			headers: getProviderHeaders(
@@ -2891,38 +2927,18 @@ async function streamDirectUpstreamVideoContent(
 		);
 	}
 
-	const upstreamResponse = await fetch(contentUrl, {
+	const upstreamResponse = await fetchNoRedirect(contentUrl, {
 		// SSRF: never follow redirects on a tenant-controlled content/baseUrl
 		// request; the followed body would be streamed back to the caller.
 		redirect: "error",
-		headers: getProviderHeaders(
-			providerContext.providerId,
-			providerContext.token,
-			{ requestId: providerContext.requestId },
-		),
+		headers: {
+			...getProviderHeaders(providerContext.providerId, providerContext.token, {
+				requestId: providerContext.requestId,
+			}),
+			...videoRangeHeaders(requestHeaders),
+		},
 	});
-	if (!upstreamResponse.ok || !upstreamResponse.body) {
-		throw new HTTPException(502, {
-			message: "Failed to fetch video content from upstream provider",
-		});
-	}
-
-	const headers = new Headers();
-	headers.set(
-		"Content-Type",
-		upstreamResponse.headers.get("Content-Type") ??
-			job.contentType ??
-			"video/mp4",
-	);
-	const contentLength = upstreamResponse.headers.get("Content-Length");
-	if (contentLength) {
-		headers.set("Content-Length", contentLength);
-	}
-
-	return new Response(upstreamResponse.body, {
-		status: 200,
-		headers,
-	});
+	return videoProxyResponse(upstreamResponse, job.contentType);
 }
 
 async function markVideoDownloaded(logId: string): Promise<void> {
@@ -2972,7 +2988,7 @@ async function fetchUpstreamJson(
 	providerId: string,
 ): Promise<Record<string, unknown>> {
 	// SSRF: never follow redirects on a tenant-baseUrl provider request.
-	const response = await fetch(url, { ...init, redirect: "error" });
+	const response = await fetchProvider(url, init);
 	const text = await response.text();
 	let body: Record<string, unknown> = {};
 
@@ -4186,6 +4202,90 @@ async function processVideoImageInputs(
 	).filter((image): image is ProcessedVideoImageInput => image !== null);
 }
 
+function buildVideoModerationMessages(
+	prompt: string,
+	images: Array<ProcessedVideoImageInput | null>,
+): BaseMessage[] {
+	return [
+		{
+			role: "user",
+			content: [
+				{ type: "text", text: prompt },
+				...images
+					.filter((image): image is ProcessedVideoImageInput => image !== null)
+					.map((image) => ({
+						type: "image_url" as const,
+						image_url: {
+							url: `data:${image.mimeType};base64,${image.bytesBase64Encoded}`,
+						},
+					})),
+			],
+		},
+	];
+}
+
+async function evaluateVideoContentFilter(options: {
+	request: z.infer<typeof createVideoRequestSchema>;
+	requestId: string;
+	apiKey: GatewayApiKey;
+	project: InferSelectModel<typeof tables.project>;
+	organization: InferSelectModel<typeof tables.organization>;
+	providerId: string;
+	compliancePolicy: ReturnType<typeof getActiveCompliancePolicy>;
+	images: Array<ProcessedVideoImageInput | null>;
+	signal: AbortSignal;
+}): Promise<GatewayContentFilterEvaluation | null> {
+	// Prompts must never reach a classifier's provider when the org's compliance
+	// policy excludes it.
+	const classifierAllowed = (classifier: ContentFilterClassifier) =>
+		!options.compliancePolicy ||
+		isProviderIdCompliant(
+			CONTENT_FILTER_CLASSIFIER_PROVIDERS[classifier],
+			options.compliancePolicy,
+		);
+	const plan = await resolveTieredContentFilterPlan(
+		options.organization,
+		options.providerId,
+		await getContentFilterSettings(),
+	);
+	if (!plan) {
+		return null;
+	}
+	const tiered = await evaluateContentFilterWithClassifiers({
+		plan,
+		messages: buildVideoModerationMessages(
+			options.request.prompt,
+			options.images,
+		),
+		context: {
+			requestId: options.requestId,
+			organizationId: options.organization.id,
+			projectId: options.project.id,
+			apiKeyId: options.apiKey.id,
+		},
+		signal: options.signal,
+		imagesAllowed: classifierAllowed("openai"),
+		classifierAllowed,
+	});
+	if (!tiered) {
+		return null;
+	}
+	const evaluation = tiered.evaluation;
+	if (evaluation.violation) {
+		logger.debug("gateway_content_filter_tier", {
+			requestId: options.requestId,
+			organizationId: options.organization.id,
+			provider: options.providerId,
+			tier: plan.tier,
+			level: plan.level,
+			classifier: plan.classifier,
+			action: evaluation.action,
+			matchedCategories: evaluation.matchedCategories,
+		});
+	}
+	return evaluation;
+}
+
 /**
  * Whose credential a video attempt ran on. `usedMode` on the provider context
  * is already decided by whether the organization's own provider key served the
@@ -4281,6 +4381,16 @@ async function insertVideoClientErrorLog(options: {
 	statusCode: number;
 	message: string;
 	startedAt: number;
+	// A gateway decision made before any provider attempt, e.g. a content
+	// filter block: overrides the client_error classification and keeps the
+	// routing metadata as routed instead of recording a failed attempt.
+	outcome?: {
+		finishReason: string;
+		unifiedFinishReason: UnifiedFinishReason;
+		hasError: boolean;
+		internalContentFilter?: boolean;
+		gatewayContentFilterEvaluation?: GatewayContentFilterEvaluation | null;
+	};
 }): Promise<void> {
 	const responseText = options.message;
 	await db.insert(tables.log).values({
@@ -4308,8 +4418,12 @@ async function insertVideoClientErrorLog(options: {
 		responseSize: responseText.length,
 		content: null,
 		reasoningContent: null,
-		finishReason: "client_error",
-		unifiedFinishReason: UnifiedFinishReason.CLIENT_ERROR,
+		finishReason: options.outcome?.finishReason ?? "client_error",
+		unifiedFinishReason:
+			options.outcome?.unifiedFinishReason ?? UnifiedFinishReason.CLIENT_ERROR,
+		internalContentFilter: options.outcome?.internalContentFilter ?? null,
+		gatewayContentFilterEvaluation:
+			options.outcome?.gatewayContentFilterEvaluation ?? null,
 		promptTokens: null,
 		completionTokens: null,
 		totalTokens: null,
@@ -4325,7 +4439,7 @@ async function insertVideoClientErrorLog(options: {
 						},
 					]
 				: null,
-		hasError: true,
+		hasError: options.outcome?.hasError ?? true,
 		errorDetails: {
 			statusCode: options.statusCode,
 			statusText: "Bad Request",
@@ -4356,12 +4470,14 @@ async function insertVideoClientErrorLog(options: {
 		cached: false,
 		mode: options.project.mode,
 		usedMode: options.providerContext.usedMode,
-		routingMetadata: buildVideoClientErrorRoutingMetadata(
-			options.routingMetadata,
-			options.providerContext,
-			options.normalizedModel,
-			options.statusCode,
-		),
+		routingMetadata: options.outcome
+			? (options.routingMetadata ?? null)
+			: buildVideoClientErrorRoutingMetadata(
+					options.routingMetadata,
+					options.providerContext,
+					options.normalizedModel,
+					options.statusCode,
+				),
 		processedAt: null,
 		rawRequest: null,
 		rawResponse: null,
@@ -4541,6 +4657,49 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		}
 		throw error;
 	}
+	// Tiered gateway content filter on the prompt and decoded image inputs,
+	// keyed on the provider the job is about to be dispatched to. Fails open.
+	const contentFilterEvaluation = await evaluateVideoContentFilter({
+		request,
+		requestId,
+		apiKey,
+		project,
+		organization,
+		providerId: selectedProviderContext.providerId,
+		compliancePolicy: videoCompliancePolicy,
+		images: [
+			processedFirstFrame,
+			processedLastFrameInput,
+			...processedReferenceImages,
+		],
+		signal: c.req.raw.signal,
+	});
+	if (contentFilterEvaluation?.action === "blocked") {
+		await insertVideoClientErrorLog({
+			request,
+			requestId,
+			apiKey,
+			project,
+			organization,
+			normalizedModel,
+			requestedProvider,
+			providerContext: selectedProviderContext,
+			upstreamModelName: selectedUpstreamModelName,
+			routingMetadata: enrichedRoutingMetadata,
+			statusCode: 403,
+			message: GATEWAY_CONTENT_FILTER_MESSAGE,
+			startedAt,
+			outcome: {
+				finishReason: "llmgateway_content_filter",
+				unifiedFinishReason: UnifiedFinishReason.CONTENT_FILTER,
+				hasError: false,
+				internalContentFilter: true,
+				gatewayContentFilterEvaluation: contentFilterEvaluation,
+			},
+		});
+		throw new HTTPException(403, { message: GATEWAY_CONTENT_FILTER_MESSAGE });
+	}
+
 	const routingAttempts: RoutingAttempt[] = [];
 	const failedProviders = new Set<string>();
 	let retryCount = 0;
@@ -4718,6 +4877,23 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 			break;
 		} catch (error) {
 			const statusCode = error instanceof HTTPException ? error.status : 0;
+			if (statusCode === 400 && error instanceof HTTPException) {
+				await insertVideoClientErrorLog({
+					request,
+					requestId,
+					apiKey,
+					project,
+					organization,
+					normalizedModel,
+					requestedProvider,
+					providerContext: selectedProviderContext,
+					upstreamModelName: selectedUpstreamModelName,
+					routingMetadata: enrichedRoutingMetadata,
+					statusCode,
+					message: error.message,
+					startedAt,
+				});
+			}
 			const retryErrorType =
 				statusCode === 0
 					? "network_error"
@@ -4896,6 +5072,10 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 				llmgateway_requested_duration_seconds: videoDurationSeconds,
 				llmgateway_input_image_count: inputImageCount,
 				llmgateway_reserved_spend_usd: reservedSpendUsd,
+				// Carried onto the job's log row by the worker at finalization.
+				...(contentFilterEvaluation
+					? { llmgateway_content_filter_evaluation: contentFilterEvaluation }
+					: {}),
 				...(debugMode && retainVideoPayloads
 					? {
 							llmgateway_raw_request: rawBody,
@@ -4908,12 +5088,11 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 		.returning()
 		.then((rows) => rows[0]);
 
-	if (reservedSpendUsd > 0) {
-		// After the insert: the job row is what tells the worker a reservation
-		// exists to reconcile. recordSpend is fail-open, matching the counters'
-		// overall best-effort semantics.
-		await recordSpend(organization.id, reservedSpendUsd);
-	}
+	// After the insert: the job row is what tells the worker a reservation
+	// exists to reconcile. A zero reservation (BYOK, wallet) records no spend
+	// but still stamps org activity. recordSpend is fail-open, matching the
+	// counters' overall best-effort semantics.
+	await recordSpend(organization.id, reservedSpendUsd);
 
 	logger.info("Created video job", {
 		videoId: created.id,
@@ -4963,8 +5142,13 @@ videos.openapi(getVideoLogContent, async (c) => {
 		videoJob,
 	);
 	if (directSourceUrl) {
-		const response = await streamVideoFromUrl(directSourceUrl);
-		await markVideoDownloaded(logId);
+		const response = await streamVideoFromUrl(
+			directSourceUrl,
+			c.req.raw.headers,
+		);
+		if (response.ok) {
+			await markVideoDownloaded(logId);
+		}
 		return response;
 	}
 
@@ -4976,14 +5160,25 @@ videos.openapi(getVideoLogContent, async (c) => {
 			});
 		}
 
-		const response = await streamVideoFromUrl(signedUrl, videoJob.contentType);
-		await markVideoDownloaded(logId);
+		const response = await streamVideoFromUrl(
+			signedUrl,
+			c.req.raw.headers,
+			videoJob.contentType,
+		);
+		if (response.ok) {
+			await markVideoDownloaded(logId);
+		}
 		return response;
 	}
 
 	if (shouldProxyDirectUpstreamVideoContent(videoJob)) {
-		const response = await streamDirectUpstreamVideoContent(videoJob);
-		await markVideoDownloaded(logId);
+		const response = await streamDirectUpstreamVideoContent(
+			videoJob,
+			c.req.raw.headers,
+		);
+		if (response.ok) {
+			await markVideoDownloaded(logId);
+		}
 		return response;
 	}
 
@@ -4998,14 +5193,10 @@ videos.openapi(getVideoLogContent, async (c) => {
 	}
 
 	await markVideoDownloaded(logId);
-	return new Response(
+	return inlineVideoResponse(
 		Uint8Array.from(Buffer.from(inlineVideo.bytesBase64Encoded, "base64")),
-		{
-			status: 200,
-			headers: {
-				"Content-Type": inlineVideo.mimeType,
-			},
-		},
+		inlineVideo.mimeType,
+		c.req.raw.headers,
 	);
 });
 
@@ -5027,8 +5218,11 @@ videos.openapi(getVideoContent, async (c) => {
 	if (!job.contentUrl && !job.storageUri) {
 		if (shouldProxyDirectUpstreamVideoContent(job)) {
 			const logId = job.logId;
-			const response = await streamDirectUpstreamVideoContent(job);
-			if (logId) {
+			const response = await streamDirectUpstreamVideoContent(
+				job,
+				c.req.raw.headers,
+			);
+			if (logId && response.ok) {
 				await markVideoDownloaded(logId);
 			}
 			return response;
@@ -5044,12 +5238,7 @@ videos.openapi(getVideoContent, async (c) => {
 		const bytes = Uint8Array.from(
 			Buffer.from(inlineVideo.bytesBase64Encoded, "base64"),
 		);
-		return new Response(bytes, {
-			status: 200,
-			headers: {
-				"Content-Type": inlineVideo.mimeType,
-			},
-		});
+		return inlineVideoResponse(bytes, inlineVideo.mimeType, c.req.raw.headers);
 	}
 
 	const contentUrl = job.contentUrl ?? (await getExternalVideoContentUrl(job));
@@ -5059,12 +5248,11 @@ videos.openapi(getVideoContent, async (c) => {
 			const bytes = Uint8Array.from(
 				Buffer.from(inlineVideo.bytesBase64Encoded, "base64"),
 			);
-			return new Response(bytes, {
-				status: 200,
-				headers: {
-					"Content-Type": inlineVideo.mimeType,
-				},
-			});
+			return inlineVideoResponse(
+				bytes,
+				inlineVideo.mimeType,
+				c.req.raw.headers,
+			);
 		}
 
 		throw new HTTPException(404, {
@@ -5073,8 +5261,12 @@ videos.openapi(getVideoContent, async (c) => {
 	}
 
 	const logId = job.logId;
-	const response = await streamVideoFromUrl(contentUrl, job.contentType);
-	if (logId) {
+	const response = await streamVideoFromUrl(
+		contentUrl,
+		c.req.raw.headers,
+		job.contentType,
+	);
+	if (logId && response.ok) {
 		await markVideoDownloaded(logId);
 	}
 	return response;

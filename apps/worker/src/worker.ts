@@ -51,8 +51,13 @@ import {
 	isPremiumWeekExpired,
 	isPrivateOrReservedIp,
 } from "@llmgateway/shared";
+import {
+	getLogRetentionCutoff,
+	LOG_RETENTION_DAYS,
+} from "@llmgateway/shared/log-retention";
 
 import { posthog } from "./posthog.js";
+import { processNextBenchmarkRun } from "./services/benchmark-runs.js";
 import {
 	runFollowUpEmailsLoop,
 	sendLowBalanceEmail,
@@ -62,6 +67,7 @@ import {
 	processClosedHours,
 } from "./services/global-stats-aggregator.js";
 import { processNextModelVerification } from "./services/model-verifications.js";
+import { processNotifications } from "./services/notifications.js";
 import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
 	refreshProjectHourlyStats,
@@ -155,6 +161,8 @@ const MODEL_VERIFICATION_POLL_INTERVAL_SECONDS =
 	configuredModelVerificationPollIntervalSeconds > 0
 		? configuredModelVerificationPollIntervalSeconds
 		: 2;
+const BENCHMARK_RUN_POLL_INTERVAL_SECONDS =
+	Number(process.env.BENCHMARK_RUN_POLL_INTERVAL_SECONDS) || 10;
 
 interface ApiKeyUsageEvent {
 	cost: Decimal;
@@ -372,6 +380,31 @@ async function resolveDevPassStripePaymentMethodId(org: {
 		}
 	}
 	return null;
+}
+
+/**
+ * Whether auto top-up will actually refill this org. Enabled alone is not
+ * enough: risk-flagged and DevPass-without-PAYG orgs are skipped by
+ * `processAutoTopUp`, and an org in payment-failure backoff may never get
+ * charged before it runs dry.
+ */
+export function isAutoTopUpEffective(org: {
+	autoTopUpEnabled: boolean;
+	riskFlagged?: boolean | null;
+	kind?: string | null;
+	devPlanPaygEnabled?: boolean | null;
+	paymentFailureStartedAt?: Date | null;
+}): boolean {
+	if (!org.autoTopUpEnabled) {
+		return false;
+	}
+	if (org.riskFlagged) {
+		return false;
+	}
+	if (org.kind === "devpass" && !org.devPlanPaygEnabled) {
+		return false;
+	}
+	return !org.paymentFailureStartedAt;
 }
 
 export async function processAutoTopUp(): Promise<void> {
@@ -814,17 +847,8 @@ export async function cleanupExpiredLogData(): Promise<void> {
 	try {
 		logger.info("Starting data retention cleanup...");
 
-		// Unified retention period - 30 days for all users
-		const RETENTION_DAYS = 30;
 		const CLEANUP_BATCH_SIZE = 10000;
-
-		const now = new Date();
-
-		// Calculate cutoff date (30 days ago)
-		const cutoffDate = new Date(
-			// eslint-disable-next-line no-mixed-operators
-			now.getTime() - RETENTION_DAYS * 24 * 60 * 60 * 1000,
-		);
+		const cutoffDate = getLogRetentionCutoff();
 
 		let totalCleaned = 0;
 
@@ -878,6 +902,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 						userAgent: null,
 						gatewayContentFilterResponse: null,
 						responsesApiData: null,
+						routingMetadata: null,
 						dataRetentionCleanedUp: true,
 					})
 					// Use `= ANY($1)` with a single array parameter instead of
@@ -905,7 +930,7 @@ export async function cleanupExpiredLogData(): Promise<void> {
 
 		if (totalCleaned > 0) {
 			logger.info(
-				`Total cleaned up verbose data from ${totalCleaned} logs (older than ${RETENTION_DAYS} days)`,
+				`Total cleaned up verbose data from ${totalCleaned} logs (older than ${LOG_RETENTION_DAYS} days)`,
 			);
 		}
 
@@ -1874,7 +1899,7 @@ export async function batchProcessLogs(): Promise<number> {
 	return processedCount;
 }
 
-async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {
+export async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {
 	try {
 		const orgs = await db
 			.select()
@@ -1883,6 +1908,12 @@ async function checkLowBalanceAlerts(orgIds: string[]): Promise<void> {
 
 		for (const org of orgs) {
 			try {
+				// The whole point of these emails is "top up / enable auto-reload";
+				// an org whose auto top-up will refill it does not need either.
+				if (isAutoTopUpEffective(org)) {
+					continue;
+				}
+
 				const lastTopUp = Number(org.lastTopUpAmount ?? 0);
 				if (lastTopUp <= 0) {
 					continue;
@@ -2037,8 +2068,18 @@ export async function processLogQueue(): Promise<number> {
 	try {
 		// The gateway decides what to persist: it strips request/response payload
 		// fields before publishing for orgs that don't retain data, so the worker
-		// inserts the queued rows as-is with no per-batch org retention lookup.
-		const logData = message.map((i) => JSON.parse(i) as LogInsertData);
+		// inserts the queued rows with no per-batch org retention lookup.
+		const logData = message.map((i) => {
+			const data = JSON.parse(i) as LogInsertData;
+			// Failed requests can still carry fractional limits into integer columns.
+			if (typeof data.maxTokens === "number") {
+				data.maxTokens = Math.ceil(data.maxTokens);
+			}
+			if (typeof data.reasoningMaxTokens === "number") {
+				data.reasoningMaxTokens = Math.ceil(data.reasoningMaxTokens);
+			}
+			return data;
+		});
 
 		// Insert logs with retry logic
 		let lastError: Error | undefined;
@@ -2365,6 +2406,33 @@ async function runModelVerificationLoop() {
 	} finally {
 		activeLoops--;
 		logger.info("Model verification loop stopped");
+	}
+}
+
+async function runBenchmarkRunLoop() {
+	activeLoops++;
+	const interval = BENCHMARK_RUN_POLL_INTERVAL_SECONDS * 1000;
+	logger.info(
+		`Starting benchmark run loop (interval: ${BENCHMARK_RUN_POLL_INTERVAL_SECONDS} seconds)...`,
+	);
+	try {
+		while (!isStopRequested()) {
+			try {
+				const processed = await processNextBenchmarkRun();
+				if (!processed) {
+					await interruptibleSleep(interval);
+				}
+			} catch (error) {
+				logger.error(
+					"Error in benchmark run loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Benchmark run loop stopped");
 	}
 }
 
@@ -3105,6 +3173,38 @@ async function runMarginPayoutLoop() {
 	}
 }
 
+async function runNotificationsLoop() {
+	activeLoops++;
+	const interval = 60 * 1000;
+	logger.info(
+		`Starting notifications loop (interval: ${interval / 1000} seconds)...`,
+	);
+
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (await acquireLock("notifications")) {
+					try {
+						await processNotifications();
+					} finally {
+						await releaseLock("notifications");
+					}
+				}
+				await interruptibleSleep(interval);
+			} catch (error) {
+				logger.error(
+					"Error in notifications loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+		logger.info("Notifications loop stopped");
+	}
+}
+
 export async function startWorker() {
 	if (isWorkerRunning) {
 		logger.error("Worker is already running");
@@ -3184,6 +3284,9 @@ export async function startWorker() {
 		`- Model verification: runs every ${MODEL_VERIFICATION_POLL_INTERVAL_SECONDS} seconds`,
 	);
 	logger.info(
+		`- Benchmark runs: runs every ${BENCHMARK_RUN_POLL_INTERVAL_SECONDS} seconds for admin-queued benchmarks`,
+	);
+	logger.info(
 		"- Aggregated stats: runs every 1 minute at the start of each minute",
 	);
 	logger.info(
@@ -3204,6 +3307,7 @@ export async function startWorker() {
 	void runVideoJobsLoop();
 	void runVideoWebhookLoop();
 	void runModelVerificationLoop();
+	void runBenchmarkRunLoop();
 	void runAggregatedStatsLoop();
 	void runProjectStatsLoop();
 	void runGlobalStatsLoop();
@@ -3220,6 +3324,7 @@ export async function startWorker() {
 	void runStaleTopUpPiCancelLoop();
 	void runWebhookDeliveryLoop();
 	void runMarginPayoutLoop();
+	void runNotificationsLoop();
 	void runFollowUpEmailsLoop({
 		shouldStop: isStopRequested,
 		acquireLock,

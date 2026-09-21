@@ -18,6 +18,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth-client";
+import { useAppConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
 import type { ReactNode } from "react";
@@ -33,6 +34,7 @@ const NAV = [
 
 export function DashboardShell({ children }: { children: ReactNode }) {
 	const pathname = usePathname();
+	const config = useAppConfig();
 	const router = useRouter();
 	const queryClient = useQueryClient();
 	const { signOut } = useAuth();
@@ -98,6 +100,14 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 								</Link>
 							);
 						})}
+						<a
+							href={`${config.uiUrl}/rankings`}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="text-muted-foreground hover:text-foreground whitespace-nowrap rounded-md px-3 py-2 text-sm"
+						>
+							Model rankings ↗
+						</a>
 					</nav>
 
 					<div className="flex shrink-0 items-center gap-1">

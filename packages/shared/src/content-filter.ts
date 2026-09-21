@@ -1,10 +1,74 @@
+import { z } from "zod";
+
+/** `system_setting` row holding the tiered gateway content filter settings. */
+export const CONTENT_FILTER_SETTING_ID = "content_filter";
+
+/**
+ * Moderation model family the tiered filter scores requests with.
+ * - `openai`: OpenAI's moderation endpoint (fixed categories, provider `flagged`
+ *   bit honoured in strict mode).
+ * - `jev`: TypeSafe's Jev decision model, asked one calibrated yes/no question
+ *   per policy category. Text only — image parts still go to OpenAI.
+ */
+export const CONTENT_FILTER_CLASSIFIERS = ["openai", "jev"] as const;
+
+export type ContentFilterClassifier =
+	(typeof CONTENT_FILTER_CLASSIFIERS)[number];
+
+export const contentFilterSettingsSchema = z.object({
+	// Master switch for sampling requests through the moderation API.
+	enabled: z.boolean().default(true),
+	// Providers whose routed requests are moderated. Empty = nobody.
+	providerIds: z.array(z.string()).default([]),
+	sampleRatePercent: z.number().min(0).max(100).default(100),
+	// When false every violation is recorded as metadata but never blocked.
+	enforce: z.boolean().default(false),
+	// Enterprise orgs stay log-only unless this is also on.
+	enforceEnterprise: z.boolean().default(false),
+	// Classifier whose scores decide the outcome.
+	classifier: z.enum(CONTENT_FILTER_CLASSIFIERS).default("openai"),
+	// Optional second classifier, run on the same request for comparison. Its
+	// verdict is recorded on the log's evaluation and never blocks. "none"
+	// disables the comparison run; the deciding classifier is never shadowed by
+	// itself.
+	shadowClassifier: z
+		.enum([...CONTENT_FILTER_CLASSIFIERS, "none"])
+		.default("none"),
+});
+
+export type ContentFilterSettings = z.infer<typeof contentFilterSettingsSchema>;
+
+export const DEFAULT_CONTENT_FILTER_SETTINGS: ContentFilterSettings =
+	contentFilterSettingsSchema.parse({});
+
+/** Parse the stored JSON value; missing or invalid input yields the defaults. */
+export function parseContentFilterSettings(
+	value: string | null | undefined,
+): ContentFilterSettings {
+	if (!value) {
+		return DEFAULT_CONTENT_FILTER_SETTINGS;
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(value);
+	} catch {
+		return DEFAULT_CONTENT_FILTER_SETTINGS;
+	}
+	const result = contentFilterSettingsSchema.safeParse(parsed);
+	return result.success ? result.data : DEFAULT_CONTENT_FILTER_SETTINGS;
+}
+
+export const GATEWAY_CONTENT_FILTER_MESSAGE =
+	"This request was blocked by LLM Gateway's content filter. This is the gateway's own filter, not the model provider's. Please contact LLM Gateway support at contact@llmgateway.io to make sure your requests do not violate the Terms of Use; support can review your use case and help you get unblocked.";
+
 /**
  * Text fragments that uniquely identify a provider content-moderation / safety
  * block in an upstream error payload. Used to classify a request's finish reason
  * as `content_filter` rather than a generic upstream error.
  *
  * Covers chat, image, and video generation providers:
- * - Azure OpenAI: `ResponsibleAIPolicyViolation`, `Microsoft's content management policy`
+ * - Azure OpenAI: `ResponsibleAIPolicyViolation`, `content management policy`
+ *   (the owner varies: "Microsoft's" / "Azure OpenAI's"), `ContentFiltered`
  * - ByteDance / DeepSeek (incl. Seedance video moderation, e.g.
  *   `OutputVideoSensitiveContentDetected`): `SensitiveContentDetected`
  * - Alibaba / DashScope: `data_inspection_failed`, `Green net check failed`
@@ -20,7 +84,8 @@ const CONTENT_FILTER_ERROR_SIGNALS = [
 	"data_inspection_failed",
 	"Input data may contain inappropriate content",
 	"Green net check failed",
-	"Microsoft's content management policy",
+	"content management policy",
+	"ContentFiltered",
 	"Your request was rejected by the safety system",
 	"imagine:content-moderated",
 	"System detected potentially unsafe or sensitive content in input or generation",
@@ -39,5 +104,8 @@ export function isContentFilterErrorText(
 		return false;
 	}
 
-	return CONTENT_FILTER_ERROR_SIGNALS.some((signal) => text.includes(signal));
+	const haystack = text.toLowerCase();
+	return CONTENT_FILTER_ERROR_SIGNALS.some((signal) =>
+		haystack.includes(signal.toLowerCase()),
+	);
 }

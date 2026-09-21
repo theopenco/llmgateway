@@ -1,0 +1,53 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: helpers/sign-in.yaml
+- scrollUntilVisible:
+    element: "Your profile"
+    direction: DOWN
+- tapOn: "Your profile"
+- assertVisible:
+    id: appearance-system
+    text: "radio button, checked"
+- tapOn: "Light appearance"
+- assertVisible:
+    id: appearance-light
+    text: "radio button, checked"
+- takeScreenshot: artifacts/appearance-profile-light
+- launchApp
+- scrollUntilVisible:
+    element: "Your profile"
+    direction: DOWN
+- tapOn: "Your profile"
+- assertVisible:
+    id: appearance-light
+    text: "radio button, checked"
+- tapOn: "Dark appearance"
+- assertVisible:
+    id: appearance-dark
+    text: "radio button, checked"
+- takeScreenshot: artifacts/appearance-profile-dark
+- launchApp
+- scrollUntilVisible:
+    element: "Your profile"
+    direction: DOWN
+- tapOn: "Your profile"
+- assertVisible:
+    id: appearance-dark
+    text: "radio button, checked"
+- scrollUntilVisible:
+    element: "Sign out"
+    direction: DOWN
+- tapOn: "Sign out"
+- assertVisible: "Enter the Lounge"
+- takeScreenshot: artifacts/appearance-sign-in-dark
+- scrollUntilVisible:
+    element: "System appearance"
+    direction: DOWN
+- assertVisible:
+    id: appearance-dark
+    text: "radio button, checked"
+- tapOn: "Light appearance"
+- assertVisible:
+    id: appearance-light
+    text: "radio button, checked"
+- takeScreenshot: artifacts/appearance-sign-in-light

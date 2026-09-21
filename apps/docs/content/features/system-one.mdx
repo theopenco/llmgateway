@@ -1,0 +1,163 @@
+---
+title: System One
+description: Get typed, probabilistic decisions instead of generated text with the /v1/systemone endpoint
+icon: SlidersHorizontal
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+LLMGateway exposes a `/v1/systemone` endpoint for **System One** models: models
+that read a state, answer questions you name, and return typed decisions with
+calibrated probabilities. There is no free-form text in the response — every
+answer is a value your code can branch on directly.
+
+Use it when a model call exists only to make a decision: routing a support
+ticket, scoring a retrieved passage, checking whether a citation supports a
+claim, or classifying a record. A chat model can do these too, but you then have
+to parse prose, and you get no probability to threshold on.
+
+Browse available decision models on the
+[models page](https://llmgateway.io/models?filters=1).
+
+For the full request and response schema, see the
+[API reference](/v1_systemone).
+
+## Endpoint
+
+`POST https://api.llmgateway.io/v1/systemone`
+
+## Question types
+
+Every question has a `type`, `instructions`, and — for choice and score — its
+own `criteria`. Answers come back under the ids you chose.
+
+| Type     | Ask                              | Answer                                                                     |
+| -------- | -------------------------------- | -------------------------------------------------------------------------- |
+| `noul`   | A yes/no question                | `noul`: probability the answer is yes, 0 to 1                              |
+| `choice` | One option from a set you define | `choice`, `probabilities` per option, `confidence`                         |
+| `score`  | A rating across ordered levels   | `score` (can land between levels), `probabilities`, `legend`, `confidence` |
+
+## cURL
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/systemone" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "jev-1.13.0",
+    "state": "Help! My payouts have been failing for 3 days.",
+    "questions": {
+      "department": {
+        "type": "choice",
+        "instructions": "Which team should handle this?",
+        "criteria": {
+          "billing": "Payments, invoicing, refunds",
+          "technical": "Bugs, outages, integrations",
+          "sales": "Pricing, upgrades, new accounts"
+        }
+      },
+      "is_urgent": {
+        "type": "noul",
+        "instructions": "Does this convey urgency?"
+      },
+      "impact": {
+        "type": "score",
+        "instructions": "Rate the operational impact.",
+        "criteria": ["None", "Limited", "Critical"]
+      }
+    }
+  }'
+```
+
+```json
+{
+	"model": "typesafe/jev-1.13.0",
+	"answers": {
+		"department": {
+			"type": "choice",
+			"choice": "billing",
+			"probabilities": { "billing": 0.88, "technical": 0.12, "sales": 0.0 },
+			"confidence": 0.81
+		},
+		"is_urgent": { "type": "noul", "noul": 0.95 },
+		"impact": {
+			"type": "score",
+			"score": 1.9,
+			"legend": { "0": "None", "1": "Limited", "2": "Critical" },
+			"probabilities": { "0": 0.0, "1": 0.1, "2": 0.9 },
+			"confidence": 0.88
+		}
+	},
+	"usage": { "input_tokens": 318, "output_tokens": 34 }
+}
+```
+
+The `model` field reports the pinned model that answered, prefixed with the
+provider it was served by. Provider aliases that move between releases (for
+example `jev-latest`) are accepted and resolve to the pinned version, so a
+request is always billed and logged against the version you can read prices for.
+
+## Request fields
+
+| Field       | Type                        | Description                                                                |
+| ----------- | --------------------------- | -------------------------------------------------------------------------- |
+| `model`     | `string`                    | Decision model to use. Optionally prefixed with a provider (`typesafe/…`). |
+| `state`     | `string \| object \| array` | The content to evaluate. Structured data lets questions reference fields.  |
+| `questions` | `map<string, Question>`     | At least one typed question, keyed by ids you choose.                      |
+
+## Deciding in code
+
+The point of a typed answer is that the policy stays in your code, not in a
+prompt. Threshold the probability, and use `confidence` as a second axis to send
+uncertain cases to a human instead of acting on a coin flip:
+
+```ts
+const res = await fetch("https://api.llmgateway.io/v1/systemone", {
+	method: "POST",
+	headers: {
+		Authorization: `Bearer ${process.env.LLM_GATEWAY_API_KEY}`,
+		"Content-Type": "application/json",
+	},
+	body: JSON.stringify({
+		model: "jev-1.13.0",
+		state: ticket,
+		questions: {
+			department: {
+				type: "choice",
+				instructions: "Which team should handle this?",
+				criteria: { billing: null, technical: null, sales: null },
+			},
+			is_urgent: { type: "noul", instructions: "Does this convey urgency?" },
+		},
+	}),
+});
+
+const { answers } = await res.json();
+
+if (answers.department.confidence < 0.7) {
+	await queueForTriage(ticket);
+} else {
+	await route(ticket, answers.department.choice, {
+		priority: answers.is_urgent.noul > 0.8 ? "high" : "normal",
+	});
+}
+```
+
+Ask everything you might need in one request: the state is read once and every
+question is evaluated against it, so a batch of questions costs far less than
+one request each — including speculative questions you only read when another
+answer makes them relevant.
+
+<Callout type="info">
+	Decision models are billed on input tokens only — the state plus every
+	question. Output tokens are free, since the response is a set of values rather
+	than generated text. Question text counts as input on every call, so a large
+	rubric has a real per-request cost.
+</Callout>
+
+<Callout type="warn">
+	Decision models only work on `/v1/systemone`. Requesting one on
+	`/v1/chat/completions` returns a 400 pointing you at the right endpoint, they
+	cannot generate text or call tools, and they are not available in the
+	playground. Input is text only.
+</Callout>

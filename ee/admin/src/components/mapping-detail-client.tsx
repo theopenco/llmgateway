@@ -1,17 +1,25 @@
 "use client";
 
+import { ShieldCheck } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DetailStatCards, StatCard } from "@/components/detail-stat-cards";
 import { HistoryChart, windowOptions } from "@/components/history-chart";
+import {
+	ModelVerificationDialog,
+	VerificationStatusBadge,
+} from "@/components/model-verification-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getMappingDetail, getMappingHistory } from "@/lib/admin-history";
+import { useApi } from "@/lib/fetch-client";
 
 import { getProviderIcon } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { HistoryWindow } from "@/components/history-chart";
+import type { ModelVerification } from "@/components/model-verification-dialog";
 import type { MappingDetail } from "@/lib/types";
 
 function formatPrice(price: string | null) {
@@ -85,6 +93,26 @@ export function MappingDetailClient({
 		[providerId, modelId, region],
 	);
 
+	const $api = useApi();
+	const verificationsQuery = $api.useQuery(
+		"get",
+		"/admin/model-verifications",
+		{ params: { query: { providerId } } },
+		{
+			refetchInterval: (query) =>
+				query.state.data?.entries.some(
+					(entry) =>
+						entry.verification.status === "queued" ||
+						entry.verification.status === "running",
+				)
+					? 2_000
+					: false,
+		},
+	);
+	const latestVerification = (verificationsQuery.data?.entries.find(
+		(entry) => entry.mappingId === mapping.id,
+	)?.verification ?? null) as ModelVerification | null;
+
 	const ProviderIcon = getProviderIcon(providerId);
 	const displayName =
 		mapping.externalId !== mapping.modelId
@@ -95,7 +123,7 @@ export function MappingDetailClient({
 		<>
 			<header className="flex items-start gap-3">
 				<ProviderIcon className="mt-1 h-8 w-8 shrink-0 dark:text-white" />
-				<div>
+				<div className="flex-1">
 					<h1 className="text-3xl font-semibold tracking-tight">
 						{mapping.providerId}/{mapping.modelId}
 					</h1>
@@ -112,8 +140,20 @@ export function MappingDetailClient({
 							<Badge variant="outline">{mapping.region}</Badge>
 						)}
 						{mapping.streaming && <Badge variant="outline">streaming</Badge>}
+						<VerificationStatusBadge verification={latestVerification} />
 					</div>
 				</div>
+				<ModelVerificationDialog
+					title={`${mapping.providerId}/${mapping.modelId}${mapping.region ? `:${mapping.region}` : ""}`}
+					mappingId={mapping.id}
+					latest={latestVerification}
+					onSettled={() => void verificationsQuery.refetch()}
+				>
+					<Button variant="outline" size="sm" data-testid="verify-mapping">
+						<ShieldCheck className="mr-1 h-4 w-4" />
+						Verify
+					</Button>
+				</ModelVerificationDialog>
 			</header>
 
 			<div className="flex flex-wrap items-center gap-1">
@@ -160,9 +200,7 @@ export function MappingDetailClient({
 				<StatCard
 					label="Max Output"
 					value={
-						mapping.maxOutput
-							? `${mapping.maxOutput.toLocaleString("en-US")}`
-							: "\u2014"
+						mapping.maxOutput ? `${formatNumber(mapping.maxOutput)}` : "\u2014"
 					}
 				/>
 			</section>

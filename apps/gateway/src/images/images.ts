@@ -71,6 +71,19 @@ const imageGenerationsRequestSchema = z.object({
 			"The aspect ratio of the generated images (e.g. '1:1', '16:9', '4:3', '5:4'). Takes precedence over size if both are provided.",
 		example: "16:9",
 	}),
+	moderation: z.enum(["auto", "low"]).optional().openapi({
+		description:
+			"Content moderation strictness for models that support it (GPT Image). 'auto' applies the default filtering, 'low' is less restrictive. Ignored by models without a moderation control.",
+		example: "low",
+	}),
+	service_tier: z
+		.enum(["auto", "default", "flex", "priority"])
+		.optional()
+		.openapi({
+			description:
+				"Processing tier for the request, forwarded to the underlying chat completion. `flex` and `priority` are only accepted for provider/model mappings that support the tier; an unsupported tier returns a 400 `unsupported_service_tier` error.",
+			example: "flex",
+		}),
 });
 
 type ImageGenerationsRequest = z.infer<typeof imageGenerationsRequestSchema>;
@@ -83,6 +96,7 @@ interface ImageClientErrorLogRequest {
 	size?: string;
 	quality?: string;
 	aspect_ratio?: string;
+	moderation?: string;
 }
 
 interface ImageClientErrorLogContext {
@@ -401,6 +415,7 @@ function buildImageClientErrorLogRequest(
 		size: getStringProperty(body, "size"),
 		quality: getStringProperty(body, "quality"),
 		aspect_ratio: getStringProperty(body, "aspect_ratio"),
+		moderation: getStringProperty(body, "moderation"),
 	};
 }
 
@@ -492,11 +507,15 @@ async function logImageClientError(
 		const usedModel = resolveImageRequestModel(request.model);
 		const responseText = message;
 		const imageConfig =
-			request.aspect_ratio || request.size || request.quality
+			request.aspect_ratio ||
+			request.size ||
+			request.quality ||
+			request.moderation
 				? {
 						...(request.aspect_ratio && { aspect_ratio: request.aspect_ratio }),
 						...(request.size && { image_size: request.size }),
 						...(request.quality && { image_quality: request.quality }),
+						...(request.moderation && { moderation: request.moderation }),
 					}
 				: undefined;
 
@@ -740,14 +759,25 @@ images.openapi(generations, async (c): Promise<any> => {
 		stream: false,
 	};
 
+	if (request.service_tier) {
+		chatRequest.service_tier = request.service_tier;
+	}
+
 	const normalizedQuality = normalizeQuality(request.quality);
 
 	// Pass image configuration if we have an aspect ratio, size, quality, or n > 1
-	if (aspectRatio || request.size || normalizedQuality || request.n > 1) {
+	if (
+		aspectRatio ||
+		request.size ||
+		normalizedQuality ||
+		request.moderation ||
+		request.n > 1
+	) {
 		chatRequest.image_config = {
 			...(aspectRatio && { aspect_ratio: aspectRatio }),
 			...(request.size && { image_size: request.size }),
 			...(normalizedQuality && { image_quality: normalizedQuality }),
+			...(request.moderation && { moderation: request.moderation }),
 			n: request.n,
 		};
 	}
@@ -850,6 +880,19 @@ const imageEditsRequestSchema = z.object({
 			"The aspect ratio of the edited images (e.g. '1:1', '16:9', '4:3', '5:4'). Takes precedence over size-derived defaults.",
 		example: "16:9",
 	}),
+	moderation: z.enum(["auto", "low"]).optional().openapi({
+		description:
+			"Content moderation strictness for models that support it (GPT Image). 'auto' applies the default filtering, 'low' is less restrictive. Ignored by models without a moderation control.",
+		example: "low",
+	}),
+	service_tier: z
+		.enum(["auto", "default", "flex", "priority"])
+		.optional()
+		.openapi({
+			description:
+				"Processing tier for the request, forwarded to the underlying chat completion. `flex` and `priority` are only accepted for provider/model mappings that support the tier; an unsupported tier returns a 400 `unsupported_service_tier` error.",
+			example: "flex",
+		}),
 });
 
 type ImageEditsRequest = z.infer<typeof imageEditsRequestSchema>;
@@ -1042,6 +1085,13 @@ async function parseMultipartEditsRequest(
 	if (typeof qualityValue === "string" && qualityValue) {
 		rawRequest.quality = qualityValue;
 	}
+	const moderationField = body["moderation"];
+	const moderationValue = Array.isArray(moderationField)
+		? moderationField[0]
+		: moderationField;
+	if (typeof moderationValue === "string" && moderationValue) {
+		rawRequest.moderation = moderationValue;
+	}
 
 	const validationResult = imageEditsRequestSchema.safeParse(rawRequest);
 	if (!validationResult.success) {
@@ -1070,6 +1120,7 @@ async function processImageEdit(
 		size: request.size,
 		quality: request.quality,
 		aspect_ratio: request.aspect_ratio,
+		moderation: request.moderation,
 	};
 	const { imageResults, imageCount } = await (async () => {
 		try {
@@ -1159,6 +1210,10 @@ async function processImageEdit(
 		stream: false,
 	};
 
+	if (request.service_tier) {
+		chatRequest.service_tier = request.service_tier;
+	}
+
 	const normalizedEditQuality = normalizeQuality(request.quality);
 
 	if (
@@ -1166,12 +1221,14 @@ async function processImageEdit(
 		requestedSize ||
 		(request.n !== undefined && request.n > 1) ||
 		request.output_format ||
-		normalizedEditQuality
+		normalizedEditQuality ||
+		request.moderation
 	) {
 		chatRequest.image_config = {
 			...(aspectRatio && { aspect_ratio: aspectRatio }),
 			...(requestedSize && { image_size: requestedSize }),
 			...(normalizedEditQuality && { image_quality: normalizedEditQuality }),
+			...(request.moderation && { moderation: request.moderation }),
 			...(request.n !== undefined && { n: request.n }),
 			...(request.output_format && { output_format: request.output_format }),
 			...(request.output_compression !== undefined && {

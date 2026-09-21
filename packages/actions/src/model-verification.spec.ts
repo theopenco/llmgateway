@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
 	createQueuedModelVerificationChecks,
+	disprovedCapabilities,
 	decryptModelVerificationCredential,
 	encryptModelVerificationCredential,
 	runProviderModelVerification,
@@ -162,6 +163,303 @@ describe("model verification", () => {
 		expect(JSON.parse(String(request?.body))).toMatchObject({
 			contents: expect.any(Array),
 		});
+	});
+
+	it("omits reasoning from Responses payloads for a non-reasoning listing", async () => {
+		const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
+			Response.json({
+				output: [
+					{ type: "message", content: [{ type: "output_text", text: "OK" }] },
+				],
+			}),
+		);
+		const result = await runProviderModelVerification({
+			target: {
+				...target,
+				providerId: "custom-carrier",
+				apiFormat: "openai-responses",
+				streaming: false,
+				vision: false,
+				audio: false,
+				tools: false,
+				jsonOutput: false,
+				jsonOutputSchema: false,
+				reasoning: false,
+				reasoningMaxTokens: false,
+				webSearch: false,
+			},
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		expect(result.passed).toBe(true);
+		const payload = JSON.parse(
+			String(fetchImplementation.mock.calls[0][1]?.body),
+		);
+		expect(payload).not.toHaveProperty("reasoning");
+		expect(payload).not.toHaveProperty("include");
+	});
+
+	// Tool calls are not tied to one upstream API: the carrier picks the format
+	// and the preflight probes tools through whichever one it picked.
+	it.each([
+		{
+			apiFormat: "provider-native" as const,
+			endpoint: "https://carrier.example/v1/chat/completions",
+			body: {
+				choices: [
+					{
+						message: {
+							tool_calls: [
+								{
+									type: "function",
+									function: { name: "get_weather", arguments: "{}" },
+								},
+							],
+						},
+					},
+				],
+			},
+			expectTools: [{ type: "function", function: { name: "get_weather" } }],
+		},
+		{
+			apiFormat: "openai-chat-completions" as const,
+			endpoint: "https://carrier.example/v1/chat/completions",
+			body: {
+				choices: [
+					{
+						message: {
+							tool_calls: [
+								{
+									type: "function",
+									function: { name: "get_weather", arguments: "{}" },
+								},
+							],
+						},
+					},
+				],
+			},
+			expectTools: [{ type: "function", function: { name: "get_weather" } }],
+		},
+		{
+			apiFormat: "openai-responses" as const,
+			endpoint: "https://carrier.example/v1/responses",
+			body: {
+				output: [
+					{ type: "function_call", name: "get_weather", arguments: "{}" },
+				],
+			},
+			expectTools: [{ type: "function", name: "get_weather" }],
+		},
+		{
+			apiFormat: "google-vertex" as const,
+			endpoint:
+				"https://carrier.example/v1/publishers/google/models/verification-model-upstream:generateContent?key=provider-key",
+			body: {
+				candidates: [
+					{
+						content: {
+							role: "model",
+							parts: [{ functionCall: { name: "get_weather", args: {} } }],
+						},
+					},
+				],
+			},
+			expectTools: [{ functionDeclarations: [{ name: "get_weather" }] }],
+		},
+	])(
+		"verifies tool calls through the $apiFormat upstream API",
+		async ({ apiFormat, endpoint, body, expectTools }) => {
+			// The basic check answers first; the second call is the tool check.
+			const fetchImplementation = vi
+				.fn<typeof fetch>()
+				.mockResolvedValueOnce(
+					Response.json({
+						choices: [{ message: { content: "OK" } }],
+						candidates: [
+							{ content: { role: "model", parts: [{ text: "OK" }] } },
+						],
+						output: [
+							{
+								type: "message",
+								content: [{ type: "output_text", text: "OK" }],
+							},
+						],
+					}),
+				)
+				.mockResolvedValueOnce(Response.json(body));
+
+			const result = await runProviderModelVerification({
+				target: {
+					...target,
+					providerId: "custom-carrier",
+					apiFormat,
+					streaming: false,
+					vision: false,
+					audio: false,
+					tools: true,
+					jsonOutput: false,
+					jsonOutputSchema: false,
+					reasoning: false,
+					reasoningMaxTokens: false,
+					webSearch: false,
+				},
+				token: "provider-key",
+				baseUrl: "https://carrier.example",
+				fetchImplementation,
+			});
+
+			expect(result.checks.map((check) => check.id)).toEqual([
+				"basic",
+				"tools",
+			]);
+			expect(result.passed).toBe(true);
+			const [toolEndpoint, toolRequest] = fetchImplementation.mock.calls[1];
+			expect(toolEndpoint).toBe(endpoint);
+			expect(JSON.parse(String(toolRequest?.body)).tools).toMatchObject(
+				expectTools,
+			);
+		},
+	);
+
+	const toolOnly = {
+		...target,
+		providerId: "custom-carrier" as const,
+		streaming: false,
+		vision: false,
+		audio: false,
+		tools: true,
+		jsonOutput: false,
+		jsonOutputSchema: false,
+		reasoning: false,
+		reasoningMaxTokens: false,
+		webSearch: false,
+	};
+	const okResponse = () =>
+		Response.json({ choices: [{ message: { content: "OK" } }] });
+	// Serving stacks that mishandle a forcing mode leak the model's raw tool
+	// markup into the assistant content instead of returning tool_calls.
+	const markupResponse = () =>
+		Response.json({
+			choices: [
+				{ message: { content: '<invoke name="get_weather">{}</invoke>' } },
+			],
+		});
+	const toolCallResponse = () =>
+		Response.json({
+			choices: [
+				{
+					message: {
+						tool_calls: [
+							{
+								type: "function",
+								function: { name: "get_weather", arguments: "{}" },
+							},
+						],
+					},
+				},
+			],
+		});
+	const toolChoiceOf = (call: Parameters<typeof fetch>[1] | undefined) =>
+		JSON.parse(String(call?.body)).tool_choice;
+
+	it("walks down the tool_choice ladder and reports what failed", async () => {
+		const fetchImplementation = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(okResponse())
+			.mockResolvedValueOnce(markupResponse())
+			.mockResolvedValueOnce(toolCallResponse());
+
+		const result = await runProviderModelVerification({
+			target: toolOnly,
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		expect(result.passed).toBe(true);
+		expect(fetchImplementation).toHaveBeenCalledTimes(3);
+		expect(toolChoiceOf(fetchImplementation.mock.calls[1][1])).toBe("required");
+		expect(toolChoiceOf(fetchImplementation.mock.calls[2][1])).toEqual({
+			type: "function",
+			function: { name: "get_weather" },
+		});
+		expect(result.unsupportedToolChoices).toEqual(["required"]);
+	});
+
+	it("only probes the tool_choice modes the listing declares", async () => {
+		const fetchImplementation = vi
+			.fn<typeof fetch>()
+			.mockResolvedValueOnce(okResponse())
+			.mockResolvedValueOnce(toolCallResponse());
+
+		const result = await runProviderModelVerification({
+			target: { ...toolOnly, supportedToolChoices: ["auto", "none"] },
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		expect(result.passed).toBe(true);
+		expect(fetchImplementation).toHaveBeenCalledTimes(2);
+		expect(toolChoiceOf(fetchImplementation.mock.calls[1][1])).toBe("auto");
+		expect(result.unsupportedToolChoices).toBeUndefined();
+	});
+
+	it("fails the tool check when no tool_choice mode calls the tool", async () => {
+		const fetchImplementation = vi
+			.fn<typeof fetch>()
+			.mockImplementation(async () =>
+				Response.json({ choices: [{ message: { content: "It is sunny." } }] }),
+			);
+
+		const result = await runProviderModelVerification({
+			target: toolOnly,
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		expect(result.passed).toBe(false);
+		expect(fetchImplementation).toHaveBeenCalledTimes(4);
+		expect(disprovedCapabilities(result.checks)).toEqual(["tools"]);
+		expect(result.unsupportedToolChoices).toBeUndefined();
+	});
+
+	it("sends a vision image the serving stack can decode", async () => {
+		const fetchImplementation = vi
+			.fn<typeof fetch>()
+			.mockImplementation(async () =>
+				Response.json({ choices: [{ message: { content: "It is red." } }] }),
+			);
+
+		await runProviderModelVerification({
+			target: {
+				...target,
+				providerId: "custom-carrier",
+				streaming: false,
+				vision: true,
+				audio: false,
+				tools: false,
+				jsonOutput: false,
+				jsonOutputSchema: false,
+				reasoning: false,
+				reasoningMaxTokens: false,
+				webSearch: false,
+			},
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		const payload = JSON.parse(
+			String(fetchImplementation.mock.calls[1][1]?.body),
+		);
+		const url = payload.messages[0].content[1].image_url.url;
+		const png = Buffer.from(url.split(",")[1], "base64");
+		expect(png.readUInt32BE(16)).toBeGreaterThan(1);
+		expect(png.readUInt32BE(20)).toBeGreaterThan(1);
 	});
 
 	it("derives queued checks from mapping-level capabilities", () => {

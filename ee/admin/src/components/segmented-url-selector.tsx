@@ -68,7 +68,7 @@ export function SegmentedUrlSelector<T extends string>({
 	return (
 		<div
 			className={cn(
-				"flex items-center gap-1",
+				"flex flex-wrap items-center gap-1",
 				compact && "rounded-md border border-border/60 bg-background p-1",
 				className,
 			)}

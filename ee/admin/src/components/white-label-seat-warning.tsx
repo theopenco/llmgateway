@@ -5,6 +5,8 @@ import { AlertTriangle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useApi } from "@/lib/fetch-client";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 export function WhiteLabelSeatWarning() {
 	const api = useApi();
 	const { data } = api.useQuery(
@@ -48,9 +50,8 @@ export function WhiteLabelSeatWarning() {
 			</AlertTitle>
 			<AlertDescription className="text-current/90">
 				<p>
-					{data.seatsUsed.toLocaleString("en-US")} of{" "}
-					{data.maxSeats.toLocaleString("en-US")} seats used across enterprise
-					organizations ({percentUsed}%).{" "}
+					{formatNumber(data.seatsUsed)} of {formatNumber(data.maxSeats)} seats
+					used across enterprise organizations ({percentUsed}%).{" "}
 					{atCapacity
 						? "New enterprise members are blocked. Install a license with more seats to resume provisioning."
 						: "Install a license with more seats before provisioning is blocked."}

@@ -42,7 +42,10 @@ import {
 	expandAllProviderRegions,
 	type StabilityLevel,
 } from "@llmgateway/models";
-import { isMappingDeactivated } from "@llmgateway/shared/components";
+import {
+	getDefaultProviderMapping,
+	isMappingDeactivated,
+} from "@llmgateway/shared/components";
 
 import type { Metadata } from "next";
 
@@ -84,7 +87,7 @@ export default async function ModelProviderPage({ params }: PageProps) {
 		permanentRedirect(`/models/${encodeURIComponent(decodedName)}`);
 	}
 
-	const staticProviderMapping = providerMappings[0];
+	const staticProviderMapping = getDefaultProviderMapping(providerMappings);
 
 	const providerInfo =
 		providerDefinitions.find((p) => p.id === decodedProvider) ??

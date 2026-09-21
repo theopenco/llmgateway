@@ -558,7 +558,9 @@ chatProjects.openapi(uploadFile, async (c) => {
 		.returning();
 
 	try {
-		const token = await resolvePlaygroundToken(c, user);
+		const token =
+			c.req.header("x-llmgateway-key") ??
+			(await resolvePlaygroundToken(c, user));
 		const embeddings = await embedTexts(token, chunks);
 
 		await db.insert(tables.chatProjectFileChunk).values(
@@ -1028,7 +1030,7 @@ chatProjects.openapi(extractMemories, async (c) => {
 
 	const result = await generateText({
 		model: llmgateway.chat(MEMORY_EXTRACTION_MODEL),
-		system: MEMORY_EXTRACTOR_SYSTEM,
+		instructions: MEMORY_EXTRACTOR_SYSTEM,
 		prompt: `Existing memories:\n${existingList}\n\nUser message:\n${body.userMessage}\n\nAssistant response:\n${body.assistantMessage}`,
 		tools: {
 			save_memories: tool({

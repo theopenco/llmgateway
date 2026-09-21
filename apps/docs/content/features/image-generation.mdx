@@ -24,15 +24,17 @@ The `/v1/images/generations` endpoint provides a drop-in replacement for OpenAI'
 
 ### Parameters
 
-| Parameter         | Type    | Default      | Description                                                                                                      |
-| ----------------- | ------- | ------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `prompt`          | string  | required     | A text description of the desired image(s)                                                                       |
-| `model`           | string  | `"auto"`     | The model to use. `auto` resolves to `gemini-3-pro-image`                                                        |
-| `n`               | integer | `1`          | Number of images to generate (1-10)                                                                              |
-| `size`            | string  | —            | Image dimensions. Supported sizes depend on the model/provider — see [Image Configuration](#image-configuration) |
-| `quality`         | string  | —            | Image quality. Supported values depend on the model/provider — see [Image Configuration](#image-configuration)   |
-| `response_format` | string  | `"b64_json"` | Only `b64_json` is supported                                                                                     |
-| `style`           | string  | —            | Image style: `vivid` or `natural`                                                                                |
+| Parameter         | Type    | Default      | Description                                                                                                                  |
+| ----------------- | ------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `prompt`          | string  | required     | A text description of the desired image(s)                                                                                   |
+| `model`           | string  | `"auto"`     | The model to use. `auto` resolves to `gemini-3-pro-image`                                                                    |
+| `n`               | integer | `1`          | Number of images to generate (1-10)                                                                                          |
+| `size`            | string  | —            | Image dimensions. Supported sizes depend on the model/provider — see [Image Configuration](#image-configuration)             |
+| `quality`         | string  | —            | Image quality. Supported values depend on the model/provider — see [Image Configuration](#image-configuration)               |
+| `moderation`      | string  | `"auto"`     | Content filtering strictness for models that support it: `auto` or `low` — see [Moderation](#moderation)                     |
+| `response_format` | string  | `"b64_json"` | Only `b64_json` is supported                                                                                                 |
+| `style`           | string  | —            | Image style: `vivid` or `natural`                                                                                            |
+| `service_tier`    | string  | —            | Processing tier for mappings that offer one: `flex`, `priority`, or `default` — see [Service Tiers](/features/service-tiers) |
 
 ### curl
 
@@ -129,8 +131,10 @@ The `/v1/images/edits` endpoint is OpenAI-compatible and supports a focused subs
 | `output_format`      | enum                     | no       | `png`, `jpeg`, or `webp`                                                          |
 | `output_compression` | integer                  | no       | Compression level for `jpeg`/`webp`                                               |
 | `quality`            | enum                     | no       | `low`, `medium`, `high`, or `auto`; GPT Image 2.5 also supports `xhigh` and `max` |
+| `moderation`         | enum                     | no       | `auto` or `low` — see [Moderation](#moderation)                                   |
 | `size`               | string                   | no       | Output size. Examples: `1024x1024`, `1536x1024`, `1K`, `2K`, `4K`                 |
 | `aspect_ratio`       | string                   | no       | Aspect ratio override. Examples: `1:1`, `16:9`, `4:3`, `5:4`                      |
+| `service_tier`       | enum                     | no       | `flex`, `priority`, or `default` — see [Service Tiers](/features/service-tiers)   |
 
 <Callout type="warning">
 	`mask` is not supported yet on `/v1/images/edits`.
@@ -230,6 +234,8 @@ Image generation models return responses in the standard chat completions format
 	}
 }
 ```
+
+A request stopped by the [gateway content filter](/resources/error-handling#gateway-content-filter) returns `finish_reason: "content_filter"` on the Chat Completions API and an empty `data` array on the Images API.
 
 ### Vision support
 
@@ -673,7 +679,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "alibaba/qwen-image-plus",
+    "model": "alibaba/qwen-image-3.0",
     "messages": [
       {
         "role": "user",
@@ -698,9 +704,6 @@ Available Alibaba models (see the [models page](https://llmgateway.io/models?fil
 
 | Model                        | Description                                                                          |
 | ---------------------------- | ------------------------------------------------------------------------------------ |
-| `alibaba/qwen-image`         | Standard quality image generation                                                    |
-| `alibaba/qwen-image-plus`    | Good balance of quality and cost                                                     |
-| `alibaba/qwen-image-max`     | Highest quality image generation                                                     |
 | `alibaba/qwen-image-3.0`     | Third-generation image generation and editing                                        |
 | `alibaba/qwen-image-3.0-pro` | Highest quality third-generation generation and editing. Priced per output size tier |
 
@@ -772,6 +775,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 | --------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
 | `image_size`    | string | Image dimensions in `WIDTHxHEIGHT` format, or `"auto"` to let the model choose.                                                   |
 | `image_quality` | string | `"low"`, `"medium"`, `"high"`, or `"auto"`; GPT Image 2.5 also supports `"xhigh"` and `"max"`. Defaults to `"auto"` when omitted. |
+| `moderation`    | string | `"auto"` or `"low"` — see [Moderation](#moderation). Defaults to `"auto"` when omitted.                                           |
 
 <Callout type="warning">
 	OpenAI image models do **not** accept `aspect_ratio`. Always specify
@@ -798,6 +802,10 @@ Both variants use the same per-token rates as GPT Image 2. Actual image token
 usage varies by model, size, quality, and input; billing uses the provider's
 reported usage. See the [models page](https://llmgateway.io/models?filters=1&imageGeneration=true)
 for current pricing.
+
+GPT Image 2 and both GPT Image 2.5 variants are also served through Azure at
+the same rates — swap the `openai/` prefix for `azure/` to pin that route, or
+send the bare model id and let the gateway pick.
 
 ### ByteDance Models
 
@@ -836,6 +844,42 @@ Available ByteDance models (see the [models page](https://llmgateway.io/models?f
 	generation. The default output resolution is 2048×2048 (2K), with support up
 	to 4096×4096 (4K).
 </Callout>
+
+## Moderation
+
+GPT Image models expose a `moderation` parameter that controls how strict the
+provider's content filtering is:
+
+- `auto` (default) — standard filtering, which limits certain categories of
+  potentially age-inappropriate content.
+- `low` — less restrictive filtering. OpenAI's content policy still applies.
+
+Send it as a top-level parameter on `/v1/images/generations` and
+`/v1/images/edits`, or inside `image_config` on `/v1/chat/completions`:
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/images/generations" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openai/gpt-image-2.5-flare",
+    "prompt": "A cute cat wearing a tiny top hat",
+    "moderation": "low"
+  }'
+```
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openai/gpt-image-2.5-flare",
+    "messages": [{ "role": "user", "content": "A cute cat wearing a tiny top hat" }],
+    "image_config": { "moderation": "low" }
+  }'
+```
+
+Models without a moderation control ignore the parameter.
 
 ## Usage Notes
 
