@@ -109,6 +109,7 @@ describe("admin routing analytics endpoint", () => {
 		await db.delete(tables.routingExclusionHourly);
 		await db.delete(tables.modelProviderMapping);
 		await cdb.delete(tables.discount);
+		await cdb.delete(tables.routingScoreMultiplier);
 		await deleteAll();
 	});
 
@@ -644,6 +645,38 @@ describe("admin routing analytics endpoint", () => {
 		expect(summaryA.score).toBeLessThanOrEqual(baselineSummaryA.score);
 		expect(summaryA.breakdown.priceContribution).toBeLessThanOrEqual(
 			baselineSummaryA.breakdown.priceContribution,
+		);
+	});
+
+	it("scores the routing score multiplier", async () => {
+		const before = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const baseline = await before.json();
+		const baselineSummaryB = baseline.summary.find(
+			(s: { providerId: string }) => s.providerId === providerB,
+		);
+
+		await cdb.insert(tables.routingScoreMultiplier).values({
+			id: "routing-analytics-multiplier",
+			provider: providerA,
+			model: testModel.id,
+			scoreMultiplier: "-0.5",
+		});
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const body = await res.json();
+		const mappingA = body.mappings.find(
+			(m: { providerId: string }) => m.providerId === providerA,
+		);
+		const summaryB = body.summary.find(
+			(s: { providerId: string }) => s.providerId === providerB,
+		);
+
+		// The multiplier only steers routing; the price shown is still billed.
+		expect(mappingA.routingAdjustment).toBe(-0.5);
+		expect(mappingA.discount).toBe(0);
+		// Boosting A makes every other mapping relatively more expensive.
+		expect(summaryB.breakdown.priceContribution).toBeGreaterThan(
+			baselineSummaryB.breakdown.priceContribution,
 		);
 	});
 });

@@ -872,8 +872,10 @@ export function RoutingAnalyticsClient() {
 								<CardDescription className="max-w-3xl">
 									Window averages with every factor the router considers. Sorted
 									by score (lowest routes first). Prices include platform-wide
-									discounts; an organization-specific discount can lower its own
-									price further and shift that organization&apos;s election.
+									discounts; &quot;routes at&quot; is the price after the admin
+									routing score multiplier and Airside margin, which is what the
+									score uses. An organization-specific discount can lower its
+									own price further and shift that organization&apos;s election.
 								</CardDescription>
 							</div>
 							<div className="flex flex-wrap gap-1.5 sm:justify-end">
@@ -991,6 +993,21 @@ export function RoutingAnalyticsClient() {
 																	)}
 																</span>{" "}
 																−{(mapping.discount * 100).toFixed(0)}%
+															</div>
+														) : null}
+														{mapping.routingAdjustment !== 0 ? (
+															<div className="text-[11px] text-muted-foreground">
+																routes at{" "}
+																{formatSelectionPrice(
+																	mapping.price *
+																		(1 + mapping.routingAdjustment),
+																	data.model.isImageModel,
+																)}{" "}
+																({mapping.routingAdjustment > 0 ? "+" : "−"}
+																{Math.abs(
+																	mapping.routingAdjustment * 100,
+																).toFixed(0)}
+																%)
 															</div>
 														) : null}
 													</TableCell>
