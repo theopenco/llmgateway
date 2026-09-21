@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { SparklineLine } from "@/components/sparkline";
 import {
 	Tooltip,
 	TooltipContent,
@@ -12,6 +13,8 @@ import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
+
+import type { DailyCredentialPoint } from "@/lib/provider-key-spend";
 
 export interface RecentCredentialStats {
 	requestCount: number;
@@ -51,49 +54,108 @@ function toneForFraction(fraction: number) {
 export function ProviderKeyErrorRateCell({
 	providerKeyId,
 	stats,
+	daily,
 }: {
 	providerKeyId: string;
 	stats: RecentCredentialStats;
+	daily?: DailyCredentialPoint[];
 }) {
 	const [open, setOpen] = useState(false);
 
+	// The 24h headline and the 7d trend are independent: a credential can be
+	// quiet today and still have a week worth showing, so the trend renders even
+	// when the rate cannot.
+	const trend = daily ? <DailyErrorRateSparkline daily={daily} /> : null;
+
 	if (stats.requestCount === 0) {
 		return (
-			<span
-				className="text-xs text-muted-foreground"
-				title="No requests attributed to this credential in the last 24 hours."
-			>
-				—
-			</span>
+			<div className="space-y-1">
+				<span
+					className="text-xs text-muted-foreground"
+					title="No requests attributed to this credential in the last 24 hours."
+				>
+					—
+				</span>
+				{trend}
+			</div>
 		);
 	}
 
 	const fraction = stats.errorCount / stats.requestCount;
 
 	return (
-		<TooltipProvider delayDuration={200}>
-			<Tooltip open={open} onOpenChange={setOpen}>
-				<TooltipTrigger asChild>
-					<span
-						className={cn(
-							"text-xs tabular-nums underline decoration-dotted underline-offset-4",
-							toneForFraction(fraction),
-						)}
-					>
-						{formatErrorPercent(fraction)}
-					</span>
-				</TooltipTrigger>
-				<TooltipContent className="max-w-sm">
-					<p>
-						{formatNumber(stats.errorCount)} of{" "}
-						{formatNumber(stats.requestCount)} requests failed in the last 24
-						hours ({formatNumber(stats.upstreamErrorCount)} returned by the
-						provider).
-					</p>
-					<ModelErrorBreakdown providerKeyId={providerKeyId} enabled={open} />
-				</TooltipContent>
-			</Tooltip>
-		</TooltipProvider>
+		<div className="space-y-1">
+			<TooltipProvider delayDuration={200}>
+				<Tooltip open={open} onOpenChange={setOpen}>
+					<TooltipTrigger asChild>
+						<span
+							className={cn(
+								"text-xs tabular-nums underline decoration-dotted underline-offset-4",
+								toneForFraction(fraction),
+							)}
+						>
+							{formatErrorPercent(fraction)}
+						</span>
+					</TooltipTrigger>
+					<TooltipContent className="max-w-sm">
+						<p>
+							{formatNumber(stats.errorCount)} of{" "}
+							{formatNumber(stats.requestCount)} requests failed in the last 24
+							hours ({formatNumber(stats.upstreamErrorCount)} returned by the
+							provider).
+						</p>
+						<ModelErrorBreakdown providerKeyId={providerKeyId} enabled={open} />
+					</TooltipContent>
+				</Tooltip>
+			</TooltipProvider>
+			{trend}
+		</div>
+	);
+}
+
+/**
+ * Daily error rate over the sparkline window, so a rate that has been bad all
+ * week reads differently from one that broke this morning. Scaled against the
+ * critical threshold rather than the row's own maximum: the height then means
+ * the same thing on every row, and a credential failing everything tops out
+ * while a 0.5% blip stays flat.
+ */
+function DailyErrorRateSparkline({ daily }: { daily: DailyCredentialPoint[] }) {
+	const rates = daily.map((point) =>
+		point.requestCount === 0 ? null : point.errorCount / point.requestCount,
+	);
+	if (rates.every((rate) => rate === null)) {
+		return null;
+	}
+
+	const peak = Math.max(...rates.map((rate) => rate ?? 0));
+	// Coloured by the most recent day with traffic, not by the week's peak, so the
+	// line agrees with the headline rate above it: a spike five days ago should
+	// show as a shape, not as a credential that is red right now.
+	const latest = rates.filter((rate) => rate !== null).at(-1) ?? 0;
+
+	return (
+		<div className={toneForFraction(latest)}>
+			<SparklineLine
+				values={rates}
+				max={Math.max(peak, CRITICAL_THRESHOLD)}
+				points={daily.map((point, index) => {
+					const rate = rates[index];
+					const suffix =
+						index === daily.length - 1 ? " — today, still in progress" : "";
+					return {
+						label: `${point.date.slice(0, 10)}: ${
+							rate === null
+								? "no requests"
+								: `${formatErrorPercent(rate)} (${formatNumber(
+										point.errorCount,
+									)}/${formatNumber(point.requestCount)})`
+						}${suffix}`,
+					};
+				})}
+				ariaLabel={`Daily error rate over the last ${daily.length} UTC days, peaking at ${formatErrorPercent(peak)}`}
+			/>
+		</div>
 	);
 }
 

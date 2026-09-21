@@ -123,9 +123,27 @@ const credentialRecentStatsSchema = z.object({
 	upstreamErrorCount: z.number(),
 });
 
+/**
+ * One UTC day of a credential's traffic, for the in-table sparklines. Zero-filled
+ * server-side so every credential carries the same day grid and the client can
+ * draw the series without reconstructing the window.
+ */
+const credentialDailyPointSchema = z.object({
+	/** Start of the UTC day, ISO-8601. */
+	date: z.string(),
+	cost: z.number(),
+	requestCount: z.number(),
+	errorCount: z.number(),
+});
+
 /** List view only — the mutation responses do not compute the rollup. */
 const listedCredentialSchema = credentialSchema.extend({
 	last24h: credentialRecentStatsSchema,
+	/**
+	 * The last 7 UTC days, oldest first, always 7 entries. The final entry is the
+	 * day in progress, so its cost is partial by construction.
+	 */
+	last7dDaily: z.array(credentialDailyPointSchema),
 });
 
 const configKeySchema = z.object({
@@ -701,12 +719,17 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 		},
 	});
 
-	const recent = await getRecentCredentialStats(rows.map((row) => row.id));
+	const credentialIds = rows.map((row) => row.id);
+	const [recent, daily] = await Promise.all([
+		getRecentCredentialStats(credentialIds),
+		getDailyCredentialStats(credentialIds),
+	]);
 
 	return c.json({
 		credentials: rows.map((row) => ({
 			...toCredential(row),
 			last24h: recent.get(row.id) ?? NO_RECENT_STATS,
+			last7dDaily: daily.get(row.id) ?? buildEmptyDailySeries(),
 		})),
 	});
 });
@@ -768,6 +791,102 @@ async function getRecentCredentialStats(providerKeyIds: string[]) {
 		});
 	}
 	return stats;
+}
+
+/** Days in the sparkline window, counting the day in progress as one. */
+const DAILY_SERIES_DAYS = 7;
+
+/**
+ * Start of each UTC day in the sparkline window, oldest first. Whole UTC days
+ * rather than a rolling 7×24h window: `date_trunc('day')` cuts on UTC
+ * boundaries, so a rolling start would leave the oldest bucket holding only part
+ * of its day and draw a dip that never happened.
+ */
+function getDailySeriesDayStarts(now: Date = new Date()): Date[] {
+	const today = Date.UTC(
+		now.getUTCFullYear(),
+		now.getUTCMonth(),
+		now.getUTCDate(),
+	);
+	const dayMs = 24 * 60 * 60 * 1000;
+	return Array.from({ length: DAILY_SERIES_DAYS }, (_, index) => {
+		const offsetMs = (DAILY_SERIES_DAYS - 1 - index) * dayMs;
+		return new Date(today - offsetMs);
+	});
+}
+
+function buildEmptyDailySeries(now?: Date) {
+	return getDailySeriesDayStarts(now).map((day) => ({
+		date: day.toISOString(),
+		cost: 0,
+		requestCount: 0,
+		errorCount: 0,
+	}));
+}
+
+/**
+ * Per-day cost and request/error counts per credential, for the spend and error
+ * sparklines in the credentials table. One grouped query for every credential —
+ * the list must not fan out per row — and the same hourly rollup the headline
+ * 24h rate reads, so the sparkline's right edge agrees with the cell beside it.
+ */
+async function getDailyCredentialStats(providerKeyIds: string[]) {
+	const series = new Map<
+		string,
+		z.infer<typeof credentialDailyPointSchema>[]
+	>();
+	if (providerKeyIds.length === 0) {
+		return series;
+	}
+
+	const dayStarts = getDailySeriesDayStarts();
+	const dayExpr = sql<Date>`date_trunc('day', ${tables.providerKeyHourlyStats.hourTimestamp})`;
+	const rows = await db
+		.select({
+			providerKeyId: tables.providerKeyHourlyStats.providerKeyId,
+			day: bucketLabel(dayExpr).as("day"),
+			cost: sql<number>`COALESCE(SUM(cast(${tables.providerKeyHourlyStats.cost} as double precision)), 0)`.as(
+				"cost",
+			),
+			requestCount:
+				sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.requestCount}), 0)`.as(
+					"request_count",
+				),
+			errorCount:
+				sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.errorCount}), 0)`.as(
+					"error_count",
+				),
+		})
+		.from(tables.providerKeyHourlyStats)
+		.where(
+			and(
+				inArray(tables.providerKeyHourlyStats.providerKeyId, providerKeyIds),
+				gte(tables.providerKeyHourlyStats.hourTimestamp, dayStarts[0]),
+			),
+		)
+		.groupBy(tables.providerKeyHourlyStats.providerKeyId, dayExpr);
+
+	const byKeyAndDay = new Map<string, (typeof rows)[number]>();
+	for (const row of rows) {
+		byKeyAndDay.set(`${row.providerKeyId}:${row.day}`, row);
+	}
+
+	for (const providerKeyId of providerKeyIds) {
+		series.set(
+			providerKeyId,
+			dayStarts.map((day) => {
+				const date = day.toISOString();
+				const row = byKeyAndDay.get(`${providerKeyId}:${date}`);
+				return {
+					date,
+					cost: Number(row?.cost ?? 0),
+					requestCount: Number(row?.requestCount ?? 0),
+					errorCount: Number(row?.errorCount ?? 0),
+				};
+			}),
+		);
+	}
+	return series;
 }
 
 /**
