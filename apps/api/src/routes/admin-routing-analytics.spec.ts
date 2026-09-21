@@ -487,6 +487,35 @@ describe("admin routing analytics endpoint", () => {
 		]);
 	});
 
+	it("breaks down exclusions on provider ids outside the catalogue", async () => {
+		const hour = currentHourStart();
+		await db.insert(tables.routingExclusionHourly).values([
+			{
+				id: "routing-exclusion-custom-json",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: "custom",
+				reason: "json_output",
+				excludedCount: 4,
+				candidateCount: 8,
+				excludedDecisionCount: 4,
+			},
+		]);
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const body = await res.json();
+		expect(body.exclusions).toEqual([
+			{ reason: "json_output", excludedCount: 4, details: [] },
+		]);
+		const eligibilityCustom = body.eligibility.find(
+			(e: { providerId: string }) => e.providerId === "custom",
+		);
+		expect(eligibilityCustom.exclusionRate).toBe(0.5);
+		expect(eligibilityCustom.exclusions).toEqual([
+			{ reason: "json_output", excludedCount: 4, details: [] },
+		]);
+	});
+
 	it("nests compliance rules under the compliance total", async () => {
 		const hour = currentHourStart();
 		// The gateway records the coarse code plus every rule that fired, so the

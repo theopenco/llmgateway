@@ -814,22 +814,26 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 		cacheRelevant: false,
 	});
 
-	const eligibility = mappings.map((mapping) => {
-		const exclusions = toExclusionEntries(
-			exclusionsByProvider.get(mapping.providerId),
-		);
+	// Exclusions can land on provider ids outside the catalogue mappings (e.g.
+	// `custom` provider keys in auto routing). The model-wide totals include
+	// them, so the per-provider breakdown must too or those reasons show a
+	// total with nothing behind it.
+	const eligibilityProviderIds = new Set([
+		...mappings.map((mapping) => mapping.providerId),
+		...exclusionsByProvider.keys(),
+	]);
+	const eligibility = Array.from(eligibilityProviderIds, (providerId) => {
+		const exclusions = toExclusionEntries(exclusionsByProvider.get(providerId));
 		// One request can drop a mapping for several reasons at once, so the
 		// per-reason counts in `exclusions` sum to more than the requests the
 		// mapping was actually unavailable for. `excludedCount` is the decision
 		// count the aggregator recorded separately: each request counted once,
 		// whatever it tripped. Deriving the rate from the reason sum instead would
 		// report a mapping that served most of its requests as 0% eligible.
-		const excludedCount =
-			excludedDecisionsByProvider.get(mapping.providerId) ?? 0;
-		const candidateCount =
-			candidateCountByProvider.get(mapping.providerId) ?? 0;
+		const excludedCount = excludedDecisionsByProvider.get(providerId) ?? 0;
+		const candidateCount = candidateCountByProvider.get(providerId) ?? 0;
 		return {
-			providerId: mapping.providerId,
+			providerId,
 			candidateCount,
 			excludedCount,
 			exclusionRate:
@@ -839,7 +843,7 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 			topReason: exclusions[0]?.reason ?? null,
 			exclusions,
 			serviceTier: serviceTierCounts(
-				windowTotals.get(mapping.providerId) ?? emptyTotals(),
+				windowTotals.get(providerId) ?? emptyTotals(),
 			),
 		};
 	});
