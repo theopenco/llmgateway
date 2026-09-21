@@ -6,6 +6,11 @@ import {
 	replyToEmail,
 } from "@llmgateway/shared/email";
 
+import {
+	getBillingPageUrl,
+	type BillingOrganizationKind,
+} from "./billing-url.js";
+
 /**
  * Escapes HTML special characters to prevent XSS attacks
  */
@@ -205,14 +210,34 @@ export interface PaymentFailureDetails {
 	declineCode?: string;
 	amount?: number;
 	currency?: string;
+	/** Stripe hosted invoice page, set when the bank requires authentication. */
+	payInvoiceUrl?: string;
+}
+
+export interface EmailOrganization {
+	id: string;
+	name: string;
+	kind: BillingOrganizationKind;
 }
 
 export function generatePaymentFailureEmailHtml(
-	organizationName: string,
+	organization: EmailOrganization,
 	details: PaymentFailureDetails,
 ): string {
-	const escapedOrgName = escapeHtml(organizationName);
+	const escapedOrgName = escapeHtml(organization.name);
 	const escapedErrorMessage = escapeHtml(details.errorMessage);
+	const billingUrl = getBillingPageUrl(organization);
+	const requiresAuthentication =
+		details.errorCode === "authentication_required" ||
+		details.declineCode === "authentication_required";
+	// The hosted invoice is the only place a cardholder can answer the bank's
+	// authentication request for an off-session renewal.
+	const ctaUrl =
+		requiresAuthentication && details.payInvoiceUrl
+			? details.payInvoiceUrl
+			: billingUrl;
+	const ctaLabel =
+		ctaUrl === billingUrl ? "Update Payment Method" : "Complete Payment";
 
 	// Escape currency and handle zero amount case properly
 	const escapedCurrency = details.currency
@@ -224,7 +249,10 @@ export function generatePaymentFailureEmailHtml(
 			: null;
 
 	let actionMessage = "Please update your payment method and try again.";
-	if (details.declineCode === "insufficient_funds") {
+	if (requiresAuthentication) {
+		actionMessage =
+			"Your bank asked to verify this payment, which can't happen automatically for a renewal. Please confirm the payment with your bank to keep your plan active.";
+	} else if (details.declineCode === "insufficient_funds") {
 		actionMessage =
 			"Please ensure your card has sufficient funds or use a different payment method.";
 	} else if (
@@ -293,7 +321,11 @@ export function generatePaymentFailureEmailHtml(
 								</p>
 
 								<p style="margin: 0 0 30px 0; font-size: 16px; line-height: 1.6; color: #333333;">
-									To ensure uninterrupted service, please update your payment information as soon as possible.
+									${
+										ctaUrl === billingUrl
+											? "To ensure uninterrupted service, please update your payment information as soon as possible."
+											: `To ensure uninterrupted service, please complete the payment as soon as possible. You can also <a href="${billingUrl}" style="color: #000000;">update your payment method</a> first.`
+									}
 								</p>
 
 								<!-- CTA Button -->
@@ -301,9 +333,9 @@ export function generatePaymentFailureEmailHtml(
 									<tr>
 										<td align="center" style="padding: 10px 0;">
 											<a
-												href="https://llmgateway.io/dashboard/settings/org/billing"
+												href="${ctaUrl}"
 												style="display: inline-block; background-color: #000000; color: #ffffff; padding: 14px 40px; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 16px;"
-											>Update Payment Method</a>
+											>${ctaLabel}</a>
 										</td>
 									</tr>
 								</table>
@@ -589,9 +621,41 @@ export function generateDevPlanCancellationFeedbackEmailHtml(): string {
 	`.trim();
 }
 
+const cancelledCopy: Record<
+	BillingOrganizationKind,
+	{ title: string; cancelled: string; next: string; cta: string }
+> = {
+	default: {
+		title: "Your Subscription Has Been Cancelled",
+		cancelled:
+			"Your Pro subscription for <strong>{org}</strong> has been cancelled and your organization has been downgraded to the free plan.",
+		next: "You can continue using LLMGateway with our free plan features, or you can resubscribe to Pro at any time from your dashboard.",
+		cta: "Manage Subscription",
+	},
+	devpass: {
+		title: "Your DevPass Has Been Cancelled",
+		cancelled:
+			"Your DevPass plan for <strong>{org}</strong> has been cancelled.",
+		next: "You can subscribe again at any time from your DevPass dashboard.",
+		cta: "Manage DevPass",
+	},
+	chat: {
+		title: "Your Lounge Membership Has Been Cancelled",
+		cancelled:
+			"Your Lounge membership for <strong>{org}</strong> has been cancelled.",
+		next: "You can rejoin at any time from the Lounge pricing page.",
+		cta: "Manage Membership",
+	},
+};
+
 export function generateSubscriptionCancelledEmailHtml(
-	organizationName: string,
+	organization: EmailOrganization,
 ): string {
+	const copy = cancelledCopy[organization.kind];
+	const cancelled = copy.cancelled.replace("{org}", () =>
+		escapeHtml(organization.name),
+	);
+	const billingUrl = getBillingPageUrl(organization);
 	return `
 <!DOCTYPE html>
 <html lang="en">
@@ -612,30 +676,26 @@ export function generateSubscriptionCancelledEmailHtml(
 						<tr>
 							<td style="padding: 0;">
 								<div style="background-color: #f8f9fa; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
-									<h1 style="color: #dc2626; margin-top: 0; font-size: 24px; font-weight: 600;">Your Subscription Has
-										Been Cancelled</h1>
+									<h1 style="color: #dc2626; margin-top: 0; font-size: 24px; font-weight: 600;">${copy.title}</h1>
 
 									<p style="font-size: 16px; margin-bottom: 20px; color: #333; line-height: 1.5;">
 										Hi there,
 									</p>
 
 									<p style="font-size: 16px; margin-bottom: 20px; color: #333; line-height: 1.5;">
-										We're sorry to see you go. Your Pro subscription for
-										<strong>${escapeHtml(organizationName)}</strong> has been cancelled and your organization has been
-										downgraded to the free plan.
+										We're sorry to see you go. ${cancelled}
 									</p>
 
 									<p style="font-size: 16px; margin-bottom: 20px; color: #333; line-height: 1.5;">
-										You can continue using LLMGateway with our free plan features, or you can resubscribe to Pro at any
-										time from your dashboard.
+										${copy.next}
 									</p>
 
 									<!-- CTA Button -->
 									<div style="text-align: center; margin: 30px 0;">
 										<a
-											href="https://llmgateway.io/dashboard/settings/org/billing"
+											href="${billingUrl}"
 											style="display: inline-block; background-color: #000000; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: 500; font-size: 16px;"
-										>Manage Subscription</a>
+										>${copy.cta}</a>
 									</div>
 
 									<p style="font-size: 14px; color: #646464; margin-top: 30px; margin-bottom: 0; line-height: 1.5;">

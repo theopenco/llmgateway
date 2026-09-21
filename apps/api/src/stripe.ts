@@ -31,11 +31,6 @@ import {
 } from "@llmgateway/shared";
 
 import { computeReferralBonus } from "./lib/referral-bonus.js";
-import {
-	getForcedThreeDSecure,
-	threeDSecureSubscriptionSettings,
-	type ThreeDSecureRequest,
-} from "./lib/three-d-secure.js";
 import { posthog } from "./posthog.js";
 import { getStripe, type StripeMode } from "./routes/payments.js";
 import {
@@ -819,18 +814,6 @@ async function detachDuplicateCardPaymentMethods(
 	}
 }
 
-/**
- * `STRIPE_DEV_PLAN_FORCE_3DS=true` forces a challenge on DevPass subscriptions
- * only; otherwise the account-wide setting (admin dashboard or
- * `STRIPE_FORCE_3DS`) applies.
- */
-async function devPlanThreeDSecure(): Promise<ThreeDSecureRequest | undefined> {
-	if (process.env.STRIPE_DEV_PLAN_FORCE_3DS === "true") {
-		return "challenge";
-	}
-	return await getForcedThreeDSecure();
-}
-
 async function resolvePaymentMethodFromSetupSession(
 	session: Stripe.Checkout.Session,
 ): Promise<Stripe.PaymentMethod | null> {
@@ -1022,8 +1005,9 @@ export async function finalizeDevPlanSetupSession(
 				customer: stripeCustomerId,
 				items: [{ price: priceId }],
 				default_payment_method: paymentMethod.id,
+				// No 3DS request here: the setup Checkout already authenticated the
+				// card, and subscription payment settings apply to every renewal.
 				payment_behavior: "default_incomplete",
-				...threeDSecureSubscriptionSettings(await devPlanThreeDSecure()),
 				metadata: {
 					organizationId,
 					subscriptionType: "dev_plan",
@@ -3216,17 +3200,30 @@ export async function handlePaymentIntentFailed(
 	// Send payment failure email if not in backoff period
 	if (shouldSendEmail) {
 		try {
+			const payInvoiceUrl =
+				errorCode === "authentication_required" ||
+				declineCode === "authentication_required"
+					? await resolveHostedInvoiceUrl(paymentIntent.id)
+					: undefined;
 			await sendTransactionalEmail({
 				to: organization.billingEmail,
 				organizationId: organization.id,
 				subject: "Payment Failed - Action Required",
-				html: generatePaymentFailureEmailHtml(organization.name, {
-					errorMessage,
-					errorCode,
-					declineCode,
-					amount: totalAmountInDollars,
-					currency: paymentIntent.currency.toUpperCase(),
-				}),
+				html: generatePaymentFailureEmailHtml(
+					{
+						id: organizationId,
+						name: organization.name,
+						kind: organization.kind,
+					},
+					{
+						errorMessage,
+						errorCode,
+						declineCode,
+						amount: totalAmountInDollars,
+						currency: paymentIntent.currency.toUpperCase(),
+						payInvoiceUrl,
+					},
+				),
 			});
 
 			logger.warn("Payment failure email sent", {
@@ -3245,15 +3242,37 @@ export async function handlePaymentIntentFailed(
 	}
 }
 
+// The hosted invoice page is the only place a cardholder can answer the bank's
+// authentication request for an off-session renewal, so the dunning email links
+// there. Best effort: the email still goes out without it.
+async function resolveHostedInvoiceUrl(
+	paymentIntentId: string,
+): Promise<string | undefined> {
+	try {
+		const invoiceId = await resolveInvoiceIdForPaymentIntent(paymentIntentId);
+		if (!invoiceId) {
+			return undefined;
+		}
+		const invoice = await getStripe().invoices.retrieve(invoiceId);
+		return invoice.hosted_invoice_url ?? undefined;
+	} catch (error) {
+		logger.warn("Could not resolve hosted invoice for failed payment intent", {
+			paymentIntentId,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return undefined;
+	}
+}
+
 // Current Stripe API versions no longer expose the invoice link on the Charge or
-// PaymentIntent objects, so a `charge.refunded` event for a subscription invoice
-// can't be mapped back to its invoice directly. DevPass transactions
-// (`dev_plan_start` from setup-mode checkout, and invoice renewals) store the
-// invoice id rather than the payment intent, so to record the refund we resolve
-// the paid invoice from the invoice payment that this payment intent settled.
-// Filtering the invoice_payments list by the payment intent is an exact,
-// unbounded lookup — it works even for refunds of arbitrarily old invoices.
-async function resolveRefundInvoiceId(
+// PaymentIntent objects, so an event for a subscription invoice payment can't be
+// mapped back to its invoice directly. DevPass transactions (`dev_plan_start`
+// from setup-mode checkout, and invoice renewals) store the invoice id rather
+// than the payment intent, so refunds resolve the paid invoice from the invoice
+// payment that this payment intent settled. Filtering the invoice_payments list
+// by the payment intent is an exact, unbounded lookup — it works even for
+// arbitrarily old invoices.
+async function resolveInvoiceIdForPaymentIntent(
 	paymentIntentId: string,
 ): Promise<string | undefined> {
 	const payments = await getStripe().invoicePayments.list({
@@ -3362,7 +3381,9 @@ export async function handleChargeRefunded(
 				? chargeInvoice
 				: (chargeInvoice?.id ?? undefined);
 		if (!invoiceId) {
-			invoiceId = await resolveRefundInvoiceId(payment_intent as string);
+			invoiceId = await resolveInvoiceIdForPaymentIntent(
+				payment_intent as string,
+			);
 		}
 		if (invoiceId) {
 			originalTransaction = await db.query.transaction.findFirst({
@@ -5276,7 +5297,11 @@ export async function handleSubscriptionDeleted(
 			to: organization.billingEmail,
 			organizationId: organization.id,
 			subject: "Your Lounge Membership Has Been Cancelled",
-			html: generateSubscriptionCancelledEmailHtml(organization.name),
+			html: generateSubscriptionCancelledEmailHtml({
+				id: organizationId,
+				name: organization.name,
+				kind: "chat",
+			}),
 		});
 
 		logger.info(
@@ -5340,7 +5365,11 @@ export async function handleSubscriptionDeleted(
 			to: organization.billingEmail,
 			organizationId: organization.id,
 			subject: "Your LLMGateway Dev Plan Has Been Cancelled",
-			html: generateSubscriptionCancelledEmailHtml(organization.name),
+			html: generateSubscriptionCancelledEmailHtml({
+				id: organizationId,
+				name: organization.name,
+				kind: "devpass",
+			}),
 		});
 
 		logger.info(
@@ -5391,7 +5420,11 @@ export async function handleSubscriptionDeleted(
 			to: organization.billingEmail,
 			organizationId: organization.id,
 			subject: "Your LLMGateway Subscription Has Been Cancelled",
-			html: generateSubscriptionCancelledEmailHtml(organization.name),
+			html: generateSubscriptionCancelledEmailHtml({
+				id: organizationId,
+				name: organization.name,
+				kind: "default",
+			}),
 		});
 
 		logger.info(
