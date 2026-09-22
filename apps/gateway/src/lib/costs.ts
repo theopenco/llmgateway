@@ -300,14 +300,18 @@ export async function calculateCosts(
 		 */
 		allowOutputEstimate?: boolean;
 		/**
-		 * The provider's safety filter blocked the request and nothing was
-		 * served: an error response carrying no usage (the token counts are
-		 * gateway estimates) or a filtered image generation with zero images.
-		 * Providers do not bill these, so only a mapping-declared rejection fee
-		 * (`contentFilterPrice`, e.g. xAI's) is charged; every other cost is
-		 * zeroed while the token counts stay for analytics.
+		 * The provider rejected the request with an error that carries no usage,
+		 * so the token counts here are gateway estimates. Providers do not bill a
+		 * rejected request (Google charges only 200 responses; OpenAI's
+		 * `moderation_blocked` is a 400), so every inference cost is zeroed and
+		 * only a mapping-declared fee (`contentFilterPrice`, xAI's published
+		 * usage-guideline fee) is charged. Token counts stay for analytics.
+		 *
+		 * Never set this for a safety block the provider *served* as a 200 with
+		 * usage (e.g. Gemini `IMAGE_SAFETY`): those are billed on the reported
+		 * input like any other response, which is what the provider charges.
 		 */
-		safetyBlockWithoutOutput?: boolean;
+		rejectionWithoutUsage?: boolean;
 	},
 	contentFilterTriggered = false,
 ) {
@@ -901,7 +905,7 @@ export async function calculateCosts(
 	// and if it turns out not to be rare that is itself the finding. The logger
 	// attaches the trace id in production, which is also stored on the log row,
 	// so a hit here pivots straight to the request it charged.
-	const rejectionFeeOnly = options?.safetyBlockWithoutOutput === true;
+	const rejectionFeeOnly = options?.rejectionWithoutUsage === true;
 	if (isEstimated && !rejectionFeeOnly && totalCost.greaterThan(0)) {
 		logger.warn("Billed a request on estimated token counts", {
 			model,

@@ -10,7 +10,7 @@ import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
 import { waitForLogByRequestId } from "./test-utils/test-helpers.js";
 
-describe("provider safety blocks that serve nothing", () => {
+describe("provider safety block billing", () => {
 	const harness = createGatewayApiTestHarness();
 	let upstream: () => Response = () => Response.json({});
 
@@ -61,7 +61,7 @@ describe("provider safety blocks that serve nothing", () => {
 			body: JSON.stringify({ model, prompt: "A blue circle" }),
 		});
 
-	test("Gemini image safety block is a free content filter", async () => {
+	test("Gemini image safety block bills the reported input only", async () => {
 		upstream = () =>
 			Response.json({
 				candidates: [{ finishReason: "IMAGE_SAFETY", index: 0 }],
@@ -83,8 +83,16 @@ describe("provider safety blocks that serve nothing", () => {
 		const log = await waitForLogByRequestId(requestId);
 		expect(log.unifiedFinishReason).toBe("content_filter");
 		expect(log.hasError).toBe(false);
-		expect(Number(log.cost)).toBe(0);
-		expect(Number(log.promptTokens)).toBeGreaterThan(0);
+		// Google serves the block as a 200 with usage and charges the input, so
+		// the prompt tokens it reported are billed and the blocked image is not.
+		expect(Number(log.promptTokens)).toBe(12);
+		expect(Number(log.inputCost)).toBeCloseTo(12 * 2e-6, 9);
+		expect(Number(log.imageOutputCost ?? 0)).toBe(0);
+		expect(Number(log.contentFilterCost ?? 0)).toBe(0);
+		expect(Number(log.cost)).toBeCloseTo(
+			Number(log.inputCost) + Number(log.outputCost),
+			9,
+		);
 	});
 
 	test("OpenAI moderation rejection is a free content filter", async () => {
@@ -113,7 +121,9 @@ describe("provider safety blocks that serve nothing", () => {
 		expect(Number(log.promptTokens)).toBeGreaterThan(0);
 	});
 
-	test("xAI image rejection bills only the declared rejection fee", async () => {
+	test("xAI image rejection is a free content filter", async () => {
+		// xAI's $0.05 usage-guideline fee is published for the Responses API
+		// only; the Imagine API documents no rejection fee.
 		upstream = () =>
 			Response.json({ error: "imagine:content-moderated" }, { status: 400 });
 		const requestId = randomUUID();
@@ -125,8 +135,8 @@ describe("provider safety blocks that serve nothing", () => {
 		const log = await waitForLogByRequestId(requestId);
 		expect(log.unifiedFinishReason).toBe("content_filter");
 		expect(Number(log.inputCost)).toBe(0);
-		expect(Number(log.contentFilterCost)).toBeCloseTo(0.05);
-		expect(Number(log.cost)).toBeCloseTo(0.05);
+		expect(Number(log.contentFilterCost ?? 0)).toBe(0);
+		expect(Number(log.cost)).toBe(0);
 	});
 
 	test("xAI chat rejection bills only the declared rejection fee", async () => {

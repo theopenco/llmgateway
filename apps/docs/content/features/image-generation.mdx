@@ -237,6 +237,8 @@ Image generation models return responses in the standard chat completions format
 
 A request stopped by the [gateway content filter](/resources/error-handling#gateway-content-filter) returns `finish_reason: "content_filter"` on the Chat Completions API and an empty `data` array on the Images API.
 
+A provider's own safety rejection is returned the same way, and it is billed the way the provider bills us: a rejection the provider returns as an error carries no usage and costs nothing, apart from a rejection fee the provider publishes (currently only xAI's chat models). A block the provider serves as a normal response with usage, as Gemini image models do, is charged for the input tokens it reports, never for the blocked image.
+
 ### Vision support
 
 You can edit or modify images by combining image generation with [vision models](/features/vision) by including the image in the `messages` array.
