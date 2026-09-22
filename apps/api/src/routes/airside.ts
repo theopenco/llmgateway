@@ -36,6 +36,7 @@ import {
 	incidentsWindowSchema,
 	mappingErrorShapesSchema,
 	notRetriedClause,
+	incidentErrorsClause,
 	queryIncidentMappings,
 	queryMappingErrorShapes,
 	resolveMappingErrorWindow,
@@ -3450,7 +3451,7 @@ const incidentsRoute = createRoute({
 				},
 			},
 			description:
-				"Per-mapping error counts of the company's claimed providers, excluding client errors.",
+				"Per-mapping upstream + gateway error counts of the company's claimed providers.",
 		},
 	},
 });
@@ -3518,7 +3519,10 @@ airside.openapi(incidentErrorsRoute, async (c) => {
 			provider: query.providerId,
 			windowInterval,
 			sampleLimit: 500,
-			extraClauses: query.includeRetried === "false" ? [notRetriedClause] : [],
+			extraClauses: [
+				incidentErrorsClause,
+				query.includeRetried === "false" ? notRetriedClause : sql``,
+			],
 		}),
 	);
 });

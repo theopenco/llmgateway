@@ -35,6 +35,7 @@ import {
 	mappingErrorShapesSchema,
 	mappingErrorWindowSchema,
 	notRetriedClause,
+	incidentErrorsClause,
 	queryMappingErrorShapes,
 	resolveMappingErrorWindow,
 } from "@/lib/mapping-error-shapes.js";
@@ -12643,6 +12644,8 @@ const getUnstableMappingErrors = createRoute({
 			 * one).
 			 */
 			providerKeyId: z.string().optional(),
+			/** Only upstream and gateway errors, matching the Incidents counts. */
+			incidentsOnly: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
@@ -12668,6 +12671,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		ignoreExpected,
 		includeByok,
 		providerKeyId,
+		incidentsOnly,
 	} = c.req.valid("query");
 	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
 	const retriedClause = includeRetried === "true" ? sql`` : notRetriedClause;
@@ -12701,6 +12705,7 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 				retriedClause,
 				byokClause,
 				ignoredClause,
+				incidentsOnly === "true" ? incidentErrorsClause : sql``,
 			],
 		}),
 	);
