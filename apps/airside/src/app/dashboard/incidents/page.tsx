@@ -1,5 +1,6 @@
 "use client";
 
+import { keepPreviousData } from "@tanstack/react-query";
 import { Loader2, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -8,7 +9,9 @@ import { Suspense, useEffect, useState } from "react";
 import { useCompany } from "@/components/dashboard/company-context";
 import {
 	IncidentsTable,
+	IncidentsTableSkeleton,
 	type IncidentsWindow,
+	QueryError,
 } from "@/components/dashboard/IncidentsTable";
 import {
 	Card,
@@ -29,7 +32,7 @@ import { Switch } from "@/components/ui/switch";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
-const WINDOWS: IncidentsWindow[] = ["1h", "4h", "24h", "3d", "7d"];
+const WINDOWS: IncidentsWindow[] = ["1h", "4h", "24h", "3d"];
 const ALL_MAPPINGS = "__all__";
 
 function IncidentsContent() {
@@ -58,6 +61,8 @@ function IncidentsContent() {
 		enabled: !!company,
 		refetchInterval: 15_000,
 		refetchIntervalInBackground: false,
+		// Keep the last rows on screen (dimmed) while a new window loads.
+		placeholderData: keepPreviousData,
 	};
 	const allQuery = api.useQuery(
 		"get",
@@ -103,7 +108,9 @@ function IncidentsContent() {
 		);
 	}
 
-	const data = mapping !== null ? filteredQuery.data : allQuery.data;
+	const activeQuery = mapping !== null ? filteredQuery : allQuery;
+	const data = activeQuery.data;
+	const refreshing = activeQuery.isPlaceholderData;
 	const mappingOptions = allQuery.data?.mappings.map((row) => row.usedModel);
 	if (mapping !== null && mappingOptions && !mappingOptions.includes(mapping)) {
 		mappingOptions.unshift(mapping);
@@ -174,7 +181,15 @@ function IncidentsContent() {
 
 			<Card>
 				<CardHeader>
-					<CardTitle className="font-display">Errors by mapping</CardTitle>
+					<CardTitle className="font-display flex items-center gap-2">
+						Errors by mapping
+						{refreshing ? (
+							<span className="text-muted-foreground flex items-center gap-1 font-sans text-xs font-normal">
+								<Loader2 className="size-3.5 animate-spin" />
+								Updating…
+							</span>
+						) : null}
+					</CardTitle>
 					<CardDescription>
 						Failed requests over the last {timeWindow}, excluding client errors.
 						Counts include retried attempts; expand a row for the top error
@@ -182,6 +197,7 @@ function IncidentsContent() {
 					</CardDescription>
 					<div className="flex flex-wrap items-center gap-4 pt-2">
 						<Select
+							disabled={!allQuery.data}
 							value={mapping ?? ALL_MAPPINGS}
 							onValueChange={(value) =>
 								setMapping(value === ALL_MAPPINGS ? null : value)
@@ -192,7 +208,11 @@ function IncidentsContent() {
 								className="font-mono text-xs"
 								data-testid="incidents-mapping-filter"
 							>
-								<SelectValue placeholder="All mappings" />
+								<SelectValue
+									placeholder={
+										allQuery.data ? "All mappings" : "Loading mappings…"
+									}
+								/>
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value={ALL_MAPPINGS}>All mappings</SelectItem>
@@ -230,18 +250,37 @@ function IncidentsContent() {
 					</div>
 				</CardHeader>
 				<CardContent>
-					{!data ? (
-						<div className="flex h-32 items-center justify-center">
-							<Loader2 className="text-muted-foreground size-5 animate-spin" />
+					{activeQuery.isError ? (
+						<div className="mb-4">
+							<QueryError
+								message={
+									data
+										? "Couldn't refresh incidents — showing the last loaded data."
+										: "Couldn't load incidents."
+								}
+								onRetry={() => void activeQuery.refetch()}
+								retrying={activeQuery.isFetching}
+							/>
 						</div>
-					) : (
-						<IncidentsTable
-							key={`${mapping ?? ""}-${timeWindow}-${providerId ?? ""}`}
-							providerCompanyId={company.id}
-							mappings={data.mappings}
-							window={timeWindow}
-							includeRetried={includeRetried}
-						/>
+					) : null}
+					{data ? (
+						<div
+							className={cn(
+								"transition-opacity",
+								refreshing && "pointer-events-none opacity-50",
+							)}
+							aria-busy={refreshing}
+						>
+							<IncidentsTable
+								key={`${mapping ?? ""}-${timeWindow}-${providerId ?? ""}`}
+								providerCompanyId={company.id}
+								mappings={data.mappings}
+								window={timeWindow}
+								includeRetried={includeRetried}
+							/>
+						</div>
+					) : activeQuery.isError ? null : (
+						<IncidentsTableSkeleton />
 					)}
 				</CardContent>
 			</Card>

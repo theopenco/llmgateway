@@ -1,9 +1,16 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import {
+	AlertTriangle,
+	ChevronDown,
+	ChevronRight,
+	Loader2,
+} from "lucide-react";
 import { Fragment, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
 	Table,
 	TableBody,
@@ -65,6 +72,46 @@ function ClassificationBadge({
 	);
 }
 
+export function QueryError({
+	message,
+	onRetry,
+	retrying,
+}: {
+	message: string;
+	onRetry: () => void;
+	retrying: boolean;
+}) {
+	return (
+		<div
+			role="alert"
+			className="border-destructive/40 bg-destructive/5 flex flex-wrap items-center justify-between gap-3 rounded-md border p-3 text-sm"
+		>
+			<span className="flex items-center gap-2">
+				<AlertTriangle className="text-destructive size-4 shrink-0" />
+				{message}
+			</span>
+			<Button size="sm" variant="outline" onClick={onRetry} disabled={retrying}>
+				{retrying ? <Loader2 className="size-3.5 animate-spin" /> : null}
+				Retry
+			</Button>
+		</div>
+	);
+}
+
+export function IncidentsTableSkeleton() {
+	return (
+		<div className="space-y-3" aria-busy>
+			<p className="text-muted-foreground flex items-center gap-2 text-xs">
+				<Loader2 className="size-3.5 animate-spin" />
+				Loading incidents — longer windows can take a few seconds…
+			</p>
+			{[0, 1, 2, 3].map((i) => (
+				<Skeleton key={i} className="h-9 w-full" />
+			))}
+		</div>
+	);
+}
+
 function errorRateClass(rate: number): string {
 	if (rate >= 0.5) {
 		return "bg-red-500/15 text-red-600 dark:text-red-400";
@@ -87,7 +134,7 @@ function ErrorDetails({
 	includeRetried: boolean;
 }) {
 	const api = useApi();
-	const { data, isLoading, isError } = api.useQuery(
+	const { data, isLoading, isError, isFetching, refetch } = api.useQuery(
 		"get",
 		"/airside/incidents/errors",
 		{
@@ -105,18 +152,27 @@ function ErrorDetails({
 
 	if (isLoading) {
 		return (
-			<p className="text-muted-foreground flex items-center gap-2 p-4 text-xs">
-				<Loader2 className="size-3.5 animate-spin" />
-				Pulling the flight recorder…
-			</p>
+			<div className="space-y-2 p-4" aria-busy>
+				<p className="text-muted-foreground flex items-center gap-2 text-xs">
+					<Loader2 className="size-3.5 animate-spin" />
+					Pulling the flight recorder — scanning error logs…
+				</p>
+				{[0, 1, 2].map((i) => (
+					<Skeleton key={i} className="h-12 w-full" />
+				))}
+			</div>
 		);
 	}
 
 	if (isError) {
 		return (
-			<p className="text-muted-foreground p-4 text-sm">
-				Failed to load error details.
-			</p>
+			<div className="p-4">
+				<QueryError
+					message="Couldn't load error details."
+					onRetry={() => void refetch()}
+					retrying={isFetching}
+				/>
+			</div>
 		);
 	}
 

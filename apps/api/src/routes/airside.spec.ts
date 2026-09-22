@@ -1054,6 +1054,11 @@ describe("airside provider portal", () => {
 			}),
 		]);
 
+		const tooWide = await app.request(`${base}&window=7d`, {
+			headers: { Cookie: cookie },
+		});
+		expect(tooWide.status).toBe(400);
+
 		const foreign = await app.request(`${base}&providerId=openai`, {
 			headers: { Cookie: cookie },
 		});

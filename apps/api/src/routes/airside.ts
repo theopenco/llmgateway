@@ -3410,7 +3410,7 @@ airside.openapi(statsRoute, async (c) => {
 // Incidents (per-mapping errors)
 // ---------------------------------------------------------------------------
 
-const incidentsWindowSchema = z.enum(["1h", "4h", "24h", "3d", "7d"]);
+const incidentsWindowSchema = z.enum(["1h", "4h", "24h", "3d"]);
 
 async function resolveIncidentProviderIds(
 	providerCompanyId: string,
