@@ -119,7 +119,8 @@ const credentialSchema = z.object({
 const credentialRecentStatsSchema = z.object({
 	requestCount: z.number(),
 	errorCount: z.number(),
-	/** Subset of `errorCount`: failures the provider itself returned. */
+	clientErrorCount: z.number(),
+	gatewayErrorCount: z.number(),
 	upstreamErrorCount: z.number(),
 });
 
@@ -134,6 +135,9 @@ const credentialDailyPointSchema = z.object({
 	cost: z.number(),
 	requestCount: z.number(),
 	errorCount: z.number(),
+	clientErrorCount: z.number(),
+	gatewayErrorCount: z.number(),
+	upstreamErrorCount: z.number(),
 });
 
 /** List view only — the mutation responses do not compute the rollup. */
@@ -226,6 +230,7 @@ const catalogEntrySchema = z.object({
 		ocr: z.array(z.string()),
 		embedding: z.array(z.string()),
 		video: z.array(z.string()),
+		decision: z.array(z.string()),
 	}),
 });
 
@@ -737,8 +742,29 @@ adminProviderCredentials.openapi(listCredentials, async (c) => {
 const NO_RECENT_STATS = {
 	requestCount: 0,
 	errorCount: 0,
+	clientErrorCount: 0,
+	gatewayErrorCount: 0,
 	upstreamErrorCount: 0,
 };
+
+/** Error split by unified finish reason, for `deriveStabilityMetrics`. */
+function hourlyErrorSplitFields() {
+	const stats = tables.providerKeyHourlyStats;
+	return {
+		clientErrorCount:
+			sql<number>`COALESCE(SUM(${stats.clientErrorCount}), 0)`.as(
+				"client_error_count",
+			),
+		gatewayErrorCount:
+			sql<number>`COALESCE(SUM(${stats.gatewayErrorCount}), 0)`.as(
+				"gateway_error_count",
+			),
+		upstreamErrorCount:
+			sql<number>`COALESCE(SUM(${stats.upstreamErrorCount}), 0)`.as(
+				"upstream_error_count",
+			),
+	};
+}
 
 /**
  * Rolling 24h request/error counts per credential, so the table can show how
@@ -766,10 +792,7 @@ async function getRecentCredentialStats(providerKeyIds: string[]) {
 				sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.errorCount}), 0)`.as(
 					"error_count",
 				),
-			upstreamErrorCount:
-				sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.upstreamErrorCount}), 0)`.as(
-					"upstream_error_count",
-				),
+			...hourlyErrorSplitFields(),
 		})
 		.from(tables.providerKeyHourlyStats)
 		.where(
@@ -787,6 +810,8 @@ async function getRecentCredentialStats(providerKeyIds: string[]) {
 		stats.set(row.providerKeyId, {
 			requestCount: Number(row.requestCount),
 			errorCount: Number(row.errorCount),
+			clientErrorCount: Number(row.clientErrorCount),
+			gatewayErrorCount: Number(row.gatewayErrorCount),
 			upstreamErrorCount: Number(row.upstreamErrorCount),
 		});
 	}
@@ -821,6 +846,9 @@ function buildEmptyDailySeries(now?: Date) {
 		cost: 0,
 		requestCount: 0,
 		errorCount: 0,
+		clientErrorCount: 0,
+		gatewayErrorCount: 0,
+		upstreamErrorCount: 0,
 	}));
 }
 
@@ -856,6 +884,7 @@ async function getDailyCredentialStats(providerKeyIds: string[]) {
 				sql<number>`COALESCE(SUM(${tables.providerKeyHourlyStats.errorCount}), 0)`.as(
 					"error_count",
 				),
+			...hourlyErrorSplitFields(),
 		})
 		.from(tables.providerKeyHourlyStats)
 		.where(
@@ -882,6 +911,9 @@ async function getDailyCredentialStats(providerKeyIds: string[]) {
 					cost: Number(row?.cost ?? 0),
 					requestCount: Number(row?.requestCount ?? 0),
 					errorCount: Number(row?.errorCount ?? 0),
+					clientErrorCount: Number(row?.clientErrorCount ?? 0),
+					gatewayErrorCount: Number(row?.gatewayErrorCount ?? 0),
+					upstreamErrorCount: Number(row?.upstreamErrorCount ?? 0),
 				};
 			}),
 		);
@@ -1111,7 +1143,8 @@ const credentialModelErrorRowSchema = z.object({
 	usedProvider: z.string(),
 	requestCount: z.number(),
 	errorCount: z.number(),
-	/** Subset of `errorCount`: failures the provider itself returned. */
+	clientErrorCount: z.number(),
+	gatewayErrorCount: z.number(),
 	upstreamErrorCount: z.number(),
 });
 
@@ -1125,6 +1158,8 @@ const credentialModelErrorBreakdownSchema = z.object({
 			modelCount: z.number(),
 			requestCount: z.number(),
 			errorCount: z.number(),
+			clientErrorCount: z.number(),
+			gatewayErrorCount: z.number(),
 			upstreamErrorCount: z.number(),
 		})
 		.nullable(),
@@ -1177,8 +1212,9 @@ adminProviderCredentials.openapi(getProviderKeyModelErrors, async (c) => {
 	// Ordering key: the rate itself, not the raw error count, so a model that
 	// fails every call still surfaces above a high-volume model with a few
 	// failures. Ties break on volume, which keeps the noisy one-request models
-	// below their busier neighbours.
-	const errorRate = sql<number>`COALESCE(SUM(${stats.errorCount})::float8 / NULLIF(SUM(${stats.requestCount}), 0), 0)`;
+	// below their busier neighbours. Same definition as deriveStabilityMetrics:
+	// gateway + upstream errors over non-client-error requests.
+	const errorRate = sql<number>`COALESCE((SUM(${stats.gatewayErrorCount}) + SUM(${stats.upstreamErrorCount}))::float8 / NULLIF(SUM(${stats.requestCount}) - SUM(${stats.clientErrorCount}), 0), 0)`;
 
 	const rows = await db
 		.select({
@@ -1186,6 +1222,14 @@ adminProviderCredentials.openapi(getProviderKeyModelErrors, async (c) => {
 			usedProvider: stats.usedProvider,
 			requestCount: requestCount.as("request_count"),
 			errorCount: errorCount.as("error_count"),
+			clientErrorCount:
+				sql<number>`COALESCE(SUM(${stats.clientErrorCount}), 0)`.as(
+					"client_error_count",
+				),
+			gatewayErrorCount:
+				sql<number>`COALESCE(SUM(${stats.gatewayErrorCount}), 0)`.as(
+					"gateway_error_count",
+				),
 			upstreamErrorCount:
 				sql<number>`COALESCE(SUM(${stats.upstreamErrorCount}), 0)`.as(
 					"upstream_error_count",
@@ -1207,6 +1251,8 @@ adminProviderCredentials.openapi(getProviderKeyModelErrors, async (c) => {
 		usedProvider: row.usedProvider,
 		requestCount: Number(row.requestCount),
 		errorCount: Number(row.errorCount),
+		clientErrorCount: Number(row.clientErrorCount),
+		gatewayErrorCount: Number(row.gatewayErrorCount),
 		upstreamErrorCount: Number(row.upstreamErrorCount),
 	}));
 
@@ -1221,6 +1267,14 @@ adminProviderCredentials.openapi(getProviderKeyModelErrors, async (c) => {
 					modelCount: tail.length,
 					requestCount: tail.reduce((sum, row) => sum + row.requestCount, 0),
 					errorCount: tail.reduce((sum, row) => sum + row.errorCount, 0),
+					clientErrorCount: tail.reduce(
+						(sum, row) => sum + row.clientErrorCount,
+						0,
+					),
+					gatewayErrorCount: tail.reduce(
+						(sum, row) => sum + row.gatewayErrorCount,
+						0,
+					),
 					upstreamErrorCount: tail.reduce(
 						(sum, row) => sum + row.upstreamErrorCount,
 						0,

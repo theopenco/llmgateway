@@ -626,6 +626,14 @@ function getProviderKeySpendAggregationFields() {
 			sql<number>`sum(case when ${log.hasError} = true then 1 else 0 end)::int`.as(
 				"errorCount",
 			),
+		clientErrorCount:
+			sql<number>`sum(case when ${log.unifiedFinishReason} = 'client_error' then 1 else 0 end)::int`.as(
+				"clientErrorCount",
+			),
+		gatewayErrorCount:
+			sql<number>`sum(case when ${log.unifiedFinishReason} = 'gateway_error' then 1 else 0 end)::int`.as(
+				"gatewayErrorCount",
+			),
 		upstreamErrorCount:
 			sql<number>`sum(case when ${log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(
 				"upstreamErrorCount",

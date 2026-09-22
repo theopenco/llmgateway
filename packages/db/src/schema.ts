@@ -5565,8 +5565,10 @@ export const providerKeyHourlyStats = pgTable(
 		hourTimestamp: timestamp().notNull(), // Start of the hour bucket
 		requestCount: integer().notNull().default(0),
 		errorCount: integer().notNull().default(0),
-		// Subset of errorCount: failures the provider returned, which is what
-		// distinguishes an unhealthy credential from a misbehaving caller.
+		// Unified finish-reason split, so the error rate can exclude client
+		// errors the same way deriveStabilityMetrics does elsewhere.
+		clientErrorCount: integer().notNull().default(0),
+		gatewayErrorCount: integer().notNull().default(0),
 		upstreamErrorCount: integer().notNull().default(0),
 		cacheCount: integer().notNull().default(0),
 		inputTokens: decimal().notNull().default("0"),

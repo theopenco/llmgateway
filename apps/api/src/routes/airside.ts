@@ -3337,10 +3337,14 @@ airside.openapi(statsRoute, async (c) => {
 		gte(mph.hourTimestamp, since),
 	);
 
+	// Gateway + upstream errors only, as in deriveStabilityMetrics: a caller's
+	// malformed request is not the provider's error.
+	const errorSum = sql<number>`COALESCE(SUM(${mph.gatewayErrorCount} + ${mph.upstreamErrorCount}), 0)::int`;
+
 	const [totalsRow] = await db
 		.select({
 			requestCount: sql<number>`COALESCE(SUM(${mph.requestCount}), 0)::int`,
-			errorCount: sql<number>`COALESCE(SUM(${mph.errorCount}), 0)::int`,
+			errorCount: errorSum,
 			cacheCount: sql<number>`COALESCE(SUM(${mph.cacheCount}), 0)::int`,
 			inputTokens: sql<number>`COALESCE(SUM(${mph.inputTokens}), 0)::float8`,
 			outputTokens: sql<number>`COALESCE(SUM(${mph.outputTokens}), 0)::float8`,
@@ -3355,7 +3359,7 @@ airside.openapi(statsRoute, async (c) => {
 			providerId: mph.usedProvider,
 			model: mph.usedModel,
 			requestCount: sql<number>`SUM(${mph.requestCount})::int`,
-			errorCount: sql<number>`SUM(${mph.errorCount})::int`,
+			errorCount: errorSum,
 			inputTokens: sql<number>`SUM(${mph.inputTokens})::float8`,
 			outputTokens: sql<number>`SUM(${mph.outputTokens})::float8`,
 			cost: sql<number>`SUM(${mph.cost})::float8`,
@@ -3370,7 +3374,7 @@ airside.openapi(statsRoute, async (c) => {
 		.select({
 			day: dayExpr,
 			requestCount: sql<number>`SUM(${mph.requestCount})::int`,
-			errorCount: sql<number>`SUM(${mph.errorCount})::int`,
+			errorCount: errorSum,
 			outputTokens: sql<number>`SUM(${mph.outputTokens})::float8`,
 			cost: sql<number>`SUM(${mph.cost})::float8`,
 		})

@@ -8,6 +8,7 @@ export const PROVIDER_MODEL_KINDS = [
 	"ocr",
 	"embedding",
 	"video",
+	"decision",
 ] as const;
 
 export type ProviderModelKind = (typeof PROVIDER_MODEL_KINDS)[number];
@@ -21,6 +22,7 @@ export function createEmptyProviderModelsByKind(): ProviderModelsByKind {
 		ocr: [],
 		embedding: [],
 		video: [],
+		decision: [],
 	};
 }
 
@@ -47,16 +49,16 @@ export function getProviderModelKind(
 	if (mapping.imageGenerations || output.includes("image")) {
 		return "image";
 	}
+	if (mapping.decisions || output.includes("decision")) {
+		return "decision";
+	}
 	if (
 		mapping.speechGenerations ||
 		mapping.transcriptions ||
 		mapping.rerank ||
-		mapping.decisions ||
 		mapping.realtime ||
 		mapping.realtimeTranscription ||
-		output.some((kind) =>
-			["audio", "transcription", "rerank", "decision"].includes(kind),
-		)
+		output.some((kind) => ["audio", "transcription", "rerank"].includes(kind))
 	) {
 		return null;
 	}

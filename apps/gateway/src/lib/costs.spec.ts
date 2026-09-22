@@ -2071,6 +2071,65 @@ describe("calculateCosts", () => {
 		expect(result.totalCost).toBeCloseTo((result.inputCost ?? 0) + 0.05);
 	});
 
+	it("bills only the rejection fee for a rejection that carries no usage", async () => {
+		const result = await calculateCosts(
+			"grok-3",
+			"xai",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			0,
+			undefined,
+			0,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{ rejectionWithoutUsage: true },
+			true,
+		);
+
+		expect(result.inputCost).toBe(0);
+		expect(result.contentFilterCost).toBeCloseTo(0.05);
+		expect(result.totalCost).toBeCloseTo(0.05);
+		expect(result.estimatedCost).toBe(false);
+		// Token counts stay for analytics even though they are not billed.
+		expect(result.promptTokens).toBe(100);
+	});
+
+	it("does not bill a rejection on a provider without a rejection fee", async () => {
+		const result = await calculateCosts(
+			"gpt-image-2",
+			"openai",
+			null,
+			100,
+			0,
+			null,
+			undefined,
+			null,
+			0,
+			"1024x1024",
+			1,
+			null,
+			null,
+			undefined,
+			null,
+			null,
+			{ rejectionWithoutUsage: true },
+			true,
+		);
+
+		expect(result.inputCost).toBe(0);
+		expect(result.imageInputCost).toBe(0);
+		expect(result.contentFilterCost).toBe(0);
+		expect(result.totalCost).toBe(0);
+		expect(result.estimatedCost).toBe(false);
+	});
+
 	describe("Alibaba explicit-vs-implicit cache pricing", () => {
 		// qwen-plus has inputPrice 0.4e-6, cachedInputPrice 0.08e-6 (20%, implicit),
 		// cacheReadInputPrice 0.04e-6 (10%, explicit). The same cachedTokens count
