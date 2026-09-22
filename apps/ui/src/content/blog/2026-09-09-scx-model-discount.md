@@ -2,12 +2,13 @@
 id: "blog-scx-model-discount"
 slug: "scx-model-discount"
 date: "2026-09-09"
-title: "SCX Model Discount: 20% Off for 15 Days"
-summary: "The SCX model discount brings 20% off seven selected models on LLM Gateway for 15 days, starting when the Runware promotion ends on September 9. See the eligible models and how to route requests through SCX."
+updatedAt: "2026-09-22"
+title: "SCX Model Discount: 20% Off Through October 9"
+summary: "The SCX model discount brings 20% off seven selected models on LLM Gateway, starting when the Runware promotion ends on September 9 and now extended through October 9. See the eligible models and how to route requests through SCX."
 categories: ["Announcements"]
 faqs:
   - question: "When does the SCX model discount start and end?"
-    answer: "The promotion starts September 9, 2026 at 23:59:59 UTC, exactly when the Runware promotion ends. It runs for 15 days and ends September 24, 2026 at 23:59:59 UTC."
+    answer: "The promotion starts September 9, 2026 at 23:59:59 UTC, exactly when the Runware promotion ends. It was scheduled to run for 15 days and has been extended to end October 9, 2026 at 23:59:59 UTC."
   - question: "Does the 20% discount apply to every SCX model?"
     answer: "No. The offer covers the seven models listed in this announcement when served through SCX during the promotion. Other models and requests served by other providers are outside this offer."
   - question: "How do I choose SCX for a request?"
@@ -19,9 +20,11 @@ image:
   height: 1024
 ---
 
-Every coding session, model comparison, and agent run adds to your inference bill. The **SCX model discount** gives you room to run more: **20% off seven selected models** through **LLM Gateway** for 15 days.
+> **Update (September 22):** the discount has been extended by 15 days and now runs until **October 9, 2026 at 23:59:59 UTC**. Read the [extension announcement](/blog/scx-model-discount-extended).
 
-The offer begins **September 9, 2026 at 23:59:59 UTC**, exactly when the Runware promotion ends, and finishes **September 24, 2026 at 23:59:59 UTC**.
+Every coding session, model comparison, and agent run adds to your inference bill. The **SCX model discount** gives you room to run more: **20% off seven selected models** through **LLM Gateway**.
+
+The offer begins **September 9, 2026 at 23:59:59 UTC**, exactly when the Runware promotion ends, and finishes **October 9, 2026 at 23:59:59 UTC**.
 
 ## Get the SCX model discount on these seven models
 

@@ -25,7 +25,10 @@ export const RUNWARE_PROMO = {
 	providerUrl: "https://llmgateway.io/providers/runware",
 } as const;
 
-const SCX_PROMO_DURATION_MS = 15 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const SCX_PROMO_DURATION_MS = 15 * DAY_MS;
+// Extended by 15 days on 2026-09-22.
+const SCX_PROMO_EXTENSION_MS = 15 * DAY_MS;
 
 export const SCX_PROMO = {
 	id: "scx",
@@ -33,10 +36,12 @@ export const SCX_PROMO = {
 	modelCount: 7,
 	startsAt: RUNWARE_PROMO.endsAt,
 	endsAt: new Date(
-		Date.parse(RUNWARE_PROMO.endsAt) + SCX_PROMO_DURATION_MS,
+		Date.parse(RUNWARE_PROMO.endsAt) +
+			SCX_PROMO_DURATION_MS +
+			SCX_PROMO_EXTENSION_MS,
 	).toISOString(),
-	announcementPath: "/blog/scx-model-discount",
-	announcementUrl: "https://llmgateway.io/blog/scx-model-discount",
+	announcementPath: "/blog/scx-model-discount-extended",
+	announcementUrl: "https://llmgateway.io/blog/scx-model-discount-extended",
 } as const;
 
 export function getActiveProviderPromo(now = Date.now()) {
