@@ -2365,6 +2365,11 @@ export const log = pgTable(
 		index("log_provider_key_id_created_at_idx")
 			.on(table.providerKeyId, table.createdAt)
 			.where(sql`provider_key_id IS NOT NULL`),
+		// Serves the per-mapping error drilldowns (admin unstable-mappings, airside
+		// incidents). Build CONCURRENTLY out of band in prod before deploying.
+		index("log_error_used_provider_used_model_created_at_idx")
+			.on(table.usedProvider, table.usedModel, table.createdAt)
+			.where(sql`has_error = true`),
 		index("log_end_user_session_id_created_at_idx")
 			.on(table.endUserSessionId, table.createdAt)
 			.where(sql`end_user_session_id IS NOT NULL`),

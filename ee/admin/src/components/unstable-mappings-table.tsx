@@ -1,10 +1,18 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import {
+	Boxes,
+	ChevronDown,
+	ChevronRight,
+	Filter,
+	Loader2,
+} from "lucide-react";
 import Link from "next/link";
 import { Fragment, useState } from "react";
 
+import { useFilterNavigation } from "@/components/filter-navigation";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
 	Table,
 	TableBody,
@@ -44,7 +52,7 @@ interface UnstableMapping {
  */
 const UNATTRIBUTED_KEY = "__unattributed__";
 
-const percentFormatter = new Intl.NumberFormat("en-US", {
+export const percentFormatter = new Intl.NumberFormat("en-US", {
 	style: "percent",
 	maximumFractionDigits: 1,
 });
@@ -93,7 +101,7 @@ function ClassificationBadge({
 	);
 }
 
-function errorRateClass(rate: number): string {
+export function errorRateClass(rate: number): string {
 	if (rate >= 0.5) {
 		return "bg-red-500/15 text-red-600 dark:text-red-400";
 	}
@@ -103,7 +111,7 @@ function errorRateClass(rate: number): string {
 	return "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400";
 }
 
-function ErrorDetails({
+export function ErrorDetails({
 	usedModel,
 	provider,
 	providerKeyId,
@@ -123,7 +131,7 @@ function ErrorDetails({
 	includeByok: boolean;
 }) {
 	const $api = useApi();
-	const { data, isLoading, isError } = $api.useQuery(
+	const { data, isLoading, isError, isFetching, refetch } = $api.useQuery(
 		"get",
 		"/admin/unstable-mappings/errors",
 		{
@@ -158,9 +166,21 @@ function ErrorDetails({
 
 	if (isError) {
 		return (
-			<p className="p-4 text-sm text-muted-foreground">
-				Failed to load error details.
-			</p>
+			<div
+				role="alert"
+				className="m-4 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm"
+			>
+				<span>Failed to load error details.</span>
+				<Button
+					size="sm"
+					variant="outline"
+					disabled={isFetching}
+					onClick={() => void refetch()}
+				>
+					{isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+					Retry
+				</Button>
+			</div>
 		);
 	}
 
@@ -273,6 +293,7 @@ export function UnstableMappingsTable({
 	includeByok: boolean;
 }) {
 	const [expanded, setExpanded] = useState<string | null>(null);
+	const { isPending, navigate } = useFilterNavigation();
 	const columnCount = splitByKey ? 7 : 6;
 
 	if (mappings.length === 0) {
@@ -331,17 +352,55 @@ export function UnstableMappingsTable({
 									</Link>
 								</TableCell>
 								<TableCell>
-									<Link
-										href={`/model-provider-mappings/${encodeURIComponent(mapping.providerId)}/${encodeURIComponent(mapping.modelId)}${mapping.region ? `?region=${encodeURIComponent(mapping.region)}` : ""}`}
-										className="font-mono text-xs hover:underline"
-									>
-										{mapping.modelId}
-										{mapping.region && (
-											<span className="text-muted-foreground">
-												:{mapping.region}
-											</span>
-										)}
-									</Link>
+									<div className="flex items-center gap-1">
+										<Link
+											href={`/model-provider-mappings/${encodeURIComponent(mapping.providerId)}/${encodeURIComponent(mapping.modelId)}${mapping.region ? `?region=${encodeURIComponent(mapping.region)}` : ""}`}
+											className="font-mono text-xs hover:underline"
+										>
+											{mapping.modelId}
+											{mapping.region && (
+												<span className="text-muted-foreground">
+													:{mapping.region}
+												</span>
+											)}
+										</Link>
+										<button
+											type="button"
+											className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted disabled:opacity-50"
+											aria-label="Filter to this mapping"
+											title="Filter to this mapping"
+											disabled={isPending}
+											onClick={() =>
+												navigate(
+													`scope:mapping:${mapping.usedModel}`,
+													(params) => {
+														params.delete("modelId");
+														params.set("mapping", mapping.usedModel);
+													},
+												)
+											}
+										>
+											<Filter className="h-3.5 w-3.5" />
+										</button>
+										<button
+											type="button"
+											className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted disabled:opacity-50"
+											aria-label="Filter to every mapping of this model"
+											title="Filter to every mapping of this model"
+											disabled={isPending}
+											onClick={() =>
+												navigate(
+													`scope:modelId:${mapping.modelId}`,
+													(params) => {
+														params.delete("mapping");
+														params.set("modelId", mapping.modelId);
+													},
+												)
+											}
+										>
+											<Boxes className="h-3.5 w-3.5" />
+										</button>
+									</div>
 								</TableCell>
 								{splitByKey && (
 									<TableCell>

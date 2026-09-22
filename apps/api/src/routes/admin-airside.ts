@@ -16,6 +16,12 @@ import {
 	type AirsideModelMetadataInput,
 	currentMetadataFor,
 } from "@/lib/airside-metadata.js";
+import {
+	incidentsResponseSchema,
+	incidentsWindowSchema,
+	queryIncidentMappings,
+	resolveMappingErrorWindow,
+} from "@/lib/mapping-error-shapes.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 
 import {
@@ -1054,6 +1060,47 @@ adminAirside.openapi(revokeClaim, async (c) => {
 	});
 	return c.json({
 		claim: await serializeAdminClaim(updated as ClaimWithRelations),
+	});
+});
+
+const listIncidents = createRoute({
+	method: "get",
+	path: "/airside/incidents",
+	request: {
+		query: z.object({
+			providerId: z.string(),
+			/** Exact `used_model` (`provider/model[:region]`). */
+			mapping: z.string().optional(),
+			window: incidentsWindowSchema.default("24h").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: incidentsResponseSchema.openapi({}),
+				},
+			},
+			description:
+				"Per-mapping error counts of one provider, excluding client errors — the carrier's Incidents view.",
+		},
+	},
+});
+
+adminAirside.openapi(listIncidents, async (c) => {
+	const query = c.req.valid("query");
+	const { hours: windowHours } = resolveMappingErrorWindow(query.window, "24h");
+	const mapping = query.mapping ?? null;
+	const providerIds = [query.providerId];
+	return c.json({
+		windowHours,
+		providerIds,
+		mapping,
+		mappings: await queryIncidentMappings({
+			providerIds,
+			windowHours,
+			mapping,
+		}),
 	});
 });
 

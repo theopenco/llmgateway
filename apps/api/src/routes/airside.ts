@@ -32,6 +32,15 @@ import {
 	supportedToolChoicesValue,
 } from "@/lib/airside-metadata.js";
 import {
+	incidentsResponseSchema,
+	incidentsWindowSchema,
+	mappingErrorShapesSchema,
+	notRetriedClause,
+	queryIncidentMappings,
+	queryMappingErrorShapes,
+	resolveMappingErrorWindow,
+} from "@/lib/mapping-error-shapes.js";
+import {
 	buildVerificationTarget,
 	enqueueModelVerification,
 	modelVerificationSchema,
@@ -3401,6 +3410,117 @@ airside.openapi(statsRoute, async (c) => {
 			day: new Date(row.day).toISOString(),
 		})),
 	});
+});
+
+// ---------------------------------------------------------------------------
+// Incidents (per-mapping errors)
+// ---------------------------------------------------------------------------
+
+async function resolveIncidentProviderIds(
+	providerCompanyId: string,
+	providerId: string | undefined,
+): Promise<string[]> {
+	const providerIds = await getActiveClaimedProviderIds(providerCompanyId);
+	if (providerId === undefined) {
+		return providerIds;
+	}
+	if (!providerIds.includes(providerId)) {
+		throw new HTTPException(404, { message: "Provider not found" });
+	}
+	return [providerId];
+}
+
+const incidentsRoute = createRoute({
+	method: "get",
+	path: "/incidents",
+	request: {
+		query: z.object({
+			providerCompanyId: z.string(),
+			providerId: z.string().optional(),
+			/** Exact `used_model` (`provider/model[:region]`). */
+			mapping: z.string().optional(),
+			window: incidentsWindowSchema.default("24h").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: incidentsResponseSchema.openapi({}),
+				},
+			},
+			description:
+				"Per-mapping error counts of the company's claimed providers, excluding client errors.",
+		},
+	},
+});
+
+airside.openapi(incidentsRoute, async (c) => {
+	const user = requireUser(c.get("user"));
+	const query = c.req.valid("query");
+	await requireCompanyMembership(user.id, query.providerCompanyId);
+	const providerIds = await resolveIncidentProviderIds(
+		query.providerCompanyId,
+		query.providerId,
+	);
+	const { hours: windowHours } = resolveMappingErrorWindow(query.window, "24h");
+	const mapping = query.mapping ?? null;
+	return c.json({
+		windowHours,
+		providerIds,
+		mapping,
+		mappings: await queryIncidentMappings({
+			providerIds,
+			windowHours,
+			mapping,
+		}),
+	});
+});
+
+const incidentErrorsRoute = createRoute({
+	method: "get",
+	path: "/incidents/errors",
+	request: {
+		query: z.object({
+			providerCompanyId: z.string(),
+			providerId: z.string(),
+			/** Exact `used_model` (`provider/model[:region]`). */
+			mapping: z.string(),
+			window: incidentsWindowSchema.default("24h").optional(),
+			includeRetried: z.enum(["true", "false"]).default("true").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: mappingErrorShapesSchema.openapi({}),
+				},
+			},
+			description:
+				"Top 10 error shapes of one mapping over its latest error logs.",
+		},
+	},
+});
+
+airside.openapi(incidentErrorsRoute, async (c) => {
+	const user = requireUser(c.get("user"));
+	const query = c.req.valid("query");
+	await requireCompanyMembership(user.id, query.providerCompanyId);
+	await resolveIncidentProviderIds(query.providerCompanyId, query.providerId);
+	const { interval: windowInterval } = resolveMappingErrorWindow(
+		query.window,
+		"24h",
+	);
+	return c.json(
+		await queryMappingErrorShapes({
+			usedModel: query.mapping,
+			provider: query.providerId,
+			windowInterval,
+			sampleLimit: 500,
+			extraClauses: query.includeRetried === "false" ? [notRetriedClause] : [],
+		}),
+	);
 });
 
 // ---------------------------------------------------------------------------

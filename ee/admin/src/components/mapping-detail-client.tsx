@@ -1,6 +1,7 @@
 "use client";
 
-import { ShieldCheck } from "lucide-react";
+import { AlertTriangle, ShieldCheck } from "lucide-react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -143,6 +144,14 @@ export function MappingDetailClient({
 						<VerificationStatusBadge verification={latestVerification} />
 					</div>
 				</div>
+				<Button asChild variant="outline" size="sm">
+					<Link
+						href={`/unstable-mappings?mapping=${encodeURIComponent(`${mapping.providerId}/${mapping.modelId}${mapping.region ? `:${mapping.region}` : ""}`)}`}
+					>
+						<AlertTriangle className="mr-1 h-4 w-4" />
+						Recent errors
+					</Link>
+				</Button>
 				<ModelVerificationDialog
 					title={`${mapping.providerId}/${mapping.modelId}${mapping.region ? `:${mapping.region}` : ""}`}
 					mappingId={mapping.id}
