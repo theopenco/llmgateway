@@ -115,6 +115,10 @@ export const xiaomiModels = [
 		releasedAt: new Date("2026-04-23"),
 		providers: [
 			{
+				// Xiaomi retires mimo-v2.5 at Beijing 2026-10-21 10:00 in
+				// favor of the V2.6 series; deactivate at the switch so
+				// requests error instead of silently auto-forwarding.
+				deactivatedAt: new Date("2026-10-21T02:00:00Z"),
 				providerId: "xiaomi" as const,
 				externalId: "mimo-v2.5-pro",
 				inputPrice: "0.435e-6",
@@ -237,6 +241,10 @@ export const xiaomiModels = [
 		releasedAt: new Date("2026-04-23"),
 		providers: [
 			{
+				// Xiaomi retires mimo-v2.5 at Beijing 2026-10-21 10:00 in
+				// favor of the V2.6 series; deactivate at the switch so
+				// requests error instead of silently auto-forwarding.
+				deactivatedAt: new Date("2026-10-21T02:00:00Z"),
 				providerId: "xiaomi" as const,
 				externalId: "mimo-v2.5",
 				inputPrice: "0.14e-6",
