@@ -142,7 +142,7 @@ Limit the number of searches per request (provider-dependent):
 
 ### Domain Filters
 
-Restrict which domains the model may search with `allowed_domains`, or exclude domains with `blocked_domains` (use one or the other, not both). The filters are currently forwarded to Anthropic models only; other providers ignore them:
+Restrict which domains the model may search with `allowed_domains`, or exclude domains with `blocked_domains`. Both fields are accepted independently; provider support varies — currently the filters reach Anthropic-served requests, and other providers ignore them. Anthropic accepts only one of the two, so when both are set the gateway forwards `allowed_domains` and drops `blocked_domains`:
 
 ```json
 {
