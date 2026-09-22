@@ -8390,3 +8390,39 @@ describe("prepareRequestBody - alibaba forced tool use", () => {
 		},
 	);
 });
+
+describe("prepareRequestBody - bytedance prompt caching", () => {
+	async function prepare(provider: "bytedance" | "deepinfra", model: string) {
+		return (await prepareRequestBody(
+			provider,
+			model,
+			null,
+			model,
+			[{ role: "user", content: "Hello!" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+		)) as any;
+	}
+
+	test("opts in on a bytedance mapping that prices cached input", async () => {
+		const requestBody = await prepare("bytedance", "seed-2-0-lite-260428");
+		expect(requestBody.caching).toEqual({ type: "enabled" });
+	});
+
+	test("leaves other providers untouched", async () => {
+		const requestBody = await prepare("deepinfra", "granite-4.2-8b");
+		expect(requestBody.caching).toBeUndefined();
+	});
+});
