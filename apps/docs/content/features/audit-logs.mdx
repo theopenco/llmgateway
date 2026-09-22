@@ -28,7 +28,7 @@ Every significant action is logged with detailed metadata:
 
 ## Tracked Actions
 
-The categories below are illustrative, not exhaustive — many more actions are recorded (master keys, custom providers and models, organization teams and team IAM rules, SSO and SCIM events, invites, plan changes, refunds, and others). The action filter dropdown in the dashboard lists the full set.
+The categories below are illustrative, not exhaustive — many more actions are recorded (master keys, custom models, organization teams and team IAM rules, SSO and SCIM events, invites, plan changes, refunds, and others). The action filter dropdown in the dashboard lists the full set.
 
 ### Organization Management
 
@@ -60,7 +60,7 @@ The categories below are illustrative, not exhaustive — many more actions are 
 ### Provider Key Management
 
 - `provider_key.create` — Provider key added
-- `provider_key.update` — Provider key changed (status, base URL, token rotation, and other fields)
+- `provider_key.update` — Provider key changed (status, name, limits, and other settings; base URL and token rotation when done through the master key API). Custom providers are recorded as `provider_key.*` events with `provider: "custom"`
 - `provider_key.delete` — Provider key removed
 
 ### Billing Events

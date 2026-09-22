@@ -65,7 +65,7 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
   private, reserved, or internal address. `http://` URLs and private-network
   hosts (for example a service on your own network) work only on self-hosted
   deployments that set `ALLOW_INSECURE_PROVIDER_URLS=true`
-- LLMGateway will append `/v1/chat/completions` automatically
+- LLMGateway will append `/v1/chat/completions` automatically — do not include `/v1` in the base URL (it is not stripped, so the path would be doubled)
 - **Example**: `https://api.example.com` → `https://api.example.com/v1/chat/completions`
 
 ### API Token

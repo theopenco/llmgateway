@@ -120,9 +120,9 @@ The default cache duration is 60 seconds. Adjust this based on your use case—l
 
 ## Identifying Cached Responses
 
-A cache hit replays the stored completion — same `id`, same content, same token counts. The `metadata` envelope is rebuilt for the current request (fresh `request_id` and `log_id`) and all cost fields are zeroed, so the body is not byte-for-byte identical to the original response. Two markers tell you it was a replay:
+A cache hit replays the stored completion — same `id`, same content, same token counts. The `metadata` envelope is rebuilt for the current request (fresh `log_id`, and a fresh `request_id` on non-streaming responses) and all cost fields are zeroed, so the body is not byte-for-byte identical to the original response. Two markers tell you it was a replay:
 
-- the `x-llmgateway-cache: HIT` response header — set on `/v1/chat/completions`, `/v1/messages` (which has no metadata envelope), and the AI SDK endpoints; it is not surfaced on `/v1/responses`
+- the `x-llmgateway-cache: HIT` response header — set on `/v1/chat/completions`, `/v1/messages` (which has no metadata envelope), and streaming AI SDK requests; it is not surfaced on `/v1/responses` or on non-streaming AI SDK responses
 - `metadata.cached: true` on the response body (and on the final metadata chunk of a streamed replay)
 
 All cost fields are zeroed on a replay, because no upstream call was made:
