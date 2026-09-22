@@ -10,10 +10,15 @@ import {
 import { processPendingVideoJobs } from "worker";
 
 import { app } from "@/app.js";
+import {
+	releaseVideoSubmission,
+	reserveVideoSubmission,
+} from "@/lib/video-submission-reservation.js";
 import { createGatewayApiTestHarness } from "@/test-utils/gateway-api-test-harness.js";
 import { setMockVideoStatus } from "@/test-utils/mock-openai-server.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
+import { redisClient } from "@llmgateway/cache";
 import { cdb, db, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
@@ -127,5 +132,28 @@ describe("video credit estimate gate", () => {
 
 		const third = await submit({ prompt: "The lighthouse at noon" });
 		expect(third.status).toBe(200);
+	});
+
+	test("counts submissions still between the gate and their job row", async () => {
+		await harness.setOrganizationCredits("5.00");
+		const inFlightKey = "video:submitting:org-id";
+		await redisClient.del(inFlightKey);
+
+		// Another request of this org has passed the gate but not inserted yet.
+		await reserveVideoSubmission("org-id", 3.2);
+		const blocked = await submit();
+		expect(blocked.status).toBe(402);
+		expect((await blocked.json()).error.message).toContain(
+			"$3.20 reserved for videos still in progress",
+		);
+		// A rejected submission leaves only the other request's amount behind.
+		expect(Number(await redisClient.get(inFlightKey))).toBeCloseTo(3.2);
+
+		await releaseVideoSubmission("org-id", 3.2);
+		const accepted = await submit();
+		expect(accepted.status).toBe(200);
+		// The job row now carries the reservation, so the in-flight amount is
+		// released.
+		expect(Number((await redisClient.get(inFlightKey)) ?? 0)).toBe(0);
 	});
 });

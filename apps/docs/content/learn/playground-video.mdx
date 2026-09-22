@@ -36,7 +36,7 @@ The controls under the prompt adapt to the selected model (or, in compare mode, 
 - **First frame** and **last frame** are offered only on models that accept them. A last frame requires a first frame, and models that only take a starting image do not show the last-frame button.
 - **Reference images, videos and audio** appear on models that support them.
 
-The estimated cost of the generation (summed across compared models) is shown next to the Generate button. The estimate is the same figure the gateway checks before submitting, so if your organization does not have that much available, the request is rejected before anything is generated.
+The estimated cost of the generation (summed across compared models) is shown next to the Generate button. Before submitting, the gateway requires your organization to have at least the estimated cost (and never less than $1.00) available after subtracting what its still-running video jobs have already reserved; otherwise the request is rejected before anything is generated.
 
 ## iOS client
 

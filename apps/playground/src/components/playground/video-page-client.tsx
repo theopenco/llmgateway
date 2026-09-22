@@ -412,11 +412,17 @@ export default function VideoPageClient({
 		void ensureKey();
 	}, [isAuthenticated, selectedOrganization, selectedProject]);
 
-	// Cleanup abort controllers on unmount
+	// Cleanup abort controllers on unmount. Runs are canceled first so a save
+	// that completes after leaving the page cannot update state or the URL.
 	useEffect(() => {
 		const abortControllers = abortControllersRef.current;
 		const resumeControllers = resumeControllersRef.current;
+		const runs = runsRef.current;
 		return () => {
+			runs.forEach((run) => {
+				run.canceled = true;
+			});
+			runs.clear();
 			Array.from(abortControllers.values())
 				.concat(Array.from(resumeControllers.values()))
 				.forEach((controller) => {
