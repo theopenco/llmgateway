@@ -2372,6 +2372,76 @@ mockOpenAIServer.post("/api/v1/model/generateVideo", async (c) => {
 	});
 });
 
+mockOpenAIServer.post("/v2/video_generation", async (c) => {
+	const body = await c.req.json();
+	const content: Record<string, unknown>[] = Array.isArray(body.content)
+		? body.content
+		: [];
+	const promptItem = content.find((item) => item.type === "text");
+	const prompt = typeof promptItem?.text === "string" ? promptItem.text : "";
+	const statusTrigger = extractStatusCodeTrigger(prompt);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	videoCounter++;
+	const id = `minimax_task_${videoCounter}`;
+	videoJobs.set(id, {
+		id,
+		object: "video",
+		model: typeof body.model === "string" ? body.model : "minimax-video",
+		status: "queued",
+		progress: 0,
+		requestBody: body,
+		duration: typeof body.duration === "number" ? body.duration : undefined,
+		resolution:
+			typeof body.resolution === "string" ? body.resolution : undefined,
+		ratio: typeof body.ratio === "string" ? body.ratio : undefined,
+		created_at: Math.floor(Date.now() / 1000),
+		completed_at: null,
+		expires_at: null,
+		error: null,
+	});
+
+	return c.json({ task_id: id });
+});
+
+mockOpenAIServer.get("/v2/query/video_generation/:id", async (c) => {
+	const id = c.req.param("id");
+	const job = videoJobs.get(id);
+	if (!job) {
+		c.status(400);
+		return c.json({
+			type: "error",
+			error: { type: "bad_request_error", message: "invalid task_id" },
+		});
+	}
+
+	return c.json({
+		task: {
+			id,
+			model: job.model,
+			status:
+				job.status === "completed"
+					? "succeeded"
+					: job.status === "in_progress"
+						? "running"
+						: job.status,
+			...(job.status === "completed"
+				? { content: { url: `${currentMockServerUrl}/mock-assets/${id}` } }
+				: {}),
+			...(job.status === "failed"
+				? { error: { code: "1026", message: job.error?.message } }
+				: {}),
+			resolution: job.resolution,
+			duration: job.duration,
+			ratio: job.ratio,
+			task_type: "generation",
+		},
+	});
+});
+
 const vertexPublisherModelHandler = async (
 	c: Context,
 	next: () => Promise<void>,

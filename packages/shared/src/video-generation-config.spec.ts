@@ -67,6 +67,7 @@ describe("video provider selection", () => {
 		expect(supportsVideoEndFrameInput("minimax/minimax-hailuo-2-3")).toBe(
 			false,
 		);
+		expect(supportsVideoEndFrameInput("minimax/minimax-h3-max")).toBe(true);
 		expect(
 			supportsVideoEndFrameInput("google-vertex/veo-3.1-generate-preview:us"),
 		).toBe(true);

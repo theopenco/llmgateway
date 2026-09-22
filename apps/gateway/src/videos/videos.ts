@@ -127,6 +127,7 @@ import {
 	buildSignedGatewayVideoLogContentUrl,
 	verifyVideoContentAccessToken,
 } from "@llmgateway/shared/video-access";
+import { isMinimaxV2VideoModel } from "@llmgateway/shared/video-generation-config";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
@@ -3727,6 +3728,83 @@ function getMinimaxResolution(videoSize: VideoSizeConfig): string {
 	return "768P";
 }
 
+async function createMinimaxV2VideoJob(
+	providerContext: ProviderContext,
+	providerMapping: ProviderModelMapping,
+	videoSize: VideoSizeConfig,
+	prompt: string,
+	durationSeconds: number,
+	processedFirstFrame: ProcessedVideoImageInput | null,
+	processedLastFrame: ProcessedVideoImageInput | null,
+): Promise<{
+	upstreamId: string;
+	upstreamRequest: Record<string, unknown>;
+	upstreamResponse: Record<string, unknown>;
+}> {
+	const upstreamModelName = providerMapping.externalId;
+	const content: Record<string, unknown>[] = [{ type: "text", text: prompt }];
+	for (const [frame, role] of [
+		[processedFirstFrame, "first_frame"],
+		[processedLastFrame, "last_frame"],
+	] as const) {
+		if (frame) {
+			content.push({
+				type: "image_url",
+				image_url: {
+					url: `data:${frame.mimeType};base64,${frame.bytesBase64Encoded}`,
+				},
+				role,
+			});
+		}
+	}
+	const hasFrames = content.length > 1;
+	const upstreamRequest: Record<string, unknown> = {
+		model: upstreamModelName,
+		content,
+		resolution: videoSize.resolution === "480p" ? "480P" : "768P",
+		duration: durationSeconds,
+		ratio: hasFrames
+			? "adaptive"
+			: videoSize.orientation === "portrait"
+				? "9:16"
+				: "16:9",
+	};
+
+	const rawResponse = await fetchUpstreamJson(
+		joinUrl(providerContext.baseUrl, "/v2/video_generation"),
+		{
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...getProviderHeaders("minimax", providerContext.token, {
+					requestId: providerContext.requestId,
+				}),
+			},
+			body: JSON.stringify(upstreamRequest),
+		},
+		providerContext.providerId,
+	);
+
+	const upstreamResponse = addRequestedVideoMetadata(
+		{
+			...rawResponse,
+			model: upstreamModelName,
+			status: "queued",
+			duration: durationSeconds,
+		},
+		videoSize,
+	);
+
+	const upstreamId = extractUpstreamVideoId(upstreamResponse);
+	if (!upstreamId) {
+		throw new HTTPException(502, {
+			message: "MiniMax video response did not include a task id",
+		});
+	}
+
+	return { upstreamId, upstreamRequest, upstreamResponse };
+}
+
 async function createMinimaxVideoJob(
 	providerContext: ProviderContext,
 	providerMapping: ProviderModelMapping,
@@ -3734,11 +3812,24 @@ async function createMinimaxVideoJob(
 	prompt: string,
 	durationSeconds: number,
 	processedFirstFrame: ProcessedVideoImageInput | null,
+	processedLastFrame: ProcessedVideoImageInput | null,
 ): Promise<{
 	upstreamId: string;
 	upstreamRequest: Record<string, unknown>;
 	upstreamResponse: Record<string, unknown>;
 }> {
+	if (isMinimaxV2VideoModel(providerMapping.externalId)) {
+		return await createMinimaxV2VideoJob(
+			providerContext,
+			providerMapping,
+			videoSize,
+			prompt,
+			durationSeconds,
+			processedFirstFrame,
+			processedLastFrame,
+		);
+	}
+
 	const upstreamModelName = providerMapping.externalId;
 	const resolution = getMinimaxResolution(videoSize);
 	const effectiveDuration =
@@ -4034,6 +4125,7 @@ async function createUpstreamVideoJob(
 				prompt,
 				durationSeconds,
 				processedFirstFrame,
+				processedLastFrame,
 			);
 		case "alibaba":
 			return await createAlibabaVideoJob(

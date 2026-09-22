@@ -24,6 +24,11 @@ function parseVideoModel(modelId: string) {
 	return { providerId, canonicalModelId, region };
 }
 
+// MiniMax H3 models use the v2 video API (content array, task object status).
+export function isMinimaxV2VideoModel(externalId: string): boolean {
+	return externalId === "MiniMax-H3-Max";
+}
+
 export type VideoSize =
 	| "848x480"
 	| "1280x720"
@@ -151,7 +156,10 @@ export function supportsVideoFrameInput(modelId: string): boolean {
 		return providerId === undefined || providerId === "bytedance";
 	}
 
-	if (canonicalModelId === "minimax-hailuo-2-3") {
+	if (
+		canonicalModelId === "minimax-hailuo-2-3" ||
+		canonicalModelId === "minimax-h3-max"
+	) {
 		return providerId === undefined || providerId === "minimax";
 	}
 
