@@ -32,6 +32,25 @@ import type { Context } from "hono";
 export const complianceAlerts = new OpenAPIHono<ServerTypes>();
 
 const MAX_WATCHES = 100;
+
+/** Every write to `complianceAlertSettings` is audited, including implicit ones. */
+async function logSettingsChange(
+	organizationId: string,
+	userId: string,
+	oldSettings: ComplianceAlertSettings | null,
+	newSettings: ComplianceAlertSettings,
+) {
+	await logAuditEvent({
+		organizationId,
+		userId,
+		action: "compliance_alert.settings_update",
+		resourceType: "compliance_alert",
+		resourceId: organizationId,
+		metadata: {
+			changes: { settings: { old: oldSettings, new: newSettings } },
+		},
+	});
+}
 const DEFAULT_SETTINGS = {
 	inApp: true,
 	email: true,
@@ -139,7 +158,7 @@ complianceAlerts.openapi(
 				required: true,
 				content: {
 					"application/json": {
-						schema: z.object({ webhookUrl: z.string().trim() }),
+						schema: z.object({ webhookUrl: z.string().trim().max(200) }),
 					},
 				},
 			},
@@ -154,7 +173,10 @@ complianceAlerts.openapi(
 	async (c) => {
 		const { organizationId } = c.req.valid("param");
 		const { webhookUrl } = c.req.valid("json");
-		const { user } = await assertOrgAccess(c, organizationId, { manage: true });
+		const { user } = await assertOrgAccess(c, organizationId, {
+			manage: true,
+			enterprise: true,
+		});
 		if (!isSlackWebhookUrl(webhookUrl)) {
 			throw new HTTPException(400, {
 				message:
@@ -229,15 +251,15 @@ complianceAlerts.openapi(
 			.returning();
 		const settings = organization.complianceAlertSettings;
 		if (settings?.channels.includes("slack")) {
+			const next = {
+				...settings,
+				channels: settings.channels.filter((k) => k !== "slack"),
+			};
 			await db
 				.update(tables.organization)
-				.set({
-					complianceAlertSettings: {
-						...settings,
-						channels: settings.channels.filter((k) => k !== "slack"),
-					},
-				})
+				.set({ complianceAlertSettings: next })
 				.where(eq(tables.organization.id, organizationId));
+			await logSettingsChange(organizationId, user.id, settings, next);
 		}
 		if (removed) {
 			await logAuditEvent({
@@ -269,26 +291,28 @@ complianceAlerts.openapi(
 	}),
 	async (c) => {
 		const { organizationId } = c.req.valid("param");
-		await assertOrgAccess(c, organizationId, { manage: true });
+		await assertOrgAccess(c, organizationId, {
+			manage: true,
+			enterprise: true,
+		});
 		const channel = await db.query.organizationNotificationChannel.findFirst({
 			where: { organizationId, kind: "slack" },
 		});
 		if (!channel) {
 			throw new HTTPException(404, { message: "No Slack channel configured" });
 		}
+		// Decrypt outside the catch below: its errors name internal key ids.
+		const config = decryptNotificationChannelConfig(
+			channel.config,
+			channel.id,
+			organizationId,
+		);
 		try {
-			await notificationChannelSenders.slack(
-				decryptNotificationChannelConfig(
-					channel.config,
-					channel.id,
-					organizationId,
-				),
-				{
-					title: "LLM Gateway test notification",
-					message: "Slack notifications are connected for this organization.",
-					href: `/dashboard/${organizationId}/org/preferences`,
-				},
-			);
+			await notificationChannelSenders.slack(config, {
+				title: "LLM Gateway test notification",
+				message: "Slack notifications are connected for this organization.",
+				href: `/dashboard/${organizationId}/org/preferences`,
+			});
 		} catch (error) {
 			throw new HTTPException(502, {
 				message: `Slack rejected the test message: ${error instanceof Error ? error.message : String(error)}`,
@@ -437,7 +461,7 @@ complianceAlerts.openapi(
 			if (organization.complianceAlertSettings) {
 				return;
 			}
-			await db
+			const [configured] = await db
 				.update(tables.organization)
 				.set({ complianceAlertSettings: DEFAULT_SETTINGS })
 				.where(
@@ -445,7 +469,16 @@ complianceAlerts.openapi(
 						eq(tables.organization.id, organizationId),
 						isNull(tables.organization.complianceAlertSettings),
 					),
+				)
+				.returning({ id: tables.organization.id });
+			if (configured) {
+				await logSettingsChange(
+					organizationId,
+					user.id,
+					null,
+					DEFAULT_SETTINGS,
 				);
+			}
 		};
 		// Configure before inserting: a watch must never persist without settings,
 		// or the worker would silently never evaluate it.
@@ -576,18 +609,12 @@ complianceAlerts.openapi(
 			.update(tables.organization)
 			.set({ complianceAlertSettings: next })
 			.where(eq(tables.organization.id, organizationId));
-		await logAuditEvent({
+		await logSettingsChange(
 			organizationId,
-			userId: user.id,
-			action: "compliance_alert.settings_update",
-			resourceType: "compliance_alert",
-			resourceId: organizationId,
-			metadata: {
-				changes: {
-					settings: { old: organization.complianceAlertSettings, new: next },
-				},
-			},
-		});
+			user.id,
+			organization.complianceAlertSettings ?? null,
+			next,
+		);
 		return c.json(next);
 	},
 );

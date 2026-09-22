@@ -119,18 +119,18 @@ Attestations only apply to custom provider keys. They can never be used to clear
 
 ## Compliance alerts
 
-Once a policy is saved and enabled, owners and admins can configure **Compliance Alerts** at the bottom of the Compliance page:
+Once a policy is saved and enabled, owners and admins on the Enterprise plan can configure **Compliance Alerts** at the bottom of the Compliance page:
 
-- **Watched models**: pick models that no compliant provider serves yet. When a compliant provider starts serving one, LLM Gateway notifies you once, including when your own policy change makes it available. If the model later loses its last compliant provider, the watch re-arms.
-- **Downgrades**: get notified when a provider stops meeting your policy (for example, it loses a certification or starts training on API data) or a watched model stops being available. The alert lists the models your organization used on that provider in the last 30 days that no longer have a compliant provider. Changes to your own policy never trigger downgrade alerts.
-- **Recipients**: choose the lowest role that receives alerts — owners only, owners and admins, or everyone in the organization. Higher roles are always included. Watching the first model saves the default: owners and admins, with in-app and email delivery.
-- **Delivery**: in-app, email, and Slack. Each recipient can turn off in-app or email delivery for their own account under the notification settings in the dashboard bell.
+- **Watched models**: pick models that no compliant provider serves yet, up to 100 per organization. When a compliant provider starts serving one, LLM Gateway notifies you once — including when your own policy change makes it available. If the model later loses its last compliant provider, the watch re-arms. A model that is already available when you add it is recorded as available and never alerts.
+- **Downgrades** (on by default): get notified when a provider stops meeting your policy, for example because it loses a certification or starts training on API data. When the audience is owners and admins, that alert also lists the models your organization used on the provider in the last 30 days that no longer have a compliant provider; it is left out for the everyone audience, because it spans every project. A watched model losing its last compliant provider is announced separately. Changes to your own policy never trigger downgrade alerts, and the first check after enabling alerts only records the current state.
+- **Recipients**: choose the lowest role that receives alerts — owners only, owners and admins, or everyone in the organization. Higher roles are always included. Watching the first model saves the defaults: owners and admins, in-app and email delivery, downgrade alerts on.
+- **Delivery**: in-app, email, and Slack. In-app and email reach each recipient individually and email needs a verified address; Slack is posted once per organization. Each recipient can turn off in-app or email delivery per alert type under [notification settings](/features/notifications) in the dashboard bell.
 
-Alerts are checked every minute against the saved policy.
+Alerts are checked every minute against the saved policy. Disabling the policy or leaving the Enterprise plan stops the checks.
 
 ### Slack
 
-Create a Slack [incoming webhook](https://api.slack.com/messaging/webhooks) for the channel that should receive alerts, and paste its URL under **Notification Channels** on the organization **Preferences** page. Use **Send test message** to verify it, then enable Slack in the Compliance Alerts card. The webhook URL is stored encrypted and only shown masked.
+Create a Slack [incoming webhook](https://api.slack.com/messaging/webhooks) for the channel that should receive alerts and save its URL under **Notification Channels** on the organization **Preferences** page — only `https://hooks.slack.com/services/…` URLs are accepted. Once saved, use **Send test message** to verify it, then enable Slack in the Compliance Alerts card. The webhook URL is stored encrypted and only shown masked. Failed posts are retried up to five times within 24 hours, and removing the webhook also turns Slack off in the alert settings.
 
 ## Safety identifiers
 
@@ -146,6 +146,7 @@ Project-scoped **developer** members cannot see the policy itself, but they can 
 
 ## Related
 
+- [Notifications](/features/notifications) — per-user in-app and email delivery preferences, including compliance alerts.
 - [Org Models Directory](/features/models-directory) — see per-model eligibility under the active policy in the dashboard.
 - [Data Retention](/features/data-retention) — control whether request and response payloads are stored.
 - [Guardrails](/features/guardrails) — detect and block harmful or sensitive content.

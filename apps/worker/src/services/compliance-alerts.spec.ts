@@ -237,7 +237,45 @@ describe("processComplianceAlerts", () => {
 		).not.toBeNull();
 	});
 
-	it("skips organizations without an enterprise plan", async () => {
+	it("omits org-wide usage from downgrades sent to every member", async () => {
+		vi.spyOn(globalThis, "fetch").mockImplementation(
+			async () => new Response("ok"),
+		);
+		await db
+			.update(tables.organization)
+			.set({
+				complianceAlertSettings: {
+					inApp: true,
+					email: true,
+					channels: [],
+					downgrades: true,
+					recipientAudience: "member",
+				},
+			})
+			.where(eq(tables.organization.id, ORG));
+		await db.insert(tables.projectHourlyModelStats).values({
+			projectId: "ca-project",
+			hourTimestamp: new Date(Date.now() - 7_200_000),
+			usedModel: "deepseek/used-model",
+			usedProvider: "deepseek",
+			requestCount: 5,
+		});
+		await processComplianceAlerts();
+		await db
+			.update(tables.complianceProviderState)
+			.set({ compliant: true, failures: [] })
+			.where(eq(tables.complianceProviderState.providerId, "deepseek"));
+		await processComplianceAlerts();
+		const [alert] = await db.query.organizationAlert.findMany();
+		expect(alert.type).toBe("compliance_downgrade");
+		expect(alert.message).not.toContain("used-model");
+		// Developers are in the audience, so they receive it.
+		expect(
+			(await db.query.notification.findMany()).map((n) => n.userId).sort(),
+		).toEqual(["ca-dev", "ca-owner"]);
+	});
+
+	it("skips organizations without enterprise access", async () => {
 		await db
 			.update(tables.organization)
 			.set({ plan: "pro" })

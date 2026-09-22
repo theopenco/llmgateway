@@ -27,6 +27,7 @@ import {
 	providers,
 } from "@llmgateway/models";
 import { failureLabel } from "@llmgateway/shared";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { isInAlertAudience } from "@llmgateway/shared/organization-roles";
 
 import type { ComplianceAlertSettings, organization } from "@llmgateway/db";
@@ -245,8 +246,14 @@ async function processOrganization(
 
 	// Alert before persisting the new state, so an interrupted pass retries.
 	if (settings.downgrades) {
+		// The used-model list spans every project, so it is only included when
+		// the audience is limited to owners and admins. Project-scoped members
+		// must not learn what other projects run.
+		const includeUsage = settings.recipientAudience !== "member";
 		for (const { providerId, failures, compliantSince } of downgraded) {
-			const used = await modelsUsedOnProvider(org.id, providerId, now);
+			const used = includeUsage
+				? await modelsUsedOnProvider(org.id, providerId, now)
+				: [];
 			const availability = await getModelAvailability(used, policy, now);
 			const blocked = used.filter((m) => !availability.get(m)?.length);
 			const name = providerName(providerId);
@@ -346,8 +353,13 @@ export async function processComplianceAlerts(now = new Date()): Promise<void> {
 	for (const org of orgs) {
 		const policy = org.providerCompliancePolicy;
 		const settings = org.complianceAlertSettings;
-		// Enterprise-only feature; configuration is gated in the API.
-		if (org.plan !== "enterprise" || !policy?.enabled || !settings) {
+		// Enterprise-only feature. Checked against the license, like the API, so
+		// an expired or foreign license stops delivery instead of failing open.
+		if (
+			!hasOrganizationEnterpriseAccess(org.id, org.plan, now) ||
+			!policy?.enabled ||
+			!settings
+		) {
 			continue;
 		}
 		try {
