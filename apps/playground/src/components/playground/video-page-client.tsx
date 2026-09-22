@@ -35,11 +35,18 @@ import {
 } from "@/lib/model-preferences";
 import { shouldDisableFallback } from "@/lib/no-fallback";
 import {
+	estimateVideoSelectionCostUsd,
+	findVideoSize,
 	getNormalizedVideoRequestSelection,
+	getSupportedVideoDurationsForSelection,
 	getSupportedVideoRequestOptions,
+	getSupportedVideoSizesForSelection,
+	getVideoOrientation,
+	getVideoResolution,
 	isPendingVideoModel,
 	POLL_TIMEOUT_ERROR_CODE,
 	pollVideoJob,
+	supportsVideoEndFrameInput,
 	supportsVideoFrameInput,
 	supportsVideoReferenceInput,
 	supportsVideoReferenceVideoInput,
@@ -277,6 +284,12 @@ export default function VideoPageClient({
 			selectedModels.every((modelId) => supportsVideoFrameInput(modelId)),
 		[selectedModels],
 	);
+	const canUseEndFrameInputs = useMemo(
+		() =>
+			selectedModels.length > 0 &&
+			selectedModels.every((modelId) => supportsVideoEndFrameInput(modelId)),
+		[selectedModels],
+	);
 	const canUseReferenceInputs = useMemo(
 		() =>
 			selectedModels.length > 0 &&
@@ -365,6 +378,9 @@ export default function VideoPageClient({
 
 	const pendingRef = useRef(0);
 	const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
+	// One token per generation run; "New chat" marks them canceled so a run
+	// whose requests settle later leaves the new page state alone.
+	const runsRef = useRef<Set<{ canceled: boolean }>>(new Set());
 	const ensuredProjectRef = useRef<string | null>(null);
 
 	useEffect(() => {
@@ -396,11 +412,17 @@ export default function VideoPageClient({
 		void ensureKey();
 	}, [isAuthenticated, selectedOrganization, selectedProject]);
 
-	// Cleanup abort controllers on unmount
+	// Cleanup abort controllers on unmount. Runs are canceled first so a save
+	// that completes after leaving the page cannot update state or the URL.
 	useEffect(() => {
 		const abortControllers = abortControllersRef.current;
 		const resumeControllers = resumeControllersRef.current;
+		const runs = runsRef.current;
 		return () => {
+			runs.forEach((run) => {
+				run.canceled = true;
+			});
+			runs.clear();
 			Array.from(abortControllers.values())
 				.concat(Array.from(resumeControllers.values()))
 				.forEach((controller) => {
@@ -548,6 +570,8 @@ export default function VideoPageClient({
 				start: null,
 				end: null,
 			});
+		} else if (!canUseEndFrameInputs) {
+			setFrameInputs((prev) => (prev.end ? { ...prev, end: null } : prev));
 		}
 		if (!canUseReferenceInputs) {
 			setReferenceImages([]);
@@ -560,6 +584,7 @@ export default function VideoPageClient({
 		}
 	}, [
 		canUseFrameInputs,
+		canUseEndFrameInputs,
 		canUseReferenceInputs,
 		canUseReferenceVideoInputs,
 		canUseReferenceAudioInputs,
@@ -595,6 +620,84 @@ export default function VideoPageClient({
 				videoInputMode,
 			),
 		[selectedModels, videoGenModels, videoInputMode],
+	);
+
+	// Changing one picker keeps that choice and moves the other to the nearest
+	// value the selection supports alongside it, instead of snapping the
+	// user's choice back.
+	const handleSizeChange = useCallback(
+		(size: VideoSize) => {
+			setVideoSize(size);
+			const durations = getSupportedVideoDurationsForSelection(
+				videoGenModels,
+				selectedModels,
+				videoInputMode,
+				size,
+			);
+			if (durations.length > 0 && !durations.includes(videoDuration)) {
+				setVideoDuration(
+					durations.reduce((closest, candidate) =>
+						Math.abs(candidate - videoDuration) <
+						Math.abs(closest - videoDuration)
+							? candidate
+							: closest,
+					),
+				);
+			}
+		},
+		[selectedModels, videoDuration, videoGenModels, videoInputMode],
+	);
+	const handleDurationChange = useCallback(
+		(duration: VideoDuration) => {
+			setVideoDuration(duration);
+			const sizes = getSupportedVideoSizesForSelection(
+				videoGenModels,
+				selectedModels,
+				videoInputMode,
+				duration,
+			);
+			if (sizes.length > 0 && !sizes.includes(videoSize)) {
+				const resolution = getVideoResolution(videoSize);
+				const orientation = getVideoOrientation(videoSize);
+				setVideoSize(
+					findVideoSize(sizes, resolution, orientation) ??
+						findVideoSize(
+							sizes,
+							resolution,
+							orientation === "landscape" ? "portrait" : "landscape",
+						) ??
+						sizes[0],
+				);
+			}
+		},
+		[selectedModels, videoGenModels, videoInputMode, videoSize],
+	);
+
+	const inputImageCount =
+		videoInputMode === "frames"
+			? (frameInputs.start ? 1 : 0) + (frameInputs.end ? 1 : 0)
+			: videoInputMode === "reference"
+				? referenceImages.length
+				: 0;
+	const estimatedCostUsd = useMemo(
+		() =>
+			estimateVideoSelectionCostUsd(
+				videoGenModels,
+				comparisonMode ? selectedModels : selectedModels.slice(0, 1),
+				videoInputMode,
+				videoSize,
+				videoDuration,
+				inputImageCount,
+			),
+		[
+			comparisonMode,
+			inputImageCount,
+			selectedModels,
+			videoDuration,
+			videoGenModels,
+			videoInputMode,
+			videoSize,
+		],
 	);
 
 	useEffect(() => {
@@ -727,8 +830,14 @@ export default function VideoPageClient({
 				);
 				return;
 			}
+			if (frameInputs.end && !frameInputs.start) {
+				toast.error("A last frame needs a first frame. Please add one.");
+				return;
+			}
 
 			const currentPrompt = effectivePrompt.trim();
+			const run = { canceled: false };
+			runsRef.current.add(run);
 			setIsGenerating(true);
 			posthog.capture("playground_video_generated", {
 				models: selectedModels,
@@ -842,6 +951,66 @@ export default function VideoPageClient({
 				}
 			};
 
+			// The history row is created by the first accepted job and updated as
+			// the others are accepted, finish or fail. Writes are chained so they
+			// reach the API in order and each carries the latest snapshot; nothing
+			// waits on a sibling submission that may be stalled.
+			let savedId: string | null = null;
+			let saveFailed = false;
+			let historyChain: Promise<void> = Promise.resolve();
+			const persist = () => {
+				historyChain = historyChain.then(async () => {
+					const snapshot = Array.from(results.values());
+					if (saveFailed || (!savedId && !snapshot.some((m) => m.jobId))) {
+						return;
+					}
+					try {
+						if (savedId) {
+							await updateVideoHistory({
+								params: { path: { id: savedId } },
+								body: { models: snapshot },
+							});
+							return;
+						}
+						const saved = await saveVideoHistory({
+							body: {
+								prompt: currentPrompt,
+								organizationId: selectedOrganization?.id,
+								frameInputs: placeholderItem.frameInputs,
+								referenceImages: placeholderItem.referenceImages,
+								models: snapshot,
+							},
+						});
+						savedId = saved.item.id;
+						// A run reset by "New chat" keeps its saved row (the jobs exist
+						// and the resume effect adopts them) but must not touch the page
+						// state that now belongs to the next run.
+						if (run.canceled) {
+							return;
+						}
+						setDbIdByLocalId((prev) =>
+							new Map(prev).set(itemId, saved.item.id),
+						);
+						setSelectedItemId(saved.item.id);
+						const params = new URLSearchParams(window.location.search);
+						params.set("id", saved.item.id);
+						router.replace(`${pathname}?${params.toString()}`, {
+							scroll: false,
+						});
+					} catch {
+						if (!savedId) {
+							saveFailed = true;
+						}
+						toast.error(
+							savedId
+								? "Couldn't update this generation in your history"
+								: "Couldn't save this generation to your history",
+						);
+					}
+				});
+				return historyChain;
+			};
+
 			const createJob = async (
 				modelId: string,
 				signal: AbortSignal,
@@ -885,10 +1054,12 @@ export default function VideoPageClient({
 					const job: VideoJob = await response.json();
 					updateGalleryModel(itemId, modelId, { job, isLoading: true });
 					setResult(modelId, { jobId: job.id });
+					void persist();
 					return job;
 				} catch (error) {
 					if (error instanceof DOMException && error.name === "AbortError") {
 						setResult(modelId, { error: "Canceled" });
+						void persist();
 						return null;
 					}
 					const errorMessage =
@@ -899,134 +1070,81 @@ export default function VideoPageClient({
 						error: errorMessage,
 					});
 					setResult(modelId, { error: errorMessage });
+					void persist();
 					return null;
 				}
 			};
 
-			void (async () => {
-				const controllers = modelsToGenerate.map((modelId) => {
+			void Promise.all(
+				modelsToGenerate.map(async (modelId) => {
 					const controller = new AbortController();
 					abortControllersRef.current.set(`${itemId}-${modelId}`, controller);
-					return controller;
-				});
-				const jobs = await Promise.all(
-					modelsToGenerate.map((modelId, index) =>
-						createJob(modelId, controllers[index].signal),
-					),
-				);
-
-				// Save as soon as a job exists so a reload, a navigation or a poll
-				// that outlives this page can still find and resume it.
-				let savedId: string | null = null;
-				if (jobs.some((job) => job !== null)) {
 					try {
-						const saved = await saveVideoHistory({
-							body: {
-								prompt: currentPrompt,
-								organizationId: selectedOrganization?.id,
-								frameInputs: placeholderItem.frameInputs,
-								referenceImages: placeholderItem.referenceImages,
-								models: Array.from(results.values()),
-							},
-						});
-						savedId = saved.item.id;
-						setDbIdByLocalId((prev) =>
-							new Map(prev).set(itemId, saved.item.id),
-						);
-						setSelectedItemId(saved.item.id);
-						const params = new URLSearchParams(window.location.search);
-						params.set("id", saved.item.id);
-						router.replace(`${pathname}?${params.toString()}`, {
-							scroll: false,
-						});
-					} catch {
-						toast.error("Couldn't save this generation to your history");
-					}
-				}
-				const persist = async () => {
-					if (!savedId) {
-						return;
-					}
-					try {
-						await updateVideoHistory({
-							params: { path: { id: savedId } },
-							body: { models: Array.from(results.values()) },
-						});
-					} catch {
-						toast.error("Couldn't update this generation in your history");
-					}
-				};
-
-				await Promise.all(
-					modelsToGenerate.map(async (modelId, index) => {
-						const job = jobs[index];
-						const controller = controllers[index];
-						try {
-							if (!job) {
-								return;
-							}
-							for await (const updatedJob of pollVideoJob(
-								job.id,
-								fetchClient,
-								controller.signal,
-							)) {
-								const outcome = savedResultForJob(updatedJob);
-								if (updatedJob.status === "completed" && outcome) {
-									updateGalleryModel(itemId, modelId, {
-										job: updatedJob,
-										videoUrl: outcome.videoUrl ?? null,
-										expiresAt: outcome.expiresAt ?? null,
-										isLoading: false,
-									});
+						const job = await createJob(modelId, controller.signal);
+						if (!job) {
+							return;
+						}
+						for await (const updatedJob of pollVideoJob(
+							job.id,
+							fetchClient,
+							controller.signal,
+						)) {
+							const outcome = savedResultForJob(updatedJob);
+							if (updatedJob.status === "completed" && outcome) {
+								updateGalleryModel(itemId, modelId, {
+									job: updatedJob,
+									videoUrl: outcome.videoUrl ?? null,
+									expiresAt: outcome.expiresAt ?? null,
+									isLoading: false,
+								});
+								setResult(modelId, outcome);
+								await persist();
+							} else if (
+								updatedJob.status === "failed" ||
+								updatedJob.status === "canceled" ||
+								updatedJob.status === "expired"
+							) {
+								updateGalleryModel(itemId, modelId, {
+									job: updatedJob,
+									error: updatedJob.error?.message ?? "Video generation failed",
+									isLoading: false,
+								});
+								if (outcome) {
 									setResult(modelId, outcome);
 									await persist();
-								} else if (
-									updatedJob.status === "failed" ||
-									updatedJob.status === "canceled" ||
-									updatedJob.status === "expired"
-								) {
-									updateGalleryModel(itemId, modelId, {
-										job: updatedJob,
-										error:
-											updatedJob.error?.message ?? "Video generation failed",
-										isLoading: false,
-									});
-									if (outcome) {
-										setResult(modelId, outcome);
-										await persist();
-									}
-								} else {
-									updateGalleryModel(itemId, modelId, { job: updatedJob });
 								}
+							} else {
+								updateGalleryModel(itemId, modelId, { job: updatedJob });
 							}
-						} catch (error) {
-							if (
-								error instanceof DOMException &&
-								error.name === "AbortError"
-							) {
-								return;
-							}
-							const errorMessage =
-								error instanceof Error
-									? error.message
-									: "Video generation failed";
-							toast.error(errorMessage);
-							// A failed poll says nothing about the job: the saved row stays
-							// pending and the next page load resumes it.
-							updateGalleryModel(itemId, modelId, {
-								isLoading: false,
-								error: errorMessage,
-							});
-						} finally {
-							abortControllersRef.current.delete(`${itemId}-${modelId}`);
+						}
+					} catch (error) {
+						if (error instanceof DOMException && error.name === "AbortError") {
+							return;
+						}
+						const errorMessage =
+							error instanceof Error
+								? error.message
+								: "Video generation failed";
+						toast.error(errorMessage);
+						// A failed poll says nothing about the job: the saved row stays
+						// pending and the next page load resumes it.
+						updateGalleryModel(itemId, modelId, {
+							isLoading: false,
+							error: errorMessage,
+						});
+					} finally {
+						abortControllersRef.current.delete(`${itemId}-${modelId}`);
+						// A reset run already released the generating state.
+						if (!run.canceled) {
 							pendingRef.current--;
 							if (pendingRef.current === 0) {
 								setIsGenerating(false);
+								runsRef.current.delete(run);
 							}
 						}
-					}),
-				);
-			})();
+					}
+				}),
+			);
 		},
 		[
 			comparisonMode,
@@ -1101,6 +1219,10 @@ export default function VideoPageClient({
 	);
 
 	const handleNewChat = useCallback(() => {
+		runsRef.current.forEach((run) => {
+			run.canceled = true;
+		});
+		runsRef.current.clear();
 		Array.from(abortControllersRef.current.values()).forEach((controller) => {
 			controller.abort();
 		});
@@ -1225,14 +1347,15 @@ export default function VideoPageClient({
 						setPrompt={setPrompt}
 						selectedModels={selectedModels}
 						videoSize={videoSize}
-						setVideoSize={setVideoSize}
+						setVideoSize={handleSizeChange}
 						videoDuration={videoDuration}
-						setVideoDuration={setVideoDuration}
+						setVideoDuration={handleDurationChange}
 						audioEnabled={effectiveAudioEnabled}
 						setAudioEnabled={setAudioEnabled}
 						audioToggleDisabled={isGenerating || audioToggleLocked}
 						audioToggleDisabledReason={audioToggleLockedReason}
 						canUseFrameInputs={canUseFrameInputs}
+						canUseEndFrameInputs={canUseEndFrameInputs}
 						canUseReferenceInputs={canUseReferenceInputs}
 						canUseReferenceVideoInputs={canUseReferenceVideoInputs}
 						canUseReferenceAudioInputs={canUseReferenceAudioInputs}
@@ -1246,6 +1369,7 @@ export default function VideoPageClient({
 						setReferenceAudios={setReferenceAudios}
 						supportedVideoSizes={supportedVideoRequestOptions.sizes}
 						supportedVideoDurations={supportedVideoRequestOptions.durations}
+						estimatedCostUsd={estimatedCostUsd}
 						isGenerating={isGenerating}
 						onGenerate={generateVideos}
 						imageInputRequired={someModelsRequireImage}

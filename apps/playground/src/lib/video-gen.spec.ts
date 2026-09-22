@@ -171,9 +171,7 @@ describe("getNormalizedVideoRequestSelection", () => {
 			"1280x720",
 			10,
 		);
-		expect(result).not.toBeNull();
-		expect(result?.duration).not.toBe(10);
-		expect([4, 6, 8]).toContain(result?.duration);
+		expect(result).toEqual({ size: "1280x720", duration: 8 });
 	});
 
 	test("keeps duration 10 when text mode is active", () => {

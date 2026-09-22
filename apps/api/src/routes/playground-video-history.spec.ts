@@ -81,6 +81,36 @@ describe("playground video history", () => {
 		expect(await pointEvents()).toHaveLength(1);
 	});
 
+	test("never regresses a finished model to a stale pending snapshot", async () => {
+		const id = await savePending();
+		await request("PATCH", `/${id}`, { models: [finishedModel] });
+
+		const stale = await request("PATCH", `/${id}`, { models: [pendingModel] });
+		expect(stale.status).toBe(200);
+		expect((await listItems())[0].models).toEqual([finishedModel]);
+		expect(await pointEvents()).toHaveLength(1);
+	});
+
+	test("merges concurrent snapshots per model", async () => {
+		const other = { ...pendingModel, modelId: "sora-2", jobId: "video_456" };
+		const res = await request("POST", "", {
+			prompt: "Two models racing",
+			models: [pendingModel, other],
+		});
+		const id = (await res.json()).item.id as string;
+
+		await Promise.all([
+			request("PATCH", `/${id}`, { models: [finishedModel, other] }),
+			request("PATCH", `/${id}`, {
+				models: [pendingModel, { ...other, error: "failed" }],
+			}),
+		]);
+		expect((await listItems())[0].models).toEqual([
+			finishedModel,
+			{ ...other, error: "failed" },
+		]);
+	});
+
 	test("renames without touching model results", async () => {
 		const id = await savePending();
 		const res = await request("PATCH", `/${id}`, { prompt: "Harbour pan" });

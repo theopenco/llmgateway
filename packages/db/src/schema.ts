@@ -2642,6 +2642,11 @@ export const videoJob = pgTable(
 		),
 		index("video_job_upstream_id_idx").on(table.upstreamId),
 		index("video_job_log_id_idx").on(table.logId),
+		// Unfinalized jobs per org: the gateway sums their reserved spend on
+		// every video submission.
+		index("video_job_org_pending_idx")
+			.on(table.organizationId)
+			.where(sql`${table.logId} is null`),
 		index("video_job_callback_status_idx").on(table.callbackStatus),
 		index("video_job_end_user_session_id_idx").on(table.endUserSessionId),
 	],
