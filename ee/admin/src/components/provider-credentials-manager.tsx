@@ -129,6 +129,7 @@ const NO_MODELS_BY_KIND: Record<ProviderModelKind, string[]> = {
 	ocr: [],
 	embedding: [],
 	video: [],
+	decision: [],
 };
 
 const MODEL_KIND_LABELS: Record<ProviderModelKind, string> = {
@@ -137,6 +138,7 @@ const MODEL_KIND_LABELS: Record<ProviderModelKind, string> = {
 	ocr: "OCR models",
 	embedding: "Embedding models",
 	video: "Video models",
+	decision: "Decision models",
 };
 
 function totalOf(counts: VariantCounts): number {

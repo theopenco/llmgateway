@@ -85,13 +85,19 @@ function findRegionAwareMapping(
 	);
 }
 
+type ValidationModelKind = "text" | "decision";
+
+/**
+ * Cheap model to probe a key with. Prefers text models; providers that only
+ * serve decision models (e.g. TypeSafe) are probed via System One instead.
+ */
 export function getValidationModel(
 	provider: ProviderId,
 	providerKeyOptions?: ProviderKeyOptions,
-): { modelId: string; externalId: string } | null {
+): { modelId: string; externalId: string; kind: ValidationModelKind } | null {
 	if (provider === "azure" && providerKeyOptions?.azure_validation_model) {
 		const azureModel = providerKeyOptions.azure_validation_model;
-		return { modelId: azureModel, externalId: azureModel };
+		return { modelId: azureModel, externalId: azureModel, kind: "text" };
 	}
 
 	const selectedRegion = resolveSelectedRegion(provider, providerKeyOptions);
@@ -133,11 +139,12 @@ export function getValidationModel(
 				providerMapping.deactivatedAt &&
 				currentDate >= providerMapping.deactivatedAt;
 
+			const kind = getProviderModelKind(model, providerMapping);
 			if (
 				!isStable ||
 				isDeprecated ||
 				isDeactivated ||
-				getProviderModelKind(model, providerMapping) !== "text"
+				(kind !== "text" && kind !== "decision")
 			) {
 				return [];
 			}
@@ -155,6 +162,7 @@ export function getValidationModel(
 				{
 					modelId: model.id,
 					externalId: providerMapping.externalId,
+					kind,
 					price: averagePrice,
 					releasedAt:
 						"releasedAt" in model
@@ -172,8 +180,13 @@ export function getValidationModel(
 		? regionModels
 		: collectModels(false);
 
-	const best = pickCheapestRecentModel(providerModels);
-	return best ? { modelId: best.modelId, externalId: best.externalId } : null;
+	const textModels = providerModels.filter((m) => m.kind === "text");
+	const best = pickCheapestRecentModel(
+		textModels.length ? textModels : providerModels,
+	);
+	return best
+		? { modelId: best.modelId, externalId: best.externalId, kind: best.kind }
+		: null;
 }
 
 export interface PinnedValidationModel {
@@ -323,7 +336,11 @@ export async function validateProviderKey(
 
 	let validationModel:
 		| PinnedValidationModel
-		| { modelId: string; externalId: string; kind: "text" }
+		| {
+				modelId: string;
+				externalId: string;
+				kind: ValidationModelKind;
+		  }
 		| undefined;
 	// Hoisted so the catch can name the host that could not be reached.
 	let endpoint: string | undefined;
@@ -341,10 +358,7 @@ export async function validateProviderKey(
 						pinnedModelId,
 						providerKeyOptions,
 					) ?? undefined)
-			: (() => {
-					const selected = getValidationModel(provider, providerKeyOptions);
-					return selected ? { ...selected, kind: "text" as const } : undefined;
-				})();
+			: (getValidationModel(provider, providerKeyOptions) ?? undefined);
 		if (!validationModel) {
 			if (pinnedModelId) {
 				return {
@@ -434,6 +448,18 @@ export async function validateProviderKey(
 				);
 				payload = { input: "Hello", model: validationModel.externalId };
 			}
+		} else if (validationModel.kind === "decision") {
+			endpoint = appendPath(
+				getValidationBaseUrl(provider, baseUrl, providerKeyOptions),
+				"v1/systemone",
+			);
+			payload = {
+				model: validationModel.externalId,
+				state: "Hello",
+				questions: {
+					greeting: { type: "noul", instructions: "Is this a greeting?" },
+				},
+			};
 		} else if (validationModel.kind === "ocr") {
 			endpoint = appendPath(
 				getValidationBaseUrl(provider, baseUrl, providerKeyOptions),
