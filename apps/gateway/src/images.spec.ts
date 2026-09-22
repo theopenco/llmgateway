@@ -193,6 +193,13 @@ describe("image generation upstream streaming", () => {
 		expect(log.hasError).toBe(false);
 		expect(Number(log.promptTokens)).toBe(usage.input_tokens);
 		expect(Number(log.completionTokens)).toBe(usage.output_tokens);
+		expect(json.usage).toMatchObject({
+			input_tokens: usage.input_tokens,
+			output_tokens: usage.output_tokens,
+			output_tokens_details: { image_tokens: 400, text_tokens: 0 },
+		});
+		expect(json.usage.cost).toBeGreaterThan(0);
+		expect(json.usage.cost).toBeCloseTo(Number(log.cost), 6);
 	}
 
 	describe.each(["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(

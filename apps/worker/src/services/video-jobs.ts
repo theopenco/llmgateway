@@ -45,6 +45,7 @@ import {
 } from "@llmgateway/models";
 import {
 	buildGatewayVideoLogContentUrl,
+	buildVideoUsage,
 	getVideoProxyRedisKey,
 	isContentFilterErrorText,
 	VIDEO_PROXY_REDIS_TTL_SECONDS,
@@ -795,6 +796,7 @@ async function serializeVideoJob(job: VideoJobRecord, logId?: string | null) {
 					},
 				]
 			: undefined,
+		usage: buildVideoUsage(job),
 	};
 }
 
@@ -1462,7 +1464,15 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 			const imageInputCost =
 				jobToLog.status === "completed" ? getVideoImageInputCost(jobToLog) : 0;
 			const totalCost = Number((videoOutputCost + imageInputCost).toFixed(6));
-			const responsePayload = await serializeVideoJob(jobToLog, logId);
+			const costFields = {
+				cost: totalCost,
+				videoOutputCost,
+				imageInputCost,
+			};
+			const responsePayload = await serializeVideoJob(
+				{ ...jobToLog, ...costFields },
+				logId,
+			);
 			const responseSize = JSON.stringify(responsePayload).length;
 
 			const rawVideoError =
@@ -1591,10 +1601,10 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 
 			await tx
 				.update(tables.videoJob)
-				.set({ logId })
+				.set({ logId, ...costFields })
 				.where(eq(tables.videoJob.id, jobToLog.id));
 
-			return { ...jobToLog, logId };
+			return { ...jobToLog, logId, ...costFields };
 		});
 
 		if (claimedJob?.contentUrl) {

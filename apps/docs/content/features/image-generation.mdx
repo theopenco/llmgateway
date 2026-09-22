@@ -50,6 +50,24 @@ curl -X POST "https://api.llmgateway.io/v1/images/generations" \
   }'
 ```
 
+### Usage and cost
+
+Both `/v1/images/generations` and `/v1/images/edits` return a `usage` object with the token counts and the billed cost of the request, in USD:
+
+```json
+"usage": {
+	"input_tokens": 10,
+	"input_tokens_details": { "image_tokens": 0, "text_tokens": 10 },
+	"output_tokens": 229,
+	"output_tokens_details": { "image_tokens": 229, "text_tokens": 0 },
+	"total_tokens": 239,
+	"cost": 0.00692,
+	"cost_details": { "input_cost": 0.00005, "image_output_cost": 0.00687 }
+}
+```
+
+`cost_details` has the same fields as `usage.cost_details` on [chat completions](#response-format).
+
 ### OpenAI SDK
 
 Works with the standard OpenAI client library — just point the base URL to LLMGateway.
