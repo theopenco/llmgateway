@@ -1203,6 +1203,134 @@ describe("videos", () => {
 		}
 	});
 
+	test("/v1/videos forwards MiniMax H3 Max frames to the v2 API and bills per second", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-minimax",
+			...encryptProviderKeyForStorage(
+				"minimax-test-token",
+				"provider-key-minimax",
+				"org-id",
+			),
+			provider: "minimax",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "minimax/minimax-h3-max",
+				prompt: "Morph the first frame into the last frame",
+				size: "1366x768",
+				seconds: 7,
+				image: { image_url: "data:image/png;base64,aGVsbG8=" },
+				last_frame: { image_url: "data:image/png;base64,d29ybGQ=" },
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		const mockVideo = getMockVideo(videoJob!.upstreamId);
+		expect(mockVideo?.requestBody).toEqual({
+			model: "MiniMax-H3-Max",
+			content: [
+				{ type: "text", text: "Morph the first frame into the last frame" },
+				{
+					type: "image_url",
+					image_url: { url: "data:image/png;base64,aGVsbG8=" },
+					role: "first_frame",
+				},
+				{
+					type: "image_url",
+					image_url: { url: "data:image/png;base64,d29ybGQ=" },
+					role: "last_frame",
+				},
+			],
+			resolution: "768P",
+			duration: 7,
+			ratio: "adaptive",
+		});
+
+		setMockVideoStatus(videoJob!.upstreamId, "completed");
+		await processPendingVideoJobs();
+
+		const completedJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(completedJob?.status).toBe("completed");
+		expect(completedJob?.contentUrl).toBe(
+			`${mockServerUrl}/mock-assets/${videoJob!.upstreamId}`,
+		);
+
+		const logs = await db.query.log.findMany({
+			where: { usedModel: { eq: "minimax/minimax-h3-max" } },
+		});
+		expect(logs).toHaveLength(1);
+		expect(logs[0].videoOutputCost).toBe(0.56);
+	});
+
+	test("/v1/videos sends MiniMax H3 Max portrait text-to-video at 480P", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-minimax",
+			...encryptProviderKeyForStorage(
+				"minimax-test-token",
+				"provider-key-minimax",
+				"org-id",
+			),
+			provider: "minimax",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const createRes = await app.request("/v1/videos", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token",
+			},
+			body: JSON.stringify({
+				model: "minimax/minimax-h3-max",
+				prompt: "A paper boat drifting on a pond",
+				size: "480x854",
+				seconds: 5,
+			}),
+		});
+
+		expect(createRes.status).toBe(200);
+		const created = await createRes.json();
+		const videoJob = await db.query.videoJob.findFirst({
+			where: { id: { eq: created.id } },
+		});
+		expect(getMockVideo(videoJob!.upstreamId)?.requestBody).toMatchObject({
+			resolution: "480P",
+			duration: 5,
+			ratio: "9:16",
+		});
+	});
+
 	test("/v1/videos bills xAI 480p video and image input separately", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id",
