@@ -1,10 +1,3 @@
-CREATE TABLE "compliance_alert_recipient" (
-	"id" text PRIMARY KEY,
-	"organization_id" text NOT NULL,
-	"user_id" text NOT NULL,
-	CONSTRAINT "compliance_alert_recipient_organization_id_user_id_unique" UNIQUE("organization_id","user_id")
-);
---> statement-breakpoint
 CREATE TABLE "compliance_provider_state" (
 	"id" text PRIMARY KEY,
 	"organization_id" text NOT NULL,
@@ -63,10 +56,7 @@ CREATE TABLE "organization_notification_channel" (
 ALTER TABLE "notification" ADD COLUMN "organization_id" text;--> statement-breakpoint
 ALTER TABLE "organization" ADD COLUMN "compliance_alert_settings" json;--> statement-breakpoint
 ALTER TABLE "notification" ALTER COLUMN "project_id" DROP NOT NULL;--> statement-breakpoint
-CREATE INDEX "compliance_alert_recipient_user_id_idx" ON "compliance_alert_recipient" ("user_id");--> statement-breakpoint
 CREATE INDEX "organization_alert_delivery_pending_idx" ON "organization_alert_delivery" ("created_at") WHERE "sent_at" IS NULL;--> statement-breakpoint
-ALTER TABLE "compliance_alert_recipient" ADD CONSTRAINT "compliance_alert_recipient_organization_id_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE CASCADE;--> statement-breakpoint
-ALTER TABLE "compliance_alert_recipient" ADD CONSTRAINT "compliance_alert_recipient_user_id_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "user"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "compliance_provider_state" ADD CONSTRAINT "compliance_provider_state_organization_id_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "model_availability_watch" ADD CONSTRAINT "model_availability_watch_organization_id_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "model_availability_watch" ADD CONSTRAINT "model_availability_watch_created_by_user_id_user_id_fkey" FOREIGN KEY ("created_by_user_id") REFERENCES "user"("id") ON DELETE SET NULL;--> statement-breakpoint

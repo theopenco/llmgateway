@@ -27,6 +27,7 @@ import {
 	providers,
 } from "@llmgateway/models";
 import { failureLabel } from "@llmgateway/shared";
+import { isInAlertAudience } from "@llmgateway/shared/organization-roles";
 
 import type { ComplianceAlertSettings, organization } from "@llmgateway/db";
 import type { ProviderCompliancePolicy } from "@llmgateway/models";
@@ -62,23 +63,24 @@ async function modelName(modelId: string): Promise<string> {
 }
 
 /**
- * Whether a user should still receive an org alert: an active member who is on
- * the org's recipient list.
+ * Whether a user should still receive an org alert: an active member whose
+ * role is inside the organization's configured alert audience.
  */
 export async function isComplianceAlertRecipient(
 	userId: string,
 	organizationId: string,
 ): Promise<boolean> {
-	const [membership, recipient] = await Promise.all([
-		db.query.userOrganization.findFirst({
-			where: { userId, organizationId },
-			with: { user: true },
-		}),
-		db.query.complianceAlertRecipient.findFirst({
-			where: { userId, organizationId },
-		}),
-	]);
-	return membership?.user?.status === "active" && !!recipient;
+	const membership = await db.query.userOrganization.findFirst({
+		where: { userId, organizationId },
+		with: { user: true, organization: true },
+	});
+	const audience =
+		membership?.organization?.complianceAlertSettings?.recipientAudience;
+	return (
+		membership?.user?.status === "active" &&
+		!!audience &&
+		isInAlertAudience(membership.role, audience)
+	);
 }
 
 /**
@@ -103,27 +105,26 @@ export async function emitOrgAlert(
 	if (!created) {
 		return;
 	}
-	const recipients = await db.query.complianceAlertRecipient.findMany({
+	const members = await db.query.userOrganization.findMany({
 		where: { organizationId: org.id },
+		with: { user: { columns: { status: true, emailVerified: true } } },
 	});
-	for (const { userId } of recipients) {
-		if (!(await isComplianceAlertRecipient(userId, org.id))) {
+	for (const member of members) {
+		const userId = member.userId;
+		if (
+			member.user?.status !== "active" ||
+			!isInAlertAudience(member.role, settings.recipientAudience)
+		) {
 			continue;
 		}
-		const [preference, user] = await Promise.all([
-			db.query.notificationPreference.findFirst({
-				where: { userId, type: alert.type },
-			}),
-			db.query.user.findFirst({
-				columns: { emailVerified: true },
-				where: { id: userId },
-			}),
-		]);
+		const preference = await db.query.notificationPreference.findFirst({
+			where: { userId, type: alert.type },
+		});
 		const inApp = settings.inApp && (preference?.inApp ?? true);
 		const email =
 			settings.email &&
 			(preference?.email ?? true) &&
-			user?.emailVerified === true;
+			member.user.emailVerified === true;
 		if (!inApp && !email) {
 			continue;
 		}

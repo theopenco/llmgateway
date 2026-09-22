@@ -15,12 +15,15 @@ import {
 	db,
 	eq,
 	isNull,
-	notInArray,
 	organizationNotificationChannelKinds,
 	shortid,
 	tables,
 } from "@llmgateway/db";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+import {
+	alertAudiences,
+	isInAlertAudience,
+} from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ComplianceAlertSettings } from "@llmgateway/db";
@@ -34,6 +37,7 @@ const DEFAULT_SETTINGS = {
 	email: true,
 	channels: [],
 	downgrades: true,
+	recipientAudience: "admin",
 } satisfies ComplianceAlertSettings;
 const orgParams = z.object({ organizationId: z.string() });
 
@@ -301,6 +305,8 @@ const settingsSchema = z.object({
 	email: z.boolean(),
 	channels: z.array(z.enum(organizationNotificationChannelKinds)),
 	downgrades: z.boolean(),
+	// Lowest role that receives alerts; higher roles are always included.
+	recipientAudience: z.enum(alertAudiences),
 });
 
 const watchSchema = z.object({
@@ -323,7 +329,7 @@ complianceAlerts.openapi(
 					"application/json": {
 						schema: z.object({
 							settings: settingsSchema.nullable(),
-							recipientUserIds: z.array(z.string()),
+							recipientCount: z.number(),
 							watches: z.array(watchSchema),
 						}),
 					},
@@ -334,15 +340,17 @@ complianceAlerts.openapi(
 	async (c) => {
 		const { organizationId } = c.req.valid("param");
 		const { organization } = await assertOrgAccess(c, organizationId);
-		const [watches, recipients] = await Promise.all([
+		const [watches, members] = await Promise.all([
 			db.query.modelAvailabilityWatch.findMany({
 				where: { organizationId },
 				orderBy: { createdAt: "asc" },
 			}),
-			db.query.complianceAlertRecipient.findMany({
+			db.query.userOrganization.findMany({
+				columns: { role: true },
 				where: { organizationId },
 			}),
 		]);
+		const audience = organization.complianceAlertSettings?.recipientAudience;
 		const policy = organization.providerCompliancePolicy;
 		const availability = policy?.enabled
 			? await getModelAvailability(
@@ -352,7 +360,9 @@ complianceAlerts.openapi(
 			: new Map<string, string[]>();
 		return c.json({
 			settings: organization.complianceAlertSettings ?? null,
-			recipientUserIds: recipients.map((r) => r.userId),
+			recipientCount: audience
+				? members.filter((m) => isInAlertAudience(m.role, audience)).length
+				: 0,
 			watches: watches.map((watch) => ({
 				id: watch.id,
 				modelId: watch.modelId,
@@ -444,31 +454,15 @@ complianceAlerts.openapi(
 		// The worker only evaluates configured orgs, so the first watch saves
 		// the defaults the dashboard shows: in-app + email to owners and admins.
 		if (!organization.complianceAlertSettings) {
-			await db.transaction(async (tx) => {
-				const [configured] = await tx
-					.update(tables.organization)
-					.set({ complianceAlertSettings: DEFAULT_SETTINGS })
-					.where(
-						and(
-							eq(tables.organization.id, organizationId),
-							isNull(tables.organization.complianceAlertSettings),
-						),
-					)
-					.returning({ id: tables.organization.id });
-				if (!configured) {
-					return;
-				}
-				const admins = await tx.query.userOrganization.findMany({
-					columns: { userId: true },
-					where: { organizationId, role: { in: ["owner", "admin"] } },
-				});
-				if (admins.length) {
-					await tx
-						.insert(tables.complianceAlertRecipient)
-						.values(admins.map((m) => ({ organizationId, userId: m.userId })))
-						.onConflictDoNothing();
-				}
-			});
+			await db
+				.update(tables.organization)
+				.set({ complianceAlertSettings: DEFAULT_SETTINGS })
+				.where(
+					and(
+						eq(tables.organization.id, organizationId),
+						isNull(tables.organization.complianceAlertSettings),
+					),
+				);
 		}
 		await logAuditEvent({
 			organizationId,
@@ -535,9 +529,7 @@ complianceAlerts.openapi(
 				required: true,
 				content: {
 					"application/json": {
-						schema: settingsSchema.extend({
-							recipientUserIds: z.array(z.string()).max(500),
-						}),
+						schema: settingsSchema,
 					},
 				},
 			},
@@ -551,23 +543,11 @@ complianceAlerts.openapi(
 	}),
 	async (c) => {
 		const { organizationId } = c.req.valid("param");
-		const { recipientUserIds, ...settings } = c.req.valid("json");
+		const settings = c.req.valid("json");
 		const { user, organization } = await assertOrgAccess(c, organizationId, {
 			manage: true,
 			enterprise: true,
 		});
-		const recipients = [...new Set(recipientUserIds)];
-		if (recipients.length) {
-			const members = await db.query.userOrganization.findMany({
-				columns: { userId: true },
-				where: { organizationId, userId: { in: recipients } },
-			});
-			if (members.length !== recipients.length) {
-				throw new HTTPException(400, {
-					message: "Recipients must be members of the organization",
-				});
-			}
-		}
 		const channels = [...new Set(settings.channels)];
 		if (channels.length) {
 			const configured =
@@ -585,28 +565,10 @@ complianceAlerts.openapi(
 			}
 		}
 		const next = { ...settings, channels };
-		await db.transaction(async (tx) => {
-			await tx
-				.update(tables.organization)
-				.set({ complianceAlertSettings: next })
-				.where(eq(tables.organization.id, organizationId));
-			await tx
-				.delete(tables.complianceAlertRecipient)
-				.where(
-					and(
-						eq(tables.complianceAlertRecipient.organizationId, organizationId),
-						recipients.length
-							? notInArray(tables.complianceAlertRecipient.userId, recipients)
-							: undefined,
-					),
-				);
-			if (recipients.length) {
-				await tx
-					.insert(tables.complianceAlertRecipient)
-					.values(recipients.map((userId) => ({ organizationId, userId })))
-					.onConflictDoNothing();
-			}
-		});
+		await db
+			.update(tables.organization)
+			.set({ complianceAlertSettings: next })
+			.where(eq(tables.organization.id, organizationId));
 		await logAuditEvent({
 			organizationId,
 			userId: user.id,

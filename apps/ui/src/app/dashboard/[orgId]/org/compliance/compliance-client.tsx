@@ -964,7 +964,6 @@ export function ComplianceClient() {
 					<ComplianceAlertsCard
 						organizationId={organizationId}
 						savedPolicy={savedPolicy}
-						members={teamData?.members ?? []}
 						preferencesUrl={buildOrgUrl("org/preferences")}
 					/>
 				) : null}

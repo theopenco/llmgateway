@@ -16,6 +16,7 @@ import {
 	or,
 	sql,
 } from "@llmgateway/db";
+import { isInAlertAudience } from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -42,20 +43,23 @@ const orgAlertTypes = new Set<string>([
 	"compliance_downgrade",
 ]);
 
-/** Orgs whose compliance alerts the user may still read: member and recipient. */
+/**
+ * Orgs whose compliance alerts the user may still read: a member whose role is
+ * inside the organization's configured alert audience.
+ */
 async function alertOrganizationIds(userId: string): Promise<string[]> {
-	const [memberships, recipients] = await Promise.all([
-		db.query.userOrganization.findMany({
-			columns: { organizationId: true },
-			where: { userId },
-		}),
-		db.query.complianceAlertRecipient.findMany({
-			columns: { organizationId: true },
-			where: { userId },
-		}),
-	]);
-	const member = new Set(memberships.map((m) => m.organizationId));
-	return recipients.map((r) => r.organizationId).filter((id) => member.has(id));
+	const memberships = await db.query.userOrganization.findMany({
+		columns: { organizationId: true, role: true },
+		where: { userId },
+		with: { organization: { columns: { complianceAlertSettings: true } } },
+	});
+	return memberships
+		.filter((m) => {
+			const audience =
+				m.organization?.complianceAlertSettings?.recipientAudience;
+			return !!audience && isInAlertAudience(m.role, audience);
+		})
+		.map((m) => m.organizationId);
 }
 
 async function visibility(userId: string) {

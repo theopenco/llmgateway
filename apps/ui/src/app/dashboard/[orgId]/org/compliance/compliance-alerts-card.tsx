@@ -14,8 +14,14 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/lib/components/card";
-import { Checkbox } from "@/lib/components/checkbox";
 import { Label } from "@/lib/components/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/lib/components/select";
 import { Switch } from "@/lib/components/switch";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
@@ -28,17 +34,20 @@ import {
 	type ProviderCompliancePolicy,
 } from "@llmgateway/models";
 import { MultiModelSelector } from "@llmgateway/shared/components";
+import {
+	alertAudiences,
+	type AlertAudience,
+} from "@llmgateway/shared/organization-roles";
 
-interface Member {
-	userId: string;
-	role: string;
-	user: { email: string; name: string | null };
-}
+const AUDIENCE_LABELS: Record<AlertAudience, string> = {
+	owner: "Owners only",
+	admin: "Owners and admins",
+	member: "Everyone in the organization",
+};
 
 interface ComplianceAlertsCardProps {
 	organizationId: string;
 	savedPolicy: ProviderCompliancePolicy;
-	members: Member[];
 	preferencesUrl: string;
 }
 
@@ -49,7 +58,6 @@ function modelName(modelId: string): string {
 export function ComplianceAlertsCard({
 	organizationId,
 	savedPolicy,
-	members,
 	preferencesUrl,
 }: ComplianceAlertsCardProps) {
 	const api = useApi();
@@ -97,10 +105,10 @@ export function ComplianceAlertsCard({
 	const [email, setEmail] = useState(true);
 	const [slack, setSlack] = useState(false);
 	const [downgrades, setDowngrades] = useState(true);
-	const [recipients, setRecipients] = useState<string[]>([]);
+	const [audience, setAudience] = useState<AlertAudience>("admin");
 	const [pendingModels, setPendingModels] = useState<string[]>([]);
 
-	// Load saved settings; owners and admins are preselected until first save.
+	// Load saved settings; owners and admins are the default audience.
 	useEffect(() => {
 		if (!data) {
 			return;
@@ -109,14 +117,8 @@ export function ComplianceAlertsCard({
 		setEmail(data.settings?.email ?? true);
 		setSlack(data.settings?.channels.includes("slack") ?? false);
 		setDowngrades(data.settings?.downgrades ?? true);
-		setRecipients(
-			data.settings
-				? data.recipientUserIds
-				: members
-						.filter((m) => m.role === "owner" || m.role === "admin")
-						.map((m) => m.userId),
-		);
-	}, [data, members]);
+		setAudience(data.settings?.recipientAudience ?? "admin");
+	}, [data]);
 
 	const watchedIds = useMemo(
 		() => new Set(data?.watches.map((w) => w.modelId) ?? []),
@@ -159,7 +161,7 @@ export function ComplianceAlertsCard({
 					email,
 					channels: slack ? ["slack"] : [],
 					downgrades,
-					recipientUserIds: recipients,
+					recipientAudience: audience,
 				},
 			});
 			toast({
@@ -174,11 +176,6 @@ export function ComplianceAlertsCard({
 			});
 		}
 	};
-
-	const toggleRecipient = (userId: string, checked: boolean) =>
-		setRecipients((current) =>
-			checked ? [...current, userId] : current.filter((id) => id !== userId),
-		);
 
 	return (
 		<Card>
@@ -268,31 +265,29 @@ export function ComplianceAlertsCard({
 				</div>
 
 				<div className="space-y-2">
-					<Label>Recipients</Label>
+					<Label htmlFor="alert-audience">Recipients</Label>
+					<Select
+						value={audience}
+						onValueChange={(value) => setAudience(value as AlertAudience)}
+					>
+						<SelectTrigger id="alert-audience" className="sm:w-80">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{alertAudiences.map((value) => (
+								<SelectItem key={value} value={value}>
+									{AUDIENCE_LABELS[value]}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
 					<p className="text-sm text-muted-foreground">
-						Members who receive in-app and email alerts.
+						{data
+							? `${data.recipientCount} member${data.recipientCount === 1 ? "" : "s"} currently receive these alerts.`
+							: ""}{" "}
+						Each recipient can still turn off in-app or email delivery for their
+						own account.
 					</p>
-					<div className="grid gap-2 sm:grid-cols-2">
-						{members.map((member) => (
-							<label
-								key={member.userId}
-								className="flex items-center gap-2 text-sm"
-							>
-								<Checkbox
-									checked={recipients.includes(member.userId)}
-									onCheckedChange={(checked) =>
-										toggleRecipient(member.userId, checked === true)
-									}
-								/>
-								<span className="truncate">
-									{member.user.name ?? member.user.email}
-								</span>
-								<span className="text-muted-foreground capitalize">
-									{member.role.replace("_", " ")}
-								</span>
-							</label>
-						))}
-					</div>
 				</div>
 
 				<div className="space-y-3">

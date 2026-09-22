@@ -66,15 +66,13 @@ beforeEach(async () => {
 			email: true,
 			channels: ["slack"],
 			downgrades: true,
+			recipientAudience: "admin",
 		},
 	});
 	await db.insert(tables.userOrganization).values([
 		{ userId: "ca-owner", organizationId: ORG, role: "owner" },
 		{ userId: "ca-dev", organizationId: ORG, role: "developer" },
 	]);
-	await db
-		.insert(tables.complianceAlertRecipient)
-		.values({ organizationId: ORG, userId: "ca-owner" });
 	await db.insert(tables.project).values({
 		id: "ca-project",
 		organizationId: ORG,
@@ -262,6 +260,7 @@ describe("processComplianceAlerts", () => {
 					email: true,
 					channels: [],
 					downgrades: false,
+					recipientAudience: "admin",
 				},
 			})
 			.where(eq(tables.organization.id, ORG));
@@ -307,14 +306,27 @@ describe("delivery", () => {
 		expect(send.mock.calls[0][0].to).toBe("owner@example.com");
 	});
 
-	it("does not email a recipient removed before delivery", async () => {
+	it("does not email a user who leaves the audience before delivery", async () => {
 		vi.spyOn(globalThis, "fetch").mockImplementation(
 			async () => new Response("ok"),
 		);
 		await emitAvailability();
 		await db
-			.delete(tables.complianceAlertRecipient)
-			.where(eq(tables.complianceAlertRecipient.userId, "ca-owner"));
+			.update(tables.organization)
+			.set({
+				complianceAlertSettings: {
+					inApp: true,
+					email: true,
+					channels: [],
+					downgrades: true,
+					recipientAudience: "owner",
+				},
+			})
+			.where(eq(tables.organization.id, ORG));
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "admin" })
+			.where(eq(tables.userOrganization.userId, "ca-owner"));
 		await deliverNotificationEmails();
 		expect(send).not.toHaveBeenCalled();
 		const [item] = await db.query.notification.findMany();

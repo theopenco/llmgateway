@@ -123,7 +123,7 @@ Once a policy is saved and enabled, owners and admins can configure **Compliance
 
 - **Watched models**: pick models that no compliant provider serves yet. When a compliant provider starts serving one, LLM Gateway notifies you once, including when your own policy change makes it available. If the model later loses its last compliant provider, the watch re-arms.
 - **Downgrades**: get notified when a provider stops meeting your policy (for example, it loses a certification or starts training on API data) or a watched model stops being available. The alert lists the models your organization used on that provider in the last 30 days that no longer have a compliant provider. Changes to your own policy never trigger downgrade alerts.
-- **Recipients**: owners and admins are preselected and are saved as recipients, with in-app and email delivery, when the first model is watched; any member can be added.
+- **Recipients**: choose the lowest role that receives alerts — owners only, owners and admins, or everyone in the organization. Higher roles are always included. Watching the first model saves the default: owners and admins, with in-app and email delivery.
 - **Delivery**: in-app, email, and Slack. Each recipient can turn off in-app or email delivery for their own account under the notification settings in the dashboard bell.
 
 Alerts are checked every minute against the saved policy.

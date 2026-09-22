@@ -96,8 +96,9 @@ describe("compliance alerts", () => {
 			email: true,
 			channels: [],
 			downgrades: true,
+			recipientAudience: "admin",
 		});
-		expect(body.recipientUserIds).toEqual(["test-user-id"]);
+		expect(body.recipientCount).toBe(1);
 	});
 
 	test("rejects unknown models", async () => {
@@ -130,13 +131,13 @@ describe("compliance alerts", () => {
 		expect(channels[0].target).not.toContain("abcdef123456");
 	});
 
-	test("requires a configured channel and member recipients", async () => {
+	test("requires a configured channel before enabling it", async () => {
 		const settings = {
 			inApp: true,
 			email: true,
 			channels: ["slack"],
 			downgrades: true,
-			recipientUserIds: ["test-user-id"],
+			recipientAudience: "owner",
 		};
 		expect(
 			(await request("/compliance-alerts/settings", "PUT", settings)).status,
@@ -145,19 +146,12 @@ describe("compliance alerts", () => {
 			webhookUrl: slackUrl,
 		});
 		expect(
-			(
-				await request("/compliance-alerts/settings", "PUT", {
-					...settings,
-					recipientUserIds: ["someone-else"],
-				})
-			).status,
-		).toBe(400);
-		expect(
 			(await request("/compliance-alerts/settings", "PUT", settings)).status,
 		).toBe(200);
 		const body = await (await request("/compliance-alerts")).json();
 		expect(body.settings.channels).toEqual(["slack"]);
-		expect(body.recipientUserIds).toEqual(["test-user-id"]);
+		expect(body.settings.recipientAudience).toBe("owner");
+		expect(body.recipientCount).toBe(1);
 
 		await request("/notification-channels/slack", "DELETE");
 		const after = await (await request("/compliance-alerts")).json();
@@ -200,7 +194,7 @@ describe("compliance alerts", () => {
 		).toBe(403);
 	});
 
-	test("shows org alerts in the bell only to current recipients", async () => {
+	test("shows org alerts in the bell only to the configured audience", async () => {
 		await db.insert(tables.notification).values({
 			userId: "test-user-id",
 			organizationId,
@@ -220,8 +214,22 @@ describe("compliance alerts", () => {
 			).notifications;
 		expect(await bell()).toHaveLength(0);
 		await db
-			.insert(tables.complianceAlertRecipient)
-			.values({ organizationId, userId: "test-user-id" });
+			.update(tables.organization)
+			.set({
+				complianceAlertSettings: {
+					inApp: true,
+					email: true,
+					channels: [],
+					downgrades: true,
+					recipientAudience: "admin",
+				},
+			})
+			.where(eq(tables.organization.id, organizationId));
 		expect(await bell()).toHaveLength(1);
+		await db
+			.update(tables.userOrganization)
+			.set({ role: "developer" })
+			.where(eq(tables.userOrganization.organizationId, organizationId));
+		expect(await bell()).toHaveLength(0);
 	});
 });

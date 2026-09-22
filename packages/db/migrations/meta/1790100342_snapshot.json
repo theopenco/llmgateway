@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "09c980d1-86fd-46e1-8966-3e453b9ea877",
+  "id": "2f99fb63-4fca-4aed-afa2-ef44faa3699d",
   "prevId": "d2bd2399-7c89-48b7-aec7-4847fb5724fd",
   "ddl": [
     {
@@ -115,12 +115,6 @@
     {
       "isRlsEnabled": false,
       "name": "chat_support_read_status",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "compliance_alert_recipient",
       "entityType": "tables",
       "schema": "public"
     },
@@ -5276,45 +5270,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "chat_support_read_status"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "compliance_alert_recipient"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "organization_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "compliance_alert_recipient"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "user_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "compliance_alert_recipient"
     },
     {
       "type": "text",
@@ -31046,27 +31001,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "user_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "compliance_alert_recipient_user_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "compliance_alert_recipient"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "organization_id",
           "isExpression": false,
           "asc": true,
@@ -37358,40 +37292,6 @@
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
-      "name": "compliance_alert_recipient_organization_id_organization_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "compliance_alert_recipient"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "user_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "user",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "compliance_alert_recipient_user_id_user_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "compliance_alert_recipient"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "organization_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "organization",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
       "name": "compliance_provider_state_organization_id_organization_id_fkey",
       "entityType": "fks",
       "schema": "public",
@@ -39938,16 +39838,6 @@
         "id"
       ],
       "nameExplicit": false,
-      "name": "compliance_alert_recipient_pkey",
-      "schema": "public",
-      "table": "compliance_alert_recipient",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
       "name": "compliance_provider_state_pkey",
       "schema": "public",
       "table": "compliance_provider_state",
@@ -41061,18 +40951,6 @@
       "entityType": "uniques",
       "schema": "public",
       "table": "api_key_hourly_stats"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "organization_id",
-        "user_id"
-      ],
-      "nullsNotDistinct": false,
-      "name": "compliance_alert_recipient_organization_id_user_id_unique",
-      "entityType": "uniques",
-      "schema": "public",
-      "table": "compliance_alert_recipient"
     },
     {
       "nameExplicit": false,

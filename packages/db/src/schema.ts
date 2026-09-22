@@ -30,6 +30,7 @@ import type {
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
+import type { AlertAudience } from "@llmgateway/shared/organization-roles";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type z from "zod";
 
@@ -6414,6 +6415,8 @@ export interface ComplianceAlertSettings {
 	email: boolean;
 	channels: OrganizationNotificationChannelKind[];
 	downgrades: boolean;
+	/** Lowest role that receives alerts; higher roles are always included. */
+	recipientAudience: AlertAudience;
 }
 
 export const notificationPreference = pgTable(
@@ -6543,23 +6546,6 @@ export const modelAvailabilityWatch = pgTable(
 		createdAt: timestamp().notNull().defaultNow(),
 	},
 	(table) => [unique().on(table.organizationId, table.modelId)],
-);
-
-export const complianceAlertRecipient = pgTable(
-	"compliance_alert_recipient",
-	{
-		id: text().primaryKey().$defaultFn(shortid),
-		organizationId: text()
-			.notNull()
-			.references(() => organization.id, { onDelete: "cascade" }),
-		userId: text()
-			.notNull()
-			.references(() => user.id, { onDelete: "cascade" }),
-	},
-	(table) => [
-		unique().on(table.organizationId, table.userId),
-		index("compliance_alert_recipient_user_id_idx").on(table.userId),
-	],
 );
 
 // Last-seen compliance verdict per provider, used to detect providers that
