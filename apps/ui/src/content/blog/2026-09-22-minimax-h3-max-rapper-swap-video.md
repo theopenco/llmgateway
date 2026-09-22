@@ -9,7 +9,7 @@ faqs:
   - question: "Which video model makes the rapper-swap videos?"
     answer: "MiniMax H3 Max (`minimax-h3-max` on LLM Gateway). It animates a first-frame image into a 5 to 15 second clip with native synchronized audio, so the characters move, rap, and get a beat in one call."
   - question: "Can MiniMax H3 Max use a reference video?"
-    answer: "Not through LLM Gateway today. H3 Max takes a first frame and an optional last frame. You recreate the reference by building a matching first frame with an image edit model, then describing the performance in the prompt. Seedance 2.x is the model to pick if you need `reference_videos`."
+    answer: "Not through LLM Gateway today. H3 Max takes a first frame and an optional last frame. You recreate the reference by building a matching first frame with an image edit model, then describing the performance in the prompt. Seedance 2.x accepts `reference_videos`, but ByteDance rejects reference images and videos that contain real people, so it cannot swap real faces into a real performance."
   - question: "How much does a 15 second H3 Max clip cost?"
     answer: "$1.20 at 768p or $0.75 at 480p, billed per second of generated video ($0.08 and $0.05 per second). The gpt-image-2 first frame added about $0.19 in our run."
   - question: "Do I need to write code to try this?"
@@ -53,6 +53,35 @@ people in it, then let H3 Max do the performance. If your workflow truly needs a
 motion reference, use Seedance 2.x and `reference_videos`; the
 [video generation docs](https://docs.llmgateway.io/features/video-generation)
 list which models accept which inputs.
+
+## Why not edit the original performance with Seedance?
+
+Seedance 2.5 has the obvious tool for this trend: pass the performance as a
+`reference_videos` entry, add identity photos as `reference_images`, and ask it
+to replace the two performers. We tried exactly that through the gateway with
+the same clip and the same portraits, and ByteDance refused every variant before
+a job was created:
+
+```json
+{
+  "error": {
+    "message": "The request failed because the input video 'content[2]' may contain real person."
+  }
+}
+```
+
+That is provider policy, not a gateway limit. ByteDance's own documentation
+states that Seedance 2.5 and 2.0 do not accept reference images or videos that
+contain real human faces; real-person assets are only allowed through its
+portrait library after the depicted person verifies and signs an authorization.
+Third-party resellers that advertise a "face" variant of Seedance carry that
+arrangement on their own account. Rejected requests cost nothing, but they also
+mean a real-face performance swap on Seedance is not something you can build on.
+
+MiniMax H3 Max accepted photographic likenesses of public figures as a first
+frame without complaint, which is why the rest of this guide uses it. You trade
+the frame-accurate motion copy for a performance the model invents from your
+prompt.
 
 ## Step 1: Build the first frame with an image edit
 
@@ -195,7 +224,7 @@ reconstruct from a provider invoice. Current per-model pricing lives on the
 
 ## Things to know before you swap your own people
 
-- **Real faces pass on H3 Max, not everywhere.** MiniMax accepted photographic portraits of public figures as a first frame. Seedance rejects input images that contain a real person, so the same frame returns a `400` there.
+- **Real faces pass on H3 Max, not everywhere.** MiniMax accepted photographic portraits of public figures as a first frame. Seedance rejects reference images and reference videos that contain a real person, so the same inputs return a `400` there.
 - **Moderation still applies.** Blocked generations finish as `failed` with the reason in the `error` object, and failed jobs cost `0`.
 - **Frames and references do not mix.** A request with `image` cannot also carry `reference_images` or `reference_videos`. Pick one mode per call.
 - **Every submit is a new render.** Each accepted `POST /v1/videos` request creates a new asynchronous job; gateway response caching never replays a video request, so resubmitting an identical body bills a second clip.
