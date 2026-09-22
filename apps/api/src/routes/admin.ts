@@ -12426,6 +12426,8 @@ const unstableMappingsListSchema = z.object({
 	ignoredMatcherCount: z.number(),
 	// The exact `used_model` the ranking is narrowed to, if any.
 	mapping: z.string().nullable(),
+	// The canonical model id the ranking is narrowed to (all its mappings).
+	modelId: z.string().nullable(),
 });
 
 const getUnstableMappings = createRoute({
@@ -12447,6 +12449,8 @@ const getUnstableMappings = createRoute({
 			/** Exact `used_model` (`provider/model[:region]`); requires `provider`. */
 			model: z.string().optional(),
 			provider: z.string().optional(),
+			/** Canonical model id; matches every provider/region mapping of it. */
+			modelId: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -12478,6 +12482,12 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const mappingClause =
 		mapping !== null
 			? sql`AND ${tables.log.usedModel} = ${mapping} AND ${tables.log.usedProvider} = ${query.provider}`
+			: sql``;
+	const canonicalModelId = query.modelId || null;
+	// `used_model` is `provider/model[:region]`; strip both to the catalog id.
+	const modelIdClause =
+		canonicalModelId !== null
+			? sql`AND split_part(split_part(${tables.log.usedModel}, '/', 2), ':', 1) = ${canonicalModelId}`
 			: sql``;
 
 	// With the split off every row carries a constant NULL key, so the extra
@@ -12517,6 +12527,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 				${retriedClause}
 				${byokClause}
 				${mappingClause}
+				${modelIdClause}
 			ORDER BY ${tables.log.createdAt} DESC
 			LIMIT ${logLimit}
 		)
@@ -12605,6 +12616,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 		includeByok,
 		ignoredMatcherCount: ignoredMatchers.length,
 		mapping,
+		modelId: canonicalModelId,
 	});
 });
 

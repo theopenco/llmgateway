@@ -24,6 +24,7 @@ interface ListBody {
 	splitByKey: boolean;
 	includeByok: boolean;
 	mapping: string | null;
+	modelId: string | null;
 }
 
 interface ErrorsBody {
@@ -311,5 +312,24 @@ describe("admin unstable mappings", () => {
 			errorsCount: 1,
 		});
 		expect(body.sampledLogs).toBe(2);
+	});
+
+	test("filters the ranking to every mapping of a canonical model", async () => {
+		await seedLog({ usedModel: "openai/gpt-4o", hasError: true });
+		await seedLog({
+			usedModel: "azure/gpt-4o:eastus",
+			usedProvider: "azure",
+			hasError: true,
+		});
+		await seedLog({ usedModel: "azure/gpt-4o:eastus", usedProvider: "azure" });
+		await seedLog({ usedModel: "openai/gpt-4o-mini", hasError: true });
+
+		const body = await getMappings("?modelId=gpt-4o");
+		expect(body.modelId).toBe("gpt-4o");
+		expect(body.sampledLogs).toBe(3);
+		expect(body.mappings.map((m) => m.usedModel).sort()).toEqual([
+			"azure/gpt-4o:eastus",
+			"openai/gpt-4o",
+		]);
 	});
 });

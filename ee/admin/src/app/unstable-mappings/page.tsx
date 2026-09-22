@@ -4,9 +4,9 @@ import {
 	FilterNavigationResults,
 } from "@/components/filter-navigation";
 import { IgnoredErrorMatchersDialog } from "@/components/ignored-error-matchers";
-import { MappingFilterInput } from "@/components/mapping-filter-input";
 import { SegmentedQueryToggle } from "@/components/segmented-query-toggle";
 import { UnstableMappingsTable } from "@/components/unstable-mappings-table";
+import { UnstableScopeFilter } from "@/components/unstable-scope-filter";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import {
@@ -32,6 +32,7 @@ export default async function UnstableMappingsPage({
 		splitByKey?: string;
 		includeByok?: string;
 		mapping?: string;
+		modelId?: string;
 	}>;
 }) {
 	await requireSession();
@@ -47,6 +48,7 @@ export default async function UnstableMappingsPage({
 	const mappingProvider = mapping?.includes("/")
 		? mapping.slice(0, mapping.indexOf("/"))
 		: undefined;
+	const modelId = params?.modelId?.trim() || undefined;
 
 	const $api = await createServerApiClient();
 	const { data, error } = await $api.GET("/admin/unstable-mappings", {
@@ -62,6 +64,7 @@ export default async function UnstableMappingsPage({
 				...(mapping && mappingProvider
 					? { model: mapping, provider: mappingProvider }
 					: {}),
+				...(modelId ? { modelId } : {}),
 			},
 		},
 	});
@@ -94,13 +97,15 @@ export default async function UnstableMappingsPage({
 							{data.splitByKey
 								? "Each row is one provider key's share of a mapping. "
 								: ""}
-							{data.mapping ? `Filtered to ${data.mapping}. ` : ""}
+							{data.mapping ? `Filtered to mapping ${data.mapping}. ` : ""}
+							{data.modelId
+								? `Filtered to every mapping of ${data.modelId}. `
+								: ""}
 							Click a row to load its top 10 error details.
 						</p>
 					</div>
-					<div className="flex flex-col items-start gap-2 lg:items-end">
+					<div className="flex flex-col items-start gap-2 lg:shrink-0 lg:items-end">
 						<div className="flex flex-wrap items-center gap-2">
-							<MappingFilterInput key={mapping ?? ""} mapping={data.mapping} />
 							<IgnoredErrorMatchersDialog
 								matcherCount={data.ignoredMatcherCount}
 							/>
@@ -115,6 +120,16 @@ export default async function UnstableMappingsPage({
 								]}
 							/>
 							<ByokErrorsToggle includeByok={data.includeByok} />
+						</div>
+						<div className="flex flex-wrap items-center gap-2">
+							<span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+								Scope
+							</span>
+							<UnstableScopeFilter
+								key={`${data.mapping ?? ""}|${data.modelId ?? ""}`}
+								mapping={data.mapping}
+								modelId={data.modelId}
+							/>
 						</div>
 						<div className="flex flex-wrap items-center gap-2">
 							<span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

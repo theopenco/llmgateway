@@ -1,6 +1,12 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Filter, Loader2 } from "lucide-react";
+import {
+	Boxes,
+	ChevronDown,
+	ChevronRight,
+	Filter,
+	Loader2,
+} from "lucide-react";
 import Link from "next/link";
 import { Fragment, useState } from "react";
 
@@ -352,12 +358,34 @@ export function UnstableMappingsTable({
 											title="Filter to this mapping"
 											disabled={isPending}
 											onClick={() =>
-												navigate(`mapping:${mapping.usedModel}`, (params) => {
-													params.set("mapping", mapping.usedModel);
-												})
+												navigate(
+													`scope:mapping:${mapping.usedModel}`,
+													(params) => {
+														params.delete("modelId");
+														params.set("mapping", mapping.usedModel);
+													},
+												)
 											}
 										>
 											<Filter className="h-3.5 w-3.5" />
+										</button>
+										<button
+											type="button"
+											className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted disabled:opacity-50"
+											aria-label="Filter to every mapping of this model"
+											title="Filter to every mapping of this model"
+											disabled={isPending}
+											onClick={() =>
+												navigate(
+													`scope:modelId:${mapping.modelId}`,
+													(params) => {
+														params.delete("mapping");
+														params.set("modelId", mapping.modelId);
+													},
+												)
+											}
+										>
+											<Boxes className="h-3.5 w-3.5" />
 										</button>
 									</div>
 								</TableCell>
