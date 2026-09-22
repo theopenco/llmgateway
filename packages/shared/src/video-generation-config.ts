@@ -684,8 +684,22 @@ export function getNormalizedVideoRequestSelection(
 		return sameDuration;
 	}
 
-	const sameSize = validPairs.find((candidate) => candidate.size === size);
-	return sameSize ?? validPairs[0];
+	// Keep the size and move to the nearest supported duration, so adding a
+	// frame to a 10s Veo request lands on 8s rather than 4s.
+	const sameSize = validPairs.filter((candidate) => candidate.size === size);
+	return nearestDuration(sameSize.length > 0 ? sameSize : validPairs, duration);
+}
+
+function nearestDuration<T extends { duration: VideoDuration }>(
+	candidates: T[],
+	duration: VideoDuration,
+): T {
+	return candidates.reduce((closest, candidate) =>
+		Math.abs(candidate.duration - duration) <
+		Math.abs(closest.duration - duration)
+			? candidate
+			: closest,
+	);
 }
 
 /**
