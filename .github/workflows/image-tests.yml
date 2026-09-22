@@ -73,7 +73,7 @@ jobs:
           df -h
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.3.0
+        uses: docker/setup-buildx-action@v4.4.1
 
       - name: Login to GitHub Container Registry (for non-PR builds)
         if: github.event_name != 'pull_request'
@@ -116,7 +116,7 @@ jobs:
         uses: actions/checkout@v7.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.3.0
+        uses: docker/setup-buildx-action@v4.4.1
 
       - name: Login to GitHub Container Registry (for non-PR builds)
         if: github.event_name != 'pull_request'
