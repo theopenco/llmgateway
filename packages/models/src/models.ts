@@ -23,7 +23,9 @@ import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { reveModels } from "./models/reve.js";
 import { sakanaModels } from "./models/sakana.js";
+import { stepfunModels } from "./models/stepfun.js";
 import { tencentModels } from "./models/tencent.js";
+import { thinkingmachinesModels } from "./models/thinkingmachines.js";
 import { typesafeModels } from "./models/typesafe.js";
 import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
@@ -972,4 +974,6 @@ export const models = [
 	...zaiModels,
 	...elevenlabsModels,
 	...typesafeModels,
+	...thinkingmachinesModels,
+	...stepfunModels,
 ] as const satisfies ModelDefinition[];
