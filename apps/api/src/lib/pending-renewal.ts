@@ -19,6 +19,28 @@ import type Stripe from "stripe";
 export async function voidPendingCycleRenewalInvoices(
 	subscriptionId: string,
 ): Promise<void> {
+	await voidSubscriptionInvoices(subscriptionId, {
+		cycleRenewalsOnly: true,
+		reason: "superseded by an immediate upgrade",
+	});
+}
+
+// Voids every pending invoice on a subscription that is being ended while
+// unpaid, so Stripe's retry schedule stops charging the card for a cycle the
+// customer never received.
+export async function voidOpenSubscriptionInvoices(
+	subscriptionId: string,
+): Promise<void> {
+	await voidSubscriptionInvoices(subscriptionId, {
+		cycleRenewalsOnly: false,
+		reason: "cancelled while unpaid",
+	});
+}
+
+async function voidSubscriptionInvoices(
+	subscriptionId: string,
+	{ cycleRenewalsOnly, reason }: { cycleRenewalsOnly: boolean; reason: string },
+): Promise<void> {
 	const stripe = getStripe();
 	let pending: Stripe.Invoice[];
 	try {
@@ -37,14 +59,17 @@ export async function voidPendingCycleRenewalInvoices(
 		pending = [...drafts.data, ...open.data];
 	} catch (error) {
 		logger.error(
-			`Failed to list pending invoices for subscription ${subscriptionId} before re-anchoring its billing cycle`,
+			`Failed to list pending invoices for subscription ${subscriptionId} (${reason})`,
 			error instanceof Error ? error : new Error(String(error)),
 		);
 		return;
 	}
 
 	for (const invoice of pending) {
-		if (invoice.billing_reason !== "subscription_cycle" || !invoice.id) {
+		if (
+			!invoice.id ||
+			(cycleRenewalsOnly && invoice.billing_reason !== "subscription_cycle")
+		) {
 			continue;
 		}
 		try {
@@ -57,12 +82,12 @@ export async function voidPendingCycleRenewalInvoices(
 			if (finalized.status === "open") {
 				await stripe.invoices.voidInvoice(invoice.id);
 				logger.info(
-					`Voided pending cycle-renewal invoice ${invoice.id} on subscription ${subscriptionId} superseded by an immediate upgrade`,
+					`Voided pending invoice ${invoice.id} on subscription ${subscriptionId} ${reason}`,
 				);
 			}
 		} catch (error) {
 			logger.error(
-				`Failed to void pending cycle-renewal invoice ${invoice.id} on subscription ${subscriptionId}; the renewal webhook's staleness guard will skip its credit reset`,
+				`Failed to void pending invoice ${invoice.id} on subscription ${subscriptionId} (${reason}); the renewal webhook's staleness guard will skip its credit reset`,
 				error instanceof Error ? error : new Error(String(error)),
 			);
 		}
