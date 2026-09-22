@@ -20,6 +20,7 @@ import {
 	eq,
 	excludeRegionalMappingRows,
 	getEffectiveDiscount,
+	getRoutingScoreAdjustment,
 	gte,
 	modelProviderMappingHistoryHourly,
 	routingElectionHourly,
@@ -111,6 +112,7 @@ const routingMappingSchema = z
 		listPrice: z.number(),
 		discount: z.number(),
 		price: z.number(),
+		routingAdjustment: z.number(),
 		cacheSupported: z.boolean(),
 		routable: z.boolean(),
 		excludedReasons: z.array(z.string()),
@@ -422,8 +424,13 @@ interface MappingInfo {
 	listPrice: number;
 	/** Platform-wide discount fraction applied to listPrice (0 when none). */
 	discount: number;
-	/** Selection price the score is computed from: listPrice * (1 - discount). */
+	/** Selection price after discounts: listPrice * (1 - discount). */
 	price: number;
+	/**
+	 * Signed routing-score multiplier plus Airside margin adjustment; the score
+	 * uses price * (1 + routingAdjustment), matching live election.
+	 */
+	routingAdjustment: number;
 	cacheSupported: boolean;
 	routable: boolean;
 	excludedReasons: string[];
@@ -470,6 +477,13 @@ async function buildMappingInfos(
 							.discount,
 				},
 			);
+			const rawAdjustment = Number(
+				await getRoutingScoreAdjustment(mapping.providerId, model.id),
+			);
+			const routingAdjustment =
+				Number.isFinite(rawAdjustment) && rawAdjustment >= -1
+					? rawAdjustment
+					: 0;
 			return {
 				providerId: mapping.providerId,
 				providerName: providerDef?.name ?? mapping.providerId,
@@ -481,6 +495,7 @@ async function buildMappingInfos(
 				listPrice: getProviderSelectionPrice(mapping).toNumber(),
 				discount: discount.toNumber(),
 				price: price.toNumber(),
+				routingAdjustment,
 				cacheSupported: providerSupportsCaching(mapping),
 				routable: excludedReasons.length === 0,
 				excludedReasons,
@@ -501,7 +516,7 @@ function scoreEntries(
 	const candidates: CandidateScoreInput[] = routableMappings.map((mapping) => {
 		const metrics = metricsByProvider.get(mapping.providerId);
 		return {
-			price: new Decimal(mapping.price),
+			price: new Decimal(mapping.price).times(1 + mapping.routingAdjustment),
 			uptime: metrics?.uptime ?? undefined,
 			latency: metrics?.latency ?? undefined,
 			throughput: metrics?.throughput ?? undefined,

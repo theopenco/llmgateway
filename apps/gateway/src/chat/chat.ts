@@ -28,8 +28,7 @@ import {
 	findActiveCustomModels,
 	findEffectiveDiscount,
 	findAirsideModel,
-	findAirsideRoutingAdjustment,
-	findEffectiveRoutingScoreMultiplier,
+	findRoutingScoreAdjustment,
 	findProviderKey,
 	findActiveProviderKeys,
 	findProviderKeysByProviders,
@@ -545,18 +544,10 @@ function createProviderDiscountResolver(organizationId: string) {
 }
 
 function createProviderRoutingScoreMultiplierResolver() {
-	// Two independent signals: the admin prioritization multiplier and the
-	// carrier's own Airside margin/discount adjustment, applied additively.
 	return async (
 		provider: Pick<ProviderModelMapping, "providerId">,
 		modelId: string,
-	) => {
-		const [multiplier, airsideAdjustment] = await Promise.all([
-			findEffectiveRoutingScoreMultiplier(provider.providerId, modelId),
-			findAirsideRoutingAdjustment(provider.providerId, modelId),
-		]);
-		return String(Number(multiplier.scoreMultiplier) + airsideAdjustment);
-	};
+	) => await findRoutingScoreAdjustment(provider.providerId, modelId);
 }
 
 async function collapseProvidersToBestRegionPerProvider(

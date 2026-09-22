@@ -2,6 +2,64 @@ import type { ModelDefinition } from "@/models.js";
 
 export const xiaomiModels = [
 	{
+		id: "mimo-v2.6-pro",
+		name: "MiMo V2.6 Pro",
+		description:
+			"Xiaomi's flagship trillion-parameter omni-modal reasoning model with 1M context, built for complex, long-horizon agentic work.",
+		family: "xiaomi",
+		releasedAt: new Date("2026-09-22"),
+		providers: [
+			{
+				providerId: "xiaomi" as const,
+				externalId: "mimo-v2.6-pro",
+				inputPrice: "0.435e-6",
+				outputPrice: "0.87e-6",
+				cachedInputPrice: "0.0036e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				maxTemperature: 1.5,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high"],
+				vision: true,
+				audio: true,
+				tools: true,
+				supportedToolChoices: ["auto"],
+				jsonOutput: true,
+			},
+		],
+	},
+	{
+		id: "mimo-v2.6-flash",
+		name: "MiMo V2.6 Flash",
+		description:
+			"Xiaomi's low-cost omni-modal reasoning model with 1M context, balancing intelligence and price for high-volume workloads.",
+		family: "xiaomi",
+		releasedAt: new Date("2026-09-22"),
+		providers: [
+			{
+				providerId: "xiaomi" as const,
+				externalId: "mimo-v2.6-flash",
+				inputPrice: "0.14e-6",
+				outputPrice: "0.28e-6",
+				cachedInputPrice: "0.0028e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				maxTemperature: 1.5,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high"],
+				vision: true,
+				audio: true,
+				tools: true,
+				supportedToolChoices: ["auto"],
+				jsonOutput: true,
+			},
+		],
+	},
+	{
 		id: "mimo-v2.5-pro",
 		name: "MiMo V2.5 Pro",
 		description:

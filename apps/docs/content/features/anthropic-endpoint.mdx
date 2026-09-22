@@ -173,12 +173,11 @@ For Claude models, `cache_control` markers on `system` and message content block
 Cache usage comes back in Anthropic's native fields: `usage.cache_creation_input_tokens` (tokens written to the cache this request, billed at the write premium), `usage.cache_read_input_tokens` (tokens served from cache at the discounted rate), and `usage.cache_creation` (the per-TTL write breakdown).
 
 <Callout type="warning">
-	Each Claude model has a minimum cacheable prompt length (4,096 tokens on
-	current-generation models such as Opus 4.5+, Sonnet 5, and Haiku 4.5). A
-	`cache_control` marker on a shorter prompt is accepted but silently not cached
-	— both cache usage fields stay `0`. See [Provider Cache
-	Control](/features/caching/provider-cache-control) for the per-model
-	thresholds and details.
+	Each Claude model has a minimum cacheable prompt length (it varies by model
+	and is exposed as `min_cacheable_tokens` on `/v1/models`). A `cache_control`
+	marker on a shorter prompt is accepted but silently not cached — both cache
+	usage fields stay `0`. See [Provider Cache
+	Control](/features/caching/provider-cache-control) for details.
 </Callout>
 
 ### Web Search
@@ -234,4 +233,4 @@ Send every tool definition on every request, including the deferred ones — Ant
 
 ### Gateway Response Cache
 
-If [gateway caching](/features/caching/gateway-caching) is enabled on the project, a byte-identical request is replayed from cache instead of being sent upstream. Because the replayed body is identical (same `id`, same `usage`), the `x-llmgateway-cache: HIT` response header is the marker to check. Send `x-no-cache: true` to bypass the cache for a single request.
+If [gateway caching](/features/caching/gateway-caching) is enabled on the project, a repeated request with the same [cache-key fields](/features/caching/gateway-caching#cache-key-generation) — resolved provider and model, messages, and the other keyed parameters; fields outside the cache key and insignificant JSON whitespace don't affect matching, but the key order inside message and tool objects does, and a request routed to a different provider is a cache miss — is replayed from cache instead of being sent upstream. Because this endpoint exposes no metadata envelope or cost fields, the replayed body is indistinguishable from the original (same `id`, content, and token counts), so the `x-llmgateway-cache: HIT` response header is the marker to check. Send `x-no-cache: true` to bypass the cache for a single request.
