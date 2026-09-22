@@ -135,8 +135,11 @@ export function ProviderIncidentsClient({
 						<p className="mt-1 text-sm text-muted-foreground">
 							What the carrier sees in Airside for{" "}
 							<span className="font-mono">{providerId}</span>: failed requests
-							over the last {timeWindow}, excluding client errors. Counts
-							include retried attempts; expand a row for the top error shapes.
+							over the last {timeWindow}, excluding client errors (not retried,
+							no effect on uptime). Upstream errors count against the
+							provider&apos;s uptime; gateway errors are ours; other covers
+							canceled and content-filtered requests. Counts include retried
+							attempts; expand a row for the top error shapes.
 						</p>
 					</div>
 				</div>
@@ -261,7 +264,9 @@ export function ProviderIncidentsClient({
 								<TableHead>Model</TableHead>
 								<TableHead className="text-right">Error Rate</TableHead>
 								<TableHead className="text-right">Errors</TableHead>
-								<TableHead className="text-right">Upstream / Gateway</TableHead>
+								<TableHead className="text-right">
+									Upstream / Gateway / Other
+								</TableHead>
 								<TableHead className="text-right">Requests</TableHead>
 							</TableRow>
 						</TableHeader>
@@ -317,7 +322,12 @@ export function ProviderIncidentsClient({
 											</TableCell>
 											<TableCell className="text-right tabular-nums text-muted-foreground">
 												{formatNumber(row.upstreamErrorCount)} /{" "}
-												{formatNumber(row.gatewayErrorCount)}
+												{formatNumber(row.gatewayErrorCount)} /{" "}
+												{formatNumber(
+													row.errorCount -
+														row.upstreamErrorCount -
+														row.gatewayErrorCount,
+												)}
 											</TableCell>
 											<TableCell className="text-right tabular-nums text-muted-foreground">
 												{formatNumber(row.requestCount)}
