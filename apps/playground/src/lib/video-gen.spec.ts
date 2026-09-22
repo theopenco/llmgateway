@@ -5,10 +5,12 @@ import {
 	getSupportedVideoRequestOptions,
 	getSupportedVideoSizesForSelection,
 	getNormalizedVideoRequestSelection,
+	isPendingVideoModel,
 	supportsVideoFrameInput,
 	supportsVideoReferenceInput,
 	supportsVideoReferenceVideoInput,
 	supportsVideoReferenceAudioInput,
+	videoContentUrl,
 } from "./video-gen";
 
 import type { ApiModel, ApiModelProviderMapping } from "./fetch-models";
@@ -454,5 +456,27 @@ describe("Grok Imagine Video 1.5 capabilities", () => {
 		expect(supportsVideoFrameInput("xai/grok-imagine-video-1.5-preview")).toBe(
 			true,
 		);
+	});
+});
+
+describe("saved video model results", () => {
+	test("a created job with no result is pending", () => {
+		expect(isPendingVideoModel({ jobId: "video_1", videoUrl: null })).toBe(
+			true,
+		);
+	});
+
+	test("finished, failed and never-created jobs are not pending", () => {
+		expect(
+			isPendingVideoModel({ jobId: "video_1", videoUrl: "/api/video/1" }),
+		).toBe(false);
+		expect(
+			isPendingVideoModel({ jobId: "video_1", videoUrl: null, error: "x" }),
+		).toBe(false);
+		expect(isPendingVideoModel({ jobId: null, videoUrl: null })).toBe(false);
+	});
+
+	test("content URLs go through the playground proxy", () => {
+		expect(videoContentUrl("video_1")).toBe("/api/video/video_1/content");
 	});
 });

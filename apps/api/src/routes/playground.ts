@@ -1102,7 +1102,9 @@ playground.openapi(saveVideoHistory, async (c) => {
 			createdAt: tables.playgroundVideoHistory.createdAt,
 		});
 
-	if (body.models.some((m) => !m.error)) {
+	// Items are saved at submission with pending models; points land on the
+	// PATCH that records the first finished video.
+	if (body.models.some((m) => m.videoUrl)) {
 		await awardLoungePoints(user.id, "video_generation");
 	}
 
@@ -1167,7 +1169,7 @@ playground.openapi(deleteVideoHistory, async (c) => {
 
 // ── PATCH /video-history/:id ─────────────────────────────────────────────────
 
-const renameVideoHistory = createRoute({
+const updateVideoHistory = createRoute({
 	method: "patch",
 	path: "/video-history/{id}",
 	request: {
@@ -1175,7 +1177,17 @@ const renameVideoHistory = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z.object({ prompt: z.string().min(1) }),
+					schema: z
+						.object({
+							prompt: z.string().min(1).optional(),
+							// Full replacement of the item's model results, sent as jobs
+							// finish or fail after the item was saved at submission.
+							models: z.array(videoModelResultSchema).min(1).optional(),
+						})
+						.refine(
+							(body) => body.prompt !== undefined || body.models !== undefined,
+							{ message: "prompt or models is required" },
+						),
 				},
 			},
 		},
@@ -1198,18 +1210,28 @@ const renameVideoHistory = createRoute({
 	},
 });
 
-playground.openapi(renameVideoHistory, async (c) => {
+playground.openapi(updateVideoHistory, async (c) => {
 	const user = c.get("user");
 	if (!user) {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 
 	const { id } = c.req.valid("param");
-	const { prompt } = c.req.valid("json");
+	const { prompt, models } = c.req.valid("json");
+
+	const existing = await db.query.playgroundVideoHistory.findFirst({
+		where: { id: { eq: id }, userId: { eq: user.id } },
+	});
+	if (!existing) {
+		throw new HTTPException(404, { message: "Not found" });
+	}
 
 	const [row] = await db
 		.update(tables.playgroundVideoHistory)
-		.set({ prompt })
+		.set({
+			...(prompt !== undefined && { prompt }),
+			...(models && { models }),
+		})
 		.where(
 			and(
 				eq(tables.playgroundVideoHistory.id, id),
@@ -1224,6 +1246,15 @@ playground.openapi(renameVideoHistory, async (c) => {
 
 	if (!row) {
 		throw new HTTPException(404, { message: "Not found" });
+	}
+
+	// Awarded once per item, when its first finished video is recorded.
+	if (
+		models &&
+		!existing.models.some((m) => m.videoUrl) &&
+		models.some((m) => m.videoUrl)
+	) {
+		await awardLoungePoints(user.id, "video_generation");
 	}
 
 	return c.json({

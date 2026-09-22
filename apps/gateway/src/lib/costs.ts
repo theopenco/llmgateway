@@ -299,6 +299,19 @@ export async function calculateCosts(
 		 * up charged for 1.17M of them.
 		 */
 		allowOutputEstimate?: boolean;
+		/**
+		 * The provider rejected the request with an error that carries no usage,
+		 * so the token counts here are gateway estimates. Providers do not bill a
+		 * rejected request (Google charges only 200 responses; OpenAI's
+		 * `moderation_blocked` is a 400), so every inference cost is zeroed and
+		 * only a mapping-declared fee (`contentFilterPrice`, xAI's published
+		 * usage-guideline fee) is charged. Token counts stay for analytics.
+		 *
+		 * Never set this for a safety block the provider *served* as a 200 with
+		 * usage (e.g. Gemini `IMAGE_SAFETY`): those are billed on the reported
+		 * input like any other response, which is what the provider charges.
+		 */
+		rejectionWithoutUsage?: boolean;
 	},
 	contentFilterTriggered = false,
 ) {
@@ -892,7 +905,8 @@ export async function calculateCosts(
 	// and if it turns out not to be rare that is itself the finding. The logger
 	// attaches the trace id in production, which is also stored on the log row,
 	// so a hit here pivots straight to the request it charged.
-	if (isEstimated && totalCost.greaterThan(0)) {
+	const rejectionFeeOnly = options?.rejectionWithoutUsage === true;
+	if (isEstimated && !rejectionFeeOnly && totalCost.greaterThan(0)) {
 		logger.warn("Billed a request on estimated token counts", {
 			model,
 			provider,
@@ -907,7 +921,7 @@ export async function calculateCosts(
 		});
 	}
 
-	return {
+	const costs = {
 		inputCost: inputCost.toNumber(),
 		outputCost: outputCost.toNumber(),
 		cachedInputCost: cachedInputCost.toNumber(),
@@ -938,8 +952,14 @@ export async function calculateCosts(
 		completionTokens: calculatedCompletionTokens,
 		cachedTokens,
 		cacheWriteTokens,
-		estimatedCost: isEstimated,
+		estimatedCost: isEstimated && !rejectionFeeOnly,
 		discount: Number(discount) !== 0 ? Number(discount) : undefined,
 		pricingTier: pricing.tierName,
 	};
+	if (rejectionFeeOnly) {
+		zeroInferenceCosts(costs);
+		costs.contentFilterCost = contentFilterCost.toNumber();
+		costs.totalCost = costs.contentFilterCost;
+	}
+	return costs;
 }

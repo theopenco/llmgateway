@@ -810,7 +810,6 @@ export const xaiModels = [
 			{
 				test: "skip",
 				providerId: "xai",
-				contentFilterPrice: 0.05,
 				externalId: "grok-imagine-image-pro",
 				deactivatedAt: new Date("2026-05-15"),
 				inputPrice: "0",
@@ -839,7 +838,6 @@ export const xaiModels = [
 			{
 				test: "skip",
 				providerId: "xai",
-				contentFilterPrice: 0.05,
 				externalId: "grok-imagine-image",
 				inputPrice: "0",
 				outputPrice: "0",
@@ -867,7 +865,6 @@ export const xaiModels = [
 			{
 				test: "skip",
 				providerId: "xai",
-				contentFilterPrice: 0.05,
 				externalId: "grok-imagine-image-2.0",
 				inputPrice: "0",
 				outputPrice: "0",

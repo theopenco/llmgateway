@@ -7865,6 +7865,7 @@ chat.openapi(completions, async (c) => {
 							explicitCacheUsed,
 							servedServiceTier,
 							customPricing: customPricingMapping,
+							rejectionWithoutUsage: true,
 						},
 						true,
 					);
@@ -9039,7 +9040,11 @@ chat.openapi(completions, async (c) => {
 										image_config?.image_quality,
 										null,
 										null,
-										{ servedServiceTier, customPricing: customPricingMapping },
+										{
+											servedServiceTier,
+											customPricing: customPricingMapping,
+											rejectionWithoutUsage: true,
+										},
 										true,
 									)
 								: null;
@@ -13407,7 +13412,11 @@ chat.openapi(completions, async (c) => {
 							image_config?.image_quality,
 							null,
 							null,
-							{ servedServiceTier, customPricing: customPricingMapping },
+							{
+								servedServiceTier,
+								customPricing: customPricingMapping,
+								rejectionWithoutUsage: true,
+							},
 							true,
 						)
 					: null;
