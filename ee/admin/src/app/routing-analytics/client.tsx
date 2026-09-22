@@ -601,7 +601,7 @@ export function RoutingAnalyticsClient() {
 
 	const providerName = (providerId: string) =>
 		data?.mappings.find((m) => m.providerId === providerId)?.providerName ??
-		providerId;
+		`${providerId} (not a mapping)`;
 
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
