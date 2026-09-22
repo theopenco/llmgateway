@@ -1780,7 +1780,7 @@ describe("prepareRequestBody - OpenAI explicit prompt caching", () => {
 		{ role: "user", content: "dynamic input" },
 	];
 
-	test.each(["gpt-5.6-sol", "gpt-6-astra"])(
+	test.each(["gpt-5.6-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"])(
 		"forwards prompt_cache_options and breakpoints for %s",
 		async (model) => {
 			const requestBody = (await prepareOpenAITextRequest({
