@@ -3,7 +3,7 @@ id: "102"
 slug: "gpt-6-sol-luna"
 date: "2026-09-22"
 title: "GPT-6 Sol & Luna at Half the Price"
-summary: "OpenAI's GPT-6 Sol and GPT-6 Luna are live on the gateway at $2 / $10 and $0.10 / $0.50 per 1M tokens — half the GPT-5.6 rates — with cache reads at 10% of input, a 1.05M-token context window, and reasoning from none to max."
+summary: "OpenAI's GPT-6 Sol and GPT-6 Luna are live on the gateway at $2 / $10 and $0.10 / $0.50 per 1M tokens — Sol at half the GPT-5.6 Sol rate, Luna at half the GPT-5.6 Luna input rate and 58% below it on output — with cache reads at 10% of input, a 1.05M-token context window, and reasoning from none to max."
 image:
   src: "/changelog/gpt-6-sol-luna.png"
   alt: "A glowing golden sun and a silver crescent moon on a circuit-board chip, surrounded by a halved coin stack with a price tag, a terminal window, a down arrow, and chat bubbles"
@@ -11,7 +11,7 @@ image:
   height: 1024
 ---
 
-The GPT-6 family launched with Astra at $10 / $50 per 1M tokens, a price that keeps it out of most high-volume pipelines. OpenAI's two new siblings close that gap: **GPT-6 Sol** and **GPT-6 Luna** are live on LLM Gateway today at half the GPT-5.6 rates, with the same 1.05M-token context window, 128K output ceiling, and `pro` reasoning mode.
+The GPT-6 family launched with Astra at $10 / $50 per 1M tokens, a price that keeps it out of most high-volume pipelines. OpenAI's two new siblings close that gap: **GPT-6 Sol** and **GPT-6 Luna** are live on LLM Gateway today. Sol costs half of GPT-5.6 Sol on both input and output; Luna costs half of GPT-5.6 Luna on input and 58% less on output. Both keep the same 1.05M-token context window, 128K output ceiling, and `pro` reasoning mode.
 
 ## Pricing
 
