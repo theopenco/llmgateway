@@ -287,6 +287,17 @@ Typical statuses:
 - `canceled`
 - `expired`
 
+Once a job reaches a terminal status and has been billed, the response (and the signed callback payload) includes its cost in USD:
+
+```json
+"usage": {
+	"cost": 0.4,
+	"cost_details": { "video_output_cost": 0.4, "image_input_cost": 0 }
+}
+```
+
+Failed, canceled, and expired jobs report a cost of `0`.
+
 `google-vertex` follows Vertex AI's long-running operation flow. The gateway submits Veo generation with `predictLongRunning`, polls with `fetchPredictOperation`, and streams the final bytes through the gateway content endpoint once the operation is done.
 
 `bytedance` uses the ModelArk `/contents/generations/tasks` endpoint. The gateway submits the job, polls the upstream task status, and exposes the final video bytes through the gateway content endpoint once the task succeeds.

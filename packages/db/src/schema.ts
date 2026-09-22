@@ -2565,6 +2565,10 @@ export const videoJob = pgTable(
 		callbackEventType: text(),
 		callbackDeliveredAt: timestamp(),
 		resultLoggedAt: timestamp(),
+		// Billed cost, stamped by the worker at finalization (null until then).
+		cost: real(),
+		videoOutputCost: real(),
+		imageInputCost: real(),
 		routingMetadata: jsonb().$type<{
 			availableProviders?: string[];
 			selectedProvider?: string;

@@ -106,6 +106,35 @@ interface ImageClientErrorLogContext {
 	retentionLevel: "retain" | "none";
 }
 
+const imageTokensDetailsSchema = z.object({
+	image_tokens: z.number(),
+	text_tokens: z.number(),
+});
+
+const imagesUsageSchema = z
+	.object({
+		input_tokens: z.number(),
+		input_tokens_details: imageTokensDetailsSchema,
+		output_tokens: z.number(),
+		output_tokens_details: imageTokensDetailsSchema,
+		total_tokens: z.number(),
+		cost: z.number().nullable().optional().openapi({
+			description: "Total cost of the request in USD.",
+		}),
+		cost_details: z
+			.record(z.string(), z.number().nullable())
+			.optional()
+			.openapi({
+				description:
+					"Cost breakdown in USD, matching `usage.cost_details` on chat completions.",
+			}),
+	})
+	.openapi({
+		description: "Token usage and cost of the underlying generation.",
+	});
+
+type ImagesUsage = z.infer<typeof imagesUsageSchema>;
+
 const imageGenerationsResponseSchema = z.object({
 	created: z.number(),
 	data: z.array(
@@ -114,7 +143,44 @@ const imageGenerationsResponseSchema = z.object({
 			revised_prompt: z.string().optional(),
 		}),
 	),
+	usage: imagesUsageSchema.optional(),
 });
+
+function buildImagesUsage(chatResponse: any): ImagesUsage | undefined {
+	const usage = chatResponse?.usage;
+	if (!usage || typeof usage !== "object") {
+		return undefined;
+	}
+
+	const inputTokens = Number(usage.prompt_tokens ?? 0);
+	const outputTokens = Number(usage.completion_tokens ?? 0);
+	const inputImageTokens = Math.min(
+		inputTokens,
+		Number(usage.prompt_tokens_details?.image_tokens ?? 0),
+	);
+	const outputImageTokens = Math.min(
+		outputTokens,
+		Number(usage.completion_tokens_details?.image_tokens ?? 0),
+	);
+
+	return {
+		input_tokens: inputTokens,
+		input_tokens_details: {
+			image_tokens: inputImageTokens,
+			text_tokens: inputTokens - inputImageTokens,
+		},
+		output_tokens: outputTokens,
+		output_tokens_details: {
+			image_tokens: outputImageTokens,
+			text_tokens: outputTokens - outputImageTokens,
+		},
+		total_tokens: Number(usage.total_tokens ?? inputTokens + outputTokens),
+		...(usage.cost !== undefined && { cost: usage.cost }),
+		...(usage.cost_details !== undefined && {
+			cost_details: usage.cost_details,
+		}),
+	};
+}
 
 const generations = createRoute({
 	operationId: "v1_images_generations",
@@ -808,9 +874,11 @@ images.openapi(generations, async (c): Promise<any> => {
 	const truncatedImages = imageObjects.slice(0, request.n);
 
 	// Build the OpenAI-compatible images response
-	const imagesResponse = {
+	const usage = buildImagesUsage(chatResponse);
+	const imagesResponse: z.infer<typeof imageGenerationsResponseSchema> = {
 		created: Math.floor(Date.now() / 1000),
 		data: truncatedImages,
+		...(usage && { usage }),
 	};
 
 	logger.debug("Images API - returning response", {
@@ -902,23 +970,6 @@ const imageEditsResponseSchema = imageGenerationsResponseSchema.extend({
 	output_format: z.enum(["png", "webp", "jpeg"]).optional(),
 	quality: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
 	size: z.string().optional(),
-	usage: z
-		.object({
-			input_tokens: z.number(),
-			input_tokens_details: z.object({
-				image_tokens: z.number(),
-				text_tokens: z.number(),
-			}),
-			output_tokens: z.number(),
-			total_tokens: z.number(),
-			output_tokens_details: z
-				.object({
-					image_tokens: z.number(),
-					text_tokens: z.number(),
-				})
-				.optional(),
-		})
-		.optional(),
 });
 
 const edits = createRoute({
@@ -1262,9 +1313,11 @@ async function processImageEdit(
 		retainPayloadLogs,
 	);
 
+	const usage = buildImagesUsage(chatResponse);
 	const imagesResponse: z.infer<typeof imageEditsResponseSchema> = {
 		created: Math.floor(Date.now() / 1000),
 		data: imageObjects,
+		...(usage && { usage }),
 	};
 
 	if (request.background && request.background !== "auto") {

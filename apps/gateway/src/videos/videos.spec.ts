@@ -1384,6 +1384,15 @@ describe("videos", () => {
 		expect(logs[0].imageInputCost).toBe(0.01);
 		expect(logs[0].videoOutputCost).toBe(0.48);
 		expect(logs[0].cost).toBe(0.49);
+
+		const getRes = await app.request(`/v1/videos/${created.id}`, {
+			headers: { Authorization: "Bearer real-token" },
+		});
+		expect(getRes.status).toBe(200);
+		const retrieved = await getRes.json();
+		expect(retrieved.usage.cost).toBeCloseTo(0.49, 6);
+		expect(retrieved.usage.cost_details.video_output_cost).toBeCloseTo(0.48, 6);
+		expect(retrieved.usage.cost_details.image_input_cost).toBeCloseTo(0.01, 6);
 	});
 
 	test("/v1/videos bills xAI 720p at the 720p rate", async () => {

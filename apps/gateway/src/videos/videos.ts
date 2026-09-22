@@ -111,6 +111,7 @@ import {
 	type VertexTokenType,
 } from "@llmgateway/models";
 import {
+	buildVideoUsage,
 	type ContentFilterClassifier,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
 	getVideoProxyRedisKey,
@@ -519,6 +520,19 @@ const videoResponseSchema = z.object({
 	expires_at: z.number().nullable(),
 	error: videoErrorSchema.nullable(),
 	content: videoContentSchema.optional(),
+	usage: z
+		.object({
+			cost: z.number(),
+			cost_details: z.object({
+				video_output_cost: z.number(),
+				image_input_cost: z.number(),
+			}),
+		})
+		.optional()
+		.openapi({
+			description:
+				"Billed cost in USD. Present once the job reaches a terminal status and has been billed.",
+		}),
 });
 
 const createVideo = createRoute({
@@ -2590,6 +2604,7 @@ async function serializeVideoJob(job: VideoJobRecord, logId?: string | null) {
 					},
 				]
 			: undefined,
+		usage: buildVideoUsage(job),
 	};
 }
 

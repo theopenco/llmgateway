@@ -1877,6 +1877,13 @@
       "when": 1790073237609,
       "tag": "1790073237_glorious_shatterstar",
       "breakpoints": true
+    },
+    {
+      "idx": 268,
+      "version": "8",
+      "when": 1790077966458,
+      "tag": "1790077966_small_sentry",
+      "breakpoints": true
     }
   ]
 }
