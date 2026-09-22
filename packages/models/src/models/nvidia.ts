@@ -2,6 +2,35 @@ import type { ModelDefinition } from "@/models.js";
 
 export const nvidiaModels = [
 	{
+		id: "nemotron-3.5-lightning",
+		name: "Nemotron 3.5 Lightning",
+		description:
+			"NVIDIA's open MoE model (30B total, 3B active) for high-throughput agentic workloads.",
+		family: "nvidia",
+		releasedAt: new Date("2026-08-11"),
+		providers: [
+			{
+				providerId: "deepinfra",
+				externalId: "nvidia/NVIDIA-Nemotron-3.5-Lightning",
+				inputPrice: "0.08e-6",
+				outputPrice: "0.2e-6",
+				requestPrice: "0",
+				contextSize: 262144,
+				maxOutput: 131072,
+				quantization: "bf16",
+				maxTemperature: 1,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high"],
+				vision: false,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "function"],
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
 		id: "nemotron-3-ultra-550b",
 		name: "Nemotron 3 Ultra 550B",
 		description:
