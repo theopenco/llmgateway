@@ -23,6 +23,7 @@ import { chatPlans } from "./chat-plans.js";
 import { chatProjects } from "./chat-projects.js";
 import { chat } from "./chat.js";
 import { chats } from "./chats.js";
+import { complianceAlerts } from "./compliance-alerts.js";
 import { connectors } from "./connectors.js";
 import { customModels } from "./custom-models.js";
 import { devPlanCancellationFeedback } from "./dev-plan-cancellation-feedback.js";
@@ -110,6 +111,7 @@ routes.route("/playground", playground);
 
 routes.route("/orgs", organization);
 routes.route("/orgs", organizationSkills);
+routes.route("/orgs", complianceAlerts);
 routes.route("/team", team);
 routes.route("/team", organizationTeams);
 routes.route("/payments", payments);

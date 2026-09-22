@@ -2603,6 +2603,43 @@ export function getProviderComplianceFailures(
 	];
 }
 
+export interface ModelMappingAvailability {
+	providerId: string;
+	deprecatedAt?: Date | null;
+	deactivatedAt?: Date | null;
+}
+
+/**
+ * Catalogue providers that serve `modelId` under the policy: active,
+ * non-deprecated mappings whose provider has no compliance failures. Unknown
+ * providers (e.g. DB-only carriers) fail closed. Empty when the model itself is
+ * blocked by the policy's model lists.
+ */
+export function getCompliantProvidersForModel(
+	modelId: string,
+	mappings: readonly ModelMappingAvailability[],
+	policy: ProviderCompliancePolicy,
+	now: Date = new Date(),
+): string[] {
+	if (!isModelAllowedByPolicy([modelId], policy)) {
+		return [];
+	}
+	const compliant = new Set<string>();
+	for (const mapping of mappings) {
+		if (
+			(mapping.deprecatedAt && mapping.deprecatedAt <= now) ||
+			(mapping.deactivatedAt && mapping.deactivatedAt <= now)
+		) {
+			continue;
+		}
+		const provider = getProviderDefinition(mapping.providerId);
+		if (provider && getProviderComplianceFailures(provider, policy).length === 0) {
+			compliant.add(provider.id);
+		}
+	}
+	return [...compliant];
+}
+
 /**
  * Whether a self-attested compliance posture satisfies an organization's
  * compliance policy. Fail-closed: a missing attestation never satisfies an

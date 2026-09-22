@@ -36,8 +36,32 @@ const notificationSchema = z.object({
 	readAt: z.string().nullable(),
 });
 
+// Org-level alert types follow the org's delivery settings until a user opts out.
+const orgAlertTypes = new Set<string>(["model_available", "compliance_downgrade"]);
+
+/** Orgs whose compliance alerts the user may still read: member and recipient. */
+async function alertOrganizationIds(userId: string): Promise<string[]> {
+	const [memberships, recipients] = await Promise.all([
+		db.query.userOrganization.findMany({
+			columns: { organizationId: true },
+			where: { userId },
+		}),
+		db.query.complianceAlertRecipient.findMany({
+			columns: { organizationId: true },
+			where: { userId },
+		}),
+	]);
+	const member = new Set(memberships.map((m) => m.organizationId));
+	return recipients
+		.map((r) => r.organizationId)
+		.filter((id) => member.has(id));
+}
+
 async function visibility(userId: string) {
-	const scope = await getApiKeyScope(userId, await getUserProjectIds(userId));
+	const [scope, organizationIds] = await Promise.all([
+		getUserProjectIds(userId).then((ids) => getApiKeyScope(userId, ids)),
+		alertOrganizationIds(userId),
+	]);
 	return and(
 		eq(notification.userId, userId),
 		eq(notification.inApp, true),
@@ -47,6 +71,7 @@ async function visibility(userId: string) {
 				inArray(notification.projectId, scope.restrictedProjectIds),
 				inArray(notification.apiKeyId, scope.ownApiKeyIds),
 			),
+			inArray(notification.organizationId, organizationIds),
 		),
 	);
 }
@@ -76,8 +101,8 @@ notifications.openapi(
 				const row = saved.find((p) => p.type === type);
 				return {
 					type,
-					inApp: row?.inApp ?? false,
-					email: row?.email ?? false,
+					inApp: row?.inApp ?? orgAlertTypes.has(type),
+					email: row?.email ?? orgAlertTypes.has(type),
 					budgetThreshold: row?.budgetThreshold ?? 80,
 				};
 			}),

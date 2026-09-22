@@ -21,6 +21,11 @@ import {
 	replyToEmail,
 } from "@llmgateway/shared/email";
 
+import {
+	isComplianceAlertRecipient,
+	processComplianceAlerts,
+} from "./compliance-alerts.js";
+
 import type { ApiKeyScope } from "@llmgateway/actions";
 import type { notificationPreference } from "@llmgateway/db";
 
@@ -71,6 +76,9 @@ function canReadEvent(
 	scope: ApiKeyScope,
 	event: Pick<Event, "projectId" | "apiKeyId">,
 ): boolean {
+	if (!event.projectId) {
+		return false;
+	}
 	return (
 		scope.privilegedProjectIds.includes(event.projectId) ||
 		(scope.restrictedProjectIds.includes(event.projectId) &&
@@ -264,6 +272,7 @@ export async function processNotifications(now = new Date()): Promise<void> {
 			}
 		}
 	}
+	await processComplianceAlerts(now);
 	await deliverNotificationEmails(now);
 }
 
@@ -287,18 +296,34 @@ export async function deliverNotificationEmails(
 		const recipient = await db.query.user.findFirst({
 			where: { id: item.userId, status: "active", emailVerified: true },
 		});
-		const preference = await db.query.notificationPreference.findFirst({
-			where: { userId: item.userId, type: item.type, email: true },
-		});
-		if (!recipient || !preference) {
+		if (!recipient) {
 			continue;
 		}
-		const scope = await getApiKeyScope(
-			item.userId,
-			await getUserProjectIds(item.userId),
-		);
-		if (!canReadEvent(scope, item)) {
-			continue;
+		if (item.organizationId) {
+			// Org alerts: the org enabled email; recipients opt out via their own preference.
+			const optedOut = await db.query.notificationPreference.findFirst({
+				where: { userId: item.userId, type: item.type, email: false },
+			});
+			if (
+				optedOut ||
+				!(await isComplianceAlertRecipient(item.userId, item.organizationId))
+			) {
+				continue;
+			}
+		} else {
+			const preference = await db.query.notificationPreference.findFirst({
+				where: { userId: item.userId, type: item.type, email: true },
+			});
+			if (!preference) {
+				continue;
+			}
+			const scope = await getApiKeyScope(
+				item.userId,
+				await getUserProjectIds(item.userId),
+			);
+			if (!canReadEvent(scope, item)) {
+				continue;
+			}
 		}
 		try {
 			const { error } = await client.emails.send(

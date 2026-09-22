@@ -316,6 +316,9 @@ export const organization = pgTable(
 		// only routes to providers meeting the required certifications/data
 		// policies. Null = no policy configured.
 		providerCompliancePolicy: json().$type<ProviderCompliancePolicy>(),
+		// Delivery of compliance alerts (watched models becoming available,
+		// providers no longer meeting the policy). Null = alerts not configured.
+		complianceAlertSettings: json().$type<ComplianceAlertSettings>(),
 		// Enterprise Google SSO auto-join. When set, users signing in via Google
 		// with a verified email at this domain are auto-added to the org as
 		// "developer". Stored lowercase, no leading "@". Unique so a domain can
@@ -4086,6 +4089,12 @@ export const auditLogActions = [
 	"organization_skill.create",
 	"organization_skill.update",
 	"organization_skill.delete",
+	// Compliance alerts
+	"notification_channel.update",
+	"notification_channel.delete",
+	"compliance_alert.watch_create",
+	"compliance_alert.watch_delete",
+	"compliance_alert.settings_update",
 	// Subscription
 	"subscription.create",
 	"subscription.cancel",
@@ -4171,6 +4180,8 @@ export const auditLogResourceTypes = [
 	"provider_key",
 	"custom_model",
 	"organization_skill",
+	"notification_channel",
+	"compliance_alert",
 	"subscription",
 	"payment_method",
 	"payment",
@@ -6390,7 +6401,20 @@ export const notificationTypes = [
 	"budget",
 	"model_retirement",
 	"provider_issue",
+	"model_available",
+	"compliance_downgrade",
 ] as const;
+
+export const organizationNotificationChannelKinds = ["slack"] as const;
+export type OrganizationNotificationChannelKind =
+	(typeof organizationNotificationChannelKinds)[number];
+
+export interface ComplianceAlertSettings {
+	inApp: boolean;
+	email: boolean;
+	channels: OrganizationNotificationChannelKind[];
+	downgrades: boolean;
+}
 
 export const notificationPreference = pgTable(
 	"notification_preference",
@@ -6414,9 +6438,11 @@ export const notification = pgTable(
 		userId: text()
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
-		projectId: text()
-			.notNull()
-			.references(() => project.id, { onDelete: "cascade" }),
+		// Null for organization-scoped alerts, which set organizationId instead.
+		projectId: text().references(() => project.id, { onDelete: "cascade" }),
+		organizationId: text().references(() => organization.id, {
+			onDelete: "cascade",
+		}),
 		apiKeyId: text().references(() => apiKey.id, { onDelete: "cascade" }),
 		type: text({ enum: notificationTypes }).notNull(),
 		eventKey: text().notNull(),
@@ -6436,6 +6462,120 @@ export const notification = pgTable(
 			.on(table.createdAt)
 			.where(sql`${table.email} = true AND ${table.emailSentAt} IS NULL`),
 	],
+);
+
+// Org-wide delivery targets (e.g. a Slack incoming webhook). `config` is
+// encrypted with the provider-key keyring.
+export const organizationNotificationChannel = pgTable(
+	"organization_notification_channel",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		kind: text({ enum: organizationNotificationChannelKinds }).notNull(),
+		config: text().notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+	},
+	(table) => [unique().on(table.organizationId, table.kind)],
+);
+
+// One org-level event; fanned out to recipients' `notification` rows and to
+// one `organization_alert_delivery` per enabled channel.
+export const organizationAlert = pgTable(
+	"organization_alert",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		type: text({ enum: notificationTypes }).notNull(),
+		eventKey: text().notNull(),
+		title: text().notNull(),
+		message: text().notNull(),
+		href: text().notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+	},
+	(table) => [unique().on(table.organizationId, table.eventKey)],
+);
+
+export const organizationAlertDelivery = pgTable(
+	"organization_alert_delivery",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		alertId: text()
+			.notNull()
+			.references(() => organizationAlert.id, { onDelete: "cascade" }),
+		kind: text({ enum: organizationNotificationChannelKinds }).notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+		sentAt: timestamp(),
+		attempts: integer().notNull().default(0),
+		lastError: text(),
+	},
+	(table) => [
+		unique().on(table.alertId, table.kind),
+		index("organization_alert_delivery_pending_idx")
+			.on(table.createdAt)
+			.where(sql`${table.sentAt} IS NULL`),
+	],
+);
+
+// A model an organization wants to hear about once it becomes usable under
+// its compliance policy. `availableAt` is null while the model is blocked.
+export const modelAvailabilityWatch = pgTable(
+	"model_availability_watch",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		modelId: text().notNull(),
+		createdByUserId: text().references(() => user.id, {
+			onDelete: "set null",
+		}),
+		availableAt: timestamp(),
+		createdAt: timestamp().notNull().defaultNow(),
+	},
+	(table) => [unique().on(table.organizationId, table.modelId)],
+);
+
+export const complianceAlertRecipient = pgTable(
+	"compliance_alert_recipient",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+	},
+	(table) => [unique().on(table.organizationId, table.userId)],
+);
+
+// Last-seen compliance verdict per provider, used to detect providers that
+// stop meeting an organization's policy without the policy itself changing.
+export const complianceProviderState = pgTable(
+	"compliance_provider_state",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		providerId: text().notNull(),
+		compliant: boolean().notNull(),
+		failures: json().$type<string[]>().notNull(),
+		policyHash: text().notNull(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+	},
+	(table) => [unique().on(table.organizationId, table.providerId)],
 );
 
 export const loungeConnection = pgTable(
