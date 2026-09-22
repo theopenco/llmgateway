@@ -230,6 +230,7 @@ const catalogEntrySchema = z.object({
 		ocr: z.array(z.string()),
 		embedding: z.array(z.string()),
 		video: z.array(z.string()),
+		decision: z.array(z.string()),
 	}),
 });
 
