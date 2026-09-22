@@ -1082,7 +1082,7 @@ const listIncidents = createRoute({
 				},
 			},
 			description:
-				"Per-mapping error counts of one provider, excluding client errors — the carrier's Incidents view.",
+				"Per-mapping upstream + gateway error counts of one provider — the carrier's Incidents view.",
 		},
 	},
 });
