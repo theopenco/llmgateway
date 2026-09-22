@@ -38,7 +38,7 @@ Add the `reasoning_effort` parameter directly to your request:
 - `medium` - Balanced reasoning for most tasks
 - `high` - Deep reasoning for complex problems
 - `xhigh` - Very deep reasoning for the most complex problems
-- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Google, Alibaba) have each tier translated to a native budget
+- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 and later models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Google, Alibaba) have each tier translated to a native budget
 
 <Callout type="info">
 	OpenAI's reasoning models do not all accept the same effort values. The
@@ -76,7 +76,7 @@ Use the unified `reasoning` configuration object with an `effort` field:
 - `medium` - Balanced reasoning for most tasks
 - `high` - Deep reasoning for complex problems
 - `xhigh` - Very deep reasoning for the most complex problems
-- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Google, Alibaba) have each tier translated to a native budget
+- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 and later models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Google, Alibaba) have each tier translated to a native budget
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
@@ -194,7 +194,7 @@ If you specify `reasoning.max_tokens` for a model that doesn't support it, you'l
 
 ## Reasoning Mode
 
-OpenAI's GPT-5.6 models accept a `reasoning.mode` of `standard` (the default) or `pro`. Pro mode spends additional model work on difficult tasks at higher latency and token usage. It is independent of effort: `mode` selects standard or pro execution, `effort` controls how much reasoning happens within that mode.
+OpenAI's GPT-5.6 and GPT-6 models accept a `reasoning.mode` of `standard` (the default) or `pro`. Pro mode spends additional model work on difficult tasks at higher latency and token usage. It is independent of effort: `mode` selects standard or pro execution, `effort` controls how much reasoning happens within that mode.
 
 ```json
 {
