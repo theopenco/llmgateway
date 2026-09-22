@@ -23,11 +23,7 @@ import { useApi } from "@/lib/fetch-client";
 import { formatCompact, formatPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-import {
-	ERROR_CLASSIFICATIONS,
-	INCIDENT_BREAKDOWN_HEADER,
-	otherErrorCount,
-} from "@llmgateway/shared";
+import { ERROR_CLASSIFICATIONS } from "@llmgateway/shared";
 
 import type { paths } from "@/lib/api/v1";
 
@@ -270,9 +266,7 @@ export function IncidentsTable({
 					<TableHead>Carrier</TableHead>
 					<TableHead className="text-right">Error rate</TableHead>
 					<TableHead className="text-right">Errors</TableHead>
-					<TableHead className="text-right">
-						{INCIDENT_BREAKDOWN_HEADER}
-					</TableHead>
+					<TableHead className="text-right">Upstream / Gateway</TableHead>
 					<TableHead className="text-right">Requests</TableHead>
 				</TableRow>
 			</TableHeader>
@@ -329,8 +323,7 @@ export function IncidentsTable({
 								</TableCell>
 								<TableCell className="text-muted-foreground text-right font-mono">
 									{formatCompact(mapping.upstreamErrorCount)} /{" "}
-									{formatCompact(mapping.gatewayErrorCount)} /{" "}
-									{formatCompact(otherErrorCount(mapping))}
+									{formatCompact(mapping.gatewayErrorCount)}
 								</TableCell>
 								<TableCell className="text-muted-foreground text-right font-mono">
 									{formatCompact(mapping.requestCount)}

@@ -102,6 +102,7 @@ export function ErrorDetails({
 	logLimit,
 	ignoreExpected,
 	includeByok,
+	incidentsOnly = false,
 }: {
 	usedModel: string;
 	provider: string;
@@ -111,6 +112,8 @@ export function ErrorDetails({
 	logLimit: number;
 	ignoreExpected: boolean;
 	includeByok: boolean;
+	/** Only upstream and gateway errors, matching the Incidents counts. */
+	incidentsOnly?: boolean;
 }) {
 	const $api = useApi();
 	const { data, isLoading, isError, isFetching, refetch } = $api.useQuery(
@@ -127,6 +130,7 @@ export function ErrorDetails({
 					logLimit,
 					ignoreExpected: ignoreExpected ? "true" : "false",
 					includeByok: includeByok ? "true" : "false",
+					incidentsOnly: incidentsOnly ? "true" : "false",
 				},
 			},
 		},

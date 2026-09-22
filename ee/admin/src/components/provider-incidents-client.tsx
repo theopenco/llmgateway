@@ -42,8 +42,6 @@ import { cn } from "@/lib/utils";
 import {
 	getProviderIcon,
 	INCIDENT_BREAKDOWN_DESCRIPTION,
-	INCIDENT_BREAKDOWN_HEADER,
-	otherErrorCount,
 } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
@@ -267,9 +265,7 @@ export function ProviderIncidentsClient({
 								<TableHead>Model</TableHead>
 								<TableHead className="text-right">Error Rate</TableHead>
 								<TableHead className="text-right">Errors</TableHead>
-								<TableHead className="text-right">
-									{INCIDENT_BREAKDOWN_HEADER}
-								</TableHead>
+								<TableHead className="text-right">Upstream / Gateway</TableHead>
 								<TableHead className="text-right">Requests</TableHead>
 							</TableRow>
 						</TableHeader>
@@ -325,8 +321,7 @@ export function ProviderIncidentsClient({
 											</TableCell>
 											<TableCell className="text-right tabular-nums text-muted-foreground">
 												{formatNumber(row.upstreamErrorCount)} /{" "}
-												{formatNumber(row.gatewayErrorCount)} /{" "}
-												{formatNumber(otherErrorCount(row))}
+												{formatNumber(row.gatewayErrorCount)}
 											</TableCell>
 											<TableCell className="text-right tabular-nums text-muted-foreground">
 												{formatNumber(row.requestCount)}
@@ -344,6 +339,7 @@ export function ProviderIncidentsClient({
 														logLimit={DRILLDOWN_LOG_LIMIT}
 														ignoreExpected={false}
 														includeByok
+														incidentsOnly
 													/>
 												</TableCell>
 											</TableRow>

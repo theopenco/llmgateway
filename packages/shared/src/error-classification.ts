@@ -36,16 +36,5 @@ export const ERROR_CLASSIFICATIONS: Record<string, ErrorClassification> = {
 	},
 };
 
-export const INCIDENT_BREAKDOWN_HEADER = "Upstream / Gateway / Other";
-
 export const INCIDENT_BREAKDOWN_DESCRIPTION =
-	"Client errors are excluded (not retried, no effect on uptime). Upstream errors count against the provider's uptime, gateway errors are on LLM Gateway's side, and other covers canceled and content-filtered requests.";
-
-/** Non-client errors that are neither upstream nor gateway errors. */
-export function otherErrorCount(row: {
-	errorCount: number;
-	upstreamErrorCount: number;
-	gatewayErrorCount: number;
-}): number {
-	return row.errorCount - row.upstreamErrorCount - row.gatewayErrorCount;
-}
+	"Only upstream and gateway errors count: both are retried on another key or provider, and upstream errors count against the provider's uptime. Client errors, canceled requests, and content-filtered requests are excluded.";
