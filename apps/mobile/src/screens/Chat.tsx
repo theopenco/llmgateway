@@ -6,6 +6,7 @@ import {
 	Keyboard,
 	KeyboardAvoidingView,
 	Modal,
+	Pressable,
 	Switch,
 	Text,
 	TextInput,
@@ -30,6 +31,7 @@ import { messageReply, withReply } from "@/api/reply-messages";
 import { answerToolCall, pendingTool, readToolParts } from "@/api/tool-parts";
 import { ChatSettings } from "@/components/ChatSettings";
 import { ChatSharing } from "@/components/ChatSharing";
+import { DictationSheet } from "@/components/DictationSheet";
 import { Markdown } from "@/components/Markdown";
 import { MessageBubble } from "@/components/MessageBubble";
 import { ModelPicker } from "@/components/ModelPicker";
@@ -40,6 +42,9 @@ import {
 	colors,
 	ErrorNotice,
 	Field,
+	Icon,
+	IconButton,
+	Loading,
 	Screen,
 	styles,
 } from "@/components/ui";
@@ -50,6 +55,7 @@ import { useFollowingList } from "@/lib/use-following-list";
 import type { Attachment, ChatMessage } from "@/api/chat-messages";
 import type { Source } from "@/api/sources";
 import type { ToolPart } from "@/api/tool-parts";
+import type { ComponentRef } from "react";
 
 let localSequence = 0;
 function localMessage(
@@ -94,18 +100,24 @@ export function Chat({
 	organizationId,
 	projectId,
 	knowledgeProjectId,
+	onVoice,
 }: {
 	chatId?: string;
 	organizationId: string;
 	projectId: string;
 	knowledgeProjectId?: string;
+	onVoice?: () => void;
 }) {
 	const scheme = useColorScheme();
-	const { fontScale, height } = useWindowDimensions();
-	const scrollControls = fontScale > 1.3 || height < 500;
+	const { height } = useWindowDimensions();
+	const compact = height < 500;
+	const [optionsOpen, setOptionsOpen] = useState(false);
+	const [dictating, setDictating] = useState(false);
+	const [typing, setTyping] = useState(false);
 	const insets = useSafeAreaInsets();
 	const [id, setId] = useState(chatId);
 	const [prompt, setPrompt] = useState("");
+	const promptRef = useRef<ComponentRef<typeof TextInput>>(null);
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
 	const [selectedModel, setSelectedModel] = useState<string>();
 	const [selectedWebSearch, setSelectedWebSearch] = useState<boolean>();
@@ -554,7 +566,7 @@ export function Chat({
 					? "Temporary conversation"
 					: (chat.data?.chat.title ?? "A fresh conversation")}
 			</Text>
-			<ModelPicker value={model} onChange={setSelectedModel} />
+
 			<View style={[styles.row, { flexWrap: "wrap" }]}>
 				<ChatSettings
 					webSearch={settings.webSearch}
@@ -592,6 +604,7 @@ export function Chat({
 					<Switch
 						accessibilityLabel="Temporary conversation"
 						value={temporary}
+						trackColor={{ false: colors.subtle, true: colors.accent }}
 						disabled={!!messages.length || send.isPending}
 						onValueChange={setTemporary}
 					/>
@@ -644,18 +657,124 @@ export function Chat({
 			keyboardVerticalOffset={insets.top + 44}
 			style={styles.screen}
 		>
-			{!scrollControls && <View style={{ padding: 18 }}>{controls}</View>}
+			{!(compact && typing) && (
+				<View style={[styles.row, { paddingHorizontal: 18, paddingBottom: 8 }]}>
+					<View style={{ flex: 1 }}>
+						<ModelPicker compact value={model} onChange={setSelectedModel} />
+					</View>
+					{temporary && <Text style={styles.muted}>Temporary</Text>}
+					<IconButton
+						name="more"
+						accessibilityLabel="Conversation options"
+						onPress={() => {
+							Keyboard.dismiss();
+							setOptionsOpen(true);
+						}}
+					/>
+				</View>
+			)}
 			<FlatList
 				{...following.listProps}
-				ListHeaderComponent={scrollControls ? controls : undefined}
 				data={messages}
 				keyExtractor={(message) => message.id}
-				contentContainerStyle={{ padding: 18, gap: 14 }}
+				contentContainerStyle={{
+					paddingHorizontal: 20,
+					paddingVertical: 12,
+					gap: 24,
+					flexGrow: 1,
+				}}
+				keyboardDismissMode="interactive"
 				keyboardShouldPersistTaps="handled"
 				ListEmptyComponent={
-					<Text style={styles.muted}>
-						Ask a question. Explore an idea. Make something new.
-					</Text>
+					id && chat.isPending ? (
+						<Loading />
+					) : !send.isPending && !id && !typing ? (
+						<View
+							style={{
+								flex: 1,
+								justifyContent: "center",
+								alignItems: "center",
+								paddingVertical: 30,
+								gap: 26,
+							}}
+						>
+							<View
+								style={{
+									width: 58,
+									height: 58,
+									borderRadius: 20,
+									alignItems: "center",
+									justifyContent: "center",
+									backgroundColor: colors.surface,
+								}}
+							>
+								<Icon name="sparkles" size={28} />
+							</View>
+							<Text
+								style={[styles.title, { fontSize: 29, textAlign: "center" }]}
+							>
+								What can I help with?
+							</Text>
+							<View
+								style={{
+									flexDirection: "row",
+									flexWrap: "wrap",
+									justifyContent: "center",
+									gap: 10,
+									maxWidth: 400,
+								}}
+							>
+								{[
+									{
+										title: "Write something",
+										prompt: "Help me write ",
+										icon: "edit",
+									},
+									{
+										title: "Explore an idea",
+										prompt: "Help me explore an idea: ",
+										icon: "sparkles",
+									},
+									{
+										title: "Make a plan",
+										prompt: "Help me make a plan for ",
+										icon: "check",
+									},
+									{
+										title: "Learn something",
+										prompt: "Explain this to me: ",
+										icon: "globe",
+									},
+								].map((suggestion) => (
+									<Pressable
+										key={suggestion.title}
+										role="button"
+										aria-label={suggestion.title}
+										onPress={() => {
+											setPrompt(suggestion.prompt);
+											promptRef.current?.focus();
+										}}
+										style={({ pressed }) => ({
+											flexDirection: "row",
+											alignItems: "center",
+											gap: 8,
+											borderWidth: 0.5,
+											borderColor: colors.subtle,
+											borderRadius: 22,
+											minHeight: 44,
+											paddingHorizontal: 14,
+											paddingVertical: 10,
+											opacity: pressed ? 0.6 : 1,
+										})}
+									>
+										<Text style={[styles.body, { fontSize: 14 }]}>
+											{suggestion.title}
+										</Text>
+									</Pressable>
+								))}
+							</View>
+						</View>
+					) : undefined
 				}
 				renderItem={({ item }) => (
 					<MessageBubble
@@ -685,128 +804,216 @@ export function Chat({
 					/>
 				)}
 				ListFooterComponent={
-					!continuingId &&
-					(draft || reasoning || draftSources.length || draftTools.length) ? (
-						<View style={styles.card}>
-							<Text style={styles.eyebrow}>THE LOUNGE</Text>
-							{!!reasoning && (
-								<Text selectable style={styles.muted}>
-									{reasoning}
-								</Text>
+					<>
+						{!continuingId &&
+						(draft || reasoning || draftSources.length || draftTools.length) ? (
+							<View style={{ gap: 12 }}>
+								{!!reasoning && (
+									<Text selectable style={styles.muted}>
+										{reasoning}
+									</Text>
+								)}
+								{!!draft && <Markdown>{draft}</Markdown>}
+								<ToolCalls parts={draftTools} busy />
+								<Sources sources={draftSources} />
+							</View>
+						) : undefined}
+						{!send.isPending &&
+							!toolAction.isPending &&
+							messages.some((message) => message.role === "user") && (
+								<Button
+									title="Retry last response"
+									quiet
+									disabled={
+										fork.isPending ||
+										toolAction.isPending ||
+										preferences.isPending ||
+										!!preferences.error
+									}
+									onPress={() => send.mutate({ kind: "retry" })}
+								/>
 							)}
-							{!!draft && <Markdown>{draft}</Markdown>}
-							<ToolCalls parts={draftTools} busy />
-							<Sources sources={draftSources} />
-						</View>
-					) : undefined
+						<ErrorNotice
+							error={
+								send.error ??
+								toolAction.error ??
+								chat.error ??
+								update.error ??
+								fork.error ??
+								attach.error ??
+								preferences.error
+							}
+						/>
+						{attachments.map((item) => (
+							<View key={item.id} style={styles.row}>
+								<Text numberOfLines={1} style={[styles.muted, { flex: 1 }]}>
+									{item.name}
+								</Text>
+								<IconButton
+									name="close"
+									accessibilityLabel={`Remove ${item.name}`}
+									onPress={() =>
+										setAttachments((current) =>
+											current.filter((file) => file.id !== item.id),
+										)
+									}
+								/>
+							</View>
+						))}
+						{hasPendingTools && (
+							<Text style={styles.muted}>
+								Review the tool requests above to continue.
+							</Text>
+						)}
+						{!hasPendingTools &&
+							!send.isPending &&
+							!toolAction.isPending &&
+							messages.at(-1)?.metadata?.toolContinuation === true && (
+								<Button
+									title="Continue response"
+									secondary
+									onPress={() => answerTool({})}
+								/>
+							)}
+					</>
 				}
 			/>
 			<View
 				style={{
 					padding: 16,
-					paddingBottom: Math.max(16, insets.bottom),
+					paddingBottom: typing ? 8 : Math.max(16, insets.bottom),
+					paddingTop: compact ? 8 : 16,
 					gap: 10,
 				}}
 			>
-				<ErrorNotice
-					error={
-						send.error ??
-						toolAction.error ??
-						chat.error ??
-						update.error ??
-						fork.error ??
-						attach.error ??
-						preferences.error
+				<View
+					style={{
+						flexDirection: compact ? "row" : "column",
+						alignItems: compact ? "center" : "stretch",
+						borderRadius: 28,
+						backgroundColor: colors.surface,
+						padding: 8,
+						borderWidth: 0.5,
+						borderColor: colors.subtle,
+					}}
+				>
+					<TextInput
+						ref={promptRef}
+						aria-label="Message"
+						placeholder="Ask anything"
+						placeholderTextColor={colors.placeholder}
+						keyboardAppearance={scheme === "dark" ? "dark" : "light"}
+						multiline
+						value={prompt}
+						onChangeText={setPrompt}
+						onFocus={() => setTyping(true)}
+						onBlur={() => setTyping(false)}
+						style={{
+							flex: compact ? 1 : undefined,
+							color: colors.text,
+							fontSize: 17,
+							lineHeight: 24,
+							paddingHorizontal: 12,
+							paddingTop: 10,
+							paddingBottom: 12,
+							minHeight: 48,
+							maxHeight: compact ? 80 : 160,
+						}}
+					/>
+					<View style={[styles.row, { gap: 4 }]}>
+						<IconButton
+							name="plus"
+							accessibilityLabel="Attach file"
+							disabled={
+								send.isPending ||
+								toolAction.isPending ||
+								attachments.length >= 4
+							}
+							busy={attach.isPending}
+							onPress={() => attach.mutate()}
+						/>
+						{typing && (
+							<IconButton
+								name="chevron-down"
+								accessibilityLabel="Dismiss keyboard"
+								onPress={Keyboard.dismiss}
+							/>
+						)}
+						{!compact && <View style={{ flex: 1 }} />}
+						<IconButton
+							name="mic"
+							accessibilityLabel="Dictate message"
+							disabled={send.isPending || toolAction.isPending}
+							onPress={() => {
+								Keyboard.dismiss();
+								setDictating(true);
+							}}
+						/>
+						{send.isPending || toolAction.isPending ? (
+							<IconButton
+								name="stop"
+								variant="filled"
+								accessibilityLabel="Stop response"
+								onPress={() => controllerRef.current?.abort()}
+							/>
+						) : !prompt.trim() && !attachments.length && onVoice ? (
+							<IconButton
+								name="waveform"
+								variant="filled"
+								accessibilityLabel="Start voice conversation"
+								onPress={onVoice}
+							/>
+						) : (
+							<IconButton
+								name="arrow-up"
+								variant="filled"
+								accessibilityLabel="Send message"
+								onPress={() => send.mutate({ kind: "send" })}
+								disabled={
+									hasPendingTools ||
+									(!prompt.trim() && !attachments.length) ||
+									preferences.isPending ||
+									!!preferences.error ||
+									fork.isPending ||
+									(!!id && (chat.isPending || !!chat.error))
+								}
+							/>
+						)}
+					</View>
+				</View>
+			</View>
+			{dictating && (
+				<DictationSheet
+					projectId={projectId}
+					onClose={() => setDictating(false)}
+					onInsert={(text) =>
+						setPrompt((current) =>
+							[current.trimEnd(), text].filter(Boolean).join(" "),
+						)
 					}
 				/>
-				{attachments.map((item) => (
-					<View key={item.id} style={styles.row}>
-						<Text numberOfLines={1} style={[styles.muted, { flex: 1 }]}>
-							{item.name}
+			)}
+			<Modal
+				visible={optionsOpen}
+				animationType="slide"
+				presentationStyle="pageSheet"
+				onRequestClose={() => setOptionsOpen(false)}
+			>
+				<Screen fullScreen>
+					<View style={[styles.row, { justifyContent: "space-between" }]}>
+						<Text style={[styles.heading, { flex: 1 }]}>
+							Conversation options
 						</Text>
-						<Button
-							title={`Remove ${item.name}`}
-							secondary
-							onPress={() =>
-								setAttachments((current) =>
-									current.filter((file) => file.id !== item.id),
-								)
-							}
+						<IconButton
+							name="close"
+							accessibilityLabel="Close conversation options"
+							onPress={() => setOptionsOpen(false)}
 						/>
 					</View>
-				))}
-				<TextInput
-					aria-label="Message"
-					placeholder="Ask anything…"
-					placeholderTextColor={colors.muted}
-					keyboardAppearance={scheme === "dark" ? "dark" : "light"}
-					multiline
-					value={prompt}
-					onChangeText={setPrompt}
-					style={[styles.input, { maxHeight: 140 }]}
-				/>
-				<View style={[styles.row, { flexWrap: "wrap" }]}>
-					<Button
-						title="Attach file"
-						secondary
-						disabled={
-							send.isPending || toolAction.isPending || attachments.length >= 4
-						}
-						busy={attach.isPending}
-						onPress={() => attach.mutate()}
-					/>
-					{send.isPending || toolAction.isPending ? (
-						<Button
-							title="Stop response"
-							secondary
-							onPress={() => controllerRef.current?.abort()}
-						/>
-					) : (
-						<Button
-							title="Send message"
-							onPress={() => send.mutate({ kind: "send" })}
-							disabled={
-								hasPendingTools ||
-								(!prompt.trim() && !attachments.length) ||
-								preferences.isPending ||
-								!!preferences.error ||
-								fork.isPending ||
-								(!!id && (chat.isPending || !!chat.error))
-							}
-						/>
-					)}
-				</View>
-				{hasPendingTools && (
-					<Text style={styles.muted}>
-						Review the tool requests above to continue.
-					</Text>
-				)}
-				{!hasPendingTools &&
-					!send.isPending &&
-					!toolAction.isPending &&
-					messages.at(-1)?.metadata?.toolContinuation === true && (
-						<Button
-							title="Continue response"
-							secondary
-							onPress={() => answerTool({})}
-						/>
-					)}
-				{!send.isPending &&
-					!toolAction.isPending &&
-					messages.some((message) => message.role === "user") && (
-						<Button
-							title="Retry last response"
-							secondary
-							disabled={
-								fork.isPending ||
-								toolAction.isPending ||
-								preferences.isPending ||
-								!!preferences.error
-							}
-							onPress={() => send.mutate({ kind: "retry" })}
-						/>
-					)}
-			</View>
+					{controls}
+					<ErrorNotice error={update.error ?? fork.error} />
+				</Screen>
+			</Modal>
 			<Modal
 				visible={!!editing}
 				animationType="slide"

@@ -1,0 +1,15 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: close-chat-options.yaml
+- repeat:
+    while:
+      notVisible: "Open sidebar|Close sidebar"
+    commands:
+      - tapOn:
+          id: "BackButton"
+- runFlow:
+    when:
+      visible: "Open sidebar"
+    commands:
+      - tapOn: "Open sidebar"
+- assertVisible: "Close sidebar"

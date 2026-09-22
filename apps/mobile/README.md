@@ -2,6 +2,10 @@
 
 Bare React Native app for Lounge by LLM Gateway. Payments remain on the web.
 
+The app opens to chat, with conversations and tools in the sidebar. The composer
+supports attachments, editable dictation, and voice calls. Light and dark themes
+use the same neutral palette.
+
 From the repository root:
 
 ```sh
@@ -28,8 +32,13 @@ maestro test apps/mobile/e2e/account-and-workspaces.yaml
 Run suites sequentially. The Maestro flow needs an app built for the seeded
 local API and clears the simulator's Keychain. Use a dedicated test simulator.
 
-For `e2e/chat.yaml`, build the stack and start the local API, then run these in
-separate terminals with the same isolated environment loaded:
+`e2e/redesign.yaml` covers the chat layout, long drafts, dictation, sidebar, and
+appearance using the mock upstream and gateway described below. With the video
+worker also running, `e2e/video-microphone.yaml` checks video refresh and replay,
+dictation, live transcription, and a Gemini voice call without restarting the app.
+
+For chat and dictation flows, build the stack and start the local API, then run
+these in separate terminals with the same isolated environment loaded:
 
 ```sh
 pnpm --filter mobile test:upstream
@@ -93,7 +102,9 @@ Audio playback uses Audio API with FFmpeg for the studio's encoded formats.
 Its controls import Reanimated and Gesture Handler. The Audio API patch updates
 two C++ calls to Worklets 0.12's `runSync` API.
 
-Verified during development:
+## Previous release validation (1.0)
+
+These results cover the previous release. Rerun affected flows for the redesign.
 
 - Full repository build: 21 workspaces passed.
 - Repository unit suite before the UTC revenue fix: 7,102 passed, 2 skipped,
@@ -259,6 +270,8 @@ export documentation. Revisit this before adding France or proprietary crypto.
 ## Delivery checklist
 
 A checkbox requires observed behavior, not just a screen or passing type check.
+Checked items below record the previous 1.0 delivery; unchecked items need
+verification for the redesign.
 
 - [x] Sign-in, secure session restoration, sign-out, signup/reset, account deletion
 - [ ] Chat: streaming, model selection/favorites, search, reasoning, attachments, web search, stop/retry/edit/fork, settings

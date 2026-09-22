@@ -1,4 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
+import { useState } from "react";
 import { Text, View } from "react-native";
 
 import { api } from "@/api/client";
@@ -9,6 +10,7 @@ import { exportRemoteFile } from "@/lib/export-file";
 import type { VideoResult as Result } from "@/api/videos";
 
 export function VideoResult({ result }: { result: Result }) {
+	const [playbackRevision, setPlaybackRevision] = useState(0);
 	const job = api.useQuery(
 		"get",
 		"/video/{videoId}",
@@ -16,14 +18,26 @@ export function VideoResult({ result }: { result: Result }) {
 		{
 			enabled: !!result.jobId,
 			staleTime: 0,
-			refetchInterval: (query) =>
-				query.state.data?.status === "queued" ||
-				query.state.data?.status === "in_progress"
+			refetchInterval: (query) => {
+				const data = query.state.data;
+				return !data?.error &&
+					(data?.status === "queued" ||
+						data?.status === "in_progress" ||
+						(data?.status === "completed" && !data.content?.[0]?.url))
 					? 3000
-					: false,
+					: false;
+			},
 		},
 	);
 	const url = job.data?.content?.[0]?.url;
+	const preparingPlayback =
+		job.data?.status === "completed" && !url && !job.data.error;
+	const refresh = useMutation({
+		mutationFn: async () => {
+			await job.refetch({ throwOnError: true });
+			setPlaybackRevision((value) => value + 1);
+		},
+	});
 	const exportFile = useMutation({
 		mutationFn: async (action: "save" | "share") => {
 			const fresh = await job.refetch({ throwOnError: true });
@@ -41,14 +55,15 @@ export function VideoResult({ result }: { result: Result }) {
 			{result.jobId && job.isPending && <Loading />}
 			{job.data && (
 				<Text style={styles.muted}>
-					{job.data.status.replace("_", " ")}
-					{job.data.progress !== null ? ` · ${job.data.progress}%` : ""}
+					{preparingPlayback
+						? "Preparing playback…"
+						: `${job.data.status.replace("_", " ")}${job.data.progress !== null ? ` · ${job.data.progress}%` : ""}`}
 				</Text>
 			)}
 			<ErrorNotice
 				error={job.data?.error ? new Error(job.data.error.message) : undefined}
 			/>
-			{url && <MediaPlayer uri={url} />}
+			{url && <MediaPlayer key={playbackRevision} uri={url} />}
 			{url && (
 				<View style={styles.row}>
 					<Button
@@ -68,11 +83,11 @@ export function VideoResult({ result }: { result: Result }) {
 				<Button
 					title="Refresh video"
 					secondary
-					disabled={job.isFetching}
-					onPress={() => void job.refetch()}
+					disabled={job.isFetching || refresh.isPending}
+					onPress={() => refresh.mutate()}
 				/>
 			)}
-			<ErrorNotice error={exportFile.error} />
+			<ErrorNotice error={refresh.error ?? exportFile.error} />
 		</View>
 	);
 }

@@ -3,10 +3,11 @@ appId: io.llmgateway.lounge
 - evalScript: ${output.stopTopic = "TRIGGER_TIMEOUT_20000 discuss gardens " + Date.now()}
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- scrollUntilVisible:
-    element: "Group discussion"
-    direction: DOWN
-- tapOn: "Group discussion"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Group discussion"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Model: Auto"
 - tapOn:
     id: "field-search-models"
@@ -14,6 +15,7 @@ appId: io.llmgateway.lounge
 - tapOn: "Done typing"
 - tapOn: "Choose GPT-4o Mini"
 - tapOn: "Add model to discussion"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Model: gpt-4o-mini"
 - tapOn:
     id: "field-search-models"

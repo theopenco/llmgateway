@@ -1,12 +1,19 @@
 import Clipboard from "@react-native-clipboard/clipboard";
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
-import { Image, Linking, Text, View } from "react-native";
+import { Image, Linking, Pressable, Text, View } from "react-native";
 
 import { Markdown } from "@/components/Markdown";
 import { Sources } from "@/components/Sources";
 import { ToolCalls } from "@/components/ToolCalls";
-import { Button, ErrorNotice, styles } from "@/components/ui";
+import {
+	Button,
+	colors,
+	ErrorNotice,
+	Icon,
+	IconButton,
+	styles,
+} from "@/components/ui";
 import { exportFile } from "@/lib/export-file";
 
 import type { Attachment, ChatMessage } from "@/api/chat-messages";
@@ -61,43 +68,64 @@ export function MessageBubble({
 }) {
 	const [copiedText, setCopiedText] = useState<string>();
 	const [showReasoning, setShowReasoning] = useState(false);
+	const isUser = message.role === "user";
 	return (
-		<View style={styles.card}>
-			<Text style={styles.eyebrow}>
-				{message.role === "user" ? "YOU" : "THE LOUNGE"}
-			</Text>
-			{!!message.reasoning && (
-				<>
-					<Button
-						title={showReasoning ? "Hide reasoning" : "Show reasoning"}
-						secondary
-						onPress={() => setShowReasoning(!showReasoning)}
-					/>
-					{showReasoning && <Markdown>{message.reasoning}</Markdown>}
-				</>
-			)}
-			{!!message.content &&
-				(message.role === "user" ? (
-					<Text selectable style={styles.body}>
-						{message.content}
-					</Text>
-				) : (
-					<Markdown>{message.content}</Markdown>
+		<View style={{ alignItems: isUser ? "flex-end" : "stretch", gap: 4 }}>
+			<View
+				style={{
+					maxWidth: isUser ? "88%" : "100%",
+					paddingHorizontal: isUser ? 16 : 0,
+					paddingVertical: isUser ? 12 : 4,
+					borderRadius: 24,
+					backgroundColor: isUser ? colors.surface : "transparent",
+					gap: 10,
+				}}
+			>
+				{!!message.reasoning && (
+					<>
+						<Pressable
+							role="button"
+							aria-label={showReasoning ? "Hide reasoning" : "Show reasoning"}
+							aria-expanded={showReasoning}
+							style={[styles.row, { minHeight: 44, gap: 8 }]}
+							onPress={() => setShowReasoning(!showReasoning)}
+						>
+							<Text style={styles.muted}>Reasoning</Text>
+							<Icon
+								name={showReasoning ? "chevron-down" : "chevron-right"}
+								color={colors.muted}
+								size={14}
+							/>
+						</Pressable>
+						{showReasoning && <Markdown>{message.reasoning}</Markdown>}
+					</>
+				)}
+				{!!message.content &&
+					(message.role === "user" ? (
+						<Text selectable style={styles.body}>
+							{message.content}
+						</Text>
+					) : (
+						<Markdown>{message.content}</Markdown>
+					))}
+				{message.attachments.map((attachment) => (
+					<AttachmentPreview key={attachment.id} attachment={attachment} />
 				))}
-			{message.attachments.map((attachment) => (
-				<AttachmentPreview key={attachment.id} attachment={attachment} />
-			))}
-			<ToolCalls
-				parts={message.toolParts ?? []}
-				busy={busy}
-				onAnswer={onToolAnswer}
-			/>
-			<Sources sources={message.sourceLinks ?? []} />
-			<View style={styles.row}>
+				<ToolCalls
+					parts={message.toolParts ?? []}
+					busy={busy}
+					onAnswer={onToolAnswer}
+				/>
+				<Sources sources={message.sourceLinks ?? []} />
+			</View>
+			<View style={[styles.row, { gap: 2 }]}>
 				{!!message.content && (
-					<Button
-						title={copiedText === message.content ? "Copied" : "Copy message"}
-						secondary
+					<IconButton
+						name={copiedText === message.content ? "check" : "copy"}
+						accessibilityLabel={
+							copiedText === message.content ? "Copied" : "Copy message"
+						}
+						iconSize={18}
 						onPress={() => {
 							Clipboard.setString(message.content ?? "");
 							setCopiedText(message.content ?? "");
@@ -105,9 +133,10 @@ export function MessageBubble({
 					/>
 				)}
 				{onEdit && (
-					<Button
-						title="Edit message"
-						secondary
+					<IconButton
+						name="edit"
+						accessibilityLabel="Edit message"
+						iconSize={18}
 						disabled={busy}
 						onPress={onEdit}
 					/>

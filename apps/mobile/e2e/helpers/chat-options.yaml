@@ -1,0 +1,7 @@
+appId: io.llmgateway.lounge
+---
+- runFlow:
+    when:
+      visible: "Conversation options"
+    commands:
+      - tapOn: "Conversation options"

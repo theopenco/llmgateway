@@ -54,14 +54,14 @@ env:
 - tapOn: "Done typing"
 - tapOn: "Enter the Lounge"
 - extendedWaitUntil:
-    visible: "Start a conversation"
+    visible: "New conversation"
     timeout: 20000
 - launchApp
-- assertVisible: "Start a conversation"
-- scrollUntilVisible:
-    element: "Your profile"
-    direction: DOWN
-- tapOn: "Your profile"
+- assertVisible: "New conversation"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Your profile"
 - assertVisible: "Native Account Test"
 - scrollUntilVisible:
     element: "Sign out"
@@ -106,12 +106,12 @@ env:
 - tapOn: "Done typing"
 - tapOn: "Enter the Lounge"
 - extendedWaitUntil:
-    visible: "Start a conversation"
+    visible: "New conversation"
     timeout: 20000
-- scrollUntilVisible:
-    element: "Your profile"
-    direction: DOWN
-- tapOn: "Your profile"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Your profile"
 - scrollUntilVisible:
     element: "Delete account"
     direction: DOWN
