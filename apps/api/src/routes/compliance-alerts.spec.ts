@@ -86,6 +86,20 @@ describe("compliance alerts", () => {
 		expect(byModel["open-model"].compliantProviders).toEqual(["openai"]);
 	});
 
+	test("the first watch saves default settings with admin recipients", async () => {
+		await request("/compliance-alerts/watches", "POST", {
+			modelIds: ["blocked-model"],
+		});
+		const body = await (await request("/compliance-alerts")).json();
+		expect(body.settings).toEqual({
+			inApp: true,
+			email: true,
+			channels: [],
+			downgrades: true,
+		});
+		expect(body.recipientUserIds).toEqual(["test-user-id"]);
+	});
+
 	test("rejects unknown models", async () => {
 		const res = await request("/compliance-alerts/watches", "POST", {
 			modelIds: ["does-not-exist"],

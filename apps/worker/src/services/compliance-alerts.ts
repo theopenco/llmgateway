@@ -35,6 +35,8 @@ const DAY = 24 * 60 * 60 * 1000;
 const USAGE_WINDOW_MS = 30 * DAY;
 const DELIVERY_WINDOW_MS = DAY;
 const MAX_DELIVERY_ATTEMPTS = 5;
+// Stay well inside the notifications loop's 5-minute lock.
+const DELIVERY_BUDGET_MS = 2 * 60 * 1000;
 
 type Organization = typeof organization.$inferSelect;
 type AlertType = "model_available" | "compliance_downgrade";
@@ -88,11 +90,16 @@ export async function emitOrgAlert(
 	settings: ComplianceAlertSettings,
 	alert: OrgAlert,
 ): Promise<void> {
-	const [created] = await db
+	// Org-scoped key: notification rows dedupe on (userId, eventKey).
+	const eventKey = `${org.id}:${alert.eventKey}`;
+	await db
 		.insert(organizationAlert)
-		.values({ organizationId: org.id, ...alert })
-		.onConflictDoNothing()
-		.returning();
+		.values({ organizationId: org.id, ...alert, eventKey })
+		.onConflictDoNothing();
+	// Fan-out below is idempotent, so a pass that failed midway completes it.
+	const created = await db.query.organizationAlert.findFirst({
+		where: { organizationId: org.id, eventKey },
+	});
 	if (!created) {
 		return;
 	}
@@ -103,17 +110,33 @@ export async function emitOrgAlert(
 		if (!(await isComplianceAlertRecipient(userId, org.id))) {
 			continue;
 		}
-		const preference = await db.query.notificationPreference.findFirst({
-			where: { userId, type: alert.type },
-		});
+		const [preference, user] = await Promise.all([
+			db.query.notificationPreference.findFirst({
+				where: { userId, type: alert.type },
+			}),
+			db.query.user.findFirst({
+				columns: { emailVerified: true },
+				where: { id: userId },
+			}),
+		]);
 		const inApp = settings.inApp && (preference?.inApp ?? true);
-		const email = settings.email && (preference?.email ?? true);
+		const email =
+			settings.email &&
+			(preference?.email ?? true) &&
+			user?.emailVerified === true;
 		if (!inApp && !email) {
 			continue;
 		}
 		await db
 			.insert(notification)
-			.values({ ...alert, userId, organizationId: org.id, inApp, email })
+			.values({
+				...alert,
+				eventKey,
+				userId,
+				organizationId: org.id,
+				inApp,
+				email,
+			})
 			.onConflictDoNothing();
 	}
 	const channels = await db.query.organizationNotificationChannel.findMany({
@@ -178,18 +201,27 @@ async function processOrganization(
 		where: { organizationId: org.id },
 	});
 	// First run, or the org edited its own policy: resync without alerting.
+	// Rows for providers removed from the catalogue are never rewritten.
+	const current = previous.filter((s) =>
+		providers.some((p) => p.id === s.providerId),
+	);
 	const policyChanged =
-		!previous.length || previous.some((s) => s.policyHash !== policyHash);
+		!current.length || current.some((s) => s.policyHash !== policyHash);
 
 	const downgraded: {
 		providerId: string;
 		failures: string[];
 		compliantSince: Date;
 	}[] = [];
+	const changed: {
+		providerId: string;
+		compliant: boolean;
+		failures: string[];
+	}[] = [];
 	for (const provider of providers) {
 		const failures = getProviderComplianceFailures(provider, policy);
 		const compliant = failures.length === 0;
-		const before = previous.find((s) => s.providerId === provider.id);
+		const before = current.find((s) => s.providerId === provider.id);
 		if (!policyChanged && before?.compliant && !compliant) {
 			downgraded.push({
 				providerId: provider.id,
@@ -198,30 +230,15 @@ async function processOrganization(
 			});
 		}
 		if (
-			before?.policyHash === policyHash &&
-			before.compliant === compliant &&
-			JSON.stringify(before.failures) === JSON.stringify(failures)
+			before?.policyHash !== policyHash ||
+			before.compliant !== compliant ||
+			JSON.stringify(before.failures) !== JSON.stringify(failures)
 		) {
-			continue;
+			changed.push({ providerId: provider.id, compliant, failures });
 		}
-		await db
-			.insert(complianceProviderState)
-			.values({
-				organizationId: org.id,
-				providerId: provider.id,
-				compliant,
-				failures,
-				policyHash,
-			})
-			.onConflictDoUpdate({
-				target: [
-					complianceProviderState.organizationId,
-					complianceProviderState.providerId,
-				],
-				set: { compliant, failures, policyHash, updatedAt: now },
-			});
 	}
 
+	// Alert before persisting the new state, so an interrupted pass retries.
 	if (settings.downgrades) {
 		for (const { providerId, failures, compliantSince } of downgraded) {
 			const used = await modelsUsedOnProvider(org.id, providerId, now);
@@ -242,6 +259,25 @@ async function processOrganization(
 		}
 	}
 
+	for (const { providerId, compliant, failures } of changed) {
+		await db
+			.insert(complianceProviderState)
+			.values({
+				organizationId: org.id,
+				providerId,
+				compliant,
+				failures,
+				policyHash,
+			})
+			.onConflictDoUpdate({
+				target: [
+					complianceProviderState.organizationId,
+					complianceProviderState.providerId,
+				],
+				set: { compliant, failures, policyHash, updatedAt: now },
+			});
+	}
+
 	const watches = await db.query.modelAvailabilityWatch.findMany({
 		where: { organizationId: org.id },
 	});
@@ -252,8 +288,18 @@ async function processOrganization(
 	);
 	for (const watch of watches) {
 		const compliantProviders = availability.get(watch.modelId) ?? [];
+		// Alert first, then record the transition, so an interrupted pass
+		// retries. `armedAt` scopes the event key to one blocked period.
 		if (compliantProviders.length && !watch.availableAt) {
-			const [updated] = await db
+			const name = await modelName(watch.modelId);
+			await emitOrgAlert(org, settings, {
+				type: "model_available",
+				eventKey: `model_available:${watch.id}:${watch.armedAt.getTime()}`,
+				title: `${name} is now available under your compliance policy`,
+				message: `${name} (${watch.modelId}) can now be routed through ${compliantProviders.map(providerName).join(", ")}.`,
+				href,
+			});
+			await db
 				.update(modelAvailabilityWatch)
 				.set({ availableAt: now })
 				.where(
@@ -261,24 +307,8 @@ async function processOrganization(
 						eq(modelAvailabilityWatch.id, watch.id),
 						isNull(modelAvailabilityWatch.availableAt),
 					),
-				)
-				.returning();
-			if (!updated) {
-				continue;
-			}
-			const name = await modelName(watch.modelId);
-			await emitOrgAlert(org, settings, {
-				type: "model_available",
-				eventKey: `model_available:${watch.id}:${now.getTime()}`,
-				title: `${name} is now available under your compliance policy`,
-				message: `${name} (${watch.modelId}) can now be routed through ${compliantProviders.map(providerName).join(", ")}.`,
-				href,
-			});
+				);
 		} else if (!compliantProviders.length && watch.availableAt) {
-			await db
-				.update(modelAvailabilityWatch)
-				.set({ availableAt: null })
-				.where(eq(modelAvailabilityWatch.id, watch.id));
 			if (settings.downgrades && !policyChanged) {
 				const name = await modelName(watch.modelId);
 				await emitOrgAlert(org, settings, {
@@ -289,6 +319,10 @@ async function processOrganization(
 					href,
 				});
 			}
+			await db
+				.update(modelAvailabilityWatch)
+				.set({ availableAt: null, armedAt: now })
+				.where(eq(modelAvailabilityWatch.id, watch.id));
 		}
 	}
 }
@@ -307,7 +341,8 @@ export async function processComplianceAlerts(now = new Date()): Promise<void> {
 	for (const org of orgs) {
 		const policy = org.providerCompliancePolicy;
 		const settings = org.complianceAlertSettings;
-		if (!policy?.enabled || !settings) {
+		// Enterprise-only feature; configuration is gated in the API.
+		if (org.plan !== "enterprise" || !policy?.enabled || !settings) {
 			continue;
 		}
 		try {
@@ -334,9 +369,25 @@ export async function deliverOrgAlertChannels(now = new Date()): Promise<void> {
 		orderBy: { createdAt: "asc" },
 		limit: 100,
 	});
+	const deadline = Date.now() + DELIVERY_BUDGET_MS;
 	for (const delivery of pending) {
 		const alert = delivery.alert;
-		if (!alert) {
+		if (!alert || Date.now() > deadline) {
+			continue;
+		}
+		// Claim the attempt so an overlapping pass cannot send it twice.
+		const [claimed] = await db
+			.update(organizationAlertDelivery)
+			.set({ attempts: delivery.attempts + 1 })
+			.where(
+				and(
+					eq(organizationAlertDelivery.id, delivery.id),
+					eq(organizationAlertDelivery.attempts, delivery.attempts),
+					isNull(organizationAlertDelivery.sentAt),
+				),
+			)
+			.returning();
+		if (!claimed) {
 			continue;
 		}
 		const channel = await db.query.organizationNotificationChannel.findFirst({
@@ -354,7 +405,7 @@ export async function deliverOrgAlertChannels(now = new Date()): Promise<void> {
 			await notificationChannelSenders[delivery.kind](config, alert);
 			await db
 				.update(organizationAlertDelivery)
-				.set({ sentAt: now, attempts: delivery.attempts + 1, lastError: null })
+				.set({ sentAt: now, lastError: null })
 				.where(eq(organizationAlertDelivery.id, delivery.id));
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -366,7 +417,7 @@ export async function deliverOrgAlertChannels(now = new Date()): Promise<void> {
 			await db
 				.update(organizationAlertDelivery)
 				.set({
-					attempts: channel ? delivery.attempts + 1 : MAX_DELIVERY_ATTEMPTS,
+					...(channel ? {} : { attempts: MAX_DELIVERY_ATTEMPTS }),
 					lastError: message.slice(0, 500),
 				})
 				.where(eq(organizationAlertDelivery.id, delivery.id));

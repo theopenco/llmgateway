@@ -22,6 +22,7 @@ CREATE TABLE "model_availability_watch" (
 	"model_id" text NOT NULL,
 	"created_by_user_id" text,
 	"available_at" timestamp,
+	"armed_at" timestamp DEFAULT now() NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "model_availability_watch_organization_id_model_id_unique" UNIQUE("organization_id","model_id")
 );
@@ -62,6 +63,7 @@ CREATE TABLE "organization_notification_channel" (
 ALTER TABLE "notification" ADD COLUMN "organization_id" text;--> statement-breakpoint
 ALTER TABLE "organization" ADD COLUMN "compliance_alert_settings" json;--> statement-breakpoint
 ALTER TABLE "notification" ALTER COLUMN "project_id" DROP NOT NULL;--> statement-breakpoint
+CREATE INDEX "compliance_alert_recipient_user_id_idx" ON "compliance_alert_recipient" ("user_id");--> statement-breakpoint
 CREATE INDEX "organization_alert_delivery_pending_idx" ON "organization_alert_delivery" ("created_at") WHERE "sent_at" IS NULL;--> statement-breakpoint
 ALTER TABLE "compliance_alert_recipient" ADD CONSTRAINT "compliance_alert_recipient_organization_id_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organization"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "compliance_alert_recipient" ADD CONSTRAINT "compliance_alert_recipient_user_id_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "user"("id") ON DELETE CASCADE;--> statement-breakpoint

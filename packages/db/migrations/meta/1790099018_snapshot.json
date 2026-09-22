@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "ab14dd65-cd19-4a2e-8b01-b0228fb96452",
+  "id": "09c980d1-86fd-46e1-8966-3e453b9ea877",
   "prevId": "d2bd2399-7c89-48b7-aec7-4847fb5724fd",
   "ddl": [
     {
@@ -12553,6 +12553,22 @@
       "generated": null,
       "identity": null,
       "name": "available_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_availability_watch"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "armed_at",
       "entityType": "columns",
       "schema": "public",
       "table": "model_availability_watch"
@@ -31025,6 +31041,27 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "chat_support_read_status"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "compliance_alert_recipient_user_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "compliance_alert_recipient"
     },
     {
       "nameExplicit": true,

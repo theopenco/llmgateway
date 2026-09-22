@@ -194,6 +194,65 @@ describe("processComplianceAlerts", () => {
 		expect(state.compliant).toBe(false);
 	});
 
+	it("ignores stale state rows for providers removed from the catalogue", async () => {
+		vi.spyOn(globalThis, "fetch").mockImplementation(
+			async () => new Response("ok"),
+		);
+		await processComplianceAlerts();
+		await db.insert(tables.complianceProviderState).values({
+			organizationId: ORG,
+			providerId: "removed-provider",
+			compliant: true,
+			failures: [],
+			policyHash: "stale",
+		});
+		await db
+			.update(tables.complianceProviderState)
+			.set({ compliant: true, failures: [] })
+			.where(eq(tables.complianceProviderState.providerId, "deepseek"));
+		await processComplianceAlerts();
+		expect(await db.query.organizationAlert.findMany()).toHaveLength(1);
+	});
+
+	it("completes a fan-out interrupted after the alert row was written", async () => {
+		vi.spyOn(globalThis, "fetch").mockImplementation(
+			async () => new Response("ok"),
+		);
+		const [watch] = await db
+			.insert(tables.modelAvailabilityWatch)
+			.values({ organizationId: ORG, modelId: "watched-model" })
+			.returning();
+		await db.insert(tables.organizationAlert).values({
+			organizationId: ORG,
+			type: "model_available",
+			eventKey: `${ORG}:model_available:${watch.id}:${watch.armedAt.getTime()}`,
+			title: "partial",
+			message: "partial",
+			href: "/",
+		});
+		await addMapping("watched-model", "openai");
+		await processComplianceAlerts();
+		expect(await db.query.organizationAlert.findMany()).toHaveLength(1);
+		expect(await db.query.notification.findMany()).toHaveLength(1);
+		expect(
+			(await db.query.organizationAlertDelivery.findMany())[0].sentAt,
+		).not.toBeNull();
+	});
+
+	it("skips organizations without an enterprise plan", async () => {
+		await db
+			.update(tables.organization)
+			.set({ plan: "pro" })
+			.where(eq(tables.organization.id, ORG));
+		await db.insert(tables.modelAvailabilityWatch).values({
+			organizationId: ORG,
+			modelId: "watched-model",
+		});
+		await addMapping("watched-model", "openai");
+		await processComplianceAlerts();
+		expect(await db.query.organizationAlert.findMany()).toHaveLength(0);
+	});
+
 	it("skips downgrade alerts when disabled", async () => {
 		await db
 			.update(tables.organization)
@@ -238,7 +297,17 @@ describe("delivery", () => {
 		expect(delivery.lastError).toContain("403");
 	});
 
-	it("emails recipients only while they remain recipients", async () => {
+	it("emails current recipients", async () => {
+		vi.spyOn(globalThis, "fetch").mockImplementation(
+			async () => new Response("ok"),
+		);
+		await emitAvailability();
+		await deliverNotificationEmails();
+		expect(send).toHaveBeenCalledTimes(1);
+		expect(send.mock.calls[0][0].to).toBe("owner@example.com");
+	});
+
+	it("does not email a recipient removed before delivery", async () => {
 		vi.spyOn(globalThis, "fetch").mockImplementation(
 			async () => new Response("ok"),
 		);
@@ -248,13 +317,8 @@ describe("delivery", () => {
 			.where(eq(tables.complianceAlertRecipient.userId, "ca-owner"));
 		await deliverNotificationEmails();
 		expect(send).not.toHaveBeenCalled();
-
-		await db
-			.insert(tables.complianceAlertRecipient)
-			.values({ organizationId: ORG, userId: "ca-owner" });
-		await deliverNotificationEmails();
-		expect(send).toHaveBeenCalledTimes(1);
-		expect(send.mock.calls[0][0].to).toBe("owner@example.com");
+		const [item] = await db.query.notification.findMany();
+		expect(item.email).toBe(false);
 	});
 
 	it("respects a recipient's email opt-out", async () => {

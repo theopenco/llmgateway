@@ -14,6 +14,7 @@ import {
 	and,
 	db,
 	eq,
+	isNull,
 	notInArray,
 	organizationNotificationChannelKinds,
 	shortid,
@@ -22,11 +23,18 @@ import {
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 
 import type { ServerTypes } from "@/vars.js";
+import type { ComplianceAlertSettings } from "@llmgateway/db";
 import type { Context } from "hono";
 
 export const complianceAlerts = new OpenAPIHono<ServerTypes>();
 
 const MAX_WATCHES = 100;
+const DEFAULT_SETTINGS = {
+	inApp: true,
+	email: true,
+	channels: [],
+	downgrades: true,
+} satisfies ComplianceAlertSettings;
 const orgParams = z.object({ organizationId: z.string() });
 
 async function assertOrgAccess(
@@ -433,6 +441,35 @@ complianceAlerts.openapi(
 				})),
 			)
 			.onConflictDoNothing();
+		// The worker only evaluates configured orgs, so the first watch saves
+		// the defaults the dashboard shows: in-app + email to owners and admins.
+		if (!organization.complianceAlertSettings) {
+			await db.transaction(async (tx) => {
+				const [configured] = await tx
+					.update(tables.organization)
+					.set({ complianceAlertSettings: DEFAULT_SETTINGS })
+					.where(
+						and(
+							eq(tables.organization.id, organizationId),
+							isNull(tables.organization.complianceAlertSettings),
+						),
+					)
+					.returning({ id: tables.organization.id });
+				if (!configured) {
+					return;
+				}
+				const admins = await tx.query.userOrganization.findMany({
+					columns: { userId: true },
+					where: { organizationId, role: { in: ["owner", "admin"] } },
+				});
+				if (admins.length) {
+					await tx
+						.insert(tables.complianceAlertRecipient)
+						.values(admins.map((m) => ({ organizationId, userId: m.userId })))
+						.onConflictDoNothing();
+				}
+			});
+		}
 		await logAuditEvent({
 			organizationId,
 			userId: user.id,

@@ -6538,6 +6538,8 @@ export const modelAvailabilityWatch = pgTable(
 			onDelete: "set null",
 		}),
 		availableAt: timestamp(),
+		// Start of the current blocked period; scopes the availability alert.
+		armedAt: timestamp().notNull().defaultNow(),
 		createdAt: timestamp().notNull().defaultNow(),
 	},
 	(table) => [unique().on(table.organizationId, table.modelId)],
@@ -6554,7 +6556,10 @@ export const complianceAlertRecipient = pgTable(
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
 	},
-	(table) => [unique().on(table.organizationId, table.userId)],
+	(table) => [
+		unique().on(table.organizationId, table.userId),
+		index("compliance_alert_recipient_user_id_idx").on(table.userId),
+	],
 );
 
 // Last-seen compliance verdict per provider, used to detect providers that

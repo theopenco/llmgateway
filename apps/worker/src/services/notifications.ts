@@ -296,21 +296,27 @@ export async function deliverNotificationEmails(
 		const recipient = await db.query.user.findFirst({
 			where: { id: item.userId, status: "active", emailVerified: true },
 		});
-		if (!recipient) {
-			continue;
-		}
 		if (item.organizationId) {
-			// Org alerts: the org enabled email; recipients opt out via their own preference.
+			// Org alerts: the org enabled email; recipients opt out via their own
+			// preference. Skips are final, so the row leaves the pending queue.
 			const optedOut = await db.query.notificationPreference.findFirst({
 				where: { userId: item.userId, type: item.type, email: false },
 			});
 			if (
+				!recipient ||
 				optedOut ||
 				!(await isComplianceAlertRecipient(item.userId, item.organizationId))
 			) {
+				await db
+					.update(notification)
+					.set({ email: false })
+					.where(eq(notification.id, item.id));
 				continue;
 			}
 		} else {
+			if (!recipient) {
+				continue;
+			}
 			const preference = await db.query.notificationPreference.findFirst({
 				where: { userId: item.userId, type: item.type, email: true },
 			});
