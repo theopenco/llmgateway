@@ -1870,6 +1870,13 @@
       "when": 1789989655637,
       "tag": "1789989655_red_penance",
       "breakpoints": true
+    },
+    {
+      "idx": 267,
+      "version": "8",
+      "when": 1790073237609,
+      "tag": "1790073237_glorious_shatterstar",
+      "breakpoints": true
     }
   ]
 }
