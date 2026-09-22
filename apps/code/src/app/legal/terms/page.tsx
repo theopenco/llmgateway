@@ -165,7 +165,9 @@ export default function TermsPage() {
 				Subscriptions renew automatically each month until cancelled. All fees
 				are generally non-refundable except where required by law or under the
 				limited goodwill refund option below. You may cancel at any time; your
-				plan remains active until the end of the current billing period.
+				plan remains active until the end of the current billing period. If the
+				renewal payment for the current period has failed, cancellation takes
+				effect immediately and the unpaid renewal invoice is voided.
 			</p>
 			<p>
 				<strong>Limited goodwill refund.</strong> Once you start using your

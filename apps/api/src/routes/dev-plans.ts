@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { assertOrganizationNotHighRisk } from "@/lib/account-risk.js";
 import { readApiKeyMask } from "@/lib/api-key-mask.js";
+import { cancelPlanSubscription } from "@/lib/cancel-plan-subscription.js";
 import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import {
@@ -688,6 +689,9 @@ const cancel = createRoute({
 				"application/json": {
 					schema: z.object({
 						success: z.boolean(),
+						// True when the subscription was unpaid and ended right away
+						// instead of at period end.
+						immediate: z.boolean(),
 					}),
 				},
 			},
@@ -732,11 +736,8 @@ devPlans.openapi(cancel, async (c) => {
 	}
 
 	try {
-		await getStripe().subscriptions.update(
+		const { immediate } = await cancelPlanSubscription(
 			personalOrg.devPlanStripeSubscriptionId,
-			{
-				cancel_at_period_end: true,
-			},
 		);
 
 		await logAuditEvent({
@@ -747,6 +748,7 @@ devPlans.openapi(cancel, async (c) => {
 			resourceId: personalOrg.devPlanStripeSubscriptionId,
 			metadata: {
 				tier: personalOrg.devPlan,
+				immediate,
 			},
 		});
 
@@ -757,6 +759,7 @@ devPlans.openapi(cancel, async (c) => {
 
 		return c.json({
 			success: true,
+			immediate,
 		});
 	} catch (error) {
 		logger.error(

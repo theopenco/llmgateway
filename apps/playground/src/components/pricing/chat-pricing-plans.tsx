@@ -202,12 +202,16 @@ export function ChatPricingPlans({
 		}
 		setPendingAction("cancel");
 		try {
-			const { error } = await fetchClient.POST("/chat-plans/cancel", {});
+			const { data, error } = await fetchClient.POST("/chat-plans/cancel", {});
 			if (error) {
 				toast.error("Cancellation failed");
 				return;
 			}
-			toast.success("Membership cancelled — access continues until period end");
+			toast.success(
+				data.immediate
+					? "Membership cancelled — your renewal payment had failed, so no further charges will be attempted"
+					: "Membership cancelled — access continues until period end",
+			);
 			await refresh();
 		} finally {
 			setPendingAction(null);
