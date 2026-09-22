@@ -130,8 +130,11 @@ throwaway one:
 
 ## Step 3: Poll and download
 
-Video generation is asynchronous. Poll the job until `status` is `completed`,
-then stream the MP4 from the content endpoint.
+Video generation is asynchronous. Poll the job until `status` reaches a
+terminal value: `completed`, `failed`, `canceled`, or `expired`. Stream the MP4
+from the content endpoint only for `completed` jobs. For the other three, read
+the `error` object (`code`, `message`, and an optional `details` payload), then
+stop polling.
 
 ```bash
 curl "https://api.llmgateway.io/v1/videos/lMTODLiIkGUjpYs84owC" \
@@ -174,7 +177,9 @@ on the same credits as the API.
 ## What it costs
 
 H3 Max bills per second of output, and the first frame is a normal image edit.
-No plan is required beyond credits on the organization; the video endpoint needs
+Video generation needs a regular pay-as-you-go organization with credits. DevPass
+coding-plan organizations cannot generate videos even when they have credits
+available; the endpoint returns a `403` for them. The video endpoint also needs
 at least $1.00 available before it submits a job.
 
 | Step                         | Model            | Price                   | Our run |
@@ -191,8 +196,8 @@ reconstruct from a provider invoice. Current per-model pricing lives on the
 ## Things to know before you swap your own people
 
 - **Real faces pass on H3 Max, not everywhere.** MiniMax accepted photographic portraits of public figures as a first frame. Seedance rejects input images that contain a real person, so the same frame returns a `400` there.
-- **Moderation still applies.** Blocked generations finish as `failed` with a `content_filter` finish reason, and failed jobs cost `0`.
+- **Moderation still applies.** Blocked generations finish as `failed` with the reason in the `error` object, and failed jobs cost `0`.
 - **Frames and references do not mix.** A request with `image` cannot also carry `reference_images` or `reference_videos`. Pick one mode per call.
-- **Cached responses.** The gateway caches by request body, so change the prompt or the frame when you want a genuinely new take rather than the same one back.
+- **Every submit is a new render.** Each accepted `POST /v1/videos` request creates a new asynchronous job; gateway response caching never replays a video request, so resubmitting an identical body bills a second clip.
 
 **[Try LLM Gateway free](https://llmgateway.io/signup)** · **[Open the Lounge Video Studio](https://lounge.llmgateway.io/video)** · **[Read the video generation docs](https://docs.llmgateway.io/features/video-generation)** · **[How to generate AI videos with an API](/blog/generate-videos-api)**
