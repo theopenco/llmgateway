@@ -32,8 +32,11 @@ import {
 	supportedToolChoicesValue,
 } from "@/lib/airside-metadata.js";
 import {
+	incidentsResponseSchema,
+	incidentsWindowSchema,
 	mappingErrorShapesSchema,
 	notRetriedClause,
+	queryIncidentMappings,
 	queryMappingErrorShapes,
 	resolveMappingErrorWindow,
 } from "@/lib/mapping-error-shapes.js";
@@ -71,7 +74,6 @@ import {
 	providers as catalogueProviders,
 } from "@llmgateway/models";
 import {
-	parseUsedModel,
 	PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
 	providerBaseUrlHasEndpointPath,
 } from "@llmgateway/shared";
@@ -3410,8 +3412,6 @@ airside.openapi(statsRoute, async (c) => {
 // Incidents (per-mapping errors)
 // ---------------------------------------------------------------------------
 
-const incidentsWindowSchema = z.enum(["1h", "4h", "24h", "3d"]);
-
 async function resolveIncidentProviderIds(
 	providerCompanyId: string,
 	providerId: string | undefined,
@@ -3442,25 +3442,7 @@ const incidentsRoute = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						windowHours: z.number(),
-						providerIds: z.array(z.string()),
-						mapping: z.string().nullable(),
-						mappings: z.array(
-							z.object({
-								providerId: z.string(),
-								providerName: z.string(),
-								usedModel: z.string(),
-								modelId: z.string(),
-								region: z.string().nullable(),
-								requestCount: z.number(),
-								errorCount: z.number(),
-								upstreamErrorCount: z.number(),
-								gatewayErrorCount: z.number(),
-								errorRate: z.number(),
-							}),
-						),
-					}),
+					schema: incidentsResponseSchema.openapi({}),
 				},
 			},
 			description:
@@ -3479,49 +3461,15 @@ airside.openapi(incidentsRoute, async (c) => {
 	);
 	const { hours: windowHours } = resolveMappingErrorWindow(query.window, "24h");
 	const mapping = query.mapping ?? null;
-	if (providerIds.length === 0) {
-		return c.json({ windowHours, providerIds, mapping, mappings: [] });
-	}
-
-	const mph = tables.projectHourlyModelStats;
-	const windowMs = windowHours * 3_600_000;
-	const since = new Date(Date.now() - windowMs);
-	since.setMinutes(0, 0, 0);
-	const errorExpr = sql`SUM(${mph.errorCount}) - SUM(${mph.clientErrorCount})`;
-	const errorRateExpr = sql`(${errorExpr})::float8 / NULLIF(SUM(${mph.requestCount}), 0)`;
-
-	const rows = await db
-		.select({
-			providerId: mph.usedProvider,
-			usedModel: mph.usedModel,
-			requestCount: sql<number>`SUM(${mph.requestCount})::int`,
-			errorCount: sql<number>`(${errorExpr})::int`,
-			upstreamErrorCount: sql<number>`SUM(${mph.upstreamErrorCount})::int`,
-			gatewayErrorCount: sql<number>`SUM(${mph.gatewayErrorCount})::int`,
-			errorRate: sql<number>`COALESCE(${errorRateExpr}, 0)`,
-		})
-		.from(mph)
-		.where(
-			and(
-				inArray(mph.usedProvider, providerIds),
-				gte(mph.hourTimestamp, since),
-				mapping !== null ? eq(mph.usedModel, mapping) : undefined,
-			),
-		)
-		.groupBy(mph.usedProvider, mph.usedModel)
-		.having(mapping !== null ? undefined : sql`${errorExpr} > 0`)
-		.orderBy(desc(sql`COALESCE(${errorRateExpr}, 0)`), desc(sql`${errorExpr}`))
-		.limit(200);
-
 	return c.json({
 		windowHours,
 		providerIds,
 		mapping,
-		mappings: rows.map((row) => ({
-			...row,
-			...parseUsedModel(row.usedModel, row.providerId),
-			providerName: providerNamesById.get(row.providerId) ?? row.providerId,
-		})),
+		mappings: await queryIncidentMappings({
+			providerIds,
+			windowHours,
+			mapping,
+		}),
 	});
 });
 

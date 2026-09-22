@@ -12,6 +12,7 @@ import { Fragment, useState } from "react";
 
 import { useFilterNavigation } from "@/components/filter-navigation";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
 	Table,
 	TableBody,
@@ -51,7 +52,7 @@ interface UnstableMapping {
  */
 const UNATTRIBUTED_KEY = "__unattributed__";
 
-const percentFormatter = new Intl.NumberFormat("en-US", {
+export const percentFormatter = new Intl.NumberFormat("en-US", {
 	style: "percent",
 	maximumFractionDigits: 1,
 });
@@ -100,7 +101,7 @@ function ClassificationBadge({
 	);
 }
 
-function errorRateClass(rate: number): string {
+export function errorRateClass(rate: number): string {
 	if (rate >= 0.5) {
 		return "bg-red-500/15 text-red-600 dark:text-red-400";
 	}
@@ -110,7 +111,7 @@ function errorRateClass(rate: number): string {
 	return "bg-yellow-500/15 text-yellow-700 dark:text-yellow-400";
 }
 
-function ErrorDetails({
+export function ErrorDetails({
 	usedModel,
 	provider,
 	providerKeyId,
@@ -130,7 +131,7 @@ function ErrorDetails({
 	includeByok: boolean;
 }) {
 	const $api = useApi();
-	const { data, isLoading, isError } = $api.useQuery(
+	const { data, isLoading, isError, isFetching, refetch } = $api.useQuery(
 		"get",
 		"/admin/unstable-mappings/errors",
 		{
@@ -165,9 +166,21 @@ function ErrorDetails({
 
 	if (isError) {
 		return (
-			<p className="p-4 text-sm text-muted-foreground">
-				Failed to load error details.
-			</p>
+			<div
+				role="alert"
+				className="m-4 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm"
+			>
+				<span>Failed to load error details.</span>
+				<Button
+					size="sm"
+					variant="outline"
+					disabled={isFetching}
+					onClick={() => void refetch()}
+				>
+					{isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+					Retry
+				</Button>
+			</div>
 		);
 	}
 

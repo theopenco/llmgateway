@@ -1,6 +1,18 @@
 import { z } from "zod";
 
-import { db, type SQL, sql, tables } from "@llmgateway/db";
+import {
+	and,
+	db,
+	desc,
+	eq,
+	gte,
+	inArray,
+	type SQL,
+	sql,
+	tables,
+} from "@llmgateway/db";
+import { providers } from "@llmgateway/models";
+import { parseUsedModel } from "@llmgateway/shared";
 
 // Selectable time windows, mapping each value to its SQL interval bound and an
 // hours count surfaced to the UI.
@@ -133,4 +145,82 @@ export async function queryMappingErrorShapes({
 		})),
 		sampledErrors,
 	};
+}
+
+// Incidents pages (Airside + admin provider detail) cap the window at 3 days.
+export const incidentsWindowSchema = z.enum(["1h", "4h", "24h", "3d"]);
+
+export const incidentsResponseSchema = z.object({
+	windowHours: z.number(),
+	providerIds: z.array(z.string()),
+	mapping: z.string().nullable(),
+	mappings: z.array(
+		z.object({
+			providerId: z.string(),
+			providerName: z.string(),
+			usedModel: z.string(),
+			modelId: z.string(),
+			region: z.string().nullable(),
+			requestCount: z.number(),
+			errorCount: z.number(),
+			upstreamErrorCount: z.number(),
+			gatewayErrorCount: z.number(),
+			errorRate: z.number(),
+		}),
+	),
+});
+
+const providerNamesById = new Map(providers.map((p) => [p.id, p.name]));
+
+/**
+ * Per-mapping error counts (client errors excluded) from the hourly rollups.
+ * Mappings without errors are dropped unless `mapping` narrows to one.
+ */
+export async function queryIncidentMappings({
+	providerIds,
+	windowHours,
+	mapping,
+}: {
+	providerIds: string[];
+	windowHours: number;
+	mapping: string | null;
+}): Promise<z.infer<typeof incidentsResponseSchema>["mappings"]> {
+	if (providerIds.length === 0) {
+		return [];
+	}
+	const mph = tables.projectHourlyModelStats;
+	const windowMs = windowHours * 3_600_000;
+	const since = new Date(Date.now() - windowMs);
+	since.setMinutes(0, 0, 0);
+	const errorExpr = sql`SUM(${mph.errorCount}) - SUM(${mph.clientErrorCount})`;
+	const errorRateExpr = sql`(${errorExpr})::float8 / NULLIF(SUM(${mph.requestCount}), 0)`;
+
+	const rows = await db
+		.select({
+			providerId: mph.usedProvider,
+			usedModel: mph.usedModel,
+			requestCount: sql<number>`SUM(${mph.requestCount})::int`,
+			errorCount: sql<number>`(${errorExpr})::int`,
+			upstreamErrorCount: sql<number>`SUM(${mph.upstreamErrorCount})::int`,
+			gatewayErrorCount: sql<number>`SUM(${mph.gatewayErrorCount})::int`,
+			errorRate: sql<number>`COALESCE(${errorRateExpr}, 0)`,
+		})
+		.from(mph)
+		.where(
+			and(
+				inArray(mph.usedProvider, providerIds),
+				gte(mph.hourTimestamp, since),
+				mapping !== null ? eq(mph.usedModel, mapping) : undefined,
+			),
+		)
+		.groupBy(mph.usedProvider, mph.usedModel)
+		.having(mapping !== null ? undefined : sql`${errorExpr} > 0`)
+		.orderBy(desc(sql`COALESCE(${errorRateExpr}, 0)`), desc(sql`${errorExpr}`))
+		.limit(200);
+
+	return rows.map((row) => ({
+		...row,
+		...parseUsedModel(row.usedModel, row.providerId),
+		providerName: providerNamesById.get(row.providerId) ?? row.providerId,
+	}));
 }

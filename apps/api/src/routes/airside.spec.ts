@@ -1088,6 +1088,20 @@ describe("airside provider portal", () => {
 		);
 		expect(foreignErrors.status).toBe(404);
 
+		// Admins see the same per-mapping view for any provider.
+		const adminDenied = await app.request(
+			"/admin/airside/incidents?providerId=mistral",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(adminDenied.status).toBe(403);
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		const adminView = await app.request(
+			"/admin/airside/incidents?providerId=mistral",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(adminView.status).toBe(200);
+		expect((await adminView.json()).mappings).toEqual(body.mappings);
+
 		const outsider = await createSecondUser("outsider@example.com");
 		for (const path of [base, errorsBase]) {
 			const denied = await app.request(path, {
