@@ -2,6 +2,35 @@ import type { ModelDefinition } from "@/models.js";
 
 export const xiaomiModels = [
 	{
+		id: "mimo-v2.6-pro-ultraspeed",
+		name: "MiMo V2.6 Pro UltraSpeed",
+		description:
+			"Fast-speed edition of Xiaomi's MiMo V2.6 Pro, served from the same checkpoint at much higher output speed.",
+		family: "xiaomi",
+		releasedAt: new Date("2026-09-22"),
+		providers: [
+			{
+				providerId: "xiaomi" as const,
+				externalId: "mimo-v2.6-pro-ultraspeed",
+				inputPrice: "4.35e-6",
+				outputPrice: "8.7e-6",
+				cachedInputPrice: "0.036e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				maxTemperature: 1.5,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high"],
+				vision: true,
+				audio: true,
+				tools: true,
+				supportedToolChoices: ["auto"],
+				jsonOutput: true,
+			},
+		],
+	},
+	{
 		id: "mimo-v2.6-pro",
 		name: "MiMo V2.6 Pro",
 		description:
