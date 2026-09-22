@@ -53,6 +53,10 @@ export function resolveMappingErrorWindow(
 // those as non-retried so they are not silently dropped.
 export const notRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM true`;
 
+// Incidents count only failures the gateway retries: canceled and
+// content-filtered requests are neither retried nor outage signals.
+export const incidentErrorsClause = sql`AND ${tables.log.unifiedFinishReason} IN ('upstream_error', 'gateway_error')`;
+
 export const mappingErrorShapeSchema = z.object({
 	statusCode: z.number().nullable(),
 	statusText: z.string().nullable(),
@@ -173,7 +177,7 @@ export const incidentsResponseSchema = z.object({
 const providerNamesById = new Map(providers.map((p) => [p.id, p.name]));
 
 /**
- * Per-mapping error counts (client errors excluded) from the hourly rollups.
+ * Per-mapping upstream + gateway error counts from the hourly rollups.
  * Mappings without errors are dropped unless `mapping` narrows to one.
  */
 export async function queryIncidentMappings({
@@ -192,7 +196,7 @@ export async function queryIncidentMappings({
 	const windowMs = windowHours * 3_600_000;
 	const since = new Date(Date.now() - windowMs);
 	since.setMinutes(0, 0, 0);
-	const errorExpr = sql`SUM(${mph.errorCount}) - SUM(${mph.clientErrorCount})`;
+	const errorExpr = sql`SUM(${mph.upstreamErrorCount}) + SUM(${mph.gatewayErrorCount})`;
 	const errorRateExpr = sql`(${errorExpr})::float8 / NULLIF(SUM(${mph.requestCount}), 0)`;
 
 	const rows = await db

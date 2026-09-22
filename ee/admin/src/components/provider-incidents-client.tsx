@@ -39,7 +39,10 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon } from "@llmgateway/shared";
+import {
+	getProviderIcon,
+	INCIDENT_BREAKDOWN_DESCRIPTION,
+} from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { paths } from "@/lib/api/v1";
@@ -135,8 +138,9 @@ export function ProviderIncidentsClient({
 						<p className="mt-1 text-sm text-muted-foreground">
 							What the carrier sees in Airside for{" "}
 							<span className="font-mono">{providerId}</span>: failed requests
-							over the last {timeWindow}, excluding client errors. Counts
-							include retried attempts; expand a row for the top error shapes.
+							over the last {timeWindow}. {INCIDENT_BREAKDOWN_DESCRIPTION}{" "}
+							Counts include retried attempts; expand a row for the top error
+							shapes.
 						</p>
 					</div>
 				</div>
@@ -335,6 +339,7 @@ export function ProviderIncidentsClient({
 														logLimit={DRILLDOWN_LOG_LIMIT}
 														ignoreExpected={false}
 														includeByok
+														incidentsOnly
 													/>
 												</TableCell>
 											</TableRow>

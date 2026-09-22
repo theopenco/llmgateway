@@ -24,7 +24,7 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon } from "@llmgateway/shared";
+import { ERROR_CLASSIFICATIONS, getProviderIcon } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { UnstableWindow } from "@/lib/unstable-mappings-params";
@@ -57,33 +57,6 @@ export const percentFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 1,
 });
 
-// Human-readable labels and badge styling for the gateway's internal error
-// classification (the log's `unified_finish_reason`). Shown next to the HTTP
-// status because the status alone is misleading — some 4xx responses are
-// classified as gateway or upstream errors.
-const classificationBadges: Record<string, { label: string; class: string }> = {
-	client_error: {
-		label: "Client error",
-		class: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
-	},
-	gateway_error: {
-		label: "Gateway error",
-		class: "bg-orange-500/15 text-orange-600 dark:text-orange-400",
-	},
-	upstream_error: {
-		label: "Upstream error",
-		class: "bg-red-500/15 text-red-600 dark:text-red-400",
-	},
-	content_filter: {
-		label: "Content filter",
-		class: "bg-purple-500/15 text-purple-600 dark:text-purple-400",
-	},
-	canceled: {
-		label: "Canceled",
-		class: "bg-muted text-muted-foreground",
-	},
-};
-
 function ClassificationBadge({
 	classification,
 }: {
@@ -92,12 +65,21 @@ function ClassificationBadge({
 	if (!classification) {
 		return null;
 	}
-	const badge = classificationBadges[classification] ?? {
-		label: classification,
-		class: "bg-muted text-muted-foreground",
-	};
+	const badge = ERROR_CLASSIFICATIONS[classification];
 	return (
-		<Badge className={cn("font-medium", badge.class)}>{badge.label}</Badge>
+		<>
+			<Badge
+				className={cn(
+					"font-medium",
+					badge?.badgeClass ?? "bg-muted text-muted-foreground",
+				)}
+			>
+				{badge?.label ?? classification}
+			</Badge>
+			{badge && (
+				<span className="text-xs text-muted-foreground">{badge.hint}</span>
+			)}
+		</>
 	);
 }
 
@@ -120,6 +102,7 @@ export function ErrorDetails({
 	logLimit,
 	ignoreExpected,
 	includeByok,
+	incidentsOnly = false,
 }: {
 	usedModel: string;
 	provider: string;
@@ -129,6 +112,8 @@ export function ErrorDetails({
 	logLimit: number;
 	ignoreExpected: boolean;
 	includeByok: boolean;
+	/** Only upstream and gateway errors, matching the Incidents counts. */
+	incidentsOnly?: boolean;
 }) {
 	const $api = useApi();
 	const { data, isLoading, isError, isFetching, refetch } = $api.useQuery(
@@ -145,6 +130,7 @@ export function ErrorDetails({
 					logLimit,
 					ignoreExpected: ignoreExpected ? "true" : "false",
 					includeByok: includeByok ? "true" : "false",
+					incidentsOnly: incidentsOnly ? "true" : "false",
 				},
 			},
 		},
@@ -237,7 +223,7 @@ export function ErrorDetails({
 								className="rounded-md border border-border/60 bg-background/60 p-3"
 							>
 								<div className="flex items-center justify-between gap-3">
-									<div className="flex items-center gap-2">
+									<div className="flex flex-wrap items-center gap-2">
 										{error.statusCode !== null && (
 											<Badge variant="outline" className="font-mono">
 												{error.statusCode}
