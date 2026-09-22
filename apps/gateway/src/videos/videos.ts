@@ -88,6 +88,8 @@ import {
 	eq,
 	findManagedProviderKeyById,
 	getTableName,
+	gt,
+	isNull,
 	metricsKey,
 	sql,
 	shortid,
@@ -128,7 +130,10 @@ import {
 	buildSignedGatewayVideoLogContentUrl,
 	verifyVideoContentAccessToken,
 } from "@llmgateway/shared/video-access";
-import { isMinimaxV2VideoModel } from "@llmgateway/shared/video-generation-config";
+import {
+	estimateVideoCostUsd,
+	isMinimaxV2VideoModel,
+} from "@llmgateway/shared/video-generation-config";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
@@ -836,20 +841,15 @@ function getAvailableCredits(
 	return regularCredits + devPlanCreditsRemaining + chatPlanCreditsRemaining;
 }
 
-function hasSufficientVideoGenerationBalance(
-	organization: InferSelectModel<typeof tables.organization>,
-): boolean {
-	return getAvailableCredits(organization) >= MIN_VIDEO_GENERATION_BALANCE;
-}
-
 /**
- * Deterministic pre-charge estimate for a credits-billed video job. Video
- * bills only at worker finalization, minutes after submission — without an
- * up-front counter advance, a burst of submissions would all pass the
- * spend-cap gate together and overshoot the cap by however many jobs fit in
- * the async window. The estimate is recorded against the spend counters at
- * submission, stamped on the job (`llmgateway_reserved_spend_usd`), and
- * reconciled to the actual billed cost when the worker finalizes.
+ * Pre-charge estimate for a credits-billed video job. Video bills only at
+ * worker finalization, minutes after submission — without an up-front figure,
+ * a burst of submissions would all pass the credit and spend-cap gates
+ * together and overshoot by however many jobs fit in the async window. The
+ * estimate gates submission against the org's available credits, is recorded
+ * against the spend counters, stamped on the job
+ * (`llmgateway_reserved_spend_usd`), and reconciled to the actual billed cost
+ * when the worker finalizes.
  */
 function estimateVideoSpendUsd(
 	mapping: ProviderModelMapping,
@@ -857,43 +857,80 @@ function estimateVideoSpendUsd(
 	durationSeconds: number,
 	inputImageCount: number,
 ): number {
-	let outputCost = 0;
-	const pricing = mapping.perSecondPrice;
-	if (pricing) {
-		// Prefer the audio-inclusive (higher) rate — overestimating is the safe
-		// direction for a cap, and the finalization reconcile settles the exact
-		// figure either way.
-		const candidates = [
-			`${resolution}_audio`,
-			`${resolution}_video`,
-			resolution,
-			"default",
-		];
-		let perSecond = candidates
-			.map((key) => Number(pricing[key]))
-			.find((value) => Number.isFinite(value));
-		if (perSecond === undefined) {
-			perSecond = Math.max(
-				0,
-				...Object.values(pricing)
-					.map(Number)
-					.filter((value) => Number.isFinite(value)),
-			);
-		}
-		outputCost = durationSeconds * perSecond;
-	} else if (mapping.requestPrice !== undefined) {
-		const requestPrice = Number(mapping.requestPrice);
-		outputCost = Number.isFinite(requestPrice) ? requestPrice : 0;
-	}
-	const perImage = Number(mapping.imageInputPrice ?? 0);
-	const imageCost = Number.isFinite(perImage) ? inputImageCount * perImage : 0;
-	return Number((outputCost + imageCost).toFixed(6));
+	return estimateVideoCostUsd(
+		mapping,
+		resolution,
+		durationSeconds,
+		inputImageCount,
+	);
 }
 
-function getInsufficientVideoGenerationBalanceError(): HTTPException {
+// Reservations of jobs the worker has not finalized yet still count against
+// the org's credits (the job row is the reservation: finalization stamps
+// logId). Bounded to the worker's job lifetime so a stuck row cannot block an
+// org forever.
+const PENDING_VIDEO_RESERVATION_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+async function getPendingVideoReservationUsd(
+	organizationId: string,
+): Promise<number> {
+	const [row] = await db
+		.select({
+			total: sql<string>`coalesce(sum((${tables.videoJob.upstreamCreateResponse} ->> 'llmgateway_reserved_spend_usd')::numeric), 0)`,
+		})
+		.from(tables.videoJob)
+		.where(
+			and(
+				eq(tables.videoJob.organizationId, organizationId),
+				eq(tables.videoJob.usedMode, "credits"),
+				isNull(tables.videoJob.logId),
+				isNull(tables.videoJob.endCustomerWalletId),
+				gt(
+					tables.videoJob.createdAt,
+					new Date(Date.now() - PENDING_VIDEO_RESERVATION_WINDOW_MS),
+				),
+			),
+		);
+	return Number(row?.total ?? 0) || 0;
+}
+
+interface VideoCreditShortfall {
+	requiredUsd: number;
+	availableUsd: number;
+	pendingUsd: number;
+}
+
+/**
+ * The org must hold the job's estimated cost (never less than the flat
+ * minimum) beyond what its still-running video jobs already reserve.
+ * Wallet-funded sessions bill the wallet, so they keep only the flat
+ * minimum check on the org.
+ */
+function getVideoCreditShortfall(
+	organization: InferSelectModel<typeof tables.organization>,
+	estimatedUsd: number,
+	pendingUsd: number,
+): VideoCreditShortfall | null {
+	const requiredUsd = Math.max(MIN_VIDEO_GENERATION_BALANCE, estimatedUsd);
+	const availableUsd = getAvailableCredits(organization) - pendingUsd;
+	return availableUsd < requiredUsd
+		? { requiredUsd, availableUsd, pendingUsd }
+		: null;
+}
+
+function formatUsd(value: number): string {
+	return `$${Math.max(0, value).toFixed(2)}`;
+}
+
+function getInsufficientVideoGenerationBalanceError(
+	shortfall: VideoCreditShortfall,
+): HTTPException {
+	const reserved =
+		shortfall.pendingUsd > 0
+			? ` after ${formatUsd(shortfall.pendingUsd)} reserved for videos still in progress`
+			: "";
 	return new HTTPException(402, {
-		message:
-			"Video generation requires at least $1.00 in available credits. Please add credits and try again.",
+		message: `Video generation requires an estimated ${formatUsd(shortfall.requiredUsd)} in available credits for this request (minimum ${formatUsd(MIN_VIDEO_GENERATION_BALANCE)}), but your organization has ${formatUsd(shortfall.availableUsd)} available${reserved}. Please add credits and try again.`,
 	});
 }
 
@@ -4805,8 +4842,29 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 	let upstreamId: string | undefined;
 	let upstreamRequest: Record<string, unknown> | undefined;
 	let upstreamResponse: Record<string, unknown> | undefined;
-	const hasVideoGenerationBalance =
-		hasSufficientVideoGenerationBalance(organization);
+	// Read once, lazily: only credits-billed submissions need it, and a hybrid
+	// project may only reach one after falling back mid-loop.
+	let pendingVideoReservationUsd: number | null = null;
+	const getVideoCreditShortfallForMapping = async (
+		mapping: ProviderModelMapping,
+	): Promise<VideoCreditShortfall | null> => {
+		if (wallet) {
+			return getVideoCreditShortfall(organization, 0, 0);
+		}
+		pendingVideoReservationUsd ??= await getPendingVideoReservationUsd(
+			organization.id,
+		);
+		return getVideoCreditShortfall(
+			organization,
+			estimateVideoSpendUsd(
+				mapping,
+				videoSize.resolution,
+				videoDurationSeconds,
+				inputImageCount,
+			),
+			pendingVideoReservationUsd,
+		);
+	};
 
 	// Video generation is the priciest endpoint per request, so the credits-billed
 	// path gets the same per-org spend-cap gate as the other paid endpoints.
@@ -4816,10 +4874,13 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 	}
 
 	for (;;) {
-		if (
-			selectedProviderContext.usedMode === "credits" &&
-			!hasVideoGenerationBalance
-		) {
+		// Gate on this mapping's estimated cost: a cheaper fallback provider may
+		// still fit the remaining balance.
+		const creditShortfall =
+			selectedProviderContext.usedMode === "credits"
+				? await getVideoCreditShortfallForMapping(selectedProviderMapping)
+				: null;
+		if (creditShortfall) {
 			routingAttempts.push({
 				provider: selectedProviderContext.providerId,
 				model: modelInfo.id,
@@ -4840,7 +4901,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 						)
 					: null;
 			if (!nextProvider) {
-				throw getInsufficientVideoGenerationBalanceError();
+				throw getInsufficientVideoGenerationBalanceError(creditShortfall);
 			}
 
 			const nextMapping = orderedMappings.find(
@@ -4849,7 +4910,7 @@ videos.openapi(createVideo, async (c): Promise<any> => {
 					(mapping.region ?? undefined) === nextProvider.region,
 			);
 			if (!nextMapping) {
-				throw getInsufficientVideoGenerationBalanceError();
+				throw getInsufficientVideoGenerationBalanceError(creditShortfall);
 			}
 
 			selectedProviderMapping = nextMapping;
