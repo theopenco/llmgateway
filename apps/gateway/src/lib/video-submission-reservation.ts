@@ -32,7 +32,11 @@ return 1
 
 /**
  * Add a submission's estimate to the org's in-flight total and return that
- * total, including the amount just added.
+ * total, including the amount just added. When Redis cannot answer, the
+ * submission is treated as the only one in flight: the job-row sum still
+ * gates it, and only the race window between two simultaneous submissions
+ * goes unprotected, which is preferable to a Redis outage blocking every
+ * credits-billed video.
  */
 export async function reserveVideoSubmission(
 	organizationId: string,
@@ -49,7 +53,14 @@ export async function reserveVideoSubmission(
 			.expire(key, IN_FLIGHT_TTL_SECONDS)
 			.exec();
 		const total = Number(results?.[0]?.[1]);
-		return Number.isFinite(total) ? total : estimatedUsd;
+		if (!Number.isFinite(total)) {
+			logger.warn("In-flight video reservation returned no total", {
+				organizationId,
+				result: results?.[0],
+			});
+			return estimatedUsd;
+		}
+		return total;
 	} catch (error) {
 		logger.error("Error reserving in-flight video submission:", error as Error);
 		return estimatedUsd;
