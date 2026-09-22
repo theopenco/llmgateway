@@ -94,6 +94,9 @@ export const curatedCategoryModelIds: Record<
 		"glm-4.7",
 		"minimax-m3",
 		"minimax-m2.7",
+		"mimo-v2.6-flash",
+		"mimo-v2.6-pro",
+		"mimo-v2.6-pro-ultraspeed",
 	]),
 	"creative-writing": new Set([
 		"claude-opus-4-8",
@@ -156,6 +159,7 @@ export const curatedCategoryModelIds: Record<
 		"minimax-m3",
 		"grok-4-20-reasoning",
 		"grok-4-3",
+		"mimo-v2.6-pro",
 		"mimo-v2.5-pro",
 	]),
 };

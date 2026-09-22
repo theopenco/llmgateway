@@ -2,6 +2,111 @@ import type { ModelDefinition } from "@/models.js";
 
 export const xiaomiModels = [
 	{
+		id: "mimo-v2.6-flash",
+		name: "MiMo V2.6 Flash",
+		description:
+			"Xiaomi's full-modality, high-intelligence, low-cost reasoning model with 1M context, built for frequent calls and large-scale workloads. Successor to MiMo V2.5.",
+		family: "xiaomi",
+		releasedAt: new Date("2026-09-22"),
+		providers: [
+			{
+				providerId: "xiaomi" as const,
+				externalId: "mimo-v2.6-flash",
+				inputPrice: "0.14e-6",
+				outputPrice: "0.28e-6",
+				cachedInputPrice: "0.0028e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				// Xiaomi accepts low/medium/high natively and rejects the other
+				// tiers with a 400; `none` maps to the binary thinking disable.
+				reasoningEfforts: ["none", "low", "medium", "high"],
+				// Official capability table + V2.5 precedent; image input accepted
+				// in an OpenRouter supplementary probe (no first-party key).
+				vision: true,
+				tools: true,
+				// json_object parses in both transports, per Xiaomi's structured-
+				// output doc and an OpenRouter supplementary probe (not first-party).
+				jsonOutput: true,
+				// Strict json_schema validated in both transports; verified via
+				// OpenRouter, not first-party.
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
+		id: "mimo-v2.6-pro",
+		name: "MiMo V2.6 Pro",
+		description:
+			"Xiaomi's flagship trillion-parameter omni-modal reasoning model with 1M context, trained with large-scale reinforcement learning for self-improvement. Successor to MiMo V2.5 Pro.",
+		family: "xiaomi",
+		releasedAt: new Date("2026-09-22"),
+		providers: [
+			{
+				providerId: "xiaomi" as const,
+				externalId: "mimo-v2.6-pro",
+				inputPrice: "0.435e-6",
+				outputPrice: "0.87e-6",
+				cachedInputPrice: "0.0036e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				// Xiaomi accepts low/medium/high natively and rejects the other
+				// tiers with a 400; `none` maps to the binary thinking disable.
+				reasoningEfforts: ["none", "low", "medium", "high"],
+				// Official capability table + V2.5 precedent; image input accepted
+				// in an OpenRouter supplementary probe (no first-party key).
+				vision: true,
+				tools: true,
+				// json_object parses in both transports, per Xiaomi's structured-
+				// output doc and an OpenRouter supplementary probe (not first-party).
+				jsonOutput: true,
+				// Strict json_schema validated in both transports; verified via
+				// OpenRouter, not first-party.
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
+		id: "mimo-v2.6-pro-ultraspeed",
+		name: "MiMo V2.6 Pro UltraSpeed",
+		description:
+			"MiMo V2.6 Pro at up to 20x faster inference for real-time, latency-sensitive workloads, with the same 1M context and flagship capabilities.",
+		family: "xiaomi",
+		releasedAt: new Date("2026-09-22"),
+		providers: [
+			{
+				providerId: "xiaomi" as const,
+				externalId: "mimo-v2.6-pro-ultraspeed",
+				inputPrice: "4.35e-6",
+				outputPrice: "8.7e-6",
+				cachedInputPrice: "0.036e-6",
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				// Xiaomi accepts low/medium/high natively and rejects the other
+				// tiers with a 400; `none` maps to the binary thinking disable.
+				reasoningEfforts: ["none", "low", "medium", "high"],
+				// Official capability table + V2.5 precedent; image input accepted
+				// in an OpenRouter supplementary probe (no first-party key).
+				vision: true,
+				tools: true,
+				// json_object parses in both transports, per Xiaomi's structured-
+				// output doc and an OpenRouter supplementary probe (not first-party).
+				jsonOutput: true,
+				// Strict json_schema validated in both transports; verified via
+				// OpenRouter, not first-party.
+				jsonOutputSchema: true,
+			},
+		],
+	},
+	{
 		id: "mimo-v2.5-pro",
 		name: "MiMo V2.5 Pro",
 		description:
