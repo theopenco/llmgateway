@@ -4,6 +4,7 @@ import {
 	FilterNavigationResults,
 } from "@/components/filter-navigation";
 import { IgnoredErrorMatchersDialog } from "@/components/ignored-error-matchers";
+import { MappingFilterInput } from "@/components/mapping-filter-input";
 import { SegmentedQueryToggle } from "@/components/segmented-query-toggle";
 import { UnstableMappingsTable } from "@/components/unstable-mappings-table";
 import { requireSession } from "@/lib/require-session";
@@ -30,6 +31,7 @@ export default async function UnstableMappingsPage({
 		ignoreExpected?: string;
 		splitByKey?: string;
 		includeByok?: string;
+		mapping?: string;
 	}>;
 }) {
 	await requireSession();
@@ -41,6 +43,10 @@ export default async function UnstableMappingsPage({
 	const includeByok = params?.includeByok === "true";
 	const window = parseUnstableWindow(params?.window);
 	const logLimit = parseUnstableLogLimit(params?.logLimit);
+	const mapping = params?.mapping?.trim() || undefined;
+	const mappingProvider = mapping?.includes("/")
+		? mapping.slice(0, mapping.indexOf("/"))
+		: undefined;
 
 	const $api = await createServerApiClient();
 	const { data, error } = await $api.GET("/admin/unstable-mappings", {
@@ -53,6 +59,9 @@ export default async function UnstableMappingsPage({
 				ignoreExpected: ignoreExpected ? "true" : "false",
 				splitByKey: splitByKey ? "true" : "false",
 				includeByok: includeByok ? "true" : "false",
+				...(mapping && mappingProvider
+					? { model: mapping, provider: mappingProvider }
+					: {}),
 			},
 		},
 	});
@@ -85,11 +94,13 @@ export default async function UnstableMappingsPage({
 							{data.splitByKey
 								? "Each row is one provider key's share of a mapping. "
 								: ""}
+							{data.mapping ? `Filtered to ${data.mapping}. ` : ""}
 							Click a row to load its top 10 error details.
 						</p>
 					</div>
 					<div className="flex flex-col items-start gap-2 lg:items-end">
 						<div className="flex flex-wrap items-center gap-2">
+							<MappingFilterInput key={mapping ?? ""} mapping={data.mapping} />
 							<IgnoredErrorMatchersDialog
 								matcherCount={data.ignoredMatcherCount}
 							/>

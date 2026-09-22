@@ -20,8 +20,10 @@ interface MappingEntry {
 
 interface ListBody {
 	mappings: MappingEntry[];
+	sampledLogs: number;
 	splitByKey: boolean;
 	includeByok: boolean;
+	mapping: string | null;
 }
 
 interface ErrorsBody {
@@ -285,5 +287,29 @@ describe("admin unstable mappings", () => {
 		const unattributed = await getErrors("&providerKeyId=__unattributed__");
 		expect(unattributed.sampledErrors).toBe(1);
 		expect(unattributed.errors[0].statusCode).toBe(503);
+	});
+
+	test("filters the ranking to one mapping", async () => {
+		await seedLog({ hasError: true });
+		await seedLog({});
+		await seedLog({
+			usedModel: "openai/gpt-4o",
+			hasError: true,
+		});
+
+		const unfiltered = await getMappings();
+		expect(unfiltered.mapping).toBeNull();
+		expect(unfiltered.mappings).toHaveLength(2);
+		expect(unfiltered.sampledLogs).toBe(3);
+
+		const body = await getMappings("?model=openai/gpt-4o-mini&provider=openai");
+		expect(body.mapping).toBe("openai/gpt-4o-mini");
+		expect(body.mappings).toHaveLength(1);
+		expect(body.mappings[0]).toMatchObject({
+			usedModel: "openai/gpt-4o-mini",
+			logsCount: 2,
+			errorsCount: 1,
+		});
+		expect(body.sampledLogs).toBe(2);
 	});
 });

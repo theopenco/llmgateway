@@ -31,6 +31,13 @@ import {
 	withEnterpriseSeatsForActivation,
 	withEnterpriseSeatsForPromotion,
 } from "@/lib/enterprise-seats.js";
+import {
+	mappingErrorShapesSchema,
+	mappingErrorWindowSchema,
+	notRetriedClause,
+	queryMappingErrorShapes,
+	resolveMappingErrorWindow,
+} from "@/lib/mapping-error-shapes.js";
 import { modeSplitFields } from "@/lib/mode-split.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
@@ -12337,44 +12344,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 const UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT = 100;
 const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 1000000;
 
-// Supported time windows for the rankings, mapping each selectable value to its
-// SQL interval bound and an hours count surfaced to the UI for the description.
-const UNSTABLE_MAPPINGS_WINDOWS = {
-	"1h": { interval: sql`now() - interval '1 hour'`, hours: 1 },
-	"2h": { interval: sql`now() - interval '2 hours'`, hours: 2 },
-	"4h": { interval: sql`now() - interval '4 hours'`, hours: 4 },
-	"8h": { interval: sql`now() - interval '8 hours'`, hours: 8 },
-	"12h": { interval: sql`now() - interval '12 hours'`, hours: 12 },
-	"16h": { interval: sql`now() - interval '16 hours'`, hours: 16 },
-	"24h": { interval: sql`now() - interval '24 hours'`, hours: 24 },
-	"3d": { interval: sql`now() - interval '3 days'`, hours: 72 },
-	"7d": { interval: sql`now() - interval '7 days'`, hours: 168 },
-} as const;
-
-const unstableMappingsWindowSchema = z.enum([
-	"1h",
-	"2h",
-	"4h",
-	"8h",
-	"12h",
-	"16h",
-	"24h",
-	"3d",
-	"7d",
-]);
-
-type UnstableMappingsWindow = keyof typeof UNSTABLE_MAPPINGS_WINDOWS;
-
-function resolveUnstableMappingsWindow(
-	window: UnstableMappingsWindow | undefined,
-) {
-	return UNSTABLE_MAPPINGS_WINDOWS[window ?? "4h"];
-}
-
-// `retried` is nullable; legacy rows predate the column and are NULL. Treat
-// those as non-retried so they are not silently dropped from the rankings.
-const unstableMappingsNotRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM true`;
-
 // Customer-owned keys are useful when debugging a customer report, but they
 // should not affect the platform credential health ranking by default.
 const unstableMappingsPlatformOnlyClause = sql`AND ${tables.log.usedMode} <> 'api-keys'`;
@@ -12455,6 +12424,8 @@ const unstableMappingsListSchema = z.object({
 	includeByok: z.boolean(),
 	// Number of ignore matchers applied to this ranking (0 when disabled).
 	ignoredMatcherCount: z.number(),
+	// The exact `used_model` the ranking is narrowed to, if any.
+	mapping: z.string().nullable(),
 });
 
 const getUnstableMappings = createRoute({
@@ -12469,10 +12440,13 @@ const getUnstableMappings = createRoute({
 				.max(UNSTABLE_MAPPINGS_MAX_LOG_LIMIT)
 				.optional(),
 			includeRetried: z.enum(["true", "false"]).optional(),
-			window: unstableMappingsWindowSchema.optional(),
+			window: mappingErrorWindowSchema.optional(),
 			ignoreExpected: z.enum(["true", "false"]).optional(),
 			splitByKey: z.enum(["true", "false"]).optional(),
 			includeByok: z.enum(["true", "false"]).optional(),
+			/** Exact `used_model` (`provider/model[:region]`); requires `provider`. */
+			model: z.string().optional(),
+			provider: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -12493,15 +12467,18 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const limit = query.limit ?? 50;
 	const includeRetried = query.includeRetried === "true";
 	const logLimit = query.logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
-	const retriedClause = includeRetried
-		? sql``
-		: unstableMappingsNotRetriedClause;
+	const retriedClause = includeRetried ? sql`` : notRetriedClause;
 	const ignoreExpected = query.ignoreExpected !== "false";
 	const splitByKey = query.splitByKey === "true";
 	const includeByok = query.includeByok === "true";
 	const byokClause = includeByok ? sql`` : unstableMappingsPlatformOnlyClause;
 	const { interval: windowInterval, hours: windowHours } =
-		resolveUnstableMappingsWindow(query.window);
+		resolveMappingErrorWindow(query.window);
+	const mapping = query.model && query.provider ? query.model : null;
+	const mappingClause =
+		mapping !== null
+			? sql`AND ${tables.log.usedModel} = ${mapping} AND ${tables.log.usedProvider} = ${query.provider}`
+			: sql``;
 
 	// With the split off every row carries a constant NULL key, so the extra
 	// GROUP BY column is a no-op and both modes share one query shape.
@@ -12539,6 +12516,7 @@ admin.openapi(getUnstableMappings, async (c) => {
 				AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'
 				${retriedClause}
 				${byokClause}
+				${mappingClause}
 			ORDER BY ${tables.log.createdAt} DESC
 			LIMIT ${logLimit}
 		)
@@ -12626,30 +12604,8 @@ admin.openapi(getUnstableMappings, async (c) => {
 		splitByKey,
 		includeByok,
 		ignoredMatcherCount: ignoredMatchers.length,
+		mapping,
 	});
-});
-
-const unstableMappingErrorDetailSchema = z.object({
-	statusCode: z.number().nullable(),
-	statusText: z.string().nullable(),
-	responseText: z.string().nullable(),
-	cause: z.string().nullable(),
-	// The gateway's internal classification stored on the log
-	// (`unified_finish_reason`, e.g. `client_error`, `gateway_error`,
-	// `upstream_error`, `content_filter`). Surfaced because the HTTP status
-	// alone is misleading: some 4xx responses are classified as gateway or
-	// upstream errors.
-	classification: z.string().nullable(),
-	// Whether the failed request was a streaming request. Streaming and
-	// non-streaming failures often have different causes, so the drilldown
-	// groups errors by this flag.
-	streamed: z.boolean(),
-	count: z.number(),
-});
-
-const unstableMappingErrorsSchema = z.object({
-	errors: z.array(unstableMappingErrorDetailSchema),
-	sampledErrors: z.number(),
 });
 
 const getUnstableMappingErrors = createRoute({
@@ -12660,7 +12616,7 @@ const getUnstableMappingErrors = createRoute({
 			model: z.string(),
 			provider: z.string(),
 			includeRetried: z.enum(["true", "false"]).optional(),
-			window: unstableMappingsWindowSchema.optional(),
+			window: mappingErrorWindowSchema.optional(),
 			logLimit: z.coerce
 				.number()
 				.min(1)
@@ -12681,7 +12637,7 @@ const getUnstableMappingErrors = createRoute({
 		200: {
 			content: {
 				"application/json": {
-					schema: unstableMappingErrorsSchema.openapi({}),
+					schema: mappingErrorShapesSchema.openapi({}),
 				},
 			},
 			description:
@@ -12702,11 +12658,10 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		providerKeyId,
 	} = c.req.valid("query");
 	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
-	const retriedClause =
-		includeRetried === "true" ? sql`` : unstableMappingsNotRetriedClause;
+	const retriedClause = includeRetried === "true" ? sql`` : notRetriedClause;
 	const byokClause =
 		includeByok === "true" ? sql`` : unstableMappingsPlatformOnlyClause;
-	const { interval: windowInterval } = resolveUnstableMappingsWindow(window);
+	const { interval: windowInterval } = resolveMappingErrorWindow(window);
 	const providerKeyClause =
 		providerKeyId === undefined
 			? sql``
@@ -12723,62 +12678,20 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			? sql`AND NOT COALESCE((${buildIgnoredErrorMatchExpr(ignoredMatchers)}), false)`
 			: sql``;
 
-	const rows = await db.execute<{
-		status_code: string | null;
-		status_text: string | null;
-		response_text: string | null;
-		cause: string | null;
-		classification: string | null;
-		streamed: boolean;
-		count: string;
-		sampled_errors: string;
-	}>(sql`
-		WITH recent_errors AS (
-			SELECT ${tables.log.errorDetails} AS error_details,
-				${tables.log.unifiedFinishReason} AS classification,
-				COALESCE(${tables.log.streamed}, false) AS streamed
-			FROM ${tables.log}
-			WHERE ${tables.log.hasError} = true
-				AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'
-				AND ${tables.log.usedModel} = ${model}
-				AND ${tables.log.usedProvider} = ${provider}
-				AND ${tables.log.createdAt} >= ${windowInterval}
-				${providerKeyClause}
-				${retriedClause}
-				${byokClause}
-				${ignoredClause}
-			ORDER BY ${tables.log.createdAt} DESC
-			LIMIT ${sampleLimit}
-		)
-		SELECT error_details->>'statusCode' AS status_code,
-			error_details->>'statusText' AS status_text,
-			LEFT(error_details->>'responseText', 2000) AS response_text,
-			error_details->>'cause' AS cause,
-			classification,
-			streamed,
-			COUNT(*) AS count,
-			(SELECT COUNT(*) FROM recent_errors) AS sampled_errors
-		FROM recent_errors
-		GROUP BY status_code, status_text, response_text, cause, classification, streamed
-		ORDER BY count DESC
-		LIMIT 10
-	`);
-
-	const sampledErrors =
-		rows.rows.length > 0 ? Number(rows.rows[0].sampled_errors) : 0;
-
-	return c.json({
-		errors: rows.rows.map((r) => ({
-			statusCode: r.status_code !== null ? Number(r.status_code) : null,
-			statusText: r.status_text,
-			responseText: r.response_text,
-			cause: r.cause,
-			classification: r.classification,
-			streamed: r.streamed,
-			count: Number(r.count),
-		})),
-		sampledErrors,
-	});
+	return c.json(
+		await queryMappingErrorShapes({
+			usedModel: model,
+			provider,
+			windowInterval,
+			sampleLimit,
+			extraClauses: [
+				providerKeyClause,
+				retriedClause,
+				byokClause,
+				ignoredClause,
+			],
+		}),
+	);
 });
 
 // ── Ignored Error Matchers ──────────────────────────────────────────────────

@@ -515,6 +515,14 @@ export default function FleetPage() {
 											<span>
 												Registered <RelativeDate date={model.createdAt} />
 											</span>
+											{model.status === "active" ? (
+												<Link
+													href={`/dashboard/incidents?mapping=${encodeURIComponent(`${model.providerId}/${model.modelName}`)}`}
+													className="text-primary hover:underline"
+												>
+													Incidents →
+												</Link>
+											) : null}
 										</div>
 									</div>
 

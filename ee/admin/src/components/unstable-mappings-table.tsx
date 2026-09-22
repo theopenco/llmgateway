@@ -1,9 +1,10 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Filter, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { Fragment, useState } from "react";
 
+import { useFilterNavigation } from "@/components/filter-navigation";
 import { Badge } from "@/components/ui/badge";
 import {
 	Table,
@@ -273,6 +274,7 @@ export function UnstableMappingsTable({
 	includeByok: boolean;
 }) {
 	const [expanded, setExpanded] = useState<string | null>(null);
+	const { isPending, navigate } = useFilterNavigation();
 	const columnCount = splitByKey ? 7 : 6;
 
 	if (mappings.length === 0) {
@@ -331,17 +333,33 @@ export function UnstableMappingsTable({
 									</Link>
 								</TableCell>
 								<TableCell>
-									<Link
-										href={`/model-provider-mappings/${encodeURIComponent(mapping.providerId)}/${encodeURIComponent(mapping.modelId)}${mapping.region ? `?region=${encodeURIComponent(mapping.region)}` : ""}`}
-										className="font-mono text-xs hover:underline"
-									>
-										{mapping.modelId}
-										{mapping.region && (
-											<span className="text-muted-foreground">
-												:{mapping.region}
-											</span>
-										)}
-									</Link>
+									<div className="flex items-center gap-1">
+										<Link
+											href={`/model-provider-mappings/${encodeURIComponent(mapping.providerId)}/${encodeURIComponent(mapping.modelId)}${mapping.region ? `?region=${encodeURIComponent(mapping.region)}` : ""}`}
+											className="font-mono text-xs hover:underline"
+										>
+											{mapping.modelId}
+											{mapping.region && (
+												<span className="text-muted-foreground">
+													:{mapping.region}
+												</span>
+											)}
+										</Link>
+										<button
+											type="button"
+											className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted disabled:opacity-50"
+											aria-label="Filter to this mapping"
+											title="Filter to this mapping"
+											disabled={isPending}
+											onClick={() =>
+												navigate(`mapping:${mapping.usedModel}`, (params) => {
+													params.set("mapping", mapping.usedModel);
+												})
+											}
+										>
+											<Filter className="h-3.5 w-3.5" />
+										</button>
+									</div>
 								</TableCell>
 								{splitByKey && (
 									<TableCell>
