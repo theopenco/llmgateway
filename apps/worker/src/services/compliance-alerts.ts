@@ -131,8 +131,12 @@ export async function emitOrgAlert(
 		await db
 			.insert(notification)
 			.values({
-				...alert,
-				eventKey,
+				// The persisted alert, so a resumed fan-out matches what was sent.
+				type: created.type,
+				eventKey: created.eventKey,
+				title: created.title,
+				message: created.message,
+				href: created.href,
 				userId,
 				organizationId: org.id,
 				inApp,

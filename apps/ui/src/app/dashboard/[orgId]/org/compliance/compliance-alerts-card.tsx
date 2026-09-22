@@ -3,7 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
@@ -108,17 +108,20 @@ export function ComplianceAlertsCard({
 	const [audience, setAudience] = useState<AlertAudience>("admin");
 	const [pendingModels, setPendingModels] = useState<string[]>([]);
 
-	// Load saved settings; owners and admins are the default audience.
+	// Seed the delivery form once per org: later refetches keep the watch list
+	// fresh without discarding unsaved edits to these controls.
+	const seededOrgId = useRef<string | null>(null);
 	useEffect(() => {
-		if (!data) {
+		if (!data || seededOrgId.current === organizationId) {
 			return;
 		}
+		seededOrgId.current = organizationId;
 		setInApp(data.settings?.inApp ?? true);
 		setEmail(data.settings?.email ?? true);
 		setSlack(data.settings?.channels.includes("slack") ?? false);
 		setDowngrades(data.settings?.downgrades ?? true);
 		setAudience(data.settings?.recipientAudience ?? "admin");
-	}, [data]);
+	}, [data, organizationId]);
 
 	const watchedIds = useMemo(
 		() => new Set(data?.watches.map((w) => w.modelId) ?? []),

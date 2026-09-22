@@ -272,7 +272,14 @@ export async function processNotifications(now = new Date()): Promise<void> {
 			}
 		}
 	}
-	await processComplianceAlerts(now);
+	try {
+		await processComplianceAlerts(now);
+	} catch (error) {
+		logger.error(
+			"Compliance alert processing failed",
+			error instanceof Error ? error : new Error(String(error)),
+		);
+	}
 	await deliverNotificationEmails(now);
 }
 

@@ -101,6 +101,21 @@ describe("compliance alerts", () => {
 		expect(body.recipientCount).toBe(1);
 	});
 
+	test("configures defaults even when every model is already watched", async () => {
+		await request("/compliance-alerts/watches", "POST", {
+			modelIds: ["blocked-model"],
+		});
+		await db
+			.update(tables.organization)
+			.set({ complianceAlertSettings: null })
+			.where(eq(tables.organization.id, organizationId));
+		await request("/compliance-alerts/watches", "POST", {
+			modelIds: ["blocked-model"],
+		});
+		const body = await (await request("/compliance-alerts")).json();
+		expect(body.settings?.recipientAudience).toBe("admin");
+	});
+
 	test("rejects unknown models", async () => {
 		const res = await request("/compliance-alerts/watches", "POST", {
 			modelIds: ["does-not-exist"],

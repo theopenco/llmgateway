@@ -430,6 +430,26 @@ complianceAlerts.openapi(
 				message: `An organization can watch at most ${MAX_WATCHES} models`,
 			});
 		}
+		// The worker only evaluates configured orgs, so the first watch saves the
+		// defaults the dashboard shows: in-app + email to owners and admins. This
+		// runs before the early return, so a retry still configures the org.
+		const configureDefaults = async () => {
+			if (organization.complianceAlertSettings) {
+				return;
+			}
+			await db
+				.update(tables.organization)
+				.set({ complianceAlertSettings: DEFAULT_SETTINGS })
+				.where(
+					and(
+						eq(tables.organization.id, organizationId),
+						isNull(tables.organization.complianceAlertSettings),
+					),
+				);
+		};
+		// Configure before inserting: a watch must never persist without settings,
+		// or the worker would silently never evaluate it.
+		await configureDefaults();
 		if (!added.length) {
 			return c.json({ success: true });
 		}
@@ -451,19 +471,6 @@ complianceAlerts.openapi(
 				})),
 			)
 			.onConflictDoNothing();
-		// The worker only evaluates configured orgs, so the first watch saves
-		// the defaults the dashboard shows: in-app + email to owners and admins.
-		if (!organization.complianceAlertSettings) {
-			await db
-				.update(tables.organization)
-				.set({ complianceAlertSettings: DEFAULT_SETTINGS })
-				.where(
-					and(
-						eq(tables.organization.id, organizationId),
-						isNull(tables.organization.complianceAlertSettings),
-					),
-				);
-		}
 		await logAuditEvent({
 			organizationId,
 			userId: user.id,
