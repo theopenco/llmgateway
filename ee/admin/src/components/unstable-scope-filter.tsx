@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-import { models } from "@llmgateway/models";
+import type { UnstableScopeOptions } from "@/lib/types";
 
 type Scope = "modelId" | "mapping";
 
@@ -23,13 +23,6 @@ const SCOPES: { value: Scope; label: string; placeholder: string }[] = [
 	},
 ];
 
-const suggestions: Record<Scope, string[]> = {
-	modelId: models.map((model) => model.id),
-	mapping: models.flatMap((model) =>
-		model.providers.map((mapping) => `${mapping.providerId}/${model.id}`),
-	),
-};
-
 /**
  * Narrows the ranking to one canonical model (every provider/region mapping
  * of it) or one exact mapping, so wider windows stay cheap to scan.
@@ -37,9 +30,11 @@ const suggestions: Record<Scope, string[]> = {
 export function UnstableScopeFilter({
 	mapping,
 	modelId,
+	options,
 }: {
 	mapping: string | null;
 	modelId: string | null;
+	options: UnstableScopeOptions;
 }) {
 	const { isPending, pendingKey, navigate } = useFilterNavigation();
 	const [scope, setScope] = useState<Scope>(
@@ -48,6 +43,7 @@ export function UnstableScopeFilter({
 	const [value, setValue] = useState(mapping ?? modelId ?? "");
 	const active = mapping ?? modelId;
 	const current = SCOPES.find((option) => option.value === scope)!;
+	const suggestions = scope === "mapping" ? options.mappings : options.modelIds;
 
 	function apply(next: string | null) {
 		navigate(`scope:${scope}:${next ?? ""}`, (params) => {
@@ -89,8 +85,12 @@ export function UnstableScopeFilter({
 				disabled={isPending}
 			/>
 			<datalist id={`unstable-scope-${scope}`}>
-				{suggestions[scope].map((option) => (
-					<option key={option} value={option} />
+				{suggestions.map((option) => (
+					<option
+						key={option.id}
+						value={option.id}
+						label={option.source === "airside" ? "Airside" : undefined}
+					/>
 				))}
 			</datalist>
 			<Button type="submit" size="sm" variant="outline" disabled={isPending}>
