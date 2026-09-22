@@ -23,6 +23,12 @@ import { useApi } from "@/lib/fetch-client";
 import { formatCompact, formatPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+import {
+	ERROR_CLASSIFICATIONS,
+	INCIDENT_BREAKDOWN_HEADER,
+	otherErrorCount,
+} from "@llmgateway/shared";
+
 import type { paths } from "@/lib/api/v1";
 
 export type IncidentsWindow = NonNullable<
@@ -32,27 +38,6 @@ export type IncidentsWindow = NonNullable<
 type IncidentMapping =
 	paths["/airside/incidents"]["get"]["responses"]["200"]["content"]["application/json"]["mappings"][number];
 
-// The gateway's classification of each failure. The HTTP status alone is
-// misleading: some 4xx responses are gateway or upstream errors.
-const classificationBadges: Record<string, { label: string; class: string }> = {
-	gateway_error: {
-		label: "Gateway error",
-		class: "bg-orange-500/15 text-orange-600 dark:text-orange-400",
-	},
-	upstream_error: {
-		label: "Upstream error",
-		class: "bg-red-500/15 text-red-600 dark:text-red-400",
-	},
-	content_filter: {
-		label: "Content filter",
-		class: "bg-purple-500/15 text-purple-600 dark:text-purple-400",
-	},
-	canceled: {
-		label: "Canceled",
-		class: "bg-muted text-muted-foreground",
-	},
-};
-
 function ClassificationBadge({
 	classification,
 }: {
@@ -61,14 +46,21 @@ function ClassificationBadge({
 	if (!classification) {
 		return null;
 	}
-	const badge = classificationBadges[classification] ?? {
-		label: classification,
-		class: "bg-muted text-muted-foreground",
-	};
+	const badge = ERROR_CLASSIFICATIONS[classification];
 	return (
-		<Badge className={cn("border-transparent", badge.class)}>
-			{badge.label}
-		</Badge>
+		<>
+			<Badge
+				className={cn(
+					"border-transparent",
+					badge?.badgeClass ?? "bg-muted text-muted-foreground",
+				)}
+			>
+				{badge?.label ?? classification}
+			</Badge>
+			{badge ? (
+				<span className="text-muted-foreground text-xs">{badge.hint}</span>
+			) : null}
+		</>
 	);
 }
 
@@ -278,7 +270,9 @@ export function IncidentsTable({
 					<TableHead>Carrier</TableHead>
 					<TableHead className="text-right">Error rate</TableHead>
 					<TableHead className="text-right">Errors</TableHead>
-					<TableHead className="text-right">Upstream / Gateway</TableHead>
+					<TableHead className="text-right">
+						{INCIDENT_BREAKDOWN_HEADER}
+					</TableHead>
 					<TableHead className="text-right">Requests</TableHead>
 				</TableRow>
 			</TableHeader>
@@ -335,7 +329,8 @@ export function IncidentsTable({
 								</TableCell>
 								<TableCell className="text-muted-foreground text-right font-mono">
 									{formatCompact(mapping.upstreamErrorCount)} /{" "}
-									{formatCompact(mapping.gatewayErrorCount)}
+									{formatCompact(mapping.gatewayErrorCount)} /{" "}
+									{formatCompact(otherErrorCount(mapping))}
 								</TableCell>
 								<TableCell className="text-muted-foreground text-right font-mono">
 									{formatCompact(mapping.requestCount)}

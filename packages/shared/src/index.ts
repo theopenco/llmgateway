@@ -255,6 +255,13 @@ export {
 } from "./content-filter.js";
 
 export { FAILURE_LABELS, failureLabel } from "./compliance-failure-labels.js";
+export {
+	ERROR_CLASSIFICATIONS,
+	INCIDENT_BREAKDOWN_DESCRIPTION,
+	INCIDENT_BREAKDOWN_HEADER,
+	otherErrorCount,
+} from "./error-classification.js";
+export type { ErrorClassification } from "./error-classification.js";
 
 export {
 	MAX_BULK_BLOCK_ORGANIZATIONS,

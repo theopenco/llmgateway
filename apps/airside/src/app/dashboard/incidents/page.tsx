@@ -32,6 +32,8 @@ import { Switch } from "@/components/ui/switch";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
+import { INCIDENT_BREAKDOWN_DESCRIPTION } from "@llmgateway/shared";
+
 const WINDOWS: IncidentsWindow[] = ["1h", "4h", "24h", "3d"];
 const ALL_MAPPINGS = "__all__";
 
@@ -191,9 +193,9 @@ function IncidentsContent() {
 						) : null}
 					</CardTitle>
 					<CardDescription>
-						Failed requests over the last {timeWindow}, excluding client errors.
-						Counts include retried attempts; expand a row for the top error
-						shapes.
+						Failed requests over the last {timeWindow}.{" "}
+						{INCIDENT_BREAKDOWN_DESCRIPTION} Counts include retried attempts;
+						expand a row for the top error shapes.
 					</CardDescription>
 					<div className="flex flex-wrap items-center gap-4 pt-2">
 						<Select

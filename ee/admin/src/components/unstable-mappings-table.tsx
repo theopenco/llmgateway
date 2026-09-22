@@ -24,7 +24,7 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
-import { getProviderIcon } from "@llmgateway/shared";
+import { ERROR_CLASSIFICATIONS, getProviderIcon } from "@llmgateway/shared";
 import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { UnstableWindow } from "@/lib/unstable-mappings-params";
@@ -57,41 +57,6 @@ export const percentFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 1,
 });
 
-// Human-readable labels, badge styling, and routing consequence for the
-// gateway's internal error classification (the log's `unified_finish_reason`).
-// Shown next to the HTTP status because the status alone is misleading — some
-// 4xx responses are classified as gateway or upstream errors.
-const classificationBadges: Record<
-	string,
-	{ label: string; class: string; hint: string }
-> = {
-	client_error: {
-		label: "Client error",
-		class: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
-		hint: "Caller's fault · not retried · excluded from error rate and uptime",
-	},
-	gateway_error: {
-		label: "Gateway error",
-		class: "bg-orange-500/15 text-orange-600 dark:text-orange-400",
-		hint: "Our fault · retried on another key or provider · counts as an error",
-	},
-	upstream_error: {
-		label: "Upstream error",
-		class: "bg-red-500/15 text-red-600 dark:text-red-400",
-		hint: "Provider's fault · retried on another key or provider · counts against uptime",
-	},
-	content_filter: {
-		label: "Content filter",
-		class: "bg-purple-500/15 text-purple-600 dark:text-purple-400",
-		hint: "Blocked by a content filter · not retried",
-	},
-	canceled: {
-		label: "Canceled",
-		class: "bg-muted text-muted-foreground",
-		hint: "Caller disconnected first · not retried · not an outage signal",
-	},
-};
-
 function ClassificationBadge({
 	classification,
 }: {
@@ -100,13 +65,13 @@ function ClassificationBadge({
 	if (!classification) {
 		return null;
 	}
-	const badge = classificationBadges[classification];
+	const badge = ERROR_CLASSIFICATIONS[classification];
 	return (
 		<>
 			<Badge
 				className={cn(
 					"font-medium",
-					badge?.class ?? "bg-muted text-muted-foreground",
+					badge?.badgeClass ?? "bg-muted text-muted-foreground",
 				)}
 			>
 				{badge?.label ?? classification}
