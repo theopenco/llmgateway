@@ -31,8 +31,11 @@ export function isMinimaxV2VideoModel(externalId: string): boolean {
 
 export type VideoSize =
 	| "848x480"
+	| "480x854"
 	| "1280x720"
 	| "720x1280"
+	| "1366x768"
+	| "768x1366"
 	| "1696x960"
 	| "1920x1080"
 	| "1080x1920"
@@ -128,8 +131,11 @@ const VIDEO_DURATIONS: VideoDuration[] = [
 
 const VIDEO_SIZE_LABELS: Record<VideoSize, string> = {
 	"848x480": "480p Landscape",
+	"480x854": "480p Portrait",
 	"1280x720": "720p Landscape",
 	"720x1280": "720p Portrait",
+	"1366x768": "768p Landscape",
+	"768x1366": "768p Portrait",
 	"1696x960": "960p Landscape",
 	"1920x1080": "1080p Landscape",
 	"1080x1920": "1080p Portrait",

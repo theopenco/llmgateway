@@ -60,6 +60,37 @@ describe("video provider selection", () => {
 			getSupportedVideoRequestOptions([model], [mapping.modelId], "none"),
 		).toEqual({ sizes: [], durations: [] });
 	});
+	test("offers every MiniMax H3 Max size and duration", () => {
+		const model: VideoCatalogModel = {
+			id: "minimax-h3-max",
+			mappings: [
+				{
+					modelId: "minimax-h3-max",
+					providerId: "minimax",
+					status: "active",
+					deactivatedAt: null,
+					supportedVideoSizes: [
+						"848x480",
+						"854x480",
+						"480x854",
+						"1366x768",
+						"768x1366",
+					],
+					supportedVideoDurationsSeconds: [
+						5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+					],
+					supportedVideoDurationsSecondsImageToVideo: null,
+				},
+			],
+		};
+		expect(
+			getSupportedVideoRequestOptions([model], ["minimax-h3-max"], "frames"),
+		).toEqual({
+			sizes: ["848x480", "480x854", "1366x768", "768x1366"],
+			durations: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+		});
+	});
+
 	test("offers ending frames only when the provider accepts them", () => {
 		expect(supportsVideoEndFrameInput("xai/grok-imagine-video-1-5")).toBe(
 			false,
