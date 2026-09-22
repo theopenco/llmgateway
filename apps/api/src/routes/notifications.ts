@@ -37,7 +37,10 @@ const notificationSchema = z.object({
 });
 
 // Org-level alert types follow the org's delivery settings until a user opts out.
-const orgAlertTypes = new Set<string>(["model_available", "compliance_downgrade"]);
+const orgAlertTypes = new Set<string>([
+	"model_available",
+	"compliance_downgrade",
+]);
 
 /** Orgs whose compliance alerts the user may still read: member and recipient. */
 async function alertOrganizationIds(userId: string): Promise<string[]> {
@@ -52,9 +55,7 @@ async function alertOrganizationIds(userId: string): Promise<string[]> {
 		}),
 	]);
 	const member = new Set(memberships.map((m) => m.organizationId));
-	return recipients
-		.map((r) => r.organizationId)
-		.filter((id) => member.has(id));
+	return recipients.map((r) => r.organizationId).filter((id) => member.has(id));
 }
 
 async function visibility(userId: string) {

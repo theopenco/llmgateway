@@ -2633,7 +2633,10 @@ export function getCompliantProvidersForModel(
 			continue;
 		}
 		const provider = getProviderDefinition(mapping.providerId);
-		if (provider && getProviderComplianceFailures(provider, policy).length === 0) {
+		if (
+			provider &&
+			getProviderComplianceFailures(provider, policy).length === 0
+		) {
 			compliant.add(provider.id);
 		}
 	}

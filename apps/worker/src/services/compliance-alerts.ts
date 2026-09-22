@@ -297,9 +297,7 @@ async function processOrganization(
  * Detects watched models becoming available and providers that stop meeting
  * an org's compliance policy. Only orgs that configured alerts are evaluated.
  */
-export async function processComplianceAlerts(
-	now = new Date(),
-): Promise<void> {
+export async function processComplianceAlerts(now = new Date()): Promise<void> {
 	const orgs = await db.query.organization.findMany({
 		where: {
 			status: "active",
@@ -368,9 +366,7 @@ export async function deliverOrgAlertChannels(now = new Date()): Promise<void> {
 			await db
 				.update(organizationAlertDelivery)
 				.set({
-					attempts: channel
-						? delivery.attempts + 1
-						: MAX_DELIVERY_ATTEMPTS,
+					attempts: channel ? delivery.attempts + 1 : MAX_DELIVERY_ATTEMPTS,
 					lastError: message.slice(0, 500),
 				})
 				.where(eq(organizationAlertDelivery.id, delivery.id));

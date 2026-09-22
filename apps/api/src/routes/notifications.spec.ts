@@ -36,7 +36,13 @@ describe("notifications API", () => {
 			headers: headers(),
 		});
 		expect(response.status).toBe(200);
-		expect((await response.json()).preferences).toHaveLength(3);
+		const { preferences } = await response.json();
+		expect(preferences).toHaveLength(5);
+		expect(
+			preferences
+				.filter((p: { inApp: boolean }) => p.inApp)
+				.map((p: { type: string }) => p.type),
+		).toEqual(["model_available", "compliance_downgrade"]);
 		const value = {
 			type: "budget",
 			inApp: true,

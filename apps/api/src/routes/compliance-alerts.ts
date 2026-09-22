@@ -42,7 +42,10 @@ async function assertOrgAccess(
 		where: { organizationId, userId: user.id },
 		with: { organization: true },
 	});
-	if (!membership?.organization || membership.organization.status !== "active") {
+	if (
+		!membership?.organization ||
+		membership.organization.status !== "active"
+	) {
 		throw new HTTPException(404, { message: "Organization not found" });
 	}
 	if (
@@ -530,12 +533,11 @@ complianceAlerts.openapi(
 		}
 		const channels = [...new Set(settings.channels)];
 		if (channels.length) {
-			const configured = await db.query.organizationNotificationChannel.findMany(
-				{
+			const configured =
+				await db.query.organizationNotificationChannel.findMany({
 					columns: { kind: true },
 					where: { organizationId, kind: { in: channels } },
-				},
-			);
+				});
 			const missing = channels.filter(
 				(kind) => !configured.some((ch) => ch.kind === kind),
 			);

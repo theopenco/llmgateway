@@ -1,8 +1,6 @@
 import { createHash } from "node:crypto";
 
 import { db } from "@llmgateway/db";
-
-import type { OrganizationNotificationChannelKind } from "@llmgateway/db";
 import {
 	getCompliantProvidersForModel,
 	type ModelMappingAvailability,
@@ -14,6 +12,8 @@ import {
 } from "@llmgateway/shared/provider-key-crypto";
 
 import { fetchNoRedirect } from "./fetch-no-redirect.js";
+
+import type { OrganizationNotificationChannelKind } from "@llmgateway/db";
 
 const SLACK_WEBHOOK_PATTERN =
 	/^https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9]+\/[A-Za-z0-9]+\/[A-Za-z0-9]+$/;

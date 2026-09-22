@@ -117,6 +117,21 @@ Attestations only apply to custom provider keys. They can never be used to clear
 
 **Known limitation:** the country selector in the compliance policy only offers countries referenced by catalogue providers (see the [providers directory](https://llmgateway.io/providers)). A custom deployment attested to a country outside that set cannot be allowed while a country restriction is active.
 
+## Compliance alerts
+
+Once a policy is saved and enabled, owners and admins can configure **Compliance Alerts** at the bottom of the Compliance page:
+
+- **Watched models**: pick models that no compliant provider serves yet. When a compliant provider starts serving one, LLM Gateway notifies you once. If the model later loses its last compliant provider, the watch re-arms.
+- **Downgrades**: get notified when a provider stops meeting your policy (for example, it loses a certification or starts training on API data) or a watched model stops being available. The alert lists the models your organization used on that provider in the last 30 days that no longer have a compliant provider. Changes to your own policy never trigger downgrade alerts.
+- **Recipients**: owners and admins are preselected; any member can be added.
+- **Delivery**: in-app, email, and Slack. Each recipient can turn off in-app or email delivery for their own account under the notification settings in the dashboard bell.
+
+Alerts are checked every minute against the saved policy.
+
+### Slack
+
+Create a Slack [incoming webhook](https://api.slack.com/messaging/webhooks) for the channel that should receive alerts, and paste its URL under **Notification Channels** on the organization **Preferences** page. Use **Send test message** to verify it, then enable Slack in the Compliance Alerts card. The webhook URL is stored encrypted and only shown masked.
+
 ## Safety identifiers
 
 Providers that offer an abuse-attribution identifier receive an opaque, random value that LLM Gateway generates once per organization. It contains no personal data — no email address, user id or organization name — and it is the only thing that ties a report of abusive traffic back to an account.
