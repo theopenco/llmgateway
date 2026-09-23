@@ -45,7 +45,11 @@ export function getConfig(): AppConfig {
 				? "http://localhost:3004"
 				: "https://devpass.llmgateway.io"),
 		apiBackendUrl: process.env.API_BACKEND_URL ?? apiUrl,
-		uiUrl: process.env.UI_URL ?? "http://localhost:3002",
+		uiUrl:
+			process.env.UI_URL ??
+			(process.env.NODE_ENV === "development"
+				? "http://localhost:3002"
+				: "https://llmgateway.io"),
 		docsUrl: process.env.DOCS_URL ?? "http://localhost:3005",
 		githubUrl:
 			process.env.GITHUB_URL ?? "https://github.com/theopenco/llmgateway",
