@@ -207,10 +207,10 @@ const integrations: Integration[] = [
 	{
 		name: "VS Code",
 		description:
-			"Native VS Code integration for AI-powered code completion and chat.",
-		href: "#",
+			"Use your PAYG or DevPass key in Copilot Chat and agent mode with the official LLM Gateway native extension.",
+		href: "https://docs.llmgateway.io/guides/vscode",
 		icon: VSCodeIcon,
-		comingSoon: true,
+		comingSoon: false,
 	},
 ];
 
