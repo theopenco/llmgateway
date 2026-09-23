@@ -43,6 +43,14 @@ interface Integration {
 
 const integrations: Integration[] = [
 	{
+		name: "Oh My Pi",
+		description:
+			"Connect Oh My Pi to LLM Gateway or DevPass, discover models, and run coding tasks from your terminal.",
+		href: "/guides/oh-my-pi",
+		icon: PiIcon,
+		comingSoon: false,
+	},
+	{
 		name: "DevPass Code",
 		description:
 			"Our open-source terminal coding agent built for LLM Gateway. One browser login, every model, no per-provider keys.",
