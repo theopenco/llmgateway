@@ -49,6 +49,7 @@ import {
 	styles,
 } from "@/components/ui";
 import { pickChatAttachment } from "@/lib/chat-files";
+import { usePalette } from "@/lib/colors";
 import { defaultChatSettings, usePreferences } from "@/lib/preferences";
 import { useFollowingList } from "@/lib/use-following-list";
 
@@ -109,6 +110,7 @@ export function Chat({
 	onVoice?: () => void;
 }) {
 	const scheme = useColorScheme();
+	const palette = usePalette();
 	const { height } = useWindowDimensions();
 	const compact = height < 500;
 	const [optionsOpen, setOptionsOpen] = useState(false);
@@ -759,7 +761,7 @@ export function Chat({
 											alignItems: "center",
 											gap: 8,
 											borderWidth: 0.5,
-											borderColor: colors.subtle,
+											borderColor: palette.subtle,
 											borderRadius: 22,
 											minHeight: 44,
 											paddingHorizontal: 14,
@@ -894,7 +896,7 @@ export function Chat({
 						backgroundColor: colors.surface,
 						padding: 8,
 						borderWidth: 0.5,
-						borderColor: colors.subtle,
+						borderColor: palette.subtle,
 					}}
 				>
 					<TextInput

@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 
 import { api } from "@/api/client";
@@ -9,8 +9,11 @@ import { exportRemoteFile } from "@/lib/export-file";
 
 import type { VideoResult as Result } from "@/api/videos";
 
+const PLAYBACK_WAIT_MS = 60_000;
+
 export function VideoResult({ result }: { result: Result }) {
 	const [playbackRevision, setPlaybackRevision] = useState(0);
+	const [playbackDeadline, setPlaybackDeadline] = useState<number>();
 	const job = api.useQuery(
 		"get",
 		"/video/{videoId}",
@@ -23,7 +26,10 @@ export function VideoResult({ result }: { result: Result }) {
 				return !data?.error &&
 					(data?.status === "queued" ||
 						data?.status === "in_progress" ||
-						(data?.status === "completed" && !data.content?.[0]?.url))
+						(data?.status === "completed" &&
+							!data.content?.[0]?.url &&
+							(playbackDeadline === undefined ||
+								Date.now() < playbackDeadline)))
 					? 3000
 					: false;
 			},
@@ -32,8 +38,18 @@ export function VideoResult({ result }: { result: Result }) {
 	const url = job.data?.content?.[0]?.url;
 	const preparingPlayback =
 		job.data?.status === "completed" && !url && !job.data.error;
+	useEffect(() => {
+		setPlaybackDeadline(
+			preparingPlayback ? Date.now() + PLAYBACK_WAIT_MS : undefined,
+		);
+	}, [preparingPlayback, result.jobId]);
+	const playbackUnavailable =
+		preparingPlayback &&
+		playbackDeadline !== undefined &&
+		Date.now() >= playbackDeadline;
 	const refresh = useMutation({
 		mutationFn: async () => {
+			setPlaybackDeadline(Date.now() + PLAYBACK_WAIT_MS);
 			await job.refetch({ throwOnError: true });
 			setPlaybackRevision((value) => value + 1);
 		},
@@ -55,13 +71,21 @@ export function VideoResult({ result }: { result: Result }) {
 			{result.jobId && job.isPending && <Loading />}
 			{job.data && (
 				<Text style={styles.muted}>
-					{preparingPlayback
+					{preparingPlayback && !playbackUnavailable
 						? "Preparing playback…"
 						: `${job.data.status.replace("_", " ")}${job.data.progress !== null ? ` · ${job.data.progress}%` : ""}`}
 				</Text>
 			)}
 			<ErrorNotice
-				error={job.data?.error ? new Error(job.data.error.message) : undefined}
+				error={
+					job.data?.error
+						? new Error(job.data.error.message)
+						: playbackUnavailable
+							? new Error(
+									"The playback link is not available. Refresh the video to try again.",
+								)
+							: undefined
+				}
 			/>
 			{url && <MediaPlayer key={playbackRevision} uri={url} />}
 			{url && (

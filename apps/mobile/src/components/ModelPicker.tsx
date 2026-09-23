@@ -4,6 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { api, queryClient } from "@/api/client";
 import { ProviderOptions } from "@/components/ProviderOptions";
+import { usePalette } from "@/lib/colors";
 import { supportsRealtimeTranscription } from "@/lib/transcription-model";
 
 import {
@@ -36,6 +37,7 @@ export function ModelPicker({
 	compact?: boolean;
 	capability?: "realtime" | "realtimeTranscription";
 }) {
+	const palette = usePalette();
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");
 	const [providerModel, setProviderModel] = useState<CatalogModel | null>(null);
@@ -136,7 +138,7 @@ export function ModelPicker({
 				>
 					{compact ? selectedName : `${label}: ${selectedName}`}
 				</Text>
-				<Icon name="chevron-down" size={14} color={colors.muted} />
+				<Icon name="chevron-down" size={14} color="muted" />
 			</Pressable>
 			<Modal
 				visible={open}
@@ -242,7 +244,7 @@ export function ModelPicker({
 										paddingVertical: 14,
 										gap: 4,
 										borderBottomWidth: 1,
-										borderBottomColor: colors.subtle,
+										borderBottomColor: palette.subtle,
 									}}
 								>
 									<View style={[styles.row, { flexWrap: "wrap" }]}>

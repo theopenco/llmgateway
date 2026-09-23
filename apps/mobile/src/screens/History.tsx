@@ -6,13 +6,13 @@ import { refreshChatHistory } from "@/api/chat-history";
 import { api, client } from "@/api/client";
 import {
 	Button,
-	colors,
 	ErrorNotice,
 	Field,
 	IconButton,
 	Loading,
 	styles,
 } from "@/components/ui";
+import { usePalette } from "@/lib/colors";
 
 export function History({
 	organizationId,
@@ -21,6 +21,7 @@ export function History({
 	organizationId: string;
 	onChat: (id: string) => void;
 }) {
+	const palette = usePalette();
 	const [search, setSearch] = useState("");
 	const [archived, setArchived] = useState(false);
 	const [query, setQuery] = useState("");
@@ -113,7 +114,7 @@ export function History({
 								{
 									paddingVertical: 15,
 									borderBottomWidth: 0.5,
-									borderBottomColor: colors.subtle,
+									borderBottomColor: palette.subtle,
 								},
 							]}
 						>

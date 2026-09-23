@@ -130,7 +130,7 @@ export function SignIn({
 						marginBottom: 8,
 					}}
 				>
-					<Icon name="sparkles" size={30} color={colors.ink} />
+					<Icon name="sparkles" size={30} color="ink" />
 				</View>
 				<Text style={[styles.title, { fontSize: 36, textAlign: "center" }]}>
 					{mode === "signin"

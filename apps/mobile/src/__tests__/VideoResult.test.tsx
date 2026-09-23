@@ -150,6 +150,44 @@ test("polls completed jobs until playback is ready without a manual refresh", as
 	expect(fetchJob).toHaveBeenCalledTimes(3);
 });
 
+test("stops waiting for an unavailable playback link and allows refresh recovery", async () => {
+	const fetchJob = jest.fn<Promise<VideoJob>, []>().mockResolvedValue({
+		status: "completed",
+		progress: 100,
+	});
+	poll(fetchJob);
+	const user = await setup();
+	await waitFor(() =>
+		expect(screen.getByText("Preparing playback…")).toBeOnTheScreen(),
+	);
+	await act(() => jest.advanceTimersByTimeAsync(63_000));
+	await waitFor(() =>
+		expect(screen.getByRole("alert")).toHaveTextContent(
+			"The playback link is not available. Refresh the video to try again.",
+		),
+	);
+	expect(screen.queryByText("Preparing playback…")).toBeNull();
+	const attempts = fetchJob.mock.calls.length;
+	await act(() => jest.advanceTimersByTimeAsync(9000));
+	expect(fetchJob).toHaveBeenCalledTimes(attempts);
+	fetchJob
+		.mockResolvedValueOnce({ status: "completed", progress: 100 })
+		.mockResolvedValue({
+			status: "completed",
+			progress: 100,
+			content: [{ url: "https://example.com/recovered.mp4" }],
+		});
+	await user.press(screen.getByRole("button", { name: "Refresh video" }));
+	await waitFor(() =>
+		expect(screen.getByText("Preparing playback…")).toBeOnTheScreen(),
+	);
+	await act(() => jest.advanceTimersByTimeAsync(3000));
+	await waitFor(() =>
+		expect(screen.getByRole("button", { name: "Play" })).toBeEnabled(),
+	);
+	expect(screen.queryByRole("alert")).toBeNull();
+});
+
 test.each<VideoJob>([
 	{ status: "failed", progress: 100 },
 	{ status: "canceled", progress: 100 },

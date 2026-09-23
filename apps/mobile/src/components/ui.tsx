@@ -13,15 +13,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { colors } from "@/lib/colors";
+import { colors, usePalette } from "@/lib/colors";
 
 import type { PropsWithChildren, ReactNode } from "react";
-import type {
-	ColorValue,
-	StyleProp,
-	TextInputProps,
-	ViewStyle,
-} from "react-native";
+import type { StyleProp, TextInputProps, ViewStyle } from "react-native";
 
 export { colors } from "@/lib/colors";
 
@@ -115,12 +110,14 @@ export type IconName =
 export function Icon({
 	name,
 	size = 22,
-	color = colors.text,
+	color: colorName = "text",
 }: {
 	name: IconName;
 	size?: number;
-	color?: ColorValue;
+	color?: keyof typeof colors;
 }) {
+	// Native borders need concrete colors to honor the app's appearance override.
+	const color = usePalette()[colorName];
 	const line = (
 		x1: number,
 		y1: number,
@@ -460,7 +457,7 @@ export function IconButton({
 	busy?: boolean;
 	style?: StyleProp<ViewStyle>;
 }) {
-	const color = variant === "filled" ? colors.ink : colors.text;
+	const color = variant === "filled" ? "ink" : "text";
 	return (
 		<Pressable
 			role="button"
@@ -488,7 +485,7 @@ export function IconButton({
 			]}
 		>
 			{busy ? (
-				<ActivityIndicator color={color} />
+				<ActivityIndicator color={colors[color]} />
 			) : (
 				<Icon name={name} size={iconSize} color={color} />
 			)}
@@ -567,6 +564,7 @@ export function Button({
 export function Field({ label, ...props }: TextInputProps & { label: string }) {
 	const accessoryId = useId();
 	const scheme = useColorScheme();
+	const palette = usePalette();
 	return (
 		<View style={{ gap: 8 }}>
 			<Text style={styles.muted}>{label}</Text>
@@ -577,7 +575,7 @@ export function Field({ label, ...props }: TextInputProps & { label: string }) {
 				aria-label={label}
 				placeholderTextColor={colors.muted}
 				{...props}
-				style={[styles.input, props.style]}
+				style={[styles.input, { borderColor: palette.border }, props.style]}
 			/>
 			<InputAccessoryView nativeID={accessoryId}>
 				<View

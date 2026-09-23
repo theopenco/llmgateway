@@ -93,7 +93,7 @@ export function MessageBubble({
 							<Text style={styles.muted}>Reasoning</Text>
 							<Icon
 								name={showReasoning ? "chevron-down" : "chevron-right"}
-								color={colors.muted}
+								color="muted"
 								size={14}
 							/>
 						</Pressable>

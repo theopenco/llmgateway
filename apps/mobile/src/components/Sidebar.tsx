@@ -11,6 +11,7 @@ import {
 	Loading,
 	styles,
 } from "@/components/ui";
+import { usePalette } from "@/lib/colors";
 
 import type { Workspace } from "@/lib/workspace";
 import type { ComponentProps } from "react";
@@ -86,6 +87,7 @@ export function Sidebar({
 	onNavigate: (route: Destination) => void;
 }) {
 	const [showTools, setShowTools] = useState(false);
+	const palette = usePalette();
 	const recent = api.useQuery(
 		"get",
 		"/chats/search",
@@ -199,7 +201,7 @@ export function Sidebar({
 					<View
 						style={{
 							borderTopWidth: 0.5,
-							borderTopColor: colors.subtle,
+							borderTopColor: palette.subtle,
 							padding: 14,
 						}}
 					>
@@ -228,7 +230,7 @@ export function Sidebar({
 							>
 								{workspace.name}
 							</Text>
-							<Icon name="chevron-down" size={16} color={colors.muted} />
+							<Icon name="chevron-down" size={16} color="muted" />
 						</Pressable>
 					</View>
 				</SafeAreaView>
