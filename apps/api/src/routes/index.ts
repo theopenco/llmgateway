@@ -15,6 +15,7 @@ import { adminModelVerifications } from "./admin-model-verifications.js";
 import { adminOrgDetails } from "./admin-org-details.js";
 import adminProviderCredentials from "./admin-provider-credentials.js";
 import { adminRoutingAnalytics } from "./admin-routing-analytics.js";
+import { adminSdk } from "./admin-sdk.js";
 import admin from "./admin.js";
 import { airside } from "./airside.js";
 import { analytics } from "./analytics.js";
@@ -98,6 +99,7 @@ routes.route("/admin", adminLimitHits);
 routes.route("/admin", adminBenchmarks);
 routes.route("/admin", adminAirside);
 routes.route("/admin", adminModelVerifications);
+routes.route("/admin", adminSdk);
 
 routes.route("/airside", airside);
 
