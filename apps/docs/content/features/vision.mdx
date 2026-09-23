@@ -152,4 +152,4 @@ The specific formats supported may vary by model provider. Check the individual 
 
 ## Error Handling
 
-If an image URL is inaccessible or the image format is unsupported, the gateway will handle the error gracefully and may substitute a placeholder or error message in the request to the underlying model.
+For requests routed to Anthropic, an inaccessible image URL or unsupported image format returns an error instead of replacing the image with prompt text.
