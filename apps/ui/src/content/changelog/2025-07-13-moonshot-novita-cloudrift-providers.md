@@ -4,6 +4,7 @@ slug: "moonshot-novita-cloudrift-providers"
 date: "2025-07-13"
 title: "New Providers: Cloudrift, Moonshot AI and Novita AI Support"
 summary: "Added support for Cloudrift, Moonshot AI and Novita AI providers, both offering the powerful kimi-k2 model with extensive context windows and competitive pricing."
+tags: ["llmgateway"]
 image:
   src: "/changelog/moonshot-novita-cloudrift-providers.png"
   alt: "Dashboard showing new Cloudrift Moonshot AI and Novita AI providers"

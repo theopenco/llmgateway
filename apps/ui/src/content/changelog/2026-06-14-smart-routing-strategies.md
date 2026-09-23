@@ -4,6 +4,7 @@ slug: "smart-routing-strategies"
 date: "2026-06-14"
 title: "Routing Strategies: Cheapest, Fastest & Defaults"
 summary: "Steer multi-provider routing with a new routing field — auto, price, throughput, or latency — per request or as a per-project default. Each strategy still falls back when the top pick has bad uptime."
+tags: ["llmgateway", "devpass"]
 image:
   src: "/changelog/smart-routing-strategies.png"
   alt: "Routing strategies on LLM Gateway: auto, price, throughput and latency"

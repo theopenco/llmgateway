@@ -4,6 +4,7 @@ slug: "concurrent-request-limits"
 date: "2026-08-22"
 title: "Concurrent Request Limits and Overload Protection"
 summary: "Every organization now has a fleet-wide budget of concurrent in-flight requests that scales with your trust tier — bounding the long-running streams a per-minute limit can't see. Over-budget requests get a retryable 429, and a momentarily saturated gateway sheds load with a 529 instead of queueing until it degrades."
+tags: ["llmgateway"]
 image:
   src: "/changelog/concurrent-request-limits.png"
   alt: "Concurrent request limits: a circuit board with parallel request lanes flowing into a central gateway chip, some lanes held back by a glowing gate"
