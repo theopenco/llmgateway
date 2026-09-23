@@ -238,7 +238,9 @@ function MetricCell({
 				className={cn(
 					"relative mt-auto border-t border-border/50 pt-4",
 					hero || rowsGrid
-						? "grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2"
+						? // items-start: a stretched row would drop its dotted leader to
+							// the bottom of a taller neighbouring cell.
+							"grid grid-cols-1 items-start gap-x-8 gap-y-2 sm:grid-cols-2"
 						: "flex flex-col gap-2",
 				)}
 			>
