@@ -2,10 +2,9 @@ import { logger } from "@llmgateway/logger";
 
 import { redisClient } from "./redis.js";
 
-// Bump with the Drizzle cache namespace to discard incompatible fallback rows.
-export const SWR_PREFIX = "swr:v2:";
-export const SWR_TABLE_INDEX_PREFIX = "swr:v2:tables:";
-export const SWR_THROTTLE_PREFIX = "swr:v2:throttle:";
+export const SWR_PREFIX = "swr:";
+export const SWR_TABLE_INDEX_PREFIX = "swr:tables:";
+export const SWR_THROTTLE_PREFIX = "swr:throttle:";
 export const SWR_DEFAULT_TTL_SECONDS = 14400;
 export const SWR_BATCH_SIZE = 500;
 
@@ -68,6 +67,23 @@ function isNoneSentinel(value: unknown): value is SwrNoneSentinel {
 	);
 }
 
+// Mirrors hold serialized database rows, so an entry written before a schema
+// change can be missing (or have renamed) columns the reader expects — served
+// during a Postgres outage, that reads as a row with fields silently gone.
+// `@llmgateway/db` stamps its column-layout fingerprint here at import; entries
+// carrying a different one are treated as a miss. Kept as a setter rather than
+// an import because `@llmgateway/db` depends on this package, not the reverse.
+let schemaVersion = "unversioned";
+
+export function setSwrSchemaVersion(version: string): void {
+	schemaVersion = version;
+}
+
+interface SwrEnvelope {
+	v: string;
+	value: unknown;
+}
+
 export function getSwrStaleTtlSeconds(): number {
 	const raw = process.env.SWR_STALE_TTL_SECONDS;
 	if (!raw) {
@@ -96,11 +112,14 @@ async function writeMirror<T>(
 	try {
 		const ttl = getSwrStaleTtlSeconds();
 		const cacheKey = swrKey(key);
-		const payload =
-			value === undefined ? ({ [SWR_NONE_SENTINEL]: true } as const) : value;
+		const envelope: SwrEnvelope = {
+			v: schemaVersion,
+			value:
+				value === undefined ? ({ [SWR_NONE_SENTINEL]: true } as const) : value,
+		};
 
 		const pipeline = redisClient.pipeline();
-		pipeline.set(cacheKey, JSON.stringify(payload), "EX", ttl);
+		pipeline.set(cacheKey, JSON.stringify(envelope), "EX", ttl);
 		for (const table of tables) {
 			const indexKey = tableIndexKey(table);
 			pipeline.sadd(indexKey, cacheKey);
@@ -137,11 +156,17 @@ async function readMirror<T>(
 	if (cached === null) {
 		return { hit: false };
 	}
-	const parsed = JSON.parse(cached);
-	if (isNoneSentinel(parsed)) {
+	const envelope = JSON.parse(cached) as SwrEnvelope | null;
+	if (envelope?.v !== schemaVersion) {
+		// Written under a different column layout (or before the envelope
+		// existed): mapping it onto today's columns would hand back a row with
+		// fields missing, which is worse than no fallback at all.
+		return { hit: false };
+	}
+	if (isNoneSentinel(envelope.value)) {
 		return { hit: true, value: undefined as T };
 	}
-	return { hit: true, value: parsed as T };
+	return { hit: true, value: envelope.value as T };
 }
 
 // Coalesce concurrent fetches for the same key: identical lookups issued while

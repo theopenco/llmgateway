@@ -7,6 +7,7 @@ import {
 	SWR_THROTTLE_PREFIX,
 	getSwrStaleTtlSeconds,
 	invalidateSwrByTables,
+	setSwrSchemaVersion,
 	swrWrap,
 	waitForSwrMirrorWrites,
 } from "./swr.js";
@@ -31,6 +32,7 @@ describe("swrWrap", () => {
 
 	afterEach(async () => {
 		delete process.env.SWR_STALE_TTL_SECONDS;
+		setSwrSchemaVersion("unversioned");
 		await redisClient.flushdb();
 	});
 
@@ -44,7 +46,7 @@ describe("swrWrap", () => {
 
 		const mirror = await redisClient.get(`${SWR_PREFIX}test:key:1`);
 		expect(mirror).not.toBeNull();
-		expect(JSON.parse(mirror!)).toEqual({ hello: "world" });
+		expect(JSON.parse(mirror!).value).toEqual({ hello: "world" });
 
 		const ttl = await redisClient.ttl(`${SWR_PREFIX}test:key:1`);
 		expect(ttl).toBeGreaterThan(0);
@@ -72,6 +74,19 @@ describe("swrWrap", () => {
 			() => Promise.reject(dbError),
 		);
 		expect(value).toEqual({ cached: true });
+	});
+
+	it("ignores a mirror written under a different schema layout", async () => {
+		setSwrSchemaVersion("layout-before-migration");
+		await swrWrapFlushed("test:key:layout", ["table_a"], () =>
+			Promise.resolve({ status: "active" }),
+		);
+		setSwrSchemaVersion("layout-after-migration");
+
+		const dbError = new Error("postgres unavailable");
+		await expect(
+			swrWrap("test:key:layout", ["table_a"], () => Promise.reject(dbError)),
+		).rejects.toBe(dbError);
 	});
 
 	it("rethrows original error when fetcher fails and no mirror exists", async () => {
