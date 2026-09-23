@@ -4,6 +4,7 @@ slug: "lounge-rebrand"
 date: "2026-07-24"
 title: "Chat Is Now Lounge"
 summary: "Our consumer chat app has a name: Lounge by LLM Gateway — the members' lounge for AI. Same app, same prices, same chat.llmgateway.io, with a full visual identity: membership pricing, boarding-pass plan cards, and a proper wordmark."
+tags: ["lounge"]
 image:
   src: "/changelog/lounge-rebrand.png"
   alt: "A golden art-deco lounge armchair on a circuit-board chip, surrounded by chat, ticket, coin, and receipt icons — the new Lounge identity"

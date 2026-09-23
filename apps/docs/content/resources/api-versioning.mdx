@@ -19,6 +19,8 @@ When an endpoint is deprecated, its notice defines the transition period. There 
 
 Deprecated endpoints use the [Deprecation header](https://www.rfc-editor.org/rfc/rfc9745.html) with an HTTP Structured Fields date and a `Link` with `rel="deprecation"` pointing to the notice. A scheduled retirement additionally uses the [Sunset header](https://www.rfc-editor.org/rfc/rfc8594.html) with an HTTP date. These headers are omitted on endpoints without an announced deprecation or retirement.
 
+Use the [LLM Gateway product filter](https://llmgateway.io/changelog/tag/llmgateway) for gateway updates. Product tags on each entry open its filtered changelog; **Load more** reveals older updates. Roundups can appear under multiple products.
+
 Clients should monitor the changelog, migrate before a published sunset, and treat a missing `Sunset` header as an unspecified date.
 
 ## Model and provider lifecycle

@@ -4,6 +4,7 @@ slug: "aws-bedrock-vertex-azure-providers"
 date: "2025-10-26"
 title: "AWS Bedrock, Google Vertex AI and Microsoft Azure"
 summary: "Added native support for AWS Bedrock, Google Vertex AI, and Microsoft Azure."
+tags: ["llmgateway"]
 image:
   src: "/changelog/aws-vertex-azure.png"
   alt: "AWS Bedrock, Google Vertex AI and Microsoft Azure providers available in LLM Gateway"

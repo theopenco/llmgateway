@@ -4,6 +4,7 @@ slug: "vscode-extension"
 date: "2026-09-18"
 title: "Native VS Code Integration"
 summary: "The official LLM Gateway extension is now on the VS Code Marketplace. Use your PAYG or DevPass key to select gateway models directly in Copilot Chat and agent mode."
+tags: ["llmgateway", "devpass"]
 image:
   src: "/changelog/vscode-extension.png"
   alt: "A glowing plug beside a chat bubble on a circuit-board chip, surrounded by tool and chat icons"

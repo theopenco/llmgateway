@@ -4,6 +4,7 @@ slug: "canopywave-partnership-deepseek-90-off"
 date: "2025-10-18"
 title: "CanopyWave Partnership: 90% Off DeepSeek v3.1"
 summary: "Exclusive partnership with CanopyWave brings massive 90% discount on DeepSeek v3.1, making advanced reasoning capabilities more accessible than ever."
+tags: ["llmgateway"]
 image:
   src: "/changelog/canopywave-partnership.png"
   alt: "CanopyWave partnership offering 90% off DeepSeek v3.1"
