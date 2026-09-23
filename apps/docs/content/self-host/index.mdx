@@ -30,6 +30,10 @@ Every deployment is built from the same pieces:
 
 In production, run PostgreSQL and Redis as managed services from your cloud provider so backups, failover, and patching are handled for you.
 
+## Product links
+
+For self-hosted DevPass and Airside, set `UI_URL` and `PLAYGROUND_URL` to your Gateway dashboard and Lounge origins. When unset, these apps use `https://llmgateway.io` and `https://lounge.llmgateway.io`; with `NODE_ENV=development`, they use `http://localhost:3002` and `http://localhost:3003`.
+
 ## Sign-up email restrictions
 
 With `HOSTED=true`, administrators can manage the custom email-domain blocklist in
