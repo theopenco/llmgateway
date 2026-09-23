@@ -4,11 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 import * as emailUtils from "@/utils/email.js";
 
-import {
-	deleteProviderEnvInventory,
-	encryptProviderKeyForStorage,
-	publishProviderEnvInventory,
-} from "@llmgateway/actions";
+import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import {
 	db,
 	eq,
@@ -19,7 +15,6 @@ import {
 } from "@llmgateway/db";
 import {
 	models as catalogueModels,
-	getProviderEnvVar,
 	type ModelDefinition,
 	type ProviderApiFormat,
 	type ToolChoiceMode,
@@ -595,11 +590,14 @@ describe("airside provider portal", () => {
 		expect(consumed?.submittedAt).toBeInstanceOf(Date);
 	});
 
-	it("matches managed credentials against upstream model IDs", async () => {
+	it("never spends a platform credential on a carrier's verification", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
 		await claimProvider(cookie, company.id);
 		await activateClaim();
+		// A managed key that could serve this model exists — and still must not
+		// run a carrier's preflight, because that traffic is neither logged nor
+		// billed and would land on our provider bill.
 		const providerKeyId = `verification-key-${crypto.randomUUID()}`;
 		await db.insert(tables.providerKey).values({
 			id: providerKeyId,
@@ -623,46 +621,113 @@ describe("airside provider portal", () => {
 			}),
 		);
 
-		expect(queued.status).toBe(202);
-		const queuedBody = await queued.json();
-		const stored = await db.query.providerModelVerification.findFirst({
-			where: { id: { eq: queuedBody.verification.id } },
-		});
-		expect(stored?.credentialSource).toBe("managed");
+		expect(queued.status).toBe(400);
+		expect((await queued.json()).message).toContain("provider API key");
 	});
 
-	it("asks for a key when only the gateway holds an environment credential", async () => {
+	it("saves the carrier's key on the claim and reuses it", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);
-		await claimProvider(cookie, company.id);
+		const claim = await claimProvider(cookie, company.id);
 		await activateClaim();
-		// The gateway publishes the `LLM_*` keys it can see, but the worker that
-		// runs the checks cannot read them — queueing against that snapshot only
-		// produces a run that fails for want of a credential.
-		const envVar = getProviderEnvVar("mistral")!;
-		const originalToken = process.env[envVar];
-		process.env[envVar] = "gateway-only-key";
-		await publishProviderEnvInventory();
-		Reflect.deleteProperty(process.env, envVar);
-		try {
-			const queued = await app.request(
-				"/airside/model-verifications",
-				json(cookie, {
-					providerCompanyId: company.id,
-					providerId: "mistral",
-					modelName: "mistral-unkeyed",
-				}),
-			);
-			expect(queued.status).toBe(400);
-			expect((await queued.json()).message).toContain("provider API key");
-		} finally {
-			await deleteProviderEnvInventory();
-			if (originalToken === undefined) {
-				Reflect.deleteProperty(process.env, envVar);
-			} else {
-				process.env[envVar] = originalToken;
-			}
-		}
+
+		const first = await app.request(
+			"/airside/model-verifications",
+			json(cookie, {
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				modelName: "mistral-saves-key",
+				apiKey: "carrier-saved-key",
+			}),
+		);
+		expect(first.status).toBe(202);
+		expect((await first.json()).verification).toBeDefined();
+
+		const savedClaim = await db.query.providerClaim.findFirst({
+			where: { id: { eq: claim.id } },
+		});
+		expect(savedClaim?.verificationKeyCiphertext).toMatch(/^llmgw:v2:/);
+		expect(savedClaim?.verificationKeyCiphertext).not.toContain(
+			"carrier-saved-key",
+		);
+		expect(savedClaim?.verificationKeyMasked).toContain("•");
+		expect(savedClaim?.verificationKeyMasked).not.toBe("carrier-saved-key");
+		expect(savedClaim?.verificationKeyUpdatedAt).toBeInstanceOf(Date);
+
+		// A later run needs no key: the claim holds one.
+		const second = await app.request(
+			"/airside/model-verifications",
+			json(cookie, {
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				modelName: "mistral-reuses-key",
+			}),
+		);
+		expect(second.status).toBe(202);
+		const reused = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: (await second.json()).verification.id } },
+		});
+		expect(reused?.credentialSource).toBe("carrier");
+		expect(reused?.credentialCiphertext).toMatch(/^llmgw:v2:/);
+
+		// The carrier sees it masked, never the plaintext or the ciphertext.
+		const companies = await app.request("/airside/companies", {
+			headers: { Cookie: cookie },
+		});
+		const listed = await companies.json();
+		expect(JSON.stringify(listed)).not.toContain("carrier-saved-key");
+		expect(listed.companies[0].claims[0].verificationKeyMasked).toBe(
+			savedClaim?.verificationKeyMasked,
+		);
+		expect(listed.companies[0].claims[0].verificationKeySetAt).toBeTruthy();
+	});
+
+	it("manages the saved verification key from settings", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		const claim = await claimProvider(cookie, company.id);
+		await activateClaim();
+
+		const saved = await app.request(
+			`/airside/claims/${claim.id}/verification-key`,
+			json(cookie, { apiKey: "settings-saved-key" }, "PUT"),
+		);
+		expect(saved.status).toBe(200);
+		const savedBody = await saved.json();
+		expect(savedBody.verificationKeyMasked).not.toBe("settings-saved-key");
+		expect(savedBody.verificationKeySetAt).toBeTruthy();
+
+		// A non-member gets the same 404 every company-scoped route returns, so
+		// the claim's existence stays hidden.
+		const outsider = await createSecondUser("stranger@example.com");
+		const forbidden = await app.request(
+			`/airside/claims/${claim.id}/verification-key`,
+			json(outsider, { apiKey: "not-yours" }, "PUT"),
+		);
+		expect(forbidden.status).toBe(404);
+
+		const removed = await app.request(
+			`/airside/claims/${claim.id}/verification-key`,
+			json(cookie, undefined, "DELETE"),
+		);
+		expect(removed.status).toBe(200);
+		const cleared = await db.query.providerClaim.findFirst({
+			where: { id: { eq: claim.id } },
+		});
+		expect(cleared?.verificationKeyCiphertext).toBeNull();
+		expect(cleared?.verificationKeyMasked).toBeNull();
+		expect(cleared?.verificationKeyUpdatedAt).toBeNull();
+
+		// With the key gone, preflight asks for one again.
+		const queued = await app.request(
+			"/airside/model-verifications",
+			json(cookie, {
+				providerCompanyId: company.id,
+				providerId: "mistral",
+				modelName: "mistral-needs-key-again",
+			}),
+		);
+		expect(queued.status).toBe(400);
 	});
 
 	it("carries a carrier's tool_choice narrowing and preflights an edit", async () => {

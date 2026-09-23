@@ -62,7 +62,7 @@ afterEach(async () => {
 
 async function enqueueVerification(
 	options: {
-		credentialSource?: "supplied" | "managed";
+		credentialSource?: "supplied" | "carrier" | "managed";
 		allowedModels?: string[];
 	} = {},
 ) {
@@ -134,13 +134,13 @@ async function enqueueVerification(
 		checks,
 		credentialSource,
 		credentialCiphertext:
-			credentialSource === "supplied"
-				? encryptModelVerificationCredential(
+			credentialSource === "managed"
+				? null
+				: encryptModelVerificationCredential(
 						"single-use-provider-key",
 						verificationId,
 						companyId,
-					)
-				: null,
+					),
 	});
 	return verificationId;
 }
@@ -253,6 +253,24 @@ async function seedActiveListing(
 }
 
 describe("model verification worker", () => {
+	it("runs a carrier-stored credential off the run's own copy", async () => {
+		const verificationId = await enqueueVerification({
+			credentialSource: "carrier",
+		});
+		let seenToken: string | undefined;
+		const processed = await processNextModelVerification(async (options) => {
+			seenToken = options.token;
+			return { passed: true, checks: [], summary: "ok" };
+		});
+
+		expect(processed).toBe(true);
+		expect(seenToken).toBe("single-use-provider-key");
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: verificationId } },
+		});
+		expect(stored?.credentialCiphertext).toBeNull();
+	});
+
 	it("claims a queued check, persists feedback, and erases its credential", async () => {
 		const verificationId = await enqueueVerification();
 		const processed = await processNextModelVerification(async (options) => {

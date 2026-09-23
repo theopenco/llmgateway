@@ -161,6 +161,7 @@ export function ModelVerificationDialog({
 		},
 	);
 	const polled = verificationQuery.data?.entry.verification;
+	const credentialSource = verificationQuery.data?.entry.credentialSource;
 	const verification = (polled ?? latest ?? null) as ModelVerification | null;
 	const inFlight =
 		verification?.status === "queued" || verification?.status === "running";
@@ -214,12 +215,27 @@ export function ModelVerificationDialog({
 							autoComplete="off"
 							value={apiKey}
 							onChange={(event) => setApiKey(event.target.value)}
-							placeholder="Uses the managed or environment credential when blank"
+							placeholder="Uses the carrier's saved test key when blank"
 						/>
 						<p className="text-xs text-muted-foreground">
 							A pasted key is scoped to this run and erased when it finishes.
+							Left blank, a carrier-claimed provider runs on the test key that
+							carrier saved in Airside — so the run is billed to them, not us.
+							An unclaimed catalogue mapping falls back to the managed or
+							environment credential.
 						</p>
 					</div>
+					{credentialSource ? (
+						<p className="text-xs text-muted-foreground">
+							Ran on the{" "}
+							{credentialSource === "carrier"
+								? "carrier's saved test key"
+								: credentialSource === "supplied"
+									? "key pasted for this run"
+									: `${credentialSource} credential`}
+							.
+						</p>
+					) : null}
 					{verification ? (
 						<VerificationResults verification={verification} />
 					) : (
