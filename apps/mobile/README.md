@@ -241,12 +241,14 @@ format. It also keeps the existing Worklets compatibility fix.
 
 ## Release metadata
 
-`ios/Lounge/PrivacyInfo.xcprivacy` declares account-linked data used by the app.
-Keep it aligned with the account API and saved-content features:
+`ios/Lounge/PrivacyInfo.xcprivacy` covers the app, its account API, and the
+first-party web sign-in flow:
 
 | Data                                    | Collection path                                                                 |
 | --------------------------------------- | ------------------------------------------------------------------------------- |
 | Name, email, user ID                    | Account creation/sign-in, profile, session, and account communications          |
+| Browser device ID                       | PostHog browser identifier in web sign-in, linked when the account signs in     |
+| Coarse location                         | IP-derived country in signup notifications and web sign-in analytics            |
 | Email/message content                   | Approved connector results saved with conversations                             |
 | Photos/video, audio, other user content | Attachments, prompts, documents, generated media, and saved conversations/calls |
 | Gameplay content                        | Saved Escape runs and replays                                                   |
@@ -255,9 +257,14 @@ Keep it aligned with the account API and saved-content features:
 | Performance and diagnostics             | Request duration, time to first token, and error details                        |
 
 These entries are linked to the account and are not used for tracking. Account
-names/emails also cover the service's marketing communications. Identifiers,
-product interactions, and request diagnostics cover analytics. Payments stay on
-the website. Review the
+names/emails cover marketing and analytics; identifiers, country, product
+interactions, and request diagnostics also cover analytics. Browser sign-in uses
+`ASWebAuthenticationSession`; PostHog runs on the website, with no native PostHog
+SDK. Signup-country collection also occurs through the account API.
+
+Billing opens the external website. App Store privacy labels additionally cover
+billing addresses, payment information, and purchase history from that flow.
+Review the
 [privacy policy](https://llmgateway.io/legal/privacy) and Apple's
 [data-use definitions](https://developer.apple.com/documentation/bundleresources/describing-data-use-in-privacy-manifests)
 when changing collection or completing App Store Connect disclosures.
