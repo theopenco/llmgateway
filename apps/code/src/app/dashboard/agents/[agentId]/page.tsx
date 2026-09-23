@@ -1,6 +1,8 @@
-import { Code, Loader2, LogOut } from "lucide-react";
+import { Loader2, LogOut } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
+
+import { ProductSwitcher } from "@/components/ProductSwitcher";
 
 import AgentDetailClient from "./AgentDetailClient";
 
@@ -21,10 +23,7 @@ export default async function AgentDetailPage({
 		<div className="min-h-screen bg-background">
 			<header className="border-b border-border/50">
 				<div className="container mx-auto flex items-center justify-between px-4 py-3">
-					<Link href="/" className="flex items-center gap-2">
-						<Code className="h-5 w-5" />
-						<span className="font-semibold">DevPass</span>
-					</Link>
+					<ProductSwitcher />
 					<Link
 						href="/dashboard"
 						className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"

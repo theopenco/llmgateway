@@ -3,6 +3,7 @@ export interface AppConfig {
 	apiUrl: string;
 	apiBackendUrl: string;
 	uiUrl: string;
+	airsideUrl: string;
 	playgroundUrl: string;
 	docsUrl: string;
 	githubUrl: string;
@@ -23,6 +24,11 @@ export function getConfig(): AppConfig {
 	return {
 		hosted: process.env.HOSTED === "true",
 		apiUrl,
+		airsideUrl:
+			process.env.AIRSIDE_URL ??
+			(process.env.NODE_ENV === "development"
+				? "http://localhost:3007"
+				: "https://airside.llmgateway.io"),
 		apiBackendUrl: process.env.API_BACKEND_URL ?? apiUrl,
 		uiUrl: process.env.UI_URL ?? "http://localhost:3002",
 		playgroundUrl: process.env.PLAYGROUND_URL ?? "http://localhost:3003",
