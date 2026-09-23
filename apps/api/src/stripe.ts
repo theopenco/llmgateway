@@ -63,6 +63,7 @@ import {
 	resolveChatPlanBillingDetails,
 	resolveDevPassBillingDetails,
 } from "./utils/plan-billing.js";
+import { sendReceiptEmail } from "./utils/receipt.js";
 
 import type { ServerTypes } from "./vars.js";
 
@@ -1974,7 +1975,9 @@ async function recordCreditTopUp({
 	});
 }
 
-async function handleAirsideListingCheckout(session: Stripe.Checkout.Session) {
+export async function handleAirsideListingCheckout(
+	session: Stripe.Checkout.Session,
+) {
 	if (session.payment_status !== "paid") {
 		logger.info(
 			`Airside listing checkout session payment not yet settled (status: ${session.payment_status}), skipping`,
@@ -2009,6 +2012,56 @@ async function handleAirsideListingCheckout(session: Stripe.Checkout.Session) {
 		return;
 	}
 	logger.info(`Marked airside provider company ${providerCompanyId} as paid`);
+
+	// The carrier paying the listing fee is not an organization member, so this
+	// goes out through the receipt sender rather than the org invoice path. The
+	// conditional update above makes this run exactly once per paid session.
+	await sendAirsideListingReceipt(session, providerCompanyId);
+}
+
+/**
+ * Emails the carrier a receipt for the one-time Airside listing fee. There is
+ * no transaction row for this flow, so the Stripe checkout session id doubles
+ * as the receipt number. Best-effort — the company is already marked paid.
+ */
+async function sendAirsideListingReceipt(
+	session: Stripe.Checkout.Session,
+	providerCompanyId: string,
+): Promise<void> {
+	const company = await db.query.providerCompany.findFirst({
+		where: { id: { eq: providerCompanyId } },
+	});
+
+	// The payer's address comes off the checkout session; fall back to the
+	// company owner when Stripe did not return one.
+	let to = session.customer_details?.email ?? session.customer_email ?? null;
+	if (!to) {
+		const owner = await db.query.providerCompanyMember.findFirst({
+			where: {
+				providerCompanyId: { eq: providerCompanyId },
+				role: { eq: "owner" },
+			},
+			with: { user: true },
+		});
+		to = owner?.user?.email ?? null;
+	}
+
+	await sendReceiptEmail({
+		to,
+		recipientName: company?.name ?? null,
+		subject: "Receipt for your Airside listing fee",
+		receiptNumber: session.id,
+		date: new Date(),
+		lineItems: [
+			{
+				description: company
+					? `Airside carrier listing fee — ${company.name}`
+					: "Airside carrier listing fee",
+				amount: (session.amount_total ?? 0) / 100,
+			},
+		],
+		currency: (session.currency ?? "usd").toUpperCase(),
+	});
 }
 
 async function handleProviderListingCheckout(session: Stripe.Checkout.Session) {
@@ -2212,7 +2265,7 @@ export async function handleEndUserTopUpSucceeded(
 	// atomically. The ledger insert hits the unique index first, so a concurrent
 	// duplicate delivery rolls the whole transaction back instead of double-
 	// crediting.
-	let txResult: { balance: string; bonusApplied: number };
+	let txResult: { balance: string; bonusApplied: number; ledgerId: string };
 	try {
 		txResult = await db.transaction(async (tx) => {
 			// Developer-funded bonus: resolve and reserve it FIRST, locking the org
@@ -2270,20 +2323,23 @@ export async function handleEndUserTopUpSucceeded(
 				.where(eq(tables.wallet.id, walletId))
 				.returning();
 
-			await tx.insert(tables.walletLedger).values({
-				walletId,
-				endCustomerId: wallet.endCustomerId,
-				organizationId: wallet.organizationId,
-				type: "topup",
-				amount: String(netCredited),
-				balanceAfter: updated.balance,
-				grossPaid: String(grossPaid),
-				platformFee: String(platformFee),
-				developerMargin: String(accruedMargin),
-				netCredited: String(netCredited),
-				stripePaymentIntentId: paymentIntent.id,
-				description: "End-user credit top-up",
-			});
+			const [topUpLedgerRow] = await tx
+				.insert(tables.walletLedger)
+				.values({
+					walletId,
+					endCustomerId: wallet.endCustomerId,
+					organizationId: wallet.organizationId,
+					type: "topup",
+					amount: String(netCredited),
+					balanceAfter: updated.balance,
+					grossPaid: String(grossPaid),
+					platformFee: String(platformFee),
+					developerMargin: String(accruedMargin),
+					netCredited: String(netCredited),
+					stripePaymentIntentId: paymentIntent.id,
+					description: "End-user credit top-up",
+				})
+				.returning({ id: tables.walletLedger.id });
 
 			// Record the end-user top-up as LLM Gateway revenue, mirroring an org
 			// credit purchase: `amount` = gross Stripe charge, `creditAmount` = net
@@ -2346,7 +2402,11 @@ export async function handleEndUserTopUpSucceeded(
 				});
 			}
 
-			return { balance: finalBalance, bonusApplied };
+			return {
+				balance: finalBalance,
+				bonusApplied,
+				ledgerId: topUpLedgerRow.id,
+			};
 		});
 	} catch (err) {
 		const code =
@@ -2361,7 +2421,11 @@ export async function handleEndUserTopUpSucceeded(
 		throw err;
 	}
 
-	const { balance: newBalance, bonusApplied } = txResult;
+	const {
+		balance: newBalance,
+		bonusApplied,
+		ledgerId: topUpLedgerId,
+	} = txResult;
 
 	logger.info(
 		`Credited ${netCredited} to end-user wallet ${walletId} (margin ${developerMargin}, platform fee ${platformFee}, bonus ${bonusApplied}, balance now ${newBalance})`,
@@ -2396,7 +2460,74 @@ export async function handleEndUserTopUpSucceeded(
 				error: err instanceof Error ? err.message : String(err),
 			});
 		}
+
+		// Receipt for the end-user. They bought from the developer's product and
+		// have no relationship with us, so the developer's brand leads and we
+		// appear as merchant of record. Live wallets only: sandbox top-ups are
+		// not real money, and Stripe never receipts test payments either.
+		await sendEndUserTopUpReceipt({
+			receiptNumber: topUpLedgerId,
+			endCustomerId: wallet.endCustomerId,
+			projectId: wallet.projectId,
+			currency: wallet.currency,
+			grossPaid,
+			bonusCredited: bonusApplied,
+		});
 	}
+}
+
+/**
+ * Emails an end-user their credit-purchase receipt, branded with the
+ * developer's name. Best-effort: the money has already been credited, so a
+ * failure here must never surface to Stripe as a webhook error.
+ */
+async function sendEndUserTopUpReceipt(input: {
+	receiptNumber: string;
+	endCustomerId: string;
+	projectId: string;
+	currency: string;
+	grossPaid: number;
+	bonusCredited: number;
+}): Promise<void> {
+	const [endCustomer, project] = await Promise.all([
+		db.query.endCustomer.findFirst({
+			where: { id: { eq: input.endCustomerId } },
+		}),
+		db.query.project.findFirst({ where: { id: { eq: input.projectId } } }),
+	]);
+
+	const brandName = project?.endUserBrandName ?? project?.name ?? null;
+
+	const lineItems = [
+		{
+			description: brandName
+				? `${brandName} — credit purchase`
+				: "Credit purchase",
+			amount: input.grossPaid,
+		},
+	];
+	// Developer-funded bonus is spend power, not money paid, so it rides along
+	// at zero like the org top-up bonus line does.
+	if (input.bonusCredited > 0) {
+		lineItems.push({
+			description: `Bonus credit (+$${input.bonusCredited.toFixed(2)})`,
+			amount: 0,
+		});
+	}
+
+	await sendReceiptEmail({
+		to: endCustomer?.email ?? null,
+		recipientName: endCustomer?.name ?? null,
+		subject: brandName
+			? `${brandName} — receipt for your credit purchase`
+			: "Receipt for your credit purchase",
+		receiptNumber: input.receiptNumber,
+		date: new Date(),
+		lineItems,
+		currency: input.currency,
+		merchantBrandName: brandName,
+		merchantSupportEmail: project?.endUserSupportEmail ?? null,
+	});
 }
 
 /**
@@ -2445,7 +2576,11 @@ export async function handleEndUserTopUpRefunded(
 	// delivered charge.refunded rolls the whole transaction back instead of
 	// double-reversing. The wallet is locked + re-read inside the transaction so
 	// the balance clamp can't go stale against a concurrent debit.
-	let reversal: number;
+	let reversal: {
+		amount: number;
+		reversalId: string | null;
+		mode: "live" | "test" | null;
+	};
 	try {
 		reversal = await db.transaction(async (tx) => {
 			// When restoring org credits for a bonus claw-back, lock the org row
@@ -2468,7 +2603,7 @@ export async function handleEndUserTopUpRefunded(
 				.limit(1);
 			if (!wallet) {
 				logger.error(`Wallet not found for end-user refund: ${topUp.walletId}`);
-				return 0;
+				return { amount: 0, reversalId: null, mode: null };
 			}
 
 			// Reverse the paid top-up first, then the bonus, each clamped to the
@@ -2487,19 +2622,22 @@ export async function handleEndUserTopUpRefunded(
 				.where(eq(tables.wallet.id, topUp.walletId))
 				.returning();
 
-			await tx.insert(tables.walletLedger).values({
-				walletId: topUp.walletId,
-				endCustomerId: topUp.endCustomerId,
-				organizationId: topUp.organizationId,
-				type: "reversal",
-				amount: String(-amount),
-				balanceAfter: updated.balance,
-				stripePaymentIntentId: topUp.stripePaymentIntentId,
-				description:
-					bonusReversed > 0
-						? "End-user top-up refund (incl. bonus claw-back)"
-						: "End-user top-up refund",
-			});
+			const [reversalRow] = await tx
+				.insert(tables.walletLedger)
+				.values({
+					walletId: topUp.walletId,
+					endCustomerId: topUp.endCustomerId,
+					organizationId: topUp.organizationId,
+					type: "reversal",
+					amount: String(-amount),
+					balanceAfter: updated.balance,
+					stripePaymentIntentId: topUp.stripePaymentIntentId,
+					description:
+						bonusReversed > 0
+							? "End-user top-up refund (incl. bonus claw-back)"
+							: "End-user top-up refund",
+				})
+				.returning({ id: tables.walletLedger.id });
 
 			// Reverse the top-up revenue booked at top-up time. The Stripe refund
 			// returns the whole payment, so reverse the full net/gross (independent
@@ -2561,7 +2699,7 @@ export async function handleEndUserTopUpRefunded(
 				});
 			}
 
-			return amount;
+			return { amount, reversalId: reversalRow.id, mode: wallet.mode };
 		});
 	} catch (err) {
 		const code =
@@ -2577,8 +2715,64 @@ export async function handleEndUserTopUpRefunded(
 	}
 
 	logger.info(
-		`Reversed ${reversal} from end-user wallet ${topUp.walletId} on refund`,
+		`Reversed ${reversal.amount} from end-user wallet ${topUp.walletId} on refund`,
 	);
+
+	// Credit note for the end-user. The document states the money Stripe returned
+	// to their card, not the wallet clamp — they may have already spent some of
+	// the balance, but the refund itself was for the full payment.
+	if (reversal.mode && reversal.mode !== "test" && reversal.reversalId) {
+		await sendEndUserRefundCreditNote({
+			receiptNumber: reversal.reversalId,
+			endCustomerId: topUp.endCustomerId,
+			walletId: topUp.walletId,
+			grossRefunded: Number(topUp.grossPaid ?? "0"),
+		});
+	}
+}
+
+/**
+ * Emails an end-user a credit note for a refunded top-up. Best-effort, for the
+ * same reason as the receipt: the reversal has already committed.
+ */
+async function sendEndUserRefundCreditNote(input: {
+	receiptNumber: string;
+	endCustomerId: string;
+	walletId: string;
+	grossRefunded: number;
+}): Promise<void> {
+	const endCustomer = await db.query.endCustomer.findFirst({
+		where: { id: { eq: input.endCustomerId } },
+	});
+	const project = endCustomer
+		? await db.query.project.findFirst({
+				where: { id: { eq: endCustomer.projectId } },
+			})
+		: null;
+
+	const brandName = project?.endUserBrandName ?? project?.name ?? null;
+
+	await sendReceiptEmail({
+		to: endCustomer?.email ?? null,
+		recipientName: endCustomer?.name ?? null,
+		subject: brandName
+			? `${brandName} — refund confirmation`
+			: "Refund confirmation",
+		receiptNumber: input.receiptNumber,
+		date: new Date(),
+		documentType: "credit_note",
+		lineItems: [
+			{
+				description: brandName
+					? `Refund — ${brandName} credit purchase`
+					: "Refund — credit purchase",
+				amount: -input.grossRefunded,
+			},
+		],
+		currency: "USD",
+		merchantBrandName: brandName,
+		merchantSupportEmail: project?.endUserSupportEmail ?? null,
+	});
 }
 
 /**

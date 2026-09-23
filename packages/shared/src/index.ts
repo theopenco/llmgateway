@@ -43,6 +43,13 @@ export {
 } from "./fees.js";
 
 export {
+	formatStatementDescriptor,
+	normalizeStatementDescriptorSuffix,
+	STATEMENT_DESCRIPTOR_PREFIX,
+	STATEMENT_DESCRIPTOR_SUFFIX_MAX_LENGTH,
+} from "./statement-descriptor.js";
+
+export {
 	DEV_PLAN_INCLUDED_RESET_PASSES,
 	DEV_PLAN_PREMIUM_WEEK_LENGTH_MS,
 	DEV_PLAN_PREMIUM_WEEKLY_PERCENT,
