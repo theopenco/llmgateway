@@ -2,80 +2,60 @@
 id: cursor
 slug: cursor
 title: Cursor Integration
-seoTitle: "Use Kimi K3 or 200+ Models in Cursor"
-description: Point Cursor's plan and agent modes at Kimi K3, GPT-5, Claude, or 200+ models through LLM Gateway. One base URL override, plus what stays on Cursor's backend.
-date: 2026-07-03
+seoTitle: Use Cursor with LLM Gateway
+date: 2026-09-23
+description: Configure Cursor’s custom OpenAI endpoint for LLM Gateway and understand model compatibility, sign-in, and billing scope.
 ---
 
-Cursor is an AI-powered code editor built on VS Code. It supports a custom OpenAI base URL, which means you can point its AI panel at LLM Gateway and use any model from our catalog — GPT-5, Claude, Gemini, DeepSeek, or 200+ others — with every request tracked in your dashboard.
+Cursor can use a custom OpenAI base URL for supported chat models. Connect LLM Gateway in the editor's model settings, then verify the selected model with a small request.
 
-One thing up front, because most guides skip it: **the base URL override applies to Cursor's AI panel — both plan mode and agent mode.** Inline edit (Cmd/Ctrl + K) and tab autocomplete are locked to Cursor's own backend and will not route through any external endpoint. If you want every request in your workflow — including edits and completions — running through LLM Gateway, use [Claude Code](/guides/claude-code), [Codex CLI](/guides/codex-cli), [Cline](/guides/cline), or [OpenCode](/guides/opencode) instead.
+## Video walkthrough
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/qqzLzMSP--I"
+		title="Cursor setup with LLM Gateway"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
 
-## Quick Start
+## Sign in and open model settings
 
-### 1. Get your API key
+Install Cursor from its&nbsp;[official site](https://cursor.com/downloads), sign in to your Cursor account, and open **Cursor Settings → Models → API Keys**.
 
-Create an API key in your [LLM Gateway dashboard](/dashboard) under **API Keys**.
+Cursor account access and your gateway API key are separate requirements.
 
-### 2. Add the key to Cursor
+## Add the gateway connection
 
-Open **Cursor Settings → Models**, then add your LLM Gateway key under **OpenAI API Key**.
+1. Enter your workspace key under **OpenAI API Key**.
+2. Enable **Override OpenAI Base URL** and set `https://api.llmgateway.io/v1`.
+3. Save or verify the key using the controls in your Cursor version.
+4. Select a supported chat model. If your version offers custom model entry, use the exact ID from the&nbsp;[live catalogue](https://llmgateway.io/models).
 
-![Cursor Settings](https://docs.llmgateway.io/guides/cursor/settings-1.png)
+With a&nbsp;[DevPass](https://devpass.llmgateway.io) key, choose a canonical model included in your plan. Upstream provider prefixes pin routing and are not supported on coding plans.
 
-### 3. Override the base URL
+## Verify the request
 
-In the same Models settings, enable **Override OpenAI Base URL** and set it to:
+Open a new chat, select the configured model explicitly, and send a short prompt. Check the request in the workspace that issued the gateway key before relying on the connection for agent tasks.
 
-```
-https://api.llmgateway.io/v1
-```
+Compatibility depends on Cursor's model support and the mode you use. A custom endpoint does not guarantee that every catalogue model or agent feature works.
 
-![Cursor API Key Input](https://docs.llmgateway.io/guides/cursor/settings-2.png)
+## Scope and billing
 
-### 4. Pick your models
-
-Add any model ID from the [models catalog](https://llmgateway.io/models) — for example `gpt-5`, `claude-sonnet-4-5`, or `deepseek-v3.2`.
-
-![Cursor Model Selection](https://docs.llmgateway.io/guides/cursor/model-selection.png)
-
-Open the AI panel (Cmd/Ctrl + L) and every plan and agent request now routes through LLM Gateway.
-
-## What works and what doesn't
-
-| Cursor feature                  | Routes through LLM Gateway |
-| ------------------------------- | -------------------------- |
-| Chat / plan mode (Cmd/Ctrl + L) | ✅ Yes                     |
-| Agent mode                      | ✅ Yes                     |
-| Inline edit (Cmd/Ctrl + K)      | ❌ Cursor backend only     |
-| Autocomplete / tab              | ❌ Cursor backend only     |
-
-The remaining gaps are a Cursor limitation, not an LLM Gateway one — external OpenAI-compatible endpoints are honored by the AI panel (plan and agent mode), while inline edit and tab completion stay on Cursor's backend.
-
-## Model selection tips
-
-- **Provider pinning**: prefix the model with a provider to pin it, e.g. `openai/gpt-5`
-- **Discounted models**: browse the [discounted models](https://llmgateway.io/models?view=grid&filters=1&discounted=true) and copy the ID
-- **Free models**: browse the [free models](https://llmgateway.io/models?view=grid&filters=1&free=true)
-- **Reasoning models**: browse [reasoning models](https://llmgateway.io/models?view=grid&filters=1&reasoning=true) for planning-heavy work
+Cursor documents custom keys for chat models; Tab completion continues using Cursor's built-in models. BYOK requests still pass through Cursor's backend for prompt building. Consult Cursor's&nbsp;[API key documentation](https://cursor.com/help/models-and-usage/api-keys) for current plan charges and data handling.
 
 ## Troubleshooting
 
-**Authentication errors** — Verify the API key and that the base URL is exactly `https://api.llmgateway.io/v1`, and check that your account has credits.
+**Sign-in blocks settings:** complete Cursor account sign-in before configuring the provider.
 
-**Model not found** — Confirm the model ID exists in the [catalog](https://llmgateway.io/models) and is spelled exactly as shown.
+**Authentication fails:** check the active gateway key and the exact base URL, including `/v1`.
 
-**Inline edit or autocomplete still uses Cursor's models** — Expected; see the table above.
+**A model is missing or rejected:** confirm Cursor supports it, check its exact catalogue ID, and test a supported chat model first.
 
-Need help? Join our [Discord](https://llmgateway.io/discord).
+**An agent tool fails:** verify tool support and mode compatibility. Check the actual request and error instead of assuming every editor feature uses the override.
 
-## Why route Cursor through LLM Gateway
-
-- **Any model in plan and agent mode** — OpenAI, Anthropic, Google, Meta, DeepSeek, and open-source models through one key
-- **Cost tracking** — every plan and agent request appears in your [dashboard](/dashboard) with per-model cost breakdowns
-- **Caching** — repeated prompts hit the cache instead of the provider
-- **One bill** — no juggling separate provider accounts
-
-[Get started for free](/signup) — no credit card required.
+**Tab completion uses Cursor's service:** this is expected; custom chat keys do not replace its completion models.

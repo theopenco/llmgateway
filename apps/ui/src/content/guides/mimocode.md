@@ -2,68 +2,64 @@
 id: mimocode
 slug: mimocode
 title: MiMo Code Integration
-seoTitle: "MiMo Code Setup: 200+ Models, One Key"
-description: Use GPT-5.5, Claude, Gemini, Kimi K3, or 200+ models with MiMo Code. Custom provider configuration in a few steps, with full cost tracking.
-date: 2026-06-08
+seoTitle: Use MiMo Code with LLM Gateway
+date: 2026-09-23
+description: Configure MiMo Code with LLM Gateway, select a compatible model, and verify a coding task.
 ---
 
-[MiMo Code](https://mimo.xiaomi.com/mimocode) is an AI-powered coding agent command-line tool developed by Xiaomi. It can understand your code repository, plan changes, safely execute shell commands, edit files, and autonomously manage complex software development tasks in your terminal.
+[MiMo Code](https://mimo.xiaomi.com/mimocode) is a terminal coding agent. Its custom provider configuration can route Anthropic-compatible requests through LLM Gateway.
 
-By configuring MiMo Code to route through LLM Gateway, you can point it at any model—GPT-5.5, Gemini, Llama, Claude, or 210+ others—while keeping the same API format MiMo Code expects, with full cost tracking in your dashboard.
+## Video walkthrough
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/4iR6c01IhYk"
+		title="MiMo Code setup and coding demo with LLM Gateway"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
 
-## Prerequisites
+## Install
 
-- An LLM Gateway API key — [sign up free](/signup) (no credit card required)
-
-## Setup
-
-### Step 1: Install MiMo Code
-
-If you haven't already, install MiMo Code by running the official installation command in your terminal:
+Use the official installer, then check the version:
 
 ```bash
 curl -fsSL https://mimo.xiaomi.com/install | bash
+mimo --version
 ```
 
-Confirm the installation by checking the help command:
+## Connect your workspace
+
+Create a key in your LLM Gateway or DevPass dashboard and export it in the terminal that will launch MiMo Code:
 
 ```bash
-mimo --help
+export LLMGATEWAY_API_KEY="your_api_key"
 ```
 
-### Step 2: Configure mimocode.json
-
-Create or edit your MiMo Code configuration file at `~/.config/mimocode/mimocode.json` (on Linux/macOS) or `~/.mimocode/mimocode.json`.
-
-Specify the default models you want to use and route the `anthropic` provider to your LLM Gateway endpoint. Here is an example configuration that sets up **Claude Opus 4.8**, **GPT-5.5**, **DeepSeek V4 Pro**, **MiniMax M3**, and **Qwen3.7 Max**:
+Merge this configuration into `~/.config/mimocode/mimocode.json` on macOS or Linux:
 
 ```json
 {
-  "model": "anthropic/claude-opus-4-8",
-  "small_model": "anthropic/claude-3-5-haiku-latest",
+  "model": "anthropic/MODEL_ID",
+  "small_model": "anthropic/MODEL_ID",
   "provider": {
     "anthropic": {
       "options": {
-        "apiKey": "llmgtwy_your_api_key_here",
+        "apiKey": "{env:LLMGATEWAY_API_KEY}",
         "baseURL": "https://api.llmgateway.io/v1"
       },
       "models": {
-        "gpt-5.5": {
-          "name": "gpt-5.5"
-        },
-        "claude-opus-4-8": {
-          "name": "claude-opus-4-8"
-        },
-        "deepseek-v4-pro": {
-          "name": "deepseek-v4-pro"
-        },
-        "minimax-m3": {
-          "name": "minimax-m3"
-        },
-        "qwen3.7-max": {
-          "name": "qwen3.7-max"
+        "MODEL_ID": {
+          "name": "Gateway coding model",
+          "id": "MODEL_ID",
+          "limit": {
+            "context": 200000,
+            "output": 8192
+          }
         }
       }
     }
@@ -71,63 +67,31 @@ Specify the default models you want to use and route the `anthropic` provider to
 }
 ```
 
-![Configuring mimocode.json](https://docs.llmgateway.io/guides/mimocode/0-config.png)
+Replace every `MODEL_ID` with the exact gateway model ID. Choose a model with tool support from the&nbsp;[live catalogue](https://llmgateway.io/models?features=tools). Adjust the example context and output limits to values supported by that model.
 
-_Replace `llmgtwy_your_api_key_here` with your actual LLM Gateway API key from the dashboard._
+Here `anthropic/` in the top-level selection identifies MiMo Code's local provider. The nested `id` is the model ID sent to LLM Gateway. The provider name selects the Anthropic API format; the base URL sends those requests to the gateway.
 
-### Step 3: Run MiMo Code
+> **Using DevPass?** Keep the nested `id` canonical and choose a model included in your plan. Adding an upstream provider prefix to that ID pins routing and is not supported on coding plans.
 
-Navigate to your project folder and launch the TUI or run a prompt directly:
+## Verify a task
 
 ```bash
+cd your-project
 mimo
 ```
 
-Or run it with a message:
+Review the workspace trust prompt. Ask the agent to inspect a function, fix a failing test case, and run the existing tests without changing them. Approve file and command permissions as needed, then review the diff and test output.
 
-```bash
-mimo run "Your coding prompt here"
-```
+Check usage in the workspace that issued your key.
 
-All requests will now be routed through LLM Gateway, allowing you to use advanced models for local autonomous coding while showing real-time usage and cost statistics on your LLM Gateway dashboard.
+## Troubleshooting
 
-![Running MiMo Code with LLM Gateway](https://docs.llmgateway.io/guides/mimocode/1-chat.png)
+**The request exceeds the model's output limit:** MiMo Code 0.1.15 forces a large output allowance for some model names, overriding `limit.output`. If your request is rejected, select a compatible model or update MiMo Code; changing the configured limit alone may not fix it.
 
-## Configuration Details
+**A tool schema is rejected:** MiMo Code's tool definitions may exceed what the selected model or upstream provider accepts. Try another tool-capable model and inspect the returned error.
 
-### The Provider Options
+**Authentication fails:** export the key before starting MiMo Code and confirm that the key is active.
 
-To point MiMo Code to LLM Gateway, you define the `baseURL` and `apiKey` inside the `options` of the `anthropic` provider block.
+**A model is unavailable:** check the nested model `id`, account access, and plan restrictions.
 
-```json
-"provider": {
-	"anthropic": {
-		"options": {
-			"apiKey": "llmgtwy_your_api_key_here",
-			"baseURL": "https://api.llmgateway.io/v1"
-		}
-	}
-}
-```
-
-### Defining Custom Models
-
-Because MiMo Code CLI restricts requests to built-in models by default, any custom model you wish to target (such as `gpt-5.5` or `deepseek-v4-pro`) must be registered in the `models` dictionary within the `anthropic` provider config:
-
-```json
-"models": {
-	"gpt-5.5": {
-		"name": "gpt-5.5"
-	}
-}
-```
-
-Once registered, you can set them as your default model or small model using the `anthropic/` prefix (e.g. `"model": "anthropic/gpt-5.5"`).
-
-## Why Use LLM Gateway with MiMo Code?
-
-- **200+ models** — Access GPT-5.5, Gemini, Llama, DeepSeek, and more in a single CLI configuration.
-- **Unified cost tracking** — Get a detailed breakdown of costs per prompt and session in your dashboard.
-- **Response caching** — Automatically cache repeated requests (such as parsing or building commands) to save API costs.
-- **Automatic fallback** — Keep coding even if a provider encounters temporary downtime.
-- **Volume discounts** — Access selected models with up to 90% savings compared to standard pricing.
+See the&nbsp;[MiMo Code provider reference](https://github.com/XiaomiMiMo/MiMo-Code/blob/main/packages/opencode/src/skill/builtin/.bundle/mimocode-docs/reference/providers.md) for other configuration options.
