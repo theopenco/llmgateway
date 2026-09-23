@@ -422,6 +422,10 @@ const adminMetricsSchema = z.object({
 	// fees; refunds not netted out), split by product.
 	grossRevenue: z.number(),
 	grossCreditsRevenue: z.number(),
+	// LLM SDK end-user wallet top-ups. Already included in
+	// `grossCreditsRevenue` — reported separately so SDK monetization is
+	// visible, never added to `grossRevenue` again.
+	grossSdkPaymentsRevenue: z.number(),
 	grossDevpassRevenue: z.number(),
 	// PAYG overflow top-ups purchased by DevPass orgs. Same `credit_topup`
 	// transaction type as the Credits split, attributed separately so DevPass
@@ -1402,6 +1406,11 @@ admin.openapi(getMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
 					"value",
 				),
+			// LLM SDK end-user wallet top-ups, a subset of `value`.
+			sdkValue:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.type} = 'end_user_topup'), 0)`.as(
+					"sdk_value",
+				),
 		})
 		.from(tables.transaction)
 		.innerJoin(
@@ -1427,6 +1436,7 @@ admin.openapi(getMetrics, async (c) => {
 		);
 
 	const grossCreditsRevenue = Number(grossCreditsRow?.value ?? 0);
+	const grossSdkPaymentsRevenue = Number(grossCreditsRow?.sdkValue ?? 0);
 
 	// DevPass PAYG overflow top-ups: `credit_topup` purchases on devpass orgs.
 	const [grossDevpassTopupsRow] = await db
@@ -1709,6 +1719,7 @@ admin.openapi(getMetrics, async (c) => {
 		totalRefundedCredits,
 		grossRevenue,
 		grossCreditsRevenue,
+		grossSdkPaymentsRevenue,
 		grossDevpassRevenue,
 		grossDevpassTopupsRevenue,
 		grossResetPassRevenue,

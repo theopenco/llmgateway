@@ -15,6 +15,7 @@ interface AdminMetricsResponse {
 	totalToppedUp: number;
 	grossRevenue: number;
 	grossCreditsRevenue: number;
+	grossSdkPaymentsRevenue: number;
 	grossDevpassRevenue: number;
 	grossDevpassTopupsRevenue: number;
 	grossResetPassRevenue: number;
@@ -171,6 +172,9 @@ describe("admin /metrics — gross revenue splits", () => {
 		// plus the $7 devpass end_user_topup (only devpass credit_topup rows
 		// move to the DevPass split). The $26.25 top-up is NOT in here.
 		expect(body.grossCreditsRevenue).toBe(39);
+		// SDK end-user wallet top-ups, a subset of the credits split: $11 + $7,
+		// with the refund reversal ignored.
+		expect(body.grossSdkPaymentsRevenue).toBe(18);
 		// $20 start + $20 second-cycle renewal — the Reset Pass is NOT in here.
 		expect(body.grossDevpassRevenue).toBe(40);
 		// PAYG overflow top-up on the devpass org.
