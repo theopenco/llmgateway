@@ -2,88 +2,60 @@
 id: kilo-code
 slug: kilo-code
 title: Kilo Code Integration
-description: Use LLM Gateway with Kilo Code in VS Code. Built-in provider — just search, connect your API key, and start coding.
-date: 2026-05-12
+seoTitle: Use Kilo Code with LLM Gateway
+date: 2026-09-23
+description: Connect Kilo Code to LLM Gateway or DevPass, select a model, and review agent edits and commands.
 ---
 
-[Kilo Code](https://kilo.ai/) is an AI coding assistant that runs as a VS Code extension. It supports autonomous coding, file editing, terminal commands, and browser automation. LLM Gateway is a built-in provider in Kilo Code, so setup takes under a minute — no manual base URL configuration required.
+[Kilo Code](https://kilo.ai/) is a coding agent for VS Code. Its provider settings include separate LLM Gateway and DevPass connections.
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+## Video walkthrough
 
-## Prerequisites
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/RoX_EF-aaEQ"
+		title="Kilo Code setup and coding demo with LLM Gateway"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
 
-- VS Code or a VS Code-based editor (Cursor, Windsurf, etc.)
-- An LLM Gateway API key — [sign up free](/signup) (no credit card required)
+## Install and choose permissions
 
-## Setup
+Install **Kilo Code** from the&nbsp;[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=kilocode.kilo-code), then open its sidebar panel.
 
-### Step 1: Install Kilo Code
+On first launch, choose how much autonomy to allow. **Review First** lets you inspect edits and shell commands before approving them. Start with a small project and a focused task.
 
-Open VS Code, go to the Extensions view (Ctrl+Shift+X / Cmd+Shift+X), search for **Kilo Code**, and click **Install**.
+## Connect your workspace
 
-Alternatively, install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=kilocode.kilo-code).
+1. Open Kilo's **Settings**, then **Providers**.
+2. Click **Show more providers** and search for `llm`.
+3. Choose **LLM Gateway** for pay-as-you-go usage or **DevPass (LLM Gateway)** for a coding plan.
+4. Paste a key from the matching workspace dashboard and submit it.
 
-### Step 2: Open Providers Settings
+The built-in provider supplies the endpoint; you do not need to enter a base URL.
 
-Click the Kilo Code icon in the VS Code sidebar, then open **Settings > Providers**. You'll see the list of popular providers:
+## Select the model for this chat
 
-![Kilo Code Providers screen](/images/guides/kilo-code/0-providers.png)
+Click the model picker at the bottom of the chat and select a tool-capable model from your connected provider. Check the active model before sending a task: setting a default under **Settings > Models** does not necessarily change an already-open chat.
 
-### Step 3: Find LLM Gateway
+Use the&nbsp;[live model catalogue](https://llmgateway.io/models?features=tools) to check capabilities. For DevPass, choose a canonical model ID included in your plan; upstream provider prefixes pin routing and are not supported on coding plans.
 
-Click **Show more providers** at the bottom of the list. In the "Connect provider" dialog, type `llm` in the search box — **LLM Gateway** will appear:
+## Verify a coding task
 
-![Searching for LLM Gateway](/images/guides/kilo-code/1-search-llm.png)
+Ask Kilo to inspect a function, fix a failing test case, and run the existing tests without changing them. In **Review First** mode, inspect the proposed diff and use **Allow once** for the edit and test command when appropriate.
 
-Click the **+** button next to LLM Gateway.
-
-### Step 4: Enter Your API Key
-
-Kilo Code will show the **Connect LLM Gateway** dialog. Paste your LLM Gateway API key (starts with `llmgtwy_`) and click **Submit**:
-
-![Connect LLM Gateway — enter API key](/images/guides/kilo-code/2-connect-api-key.png)
-
-[Sign up](/signup) or log in to your LLM Gateway dashboard and navigate to **API Keys** to get your key.
-
-### Step 5: Start Coding
-
-Once connected, select an LLM Gateway model from the model picker at the bottom of the chat panel. All requests now route through LLM Gateway — you'll see usage, costs, and logs in your [dashboard](/dashboard):
-
-![Kilo Code chat active with LLM Gateway](/images/guides/kilo-code/3-chat-active.png)
-
-## Why Use LLM Gateway with Kilo Code?
-
-- **200+ models** — Claude, GPT, Gemini, Llama, DeepSeek, and more from 40+ providers
-- **One API key** — Stop managing separate keys for each provider
-- **Cost tracking** — See exactly what each session costs in your dashboard
-- **Response caching** — Repeated requests hit cache automatically
-- **Automatic fallback** — If a provider is down, requests route to an alternative
-- **Volume discounts** — Check [discounted models](/models?discounted=true) for savings up to 90%
-
-## Features
-
-Once configured, you can use all of Kilo Code's features with LLM Gateway:
-
-- **Autonomous coding** — Create and edit files, build features from natural language
-- **Terminal commands** — Run builds, tests, and scripts directly from the chat
-- **Browser automation** — Preview and interact with web apps
-- **Checkpoints** — Save and restore session states
-- **Multiple modes** — Switch between Code, Architect, Ask, and Debug modes
-
-## Switching Models
-
-Click the model name at the bottom of the Kilo Code chat panel to open the model picker. Select any LLM Gateway model — the switch takes effect immediately for the next message.
+Review the command output and final diff. The key determines which workspace receives the requests; inspect usage in that workspace's dashboard.
 
 ## Troubleshooting
 
-### LLM Gateway not in provider list
+**The provider is missing:** expand **Show more providers**, search for `llm`, and check that Kilo is current.
 
-Click **Show more providers** at the bottom of the Providers page. In the search dialog, type "llm" or "gateway" to find it.
+**The chat still uses another provider:** select the model in the chat itself, even if you already changed the default in Settings.
 
-### Authentication errors
+**Authentication fails:** verify that the key is active and matches the selected billing mode.
 
-Make sure your API key starts with `llmgtwy_` and is active. Check your [dashboard](/dashboard) to confirm the key is valid.
-
-### Model not found
-
-Verify the model ID matches exactly what's listed on the [models page](/models). Model IDs are case-sensitive.
+**A task pauses:** check whether Kilo is waiting for permission to edit a file or run a command.
