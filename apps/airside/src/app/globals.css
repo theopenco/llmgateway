@@ -2,7 +2,7 @@
 @import "tw-animate-css";
 
 /* Shared modules that ship Tailwind classes from outside this app. */
-@source "../../../../packages/shared/src/components/system-banner.tsx";
+@source "../../../../packages/shared/src/**/*.{ts,tsx}";
 @source "../../../../packages/shared/src/error-classification.ts";
 
 @custom-variant dark (&:is(.dark *));
