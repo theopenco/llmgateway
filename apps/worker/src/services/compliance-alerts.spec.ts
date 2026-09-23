@@ -269,10 +269,19 @@ describe("processComplianceAlerts", () => {
 		const [alert] = await db.query.organizationAlert.findMany();
 		expect(alert.type).toBe("compliance_downgrade");
 		expect(alert.message).not.toContain("used-model");
-		// Developers are in the audience, so they receive it.
-		expect(
-			(await db.query.notification.findMany()).map((n) => n.userId).sort(),
-		).toEqual(["ca-dev", "ca-owner"]);
+		// Developers are in the audience, so they receive it, linked to the
+		// models directory since the compliance page is admin-only.
+		const notifications = await db.query.notification.findMany();
+		expect(notifications.map((n) => n.userId).sort()).toEqual([
+			"ca-dev",
+			"ca-owner",
+		]);
+		expect(notifications.find((n) => n.userId === "ca-owner")?.href).toBe(
+			`/dashboard/${ORG}/org/compliance`,
+		);
+		expect(notifications.find((n) => n.userId === "ca-dev")?.href).toBe(
+			`/dashboard/${ORG}/org/models`,
+		);
 	});
 
 	it("skips organizations without enterprise access", async () => {

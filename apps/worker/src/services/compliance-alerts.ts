@@ -28,7 +28,10 @@ import {
 } from "@llmgateway/models";
 import { failureLabel } from "@llmgateway/shared";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
-import { isInAlertAudience } from "@llmgateway/shared/organization-roles";
+import {
+	isInAlertAudience,
+	isOrganizationAdmin,
+} from "@llmgateway/shared/organization-roles";
 
 import type { ComplianceAlertSettings, organization } from "@llmgateway/db";
 import type { ProviderCompliancePolicy } from "@llmgateway/models";
@@ -137,7 +140,11 @@ export async function emitOrgAlert(
 				eventKey: created.eventKey,
 				title: created.title,
 				message: created.message,
-				href: created.href,
+				// Non-admins cannot open the compliance page; the models directory
+				// shows them the same eligibility change.
+				href: isOrganizationAdmin(member.role)
+					? created.href
+					: `/dashboard/${org.id}/org/models`,
 				userId,
 				organizationId: org.id,
 				inApp,

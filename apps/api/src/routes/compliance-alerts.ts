@@ -5,6 +5,7 @@ import {
 	decryptNotificationChannelConfig,
 	encryptNotificationChannelConfig,
 	getModelAvailability,
+	getModelsWithoutLiveMapping,
 	isSlackWebhookUrl,
 	maskSlackWebhookUrl,
 	notificationChannelSenders,
@@ -448,6 +449,13 @@ complianceAlerts.openapi(
 				message: `Unknown models: ${unknown.join(", ")}`,
 			});
 		}
+		const now = new Date();
+		const retired = await getModelsWithoutLiveMapping(unique, now);
+		if (retired.length) {
+			throw new HTTPException(400, {
+				message: `Retired models cannot be watched: ${retired.join(", ")}`,
+			});
+		}
 		const existing = await db.query.modelAvailabilityWatch.findMany({
 			columns: { modelId: true },
 			where: { organizationId },
@@ -494,7 +502,6 @@ complianceAlerts.openapi(
 		}
 		// Stamp already-available models so they never trigger an alert.
 		const policy = organization.providerCompliancePolicy;
-		const now = new Date();
 		const availability = policy?.enabled
 			? await getModelAvailability(added, policy, now)
 			: new Map<string, string[]>();

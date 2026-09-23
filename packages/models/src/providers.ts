@@ -2609,6 +2609,17 @@ export interface ModelMappingAvailability {
 	deactivatedAt?: Date | null;
 }
 
+/** Whether a mapping is still served at `now`: neither deprecated nor deactivated. */
+export function isLiveMapping(
+	mapping: ModelMappingAvailability,
+	now: Date = new Date(),
+): boolean {
+	return !(
+		(mapping.deprecatedAt && mapping.deprecatedAt <= now) ||
+		(mapping.deactivatedAt && mapping.deactivatedAt <= now)
+	);
+}
+
 /**
  * Catalogue providers that serve `modelId` under the policy: active,
  * non-deprecated mappings whose provider has no compliance failures. Unknown
@@ -2626,10 +2637,7 @@ export function getCompliantProvidersForModel(
 	}
 	const compliant = new Set<string>();
 	for (const mapping of mappings) {
-		if (
-			(mapping.deprecatedAt && mapping.deprecatedAt <= now) ||
-			(mapping.deactivatedAt && mapping.deactivatedAt <= now)
-		) {
+		if (!isLiveMapping(mapping, now)) {
 			continue;
 		}
 		const provider = getProviderDefinition(mapping.providerId);

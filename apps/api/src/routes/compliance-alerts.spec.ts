@@ -28,7 +28,7 @@ describe("compliance alerts", () => {
 		await db
 			.insert(tables.model)
 			.values(
-				["blocked-model", "open-model"].map((id) => ({
+				["blocked-model", "open-model", "retired-model"].map((id) => ({
 					id,
 					name: id,
 					family: "test",
@@ -52,6 +52,12 @@ describe("compliance alerts", () => {
 		await db.insert(tables.modelProviderMapping).values([
 			{ modelId: "blocked-model", providerId: "deepseek", externalId: "b" },
 			{ modelId: "open-model", providerId: "openai", externalId: "o" },
+			{
+				modelId: "retired-model",
+				providerId: "openai",
+				externalId: "r",
+				deactivatedAt: new Date("2020-01-01"),
+			},
 		]);
 	});
 	afterEach(async () => {
@@ -139,6 +145,15 @@ describe("compliance alerts", () => {
 			modelIds: ["does-not-exist"],
 		});
 		expect(res.status).toBe(400);
+	});
+
+	test("rejects models whose every mapping is retired", async () => {
+		const res = await request("/compliance-alerts/watches", "POST", {
+			modelIds: ["retired-model"],
+		});
+		expect(res.status).toBe(400);
+		expect((await res.json()).message).toContain("retired-model");
+		expect(await db.query.modelAvailabilityWatch.findMany()).toHaveLength(0);
 	});
 
 	test("stores Slack webhooks encrypted and returns them masked", async () => {

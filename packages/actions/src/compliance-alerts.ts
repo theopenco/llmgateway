@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { db } from "@llmgateway/db";
 import {
 	getCompliantProvidersForModel,
+	isLiveMapping,
 	type ModelMappingAvailability,
 	type ProviderCompliancePolicy,
 } from "@llmgateway/models";
@@ -121,6 +122,33 @@ export function hashCompliancePolicy(policy: ProviderCompliancePolicy): string {
 		.slice(0, 16);
 }
 
+async function loadActiveMappings(modelIds: readonly string[]) {
+	return await db.query.modelProviderMapping.findMany({
+		columns: {
+			modelId: true,
+			providerId: true,
+			deprecatedAt: true,
+			deactivatedAt: true,
+		},
+		where: { modelId: { in: [...modelIds] }, status: "active" },
+	});
+}
+
+/** Models with no mapping still served at `now`; they can never become available. */
+export async function getModelsWithoutLiveMapping(
+	modelIds: readonly string[],
+	now: Date = new Date(),
+): Promise<string[]> {
+	if (!modelIds.length) {
+		return [];
+	}
+	const mappings = await loadActiveMappings(modelIds);
+	const live = new Set(
+		mappings.filter((m) => isLiveMapping(m, now)).map((m) => m.modelId),
+	);
+	return modelIds.filter((id) => !live.has(id));
+}
+
 /**
  * Compliant providers per model, evaluated against active catalogue and
  * Airside mappings.
@@ -134,15 +162,7 @@ export async function getModelAvailability(
 	if (!modelIds.length) {
 		return result;
 	}
-	const mappings = await db.query.modelProviderMapping.findMany({
-		columns: {
-			modelId: true,
-			providerId: true,
-			deprecatedAt: true,
-			deactivatedAt: true,
-		},
-		where: { modelId: { in: [...modelIds] }, status: "active" },
-	});
+	const mappings = await loadActiveMappings(modelIds);
 	const byModel = new Map<string, ModelMappingAvailability[]>();
 	for (const mapping of mappings) {
 		const list = byModel.get(mapping.modelId) ?? [];

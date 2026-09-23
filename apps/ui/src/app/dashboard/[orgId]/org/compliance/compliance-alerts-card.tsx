@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { getApiErrorMessage } from "@/lib/api-error";
 import { Badge } from "@/lib/components/badge";
 import { Button } from "@/lib/components/button";
 import {
@@ -29,6 +30,8 @@ import { useApi } from "@/lib/fetch-client";
 import {
 	getCompliantProvidersForModel,
 	getProviderDefinition,
+	isLiveMapping,
+	isModelAllowedByPolicy,
 	models,
 	providers,
 	type ProviderCompliancePolicy,
@@ -127,17 +130,23 @@ export function ComplianceAlertsCard({
 		() => new Set(data?.watches.map((w) => w.modelId) ?? []),
 		[data],
 	);
-	// Only models with no compliant provider in the catalogue can be watched.
-	const blockedModels = useMemo(
-		() =>
-			models.filter(
-				(model) =>
-					!watchedIds.has(model.id) &&
-					getCompliantProvidersForModel(model.id, model.providers, savedPolicy)
-						.length === 0,
-			),
-		[savedPolicy, watchedIds],
-	);
+	// Only models a compliant provider could start serving can be watched: a
+	// still-served mapping exists and the policy's own model lists allow it.
+	const blockedModels = useMemo(() => {
+		const now = new Date();
+		return models.filter(
+			(model) =>
+				!watchedIds.has(model.id) &&
+				isModelAllowedByPolicy([model.id], savedPolicy) &&
+				model.providers.some((mapping) => isLiveMapping(mapping, now)) &&
+				getCompliantProvidersForModel(
+					model.id,
+					model.providers,
+					savedPolicy,
+					now,
+				).length === 0,
+		);
+	}, [savedPolicy, watchedIds]);
 
 	const handleAdd = async () => {
 		try {
@@ -146,10 +155,10 @@ export function ComplianceAlertsCard({
 				body: { modelIds: pendingModels },
 			});
 			setPendingModels([]);
-		} catch {
+		} catch (error) {
 			toast({
 				title: "Error",
-				description: "Failed to watch models.",
+				description: getApiErrorMessage(error, "Failed to watch models."),
 				variant: "destructive",
 			});
 		}
@@ -171,10 +180,13 @@ export function ComplianceAlertsCard({
 				title: "Settings saved",
 				description: "Compliance alert delivery has been updated.",
 			});
-		} catch {
+		} catch (error) {
 			toast({
 				title: "Error",
-				description: "Failed to save compliance alert settings.",
+				description: getApiErrorMessage(
+					error,
+					"Failed to save compliance alert settings.",
+				),
 				variant: "destructive",
 			});
 		}

@@ -4,18 +4,13 @@ import { useState } from "react";
 
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
+import { getApiErrorMessage } from "@/lib/api-error";
 import { Button } from "@/lib/components/button";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
 import { toast } from "@/lib/components/use-toast";
 import { useDashboardContext } from "@/lib/dashboard-context";
 import { useApi } from "@/lib/fetch-client";
-
-function errorMessage(error: unknown, fallback: string): string {
-	return error && typeof error === "object" && "message" in error
-		? String(error.message)
-		: fallback;
-}
 
 export function NotificationChannelsSettings() {
 	const queryClient = useQueryClient();
@@ -79,7 +74,7 @@ export function NotificationChannelsSettings() {
 		} catch (error) {
 			toast({
 				title: "Error",
-				description: errorMessage(error, "Failed to save Slack webhook."),
+				description: getApiErrorMessage(error, "Failed to save Slack webhook."),
 				variant: "destructive",
 			});
 		}
@@ -92,7 +87,7 @@ export function NotificationChannelsSettings() {
 		} catch (error) {
 			toast({
 				title: "Error",
-				description: errorMessage(error, "Failed to send test message."),
+				description: getApiErrorMessage(error, "Failed to send test message."),
 				variant: "destructive",
 			});
 		}
@@ -105,7 +100,10 @@ export function NotificationChannelsSettings() {
 		} catch (error) {
 			toast({
 				title: "Error",
-				description: errorMessage(error, "Failed to remove Slack webhook."),
+				description: getApiErrorMessage(
+					error,
+					"Failed to remove Slack webhook.",
+				),
 				variant: "destructive",
 			});
 		}

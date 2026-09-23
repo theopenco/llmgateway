@@ -10,6 +10,7 @@ import {
 	getProviderDefinition,
 	getProviderRefPolicyListFailures,
 	isAttestationCompliant,
+	isLiveMapping,
 	isModelAllowedByPolicy,
 	isProviderCompliant,
 	isProviderRefAllowedByPolicy,
@@ -910,6 +911,22 @@ describe("blockStealthProviders", () => {
 				blockStealthProviders: true,
 			}),
 		).toEqual([]);
+	});
+});
+
+describe("isLiveMapping", () => {
+	const now = new Date("2026-01-01");
+
+	it("is false once a mapping is deprecated or deactivated", () => {
+		const providerId = "openai";
+		expect(isLiveMapping({ providerId }, now)).toBe(true);
+		expect(
+			isLiveMapping({ providerId, deprecatedAt: new Date("2026-02-01") }, now),
+		).toBe(true);
+		expect(
+			isLiveMapping({ providerId, deprecatedAt: new Date("2025-12-01") }, now),
+		).toBe(false);
+		expect(isLiveMapping({ providerId, deactivatedAt: now }, now)).toBe(false);
 	});
 });
 
