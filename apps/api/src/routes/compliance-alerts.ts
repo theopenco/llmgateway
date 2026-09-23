@@ -372,6 +372,7 @@ complianceAlerts.openapi(
 			db.query.userOrganization.findMany({
 				columns: { role: true },
 				where: { organizationId },
+				with: { user: { columns: { status: true } } },
 			}),
 		]);
 		const audience = organization.complianceAlertSettings?.recipientAudience;
@@ -384,8 +385,13 @@ complianceAlerts.openapi(
 			: new Map<string, string[]>();
 		return c.json({
 			settings: organization.complianceAlertSettings ?? null,
+			// Same predicate the worker fans out with: active members in the audience.
 			recipientCount: audience
-				? members.filter((m) => isInAlertAudience(m.role, audience)).length
+				? members.filter(
+						(m) =>
+							m.user?.status === "active" &&
+							isInAlertAudience(m.role, audience),
+					).length
 				: 0,
 			watches: watches.map((watch) => ({
 				id: watch.id,

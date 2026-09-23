@@ -116,6 +116,24 @@ describe("compliance alerts", () => {
 		expect(body.settings?.recipientAudience).toBe("admin");
 	});
 
+	test("counts only active members in the audience", async () => {
+		await db.insert(tables.user).values({
+			id: "inactive-admin",
+			email: "inactive@example.com",
+			status: "deactivated",
+		});
+		await db.insert(tables.userOrganization).values({
+			organizationId,
+			userId: "inactive-admin",
+			role: "admin",
+		});
+		await request("/compliance-alerts/watches", "POST", {
+			modelIds: ["blocked-model"],
+		});
+		const body = await (await request("/compliance-alerts")).json();
+		expect(body.recipientCount).toBe(1);
+	});
+
 	test("rejects unknown models", async () => {
 		const res = await request("/compliance-alerts/watches", "POST", {
 			modelIds: ["does-not-exist"],
