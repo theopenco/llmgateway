@@ -362,6 +362,85 @@ describe("calculateCosts", () => {
 		expect(result.pricingTier).toBe("Over 272K");
 	});
 
+	const gpt6Rates = [
+		{
+			model: "gpt-6-sol",
+			input: 2e-6,
+			cached: 0.2e-6,
+			write: 2.5e-6,
+			output: 10e-6,
+		},
+		{
+			model: "gpt-6-luna",
+			input: 0.1e-6,
+			cached: 0.01e-6,
+			write: 0.125e-6,
+			output: 0.5e-6,
+		},
+	];
+
+	it.each(gpt6Rates)(
+		"bills $model cache writes at the short-context rate",
+		async ({ model, input, cached, write, output }) => {
+			const result = await calculateCosts(
+				model,
+				"openai",
+				null,
+				2006,
+				300,
+				1920,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ cacheWriteTokens: 40 },
+			);
+
+			expect(result.inputCost).toBeCloseTo(46 * input, 10);
+			expect(result.cachedInputCost).toBeCloseTo(1920 * cached, 10);
+			expect(result.cacheWriteInputCost).toBeCloseTo(40 * write, 10);
+			expect(result.outputCost).toBeCloseTo(300 * output, 10);
+			expect(result.pricingTier).toBe("Up to 272K");
+		},
+	);
+
+	it.each(gpt6Rates)(
+		"applies $model long-context pricing above 272K",
+		async ({ model, input, cached, write, output }) => {
+			const result = await calculateCosts(
+				model,
+				"openai",
+				null,
+				300000,
+				1000,
+				100000,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ cacheWriteTokens: 50000 },
+			);
+
+			expect(result.inputCost).toBeCloseTo(150000 * input * 2, 8);
+			expect(result.cachedInputCost).toBeCloseTo(100000 * cached * 2, 8);
+			expect(result.cacheWriteInputCost).toBeCloseTo(50000 * write * 2, 8);
+			expect(result.outputCost).toBeCloseTo(1000 * output * 1.5, 8);
+			expect(result.pricingTier).toBe("Over 272K");
+		},
+	);
+
 	it("should calculate costs with cached tokens for Anthropic (first request - cache creation)", async () => {
 		// For Anthropic first request: 4 non-cached + 1659 cache creation = 1663 total tokens, 0 cache reads
 		const result = await calculateCosts(

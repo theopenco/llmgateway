@@ -954,10 +954,11 @@ describe("airside provider portal", () => {
 				usedModel: "mistral/mistral-large-3",
 				usedProvider: "mistral",
 				requestCount: 10,
-				errorCount: 4,
+				errorCount: 5,
 				clientErrorCount: 1,
 				upstreamErrorCount: 2,
 				gatewayErrorCount: 1,
+				canceledCount: 1,
 			},
 			{
 				projectId: "test-project-id",
@@ -981,7 +982,7 @@ describe("airside provider portal", () => {
 			statusCode: number;
 			retried: boolean;
 			streamed: boolean;
-			classification?: "client_error";
+			classification?: "client_error" | "canceled";
 		}[] = [
 			{ statusCode: 503, retried: false, streamed: true },
 			{ statusCode: 503, retried: false, streamed: true },
@@ -991,6 +992,12 @@ describe("airside provider portal", () => {
 				retried: false,
 				streamed: false,
 				classification: "client_error",
+			},
+			{
+				statusCode: 502,
+				retried: false,
+				streamed: true,
+				classification: "canceled",
 			},
 		];
 		await db.insert(tables.log).values(

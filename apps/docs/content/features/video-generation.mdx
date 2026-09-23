@@ -205,7 +205,7 @@ curl -X POST "https://api.llmgateway.io/v1/videos" \
 
 ## Create a Video
 
-Video generation requires at least `$1.00` in available organization credits before the job is submitted upstream.
+Credits-billed video jobs are gated on their estimated cost before anything is submitted upstream. The estimate is the model's per-second rate for the requested resolution (the audio-inclusive rate when the model prices audio separately) times the duration, plus any input-image price. Your organization must hold at least that amount, and never less than `$1.00`, beyond what its still-running video jobs already reserve; otherwise the request fails with `402`. The estimate is reserved when the job is created and settled to the actual cost when the job finishes, so a burst of submissions cannot spend more than the balance covers.
 
 Pricing is per second of generated video. For Seedance and KLING v3.0, enabling audio can increase the per-second rate on models that price audio and video separately.
 
