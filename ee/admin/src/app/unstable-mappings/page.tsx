@@ -51,27 +51,34 @@ export default async function UnstableMappingsPage({
 	const modelId = params?.modelId?.trim() || undefined;
 
 	const $api = await createServerApiClient();
-	const { data, error } = await $api.GET("/admin/unstable-mappings", {
-		params: {
-			query: {
-				limit: 50,
-				logLimit,
-				includeRetried: includeRetried ? "true" : "false",
-				window,
-				ignoreExpected: ignoreExpected ? "true" : "false",
-				splitByKey: splitByKey ? "true" : "false",
-				includeByok: includeByok ? "true" : "false",
-				...(mapping && mappingProvider
-					? { model: mapping, provider: mappingProvider }
-					: {}),
-				...(modelId ? { modelId } : {}),
-			},
-		},
-	});
+	const [{ data, error }, { data: scopeOptions, error: scopeOptionsError }] =
+		await Promise.all([
+			$api.GET("/admin/unstable-mappings", {
+				params: {
+					query: {
+						limit: 50,
+						logLimit,
+						includeRetried: includeRetried ? "true" : "false",
+						window,
+						ignoreExpected: ignoreExpected ? "true" : "false",
+						splitByKey: splitByKey ? "true" : "false",
+						includeByok: includeByok ? "true" : "false",
+						...(mapping && mappingProvider
+							? { model: mapping, provider: mappingProvider }
+							: {}),
+						...(modelId ? { modelId } : {}),
+					},
+				},
+			}),
+			$api.GET("/admin/unstable-mappings/scope-options"),
+		]);
 
 	// requireSession() already enforces auth, so a failure here is operational.
 	if (error || !data) {
 		throw new Error("Failed to load unstable mappings");
+	}
+	if (scopeOptionsError || !scopeOptions) {
+		throw new Error("Failed to load unstable mapping scope options");
 	}
 
 	return (
@@ -129,6 +136,7 @@ export default async function UnstableMappingsPage({
 								key={`${data.mapping ?? ""}|${data.modelId ?? ""}`}
 								mapping={data.mapping}
 								modelId={data.modelId}
+								options={scopeOptions}
 							/>
 						</div>
 						<div className="flex flex-wrap items-center gap-2">

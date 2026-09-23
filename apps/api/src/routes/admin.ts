@@ -124,7 +124,11 @@ import {
 	globalSourceStats,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { models, providers } from "@llmgateway/models";
+import {
+	expandAllProviderRegions,
+	models,
+	providers,
+} from "@llmgateway/models";
 import {
 	CHAT_PLAN_PRICES,
 	DEV_PLAN_PRICES,
@@ -12709,6 +12713,86 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			],
 		}),
 	);
+});
+
+const unstableScopeOptionSchema = z.object({
+	id: z.string(),
+	source: z.enum(["catalogue", "airside"]),
+});
+
+const unstableScopeOptionsSchema = z.object({
+	/** Canonical model ids, matching every provider/region mapping of one. */
+	modelIds: z.array(unstableScopeOptionSchema),
+	/** Exact `used_model` values (`provider/model[:region]`). */
+	mappings: z.array(unstableScopeOptionSchema),
+});
+
+/**
+ * Scope suggestions for the ranking filter: the static catalogue plus the
+ * DB-only Airside listings, both in the `provider/model[:region]` shape the
+ * filter matches `used_model` against. An Airside listing that supersedes a
+ * catalogue mapping is reported once, under its Airside source.
+ */
+async function listUnstableScopeOptions() {
+	const modelIds = new Map<string, CatalogueSource>();
+	const mappings = new Map<string, CatalogueSource>();
+
+	for (const model of models) {
+		modelIds.set(model.id, "catalogue");
+		for (const mapping of expandAllProviderRegions(model.providers)) {
+			const region = mapping.region ? `:${mapping.region}` : "";
+			mappings.set(`${mapping.providerId}/${model.id}${region}`, "catalogue");
+		}
+	}
+
+	const airsideRows = await db
+		.select({
+			providerId: tables.modelProviderMapping.providerId,
+			modelId: tables.modelProviderMapping.modelId,
+			region: tables.modelProviderMapping.region,
+		})
+		.from(tables.modelProviderMapping)
+		.where(
+			and(
+				eq(tables.modelProviderMapping.source, "airside"),
+				eq(tables.modelProviderMapping.status, "active"),
+			),
+		);
+
+	for (const row of airsideRows) {
+		if (!modelIds.has(row.modelId)) {
+			modelIds.set(row.modelId, "airside");
+		}
+		const region = row.region ? `:${row.region}` : "";
+		mappings.set(`${row.providerId}/${row.modelId}${region}`, "airside");
+	}
+
+	const serialize = (entries: Map<string, CatalogueSource>) =>
+		Array.from(entries, ([id, source]) => ({ id, source })).sort((a, b) =>
+			a.id.localeCompare(b.id),
+		);
+
+	return { modelIds: serialize(modelIds), mappings: serialize(mappings) };
+}
+
+const getUnstableScopeOptions = createRoute({
+	method: "get",
+	path: "/unstable-mappings/scope-options",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: unstableScopeOptionsSchema.openapi({}),
+				},
+			},
+			description:
+				"Canonical model ids and mappings the unstable ranking can be scoped to.",
+		},
+	},
+});
+
+admin.openapi(getUnstableScopeOptions, async (c) => {
+	return c.json(await listUnstableScopeOptions());
 });
 
 // ── Ignored Error Matchers ──────────────────────────────────────────────────

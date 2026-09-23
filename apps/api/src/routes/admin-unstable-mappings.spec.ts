@@ -32,6 +32,11 @@ interface ErrorsBody {
 	sampledErrors: number;
 }
 
+interface ScopeOptionsBody {
+	modelIds: { id: string; source: string }[];
+	mappings: { id: string; source: string }[];
+}
+
 describe("admin unstable mappings", () => {
 	let cookie: string;
 
@@ -331,5 +336,76 @@ describe("admin unstable mappings", () => {
 			"azure/gpt-4o:eastus",
 			"openai/gpt-4o",
 		]);
+	});
+
+	test("scope options cover airside listings and the catalogue", async () => {
+		const providerId = "um-airside-carrier";
+		const modelId = "um-airside-model";
+		async function clearAirsideFixtures() {
+			await db
+				.delete(tables.modelProviderMapping)
+				.where(eq(tables.modelProviderMapping.providerId, providerId));
+			await db.delete(tables.model).where(eq(tables.model.id, modelId));
+			await db
+				.delete(tables.provider)
+				.where(eq(tables.provider.id, providerId));
+		}
+
+		await clearAirsideFixtures();
+		await db.insert(tables.provider).values({
+			id: providerId,
+			name: "UM Airside Carrier",
+			description: "test",
+		});
+		await db.insert(tables.model).values({
+			id: modelId,
+			name: "UM Airside Model",
+			family: "test",
+		});
+		await db.insert(tables.modelProviderMapping).values([
+			{
+				id: "um-airside-mapping",
+				modelId,
+				providerId,
+				externalId: modelId,
+				source: "airside",
+			},
+			{
+				id: "um-airside-mapping-eu",
+				modelId,
+				providerId,
+				externalId: modelId,
+				region: "eu-west",
+				source: "airside",
+			},
+		]);
+
+		try {
+			const res = await app.request("/admin/unstable-mappings/scope-options", {
+				headers: { Cookie: cookie },
+			});
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as ScopeOptionsBody;
+
+			expect(body.mappings).toContainEqual({
+				id: `${providerId}/${modelId}`,
+				source: "airside",
+			});
+			// Regional listings are addressable: the filter matches `used_model`.
+			expect(body.mappings).toContainEqual({
+				id: `${providerId}/${modelId}:eu-west`,
+				source: "airside",
+			});
+			expect(body.modelIds).toContainEqual({
+				id: modelId,
+				source: "airside",
+			});
+			expect(body.mappings).toContainEqual({
+				id: "openai/gpt-4o-mini",
+				source: "catalogue",
+			});
+		} finally {
+			await clearAirsideFixtures();
+		}
 	});
 });

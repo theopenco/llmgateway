@@ -92,6 +92,10 @@ export type ProviderDetailResponse =
 	GetJsonResponse<"/admin/providers/{providerId}">;
 export type ProviderModelStats = ProviderDetailResponse["models"][number];
 
+// Unstable mappings
+export type UnstableScopeOptions =
+	GetJsonResponse<"/admin/unstable-mappings/scope-options">;
+
 // Mapping detail
 export type MappingDetailResponse =
 	GetJsonResponse<"/admin/providers/{providerId}/models/{modelId}">;
