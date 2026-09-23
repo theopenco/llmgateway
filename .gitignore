@@ -52,5 +52,7 @@ scripts/*.png
 
 # Local demo recordings and PR screenshots (PR images live on assets/* orphan branches)
 /demo-videos/
+/.artifacts/
+.webreel/
 /pr-shots/
 /pg-*.png

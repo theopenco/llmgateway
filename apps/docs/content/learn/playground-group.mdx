@@ -1,32 +1,23 @@
 ---
 title: Group Chat
-description: Watch multiple AI models discuss and collaborate on your prompt
+description: Bring a topic to a council of AI models and watch them debate
 icon: UsersRound
 ---
 
-import { ThemedImage } from "@/components/themed-image";
+[Group Chat](https://lounge.llmgateway.io/group) brings a council of models into one shared discussion. Models take turns reading the conversation and challenging the previous argument. For independent answers in separate panels, use comparison mode in the main chat instead.
 
-The Group Chat page lets you add multiple AI models to a conversation where they discuss and build on each other's responses, creating a dynamic multi-model dialogue.
+## Start a discussion
 
-<ThemedImage
-	alt="Group Chat mode showing model selection and initial prompt"
-	basePath="/learn/playground-group"
-	width={1440}
-	height={900}
-/>
+1. Add 2–5 models from the model picker. They speak in selection order.
+2. Enter a topic or choose a suggested question.
+3. Click **Start discussion**. The first model makes a case; the next offers a counterargument.
+4. Follow the streamed replies in one thread. Each round runs for five turns.
+5. Choose **Stop discussion** at any time, **Continue discussion** for another round, or **New discussion** to start over.
 
-## How It Works
+Each response uses credits from the selected billing context. Group discussions stay in the current page and are not saved to chat history; leaving or reloading the page clears the discussion.
 
-1. Add 2–5 different AI models to the conversation
-2. Enter an initial prompt or question to kick off the discussion
-3. Click **Start Conversation** to begin
-4. Models take turns responding to each other in sequence
-5. Each model builds on the previous responses, creating a dynamic conversation
-6. You can stop the conversation at any time and start a new one
+## Questions worth debating
 
-## Use Cases
-
-- **Model evaluation** — Compare how different models approach the same topic
-- **Brainstorming** — Get diverse perspectives from multiple AI models
-- **Debate** — Watch models discuss pros and cons of a topic
-- **Research** — Gather multi-model analysis of complex questions
+- **Decisions** — Explore tradeoffs before choosing an approach.
+- **Brainstorming** — Ask models to challenge assumptions and suggest alternatives.
+- **Research** — Surface competing explanations and questions to investigate. Verify factual claims independently.
