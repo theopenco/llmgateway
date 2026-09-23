@@ -4149,8 +4149,9 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(params.properties.count.multipleOf).toBeUndefined();
 		expect(params.properties.count.type).toBe("number");
 
-		// String const: should strip const
+		// String const: pin the value as a single-member enum (#4148)
 		expect(params.properties.name.const).toBeUndefined();
+		expect(params.properties.name.enum).toEqual(["fixed_value"]);
 		expect(params.properties.name.type).toBe("string");
 
 		// Object properties: should strip propertyNames, minProperties, maxProperties
@@ -4167,6 +4168,58 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(params.properties.items.prefixItems).toBeUndefined();
 		expect(params.properties.items.type).toBe("array");
 		expect(params.properties.items.items.type).toBe("string");
+	});
+
+	test("should prefer an explicit enum over const in Google tool parameters", async () => {
+		const toolsWithConstAndEnum = [
+			{
+				type: "function" as const,
+				function: {
+					name: "test_tool",
+					description: "Test tool",
+					parameters: {
+						type: "object",
+						properties: {
+							withBoth: {
+								type: "string",
+								const: "pinned",
+								enum: ["choice_a", "choice_b"],
+							},
+							withObjectConst: {
+								type: "object",
+								const: { pinned: true },
+							},
+						},
+					},
+				},
+			},
+		];
+
+		const requestBody = (await prepareRequestBody(
+			"google-ai-studio",
+			"gemini-2.0-flash",
+			null,
+			"gemini-2.0-flash",
+			[{ role: "user", content: "test" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			toolsWithConstAndEnum,
+			undefined,
+			undefined,
+			false,
+			false,
+		)) as any;
+
+		const params = requestBody.tools[0].functionDeclarations[0].parameters;
+
+		expect(params.properties.withBoth.enum).toEqual(["choice_a", "choice_b"]);
+		expect(params.properties.withObjectConst.enum).toBeUndefined();
+		expect(params.properties.withObjectConst.const).toBeUndefined();
 	});
 
 	test("should strip $id, examples, enumTitles, prefill from Google tool parameters", async () => {

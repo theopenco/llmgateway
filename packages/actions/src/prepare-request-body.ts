@@ -700,6 +700,19 @@ function stripUnsupportedSchemaProperties(
 	let nullableFromType = false;
 
 	for (const [key, value] of Object.entries(schema)) {
+		// Google's `parameters` carrier has no `const` vocabulary: pin the value
+		// as a single-member `enum`, which constrains the model identically and
+		// which the carrier accepts. An explicit `enum` always wins. (#4148)
+		if (key === "const") {
+			if (!("enum" in schema)) {
+				const asEnum = normalizeGoogleSchemaEnum([value]);
+				if (asEnum !== undefined) {
+					cleaned.enum = asEnum;
+				}
+			}
+			continue;
+		}
+
 		if (!GOOGLE_SUPPORTED_SCHEMA_KEYS.has(key)) {
 			continue;
 		}
