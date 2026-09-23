@@ -15,6 +15,9 @@ export const STATEMENT_DESCRIPTOR_SUFFIX_MAX_LENGTH =
  * This normalizes rather than rejects on purpose: the stored value is sent on
  * every top-up PaymentIntent for the project, so a value Stripe refuses would
  * 400 `paymentIntents.create` and block that project's payments entirely.
+ * Verified against the API: a suffix containing `*` is rejected outright, while
+ * an over-long one is accepted and silently truncated later — so trimming here
+ * is what makes the dashboard preview match the cardholder's statement.
  *
  * Stripe's rules: Latin characters only, at least one letter, and none of
  * `< > \ ' " *`. Returns null when nothing usable survives.
