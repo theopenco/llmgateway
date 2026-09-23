@@ -49,6 +49,7 @@ const stripeMock = vi.hoisted(() => ({
 	subscriptions: {
 		retrieve: vi.fn(),
 		update: vi.fn(),
+		cancel: vi.fn(),
 	},
 	invoices: {
 		retrieve: vi.fn(),
@@ -2155,4 +2156,97 @@ describe("dev plan payment method removal", () => {
 		});
 		expect(org?.autoTopUpEnabled).toBe(false);
 	});
+});
+
+describe("dev plan cancellation", () => {
+	let token: string;
+
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		stripeMock.invoices.list.mockResolvedValue({ data: [] });
+		token = await createTestUser();
+		nowSecondsValue = Math.floor(Date.now() / 1000);
+
+		await db.insert(tables.organization).values({
+			id: ORG_ID,
+			name: "Personal Org",
+			billingEmail: "admin@example.com",
+			stripeCustomerId: "cus_dev_plan",
+			kind: "devpass",
+			devPlan: "pro",
+			devPlanCreditsUsed: "302.79",
+			devPlanCreditsLimit: "302.79",
+			devPlanStripeSubscriptionId: SUBSCRIPTION_ID,
+			devPlanCycle: "monthly",
+		});
+		await db.insert(tables.userOrganization).values({
+			userId: "test-user-id",
+			organizationId: ORG_ID,
+			role: "owner",
+		});
+	});
+
+	afterEach(async () => {
+		await deleteAll();
+	});
+
+	async function cancel() {
+		return await app.request("/dev-plans/cancel", {
+			method: "POST",
+			headers: { Cookie: token },
+		});
+	}
+
+	it("defers an active subscription to period end", async () => {
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+
+		const res = await cancel();
+
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ success: true, immediate: false });
+		expect(stripeMock.subscriptions.update).toHaveBeenCalledWith(
+			SUBSCRIPTION_ID,
+			{ cancel_at_period_end: true },
+		);
+		expect(stripeMock.subscriptions.cancel).not.toHaveBeenCalled();
+		expect(stripeMock.invoices.voidInvoice).not.toHaveBeenCalled();
+	}, 15_000);
+
+	it("ends an unpaid subscription now and voids the failed renewal invoice", async () => {
+		// The renewal invoice failed and Stripe keeps retrying it; deferring the
+		// cancel to period end would leave those retries running for weeks.
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription({ status: "past_due" }),
+		);
+		stripeMock.invoices.list.mockImplementation(
+			(params: { status: "draft" | "open" }) =>
+				Promise.resolve({
+					data:
+						params.status === "open"
+							? [
+									{
+										id: "in_failed_renewal",
+										status: "open",
+										billing_reason: "subscription_cycle",
+									},
+								]
+							: [],
+				}),
+		);
+
+		const res = await cancel();
+
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ success: true, immediate: true });
+		expect(stripeMock.subscriptions.cancel).toHaveBeenCalledWith(
+			SUBSCRIPTION_ID,
+			{ invoice_now: false, prorate: false },
+		);
+		expect(stripeMock.subscriptions.update).not.toHaveBeenCalled();
+		expect(stripeMock.invoices.voidInvoice).toHaveBeenCalledWith(
+			"in_failed_renewal",
+		);
+	}, 15_000);
 });

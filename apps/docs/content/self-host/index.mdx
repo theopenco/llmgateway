@@ -29,3 +29,14 @@ Every deployment is built from the same pieces:
 - **Provider API keys** — the OpenAI, Anthropic, Google, and other credentials the gateway uses, injected as secrets.
 
 In production, run PostgreSQL and Redis as managed services from your cloud provider so backups, failover, and patching are handled for you.
+
+## Sign-up email restrictions
+
+With `HOSTED=true`, administrators can manage the custom email-domain blocklist in
+**Admin → Settings → Blocked sign-up email domains**. Paste domains one per line
+or separated by commas, then save. Entries also block subdomains; updates apply
+to subsequent email sign-ups without a restart. Existing users can still sign in.
+
+The custom list starts empty and has no built-in entries. Clearing and saving it
+removes custom domain blocks. The separate disposable-email and plus-address
+checks remain active in hosted mode.

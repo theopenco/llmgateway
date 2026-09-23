@@ -49,6 +49,8 @@ const internalOrganizationFields = [
 	"stripeConnectOnboarded",
 	"safetyIdentifier",
 	"riskFlagged",
+	// Served by GET /orgs/{id}/compliance-alerts.
+	"complianceAlertSettings",
 ];
 
 async function expectPublicOrganization(

@@ -6,6 +6,7 @@ import {
 import { IgnoredErrorMatchersDialog } from "@/components/ignored-error-matchers";
 import { SegmentedQueryToggle } from "@/components/segmented-query-toggle";
 import { UnstableMappingsTable } from "@/components/unstable-mappings-table";
+import { UnstableScopeFilter } from "@/components/unstable-scope-filter";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import {
@@ -30,6 +31,8 @@ export default async function UnstableMappingsPage({
 		ignoreExpected?: string;
 		splitByKey?: string;
 		includeByok?: string;
+		mapping?: string;
+		modelId?: string;
 	}>;
 }) {
 	await requireSession();
@@ -41,25 +44,41 @@ export default async function UnstableMappingsPage({
 	const includeByok = params?.includeByok === "true";
 	const window = parseUnstableWindow(params?.window);
 	const logLimit = parseUnstableLogLimit(params?.logLimit);
+	const mapping = params?.mapping?.trim() || undefined;
+	const mappingProvider = mapping?.includes("/")
+		? mapping.slice(0, mapping.indexOf("/"))
+		: undefined;
+	const modelId = params?.modelId?.trim() || undefined;
 
 	const $api = await createServerApiClient();
-	const { data, error } = await $api.GET("/admin/unstable-mappings", {
-		params: {
-			query: {
-				limit: 50,
-				logLimit,
-				includeRetried: includeRetried ? "true" : "false",
-				window,
-				ignoreExpected: ignoreExpected ? "true" : "false",
-				splitByKey: splitByKey ? "true" : "false",
-				includeByok: includeByok ? "true" : "false",
-			},
-		},
-	});
+	const [{ data, error }, { data: scopeOptions, error: scopeOptionsError }] =
+		await Promise.all([
+			$api.GET("/admin/unstable-mappings", {
+				params: {
+					query: {
+						limit: 50,
+						logLimit,
+						includeRetried: includeRetried ? "true" : "false",
+						window,
+						ignoreExpected: ignoreExpected ? "true" : "false",
+						splitByKey: splitByKey ? "true" : "false",
+						includeByok: includeByok ? "true" : "false",
+						...(mapping && mappingProvider
+							? { model: mapping, provider: mappingProvider }
+							: {}),
+						...(modelId ? { modelId } : {}),
+					},
+				},
+			}),
+			$api.GET("/admin/unstable-mappings/scope-options"),
+		]);
 
 	// requireSession() already enforces auth, so a failure here is operational.
 	if (error || !data) {
 		throw new Error("Failed to load unstable mappings");
+	}
+	if (scopeOptionsError || !scopeOptions) {
+		throw new Error("Failed to load unstable mapping scope options");
 	}
 
 	return (
@@ -85,10 +104,14 @@ export default async function UnstableMappingsPage({
 							{data.splitByKey
 								? "Each row is one provider key's share of a mapping. "
 								: ""}
+							{data.mapping ? `Filtered to mapping ${data.mapping}. ` : ""}
+							{data.modelId
+								? `Filtered to every mapping of ${data.modelId}. `
+								: ""}
 							Click a row to load its top 10 error details.
 						</p>
 					</div>
-					<div className="flex flex-col items-start gap-2 lg:items-end">
+					<div className="flex flex-col items-start gap-2 lg:shrink-0 lg:items-end">
 						<div className="flex flex-wrap items-center gap-2">
 							<IgnoredErrorMatchersDialog
 								matcherCount={data.ignoredMatcherCount}
@@ -104,6 +127,17 @@ export default async function UnstableMappingsPage({
 								]}
 							/>
 							<ByokErrorsToggle includeByok={data.includeByok} />
+						</div>
+						<div className="flex flex-wrap items-center gap-2">
+							<span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+								Scope
+							</span>
+							<UnstableScopeFilter
+								key={`${data.mapping ?? ""}|${data.modelId ?? ""}`}
+								mapping={data.mapping}
+								modelId={data.modelId}
+								options={scopeOptions}
+							/>
 						</div>
 						<div className="flex flex-wrap items-center gap-2">
 							<span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">

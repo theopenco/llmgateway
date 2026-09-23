@@ -1,0 +1,2 @@
+ALTER TABLE "provider_key_hourly_stats" ADD COLUMN "client_error_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "provider_key_hourly_stats" ADD COLUMN "gateway_error_count" integer DEFAULT 0 NOT NULL;

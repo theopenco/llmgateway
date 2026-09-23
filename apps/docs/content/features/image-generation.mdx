@@ -24,16 +24,17 @@ The `/v1/images/generations` endpoint provides a drop-in replacement for OpenAI'
 
 ### Parameters
 
-| Parameter         | Type    | Default      | Description                                                                                                      |
-| ----------------- | ------- | ------------ | ---------------------------------------------------------------------------------------------------------------- |
-| `prompt`          | string  | required     | A text description of the desired image(s)                                                                       |
-| `model`           | string  | `"auto"`     | The model to use. `auto` resolves to `gemini-3-pro-image`                                                        |
-| `n`               | integer | `1`          | Number of images to generate (1-10)                                                                              |
-| `size`            | string  | —            | Image dimensions. Supported sizes depend on the model/provider — see [Image Configuration](#image-configuration) |
-| `quality`         | string  | —            | Image quality. Supported values depend on the model/provider — see [Image Configuration](#image-configuration)   |
-| `moderation`      | string  | `"auto"`     | Content filtering strictness for models that support it: `auto` or `low` — see [Moderation](#moderation)         |
-| `response_format` | string  | `"b64_json"` | Only `b64_json` is supported                                                                                     |
-| `style`           | string  | —            | Image style: `vivid` or `natural`                                                                                |
+| Parameter         | Type    | Default      | Description                                                                                                                  |
+| ----------------- | ------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `prompt`          | string  | required     | A text description of the desired image(s)                                                                                   |
+| `model`           | string  | `"auto"`     | The model to use. `auto` resolves to `gemini-3-pro-image`                                                                    |
+| `n`               | integer | `1`          | Number of images to generate (1-10)                                                                                          |
+| `size`            | string  | —            | Image dimensions. Supported sizes depend on the model/provider — see [Image Configuration](#image-configuration)             |
+| `quality`         | string  | —            | Image quality. Supported values depend on the model/provider — see [Image Configuration](#image-configuration)               |
+| `moderation`      | string  | `"auto"`     | Content filtering strictness for models that support it: `auto` or `low` — see [Moderation](#moderation)                     |
+| `response_format` | string  | `"b64_json"` | Only `b64_json` is supported                                                                                                 |
+| `style`           | string  | —            | Image style: `vivid` or `natural`                                                                                            |
+| `service_tier`    | string  | —            | Processing tier for mappings that offer one: `flex`, `priority`, or `default` — see [Service Tiers](/features/service-tiers) |
 
 ### curl
 
@@ -48,6 +49,24 @@ curl -X POST "https://api.llmgateway.io/v1/images/generations" \
     "size": "1024x1024"
   }'
 ```
+
+### Usage and cost
+
+Both `/v1/images/generations` and `/v1/images/edits` return a `usage` object with the token counts and the billed cost of the request, in USD:
+
+```json
+"usage": {
+	"input_tokens": 10,
+	"input_tokens_details": { "image_tokens": 0, "text_tokens": 10 },
+	"output_tokens": 229,
+	"output_tokens_details": { "image_tokens": 229, "text_tokens": 0 },
+	"total_tokens": 239,
+	"cost": 0.00692,
+	"cost_details": { "input_cost": 0.00005, "image_output_cost": 0.00687 }
+}
+```
+
+`cost_details` has the same fields as `usage.cost_details` on [chat completions](#response-format).
 
 ### OpenAI SDK
 
@@ -133,6 +152,7 @@ The `/v1/images/edits` endpoint is OpenAI-compatible and supports a focused subs
 | `moderation`         | enum                     | no       | `auto` or `low` — see [Moderation](#moderation)                                   |
 | `size`               | string                   | no       | Output size. Examples: `1024x1024`, `1536x1024`, `1K`, `2K`, `4K`                 |
 | `aspect_ratio`       | string                   | no       | Aspect ratio override. Examples: `1:1`, `16:9`, `4:3`, `5:4`                      |
+| `service_tier`       | enum                     | no       | `flex`, `priority`, or `default` — see [Service Tiers](/features/service-tiers)   |
 
 <Callout type="warning">
 	`mask` is not supported yet on `/v1/images/edits`.
@@ -234,6 +254,8 @@ Image generation models return responses in the standard chat completions format
 ```
 
 A request stopped by the [gateway content filter](/resources/error-handling#gateway-content-filter) returns `finish_reason: "content_filter"` on the Chat Completions API and an empty `data` array on the Images API.
+
+A provider's own safety rejection is returned the same way, and it is billed the way the provider bills us: a rejection the provider returns as an error carries no usage and costs nothing, apart from a rejection fee the provider publishes (currently only xAI's chat models). A block the provider serves as a normal response with usage, as Gemini image models do, is charged for the input tokens it reports, never for the blocked image.
 
 ### Vision support
 
@@ -800,6 +822,10 @@ Both variants use the same per-token rates as GPT Image 2. Actual image token
 usage varies by model, size, quality, and input; billing uses the provider's
 reported usage. See the [models page](https://llmgateway.io/models?filters=1&imageGeneration=true)
 for current pricing.
+
+GPT Image 2 and both GPT Image 2.5 variants are also served through Azure at
+the same rates — swap the `openai/` prefix for `azure/` to pin that route, or
+send the bare model id and let the gateway pick.
 
 ### ByteDance Models
 

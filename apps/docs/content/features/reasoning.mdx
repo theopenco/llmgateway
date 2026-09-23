@@ -38,7 +38,7 @@ Add the `reasoning_effort` parameter directly to your request:
 - `medium` - Balanced reasoning for most tasks
 - `high` - Deep reasoning for complex problems
 - `xhigh` - Very deep reasoning for the most complex problems
-- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Google, Alibaba) have each tier translated to a native budget
+- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 and later models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Google, Alibaba) have each tier translated to a native budget
 
 <Callout type="info">
 	OpenAI's reasoning models do not all accept the same effort values. The
@@ -76,7 +76,7 @@ Use the unified `reasoning` configuration object with an `effort` field:
 - `medium` - Balanced reasoning for most tasks
 - `high` - Deep reasoning for complex problems
 - `xhigh` - Very deep reasoning for the most complex problems
-- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Google, Alibaba) have each tier translated to a native budget
+- `max` - Highest reasoning tier, above `xhigh`. Supported by Anthropic thinking models and OpenAI GPT-5.6 and later models. Effort tiers are never downgraded by the gateway: providers that accept an effort parameter receive the value unchanged (unsupported values result in a provider error), while providers that take a thinking budget instead (Anthropic, Google, Alibaba) have each tier translated to a native budget
 
 ```bash
 curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
@@ -121,7 +121,7 @@ The response will include a `reasoning` field in the message object containing t
 				"content": "The answer is 1.75 or 7/4.",
 				"reasoning": "First, I need to find a common denominator for 2/3, 1/4, and 5/6. The LCD is 12. Converting: 2/3 = 8/12, 1/4 = 3/12, 5/6 = 10/12. Adding: 8/12 + 3/12 + 10/12 = 21/12 = 1.75 or 7/4."
 			},
-			"finish_reason": "completed"
+			"finish_reason": "stop"
 		}
 	],
 	"usage": {
@@ -186,6 +186,38 @@ If you specify `reasoning.max_tokens` for a model that doesn't support it, you'l
 {
 	"error": {
 		"message": "Model gpt-4o does not support reasoning.max_tokens. Remove the reasoning parameter or use a model that supports explicit reasoning token budgets.",
+		"type": "invalid_request_error",
+		"code": "model_not_supported"
+	}
+}
+```
+
+## Reasoning Mode
+
+OpenAI's GPT-5.6 and GPT-6 models accept a `reasoning.mode` of `standard` (the default) or `pro`. Pro mode spends additional model work on difficult tasks at higher latency and token usage. It is independent of effort: `mode` selects standard or pro execution, `effort` controls how much reasoning happens within that mode.
+
+```json
+{
+	"model": "gpt-5.6-sol",
+	"messages": [
+		{
+			"role": "user",
+			"content": "Review this migration plan for failure modes."
+		}
+	],
+	"reasoning": {
+		"mode": "pro",
+		"effort": "medium"
+	}
+}
+```
+
+The same `reasoning.mode` field works on the `/v1/responses` endpoint. Each mapping lists the values it accepts as `reasoning_modes` on [`/v1/models`](https://api.llmgateway.io/v1/models); auto-routing only considers mappings that list the requested mode, and a request for a model that does not list it is rejected with a 400 rather than silently run in standard mode:
+
+```json
+{
+	"error": {
+		"message": "Model gpt-4o does not support reasoning.mode \"pro\". Remove the reasoning.mode parameter or use a model whose reasoning_modes on /v1/models include it.",
 		"type": "invalid_request_error",
 		"code": "model_not_supported"
 	}
@@ -454,7 +486,7 @@ You can view detailed logs for each request in the [dashboard](https://llmgatewa
 
 ## Auto-Routing with Reasoning
 
-When using auto-routing (specifying a model like `gpt-5` without a specific version), LLMGateway will:
+When using auto routing (`"model": "auto"`), if the selected model supports reasoning, you did not set a reasoning effort yourself, and the request has no web search tool (web search is incompatible with `minimal` effort), LLMGateway will:
 
 1. Automatically set `reasoning_effort` to `minimal` for GPT-5 models
 2. Set `reasoning_effort` to `low` for other auto-routed reasoning models

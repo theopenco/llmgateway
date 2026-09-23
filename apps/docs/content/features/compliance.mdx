@@ -117,6 +117,21 @@ Attestations only apply to custom provider keys. They can never be used to clear
 
 **Known limitation:** the country selector in the compliance policy only offers countries referenced by catalogue providers (see the [providers directory](https://llmgateway.io/providers)). A custom deployment attested to a country outside that set cannot be allowed while a country restriction is active.
 
+## Compliance alerts
+
+Once a policy is saved and enabled, owners and admins on the Enterprise plan can configure **Compliance Alerts** at the bottom of the Compliance page:
+
+- **Watched models**: pick models that no compliant provider serves yet, up to 100 per organization. Retired models and models blocked by your own model lists are not offered. When a compliant provider starts serving one, LLM Gateway notifies you once — including when your own policy change makes it available. If the model later loses its last compliant provider, the watch re-arms. A model that is already available when you add it is recorded as available, so it sends no initial alert; it can still alert later if it loses its last compliant provider and becomes available again.
+- **Downgrades** (on by default): get notified when a provider stops meeting your policy, for example because it loses a certification or starts training on API data. When the audience is owners and admins, that alert also lists the models your organization used on the provider in the last 30 days that no longer have a compliant provider; it is left out for the everyone audience, because it spans every project. A watched model losing its last compliant provider is announced separately. Changes to your own policy never trigger downgrade alerts, and the first check after enabling alerts only records the current state.
+- **Recipients**: choose the lowest role that receives alerts — owners only, owners and admins, or everyone in the organization. Higher roles are always included. Owners and admins are linked to this page; other recipients land on the Models page, which shows the same eligibility. Watching the first model saves the defaults: owners and admins, in-app and email delivery, downgrade alerts on.
+- **Delivery**: in-app, email, and Slack. In-app and email reach each recipient individually and email needs a verified address; Slack is posted once per organization. Each recipient can turn off in-app or email delivery per alert type under [notification settings](/features/notifications) in the dashboard bell.
+
+Alerts are checked every minute against the saved policy. Disabling the policy or leaving the Enterprise plan stops the checks.
+
+### Slack
+
+Create a Slack [incoming webhook](https://api.slack.com/messaging/webhooks) for the channel that should receive alerts and save its URL under **Notification Channels** on the organization **Preferences** page — only `https://hooks.slack.com/services/…` URLs are accepted. Once saved, use **Send test message** to verify it, then enable Slack in the Compliance Alerts card. The webhook URL is stored encrypted and only shown masked. Failed posts are retried up to five times within 24 hours, and removing the webhook also turns Slack off in the alert settings.
+
 ## Safety identifiers
 
 Providers that offer an abuse-attribution identifier receive an opaque, random value that LLM Gateway generates once per organization. It contains no personal data — no email address, user id or organization name — and it is the only thing that ties a report of abusive traffic back to an account.
@@ -131,6 +146,7 @@ Project-scoped **developer** members cannot see the policy itself, but they can 
 
 ## Related
 
+- [Notifications](/features/notifications) — per-user in-app and email delivery preferences, including compliance alerts.
 - [Org Models Directory](/features/models-directory) — see per-model eligibility under the active policy in the dashboard.
 - [Data Retention](/features/data-retention) — control whether request and response payloads are stored.
 - [Guardrails](/features/guardrails) — detect and block harmful or sensitive content.

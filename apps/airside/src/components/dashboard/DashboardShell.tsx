@@ -27,6 +27,7 @@ const NAV = [
 	{ href: "/dashboard", label: "Operations", exact: true },
 	{ href: "/dashboard/fleet", label: "Fleet", exact: false },
 	{ href: "/dashboard/traffic", label: "Traffic", exact: false },
+	{ href: "/dashboard/incidents", label: "Incidents", exact: false },
 	{ href: "/dashboard/fares", label: "Fares", exact: false },
 	{ href: "/dashboard/filings", label: "Filings", exact: false },
 	{ href: "/dashboard/crew", label: "Crew", exact: false },

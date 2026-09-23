@@ -50,6 +50,7 @@ const modelSchema = z.object({
 				"ocr",
 				"transcription",
 				"rerank",
+				"decision",
 			]),
 		),
 		tokenizer: z.string().optional(),
@@ -100,6 +101,13 @@ const modelSchema = z.object({
 				.openapi({
 					description:
 						"Exact reasoning_effort values this provider mapping accepts, in ascending order of effort. Omitted when the supported values are not declared for the mapping.",
+				}),
+			reasoning_modes: z
+				.array(z.enum(["standard", "pro"]))
+				.optional()
+				.openapi({
+					description:
+						"Exact reasoning.mode values this provider mapping accepts. Omitted when the mapping accepts no explicit mode.",
 				}),
 			min_cacheable_tokens: z.number().optional().openapi({
 				description:
@@ -372,6 +380,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 							| "ocr"
 							| "transcription"
 							| "rerank"
+							| "decision"
 						)[] = model.output ?? ["text"];
 
 						return {
@@ -453,6 +462,7 @@ modelsApi.openapi(listModels, async (c): Promise<any> => {
 				| "ocr"
 				| "transcription"
 				| "rerank"
+				| "decision"
 			)[] = model.output ?? ["text"];
 
 			// Source the model-level pricing from the cheapest provider mapping
@@ -555,6 +565,7 @@ function serializeProviderMapping(
 		parallelToolCalls: provider.parallelToolCalls ?? false,
 		reasoning: provider.reasoning ?? false,
 		reasoning_efforts: provider.reasoningEfforts,
+		reasoning_modes: provider.reasoningModes,
 		min_cacheable_tokens: provider.minCacheableTokens,
 		max_output: provider.maxOutput,
 		stability: provider.stability ?? model.stability,

@@ -896,7 +896,9 @@ describe("airside provider portal", () => {
 				usedModel: "mistral-large-3",
 				usedProvider: "mistral",
 				requestCount: 10,
-				errorCount: 1,
+				errorCount: 3,
+				clientErrorCount: 2,
+				upstreamErrorCount: 1,
 				inputTokens: "1000",
 				outputTokens: "500",
 				totalTokens: "1500",
@@ -935,6 +937,187 @@ describe("airside provider portal", () => {
 			}),
 		]);
 		expect(body.daily).toHaveLength(1);
+	});
+
+	it("returns per-mapping incidents scoped to claimed providers", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+
+		const hour = new Date();
+		hour.setMinutes(0, 0, 0);
+		await db.insert(tables.projectHourlyModelStats).values([
+			{
+				projectId: "test-project-id",
+				hourTimestamp: hour,
+				usedModel: "mistral/mistral-large-3",
+				usedProvider: "mistral",
+				requestCount: 10,
+				errorCount: 5,
+				clientErrorCount: 1,
+				upstreamErrorCount: 2,
+				gatewayErrorCount: 1,
+				canceledCount: 1,
+			},
+			{
+				projectId: "test-project-id",
+				hourTimestamp: hour,
+				usedModel: "mistral/mistral-small-4",
+				usedProvider: "mistral",
+				requestCount: 5,
+			},
+			{
+				projectId: "test-project-id",
+				hourTimestamp: hour,
+				usedModel: "openai/gpt-6",
+				usedProvider: "openai",
+				requestCount: 99,
+				errorCount: 50,
+				upstreamErrorCount: 50,
+			},
+		]);
+
+		const logs: {
+			statusCode: number;
+			retried: boolean;
+			streamed: boolean;
+			classification?: "client_error" | "canceled";
+		}[] = [
+			{ statusCode: 503, retried: false, streamed: true },
+			{ statusCode: 503, retried: false, streamed: true },
+			{ statusCode: 500, retried: true, streamed: false },
+			{
+				statusCode: 400,
+				retried: false,
+				streamed: false,
+				classification: "client_error",
+			},
+			{
+				statusCode: 502,
+				retried: false,
+				streamed: true,
+				classification: "canceled",
+			},
+		];
+		await db.insert(tables.log).values(
+			logs.map((entry, i) => ({
+				id: `incident-log-${i}`,
+				requestId: `incident-request-${i}`,
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				hasError: true,
+				retried: entry.retried,
+				streamed: entry.streamed,
+				unifiedFinishReason: entry.classification ?? "upstream_error",
+				errorDetails: {
+					statusCode: entry.statusCode,
+					statusText: "err",
+					responseText: `failed ${entry.statusCode}`,
+				},
+				duration: 100,
+				usedMode: "credits" as const,
+				requestedModel: "mistral-large-3",
+				requestedProvider: "mistral",
+				usedModel: "mistral/mistral-large-3",
+				usedProvider: "mistral",
+				responseSize: 10,
+				mode: "credits" as const,
+			})),
+		);
+
+		const base = `/airside/incidents?providerCompanyId=${company.id}`;
+		const res = await app.request(base, { headers: { Cookie: cookie } });
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.providerIds).toEqual(["mistral"]);
+		expect(body.windowHours).toBe(24);
+		expect(body.mappings).toEqual([
+			{
+				providerId: "mistral",
+				providerName: "Mistral AI",
+				usedModel: "mistral/mistral-large-3",
+				modelId: "mistral-large-3",
+				region: null,
+				requestCount: 10,
+				errorCount: 3,
+				upstreamErrorCount: 2,
+				gatewayErrorCount: 1,
+				errorRate: 0.3,
+			},
+		]);
+
+		// A filtered mapping without errors still returns its row.
+		const filtered = await app.request(
+			`${base}&mapping=mistral/mistral-small-4`,
+			{ headers: { Cookie: cookie } },
+		);
+		const filteredBody = await filtered.json();
+		expect(filteredBody.mapping).toBe("mistral/mistral-small-4");
+		expect(filteredBody.mappings).toEqual([
+			expect.objectContaining({
+				usedModel: "mistral/mistral-small-4",
+				errorCount: 0,
+				errorRate: 0,
+			}),
+		]);
+
+		const tooWide = await app.request(`${base}&window=7d`, {
+			headers: { Cookie: cookie },
+		});
+		expect(tooWide.status).toBe(400);
+
+		const foreign = await app.request(`${base}&providerId=openai`, {
+			headers: { Cookie: cookie },
+		});
+		expect(foreign.status).toBe(404);
+
+		const errorsBase = `/airside/incidents/errors?providerCompanyId=${company.id}&providerId=mistral&mapping=mistral/mistral-large-3`;
+		const errors = await app.request(errorsBase, {
+			headers: { Cookie: cookie },
+		});
+		expect(errors.status).toBe(200);
+		const errorsBody = await errors.json();
+		expect(errorsBody.sampledErrors).toBe(3);
+		expect(errorsBody.errors).toEqual([
+			expect.objectContaining({ statusCode: 503, streamed: true, count: 2 }),
+			expect.objectContaining({ statusCode: 500, streamed: false, count: 1 }),
+		]);
+
+		const notRetried = await app.request(`${errorsBase}&includeRetried=false`, {
+			headers: { Cookie: cookie },
+		});
+		const notRetriedBody = await notRetried.json();
+		expect(notRetriedBody.sampledErrors).toBe(2);
+
+		const foreignErrors = await app.request(
+			`/airside/incidents/errors?providerCompanyId=${company.id}&providerId=openai&mapping=openai/gpt-6`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(foreignErrors.status).toBe(404);
+
+		// Admins see the same per-mapping view for any provider.
+		const adminDenied = await app.request(
+			"/admin/airside/incidents?providerId=mistral",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(adminDenied.status).toBe(403);
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		const adminView = await app.request(
+			"/admin/airside/incidents?providerId=mistral",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(adminView.status).toBe(200);
+		expect((await adminView.json()).mappings).toEqual(body.mappings);
+
+		const outsider = await createSecondUser("outsider@example.com");
+		for (const path of [base, errorsBase]) {
+			const denied = await app.request(path, {
+				headers: { Cookie: outsider },
+			});
+			expect(denied.status).toBe(404);
+		}
 	});
 
 	it("gates claims on the listing fee when configured", async () => {

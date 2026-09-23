@@ -32,6 +32,16 @@ import {
 	supportedToolChoicesValue,
 } from "@/lib/airside-metadata.js";
 import {
+	incidentsResponseSchema,
+	incidentsWindowSchema,
+	mappingErrorShapesSchema,
+	notRetriedClause,
+	incidentErrorsClause,
+	queryIncidentMappings,
+	queryMappingErrorShapes,
+	resolveMappingErrorWindow,
+} from "@/lib/mapping-error-shapes.js";
+import {
 	buildVerificationTarget,
 	enqueueModelVerification,
 	modelVerificationSchema,
@@ -3328,10 +3338,14 @@ airside.openapi(statsRoute, async (c) => {
 		gte(mph.hourTimestamp, since),
 	);
 
+	// Gateway + upstream errors only, as in deriveStabilityMetrics: a caller's
+	// malformed request is not the provider's error.
+	const errorSum = sql<number>`COALESCE(SUM(${mph.gatewayErrorCount} + ${mph.upstreamErrorCount}), 0)::int`;
+
 	const [totalsRow] = await db
 		.select({
 			requestCount: sql<number>`COALESCE(SUM(${mph.requestCount}), 0)::int`,
-			errorCount: sql<number>`COALESCE(SUM(${mph.errorCount}), 0)::int`,
+			errorCount: errorSum,
 			cacheCount: sql<number>`COALESCE(SUM(${mph.cacheCount}), 0)::int`,
 			inputTokens: sql<number>`COALESCE(SUM(${mph.inputTokens}), 0)::float8`,
 			outputTokens: sql<number>`COALESCE(SUM(${mph.outputTokens}), 0)::float8`,
@@ -3346,7 +3360,7 @@ airside.openapi(statsRoute, async (c) => {
 			providerId: mph.usedProvider,
 			model: mph.usedModel,
 			requestCount: sql<number>`SUM(${mph.requestCount})::int`,
-			errorCount: sql<number>`SUM(${mph.errorCount})::int`,
+			errorCount: errorSum,
 			inputTokens: sql<number>`SUM(${mph.inputTokens})::float8`,
 			outputTokens: sql<number>`SUM(${mph.outputTokens})::float8`,
 			cost: sql<number>`SUM(${mph.cost})::float8`,
@@ -3361,7 +3375,7 @@ airside.openapi(statsRoute, async (c) => {
 		.select({
 			day: dayExpr,
 			requestCount: sql<number>`SUM(${mph.requestCount})::int`,
-			errorCount: sql<number>`SUM(${mph.errorCount})::int`,
+			errorCount: errorSum,
 			outputTokens: sql<number>`SUM(${mph.outputTokens})::float8`,
 			cost: sql<number>`SUM(${mph.cost})::float8`,
 		})
@@ -3397,6 +3411,120 @@ airside.openapi(statsRoute, async (c) => {
 			day: new Date(row.day).toISOString(),
 		})),
 	});
+});
+
+// ---------------------------------------------------------------------------
+// Incidents (per-mapping errors)
+// ---------------------------------------------------------------------------
+
+async function resolveIncidentProviderIds(
+	providerCompanyId: string,
+	providerId: string | undefined,
+): Promise<string[]> {
+	const providerIds = await getActiveClaimedProviderIds(providerCompanyId);
+	if (providerId === undefined) {
+		return providerIds;
+	}
+	if (!providerIds.includes(providerId)) {
+		throw new HTTPException(404, { message: "Provider not found" });
+	}
+	return [providerId];
+}
+
+const incidentsRoute = createRoute({
+	method: "get",
+	path: "/incidents",
+	request: {
+		query: z.object({
+			providerCompanyId: z.string(),
+			providerId: z.string().optional(),
+			/** Exact `used_model` (`provider/model[:region]`). */
+			mapping: z.string().optional(),
+			window: incidentsWindowSchema.default("24h").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: incidentsResponseSchema.openapi({}),
+				},
+			},
+			description:
+				"Per-mapping upstream + gateway error counts of the company's claimed providers.",
+		},
+	},
+});
+
+airside.openapi(incidentsRoute, async (c) => {
+	const user = requireUser(c.get("user"));
+	const query = c.req.valid("query");
+	await requireCompanyMembership(user.id, query.providerCompanyId);
+	const providerIds = await resolveIncidentProviderIds(
+		query.providerCompanyId,
+		query.providerId,
+	);
+	const { hours: windowHours } = resolveMappingErrorWindow(query.window, "24h");
+	const mapping = query.mapping ?? null;
+	return c.json({
+		windowHours,
+		providerIds,
+		mapping,
+		mappings: await queryIncidentMappings({
+			providerIds,
+			windowHours,
+			mapping,
+		}),
+	});
+});
+
+const incidentErrorsRoute = createRoute({
+	method: "get",
+	path: "/incidents/errors",
+	request: {
+		query: z.object({
+			providerCompanyId: z.string(),
+			providerId: z.string(),
+			/** Exact `used_model` (`provider/model[:region]`). */
+			mapping: z.string(),
+			window: incidentsWindowSchema.default("24h").optional(),
+			includeRetried: z.enum(["true", "false"]).default("true").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: mappingErrorShapesSchema.openapi({}),
+				},
+			},
+			description:
+				"Top 10 error shapes of one mapping over its latest error logs.",
+		},
+	},
+});
+
+airside.openapi(incidentErrorsRoute, async (c) => {
+	const user = requireUser(c.get("user"));
+	const query = c.req.valid("query");
+	await requireCompanyMembership(user.id, query.providerCompanyId);
+	await resolveIncidentProviderIds(query.providerCompanyId, query.providerId);
+	const { interval: windowInterval } = resolveMappingErrorWindow(
+		query.window,
+		"24h",
+	);
+	return c.json(
+		await queryMappingErrorShapes({
+			usedModel: query.mapping,
+			provider: query.providerId,
+			windowInterval,
+			sampleLimit: 500,
+			extraClauses: [
+				incidentErrorsClause,
+				query.includeRetried === "false" ? notRetriedClause : sql``,
+			],
+		}),
+	);
 });
 
 // ---------------------------------------------------------------------------

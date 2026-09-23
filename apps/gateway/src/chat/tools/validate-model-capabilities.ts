@@ -8,6 +8,7 @@ import type {
 	ModelDefinition,
 	Provider,
 	ProviderModelMapping,
+	ReasoningMode,
 	WebSearchTool,
 } from "@llmgateway/models";
 
@@ -17,6 +18,7 @@ export interface ValidateModelCapabilitiesOptions {
 	};
 	reasoning_effort?: string;
 	reasoning_max_tokens?: number;
+	reasoning_mode?: ReasoningMode;
 	verbosity?: string;
 	tools?: unknown[];
 	tool_choice?: unknown;
@@ -44,6 +46,7 @@ export function validateModelCapabilities(
 		response_format,
 		reasoning_effort,
 		reasoning_max_tokens,
+		reasoning_mode,
 		verbosity,
 		tools,
 		tool_choice,
@@ -287,6 +290,32 @@ export function validateModelCapabilities(
 
 			throw new HTTPException(400, {
 				message: `Model ${requestedModel} does not support reasoning.max_tokens. Remove the reasoning.max_tokens parameter or use a model that supports explicit reasoning token budgets (Anthropic or Google thinking models).`,
+			});
+		}
+	}
+
+	// Rejecting here is what keeps an unsupported mode from being dropped on
+	// the way upstream: the request would otherwise succeed in standard mode
+	// while the caller believes they paid for pro.
+	if (
+		reasoning_mode !== undefined &&
+		requestedModel !== "auto" &&
+		requestedModel !== "custom"
+	) {
+		const providersToCheck = requestedProvider
+			? modelInfo.providers.filter(
+					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+				)
+			: modelInfo.providers;
+		const supportsMode = providersToCheck.some((provider) =>
+			(provider as ProviderModelMapping).reasoningModes?.includes(
+				reasoning_mode,
+			),
+		);
+
+		if (!supportsMode) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} does not support reasoning.mode "${reasoning_mode}". Remove the reasoning.mode parameter or use a model whose reasoning_modes on /v1/models include it.`,
 			});
 		}
 	}

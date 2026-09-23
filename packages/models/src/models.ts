@@ -23,7 +23,10 @@ import { openbmbModels } from "./models/openbmb.js";
 import { perplexityModels } from "./models/perplexity.js";
 import { reveModels } from "./models/reve.js";
 import { sakanaModels } from "./models/sakana.js";
+import { stepfunModels } from "./models/stepfun.js";
 import { tencentModels } from "./models/tencent.js";
+import { thinkingmachinesModels } from "./models/thinkingmachines.js";
+import { typesafeModels } from "./models/typesafe.js";
 import { xaiModels } from "./models/xai.js";
 import { xiaomiModels } from "./models/xiaomi.js";
 import { zaiModels } from "./models/zai.js";
@@ -48,6 +51,15 @@ export type Price = string;
  */
 export type ReasoningEffort =
 	"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+/**
+ * Execution strategy accepted by the unified `reasoning.mode` parameter.
+ * `pro` spends additional model work on hard problems, at higher latency and
+ * token usage. Orthogonal to `reasoning_effort`, which controls how much
+ * reasoning happens within the selected mode. Which subset a given provider
+ * mapping supports is declared per mapping via `reasoningModes`.
+ */
+export type ReasoningMode = "standard" | "pro";
 
 export const PROVIDER_API_FORMATS = [
 	"provider-native",
@@ -592,6 +604,15 @@ export interface ProviderModelMapping {
 	 */
 	reasoningEfforts?: ReasoningEffort[];
 	/**
+	 * Exact `reasoning.mode` values this provider mapping supports. Only
+	 * OpenAI's Responses API documents this parameter, and only for the GPT-5.6
+	 * family; every other deployment rejects an unknown `reasoning.mode`, so a
+	 * mapping that does not declare it makes the gateway reject the request
+	 * rather than drop the field on the way upstream. When unset, the mapping
+	 * accepts no explicit mode.
+	 */
+	reasoningModes?: ReasoningMode[];
+	/**
 	 * Whether this specific model supports tool calling for this provider
 	 */
 	tools?: boolean;
@@ -781,6 +802,13 @@ export interface ProviderModelMapping {
 	 */
 	rerank?: boolean;
 	/**
+	 * Whether this model uses a dedicated typed-decision API (TypeSafe System
+	 * One). When true, requests are routed to the gateway's /v1/systemone
+	 * endpoint, which answers named questions with probabilities instead of
+	 * generated text. Billed on input tokens only.
+	 */
+	decisions?: boolean;
+	/**
 	 * Prebuilt voices supported for speech generation models. The first entry is
 	 * used as the default when the caller does not specify a `voice`.
 	 */
@@ -883,6 +911,7 @@ export interface ModelDefinition {
 		| "ocr"
 		| "transcription"
 		| "rerank"
+		| "decision"
 	)[];
 	/**
 	 * Whether this model requires an image input to function (e.g. image editing models).
@@ -944,4 +973,7 @@ export const models = [
 	...openbmbModels,
 	...zaiModels,
 	...elevenlabsModels,
+	...typesafeModels,
+	...thinkingmachinesModels,
+	...stepfunModels,
 ] as const satisfies ModelDefinition[];

@@ -38,7 +38,7 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
 }'
 ```
 
-LLM Gateway maintains compatibility with the OpenAI API format, making migration seamless.
+LLM Gateway maintains compatibility with the OpenAI API format, making migration seamless. Note that unknown or unsupported request parameters (for example `stop`, `seed`, `logprobs`, or `logit_bias`) are accepted and silently ignored rather than rejected, so a request carrying them still succeeds — the parameter just has no effect.
 
 ## Hosted vs. Self-Hosted
 

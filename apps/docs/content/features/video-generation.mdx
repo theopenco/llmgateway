@@ -15,6 +15,7 @@ Currently available models:
 - **Seedance 2.0** and **Seedance 1.5 Pro** through `bytedance` (720p, 1080p), **Seedance 2.0 Fast** through `bytedance` (720p only)
 - **Seedance 2.0 Mini** through `bytedance` (480p, 720p)
 - **KLING v3.0** and **KLING v3.0 Turbo** through `atlascloud` (720p, 1080p; KLING v3.0 also 4k)
+- **MiniMax H3 Max** through `minimax` (480p, 768p; clips from 5 to 15 seconds, always with audio)
 
 You can find the current list of video-capable models on our [models page with the video filter enabled](https://llmgateway.io/models?filters=1&videoGeneration=true) or programmatically through the [/v1/models endpoint](/v1_models).
 
@@ -59,19 +60,20 @@ LLMGateway currently supports a focused subset of the OpenAI video API.
 | Seedance 1.5 Pro  | `bytedance`     | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                                  | `5`, `10`           |
 | KLING v3.0        | `atlascloud`    | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`, `3840x2160`, `2160x3840`        | `5`, `10`           |
 | KLING v3.0 Turbo  | `atlascloud`    | `1280x720`, `720x1280`, `1920x1080`, `1080x1920`                                  | `5`, `10`           |
+| MiniMax H3 Max    | `minimax`       | `848x480`, `854x480`, `480x854`, `1366x768`, `768x1366`                           | `5`–`15`            |
 
 Requests return `400` when the selected provider cannot serve the requested `size` or `seconds`. Seedance and KLING v3.0 derive `aspect_ratio` from the requested `size` (16:9 for landscape, 9:16 for portrait).
 
-**KLING v3.0 Turbo** always generates audio and does not support `audio: false`; silent requests return a `400`. Use **KLING v3.0** (`kling-v3-0`) when you need silent output.
+**KLING v3.0 Turbo** and **MiniMax H3 Max** always generate audio and do not support `audio: false`; silent requests return a `400`. Use **KLING v3.0** (`kling-v3-0`) when you need silent output.
 
 ### First/last frame inputs
 
 Frame inputs interpolate a video between a starting frame and an optional ending frame. You provide the first frame as `image` and, optionally, the ending frame as `last_frame`. The gateway tags each one with the correct role for the provider, so you don't set roles yourself.
 
-| Field        | Required           | Accepted input                   | Available on                                                                                                       |
-| ------------ | ------------------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `image`      | for frame mode     | HTTPS URL **or** base64 data URL | **Seedance 2.x** (`bytedance`), **KLING v3.0 / Turbo** (`atlascloud`), Veo 3.1 (`google-vertex`), `minimax`, `xai` |
-| `last_frame` | no (needs `image`) | HTTPS URL **or** base64 data URL | **Seedance 2.x** (`bytedance`), **KLING v3.0 / Turbo** (`atlascloud`), Veo 3.1 (`google-vertex`)                   |
+| Field        | Required           | Accepted input                   | Available on                                                                                                                     |
+| ------------ | ------------------ | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `image`      | for frame mode     | HTTPS URL **or** base64 data URL | **Seedance 2.x** (`bytedance`), **KLING v3.0 / Turbo** (`atlascloud`), Veo 3.1 (`google-vertex`), `minimax`, `xai`               |
+| `last_frame` | no (needs `image`) | HTTPS URL **or** base64 data URL | **Seedance 2.x** (`bytedance`), **KLING v3.0 / Turbo** (`atlascloud`), Veo 3.1 (`google-vertex`), **MiniMax H3 Max** (`minimax`) |
 
 #### Rules and limits
 
@@ -203,7 +205,7 @@ curl -X POST "https://api.llmgateway.io/v1/videos" \
 
 ## Create a Video
 
-Video generation requires at least `$1.00` in available organization credits before the job is submitted upstream.
+Credits-billed video jobs are gated on their estimated cost before anything is submitted upstream. The estimate is the model's per-second rate for the requested resolution (the audio-inclusive rate when the model prices audio separately) times the duration, plus any input-image price. Your organization must hold at least that amount, and never less than `$1.00`, beyond what its still-running video jobs already reserve; otherwise the request fails with `402`. The estimate is reserved when the job is created and settled to the actual cost when the job finishes, so a burst of submissions cannot spend more than the balance covers.
 
 Pricing is per second of generated video. For Seedance and KLING v3.0, enabling audio can increase the per-second rate on models that price audio and video separately.
 
@@ -284,6 +286,17 @@ Typical statuses:
 - `failed`
 - `canceled`
 - `expired`
+
+Once a job reaches a terminal status and has been billed, the response (and the signed callback payload) includes its cost in USD:
+
+```json
+"usage": {
+	"cost": 0.4,
+	"cost_details": { "video_output_cost": 0.4, "image_input_cost": 0 }
+}
+```
+
+Failed, canceled, and expired jobs report a cost of `0`.
 
 `google-vertex` follows Vertex AI's long-running operation flow. The gateway submits Veo generation with `predictLongRunning`, polls with `fetchPredictOperation`, and streams the final bytes through the gateway content endpoint once the operation is done.
 

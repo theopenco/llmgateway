@@ -68,10 +68,10 @@ describe("Models", () => {
 		const hasImagePricing = (provider: ProviderModelMapping) =>
 			!!provider.imageInputPrice || !!provider.imageOutputPrice;
 
-		// Embedding models bill only on input tokens and set outputPrice=0
-		// because they don't produce text output.
+		// Embedding and typed-decision models bill only on input tokens and set
+		// outputPrice=0 because they don't produce text output.
 		const isEmbeddingProvider = (provider: ProviderModelMapping) =>
-			provider.embeddings === true;
+			provider.embeddings === true || provider.decisions === true;
 
 		const isZero = (p: string | undefined) =>
 			p !== undefined && Number(p) === 0;

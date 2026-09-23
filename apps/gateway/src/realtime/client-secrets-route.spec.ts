@@ -45,6 +45,7 @@ describe("realtime client secrets route", () => {
 				id: "org_test",
 				plan: "pro",
 				providerCompliancePolicy: null,
+				complianceAlertSettings: null,
 			},
 		});
 	});

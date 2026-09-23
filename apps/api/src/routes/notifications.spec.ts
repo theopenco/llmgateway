@@ -36,7 +36,18 @@ describe("notifications API", () => {
 			headers: headers(),
 		});
 		expect(response.status).toBe(200);
-		expect((await response.json()).preferences).toHaveLength(3);
+		const { preferences } = await response.json();
+		expect(preferences).toHaveLength(5);
+		expect(
+			preferences
+				.filter((p: { inApp: boolean }) => p.inApp)
+				.map((p: { type: string }) => p.type),
+		).toEqual(["model_available", "compliance_downgrade"]);
+		expect(
+			preferences
+				.filter((p: { email: boolean }) => p.email)
+				.map((p: { type: string }) => p.type),
+		).toEqual(["model_available", "compliance_downgrade"]);
 		const value = {
 			type: "budget",
 			inApp: true,
@@ -73,6 +84,25 @@ describe("notifications API", () => {
 			}),
 		});
 		expect(response.status).toBe(403);
+	});
+	it("defaults compliance email off for unverified users so in-app toggles save", async () => {
+		await db
+			.update(tables.user)
+			.set({ emailVerified: false })
+			.where(eq(tables.user.id, "test-user-id"));
+		const { preferences } = await (
+			await app.request("/notifications/preferences", { headers: headers() })
+		).json();
+		const preference = preferences.find(
+			(p: { type: string }) => p.type === "model_available",
+		);
+		expect(preference).toMatchObject({ inApp: true, email: false });
+		const saved = await app.request("/notifications/preferences", {
+			method: "PUT",
+			headers: headers(),
+			body: JSON.stringify({ ...preference, inApp: false }),
+		});
+		expect(saved.status).toBe(200);
 	});
 	it("scopes the inbox and read mutations to the recipient and current project access", async () => {
 		await db

@@ -12,20 +12,20 @@ const promptParts: Record<string, MigrationPromptParts> = {
 		intro: "Migrate this codebase from OpenRouter to LLM Gateway.",
 		steps: `1. Find every OpenRouter usage: the base URL https://openrouter.ai/api/v1, the OPENROUTER_API_KEY env var, and OpenRouter-only headers like HTTP-Referer and X-Title.
 2. Point the client at https://api.llmgateway.io/v1, read the key from LLM_GATEWAY_API_KEY, and drop the OpenRouter-only headers.
-3. Keep model names as they are — LLM Gateway supports the same provider/model format.
+3. Keep model names as they are — LLM Gateway supports the same provider/model format (Anthropic versions use dashes, e.g. anthropic/claude-opus-4-8). Replace any OpenRouter provider routing object: a single-entry provider.order becomes a provider-prefixed model ID; a provider.order with several entries must keep that order, so map it to a dynamic route whose providers list is the same ordered allowlist (https://docs.llmgateway.io/features/dynamic-routes) and flag it for manual follow-up rather than collapsing it into one provider; provider.allow_fallbacks: false becomes the x-no-fallback: true header.
 4. Update .env.example and any README or docs that mention OpenRouter.`,
 	},
 	"vercel-ai-gateway": {
 		intro: "Migrate this codebase from the Vercel AI Gateway to LLM Gateway.",
 		steps: `1. Find every AI SDK provider in use (@ai-sdk/openai, @ai-sdk/anthropic, @ai-sdk/google, the Vercel AI Gateway provider) and their env keys.
-2. Install @llmgateway/ai-sdk-provider, create a single provider with createLLMGateway({ apiKey: process.env.LLM_GATEWAY_API_KEY }), and swap model calls like openai("gpt-5.2") to llmgateway("gpt-5.2").
+2. If the app passes bare model strings through the AI SDK's default gateway provider, prefer the zero-diff path: set globalThis.AI_SDK_DEFAULT_PROVIDER to createGateway({ baseURL: "https://api.llmgateway.io/v4/ai", apiKey: process.env.LLM_GATEWAY_API_KEY }) from @ai-sdk/gateway. Otherwise install @llmgateway/ai-sdk-provider, create a single provider with createLLMGateway({ apiKey: process.env.LLM_GATEWAY_API_KEY }), and swap model calls like openai("gpt-6-astra") to llmgateway("gpt-6-astra").
 3. Leave the rest of the AI SDK code (generateText, streamText, tools) unchanged — it works as-is.
 4. Update .env.example and any README or docs that mention the old providers.`,
 	},
 	litellm: {
 		intro: "Migrate this codebase from our LiteLLM proxy to LLM Gateway.",
 		steps: `1. Find every client that points at the LiteLLM proxy (base URLs like http://localhost:4000/v1), the LITELLM_API_KEY env var, and LiteLLM config files.
-2. Point the OpenAI-compatible clients at https://api.llmgateway.io/v1 and read the key from LLM_GATEWAY_API_KEY. Model names can stay the same, or use provider-prefixed IDs like openai/gpt-5.2 to pin a provider.
+2. Point the OpenAI-compatible clients at https://api.llmgateway.io/v1 and read the key from LLM_GATEWAY_API_KEY. Model names can stay the same, or use provider-prefixed IDs like openai/gpt-6-astra to pin a provider.
 3. Update .env.example and any README or docs that mention LiteLLM.
 4. List the proxy infrastructure (config files, deploy manifests) that can be decommissioned once traffic is verified — but don't delete anything yet.`,
 	},
@@ -33,7 +33,7 @@ const promptParts: Record<string, MigrationPromptParts> = {
 		intro: "Migrate this codebase from Portkey to LLM Gateway.",
 		steps: `1. Find every Portkey usage: the portkey-ai SDK, the base URL https://api.portkey.ai/v1, x-portkey-* headers, and virtual keys or config IDs.
 2. Replace them with the standard OpenAI SDK pointed at https://api.llmgateway.io/v1, authenticated with a Bearer token from LLM_GATEWAY_API_KEY — no custom headers or virtual keys.
-3. Pick providers via the model ID (e.g. openai/gpt-5.2) or use the bare model ID for smart routing. Note that provider keys move to the LLM Gateway dashboard under Settings > Provider Keys.
+3. Pick providers via the model ID (e.g. openai/gpt-6-astra) or use the bare model ID for smart routing. Note that provider keys move to the LLM Gateway dashboard under Settings > Provider Keys.
 4. Update .env.example and any README or docs that mention Portkey.`,
 	},
 	"github-copilot": {

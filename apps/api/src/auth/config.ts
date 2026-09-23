@@ -23,6 +23,7 @@ import {
 } from "@/utils/country-blocking.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 import { notifyUserSignup } from "@/utils/discord.js";
+import { getBlockedSignupEmailDomains } from "@/utils/email-domain-blocking.js";
 import { validateEmail } from "@/utils/email-validation.js";
 import { sendTransactionalEmail } from "@/utils/email.js";
 import { resolveSignupName } from "@/utils/infer-name.js";
@@ -1115,7 +1116,10 @@ The LLM Gateway Team`.trim();
 						if (isHosted) {
 							const body = ctx.body as { email?: string } | undefined;
 							if (body?.email) {
-								const emailValidation = validateEmail(body.email);
+								const emailValidation = validateEmail(
+									body.email,
+									await getBlockedSignupEmailDomains(),
+								);
 								if (!emailValidation.valid) {
 									logger.warn("Signup blocked due to invalid email", {
 										ip: ipAddress,

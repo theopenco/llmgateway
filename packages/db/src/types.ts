@@ -200,6 +200,8 @@ type SerializedOrganizationBase = Omit<
 	// Admin-only content filter pin and enforcement override.
 	| "contentFilterTierOverride"
 	| "contentFilterLogOnly"
+	// Served by GET /orgs/{id}/compliance-alerts.
+	| "complianceAlertSettings"
 	| "devPlanBillingCycleStart"
 	| "devPlanPremiumWeekStart"
 	| "devPlanStripeSubscriptionId"

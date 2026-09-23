@@ -20,7 +20,7 @@ import type * as EmailModule from "./utils/email.js";
 
 const stripeMock = vi.hoisted(() => ({
 	refunds: { list: vi.fn() },
-	invoices: { list: vi.fn() },
+	invoices: { list: vi.fn(), retrieve: vi.fn() },
 	invoicePayments: { list: vi.fn() },
 	subscriptions: { retrieve: vi.fn(), cancel: vi.fn() },
 	paymentIntents: { retrieve: vi.fn() },
@@ -97,11 +97,15 @@ function makeUpdatedEvent(overrides: {
 	} as unknown as Stripe.CustomerSubscriptionUpdatedEvent;
 }
 
-async function seedDevPlanOrg(opts?: { devPlanCancelled?: boolean }) {
+async function seedDevPlanOrg(opts?: {
+	devPlanCancelled?: boolean;
+	kind?: "default" | "devpass" | "chat";
+}) {
 	await db.insert(tables.organization).values({
 		id: ORG_ID,
 		name: "Acme Co",
 		billingEmail: "billing@acme.test",
+		kind: opts?.kind ?? "default",
 		devPlan: "pro",
 		devPlanCreditsLimit: "100",
 		devPlanCreditsUsed: "0",
@@ -1625,6 +1629,7 @@ function makeFailedPaymentIntentEvent(overrides: {
 	amount: number;
 	metadata: Record<string, string>;
 	id?: string;
+	error?: { message: string; code?: string; decline_code?: string };
 }): Stripe.PaymentIntentPaymentFailedEvent {
 	return {
 		id: "evt_test_pi_failed",
@@ -1636,7 +1641,7 @@ function makeFailedPaymentIntentEvent(overrides: {
 				amount: overrides.amount,
 				currency: "usd",
 				metadata: overrides.metadata,
-				last_payment_error: {
+				last_payment_error: overrides.error ?? {
 					message: "Your card was declined.",
 					code: "card_declined",
 					decline_code: "generic_decline",
@@ -1645,6 +1650,113 @@ function makeFailedPaymentIntentEvent(overrides: {
 		},
 	} as unknown as Stripe.PaymentIntentPaymentFailedEvent;
 }
+
+describe("handlePaymentIntentFailed — dunning email links", () => {
+	beforeEach(async () => {
+		await deleteAll();
+		sendEmailMock.mockClear();
+		stripeMock.invoicePayments.list.mockReset();
+		stripeMock.invoices.retrieve.mockReset();
+		vi.stubEnv("CODE_URL", "https://code.test");
+		vi.stubEnv("UI_URL", "https://ui.test");
+	});
+
+	afterEach(async () => {
+		vi.unstubAllEnvs();
+		await deleteAll();
+	});
+
+	function sentHtml(): string {
+		expect(sendEmailMock).toHaveBeenCalledTimes(1);
+		return sendEmailMock.mock.calls[0][0].html ?? "";
+	}
+
+	test("sends DevPass customers to the DevPass billing page", async () => {
+		await seedDevPlanOrg({ kind: "devpass" });
+
+		await handlePaymentIntentFailed(
+			makeFailedPaymentIntentEvent({
+				amount: 7900,
+				metadata: { organizationId: ORG_ID },
+			}),
+		);
+
+		const html = sentHtml();
+		expect(html).toContain('href="https://code.test/dashboard/billing"');
+		expect(html).toContain("Update Payment Method");
+		expect(html).not.toContain("settings/org/billing");
+		expect(stripeMock.invoicePayments.list).not.toHaveBeenCalled();
+	});
+
+	test("sends team organizations to their own billing page", async () => {
+		await seedDevPlanOrg({ kind: "default" });
+
+		await handlePaymentIntentFailed(
+			makeFailedPaymentIntentEvent({
+				amount: 5000,
+				metadata: { organizationId: ORG_ID },
+			}),
+		);
+
+		expect(sentHtml()).toContain(
+			`href="https://ui.test/dashboard/${ORG_ID}/org/billing"`,
+		);
+	});
+
+	test("links the hosted invoice when the bank requires authentication", async () => {
+		await seedDevPlanOrg({ kind: "devpass" });
+		stripeMock.invoicePayments.list.mockResolvedValue({
+			data: [{ invoice: "in_test_renewal" }],
+		});
+		stripeMock.invoices.retrieve.mockResolvedValue({
+			id: "in_test_renewal",
+			hosted_invoice_url: "https://invoice.stripe.com/i/test_renewal",
+		});
+
+		await handlePaymentIntentFailed(
+			makeFailedPaymentIntentEvent({
+				amount: 7900,
+				metadata: { organizationId: ORG_ID },
+				error: {
+					message:
+						"Your card was declined. This transaction requires authentication.",
+					code: "authentication_required",
+				},
+			}),
+		);
+
+		const html = sentHtml();
+		expect(html).toContain('href="https://invoice.stripe.com/i/test_renewal"');
+		expect(html).toContain("Complete Payment");
+		expect(html).toContain("https://code.test/dashboard/billing");
+		expect(html).toContain("asked to verify this payment");
+		expect(stripeMock.invoices.retrieve).toHaveBeenCalledWith(
+			"in_test_renewal",
+		);
+	});
+
+	test("still emails when the hosted invoice cannot be resolved", async () => {
+		await seedDevPlanOrg({ kind: "devpass" });
+		stripeMock.invoicePayments.list.mockRejectedValue(
+			new Error("stripe unavailable"),
+		);
+
+		await handlePaymentIntentFailed(
+			makeFailedPaymentIntentEvent({
+				amount: 7900,
+				metadata: { organizationId: ORG_ID },
+				error: {
+					message: "Your card was declined.",
+					code: "authentication_required",
+				},
+			}),
+		);
+
+		const html = sentHtml();
+		expect(html).toContain('href="https://code.test/dashboard/billing"');
+		expect(html).not.toContain("invoice.stripe.com");
+	});
+});
 
 describe("handlePaymentIntentFailed — subscription invoice vs credit top-up", () => {
 	beforeEach(async () => {

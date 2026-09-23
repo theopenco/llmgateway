@@ -22,11 +22,14 @@ describe("getPinnedValidationModel", () => {
 		expect(
 			getPinnedValidationModel("mistral", "mistral-ocr-latest")?.kind,
 		).toBe("ocr");
+		expect(getPinnedValidationModel("typesafe", "jev-1.13.0")?.kind).toBe(
+			"decision",
+		);
 	});
 });
 
 describe("getValidationModel", () => {
-	it("only selects text models for automatic validation", () => {
+	it("selects text models, falling back to decision models", () => {
 		for (const provider of providers) {
 			const selected = getValidationModel(provider.id);
 			if (!selected) {
@@ -35,8 +38,10 @@ describe("getValidationModel", () => {
 			expect(
 				getPinnedValidationModel(provider.id, selected.modelId)?.kind,
 				provider.id,
-			).toBe("text");
+			).toBe(selected.kind);
+			expect(["text", "decision"], provider.id).toContain(selected.kind);
 		}
+		expect(getValidationModel("typesafe")?.kind).toBe("decision");
 	});
 
 	it("never selects an OCR model for provider key validation", () => {
@@ -327,6 +332,24 @@ describe("validateProviderKey model-specific probes", () => {
 		);
 	});
 
+	it("probes a decision-only provider via System One", async () => {
+		const fetchMock = mockSuccess();
+
+		const result = await validateProviderKey("typesafe", "ts-test");
+
+		expect(result).toEqual({ valid: true, model: "jev-1.13.0" });
+		expect(fetchMock.mock.calls[0][0]).toBe(
+			"https://api.typesafe.ai/v1/systemone",
+		);
+		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+			model: "jev-1.13.0",
+			state: "Hello",
+			questions: {
+				greeting: { type: "noul", instructions: "Is this a greeting?" },
+			},
+		});
+	});
+
 	it("sends a minimal inline image to the OCR endpoint", async () => {
 		const fetchMock = mockSuccess();
 
@@ -427,9 +450,9 @@ describe("validateProviderKey model-specific probes", () => {
 		expect(body.parameters.size).toBe("1024*1024");
 	});
 
-	it("constructs probes for every active image, OCR, and embedding mapping", async () => {
+	it("constructs probes for every active image, OCR, embedding, and decision mapping", async () => {
 		const fetchMock = mockSuccess();
-		const supportedKinds = new Set(["image", "ocr", "embedding"]);
+		const supportedKinds = new Set(["image", "ocr", "embedding", "decision"]);
 		const seen = new Set<string>();
 
 		for (const model of models) {
