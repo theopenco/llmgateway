@@ -162,7 +162,7 @@ export function ComplianceAlertsCard({
 				body: {
 					inApp,
 					email,
-					channels: slack ? ["slack"] : [],
+					channels: slack && slackConfigured ? ["slack"] : [],
 					downgrades,
 					recipientAudience: audience,
 				},

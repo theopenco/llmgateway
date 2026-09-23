@@ -24,7 +24,10 @@ export function NotificationChannelsSettings() {
 	const { user } = useUser();
 	const { data: teamData } = useTeamMembers(organizationId);
 	const role = teamData?.members.find((m) => m.userId === user?.id)?.role;
-	const canManage = role === "owner" || role === "admin";
+	const isAdmin = role === "owner" || role === "admin";
+	const enterprise = selectedOrganization?.enterpriseAccess === true;
+	// Saving and testing require enterprise access on the server; removal does not.
+	const canConfigure = isAdmin && enterprise;
 
 	const api = useApi();
 	const params = { params: { path: { organizationId } } };
@@ -119,7 +122,7 @@ export function NotificationChannelsSettings() {
 				) : (
 					<p className="text-sm text-muted-foreground">Not connected.</p>
 				)}
-				{canManage ? (
+				{canConfigure ? (
 					<Input
 						id="slackWebhook"
 						type="url"
@@ -129,40 +132,43 @@ export function NotificationChannelsSettings() {
 					/>
 				) : null}
 				<p className="text-sm text-muted-foreground">
-					Create an incoming webhook in Slack for the channel that should
-					receive organization alerts, then paste its URL here.
+					{enterprise
+						? "Create an incoming webhook in Slack for the channel that should receive organization alerts, then paste its URL here."
+						: "Notification channels are available on the Enterprise plan."}
 				</p>
 			</div>
-			{canManage ? (
+			{isAdmin ? (
 				<div className="flex flex-wrap justify-end gap-2">
 					{slack ? (
-						<>
-							<Button
-								variant="outline"
-								onClick={handleRemove}
-								disabled={remove.isPending}
-							>
-								Remove
-							</Button>
-							<Button
-								variant="outline"
-								onClick={handleTest}
-								disabled={test.isPending}
-							>
-								{test.isPending ? "Sending..." : "Send test message"}
-							</Button>
-						</>
+						<Button
+							variant="outline"
+							onClick={handleRemove}
+							disabled={remove.isPending}
+						>
+							Remove
+						</Button>
 					) : null}
-					<Button
-						onClick={handleSave}
-						disabled={!webhookUrl.trim() || save.isPending}
-					>
-						{save.isPending
-							? "Saving..."
-							: slack
-								? "Replace webhook"
-								: "Save webhook"}
-					</Button>
+					{slack && canConfigure ? (
+						<Button
+							variant="outline"
+							onClick={handleTest}
+							disabled={test.isPending}
+						>
+							{test.isPending ? "Sending..." : "Send test message"}
+						</Button>
+					) : null}
+					{canConfigure ? (
+						<Button
+							onClick={handleSave}
+							disabled={!webhookUrl.trim() || save.isPending}
+						>
+							{save.isPending
+								? "Saving..."
+								: slack
+									? "Replace webhook"
+									: "Save webhook"}
+						</Button>
+					) : null}
 				</div>
 			) : null}
 		</div>

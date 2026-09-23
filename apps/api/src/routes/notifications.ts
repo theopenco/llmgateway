@@ -98,16 +98,23 @@ notifications.openapi(
 	}),
 	async (c) => {
 		const userId = c.get("user")!.id;
-		const saved = await db.query.notificationPreference.findMany({
-			where: { userId },
-		});
+		const [saved, recipient] = await Promise.all([
+			db.query.notificationPreference.findMany({ where: { userId } }),
+			db.query.user.findFirst({
+				columns: { emailVerified: true },
+				where: { id: userId },
+			}),
+		]);
+		// Unverified addresses are never emailed, and reporting email as on would
+		// make the PUT below reject the next in-app toggle.
+		const emailDefault = recipient?.emailVerified === true;
 		return c.json({
 			preferences: notificationTypes.map((type) => {
 				const row = saved.find((p) => p.type === type);
 				return {
 					type,
 					inApp: row?.inApp ?? orgAlertTypes.has(type),
-					email: row?.email ?? orgAlertTypes.has(type),
+					email: row?.email ?? (orgAlertTypes.has(type) && emailDefault),
 					budgetThreshold: row?.budgetThreshold ?? 80,
 				};
 			}),
