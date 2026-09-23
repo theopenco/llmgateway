@@ -5,6 +5,7 @@ import { Alert, Switch, Text, View } from "react-native";
 import { api, queryClient } from "@/api/client";
 import { authorizeConnector } from "@/api/connectors";
 import {
+	colors,
 	Button,
 	ErrorNotice,
 	Field,
@@ -121,6 +122,7 @@ export function Connectors() {
 						<View style={[styles.row, { justifyContent: "space-between" }]}>
 							<Text style={styles.body}>Use in conversations</Text>
 							<Switch
+								trackColor={{ false: colors.subtle, true: colors.accent }}
 								accessibilityLabel={`Enable ${entry.name}`}
 								value={entry.enabled}
 								disabled={busy || !entry.available}

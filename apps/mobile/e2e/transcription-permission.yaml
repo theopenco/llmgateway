@@ -37,7 +37,7 @@ appId: io.llmgateway.lounge
     stopApp: false
 - runFlow:
     when:
-      visible: "Start a conversation"
+      visible: "New conversation"
     commands:
       - runFlow: helpers/organization.yaml
       - runFlow: helpers/transcription-model.yaml

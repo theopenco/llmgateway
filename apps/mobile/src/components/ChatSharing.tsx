@@ -6,7 +6,7 @@ import { Alert, Modal, Share, Switch, Text, View } from "react-native";
 import { refreshChatHistory } from "@/api/chat-history";
 import { api, client, queryClient } from "@/api/client";
 import { Choice } from "@/components/Choice";
-import { Button, ErrorNotice, Screen, styles } from "@/components/ui";
+import { colors, Button, ErrorNotice, Screen, styles } from "@/components/ui";
 import { config } from "@/config";
 
 interface SharingProps {
@@ -188,6 +188,7 @@ function SharingForm({
 							Allow readers to fork
 						</Text>
 						<Switch
+							trackColor={{ false: colors.subtle, true: colors.accent }}
 							testID="share-fork-switch"
 							accessibilityLabel="Allow readers to fork"
 							value={allowForking}
@@ -200,6 +201,7 @@ function SharingForm({
 								List in public discovery
 							</Text>
 							<Switch
+								trackColor={{ false: colors.subtle, true: colors.accent }}
 								testID="share-discovery-switch"
 								accessibilityLabel="List in public discovery"
 								value={allowDiscovery}

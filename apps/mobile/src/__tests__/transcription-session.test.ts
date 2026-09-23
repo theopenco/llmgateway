@@ -131,6 +131,34 @@ test("stops microphone immediately and waits for the last committed transcript",
 	expect(h.microphone.stop).toHaveBeenCalledTimes(1);
 });
 
+test("repeated stops keep waiting for the final transcript", async () => {
+	const h = harness();
+	await h.start();
+	h.audio();
+	h.session.stop();
+	h.session.stop();
+	expect(h.socket.close).not.toHaveBeenCalled();
+	h.event("input_audio_buffer.committed", { item_id: "one" });
+	h.event("conversation.item.input_audio_transcription.delta", {
+		item_id: "one",
+		delta: "Partial",
+	});
+	h.session.stop();
+	expect(h.session.getSnapshot().status).toBe("ending");
+	expect(h.socket.close).not.toHaveBeenCalled();
+	expect(h.microphone.stop).toHaveBeenCalledTimes(1);
+	h.event("conversation.item.input_audio_transcription.completed", {
+		item_id: "one",
+		transcript: "The complete thought.",
+	});
+	await h.session.finish();
+	expect(h.session.getSnapshot()).toMatchObject({
+		status: "idle",
+		segments: [{ text: "The complete thought.", status: "complete" }],
+	});
+	expect(h.socket.close).toHaveBeenCalledTimes(1);
+});
+
 test("keeps manual audio recorded while a previous commit is acknowledged", async () => {
 	const h = harness();
 	await h.start();
@@ -223,7 +251,6 @@ test("can force-stop finalization and ignores duplicate completed events", async
 		seconds: 2,
 	});
 	h.audio();
-	h.session.stop();
 	h.session.stop();
 	await h.session.finish();
 	expect(h.socket.close).toHaveBeenCalledTimes(1);

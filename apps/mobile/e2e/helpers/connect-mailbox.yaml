@@ -1,9 +1,9 @@
 appId: io.llmgateway.lounge
 ---
-- scrollUntilVisible:
-    element: "Connectors"
-    direction: DOWN
-- tapOn: "Connectors"
+- runFlow:
+    file: navigate.yaml
+    env:
+      DESTINATION: "Connectors"
 - tapOn:
     id: "field-search-connectors"
 - inputText: "Gmail"

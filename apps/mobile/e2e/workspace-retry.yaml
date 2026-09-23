@@ -2,7 +2,9 @@ appId: io.llmgateway.lounge
 ---
 # Restart the isolated API after workspace-offline.yaml before running this flow.
 - tapOn: "Try again"
+- runFlow: helpers/open-sidebar.yaml
 - extendedWaitUntil:
-    visible: "Current workspace: Test Organization"
+    visible: ".*Current workspace: Test Organization"
     timeout: 20000
-- assertVisible: "Start a conversation"
+- tapOn: "Close sidebar"
+- assertVisible: "New conversation"

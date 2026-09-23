@@ -3,19 +3,22 @@ appId: io.llmgateway.lounge
 - evalScript: ${output.chatTitle = "Native sharing " + Date.now()}
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- tapOn: "Start a conversation"
+- tapOn: "New conversation"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Model: Auto"
 - tapOn:
     id: "field-search-models"
 - inputText: "gpt-4o-mini"
 - tapOn: "Done typing"
 - tapOn: "Choose GPT-4o Mini"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: ${output.chatTitle}
 - tapOn: "Send message"
 - extendedWaitUntil:
     visible: "Retry last response"
     timeout: 30000
+- runFlow: helpers/chat-options.yaml
 - tapOn: "Share"
 - tapOn:
     id: "share-fork-switch"
@@ -33,10 +36,10 @@ appId: io.llmgateway.lounge
 - assertVisible: "Link copied"
 - launchApp
 - runFlow: helpers/organization.yaml
-- scrollUntilVisible:
-    element: "Shared conversations"
-    direction: DOWN
-- tapOn: "Shared conversations"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Shared conversations"
 - tapOn:
     id: "field-shared-conversation-link"
 - inputText: ${output.publicLink}
@@ -48,12 +51,16 @@ appId: io.llmgateway.lounge
 - assertVisible: ".*This is a mock response.*"
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Conversations"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
 - tapOn:
     id: "field-search-conversations"
 - inputText: ${output.chatTitle}
 - tapOn: "Done typing"
 - tapOn: ".*2 messages"
+- runFlow: helpers/chat-options.yaml
 - tapOn: "Share"
 - scrollUntilVisible:
     element: "Revoke share link"
@@ -78,10 +85,10 @@ appId: io.llmgateway.lounge
 - assertVisible: "Readers can fork this conversation."
 - launchApp
 - runFlow: helpers/organization.yaml
-- scrollUntilVisible:
-    element: "Shared conversations"
-    direction: DOWN
-- tapOn: "Shared conversations"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Shared conversations"
 - tapOn: ${output.chatTitle}
 - assertVisible: ".*This is a mock response.*"
 - tapOn: "Fork into my conversations"
