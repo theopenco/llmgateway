@@ -12,6 +12,9 @@ export const thinkingmachinesModels = [
 			{
 				providerId: "together-ai",
 				externalId: "thinkingmachines/Inkling",
+				// Together caches this prefix only about two runs in three, so the
+				// mapping cannot be relied on for cache-priced traffic.
+				deactivatedAt: new Date("2026-09-23"),
 				inputPrice: "1e-6",
 				cachedInputPrice: "0.17e-6",
 				outputPrice: "4.05e-6",
@@ -21,15 +24,9 @@ export const thinkingmachinesModels = [
 				quantization: "fp8",
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: [
-					"none",
-					"minimal",
-					"low",
-					"medium",
-					"high",
-					"xhigh",
-					"max",
-				],
+				// low and medium intermittently return tool calls with no reasoning
+				// text at all, so only the tiers that always emit it are offered.
+				reasoningEfforts: ["none", "high", "xhigh", "max"],
 				vision: true,
 				tools: true,
 				jsonOutput: true,
@@ -74,6 +71,9 @@ export const thinkingmachinesModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "thinkingmachines/Inkling-Small",
+				// Intermittently returns tool calls with no reasoning text and
+				// json_object responses that ignore the requested shape.
+				deactivatedAt: new Date("2026-09-23"),
 				inputPrice: "0.45e-6",
 				cachedInputPrice: "0.1e-6",
 				outputPrice: "1.2e-6",
@@ -81,17 +81,12 @@ export const thinkingmachinesModels = [
 				contextSize: 524288,
 				maxOutput: 262144,
 				quantization: "fp8",
+				maxTemperature: 1,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: [
-					"none",
-					"minimal",
-					"low",
-					"medium",
-					"high",
-					"xhigh",
-					"max",
-				],
+				// low and medium intermittently return tool calls with no reasoning
+				// text at all, so only the tiers that always emit it are offered.
+				reasoningEfforts: ["none", "high", "xhigh", "max"],
 				vision: true,
 				tools: true,
 				jsonOutput: true,

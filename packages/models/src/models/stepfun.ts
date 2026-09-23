@@ -19,6 +19,7 @@ export const stepfunModels = [
 				contextSize: 262144,
 				maxOutput: 256000,
 				quantization: "fp8",
+				maxTemperature: 1,
 				streaming: true,
 				reasoning: true,
 				vision: true,

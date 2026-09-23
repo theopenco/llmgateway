@@ -19,6 +19,7 @@ export const ibmModels = [
 				contextSize: 131072,
 				maxOutput: 117964,
 				quantization: "bf16",
+				maxTemperature: 1,
 				streaming: true,
 				reasoning: true,
 				reasoningEfforts: ["none", "low", "medium", "high"],
