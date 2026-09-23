@@ -38,6 +38,16 @@ const descriptions = {
 		description:
 			"Hear about elevated errors from providers you used in the last 30 days.",
 	},
+	model_available: {
+		title: "Compliance: models available",
+		description:
+			"When you are a compliance alert recipient, hear when a watched model becomes available under your organization's policy.",
+	},
+	compliance_downgrade: {
+		title: "Compliance: downgrades",
+		description:
+			"When you are a compliance alert recipient, hear when a provider or watched model stops meeting your organization's policy.",
+	},
 };
 
 export function UsageNotifications() {

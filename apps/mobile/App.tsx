@@ -1,14 +1,17 @@
 import {
 	NavigationContainer,
+	useNavigationContainerRef,
 	DarkTheme,
 	DefaultTheme,
 } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Text, View, useColorScheme } from "react-native";
+import { Keyboard, useColorScheme } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { Sidebar } from "@/components/Sidebar";
+import { IconButton } from "@/components/ui";
 import { VoiceCallsProvider } from "@/components/VoiceCallsProvider";
 import { WorkspaceGate } from "@/components/WorkspaceGate";
 import { AudioStudio } from "@/screens/AudioStudio";
@@ -29,13 +32,7 @@ import { VoiceCalls } from "@/screens/VoiceCalls";
 
 import { queryClient } from "./src/api/client";
 import { restoreSession } from "./src/auth/session";
-import {
-	Button,
-	ErrorNotice,
-	Loading,
-	Screen,
-	styles,
-} from "./src/components/ui";
+import { Button, ErrorNotice, Loading, Screen } from "./src/components/ui";
 import { usePalette } from "./src/lib/colors";
 import { Connectors } from "./src/screens/Connectors";
 import { DeleteAccount } from "./src/screens/DeleteAccount";
@@ -86,6 +83,9 @@ function Lounge({
 	workspace: Workspace;
 }) {
 	const scheme = useColorScheme();
+	const navigationRef = useNavigationContainerRef<Routes>();
+	const [menuOpen, setMenuOpen] = useState(false);
+	const [homeKey, setHomeKey] = useState(0);
 	const colors = usePalette();
 	const baseTheme = scheme === "dark" ? DarkTheme : DefaultTheme;
 	const theme = {
@@ -100,13 +100,42 @@ function Lounge({
 		},
 	};
 	const { organizationId, projectId } = workspace;
+	const newChat = () => {
+		setMenuOpen(false);
+		setHomeKey((value) => value + 1);
+		navigationRef.resetRoot({ index: 0, routes: [{ name: "Home" }] });
+	};
+	const chatHeader = {
+		title: "The Lounge",
+		headerLeft: () => (
+			<IconButton
+				name="menu"
+				accessibilityLabel="Open sidebar"
+				onPress={() => {
+					Keyboard.dismiss();
+					setMenuOpen(true);
+				}}
+			/>
+		),
+		headerRight: () => (
+			<IconButton
+				name="new-chat"
+				accessibilityLabel="New conversation"
+				onPress={newChat}
+			/>
+		),
+	};
 	return (
 		<VoiceCallsProvider
 			key={organizationId}
 			organizationId={organizationId}
 			projectId={projectId}
 		>
-			<NavigationContainer theme={theme} key={organizationId}>
+			<NavigationContainer
+				ref={navigationRef}
+				theme={theme}
+				key={organizationId}
+			>
 				<Stack.Navigator
 					screenOptions={{
 						headerShadowVisible: false,
@@ -115,112 +144,17 @@ function Lounge({
 						contentStyle: { backgroundColor: colors.background },
 					}}
 				>
-					<Stack.Screen name="Home" options={{ title: "The Lounge" }}>
+					<Stack.Screen name="Home" options={chatHeader}>
 						{({ navigation }) => (
-							<Screen>
-								<View style={{ paddingVertical: 25, gap: 18 }}>
-									<Text style={styles.eyebrow}>MAKE YOURSELF AT HOME</Text>
-									<Text style={styles.title}>
-										Where ideas{"\n"}find their people.
-									</Text>
-									<Text
-										accessibilityLabel={`Current workspace: ${workspace.name}`}
-										style={styles.muted}
-									>
-										{workspace.name}
-									</Text>
-									<Text style={styles.muted}>
-										A conversation away from something new.
-									</Text>
-								</View>
-								<Button
-									title="Start a conversation"
-									onPress={() => navigation.navigate("Chat", {})}
-								/>
-								<Button
-									title="Compare models"
-									secondary
-									onPress={() => navigation.navigate("Comparison", {})}
-								/>
-								<Button
-									title="Group discussion"
-									secondary
-									onPress={() => navigation.navigate("GroupConversation")}
-								/>
-								<View style={styles.card}>
-									<Text style={styles.heading}>Pick up where you left off</Text>
-									<Button
-										title="Conversations"
-										secondary
-										onPress={() => navigation.navigate("History")}
-									/>
-									<Button
-										title="Shared conversations"
-										secondary
-										onPress={() => navigation.navigate("SharedConversations")}
-									/>
-									<Button
-										title="Projects"
-										secondary
-										onPress={() => navigation.navigate("Projects")}
-									/>
-									<Button
-										title="Skills"
-										secondary
-										onPress={() => navigation.navigate("Skills")}
-									/>
-									<Button
-										title="Connectors"
-										secondary
-										onPress={() => navigation.navigate("Connectors")}
-									/>
-								</View>
-								<Button
-									title="Sandbox Escape"
-									secondary
-									onPress={() => navigation.navigate("Escape")}
-								/>
-								<Button
-									title="Canvas"
-									secondary
-									onPress={() => navigation.navigate("Canvas")}
-								/>
-								<Button
-									title="Image Studio"
-									secondary
-									onPress={() => navigation.navigate("ImageStudio")}
-								/>
-								<Button
-									title="Video Studio"
-									secondary
-									onPress={() => navigation.navigate("VideoStudio")}
-								/>
-								<Button
-									title="Audio Studio"
-									secondary
-									onPress={() => navigation.navigate("AudioStudio")}
-								/>
-								<Button
-									title="Live transcription"
-									secondary
-									onPress={() => navigation.navigate("Transcription")}
-								/>
-								<Button
-									title="Voice calls"
-									secondary
-									onPress={() => navigation.navigate("VoiceCalls")}
-								/>
-								<Button
-									title="Switch workspace"
-									secondary
-									onPress={() => navigation.navigate("Workspaces")}
-								/>
-								<Button
-									title="Your profile"
-									secondary
-									onPress={() => navigation.navigate("Profile")}
-								/>
-							</Screen>
+							<Conversation
+								key={homeKey}
+								organizationId={organizationId}
+								projectId={projectId}
+								onVoice={() => navigation.navigate("VoiceCalls")}
+								onOpenChat={(id) =>
+									navigation.push("Chat", { id, single: true })
+								}
+							/>
 						)}
 					</Stack.Screen>
 					<Stack.Screen name="Escape" options={{ title: "Sandbox Escape" }}>
@@ -259,13 +193,14 @@ function Lounge({
 					<Stack.Screen name="Canvas" options={{ title: "Canvas" }}>
 						{() => <Canvas projectId={projectId} />}
 					</Stack.Screen>
-					<Stack.Screen name="Chat" options={{ title: "Conversation" }}>
+					<Stack.Screen name="Chat" options={chatHeader}>
 						{({ route, navigation }) => (
 							<Conversation
 								key={
 									route.params.id ?? route.params.knowledgeProjectId ?? "new"
 								}
 								chatId={route.params.id}
+								onVoice={() => navigation.navigate("VoiceCalls")}
 								single={route.params.single}
 								onOpenChat={(id) =>
 									navigation.push("Chat", { id, single: true })
@@ -399,6 +334,24 @@ function Lounge({
 					</Stack.Screen>
 				</Stack.Navigator>
 			</NavigationContainer>
+			<Sidebar
+				visible={menuOpen}
+				workspace={workspace}
+				onClose={() => setMenuOpen(false)}
+				onNewChat={newChat}
+				onChat={(id) => {
+					setMenuOpen(false);
+					navigationRef.navigate("Chat", { id });
+				}}
+				onNavigate={(route) => {
+					setMenuOpen(false);
+					if (route === "Comparison") {
+						navigationRef.navigate("Comparison", {}, { pop: true });
+					} else {
+						navigationRef.navigate(route, undefined, { pop: true });
+					}
+				}}
+			/>
 		</VoiceCallsProvider>
 	);
 }

@@ -56,6 +56,7 @@ export const curatedCategoryModelIds: Record<
 	]),
 	coding: new Set([
 		"claude-fable-5-1",
+		"claude-opus-5-5",
 		"claude-fable-5",
 		"claude-opus-4-8",
 		"claude-sonnet-5",
@@ -65,6 +66,7 @@ export const curatedCategoryModelIds: Record<
 		"gpt-5.2-codex",
 		"gpt-5.1-codex",
 		"gpt-5.1-codex-mini",
+		"gpt-6-sol",
 		"gpt-5.6-sol",
 		"gpt-5.6-terra",
 		"gpt-5.5",
@@ -96,6 +98,7 @@ export const curatedCategoryModelIds: Record<
 		"minimax-m2.7",
 	]),
 	"creative-writing": new Set([
+		"claude-opus-5-5",
 		"claude-opus-4-8",
 		"claude-sonnet-5",
 		"claude-fable-5-1",
@@ -120,6 +123,7 @@ export const curatedCategoryModelIds: Record<
 		"gemini-3.1-pro-preview",
 		"gemini-3.6-flash",
 		"gemini-3.1-flash-lite",
+		"gpt-6-luna",
 		"gpt-5.6-terra",
 		"gpt-5.6-luna",
 		"gpt-5.4",
@@ -144,6 +148,7 @@ export const curatedCategoryModelIds: Record<
 		"gpt-5.2-pro",
 		"o4-mini",
 		"claude-opus-4-8",
+		"claude-opus-5-5",
 		"claude-fable-5-1",
 		"claude-fable-5",
 		"gemini-3.1-pro-preview",
@@ -229,7 +234,8 @@ export function isTextOutput(output: string[] | null | undefined): boolean {
 		!output?.includes("image") &&
 		!output?.includes("video") &&
 		!output?.includes("embedding") &&
-		!output?.includes("rerank")
+		!output?.includes("rerank") &&
+		!output?.includes("decision")
 	);
 }
 

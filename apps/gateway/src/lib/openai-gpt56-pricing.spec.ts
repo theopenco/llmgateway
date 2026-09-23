@@ -7,7 +7,7 @@ import {
 	type ProviderModelMapping,
 } from "@llmgateway/models";
 
-// OpenAI GPT-5.6 pricing invariants per
+// OpenAI GPT-5.6 and GPT-6 pricing invariants per
 // https://developers.openai.com/api/docs/pricing and
 // https://developers.openai.com/api/docs/guides/prompt-caching:
 // - cache writes bill at 1.25x the uncached input rate (single 30m TTL)
@@ -34,9 +34,9 @@ function expectRatio(
 	).toBeLessThan(Math.max(expected * 1e-9, 1e-15));
 }
 
-describe("OpenAI GPT-5.6 family pricing", () => {
+describe("OpenAI GPT-5.6 and GPT-6 family pricing", () => {
 	const gpt56Entries = models.flatMap((model) =>
-		model.id.startsWith("gpt-5.6")
+		model.id.startsWith("gpt-5.6") || model.id.startsWith("gpt-6-")
 			? model.providers
 					.filter((provider) => provider.providerId === "openai")
 					.map((provider) => ({
@@ -46,11 +46,14 @@ describe("OpenAI GPT-5.6 family pricing", () => {
 			: [],
 	);
 
-	it("has the three gpt-5.6 mappings to validate", () => {
+	it("has the gpt-5.6 and gpt-6 mappings to validate", () => {
 		expect(gpt56Entries.map((e) => e.modelId).sort()).toEqual([
 			"gpt-5.6-luna",
 			"gpt-5.6-sol",
 			"gpt-5.6-terra",
+			"gpt-6-astra",
+			"gpt-6-luna",
+			"gpt-6-sol",
 		]);
 	});
 

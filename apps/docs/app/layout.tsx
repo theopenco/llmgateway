@@ -4,6 +4,7 @@ import "./global.css";
 import { RootProvider } from "fumadocs-ui/provider/next";
 import { Geist_Mono, Inter } from "next/font/google";
 
+import { TabAnchorHandler } from "@/components/tab-anchor-handler";
 import { docsBaseUrl } from "@/lib/base-url";
 import { ConfigProvider } from "@/lib/context";
 import { PostHogProvider } from "@/lib/providers";
@@ -66,7 +67,10 @@ export default async function Layout({ children }: { children: ReactNode }) {
 				<SystemBannerBar banner={systemBanner} />
 				<ConfigProvider posthogKey={posthogKey} posthogHost={posthogHost}>
 					<PostHogProvider>
-						<RootProvider>{children}</RootProvider>
+						<RootProvider>
+							{children}
+							<TabAnchorHandler />
+						</RootProvider>
 					</PostHogProvider>
 				</ConfigProvider>
 			</body>

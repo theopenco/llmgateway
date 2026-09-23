@@ -27,8 +27,8 @@ Swap your provider imports—your AI SDK code stays the same:
 + });
 
 const { text } = await generateText({
--   model: openai("gpt-5.2"),
-+   model: llmgateway("gpt-5.2"),
+-   model: openai("gpt-6-astra"),
++   model: llmgateway("gpt-6-astra"),
   prompt: "Hello!"
 });
 ```
@@ -95,12 +95,12 @@ import { anthropic } from "@ai-sdk/anthropic";
 import { generateText } from "ai";
 
 const { text: openaiText } = await generateText({
-	model: openai("gpt-4o"),
+	model: openai("gpt-6-astra"),
 	prompt: "Hello!",
 });
 
 const { text: claudeText } = await generateText({
-	model: anthropic("claude-3-5-sonnet-20241022"),
+	model: anthropic("claude-sonnet-5"),
 	prompt: "Hello!",
 });
 
@@ -113,12 +113,12 @@ const llmgateway = createLLMGateway({
 });
 
 const { text: openaiText } = await generateText({
-	model: llmgateway("openai/gpt-4o"),
+	model: llmgateway("openai/gpt-6-astra"),
 	prompt: "Hello!",
 });
 
 const { text: claudeText } = await generateText({
-	model: llmgateway("anthropic/claude-3-5-sonnet-20241022"),
+	model: llmgateway("anthropic/claude-sonnet-5"),
 	prompt: "Hello!",
 });
 ```
@@ -134,7 +134,7 @@ const llmgateway = createLLMGateway({
 });
 
 const { textStream } = await streamText({
-	model: llmgateway("anthropic/claude-3-5-sonnet-20241022"),
+	model: llmgateway("anthropic/claude-sonnet-5"),
 	prompt: "Write a poem about coding",
 });
 
@@ -158,11 +158,11 @@ export async function POST(req: Request) {
 	const { messages } = await req.json();
 
 	const result = await streamText({
-		model: llmgateway("openai/gpt-4o"),
+		model: llmgateway("openai/gpt-6-astra"),
 		messages,
 	});
 
-	return result.toDataStreamResponse();
+	return result.toUIMessageStreamResponse();
 }
 ```
 
@@ -180,7 +180,7 @@ const llmgateway = createOpenAI({
 });
 
 const { text } = await generateText({
-	model: llmgateway("openai/gpt-4o"),
+	model: llmgateway("openai/gpt-6-astra"),
 	prompt: "Hello!",
 });
 ```
@@ -213,28 +213,28 @@ LLM Gateway supports two model ID formats:
 **Canonical Model IDs** (without provider prefix) - Uses smart routing to automatically select the best provider based on uptime, throughput, price, and latency:
 
 ```
-gpt-4o
-claude-3-5-sonnet-20241022
-gemini-1.5-pro
+gpt-6-astra
+claude-sonnet-5
+gemini-3.1-pro-preview
 ```
 
 **Provider-Prefixed Model IDs** - Routes to a specific provider with automatic failover if uptime drops below 90%:
 
 ```
-openai/gpt-4o
-anthropic/claude-3-5-sonnet-20241022
-google-ai-studio/gemini-1.5-pro
+openai/gpt-6-astra
+anthropic/claude-sonnet-5
+google-ai-studio/gemini-3.1-pro-preview
 ```
 
 For more details on routing behavior, see the [routing documentation](/features/routing).
 
 ### Model Mapping Examples
 
-| Vercel AI SDK                             | LLM Gateway                                                                                        |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `openai("gpt-4o")`                        | `llmgateway("gpt-4o")` or `llmgateway("openai/gpt-4o")`                                            |
-| `anthropic("claude-3-5-sonnet-20241022")` | `llmgateway("claude-3-5-sonnet-20241022")` or `llmgateway("anthropic/claude-3-5-sonnet-20241022")` |
-| `google("gemini-1.5-pro")`                | `llmgateway("gemini-1.5-pro")` or `llmgateway("google-ai-studio/gemini-1.5-pro")`                  |
+| Vercel AI SDK                      | LLM Gateway                                                                                       |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `openai("gpt-6-astra")`            | `llmgateway("gpt-6-astra")` or `llmgateway("openai/gpt-6-astra")`                                 |
+| `anthropic("claude-sonnet-5")`     | `llmgateway("claude-sonnet-5")` or `llmgateway("anthropic/claude-sonnet-5")`                      |
+| `google("gemini-3.1-pro-preview")` | `llmgateway("gemini-3.1-pro-preview")` or `llmgateway("google-ai-studio/gemini-3.1-pro-preview")` |
 
 Check the [models page](https://llmgateway.io/models) for the full list of available models.
 
@@ -256,11 +256,11 @@ const llmgateway = createLLMGateway({
 });
 
 const { text, toolResults } = await generateText({
-	model: llmgateway("openai/gpt-4o"),
+	model: llmgateway("openai/gpt-6-astra"),
 	tools: {
 		weather: tool({
 			description: "Get the weather for a location",
-			parameters: z.object({
+			inputSchema: z.object({
 				location: z.string(),
 			}),
 			execute: async ({ location }) => {
@@ -281,10 +281,10 @@ const { text, toolResults } = await generateText({
 If you prefer self-hosting, LLM Gateway is available under AGPLv3:
 
 ```bash
-git clone https://github.com/llmgateway/llmgateway
+git clone https://github.com/theopenco/llmgateway
 cd llmgateway
 pnpm install
-pnpm setup
+pnpm run setup
 pnpm dev
 ```
 

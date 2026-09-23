@@ -4,7 +4,10 @@ appId: io.llmgateway.lounge
 - evalScript: ${output.projectName = "Native knowledge " + Date.now()}
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- tapOn: "Projects"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Projects"
 - tapOn: "Create project"
 - tapOn:
     id: "field-project-name"
@@ -70,13 +73,19 @@ appId: io.llmgateway.lounge
     centerElement: true
 - tapOn: "Start project conversation"
 - runFlow: helpers/chat-model.yaml
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: ${"PROJECT_CONTEXT_PROBE. I prefer concise answers. " + output.projectName}
 - tapOn: "Send message"
 - extendedWaitUntil:
     visible: "Project context verified.*"
     timeout: 30000
-- tapOn: "Project"
+- runFlow: helpers/close-chat-options.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Projects"
+- tapOn: ${"Open " + output.projectName}
 - scrollUntilVisible:
     element: "Prefers concise answers."
     direction: DOWN
@@ -84,7 +93,10 @@ appId: io.llmgateway.lounge
 - assertVisible: "Learned from a conversation"
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Projects"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Projects"
 - tapOn: ${"Open " + output.projectName}
 - assertVisible: "Use metric units."
 - scrollUntilVisible:
@@ -96,17 +108,24 @@ appId: io.llmgateway.lounge
     centerElement: true
 - tapOn: "Start project conversation"
 - runFlow: helpers/chat-model.yaml
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: ${"PROJECT_MEMORY_PROBE " + output.projectName}
 - tapOn: "Send message"
 - extendedWaitUntil:
     visible: "Learned memory verified."
     timeout: 30000
+- runFlow: helpers/chat-options.yaml
 - tapOn: "Rename"
 - eraseText: 200
 - inputText: ${output.projectName}
 - tapOn: "OK"
-- tapOn: "Project"
+- runFlow: helpers/close-chat-options.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Projects"
+- tapOn: ${"Open " + output.projectName}
 - scrollUntilVisible:
     element: "Remove lounge-knowledge.md"
     direction: DOWN
@@ -118,13 +137,19 @@ appId: io.llmgateway.lounge
     direction: DOWN
     centerElement: true
 - tapOn: ${output.projectName}
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: "PROJECT_REMOVED_FILE_PROBE"
 - tapOn: "Send message"
 - extendedWaitUntil:
     visible: "File removal verified; memory retained."
     timeout: 30000
-- tapOn: "Project"
+- runFlow: helpers/close-chat-options.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Projects"
+- tapOn: ${"Open " + output.projectName}
 - scrollUntilVisible:
     element: "Preferred timezone is UTC."
     direction: UP
@@ -141,7 +166,7 @@ appId: io.llmgateway.lounge
 - tapOn: "Delete"
 - assertNotVisible: "Preferred timezone is UTC."
 - assertVisible: "Prefers concise answers."
-- tapOn: "Projects"
+- tapOn: "Back"
 - scrollUntilVisible:
     element: ${"Edit " + output.projectName}
     direction: UP
@@ -164,7 +189,7 @@ appId: io.llmgateway.lounge
     timeout: 15000
 - tapOn: ${"Open " + output.projectName}
 - assertVisible: "Updated native knowledge workspace"
-- tapOn: "Projects"
+- tapOn: "Back"
 - scrollUntilVisible:
     element: "Create project"
     direction: UP
@@ -174,13 +199,17 @@ appId: io.llmgateway.lounge
 - assertNotVisible: ${"Open " + output.projectName}
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Conversations"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
 - tapOn:
     id: "field-search-conversations"
 - inputText: ${output.projectName}
 - tapOn: "Done typing"
 - tapOn: ${output.projectName + ",.*4 messages"}
 - assertNotVisible: '${"Project: " + output.projectName}'
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: "PROJECT_DETACHED_PROBE"
 - tapOn: "Send message"

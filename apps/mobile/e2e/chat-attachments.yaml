@@ -4,7 +4,8 @@ appId: io.llmgateway.lounge
 - evalScript: ${output.chatTitle = "Native attachment " + Date.now()}
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- tapOn: "Start a conversation"
+- tapOn: "New conversation"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Model: Auto"
 - tapOn:
     id: "field-search-models"
@@ -18,6 +19,7 @@ appId: io.llmgateway.lounge
 - tapOn:
     point: "18%,30%"
 - assertVisible: "Remove Lounge-.*"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: ${output.chatTitle}
 - tapOn: "Send message"
@@ -26,7 +28,10 @@ appId: io.llmgateway.lounge
     timeout: 30000
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Conversations"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
 - tapOn:
     id: "field-search-conversations"
 - inputText: ${output.chatTitle}
@@ -37,6 +42,15 @@ appId: io.llmgateway.lounge
     direction: UP
     timeout: 45000
 - assertVisible: "Save Image 1.png"
+- runFlow:
+    when:
+      visible: "Dismiss keyboard"
+    commands:
+      - tapOn: "Dismiss keyboard"
+- scrollUntilVisible:
+    element: "Retry last response"
+    direction: DOWN
+    timeout: 30000
 - tapOn: "Retry last response"
 - extendedWaitUntil:
     visible: "Retry last response"

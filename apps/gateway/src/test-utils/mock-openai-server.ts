@@ -1413,6 +1413,70 @@ mockOpenAIServer.post("/v1/moderations", async (c) => {
 	});
 });
 
+mockOpenAIServer.post("/v1/systemone", async (c) => {
+	const body = await c.req.json();
+	const stateText =
+		typeof body.state === "string" ? body.state : JSON.stringify(body.state);
+
+	const statusTrigger = extractStatusCodeTrigger(stateText);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+	if (stateText.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	// Answers are keyword-driven so tests can assert a specific verdict: a
+	// harmful-looking state scores high on every noul question.
+	const harmful = /harm|kill|attack|threat/i.test(stateText);
+	const answers: Record<string, unknown> = {};
+	for (const [id, question] of Object.entries(
+		(body.questions ?? {}) as Record<string, { type: string; criteria?: any }>,
+	)) {
+		if (question.type === "noul") {
+			answers[id] = { type: "noul", noul: harmful ? 0.97 : 0.01 };
+			continue;
+		}
+		if (question.type === "choice") {
+			const options = Object.keys(question.criteria ?? {});
+			answers[id] = {
+				type: "choice",
+				choice: options[0],
+				confidence: 0.9,
+				probabilities: Object.fromEntries(
+					options.map((option, index) => [option, index === 0 ? 1 : 0]),
+				),
+			};
+			continue;
+		}
+		const levels: unknown[] = Array.isArray(question.criteria)
+			? question.criteria
+			: [];
+		answers[id] = {
+			type: "score",
+			score: levels.length - 1,
+			confidence: 0.9,
+			legend: Object.fromEntries(
+				levels.map((level, index) => [String(index), String(level)]),
+			),
+			probabilities: Object.fromEntries(
+				levels.map((_level, index) => [
+					String(index),
+					index === levels.length - 1 ? 1 : 0,
+				]),
+			),
+		};
+	}
+
+	return c.json({
+		model: body.model === "jev-latest" ? "jev-1.13.0" : body.model,
+		answers,
+		usage: { input_tokens: 441, output_tokens: 69 },
+	});
+});
+
 mockOpenAIServer.post("/v1/ocr", async (c) => {
 	const body = await c.req.json();
 	const document = body.document ?? {};
@@ -1602,6 +1666,36 @@ mockOpenAIServer.post("/v1/text-to-speech/:voiceId", async (c) => {
 	const audio = Buffer.from("MOCK_ELEVENLABS_AUDIO");
 
 	return c.body(audio, 200, { "Content-Type": contentType });
+});
+
+// DeepInfra rerank: POST /v1/inference/{owner}/{model} scores each document
+// against the query and reports the input tokens the gateway bills on.
+mockOpenAIServer.post("/v1/inference/:owner/:model", async (c) => {
+	const body = await c.req.json();
+	const documents: string[] = Array.isArray(body.documents)
+		? body.documents
+		: [];
+	const queries: string[] = Array.isArray(body.queries) ? body.queries : [];
+	const combinedInput = [...queries, ...documents].join(" ");
+
+	const statusTrigger = extractStatusCodeTrigger(combinedInput);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	if (combinedInput.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	return c.json({
+		scores: documents.map((_, index) => {
+			const penalty = index * 0.1;
+			return 1 - penalty;
+		}),
+		input_tokens: combinedInput.length,
+	});
 });
 
 mockOpenAIServer.post("/v1/embeddings", async (c) => {
@@ -2304,6 +2398,76 @@ mockOpenAIServer.post("/api/v1/model/generateVideo", async (c) => {
 		data: {
 			id,
 			status: "created",
+		},
+	});
+});
+
+mockOpenAIServer.post("/v2/video_generation", async (c) => {
+	const body = await c.req.json();
+	const content: Record<string, unknown>[] = Array.isArray(body.content)
+		? body.content
+		: [];
+	const promptItem = content.find((item) => item.type === "text");
+	const prompt = typeof promptItem?.text === "string" ? promptItem.text : "";
+	const statusTrigger = extractStatusCodeTrigger(prompt);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	videoCounter++;
+	const id = `minimax_task_${videoCounter}`;
+	videoJobs.set(id, {
+		id,
+		object: "video",
+		model: typeof body.model === "string" ? body.model : "minimax-video",
+		status: "queued",
+		progress: 0,
+		requestBody: body,
+		duration: typeof body.duration === "number" ? body.duration : undefined,
+		resolution:
+			typeof body.resolution === "string" ? body.resolution : undefined,
+		ratio: typeof body.ratio === "string" ? body.ratio : undefined,
+		created_at: Math.floor(Date.now() / 1000),
+		completed_at: null,
+		expires_at: null,
+		error: null,
+	});
+
+	return c.json({ task_id: id });
+});
+
+mockOpenAIServer.get("/v2/query/video_generation/:id", async (c) => {
+	const id = c.req.param("id");
+	const job = videoJobs.get(id);
+	if (!job) {
+		c.status(400);
+		return c.json({
+			type: "error",
+			error: { type: "bad_request_error", message: "invalid task_id" },
+		});
+	}
+
+	return c.json({
+		task: {
+			id,
+			model: job.model,
+			status:
+				job.status === "completed"
+					? "succeeded"
+					: job.status === "in_progress"
+						? "running"
+						: job.status,
+			...(job.status === "completed"
+				? { content: { url: `${currentMockServerUrl}/mock-assets/${id}` } }
+				: {}),
+			...(job.status === "failed"
+				? { error: { code: "1026", message: job.error?.message } }
+				: {}),
+			resolution: job.resolution,
+			duration: job.duration,
+			ratio: job.ratio,
+			task_type: "generation",
 		},
 	});
 });

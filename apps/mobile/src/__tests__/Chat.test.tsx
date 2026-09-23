@@ -15,6 +15,7 @@ import { streamCompletion } from "@/api/completion";
 import * as loungeCompletion from "@/api/lounge-completion";
 import { rememberProjectExchange } from "@/api/project-memory";
 import { uncertainToolOutcome } from "@/api/tool-parts";
+import { DictationSheet } from "@/components/DictationSheet";
 import { Chat } from "@/screens/Chat";
 
 import type { ToolPart } from "@/api/tool-parts";
@@ -50,6 +51,9 @@ jest.mock("@/lib/preferences", () => ({
 }));
 jest.mock("@/components/ChatSettings", () => ({ ChatSettings: () => null }));
 jest.mock("@/components/ModelPicker", () => ({ ModelPicker: () => null }));
+jest.mock("@/components/DictationSheet", () => ({
+	DictationSheet: jest.fn(() => null),
+}));
 jest.mock("@/lib/files", () => ({ pickFile: jest.fn() }));
 jest.mock("@/lib/export-file", () => ({ exportFile: jest.fn() }));
 jest.useFakeTimers();
@@ -169,8 +173,11 @@ test("requires approval, saves the outcome first, and prevents repeated taps fro
 	const approve = screen.getByRole("button", {
 		name: "Approve Gmail: search messages",
 	});
-	await fireEvent.press(approve);
-	await fireEvent.press(approve);
+	// Deliver both taps before the approval button is replaced on the next render.
+	await act(async () => {
+		await fireEvent.press(approve);
+		await fireEvent.press(approve);
+	});
 	await waitFor(() => expect(events).toEqual(["output-error", "execute"]));
 	expect(generate).not.toHaveBeenCalled();
 	await act(async () => finish?.());
@@ -287,7 +294,7 @@ test("a lost tool result stays consumed locally and can continue without replayi
 		}),
 	);
 });
-async function showChat(chatId?: string) {
+async function showChat(chatId?: string, onVoice?: () => void) {
 	await render(
 		<SafeAreaProvider
 			initialMetrics={{
@@ -301,6 +308,7 @@ async function showChat(chatId?: string) {
 				}
 			>
 				<Chat
+					onVoice={onVoice}
 					chatId={chatId}
 					organizationId="organization"
 					projectId="project"
@@ -392,10 +400,16 @@ test("keeps temporary messages out of persisted history and supports copying and
 	query.mockReturnValue({ data: undefined });
 	await showChat();
 	const user = userEvent.setup();
+	await user.press(
+		screen.getByRole("button", { name: "Conversation options" }),
+	);
 	await fireEvent(
 		screen.getByRole("switch", { name: "Temporary conversation" }),
 		"valueChange",
 		true,
+	);
+	await user.press(
+		screen.getByRole("button", { name: "Close conversation options" }),
 	);
 	await user.type(screen.getByLabelText("Message"), "Temporary question");
 	await user.press(screen.getByRole("button", { name: "Send message" }));
@@ -434,4 +448,37 @@ test("learns project memory only after saving the completed assistant reply", as
 	expect(jest.mocked(client.POST).mock.invocationCallOrder[0]).toBeLessThan(
 		jest.mocked(rememberProjectExchange).mock.invocationCallOrder[0],
 	);
+});
+
+test("adds dictation to the editable draft without sending it", async () => {
+	await showChat();
+	const user = userEvent.setup();
+	await user.type(screen.getByLabelText("Message"), "Draft");
+	await user.press(screen.getByRole("button", { name: "Dictate message" }));
+	const props = jest.mocked(DictationSheet).mock.calls.at(-1)?.[0];
+	expect(props).toBeDefined();
+	await act(() => {
+		props?.onInsert("spoken words");
+		props?.onClose();
+	});
+	expect(screen.getByLabelText("Message")).toHaveDisplayValue(
+		"Draft spoken words",
+	);
+	expect(client.POST).not.toHaveBeenCalled();
+	expect(streamCompletion).not.toHaveBeenCalled();
+});
+
+test("opens voice from an empty composer and switches to send for a draft", async () => {
+	const onVoice = jest.fn();
+	await showChat(undefined, onVoice);
+	const user = userEvent.setup();
+	await user.press(
+		screen.getByRole("button", { name: "Start voice conversation" }),
+	);
+	expect(onVoice).toHaveBeenCalledTimes(1);
+	await user.type(screen.getByLabelText("Message"), "A question");
+	expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
+	expect(
+		screen.queryByRole("button", { name: "Start voice conversation" }),
+	).not.toBeOnTheScreen();
 });

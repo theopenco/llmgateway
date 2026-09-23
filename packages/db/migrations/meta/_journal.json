@@ -1863,6 +1863,41 @@
       "when": 1789736863880,
       "tag": "1789736863_luxuriant_boom_boom",
       "breakpoints": true
+    },
+    {
+      "idx": 266,
+      "version": "8",
+      "when": 1789989655637,
+      "tag": "1789989655_red_penance",
+      "breakpoints": true
+    },
+    {
+      "idx": 267,
+      "version": "8",
+      "when": 1790073237609,
+      "tag": "1790073237_glorious_shatterstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 268,
+      "version": "8",
+      "when": 1790077966458,
+      "tag": "1790077966_small_sentry",
+      "breakpoints": true
+    },
+    {
+      "idx": 269,
+      "version": "8",
+      "when": 1790098279615,
+      "tag": "1790098279_fine_longshot",
+      "breakpoints": true
+    },
+    {
+      "idx": 270,
+      "version": "8",
+      "when": 1790138837807,
+      "tag": "1790138837_sparkling_leech",
+      "breakpoints": true
     }
   ]
 }

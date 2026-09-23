@@ -8,7 +8,7 @@ export {
 
 export default async function CompareAzureAiFoundryOgImage() {
 	return compareOgImage({
-		competitor: "Azure AI Foundry",
+		competitor: "Microsoft Foundry",
 		subtitle:
 			"One key for every provider — no resources, deployments, or quota to provision",
 		Icon: AzureOgIcon,

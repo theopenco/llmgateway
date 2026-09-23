@@ -26,6 +26,7 @@ import {
 	ShieldAlert,
 	ShieldCheck,
 	Sparkles,
+	Wallet,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -88,6 +89,7 @@ const navItems: NavItem[] = [
 		icon: MessageSquare,
 		match: "prefix",
 	},
+	{ href: "/sdk", label: "LLM SDK", icon: Wallet, match: "prefix" },
 	{
 		href: "/global-stats",
 		label: "Global Stats",

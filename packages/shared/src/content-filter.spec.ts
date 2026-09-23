@@ -14,6 +14,8 @@ describe("parseContentFilterSettings", () => {
 			sampleRatePercent: 100,
 			enforce: false,
 			enforceEnterprise: false,
+			classifier: "openai",
+			shadowClassifier: "none",
 		});
 		expect(parseContentFilterSettings(null)).toEqual(
 			DEFAULT_CONTENT_FILTER_SETTINGS,
@@ -34,6 +36,8 @@ describe("parseContentFilterSettings", () => {
 			sampleRatePercent: 10,
 			enforce: false,
 			enforceEnterprise: false,
+			classifier: "openai",
+			shadowClassifier: "none",
 		});
 	});
 

@@ -2,12 +2,13 @@
 id: "blog-stripe-openrouter-acquisition"
 slug: "stripe-openrouter-acquisition"
 date: "2026-08-16"
+updatedAt: "2026-09-20"
 title: "Stripe's OpenRouter Acquisition: What Changes for You"
-summary: "Bloomberg reports Stripe has agreed to buy OpenRouter for more than $7 billion. Neither company has confirmed it. Here's what is actually verified, what it plausibly changes for teams routing production traffic through OpenRouter, and how to check whether you could leave any gateway if you needed to."
+summary: "Stripe and OpenRouter confirmed the deal on August 19, 2026, three days after Bloomberg reported it. Here's what is verified, what OpenRouter says changes for customers (nothing, for now), and how to check whether you could leave any gateway if you needed to."
 categories: ["Guides"]
 faqs:
   - question: "Did Stripe acquire OpenRouter?"
-    answer: "Bloomberg reported on August 16, 2026 that Stripe finalized a deal to acquire OpenRouter for more than $7 billion. The Wall Street Journal had reported talks at around $10 billion on July 23, 2026. Neither Stripe nor OpenRouter has publicly confirmed the deal, and Stripe declined to comment on the report. Treat it as well-sourced reporting, not an announcement."
+    answer: "Yes. Stripe and OpenRouter announced on August 19, 2026 that Stripe has agreed to acquire OpenRouter, subject to customary closing conditions, after Bloomberg reported the deal on August 16 at more than $7 billion (later reports put it at about $7.5 billion). OpenRouter says the name, product, pricing, and roadmap stay the same."
   - question: "What happens to OpenRouter now that Stripe is buying it?"
     answer: "Nobody outside the two companies knows, and no post-close plan has been published. The nearest precedent is Lemon Squeezy, which Stripe acquired in July 2024 and which still operates as a standalone product — though Stripe went on to build Stripe Managed Payments around it. The realistic short-term expectation is that the API keeps working and the pricing model gets revisited on Stripe's timeline, not yours."
   - question: "Should I migrate off OpenRouter because of the acquisition?"
@@ -20,6 +21,8 @@ image:
   width: 1536
   height: 1024
 ---
+
+> **Update, September 20, 2026:** Both companies confirmed the deal on August 19, 2026 — see [Stripe's announcement](https://stripe.com/newsroom/news/stripe-agrees-to-acquire-openrouter) and [OpenRouter's post](https://openrouter.ai/blog/announcements/openrouter-is-joining-stripe/). It is subject to customary closing conditions, which OpenRouter expected to clear "in the coming weeks". OpenRouter's stated position: same name, same product, same pricing, same roadmap, and routing decisions stay neutral. The portability checklist below is unchanged and still worth running.
 
 On August 16, 2026, [Bloomberg reported](https://www.bloomberg.com/news/articles/2026-08-16/stripe-nears-deal-to-buy-ai-firm-openrouter-for-over-7-billion) that Stripe has finalized a deal to acquire OpenRouter for more than $7 billion. The Wall Street Journal had reported talks at roughly $10 billion on July 23, 2026. Stripe [declined to comment](https://techcrunch.com/2026/08/16/stripe-will-reportedly-acquire-ai-gateway-startup-openrouter-for-7b/) on the report, and OpenRouter has not announced anything.
 

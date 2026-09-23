@@ -104,6 +104,7 @@ const migrations = defineCollection({
 		title: z.string(),
 		description: z.string(),
 		date: z.string(),
+		updatedAt: z.string().optional(),
 		fromProvider: z.string(),
 	}),
 });

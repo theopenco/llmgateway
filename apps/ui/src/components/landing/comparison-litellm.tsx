@@ -1,4 +1,3 @@
-"use client";
 import { Check, X } from "lucide-react";
 import Link from "next/link";
 
@@ -33,6 +32,12 @@ const comparisonData = [
 				description: "Guaranteed uptime for managed instances",
 				llmgateway: true,
 				litellm: false,
+			},
+			{
+				title: "Patching & supply-chain upkeep",
+				description: "Who tracks releases, pins versions, and applies fixes",
+				llmgateway: "Managed, or one pinned Docker image",
+				litellm: "You own it",
 			},
 		],
 	},
@@ -78,13 +83,13 @@ const comparisonData = [
 				title: "Team collaboration",
 				description: "Multi-user access with role-based permissions",
 				llmgateway: true,
-				litellm: "Requires custom setup",
+				litellm: "Proxy admin UI (RBAC is Enterprise)",
 			},
 			{
 				title: "Project isolation",
 				description: "Separate projects with individual API keys",
 				llmgateway: true,
-				litellm: "Manual configuration",
+				litellm: "Teams & virtual keys",
 			},
 			{
 				title: "Billing integration",
@@ -102,7 +107,7 @@ const comparisonData = [
 				title: "SSO integration",
 				description: "Enterprise single sign-on support",
 				llmgateway: "Enterprise",
-				litellm: false,
+				litellm: "Enterprise",
 			},
 		],
 	},
@@ -125,7 +130,7 @@ const comparisonData = [
 				title: "API key management",
 				description: "Create and manage multiple API keys",
 				llmgateway: true,
-				litellm: "Basic",
+				litellm: "Virtual keys",
 			},
 			{
 				title: "Request caching",

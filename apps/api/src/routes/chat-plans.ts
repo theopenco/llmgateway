@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { cancelPlanSubscription } from "@/lib/cancel-plan-subscription.js";
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import { getStripeCardErrorMessage } from "@/lib/stripe-card-error.js";
 import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
@@ -173,6 +174,9 @@ const cancel = createRoute({
 				"application/json": {
 					schema: z.object({
 						success: z.boolean(),
+						// True when the subscription was unpaid and ended right away
+						// instead of at period end.
+						immediate: z.boolean(),
 					}),
 				},
 			},
@@ -216,11 +220,8 @@ chatPlans.openapi(cancel, async (c) => {
 	}
 
 	try {
-		await getStripe().subscriptions.update(
+		const { immediate } = await cancelPlanSubscription(
 			personalOrg.chatPlanStripeSubscriptionId,
-			{
-				cancel_at_period_end: true,
-			},
 		);
 
 		await logAuditEvent({
@@ -231,6 +232,7 @@ chatPlans.openapi(cancel, async (c) => {
 			resourceId: personalOrg.chatPlanStripeSubscriptionId,
 			metadata: {
 				tier: personalOrg.chatPlan,
+				immediate,
 			},
 		});
 
@@ -240,6 +242,7 @@ chatPlans.openapi(cancel, async (c) => {
 
 		return c.json({
 			success: true,
+			immediate,
 		});
 	} catch (error) {
 		logger.error(

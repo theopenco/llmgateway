@@ -220,14 +220,16 @@ export default function BillingClient({
 	const handleCancel = async (): Promise<void> => {
 		setIsCancelling(true);
 		try {
-			await cancelMutation.mutateAsync({});
+			const result = await cancelMutation.mutateAsync({});
 			if (posthogKey) {
 				posthog.capture("dev_plan_cancelled");
 			}
 			toast.success("Subscription cancelled", {
-				description: renewWhen
-					? `Your plan will remain active until ${renewWhen}.`
-					: "Your plan will remain active until the end of your billing period.",
+				description: result.immediate
+					? "Your renewal payment had failed, so your plan ended now and no further charges will be attempted."
+					: renewWhen
+						? `Your plan will remain active until ${renewWhen}.`
+						: "Your plan will remain active until the end of your billing period.",
 			});
 		} catch {
 			toast.error("Failed to cancel subscription");

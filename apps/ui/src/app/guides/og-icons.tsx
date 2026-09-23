@@ -327,8 +327,6 @@ export const GitHubCopilotIcon = ({ size = 100 }: OgIconProps) => (
 	</svg>
 );
 
-// Map slugs to their icons
-// Empryo Icon — raster mark, served from the marketing site's public dir.
 export const AnvilOgIcon = ({ size = 100 }: OgIconProps) => (
 	<img
 		src="https://llmgateway.io/integrations/anvil.svg"
@@ -364,6 +362,7 @@ export function getIconForGuide(slug: string) {
 		continue: ContinueIcon,
 		"hermes-agent": HermesIcon,
 		pi: PiIcon,
+		"oh-my-pi": PiIcon,
 		"kimi-code": KimiIcon,
 		mimocode: MimoCodeIcon,
 		"kilo-code": KiloCodeIcon,

@@ -2,62 +2,73 @@
 id: n8n
 slug: n8n
 title: n8n Integration
-description: Power n8n AI workflows with any of 200+ models through LLM Gateway. One OpenAI credential, every provider, full cost visibility per workflow.
-date: 2026-07-03
+date: 2026-09-23
+description: Connect n8n chat workflows to LLM Gateway with an OpenAI Chat Model, then verify a real execution.
 ---
 
-n8n is a workflow automation platform with first-class AI nodes. Point its OpenAI credential at LLM Gateway and every AI Agent, Chat Model, and LLM node in your workflows can use any model from our catalog — GPT-5, Claude, Gemini, DeepSeek, or 200+ others — with one credential and one bill.
+Connect an n8n **OpenAI Chat Model** to LLM Gateway to use an accessible model in an AI workflow. This walkthrough uses a chat trigger and an AI Agent.
 
-![n8n workflow with LLM Gateway](https://docs.llmgateway.io/guides/n8n/overview.png)
+## Video walkthrough
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/fVLlmE87ESM"
+		title="n8n with LLM Gateway walkthrough"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
 
-## Quick Start
+## Create a chat workflow
 
-### 1. Add an OpenAI credential
+1. Add **On chat message** as the first step. The canvas names it **When chat message received**.
+2. Connect it to an **AI Agent** node.
+3. Keep the agent's prompt source connected to the chat trigger. Its message expression is `{{ $json.chatInput }}`.
+4. Click the plus under the agent's **Chat Model** connector and choose **OpenAI Chat Model**.
 
-In n8n, go to **Settings → Credentials → Add Credential → OpenAI** and set:
+For a first connection test, leave memory and external tools disconnected.
 
-- **API Key**: your key from the [LLM Gateway dashboard](/dashboard)
-- **Base URL**: `https://api.llmgateway.io/v1`
-- **Organization ID**: leave blank
+## Add the gateway credential
 
-![n8n credential setup](https://docs.llmgateway.io/guides/n8n/credential-3.png)
+In **OpenAI Chat Model**, click **Connect to OpenAI** or create a new OpenAI credential from the credential selector.
 
-### 2. Wire up an AI Agent node
+| Field           | Value                          |
+| --------------- | ------------------------------ |
+| API Key         | Your LLM Gateway workspace key |
+| Organization ID | Leave blank                    |
+| Base URL        | `https://api.llmgateway.io/v1` |
 
-Add an **AI Agent** node to your workflow and attach a **Chat Model** using the credential you just created.
+Save the credential and select it on the model node. The OpenAI credential selects the API format; the base URL directs requests to LLM Gateway.
 
-![n8n AI Agent node](https://docs.llmgateway.io/guides/n8n/node-1.png)
+Keep the key in n8n's credential store, rather than in a prompt or workflow expression.
 
-**Important:** toggle **off** the Responses API option on the chat model node — n8n's Responses API mode is not supported; LLM Gateway uses the standard chat completions API here.
+## Configure the chat model
 
-![Responses API toggle](https://docs.llmgateway.io/guides/n8n/responses-api.png)
+1. Turn **Use Responses API** off for this Chat Completions walkthrough.
+2. Change the model selector to **By ID** and enter the exact ID from the&nbsp;[live catalogue](https://llmgateway.io/models).
+3. For an agent that calls tools, choose a model with tool support. Set any output token limit within that model's supported range.
 
-### 3. Pick a model and run
+With a&nbsp;[DevPass](https://devpass.llmgateway.io) key, choose a canonical model included in your plan. Upstream provider prefixes pin routing and are not supported on coding plans.
 
-Set the model to any [LLM Gateway model ID](https://llmgateway.io/models) (e.g. `gpt-5`) and execute the workflow with a test prompt.
+## Run and inspect
 
-![n8n test run](https://docs.llmgateway.io/guides/n8n/test.png)
+Return to the canvas, click **Open chat**, and send a short prompt. Check the answer and the execution log for successful **AI Agent** and **OpenAI Chat Model** steps.
 
-## Why this beats a direct provider credential
+The gateway request belongs to the workspace that issued your key. Review its usage in that workspace's dashboard. n8n's execution details help identify which workflow step made the request.
 
-Automation workflows are exactly where gateway routing pays off:
-
-- **Swap models without touching workflows** — change the model ID, keep the credential; or let LLM Gateway's routing pick the best-value provider automatically
-- **Per-workflow cost visibility** — every n8n execution shows up in your [dashboard](/dashboard) with token counts and cost, so you know what each automation actually costs
-- **Failover for unattended runs** — scheduled workflows keep running when a provider has an outage; the gateway retries on a healthy provider
-- **Caching** — workflows that re-process similar inputs hit the cache instead of paying twice
-- **Free and discounted models** — batch or low-stakes steps can run on [free models](https://llmgateway.io/models?view=grid&filters=1&free=true) or [discounted models](https://llmgateway.io/models?view=grid&filters=1&discounted=true)
+Once the connection works, add memory or approved tools as needed. Review permissions before connecting actions that change external systems.
 
 ## Troubleshooting
 
-**Credential test fails** — Verify the base URL is exactly `https://api.llmgateway.io/v1` and the key is valid.
+**Authentication fails:** check the saved credential, active key, and exact base URL, including `/v1`.
 
-**Errors on the chat model node** — Make sure the Responses API toggle is off (see step 2).
+**The model is absent from the picker:** use **By ID** with an accessible model from the live catalogue.
 
-**Model not found** — Use the exact model ID from the [models page](https://llmgateway.io/models); prefix with a provider (e.g. `openai/gpt-5`) to pin routing.
+**The model request fails:** confirm **Use Responses API** is off for this setup, then inspect the failing model step's error and token settings.
 
-Need help? Join our [Discord](https://llmgateway.io/discord).
+**The agent has no prompt:** connect the chat trigger and check the `chatInput` expression.
 
-[Get started for free](/signup) — no credit card required.
+See the official&nbsp;[OpenAI Chat Model reference](https://docs.n8n.io/integrations/builtin/cluster-nodes/sub-nodes/n8n-nodes-langchain.lmchatopenai/) for node options.

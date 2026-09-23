@@ -39,6 +39,7 @@ interface ImageRequestBody {
 		n?: number;
 	};
 	input_images?: { url: string; mediaType: string }[];
+	service_tier?: "default" | "flex";
 }
 
 export async function POST(req: Request) {
@@ -58,6 +59,7 @@ export async function POST(req: Request) {
 		provider,
 		image_config,
 		input_images,
+		service_tier,
 	}: ImageRequestBody = body;
 
 	if (!prompt?.trim()) {
@@ -99,6 +101,16 @@ export async function POST(req: Request) {
 		}
 	}
 
+	// Gateway-specific fields travel as llmgateway provider options, which the
+	// provider spreads into the /images request body.
+	const llmgatewayOptions = {
+		...(image_config?.image_quality && {
+			quality: image_config.image_quality,
+		}),
+		...(image_config?.moderation && { moderation: image_config.moderation }),
+		...(service_tier === "flex" && { service_tier }),
+	};
+
 	let generation: ReturnType<typeof generateImage>;
 	try {
 		generation = generateImage({
@@ -117,19 +129,8 @@ export async function POST(req: Request) {
 			...(image_config?.aspect_ratio && image_config.aspect_ratio !== "auto"
 				? { aspectRatio: image_config.aspect_ratio }
 				: {}),
-			...(image_config?.image_quality || image_config?.moderation
-				? {
-						providerOptions: {
-							llmgateway: {
-								...(image_config.image_quality && {
-									quality: image_config.image_quality,
-								}),
-								...(image_config.moderation && {
-									moderation: image_config.moderation,
-								}),
-							},
-						},
-					}
+			...(Object.keys(llmgatewayOptions).length > 0
+				? { providerOptions: { llmgateway: llmgatewayOptions } }
 				: {}),
 		});
 	} catch (error: unknown) {

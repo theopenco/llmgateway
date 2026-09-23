@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { assertOrganizationNotHighRisk } from "@/lib/account-risk.js";
 import { readApiKeyMask } from "@/lib/api-key-mask.js";
+import { cancelPlanSubscription } from "@/lib/cancel-plan-subscription.js";
 import { assertCreditPurchaseAllowed } from "@/lib/credit-purchase-guard.js";
 import { voidPendingCycleRenewalInvoices } from "@/lib/pending-renewal.js";
 import {
@@ -13,7 +14,7 @@ import {
 	refundFeedbackBodySchema,
 } from "@/lib/self-refund.js";
 import { getStripeCardErrorMessage } from "@/lib/stripe-card-error.js";
-import { forcedThreeDSecureOptions } from "@/lib/three-d-secure.js";
+import { forcedDevPlanThreeDSecureOptions } from "@/lib/three-d-secure.js";
 import {
 	assertTopUpVelocityAllowed,
 	releaseTopUpReservation,
@@ -479,7 +480,7 @@ devPlans.openapi(subscribe, async (c) => {
 			customer: stripeCustomerId,
 			mode: "setup",
 			payment_method_types: ["card"],
-			...(await forcedThreeDSecureOptions()),
+			...(await forcedDevPlanThreeDSecureOptions()),
 			success_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?setup_session_id={CHECKOUT_SESSION_ID}`,
 			cancel_url: `${process.env.CODE_URL ?? "http://localhost:3004"}/dashboard?canceled=true`,
 			metadata: {
@@ -688,6 +689,9 @@ const cancel = createRoute({
 				"application/json": {
 					schema: z.object({
 						success: z.boolean(),
+						// True when the subscription was unpaid and ended right away
+						// instead of at period end.
+						immediate: z.boolean(),
 					}),
 				},
 			},
@@ -732,11 +736,8 @@ devPlans.openapi(cancel, async (c) => {
 	}
 
 	try {
-		await getStripe().subscriptions.update(
+		const { immediate } = await cancelPlanSubscription(
 			personalOrg.devPlanStripeSubscriptionId,
-			{
-				cancel_at_period_end: true,
-			},
 		);
 
 		await logAuditEvent({
@@ -747,6 +748,7 @@ devPlans.openapi(cancel, async (c) => {
 			resourceId: personalOrg.devPlanStripeSubscriptionId,
 			metadata: {
 				tier: personalOrg.devPlan,
+				immediate,
 			},
 		});
 
@@ -757,6 +759,7 @@ devPlans.openapi(cancel, async (c) => {
 
 		return c.json({
 			success: true,
+			immediate,
 		});
 	} catch (error) {
 		logger.error(
@@ -3275,7 +3278,7 @@ devPlans.openapi(createSetupIntent, async (c) => {
 		customer: stripeCustomerId,
 		payment_method_types: ["card"],
 		usage: "off_session",
-		...(await forcedThreeDSecureOptions()),
+		...(await forcedDevPlanThreeDSecureOptions()),
 		metadata: {
 			organizationId: personalOrg.id,
 			subscriptionType: "dev_plan_update",

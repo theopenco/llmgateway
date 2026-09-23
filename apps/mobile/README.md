@@ -2,6 +2,10 @@
 
 Bare React Native app for Lounge by LLM Gateway. Payments remain on the web.
 
+The app opens to chat, with conversations and tools in the sidebar. The composer
+supports attachments, editable dictation, and voice calls. Light and dark themes
+use the same neutral palette.
+
 From the repository root:
 
 ```sh
@@ -28,8 +32,13 @@ maestro test apps/mobile/e2e/account-and-workspaces.yaml
 Run suites sequentially. The Maestro flow needs an app built for the seeded
 local API and clears the simulator's Keychain. Use a dedicated test simulator.
 
-For `e2e/chat.yaml`, build the stack and start the local API, then run these in
-separate terminals with the same isolated environment loaded:
+`e2e/redesign.yaml` covers the chat layout, long drafts, dictation, sidebar, and
+appearance using the mock upstream and gateway described below. With the video
+worker also running, `e2e/video-microphone.yaml` checks video refresh and replay,
+dictation, live transcription, and a Gemini voice call without restarting the app.
+
+For chat and dictation flows, build the stack and start the local API, then run
+these in separate terminals with the same isolated environment loaded:
 
 ```sh
 pnpm --filter mobile test:upstream
@@ -93,7 +102,9 @@ Audio playback uses Audio API with FFmpeg for the studio's encoded formats.
 Its controls import Reanimated and Gesture Handler. The Audio API patch updates
 two C++ calls to Worklets 0.12's `runSync` API.
 
-Verified during development:
+## Previous release validation (1.0)
+
+These results cover the previous release. Rerun affected flows for the redesign.
 
 - Full repository build: 21 workspaces passed.
 - Repository unit suite before the UTC revenue fix: 7,102 passed, 2 skipped,
@@ -230,12 +241,14 @@ format. It also keeps the existing Worklets compatibility fix.
 
 ## Release metadata
 
-`ios/Lounge/PrivacyInfo.xcprivacy` declares account-linked data used by the app.
-Keep it aligned with the account API and saved-content features:
+`ios/Lounge/PrivacyInfo.xcprivacy` covers the app, its account API, and the
+first-party web sign-in flow:
 
 | Data                                    | Collection path                                                                 |
 | --------------------------------------- | ------------------------------------------------------------------------------- |
 | Name, email, user ID                    | Account creation/sign-in, profile, session, and account communications          |
+| Browser device ID                       | PostHog browser identifier in web sign-in, linked when the account signs in     |
+| Coarse location                         | IP-derived country in signup notifications and web sign-in analytics            |
 | Email/message content                   | Approved connector results saved with conversations                             |
 | Photos/video, audio, other user content | Attachments, prompts, documents, generated media, and saved conversations/calls |
 | Gameplay content                        | Saved Escape runs and replays                                                   |
@@ -244,9 +257,14 @@ Keep it aligned with the account API and saved-content features:
 | Performance and diagnostics             | Request duration, time to first token, and error details                        |
 
 These entries are linked to the account and are not used for tracking. Account
-names/emails also cover the service's marketing communications. Identifiers,
-product interactions, and request diagnostics cover analytics. Payments stay on
-the website. Review the
+names/emails cover marketing and analytics; identifiers, country, product
+interactions, and request diagnostics also cover analytics. Browser sign-in uses
+`ASWebAuthenticationSession`; PostHog runs on the website, with no native PostHog
+SDK. Signup-country collection also occurs through the account API.
+
+Billing opens the external website. App Store privacy labels additionally cover
+billing addresses, payment information, and purchase history from that flow.
+Review the
 [privacy policy](https://llmgateway.io/legal/privacy) and Apple's
 [data-use definitions](https://developer.apple.com/documentation/bundleresources/describing-data-use-in-privacy-manifests)
 when changing collection or completing App Store Connect disclosures.
@@ -259,6 +277,8 @@ export documentation. Revisit this before adding France or proprietary crypto.
 ## Delivery checklist
 
 A checkbox requires observed behavior, not just a screen or passing type check.
+Checked items below record the previous 1.0 delivery; unchecked items need
+verification for the redesign.
 
 - [x] Sign-in, secure session restoration, sign-out, signup/reset, account deletion
 - [ ] Chat: streaming, model selection/favorites, search, reasoning, attachments, web search, stop/retry/edit/fork, settings

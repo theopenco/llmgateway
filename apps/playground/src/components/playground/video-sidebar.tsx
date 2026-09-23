@@ -44,7 +44,7 @@ import { Wordmark } from "@/components/ui/wordmark";
 import { useOrganization } from "@/hooks/useOrganization";
 import {
 	useDeleteVideoHistory,
-	useRenameVideoHistory,
+	useUpdateVideoHistory,
 } from "@/hooks/usePlaygroundHistory";
 import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
@@ -399,7 +399,7 @@ export function VideoSidebar({
 		});
 	};
 
-	const renameItem = useRenameVideoHistory();
+	const renameItem = useUpdateVideoHistory();
 	const deleteItem = useDeleteVideoHistory();
 	const [editingId, setEditingId] = useState<string | null>(null);
 	const [editPrompt, setEditPrompt] = useState("");

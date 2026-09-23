@@ -243,16 +243,23 @@ export {
 } from "./onboarding.js";
 
 export {
+	CONTENT_FILTER_CLASSIFIERS,
 	CONTENT_FILTER_SETTING_ID,
 	contentFilterSettingsSchema,
 	DEFAULT_CONTENT_FILTER_SETTINGS,
 	GATEWAY_CONTENT_FILTER_MESSAGE,
 	isContentFilterErrorText,
 	parseContentFilterSettings,
+	type ContentFilterClassifier,
 	type ContentFilterSettings,
 } from "./content-filter.js";
 
 export { FAILURE_LABELS, failureLabel } from "./compliance-failure-labels.js";
+export {
+	ERROR_CLASSIFICATIONS,
+	INCIDENT_BREAKDOWN_DESCRIPTION,
+} from "./error-classification.js";
+export type { ErrorClassification } from "./error-classification.js";
 
 export {
 	MAX_BULK_BLOCK_ORGANIZATIONS,
@@ -451,3 +458,5 @@ export {
 	type SystemBanner,
 	type SystemBannerSeverity,
 } from "./system-banner.js";
+
+export { buildVideoUsage, type VideoUsage } from "./video-usage.js";

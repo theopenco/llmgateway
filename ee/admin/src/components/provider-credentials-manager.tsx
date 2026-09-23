@@ -129,6 +129,7 @@ const NO_MODELS_BY_KIND: Record<ProviderModelKind, string[]> = {
 	ocr: [],
 	embedding: [],
 	video: [],
+	decision: [],
 };
 
 const MODEL_KIND_LABELS: Record<ProviderModelKind, string> = {
@@ -137,6 +138,7 @@ const MODEL_KIND_LABELS: Record<ProviderModelKind, string> = {
 	ocr: "OCR models",
 	embedding: "Embedding models",
 	video: "Video models",
+	decision: "Decision models",
 };
 
 function totalOf(counts: VariantCounts): number {
@@ -720,9 +722,13 @@ export function ProviderCredentialsManager({
 								<TableHead>Region</TableHead>
 								<TableHead>Models</TableHead>
 								<TableHead>Settings</TableHead>
-								<TableHead>Spend</TableHead>
+								<TableHead>
+									<span title="Lifetime attributed spend against the configured cap. The bars below it are daily spend over the last 7 UTC days; hover one for its total.">
+										Spend
+									</span>
+								</TableHead>
 								<TableHead className="whitespace-nowrap">
-									<span title="Share of requests attributed to this credential that failed in the last 24 hours.">
+									<span title="Share of requests attributed to this credential that failed in the last 24 hours. Hover a rate for the per-model split, or the line below it for the daily rate over the last 7 UTC days.">
 										Errors
 									</span>
 								</TableHead>
@@ -909,11 +915,16 @@ export function ProviderCredentialsManager({
 																)}
 															</TableCell>
 															<TableCell className="text-sm">
-																<ProviderKeySpendCell keyRow={credential} />
+																<ProviderKeySpendCell
+																	keyRow={credential}
+																	daily={credential.last7dDaily}
+																/>
 															</TableCell>
 															<TableCell>
 																<ProviderKeyErrorRateCell
+																	providerKeyId={credential.id}
 																	stats={credential.last24h}
+																	daily={credential.last7dDaily}
 																/>
 															</TableCell>
 															<TableCell>

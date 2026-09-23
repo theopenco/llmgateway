@@ -3,7 +3,8 @@ appId: io.llmgateway.lounge
 - evalScript: ${output.chatTitle = "Pinned native model " + Date.now()}
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- tapOn: "Start a conversation"
+- tapOn: "New conversation"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Model: Auto"
 - tapOn:
     id: "field-search-models"
@@ -22,6 +23,7 @@ appId: io.llmgateway.lounge
     direction: DOWN
 - tapOn: "Use OpenAI"
 - assertVisible: "Model: openai/gpt-4o-mini"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: ${output.chatTitle}
 - tapOn: "Send message"
@@ -30,13 +32,17 @@ appId: io.llmgateway.lounge
     timeout: 30000
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Conversations"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
 - tapOn:
     id: "field-search-conversations"
 - inputText: ${output.chatTitle}
 - tapOn: "Done typing"
 - tapOn: ".*openai/gpt-4o-mini, 2 messages"
 - assertVisible: "Model: openai/gpt-4o-mini"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Model: openai/gpt-4o-mini"
 - tapOn:
     id: "field-search-models"

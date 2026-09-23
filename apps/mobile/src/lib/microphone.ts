@@ -1,4 +1,5 @@
 import { AudioManager, AudioRecorder } from "react-native-audio-api";
+import { setAudioSessionManagementDisabled } from "react-native-video";
 
 import {
 	computeRms,
@@ -16,6 +17,8 @@ export interface Microphone {
 	stop: () => Promise<void>;
 }
 
+let microphoneReleased = Promise.resolve();
+
 export function createMicrophone(
 	sampleRate = REALTIME_SAMPLE_RATE,
 	permissionMessage = "Allow microphone access in iOS Settings to transcribe speech.",
@@ -24,18 +27,36 @@ export function createMicrophone(
 	const abort = new AbortController();
 	let recorder: AudioRecorder | undefined;
 	let active = false;
+	let ownsSession = false;
 	let recording = false;
 	let interruption: ReturnType<typeof AudioManager.addSystemEventListener>;
 	let starting: Promise<void> | undefined;
 	let stopping: Promise<void> | undefined;
+	let releaseOwnership: (() => void) | undefined;
 	return {
 		start(onAudio, onError) {
+			if (starting) {
+				return starting;
+			}
+			if (abort.signal.aborted) {
+				return Promise.reject(new Error("The microphone session has ended."));
+			}
+			// A dismissed screen can still be releasing the shared native audio session.
+			const previous = microphoneReleased;
+			microphoneReleased = new Promise((resolve) => {
+				releaseOwnership = resolve;
+			});
 			starting = (async () => {
+				await previous;
+				abort.signal.throwIfAborted();
 				const permission = await AudioManager.requestRecordingPermissions();
 				abort.signal.throwIfAborted();
 				if (permission !== "Granted") {
 					throw new Error(permissionMessage);
 				}
+				// Video's global route observer otherwise switches recording back to playback.
+				ownsSession = true;
+				setAudioSessionManagementDisabled(true);
 				AudioManager.setAudioSessionOptions({
 					iosCategory: "playAndRecord",
 					iosMode: "voiceChat",
@@ -86,7 +107,11 @@ export function createMicrophone(
 				}
 				const result = await recorder.start();
 				if (result.status === "error") {
-					throw new Error(result.message);
+					// eslint-disable-next-line no-console -- Keep native diagnostics out of the recording UI.
+					console.error("Could not start the microphone", result.message);
+					throw new Error(
+						"The microphone could not start. Try again or restart the app.",
+					);
 				}
 				recording = true;
 				abort.signal.throwIfAborted();
@@ -102,6 +127,9 @@ export function createMicrophone(
 				}
 				try {
 					interruption?.remove();
+					if (ownsSession) {
+						AudioManager.observeAudioInterruptions(false);
+					}
 					if (recorder) {
 						recorder.clearOnAudioReady();
 						recorder.clearOnError();
@@ -113,11 +141,18 @@ export function createMicrophone(
 						}
 					}
 				} finally {
-					if (active) {
-						await AudioManager.setAudioSessionActivity(false);
+					try {
+						if (active) {
+							await AudioManager.setAudioSessionActivity(false);
+						}
+					} finally {
+						if (ownsSession) {
+							setAudioSessionManagementDisabled(false);
+							ownsSession = false;
+						}
 					}
 				}
-			})();
+			})().finally(() => releaseOwnership?.());
 			return stopping;
 		},
 	};

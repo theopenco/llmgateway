@@ -41,6 +41,7 @@ import {
 	Volume2,
 	Mic,
 	ListOrdered,
+	SlidersHorizontal,
 	Clock,
 } from "lucide-react";
 import Link from "next/link.js";
@@ -345,6 +346,13 @@ function computeCapabilities(
 			icon: ListOrdered,
 			label: "Rerank",
 			color: "text-amber-500",
+		});
+	}
+	if (model?.output?.includes("decision")) {
+		capabilities.push({
+			icon: SlidersHorizontal,
+			label: "Decisions",
+			color: "text-teal-500",
 		});
 	}
 	if (provider.webSearch) {

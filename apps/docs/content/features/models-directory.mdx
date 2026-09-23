@@ -38,6 +38,7 @@ With an enabled compliance policy (Enterprise), the directory evaluates every pr
 - Blocked mappings render greyed out with a ban icon; its tooltip lists the exact failing requirements (for example "No SOC 2 Type 2 report" or "Not on the allowed-providers list").
 - Custom providers are evaluated against their [compliance attestation](/features/compliance#custom-providers); without one on file they are blocked while a policy is active.
 - An **Eligible only** filter narrows the directory to models the gateway will actually route to.
+- A blocked model can be watched, so the organization hears when a compliant provider starts serving it — see [compliance alerts](/features/compliance#compliance-alerts).
 
 <Callout type="info">
 	The directory mirrors gateway enforcement — the same predicates decide both

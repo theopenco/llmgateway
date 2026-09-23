@@ -1,19 +1,19 @@
 appId: io.llmgateway.lounge
 ---
-- scrollUntilVisible:
-    element: "Start a conversation"
-    direction: UP
-    timeout: 45000
-    waitToSettleTimeoutMs: 500
+- runFlow: open-sidebar.yaml
 - runFlow:
     when:
-      notVisible: "Current workspace: Test Organization"
+      notVisible: ".*Current workspace: Test Organization"
     commands:
+      - tapOn: "Switch workspace.*"
       - scrollUntilVisible:
-          element: "Switch workspace"
+          element: "Use Test Organization"
           direction: DOWN
-          timeout: 45000
-          waitToSettleTimeoutMs: 500
-      - tapOn: "Switch workspace"
+          timeout: 15000
       - tapOn: "Use Test Organization"
-- assertVisible: "Start a conversation"
+- runFlow:
+    when:
+      visible: "Close sidebar"
+    commands:
+      - tapOn: "Close sidebar"
+- assertVisible: "New conversation"

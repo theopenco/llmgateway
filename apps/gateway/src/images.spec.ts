@@ -193,6 +193,13 @@ describe("image generation upstream streaming", () => {
 		expect(log.hasError).toBe(false);
 		expect(Number(log.promptTokens)).toBe(usage.input_tokens);
 		expect(Number(log.completionTokens)).toBe(usage.output_tokens);
+		expect(json.usage).toMatchObject({
+			input_tokens: usage.input_tokens,
+			output_tokens: usage.output_tokens,
+			output_tokens_details: { image_tokens: 400, text_tokens: 0 },
+		});
+		expect(json.usage.cost).toBeGreaterThan(0);
+		expect(json.usage.cost).toBeCloseTo(Number(log.cost), 6);
 	}
 
 	describe.each(["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"])(
@@ -366,6 +373,127 @@ describe("image generation upstream streaming", () => {
 					partialImages: n > 1 ? undefined : endpoint === "edits" ? "1" : 1,
 				});
 			}
+		});
+	});
+});
+
+describe("image service tiers", () => {
+	const harness = createGatewayApiTestHarness();
+	const upstreamBodies: Array<Record<string, unknown>> = [];
+
+	beforeEach(async () => {
+		upstreamBodies.length = 0;
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("test-token"),
+			projectId: "project-id",
+			createdBy: "user-id",
+			description: "Test API Key",
+		});
+		for (const provider of ["openai", "google-ai-studio"]) {
+			const id = `provider-key-${provider}`;
+			await db.insert(tables.providerKey).values({
+				id,
+				...encryptProviderKeyForStorage("test-token", id, "org-id"),
+				provider,
+				organizationId: "org-id",
+				baseUrl: harness.mockServerUrl,
+			});
+		}
+
+		const originalFetch = globalThis.fetch;
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const url = new URL(
+				typeof input === "string" || input instanceof URL ? input : input.url,
+			);
+			if (!url.href.startsWith(harness.mockServerUrl)) {
+				return await originalFetch(input, init);
+			}
+			upstreamBodies.push(JSON.parse(String(init?.body)));
+			return Response.json(
+				{
+					candidates: [
+						{
+							content: {
+								parts: [
+									{
+										inlineData: {
+											mimeType: "image/png",
+											data: Buffer.from("image").toString("base64"),
+										},
+									},
+								],
+								role: "model",
+							},
+							finishReason: "STOP",
+							index: 0,
+						},
+					],
+					usageMetadata: {
+						promptTokenCount: 10,
+						candidatesTokenCount: 1120,
+						totalTokenCount: 1130,
+					},
+				},
+				{ headers: { "x-gemini-service-tier": "flex" } },
+			);
+		});
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	describe.each(["generations", "edits"])("%s", (endpoint) => {
+		const requestImages = (
+			model: string,
+			service_tier: string,
+			requestId = randomUUID(),
+		) =>
+			app.request(`/v1/images/${endpoint}`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer test-token",
+					"x-request-id": requestId,
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model,
+					prompt: "A blue circle",
+					service_tier,
+					...(endpoint === "edits" && {
+						images: [{ image_url: inputImage }],
+					}),
+				}),
+			});
+
+		test("forwards flex to Google AI Studio", async () => {
+			const requestId = randomUUID();
+			const res = await requestImages(
+				"google-ai-studio/gemini-3-pro-image",
+				"flex",
+				requestId,
+			);
+			const json = await res.json();
+			expect(res.status, JSON.stringify(json)).toBe(200);
+			expect(json.data).toHaveLength(1);
+			expect(upstreamBodies).toHaveLength(1);
+			expect(upstreamBodies[0].service_tier).toBe("flex");
+			const log = await waitForLogByRequestId(requestId);
+			expect(log.hasError).toBe(false);
+			expect(log.requestedServiceTier).toBe("flex");
+			expect(log.usedServiceTier).toBe("flex");
+		});
+
+		test("rejects a tier the pinned mapping does not offer", async () => {
+			const res = await requestImages("openai/gpt-image-2", "flex");
+			const json = await res.json();
+			expect(res.status).toBe(400);
+			expect(JSON.stringify(json)).toContain(
+				"Service tier 'flex' is not available for model openai/gpt-image-2",
+			);
+			expect(upstreamBodies).toHaveLength(0);
 		});
 	});
 });
