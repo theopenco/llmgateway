@@ -168,6 +168,10 @@ const CAPABILITIES = [
 	{ key: "webSearch", label: "Web search" },
 ] as const;
 
+const CAPABILITY_LABELS = new Map<string, string>(
+	CAPABILITIES.map((capability) => [capability.key, capability.label]),
+);
+
 type Verification = NonNullable<AirsideModel["latestVerification"]>;
 
 function VerificationResults({ verification }: { verification: Verification }) {
@@ -217,6 +221,21 @@ function VerificationResults({ verification }: { verification: Verification }) {
 			</ul>
 			{verification.summary ? (
 				<p className="text-muted-foreground text-xs">{verification.summary}</p>
+			) : null}
+			{verification.demotedCapabilities?.length ? (
+				<p
+					className="text-destructive text-xs"
+					data-testid="verification-demoted"
+				>
+					Dropped from this listing:{" "}
+					{verification.demotedCapabilities
+						.map(
+							(capability) => CAPABILITY_LABELS.get(capability) ?? capability,
+						)
+						.join(", ")}
+					. Fix the endpoint, switch the capability back on, and verify again —
+					until then it is not checked and not routed to.
+				</p>
 			) : null}
 		</div>
 	);
@@ -1225,6 +1244,9 @@ export function VerifyModelDialog({
 						Run the declared capabilities against the upstream model. Checks run
 						in the background, and a failed one drops the capability it
 						disproved from the listing.
+						{model.pendingFiling?.kind === "metadata"
+							? " Capabilities awaiting review are included, so a filed change is verified before it goes live."
+							: ""}
 					</DialogDescription>
 				</DialogHeader>
 				<div className="space-y-4">

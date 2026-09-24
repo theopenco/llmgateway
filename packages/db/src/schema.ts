@@ -5076,6 +5076,9 @@ export const providerModelVerification = pgTable(
 			.notNull()
 			.default("supplied"),
 		summary: text(),
+		// Listing capabilities this run's failed checks cleared, so the carrier
+		// is told what the failure dropped instead of finding a toggle off.
+		demotedCapabilities: jsonb().$type<string[]>(),
 		attempts: integer().notNull().default(0),
 		startedAt: timestamp(),
 		completedAt: timestamp(),

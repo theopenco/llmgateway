@@ -36,7 +36,9 @@ Each listing also picks the **upstream API** the gateway speaks to it: the carri
 
 Before a listing can be filed, Airside runs a **preflight** against your endpoint through that API: one check per declared capability. You supply a provider API key that can call the model, saved as this carrier's **test key** under Settings so later runs — yours and ours — reuse it. Use a key separate from the one behind your live integration: preflight traffic is billed by your own platform and is not tracked in LLMGateway usage or billing. You can replace or remove it at any time. Editing the model invalidates the run, so a listing never ships with checks made against different settings.
 
-Re-verifying a live listing has teeth: every capability a check disproves is switched off on the listing (and on the mapping that serves it), so routing stops sending it traffic it just failed. A failed check on reasoning also clears the reasoning budget and effort tiers. The listing keeps serving on what still works, and Fleet marks it **In service · unverified** until a run passes again.
+Re-verifying a live listing has teeth: every capability a check disproves is switched off on the listing (and on the mapping that serves it), so routing stops sending it traffic it just failed. A failed check on reasoning also clears the reasoning budget and effort tiers. The run names what it dropped, so a capability never goes quiet on you — fix the endpoint, switch it back on, and verify again. The listing keeps serving on what still works, and Fleet marks it **In service · unverified** until a run passes again.
+
+A capability you have edited on a live listing lives in a filing until we approve it, and preflight verifies **that** shape rather than the one currently serving — otherwise a run would pass without ever exercising the capability you are trying to prove. If a check disproves it, the capability drops out of the filing too.
 
 ## Price filings
 
