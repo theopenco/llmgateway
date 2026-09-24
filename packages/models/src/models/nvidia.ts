@@ -12,6 +12,9 @@ export const nvidiaModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "nvidia/NVIDIA-Nemotron-3.5-Lightning",
+				// Forced tool choice loops until max_tokens, and with tool choice
+				// coerced to auto the model skips the call outright ~40% of the time.
+				deactivatedAt: new Date("2026-09-23"),
 				inputPrice: "0.08e-6",
 				outputPrice: "0.2e-6",
 				requestPrice: "0",

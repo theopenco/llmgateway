@@ -4693,6 +4693,15 @@ export async function prepareRequestBody(
 		}
 	}
 
+	// BytePlus only caches a prompt prefix when the request opts in; without the
+	// flag it always reports zero cached tokens, whatever the prompt length.
+	if (
+		usedProvider === "bytedance" &&
+		providerMappingForOptions?.cachedInputPrice
+	) {
+		requestBody.caching = { type: "enabled" };
+	}
+
 	// vLLM chat-template thinking flags are handled after the provider switch so
 	// every provider branch (not just the OpenAI-compatible default) applies them
 	// uniformly. Hybrid models that keep thinking off by default (e.g. DeepSeek

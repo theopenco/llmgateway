@@ -97,6 +97,10 @@ export const zaiModels = [
 			{
 				providerId: "together-ai",
 				externalId: "zai-org/GLM-5.3-Flash",
+				// Thinking cannot be disabled on this deployment, so a small
+				// max_tokens budget is spent entirely on reasoning and the
+				// response carries no content.
+				deactivatedAt: new Date("2026-09-23"),
 				inputPrice: "0.15e-6",
 				cachedInputPrice: "0.03e-6",
 				outputPrice: "0.5e-6",
@@ -265,6 +269,9 @@ export const zaiModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "zai-org/GLM-5.3",
+				// Unreliable: repeated 60s stalls across chat, tool and caching
+				// cases, and 429 engine_overloaded bursts.
+				deactivatedAt: new Date("2026-09-23"),
 				inputPrice: "1.2e-6",
 				cachedInputPrice: "0.2e-6",
 				outputPrice: "4e-6",
@@ -275,7 +282,8 @@ export const zaiModels = [
 				maxTemperature: 1,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["none", "low", "high", "max"],
+				// low intermittently returns tool calls with no reasoning text.
+				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -285,6 +293,10 @@ export const zaiModels = [
 			{
 				providerId: "together-ai",
 				externalId: "zai-org/GLM-5.3",
+				// Thinking cannot be disabled on this deployment, so a small
+				// max_tokens budget is spent entirely on reasoning and the
+				// response carries no content.
+				deactivatedAt: new Date("2026-09-23"),
 				inputPrice: "1.4e-6",
 				cachedInputPrice: "0.26e-6",
 				outputPrice: "4.4e-6",
