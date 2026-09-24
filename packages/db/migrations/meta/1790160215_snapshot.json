@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "9cfc9183-72d8-4607-8f78-e51e97db526e",
+  "id": "6052ed4a-b61c-4944-83c8-934d661976e6",
   "prevId": "e3a3904d-4604-4968-81c1-77b3c0027d85",
   "ddl": [
     {
@@ -16682,19 +16682,6 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "auto_routing_config",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "json",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
       "name": "compliance_alert_settings",
       "entityType": "columns",
       "schema": "public",
@@ -16844,6 +16831,22 @@
       "generated": null,
       "identity": null,
       "name": "payment_failure_started_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'current'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "subscription_payment_status",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
@@ -17059,35 +17062,6 @@
       "generated": null,
       "identity": null,
       "name": "dev_plan_included_reset_passes_used",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "false",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "dev_plan_credits_frozen",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "dev_plan_credits_limit_before_freeze",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
@@ -19808,19 +19782,6 @@
       "generated": null,
       "identity": null,
       "name": "allowed_origins",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project"
-    },
-    {
-      "type": "json",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "auto_routing_config",
       "entityType": "columns",
       "schema": "public",
       "table": "project"
