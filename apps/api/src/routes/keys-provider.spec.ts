@@ -7,7 +7,7 @@ import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { decryptProviderKey, validateProviderKey } from "@llmgateway/actions";
 import {
 	redisClient,
-	SWR_PREFIX,
+	swrMirrorKey,
 	swrWrap,
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
@@ -1071,7 +1071,7 @@ describe("provider keys route", () => {
 		// Prime both cache layers with the "no key" result.
 		expect(await readActiveProviderKeys(orgId, "anthropic")).toHaveLength(0);
 		expect(
-			await redisClient.get(SWR_PREFIX + `providerKey:${orgId}:anthropic`),
+			await redisClient.get(swrMirrorKey(`providerKey:${orgId}:anthropic`)),
 		).not.toBeNull();
 
 		const res = await app.request("/keys/provider", {
@@ -1090,7 +1090,7 @@ describe("provider keys route", () => {
 
 		// The SWR mirror for the provider_key table must be gone...
 		expect(
-			await redisClient.get(SWR_PREFIX + `providerKey:${orgId}:anthropic`),
+			await redisClient.get(swrMirrorKey(`providerKey:${orgId}:anthropic`)),
 		).toBeNull();
 		// ...and the cached select must serve the new key, not the stale miss.
 		expect(await readActiveProviderKeys(orgId, "anthropic")).toHaveLength(1);
@@ -1112,7 +1112,7 @@ describe("provider keys route", () => {
 		// Prime both cache layers with the key still active.
 		expect(await readActiveProviderKeys(orgId, "openai")).toHaveLength(1);
 		expect(
-			await redisClient.get(SWR_PREFIX + `providerKey:${orgId}:openai`),
+			await redisClient.get(swrMirrorKey(`providerKey:${orgId}:openai`)),
 		).not.toBeNull();
 
 		const res = await app.request(`/keys/provider/${orgId}-provider-key`, {
@@ -1129,7 +1129,7 @@ describe("provider keys route", () => {
 
 		// The SWR mirror for the provider_key table must be gone...
 		expect(
-			await redisClient.get(SWR_PREFIX + `providerKey:${orgId}:openai`),
+			await redisClient.get(swrMirrorKey(`providerKey:${orgId}:openai`)),
 		).toBeNull();
 		// ...and the cached select must reflect the deactivation immediately.
 		expect(await readActiveProviderKeys(orgId, "openai")).toHaveLength(0);
