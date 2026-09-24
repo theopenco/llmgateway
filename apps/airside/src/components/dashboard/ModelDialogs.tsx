@@ -69,7 +69,7 @@ function useSavedVerificationKey(
 function VerificationKeyHint({ savedKey }: { savedKey: string | null }) {
 	return savedKey ? (
 		<>
-			Leave blank to use the test key saved in{" "}
+			Leave blank to use the encrypted test key saved in{" "}
 			<Link href="/dashboard/settings" className="underline">
 				settings
 			</Link>{" "}
@@ -78,10 +78,14 @@ function VerificationKeyHint({ savedKey }: { savedKey: string | null }) {
 		</>
 	) : (
 		<>
-			The preflight calls your endpoint with this key, and we save it as this
-			carrier's test key for later runs. Use a key separate from your live
-			integration — this traffic is billed by your own platform and is not
-			tracked in LLMGateway usage or billing.
+			The preflight calls your endpoint with this key. We store it encrypted as
+			this carrier's test key so later runs reuse it — replace or remove it any
+			time in{" "}
+			<Link href="/dashboard/settings" className="underline">
+				settings
+			</Link>
+			. Use a key separate from your live integration: this traffic is billed by
+			your own platform and is not tracked in LLMGateway usage or billing.
 		</>
 	);
 }

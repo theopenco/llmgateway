@@ -79,10 +79,11 @@ function VerificationKeyCard({ claim }: { claim: Claim }) {
 				</CardTitle>
 				<CardDescription>
 					Used only by preflight and verification runs — the ones you start in
-					Fleet, and the ones LLMGateway runs against your listings. Use a key
-					separate from the one behind your live LLMGateway integration: this
-					traffic is billed to you by your own platform and is not tracked in
-					LLMGateway usage or billing.
+					Fleet, and the ones LLMGateway runs against your listings. Stored
+					encrypted and only ever shown back to you masked. Use a key separate
+					from the one behind your live LLMGateway integration: this traffic is
+					billed to you by your own platform and is not tracked in LLMGateway
+					usage or billing.
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-3">

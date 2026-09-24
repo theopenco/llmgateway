@@ -62,12 +62,12 @@ export default function ListingGuide() {
 				</p>
 				<p className="mt-3">
 					Paste a provider API key that can call this model and run preflight
-					verification. We save it as this carrier's test key, so later runs
-					reuse it — change or remove it under Settings at any time. Use a key
-					separate from the one behind your live integration: preflight traffic
-					is billed by your own platform and is not tracked in LLMGateway usage
-					or billing. Resolve failed checks before submitting the model.
-					Changing the verified mapping requires a new verification.
+					verification. We store it encrypted as this carrier's test key, so
+					later runs reuse it — change or remove it under Settings at any time.
+					Use a key separate from the one behind your live integration:
+					preflight traffic is billed by your own platform and is not tracked in
+					LLMGateway usage or billing. Resolve failed checks before submitting
+					the model. Changing the verified mapping requires a new verification.
 				</p>
 			</section>
 			<section>
