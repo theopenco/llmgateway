@@ -10,6 +10,7 @@ const { warn, error, setexMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@llmgateway/cache", () => ({
+	setSwrSchemaVersion: vi.fn(),
 	redisClient: {
 		get: vi.fn(),
 		// The caller chains .catch() on this, so it must be thenable.

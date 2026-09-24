@@ -14,6 +14,7 @@ const { setexMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@llmgateway/cache", () => ({
+	setSwrSchemaVersion: vi.fn(),
 	redisClient: {
 		setex: setexMock,
 	},
@@ -548,6 +549,53 @@ describe("transformResponseToOpenai", () => {
 
 		expect(response.choices[0].message.content).toBe("variant 1");
 		expect(response.choices[1].message.content).toBe("variant 2");
+	});
+
+	test("emits null content when the upstream omits the key", () => {
+		const json = {
+			id: "chatcmpl-truncated",
+			object: "chat.completion",
+			created: 1,
+			model: "zai-org/GLM-5.3-Flash",
+			choices: [
+				{
+					index: 0,
+					// Together drops `content` entirely when the whole max_tokens
+					// budget is spent on reasoning.
+					message: { role: "assistant", reasoning_content: "thinking..." },
+					finish_reason: "length",
+				},
+			],
+			usage: { prompt_tokens: 10, completion_tokens: 100, total_tokens: 110 },
+		};
+
+		const response = transformResponseToOpenai(
+			"together-ai",
+			"zai-org/GLM-5.3-Flash",
+			json,
+			null,
+			"thinking...",
+			"length",
+			10,
+			100,
+			110,
+			null,
+			null,
+			null,
+			[],
+			"glm-5.3-flash",
+			"together-ai",
+			"glm-5.3-flash",
+			null,
+			false,
+			null,
+			null,
+			"req_together_truncated",
+		);
+
+		expect(response.choices[0].message).toHaveProperty("content", null);
+		expect(response.choices[0].message.reasoning).toBe("thinking...");
+		expect(response.choices[0].finish_reason).toBe("length");
 	});
 
 	test("writes normalized xAI token counts to the response", () => {

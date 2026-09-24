@@ -3,11 +3,14 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import {
+	activeProviderClaim,
 	buildVerificationTarget,
 	enqueueModelVerification,
 	modelVerificationSchema,
+	pendingFiledCapabilities,
+	resolveVerificationCredential,
 	serializeVerification,
-	verificationCredentialSource,
+	type CapabilityOverrides,
 	type ModelVerificationRow,
 } from "@/lib/model-verification.js";
 import { adminMiddleware } from "@/middleware/admin.js";
@@ -94,8 +97,11 @@ function mappingTarget(mapping: MappingRow): ProviderModelVerificationTarget {
 	});
 }
 
+/** Capabilities awaiting review are part of what the listing claims, so an
+ *  admin spot-check before approving a filing exercises them too. */
 function draftModelTarget(
 	model: DraftModelRow,
+	filed: CapabilityOverrides,
 ): ProviderModelVerificationTarget {
 	return buildVerificationTarget({
 		providerId: model.providerId,
@@ -113,6 +119,7 @@ function draftModelTarget(
 		reasoningMaxTokens: model.reasoningMaxTokens,
 		reasoningEfforts: model.reasoningEfforts,
 		webSearch: model.webSearch,
+		...filed,
 	});
 }
 
@@ -123,7 +130,7 @@ const verificationEntrySchema = z.object({
 	modelName: z.string(),
 	region: z.string().nullable(),
 	initiatedBy: z.enum(["carrier", "admin"]),
-	credentialSource: z.enum(["supplied", "managed", "environment"]),
+	credentialSource: z.enum(["supplied", "carrier", "managed", "environment"]),
 	verification: modelVerificationSchema,
 });
 
@@ -201,11 +208,17 @@ adminModelVerifications.openapi(queueVerification, async (c) => {
 				message: "Delisted mappings cannot be verified.",
 			});
 		}
-		target = draftModelTarget(model);
+		target = draftModelTarget(model, await pendingFiledCapabilities(model.id));
 		providerCompanyId = model.providerCompanyId;
 	}
 
-	const credentialSource = await verificationCredentialSource(target, apiKey);
+	// A carrier-claimed provider runs on the carrier's own credential, so our
+	// managed keys never pay for testing a listing we do not bill for.
+	const credential = await resolveVerificationCredential(
+		target,
+		apiKey,
+		await activeProviderClaim(target.providerId),
+	);
 	let verification: ModelVerificationRow;
 	try {
 		verification = await enqueueModelVerification({
@@ -214,9 +227,9 @@ adminModelVerifications.openapi(queueVerification, async (c) => {
 			draftModelId: draftModelId ?? null,
 			modelProviderMappingId: mappingId ?? null,
 			target,
-			apiKey,
+			apiKey: credential.apiKey,
 			requestedBy: user?.id ?? null,
-			credentialSource,
+			credentialSource: credential.credentialSource,
 		});
 	} catch (error) {
 		if (isUniqueViolation(error)) {

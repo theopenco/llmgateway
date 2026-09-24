@@ -1040,3 +1040,33 @@ export function decryptModelVerificationCredential(
 		verificationCredentialScope(providerCompanyId),
 	);
 }
+
+// The carrier's saved verification key lives on the claim, so it is scoped to
+// the claim row rather than to a single run.
+function claimVerificationKeyRowId(claimId: string): string {
+	return `provider-claim:${claimId}`;
+}
+
+export function encryptClaimVerificationKey(
+	plaintext: string,
+	claimId: string,
+	providerCompanyId: string,
+): string {
+	return encryptProviderKey(
+		plaintext,
+		claimVerificationKeyRowId(claimId),
+		verificationCredentialScope(providerCompanyId),
+	);
+}
+
+export function decryptClaimVerificationKey(
+	ciphertext: string,
+	claimId: string,
+	providerCompanyId: string,
+): string {
+	return decryptProviderKey(
+		ciphertext,
+		claimVerificationKeyRowId(claimId),
+		verificationCredentialScope(providerCompanyId),
+	);
+}

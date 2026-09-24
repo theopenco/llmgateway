@@ -106,6 +106,7 @@ export const zaiModels = [
 				maxTemperature: 1,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["low", "high", "max"],
 				vision: true,
 				tools: true,
 				jsonOutput: true,
@@ -265,6 +266,9 @@ export const zaiModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "zai-org/GLM-5.3",
+				// Unreliable: repeated 60s stalls across chat, tool and caching
+				// cases, and 429 engine_overloaded bursts.
+				deactivatedAt: new Date("2026-09-23"),
 				inputPrice: "1.2e-6",
 				cachedInputPrice: "0.2e-6",
 				outputPrice: "4e-6",
@@ -275,7 +279,8 @@ export const zaiModels = [
 				maxTemperature: 1,
 				streaming: true,
 				reasoning: true,
-				reasoningEfforts: ["none", "low", "high", "max"],
+				// low intermittently returns tool calls with no reasoning text.
+				reasoningEfforts: ["none", "high", "max"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,
@@ -294,6 +299,7 @@ export const zaiModels = [
 				maxTemperature: 1,
 				streaming: true,
 				reasoning: true,
+				reasoningEfforts: ["low", "high", "max"],
 				vision: false,
 				tools: true,
 				jsonOutput: true,

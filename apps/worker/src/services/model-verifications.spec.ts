@@ -14,6 +14,7 @@ import {
 } from "./model-verifications.js";
 
 import type {
+	AirsideModelMetadataChanges,
 	ProviderModelVerificationCheck,
 	ProviderModelVerificationTarget,
 } from "@llmgateway/db";
@@ -62,7 +63,7 @@ afterEach(async () => {
 
 async function enqueueVerification(
 	options: {
-		credentialSource?: "supplied" | "managed";
+		credentialSource?: "supplied" | "carrier" | "managed";
 		allowedModels?: string[];
 	} = {},
 ) {
@@ -134,13 +135,13 @@ async function enqueueVerification(
 		checks,
 		credentialSource,
 		credentialCiphertext:
-			credentialSource === "supplied"
-				? encryptModelVerificationCredential(
+			credentialSource === "managed"
+				? null
+				: encryptModelVerificationCredential(
 						"single-use-provider-key",
 						verificationId,
 						companyId,
-					)
-				: null,
+					),
 	});
 	return verificationId;
 }
@@ -154,8 +155,12 @@ async function seedActiveListing(
 		reasoning?: boolean;
 		reasoningMaxTokens?: boolean;
 		reasoningEfforts?: string[];
+		pendingMetadata?: AirsideModelMetadataChanges;
+		targetReasoningEfforts?: string[] | null;
 	} = {},
 ) {
+	const { pendingMetadata, targetReasoningEfforts, ...listingOverrides } =
+		overrides;
 	const suffix = randomUUID();
 	const userId = `verification-user-${suffix}`;
 	const companyId = `verification-company-${suffix}`;
@@ -190,7 +195,7 @@ async function seedActiveListing(
 		reasoning: true,
 		reasoningMaxTokens: true,
 		reasoningEfforts: ["low", "high"],
-		...overrides,
+		...listingOverrides,
 	};
 	const [draftModel] = await db
 		.insert(tables.providerDraftModel)
@@ -220,6 +225,17 @@ async function seedActiveListing(
 		source: "airside",
 		...listingValues,
 	});
+	if (pendingMetadata) {
+		await db.insert(tables.providerPriceFiling).values({
+			draftModelId: draftModel.id,
+			providerCompanyId: companyId,
+			kind: "metadata",
+			inputPrice: "2e-6",
+			outputPrice: "6e-6",
+			metadata: pendingMetadata,
+			requestedBy: userId,
+		});
+	}
 	process.env.GATEWAY_API_KEY_HASH_SECRET = "model-verification-test-secret";
 	await db.insert(tables.providerModelVerification).values({
 		id: verificationId,
@@ -238,7 +254,10 @@ async function seedActiveListing(
 			jsonOutputSchema: false,
 			reasoning: true,
 			reasoningMaxTokens: true,
-			reasoningEfforts: ["low", "high"],
+			reasoningEfforts:
+				targetReasoningEfforts === undefined
+					? ["low", "high"]
+					: targetReasoningEfforts,
 			webSearch: false,
 		},
 		checks: [{ id: "basic", label: "Basic completion", status: "queued" }],
@@ -249,10 +268,28 @@ async function seedActiveListing(
 			companyId,
 		),
 	});
-	return { draftModelId: draftModel.id, modelName, providerId };
+	return { draftModelId: draftModel.id, modelName, providerId, verificationId };
 }
 
 describe("model verification worker", () => {
+	it("runs a carrier-stored credential off the run's own copy", async () => {
+		const verificationId = await enqueueVerification({
+			credentialSource: "carrier",
+		});
+		let seenToken: string | undefined;
+		const processed = await processNextModelVerification(async (options) => {
+			seenToken = options.token;
+			return { passed: true, checks: [], summary: "ok" };
+		});
+
+		expect(processed).toBe(true);
+		expect(seenToken).toBe("single-use-provider-key");
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: verificationId } },
+		});
+		expect(stored?.credentialCiphertext).toBeNull();
+	});
+
 	it("claims a queued check, persists feedback, and erases its credential", async () => {
 		const verificationId = await enqueueVerification();
 		const processed = await processNextModelVerification(async (options) => {
@@ -378,7 +415,8 @@ describe("model verification worker", () => {
 	});
 
 	it("drops the capabilities a failed re-verification disproved", async () => {
-		const { draftModelId, modelName, providerId } = await seedActiveListing();
+		const { draftModelId, modelName, providerId, verificationId } =
+			await seedActiveListing();
 		await processNextModelVerification(async () => ({
 			passed: false,
 			checks: [
@@ -428,6 +466,109 @@ describe("model verification worker", () => {
 			reasoningMaxTokens: false,
 			reasoningEfforts: null,
 		});
+		// What the failure cost is recorded on the run, so the carrier is told
+		// instead of finding the toggle off on the next visit.
+		const run = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: verificationId } },
+		});
+		expect(run?.demotedCapabilities).toEqual(["tools", "reasoning"]);
+	});
+
+	it("drops a disproved capability from the filing awaiting review", async () => {
+		const { draftModelId, verificationId } = await seedActiveListing({
+			reasoning: false,
+			reasoningMaxTokens: false,
+			reasoningEfforts: undefined,
+			pendingMetadata: {
+				reasoning: true,
+				reasoningEfforts: ["low", "high"],
+				maxOutput: 4096,
+			},
+		});
+		await processNextModelVerification(async () => ({
+			passed: false,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{
+					id: "reasoning",
+					label: "Reasoning",
+					status: "failed",
+					feedback: "No reasoning content was returned.",
+				},
+			],
+			summary: "1 of 2 verification checks failed.",
+		}));
+
+		// Approving the filing would otherwise reinstate what the endpoint
+		// just rejected; the rest of the change survives.
+		const filing = await db.query.providerPriceFiling.findFirst({
+			where: { draftModelId: { eq: draftModelId }, status: { eq: "pending" } },
+		});
+		expect(filing?.metadata).toEqual({ maxOutput: 4096 });
+		const run = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: verificationId } },
+		});
+		expect(run?.demotedCapabilities).toEqual(["reasoning"]);
+	});
+
+	it("withdraws a filing left proposing nothing", async () => {
+		const { draftModelId } = await seedActiveListing({
+			reasoning: false,
+			reasoningMaxTokens: false,
+			reasoningEfforts: undefined,
+			pendingMetadata: { reasoning: true },
+		});
+		await processNextModelVerification(async () => ({
+			passed: false,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{
+					id: "reasoning",
+					label: "Reasoning",
+					status: "failed",
+					feedback: "No reasoning content was returned.",
+				},
+			],
+			summary: "1 of 2 verification checks failed.",
+		}));
+
+		const filing = await db.query.providerPriceFiling.findFirst({
+			where: { draftModelId: { eq: draftModelId } },
+		});
+		expect(filing).toBeUndefined();
+	});
+
+	it("keeps a capability the run tested in a shape the listing never claimed", async () => {
+		const { draftModelId, verificationId } = await seedActiveListing({
+			targetReasoningEfforts: ["max"],
+		});
+		await processNextModelVerification(async () => ({
+			passed: false,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{
+					id: "reasoning",
+					label: "Reasoning",
+					status: "failed",
+					feedback: "Unsupported reasoning_effort: max.",
+				},
+			],
+			summary: "1 of 2 verification checks failed.",
+		}));
+
+		// The preflight disproved the proposed effort tier, not the tiers the
+		// listing serves today.
+		const listing = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: draftModelId } },
+		});
+		expect(listing).toMatchObject({
+			reasoning: true,
+			reasoningEfforts: ["low", "high"],
+		});
+		const run = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: verificationId } },
+		});
+		expect(run?.demotedCapabilities).toBeNull();
 	});
 
 	it("narrows tool_choice support without dropping tool calls", async () => {

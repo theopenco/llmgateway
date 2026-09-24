@@ -347,6 +347,14 @@ export const organization = pgTable(
 		paymentFailureCount: integer().notNull().default(0),
 		lastPaymentFailureAt: timestamp(),
 		paymentFailureStartedAt: timestamp(),
+		// Payment state of this org's subscription-backed plan. Renewal dates only
+		// advance after a paid invoice; this separately records dunning so an unpaid
+		// renewal is visible without pretending the next cycle has started.
+		subscriptionPaymentStatus: text({
+			enum: ["current", "past_due"],
+		})
+			.notNull()
+			.default("current"),
 		// Admin-set trust-tier pin (0-4). When set it takes precedence over the
 		// computed age/spend tier everywhere (RPM multiplier, spend caps, top-up
 		// allowance) — both to hold an abusive org down and to lift a vetted org
@@ -397,11 +405,6 @@ export const organization = pgTable(
 		// counter clears on subscribe/upgrade/renewal (included passes don't
 		// roll over).
 		devPlanIncludedResetPassesUsed: integer().notNull().default(0),
-		// Set when dunning freezes dev-plan spend (limit capped to used). The
-		// pre-freeze limit is preserved so recovery restores the exact value
-		// (which may be a prorated mid-cycle amount), not a full tier cap.
-		devPlanCreditsFrozen: boolean().notNull().default(false),
-		devPlanCreditsLimitBeforeFreeze: decimal(),
 		devPlanBillingCycleStart: timestamp(),
 		// Lease held while a dev plan upgrade request is in flight, guarding
 		// against a double charge from racing requests (e.g. a double-clicked
@@ -4898,6 +4901,13 @@ export const providerClaim = pgTable(
 		// Branding edits on an active claim wait here for admin approval.
 		// null = nothing pending; a null value inside clears that image.
 		pendingBranding: jsonb().$type<AirsidePendingBranding>(),
+		// The carrier's own provider credential, used only to run verification
+		// checks against this provider — never to serve traffic. Verification
+		// requests are not logged or billed by us, so they have to burn a
+		// carrier credential rather than a platform one.
+		verificationKeyCiphertext: text(),
+		verificationKeyMasked: text(),
+		verificationKeyUpdatedAt: timestamp(),
 		claimedBy: text().references(() => user.id, { onDelete: "set null" }),
 		status: text({ enum: ["pending", "active", "rejected", "revoked"] })
 			.notNull()
@@ -5068,8 +5078,8 @@ export interface ProviderModelVerificationTarget {
 
 // One queued verification of an Airside mapping or a catalogue mapping. The
 // target is frozen when queued so an edit cannot change what a completed run
-// proved. A supplied credential is encrypted for this row only and erased on
-// terminal status.
+// proved. A supplied or carrier-stored credential is copied into this row,
+// encrypted for it alone, and erased on terminal status.
 export const providerModelVerification = pgTable(
 	"provider_model_verification",
 	{
@@ -5106,10 +5116,15 @@ export const providerModelVerification = pgTable(
 			.notNull()
 			.default("queued"),
 		credentialCiphertext: text(),
-		credentialSource: text({ enum: ["supplied", "managed", "environment"] })
+		credentialSource: text({
+			enum: ["supplied", "carrier", "managed", "environment"],
+		})
 			.notNull()
 			.default("supplied"),
 		summary: text(),
+		// Listing capabilities this run's failed checks cleared, so the carrier
+		// is told what the failure dropped instead of finding a toggle off.
+		demotedCapabilities: jsonb().$type<string[]>(),
 		attempts: integer().notNull().default(0),
 		startedAt: timestamp(),
 		completedAt: timestamp(),
