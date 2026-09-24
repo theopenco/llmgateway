@@ -1551,6 +1551,25 @@ export function transformResponseToOpenai(
 		}
 	}
 
+	// OpenAI's schema always carries `message.content` (nullable), but some
+	// upstreams drop the key entirely when a reasoning model spends the whole
+	// `max_tokens` budget on thinking — Together's GLM deployments return a bare
+	// `{ role, reasoning_content }`. Every branch above only writes `content`
+	// when the parsed value is non-null, so passing that through makes
+	// `choices[0].message.content` read as `undefined` in OpenAI-compatible
+	// clients. Normalize the absent key to null for every provider.
+	if (Array.isArray(transformedResponse?.choices)) {
+		for (const choice of transformedResponse.choices) {
+			if (
+				choice?.message &&
+				typeof choice.message === "object" &&
+				choice.message.content === undefined
+			) {
+				choice.message.content = null;
+			}
+		}
+	}
+
 	if (
 		serviceTier !== undefined &&
 		transformedResponse &&

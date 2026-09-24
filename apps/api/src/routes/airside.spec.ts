@@ -771,6 +771,56 @@ describe("airside provider portal", () => {
 		});
 	});
 
+	it("verifies the capabilities a live listing has awaiting review", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id, {
+			modelName: "mistral-large-3-review",
+		});
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+		const live = await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		expect(live.status).toBe(200);
+
+		// A live listing keeps a capability edit in a filing until it is
+		// approved, so the row still says reasoning is off.
+		const filed = await app.request(
+			`/airside/models/${model.id}`,
+			json(cookie, { reasoning: true, reasoningEfforts: ["low"] }, "PATCH"),
+		);
+		expect(filed.status).toBe(200);
+		expect((await filed.json()).model).toMatchObject({
+			reasoning: false,
+			pendingFiling: {
+				kind: "metadata",
+				metadata: { reasoning: true, reasoningEfforts: ["low"] },
+			},
+		});
+
+		const queued = await app.request(
+			`/airside/models/${model.id}/verifications`,
+			json(cookie, { apiKey: "carrier-preflight-key" }),
+		);
+		expect(queued.status).toBe(202);
+		const stored = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: (await queued.json()).verification.id } },
+		});
+		// Without the filing this run would skip reasoning entirely and report
+		// a pass for a capability it never touched.
+		expect(stored?.target).toMatchObject({
+			reasoning: true,
+			reasoningEfforts: ["low"],
+			tools: true,
+		});
+		expect(stored?.checks.map((check) => check.id)).toContain("reasoning");
+	});
+
 	it("drafts a model with an initial price filing and blocks price edits", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);

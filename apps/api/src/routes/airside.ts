@@ -45,10 +45,12 @@ import {
 	buildVerificationTarget,
 	enqueueModelVerification,
 	modelVerificationSchema,
+	pendingFiledCapabilities,
 	resolveVerificationCredential,
 	saveClaimVerificationKey,
 	serializeVerification,
 	verificationTargetsMatch,
+	type CapabilityOverrides,
 	type ModelVerificationRow,
 } from "@/lib/model-verification.js";
 import { notifyAirsideCrewInvite } from "@/utils/discord.js";
@@ -499,7 +501,7 @@ function verificationTarget(
  */
 function draftVerificationTarget(
 	model: DraftModelRow,
-	proposed: z.infer<typeof proposedCapabilitiesSchema> = {},
+	proposed: CapabilityOverrides = {},
 ): ProviderModelVerificationTarget {
 	// `null` is a meaningful proposal for the list-valued fields ("no
 	// restriction" / "parameter unsupported"), so they fall back on undefined
@@ -522,11 +524,10 @@ function draftVerificationTarget(
 		jsonOutputSchema: proposed.jsonOutputSchema ?? model.jsonOutputSchema,
 		reasoning: proposed.reasoning ?? model.reasoning,
 		reasoningMaxTokens: proposed.reasoningMaxTokens ?? model.reasoningMaxTokens,
-		reasoningEfforts:
-			proposed.reasoningEfforts === undefined
-				? (model.reasoningEfforts as
-						(typeof REASONING_EFFORT_VALUES)[number][] | null)
-				: proposed.reasoningEfforts,
+		reasoningEfforts: ((proposed.reasoningEfforts === undefined
+			? model.reasoningEfforts
+			: proposed.reasoningEfforts) ?? null) as
+			(typeof REASONING_EFFORT_VALUES)[number][] | null,
 		webSearch: proposed.webSearch ?? model.webSearch,
 	});
 }
@@ -2373,7 +2374,12 @@ airside.openapi(queueExistingModelVerification, async (c) => {
 			message: "The provider must have an active claim before verification.",
 		});
 	}
-	const target = draftVerificationTarget(model, proposed);
+	// Without an explicit proposal, verify what the listing currently claims —
+	// including a capability edit still awaiting review.
+	const target = draftVerificationTarget(model, {
+		...(await pendingFiledCapabilities(model.id)),
+		...proposed,
+	});
 	const credential = await resolveVerificationCredential(target, apiKey, claim);
 	if (apiKey) {
 		await saveClaimVerificationKey(claim, apiKey);

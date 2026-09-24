@@ -31,6 +31,8 @@ export const modelVerificationSchema = z.object({
 		}),
 	),
 	summary: z.string().nullable(),
+	// Listing capabilities this run's failed checks dropped.
+	demotedCapabilities: z.array(z.string()).nullable(),
 	createdAt: z.string(),
 	startedAt: z.string().nullable(),
 	completedAt: z.string().nullable(),
@@ -53,6 +55,51 @@ export interface VerificationTargetInput {
 	reasoningMaxTokens?: boolean | null;
 	reasoningEfforts?: string[] | null;
 	webSearch?: boolean | null;
+}
+
+const CAPABILITY_KEYS = [
+	"streaming",
+	"vision",
+	"audio",
+	"tools",
+	"supportedToolChoices",
+	"jsonOutput",
+	"jsonOutputSchema",
+	"reasoning",
+	"reasoningMaxTokens",
+	"reasoningEfforts",
+	"webSearch",
+] as const;
+
+export type CapabilityOverrides = Pick<
+	VerificationTargetInput,
+	(typeof CAPABILITY_KEYS)[number]
+>;
+
+/**
+ * The capabilities a listing has awaiting review. A live listing keeps a
+ * capability edit in a pending filing until it is approved, so verifying the
+ * row alone would skip the very capability the carrier is trying to prove and
+ * report a pass for a run that never touched it.
+ */
+export async function pendingFiledCapabilities(
+	draftModelId: string,
+): Promise<CapabilityOverrides> {
+	const filing = await db.query.providerPriceFiling.findFirst({
+		where: {
+			draftModelId: { eq: draftModelId },
+			status: { eq: "pending" },
+			kind: { eq: "metadata" },
+		},
+	});
+	const metadata = (filing?.metadata ?? {}) as Record<string, unknown>;
+	const overrides: Record<string, unknown> = {};
+	for (const key of CAPABILITY_KEYS) {
+		if (metadata[key] !== undefined) {
+			overrides[key] = metadata[key];
+		}
+	}
+	return overrides as CapabilityOverrides;
 }
 
 export function buildVerificationTarget(
@@ -269,6 +316,7 @@ export function serializeVerification(row: ModelVerificationRow) {
 		status: row.status,
 		checks: row.checks,
 		summary: row.summary,
+		demotedCapabilities: row.demotedCapabilities ?? null,
 		createdAt: row.createdAt.toISOString(),
 		startedAt: row.startedAt?.toISOString() ?? null,
 		completedAt: row.completedAt?.toISOString() ?? null,
