@@ -4,6 +4,7 @@ slug: "devpass-reset-passes"
 date: "2026-07-16"
 title: "DevPass Reset Passes"
 summary: "Hit your weekly premium allowance mid-sprint? A Reset Pass instantly restores the full allowance and starts a fresh 7-day window. Pro includes 1 pass per cycle and Max includes 2; extra passes are a one-time purchase from the DevPass dashboard."
+tags: ["devpass"]
 image:
   src: "/changelog/devpass-reset-passes.png"
   alt: "DevPass Reset Passes: a glowing visa-stamp seal on a circuit board, representing an instant reset of the weekly premium model allowance"

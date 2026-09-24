@@ -4,6 +4,7 @@ slug: "custom-model-catalog"
 date: "2026-06-18"
 title: "Custom Model Catalog for Custom Providers"
 summary: "Bring any OpenAI-compatible model under full cost tracking. Define pricing, context limits, and capabilities per custom provider key — so requests through custom providers get billed, enforced, and reported just like a built-in model. Available on Enterprise."
+tags: ["llmgateway"]
 image:
   src: "/changelog/custom-model-catalog.png"
   alt: "Custom Model Catalog on LLM Gateway: pricing, context limits, and capabilities defined for an OpenAI-compatible custom provider"

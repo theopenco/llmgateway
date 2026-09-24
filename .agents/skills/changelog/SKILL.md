@@ -53,6 +53,7 @@ slug: "<slug>"
 date: "<YYYY-MM-DD>"
 title: "<Title Case, ~3–7 words>"
 summary: "<1–3 sentences: what shipped, the concrete benefit, and the plan if gated. This is the OG description and the listing blurb.>"
+tags: ["llmgateway"]
 image:
   src: "/changelog/<slug>.png"
   alt: "<Descriptive alt text: the feature and what the image shows>"
@@ -70,6 +71,10 @@ image:
 
 **[<Docs link> →](https://docs.llmgateway.io/...)** | **[<Secondary CTA> →](https://llmgateway.io/...)**
 ```
+
+Set `tags` to every product substantively covered: `llmgateway`, `devpass`,
+`lounge`, or `airside`. Use multiple tags for roundups. Former Chat/Playground
+features belong to `lounge`; a generic "try it" link alone does not earn a tag.
 
 ### House style (match existing entries)
 

@@ -4,6 +4,7 @@ slug: "provider-key-descriptions-new-models"
 date: "2026-08-22"
 title: "Provider Key Descriptions, Grok 4.6 & More"
 summary: "Provider keys now take a description that follows them through key lists and request drilldowns, the master API returns each key's creator and project by name, and the catalogue picks up Grok 4.6 on AWS Bedrock and Vertex AI plus GLM-5.2 Turbo and an Australian region on SCX.ai."
+tags: ["llmgateway"]
 image:
   src: "/changelog/provider-key-descriptions-new-models.png"
   alt: "Product roundup: labeled provider keys on a circuit board beside new model chips for Grok 4.6 and GLM-5.2 Turbo"

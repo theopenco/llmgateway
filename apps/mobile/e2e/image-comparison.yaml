@@ -3,10 +3,11 @@ appId: io.llmgateway.lounge
 - evalScript: ${output.imagePrompt = "Native comparison " + Date.now()}
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- scrollUntilVisible:
-    element: "Image Studio"
-    direction: DOWN
-- tapOn: "Image Studio"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Images"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Model: Auto"
 - tapOn:
     id: "field-search-models"
@@ -24,6 +25,7 @@ appId: io.llmgateway.lounge
     direction: DOWN
     centerElement: true
     timeout: 45000
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Model: Auto"
 - tapOn:
     id: "field-search-models"

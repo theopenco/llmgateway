@@ -3,13 +3,15 @@ appId: io.llmgateway.lounge
 - evalScript: ${output.chatTitle = "TRIGGER_SOURCES native " + Date.now()}
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- tapOn: "Start a conversation"
+- tapOn: "New conversation"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Model: Auto"
 - tapOn:
     id: "field-search-models"
 - inputText: "gpt-5-nano"
 - tapOn: "Done typing"
 - tapOn: "Choose GPT-5 Nano"
+- runFlow: helpers/chat-options.yaml
 - tapOn: "Chat settings"
 - scrollUntilVisible:
     element: "Search the web"
@@ -20,6 +22,7 @@ appId: io.llmgateway.lounge
     element: "Save settings"
     direction: DOWN
 - tapOn: "Save settings"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Message.*"
 - inputText: ${output.chatTitle}
 - tapOn: "Send message"
@@ -29,7 +32,10 @@ appId: io.llmgateway.lounge
 - assertVisible: "1. Lounge test source"
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Conversations"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
 - tapOn:
     id: "field-search-conversations"
 - inputText: ${output.chatTitle}
@@ -39,6 +45,7 @@ appId: io.llmgateway.lounge
     element: "1. Lounge test source"
     direction: DOWN
 - assertVisible: "1. Lounge test source"
+- runFlow: helpers/chat-options.yaml
 - tapOn: "Chat settings"
 - scrollUntilVisible:
     element: "Search the web"

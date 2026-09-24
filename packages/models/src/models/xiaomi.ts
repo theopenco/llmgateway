@@ -104,6 +104,9 @@ export const xiaomiModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "XiaomiMiMo/MiMo-V2.5-Pro",
+				// DeepInfra retires this deployment and redirects it to the
+				// V2.6 model, which is a different model with different prices.
+				deactivatedAt: new Date("2026-09-29"),
 				inputPrice: "1e-6",
 				outputPrice: "3e-6",
 				cachedInputPrice: "0.2e-6",
@@ -227,6 +230,9 @@ export const xiaomiModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "XiaomiMiMo/MiMo-V2.5",
+				// DeepInfra retires this deployment and redirects it to the
+				// V2.6 model, which is a different model with different prices.
+				deactivatedAt: new Date("2026-09-29"),
 				inputPrice: "0.4e-6",
 				outputPrice: "2e-6",
 				cachedInputPrice: "0.08e-6",

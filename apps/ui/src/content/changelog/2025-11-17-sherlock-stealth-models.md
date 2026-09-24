@@ -4,6 +4,7 @@ slug: "sherlock-stealth-models"
 date: "2025-11-17"
 title: "Sherlock: Two New Stealth Alpha Models"
 summary: "Introducing Sherlock Dash Alpha and Sherlock Think Alpha (Grok 4.1) - free stealth models with 1.8M context, reasoning, vision, and advanced capabilities."
+tags: ["llmgateway"]
 image:
   src: "/changelog/sherlock-stealth-models.png"
   alt: "Sherlock: Two New Stealth Alpha Models"

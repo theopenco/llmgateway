@@ -4,6 +4,7 @@ slug: "compliance-alerts"
 date: "2026-09-23"
 title: "Compliance Alerts"
 summary: "Watch models your compliance policy blocks today and get told the moment a provider that meets your requirements starts serving them — in-app, by email, or in Slack. Downgrade alerts fire when a provider stops meeting the policy. Available on the Enterprise plan."
+tags: ["llmgateway"]
 image:
   src: "/changelog/compliance-alerts.png"
   alt: "A glowing bell on a circuit-board chip surrounded by shield and certificate icons, representing compliance alerts on LLM Gateway"

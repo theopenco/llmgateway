@@ -4,6 +4,7 @@ slug: "provider-compliance-policies"
 date: "2026-06-16"
 title: "Provider Compliance Policies"
 summary: "Restrict routing to providers that meet your compliance requirements — SOC 2, ISO 27001, GDPR, no prompt training, no prompt logging. Requests to non-compliant providers are blocked before any data leaves the gateway. Available on Enterprise."
+tags: ["llmgateway"]
 image:
   src: "/changelog/provider-compliance-policies.png"
   alt: "Provider compliance policies on LLM Gateway: SOC 2, ISO 27001 and GDPR requirements gating which providers can be used"

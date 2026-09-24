@@ -80,8 +80,13 @@ const PROVIDER_KEY_VARIANTS = [
 const variantSchema = z.enum(PROVIDER_KEY_VARIANTS);
 const statusSchema = z.enum(["active", "inactive"]);
 
-const DEFAULT_MODEL_PROBE_TIMEOUT_MS = 30_000;
-const MEDIA_MODEL_PROBE_TIMEOUT_MS = 90_000;
+// One probe gating a write: a save must not hang, so it keeps a short budget.
+const SAVE_VALIDATION_TIMEOUT_MS = 30_000;
+// Self-test and verify-models are admin-initiated diagnostics where a slow but
+// working model is exactly the interesting case, and the UI probes one model
+// per request, so they get a far longer budget than the save-time check.
+const MODEL_PROBE_TIMEOUT_MS = 180_000;
+const MEDIA_MODEL_PROBE_TIMEOUT_MS = 300_000;
 
 const credentialSchema = z.object({
 	id: z.string(),
@@ -527,7 +532,7 @@ async function validateCredentialToken(
 		false,
 		validationOptions,
 		pinnedModelId,
-		AbortSignal.timeout(DEFAULT_MODEL_PROBE_TIMEOUT_MS),
+		AbortSignal.timeout(SAVE_VALIDATION_TIMEOUT_MS),
 	);
 
 	if (result.valid) {
@@ -1894,7 +1899,7 @@ adminProviderCredentials.openapi(selfTestCredential, async (c) => {
 			target.region,
 		),
 		customCarrierModel?.[1],
-		AbortSignal.timeout(DEFAULT_MODEL_PROBE_TIMEOUT_MS),
+		AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
 	);
 
 	return c.json({
@@ -1999,7 +2004,7 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 				false,
 				undefined,
 				externalId,
-				AbortSignal.timeout(DEFAULT_MODEL_PROBE_TIMEOUT_MS),
+				AbortSignal.timeout(MODEL_PROBE_TIMEOUT_MS),
 			);
 			return {
 				model: modelId,
@@ -2053,7 +2058,7 @@ adminProviderCredentials.openapi(verifyCredentialModels, async (c) => {
 			AbortSignal.timeout(
 				pinned.kind === "image" || pinned.kind === "ocr"
 					? MEDIA_MODEL_PROBE_TIMEOUT_MS
-					: DEFAULT_MODEL_PROBE_TIMEOUT_MS,
+					: MODEL_PROBE_TIMEOUT_MS,
 			),
 		);
 		return {

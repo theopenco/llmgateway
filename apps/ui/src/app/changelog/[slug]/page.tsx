@@ -4,11 +4,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { ChangelogTags } from "@/components/changelog-tags";
 import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
+import { changelogProducts } from "@/lib/changelog";
 import { getMarkdownOptions } from "@/lib/utils/markdown";
 
 import { CopyMarkdownButton } from "./copy-markdown-button";
+import { allChangelogs } from "content-collections";
 
 import type { Changelog } from "content-collections";
 import type { Metadata } from "next";
@@ -20,12 +23,11 @@ interface ChangelogEntryPageProps {
 export default async function ChangelogEntryPage({
 	params,
 }: ChangelogEntryPageProps) {
-	const [{ allChangelogs }, { slug }] = await Promise.all([
-		import("content-collections"),
-		params,
-	]);
+	const { slug } = await params;
 
-	const entry = allChangelogs.find((entry: Changelog) => entry.slug === slug);
+	const entry = allChangelogs.find(
+		(entry: Changelog) => entry.slug === slug && !entry.draft,
+	);
 
 	if (!entry) {
 		notFound();
@@ -37,6 +39,7 @@ export default async function ChangelogEntryPage({
 		headline: entry.title,
 		description: entry.summary ?? "LLM Gateway changelog entry",
 		datePublished: entry.date,
+		articleSection: entry.tags.map((tag) => changelogProducts[tag].name),
 		dateModified: entry.date,
 		author: {
 			"@type": "Organization",
@@ -99,14 +102,14 @@ export default async function ChangelogEntryPage({
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(articleSchema),
+					__html: JSON.stringify(articleSchema).replace(/</g, "\\u003c"),
 				}}
 			/>
 			<script
 				type="application/ld+json"
 				// eslint-disable-next-line @eslint-react/dom/no-dangerously-set-innerhtml
 				dangerouslySetInnerHTML={{
-					__html: JSON.stringify(breadcrumbSchema),
+					__html: JSON.stringify(breadcrumbSchema).replace(/</g, "\\u003c"),
 				}}
 			/>
 			<HeroRSC navbarOnly />
@@ -127,7 +130,8 @@ export default async function ChangelogEntryPage({
 
 						<article className="prose prose-lg dark:prose-invert max-w-none">
 							<header className="mb-8">
-								<h1 className="text-4xl font-bold mb-4">{entry.title}</h1>
+								<ChangelogTags tags={entry.tags} />
+								<h1 className="text-4xl font-bold mt-4 mb-4">{entry.title}</h1>
 								<div className="text-muted-foreground">
 									{entry.summary && (
 										<p className="text-lg mb-2">{entry.summary}</p>
@@ -137,6 +141,7 @@ export default async function ChangelogEntryPage({
 											year: "numeric",
 											month: "long",
 											day: "numeric",
+											timeZone: "UTC",
 										})}
 									</time>
 								</div>
@@ -145,6 +150,8 @@ export default async function ChangelogEntryPage({
 							{entry.image && (
 								<div className="mb-8">
 									<Image
+										loading="eager"
+										sizes="(min-width: 1024px) 896px, calc(100vw - 32px)"
 										src={entry.image.src}
 										alt={entry.image.alt ?? entry.title}
 										width={entry.image.width}
@@ -169,25 +176,24 @@ export default async function ChangelogEntryPage({
 }
 
 export async function generateStaticParams() {
-	const { allChangelogs } = await import("content-collections");
-
-	return allChangelogs.map((entry) => ({
-		slug: entry.slug,
-	}));
+	return allChangelogs
+		.filter((entry) => !entry.draft)
+		.map((entry) => ({
+			slug: entry.slug,
+		}));
 }
 
 export async function generateMetadata({
 	params,
 }: ChangelogEntryPageProps): Promise<Metadata> {
-	const [{ allChangelogs }, { slug }] = await Promise.all([
-		import("content-collections"),
-		params,
-	]);
+	const { slug } = await params;
 
-	const entry = allChangelogs.find((entry: Changelog) => entry.slug === slug);
+	const entry = allChangelogs.find(
+		(entry: Changelog) => entry.slug === slug && !entry.draft,
+	);
 
 	if (!entry) {
-		return {};
+		notFound();
 	}
 
 	return {

@@ -4,6 +4,7 @@ slug: "gpt-6-sol-luna"
 date: "2026-09-22"
 title: "GPT-6 Sol & Luna at Half the Price"
 summary: "OpenAI's GPT-6 Sol and GPT-6 Luna are live on the gateway at $2 / $10 and $0.10 / $0.50 per 1M tokens — Sol at half the GPT-5.6 Sol rate, Luna at half the GPT-5.6 Luna input rate and 58% below it on output — with cache reads at 10% of input, a 1.05M-token context window, and reasoning from none to max."
+tags: ["llmgateway"]
 image:
   src: "/changelog/gpt-6-sol-luna.png"
   alt: "A glowing golden sun and a silver crescent moon on a circuit-board chip, surrounded by a halved coin stack with a price tag, a terminal window, a down arrow, and chat bubbles"

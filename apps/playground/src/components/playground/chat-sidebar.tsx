@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 // import dynamic from "next/dynamic";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { usePostHog } from "posthog-js/react";
 import {
 	useCallback,
@@ -35,6 +35,7 @@ import { toast } from "sonner";
 import { CreditsDisplay } from "@/components/credits/credits-display";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
 import { SidebarLoungePoints } from "@/components/lounge/sidebar-points";
+import { ProductSwitcher } from "@/components/product-switcher";
 import { Button } from "@/components/ui/button";
 import {
 	DropdownMenu,
@@ -55,7 +56,6 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from "@/components/ui/sidebar";
-import { Wordmark } from "@/components/ui/wordmark";
 import {
 	useChats,
 	useDeleteChat,
@@ -66,7 +66,6 @@ import { useOrganization } from "@/hooks/useOrganization";
 import { useUser } from "@/hooks/useUser";
 import { clearLastUsedProjectCookiesAction } from "@/lib/actions/project";
 import { useAuth } from "@/lib/auth-client";
-import { withOrgParam } from "@/lib/utils";
 
 import { ChatSidebarSkeleton } from "./chat-sidebar-skeleton";
 import { OrganizationSwitcher } from "./organization-switcher";
@@ -495,11 +494,6 @@ export const ChatSidebar = function ChatSidebar({
 	const queryClient = useQueryClient();
 	const router = useRouter();
 	const pathname = usePathname();
-	const searchParams = useSearchParams();
-	// Preserve the selected organization across playground navigation so users
-	// don't have to re-pick their org on every page.
-	const orgIdParam = searchParams.get("orgId");
-	const withOrg = (path: string) => withOrgParam(path, orgIdParam);
 	const posthog = usePostHog();
 	const { state: sidebarState, isMobile, setOpenMobile } = useSidebar();
 	const showOrganizationSwitcher = pathname === "/" || pathname === "/group";
@@ -752,13 +746,7 @@ export const ChatSidebar = function ChatSidebar({
 			<Sidebar className={className}>
 				<SidebarHeader>
 					<div className="flex flex-col items-center gap-4 mb-4">
-						<Link
-							href="/"
-							className="flex self-start items-center gap-2 my-2"
-							prefetch={true}
-						>
-							<Wordmark />
-						</Link>
+						<ProductSwitcher />
 						<div className="w-full rounded-md border p-4 text-sm">
 							<div className="font-medium mb-2">Sign in required</div>
 							<p className="text-muted-foreground mb-3">
@@ -794,11 +782,7 @@ export const ChatSidebar = function ChatSidebar({
 			<SidebarHeader>
 				<SidebarMenu>
 					<SidebarMenuItem>
-						<SidebarMenuButton size="lg" asChild tooltip="Lounge">
-							<Link href={withOrg("/")} prefetch={true}>
-								<Wordmark size="sm" iconBox />
-							</Link>
-						</SidebarMenuButton>
+						<ProductSwitcher />
 					</SidebarMenuItem>
 					<SidebarChatSearch
 						disabled={pathname !== "/"}

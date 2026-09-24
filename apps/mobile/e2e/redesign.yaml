@@ -1,0 +1,104 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- assertVisible: "What can I help with?"
+- assertVisible: "Dictate message"
+- assertVisible: "Start voice conversation"
+- assertNotVisible: "Chat settings"
+- tapOn: "Write something"
+- assertVisible: "Help me write.*"
+- assertVisible: "Dismiss keyboard"
+- inputText: "a longer message.\nFirst detail.\nSecond detail.\nThird detail.\nFourth detail.\nFifth detail.\nSixth detail.\nSeventh detail.\nEighth detail.\nNinth detail.\nTenth detail.\nLast line stays editable."
+- assertVisible: "Send message"
+- assertVisible: "Dictate message"
+- assertVisible: "Dismiss keyboard"
+- assertVisible: "Help me write.*"
+- takeScreenshot: artifacts/redesign-long-draft-keyboard
+- eraseText: 500
+- inputText: "Help me write "
+- tapOn: "Dismiss keyboard"
+- takeScreenshot: artifacts/redesign-composer
+- tapOn: "Conversation options"
+- assertVisible: "Chat settings"
+- assertVisible: "Temporary conversation"
+- tapOn: "Close conversation options"
+- assertVisible: "Help me write.*"
+- tapOn: "Dictate message"
+- runFlow:
+    when:
+      visible: "Allow"
+    commands:
+      - tapOn: "Allow"
+- runFlow: helpers/dictation-ready.yaml
+- takeScreenshot: artifacts/redesign-dictation
+- tapOn: "Cancel dictation"
+- assertNotVisible: "Dictate a message"
+- assertVisible: "Help me write.*"
+- tapOn: "Dictate message"
+- runFlow: helpers/dictation-ready.yaml
+- tapOn: "Done"
+- extendedWaitUntil:
+    notVisible: "Dictate a message"
+    timeout: 15000
+- assertVisible: "Help me write.*Welcome to the Lounge.*"
+- takeScreenshot: artifacts/redesign-dictation-result
+- tapOn: "New conversation"
+- assertVisible: "What can I help with?"
+- assertNotVisible: "Help me write.*"
+- tapOn: "Open sidebar"
+- assertVisible: "Recent conversations"
+- assertVisible: "Conversations"
+- assertVisible: "Images"
+- assertNotVisible: "Compare models"
+- tapOn: "All tools"
+- scrollUntilVisible:
+    element: "Compare models"
+    direction: DOWN
+- assertVisible: "Compare models"
+- scrollUntilVisible:
+    element: "Live transcription"
+    direction: DOWN
+- assertVisible: "Live transcription"
+- scrollUntilVisible:
+    element: "Sandbox Escape"
+    direction: DOWN
+- assertVisible: "Sandbox Escape"
+- takeScreenshot: artifacts/redesign-sidebar-tools
+- tapOn: "Close sidebar"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Your profile"
+- scrollUntilVisible:
+    element: "Light appearance"
+    direction: DOWN
+- tapOn: "Light appearance"
+- launchApp
+- assertVisible: "What can I help with?"
+- takeScreenshot: artifacts/redesign-home-light
+- tapOn: "Open sidebar"
+- takeScreenshot: artifacts/redesign-sidebar-light
+- tapOn: "Close sidebar"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Your profile"
+- scrollUntilVisible:
+    element: "Dark appearance"
+    direction: DOWN
+- tapOn: "Dark appearance"
+- launchApp
+- assertVisible: "What can I help with?"
+- takeScreenshot: artifacts/redesign-home-dark
+- tapOn: "Open sidebar"
+- takeScreenshot: artifacts/redesign-sidebar-dark
+- tapOn: "Close sidebar"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Your profile"
+- scrollUntilVisible:
+    element: "System appearance"
+    direction: DOWN
+- tapOn: "System appearance"

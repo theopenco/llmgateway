@@ -4,6 +4,7 @@ slug: "chat-plans-service-tiers-product-roundup"
 date: "2026-06-10"
 title: "Chat Plans, Service Tiers, SDK Sandbox & More"
 summary: "Monthly Chat subscriptions from $9, Flex and Priority service tiers, sandbox test keys for the LLM SDK, a no_training model filter, public DevPass profiles, and a stack of product polish."
+tags: ["llmgateway", "devpass", "lounge"]
 image:
   src: "/changelog/chat-plans-service-tiers-product-roundup.png"
   alt: "Product roundup: chat plans, service tiers, SDK sandbox keys and more on LLM Gateway"
