@@ -7,8 +7,10 @@ import {
 	buildVerificationTarget,
 	enqueueModelVerification,
 	modelVerificationSchema,
+	pendingFiledCapabilities,
 	resolveVerificationCredential,
 	serializeVerification,
+	type CapabilityOverrides,
 	type ModelVerificationRow,
 } from "@/lib/model-verification.js";
 import { adminMiddleware } from "@/middleware/admin.js";
@@ -95,8 +97,11 @@ function mappingTarget(mapping: MappingRow): ProviderModelVerificationTarget {
 	});
 }
 
+/** Capabilities awaiting review are part of what the listing claims, so an
+ *  admin spot-check before approving a filing exercises them too. */
 function draftModelTarget(
 	model: DraftModelRow,
+	filed: CapabilityOverrides,
 ): ProviderModelVerificationTarget {
 	return buildVerificationTarget({
 		providerId: model.providerId,
@@ -114,6 +119,7 @@ function draftModelTarget(
 		reasoningMaxTokens: model.reasoningMaxTokens,
 		reasoningEfforts: model.reasoningEfforts,
 		webSearch: model.webSearch,
+		...filed,
 	});
 }
 
@@ -202,7 +208,7 @@ adminModelVerifications.openapi(queueVerification, async (c) => {
 				message: "Delisted mappings cannot be verified.",
 			});
 		}
-		target = draftModelTarget(model);
+		target = draftModelTarget(model, await pendingFiledCapabilities(model.id));
 		providerCompanyId = model.providerCompanyId;
 	}
 
