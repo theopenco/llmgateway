@@ -616,6 +616,93 @@ describe("model verification worker", () => {
 		expect(listing?.supportedToolChoices).toEqual(["auto"]);
 	});
 
+	it("narrows reasoning efforts without dropping reasoning", async () => {
+		const { draftModelId, modelName, providerId } = await seedActiveListing({
+			reasoningEfforts: ["none", "low", "medium", "high"],
+			targetReasoningEfforts: ["none", "low", "medium", "high"],
+		});
+		await processNextModelVerification(async () => ({
+			passed: true,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{ id: "reasoning", label: "Reasoning", status: "passed" },
+			],
+			summary: "2 verification checks passed.",
+			unsupportedReasoningEfforts: ["medium"],
+		}));
+
+		const listing = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: draftModelId } },
+		});
+		expect(listing).toMatchObject({
+			reasoning: true,
+			reasoningEfforts: ["none", "low", "high"],
+		});
+		const mapping = await db.query.modelProviderMapping.findFirst({
+			where: { modelId: { eq: modelName }, providerId: { eq: providerId } },
+		});
+		expect(mapping?.reasoningEfforts).toEqual(["none", "low", "high"]);
+	});
+
+	it("enumerates the effort tiers a listing left undeclared", async () => {
+		const { draftModelId } = await seedActiveListing({
+			targetReasoningEfforts: null,
+		});
+		await db
+			.update(tables.providerDraftModel)
+			.set({ reasoningEfforts: null })
+			.where(eq(tables.providerDraftModel.id, draftModelId));
+		await processNextModelVerification(async () => ({
+			passed: true,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{ id: "reasoning", label: "Reasoning", status: "passed" },
+			],
+			summary: "2 verification checks passed.",
+			unsupportedReasoningEfforts: ["medium", "minimal"],
+		}));
+
+		const listing = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: draftModelId } },
+		});
+		expect(listing?.reasoningEfforts).toEqual([
+			"none",
+			"low",
+			"high",
+			"xhigh",
+			"max",
+		]);
+	});
+
+	it("narrows a pending filing's proposed effort tiers", async () => {
+		const { draftModelId } = await seedActiveListing({
+			pendingMetadata: {
+				reasoning: true,
+				reasoningEfforts: ["none", "minimal", "low", "high"],
+			},
+			targetReasoningEfforts: ["none", "minimal", "low", "high"],
+		});
+		await processNextModelVerification(async () => ({
+			passed: true,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{ id: "reasoning", label: "Reasoning", status: "passed" },
+			],
+			summary: "2 verification checks passed.",
+			unsupportedReasoningEfforts: ["minimal"],
+		}));
+
+		const filing = await db.query.providerPriceFiling.findFirst({
+			where: { draftModelId: { eq: draftModelId } },
+		});
+		expect(filing?.metadata?.reasoningEfforts).toEqual(["none", "low", "high"]);
+		// The row declared a different set, so the refusal says nothing about it.
+		const listing = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: draftModelId } },
+		});
+		expect(listing?.reasoningEfforts).toEqual(["low", "high"]);
+	});
+
 	it("does not let a stale attempt overwrite a reclaimed job", async () => {
 		const verificationId = await enqueueVerification();
 		const replacementChecks: ProviderModelVerificationCheck[] = [

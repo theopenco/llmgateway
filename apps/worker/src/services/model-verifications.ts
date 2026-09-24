@@ -8,7 +8,11 @@ import {
 } from "@llmgateway/actions";
 import { and, asc, cdb, db, eq, lt, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { getProviderEnvVar, TOOL_CHOICE_MODES } from "@llmgateway/models";
+import {
+	getProviderEnvVar,
+	REASONING_EFFORTS,
+	TOOL_CHOICE_MODES,
+} from "@llmgateway/models";
 
 import type {
 	ModelVerificationCapability,
@@ -18,7 +22,7 @@ import type {
 	AirsideModelMetadataChanges,
 	ProviderModelVerificationCheck,
 } from "@llmgateway/db";
-import type { ToolChoiceMode } from "@llmgateway/models";
+import type { ReasoningEffort, ToolChoiceMode } from "@llmgateway/models";
 
 type VerificationRow = typeof tables.providerModelVerification.$inferSelect;
 type VerificationRunner = (
@@ -497,6 +501,109 @@ async function narrowToolChoiceSupport(
 	});
 }
 
+/**
+ * An effort tier the reasoning check probed and the upstream refused, where
+ * another tier then worked. Reasoning itself is proven, so the listing keeps it
+ * and drops only the refused tiers. The gateway forwards an effort as-is, so
+ * this is what makes the tier list it publishes match what the deployment takes.
+ *
+ * The tiers come off whichever list the run was actually targeting: the row's,
+ * or a pending filing's when the carrier is proposing a different set. Removing
+ * them from the row alone would leave the filing able to reinstate a tier the
+ * endpoint just refused.
+ */
+async function narrowReasoningEfforts(
+	job: VerificationRow,
+	unsupported: ReasoningEffort[] | undefined,
+): Promise<void> {
+	if (!job.draftModelId || !unsupported?.length) {
+		return;
+	}
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: job.draftModelId } },
+	});
+	if (!model || model.status === "delisted" || !model.reasoning) {
+		return;
+	}
+	const filing = await db.query.providerPriceFiling.findFirst({
+		where: {
+			draftModelId: { eq: model.id },
+			status: { eq: "pending" },
+			kind: { eq: "metadata" },
+		},
+	});
+	const narrow = (
+		declared: readonly ReasoningEffort[] | null,
+	): ReasoningEffort[] | undefined => {
+		const from = declared ?? REASONING_EFFORTS;
+		const kept = from.filter((effort) => !unsupported.includes(effort));
+		// Nothing left to declare reads as "no restriction", the opposite of what
+		// the probes found — but every tier refused also fails the run, so the
+		// demotion owns that outcome.
+		return kept.length === from.length || kept.length === 0 ? undefined : kept;
+	};
+	const filedEfforts = filing?.metadata?.reasoningEfforts as
+		ReasoningEffort[] | null | undefined;
+	const rowEfforts = model.reasoningEfforts as ReasoningEffort[] | null;
+	// The run targeted the filed tiers when there are any, so they are the list
+	// the refusals speak about; the row's own list only moves when it is what
+	// was probed.
+	const filed = filedEfforts === undefined ? undefined : narrow(filedEfforts);
+	const reasoningEfforts =
+		filedEfforts === undefined || sameList(filedEfforts, rowEfforts)
+			? narrow(rowEfforts)
+			: undefined;
+	if (!reasoningEfforts && !filed) {
+		return;
+	}
+	// cdb: the gateway caches listing resolution off both tables.
+	await cdb.transaction(async (tx) => {
+		if (reasoningEfforts) {
+			await tx
+				.update(tables.providerDraftModel)
+				.set({ reasoningEfforts })
+				.where(eq(tables.providerDraftModel.id, model.id));
+			if (model.status === "active") {
+				await tx
+					.update(tables.modelProviderMapping)
+					.set({ reasoningEfforts })
+					.where(
+						and(
+							eq(tables.modelProviderMapping.modelId, model.modelName),
+							eq(tables.modelProviderMapping.providerId, model.providerId),
+							eq(tables.modelProviderMapping.source, "airside"),
+						),
+					);
+			}
+		}
+		if (!filing || !filed) {
+			return;
+		}
+		await tx
+			.update(tables.providerPriceFiling)
+			.set({
+				metadata: {
+					...filing.metadata,
+					reasoningEfforts: filed,
+				} as AirsideModelMetadataChanges,
+			})
+			.where(
+				and(
+					eq(tables.providerPriceFiling.id, filing.id),
+					eq(tables.providerPriceFiling.status, "pending"),
+				),
+			);
+	});
+	logger.info("Narrowed an Airside listing's reasoning effort tiers", {
+		verificationId: job.id,
+		draftModelId: model.id,
+		providerId: model.providerId,
+		unsupported,
+		reasoningEfforts,
+		filed,
+	});
+}
+
 export async function processNextModelVerification(
 	runner: VerificationRunner = runProviderModelVerification,
 ): Promise<boolean> {
@@ -563,6 +670,7 @@ export async function processNextModelVerification(
 			}
 		}
 		await narrowToolChoiceSupport(job, result.unsupportedToolChoices);
+		await narrowReasoningEfforts(job, result.unsupportedReasoningEfforts);
 	} catch (error) {
 		if (error instanceof StaleModelVerificationAttemptError) {
 			return true;
