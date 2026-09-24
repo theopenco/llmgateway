@@ -326,9 +326,9 @@ export function createWebSearchVerificationRequest(
 /**
  * Effort tiers the reasoning checks probe, in the order they are tried. Every
  * non-`none` tier proves reasoning equally well, so `medium` leads as the tier
- * most deployments accept and the cheapest to spend a passing probe on. The rest
- * are ordered by how often a deployment turns out not to implement them, so a
- * bounded sweep spends its probes where the answer is in doubt.
+ * most deployments accept — that keeps the usual run at a single request. The
+ * rest are ordered by how often a deployment turns out not to implement them, so
+ * a sweep cut short by its time budget has still asked the doubtful ones.
  */
 const REASONING_EFFORT_PROBE_ORDER = [
 	"medium",
@@ -340,12 +340,16 @@ const REASONING_EFFORT_PROBE_ORDER = [
 ] as const satisfies readonly ReasoningEffort[];
 
 /**
- * Probes per reasoning check. Each one is a billed upstream request on the
- * carrier's own key, and the whole run has to finish inside the worker's stale
- * window, so the sweep is bounded rather than exhaustive: tiers it never reaches
- * stay declared and a later re-verify can still rule them out.
+ * How long a reasoning check keeps sweeping tiers after it has already proven
+ * reasoning. Preflight runs rarely enough that the extra billed requests do not
+ * matter, so the sweep is exhaustive — but the whole run still has to finish
+ * inside the worker's stale window, and a pathologically slow endpoint can spend
+ * the per-request timeout on every tier. Past this point the check keeps what it
+ * has learned and stops; the tiers it never reached stay declared and a later
+ * re-verify can still rule them out. The budget never applies before a tier has
+ * passed: curtailing the search must not turn into disproving reasoning.
  */
-const MAX_REASONING_EFFORT_PROBES = 4;
+const REASONING_EFFORT_SWEEP_BUDGET_MS = 4 * 60 * 1000;
 
 /**
  * The tiers a reasoning check may walk. Deployments commonly accept only a
@@ -823,8 +827,8 @@ interface CheckOutcome {
  * declared tiers instead of disproving reasoning altogether.
  *
  * A deployment that takes the first tier accepts the unified enum and the check
- * stops there — one request, as before. Once a tier is refused the ladder is
- * swept to the end instead, because the tiers left declared are the ones the
+ * stops there — one request, as before. Once a tier is refused every remaining
+ * tier is probed instead, because the tiers left declared are the ones the
  * gateway will forward verbatim: leaving an untried tier in the list only moves
  * the 4xx from preflight to a developer's request. Refusals are the only
  * evidence used, so a 5xx or a transport error stops the sweep without taking a
@@ -836,13 +840,20 @@ async function runReasoningCheck(
 	secrets: Set<string>,
 	knownUnsupported: ReasoningEffort[],
 ): Promise<CheckOutcome> {
-	const efforts = reasoningVerificationEfforts(options.target)
-		.filter((effort) => !knownUnsupported.includes(effort))
-		.slice(0, MAX_REASONING_EFFORT_PROBES);
+	const efforts = reasoningVerificationEfforts(options.target).filter(
+		(effort) => !knownUnsupported.includes(effort),
+	);
 	const unsupportedReasoningEfforts: ReasoningEffort[] = [];
 	let passedEffort: ReasoningEffort | undefined;
 	let lastFailure: CheckFailure | null = null;
+	const startedAt = Date.now();
 	for (const effort of efforts) {
+		if (
+			passedEffort &&
+			Date.now() - startedAt > REASONING_EFFORT_SWEEP_BUDGET_MS
+		) {
+			break;
+		}
 		const failure = await attemptCheck(
 			{
 				...definition,

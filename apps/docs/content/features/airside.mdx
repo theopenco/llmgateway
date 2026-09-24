@@ -40,7 +40,7 @@ Re-verifying a live listing has teeth: every capability a check disproves is swi
 
 A capability you have edited on a live listing lives in a filing until we approve it, and preflight verifies **that** shape rather than the one currently serving — otherwise a run would pass without ever exercising the capability you are trying to prove. If a check disproves it, the capability drops out of the filing too.
 
-Where a check can tell the difference between a capability and a dialect, it narrows instead of demoting. A `tool_choice` mode your endpoint mishandles is dropped while tool calls stay on, and a `reasoning_effort` tier your endpoint rejects outright is retried at another tier — reasoning stays on and only the rejected tiers come off your declared set. Deployments that accept just a subset of the tiers therefore verify without losing reasoning altogether.
+Where a check can tell the difference between a capability and a dialect, it narrows instead of demoting. A `tool_choice` mode your endpoint mishandles is dropped while tool calls stay on, and a `reasoning_effort` tier your endpoint rejects outright is retried at another tier — reasoning stays on and only the rejected tiers come off your declared set. If one tier is rejected the check goes on to try the others, since a tier left declared is one the gateway will forward verbatim. So a deployment implementing only a subset of the tiers verifies without losing reasoning, and you do not have to know which subset in advance.
 
 ## Price filings
 

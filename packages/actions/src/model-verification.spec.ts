@@ -489,14 +489,60 @@ describe("model verification", () => {
 		});
 
 		expect(result.passed).toBe(true);
-		// basic, then the bounded sweep: a refusal means the tiers after it
-		// cannot be assumed either.
-		expect(fetchImplementation).toHaveBeenCalledTimes(5);
+		// basic, then every tier: a refusal means the ones after it cannot be
+		// assumed either.
+		expect(fetchImplementation).toHaveBeenCalledTimes(7);
 		expect(result.unsupportedReasoningEfforts).toEqual(["medium", "minimal"]);
 		expect(disprovedCapabilities(result.checks)).toEqual([]);
 		expect(
 			result.checks.find((check) => check.id === "reasoning")?.feedback,
 		).toBe("Passed at low effort. Refused: medium, minimal.");
+	});
+
+	it("stops sweeping once the time budget is spent", async () => {
+		const fetchImplementation = refusingEfforts(["medium"]);
+		// Hold the clock still until basic, the refused medium and the passing
+		// minimal have gone out, then jump past the four-minute budget.
+		const nowSpy = vi
+			.spyOn(Date, "now")
+			.mockImplementation(() =>
+				fetchImplementation.mock.calls.length >= 3 ? 10 * 60 * 1000 : 0,
+			);
+
+		const result = await runProviderModelVerification({
+			target: reasoningOnly,
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		expect(result.passed).toBe(true);
+		// basic, medium (refused), minimal (passed), then the budget cuts it off.
+		expect(fetchImplementation).toHaveBeenCalledTimes(3);
+		expect(result.unsupportedReasoningEfforts).toEqual(["medium"]);
+		expect(disprovedCapabilities(result.checks)).toEqual([]);
+		nowSpy.mockRestore();
+	});
+
+	it("keeps probing past the budget until a tier has passed", async () => {
+		const nowSpy = vi.spyOn(Date, "now").mockReturnValue(10 * 60 * 1000);
+		const fetchImplementation = refusingEfforts(["medium", "minimal", "low"]);
+
+		const result = await runProviderModelVerification({
+			target: reasoningOnly,
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		// The budget curtails the search for more refusals, never the verdict.
+		expect(result.passed).toBe(true);
+		expect(result.unsupportedReasoningEfforts).toEqual([
+			"medium",
+			"minimal",
+			"low",
+		]);
+		nowSpy.mockRestore();
 	});
 
 	it("only probes the reasoning efforts the listing declares", async () => {
@@ -533,7 +579,7 @@ describe("model verification", () => {
 		});
 
 		expect(result.passed).toBe(false);
-		expect(fetchImplementation).toHaveBeenCalledTimes(5);
+		expect(fetchImplementation).toHaveBeenCalledTimes(7);
 		expect(disprovedCapabilities(result.checks)).toEqual(["reasoning"]);
 		expect(result.unsupportedReasoningEfforts).toBeUndefined();
 	});
@@ -571,8 +617,8 @@ describe("model verification", () => {
 		expect(result.passed).toBe(true);
 		// basic + the swept ladder + the budget check, which no longer retries
 		// the tier the reasoning check just saw refused.
-		expect(fetchImplementation).toHaveBeenCalledTimes(6);
-		expect(effortOf(fetchImplementation.mock.calls[5][1])).toBe("minimal");
+		expect(fetchImplementation).toHaveBeenCalledTimes(8);
+		expect(effortOf(fetchImplementation.mock.calls[7][1])).toBe("minimal");
 		expect(result.unsupportedReasoningEfforts).toEqual(["medium"]);
 	});
 
