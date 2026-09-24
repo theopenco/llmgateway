@@ -23,7 +23,7 @@ export class RedisCache extends Cache {
 	// their values when newer code maps them (see SCHEMA_CACHE_VERSION). The
 	// layout fingerprint in the key makes entries from another layout
 	// unreachable instead of wrong — no manual version bump needed.
-	private readonly keyPrefix = `drizzle:cache:${SCHEMA_CACHE_VERSION}:`;
+	private readonly keyPrefix: string;
 	// The index and timestamp keys stay unversioned on purpose: during a rolling
 	// deploy both layouts are live, and a mutation from either must evict the
 	// other's entries too.
@@ -33,9 +33,15 @@ export class RedisCache extends Cache {
 	private readonly defaultTtl = 60; // 1 minute in seconds
 	private readonly batchSize = 500; // Max keys to process in one batch
 
-	public constructor(redisClient: Redis) {
+	// `schemaVersion` is only ever passed by tests that need to act as a second
+	// build with a different column layout.
+	public constructor(
+		redisClient: Redis,
+		schemaVersion: string = SCHEMA_CACHE_VERSION,
+	) {
 		super();
 		this.redisClient = redisClient;
+		this.keyPrefix = `drizzle:cache:${schemaVersion}:`;
 	}
 
 	public strategy(): "all" {

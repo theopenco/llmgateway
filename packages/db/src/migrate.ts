@@ -13,7 +13,7 @@ type MigrationDb = ReturnType<typeof drizzle>;
  * How many migrations the database has applied so far. Returns 0 before the
  * first migration has ever run, when Drizzle's bookkeeping table is absent.
  */
-async function countAppliedMigrations(db: MigrationDb): Promise<number> {
+export async function countAppliedMigrations(db: MigrationDb): Promise<number> {
 	// Probe first: naming a missing table fails at parse time, so this cannot be
 	// folded into the count query itself.
 	const present = await db.execute(
