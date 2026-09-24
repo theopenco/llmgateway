@@ -35,6 +35,14 @@ function firstEnvironmentCredential(value: string): string {
 	return trimmed.startsWith("{") ? value : (value.split(",")[0]?.trim() ?? "");
 }
 
+// Both a pasted key and the one saved on a carrier's claim are copied into the
+// run's own encrypted column at queue time, so they read back the same way.
+function isRunScopedCredential(job: VerificationRow): boolean {
+	return (
+		job.credentialSource === "supplied" || job.credentialSource === "carrier"
+	);
+}
+
 async function managedCredential(
 	job: VerificationRow,
 	baseUrlOverride?: string,
@@ -83,7 +91,7 @@ function environmentCredential(job: VerificationRow): string {
 async function resolvePlatformCredential(
 	job: VerificationRow,
 ): Promise<ResolvedCredential> {
-	if (job.credentialSource === "supplied") {
+	if (isRunScopedCredential(job)) {
 		if (!job.credentialCiphertext) {
 			throw new Error("The supplied verification credential is unavailable.");
 		}
@@ -121,7 +129,7 @@ async function resolveCredential(
 	if (!claim) {
 		throw new Error("The provider claim is no longer active.");
 	}
-	if (job.credentialSource === "supplied") {
+	if (isRunScopedCredential(job)) {
 		if (!job.credentialCiphertext) {
 			throw new Error("The supplied verification credential is unavailable.");
 		}

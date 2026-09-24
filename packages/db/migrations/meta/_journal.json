@@ -1905,6 +1905,13 @@
       "when": 1790160215818,
       "tag": "1790160215_strange_serpent_society",
       "breakpoints": true
+    },
+    {
+      "idx": 272,
+      "version": "8",
+      "when": 1790250322438,
+      "tag": "1790250322_glamorous_lord_tyger",
+      "breakpoints": true
     }
   ]
 }

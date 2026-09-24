@@ -4855,6 +4855,13 @@ export const providerClaim = pgTable(
 		// Branding edits on an active claim wait here for admin approval.
 		// null = nothing pending; a null value inside clears that image.
 		pendingBranding: jsonb().$type<AirsidePendingBranding>(),
+		// The carrier's own provider credential, used only to run verification
+		// checks against this provider — never to serve traffic. Verification
+		// requests are not logged or billed by us, so they have to burn a
+		// carrier credential rather than a platform one.
+		verificationKeyCiphertext: text(),
+		verificationKeyMasked: text(),
+		verificationKeyUpdatedAt: timestamp(),
 		claimedBy: text().references(() => user.id, { onDelete: "set null" }),
 		status: text({ enum: ["pending", "active", "rejected", "revoked"] })
 			.notNull()
@@ -5025,8 +5032,8 @@ export interface ProviderModelVerificationTarget {
 
 // One queued verification of an Airside mapping or a catalogue mapping. The
 // target is frozen when queued so an edit cannot change what a completed run
-// proved. A supplied credential is encrypted for this row only and erased on
-// terminal status.
+// proved. A supplied or carrier-stored credential is copied into this row,
+// encrypted for it alone, and erased on terminal status.
 export const providerModelVerification = pgTable(
 	"provider_model_verification",
 	{
@@ -5063,7 +5070,9 @@ export const providerModelVerification = pgTable(
 			.notNull()
 			.default("queued"),
 		credentialCiphertext: text(),
-		credentialSource: text({ enum: ["supplied", "managed", "environment"] })
+		credentialSource: text({
+			enum: ["supplied", "carrier", "managed", "environment"],
+		})
 			.notNull()
 			.default("supplied"),
 		summary: text(),

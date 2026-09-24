@@ -267,7 +267,7 @@ test("registering a model requires provider preflight", async ({ page }) => {
 	// Prices are entered as dollars per million tokens.
 	await page.getByTestId("input-price").fill("1");
 	await page.getByTestId("output-price").fill("3");
-	await expect(page.getByLabel("Provider API key")).toHaveAttribute(
+	await expect(page.getByLabel("Provider test key")).toHaveAttribute(
 		"type",
 		"password",
 	);
@@ -275,7 +275,7 @@ test("registering a model requires provider preflight", async ({ page }) => {
 		"Run preflight",
 	);
 	await expect(page.getByTestId("verification-results")).not.toBeVisible();
-	await page.getByLabel("Provider API key").fill("pw-provider-key");
+	await page.getByLabel("Provider test key").fill("pw-provider-key");
 	await page.getByTestId("register-model-submit").click();
 	await expect(page.getByTestId("verification-results")).toContainText(
 		"Passed",
@@ -346,7 +346,7 @@ test("existing mappings report failed verification checks", async ({
 	await login(page);
 	await page.goto("/dashboard/fleet");
 	await page.getByTestId("verify-mistral-medium-4").click();
-	await page.getByLabel("Provider API key").fill("pw-provider-key");
+	await page.getByLabel("Provider test key").fill("pw-provider-key");
 	await page.getByRole("button", { name: "Run verification" }).click();
 	await expect(page.getByTestId("verification-results")).toContainText(
 		"The required tool call was not returned.",
@@ -465,4 +465,32 @@ test("new provider signs up and claims by email domain", async ({ page }) => {
 		timeout: 15_000,
 	});
 	await expect(page.getByTestId("crew-channel-card")).toContainText(email);
+});
+
+test("settings saves and removes the carrier's test key", async ({ page }) => {
+	await login(page);
+	await page.goto("/dashboard/settings");
+	const card = page.getByTestId("verification-key-mistral");
+	await expect(card).toContainText("No test key saved");
+
+	await page
+		.getByTestId("verification-key-input-mistral")
+		.fill("pw-carrier-test-key");
+	await page.getByTestId("verification-key-save-mistral").click();
+	await expect(
+		page.getByTestId("verification-key-masked-mistral"),
+	).toBeVisible();
+	await expect(card).not.toContainText("pw-carrier-test-key");
+
+	// With a saved key, preflight no longer needs one pasted.
+	await page.goto("/dashboard/fleet");
+	await page.getByTestId("verify-mistral-medium-4").click();
+	await expect(
+		page.getByRole("button", { name: "Run verification" }),
+	).toBeEnabled();
+	await page.keyboard.press("Escape");
+
+	await page.goto("/dashboard/settings");
+	await page.getByTestId("verification-key-remove-mistral").click();
+	await expect(card).toContainText("No test key saved");
 });
