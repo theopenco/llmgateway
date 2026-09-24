@@ -8,11 +8,15 @@ import {
 } from "@llmgateway/actions";
 import { and, asc, cdb, db, eq, lt, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { getProviderEnvVar, TOOL_CHOICE_MODES } from "@llmgateway/models";
+import {
+	getProviderEnvVar,
+	REASONING_EFFORTS,
+	TOOL_CHOICE_MODES,
+} from "@llmgateway/models";
 
 import type { RunModelVerificationOptions } from "@llmgateway/actions";
 import type { ProviderModelVerificationCheck } from "@llmgateway/db";
-import type { ToolChoiceMode } from "@llmgateway/models";
+import type { ReasoningEffort, ToolChoiceMode } from "@llmgateway/models";
 
 type VerificationRow = typeof tables.providerModelVerification.$inferSelect;
 type VerificationRunner = (
@@ -397,6 +401,68 @@ async function narrowToolChoiceSupport(
 	});
 }
 
+/**
+ * An effort tier the reasoning check probed and the upstream refused, where
+ * another tier then worked. Reasoning itself is proven, so the listing keeps it
+ * and drops only the refused tiers. The gateway forwards an effort as-is, so
+ * this is what makes the tier list it publishes match what the deployment takes.
+ */
+async function narrowReasoningEfforts(
+	job: VerificationRow,
+	unsupported: ReasoningEffort[] | undefined,
+): Promise<void> {
+	if (!job.draftModelId || !unsupported?.length) {
+		return;
+	}
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: job.draftModelId } },
+	});
+	if (!model || model.status === "delisted" || !model.reasoning) {
+		return;
+	}
+	const declared = (model.reasoningEfforts ?? REASONING_EFFORTS) as
+		ReasoningEffort[] | readonly ReasoningEffort[];
+	const reasoningEfforts = declared.filter(
+		(effort) => !unsupported.includes(effort),
+	);
+	// Every tier refused leaves nothing to declare, which reads as "no
+	// restriction" — the opposite of what the probes found. The run failed in
+	// that case anyway, so the demotion owns the outcome.
+	if (
+		reasoningEfforts.length === declared.length ||
+		reasoningEfforts.length === 0
+	) {
+		return;
+	}
+	// cdb: the gateway caches listing resolution off both tables.
+	await cdb.transaction(async (tx) => {
+		await tx
+			.update(tables.providerDraftModel)
+			.set({ reasoningEfforts })
+			.where(eq(tables.providerDraftModel.id, model.id));
+		if (model.status !== "active") {
+			return;
+		}
+		await tx
+			.update(tables.modelProviderMapping)
+			.set({ reasoningEfforts })
+			.where(
+				and(
+					eq(tables.modelProviderMapping.modelId, model.modelName),
+					eq(tables.modelProviderMapping.providerId, model.providerId),
+					eq(tables.modelProviderMapping.source, "airside"),
+				),
+			);
+	});
+	logger.info("Narrowed an Airside listing's reasoning effort tiers", {
+		verificationId: job.id,
+		draftModelId: model.id,
+		providerId: model.providerId,
+		unsupported,
+		reasoningEfforts,
+	});
+}
+
 export async function processNextModelVerification(
 	runner: VerificationRunner = runProviderModelVerification,
 ): Promise<boolean> {
@@ -457,6 +523,7 @@ export async function processNextModelVerification(
 			await demoteDisprovedCapabilities(job, result.checks);
 		}
 		await narrowToolChoiceSupport(job, result.unsupportedToolChoices);
+		await narrowReasoningEfforts(job, result.unsupportedReasoningEfforts);
 	} catch (error) {
 		if (error instanceof StaleModelVerificationAttemptError) {
 			return true;

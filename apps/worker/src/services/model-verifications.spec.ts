@@ -493,6 +493,61 @@ describe("model verification worker", () => {
 		expect(listing?.supportedToolChoices).toEqual(["auto"]);
 	});
 
+	it("narrows reasoning efforts without dropping reasoning", async () => {
+		const { draftModelId, modelName, providerId } = await seedActiveListing({
+			reasoningEfforts: ["none", "low", "medium", "high"],
+		});
+		await processNextModelVerification(async () => ({
+			passed: true,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{ id: "reasoning", label: "Reasoning", status: "passed" },
+			],
+			summary: "2 verification checks passed.",
+			unsupportedReasoningEfforts: ["medium"],
+		}));
+
+		const listing = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: draftModelId } },
+		});
+		expect(listing).toMatchObject({
+			reasoning: true,
+			reasoningEfforts: ["none", "low", "high"],
+		});
+		const mapping = await db.query.modelProviderMapping.findFirst({
+			where: { modelId: { eq: modelName }, providerId: { eq: providerId } },
+		});
+		expect(mapping?.reasoningEfforts).toEqual(["none", "low", "high"]);
+	});
+
+	it("enumerates the effort tiers a listing left undeclared", async () => {
+		const { draftModelId } = await seedActiveListing();
+		await db
+			.update(tables.providerDraftModel)
+			.set({ reasoningEfforts: null })
+			.where(eq(tables.providerDraftModel.id, draftModelId));
+		await processNextModelVerification(async () => ({
+			passed: true,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{ id: "reasoning", label: "Reasoning", status: "passed" },
+			],
+			summary: "2 verification checks passed.",
+			unsupportedReasoningEfforts: ["medium", "minimal"],
+		}));
+
+		const listing = await db.query.providerDraftModel.findFirst({
+			where: { id: { eq: draftModelId } },
+		});
+		expect(listing?.reasoningEfforts).toEqual([
+			"none",
+			"low",
+			"high",
+			"xhigh",
+			"max",
+		]);
+	});
+
 	it("does not let a stale attempt overwrite a reclaimed job", async () => {
 		const verificationId = await enqueueVerification();
 		const replacementChecks: ProviderModelVerificationCheck[] = [

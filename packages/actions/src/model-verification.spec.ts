@@ -427,6 +427,155 @@ describe("model verification", () => {
 		expect(result.unsupportedToolChoices).toBeUndefined();
 	});
 
+	const reasoningOnly = {
+		...target,
+		providerId: "custom-carrier" as const,
+		streaming: false,
+		vision: false,
+		audio: false,
+		tools: false,
+		jsonOutput: false,
+		jsonOutputSchema: false,
+		reasoning: true,
+		reasoningMaxTokens: false,
+		reasoningEfforts: null,
+		webSearch: false,
+	};
+	// Runware's DeepSeek V4.1 rejects the tier names it does not implement rather
+	// than clamping them onto one it does.
+	const refusedEffortResponse = () =>
+		Response.json(
+			{
+				error: {
+					message:
+						"DeepSeek V4.1 reasoning_effort must be low, high, xhigh, max, or an integer within [1, 100] in chat_template_kwargs",
+					type: "invalid_request_error",
+				},
+			},
+			{ status: 400 },
+		);
+	const effortOf = (call: Parameters<typeof fetch>[1] | undefined) =>
+		JSON.parse(String(call?.body)).reasoning_effort;
+	const refusingEfforts = (refused: string[]) =>
+		vi.fn<typeof fetch>().mockImplementation(async (_url, init) => {
+			const effort = JSON.parse(String(init?.body)).reasoning_effort;
+			return refused.includes(effort) ? refusedEffortResponse() : okResponse();
+		});
+
+	it("passes on the first effort without probing the rest", async () => {
+		const fetchImplementation = refusingEfforts([]);
+
+		const result = await runProviderModelVerification({
+			target: reasoningOnly,
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		expect(result.passed).toBe(true);
+		expect(fetchImplementation).toHaveBeenCalledTimes(2);
+		expect(effortOf(fetchImplementation.mock.calls[1][1])).toBe("medium");
+		expect(result.unsupportedReasoningEfforts).toBeUndefined();
+	});
+
+	it("sweeps the ladder once a tier is refused", async () => {
+		const fetchImplementation = refusingEfforts(["medium", "minimal"]);
+
+		const result = await runProviderModelVerification({
+			target: reasoningOnly,
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		expect(result.passed).toBe(true);
+		// basic, then the bounded sweep: a refusal means the tiers after it
+		// cannot be assumed either.
+		expect(fetchImplementation).toHaveBeenCalledTimes(5);
+		expect(result.unsupportedReasoningEfforts).toEqual(["medium", "minimal"]);
+		expect(disprovedCapabilities(result.checks)).toEqual([]);
+		expect(
+			result.checks.find((check) => check.id === "reasoning")?.feedback,
+		).toBe("Passed at low effort. Refused: medium, minimal.");
+	});
+
+	it("only probes the reasoning efforts the listing declares", async () => {
+		const fetchImplementation = refusingEfforts([]);
+
+		const result = await runProviderModelVerification({
+			target: { ...reasoningOnly, reasoningEfforts: ["none", "max"] },
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		expect(result.passed).toBe(true);
+		expect(fetchImplementation).toHaveBeenCalledTimes(2);
+		expect(effortOf(fetchImplementation.mock.calls[1][1])).toBe("max");
+		expect(result.unsupportedReasoningEfforts).toBeUndefined();
+	});
+
+	it("disproves reasoning when every effort is refused", async () => {
+		const fetchImplementation = refusingEfforts([
+			"minimal",
+			"low",
+			"medium",
+			"high",
+			"xhigh",
+			"max",
+		]);
+
+		const result = await runProviderModelVerification({
+			target: reasoningOnly,
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		expect(result.passed).toBe(false);
+		expect(fetchImplementation).toHaveBeenCalledTimes(5);
+		expect(disprovedCapabilities(result.checks)).toEqual(["reasoning"]);
+		expect(result.unsupportedReasoningEfforts).toBeUndefined();
+	});
+
+	it("does not narrow reasoning efforts on a server error", async () => {
+		const fetchImplementation = vi
+			.fn<typeof fetch>()
+			.mockImplementationOnce(async () => okResponse())
+			.mockImplementationOnce(async () =>
+				Response.json({ error: { message: "upstream down" } }, { status: 503 }),
+			);
+
+		const result = await runProviderModelVerification({
+			target: reasoningOnly,
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		expect(result.passed).toBe(false);
+		expect(fetchImplementation).toHaveBeenCalledTimes(2);
+		expect(result.unsupportedReasoningEfforts).toBeUndefined();
+	});
+
+	it("skips tiers a previous reasoning check already ruled out", async () => {
+		const fetchImplementation = refusingEfforts(["medium"]);
+
+		const result = await runProviderModelVerification({
+			target: { ...reasoningOnly, reasoningMaxTokens: true },
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		expect(result.passed).toBe(true);
+		// basic + the swept ladder + the budget check, which no longer retries
+		// the tier the reasoning check just saw refused.
+		expect(fetchImplementation).toHaveBeenCalledTimes(6);
+		expect(effortOf(fetchImplementation.mock.calls[5][1])).toBe("minimal");
+		expect(result.unsupportedReasoningEfforts).toEqual(["medium"]);
+	});
+
 	it("sends a vision image the serving stack can decode", async () => {
 		const fetchImplementation = vi
 			.fn<typeof fetch>()
