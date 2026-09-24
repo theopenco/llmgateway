@@ -5,12 +5,17 @@ const SCAN_COUNT = 500;
 
 // Everything that holds serialized database rows: the Drizzle query cache with
 // its table/tag indices, and the SWR fallback mirrors.
+//
+// Indices before rows: a row cached between the two scans would otherwise keep
+// its row key (written after that scan) while losing the index entry that makes
+// it evictable, leaving it readable until its TTL. The reverse leaves only an
+// index entry pointing at a deleted key, which costs nothing.
 function rowCachePatterns(): string[] {
 	return [
-		"drizzle:cache:*",
 		"drizzle:table_keys:*",
 		"drizzle:tags:*",
 		"drizzle:tables:*",
+		"drizzle:cache:*",
 		`${SWR_PREFIX}*`,
 	];
 }

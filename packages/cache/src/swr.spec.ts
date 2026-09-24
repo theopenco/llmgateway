@@ -8,6 +8,8 @@ import {
 	getSwrStaleTtlSeconds,
 	invalidateSwrByTables,
 	setSwrSchemaVersion,
+	swrMirrorKey,
+	swrThrottleKey,
 	swrWrap,
 	waitForSwrMirrorWrites,
 } from "./swr.js";
@@ -44,11 +46,11 @@ describe("swrWrap", () => {
 		);
 		expect(value).toEqual({ hello: "world" });
 
-		const mirror = await redisClient.get(`${SWR_PREFIX}test:key:1`);
+		const mirror = await redisClient.get(swrMirrorKey("test:key:1"));
 		expect(mirror).not.toBeNull();
-		expect(JSON.parse(mirror!).value).toEqual({ hello: "world" });
+		expect(JSON.parse(mirror!)).toEqual({ hello: "world" });
 
-		const ttl = await redisClient.ttl(`${SWR_PREFIX}test:key:1`);
+		const ttl = await redisClient.ttl(swrMirrorKey("test:key:1"));
 		expect(ttl).toBeGreaterThan(0);
 		expect(ttl).toBeLessThanOrEqual(getSwrStaleTtlSeconds());
 
@@ -58,8 +60,8 @@ describe("swrWrap", () => {
 		const membersB = await redisClient.smembers(
 			`${SWR_TABLE_INDEX_PREFIX}table_b`,
 		);
-		expect(membersA).toContain(`${SWR_PREFIX}test:key:1`);
-		expect(membersB).toContain(`${SWR_PREFIX}test:key:1`);
+		expect(membersA).toContain(swrMirrorKey("test:key:1"));
+		expect(membersB).toContain(swrMirrorKey("test:key:1"));
 	});
 
 	it("returns stale value when fetcher throws and mirror exists", async () => {
@@ -81,12 +83,39 @@ describe("swrWrap", () => {
 		await swrWrapFlushed("test:key:layout", ["table_a"], () =>
 			Promise.resolve({ status: "active" }),
 		);
+		const beforeKey = swrMirrorKey("test:key:layout");
 		setSwrSchemaVersion("layout-after-migration");
 
 		const dbError = new Error("postgres unavailable");
 		await expect(
 			swrWrap("test:key:layout", ["table_a"], () => Promise.reject(dbError)),
 		).rejects.toBe(dbError);
+
+		// The other layout's mirror is left intact: during a rolling deploy the
+		// build that wrote it is still serving and still needs its fallback.
+		expect(await redisClient.get(beforeKey)).not.toBeNull();
+	});
+
+	it("invalidateSwrByTables evicts mirrors from every schema layout", async () => {
+		setSwrSchemaVersion("layout-before-migration");
+		await swrWrapFlushed("test:key:bothlayouts", ["table_a"], () =>
+			Promise.resolve({ v: 1 }),
+		);
+		const beforeKey = swrMirrorKey("test:key:bothlayouts");
+		const beforeThrottleKey = swrThrottleKey("test:key:bothlayouts");
+
+		setSwrSchemaVersion("layout-after-migration");
+		await swrWrapFlushed("test:key:bothlayouts", ["table_a"], () =>
+			Promise.resolve({ v: 2 }),
+		);
+		const afterKey = swrMirrorKey("test:key:bothlayouts");
+		expect(afterKey).not.toBe(beforeKey);
+
+		await invalidateSwrByTables(["table_a"]);
+
+		expect(await redisClient.get(beforeKey)).toBeNull();
+		expect(await redisClient.get(afterKey)).toBeNull();
+		expect(await redisClient.get(beforeThrottleKey)).toBeNull();
 	});
 
 	it("rethrows original error when fetcher fails and no mirror exists", async () => {
@@ -104,7 +133,7 @@ describe("swrWrap", () => {
 		);
 		expect(primed).toBeUndefined();
 
-		const mirror = await redisClient.get(`${SWR_PREFIX}test:key:undef`);
+		const mirror = await redisClient.get(swrMirrorKey("test:key:undef"));
 		expect(mirror).not.toBeNull();
 
 		const dbError = new Error("postgres unavailable");
@@ -129,9 +158,9 @@ describe("swrWrap", () => {
 
 		await invalidateSwrByTables(["table_a"]);
 
-		expect(await redisClient.get(`${SWR_PREFIX}test:key:inv1`)).toBeNull();
-		expect(await redisClient.get(`${SWR_PREFIX}test:key:inv2`)).toBeNull();
-		expect(await redisClient.get(`${SWR_PREFIX}test:key:inv3`)).not.toBeNull();
+		expect(await redisClient.get(swrMirrorKey("test:key:inv1"))).toBeNull();
+		expect(await redisClient.get(swrMirrorKey("test:key:inv2"))).toBeNull();
+		expect(await redisClient.get(swrMirrorKey("test:key:inv3"))).not.toBeNull();
 
 		expect(await redisClient.exists(`${SWR_TABLE_INDEX_PREFIX}table_a`)).toBe(
 			0,
@@ -143,17 +172,17 @@ describe("swrWrap", () => {
 			Promise.resolve({ v: 1 }),
 		);
 		expect(
-			await redisClient.get(`${SWR_PREFIX}test:key:throttle`),
+			await redisClient.get(swrMirrorKey("test:key:throttle")),
 		).not.toBeNull();
 
 		// Drop the mirror, then call again within the throttle window. The fresh
 		// fetcher value is still returned, but the mirror is NOT rewritten.
-		await redisClient.del(`${SWR_PREFIX}test:key:throttle`);
+		await redisClient.del(swrMirrorKey("test:key:throttle"));
 		const value = await swrWrapFlushed("test:key:throttle", ["table_a"], () =>
 			Promise.resolve({ v: 2 }),
 		);
 		expect(value).toEqual({ v: 2 });
-		expect(await redisClient.get(`${SWR_PREFIX}test:key:throttle`)).toBeNull();
+		expect(await redisClient.get(swrMirrorKey("test:key:throttle"))).toBeNull();
 	});
 
 	it("releases the throttle slot so the next call retries when the mirror write fails", async () => {
@@ -200,9 +229,9 @@ describe("swrWrap", () => {
 
 		// Write failed, so neither the mirror nor a lingering throttle marker
 		// should remain — the slot must be released for a retry.
-		expect(await redisClient.get(`${SWR_PREFIX}test:key:relfail`)).toBeNull();
+		expect(await redisClient.get(swrMirrorKey("test:key:relfail"))).toBeNull();
 		expect(
-			await redisClient.get(`${SWR_THROTTLE_PREFIX}test:key:relfail`),
+			await redisClient.get(swrThrottleKey("test:key:relfail")),
 		).toBeNull();
 
 		pipelineSpy.mockRestore();
@@ -213,7 +242,7 @@ describe("swrWrap", () => {
 			Promise.resolve({ v: 2 }),
 		);
 		expect(
-			await redisClient.get(`${SWR_PREFIX}test:key:relfail`),
+			await redisClient.get(swrMirrorKey("test:key:relfail")),
 		).not.toBeNull();
 	});
 
@@ -222,12 +251,14 @@ describe("swrWrap", () => {
 			Promise.resolve({ v: 1 }),
 		);
 		await invalidateSwrByTables(["table_a"]);
-		expect(await redisClient.get(`${SWR_PREFIX}test:key:reinv`)).toBeNull();
+		expect(await redisClient.get(swrMirrorKey("test:key:reinv"))).toBeNull();
 
 		await swrWrapFlushed("test:key:reinv", ["table_a"], () =>
 			Promise.resolve({ v: 2 }),
 		);
-		expect(await redisClient.get(`${SWR_PREFIX}test:key:reinv`)).not.toBeNull();
+		expect(
+			await redisClient.get(swrMirrorKey("test:key:reinv")),
+		).not.toBeNull();
 	});
 
 	it("honors SWR_STALE_TTL_SECONDS env var", async () => {
@@ -237,7 +268,7 @@ describe("swrWrap", () => {
 		await swrWrapFlushed("test:key:ttl", ["table_a"], () =>
 			Promise.resolve({ v: 1 }),
 		);
-		const ttl = await redisClient.ttl(`${SWR_PREFIX}test:key:ttl`);
+		const ttl = await redisClient.ttl(swrMirrorKey("test:key:ttl"));
 		expect(ttl).toBeGreaterThan(0);
 		expect(ttl).toBeLessThanOrEqual(120);
 	});
