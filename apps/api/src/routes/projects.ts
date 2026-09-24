@@ -5,6 +5,10 @@ import { z } from "zod";
 import { resolveProjectLimit } from "@/lib/project-limit.js";
 import { userHasProjectAccess } from "@/utils/authorization.js";
 import {
+	autoRoutingConfigInputSchema,
+	normalizeAutoRoutingConfig,
+} from "@/utils/auto-routing.js";
+import {
 	providerCacheControlModeSchema,
 	resolveProviderCacheControlMode,
 } from "@/utils/provider-cache-control.js";
@@ -16,10 +20,12 @@ import {
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { canManageProject } from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderCacheControlMode } from "@llmgateway/models";
+import type { AutoRoutingConfig } from "@llmgateway/shared/auto-routing";
 
 export const projects = new OpenAPIHono<ServerTypes>();
 
@@ -45,6 +51,7 @@ const projectSchema = z.object({
 	endUserMarkupPercent: z.string(),
 	endUserTopUpBonusPercent: z.string(),
 	allowedOrigins: z.array(z.string()).nullable(),
+	autoRoutingConfig: autoRoutingConfigInputSchema.nullable(),
 });
 
 const createProjectSchema = z.object({
@@ -71,6 +78,8 @@ const updateProjectSchema = z.object({
 	endUserMarkupPercent: z.number().min(0).max(100).optional(),
 	endUserTopUpBonusPercent: z.number().min(0).max(1000).optional(),
 	allowedOrigins: z.array(z.string().trim().min(1)).max(20).optional(),
+	// Null clears the override so the project inherits the organization default.
+	autoRoutingConfig: autoRoutingConfigInputSchema.nullable().optional(),
 });
 
 function normalizeAllowedOrigins(origins: string[]) {
@@ -224,6 +233,7 @@ projects.openapi(updateProject, async (c) => {
 		endUserMarkupPercent,
 		endUserTopUpBonusPercent,
 		allowedOrigins,
+		autoRoutingConfig,
 	} = c.req.valid("json");
 	const providerCacheControlMode = resolveProviderCacheControlMode(
 		c.req.valid("json"),
@@ -353,6 +363,26 @@ projects.openapi(updateProject, async (c) => {
 		updateData.allowedOrigins = normalizedAllowedOrigins;
 	}
 
+	// Auto-routing overrides are an enterprise feature. Clearing the override
+	// stays allowed without enterprise access so a downgraded org can drop a
+	// leftover project override.
+	let normalizedAutoRoutingConfig: AutoRoutingConfig | null | undefined;
+	if (autoRoutingConfig !== undefined) {
+		if (
+			autoRoutingConfig !== null &&
+			!hasOrganizationEnterpriseAccess(
+				projectUserOrg?.organization?.id,
+				projectUserOrg?.organization?.plan,
+			)
+		) {
+			throw new HTTPException(403, {
+				message: "Auto routing configuration requires an enterprise plan",
+			});
+		}
+		normalizedAutoRoutingConfig = normalizeAutoRoutingConfig(autoRoutingConfig);
+		updateData.autoRoutingConfig = normalizedAutoRoutingConfig;
+	}
+
 	// An empty PATCH body is a valid no-op; drizzle throws "No values to set"
 	// on an empty update, so skip the query and return the project unchanged.
 	if (Object.keys(updateData).length === 0) {
@@ -456,6 +486,16 @@ projects.openapi(updateProject, async (c) => {
 		changes.endUserTopUpBonusPercent = {
 			old: project.endUserTopUpBonusPercent,
 			new: String(endUserTopUpBonusPercent),
+		};
+	}
+	if (
+		normalizedAutoRoutingConfig !== undefined &&
+		JSON.stringify(project.autoRoutingConfig ?? null) !==
+			JSON.stringify(normalizedAutoRoutingConfig)
+	) {
+		changes.autoRoutingConfig = {
+			old: project.autoRoutingConfig,
+			new: normalizedAutoRoutingConfig,
 		};
 	}
 	if (normalizedAllowedOrigins !== undefined) {

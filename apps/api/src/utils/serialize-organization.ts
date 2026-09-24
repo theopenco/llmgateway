@@ -30,6 +30,7 @@ export function serializeOrganization(
 		projectLimit: organization.projectLimit,
 		retentionLevel: organization.retentionLevel,
 		providerCompliancePolicy: organization.providerCompliancePolicy,
+		autoRoutingConfig: organization.autoRoutingConfig,
 		ssoAutoJoinDomain: organization.ssoAutoJoinDomain,
 		status: organization.status,
 		blockReason: organization.blockReason,

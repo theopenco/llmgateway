@@ -699,6 +699,60 @@ export function LogDetailClient({
 											mono
 										/>
 									)}
+									{log.routingMetadata.autoRouting && (
+										<>
+											<Field
+												label="Auto routing"
+												value={`${log.routingMetadata.autoRouting.selectedModel} (${log.routingMetadata.autoRouting.classifier} classifier${log.routingMetadata.autoRouting.classifierFailed ? ", failed open" : ""})`}
+												mono
+											/>
+											{log.routingMetadata.autoRouting.difficulty && (
+												<Field
+													label="Difficulty"
+													value={`${log.routingMetadata.autoRouting.difficulty}${log.routingMetadata.autoRouting.band ? ` → ${log.routingMetadata.autoRouting.band} band` : ""}`}
+													mono
+												/>
+											)}
+											{log.routingMetadata.autoRouting.task && (
+												<Field
+													label="Task"
+													value={`${log.routingMetadata.autoRouting.task}${log.routingMetadata.autoRouting.outputType ? ` / ${log.routingMetadata.autoRouting.outputType}` : ""}`}
+													mono
+												/>
+											)}
+											{log.routingMetadata.autoRouting.bestModel && (
+												<Field
+													label="Classifier pick"
+													value={`${log.routingMetadata.autoRouting.bestModel}${
+														log.routingMetadata.autoRouting
+															.bestModelConfidence !== undefined
+															? ` (${Math.round(log.routingMetadata.autoRouting.bestModelConfidence * 100)}% confident)`
+															: ""
+													}`}
+													mono
+												/>
+											)}
+											{log.routingMetadata.autoRouting.candidateModels &&
+												log.routingMetadata.autoRouting.candidateModels.length >
+													0 && (
+													<Field
+														label="Candidates"
+														value={log.routingMetadata.autoRouting.candidateModels.join(
+															", ",
+														)}
+														mono
+													/>
+												)}
+											{log.routingMetadata.autoRouting.classifierLatencyMs !==
+												undefined && (
+												<Field
+													label="Classifier latency"
+													value={`${log.routingMetadata.autoRouting.classifierLatencyMs} ms`}
+													mono
+												/>
+											)}
+										</>
+									)}
 									{log.routingMetadata.usedApiKeyHash && (
 										<Field
 											label="Key"

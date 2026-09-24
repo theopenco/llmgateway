@@ -24,6 +24,10 @@ import {
 } from "./compute-provider-scores.js";
 
 import type {
+	AutoRoutingClassifier,
+	AutoRoutingDifficulty,
+} from "@llmgateway/shared/auto-routing";
+import type {
 	RoutingCredentialSource,
 	RoutingExclusionReason,
 } from "@llmgateway/shared/routing-telemetry";
@@ -177,6 +181,28 @@ export interface RoutingMetadata {
 		version: number;
 		// Node ids traversed during graph evaluation
 		path: string[];
+	};
+	// How an "auto" request resolved to a concrete model when the organization
+	// configured auto-routing. Absent for the built-in default candidate set.
+	autoRouting?: {
+		classifier: AutoRoutingClassifier;
+		rubricVersion?: number;
+		// Models the configuration allowed, before availability filtering.
+		eligibleModels: string[];
+		// Models that survived filtering and were ranked, cheapest first.
+		candidateModels: string[];
+		difficulty?: AutoRoutingDifficulty;
+		difficultyScore?: number;
+		task?: string;
+		outputType?: string;
+		bestModel?: string;
+		bestModelConfidence?: number;
+		band?: AutoRoutingDifficulty;
+		selectedModel: string;
+		classifierLatencyMs?: number;
+		// True when a configured classifier could not be consulted and the
+		// selection fell back to the cheapest candidate.
+		classifierFailed: boolean;
 	};
 }
 

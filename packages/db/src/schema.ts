@@ -29,6 +29,7 @@ import type {
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
+import type { AutoRoutingConfig } from "@llmgateway/shared/auto-routing";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 import type { AlertAudience } from "@llmgateway/shared/organization-roles";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
@@ -317,6 +318,11 @@ export const organization = pgTable(
 		// only routes to providers meeting the required certifications/data
 		// policies. Null = no policy configured.
 		providerCompliancePolicy: json().$type<ProviderCompliancePolicy>(),
+		// Enterprise auto-routing ("auto" model) configuration: which models the
+		// gateway may pick from and which classifier ranks the request. Null =
+		// the built-in default candidate set and no classifier. Projects may
+		// override it with their own column.
+		autoRoutingConfig: json().$type<AutoRoutingConfig>(),
 		// Delivery of compliance alerts (watched models becoming available,
 		// providers no longer meeting the policy). Null = alerts not configured.
 		complianceAlertSettings: json().$type<ComplianceAlertSettings>(),
@@ -1259,6 +1265,9 @@ export const project = pgTable(
 		// Browser origins allowed to call the gateway with this project's
 		// ephemeral end-user session tokens (CORS allowlist).
 		allowedOrigins: json().$type<string[]>(),
+		// Per-project override of the organization's auto-routing configuration.
+		// Null = inherit the organization default.
+		autoRoutingConfig: json().$type<AutoRoutingConfig>(),
 	},
 	(table) => [index("project_organization_id_idx").on(table.organizationId)],
 );
@@ -2282,6 +2291,25 @@ export const log = pgTable(
 			// premium tier was in play.
 			serviceTierSource?: "request" | "coding-plan-default";
 			strippedParameters?: string[];
+			// How an "auto" request resolved to a concrete model when the
+			// organization configured auto-routing. Absent for the built-in
+			// default candidate set.
+			autoRouting?: {
+				classifier: "none" | "jev";
+				rubricVersion?: number;
+				eligibleModels: string[];
+				candidateModels: string[];
+				difficulty?: "low" | "medium" | "high";
+				difficultyScore?: number;
+				task?: string;
+				outputType?: string;
+				bestModel?: string;
+				bestModelConfidence?: number;
+				band?: "low" | "medium" | "high";
+				selectedModel: string;
+				classifierLatencyMs?: number;
+				classifierFailed: boolean;
+			};
 		}>(),
 		processedAt: timestamp(),
 		rawRequest: jsonb(),

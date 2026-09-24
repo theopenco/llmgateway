@@ -1898,6 +1898,13 @@
       "when": 1790138837807,
       "tag": "1790138837_sparkling_leech",
       "breakpoints": true
+    },
+    {
+      "idx": 271,
+      "version": "8",
+      "when": 1790247353802,
+      "tag": "1790247353_lethal_cammi",
+      "breakpoints": true
     }
   ]
 }

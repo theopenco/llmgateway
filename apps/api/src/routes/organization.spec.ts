@@ -915,4 +915,123 @@ describe("organization route", () => {
 		// 77 / 1.1 = 70 days, capped to 31 ("30+").
 		expect(body.runwayDays).toBe(31);
 	});
+	describe("auto routing configuration", () => {
+		async function patchAutoRouting(body: unknown) {
+			return await app.request("/orgs/test-org-id", {
+				method: "PATCH",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({ autoRoutingConfig: body }),
+			});
+		}
+
+		async function storedConfig() {
+			return (
+				await db.query.organization.findFirst({
+					where: { id: { eq: "test-org-id" } },
+				})
+			)?.autoRoutingConfig;
+		}
+
+		beforeEach(async () => {
+			await db
+				.update(tables.organization)
+				.set({ plan: "enterprise" })
+				.where(eq(tables.organization.id, "test-org-id"));
+		});
+
+		test("stores a valid configuration", async () => {
+			const response = await patchAutoRouting({
+				classifier: "jev",
+				models: ["gpt-4o-mini", "gpt-4o"],
+			});
+
+			expect(response.status).toBe(200);
+			expect(await storedConfig()).toEqual({
+				classifier: "jev",
+				models: ["gpt-4o-mini", "gpt-4o"],
+			});
+		});
+
+		test("collapses duplicate references to the same model", async () => {
+			const response = await patchAutoRouting({
+				classifier: "none",
+				models: ["gpt-4o-mini", "gpt-4o-mini"],
+			});
+
+			expect(response.status).toBe(200);
+			expect(await storedConfig()).toEqual({
+				classifier: "none",
+				models: ["gpt-4o-mini"],
+			});
+		});
+
+		test("rejects unknown models, empty and oversized lists", async () => {
+			expect(
+				(await patchAutoRouting({ classifier: "none", models: ["nope-9000"] }))
+					.status,
+			).toBe(400);
+			expect(
+				(await patchAutoRouting({ classifier: "none", models: [] })).status,
+			).toBe(400);
+			expect(
+				(
+					await patchAutoRouting({
+						classifier: "none",
+						models: Array.from({ length: 31 }, () => "gpt-4o-mini"),
+					})
+				).status,
+			).toBe(400);
+			expect(
+				(
+					await patchAutoRouting({
+						classifier: "nope",
+						models: ["gpt-4o-mini"],
+					})
+				).status,
+			).toBe(400);
+		});
+
+		test("rejects a model that cannot emit text", async () => {
+			// Audio/image-only models fail upstream on /v1/chat/completions, so they
+			// are never valid auto-routing candidates.
+			const response = await patchAutoRouting({
+				classifier: "none",
+				models: ["tts-1"],
+			});
+			expect(response.status).toBe(400);
+		});
+
+		test("requires an enterprise plan to set, but not to clear", async () => {
+			await db
+				.update(tables.organization)
+				.set({
+					plan: "free",
+					autoRoutingConfig: { classifier: "none", models: ["gpt-4o-mini"] },
+				})
+				.where(eq(tables.organization.id, "test-org-id"));
+
+			expect(
+				(await patchAutoRouting({ classifier: "none", models: ["gpt-4o"] }))
+					.status,
+			).toBe(403);
+			expect((await patchAutoRouting(null)).status).toBe(200);
+			expect(await storedConfig()).toBeNull();
+		});
+
+		test("rejects a member who is not an organization admin", async () => {
+			await db
+				.update(tables.userOrganization)
+				.set({ role: "developer" })
+				.where(eq(tables.userOrganization.organizationId, "test-org-id"));
+
+			const response = await patchAutoRouting({
+				classifier: "none",
+				models: ["gpt-4o-mini"],
+			});
+			expect(response.status).toBe(403);
+		});
+	});
 });

@@ -216,6 +216,10 @@ import {
 	isRecognizedCodingAgent,
 	normalizeSourceToAgentId,
 } from "@llmgateway/shared";
+import {
+	DEFAULT_AUTO_ROUTING_MODELS,
+	type AutoRoutingClassification,
+} from "@llmgateway/shared/auto-routing";
 import { parseCustomDynamicRouteModelRef } from "@llmgateway/shared/dynamic-route";
 import {
 	applyRoutingPreference,
@@ -224,6 +228,7 @@ import {
 
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
+import { selectAutoRoutingModel } from "./tools/auto-routing-selection.js";
 import { buildRoutingAttempt } from "./tools/build-routing-attempt.js";
 import {
 	checkContentFilter,
@@ -2985,6 +2990,11 @@ chat.openapi(completions, async (c) => {
 	let usedExternalId: string = requestedModel;
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
+	// Set when an "auto" request ran against an organization-configured
+	// candidate list. Declared at function scope so the late-built metadata
+	// paths below can attach the decision no matter which branch produced it.
+	let autoRoutingClassification: AutoRoutingClassification | null = null;
+	let autoRoutingDecision: RoutingMetadata["autoRouting"] | undefined;
 
 	// Resolve a named dynamic route ("dynamic/<name>") to its target model and
 	// optional provider restriction. Official models continue through the auto
@@ -3680,21 +3690,44 @@ chat.openapi(completions, async (c) => {
 			airsideListingsByModel.set(listing.model.id, listings);
 		}
 
-		// Find the cheapest model that meets our context size requirements
-		// Only consider hardcoded models for auto selection
-		const allowedAutoModels = [
-			"claude-opus-4-6",
-			"claude-sonnet-4-6",
-			"claude-haiku-4-5",
-		];
+		// Enterprise organizations can replace the built-in candidate set with
+		// their own, optionally ranked by a classifier. A project override wins
+		// over the organization default; losing enterprise access falls back to
+		// the built-in list rather than honouring a stale config.
+		const autoRoutingConfig = hasOrganizationEnterpriseAccess(
+			organization.id,
+			organization.plan,
+		)
+			? (project.autoRoutingConfig ?? organization.autoRoutingConfig ?? null)
+			: null;
+		// A dynamic route has already fixed the model, and free_models_only
+		// replaces the candidate set entirely, so neither can be narrowed by a
+		// configured list.
+		const configuredAutoModels =
+			autoRoutingConfig && !dynamicRouteSelection && !effectiveFreeModelsOnly
+				? autoRoutingConfig.models
+				: null;
+		const eligibleAutoModels =
+			configuredAutoModels ?? DEFAULT_AUTO_ROUTING_MODELS;
+		const autoRoutingClassifier = configuredAutoModels
+			? autoRoutingConfig!.classifier
+			: "none";
 
 		let selectedModel: ModelDefinition | undefined;
-		let selectedProviders: any[] = [];
+		let selectedProviders: ProviderModelMapping[] = [];
 		let selectedFilteredProviders: Array<{
 			providerId: string;
 			reasons: string[];
 		}> = [];
-		let lowestPrice = Number.MAX_VALUE;
+		// Every model that survived filtering, so the classifier can rank the
+		// full candidate set instead of the loop picking the cheapest in place.
+		const autoRoutingCandidates: Array<{
+			modelId: string;
+			modelDef: ModelDefinition;
+			providers: ProviderModelMapping[];
+			filteredOut: FilteredProvider[];
+			price: number;
+		}> = [];
 		const now = new Date(); // Cache current time for deprecation checks
 		const autoFilterOpts = {
 			webSearchTool: !!webSearchTool,
@@ -3776,8 +3809,16 @@ chat.openapi(completions, async (c) => {
 				if (!("free" in modelDef && modelDef.free)) {
 					continue;
 				}
+			} else if (configuredAutoModels) {
+				// A configured list is exhaustive: the audio/documents bypass and
+				// the Haiku size heuristic below describe the built-in candidate
+				// set only, and applying them would route outside what the
+				// organization allowed.
+				if (!configuredAutoModels.includes(modelDef.id)) {
+					continue;
+				}
 			} else if (
-				!allowedAutoModels.includes(modelDef.id) &&
+				!eligibleAutoModels.includes(modelDef.id) &&
 				!hasAudio &&
 				!hasDocuments
 			) {
@@ -4024,7 +4065,10 @@ chat.openapi(completions, async (c) => {
 			);
 
 			if (preferredSuitableProviders.length > 0) {
-				// Find the cheapest among the suitable providers for this model
+				// Rank the model by its cheapest suitable provider, then defer the
+				// pick to the selection step below so a classifier can see every
+				// candidate rather than only the running cheapest.
+				let modelPrice = Number.MAX_VALUE;
 				for (const provider of preferredSuitableProviders) {
 					const { price } = await getDiscountedProviderSelectionPrice(
 						provider,
@@ -4034,19 +4078,57 @@ chat.openapi(completions, async (c) => {
 							providerDiscountResolver,
 						},
 					);
-					const totalPrice = price.toNumber();
-
-					if (totalPrice < lowestPrice) {
-						lowestPrice = totalPrice;
-						selectedModel = {
-							...modelDef,
-							providers: preferredSuitableProviders,
-						};
-						selectedProviders = preferredSuitableProviders;
-						selectedFilteredProviders = filteredOutForModel;
-					}
+					modelPrice = Math.min(modelPrice, price.toNumber());
+				}
+				if (modelPrice < Number.MAX_VALUE) {
+					autoRoutingCandidates.push({
+						modelId: modelDef.id,
+						modelDef,
+						providers: preferredSuitableProviders,
+						filteredOut: filteredOutForModel,
+						price: modelPrice,
+					});
 				}
 			}
+		}
+
+		const autoRoutingSelection = await selectAutoRoutingModel({
+			candidates: autoRoutingCandidates,
+			configuredModels: configuredAutoModels,
+			classifier: autoRoutingClassifier,
+			// The classifier sends prompt text to TypeSafe, so an org whose
+			// compliance policy disallows that provider must not have its prompts
+			// sent there — same fail-closed rule as the model-backed content
+			// filter below. Routing then falls back to the cheapest candidate.
+			classifierAllowed:
+				!compliancePolicy ||
+				isProviderIdCompliant("typesafe", compliancePolicy),
+			messages: (messages ?? []) as BaseMessage[],
+			toolNames: (tools ?? [])
+				.map((tool) =>
+					tool.type === "function" ? tool.function?.name : undefined,
+				)
+				.filter((name): name is string => Boolean(name)),
+			hasImages,
+			estimatedInputTokens,
+			context: {
+				requestId,
+				organizationId: project.organizationId,
+				projectId: project.id,
+				apiKeyId: apiKey.id,
+			},
+			requestSignal: c.req.raw.signal,
+		});
+		if (autoRoutingSelection) {
+			const { candidate, classification, decision } = autoRoutingSelection;
+			selectedModel = {
+				...candidate.modelDef,
+				providers: candidate.providers,
+			};
+			selectedProviders = candidate.providers;
+			selectedFilteredProviders = candidate.filteredOut;
+			autoRoutingClassification = classification;
+			autoRoutingDecision = decision;
 		}
 
 		let providerAgnosticSelectedProviders = selectedProviders;
@@ -4169,6 +4251,15 @@ chat.openapi(completions, async (c) => {
 					message: effectiveFreeModelsOnly
 						? `Dynamic route "${dynamicRouteSelection.name}" resolved to model "${dynamicRouteSelection.model}" which is not available with free_models_only`
 						: `Dynamic route "${dynamicRouteSelection.name}" resolved to model "${dynamicRouteSelection.model}" but no matching provider is currently available for this request`,
+				});
+			}
+			// A configured candidate list is exhaustive: falling back to the
+			// built-in default would route to a model the organization did not
+			// allow, so fail instead.
+			if (configuredAutoModels) {
+				throw new HTTPException(400, {
+					message:
+						"None of the configured auto-routing models are available for this request",
 				});
 			}
 			if (effectiveFreeModelsOnly) {
@@ -5530,6 +5621,10 @@ chat.openapi(completions, async (c) => {
 		);
 	}
 
+	if (autoRoutingDecision && routingMetadata) {
+		routingMetadata.autoRouting = autoRoutingDecision;
+	}
+
 	if (dynamicRouteSelection && routingMetadata) {
 		routingMetadata.dynamicRoute = {
 			name: dynamicRouteSelection.name,
@@ -5638,8 +5733,13 @@ chat.openapi(completions, async (c) => {
 		);
 
 		if (selectedModelSupportsReasoning) {
-			// Set reasoning_effort to "minimal" for gpt-5* models, "low" for others
-			if (usedInternalModel.startsWith("gpt-5")) {
+			// A request the classifier rated hard gets a real thinking budget:
+			// the minimal default exists to keep easy auto-routed requests cheap,
+			// and applying it to a hard request wastes the model it selected.
+			if (autoRoutingClassification?.difficulty === "high") {
+				reasoning_effort = "medium";
+			} else if (usedInternalModel.startsWith("gpt-5")) {
+				// Set reasoning_effort to "minimal" for gpt-5* models, "low" for others
 				reasoning_effort = "minimal";
 			} else {
 				reasoning_effort = "low";

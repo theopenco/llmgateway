@@ -23,6 +23,10 @@ import {
 	getAdminOrganizationIds,
 	userHasOrganizationAccess,
 } from "@/utils/authorization.js";
+import {
+	autoRoutingConfigInputSchema,
+	normalizeAutoRoutingConfig,
+} from "@/utils/auto-routing.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 import {
 	buildInvoiceDataForTransaction,
@@ -80,6 +84,7 @@ import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-l
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { ServerTypes } from "@/vars.js";
+import type { AutoRoutingConfig } from "@llmgateway/shared/auto-routing";
 
 export const organization = new OpenAPIHono<ServerTypes>();
 
@@ -180,6 +185,7 @@ const organizationSchema = z
 		projectLimit: z.number().nullable(),
 		retentionLevel: z.enum(["retain", "none"]),
 		providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
+		autoRoutingConfig: autoRoutingConfigInputSchema.nullable(),
 		ssoAutoJoinDomain: z.string().nullable(),
 		status: z.enum(["active", "inactive", "deleted"]).nullable(),
 		blockReason: z.string().nullable(),
@@ -247,6 +253,7 @@ const projectSchema = z.object({
 	endUserMarkupPercent: z.string(),
 	endUserTopUpBonusPercent: z.string(),
 	allowedOrigins: z.array(z.string()).nullable(),
+	autoRoutingConfig: autoRoutingConfigInputSchema.nullable(),
 });
 
 const createOrganizationSchema = z.object({
@@ -280,6 +287,7 @@ const updateOrganizationSchema = z.object({
 	providerCompliancePolicy: providerCompliancePolicySchema
 		.nullable()
 		.optional(),
+	autoRoutingConfig: autoRoutingConfigInputSchema.nullable().optional(),
 	ssoAutoJoinDomain: z.string().max(253).nullable().optional(),
 	autoTopUpEnabled: z.boolean().optional(),
 	autoTopUpThreshold: z.number().min(5).optional(),
@@ -683,6 +691,7 @@ organization.openapi(updateOrganization, async (c) => {
 		billingNotes,
 		retentionLevel,
 		providerCompliancePolicy,
+		autoRoutingConfig,
 		ssoAutoJoinDomain,
 		autoTopUpEnabled,
 		autoTopUpThreshold,
@@ -794,6 +803,25 @@ organization.openapi(updateOrganization, async (c) => {
 		}
 	}
 
+	// Auto-routing configuration is an enterprise feature. Clearing it stays
+	// allowed without enterprise access so a downgraded org can drop a leftover
+	// config and fall back to the built-in candidate set.
+	let normalizedAutoRoutingConfig: AutoRoutingConfig | null | undefined;
+	if (autoRoutingConfig !== undefined) {
+		if (
+			autoRoutingConfig !== null &&
+			!hasOrganizationEnterpriseAccess(
+				userOrganization.organization?.id,
+				userOrganization.organization?.plan,
+			)
+		) {
+			throw new HTTPException(403, {
+				message: "Auto routing configuration requires an enterprise plan",
+			});
+		}
+		normalizedAutoRoutingConfig = normalizeAutoRoutingConfig(autoRoutingConfig);
+	}
+
 	const effectiveCompliancePolicy =
 		providerCompliancePolicy === undefined
 			? userOrganization.organization!.providerCompliancePolicy
@@ -894,6 +922,9 @@ organization.openapi(updateOrganization, async (c) => {
 	}
 	if (providerCompliancePolicy !== undefined) {
 		updateData.providerCompliancePolicy = providerCompliancePolicy;
+	}
+	if (normalizedAutoRoutingConfig !== undefined) {
+		updateData.autoRoutingConfig = normalizedAutoRoutingConfig;
 	}
 	if (normalizedSsoDomain !== undefined) {
 		updateData.ssoAutoJoinDomain = normalizedSsoDomain;
@@ -1021,6 +1052,16 @@ organization.openapi(updateOrganization, async (c) => {
 		changes.providerCompliancePolicy = {
 			old: oldOrg.providerCompliancePolicy,
 			new: providerCompliancePolicy,
+		};
+	}
+	if (
+		normalizedAutoRoutingConfig !== undefined &&
+		JSON.stringify(oldOrg.autoRoutingConfig ?? null) !==
+			JSON.stringify(normalizedAutoRoutingConfig)
+	) {
+		changes.autoRoutingConfig = {
+			old: oldOrg.autoRoutingConfig,
+			new: normalizedAutoRoutingConfig,
 		};
 	}
 	if (

@@ -247,4 +247,100 @@ describe("projects route", () => {
 			message: expect.stringContaining("Provider prompt caching"),
 		});
 	});
+	describe("auto routing configuration", () => {
+		async function patchAutoRouting(body: unknown) {
+			return await app.request("/projects/test-project-id", {
+				method: "PATCH",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+				},
+				body: JSON.stringify({ autoRoutingConfig: body }),
+			});
+		}
+
+		async function storedConfig() {
+			return (
+				await db.query.project.findFirst({
+					where: { id: { eq: "test-project-id" } },
+				})
+			)?.autoRoutingConfig;
+		}
+
+		beforeEach(async () => {
+			await db
+				.update(tables.organization)
+				.set({ plan: "enterprise" })
+				.where(eq(tables.organization.id, "test-org-id"));
+		});
+
+		test("stores an override and clears it with null", async () => {
+			expect(
+				(
+					await patchAutoRouting({
+						classifier: "jev",
+						models: ["gpt-4o-mini", "gpt-4o"],
+					})
+				).status,
+			).toBe(200);
+			expect(await storedConfig()).toEqual({
+				classifier: "jev",
+				models: ["gpt-4o-mini", "gpt-4o"],
+			});
+
+			expect((await patchAutoRouting(null)).status).toBe(200);
+			expect(await storedConfig()).toBeNull();
+		});
+
+		test("rejects unknown models and oversized lists", async () => {
+			expect(
+				(await patchAutoRouting({ classifier: "none", models: ["nope-9000"] }))
+					.status,
+			).toBe(400);
+			expect(
+				(
+					await patchAutoRouting({
+						classifier: "none",
+						models: Array.from({ length: 31 }, () => "gpt-4o-mini"),
+					})
+				).status,
+			).toBe(400);
+		});
+
+		test("requires an enterprise plan to set, but not to clear", async () => {
+			await db
+				.update(tables.organization)
+				.set({ plan: "free" })
+				.where(eq(tables.organization.id, "test-org-id"));
+			await db
+				.update(tables.project)
+				.set({
+					autoRoutingConfig: { classifier: "none", models: ["gpt-4o-mini"] },
+				})
+				.where(eq(tables.project.id, "test-project-id"));
+
+			expect(
+				(await patchAutoRouting({ classifier: "none", models: ["gpt-4o"] }))
+					.status,
+			).toBe(403);
+			expect((await patchAutoRouting(null)).status).toBe(200);
+			expect(await storedConfig()).toBeNull();
+		});
+
+		test("rejects a member who cannot manage the project", async () => {
+			await db
+				.update(tables.userOrganization)
+				.set({ role: "developer" })
+				.where(eq(tables.userOrganization.organizationId, "test-org-id"));
+
+			expect(
+				(
+					await patchAutoRouting({
+						classifier: "none",
+						models: ["gpt-4o-mini"],
+					})
+				).status,
+			).not.toBe(200);
+		});
+	});
 });

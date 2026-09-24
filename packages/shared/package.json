@@ -115,6 +115,11 @@
 			"import": "./dist/routing-config.js",
 			"default": "./dist/routing-config.js"
 		},
+		"./auto-routing": {
+			"types": "./dist/auto-routing.d.ts",
+			"import": "./dist/auto-routing.js",
+			"default": "./dist/auto-routing.js"
+		},
 		"./dynamic-route": {
 			"types": "./dist/dynamic-route.d.ts",
 			"import": "./dist/dynamic-route.js",

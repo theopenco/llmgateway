@@ -565,13 +565,9 @@ The following groups can be customized per project:
 
 Auto routing automatically selects the best model for your specific use case without you having to specify a model at all.
 
-### Current Implementation
+### Default behaviour
 
-The auto routing system currently:
-
-- **Chooses cost-effective models** by default for optimal price-to-performance ratio
-- **Automatically scales to more powerful models** based on your request's context size
-- **Handles large contexts intelligently** by selecting models with appropriate context windows
+By default, auto routing picks the cheapest of a small built-in set of models that can serve the request: it filters out models whose context window, capabilities (vision, tools, reasoning, structured output) or provider availability do not fit, then selects the cheapest of what remains. Larger prompts skip the smallest model.
 
 ```bash
 # Let LLMGateway choose the optimal model
@@ -656,14 +652,24 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 	or large-context requests.
 </Callout>
 
-### Coming Soon: Advanced Optimization
+### Configurable auto routing (Enterprise)
 
-We're continuously improving our auto routing capabilities. Soon you'll benefit from:
+Enterprise organizations can replace the built-in candidate set with their own. Under **Organization settings → Auto Routing** you choose up to 30 models from the [models catalogue](https://llmgateway.io/models) that `"model": "auto"` may resolve to, plus the classifier that ranks them. Individual projects can override the organization default on their **Settings → Routing** page; a project without an override inherits it. Owners and organization admins can edit the organization default, project admins the project override.
 
-- **Tool call optimization**: Automatically select models that excel at function calling and structured outputs
-- **Content-aware routing**: Analyze message content to determine the best model for specific types of requests (coding, creative writing, analysis, etc.)
-- **Performance-based routing**: Route based on historical performance data for similar requests
-- **Multi-model orchestration**: Intelligently combine multiple models for complex workflows
+The configured list is exhaustive. If no model on it can serve a request — for example an image request against a text-only list — the gateway returns a 400 rather than falling back to a model you did not allow.
+
+#### Classifiers
+
+- **None** — pick the cheapest model on the list that can serve the request. This is the default behaviour, restricted to your models.
+- **Jev (TypeSafe)** — rate the request before routing it.
+
+With the Jev classifier, the gateway sorts your models by blended average price and splits them into Low, Medium and High price bands (the dashboard shows exactly which model lands in which band). Each request is then classified for task type, output type and difficulty, and served from the matching band; the classifier's own model preference breaks ties inside the band when it is confident enough. A request rated High also gets a larger default reasoning budget when the selected model supports reasoning.
+
+The classifier adds one short round trip before the upstream call. It fails open: if it times out or errors, the request is served by the cheapest eligible model on your list and the log records the fallback.
+
+#### Routing metadata
+
+Every auto-routed request made against a configured list records an `autoRouting` block on its log entry, visible in the request detail view: the classifier used, the eligible and surviving candidate models, the difficulty, task and output type, the classifier's preferred model and confidence, the band that was served, the selected model, the classifier latency, and whether the classifier failed open.
 
 ### How It Works
 
