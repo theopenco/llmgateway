@@ -704,6 +704,14 @@ function stripUnsupportedSchemaProperties(
 		// as a single-member `enum`, which constrains the model identically and
 		// which the carrier accepts. An explicit `enum` always wins. (#4148)
 		if (key === "const") {
+			if (value === null) {
+				// Google's Type enum has no NULL member, so a null-only
+				// constraint cannot survive as an enum: String(null) would
+				// demand the literal string "null" instead. Widen to
+				// `nullable`, which at least keeps null acceptable. (#4148)
+				cleaned.nullable = true;
+				continue;
+			}
 			if (!("enum" in schema)) {
 				const asEnum = normalizeGoogleSchemaEnum([value]);
 				if (asEnum !== undefined) {
