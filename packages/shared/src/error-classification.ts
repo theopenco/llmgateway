@@ -38,3 +38,27 @@ export const ERROR_CLASSIFICATIONS: Record<string, ErrorClassification> = {
 
 export const INCIDENT_BREAKDOWN_DESCRIPTION =
 	"Only upstream and gateway errors count: both are retried on another key or provider, and upstream errors count against the provider's uptime. Client errors, canceled requests, and content-filtered requests are excluded.";
+
+// Activity-log error filter. `any` covers every errored request; the rest
+// narrow to a single `unified_finish_reason` class.
+export const LOG_ERROR_TYPES = [
+	"all",
+	"any",
+	"client_error",
+	"gateway_error",
+	"upstream_error",
+] as const;
+
+export type LogErrorType = (typeof LOG_ERROR_TYPES)[number];
+
+export const LOG_ERROR_TYPE_LABELS: Record<LogErrorType, string> = {
+	all: "All logs",
+	any: "Has Error",
+	client_error: "Client Errors",
+	gateway_error: "Gateway Errors",
+	upstream_error: "Upstream Errors",
+};
+
+export function isLogErrorType(value: string): value is LogErrorType {
+	return (LOG_ERROR_TYPES as readonly string[]).includes(value);
+}
