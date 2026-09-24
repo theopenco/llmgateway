@@ -4,6 +4,7 @@ slug: "per-unit-price-filters-product-roundup"
 date: "2026-09-05"
 title: "Per-Unit Price Filters, Seedream References & More"
 summary: "The models directory filters and sorts image, video, and speech models by their real unit prices and shows retirement status as chips; model pages sort providers by price, speed, or context; Seedream 5.0 Pro accepts up to 10 reference images; DevPass shows exact renewal and reset times; and Enterprise licenses warn 90 days before expiry."
+tags: ["llmgateway", "devpass"]
 image:
   src: "/changelog/per-unit-price-filters-product-roundup.png"
   alt: "A glowing price tag passing through a filter funnel on a circuit board chip, surrounded by slider controls, picture frames, a calendar clock, and a shield badge"

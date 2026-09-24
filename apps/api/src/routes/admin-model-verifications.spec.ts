@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { encryptProviderKeyForStorage } from "@llmgateway/actions";
+import {
+	encryptClaimVerificationKey,
+	encryptProviderKeyForStorage,
+} from "@llmgateway/actions";
 import { db, eq, tables } from "@llmgateway/db";
 
 interface Entry {
@@ -13,7 +16,7 @@ interface Entry {
 	modelName: string;
 	region: string | null;
 	initiatedBy: "carrier" | "admin";
-	credentialSource: "supplied" | "managed" | "environment";
+	credentialSource: "supplied" | "carrier" | "managed" | "environment";
 	verification: {
 		id: string;
 		status: "queued" | "running" | "passed" | "failed";
@@ -137,6 +140,51 @@ describe("admin model verifications", () => {
 		});
 		expect(row?.credentialCiphertext).toBeTruthy();
 		expect(row?.credentialCiphertext).not.toContain("sk-pasted");
+	});
+
+	test("runs a claimed provider on the carrier's saved key", async () => {
+		const [company] = await db
+			.insert(tables.providerCompany)
+			.values({ name: "OpenAI Ops" })
+			.returning();
+		const [claim] = await db
+			.insert(tables.providerClaim)
+			.values({
+				providerCompanyId: company.id,
+				providerId: "openai",
+				matchedDomain: "openai.com",
+				status: "active",
+			})
+			.returning();
+
+		// A carrier owns this provider but has saved no key yet, so the run must
+		// not silently fall back to our managed credential.
+		const unkeyed = await queue({ mappingId: "mv-mapping" });
+		expect(unkeyed.status).toBe(400);
+		expect((await unkeyed.json()).message).toContain("provider API key");
+
+		await db
+			.update(tables.providerClaim)
+			.set({
+				verificationKeyCiphertext: encryptClaimVerificationKey(
+					"carrier-owned-key",
+					claim.id,
+					company.id,
+				),
+				verificationKeyMasked: "sk-car••••key",
+				verificationKeyUpdatedAt: new Date(),
+			})
+			.where(eq(tables.providerClaim.id, claim.id));
+
+		const res = await queue({ mappingId: "mv-mapping" });
+		expect(res.status).toBe(202);
+		const { entry } = (await res.json()) as { entry: Entry };
+		expect(entry.credentialSource).toBe("carrier");
+		const row = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: entry.verification.id } },
+		});
+		expect(row?.credentialCiphertext).toMatch(/^llmgw:v2:/);
+		expect(row?.credentialCiphertext).not.toContain("carrier-owned-key");
 	});
 
 	test("lists the latest run per mapping for a provider", async () => {

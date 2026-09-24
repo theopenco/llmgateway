@@ -10,8 +10,14 @@ import { and, asc, cdb, db, eq, lt, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { getProviderEnvVar, TOOL_CHOICE_MODES } from "@llmgateway/models";
 
-import type { RunModelVerificationOptions } from "@llmgateway/actions";
-import type { ProviderModelVerificationCheck } from "@llmgateway/db";
+import type {
+	ModelVerificationCapability,
+	RunModelVerificationOptions,
+} from "@llmgateway/actions";
+import type {
+	AirsideModelMetadataChanges,
+	ProviderModelVerificationCheck,
+} from "@llmgateway/db";
 import type { ToolChoiceMode } from "@llmgateway/models";
 
 type VerificationRow = typeof tables.providerModelVerification.$inferSelect;
@@ -33,6 +39,14 @@ interface ResolvedCredential {
 function firstEnvironmentCredential(value: string): string {
 	const trimmed = value.trim();
 	return trimmed.startsWith("{") ? value : (value.split(",")[0]?.trim() ?? "");
+}
+
+// Both a pasted key and the one saved on a carrier's claim are copied into the
+// run's own encrypted column at queue time, so they read back the same way.
+function isRunScopedCredential(job: VerificationRow): boolean {
+	return (
+		job.credentialSource === "supplied" || job.credentialSource === "carrier"
+	);
 }
 
 async function managedCredential(
@@ -83,7 +97,7 @@ function environmentCredential(job: VerificationRow): string {
 async function resolvePlatformCredential(
 	job: VerificationRow,
 ): Promise<ResolvedCredential> {
-	if (job.credentialSource === "supplied") {
+	if (isRunScopedCredential(job)) {
 		if (!job.credentialCiphertext) {
 			throw new Error("The supplied verification credential is unavailable.");
 		}
@@ -121,7 +135,7 @@ async function resolveCredential(
 	if (!claim) {
 		throw new Error("The provider claim is no longer active.");
 	}
-	if (job.credentialSource === "supplied") {
+	if (isRunScopedCredential(job)) {
 		if (!job.credentialCiphertext) {
 			throw new Error("The supplied verification credential is unavailable.");
 		}
@@ -267,29 +281,56 @@ type CapabilityDemotion = Partial<
  * routing would send matching traffic to. Only the listing's own capabilities
  * move: a run against a static catalogue mapping never rewrites the
  * catalogue. Active listings serve off their materialized mapping row, so the
- * demotion has to reach that too.
+ * demotion has to reach that too — and a capability still awaiting review
+ * leaves the pending filing, or approving it would reinstate what the
+ * endpoint just rejected.
+ *
+ * Returns the capabilities it actually dropped, so the run can tell the
+ * carrier what the failure cost instead of leaving a toggle silently off.
  */
 async function demoteDisprovedCapabilities(
 	job: VerificationRow,
 	checks: ProviderModelVerificationCheck[],
-): Promise<void> {
+): Promise<ModelVerificationCapability[]> {
 	if (!job.draftModelId) {
-		return;
+		return [];
 	}
 	const disproved = disprovedCapabilities(checks);
 	if (disproved.length === 0) {
-		return;
+		return [];
 	}
 	const model = await db.query.providerDraftModel.findFirst({
 		where: { id: { eq: job.draftModelId } },
 	});
 	if (!model || model.status === "delisted") {
-		return;
+		return [];
 	}
+	const filing = await db.query.providerPriceFiling.findFirst({
+		where: {
+			draftModelId: { eq: model.id },
+			status: { eq: "pending" },
+			kind: { eq: "metadata" },
+		},
+	});
+	const filedMetadata = filing?.metadata ?? null;
+	const droppedFromFiling = new Set<string>();
 	const updates: CapabilityDemotion = {};
+	const demoted: ModelVerificationCapability[] = [];
 	for (const capability of disproved) {
-		if (model[capability]) {
+		let dropped = false;
+		// A preflight of unsaved capabilities may have tested a shape the row
+		// never claimed (other effort tiers, other tool_choice modes); that
+		// failure disproves the proposal, not what the listing serves today.
+		if (model[capability] && testedTheRowsShape(job, model, capability)) {
 			updates[capability] = false;
+			dropped = true;
+		}
+		if (filedMetadata?.[capability]) {
+			droppedFromFiling.add(capability);
+			dropped = true;
+		}
+		if (dropped) {
+			demoted.push(capability);
 		}
 	}
 	// Effort tiers and a thinking budget mean nothing once reasoning itself
@@ -302,26 +343,63 @@ async function demoteDisprovedCapabilities(
 			updates.reasoningEfforts = null;
 		}
 	}
-	if (Object.keys(updates).length === 0) {
-		return;
+	if (droppedFromFiling.has("reasoning")) {
+		droppedFromFiling.add("reasoningMaxTokens");
+		droppedFromFiling.add("reasoningEfforts");
+	}
+	const filed = filedMetadata
+		? (Object.fromEntries(
+				Object.entries(filedMetadata).filter(
+					([key]) => !droppedFromFiling.has(key),
+				),
+			) as AirsideModelMetadataChanges)
+		: null;
+	if (demoted.length === 0) {
+		return [];
 	}
 	// cdb: the gateway caches listing resolution off both tables.
 	await cdb.transaction(async (tx) => {
-		await tx
-			.update(tables.providerDraftModel)
-			.set(updates)
-			.where(eq(tables.providerDraftModel.id, model.id));
-		if (model.status !== "active") {
+		if (Object.keys(updates).length > 0) {
+			await tx
+				.update(tables.providerDraftModel)
+				.set(updates)
+				.where(eq(tables.providerDraftModel.id, model.id));
+			if (model.status === "active") {
+				await tx
+					.update(tables.modelProviderMapping)
+					.set(updates)
+					.where(
+						and(
+							eq(tables.modelProviderMapping.modelId, model.modelName),
+							eq(tables.modelProviderMapping.providerId, model.providerId),
+							eq(tables.modelProviderMapping.source, "airside"),
+						),
+					);
+			}
+		}
+		if (!filing || !filed) {
+			return;
+		}
+		// A filing left proposing nothing is withdrawn rather than sent to a
+		// reviewer as an empty change.
+		if (Object.keys(filed).length === 0) {
+			await tx
+				.delete(tables.providerPriceFiling)
+				.where(
+					and(
+						eq(tables.providerPriceFiling.id, filing.id),
+						eq(tables.providerPriceFiling.status, "pending"),
+					),
+				);
 			return;
 		}
 		await tx
-			.update(tables.modelProviderMapping)
-			.set(updates)
+			.update(tables.providerPriceFiling)
+			.set({ metadata: filed })
 			.where(
 				and(
-					eq(tables.modelProviderMapping.modelId, model.modelName),
-					eq(tables.modelProviderMapping.providerId, model.providerId),
-					eq(tables.modelProviderMapping.source, "airside"),
+					eq(tables.providerPriceFiling.id, filing.id),
+					eq(tables.providerPriceFiling.status, "pending"),
 				),
 			);
 	});
@@ -329,8 +407,38 @@ async function demoteDisprovedCapabilities(
 		verificationId: job.id,
 		draftModelId: model.id,
 		providerId: model.providerId,
-		capabilities: Object.keys(updates),
+		capabilities: demoted,
 	});
+	return demoted;
+}
+
+/**
+ * Whether the failed check ran against the capability as the listing declares
+ * it. The booleans always match — a check only exists because the target
+ * carried the flag — so only the shapes a check reads can diverge.
+ */
+function testedTheRowsShape(
+	job: VerificationRow,
+	model: typeof tables.providerDraftModel.$inferSelect,
+	capability: ModelVerificationCapability,
+): boolean {
+	if (capability === "reasoning") {
+		return sameList(job.target.reasoningEfforts, model.reasoningEfforts);
+	}
+	if (capability === "tools") {
+		return sameList(
+			job.target.supportedToolChoices,
+			model.supportedToolChoices,
+		);
+	}
+	return true;
+}
+
+function sameList(
+	a: readonly string[] | null | undefined,
+	b: readonly string[] | null | undefined,
+): boolean {
+	return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
 
 /**
@@ -446,7 +554,13 @@ export async function processNextModelVerification(
 			return true;
 		}
 		if (!result.passed) {
-			await demoteDisprovedCapabilities(job, result.checks);
+			const demoted = await demoteDisprovedCapabilities(job, result.checks);
+			if (demoted.length > 0) {
+				await db
+					.update(tables.providerModelVerification)
+					.set({ demotedCapabilities: demoted })
+					.where(eq(tables.providerModelVerification.id, job.id));
+			}
 		}
 		await narrowToolChoiceSupport(job, result.unsupportedToolChoices);
 	} catch (error) {

@@ -4,6 +4,7 @@ slug: "perplexity-sonar-changes"
 date: "2026-09-20"
 title: "Perplexity Sonar Changes September 25"
 summary: "Perplexity retires its Sonar chat completions API on September 27. On September 25 we move perplexity/sonar to Perplexity's Agent API with no changes to your requests and lower prices, and perplexity/sonar-pro and perplexity/sonar-reasoning-pro stop being routable on September 27."
+tags: ["llmgateway"]
 image:
   src: "/changelog/perplexity-sonar-changes.png"
   alt: "A glowing compass rose on a lit central chip with two darkened chips beside it on a circuit board, next to a globe, a stack of source cards and a calendar"

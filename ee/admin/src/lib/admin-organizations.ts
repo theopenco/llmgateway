@@ -3,7 +3,7 @@
 import { apiErrorMessage } from "./api-error";
 import { createServerApiClient } from "./server-api";
 
-import type { TokenWindow } from "./types";
+import type { ProjectLogFilters, TokenWindow } from "./types";
 
 export async function loadMetricsAction(orgId: string, window: TokenWindow) {
 	const $api = await createServerApiClient();
@@ -37,13 +37,7 @@ export async function loadProjectLogsAction(
 	orgId: string,
 	projectId: string,
 	cursor?: string,
-	filters?: {
-		provider?: string;
-		model?: string;
-		source?: string;
-		unifiedFinishReason?: string;
-		hasError?: string;
-	},
+	filters?: ProjectLogFilters,
 ) {
 	const $api = await createServerApiClient();
 	const { data } = await $api.GET(

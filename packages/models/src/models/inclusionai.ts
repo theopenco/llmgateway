@@ -77,4 +77,33 @@ export const inclusionaiModels = [
 			},
 		],
 	},
+	{
+		id: "ling-3.0-flash-vl",
+		name: "Ling 3.0 Flash VL",
+		description:
+			"InclusionAI's Ling 3.0 Flash MoE with native image and video understanding added on top of its language capabilities.",
+		family: "inclusionai",
+		releasedAt: new Date("2026-09-10"),
+		providers: [
+			{
+				providerId: "deepinfra",
+				externalId: "inclusionAI/Ling-3.0-flash-VL",
+				inputPrice: "0.06e-6",
+				cachedInputPrice: "0.012e-6",
+				outputPrice: "0.18e-6",
+				requestPrice: "0",
+				contextSize: 131072,
+				maxOutput: 32768,
+				quantization: "fp16",
+				maxTemperature: 1,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high"],
+				vision: true,
+				tools: true,
+				jsonOutput: true,
+				jsonOutputSchema: true,
+			},
+		],
+	},
 ] as const satisfies ModelDefinition[];

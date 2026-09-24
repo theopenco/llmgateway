@@ -4,6 +4,7 @@ slug: "gemini-3-8-flash-muse-spark-new-models"
 date: "2026-09-05"
 title: "Gemini 3.8 Flash, Muse Spark 1.3 & More Models"
 summary: "Gemini 3.8 Flash lands on Google AI Studio and Vertex AI with a 1M context at $0.75/M input, Meta's Muse Spark 1.3 arrives with a 1M context and a $0.10/M Contributor tier, and Kimi K3, GLM-5.3 Flash, and Qwen3.8 Flash pick up new deployments across Runware, Novita, SCX.ai, and Alibaba Cloud."
+tags: ["llmgateway"]
 image:
   src: "/changelog/gemini-3-8-flash-muse-spark-new-models.png"
   alt: "A cluster of glowing new model chips shaped as a lightning bolt, a sparkle, and a picture frame on a circuit board, surrounded by brains, lenses, and rockets"

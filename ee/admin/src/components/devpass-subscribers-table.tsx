@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { RenewalCell } from "@/components/renewal-cell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +22,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { useApi } from "@/lib/fetch-client";
+import { formatSubscriberStatus } from "@/lib/renewal-state";
 import { cn } from "@/lib/utils";
 
 import type { paths } from "@/lib/api/v1";
@@ -75,19 +77,14 @@ function getStatusBadgeVariant(
 ): "default" | "secondary" | "outline" | "destructive" {
 	switch (status) {
 		case "active":
+		case "renewal processing":
 			return "secondary";
 		case "expired":
+		case "past due":
 			return "destructive";
 		default:
 			return "outline";
 	}
-}
-
-function formatStatus(status: string) {
-	if (status === "cancelled_pending") {
-		return "cancel pending";
-	}
-	return status;
 }
 
 function SortableHeader({
@@ -441,8 +438,20 @@ export function DevpassSubscribersTable({
 										)}
 									</TableCell>
 									<TableCell>
-										<Badge variant={getStatusBadgeVariant(sub.status)}>
-											{formatStatus(sub.status)}
+										<Badge
+											variant={getStatusBadgeVariant(
+												formatSubscriberStatus(
+													sub.status,
+													sub.hasPaymentIssue,
+													sub.cancelled,
+												),
+											)}
+										>
+											{formatSubscriberStatus(
+												sub.status,
+												sub.hasPaymentIssue,
+												sub.cancelled,
+											)}
 										</Badge>
 									</TableCell>
 									<TableCell>
@@ -456,7 +465,7 @@ export function DevpassSubscribersTable({
 										{sub.cycleDaysIn !== null ? `Day ${sub.cycleDaysIn}` : "—"}
 									</TableCell>
 									<TableCell className="text-muted-foreground text-xs">
-										{sub.expiresAt ? formatDate(sub.expiresAt) : "—"}
+										<RenewalCell sub={sub} formatDate={formatDate} />
 									</TableCell>
 									<TableCell className="tabular-nums">
 										{currencyFormatter.format(sub.mrr)}

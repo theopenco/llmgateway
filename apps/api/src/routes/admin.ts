@@ -31,6 +31,7 @@ import {
 	withEnterpriseSeatsForActivation,
 	withEnterpriseSeatsForPromotion,
 } from "@/lib/enterprise-seats.js";
+import { buildLogErrorFilter } from "@/lib/log-error-filter.js";
 import {
 	mappingErrorShapesSchema,
 	mappingErrorWindowSchema,
@@ -143,6 +144,7 @@ import {
 	getOrgSpendTier,
 	getPlanClass,
 	isValidSystemBannerLink,
+	LOG_ERROR_TYPES,
 	parseUsedModel,
 	resolveTrustTierOverride,
 	SYSTEM_BANNER_SEVERITIES,
@@ -4372,6 +4374,7 @@ const getProjectLogs = createRoute({
 			source: z.string().optional(),
 			unifiedFinishReason: z.string().optional(),
 			hasError: z.string().optional(),
+			errorType: z.enum(LOG_ERROR_TYPES).optional(),
 		}),
 	},
 	responses: {
@@ -4393,8 +4396,15 @@ admin.openapi(getProjectLogs, async (c) => {
 	const { orgId, projectId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const limit = query.limit ?? 50;
-	const { cursor, provider, model, source, unifiedFinishReason, hasError } =
-		query;
+	const {
+		cursor,
+		provider,
+		model,
+		source,
+		unifiedFinishReason,
+		hasError,
+		errorType,
+	} = query;
 
 	// Verify project belongs to the organization
 	const project = await db.query.project.findFirst({
@@ -4441,8 +4451,12 @@ admin.openapi(getProjectLogs, async (c) => {
 		);
 	}
 
-	if (hasError === "true") {
-		whereConditions.push(eq(tables.log.hasError, true));
+	// `hasError=true` is the legacy shape of `errorType=any`
+	const errorFilter = buildLogErrorFilter(
+		errorType ?? (hasError === "true" ? "any" : undefined),
+	);
+	if (errorFilter) {
+		whereConditions.push(errorFilter);
 	}
 
 	if (cursor) {
@@ -15593,8 +15607,8 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			cycleStart: tables.organization.devPlanBillingCycleStart,
 			expiresAt: tables.organization.devPlanExpiresAt,
 			cancelled: tables.organization.devPlanCancelled,
+			paymentStatus: tables.organization.subscriptionPaymentStatus,
 			createdAt: tables.organization.createdAt,
-			paymentFailureCount: tables.organization.paymentFailureCount,
 			utilizationPct: utilizationExpr,
 			mrr: tierPriceExpr,
 			realCost: realCostExpr,
@@ -15707,7 +15721,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		const lastPaymentFailureAt = row.lastPaymentFailureAt
 			? new Date(row.lastPaymentFailureAt).toISOString()
 			: null;
-		const hasPaymentIssue = (row.paymentFailureCount ?? 0) > 0;
+		const hasPaymentIssue = row.paymentStatus === "past_due";
 
 		const mrrNum = Number(row.mrr ?? 0);
 		const marginNum = Number(row.margin ?? 0);
@@ -17147,7 +17161,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		.from(tables.paymentFailure)
 		.where(eq(tables.paymentFailure.organizationId, orgId));
 
-	const hasPaymentIssue = (org.paymentFailureCount ?? 0) > 0;
+	const hasPaymentIssue = org.subscriptionPaymentStatus === "past_due";
 
 	const marginPct = mrr > 0 ? (margin / mrr) * 100 : null;
 
@@ -18094,8 +18108,8 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 			cycleStart: tables.organization.chatPlanBillingCycleStart,
 			expiresAt: tables.organization.chatPlanExpiresAt,
 			cancelled: tables.organization.chatPlanCancelled,
+			paymentStatus: tables.organization.subscriptionPaymentStatus,
 			createdAt: tables.organization.createdAt,
-			paymentFailureCount: tables.organization.paymentFailureCount,
 			utilizationPct: utilizationExpr,
 			mrr: tierPriceExpr,
 			realCost: realCostExpr,
@@ -18361,7 +18375,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		const lastPaymentFailureAt = row.lastPaymentFailureAt
 			? new Date(row.lastPaymentFailureAt).toISOString()
 			: null;
-		const hasPaymentIssue = (row.paymentFailureCount ?? 0) > 0;
+		const hasPaymentIssue = row.paymentStatus === "past_due";
 
 		const mrrNum = Number(row.mrr ?? 0);
 		const marginNum = Number(row.margin ?? 0);
@@ -18968,7 +18982,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 		.from(tables.paymentFailure)
 		.where(eq(tables.paymentFailure.organizationId, orgId));
 
-	const hasPaymentIssue = (org.paymentFailureCount ?? 0) > 0;
+	const hasPaymentIssue = org.subscriptionPaymentStatus === "past_due";
 
 	const marginPct = mrr > 0 ? (margin / mrr) * 100 : null;
 

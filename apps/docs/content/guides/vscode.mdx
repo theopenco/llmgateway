@@ -49,6 +49,8 @@ The extension fetches models using your key and lists active chat models with st
 
 For agent mode, select a model with tool calling. Image attachments require a model with image input support. Responses stream into the chat view.
 
+The extension provides models for Copilot Chat and agent mode. It does not provide inline code completions.
+
 Both PAYG and DevPass keys use the same setup. PAYG requests use your gateway billing configuration; DevPass requests follow your plan's model access and usage limits. The extension sends canonical model IDs, so no provider prefix is needed for DevPass.
 
 BYOK chat works without GitHub sign-in or a Copilot plan. Utility tasks can use the selected model; semantic search and inline completions still have separate authentication requirements. See the&nbsp;[VS Code model documentation](https://code.visualstudio.com/docs/agent-customization/language-models).

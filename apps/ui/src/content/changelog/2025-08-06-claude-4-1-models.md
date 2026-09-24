@@ -4,6 +4,7 @@ slug: "claude-4-1-models"
 date: "2025-08-06"
 title: "Claude 4.1 Models: Opus and Sonnet Now Available"
 summary: "Added support for Claude 4.1 models including claude-opus-4-1, claude-opus-4-20250514, and claude-sonnet-4-20250514 via Anthropic provider."
+tags: ["llmgateway"]
 image:
   src: "/changelog/claude-4.1.png"
   alt: "Dashboard showing new Claude 4.1 models via Anthropic provider"

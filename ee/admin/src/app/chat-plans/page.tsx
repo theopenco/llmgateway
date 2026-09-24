@@ -20,6 +20,7 @@ import { Suspense } from "react";
 import { ChatPlansTimeseriesChart } from "@/components/chat-plans-timeseries-chart";
 import { ChatPlansUsage } from "@/components/chat-plans-usage";
 import { DateRangePicker } from "@/components/date-range-picker";
+import { RenewalCell } from "@/components/renewal-cell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,6 +37,7 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { resolveDateRange } from "@/lib/date-range";
+import { formatSubscriberStatus } from "@/lib/renewal-state";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
@@ -132,23 +134,18 @@ function getStatusBadgeVariant(
 ): "default" | "secondary" | "outline" | "destructive" {
 	switch (status) {
 		case "active":
+		case "renewal processing":
 			return "secondary";
 		case "cancelled_pending":
 			return "outline";
 		case "expired":
+		case "past due":
 			return "destructive";
 		case "churned":
 			return "outline";
 		default:
 			return "outline";
 	}
-}
-
-function formatStatus(status: string) {
-	if (status === "cancelled_pending") {
-		return "cancel pending";
-	}
-	return status;
 }
 
 function SortableHeader({
@@ -940,8 +937,20 @@ export default async function ChatPlansPage({
 										</Badge>
 									</TableCell>
 									<TableCell>
-										<Badge variant={getStatusBadgeVariant(sub.status)}>
-											{formatStatus(sub.status)}
+										<Badge
+											variant={getStatusBadgeVariant(
+												formatSubscriberStatus(
+													sub.status,
+													sub.hasPaymentIssue,
+													sub.cancelled,
+												),
+											)}
+										>
+											{formatSubscriberStatus(
+												sub.status,
+												sub.hasPaymentIssue,
+												sub.cancelled,
+											)}
 										</Badge>
 									</TableCell>
 									<TableCell>
@@ -955,7 +964,7 @@ export default async function ChatPlansPage({
 										{sub.cycleDaysIn !== null ? `Day ${sub.cycleDaysIn}` : "—"}
 									</TableCell>
 									<TableCell className="text-muted-foreground text-xs">
-										{sub.expiresAt ? formatDate(sub.expiresAt) : "—"}
+										<RenewalCell sub={sub} formatDate={formatDate} />
 									</TableCell>
 									<TableCell className="tabular-nums">
 										{currencyFormatter.format(sub.mrr)}

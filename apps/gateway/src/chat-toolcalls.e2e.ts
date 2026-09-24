@@ -275,21 +275,34 @@ describe("e2e", getConcurrentTestOptions(), () => {
 				expect(toolCall).toHaveProperty("function");
 			}
 
-			// Accumulate arguments from all chunks
-			let fullArguments = "";
+			// Accumulate arguments per tool call: a model may emit several
+			// parallel calls, and their deltas interleave under separate indexes.
+			const argumentsByIndex = new Map<number, string>();
 			for (const chunk of toolCallChunks) {
-				const args = chunk.choices[0].delta.tool_calls[0].function.arguments;
+				const toolCall = chunk.choices[0].delta.tool_calls[0];
+				const args = toolCall.function.arguments;
 				if (args) {
-					fullArguments += args;
+					argumentsByIndex.set(
+						toolCall.index,
+						(argumentsByIndex.get(toolCall.index) ?? "") + args,
+					);
 				}
 			}
 
-			// Parse and validate the accumulated arguments
-			if (fullArguments) {
-				const args = JSON.parse(fullArguments);
+			// Parse and validate the first call's arguments. Extra parallel calls
+			// only have to be well-formed JSON — a model that splits one request
+			// into several calls may put only some arguments in each.
+			const [firstArguments, ...otherArguments] = [
+				...argumentsByIndex.values(),
+			];
+			if (firstArguments) {
+				const args = JSON.parse(firstArguments);
 				expect(args).toHaveProperty("city");
 				expect(typeof args.city).toBe("string");
 				expect(args.city.toLowerCase()).toContain("san francisco");
+			}
+			for (const fullArguments of otherArguments) {
+				expect(() => JSON.parse(fullArguments)).not.toThrow();
 			}
 
 			// Validate logs

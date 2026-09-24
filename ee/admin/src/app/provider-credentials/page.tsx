@@ -8,9 +8,7 @@ import {
 	getProviderCredentialCatalog,
 	getProviderCredentials,
 	reorderProviderCredentials,
-	selfTestProviderCredential,
 	updateProviderCredential,
-	verifyProviderCredentialModels,
 } from "@/lib/admin-provider-credentials";
 
 function SignInPrompt() {
@@ -67,8 +65,6 @@ export default async function ProviderCredentialsPage() {
 				onUpdate={updateProviderCredential}
 				onDelete={deleteProviderCredential}
 				onReorder={reorderProviderCredentials}
-				onSelfTest={selfTestProviderCredential}
-				onVerifyModels={verifyProviderCredentialModels}
 			/>
 		</div>
 	);

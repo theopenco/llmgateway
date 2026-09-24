@@ -1,6 +1,8 @@
 import { defineCollection, defineConfig } from "@content-collections/core";
 import * as z from "zod";
 
+import { changelogTags } from "./src/lib/changelog";
+
 const changelog = defineCollection({
 	name: "changelog",
 	directory: "src/content/changelog",
@@ -11,6 +13,7 @@ const changelog = defineCollection({
 		date: z.string(),
 		title: z.string(),
 		summary: z.string(),
+		tags: z.array(z.enum(changelogTags)).min(1),
 		draft: z.boolean().optional(),
 		image: z.object({
 			src: z.string(),
