@@ -69,6 +69,7 @@ export {
 	REFUND_REASONS,
 	RESET_PASS_SELF_REFUND_WINDOW_DAYS,
 	SELF_REFUND_USAGE_PERCENT,
+	getSelfRefundUsagePercent,
 	SELF_REFUND_WINDOW_DAYS,
 	isRefundFeedbackComplete,
 	refundCommentsRequired,
