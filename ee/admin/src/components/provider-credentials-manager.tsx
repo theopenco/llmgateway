@@ -1306,7 +1306,11 @@ function CredentialDialog({
 	const [allowedModels, setAllowedModels] = useState<string[]>(
 		credential?.allowedModels ?? [],
 	);
-	const [skipValidation, setSkipValidation] = useState(false);
+	// An edit defaults to skipping the live check: the credential already passed
+	// one when it was stored, so re-probing on every metadata tweak spends an
+	// upstream request to re-learn what we know. Unchecking forces the check —
+	// worth it when the token, config or region changes.
+	const [skipValidation, setSkipValidation] = useState(isEdit);
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
@@ -2114,6 +2118,9 @@ function CredentialDialog({
 								restriction is set, the provider&apos;s default validation model
 								otherwise. Skip it for providers with no chat model to test
 								against, or when the upstream is temporarily down.
+								{isEdit
+									? " Skipped by default on edits, since this credential already passed a check; uncheck it after changing the token, config or region."
+									: ""}
 							</p>
 						</div>
 					</div>
