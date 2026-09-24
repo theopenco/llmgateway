@@ -2,6 +2,7 @@ import { interruptibleSleep, isStopRequested } from "@/shutdown.js";
 
 import {
 	and,
+	canSendEmailCategory,
 	db,
 	eq,
 	followUpEmail,
@@ -20,8 +21,26 @@ import {
 	getResendClient,
 	replyToEmail,
 } from "@llmgateway/shared/email";
+import {
+	buildUnsubscribeHeaders,
+	renderFooterText,
+	signUnsubscribeToken,
+} from "@llmgateway/shared/email-unsubscribe";
+
+import type { EmailCategory } from "@llmgateway/shared/email-unsubscribe";
 
 type FollowUpEmailType = "no_purchase" | "low_usage" | "no_repurchase";
+
+/**
+ * Which optional category each nudge belongs to. `no_repurchase` is a credit
+ * balance reminder rather than a promotion, so it rides with the low-balance
+ * alerts and is toggled separately from product tips.
+ */
+const FOLLOW_UP_CATEGORIES: Record<FollowUpEmailType, EmailCategory> = {
+	no_purchase: "marketing",
+	low_usage: "marketing",
+	no_repurchase: "credit_alerts",
+};
 
 const FOLLOW_UP_MAX_AGE_DAYS = Number(
 	process.env.FOLLOW_UP_MAX_AGE_DAYS ?? "30",
@@ -29,14 +48,38 @@ const FOLLOW_UP_MAX_AGE_DAYS = Number(
 const HIGH_SPEND_THRESHOLD = 1000;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const maxAgeMs = FOLLOW_UP_MAX_AGE_DAYS * MS_PER_DAY;
-const maxAgeAgo = new Date(Date.now() - maxAgeMs);
+
+/**
+ * Evaluated per run, not at module load: the worker is long-lived, so a cutoff
+ * captured once would freeze the eligibility window for the process's lifetime.
+ */
+function getMaxAgeAgo(): Date {
+	return new Date(Date.now() - maxAgeMs);
+}
 
 // ─── Email Sending ──────────────────────────────────────────────────────────
+
+/**
+ * Appends the unsubscribe footer and the RFC 8058 headers. Shared with the
+ * dry-run log so what we review locally is what would actually go out.
+ */
+function composeFollowUpBody(
+	to: string,
+	text: string,
+	category: EmailCategory,
+): { text: string; headers: Record<string, string> } {
+	const token = signUnsubscribeToken({ email: to, category });
+	return {
+		text: `${text}${renderFooterText(category, token)}`,
+		headers: buildUnsubscribeHeaders(token),
+	};
+}
 
 async function sendFollowUpEmail(opts: {
 	to: string;
 	subject: string;
 	text: string;
+	category: EmailCategory;
 }): Promise<void> {
 	const client = getResendClient();
 	if (!client) {
@@ -54,7 +97,7 @@ async function sendFollowUpEmail(opts: {
 		to: [opts.to],
 		replyTo: replyToEmail,
 		subject: opts.subject,
-		text: opts.text,
+		...composeFollowUpBody(opts.to, opts.text, opts.category),
 	});
 
 	if (error) {
@@ -140,12 +183,44 @@ The LLM Gateway Team`,
 
 // ─── Send & Record ───────────────────────────────────────────────────────────
 
+/**
+ * Combined org-preference and recipient-suppression gate. A missing org is
+ * treated as "no preferences", leaving the address-level check in charge.
+ */
+export async function canSendFollowUp(
+	organizationId: string,
+	recipientEmail: string,
+	category: EmailCategory,
+): Promise<boolean> {
+	const org = await db.query.organization.findFirst({
+		where: { id: { eq: organizationId } },
+	});
+
+	return await canSendEmailCategory({
+		email: recipientEmail,
+		category,
+		organizationPreferences: org?.emailPreferences ?? null,
+	});
+}
+
 async function sendAndRecord(
 	organizationId: string,
 	emailType: FollowUpEmailType,
 	recipientEmail: string,
 ): Promise<void> {
 	const { subject, text } = getEmailContent(emailType);
+	const category = FOLLOW_UP_CATEGORIES[emailType];
+
+	// Checked before the ledger insert: recording a send we then suppress would
+	// burn the org's once-ever slot for this type, so a later resubscribe could
+	// never be honoured.
+	if (!(await canSendFollowUp(organizationId, recipientEmail, category))) {
+		logger.info("Follow-up email suppressed by email preferences", {
+			emailType,
+			organizationId,
+		});
+		return;
+	}
 
 	const result = await db
 		.insert(followUpEmail)
@@ -165,7 +240,7 @@ async function sendAndRecord(
 	}
 
 	if (process.env.EMAIL_FOLLOW_UPS === "true") {
-		await sendFollowUpEmail({ to: recipientEmail, subject, text });
+		await sendFollowUpEmail({ to: recipientEmail, subject, text, category });
 		await interruptibleSleep(1000);
 	} else {
 		logger.info("Follow-up email (dry run)", {
@@ -174,7 +249,7 @@ async function sendAndRecord(
 			organizationId,
 			to: recipientEmail,
 			subject,
-			text,
+			...composeFollowUpBody(recipientEmail, text, category),
 		});
 	}
 }
@@ -192,7 +267,7 @@ export async function processNoPurchaseEmails(): Promise<void> {
 		.where(
 			and(
 				sql`${organization.createdAt} < ${twentyFourHoursAgo}`,
-				sql`${organization.createdAt} > ${maxAgeAgo}`,
+				sql`${organization.createdAt} > ${getMaxAgeAgo()}`,
 				eq(organization.devPlan, "none"),
 				eq(organization.status, "active"),
 				// Only nudge normal pay-as-you-go team orgs. Personal orgs back the
@@ -313,7 +388,7 @@ async function processLowUsageEmails(): Promise<void> {
 			AND ${transaction.status} = 'completed'
 			GROUP BY ${transaction.organizationId}
 			HAVING MIN(${transaction.createdAt}) < ${threeDaysAgo}
-			AND MIN(${transaction.createdAt}) > ${maxAgeAgo}
+			AND MIN(${transaction.createdAt}) > ${getMaxAgeAgo()}
 		) t
 		LEFT JOIN (
 			SELECT
@@ -389,7 +464,7 @@ async function processNoRepurchaseEmails(): Promise<void> {
 			AND ${transaction.status} = 'completed'
 			GROUP BY ${transaction.organizationId}
 			HAVING MAX(${transaction.createdAt}) < ${twoWeeksAgo}
-			AND MAX(${transaction.createdAt}) > ${maxAgeAgo}
+			AND MAX(${transaction.createdAt}) > ${getMaxAgeAgo()}
 		) t
 		LEFT JOIN (
 			SELECT
@@ -472,7 +547,12 @@ Auto-reload ensures you never run out — your card is charged automatically whe
 Best,
 The LLM Gateway Team`;
 
-	await sendFollowUpEmail({ to: opts.to, subject, text });
+	await sendFollowUpEmail({
+		to: opts.to,
+		subject,
+		text,
+		category: "credit_alerts",
+	});
 }
 
 // ─── Main orchestrator ───────────────────────────────────────────────────────

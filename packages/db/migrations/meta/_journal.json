@@ -1898,6 +1898,13 @@
       "when": 1790138837807,
       "tag": "1790138837_sparkling_leech",
       "breakpoints": true
+    },
+    {
+      "idx": 271,
+      "version": "8",
+      "when": 1790250436026,
+      "tag": "1790250436_fast_hellfire_club",
+      "breakpoints": true
     }
   ]
 }

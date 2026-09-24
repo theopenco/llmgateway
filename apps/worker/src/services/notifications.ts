@@ -339,13 +339,14 @@ export async function deliverNotificationEmails(
 			}
 		}
 		try {
+			const uiUrl = process.env.UI_URL ?? "https://llmgateway.io";
 			const { error } = await client.emails.send(
 				{
 					from: fromEmail,
 					replyTo: replyToEmail,
 					to: recipient.email,
 					subject: item.title,
-					text: `${item.message}\n\n${process.env.UI_URL ?? "https://llmgateway.io"}${item.href}\n\nManage delivery from Notifications in your dashboard.`,
+					text: `${item.message}\n\n${uiUrl}${item.href}\n\nManage which notifications reach you by email: ${uiUrl}/dashboard`,
 				},
 				{ idempotencyKey: `notification/${item.id}` },
 			);

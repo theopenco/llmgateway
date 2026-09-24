@@ -83,6 +83,8 @@ We use your data to:
 - Produce usage, performance, and product analytics
 - Communicate updates, security alerts, and (where permitted) promotions
 
+Marketing email and credit balance reminders carry an unsubscribe link and a one-click unsubscribe header, and can also be switched off per organization in the dashboard. Account email — invoices, payment failures, subscription changes, password resets and invitations — is necessary to operate your account and is sent for as long as the account exists; closing your account is how you stop it. See [Email Preferences](https://docs.llmgateway.io/resources/email-preferences) for the full breakdown.
+
 We do **not** sell your personal information, and we do **not** use Customer Data to train AI models.
 
 ---
@@ -148,6 +150,7 @@ Depending on your location, you may have the right to:
 - Export your data in a machine-readable format (portability)
 - Withdraw consent for specific processing activities
 - Object to or restrict certain processing activities
+- Opt out of marketing and other optional email
 
 You can exercise these rights by emailing **[contact@llmgateway.io](mailto:contact@llmgateway.io)**. We will respond within the timeframe required by applicable law and may need to verify your identity first. You will not be discriminated against for exercising your rights.
 

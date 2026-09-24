@@ -60,6 +60,7 @@ import { posthog } from "./posthog.js";
 import { processNextBenchmarkRun } from "./services/benchmark-runs.js";
 import {
 	runFollowUpEmailsLoop,
+	canSendFollowUp,
 	sendLowBalanceEmail,
 } from "./services/follow-up-emails.js";
 import {
@@ -1967,6 +1968,16 @@ async function enqueueLowBalanceEmail(
 	});
 
 	if (existing) {
+		return;
+	}
+
+	// Checked before the dry-run log and the dedup insert so a suppressed
+	// recipient never burns this cycle's slot or emits a "sent" event.
+	if (!(await canSendFollowUp(organizationId, email, "credit_alerts"))) {
+		logger.info("Low balance alert suppressed by email preferences", {
+			emailType,
+			organizationId,
+		});
 		return;
 	}
 

@@ -72,6 +72,8 @@ export async function deleteAll() {
 			await db.delete(tables.organization);
 			await db.delete(tables.user);
 			await db.delete(tables.systemSetting);
+			// No foreign keys, so nothing cascades it away.
+			await db.delete(tables.emailUnsubscribe);
 			return;
 		} catch (error) {
 			if (attempt >= 3 || !isDeadlockError(error)) {

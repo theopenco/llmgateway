@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
 	db,
+	emailUnsubscribe,
 	eq,
 	followUpEmail,
 	organization,
@@ -12,6 +13,8 @@ import {
 } from "@llmgateway/db";
 
 import { processNoPurchaseEmails } from "./follow-up-emails.js";
+
+import type { OrganizationEmailPreferences } from "@llmgateway/db";
 
 const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
 const TWO_DAYS_AGO = new Date(Date.now() - TWO_DAYS_MS);
@@ -318,5 +321,108 @@ describe("processNoPurchaseEmails DevPass exclusion", () => {
 			.where(eq(followUpEmail.emailType, "no_purchase"));
 		expect(sent).toHaveLength(1);
 		expect(sent[0].organizationId).toBe(regularOrg.id);
+	});
+});
+
+describe("processNoPurchaseEmails opt-outs", () => {
+	beforeEach(async () => {
+		await db.delete(followUpEmail);
+		await db.delete(emailUnsubscribe);
+		await db.delete(transaction);
+		await db.delete(project);
+		await db.delete(userOrganization);
+		await db.delete(organization);
+		await db.delete(user);
+	});
+
+	async function seedEligibleOrg(
+		billingEmail: string,
+		emailPreferences: OrganizationEmailPreferences | null = null,
+	) {
+		const [owner] = await db
+			.insert(user)
+			.values({ email: billingEmail, name: "Owner", emailVerified: true })
+			.returning();
+
+		const [org] = await db
+			.insert(organization)
+			.values({
+				name: "Eligible",
+				status: "active",
+				devPlan: "none",
+				billingEmail,
+				emailPreferences,
+				createdAt: TWO_DAYS_AGO,
+			})
+			.returning();
+
+		await db
+			.insert(userOrganization)
+			.values({ userId: owner.id, organizationId: org.id, role: "owner" });
+
+		return org;
+	}
+
+	it("skips a recipient who unsubscribed and leaves the ledger untouched", async () => {
+		await seedEligibleOrg("optout@example.com");
+		await db
+			.insert(emailUnsubscribe)
+			.values({ email: "optout@example.com", category: "marketing" });
+
+		await processNoPurchaseEmails();
+
+		// No ledger row: recording one would burn this org's once-ever slot, so a
+		// later resubscribe could never be honoured.
+		expect(await db.select().from(followUpEmail)).toHaveLength(0);
+	});
+
+	it("resumes nudging after the recipient resubscribes", async () => {
+		await seedEligibleOrg("resub@example.com");
+		await db
+			.insert(emailUnsubscribe)
+			.values({ email: "resub@example.com", category: "marketing" });
+
+		await processNoPurchaseEmails();
+		expect(await db.select().from(followUpEmail)).toHaveLength(0);
+
+		await db.delete(emailUnsubscribe);
+		await processNoPurchaseEmails();
+
+		const sent = await db.select().from(followUpEmail);
+		expect(sent).toHaveLength(1);
+		expect(sent[0].sentTo).toBe("resub@example.com");
+	});
+
+	it("skips an org that turned marketing email off", async () => {
+		await seedEligibleOrg("orgoff@example.com", {
+			marketing: false,
+			creditAlerts: true,
+		});
+
+		await processNoPurchaseEmails();
+
+		expect(await db.select().from(followUpEmail)).toHaveLength(0);
+	});
+
+	it("still nudges when only credit alerts are turned off", async () => {
+		await seedEligibleOrg("creditsoff@example.com", {
+			marketing: true,
+			creditAlerts: false,
+		});
+
+		await processNoPurchaseEmails();
+
+		expect(await db.select().from(followUpEmail)).toHaveLength(1);
+	});
+
+	it("ignores a suppression recorded for the other category", async () => {
+		await seedEligibleOrg("othercat@example.com");
+		await db
+			.insert(emailUnsubscribe)
+			.values({ email: "othercat@example.com", category: "credit_alerts" });
+
+		await processNoPurchaseEmails();
+
+		expect(await db.select().from(followUpEmail)).toHaveLength(1);
 	});
 });

@@ -30,6 +30,7 @@ import type {
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
+import type { EmailCategory } from "@llmgateway/shared/email-unsubscribe";
 import type { AlertAudience } from "@llmgateway/shared/organization-roles";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type z from "zod";
@@ -320,6 +321,9 @@ export const organization = pgTable(
 		// Delivery of compliance alerts (watched models becoming available,
 		// providers no longer meeting the policy). Null = alerts not configured.
 		complianceAlertSettings: json().$type<ComplianceAlertSettings>(),
+		// Org-level opt-out for the optional email categories. Null = both
+		// enabled. Transactional email (invoices, auth, invites) ignores this.
+		emailPreferences: json().$type<OrganizationEmailPreferences>(),
 		// Enterprise Google SSO auto-join. When set, users signing in via Google
 		// with a verified email at this domain are auto-added to the org as
 		// "developer". Stored lowercase, no leading "@". Unique so a domain can
@@ -913,6 +917,47 @@ export const modelSurveyResponse = pgTable(
 			"model_survey_response_speed_score_check",
 			sql`${table.speedScore} >= 1 AND ${table.speedScore} <= 5`,
 		),
+	],
+);
+
+// Mirrors `emailCategories` in @llmgateway/shared/email-unsubscribe. It cannot
+// be imported: drizzle-kit loads this file directly and fails on any runtime
+// import from a workspace package. `assertSameEmailCategories` below fails the
+// build if the two lists ever drift.
+const emailCategories = ["marketing", "credit_alerts"] as const;
+
+type SameKeys<A extends string, B extends string> = [A] extends [B]
+	? [B] extends [A]
+		? true
+		: never
+	: never;
+const assertSameEmailCategories: SameKeys<
+	EmailCategory,
+	(typeof emailCategories)[number]
+> = true;
+void assertSameEmailCategories;
+
+/**
+ * Address-level suppression list for the optional email categories. Keyed on
+ * the lowercased address rather than a user id because a recipient resolved by
+ * `resolveVerifiedOrgRecipient` can be `organization.billingEmail`, which need
+ * not belong to a user row. Rows deliberately outlive account deletion — a
+ * suppression list that forgets is not a suppression list.
+ */
+export const emailUnsubscribe = pgTable(
+	"email_unsubscribe",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		email: text().notNull(),
+		category: text({ enum: emailCategories }).notNull(),
+		source: text({ enum: ["one_click", "dashboard", "admin"] })
+			.notNull()
+			.default("one_click"),
+	},
+	(table) => [
+		unique().on(table.email, table.category),
+		index("email_unsubscribe_email_idx").on(table.email),
 	],
 );
 
@@ -4043,6 +4088,7 @@ export const auditLogActions = [
 	"organization.block",
 	"organization.manage",
 	"organization.sso_auto_join.update",
+	"organization.email_preferences.update",
 	// Project
 	"project.create",
 	"project.update",
@@ -6414,6 +6460,13 @@ export const notificationTypes = [
 export const organizationNotificationChannelKinds = ["slack"] as const;
 export type OrganizationNotificationChannelKind =
 	(typeof organizationNotificationChannelKinds)[number];
+
+export interface OrganizationEmailPreferences {
+	/** Product tips and offers (signup nudges, usage nudges, campaigns). */
+	marketing: boolean;
+	/** Credit balance reminders (low balance, top-up nudges). */
+	creditAlerts: boolean;
+}
 
 export interface ComplianceAlertSettings {
 	inApp: boolean;

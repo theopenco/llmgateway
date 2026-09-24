@@ -1,15 +1,26 @@
-import { isOrgOwnerEmailVerified } from "@llmgateway/db";
+import {
+	canSendEmailCategory,
+	db,
+	isOrgOwnerEmailVerified,
+} from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	fromEmail,
 	getResendClient,
 	replyToEmail,
 } from "@llmgateway/shared/email";
+import {
+	buildUnsubscribeHeaders,
+	renderFooterHtml,
+	signUnsubscribeToken,
+} from "@llmgateway/shared/email-unsubscribe";
 
 import {
 	getBillingPageUrl,
 	type BillingOrganizationKind,
 } from "./billing-url.js";
+
+import type { EmailCategory } from "@llmgateway/shared/email-unsubscribe";
 
 /**
  * Escapes HTML special characters to prevent XSS attacks
@@ -63,6 +74,13 @@ export interface TransactionalEmailOptions {
 	 * caller holding a transaction open is not pinned by a slow provider.
 	 */
 	timeoutMs?: number;
+	/**
+	 * Email category. Defaults to "transactional": mandatory account mail that
+	 * carries no unsubscribe link. Any other value marks the send as optional,
+	 * which checks the recipient's suppression state and the organization's
+	 * preferences first, and attaches RFC 8058 one-click unsubscribe headers.
+	 */
+	category?: "transactional" | EmailCategory;
 }
 
 function withTimeout<T>(
@@ -109,6 +127,7 @@ export async function sendTransactionalEmail({
 	logSafe = false,
 	organizationId,
 	timeoutMs,
+	category = "transactional",
 }: TransactionalEmailOptions): Promise<void> {
 	if (process.env.NODE_ENV === "production" && isReservedEmailAddress(to)) {
 		logger.info("Skipping transactional email to reserved domain", {
@@ -126,6 +145,37 @@ export async function sendTransactionalEmail({
 			{ to, subject, organizationId },
 		);
 		return;
+	}
+
+	// Optional mail is gated on the recipient's suppression state and the
+	// organization's preferences. Transactional mail bypasses both by design.
+	const unsubscribeToken =
+		category === "transactional"
+			? null
+			: signUnsubscribeToken({ email: to, category });
+
+	if (category !== "transactional") {
+		const organizationPreferences = organizationId
+			? ((
+					await db.query.organization.findFirst({
+						where: { id: { eq: organizationId } },
+					})
+				)?.emailPreferences ?? null)
+			: null;
+
+		if (
+			!(await canSendEmailCategory({
+				email: to,
+				category,
+				organizationPreferences,
+			}))
+		) {
+			logger.info("Skipping email: recipient opted out of category", {
+				subject,
+				category,
+			});
+			return;
+		}
 	}
 
 	// In non-production environments, just log the email content
@@ -170,6 +220,9 @@ export async function sendTransactionalEmail({
 				content: att.content,
 				contentType: att.contentType,
 			})),
+			...(unsubscribeToken
+				? { headers: buildUnsubscribeHeaders(unsubscribeToken) }
+				: {}),
 		};
 
 		const send = client.emails.send(
@@ -347,21 +400,7 @@ export function generatePaymentFailureEmailHtml(
 							</td>
 						</tr>
 
-						<!-- Footer -->
-						<tr>
-							<td
-								style="padding: 30px 40px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef;"
-							>
-								<p style="margin: 0 0 12px; color: #666666; font-size: 14px; line-height: 1.6;">
-									Need help? Check out our <a
-									href="https://docs.llmgateway.io" style="color: #000000; text-decoration: none;"
-								>documentation</a> or reply to this email for any questions.
-								</p>
-								<p style="margin: 0; color: #999999; font-size: 12px;">
-									© 2025 LLM Gateway. All rights reserved. This is a transactional email and it can't be unsubscribed from.
-								</p>
-							</td>
-						</tr>
+						${renderFooterHtml("transactional")}
 					</table>
 				</td>
 			</tr>
@@ -437,21 +476,7 @@ export function generateAutoJoinEmailHtml(
 							</td>
 						</tr>
 
-						<!-- Footer -->
-						<tr>
-							<td
-								style="padding: 30px 40px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef;"
-							>
-								<p style="margin: 0 0 12px; color: #666666; font-size: 14px; line-height: 1.6;">
-									Need help? Check out our <a
-									href="https://docs.llmgateway.io" style="color: #000000; text-decoration: none;"
-								>documentation</a> or reply to this email for any questions.
-								</p>
-								<p style="margin: 0; color: #999999; font-size: 12px;">
-									© 2025 LLM Gateway. All rights reserved. This is a transactional email and it can't be unsubscribed from.
-								</p>
-							</td>
-						</tr>
+						${renderFooterHtml("transactional")}
 					</table>
 				</td>
 			</tr>
@@ -522,20 +547,7 @@ export function generateDevPlanDuplicateCardEmailHtml(
 							</td>
 						</tr>
 
-						<tr>
-							<td
-								style="padding: 30px 40px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef;"
-							>
-								<p style="margin: 0 0 12px; color: #666666; font-size: 14px; line-height: 1.6;">
-									Need help? Check out our <a
-									href="https://docs.llmgateway.io" style="color: #000000; text-decoration: none;"
-								>documentation</a> or reply to this email for any questions.
-								</p>
-								<p style="margin: 0; color: #999999; font-size: 12px;">
-									© 2025 LLM Gateway. All rights reserved. This is a transactional email and it can't be unsubscribed from.
-								</p>
-							</td>
-						</tr>
+						${renderFooterHtml("transactional")}
 					</table>
 				</td>
 			</tr>
@@ -545,7 +557,9 @@ export function generateDevPlanDuplicateCardEmailHtml(
 	`.trim();
 }
 
-export function generateDevPlanCancellationFeedbackEmailHtml(): string {
+export function generateDevPlanCancellationFeedbackEmailHtml(
+	recipientEmail: string,
+): string {
 	const codeUrl = process.env.CODE_URL ?? "https://code.llmgateway.io";
 	const feedbackUrl = `${codeUrl}/dashboard/feedback/dev-plan-cancellation`;
 
@@ -598,20 +612,13 @@ export function generateDevPlanCancellationFeedbackEmailHtml(): string {
 								</div>
 							</td>
 						</tr>
-						<tr>
-							<td
-								style="padding: 30px 40px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef;"
-							>
-								<p style="margin: 0 0 12px; color: #666666; font-size: 14px; line-height: 1.6;">
-									Need help? Check out our <a
-									href="https://docs.llmgateway.io" style="color: #000000; text-decoration: none;"
-								>documentation</a> or reply to this email for any questions.
-								</p>
-								<p style="margin: 0; color: #999999; font-size: 12px;">
-									© 2025 LLM Gateway. All rights reserved. This is a transactional email and it can't be unsubscribed from.
-								</p>
-							</td>
-						</tr>
+						${renderFooterHtml(
+							"marketing",
+							signUnsubscribeToken({
+								email: recipientEmail,
+								category: "marketing",
+							}),
+						)}
 					</table>
 				</td>
 			</tr>
@@ -704,21 +711,7 @@ export function generateSubscriptionCancelledEmailHtml(
 									</p>
 								</div>
 
-								<!-- Footer -->
-								<tr>
-									<td
-										style="padding: 30px 40px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef;"
-									>
-										<p style="margin: 0 0 12px; color: #666666; font-size: 14px; line-height: 1.6;">
-											Need help getting started? Check out our <a
-											href="https://docs.llmgateway.io" style="color: #000000; text-decoration: none;"
-										>documentation</a> or reply to this email for any questions.
-										</p>
-										<p style="margin: 0; color: #999999; font-size: 12px;">
-											© 2025 LLM Gateway. All rights reserved. This is a transactional email and it can't be unsubscribed from.
-										</p>
-									</td>
-								</tr>
+								${renderFooterHtml("transactional")}
 							</td>
 						</tr>
 					</table>

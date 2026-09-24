@@ -15,6 +15,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useFetchClient } from "@/lib/fetch-client";
 
@@ -35,6 +42,9 @@ export function SendEmailDialog({
 	const [subject, setSubject] = useState("");
 	const [body, setBody] = useState("");
 	const [context, setContext] = useState("");
+	const [category, setCategory] = useState<"transactional" | "marketing">(
+		"transactional",
+	);
 	const [sending, setSending] = useState(false);
 	const [generating, setGenerating] = useState(false);
 	const fetchClient = useFetchClient();
@@ -82,7 +92,7 @@ export function SendEmailDialog({
 		setSending(true);
 		try {
 			const { data } = await fetchClient.POST("/admin/send-email", {
-				body: { to: userEmail, subject, body },
+				body: { to: userEmail, subject, body, category },
 			});
 
 			if (data?.success) {
@@ -140,6 +150,28 @@ export function SendEmailDialog({
 						)}
 						{generating ? "Generating draft..." : "Generate with AI"}
 					</Button>
+
+					<div>
+						<Label htmlFor="category">Category</Label>
+						<Select
+							value={category}
+							onValueChange={(value) =>
+								setCategory(value as "transactional" | "marketing")
+							}
+						>
+							<SelectTrigger id="category" className="mt-1">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="transactional">
+									Transactional — account or support mail
+								</SelectItem>
+								<SelectItem value="marketing">
+									Marketing — respects unsubscribes, adds a footer
+								</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
 
 					<div>
 						<Label htmlFor="subject">Subject</Label>

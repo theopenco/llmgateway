@@ -1,4 +1,9 @@
+import { normalizeEmail } from "@llmgateway/shared/email-unsubscribe";
+
 import { db } from "./db.js";
+
+import type { OrganizationEmailPreferences } from "./schema.js";
+import type { EmailCategory } from "@llmgateway/shared/email-unsubscribe";
 
 // Policy: org-scoped transactional and lifecycle emails must only be sent when
 // the organization has at least one owner whose account email is verified.
@@ -69,4 +74,46 @@ export async function resolveVerifiedOrgRecipient(
 	});
 
 	return org?.billingEmail ?? verifiedOwner.user?.email ?? null;
+}
+
+/**
+ * True when the address has unsubscribed from this category. Address-keyed
+ * because org recipients are often `billingEmail`, which need not be a user.
+ */
+export async function isEmailSuppressed(
+	email: string,
+	category: EmailCategory,
+): Promise<boolean> {
+	const row = await db.query.emailUnsubscribe.findFirst({
+		where: { email: { eq: normalizeEmail(email) }, category: { eq: category } },
+	});
+	return Boolean(row);
+}
+
+/** Org-level toggle from the dashboard. Missing preferences means enabled. */
+export function isOrgCategoryEnabled(
+	preferences: OrganizationEmailPreferences | null | undefined,
+	category: EmailCategory,
+): boolean {
+	if (!preferences) {
+		return true;
+	}
+	return category === "marketing"
+		? preferences.marketing !== false
+		: preferences.creditAlerts !== false;
+}
+
+/**
+ * Combined gate for an optional email: the org must not have turned the
+ * category off, and the recipient must not have unsubscribed.
+ */
+export async function canSendEmailCategory(input: {
+	email: string;
+	category: EmailCategory;
+	organizationPreferences?: OrganizationEmailPreferences | null;
+}): Promise<boolean> {
+	if (!isOrgCategoryEnabled(input.organizationPreferences, input.category)) {
+		return false;
+	}
+	return !(await isEmailSuppressed(input.email, input.category));
 }

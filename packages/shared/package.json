@@ -76,6 +76,11 @@
 			"import": "./dist/api-key-hash.js",
 			"default": "./dist/api-key-hash.js"
 		},
+		"./email-unsubscribe": {
+			"types": "./dist/email-unsubscribe.d.ts",
+			"import": "./dist/email-unsubscribe.js",
+			"default": "./dist/email-unsubscribe.js"
+		},
 		"./mask-token": {
 			"types": "./dist/mask-token.d.ts",
 			"import": "./dist/mask-token.js",
