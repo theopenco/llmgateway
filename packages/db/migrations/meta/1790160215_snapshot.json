@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "64bcb1e8-88ba-4a19-8cc1-bb1e8d58ebaa",
+  "id": "6052ed4a-b61c-4944-83c8-934d661976e6",
   "prevId": "e3a3904d-4604-4968-81c1-77b3c0027d85",
   "ddl": [
     {
@@ -16836,6 +16836,22 @@
       "table": "organization"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'current'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "subscription_payment_status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
       "type": "integer",
       "typeSchema": null,
       "notNull": false,
@@ -17046,35 +17062,6 @@
       "generated": null,
       "identity": null,
       "name": "dev_plan_included_reset_passes_used",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "false",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "dev_plan_credits_frozen",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "dev_plan_credits_limit_before_freeze",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
@@ -22400,45 +22387,6 @@
       "generated": null,
       "identity": null,
       "name": "pending_branding",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_claim"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "verification_key_ciphertext",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_claim"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "verification_key_masked",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "provider_claim"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "verification_key_updated_at",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_claim"
