@@ -6366,6 +6366,54 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				"Kept — a caller-supplied field we pass through.",
 			);
 		});
+
+		test("strips reasoning and reasoning_content on mistral", async () => {
+			const requestBody = (await prepareRequestBody(
+				"mistral",
+				"zai-glm-5-3",
+				null,
+				"glm-5.3",
+				[
+					{ role: "user", content: "My name is Ada." },
+					{
+						role: "assistant",
+						content: "Got it, Ada!",
+						reasoning: "Dropped — Mistral rejects this field.",
+						reasoning_content: "Dropped — Mistral rejects this one too.",
+					},
+					{ role: "user", content: "What is my name?" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
+
+			expect(
+				requestBody.messages.every(
+					(m: any) =>
+						m.reasoning === undefined && m.reasoning_content === undefined,
+				),
+			).toBe(true);
+			expect(requestBody.messages[1].content).toBe("Got it, Ada!");
+		});
 	});
 
 	describe("azure-ai-foundry", () => {

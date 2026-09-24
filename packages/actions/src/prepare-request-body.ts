@@ -2142,6 +2142,22 @@ export async function prepareRequestBody(
 		});
 	}
 
+	// Mistral validates the message schema just as strictly and rejects both
+	// `reasoning` and `reasoning_content` with "Extra inputs are not permitted".
+	if (usedProvider === "mistral") {
+		processedMessages = processedMessages.map((m) => {
+			if (m.reasoning === undefined && m.reasoning_content === undefined) {
+				return m;
+			}
+			const {
+				reasoning: _reasoning,
+				reasoning_content: _reasoningContent,
+				...rest
+			} = m;
+			return rest;
+		});
+	}
+
 	// Start with a base structure that can be modified for each provider
 	const requestBody: any = {
 		model: usedExternalId,
