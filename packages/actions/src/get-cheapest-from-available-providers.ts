@@ -203,6 +203,9 @@ export interface RoutingMetadata {
 		// True when a configured classifier could not be consulted and the
 		// selection fell back to the cheapest candidate.
 		classifierFailed: boolean;
+		// True when a sticky session reused an earlier turn's verdict instead of
+		// classifying again, which is also why no classifier latency is recorded.
+		classifierReused?: boolean;
 	};
 }
 

@@ -113,12 +113,17 @@ describe("configurable auto routing", () => {
 		return `real-token-ar-${suffix}`;
 	}
 
-	async function chatCompletion(token: string, body: Record<string, unknown>) {
+	async function chatCompletion(
+		token: string,
+		body: Record<string, unknown>,
+		headers: Record<string, string> = {},
+	) {
 		return await app.request("/v1/chat/completions", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
 				Authorization: `Bearer ${token}`,
+				...headers,
 			},
 			body: JSON.stringify(body),
 		});
@@ -267,6 +272,111 @@ describe("configurable auto routing", () => {
 		expect((await res.json()).error.message).toContain(
 			"configured auto-routing models",
 		);
+	});
+
+	test("a sticky session classifies once and reuses the verdict", async () => {
+		const token = await seedBase("sticky", {
+			orgConfig: { classifier: "jev", models: THREE_MODELS },
+		});
+		const sessionId = "session-auto-routing-reuse";
+
+		const first = await chatCompletion(
+			token,
+			{
+				model: "auto",
+				messages: [
+					{ role: "user", content: "HARD_TASK design a distributed scheduler" },
+				],
+			},
+			{ "x-session-id": sessionId },
+		);
+		expect(first.status).toBe(200);
+		expect((await first.json()).model).toBe(`openai/${EXPENSIVE_MODEL}`);
+
+		// An easy follow-up on the same session must not be re-rated: it stays on
+		// the model the session already resolved to, keeping the upstream prompt
+		// cache warm and skipping the classifier round trip entirely.
+		const second = await chatCompletion(
+			token,
+			{
+				model: "auto",
+				messages: [{ role: "user", content: "EASY_TASK and now say hi" }],
+			},
+			{ "x-session-id": sessionId },
+		);
+		expect(second.status).toBe(200);
+		expect((await second.json()).model).toBe(`openai/${EXPENSIVE_MODEL}`);
+
+		// Partitioned rather than ordered: both rows land in the same millisecond,
+		// so createdAt does not separate them.
+		const decisions = (await waitForLogs(2)).map(
+			(log) => log.routingMetadata?.autoRouting,
+		);
+		const classified = decisions.filter((d) => !d?.classifierReused);
+		const reused = decisions.filter((d) => d?.classifierReused);
+		expect(classified).toHaveLength(1);
+		expect(reused).toHaveLength(1);
+
+		expect(classified[0]).toMatchObject({
+			difficulty: "high",
+			selectedModel: EXPENSIVE_MODEL,
+		});
+		expect(classified[0]?.classifierLatencyMs).toBeGreaterThanOrEqual(0);
+
+		expect(reused[0]).toMatchObject({
+			difficulty: "high",
+			selectedModel: EXPENSIVE_MODEL,
+		});
+		// No call was made on the reused turn, so there is no latency to record.
+		expect(reused[0]?.classifierLatencyMs).toBeUndefined();
+	});
+
+	test("a different session classifies independently", async () => {
+		const token = await seedBase("sticky-separate", {
+			orgConfig: { classifier: "jev", models: THREE_MODELS },
+		});
+
+		const first = await chatCompletion(
+			token,
+			{
+				model: "auto",
+				messages: [
+					{ role: "user", content: "HARD_TASK design a distributed scheduler" },
+				],
+			},
+			{ "x-session-id": "session-one" },
+		);
+		expect((await first.json()).model).toBe(`openai/${EXPENSIVE_MODEL}`);
+
+		const second = await chatCompletion(
+			token,
+			{
+				model: "auto",
+				messages: [{ role: "user", content: "EASY_TASK say hi" }],
+			},
+			{ "x-session-id": "session-two" },
+		);
+		expect((await second.json()).model).toBe(`openai/${CHEAP_MODEL}`);
+	});
+
+	test("classifies every request when no session is supplied", async () => {
+		const token = await seedBase("no-session", {
+			orgConfig: { classifier: "jev", models: THREE_MODELS },
+		});
+
+		const first = await chatCompletion(token, {
+			model: "auto",
+			messages: [
+				{ role: "user", content: "HARD_TASK design a distributed scheduler" },
+			],
+		});
+		expect((await first.json()).model).toBe(`openai/${EXPENSIVE_MODEL}`);
+
+		const second = await chatCompletion(token, {
+			model: "auto",
+			messages: [{ role: "user", content: "EASY_TASK say hi" }],
+		});
+		expect((await second.json()).model).toBe(`openai/${CHEAP_MODEL}`);
 	});
 
 	test("skips the classifier when the policy blocks its provider", async () => {

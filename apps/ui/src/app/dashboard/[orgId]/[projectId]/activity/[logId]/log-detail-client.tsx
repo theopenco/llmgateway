@@ -703,7 +703,13 @@ export function LogDetailClient({
 										<>
 											<Field
 												label="Auto routing"
-												value={`${log.routingMetadata.autoRouting.selectedModel} (${log.routingMetadata.autoRouting.classifier} classifier${log.routingMetadata.autoRouting.classifierFailed ? ", failed open" : ""})`}
+												value={`${log.routingMetadata.autoRouting.selectedModel} (${log.routingMetadata.autoRouting.classifier} classifier${
+													log.routingMetadata.autoRouting.classifierFailed
+														? ", failed open"
+														: log.routingMetadata.autoRouting.classifierReused
+															? ", reused for session"
+															: ""
+												})`}
 												mono
 											/>
 											{log.routingMetadata.autoRouting.difficulty && (

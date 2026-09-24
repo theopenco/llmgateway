@@ -667,9 +667,11 @@ With the Jev classifier, the gateway sorts your models by blended average price 
 
 The classifier adds one short round trip before the upstream call. It fails open: if it times out or errors, the request is served by the cheapest eligible model on your list and the log records the fallback.
 
+**Sticky sessions classify once.** When a request carries a session id (see [sticky session routing](#sticky-session-routing)) and the project has it enabled, the first turn is classified and the rest of the session reuses that verdict and the model it resolved to — so a conversation is not re-rated on every turn and does not migrate between models mid-thread, which would cost it the upstream prompt cache. The pin expires with the session TTL. If the pinned model stops being available, the stored verdict is re-applied to the remaining candidates rather than triggering a fresh classification.
+
 #### Routing metadata
 
-Every auto-routed request made against a configured list records an `autoRouting` block on its log entry, visible in the request detail view: the classifier used, the eligible and surviving candidate models, the difficulty, task and output type, the classifier's preferred model and confidence, the band that was served, the selected model, the classifier latency, and whether the classifier failed open.
+Every auto-routed request made against a configured list records an `autoRouting` block on its log entry, visible in the request detail view: the classifier used, the eligible and surviving candidate models, the difficulty, task and output type, the classifier's preferred model and confidence, the band that was served, the selected model, the classifier latency, whether the classifier failed open, and whether the verdict was reused from earlier in the session.
 
 ### How It Works
 

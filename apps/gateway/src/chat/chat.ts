@@ -18,6 +18,7 @@ import {
 	assertMemberWithinBudget,
 } from "@/lib/api-key-usage-limits.js";
 import { resolveChatApiOrigin } from "@/lib/api-origin.js";
+import { createAutoRoutingSessionStore } from "@/lib/auto-routing-session.js";
 import {
 	findApiKeyByToken,
 	findManagedProviderAvailability,
@@ -4103,6 +4104,18 @@ chat.openapi(completions, async (c) => {
 			classifierAllowed:
 				!compliancePolicy ||
 				isProviderIdCompliant("typesafe", compliancePolicy),
+			// A sticky session classifies once and reuses that verdict for its
+			// remaining turns, so a conversation is not re-rated (and re-billed)
+			// per turn and does not migrate between models mid-thread.
+			sessionStore:
+				sessionStickyEnabled && sessionId
+					? createAutoRoutingSessionStore(
+							project.organizationId,
+							project.id,
+							sessionId,
+							routingCfg.session.ttlSeconds,
+						)
+					: undefined,
 			messages: (messages ?? []) as BaseMessage[],
 			toolNames: (tools ?? [])
 				.map((tool) =>
