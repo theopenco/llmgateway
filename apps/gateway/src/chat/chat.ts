@@ -1085,6 +1085,15 @@ const CODING_PLAN_CACHED_INPUT_FILTER_REASON =
 
 // Pre-compiled regex pattern to avoid recompilation per request
 const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
+
+/**
+ * Minimum `max_tokens` for auto routing to raise a hard request's default
+ * reasoning effort to "medium". Below it the thinking budget can consume the
+ * whole response allowance and return empty content, so the cheaper default
+ * stands.
+ */
+const AUTO_ROUTING_MEDIUM_EFFORT_MIN_MAX_TOKENS = 8192;
+
 const IMMEDIATE_STREAM_ERROR_PEEK_LIMIT = 64 * 1024;
 
 function inferStreamingErrorStatusCode(
@@ -5746,10 +5755,20 @@ chat.openapi(completions, async (c) => {
 		);
 
 		if (selectedModelSupportsReasoning) {
-			// A request the classifier rated hard gets a real thinking budget:
-			// the minimal default exists to keep easy auto-routed requests cheap,
-			// and applying it to a hard request wastes the model it selected.
-			if (autoRoutingClassification?.difficulty === "high") {
+			// A request the classifier rated hard gets a real thinking budget: the
+			// minimal default exists to keep easy auto-routed requests cheap, and
+			// applying it to a hard request wastes the model it selected.
+			//
+			// Only when the caller left room for an answer, though. Thinking is
+			// drawn from the same max_tokens budget as the response, and a hard
+			// prompt at "medium" was measured spending ~2000 reasoning tokens — so
+			// on a tight budget this default returns finish_reason "length" with
+			// empty content, and it would do so on exactly the hardest requests.
+			if (
+				autoRoutingClassification?.difficulty === "high" &&
+				(max_tokens === undefined ||
+					max_tokens >= AUTO_ROUTING_MEDIUM_EFFORT_MIN_MAX_TOKENS)
+			) {
 				reasoning_effort = "medium";
 			} else if (usedInternalModel.startsWith("gpt-5")) {
 				// Set reasoning_effort to "minimal" for gpt-5* models, "low" for others

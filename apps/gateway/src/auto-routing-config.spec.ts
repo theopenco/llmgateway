@@ -379,6 +379,50 @@ describe("configurable auto routing", () => {
 		expect((await second.json()).model).toBe(`openai/${CHEAP_MODEL}`);
 	});
 
+	// gpt-5-nano < gpt-5-mini < o4-mini on price, and all three support
+	// reasoning, so a hard verdict lands on o4-mini and exercises the default
+	// reasoning effort that auto routing applies.
+	const REASONING_MODELS = ["gpt-5-nano", "gpt-5-mini", "o4-mini"];
+
+	async function upstreamEffortForHardRequest(
+		suffix: string,
+		maxTokens: number,
+	) {
+		const token = await seedBase(suffix, {
+			orgConfig: { classifier: "jev", models: REASONING_MODELS },
+		});
+
+		const res = await chatCompletion(token, {
+			model: "auto",
+			max_tokens: maxTokens,
+			messages: [
+				{ role: "user", content: "HARD_TASK design a distributed scheduler" },
+			],
+		});
+		expect(res.status).toBe(200);
+		expect((await res.json()).model).toBe("openai/o4-mini");
+
+		const log = (await waitForLogs(1))[0];
+		expect(log?.routingMetadata?.autoRouting?.difficulty).toBe("high");
+		return (log?.upstreamRequest as { reasoning_effort?: string } | null)
+			?.reasoning_effort;
+	}
+
+	test("a hard request gets a real thinking budget when there is room", async () => {
+		expect(await upstreamEffortForHardRequest("effort-room", 16_000)).toBe(
+			"medium",
+		);
+	});
+
+	test("a hard request keeps the cheap effort on a tight token budget", async () => {
+		// Thinking is drawn from the same max_tokens allowance as the answer, so
+		// raising the default here returns empty content on exactly the hardest
+		// requests — measured against a real provider before this guard existed.
+		expect(await upstreamEffortForHardRequest("effort-tight", 1_000)).toBe(
+			"low",
+		);
+	});
+
 	test("skips the classifier when the policy blocks its provider", async () => {
 		const token = await seedBase("compliance", {
 			orgConfig: { classifier: "jev", models: THREE_MODELS },

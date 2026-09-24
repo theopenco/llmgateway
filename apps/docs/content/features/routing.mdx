@@ -663,7 +663,7 @@ The configured list is exhaustive. If no model on it can serve a request — for
 - **None** — pick the cheapest model on the list that can serve the request. This is the default behaviour, restricted to your models.
 - **Jev (TypeSafe)** — rate the request before routing it.
 
-With the Jev classifier, the gateway sorts your models by blended average price and splits them into Low, Medium and High price bands (the dashboard shows exactly which model lands in which band). Each request is then classified for task type, output type and difficulty, and served from the matching band; the classifier's own model preference breaks ties inside the band when it is confident enough. A request rated High also gets a larger default reasoning budget when the selected model supports reasoning.
+With the Jev classifier, the gateway sorts your models by blended average price and splits them into Low, Medium and High price bands (the dashboard shows exactly which model lands in which band). Each request is then classified for task type, output type and difficulty, and served from the matching band; the classifier's own model preference breaks ties inside the band when it is confident enough. A request rated High also gets a larger default reasoning effort when the selected model supports reasoning and the request left room for it — thinking is drawn from the same `max_tokens` allowance as the answer, so the cheaper default stands on a tight budget rather than risking a response that spends its whole allowance thinking.
 
 The classifier adds one short round trip before the upstream call. It fails open: if it times out or errors, the request is served by the cheapest eligible model on your list and the log records the fallback.
 
