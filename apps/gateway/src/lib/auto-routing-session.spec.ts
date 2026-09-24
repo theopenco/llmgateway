@@ -67,7 +67,7 @@ describe("createAutoRoutingSessionStore", () => {
 		expect(await store.get()).toBeNull();
 	});
 
-	it("writes with the sticky-session TTL", async () => {
+	it("refreshes with the sticky-session TTL", async () => {
 		const store = createAutoRoutingSessionStore(
 			"org1",
 			"proj1",
@@ -75,7 +75,7 @@ describe("createAutoRoutingSessionStore", () => {
 			900,
 		);
 
-		await store.set(ENTRY);
+		await store.refresh(ENTRY);
 
 		expect(redis.set).toHaveBeenCalledWith(
 			"session_auto_routing:org1:proj1:session-abc",
@@ -83,6 +83,37 @@ describe("createAutoRoutingSessionStore", () => {
 			"EX",
 			900,
 		);
+	});
+
+	it("claims the session atomically and keeps its own entry when it wins", async () => {
+		vi.mocked(redis.set).mockResolvedValue("OK");
+		const store = createAutoRoutingSessionStore("org1", "proj1", "s", 900);
+
+		expect(await store.claim(ENTRY)).toEqual(ENTRY);
+		expect(redis.set).toHaveBeenCalledWith(
+			"session_auto_routing:org1:proj1:s",
+			JSON.stringify(ENTRY),
+			"EX",
+			900,
+			"NX",
+		);
+	});
+
+	it("adopts the winner's entry when another request claimed first", async () => {
+		// Two opening turns of one session must not end up on different models.
+		const winner = { ...ENTRY, selectedModel: "claude-sonnet-4-6" };
+		vi.mocked(redis.set).mockResolvedValue(null);
+		vi.mocked(redis.get).mockResolvedValue(JSON.stringify(winner));
+		const store = createAutoRoutingSessionStore("org1", "proj1", "s", 900);
+
+		expect(await store.claim(ENTRY)).toEqual(winner);
+	});
+
+	it("falls back to its own entry when the claim errors", async () => {
+		vi.mocked(redis.set).mockRejectedValue(new Error("boom"));
+		const store = createAutoRoutingSessionStore("org1", "proj1", "s", 900);
+
+		expect(await store.claim(ENTRY)).toEqual(ENTRY);
 	});
 
 	it("keys separate projects apart so a session id cannot cross over", async () => {
@@ -103,10 +134,10 @@ describe("createAutoRoutingSessionStore", () => {
 		expect(await store.get()).toBeNull();
 	});
 
-	it("swallows redis errors on write", async () => {
+	it("swallows redis errors on refresh", async () => {
 		vi.mocked(redis.set).mockRejectedValue(new Error("boom"));
 		const store = createAutoRoutingSessionStore("org1", "proj1", "s", 60);
 
-		await expect(store.set(ENTRY)).resolves.toBeUndefined();
+		await expect(store.refresh(ENTRY)).resolves.toBeUndefined();
 	});
 });

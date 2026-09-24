@@ -80,6 +80,29 @@ export interface AutoRoutingClassification {
 }
 
 /**
+ * Whether auto routing may be pointed at a model: it emits text, is not a
+ * routing pseudo-model, and still has a mapping that serves requests. Retired
+ * models stay in the catalogue so historical logs keep resolving, but a list
+ * made of them would fail every request.
+ */
+export function isAutoRoutingSelectableModel(
+	model: Pick<ModelDefinition, "id" | "providers"> & {
+		output?: readonly string[];
+	},
+	now: Date = new Date(),
+): boolean {
+	if (model.id === "auto" || model.id === "custom") {
+		return false;
+	}
+	if (model.output && !model.output.includes("text")) {
+		return false;
+	}
+	return (model.providers as ProviderModelMapping[]).some((mapping) =>
+		isLiveMapping(mapping, now),
+	);
+}
+
+/**
  * Blended per-token price used to rank and label a model in the auto-routing
  * picker: the cheapest non-deactivated mapping, priced with the same
  * cache-aware input/output blend as `getProviderSelectionPrice`. Returns

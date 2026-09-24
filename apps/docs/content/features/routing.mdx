@@ -656,14 +656,14 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 
 Enterprise organizations can replace the built-in candidate set with their own. Under **Organization settings → Auto Routing** you choose up to 30 models from the [models catalogue](https://llmgateway.io/models) that `"model": "auto"` may resolve to, plus the classifier that ranks them. Individual projects can override the organization default on their **Settings → Routing** page; a project without an override inherits it. Owners and organization admins can edit the organization default, project admins the project override.
 
-The configured list is exhaustive. If no model on it can serve a request — for example an image request against a text-only list — the gateway returns a 400 rather than falling back to a model you did not allow.
+The configured list is exhaustive. If no model on it can serve a request — for example an image request against a text-only list — the gateway returns a 400 rather than falling back to a model you did not allow. `free_models_only` narrows the list to its free models rather than replacing it, so a request parameter cannot route outside what the organization allowed.
 
 #### Classifiers
 
 - **None** — pick the cheapest model on the list that can serve the request. This is the default behaviour, restricted to your models.
 - **Jev (TypeSafe)** — rate the request before routing it.
 
-With the Jev classifier, the gateway sorts your models by blended average price and splits them into Low, Medium and High price bands (the dashboard shows exactly which model lands in which band). Each request is then classified for task type, output type and difficulty, and served from the matching band; the classifier's own model preference breaks ties inside the band when it is confident enough. A request rated High also gets a larger default reasoning effort when the selected model supports reasoning and the request left room for it — thinking is drawn from the same `max_tokens` allowance as the answer, so the cheaper default stands on a tight budget rather than risking a response that spends its whole allowance thinking.
+With the Jev classifier, the gateway sorts your models by blended average price and splits them into Low, Medium and High price bands. The dashboard previews that split from catalogue list prices; the gateway ranks only the providers your project can actually use, at your own rates, so the live split can differ. Each request is then classified for task type, output type and difficulty, and served from the matching band; the classifier's own model preference breaks ties inside the band when it is confident enough. A request rated High also gets a larger default reasoning effort when the selected model supports reasoning and the request left room for it — thinking is drawn from the same `max_tokens` allowance as the answer, so the cheaper default stands on a tight budget rather than risking a response that spends its whole allowance thinking.
 
 The classifier adds one short round trip before the upstream call. It fails open: if it times out or errors, the request is served by the cheapest eligible model on your list and the log records the fallback.
 

@@ -18,6 +18,7 @@ import {
 	assignAutoRoutingBands,
 	AUTO_ROUTING_MAX_MODELS,
 	getModelAveragePrice,
+	isAutoRoutingSelectableModel,
 	type AutoRoutingClassifier,
 	type AutoRoutingConfig,
 	type AutoRoutingDifficulty,
@@ -59,13 +60,8 @@ const BAND_LABELS: Record<AutoRoutingDifficulty, string> = {
 	high: "High",
 };
 
-// Auto routing serves chat completions, so only models that can emit text are
-// selectable; the routing pseudo-models themselves are never candidates.
 const selectableModels = (models as readonly ModelDefinition[]).filter(
-	(model) =>
-		model.id !== "auto" &&
-		model.id !== "custom" &&
-		(!model.output || model.output.includes("text")),
+	(model) => isAutoRoutingSelectableModel(model),
 );
 const selectableModelIds = selectableModels.map((model) => model.id);
 const modelsById = new Map(selectableModels.map((model) => [model.id, model]));
@@ -93,9 +89,10 @@ export function AutoRoutingSettings({
 		setModelIds(value?.models ?? []);
 	}, [value]);
 
-	// The preview mirrors the gateway's own ranking: sort by blended average
-	// price, then split into three bands, so the org sees exactly which model a
-	// given difficulty resolves to.
+	// The preview applies the gateway's own ranking — blended average price,
+	// then the three-band split — to catalogue list prices. It is an estimate:
+	// the gateway ranks the providers the project can actually use, at whatever
+	// rates apply to it, so the real split can differ.
 	const preview = useMemo(() => {
 		const priced = modelIds
 			.map((id) => {
@@ -162,7 +159,7 @@ export function AutoRoutingSettings({
 				) : null}
 				{unknownModels.length > 0 ? (
 					<p className="text-destructive text-xs">
-						Unknown models: {unknownModels.join(", ")}
+						Unknown or retired models: {unknownModels.join(", ")}
 					</p>
 				) : null}
 			</div>
@@ -194,7 +191,9 @@ export function AutoRoutingSettings({
 					<p className="text-muted-foreground text-xs">
 						Requests the classifier rates Low, Medium or High are served from
 						the matching band. Without a classifier the cheapest eligible model
-						always wins.
+						always wins. Prices are catalogue list prices for each model's
+						cheapest provider; the gateway ranks only the providers your project
+						can use, at your rates, so the split can differ.
 					</p>
 				</div>
 			) : null}

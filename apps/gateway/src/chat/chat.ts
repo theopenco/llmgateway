@@ -3710,11 +3710,12 @@ chat.openapi(completions, async (c) => {
 		)
 			? (project.autoRoutingConfig ?? organization.autoRoutingConfig ?? null)
 			: null;
-		// A dynamic route has already fixed the model, and free_models_only
-		// replaces the candidate set entirely, so neither can be narrowed by a
-		// configured list.
+		// free_models_only narrows the configured list rather than replacing it:
+		// the list is a governance boundary, so a request parameter must not be
+		// able to route outside what the organization allowed. A dynamic route
+		// has already fixed the model, so it bypasses the list entirely.
 		const configuredAutoModels =
-			autoRoutingConfig && !dynamicRouteSelection && !effectiveFreeModelsOnly
+			autoRoutingConfig && !dynamicRouteSelection
 				? autoRoutingConfig.models
 				: null;
 		const eligibleAutoModels =
@@ -3813,18 +3814,21 @@ chat.openapi(completions, async (c) => {
 					continue;
 				}
 			}
+			// A configured list is exhaustive: the audio/documents bypass and the
+			// Haiku size heuristic below describe the built-in candidate set only,
+			// and applying them would route outside what the organization allowed.
+			else if (configuredAutoModels) {
+				if (!configuredAutoModels.includes(modelDef.id)) {
+					continue;
+				}
+				if (effectiveFreeModelsOnly && !("free" in modelDef && modelDef.free)) {
+					continue;
+				}
+			}
 			// When free_models_only is true, only consider models marked as free
 			// Otherwise, only consider hardcoded allowed models
 			else if (effectiveFreeModelsOnly) {
 				if (!("free" in modelDef && modelDef.free)) {
-					continue;
-				}
-			} else if (configuredAutoModels) {
-				// A configured list is exhaustive: the audio/documents bypass and
-				// the Haiku size heuristic below describe the built-in candidate
-				// set only, and applying them would route outside what the
-				// organization allowed.
-				if (!configuredAutoModels.includes(modelDef.id)) {
 					continue;
 				}
 			} else if (
@@ -4280,8 +4284,9 @@ chat.openapi(completions, async (c) => {
 			// allow, so fail instead.
 			if (configuredAutoModels) {
 				throw new HTTPException(400, {
-					message:
-						"None of the configured auto-routing models are available for this request",
+					message: effectiveFreeModelsOnly
+						? "None of the configured auto-routing models are free. Remove free_models_only or use a specific model."
+						: "None of the configured auto-routing models are available for this request",
 				});
 			}
 			if (effectiveFreeModelsOnly) {

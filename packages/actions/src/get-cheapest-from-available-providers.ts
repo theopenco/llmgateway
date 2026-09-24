@@ -199,12 +199,16 @@ export interface RoutingMetadata {
 		bestModelConfidence?: number;
 		band?: AutoRoutingDifficulty;
 		selectedModel: string;
+		// Latency of the classifier call this request made; absent when it made
+		// none.
 		classifierLatencyMs?: number;
-		// True when a configured classifier could not be consulted and the
-		// selection fell back to the cheapest candidate.
+		// True when a classifier call was attempted and produced no verdict, so
+		// the selection fell back to the cheapest candidate. A classifier that is
+		// never consulted at all — no credential, a blocking compliance policy, a
+		// single candidate — leaves this false.
 		classifierFailed: boolean;
-		// True when a sticky session reused an earlier turn's verdict instead of
-		// classifying again, which is also why no classifier latency is recorded.
+		// True when the verdict served came from another turn of the same sticky
+		// session rather than from this request.
 		classifierReused?: boolean;
 	};
 }

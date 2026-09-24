@@ -59,9 +59,10 @@ export interface AutoRoutingSelectionResult<
  *
  * Without a configured list this is the historical behaviour — the cheapest
  * candidate — and nothing is logged. With one, an enabled classifier rates the
- * request and the pick comes from the matching price band; a classifier that
- * cannot run (no credential, single candidate, upstream failure) degrades to
- * the cheapest candidate and is recorded as `classifierFailed`.
+ * request and the pick comes from the matching price band; without a verdict
+ * the cheapest candidate serves the request. `classifierFailed` records only an
+ * attempted call that produced no verdict — a missing credential, a blocking
+ * compliance policy or a single candidate means no call was made at all.
  *
  * A sticky session classifies once: later turns reuse the stored verdict and
  * the model it resolved to, so a conversation neither pays for a classifier
@@ -98,6 +99,11 @@ export async function selectAutoRoutingModel<
 
 	let classification: AutoRoutingClassification | null =
 		saved?.classification ?? null;
+	// True whenever the verdict being served was produced by another request of
+	// the same session rather than by this one.
+	let verdictReused = saved !== null;
+	// Latency of the call this request made, if any — never another turn's.
+	let classifierLatencyMs: number | undefined;
 	// A single candidate has nothing to choose between, so skip the round trip.
 	let classifierAttempted = false;
 	if (
@@ -106,7 +112,15 @@ export async function selectAutoRoutingModel<
 		sorted.length > 1 &&
 		params.classifierAllowed
 	) {
-		classifierAttempted = await hasContentFilterCredential("typesafe");
+		// The lookup reads the managed-credential table, which throws when both
+		// the cache and its SWR mirror are gone. The classifier is fail-open by
+		// design and the caller awaits this selector directly, so a credential
+		// lookup must not be the one thing that can fail the request.
+		try {
+			classifierAttempted = await hasContentFilterCredential("typesafe");
+		} catch {
+			classifierAttempted = false;
+		}
 		if (classifierAttempted) {
 			classification = await classifyAutoRoutingRequest(
 				{
@@ -124,6 +138,7 @@ export async function selectAutoRoutingModel<
 				params.context,
 				params.requestSignal,
 			);
+			classifierLatencyMs = classification?.latencyMs;
 		}
 	}
 
@@ -145,12 +160,34 @@ export async function selectAutoRoutingModel<
 	}
 
 	if (sessionStore && classification) {
-		// Re-persist on every hit so the pin's TTL keeps refreshing while the
-		// session stays active, matching sticky provider selection.
-		await sessionStore.set({
-			classification,
-			selectedModel: candidate.modelId,
-		});
+		if (saved) {
+			// Re-persist on every hit so the pin's TTL keeps refreshing while the
+			// session stays active, matching sticky provider selection.
+			await sessionStore.refresh({
+				classification,
+				selectedModel: candidate.modelId,
+			});
+		} else {
+			// Opening turn: claim the session atomically. When a concurrent first
+			// turn got there first, adopt its verdict so both turns of the same
+			// session agree instead of the later write silently re-pinning.
+			const entry = {
+				classification,
+				selectedModel: candidate.modelId,
+			};
+			const claimed = await sessionStore.claim(entry);
+			if (claimed !== entry) {
+				const winnerIndex = sorted.findIndex(
+					(other) => other.modelId === claimed.selectedModel,
+				);
+				if (winnerIndex >= 0) {
+					candidate = sorted[winnerIndex];
+					band = bands[winnerIndex];
+					classification = claimed.classification;
+					verdictReused = true;
+				}
+			}
+		}
 	}
 
 	return {
@@ -171,10 +208,9 @@ export async function selectAutoRoutingModel<
 			bestModelConfidence: classification?.bestModelConfidence,
 			band,
 			selectedModel: candidate.modelId,
-			// Absent on a reused verdict: no call was made on this request.
-			classifierLatencyMs: saved ? undefined : classification?.latencyMs,
+			classifierLatencyMs,
 			classifierFailed: classifierAttempted && classification === null,
-			...(saved ? { classifierReused: true } : {}),
+			...(verdictReused ? { classifierReused: true } : {}),
 		},
 	};
 }

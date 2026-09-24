@@ -423,6 +423,41 @@ describe("configurable auto routing", () => {
 		);
 	});
 
+	test("free_models_only cannot escape the configured list", async () => {
+		// The list is a governance boundary: a request parameter must not be able
+		// to route to a free catalogue model the organization never allowed.
+		const token = await seedBase("free-escape", {
+			orgConfig: { classifier: "none", models: THREE_MODELS },
+		});
+
+		const res = await chatCompletion(token, {
+			model: "auto",
+			messages: [{ role: "user", content: "hi free" }],
+			free_models_only: true,
+		});
+		expect(res.status).toBe(400);
+		expect((await res.json()).error.message).toContain(
+			"configured auto-routing models are free",
+		);
+	});
+
+	test("free_models_only narrows the configured list to its free models", async () => {
+		const token = await seedBase("free-narrow", {
+			orgConfig: {
+				classifier: "none",
+				models: [MID_MODEL, "claude-haiku-4-5-free"],
+			},
+		});
+
+		const res = await chatCompletion(token, {
+			model: "auto",
+			messages: [{ role: "user", content: "hi free narrow" }],
+			free_models_only: true,
+		});
+		expect(res.status).toBe(200);
+		expect((await res.json()).model).toContain("claude-haiku-4-5-free");
+	});
+
 	test("skips the classifier when the policy blocks its provider", async () => {
 		const token = await seedBase("compliance", {
 			orgConfig: { classifier: "jev", models: THREE_MODELS },

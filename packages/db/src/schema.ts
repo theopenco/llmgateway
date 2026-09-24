@@ -2312,8 +2312,8 @@ export const log = pgTable(
 				selectedModel: string;
 				classifierLatencyMs?: number;
 				classifierFailed: boolean;
-				// True when a sticky session reused an earlier turn's verdict
-				// instead of classifying again.
+				// True when the verdict served came from another turn of the same
+				// sticky session rather than from this request.
 				classifierReused?: boolean;
 			};
 		}>(),

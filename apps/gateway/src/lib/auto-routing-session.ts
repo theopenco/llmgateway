@@ -11,7 +11,14 @@ export interface AutoRoutingSessionEntry {
 
 export interface AutoRoutingSessionStore {
 	get: () => Promise<AutoRoutingSessionEntry | null>;
-	set: (entry: AutoRoutingSessionEntry) => Promise<void>;
+	/**
+	 * Claim the session for `entry`, returning whichever entry won. Concurrent
+	 * opening turns both classify, so without an atomic claim the later write
+	 * would replace the pin the earlier request is already being served under.
+	 */
+	claim: (entry: AutoRoutingSessionEntry) => Promise<AutoRoutingSessionEntry>;
+	/** Refresh an existing pin's TTL. */
+	refresh: (entry: AutoRoutingSessionEntry) => Promise<void>;
 }
 
 /**
@@ -60,12 +67,38 @@ export function createAutoRoutingSessionStore(
 				return null;
 			}
 		},
-		set: async (entry) => {
+		claim: async (entry) => {
+			try {
+				const won = await redisClient.set(
+					key,
+					JSON.stringify(entry),
+					"EX",
+					ttlSeconds,
+					"NX",
+				);
+				if (won) {
+					return entry;
+				}
+				const existing = await redisClient.get(key);
+				return existing
+					? (JSON.parse(existing) as AutoRoutingSessionEntry)
+					: entry;
+			} catch (error) {
+				// Fail open to this request's own verdict rather than failing the
+				// request over a pin that is only an optimization.
+				logger.error(
+					"Error claiming session auto-routing entry in Redis:",
+					error as Error,
+				);
+				return entry;
+			}
+		},
+		refresh: async (entry) => {
 			try {
 				await redisClient.set(key, JSON.stringify(entry), "EX", ttlSeconds);
 			} catch (error) {
 				logger.error(
-					"Error setting session auto-routing entry in Redis:",
+					"Error refreshing session auto-routing entry in Redis:",
 					error as Error,
 				);
 			}

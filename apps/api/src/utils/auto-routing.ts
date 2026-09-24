@@ -5,34 +5,36 @@ import { models, type ModelDefinition } from "@llmgateway/models";
 import {
 	AUTO_ROUTING_CLASSIFIERS,
 	AUTO_ROUTING_MAX_MODELS,
+	isAutoRoutingSelectableModel,
 	type AutoRoutingConfig,
 } from "@llmgateway/shared/auto-routing";
 
 /**
  * Model ids auto routing may be pointed at: catalogue models that can emit
- * text, excluding the routing pseudo-models themselves. Aliases map to their
- * canonical id so a stored config never depends on an alias moving.
+ * text and still have a mapping that serves requests, excluding the routing
+ * pseudo-models themselves. Aliases map to their canonical id so a stored
+ * config never depends on an alias moving.
  */
-const autoRoutingModelIdByRef = new Map<string, string>();
+const autoRoutingModelByRef = new Map<string, ModelDefinition>();
 for (const model of models) {
-	if (model.id === "auto" || model.id === "custom") {
-		continue;
-	}
-	const output = (model as ModelDefinition).output;
-	if (output && !output.includes("text")) {
-		continue;
-	}
-	autoRoutingModelIdByRef.set(model.id, model.id);
+	const definition = model as ModelDefinition;
+	autoRoutingModelByRef.set(definition.id, definition);
 	for (const alias of ("aliases" in model
 		? ((model.aliases as readonly string[] | undefined) ?? [])
 		: []) as readonly string[]) {
-		autoRoutingModelIdByRef.set(alias, model.id);
+		autoRoutingModelByRef.set(alias, definition);
 	}
 }
 
-export const AUTO_ROUTING_MODEL_IDS = Array.from(
-	new Set(autoRoutingModelIdByRef.values()),
-);
+/**
+ * Liveness is checked per call rather than baked into a module-scope list: a
+ * mapping's `deactivatedAt` is usually a future date when the code ships, so a
+ * snapshot taken at import would keep accepting the model after it retired.
+ */
+function resolveAutoRoutingModelId(ref: string): string | undefined {
+	const model = autoRoutingModelByRef.get(ref);
+	return model && isAutoRoutingSelectableModel(model) ? model.id : undefined;
+}
 
 export const autoRoutingConfigInputSchema = z.object({
 	classifier: z.enum(AUTO_ROUTING_CLASSIFIERS),
@@ -41,8 +43,8 @@ export const autoRoutingConfigInputSchema = z.object({
 			z
 				.string()
 				.max(256)
-				.refine((ref) => autoRoutingModelIdByRef.has(ref), {
-					message: "Unknown or non-text model",
+				.refine((ref) => resolveAutoRoutingModelId(ref) !== undefined, {
+					message: "Unknown, non-text, or retired model",
 				}),
 		)
 		.min(1)
@@ -61,7 +63,7 @@ export function normalizeAutoRoutingConfig(
 		return null;
 	}
 	const modelIds = Array.from(
-		new Set(config.models.map((ref) => autoRoutingModelIdByRef.get(ref)!)),
+		new Set(config.models.map((ref) => resolveAutoRoutingModelId(ref)!)),
 	);
 	if (modelIds.length === 0) {
 		throw new HTTPException(400, {
