@@ -74,6 +74,16 @@ the exact tiers exposed by each provider card.
   served at Priority or shed with a 503, so an accepted request is billed at the
   tier it was sent at.
 
+- **Azure** (`azure`) — sent as a `service_tier` field in the request body on the
+  v1 chat completions and responses endpoints. Only Priority is offered (Azure
+  publishes no Flex rate card); the multiplier is model-specific and shown on the
+  model page. Azure requires a **Global Standard** or **Data Zone (US)**
+  deployment of a model version `2025-12-01` or later, and a subscription
+  entitled to priority processing. Azure downgrades to standard when the
+  entitlement is missing, during peak load, on ramp-rate limits, and for
+  long-context prompts on some models; it reports the served tier back, so a
+  downgraded request is billed at standard and reported as such.
+
 <Callout type="info">
 	Tiers are supported on a **subset** of models, and the Flex and Priority
 	subsets differ by provider. For example, Google Flex PayGo lists Gemini 3

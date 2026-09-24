@@ -1933,10 +1933,39 @@ describe("prepareRequestBody - OpenAI service tiers", () => {
 		expect(requestBody.service_tier).toBeUndefined();
 	});
 
-	test("should not forward service_tier to Azure", async () => {
+	test("should forward service_tier to Azure chat completions", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "azure",
+			serviceTier: "priority",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBe("priority");
+	});
+
+	test("should forward service_tier to the Azure Responses API", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "azure",
+			useResponsesApi: true,
+			serviceTier: "priority",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBe("priority");
+	});
+
+	test("should not forward flex to Azure, which only sells priority", async () => {
 		const requestBody = (await prepareOpenAITextRequest({
 			provider: "azure",
 			serviceTier: "flex",
+		})) as { service_tier?: string };
+
+		expect(requestBody.service_tier).toBeUndefined();
+	});
+
+	test("should not forward service_tier to unsupported Azure models", async () => {
+		const requestBody = (await prepareOpenAITextRequest({
+			provider: "azure",
+			model: "gpt-4o",
+			serviceTier: "priority",
 		})) as { service_tier?: string };
 
 		expect(requestBody.service_tier).toBeUndefined();

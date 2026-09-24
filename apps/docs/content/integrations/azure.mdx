@@ -151,6 +151,44 @@ Once configured, you can access your Azure deployments through LLM Gateway:
 
 Browse all available models at [llmgateway.io/models](https://llmgateway.io/models?provider=azure)
 
+## Priority processing
+
+Azure sells a low-latency **Priority** processing tier, requested per request via
+the OpenAI-compatible `service_tier` field:
+
+```bash
+curl -X POST https://api.llmgateway.io/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_LLMGATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "azure/gpt-5.1",
+    "service_tier": "priority",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello from Azure!"
+      }
+    ]
+  }'
+```
+
+Requirements:
+
+- A **Global Standard** or **Data Zone (US)** deployment. Regional standard and
+  EU data zone deployments are not supported.
+- Model version `2025-12-01` or later, on a model that offers the tier — see the
+  provider card on the [models page](https://llmgateway.io/models?provider=azure).
+- A subscription entitled to priority processing.
+
+Both provider key types work — the v1 (AI Foundry) and the legacy deployment-based
+surfaces each accept `service_tier` and report the tier they served.
+
+Azure serves a priority request at standard when the entitlement is missing,
+during peak load, on ramp-rate limits, and for long-context prompts on some
+models. It reports the tier it actually served, so a downgraded request is
+billed at standard rates and `used_service_tier` comes back `null`. See
+[service tiers](/features/service-tiers) for the full behaviour.
+
 ## Claude models on Microsoft Foundry
 
 Claude models are served by Microsoft Foundry through Anthropic's Messages API rather than an OpenAI-compatible endpoint, so they use their own `azure-anthropic` provider in LLM Gateway.

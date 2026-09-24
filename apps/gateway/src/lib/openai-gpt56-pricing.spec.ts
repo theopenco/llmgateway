@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	expandProviderRegions,
+	getSupportedServiceTiers,
 	models,
 	providers,
 	type ProviderModelMapping,
@@ -131,9 +132,10 @@ describe("OpenAI GPT-5.6 and GPT-6 family pricing", () => {
 // Sol's promotional rates included — Azure runs that promo on its own window
 // (2026-09-01 through at least 2026-11-30). The rates come from the
 // `5.6 <model> … Std Gl` meters in the Azure retail prices API, which bill
-// lower than the pricing page still publishes. Data Zone (+10%) and Priority
-// Processing (2x) are separate deployment types that the catalogue does not
-// map, so nothing here should track them.
+// lower than the pricing page still publishes. Data Zone (+10%) is a separate
+// deployment type the catalogue does not map, so nothing here should track it;
+// Priority Processing is mapped as a service tier at a flat 2x premium (the
+// `… PP Gl` meters), which the standard rates below must stay independent of.
 describe("GPT-5.6 on Azure", () => {
 	const azureEntries = models.flatMap((model) =>
 		model.id.startsWith("gpt-5.6")
@@ -155,6 +157,21 @@ describe("GPT-5.6 on Azure", () => {
 			"gpt-5.6-sol",
 			"gpt-5.6-terra",
 		]);
+	});
+
+	// Luna has PP meters too, but Microsoft's priority-processing docs do not
+	// list it as supported, so the catalogue leaves that mapping tier-less.
+	it.each(["gpt-5.6-sol", "gpt-5.6-terra"])(
+		"%s sells Priority processing at 2x the standard rate",
+		(modelId) => {
+			const tiers = getSupportedServiceTiers(modelId, "azure");
+			expect(tiers.map((tier) => tier.id)).toEqual(["priority"]);
+			expect(tiers[0].multiplier).toBe(2);
+		},
+	);
+
+	it("leaves gpt-5.6-luna without a service tier on azure", () => {
+		expect(getSupportedServiceTiers("gpt-5.6-luna", "azure")).toEqual([]);
 	});
 
 	it.each(azureEntries)(

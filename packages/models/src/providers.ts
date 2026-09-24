@@ -1184,6 +1184,15 @@ export const providers: ProviderDefinition[] = [
 			"The resource name can be found in your Azure base URL: https://<resource-name>.openai.azure.com",
 		learnMore: "https://docs.llmgateway.io/integrations/azure",
 		priority: 2,
+		serviceTiers: [
+			{
+				id: "priority",
+				name: "Priority",
+				multiplier: 2,
+				description:
+					"Premium low-latency tier at a 100% premium. Requires a Global Standard or Data Zone (US) deployment.",
+			},
+		],
 		termsUrl: "https://www.microsoft.com/licensing/terms",
 		privacyPolicyUrl: "https://privacy.microsoft.com/privacystatement",
 		usagePolicyUrl: "https://www.microsoft.com/en-us/legal/terms-of-use",

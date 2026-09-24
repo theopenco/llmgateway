@@ -2365,10 +2365,13 @@ export async function prepareRequestBody(
 					}
 				}
 
-				if (usedProvider === "openai") {
+				if (usedProvider === "openai" || usedProvider === "azure") {
 					if (supportedServiceTier) {
 						responsesBody.service_tier = supportedServiceTier;
 					}
+				}
+
+				if (usedProvider === "openai") {
 					if (
 						allowProviderCacheWrites &&
 						prompt_cache_retention !== undefined &&
@@ -2566,13 +2569,13 @@ export async function prepareRequestBody(
 					}
 				}
 
-				if (usedProvider === "openai") {
+				if (usedProvider === "openai" || usedProvider === "azure") {
 					if (supportedServiceTier) {
 						requestBody.service_tier = supportedServiceTier;
 					}
-					// Azure is intentionally excluded on this path: chat completions
-					// may hit a legacy deployment-based api-version that rejects
-					// unknown body fields, and the deployment type isn't known here.
+				}
+
+				if (usedProvider === "openai") {
 					if (allowProviderCacheWrites) {
 						const upstreamCacheKey =
 							(prompt_cache_key !== undefined

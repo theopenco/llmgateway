@@ -609,6 +609,19 @@ function stripAzureOpenaiPrefix(c: Context): Response | Promise<Response> {
 mockOpenAIServer.post("/openai/v1/responses", stripAzureOpenaiPrefix);
 mockOpenAIServer.post("/openai/v1/chat/completions", stripAzureOpenaiPrefix);
 
+// The legacy Azure deployment-based surface, where the model lives in the path
+// and the api-version in the query string. Rewrite it to the plain handler so
+// `azure_deployment_type: "openai"` keys can complete requests too.
+mockOpenAIServer.post(
+	"/openai/deployments/:deployment/chat/completions",
+	(c) => {
+		const url = new URL(c.req.url);
+		url.pathname = "/v1/chat/completions";
+		url.search = "";
+		return mockOpenAIServer.fetch(new Request(url, c.req.raw));
+	},
+);
+
 // Handle OpenAI Responses API endpoint (for gpt-5 and other models with supportsResponsesApi)
 mockOpenAIServer.post("/v1/responses", async (c) => {
 	const body = await c.req.json();
@@ -657,6 +670,15 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 		}
 	}
 
+	// Azure (and OpenAI) silently serve a premium request at standard when the
+	// tier is unavailable, echoing `service_tier: "default"`. The echoed tier,
+	// not the requested one, is what the gateway must bill.
+	const servedServiceTier = userMessage.includes(
+		"TRIGGER_SERVICE_TIER_DOWNGRADE",
+	)
+		? "default"
+		: body.service_tier;
+
 	const shouldEndAfterDoneEvent = userMessage.includes(
 		"TRIGGER_RESPONSES_DONE_WITHOUT_COMPLETED",
 	);
@@ -673,8 +695,8 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 				object: "response",
 				created_at: Math.floor(Date.now() / 1000),
 				model: body.model ?? "gpt-5-nano",
-				...(typeof body.service_tier === "string"
-					? { service_tier: body.service_tier }
+				...(typeof servedServiceTier === "string"
+					? { service_tier: servedServiceTier }
 					: {}),
 			};
 
@@ -837,8 +859,8 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 			output_tokens: 20,
 			total_tokens: 30,
 		},
-		...(typeof body.service_tier === "string"
-			? { service_tier: body.service_tier }
+		...(typeof servedServiceTier === "string"
+			? { service_tier: servedServiceTier }
 			: {}),
 		status: "completed",
 	};
@@ -1362,6 +1384,16 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		...sampleChatCompletionResponse,
 		choices,
 		usage,
+		// Echo the tier the upstream served, like OpenAI and Azure do.
+		// TRIGGER_SERVICE_TIER_DOWNGRADE forces the "served at standard" reply
+		// they send when the requested tier is unavailable.
+		...(typeof body.service_tier === "string"
+			? {
+					service_tier: userMessage.includes("TRIGGER_SERVICE_TIER_DOWNGRADE")
+						? "default"
+						: body.service_tier,
+				}
+			: {}),
 	};
 
 	return c.json(response);
