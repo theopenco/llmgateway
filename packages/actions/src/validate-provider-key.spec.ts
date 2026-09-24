@@ -59,6 +59,37 @@ describe("getValidationModel", () => {
 		expect(usesOcr).toBeFalsy();
 	});
 
+	// Providers whose whole catalog is a single free preview model are unstable
+	// by design. Filtering them out left no probe model, so saving a key for
+	// such a provider failed with "No suitable validation model found".
+	it("falls back to unstable models when a provider has no stable one", () => {
+		for (const provider of providers) {
+			const hasProbeableMapping = models.some((model) =>
+				model.providers.some(
+					(p) =>
+						p.providerId === provider.id &&
+						["text", "decision"].includes(
+							getProviderModelKind(model, p) ?? "",
+						) &&
+						!(
+							"deprecatedAt" in p &&
+							p.deprecatedAt &&
+							new Date() >= p.deprecatedAt
+						) &&
+						!(
+							"deactivatedAt" in p &&
+							p.deactivatedAt &&
+							new Date() >= p.deactivatedAt
+						),
+				),
+			);
+			if (hasProbeableMapping) {
+				expect(getValidationModel(provider.id), provider.id).not.toBeNull();
+			}
+		}
+		expect(getValidationModel("atria")?.modelId).toBe("atria-dawn-preview");
+	});
+
 	it("selects a model from the newer half of the provider's text releases", () => {
 		const now = new Date();
 		const selected = getValidationModel("openai");
