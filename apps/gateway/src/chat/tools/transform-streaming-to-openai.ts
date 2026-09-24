@@ -14,6 +14,7 @@ import {
 	extractBedrockCacheCreationDetails,
 } from "./extract-token-usage.js";
 import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
+import { normalizeMistralContent } from "./mistral-content.js";
 import { buildEncryptedReasoningDetail } from "./reasoning-details.js";
 import { transformOpenaiStreaming } from "./transform-openai-streaming.js";
 
@@ -1594,9 +1595,35 @@ export function transformStreamingToOpenai(
 				transformedData = null;
 				break;
 			}
+			// Mistral streams thinking models' content as typed chunks; flatten
+			// them back to `content` / `reasoning_content` before the shared
+			// OpenAI transform sees the delta.
+			let openaiStreamData = data;
+			if (usedProvider === "mistral" && Array.isArray(data.choices)) {
+				openaiStreamData = {
+					...data,
+					choices: data.choices.map((choice: any) => {
+						if (!Array.isArray(choice?.delta?.content)) {
+							return choice;
+						}
+						const normalized = normalizeMistralContent(choice.delta.content);
+						return {
+							...choice,
+							delta: {
+								...choice.delta,
+								content: normalized.content,
+								...(normalized.reasoning && {
+									reasoning_content: normalized.reasoning,
+								}),
+							},
+						};
+					}),
+				};
+			}
+
 			// Transform standard OpenAI streaming format with finish reason mapping
 			transformedData = transformOpenaiStreaming(
-				data,
+				openaiStreamData,
 				usedModel,
 				supportsReasoning,
 			);
