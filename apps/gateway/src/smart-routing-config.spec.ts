@@ -13,7 +13,7 @@ import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
-import { waitForLogs } from "./test-utils/test-helpers.js";
+import { requestLogs, waitForLogs } from "./test-utils/test-helpers.js";
 
 import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 
@@ -144,7 +144,8 @@ describe("smart routing", () => {
 		const json = await res.json();
 		expect(json.model).toBe(`openai/${EXPENSIVE_MODEL}`);
 
-		const logs = await waitForLogs(1);
+		// Two rows: the classifier call is billed on its own.
+		const logs = requestLogs(await waitForLogs(2));
 		const smartRouting = logs[0]?.routingMetadata?.smartRouting;
 		expect(smartRouting).toMatchObject({
 			classifier: "jev",
@@ -162,6 +163,43 @@ describe("smart routing", () => {
 		]);
 	});
 
+	test("the classifier call is billed to the calling project", async () => {
+		const token = await seedBase("billing", {
+			orgConfig: { classifier: "jev", models: THREE_MODELS },
+		});
+
+		const res = await chatCompletion(token, {
+			model: "smart",
+			messages: [
+				{ role: "user", content: "HARD_TASK design a distributed scheduler" },
+			],
+		});
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(2);
+		const classifierLog = logs.find((log) => log.usedProvider === "typesafe");
+		expect(classifierLog).toBeDefined();
+		expect(classifierLog).toMatchObject({
+			organizationId: "org-id",
+			projectId: "project-id",
+			apiKeyId: `token-ar-billing`,
+			usedModel: "typesafe/jev-1.13.0",
+			requestedModel: "smart",
+			// The classifier runs on a platform credential, so the organization
+			// pays credits for it whatever mode the project is in.
+			usedMode: "credits",
+			promptTokens: "441",
+			hasError: false,
+		});
+		// 441 input tokens at the catalogue rate; output is priced at zero.
+		expect(Number(classifierLog?.cost)).toBeCloseTo(441 * 0.042e-6, 12);
+
+		const requestLog = requestLogs(logs)[0];
+		expect(
+			requestLog?.routingMetadata?.smartRouting?.classifierCost,
+		).toBeCloseTo(441 * 0.042e-6, 12);
+	});
+
 	test("an easy request is served from the bottom price band", async () => {
 		const token = await seedBase("easy", {
 			orgConfig: { classifier: "jev", models: THREE_MODELS },
@@ -174,7 +212,7 @@ describe("smart routing", () => {
 		expect(res.status).toBe(200);
 		expect((await res.json()).model).toBe(`openai/${CHEAP_MODEL}`);
 
-		const logs = await waitForLogs(1);
+		const logs = requestLogs(await waitForLogs(2));
 		expect(logs[0]?.routingMetadata?.smartRouting).toMatchObject({
 			difficulty: "low",
 			band: "low",
@@ -365,7 +403,9 @@ describe("smart routing", () => {
 
 		// Partitioned rather than ordered: both rows land in the same millisecond,
 		// so createdAt does not separate them.
-		const decisions = (await waitForLogs(2)).map(
+		// Three rows: two requests, plus the single classifier call the opening
+		// turn was billed for.
+		const decisions = requestLogs(await waitForLogs(3)).map(
 			(log) => log.routingMetadata?.smartRouting,
 		);
 		const classified = decisions.filter((d) => !d?.classifierReused);
@@ -458,7 +498,7 @@ describe("smart routing", () => {
 		expect(res.status).toBe(200);
 		expect((await res.json()).model).toBe("openai/o4-mini");
 
-		const log = (await waitForLogs(1))[0];
+		const log = requestLogs(await waitForLogs(2))[0];
 		expect(log?.routingMetadata?.smartRouting?.difficulty).toBe("high");
 		return (log?.upstreamRequest as { reasoning_effort?: string } | null)
 			?.reasoning_effort;

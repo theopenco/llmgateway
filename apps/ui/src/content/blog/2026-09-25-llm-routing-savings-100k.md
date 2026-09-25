@@ -9,7 +9,7 @@ faqs:
   - question: "How much can LLM routing actually save?"
     answer: "It depends on what fraction of your traffic is easy enough for a cheaper model. Moving from a single pinned frontier model to a difficulty-routed mix of Claude Haiku, Sonnet and Opus saves roughly 36% at a conservative mix and 60% at an aggressive one, on 2k-in/500-out requests at list prices. Against a Sonnet baseline the range is about 9% to 33%. Your number depends on your own difficulty distribution, which you should measure rather than assume."
   - question: "What does the classifier itself cost?"
-    answer: "TypeSafe's Jev model is $0.042 per million input tokens with free output. A classification runs about 1,100 to 4,000 input tokens depending on how long the request is and how many models you configured, so roughly $0.0001 per call — about 10,000 classifications per dollar. At $100k a month it lands between $50 and $800 depending on request volume and whether you use sticky sessions."
+    answer: "TypeSafe's Jev model is $0.042 per million input tokens, with output priced at zero. A classification runs about 1,100 to 4,000 input tokens depending on how long the request is and how many models you configured, so roughly $0.0001 per call — about 10,000 classifications per dollar. At $100k a month it lands between $50 and $800 depending on request volume and whether you use sticky sessions. It is billed to your account as its own log entry against the project and API key that triggered it, so the figure is measured rather than estimated."
   - question: "When is routing not worth it?"
     answer: "When your traffic is uniformly hard, when your average request is so cheap that the classifier is a large fraction of it, or when a wrong model choice is expensive in ways the bill does not show. Routing moves a quality risk onto the cheaper model for part of your traffic, so measure output quality on the band you push down, not just the invoice."
   - question: "Does the classifier run on every request?"
@@ -92,8 +92,8 @@ not getting before, paid for out of the savings on the easy half.
 ## What the classifier costs
 
 [TypeSafe's Jev](https://docs.llmgateway.io/features/routing) decision model is
-**$0.042 per million input tokens, with output free**. One classification is the
-rubric plus a bounded slice of the request:
+**$0.042 per million input tokens, with output priced at zero**. One
+classification is the rubric plus a bounded slice of the request:
 
 | Scenario                          | Input tokens | Cost per call |
 | --------------------------------- | ------------ | ------------- |
@@ -101,7 +101,10 @@ rubric plus a bounded slice of the request:
 | Mid prompt, ~10 models            | ~2,500       | $0.000105     |
 | Capped state, 30 models           | ~4,000       | $0.000168     |
 
-About **$0.0001 a call, or 10,000 classifications per dollar**. The rubric grows
+About **$0.0001 a call, or 10,000 classifications per dollar**. Each call is
+billed to your account as its own log entry, against the same project and API
+key as the request that triggered it — so the line above is something you can
+read off your own usage rather than a figure you have to model. The rubric grows
 with your model list — each configured model contributes its name, description
 and price band to the question — so a 30-model list costs roughly twice a
 3-model list per call.
@@ -151,9 +154,11 @@ routes each request to the matching one. Every decision — the difficulty, the
 task type, the candidates, the model chosen — lands on the request's log entry,
 so you can audit the mix you actually got against the mix you assumed here.
 
-Smart routing is **free while in beta** for every organization, including
-pay-as-you-go; it is not available on DevPass yet. If you want
-the routing logic explicit instead, a
+Smart routing itself carries no platform fee: you pay for the models it selects
+and for each classifier call, at the rates above. A verdict reused from a sticky
+session and a classifier call that fails are both charged nothing. It is
+available to every organization including pay-as-you-go while it is in beta; it
+is not available on DevPass yet. If you want the routing logic explicit instead, a
 [dynamic route](https://docs.llmgateway.io/features/dynamic-routes) can branch on
 the same verdict.
 
