@@ -771,6 +771,77 @@ describe("airside provider portal", () => {
 		});
 	});
 
+	it("lists a listing's preflight history without naming our reviewers", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id);
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+
+		const carrierRun = await app.request(
+			`/airside/models/${model.id}/verifications`,
+			json(cookie, { apiKey: "carrier-history-key" }),
+		);
+		expect(carrierRun.status).toBe(202);
+		const carrierRunId = (await carrierRun.json()).verification.id;
+		// Only one run may be in flight per listing, so settle this one first.
+		await db
+			.update(tables.providerModelVerification)
+			.set({ status: "failed", summary: "tools failed" })
+			.where(eq(tables.providerModelVerification.id, carrierRunId));
+
+		const carrierRow = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: carrierRunId } },
+		});
+		const adminRunId = `admin-run-${crypto.randomUUID()}`;
+		await db.insert(tables.providerModelVerification).values({
+			id: adminRunId,
+			providerCompanyId: company.id,
+			draftModelId: model.id,
+			initiatedBy: "admin",
+			requestedBy: "test-user-id",
+			target: carrierRow!.target,
+			checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
+			status: "passed",
+			summary: "spot check ok",
+		});
+
+		const res = await app.request(`/airside/models/${model.id}/verifications`, {
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(200);
+		const { verifications } = await res.json();
+		// Newest first, down to the run that registered the listing.
+		expect(
+			verifications.slice(0, 2).map((entry: { id: string }) => entry.id),
+		).toEqual([adminRunId, carrierRunId]);
+		expect(verifications).toHaveLength(3);
+		// Our side is named only as the initiator; the reviewer stays anonymous.
+		expect(verifications[0]).toMatchObject({
+			initiatedBy: "admin",
+			actorName: null,
+			actorEmail: null,
+			status: "passed",
+		});
+		expect(verifications[1]).toMatchObject({
+			initiatedBy: "carrier",
+			actorName: "Test User",
+			actorEmail: null,
+			status: "failed",
+			summary: "tools failed",
+		});
+
+		// A non-member gets the company-scoped 404.
+		const outsider = await createSecondUser("nosy@example.com");
+		const denied = await app.request(
+			`/airside/models/${model.id}/verifications`,
+			{ headers: { Cookie: outsider } },
+		);
+		expect(denied.status).toBe(404);
+	});
+
 	it("verifies the capabilities a live listing has awaiting review", async () => {
 		process.env.ADMIN_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
