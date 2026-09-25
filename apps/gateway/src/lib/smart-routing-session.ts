@@ -1,35 +1,35 @@
 import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
-import type { AutoRoutingClassification } from "@llmgateway/shared/auto-routing";
+import type { RequestClassification } from "@llmgateway/shared/smart-routing";
 
-export interface AutoRoutingSessionEntry {
-	classification: AutoRoutingClassification;
+export interface SmartRoutingSessionEntry {
+	classification: RequestClassification;
 	/** The model the first classified request in this session resolved to. */
 	selectedModel: string;
 }
 
 /** A dynamic route branches on the verdict and picks the model itself. */
 export interface ClassifierSessionEntry {
-	classification: AutoRoutingClassification;
+	classification: RequestClassification;
 }
 
-export interface AutoRoutingSessionStore {
-	get: () => Promise<AutoRoutingSessionEntry | null>;
+export interface SmartRoutingSessionStore {
+	get: () => Promise<SmartRoutingSessionEntry | null>;
 	/**
 	 * Claim the session for `entry`, returning whichever entry won. Concurrent
 	 * opening turns both classify, so without an atomic claim the later write
 	 * would replace the pin the earlier request is already being served under.
 	 */
-	claim: (entry: AutoRoutingSessionEntry) => Promise<AutoRoutingSessionEntry>;
+	claim: (entry: SmartRoutingSessionEntry) => Promise<SmartRoutingSessionEntry>;
 	/** Refresh an existing pin's TTL. */
-	refresh: (entry: AutoRoutingSessionEntry) => Promise<void>;
+	refresh: (entry: SmartRoutingSessionEntry) => Promise<void>;
 }
 
 /**
  * Keyed on the project, not the model: the model is what the pin decides. A
  * session id is client-supplied, so scoping to the project keeps one project's
- * pin from being read under another project's auto-routing configuration.
+ * pin from being read under another project's smart-routing configuration.
  */
 function sessionRedisKey(
 	orgId: string,
@@ -117,13 +117,13 @@ export function createDynamicRouteClassifierStore(
 	);
 }
 
-export function createAutoRoutingSessionStore(
+export function createSmartRoutingSessionStore(
 	orgId: string,
 	projectId: string,
 	sessionId: string,
 	ttlSeconds: number,
-): AutoRoutingSessionStore {
-	return createStore<AutoRoutingSessionEntry>(
+): SmartRoutingSessionStore {
+	return createStore<SmartRoutingSessionEntry>(
 		sessionRedisKey(orgId, projectId, sessionId),
 		ttlSeconds,
 	);

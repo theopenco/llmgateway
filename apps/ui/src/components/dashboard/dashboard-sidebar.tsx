@@ -291,8 +291,7 @@ const ORGANIZATION_SETTINGS = [
 	},
 	{
 		href: "org/routing",
-		label: "Auto Routing",
-		enterpriseOnly: true,
+		label: "Smart Routing",
 	},
 	{
 		href: "org/audit-logs",

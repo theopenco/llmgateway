@@ -631,7 +631,7 @@ describe("worker", () => {
 						selectedProvider: "openai",
 						// Classifier verdicts are derived from the prompt, so they must
 						// not outlive the payloads they were derived from.
-						autoRouting: {
+						smartRouting: {
 							classifier: "jev",
 							eligibleModels: ["gpt-4o"],
 							candidateModels: ["gpt-4o"],

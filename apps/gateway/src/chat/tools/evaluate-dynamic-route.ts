@@ -5,7 +5,7 @@ import {
 	type DynamicRouteNode,
 } from "@llmgateway/shared/dynamic-route";
 
-import type { AutoRoutingClassification } from "@llmgateway/shared/auto-routing";
+import type { RequestClassification } from "@llmgateway/shared/smart-routing";
 
 export interface DynamicRouteEvaluationContext {
 	getHeader: (name: string) => string | undefined;
@@ -32,7 +32,7 @@ export interface DynamicRouteEvaluationContext {
 	 * synchronous and pure. `null`/absent means no verdict was obtained — the
 	 * classifier is fail-open, so those nodes take their `else` branch.
 	 */
-	classification?: AutoRoutingClassification | null;
+	classification?: RequestClassification | null;
 }
 
 export type DynamicRouteEvaluation =

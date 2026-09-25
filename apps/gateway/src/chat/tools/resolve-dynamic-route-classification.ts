@@ -1,15 +1,15 @@
-import { createDynamicRouteClassifierStore } from "@/lib/auto-routing-session.js";
 import {
 	getActiveCompliancePolicy,
 	isProviderIdCompliant,
 } from "@/lib/compliance.js";
+import { createDynamicRouteClassifierStore } from "@/lib/smart-routing-session.js";
 
 import { hasContentFilterCredential } from "./content-filter-credential.js";
-import { classifyAutoRoutingRequest } from "./jev-auto-routing-classifier.js";
+import { classifyRequest } from "./jev-request-classifier.js";
 
 import type { BaseMessage } from "@llmgateway/models";
-import type { AutoRoutingClassification } from "@llmgateway/shared/auto-routing";
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
+import type { RequestClassification } from "@llmgateway/shared/smart-routing";
 
 interface ResolveDynamicRouteClassificationParams {
 	organization: Parameters<typeof getActiveCompliancePolicy>[0];
@@ -37,7 +37,7 @@ interface ResolveDynamicRouteClassificationParams {
  */
 export async function resolveDynamicRouteClassification(
 	params: ResolveDynamicRouteClassificationParams,
-): Promise<AutoRoutingClassification | null> {
+): Promise<RequestClassification | null> {
 	// The classifier sends prompt text to TypeSafe, so an organization whose
 	// compliance policy disallows that provider must not have its prompts sent
 	// there — the same fail-closed rule the content filter applies.
@@ -77,7 +77,7 @@ export async function resolveDynamicRouteClassification(
 		return null;
 	}
 
-	const classification = await classifyAutoRoutingRequest(
+	const classification = await classifyRequest(
 		{
 			messages: params.messages,
 			toolNames: (params.tools ?? [])

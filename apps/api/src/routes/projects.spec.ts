@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 
 describe("projects route", () => {
 	let token: string;
@@ -248,14 +248,14 @@ describe("projects route", () => {
 		});
 	});
 	describe("auto routing configuration", () => {
-		async function patchAutoRouting(body: unknown) {
+		async function patchSmartRouting(body: unknown) {
 			return await app.request("/projects/test-project-id", {
 				method: "PATCH",
 				headers: {
 					"Content-Type": "application/json",
 					Cookie: token,
 				},
-				body: JSON.stringify({ autoRoutingConfig: body }),
+				body: JSON.stringify({ smartRoutingConfig: body }),
 			});
 		}
 
@@ -264,7 +264,7 @@ describe("projects route", () => {
 				await db.query.project.findFirst({
 					where: { id: { eq: "test-project-id" } },
 				})
-			)?.autoRoutingConfig;
+			)?.smartRoutingConfig;
 		}
 
 		beforeEach(async () => {
@@ -277,7 +277,7 @@ describe("projects route", () => {
 		test("stores an override and clears it with null", async () => {
 			expect(
 				(
-					await patchAutoRouting({
+					await patchSmartRouting({
 						classifier: "jev",
 						models: ["gpt-4o-mini", "gpt-4o"],
 					})
@@ -288,18 +288,18 @@ describe("projects route", () => {
 				models: ["gpt-4o-mini", "gpt-4o"],
 			});
 
-			expect((await patchAutoRouting(null)).status).toBe(200);
+			expect((await patchSmartRouting(null)).status).toBe(200);
 			expect(await storedConfig()).toBeNull();
 		});
 
 		test("rejects unknown models and oversized lists", async () => {
 			expect(
-				(await patchAutoRouting({ classifier: "none", models: ["nope-9000"] }))
+				(await patchSmartRouting({ classifier: "none", models: ["nope-9000"] }))
 					.status,
 			).toBe(400);
 			expect(
 				(
-					await patchAutoRouting({
+					await patchSmartRouting({
 						classifier: "none",
 						models: Array.from({ length: 31 }, () => "gpt-4o-mini"),
 					})
@@ -307,23 +307,23 @@ describe("projects route", () => {
 			).toBe(400);
 		});
 
-		test("requires an enterprise plan to set, but not to clear", async () => {
-			await db
+		test("rejects DevPass organizations, but still lets them clear", async () => {
+			await cdb
 				.update(tables.organization)
-				.set({ plan: "free" })
+				.set({ kind: "devpass" })
 				.where(eq(tables.organization.id, "test-org-id"));
 			await db
 				.update(tables.project)
 				.set({
-					autoRoutingConfig: { classifier: "none", models: ["gpt-4o-mini"] },
+					smartRoutingConfig: { classifier: "none", models: ["gpt-4o-mini"] },
 				})
 				.where(eq(tables.project.id, "test-project-id"));
 
 			expect(
-				(await patchAutoRouting({ classifier: "none", models: ["gpt-4o"] }))
+				(await patchSmartRouting({ classifier: "none", models: ["gpt-4o"] }))
 					.status,
 			).toBe(403);
-			expect((await patchAutoRouting(null)).status).toBe(200);
+			expect((await patchSmartRouting(null)).status).toBe(200);
 			expect(await storedConfig()).toBeNull();
 		});
 
@@ -335,7 +335,7 @@ describe("projects route", () => {
 
 			expect(
 				(
-					await patchAutoRouting({
+					await patchSmartRouting({
 						classifier: "none",
 						models: ["gpt-4o-mini"],
 					})

@@ -1,5 +1,5 @@
-import { AutoRoutingClient } from "./auto-routing-client";
+import { SmartRoutingClient } from "./smart-routing-client";
 
 export default function OrganizationRoutingPage() {
-	return <AutoRoutingClient />;
+	return <SmartRoutingClient />;
 }

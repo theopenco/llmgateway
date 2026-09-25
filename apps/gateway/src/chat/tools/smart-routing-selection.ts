@@ -1,42 +1,42 @@
 import {
-	assignAutoRoutingBands,
-	selectAutoRoutingCandidate,
-	type AutoRoutingClassification,
-	type AutoRoutingClassifier,
-	type AutoRoutingDifficulty,
-} from "@llmgateway/shared/auto-routing";
+	assignSmartRoutingBands,
+	selectSmartRoutingCandidate,
+	type RequestClassification,
+	type SmartRoutingClassifier,
+	type SmartRoutingDifficulty,
+} from "@llmgateway/shared/smart-routing";
 
 import { hasContentFilterCredential } from "./content-filter-credential.js";
 import {
-	classifyAutoRoutingRequest,
-	JEV_AUTO_ROUTING_RUBRIC_VERSION,
-} from "./jev-auto-routing-classifier.js";
+	classifyRequest,
+	JEV_CLASSIFIER_RUBRIC_VERSION,
+} from "./jev-request-classifier.js";
 
 import type { GatewayContentFilterContext } from "./openai-content-filter.js";
-import type { AutoRoutingSessionStore } from "@/lib/auto-routing-session.js";
+import type { SmartRoutingSessionStore } from "@/lib/smart-routing-session.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
 import type { BaseMessage, ModelDefinition } from "@llmgateway/models";
 
-interface AutoRoutingModelCandidate {
+interface SmartRoutingModelCandidate {
 	modelId: string;
 	modelDef: ModelDefinition;
 	price: number;
 }
 
-export interface AutoRoutingSelectionParams<
-	T extends AutoRoutingModelCandidate,
+export interface SmartRoutingSelectionParams<
+	T extends SmartRoutingModelCandidate,
 > {
 	candidates: T[];
 	/** The organization's configured list, or null for the built-in candidate set. */
 	configuredModels: string[] | null;
-	classifier: AutoRoutingClassifier;
+	classifier: SmartRoutingClassifier;
 	/** False when the org's compliance policy disallows the classifier's provider. */
 	classifierAllowed: boolean;
 	/**
 	 * Present only for a sticky session. The first classified request stores its
 	 * verdict here and the rest of the session reuses it.
 	 */
-	sessionStore?: AutoRoutingSessionStore;
+	sessionStore?: SmartRoutingSessionStore;
 	messages: BaseMessage[];
 	toolNames: string[];
 	hasImages: boolean;
@@ -45,17 +45,17 @@ export interface AutoRoutingSelectionParams<
 	requestSignal?: AbortSignal;
 }
 
-export interface AutoRoutingSelectionResult<
-	T extends AutoRoutingModelCandidate,
+export interface SmartRoutingSelectionResult<
+	T extends SmartRoutingModelCandidate,
 > {
 	candidate: T;
-	classification: AutoRoutingClassification | null;
+	classification: RequestClassification | null;
 	/** Only produced for a configured list; the built-in set logs nothing new. */
-	decision?: RoutingMetadata["autoRouting"];
+	decision?: RoutingMetadata["smartRouting"];
 }
 
 /**
- * Pick which of the surviving auto-routing candidates serves the request.
+ * Pick which of the surviving smart-routing candidates serves the request.
  *
  * Without a configured list this is the historical behaviour — the cheapest
  * candidate — and nothing is logged. With one, an enabled classifier rates the
@@ -71,25 +71,25 @@ export interface AutoRoutingSelectionResult<
  * if it dropped out, the stored verdict is re-applied to the current band
  * split rather than triggering a fresh classification.
  */
-export async function selectAutoRoutingModel<
-	T extends AutoRoutingModelCandidate,
+export async function selectSmartRoutingModel<
+	T extends SmartRoutingModelCandidate,
 >(
-	params: AutoRoutingSelectionParams<T>,
-): Promise<AutoRoutingSelectionResult<T> | null> {
+	params: SmartRoutingSelectionParams<T>,
+): Promise<SmartRoutingSelectionResult<T> | null> {
 	const { candidates, configuredModels, classifier } = params;
 	if (candidates.length === 0) {
 		return null;
 	}
 
 	if (!configuredModels) {
-		const selection = selectAutoRoutingCandidate(candidates, null);
+		const selection = selectSmartRoutingCandidate(candidates, null);
 		return selection
 			? { candidate: selection.candidate, classification: null }
 			: null;
 	}
 
 	const sorted = [...candidates].sort((a, b) => a.price - b.price);
-	const bands = assignAutoRoutingBands(sorted.length);
+	const bands = assignSmartRoutingBands(sorted.length);
 
 	// Only the classifier path uses the session pin. With no classifier the pick
 	// is a deterministic function of the current candidates, so pinning it would
@@ -97,7 +97,7 @@ export async function selectAutoRoutingModel<
 	const sessionStore = classifier === "jev" ? params.sessionStore : undefined;
 	const saved = sessionStore ? await sessionStore.get() : null;
 
-	let classification: AutoRoutingClassification | null =
+	let classification: RequestClassification | null =
 		saved?.classification ?? null;
 	// True whenever the verdict being served was produced by another request of
 	// the same session rather than by this one.
@@ -122,7 +122,7 @@ export async function selectAutoRoutingModel<
 			classifierAttempted = false;
 		}
 		if (classifierAttempted) {
-			classification = await classifyAutoRoutingRequest(
+			classification = await classifyRequest(
 				{
 					messages: params.messages,
 					toolNames: params.toolNames,
@@ -143,7 +143,7 @@ export async function selectAutoRoutingModel<
 	}
 
 	let candidate: T | undefined;
-	let band: AutoRoutingDifficulty | undefined;
+	let band: SmartRoutingDifficulty | undefined;
 	const pinnedIndex = saved
 		? sorted.findIndex((entry) => entry.modelId === saved.selectedModel)
 		: -1;
@@ -151,7 +151,7 @@ export async function selectAutoRoutingModel<
 		candidate = sorted[pinnedIndex];
 		band = bands[pinnedIndex];
 	} else {
-		const selection = selectAutoRoutingCandidate(sorted, classification);
+		const selection = selectSmartRoutingCandidate(sorted, classification);
 		if (!selection) {
 			return null;
 		}
@@ -196,7 +196,7 @@ export async function selectAutoRoutingModel<
 		decision: {
 			classifier,
 			...(classifier === "jev"
-				? { rubricVersion: JEV_AUTO_ROUTING_RUBRIC_VERSION }
+				? { rubricVersion: JEV_CLASSIFIER_RUBRIC_VERSION }
 				: {}),
 			eligibleModels: configuredModels,
 			candidateModels: sorted.map((entry) => entry.modelId),

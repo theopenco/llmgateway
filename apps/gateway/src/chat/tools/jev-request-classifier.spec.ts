@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-	buildAutoRoutingQuestions,
-	buildAutoRoutingState,
-	classifyAutoRoutingRequest,
-} from "./jev-auto-routing-classifier.js";
+	buildClassifierQuestions,
+	buildClassifierState,
+	classifyRequest,
+} from "./jev-request-classifier.js";
 
-import type { AutoRoutingClassifierCandidate } from "./jev-auto-routing-classifier.js";
+import type { RequestClassifierCandidate } from "./jev-request-classifier.js";
 
 const CONTEXT = {
 	requestId: "request-id",
@@ -15,7 +15,7 @@ const CONTEXT = {
 	apiKeyId: "api-key-id",
 };
 
-const CANDIDATES: AutoRoutingClassifierCandidate[] = [
+const CANDIDATES: RequestClassifierCandidate[] = [
 	{ id: "cheap-model", name: "Cheap", description: "Small model", band: "low" },
 	{ id: "mid-model", name: "Mid", band: "medium" },
 	{ id: "top-model", name: "Top", band: "high" },
@@ -46,9 +46,9 @@ function jevResponse(answers: Record<string, unknown>) {
 	);
 }
 
-describe("buildAutoRoutingQuestions", () => {
+describe("buildClassifierQuestions", () => {
 	it("asks for difficulty, task, output type and a model preference", () => {
-		const questions = buildAutoRoutingQuestions(CANDIDATES) as Record<
+		const questions = buildClassifierQuestions(CANDIDATES) as Record<
 			string,
 			{ type: string; instructions: string; criteria: unknown }
 		>;
@@ -74,7 +74,7 @@ describe("buildAutoRoutingQuestions", () => {
 	});
 
 	it("describes each candidate with its name and price band", () => {
-		const questions = buildAutoRoutingQuestions(CANDIDATES) as Record<
+		const questions = buildClassifierQuestions(CANDIDATES) as Record<
 			string,
 			{ criteria: Record<string, string> }
 		>;
@@ -88,9 +88,9 @@ describe("buildAutoRoutingQuestions", () => {
 	});
 });
 
-describe("buildAutoRoutingState", () => {
+describe("buildClassifierState", () => {
 	it("keeps the newest turns and drops the oldest when over budget", () => {
-		const { conversation } = buildAutoRoutingState([
+		const { conversation } = buildClassifierState([
 			{ role: "user", content: `OLDEST ${"x".repeat(9_000)}` },
 			{ role: "assistant", content: "ok" },
 			{ role: "user", content: "NEWEST request" },
@@ -102,7 +102,7 @@ describe("buildAutoRoutingState", () => {
 	});
 
 	it("separates the system prompt from the conversation", () => {
-		const { system, conversation } = buildAutoRoutingState([
+		const { system, conversation } = buildClassifierState([
 			{ role: "system", content: "You are an agent." },
 			{ role: "user", content: "Refactor this." },
 		] as any);
@@ -112,7 +112,7 @@ describe("buildAutoRoutingState", () => {
 	});
 
 	it("reads text out of structured content blocks", () => {
-		const { conversation } = buildAutoRoutingState([
+		const { conversation } = buildClassifierState([
 			{
 				role: "user",
 				content: [
@@ -131,7 +131,7 @@ describe("buildAutoRoutingState", () => {
 	});
 });
 
-describe("classifyAutoRoutingRequest", () => {
+describe("classifyRequest", () => {
 	const originalKey = process.env.LLM_TYPESAFE_API_KEY;
 	const originalBaseUrl = process.env.LLM_TYPESAFE_BASE_URL;
 
@@ -165,7 +165,7 @@ describe("classifyAutoRoutingRequest", () => {
 			});
 		});
 
-		const result = await classifyAutoRoutingRequest(classifierInput(), CONTEXT);
+		const result = await classifyRequest(classifierInput(), CONTEXT);
 
 		expect(requests).toHaveLength(1);
 		expect(requests[0].url).toBe("https://api.typesafe.ai/v1/systemone");
@@ -190,7 +190,7 @@ describe("classifyAutoRoutingRequest", () => {
 			jevResponse({ difficulty: { type: "score", score: 0.6 } }),
 		);
 
-		const result = await classifyAutoRoutingRequest(classifierInput(), CONTEXT);
+		const result = await classifyRequest(classifierInput(), CONTEXT);
 
 		expect(result?.difficulty).toBe("medium");
 	});
@@ -204,7 +204,7 @@ describe("classifyAutoRoutingRequest", () => {
 			}),
 		);
 
-		const result = await classifyAutoRoutingRequest(classifierInput(), CONTEXT);
+		const result = await classifyRequest(classifierInput(), CONTEXT);
 
 		expect(result?.difficulty).toBe("medium");
 		expect(result?.bestModel).toBeUndefined();
@@ -218,7 +218,7 @@ describe("classifyAutoRoutingRequest", () => {
 			return jevResponse({ difficulty: { type: "score", score: 0 } });
 		});
 
-		await classifyAutoRoutingRequest(
+		await classifyRequest(
 			classifierInput({
 				messages: [
 					{ role: "user" as const, content: `${"a".repeat(20_000)}TAIL` },
@@ -244,7 +244,7 @@ describe("classifyAutoRoutingRequest", () => {
 			return jevResponse({ difficulty: { type: "score", score: 2 } });
 		});
 
-		await classifyAutoRoutingRequest(
+		await classifyRequest(
 			classifierInput({
 				messages: [
 					{ role: "system" as const, content: "AGENT_PREAMBLE ".repeat(4_000) },
@@ -271,9 +271,7 @@ describe("classifyAutoRoutingRequest", () => {
 			new Response("boom", { status: 500 }),
 		);
 
-		expect(
-			await classifyAutoRoutingRequest(classifierInput(), CONTEXT),
-		).toBeNull();
+		expect(await classifyRequest(classifierInput(), CONTEXT)).toBeNull();
 	});
 
 	it("fails open when the difficulty answer is missing", async () => {
@@ -282,9 +280,7 @@ describe("classifyAutoRoutingRequest", () => {
 			jevResponse({ task: { type: "choice", choice: "coding" } }),
 		);
 
-		expect(
-			await classifyAutoRoutingRequest(classifierInput(), CONTEXT),
-		).toBeNull();
+		expect(await classifyRequest(classifierInput(), CONTEXT)).toBeNull();
 	});
 
 	it("fails open on a timeout", async () => {
@@ -295,9 +291,7 @@ describe("classifyAutoRoutingRequest", () => {
 			}),
 		);
 
-		expect(
-			await classifyAutoRoutingRequest(classifierInput(), CONTEXT),
-		).toBeNull();
+		expect(await classifyRequest(classifierInput(), CONTEXT)).toBeNull();
 	});
 
 	it("rethrows a client abort instead of failing open", async () => {
@@ -309,7 +303,7 @@ describe("classifyAutoRoutingRequest", () => {
 		);
 
 		await expect(
-			classifyAutoRoutingRequest(classifierInput(), CONTEXT, controller.signal),
+			classifyRequest(classifierInput(), CONTEXT, controller.signal),
 		).rejects.toThrow();
 	});
 
@@ -317,10 +311,7 @@ describe("classifyAutoRoutingRequest", () => {
 		const fetchSpy = vi.spyOn(globalThis, "fetch");
 
 		expect(
-			await classifyAutoRoutingRequest(
-				classifierInput({ candidates: [] }),
-				CONTEXT,
-			),
+			await classifyRequest(classifierInput({ candidates: [] }), CONTEXT),
 		).toBeNull();
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});

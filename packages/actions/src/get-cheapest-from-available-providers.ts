@@ -23,15 +23,15 @@ import {
 	getEffectiveScoringWeights,
 } from "./compute-provider-scores.js";
 
-import type {
-	AutoRoutingClassifier,
-	AutoRoutingDifficulty,
-} from "@llmgateway/shared/auto-routing";
 import type { DynamicRouteClassifierKind } from "@llmgateway/shared/dynamic-route";
 import type {
 	RoutingCredentialSource,
 	RoutingExclusionReason,
 } from "@llmgateway/shared/routing-telemetry";
+import type {
+	SmartRoutingClassifier,
+	SmartRoutingDifficulty,
+} from "@llmgateway/shared/smart-routing";
 
 interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
@@ -187,28 +187,28 @@ export interface RoutingMetadata {
 		// nodes took their `else` branch.
 		classifier?: {
 			kind: DynamicRouteClassifierKind;
-			difficulty?: AutoRoutingDifficulty;
+			difficulty?: SmartRoutingDifficulty;
 			difficultyScore?: number;
 			task?: string;
 			outputType?: string;
 		};
 	};
 	// How an "auto" request resolved to a concrete model when the organization
-	// configured auto-routing. Absent for the built-in default candidate set.
-	autoRouting?: {
-		classifier: AutoRoutingClassifier;
+	// configured smart routing. Absent for the built-in default candidate set.
+	smartRouting?: {
+		classifier: SmartRoutingClassifier;
 		rubricVersion?: number;
 		// Models the configuration allowed, before availability filtering.
 		eligibleModels: string[];
 		// Models that survived filtering and were ranked, cheapest first.
 		candidateModels: string[];
-		difficulty?: AutoRoutingDifficulty;
+		difficulty?: SmartRoutingDifficulty;
 		difficultyScore?: number;
 		task?: string;
 		outputType?: string;
 		bestModel?: string;
 		bestModelConfidence?: number;
-		band?: AutoRoutingDifficulty;
+		band?: SmartRoutingDifficulty;
 		selectedModel: string;
 		// Latency of the classifier call this request made; absent when it made
 		// none.

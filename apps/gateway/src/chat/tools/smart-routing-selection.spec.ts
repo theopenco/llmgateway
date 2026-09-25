@@ -1,23 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { selectAutoRoutingModel } from "./auto-routing-selection.js";
+import { selectSmartRoutingModel } from "./smart-routing-selection.js";
 
-import type { AutoRoutingSessionEntry } from "@/lib/auto-routing-session.js";
+import type { SmartRoutingSessionEntry } from "@/lib/smart-routing-session.js";
 import type { ModelDefinition } from "@llmgateway/models";
-import type { AutoRoutingClassification } from "@llmgateway/shared/auto-routing";
+import type { RequestClassification } from "@llmgateway/shared/smart-routing";
 
 vi.mock("./content-filter-credential.js", () => ({
 	hasContentFilterCredential: vi.fn(),
 }));
-vi.mock("./jev-auto-routing-classifier.js", () => ({
-	classifyAutoRoutingRequest: vi.fn(),
-	JEV_AUTO_ROUTING_RUBRIC_VERSION: 1,
+vi.mock("./jev-request-classifier.js", () => ({
+	classifyRequest: vi.fn(),
+	JEV_CLASSIFIER_RUBRIC_VERSION: 1,
 }));
 
 const { hasContentFilterCredential } =
 	await import("./content-filter-credential.js");
-const { classifyAutoRoutingRequest } =
-	await import("./jev-auto-routing-classifier.js");
+const { classifyRequest } = await import("./jev-request-classifier.js");
 
 const CANDIDATES = [
 	{
@@ -30,8 +29,8 @@ const CANDIDATES = [
 ];
 
 function classification(
-	overrides: Partial<AutoRoutingClassification> = {},
-): AutoRoutingClassification {
+	overrides: Partial<RequestClassification> = {},
+): RequestClassification {
 	return {
 		difficulty: "low",
 		difficultyScore: 0.1,
@@ -60,7 +59,7 @@ function params(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-function sessionStore(saved: AutoRoutingSessionEntry | null, claim = vi.fn()) {
+function sessionStore(saved: SmartRoutingSessionEntry | null, claim = vi.fn()) {
 	return {
 		get: vi.fn().mockResolvedValue(saved),
 		claim,
@@ -68,28 +67,28 @@ function sessionStore(saved: AutoRoutingSessionEntry | null, claim = vi.fn()) {
 	};
 }
 
-describe("selectAutoRoutingModel", () => {
+describe("selectSmartRoutingModel", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		vi.mocked(hasContentFilterCredential).mockResolvedValue(true);
-		vi.mocked(classifyAutoRoutingRequest).mockResolvedValue(classification());
+		vi.mocked(classifyRequest).mockResolvedValue(classification());
 	});
 
 	it("records no failure when the classifier is never consulted", async () => {
 		vi.mocked(hasContentFilterCredential).mockResolvedValue(false);
 
-		const result = await selectAutoRoutingModel(params());
+		const result = await selectSmartRoutingModel(params());
 
 		expect(result?.candidate.modelId).toBe("cheap");
 		expect(result?.decision?.classifierFailed).toBe(false);
 		expect(result?.decision?.classifierLatencyMs).toBeUndefined();
-		expect(classifyAutoRoutingRequest).not.toHaveBeenCalled();
+		expect(classifyRequest).not.toHaveBeenCalled();
 	});
 
 	it("records a failure when an attempted call produces no verdict", async () => {
-		vi.mocked(classifyAutoRoutingRequest).mockResolvedValue(null);
+		vi.mocked(classifyRequest).mockResolvedValue(null);
 
-		const result = await selectAutoRoutingModel(params());
+		const result = await selectSmartRoutingModel(params());
 
 		expect(result?.decision?.classifierFailed).toBe(true);
 		expect(result?.decision?.classifierLatencyMs).toBeUndefined();
@@ -99,10 +98,10 @@ describe("selectAutoRoutingModel", () => {
 		const entry = { classification: classification(), selectedModel: "cheap" };
 		const store = sessionStore(
 			null,
-			vi.fn(async (own: AutoRoutingSessionEntry) => own),
+			vi.fn(async (own: SmartRoutingSessionEntry) => own),
 		);
 
-		const result = await selectAutoRoutingModel(
+		const result = await selectSmartRoutingModel(
 			params({ sessionStore: store }),
 		);
 
@@ -120,7 +119,7 @@ describe("selectAutoRoutingModel", () => {
 		};
 		const store = sessionStore(null, vi.fn().mockResolvedValue(winner));
 
-		const result = await selectAutoRoutingModel(
+		const result = await selectSmartRoutingModel(
 			params({ sessionStore: store }),
 		);
 
@@ -136,14 +135,14 @@ describe("selectAutoRoutingModel", () => {
 			selectedModel: "top",
 		});
 
-		const result = await selectAutoRoutingModel(
+		const result = await selectSmartRoutingModel(
 			params({ sessionStore: store }),
 		);
 
 		expect(result?.candidate.modelId).toBe("top");
 		expect(result?.decision?.classifierReused).toBe(true);
 		expect(result?.decision?.classifierLatencyMs).toBeUndefined();
-		expect(classifyAutoRoutingRequest).not.toHaveBeenCalled();
+		expect(classifyRequest).not.toHaveBeenCalled();
 		expect(store.refresh).toHaveBeenCalled();
 	});
 });

@@ -3,14 +3,14 @@ import { z } from "zod";
 import { models, providers } from "@llmgateway/models";
 
 import {
-	AUTO_ROUTING_DIFFICULTIES,
-	AUTO_ROUTING_OUTPUT_TYPES,
-	AUTO_ROUTING_TASK_TYPES,
-} from "./auto-routing.js";
-import {
 	CUSTOM_PROVIDER_NAME_REGEX,
 	RESERVED_CUSTOM_PROVIDER_NAMES,
 } from "./custom-providers.js";
+import {
+	SMART_ROUTING_DIFFICULTIES,
+	SMART_ROUTING_OUTPUT_TYPES,
+	SMART_ROUTING_TASK_TYPES,
+} from "./smart-routing.js";
 
 /**
  * Reserved model-string prefix that invokes a named dynamic route instead of a
@@ -194,9 +194,9 @@ export type DynamicRouteClassifierKind =
 
 /** The classifier answers a route can branch on, and their allowed values. */
 export const DYNAMIC_ROUTE_CLASSIFIER_FIELDS = {
-	difficulty: AUTO_ROUTING_DIFFICULTIES,
-	task: AUTO_ROUTING_TASK_TYPES,
-	outputType: AUTO_ROUTING_OUTPUT_TYPES,
+	difficulty: SMART_ROUTING_DIFFICULTIES,
+	task: SMART_ROUTING_TASK_TYPES,
+	outputType: SMART_ROUTING_OUTPUT_TYPES,
 } as const satisfies Record<string, readonly string[]>;
 
 export type DynamicRouteClassifierField =

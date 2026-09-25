@@ -15,7 +15,7 @@ import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
 import { waitForLogs } from "./test-utils/test-helpers.js";
 
-import type { AutoRoutingConfig } from "@llmgateway/shared/auto-routing";
+import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 
 // Cheapest to priciest on their OpenAI mappings, so the configured list splits
 // into one model per difficulty band.
@@ -25,7 +25,7 @@ const EXPENSIVE_MODEL = "gpt-4o";
 
 const THREE_MODELS = [EXPENSIVE_MODEL, CHEAP_MODEL, MID_MODEL];
 
-describe("configurable auto routing", () => {
+describe("smart routing", () => {
 	const harness = createGatewayApiTestHarness();
 	let mockServerUrl = "";
 	// The gateway's own classifier credential is a platform credential, so an
@@ -55,20 +55,20 @@ describe("configurable auto routing", () => {
 			classifierCredential = true,
 			providers = ["openai", "anthropic"],
 		}: {
-			plan?: "pro" | "enterprise";
-			orgConfig?: AutoRoutingConfig | null;
-			projectConfig?: AutoRoutingConfig | null;
+			plan?: "free" | "pro" | "enterprise";
+			orgConfig?: SmartRoutingConfig | null;
+			projectConfig?: SmartRoutingConfig | null;
 			classifierCredential?: boolean;
 			providers?: string[];
 		} = {},
 	) {
 		await db
 			.update(tables.organization)
-			.set({ plan, autoRoutingConfig: orgConfig ?? null })
+			.set({ plan, smartRoutingConfig: orgConfig ?? null })
 			.where(eq(tables.organization.id, "org-id"));
 		await db
 			.update(tables.project)
-			.set({ autoRoutingConfig: projectConfig ?? null })
+			.set({ smartRoutingConfig: projectConfig ?? null })
 			.where(eq(tables.project.id, "project-id"));
 
 		await db.insert(tables.apiKey).values({
@@ -135,7 +135,7 @@ describe("configurable auto routing", () => {
 		});
 
 		const res = await chatCompletion(token, {
-			model: "auto",
+			model: "smart",
 			messages: [
 				{ role: "user", content: "HARD_TASK design a distributed scheduler" },
 			],
@@ -145,17 +145,17 @@ describe("configurable auto routing", () => {
 		expect(json.model).toBe(`openai/${EXPENSIVE_MODEL}`);
 
 		const logs = await waitForLogs(1);
-		const autoRouting = logs[0]?.routingMetadata?.autoRouting;
-		expect(autoRouting).toMatchObject({
+		const smartRouting = logs[0]?.routingMetadata?.smartRouting;
+		expect(smartRouting).toMatchObject({
 			classifier: "jev",
 			difficulty: "high",
 			band: "high",
 			selectedModel: EXPENSIVE_MODEL,
 			classifierFailed: false,
 		});
-		expect(autoRouting?.eligibleModels).toEqual(THREE_MODELS);
+		expect(smartRouting?.eligibleModels).toEqual(THREE_MODELS);
 		// Candidates are recorded cheapest first, which is the band order.
-		expect(autoRouting?.candidateModels).toEqual([
+		expect(smartRouting?.candidateModels).toEqual([
 			CHEAP_MODEL,
 			MID_MODEL,
 			EXPENSIVE_MODEL,
@@ -168,14 +168,14 @@ describe("configurable auto routing", () => {
 		});
 
 		const res = await chatCompletion(token, {
-			model: "auto",
+			model: "smart",
 			messages: [{ role: "user", content: "EASY_TASK say hi" }],
 		});
 		expect(res.status).toBe(200);
 		expect((await res.json()).model).toBe(`openai/${CHEAP_MODEL}`);
 
 		const logs = await waitForLogs(1);
-		expect(logs[0]?.routingMetadata?.autoRouting).toMatchObject({
+		expect(logs[0]?.routingMetadata?.smartRouting).toMatchObject({
 			difficulty: "low",
 			band: "low",
 			selectedModel: CHEAP_MODEL,
@@ -188,19 +188,19 @@ describe("configurable auto routing", () => {
 		});
 
 		const res = await chatCompletion(token, {
-			model: "auto",
+			model: "smart",
 			messages: [{ role: "user", content: "CLASSIFIER_ERROR hard question" }],
 		});
 		expect(res.status).toBe(200);
 		expect((await res.json()).model).toBe(`openai/${CHEAP_MODEL}`);
 
 		const logs = await waitForLogs(1);
-		expect(logs[0]?.routingMetadata?.autoRouting).toMatchObject({
+		expect(logs[0]?.routingMetadata?.smartRouting).toMatchObject({
 			classifier: "jev",
 			classifierFailed: true,
 			selectedModel: CHEAP_MODEL,
 		});
-		expect(logs[0]?.routingMetadata?.autoRouting?.difficulty).toBeUndefined();
+		expect(logs[0]?.routingMetadata?.smartRouting?.difficulty).toBeUndefined();
 	});
 
 	test('classifier "none" always picks the cheapest candidate', async () => {
@@ -209,7 +209,7 @@ describe("configurable auto routing", () => {
 		});
 
 		const res = await chatCompletion(token, {
-			model: "auto",
+			model: "smart",
 			messages: [
 				{ role: "user", content: "HARD_TASK design a distributed scheduler" },
 			],
@@ -218,12 +218,12 @@ describe("configurable auto routing", () => {
 		expect((await res.json()).model).toBe(`openai/${CHEAP_MODEL}`);
 
 		const logs = await waitForLogs(1);
-		expect(logs[0]?.routingMetadata?.autoRouting).toMatchObject({
+		expect(logs[0]?.routingMetadata?.smartRouting).toMatchObject({
 			classifier: "none",
 			selectedModel: CHEAP_MODEL,
 			classifierFailed: false,
 		});
-		expect(logs[0]?.routingMetadata?.autoRouting?.difficulty).toBeUndefined();
+		expect(logs[0]?.routingMetadata?.smartRouting?.difficulty).toBeUndefined();
 	});
 
 	test("a project override beats the organization default", async () => {
@@ -233,29 +233,85 @@ describe("configurable auto routing", () => {
 		});
 
 		const res = await chatCompletion(token, {
-			model: "auto",
+			model: "smart",
 			messages: [{ role: "user", content: "hi override" }],
 		});
 		expect(res.status).toBe(200);
 		expect((await res.json()).model).toBe(`openai/${MID_MODEL}`);
 	});
 
-	test("a non-enterprise organization ignores a stored configuration", async () => {
-		const token = await seedBase("plan", {
-			plan: "pro",
-			orgConfig: { classifier: "none", models: [MID_MODEL] },
+	test('"auto" ignores the configuration entirely', async () => {
+		// The whole point of the split: existing auto callers keep the built-in
+		// candidate set and never pay for a classifier, however the org is
+		// configured.
+		const token = await seedBase("legacy-auto", {
+			orgConfig: { classifier: "jev", models: THREE_MODELS },
 		});
 
 		const res = await chatCompletion(token, {
 			model: "auto",
-			messages: [{ role: "user", content: "hi plan" }],
+			messages: [
+				{ role: "user", content: "HARD_TASK design a distributed scheduler" },
+			],
 		});
 		expect(res.status).toBe(200);
-		// The built-in candidate set, not the stored (unlicensed) configuration.
+		// A built-in model, not one of the configured OpenAI models.
 		expect((await res.json()).model).toContain("claude");
 
 		const logs = await waitForLogs(1);
-		expect(logs[0]?.routingMetadata?.autoRouting).toBeUndefined();
+		expect(logs[0]?.routingMetadata?.smartRouting).toBeUndefined();
+	});
+
+	test("a pay-as-you-go organization can use smart routing", async () => {
+		const token = await seedBase("payg", {
+			plan: "free",
+			orgConfig: { classifier: "none", models: [MID_MODEL] },
+		});
+
+		const res = await chatCompletion(token, {
+			model: "smart",
+			messages: [{ role: "user", content: "hi payg" }],
+		});
+		expect(res.status).toBe(200);
+		expect((await res.json()).model).toBe(`openai/${MID_MODEL}`);
+	});
+
+	test("DevPass organizations are rejected", async () => {
+		const token = await seedBase("devpass", {
+			orgConfig: { classifier: "none", models: [MID_MODEL] },
+		});
+		await cdb
+			.update(tables.organization)
+			.set({ kind: "devpass" })
+			.where(eq(tables.organization.id, "org-id"));
+
+		const res = await chatCompletion(token, {
+			model: "smart",
+			messages: [{ role: "user", content: "hi devpass" }],
+		});
+		expect(res.status).toBe(403);
+		expect((await res.json()).error.message).toContain("not available");
+
+		// The harness re-seeds per test, but the kind is cached by the gateway's
+		// organization lookup, so put it back rather than leaking devpass into
+		// the next test's cached read.
+		await cdb
+			.update(tables.organization)
+			.set({ kind: "default" })
+			.where(eq(tables.organization.id, "org-id"));
+	});
+
+	test("an unconfigured organization is told to configure it", async () => {
+		// Never degrade quietly into the built-in "auto" set: a caller that asked
+		// for their own models and silently got ours cannot notice.
+		const token = await seedBase("unconfigured");
+
+		const res = await chatCompletion(token, {
+			model: "smart",
+			messages: [{ role: "user", content: "hi unconfigured" }],
+		});
+		expect(res.status).toBe(400);
+		expect((await res.json()).error.message).toContain("not configured");
 	});
 
 	test("fails with 400 when no configured model can serve the request", async () => {
@@ -264,13 +320,13 @@ describe("configurable auto routing", () => {
 		});
 
 		const res = await chatCompletion(token, {
-			model: "auto",
+			model: "smart",
 			messages: [{ role: "user", content: "think hard" }],
 			reasoning_effort: "high",
 		});
 		expect(res.status).toBe(400);
 		expect((await res.json()).error.message).toContain(
-			"configured auto-routing models",
+			"configured smart-routing models",
 		);
 	});
 
@@ -283,7 +339,7 @@ describe("configurable auto routing", () => {
 		const first = await chatCompletion(
 			token,
 			{
-				model: "auto",
+				model: "smart",
 				messages: [
 					{ role: "user", content: "HARD_TASK design a distributed scheduler" },
 				],
@@ -299,7 +355,7 @@ describe("configurable auto routing", () => {
 		const second = await chatCompletion(
 			token,
 			{
-				model: "auto",
+				model: "smart",
 				messages: [{ role: "user", content: "EASY_TASK and now say hi" }],
 			},
 			{ "x-session-id": sessionId },
@@ -310,7 +366,7 @@ describe("configurable auto routing", () => {
 		// Partitioned rather than ordered: both rows land in the same millisecond,
 		// so createdAt does not separate them.
 		const decisions = (await waitForLogs(2)).map(
-			(log) => log.routingMetadata?.autoRouting,
+			(log) => log.routingMetadata?.smartRouting,
 		);
 		const classified = decisions.filter((d) => !d?.classifierReused);
 		const reused = decisions.filter((d) => d?.classifierReused);
@@ -339,7 +395,7 @@ describe("configurable auto routing", () => {
 		const first = await chatCompletion(
 			token,
 			{
-				model: "auto",
+				model: "smart",
 				messages: [
 					{ role: "user", content: "HARD_TASK design a distributed scheduler" },
 				],
@@ -351,7 +407,7 @@ describe("configurable auto routing", () => {
 		const second = await chatCompletion(
 			token,
 			{
-				model: "auto",
+				model: "smart",
 				messages: [{ role: "user", content: "EASY_TASK say hi" }],
 			},
 			{ "x-session-id": "session-two" },
@@ -365,7 +421,7 @@ describe("configurable auto routing", () => {
 		});
 
 		const first = await chatCompletion(token, {
-			model: "auto",
+			model: "smart",
 			messages: [
 				{ role: "user", content: "HARD_TASK design a distributed scheduler" },
 			],
@@ -373,7 +429,7 @@ describe("configurable auto routing", () => {
 		expect((await first.json()).model).toBe(`openai/${EXPENSIVE_MODEL}`);
 
 		const second = await chatCompletion(token, {
-			model: "auto",
+			model: "smart",
 			messages: [{ role: "user", content: "EASY_TASK say hi" }],
 		});
 		expect((await second.json()).model).toBe(`openai/${CHEAP_MODEL}`);
@@ -393,7 +449,7 @@ describe("configurable auto routing", () => {
 		});
 
 		const res = await chatCompletion(token, {
-			model: "auto",
+			model: "smart",
 			max_tokens: maxTokens,
 			messages: [
 				{ role: "user", content: "HARD_TASK design a distributed scheduler" },
@@ -403,7 +459,7 @@ describe("configurable auto routing", () => {
 		expect((await res.json()).model).toBe("openai/o4-mini");
 
 		const log = (await waitForLogs(1))[0];
-		expect(log?.routingMetadata?.autoRouting?.difficulty).toBe("high");
+		expect(log?.routingMetadata?.smartRouting?.difficulty).toBe("high");
 		return (log?.upstreamRequest as { reasoning_effort?: string } | null)
 			?.reasoning_effort;
 	}
@@ -431,13 +487,13 @@ describe("configurable auto routing", () => {
 		});
 
 		const res = await chatCompletion(token, {
-			model: "auto",
+			model: "smart",
 			messages: [{ role: "user", content: "hi free" }],
 			free_models_only: true,
 		});
 		expect(res.status).toBe(400);
 		expect((await res.json()).error.message).toContain(
-			"configured auto-routing models are free",
+			"configured smart-routing models are free",
 		);
 	});
 
@@ -450,7 +506,7 @@ describe("configurable auto routing", () => {
 		});
 
 		const res = await chatCompletion(token, {
-			model: "auto",
+			model: "smart",
 			messages: [{ role: "user", content: "hi free narrow" }],
 			free_models_only: true,
 		});
@@ -475,7 +531,7 @@ describe("configurable auto routing", () => {
 			.where(eq(tables.organization.id, "org-id"));
 
 		const res = await chatCompletion(token, {
-			model: "auto",
+			model: "smart",
 			messages: [
 				{ role: "user", content: "HARD_TASK design a distributed scheduler" },
 			],
@@ -484,7 +540,7 @@ describe("configurable auto routing", () => {
 		expect((await res.json()).model).toBe(`openai/${CHEAP_MODEL}`);
 
 		const logs = await waitForLogs(1);
-		expect(logs[0]?.routingMetadata?.autoRouting).toMatchObject({
+		expect(logs[0]?.routingMetadata?.smartRouting).toMatchObject({
 			classifier: "jev",
 			classifierFailed: false,
 			selectedModel: CHEAP_MODEL,
@@ -498,7 +554,7 @@ describe("configurable auto routing", () => {
 		});
 
 		const res = await chatCompletion(token, {
-			model: "auto",
+			model: "smart",
 			messages: [
 				{ role: "user", content: "HARD_TASK design a distributed scheduler" },
 			],
@@ -508,7 +564,7 @@ describe("configurable auto routing", () => {
 
 		const logs = await waitForLogs(1);
 		// Not a failure: the classifier was never attempted.
-		expect(logs[0]?.routingMetadata?.autoRouting).toMatchObject({
+		expect(logs[0]?.routingMetadata?.smartRouting).toMatchObject({
 			classifier: "jev",
 			classifierFailed: false,
 			selectedModel: CHEAP_MODEL,

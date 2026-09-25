@@ -3,7 +3,7 @@ id: "blog-automatic-model-selection"
 slug: "automatic-model-selection"
 date: "2026-09-25"
 title: "Automatic Model Selection by Request Difficulty"
-summary: "Automatic model selection now reads the request before it routes it. Choose the models `auto` may resolve to, and a classifier rates each prompt so a one-line fix goes to a cheap model and a hard problem goes to a frontier one. Available on the Enterprise plan."
+summary: "Automatic model selection now reads the request before it routes it. Choose the models `smart` may resolve to, and a classifier rates each prompt so a one-line fix goes to a cheap model and a hard problem goes to a frontier one. Free for every organization while in beta."
 categories: ["Announcements", "Product"]
 faqs:
   - question: "How does automatic model selection decide which model to use?"
@@ -30,13 +30,14 @@ comes back wrong.
 The usual workaround is to classify requests in your own application code and
 pick a model per branch — which means maintaining a prompt, a model list, and a
 fallback path that all drift from the catalogue. **LLM Gateway** now does
-**automatic model selection** for you, and reads the request before deciding.
+**smart routing** for you, and reads the request before deciding.
 
 ## Choose the models, choose the classifier
 
-Sending `"model": "auto"` has always picked the cheapest model that fits the
-request. What is new is that you control the candidate list and how it is
-ranked. Under **Organization settings → Auto Routing**, pick up to 30 models
+Sending `"model": "auto"` picks the cheapest model that fits the request, from
+a fixed list. Smart routing is a separate model string, `"model": "smart"`,
+where you control the candidate list and how it is ranked — `auto` keeps its
+current behaviour for existing callers. Under **Organization settings → Smart Routing**, pick up to 30 models
 from the [catalogue](https://llmgateway.io/models) and a classifier. A project
 can override the organization default on its own routing settings page.
 
@@ -55,7 +56,7 @@ curl https://api.llmgateway.io/v1/chat/completions \
   -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "auto",
+    "model": "smart",
     "messages": [{"role": "user", "content": "Prove this queue is linearizable."}]
   }'
 ```
@@ -128,9 +129,9 @@ when your data retention window elapses.
 
 ## Getting started
 
-1. On the **Enterprise plan**, open **Organization settings → Auto Routing**.
-2. Pick the models `auto` may resolve to and check the band preview.
-3. Choose a classifier, save, and send `"model": "auto"`.
+1. Open **Organization settings → Smart Routing**.
+2. Pick the models `smart` may resolve to and check the band preview.
+3. Choose a classifier, save, and send `"model": "smart"`.
 4. Override it per project from that project's routing settings if a workload
    needs a different list.
 
@@ -143,5 +144,5 @@ handled for you.
 ---
 
 - **[Try LLM Gateway free](https://llmgateway.io/signup)**
-- **[Auto routing documentation](https://docs.llmgateway.io/features/routing)**
+- **[Smart routing documentation](https://docs.llmgateway.io/features/routing)**
 - **[Cut LLM costs with request routing](/blog/cut-llm-costs-with-request-routing)**

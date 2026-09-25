@@ -1,10 +1,10 @@
 import { describe, expect, test } from "vitest";
 
 import {
-	assignAutoRoutingBands,
+	assignSmartRoutingBands,
 	getModelAveragePrice,
-	selectAutoRoutingCandidate,
-} from "./auto-routing.js";
+	selectSmartRoutingCandidate,
+} from "./smart-routing.js";
 
 import type { ModelDefinition } from "@llmgateway/models";
 
@@ -12,7 +12,7 @@ function candidates(...prices: number[]) {
 	return prices.map((price, index) => ({ modelId: `m${index}`, price }));
 }
 
-describe("assignAutoRoutingBands", () => {
+describe("assignSmartRoutingBands", () => {
 	test.each([
 		[1, ["low"]],
 		[2, ["low", "medium"]],
@@ -20,27 +20,27 @@ describe("assignAutoRoutingBands", () => {
 		[4, ["low", "low", "medium", "high"]],
 		[7, ["low", "low", "low", "medium", "medium", "high", "high"]],
 	])("splits %i candidates into %j", (count, expected) => {
-		expect(assignAutoRoutingBands(count)).toEqual(expected);
+		expect(assignSmartRoutingBands(count)).toEqual(expected);
 	});
 
 	test("returns nothing for an empty list", () => {
-		expect(assignAutoRoutingBands(0)).toEqual([]);
+		expect(assignSmartRoutingBands(0)).toEqual([]);
 	});
 });
 
-describe("selectAutoRoutingCandidate", () => {
+describe("selectSmartRoutingCandidate", () => {
 	test("returns null without candidates", () => {
-		expect(selectAutoRoutingCandidate([], null)).toBeNull();
+		expect(selectSmartRoutingCandidate([], null)).toBeNull();
 	});
 
 	test("picks the cheapest without a classification", () => {
-		const selection = selectAutoRoutingCandidate(candidates(3, 1, 2), null);
+		const selection = selectSmartRoutingCandidate(candidates(3, 1, 2), null);
 		expect(selection?.candidate.price).toBe(1);
 		expect(selection?.band).toBeNull();
 	});
 
 	test("picks the cheapest of the classified band", () => {
-		const selection = selectAutoRoutingCandidate(candidates(1, 2, 3, 4), {
+		const selection = selectSmartRoutingCandidate(candidates(1, 2, 3, 4), {
 			difficulty: "medium",
 		});
 		expect(selection?.candidate.price).toBe(3);
@@ -48,7 +48,7 @@ describe("selectAutoRoutingCandidate", () => {
 	});
 
 	test("falls back to a cheaper band when the target band is empty", () => {
-		const selection = selectAutoRoutingCandidate(candidates(1), {
+		const selection = selectSmartRoutingCandidate(candidates(1), {
 			difficulty: "high",
 		});
 		expect(selection?.candidate.price).toBe(1);
@@ -56,7 +56,7 @@ describe("selectAutoRoutingCandidate", () => {
 	});
 
 	test("prefers the classifier's model inside the band", () => {
-		const selection = selectAutoRoutingCandidate(
+		const selection = selectSmartRoutingCandidate(
 			[
 				{ modelId: "cheap", price: 1 },
 				{ modelId: "mid", price: 2 },
@@ -74,7 +74,7 @@ describe("selectAutoRoutingCandidate", () => {
 	});
 
 	test("ignores a preferred model outside the band", () => {
-		const selection = selectAutoRoutingCandidate(candidates(1, 2, 3), {
+		const selection = selectSmartRoutingCandidate(candidates(1, 2, 3), {
 			difficulty: "low",
 			bestModel: "m2",
 			bestModelConfidence: 0.99,
@@ -83,7 +83,7 @@ describe("selectAutoRoutingCandidate", () => {
 	});
 
 	test("ignores a low-confidence preference", () => {
-		const selection = selectAutoRoutingCandidate(
+		const selection = selectSmartRoutingCandidate(
 			[
 				{ modelId: "a", price: 1 },
 				{ modelId: "b", price: 2 },

@@ -29,7 +29,7 @@ export function getActiveProviders(
 /** Text models that have at least one active, priced provider. */
 export function getTextModels(now: Date = new Date()): ModelDefinition[] {
 	return (models as unknown as ModelDefinition[]).filter((m) => {
-		if (m.id === "custom" || m.id === "auto") {
+		if (m.id === "custom" || m.id === "auto" || m.id === "smart") {
 			return false;
 		}
 		if (m.output?.includes("image") || m.output?.includes("video")) {

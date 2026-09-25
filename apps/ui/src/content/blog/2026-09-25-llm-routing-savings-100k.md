@@ -145,13 +145,14 @@ average request. If your average request costs $0.002, the classifier is around
 
 ## Running it
 
-On LLM Gateway this is configuration, not code. Choose the models `auto` may
+On LLM Gateway this is configuration, not code. Choose the models `smart` may
 resolve to and the classifier, and the gateway sorts them into price bands and
 routes each request to the matching one. Every decision — the difficulty, the
 task type, the candidates, the model chosen — lands on the request's log entry,
 so you can audit the mix you actually got against the mix you assumed here.
 
-Configurable auto routing is available on the **Enterprise plan**. If you want
+Smart routing is **free while in beta** for every organization, including
+pay-as-you-go; it is not available on DevPass yet. If you want
 the routing logic explicit instead, a
 [dynamic route](https://docs.llmgateway.io/features/dynamic-routes) can branch on
 the same verdict.
@@ -159,5 +160,5 @@ the same verdict.
 ---
 
 - **[Try LLM Gateway free](https://llmgateway.io/signup)**
-- **[Auto routing documentation](https://docs.llmgateway.io/features/routing)**
+- **[Smart routing documentation](https://docs.llmgateway.io/features/routing)**
 - **[Automatic model selection by request difficulty](/blog/automatic-model-selection)**

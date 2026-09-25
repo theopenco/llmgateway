@@ -735,61 +735,61 @@ export function LogDetailClient({
 											)}
 										</>
 									)}
-									{log.routingMetadata.autoRouting && (
+									{log.routingMetadata.smartRouting && (
 										<>
 											<Field
-												label="Auto routing"
-												value={`${log.routingMetadata.autoRouting.selectedModel} (${log.routingMetadata.autoRouting.classifier} classifier${
-													log.routingMetadata.autoRouting.classifierFailed
+												label="Smart routing"
+												value={`${log.routingMetadata.smartRouting.selectedModel} (${log.routingMetadata.smartRouting.classifier} classifier${
+													log.routingMetadata.smartRouting.classifierFailed
 														? ", failed open"
-														: log.routingMetadata.autoRouting.classifierReused
+														: log.routingMetadata.smartRouting.classifierReused
 															? ", reused for session"
 															: ""
 												})`}
 												mono
 											/>
-											{log.routingMetadata.autoRouting.difficulty && (
+											{log.routingMetadata.smartRouting.difficulty && (
 												<Field
 													label="Difficulty"
-													value={`${log.routingMetadata.autoRouting.difficulty}${log.routingMetadata.autoRouting.band ? ` → ${log.routingMetadata.autoRouting.band} band` : ""}`}
+													value={`${log.routingMetadata.smartRouting.difficulty}${log.routingMetadata.smartRouting.band ? ` → ${log.routingMetadata.smartRouting.band} band` : ""}`}
 													mono
 												/>
 											)}
-											{log.routingMetadata.autoRouting.task && (
+											{log.routingMetadata.smartRouting.task && (
 												<Field
 													label="Task"
-													value={`${log.routingMetadata.autoRouting.task}${log.routingMetadata.autoRouting.outputType ? ` / ${log.routingMetadata.autoRouting.outputType}` : ""}`}
+													value={`${log.routingMetadata.smartRouting.task}${log.routingMetadata.smartRouting.outputType ? ` / ${log.routingMetadata.smartRouting.outputType}` : ""}`}
 													mono
 												/>
 											)}
-											{log.routingMetadata.autoRouting.bestModel && (
+											{log.routingMetadata.smartRouting.bestModel && (
 												<Field
 													label="Classifier pick"
-													value={`${log.routingMetadata.autoRouting.bestModel}${
-														log.routingMetadata.autoRouting
+													value={`${log.routingMetadata.smartRouting.bestModel}${
+														log.routingMetadata.smartRouting
 															.bestModelConfidence !== undefined
-															? ` (${Math.round(log.routingMetadata.autoRouting.bestModelConfidence * 100)}% confident)`
+															? ` (${Math.round(log.routingMetadata.smartRouting.bestModelConfidence * 100)}% confident)`
 															: ""
 													}`}
 													mono
 												/>
 											)}
-											{log.routingMetadata.autoRouting.candidateModels &&
-												log.routingMetadata.autoRouting.candidateModels.length >
-													0 && (
+											{log.routingMetadata.smartRouting.candidateModels &&
+												log.routingMetadata.smartRouting.candidateModels
+													.length > 0 && (
 													<Field
 														label="Candidates"
-														value={log.routingMetadata.autoRouting.candidateModels.join(
+														value={log.routingMetadata.smartRouting.candidateModels.join(
 															", ",
 														)}
 														mono
 													/>
 												)}
-											{log.routingMetadata.autoRouting.classifierLatencyMs !==
+											{log.routingMetadata.smartRouting.classifierLatencyMs !==
 												undefined && (
 												<Field
 													label="Classifier latency"
-													value={`${log.routingMetadata.autoRouting.classifierLatencyMs} ms`}
+													value={`${log.routingMetadata.smartRouting.classifierLatencyMs} ms`}
 													mono
 												/>
 											)}

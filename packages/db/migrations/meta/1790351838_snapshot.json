@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "56eedb4c-f5ca-4a54-8579-5ef57f7a5737",
+  "id": "9e85c39e-f7f8-4505-a19e-751d8d6b8f8b",
   "prevId": "4b8b1ca1-66a8-4ff2-8b12-c38a6734555c",
   "ddl": [
     {
@@ -16682,7 +16682,7 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "auto_routing_config",
+      "name": "smart_routing_config",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
@@ -19807,7 +19807,7 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "auto_routing_config",
+      "name": "smart_routing_config",
       "entityType": "columns",
       "schema": "public",
       "table": "project"

@@ -23,10 +23,6 @@ import {
 	getAdminOrganizationIds,
 	userHasOrganizationAccess,
 } from "@/utils/authorization.js";
-import {
-	autoRoutingConfigInputSchema,
-	normalizeAutoRoutingConfig,
-} from "@/utils/auto-routing.js";
 import { getOrCreateDefaultOrganization } from "@/utils/default-org.js";
 import {
 	buildInvoiceDataForTransaction,
@@ -36,6 +32,10 @@ import {
 } from "@/utils/invoice.js";
 import { providerCacheControlModeSchema } from "@/utils/provider-cache-control.js";
 import { serializeOrganization } from "@/utils/serialize-organization.js";
+import {
+	smartRoutingConfigInputSchema,
+	normalizeSmartRoutingConfig,
+} from "@/utils/smart-routing.js";
 import { isConfigurableDomain, normalizeDomain } from "@/utils/sso-domain.js";
 import {
 	isZeroDataRetentionEnabled,
@@ -82,9 +82,10 @@ import {
 } from "@llmgateway/shared";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
+import { isSmartRoutingAvailable } from "@llmgateway/shared/smart-routing";
 
 import type { ServerTypes } from "@/vars.js";
-import type { AutoRoutingConfig } from "@llmgateway/shared/auto-routing";
+import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 
 export const organization = new OpenAPIHono<ServerTypes>();
 
@@ -185,7 +186,7 @@ const organizationSchema = z
 		projectLimit: z.number().nullable(),
 		retentionLevel: z.enum(["retain", "none"]),
 		providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
-		autoRoutingConfig: autoRoutingConfigInputSchema.nullable(),
+		smartRoutingConfig: smartRoutingConfigInputSchema.nullable(),
 		ssoAutoJoinDomain: z.string().nullable(),
 		status: z.enum(["active", "inactive", "deleted"]).nullable(),
 		blockReason: z.string().nullable(),
@@ -253,7 +254,7 @@ const projectSchema = z.object({
 	endUserMarkupPercent: z.string(),
 	endUserTopUpBonusPercent: z.string(),
 	allowedOrigins: z.array(z.string()).nullable(),
-	autoRoutingConfig: autoRoutingConfigInputSchema.nullable(),
+	smartRoutingConfig: smartRoutingConfigInputSchema.nullable(),
 });
 
 const createOrganizationSchema = z.object({
@@ -287,7 +288,7 @@ const updateOrganizationSchema = z.object({
 	providerCompliancePolicy: providerCompliancePolicySchema
 		.nullable()
 		.optional(),
-	autoRoutingConfig: autoRoutingConfigInputSchema.nullable().optional(),
+	smartRoutingConfig: smartRoutingConfigInputSchema.nullable().optional(),
 	ssoAutoJoinDomain: z.string().max(253).nullable().optional(),
 	autoTopUpEnabled: z.boolean().optional(),
 	autoTopUpThreshold: z.number().min(5).optional(),
@@ -690,7 +691,7 @@ organization.openapi(updateOrganization, async (c) => {
 		billingNotes,
 		retentionLevel,
 		providerCompliancePolicy,
-		autoRoutingConfig,
+		smartRoutingConfig,
 		ssoAutoJoinDomain,
 		autoTopUpEnabled,
 		autoTopUpThreshold,
@@ -805,20 +806,18 @@ organization.openapi(updateOrganization, async (c) => {
 	// Auto-routing configuration is an enterprise feature. Clearing it stays
 	// allowed without enterprise access so a downgraded org can drop a leftover
 	// config and fall back to the built-in candidate set.
-	let normalizedAutoRoutingConfig: AutoRoutingConfig | null | undefined;
-	if (autoRoutingConfig !== undefined) {
+	let normalizedSmartRoutingConfig: SmartRoutingConfig | null | undefined;
+	if (smartRoutingConfig !== undefined) {
 		if (
-			autoRoutingConfig !== null &&
-			!hasOrganizationEnterpriseAccess(
-				userOrganization.organization?.id,
-				userOrganization.organization?.plan,
-			)
+			smartRoutingConfig !== null &&
+			!isSmartRoutingAvailable(userOrganization.organization?.kind)
 		) {
 			throw new HTTPException(403, {
-				message: "Auto routing configuration requires an enterprise plan",
+				message: "Smart routing is not available for this organization",
 			});
 		}
-		normalizedAutoRoutingConfig = normalizeAutoRoutingConfig(autoRoutingConfig);
+		normalizedSmartRoutingConfig =
+			normalizeSmartRoutingConfig(smartRoutingConfig);
 	}
 
 	const effectiveCompliancePolicy =
@@ -922,8 +921,8 @@ organization.openapi(updateOrganization, async (c) => {
 	if (providerCompliancePolicy !== undefined) {
 		updateData.providerCompliancePolicy = providerCompliancePolicy;
 	}
-	if (normalizedAutoRoutingConfig !== undefined) {
-		updateData.autoRoutingConfig = normalizedAutoRoutingConfig;
+	if (normalizedSmartRoutingConfig !== undefined) {
+		updateData.smartRoutingConfig = normalizedSmartRoutingConfig;
 	}
 	if (normalizedSsoDomain !== undefined) {
 		updateData.ssoAutoJoinDomain = normalizedSsoDomain;
@@ -1054,13 +1053,13 @@ organization.openapi(updateOrganization, async (c) => {
 		};
 	}
 	if (
-		normalizedAutoRoutingConfig !== undefined &&
-		JSON.stringify(oldOrg.autoRoutingConfig ?? null) !==
-			JSON.stringify(normalizedAutoRoutingConfig)
+		normalizedSmartRoutingConfig !== undefined &&
+		JSON.stringify(oldOrg.smartRoutingConfig ?? null) !==
+			JSON.stringify(normalizedSmartRoutingConfig)
 	) {
-		changes.autoRoutingConfig = {
-			old: oldOrg.autoRoutingConfig,
-			new: normalizedAutoRoutingConfig,
+		changes.smartRoutingConfig = {
+			old: oldOrg.smartRoutingConfig,
+			new: normalizedSmartRoutingConfig,
 		};
 	}
 	if (

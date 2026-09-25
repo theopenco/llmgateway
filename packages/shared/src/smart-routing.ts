@@ -8,39 +8,51 @@ import { DEFAULT_CACHE_PRICING_BY_ORG_KIND } from "./routing-config.js";
 import type { ModelDefinition, ProviderModelMapping } from "@llmgateway/models";
 
 /**
- * Classifier used to pick which of the configured auto-routing models serves a
+ * Classifier used to pick which of the configured smart-routing models serves a
  * request. `none` keeps the historical behaviour (cheapest eligible model);
  * `jev` asks TypeSafe's decision model to rate the request first. An enum so
  * further classifiers can be added without another schema migration.
  */
-export const AUTO_ROUTING_CLASSIFIERS = ["none", "jev"] as const;
-export type AutoRoutingClassifier = (typeof AUTO_ROUTING_CLASSIFIERS)[number];
+export const SMART_ROUTING_CLASSIFIERS = ["none", "jev"] as const;
+export type SmartRoutingClassifier = (typeof SMART_ROUTING_CLASSIFIERS)[number];
 
-export const AUTO_ROUTING_MAX_MODELS = 30;
+export const SMART_ROUTING_MAX_MODELS = 30;
+
+/**
+ * Whether an organization may use smart routing. DevPass entitlement lives
+ * entirely in its own plan columns and its routing is tuned for prompt-cache
+ * reuse, so smart routing is not offered there yet. Every other organization —
+ * including pay-as-you-go — can configure it.
+ */
+export function isSmartRoutingAvailable(
+	kind: string | null | undefined,
+): boolean {
+	return kind !== "devpass";
+}
 
 /** The hardcoded candidate set used when an org configures nothing. */
-export const DEFAULT_AUTO_ROUTING_MODELS = [
+export const DEFAULT_SMART_ROUTING_MODELS = [
 	"claude-opus-4-6",
 	"claude-sonnet-4-6",
 	"claude-haiku-4-5",
 ];
 
-export const autoRoutingConfigSchema = z.object({
-	classifier: z.enum(AUTO_ROUTING_CLASSIFIERS),
-	models: z.array(z.string()).min(1).max(AUTO_ROUTING_MAX_MODELS),
+export const smartRoutingConfigSchema = z.object({
+	classifier: z.enum(SMART_ROUTING_CLASSIFIERS),
+	models: z.array(z.string()).min(1).max(SMART_ROUTING_MAX_MODELS),
 });
 
-export type AutoRoutingConfig = z.infer<typeof autoRoutingConfigSchema>;
+export type SmartRoutingConfig = z.infer<typeof smartRoutingConfigSchema>;
 
-export type AutoRoutingDifficulty = "low" | "medium" | "high";
+export type SmartRoutingDifficulty = "low" | "medium" | "high";
 
-export const AUTO_ROUTING_DIFFICULTIES: readonly AutoRoutingDifficulty[] = [
+export const SMART_ROUTING_DIFFICULTIES: readonly SmartRoutingDifficulty[] = [
 	"low",
 	"medium",
 	"high",
 ];
 
-export const AUTO_ROUTING_TASK_TYPES = [
+export const SMART_ROUTING_TASK_TYPES = [
 	"coding",
 	"math",
 	"analysis",
@@ -52,28 +64,29 @@ export const AUTO_ROUTING_TASK_TYPES = [
 	"agentic",
 	"other",
 ] as const;
-export type AutoRoutingTaskType = (typeof AUTO_ROUTING_TASK_TYPES)[number];
+export type SmartRoutingTaskType = (typeof SMART_ROUTING_TASK_TYPES)[number];
 
-export const AUTO_ROUTING_OUTPUT_TYPES = [
+export const SMART_ROUTING_OUTPUT_TYPES = [
 	"short_answer",
 	"long_form",
 	"code",
 	"structured_data",
 ] as const;
-export type AutoRoutingOutputType = (typeof AUTO_ROUTING_OUTPUT_TYPES)[number];
+export type SmartRoutingOutputType =
+	(typeof SMART_ROUTING_OUTPUT_TYPES)[number];
 
 /**
  * Below this calibrated confidence the classifier's preferred model is ignored
  * and the band's cheapest candidate wins: a coin-flip preference must not push
  * the request onto a pricier model.
  */
-export const AUTO_ROUTING_BEST_MODEL_MIN_CONFIDENCE = 0.5;
+export const SMART_ROUTING_BEST_MODEL_MIN_CONFIDENCE = 0.5;
 
-export interface AutoRoutingClassification {
-	difficulty: AutoRoutingDifficulty;
+export interface RequestClassification {
+	difficulty: SmartRoutingDifficulty;
 	difficultyScore?: number;
-	task?: AutoRoutingTaskType;
-	outputType?: AutoRoutingOutputType;
+	task?: SmartRoutingTaskType;
+	outputType?: SmartRoutingOutputType;
 	bestModel?: string;
 	bestModelConfidence?: number;
 	latencyMs?: number;
@@ -85,13 +98,13 @@ export interface AutoRoutingClassification {
  * models stay in the catalogue so historical logs keep resolving, but a list
  * made of them would fail every request.
  */
-export function isAutoRoutingSelectableModel(
+export function isSmartRoutingSelectableModel(
 	model: Pick<ModelDefinition, "id" | "providers"> & {
 		output?: readonly string[];
 	},
 	now: Date = new Date(),
 ): boolean {
-	if (model.id === "auto" || model.id === "custom") {
+	if (model.id === "auto" || model.id === "smart" || model.id === "custom") {
 		return false;
 	}
 	if (model.output && !model.output.includes("text")) {
@@ -103,7 +116,7 @@ export function isAutoRoutingSelectableModel(
 }
 
 /**
- * Blended per-token price used to rank and label a model in the auto-routing
+ * Blended per-token price used to rank and label a model in the smart-routing
  * picker: the cheapest non-deactivated mapping, priced with the same
  * cache-aware input/output blend as `getProviderSelectionPrice`. Returns
  * `undefined` when no mapping carries a token price (free or unpriced models
@@ -151,32 +164,32 @@ export function getModelAveragePrice(
  * Split a price-sorted candidate list into three equally sized difficulty
  * bands. Short lists collapse from the top: n=1 → all low, n=2 → low, medium.
  */
-export function assignAutoRoutingBands(
+export function assignSmartRoutingBands(
 	sortedCount: number,
-): AutoRoutingDifficulty[] {
+): SmartRoutingDifficulty[] {
 	if (sortedCount <= 0) {
 		return [];
 	}
 	return Array.from(
 		{ length: sortedCount },
 		(_, index) =>
-			AUTO_ROUTING_DIFFICULTIES[
+			SMART_ROUTING_DIFFICULTIES[
 				Math.min(
-					AUTO_ROUTING_DIFFICULTIES.length - 1,
-					Math.floor((index * AUTO_ROUTING_DIFFICULTIES.length) / sortedCount),
+					SMART_ROUTING_DIFFICULTIES.length - 1,
+					Math.floor((index * SMART_ROUTING_DIFFICULTIES.length) / sortedCount),
 				)
 			],
 	);
 }
 
-export interface AutoRoutingCandidate {
+export interface SmartRoutingCandidate {
 	modelId: string;
 	price: number;
 }
 
-export interface AutoRoutingSelection<T extends AutoRoutingCandidate> {
+export interface SmartRoutingSelection<T extends SmartRoutingCandidate> {
 	candidate: T;
-	band: AutoRoutingDifficulty | null;
+	band: SmartRoutingDifficulty | null;
 }
 
 /**
@@ -186,10 +199,10 @@ export interface AutoRoutingSelection<T extends AutoRoutingCandidate> {
  * classification (classifier disabled or failed) falls back to the cheapest
  * candidate overall, which is exactly the pre-classifier behaviour.
  */
-export function selectAutoRoutingCandidate<T extends AutoRoutingCandidate>(
+export function selectSmartRoutingCandidate<T extends SmartRoutingCandidate>(
 	candidates: T[],
-	classification: AutoRoutingClassification | null,
-): AutoRoutingSelection<T> | null {
+	classification: RequestClassification | null,
+): SmartRoutingSelection<T> | null {
 	if (candidates.length === 0) {
 		return null;
 	}
@@ -199,15 +212,15 @@ export function selectAutoRoutingCandidate<T extends AutoRoutingCandidate>(
 		return { candidate: sorted[0], band: null };
 	}
 
-	const bands = assignAutoRoutingBands(sorted.length);
+	const bands = assignSmartRoutingBands(sorted.length);
 	// Walk down from the requested difficulty so a band that no candidate
 	// occupies (short lists collapse from the top) degrades to a cheaper one
 	// rather than falling back to the global cheapest.
-	const targetIndex = AUTO_ROUTING_DIFFICULTIES.indexOf(
+	const targetIndex = SMART_ROUTING_DIFFICULTIES.indexOf(
 		classification.difficulty,
 	);
 	for (let index = targetIndex; index >= 0; index--) {
-		const band = AUTO_ROUTING_DIFFICULTIES[index];
+		const band = SMART_ROUTING_DIFFICULTIES[index];
 		const inBand = sorted.filter((_, position) => bands[position] === band);
 		if (inBand.length === 0) {
 			continue;
@@ -215,7 +228,7 @@ export function selectAutoRoutingCandidate<T extends AutoRoutingCandidate>(
 		if (
 			classification.bestModel &&
 			(classification.bestModelConfidence ?? 0) >=
-				AUTO_ROUTING_BEST_MODEL_MIN_CONFIDENCE
+				SMART_ROUTING_BEST_MODEL_MIN_CONFIDENCE
 		) {
 			const preferred = inBand.find(
 				(candidate) => candidate.modelId === classification.bestModel,

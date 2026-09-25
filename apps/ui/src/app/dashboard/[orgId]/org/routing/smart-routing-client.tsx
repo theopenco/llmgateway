@@ -3,7 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 
-import { AutoRoutingSettings } from "@/components/settings/auto-routing-settings";
+import { SmartRoutingSettings } from "@/components/settings/smart-routing-settings";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useTeamMembers } from "@/hooks/useTeam";
 import { useUser } from "@/hooks/useUser";
@@ -20,11 +20,11 @@ import { useApi } from "@/lib/fetch-client";
 
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
-import { AutoRoutingContactSalesCard } from "./contact-sales-card";
+import { SmartRoutingContactSalesCard } from "./contact-sales-card";
 
-import type { AutoRoutingConfig } from "@llmgateway/shared/auto-routing";
+import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 
-export function AutoRoutingClient() {
+export function SmartRoutingClient() {
 	const params = useParams();
 	const organizationId = params.orgId as string;
 	const { selectedOrganization } = useDashboardNavigation();
@@ -46,25 +46,25 @@ export function AutoRoutingClient() {
 	)?.role;
 	const isAdmin = isOrganizationAdmin(role);
 	const savedConfig =
-		(selectedOrganization?.autoRoutingConfig as AutoRoutingConfig | null) ??
+		(selectedOrganization?.smartRoutingConfig as SmartRoutingConfig | null) ??
 		null;
 
-	const save = async (config: AutoRoutingConfig | null) => {
+	const save = async (config: SmartRoutingConfig | null) => {
 		try {
 			await updateOrganization.mutateAsync({
 				params: { path: { id: organizationId } },
-				body: { autoRoutingConfig: config },
+				body: { smartRoutingConfig: config },
 			});
 			toast({
 				title: "Settings saved",
 				description: config
-					? "Your auto routing configuration has been updated."
-					: "Auto routing now uses the default models.",
+					? "Your smart routing configuration has been updated."
+					: "Smart routing now uses the default models.",
 			});
 		} catch {
 			toast({
 				title: "Error",
-				description: "Failed to save auto routing settings.",
+				description: "Failed to save smart routing settings.",
 				variant: "destructive",
 			});
 		}
@@ -78,8 +78,9 @@ export function AutoRoutingClient() {
 		);
 	}
 
-	if (selectedOrganization?.enterpriseAccess !== true) {
-		return <AutoRoutingContactSalesCard />;
+	// Free for every organization while in beta; DevPass has its own routing.
+	if (selectedOrganization?.kind === "devpass") {
+		return <SmartRoutingContactSalesCard />;
 	}
 
 	if (!isAdmin) {
@@ -90,7 +91,7 @@ export function AutoRoutingClient() {
 						<CardHeader>
 							<CardTitle>Access Denied</CardTitle>
 							<CardDescription>
-								Only organization owners and admins can configure auto routing.
+								Only organization owners and admins can configure smart routing.
 							</CardDescription>
 						</CardHeader>
 					</Card>
@@ -105,7 +106,7 @@ export function AutoRoutingClient() {
 				<div className="max-w-3xl space-y-6">
 					<div>
 						<h2 className="text-2xl md:text-3xl font-bold tracking-tight">
-							Auto Routing
+							Smart Routing
 						</h2>
 						<p className="text-sm text-muted-foreground">
 							Configure which models the <code className="text-xs">auto</code>{" "}
@@ -122,7 +123,7 @@ export function AutoRoutingClient() {
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="space-y-6">
-							<AutoRoutingSettings
+							<SmartRoutingSettings
 								value={savedConfig}
 								canManage
 								isSaving={updateOrganization.isPending}

@@ -3,7 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import { AutoRoutingSettings } from "@/components/settings/auto-routing-settings";
+import { SmartRoutingSettings } from "@/components/settings/smart-routing-settings";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { Button } from "@/lib/components/button";
 import {
@@ -18,9 +18,9 @@ import { Switch } from "@/lib/components/switch";
 import { toast } from "@/lib/components/use-toast";
 import { useApi } from "@/lib/fetch-client";
 
-import type { AutoRoutingConfig } from "@llmgateway/shared/auto-routing";
+import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 
-export function AutoRoutingCard({
+export function SmartRoutingCard({
 	orgId,
 	projectId,
 }: {
@@ -50,9 +50,9 @@ export function AutoRoutingCard({
 	});
 
 	const savedOverride =
-		(data?.project.autoRoutingConfig as AutoRoutingConfig | null) ?? null;
+		(data?.project.smartRoutingConfig as SmartRoutingConfig | null) ?? null;
 	const inherited =
-		(selectedOrganization?.autoRoutingConfig as AutoRoutingConfig | null) ??
+		(selectedOrganization?.smartRoutingConfig as SmartRoutingConfig | null) ??
 		null;
 
 	const [overrideEnabled, setOverrideEnabled] = useState(
@@ -62,22 +62,22 @@ export function AutoRoutingCard({
 		setOverrideEnabled(savedOverride !== null);
 	}, [savedOverride]);
 
-	const save = async (config: AutoRoutingConfig | null) => {
+	const save = async (config: SmartRoutingConfig | null) => {
 		try {
 			await updateProject.mutateAsync({
 				params: { path: { id: projectId } },
-				body: { autoRoutingConfig: config },
+				body: { smartRoutingConfig: config },
 			});
 			toast({
 				title: "Settings saved",
 				description: config
-					? "This project now overrides the organization's auto routing."
-					: "This project inherits the organization's auto routing again.",
+					? "This project now overrides the organization's smart routing."
+					: "This project inherits the organization's smart routing again.",
 			});
 		} catch {
 			toast({
 				title: "Error",
-				description: "Failed to save auto routing settings.",
+				description: "Failed to save smart routing settings.",
 				variant: "destructive",
 			});
 		}
@@ -86,7 +86,7 @@ export function AutoRoutingCard({
 	return (
 		<Card>
 			<CardHeader>
-				<CardTitle>Auto Routing</CardTitle>
+				<CardTitle>Smart Routing</CardTitle>
 				<CardDescription>
 					Choose which models the <code className="text-xs">auto</code> model
 					may resolve to for this project.
@@ -95,7 +95,7 @@ export function AutoRoutingCard({
 			<CardContent className="space-y-6">
 				<div className="flex items-center justify-between gap-4">
 					<div className="space-y-0.5">
-						<Label htmlFor="auto-routing-override">
+						<Label htmlFor="smart-routing-override">
 							Override for this project
 						</Label>
 						<p className="text-muted-foreground text-sm">
@@ -105,7 +105,7 @@ export function AutoRoutingCard({
 						</p>
 					</div>
 					<Switch
-						id="auto-routing-override"
+						id="smart-routing-override"
 						checked={overrideEnabled}
 						disabled={updateProject.isPending}
 						onCheckedChange={(checked) => {
@@ -118,7 +118,7 @@ export function AutoRoutingCard({
 				</div>
 
 				{overrideEnabled ? (
-					<AutoRoutingSettings
+					<SmartRoutingSettings
 						value={savedOverride ?? inherited}
 						canManage
 						isSaving={updateProject.isPending}

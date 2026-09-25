@@ -14,19 +14,19 @@ import {
 } from "@/lib/components/select";
 
 import { models, type ModelDefinition } from "@llmgateway/models";
-import {
-	assignAutoRoutingBands,
-	AUTO_ROUTING_MAX_MODELS,
-	getModelAveragePrice,
-	isAutoRoutingSelectableModel,
-	type AutoRoutingClassifier,
-	type AutoRoutingConfig,
-	type AutoRoutingDifficulty,
-} from "@llmgateway/shared/auto-routing";
 import { MultiModelIdSelector } from "@llmgateway/shared/components";
+import {
+	assignSmartRoutingBands,
+	SMART_ROUTING_MAX_MODELS,
+	getModelAveragePrice,
+	isSmartRoutingSelectableModel,
+	type SmartRoutingClassifier,
+	type SmartRoutingConfig,
+	type SmartRoutingDifficulty,
+} from "@llmgateway/shared/smart-routing";
 
 const CLASSIFIER_OPTIONS: Array<{
-	value: AutoRoutingClassifier;
+	value: SmartRoutingClassifier;
 	label: string;
 	description: string;
 }> = [
@@ -54,32 +54,32 @@ function formatAveragePrice(price: number | undefined): string {
 	return `$${(price * 1_000_000).toFixed(2)}/1M`;
 }
 
-const BAND_LABELS: Record<AutoRoutingDifficulty, string> = {
+const BAND_LABELS: Record<SmartRoutingDifficulty, string> = {
 	low: "Low",
 	medium: "Medium",
 	high: "High",
 };
 
 const selectableModels = (models as readonly ModelDefinition[]).filter(
-	(model) => isAutoRoutingSelectableModel(model),
+	(model) => isSmartRoutingSelectableModel(model),
 );
 const selectableModelIds = selectableModels.map((model) => model.id);
 const modelsById = new Map(selectableModels.map((model) => [model.id, model]));
 
-export interface AutoRoutingSettingsProps {
-	value: AutoRoutingConfig | null;
+export interface SmartRoutingSettingsProps {
+	value: SmartRoutingConfig | null;
 	canManage: boolean;
 	isSaving?: boolean;
-	onSave: (config: AutoRoutingConfig) => void | Promise<void>;
+	onSave: (config: SmartRoutingConfig) => void | Promise<void>;
 }
 
-export function AutoRoutingSettings({
+export function SmartRoutingSettings({
 	value,
 	canManage,
 	isSaving,
 	onSave,
-}: AutoRoutingSettingsProps) {
-	const [classifier, setClassifier] = useState<AutoRoutingClassifier>(
+}: SmartRoutingSettingsProps) {
+	const [classifier, setClassifier] = useState<SmartRoutingClassifier>(
 		value?.classifier ?? "none",
 	);
 	const [modelIds, setModelIds] = useState<string[]>(value?.models ?? []);
@@ -104,11 +104,11 @@ export function AutoRoutingSettings({
 				};
 			})
 			.sort((a, b) => (a.price ?? 0) - (b.price ?? 0));
-		const bands = assignAutoRoutingBands(priced.length);
+		const bands = assignSmartRoutingBands(priced.length);
 		return priced.map((entry, index) => ({ ...entry, band: bands[index] }));
 	}, [modelIds]);
 
-	const tooManyModels = modelIds.length > AUTO_ROUTING_MAX_MODELS;
+	const tooManyModels = modelIds.length > SMART_ROUTING_MAX_MODELS;
 	const unknownModels = modelIds.filter((id) => !modelsById.has(id));
 
 	return (
@@ -117,7 +117,9 @@ export function AutoRoutingSettings({
 				<Label>Classifier</Label>
 				<Select
 					value={classifier}
-					onValueChange={(next) => setClassifier(next as AutoRoutingClassifier)}
+					onValueChange={(next) =>
+						setClassifier(next as SmartRoutingClassifier)
+					}
 					disabled={!canManage}
 				>
 					<SelectTrigger className="w-full max-w-sm">
@@ -143,18 +145,18 @@ export function AutoRoutingSettings({
 				<div className="flex items-center justify-between">
 					<Label>Eligible models</Label>
 					<span className="text-muted-foreground text-xs">
-						{modelIds.length} / {AUTO_ROUTING_MAX_MODELS}
+						{modelIds.length} / {SMART_ROUTING_MAX_MODELS}
 					</span>
 				</div>
 				<MultiModelIdSelector
 					availableIds={selectableModelIds}
 					value={modelIds}
 					onChange={setModelIds}
-					placeholder="Select models for auto routing..."
+					placeholder="Select models for smart routing..."
 				/>
 				{tooManyModels ? (
 					<p className="text-destructive text-xs">
-						Select at most {AUTO_ROUTING_MAX_MODELS} models.
+						Select at most {SMART_ROUTING_MAX_MODELS} models.
 					</p>
 				) : null}
 				{unknownModels.length > 0 ? (

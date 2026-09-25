@@ -652,9 +652,35 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 	or large-context requests.
 </Callout>
 
-### Configurable auto routing (Enterprise)
+### How It Works
 
-Enterprise organizations can replace the built-in candidate set with their own. Under **Organization settings → Auto Routing** you choose up to 30 models from the [models catalogue](https://llmgateway.io/models) that `"model": "auto"` may resolve to, plus the classifier that ranks them. Individual projects can override the organization default on their **Settings → Routing** page; a project without an override inherits it. Owners and organization admins can edit the organization default, project admins the project override.
+1. **Request Analysis**: The system analyzes your request including message content, context size, and any special parameters
+2. **Model Selection**: Based on the analysis, it selects the most appropriate model considering cost, performance, and capabilities
+3. **Transparent Routing**: Your request is seamlessly routed to the chosen model and provider
+4. **Optimized Response**: You receive the best possible response while maintaining cost efficiency
+
+<Callout type="info">
+	Auto routing decisions are transparent in your usage logs, so you can always
+	see which model was selected for each request.
+</Callout>
+
+## Smart Routing
+
+`"model": "auto"` above is fixed: it always picks from the same built-in set, and its behaviour does not change. **Smart routing** is a separate model string, `"model": "smart"`, where you choose the candidate models and how they are ranked.
+
+Under **Organization settings → Smart Routing** you choose up to 30 models from the [models catalogue](https://llmgateway.io/models) that `"model": "smart"` may resolve to, plus the classifier that ranks them. Individual projects can override the organization default on their **Settings → Routing** page; a project without an override inherits it. Owners and organization admins can edit the organization default, project admins the project override.
+
+Smart routing is available to every organization, including pay-as-you-go, while it is in beta. It is not available on DevPass yet. `"model": "smart"` fails rather than falling back: an organization that cannot use it gets a 403, and one that has not configured it gets a 400 naming the setting — it never degrades quietly into the `auto` candidate set.
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "smart",
+    "messages": [{"role": "user", "content": "Your request here..."}]
+  }'
+```
 
 The configured list is exhaustive. If no model on it can serve a request — for example an image request against a text-only list — the gateway returns a 400 rather than falling back to a model you did not allow. `free_models_only` narrows the list to its free models rather than replacing it, so a request parameter cannot route outside what the organization allowed.
 
@@ -671,19 +697,7 @@ The classifier adds one short round trip before the upstream call. It fails open
 
 #### Routing metadata
 
-Every auto-routed request made against a configured list records an `autoRouting` block on its log entry, visible in the request detail view: the classifier used, the eligible and surviving candidate models, the difficulty, task and output type, the classifier's preferred model and confidence, the band that was served, the selected model, the classifier latency, whether the classifier failed open, and whether the verdict was reused from earlier in the session.
-
-### How It Works
-
-1. **Request Analysis**: The system analyzes your request including message content, context size, and any special parameters
-2. **Model Selection**: Based on the analysis, it selects the most appropriate model considering cost, performance, and capabilities
-3. **Transparent Routing**: Your request is seamlessly routed to the chosen model and provider
-4. **Optimized Response**: You receive the best possible response while maintaining cost efficiency
-
-<Callout type="info">
-	Auto routing decisions are transparent in your usage logs, so you can always
-	see which model was selected for each request.
-</Callout>
+Every smart-routed request made against a configured list records a `smartRouting` block on its log entry, visible in the request detail view: the classifier used, the eligible and surviving candidate models, the difficulty, task and output type, the classifier's preferred model and confidence, the band that was served, the selected model, the classifier latency, whether the classifier failed open, and whether the verdict was reused from earlier in the session.
 
 ## Best Practices
 
@@ -694,12 +708,12 @@ Every auto-routed request made against a configured list records an `autoRouting
 
 ### For Production
 
-- Use auto routing (`"model": "auto"`) for the best balance of cost and performance
+- Use auto routing (`"model": "auto"`) for the best balance of cost and performance, or smart routing (`"model": "smart"`) to route across models you choose
 - Monitor your usage patterns through the dashboard to understand routing decisions
 - Set up provider keys for multiple providers to maximize routing options
 
 ### For Cost Optimization
 
-- Let auto routing handle model selection to automatically use the most cost-effective options
+- Let auto routing handle model selection to automatically use the most cost-effective options, or smart routing to spend more only on the requests that need it
 - Use model IDs without provider prefixes to always get the cheapest available provider
 - Monitor your usage analytics to track cost savings from intelligent routing

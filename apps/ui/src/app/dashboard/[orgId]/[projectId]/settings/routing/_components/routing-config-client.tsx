@@ -22,9 +22,9 @@ import { useFetchClient } from "@/lib/fetch-client";
 
 import { canManageProject } from "@llmgateway/shared/organization-roles";
 
-import { AutoRoutingCard } from "./auto-routing-card";
 import { RoutingContactSalesCard } from "./routing-contact-sales-card";
 import { RoutingStrategyCard } from "./routing-strategy-card";
+import { SmartRoutingCard } from "./smart-routing-card";
 
 type NumericFieldGroup = Record<string, number | undefined>;
 
@@ -406,6 +406,8 @@ export function RoutingConfigClient({
 
 						<RoutingStrategyCard orgId={orgId} projectId={projectId} />
 
+						<SmartRoutingCard orgId={orgId} projectId={projectId} />
+
 						<RoutingContactSalesCard />
 					</div>
 				</div>
@@ -576,7 +578,7 @@ export function RoutingConfigClient({
 
 					<RoutingStrategyCard orgId={orgId} projectId={projectId} />
 
-					<AutoRoutingCard orgId={orgId} projectId={projectId} />
+					<SmartRoutingCard orgId={orgId} projectId={projectId} />
 
 					<Card>
 						<CardHeader className="flex flex-row items-center justify-between">
