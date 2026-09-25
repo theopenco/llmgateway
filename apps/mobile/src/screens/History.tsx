@@ -4,7 +4,15 @@ import { Alert, FlatList, Pressable, Text, View } from "react-native";
 
 import { refreshChatHistory } from "@/api/chat-history";
 import { api, client } from "@/api/client";
-import { Button, ErrorNotice, Field, Loading, styles } from "@/components/ui";
+import {
+	Button,
+	ErrorNotice,
+	Field,
+	IconButton,
+	Loading,
+	styles,
+} from "@/components/ui";
+import { usePalette } from "@/lib/colors";
 
 export function History({
 	organizationId,
@@ -13,6 +21,7 @@ export function History({
 	organizationId: string;
 	onChat: (id: string) => void;
 }) {
+	const palette = usePalette();
 	const [search, setSearch] = useState("");
 	const [archived, setArchived] = useState(false);
 	const [query, setQuery] = useState("");
@@ -56,20 +65,18 @@ export function History({
 	return (
 		<View style={styles.screen}>
 			<View style={{ padding: 22, gap: 14 }}>
-				<Text style={styles.title}>Conversations</Text>
 				<Field
 					label="Search conversations"
 					value={search}
 					onChangeText={setSearch}
 				/>
-				<Text style={styles.muted}>Search titles and message text.</Text>
 				<Button
 					title={
 						archived
 							? "Show active conversations"
 							: "Show archived conversations"
 					}
-					secondary
+					quiet
 					onPress={() => setArchived(!archived)}
 				/>
 				<ErrorNotice error={chats.error ?? update.error ?? remove.error} />
@@ -80,7 +87,7 @@ export function History({
 				<FlatList
 					data={chats.data?.pages.flatMap((page) => page.chats) ?? []}
 					keyExtractor={(chat) => chat.id}
-					contentContainerStyle={{ padding: 22, gap: 12 }}
+					contentContainerStyle={{ paddingHorizontal: 22, paddingBottom: 24 }}
 					refreshing={chats.isRefetching}
 					onRefresh={() => void chats.refetch()}
 					ListEmptyComponent={
@@ -101,25 +108,37 @@ export function History({
 						) : undefined
 					}
 					renderItem={({ item }) => (
-						<View style={styles.card}>
+						<View
+							style={[
+								styles.row,
+								{
+									paddingVertical: 15,
+									borderBottomWidth: 0.5,
+									borderBottomColor: palette.subtle,
+								},
+							]}
+						>
 							<Pressable
 								role="button"
 								aria-label={`${item.title}, ${item.model}, ${item.messageCount} messages`}
 								onPress={() => onChat(item.id)}
-								style={{ minHeight: 48 }}
+								style={{ minHeight: 48, flex: 1, gap: 4 }}
 							>
-								<Text style={styles.heading}>
+								<Text
+									numberOfLines={2}
+									style={[styles.body, { fontWeight: "600" }]}
+								>
 									{item.pinned ? "★ " : ""}
 									{item.title}
 								</Text>
-								<Text style={styles.muted}>
+								<Text numberOfLines={1} style={styles.muted}>
 									{item.model} · {item.messageCount} messages
 								</Text>
 							</Pressable>
-							<View style={styles.row}>
-								<Button
-									title={archived ? "Restore" : "Archive"}
-									secondary
+							<View style={{ flexDirection: "row" }}>
+								<IconButton
+									name="folder"
+									accessibilityLabel={archived ? "Restore" : "Archive"}
 									busy={
 										update.isPending &&
 										update.variables?.params.path.id === item.id
@@ -131,9 +150,9 @@ export function History({
 										})
 									}
 								/>
-								<Button
-									title="Delete"
-									secondary
+								<IconButton
+									name="close"
+									accessibilityLabel="Delete"
 									busy={
 										remove.isPending &&
 										remove.variables?.params.path.id === item.id

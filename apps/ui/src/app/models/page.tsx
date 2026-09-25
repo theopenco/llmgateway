@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 
+import Footer from "@/components/landing/footer";
 import { HeroRSC } from "@/components/landing/hero-rsc";
 import { AllModels } from "@/components/models/all-models";
 import { JsonLd } from "@/components/seo/json-ld";
@@ -106,6 +107,7 @@ export default async function ModelsPage() {
 			<JsonLd data={[collectionSchema, itemListSchema, breadcrumbSchema]} />
 			<Suspense>
 				<AllModels
+					footer={<Footer />}
 					models={models}
 					providers={providers}
 					title="AI Models Directory"

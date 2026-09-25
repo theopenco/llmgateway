@@ -438,7 +438,7 @@ console.log(completion.choices[0].message.content);
 
 ## 4 · Going further
 
-- **Streaming**: pass `stream: true` to any request—Gateway will proxy the event stream unchanged.
+- **Streaming**: pass `stream: true` to any request—the gateway normalizes every provider's stream into OpenAI-format SSE chunks, with a final chunk carrying `usage` and routing metadata before `data: [DONE]`.
 - **Monitoring**: Every call appears in the dashboard with latency, cost & provider breakdown.
 
 ---

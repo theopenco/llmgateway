@@ -5,6 +5,7 @@ date: "2026-04-02"
 title: "Multi-Region Routing, Content Filters & More"
 summary: "Route requests to regional providers, protect your apps with built-in content moderation, enforce API key rate limits, and explore new models."
 draft: false
+tags: ["llmgateway"]
 image:
   src: "/changelog/multi-region-content-filters.png"
   alt: "Multi-region routing and content filters on LLM Gateway"

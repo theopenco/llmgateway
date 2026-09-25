@@ -194,7 +194,16 @@ export default function TrafficPage() {
 											{formatCompact(row.requestCount)}
 										</TableCell>
 										<TableCell className="text-right font-mono">
-											{formatCompact(row.errorCount)}
+											{row.errorCount > 0 ? (
+												<Link
+													href={`/dashboard/incidents?mapping=${encodeURIComponent(`${row.providerId}/${row.model}`)}`}
+													className="text-primary hover:underline"
+												>
+													{formatCompact(row.errorCount)}
+												</Link>
+											) : (
+												formatCompact(row.errorCount)
+											)}
 										</TableCell>
 										<TableCell className="text-right font-mono">
 											{formatCompact(row.outputTokens)}

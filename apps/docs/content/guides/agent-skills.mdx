@@ -9,6 +9,20 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 **Agent Skills** are structured guidelines for AI coding agents, optimized for use with LLM Gateway and the AI SDK. They provide best practices and reusable instructions that help AI agents generate higher-quality code.
 
+## Video walkthrough
+
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/C6u3SCYhGnU"
+		title="Install an LLM Gateway agent skill"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
+
 ## What Are Agent Skills?
 
 Agent Skills are packaged sets of rules and guidelines that teach AI coding agents how to implement specific features correctly. Each skill covers:
@@ -34,7 +48,7 @@ The Image Generation skill teaches AI agents how to properly implement image gen
 The Changelog Writer skill drafts a polished LLM Gateway changelog entry and its OpenGraph image in one pass:
 
 - **House style** — writes in the established changelog voice: problem first, benefits over features, plain and confident
-- **Correct format** — generates the dated Markdown file with valid frontmatter (`id`, `slug`, `date`, `title`, `summary`, `image`)
+- **Correct format** — generates the dated Markdown file with valid frontmatter (`id`, `slug`, `date`, `title`, `summary`, `tags`, `image`)
 - **OG image prompt** — hands back a ready-to-run `gpt-image-2` prompt at the recommended **1536×1024** OpenGraph resolution
 - **Validation** — formats and builds the entry before you commit
 
@@ -48,10 +62,12 @@ Install one by copying its folder into your project's `.claude/skills/` director
 
 ```bash
 # from the llmgateway-templates repo
-cp -r skills/changelog /path/to/your/project/.claude/skills/
+git clone https://github.com/theopenco/llmgateway-templates.git
+mkdir -p .claude/skills
+cp -R llmgateway-templates/skills/changelog .claude/skills/
 ```
 
-Then trigger it by name inside Claude Code:
+Run these commands from your project directory. Review the installed `.claude/skills/changelog/SKILL.md`, then open Claude Code in that project and trigger it by name:
 
 ```
 > changelog
@@ -59,7 +75,7 @@ Then trigger it by name inside Claude Code:
 
 Place the folder in `~/.claude/skills/` instead to make the skill available across every project. Browse the available Claude Code skills in the [llmgateway-templates repository](https://github.com/theopenco/llmgateway-templates/tree/main/skills).
 
-## Installation
+## Build the image-generation instructions
 
 <Steps>
 <Step>
@@ -111,7 +127,7 @@ pnpm build
 </Step>
 </Steps>
 
-## Using Skills in Your Project
+## Use the generated image-generation instructions
 
 After building, each skill generates an `AGENTS.md` file that can be used with AI coding agents like Claude, Cursor, or Copilot.
 

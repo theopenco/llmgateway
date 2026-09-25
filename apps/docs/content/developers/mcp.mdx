@@ -18,6 +18,20 @@ Connect your AI assistant to LLM Gateway to inspect your usage and costs, discov
 	the provider for you.
 </Callout>
 
+## Video walkthrough
+
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/sHUw1eChtmY"
+		title="MCP Inspector with LLM Gateway walkthrough"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
+
 ## Connection and discovery
 
 Connect with Streamable HTTP at `https://llmgateway.io/mcp` or `https://api.llmgateway.io/mcp`. Send an API key in `Authorization: Bearer <api-key>`. A GET without an SSE Accept header returns public server information; browser navigation on the main domain opens the setup page.
@@ -381,6 +395,37 @@ Use the tool for current model IDs, capabilities, and pricing, or browse the [li
 
   </Tab>
 </Tabs>
+
+## Verify with MCP Inspector
+
+For a standalone connection check, start the official&nbsp;[MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector):
+
+```bash
+pnpm dlx @modelcontextprotocol/inspector
+```
+
+In Inspector, add a server manually:
+
+1. Choose **Streamable HTTP** and enter `https://api.llmgateway.io/mcp`.
+2. In the server settings, add a custom `Authorization` header with `Bearer YOUR_API_KEY`.
+3. Connect, open **Tools**, and select **chat**.
+4. Enter an accessible text model ID from the&nbsp;[live catalogue](https://llmgateway.io/models), a `messages` array, and an optional `max_tokens` limit.
+5. Click **Execute Tool** and inspect the returned text and token usage.
+
+For example, the `messages` field accepts:
+
+```json
+[
+	{
+		"role": "user",
+		"content": "In one sentence, explain what an API gateway does."
+	}
+]
+```
+
+Keep `stream` disabled: this MCP tool returns a complete response. Model generation is billed to the workspace that issued the key. Use **list-models** to discover available model metadata without generating a response.
+
+Use HTTPS for the hosted endpoint. A self-hosted gateway also needs an HTTPS `MCP_GATEWAY_URL` for authenticated generation calls.
 
 ## Use Cases
 

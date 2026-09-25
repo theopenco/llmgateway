@@ -11,13 +11,13 @@ const tiles: Record<
 	string,
 	{ symbol: string; color: string; background: string }
 > = {
-	"@": { symbol: "●", color: "#D2EF9A", background: "#254532" },
-	"#": { symbol: "", color: "#728C7C", background: "#31483B" },
-	".": { symbol: "", color: "#55705F", background: "#10231B" },
-	K: { symbol: "◆", color: "#FFD479", background: "#10231B" },
+	"@": { symbol: "●", color: "#F5F5F5", background: "#454545" },
+	"#": { symbol: "", color: "#8C8C8C", background: "#444444" },
+	".": { symbol: "", color: "#707070", background: "#1F1F1F" },
+	K: { symbol: "◆", color: "#FFD479", background: "#1F1F1F" },
 	D: { symbol: "×", color: "#FF94A3", background: "#4B2330" },
 	$: { symbol: "$", color: "#91D3FF", background: "#17384B" },
-	E: { symbol: "↗", color: "#D2EF9A", background: "#28503A" },
+	E: { symbol: "↗", color: "#F5F5F5", background: "#484848" },
 };
 export function EscapeBoard({ state }: { state: GameState }) {
 	const [width, setWidth] = useState(0);

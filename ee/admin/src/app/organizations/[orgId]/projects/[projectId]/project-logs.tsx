@@ -34,7 +34,18 @@ import {
 import { loadProjectLogsAction } from "@/lib/admin-organizations";
 import { cn } from "@/lib/utils";
 
-import type { ProjectLogEntry, ProjectLogsResponse } from "@/lib/types";
+import {
+	isLogErrorType,
+	LOG_ERROR_TYPE_LABELS,
+	LOG_ERROR_TYPES,
+} from "@llmgateway/shared";
+
+import type {
+	ProjectLogEntry,
+	ProjectLogFilters,
+	ProjectLogsResponse,
+} from "@/lib/types";
+import type { LogErrorType } from "@llmgateway/shared";
 
 const UnifiedFinishReason = {
 	COMPLETED: "completed",
@@ -96,7 +107,10 @@ export function ProjectLogsSection({
 	const model = searchParams.get("model") ?? "all";
 	const source = searchParams.get("source") ?? "all";
 	const unifiedFinishReason = searchParams.get("unifiedFinishReason") ?? "all";
-	const hasError = searchParams.get("hasError") ?? "all";
+	const errorTypeParam = searchParams.get("errorType") ?? "all";
+	const errorType: LogErrorType = isLogErrorType(errorTypeParam)
+		? errorTypeParam
+		: "all";
 
 	const updateFilters = useCallback(
 		(updates: Record<string, string>) => {
@@ -122,7 +136,7 @@ export function ProjectLogsSection({
 	const deferredModelSearch = useDeferredValue(modelSearch);
 
 	const getFilters = useCallback(() => {
-		const filters: Record<string, string> = {};
+		const filters: ProjectLogFilters = {};
 		if (provider !== "all") {
 			filters.provider = provider;
 		}
@@ -135,11 +149,11 @@ export function ProjectLogsSection({
 		if (unifiedFinishReason !== "all") {
 			filters.unifiedFinishReason = unifiedFinishReason;
 		}
-		if (hasError === "true") {
-			filters.hasError = "true";
+		if (errorType !== "all") {
+			filters.errorType = errorType;
 		}
 		return Object.keys(filters).length > 0 ? filters : undefined;
-	}, [provider, model, source, unifiedFinishReason, hasError]);
+	}, [provider, model, source, unifiedFinishReason, errorType]);
 
 	const loadLogs = useCallback(
 		async (cursor?: string, options?: { background?: boolean }) => {
@@ -359,15 +373,18 @@ export function ProjectLogsSection({
 				</Select>
 
 				<Select
-					value={hasError}
-					onValueChange={(value) => updateFilters({ hasError: value })}
+					value={errorType}
+					onValueChange={(value) => updateFilters({ errorType: value })}
 				>
-					<SelectTrigger className="w-[160px]">
+					<SelectTrigger className="w-[180px]">
 						<SelectValue placeholder="Filter by error" />
 					</SelectTrigger>
 					<SelectContent>
-						<SelectItem value="all">Default</SelectItem>
-						<SelectItem value="true">Has Error</SelectItem>
+						{LOG_ERROR_TYPES.map((value) => (
+							<SelectItem key={value} value={value}>
+								{LOG_ERROR_TYPE_LABELS[value]}
+							</SelectItem>
+						))}
 					</SelectContent>
 				</Select>
 

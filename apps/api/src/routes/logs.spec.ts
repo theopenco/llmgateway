@@ -985,4 +985,80 @@ describe("logs route", () => {
 			expect(ids).toContain("teammate-log-id");
 		});
 	});
+
+	describe("error type filter", () => {
+		beforeEach(async () => {
+			const base = {
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 100,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "api-keys" as const,
+				usedMode: "api-keys" as const,
+			};
+			await db.insert(tables.log).values([
+				{
+					...base,
+					id: "log-client-error",
+					requestId: "log-client-error",
+					unifiedFinishReason: "client_error",
+				},
+				{
+					...base,
+					id: "log-gateway-error",
+					requestId: "log-gateway-error",
+					unifiedFinishReason: "gateway_error",
+				},
+				{
+					...base,
+					id: "log-upstream-error",
+					requestId: "log-upstream-error",
+					unifiedFinishReason: "upstream_error",
+					hasError: false,
+				},
+				{
+					...base,
+					id: "log-flagged-error",
+					requestId: "log-flagged-error",
+					unifiedFinishReason: "completed",
+					hasError: true,
+				},
+			]);
+		});
+
+		const fetchIds = async (errorType: string) => {
+			const res = await app.request(
+				`/logs?projectId=test-project-id&errorType=${errorType}`,
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			return json.logs.map((log: { id: string }) => log.id) as string[];
+		};
+
+		test("any matches the error flag and error finish reasons", async () => {
+			const ids = await fetchIds("any");
+			expect(ids.sort()).toEqual([
+				"log-client-error",
+				"log-flagged-error",
+				"log-gateway-error",
+				"log-upstream-error",
+			]);
+		});
+
+		test("narrows to a single error class", async () => {
+			expect(await fetchIds("gateway_error")).toEqual(["log-gateway-error"]);
+			expect(await fetchIds("upstream_error")).toEqual(["log-upstream-error"]);
+			expect(await fetchIds("client_error")).toEqual(["log-client-error"]);
+		});
+
+		test("all does not filter", async () => {
+			expect((await fetchIds("all")).length).toBeGreaterThan(4);
+		});
+	});
 });

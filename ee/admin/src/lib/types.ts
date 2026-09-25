@@ -1,4 +1,5 @@
 import type { paths } from "./api/v1";
+import type { LogErrorType } from "@llmgateway/shared";
 
 export type User = {
 	id: string;
@@ -92,6 +93,10 @@ export type ProviderDetailResponse =
 	GetJsonResponse<"/admin/providers/{providerId}">;
 export type ProviderModelStats = ProviderDetailResponse["models"][number];
 
+// Unstable mappings
+export type UnstableScopeOptions =
+	GetJsonResponse<"/admin/unstable-mappings/scope-options">;
+
 // Mapping detail
 export type MappingDetailResponse =
 	GetJsonResponse<"/admin/providers/{providerId}/models/{modelId}">;
@@ -139,3 +144,11 @@ export type BenchmarkRunsResponse = GetJsonResponse<"/admin/benchmarks/runs">;
 export type BenchmarkRunSummary = BenchmarkRunsResponse["runs"][number];
 export type BenchmarkRunDetailResponse =
 	GetJsonResponse<"/admin/benchmarks/runs/{id}">;
+
+export interface ProjectLogFilters {
+	provider?: string;
+	model?: string;
+	source?: string;
+	unifiedFinishReason?: string;
+	errorType?: LogErrorType;
+}

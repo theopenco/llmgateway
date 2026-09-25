@@ -15,6 +15,7 @@ import { adminModelVerifications } from "./admin-model-verifications.js";
 import { adminOrgDetails } from "./admin-org-details.js";
 import adminProviderCredentials from "./admin-provider-credentials.js";
 import { adminRoutingAnalytics } from "./admin-routing-analytics.js";
+import { adminSdk } from "./admin-sdk.js";
 import admin from "./admin.js";
 import { airside } from "./airside.js";
 import { analytics } from "./analytics.js";
@@ -23,6 +24,7 @@ import { chatPlans } from "./chat-plans.js";
 import { chatProjects } from "./chat-projects.js";
 import { chat } from "./chat.js";
 import { chats } from "./chats.js";
+import { complianceAlerts } from "./compliance-alerts.js";
 import { connectors } from "./connectors.js";
 import { customModels } from "./custom-models.js";
 import { devPlanCancellationFeedback } from "./dev-plan-cancellation-feedback.js";
@@ -97,6 +99,7 @@ routes.route("/admin", adminLimitHits);
 routes.route("/admin", adminBenchmarks);
 routes.route("/admin", adminAirside);
 routes.route("/admin", adminModelVerifications);
+routes.route("/admin", adminSdk);
 
 routes.route("/airside", airside);
 
@@ -110,6 +113,7 @@ routes.route("/playground", playground);
 
 routes.route("/orgs", organization);
 routes.route("/orgs", organizationSkills);
+routes.route("/orgs", complianceAlerts);
 routes.route("/team", team);
 routes.route("/team", organizationTeams);
 routes.route("/payments", payments);

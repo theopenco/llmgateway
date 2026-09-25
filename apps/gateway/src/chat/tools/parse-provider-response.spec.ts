@@ -7,6 +7,7 @@ const { setexMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@llmgateway/cache", () => ({
+	setSwrSchemaVersion: vi.fn(),
 	redisClient: {
 		setex: setexMock,
 	},

@@ -35,7 +35,10 @@ appId: io.llmgateway.lounge
 - assertVisible: ".*This is a mock response from the test server.*"
 - launchApp
 - runFlow: helpers/organization.yaml
-- tapOn: "Conversations"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Conversations"
 - tapOn:
     id: "field-search-conversations"
 - inputText: ${output.title}

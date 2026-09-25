@@ -2142,6 +2142,22 @@ export async function prepareRequestBody(
 		});
 	}
 
+	// Mistral validates the message schema just as strictly and rejects both
+	// `reasoning` and `reasoning_content` with "Extra inputs are not permitted".
+	if (usedProvider === "mistral") {
+		processedMessages = processedMessages.map((m) => {
+			if (m.reasoning === undefined && m.reasoning_content === undefined) {
+				return m;
+			}
+			const {
+				reasoning: _reasoning,
+				reasoning_content: _reasoningContent,
+				...rest
+			} = m;
+			return rest;
+		});
+	}
+
 	// Start with a base structure that can be modified for each provider
 	const requestBody: any = {
 		model: usedExternalId,
@@ -4691,6 +4707,15 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
+	}
+
+	// BytePlus only caches a prompt prefix when the request opts in; without the
+	// flag it always reports zero cached tokens, whatever the prompt length.
+	if (
+		usedProvider === "bytedance" &&
+		providerMappingForOptions?.cachedInputPrice
+	) {
+		requestBody.caching = { type: "enabled" };
 	}
 
 	// vLLM chat-template thinking flags are handled after the provider switch so

@@ -4,6 +4,7 @@ slug: "reasoning-max-tokens"
 date: "2026-01-30"
 title: "Unified Reasoning Configuration"
 summary: "New unified reasoning object for precise control over reasoning models. Specify exact token budgets with max_tokens or use effort levels — all in one consistent API."
+tags: ["llmgateway"]
 image:
   src: "/changelog/reasoning-max-tokens.jpg"
   alt: "Unified reasoning configuration"

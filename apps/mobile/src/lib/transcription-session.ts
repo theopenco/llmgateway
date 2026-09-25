@@ -378,7 +378,7 @@ export class TranscriptionSession {
 		this.send({ type: "input_audio_buffer.commit" });
 	}
 	public stop() {
-		if (this.state.status === "idle") {
+		if (this.state.status === "idle" || this.state.status === "ending") {
 			return;
 		}
 		if (this.state.status !== "live") {

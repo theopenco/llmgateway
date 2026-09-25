@@ -4,6 +4,7 @@ slug: "gateway-v1-launch"
 date: "2025-05-01"
 title: "LLM Gateway v1.0 Launch"
 summary: "The unified AI gateway is here! Access 30+ models from 8 providers through one OpenAI-compatible API with transparent pricing and powerful analytics."
+tags: ["llmgateway"]
 image:
   src: "/opengraph.png"
   alt: "LLM Gateway v1.0 launch featuring multi-provider support and unified API"

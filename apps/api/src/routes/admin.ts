@@ -31,6 +31,15 @@ import {
 	withEnterpriseSeatsForActivation,
 	withEnterpriseSeatsForPromotion,
 } from "@/lib/enterprise-seats.js";
+import { buildLogErrorFilter } from "@/lib/log-error-filter.js";
+import {
+	mappingErrorShapesSchema,
+	mappingErrorWindowSchema,
+	notRetriedClause,
+	incidentErrorsClause,
+	queryMappingErrorShapes,
+	resolveMappingErrorWindow,
+} from "@/lib/mapping-error-shapes.js";
 import { modeSplitFields } from "@/lib/mode-split.js";
 import { parseReferralBonusPercent } from "@/lib/referral-bonus.js";
 import {
@@ -116,7 +125,11 @@ import {
 	globalSourceStats,
 } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { models, providers } from "@llmgateway/models";
+import {
+	expandAllProviderRegions,
+	models,
+	providers,
+} from "@llmgateway/models";
 import {
 	CHAT_PLAN_PRICES,
 	DEV_PLAN_PRICES,
@@ -125,11 +138,13 @@ import {
 	getIncludedResetPassesRemaining,
 	MAX_BULK_BLOCK_ORGANIZATIONS,
 	MIN_BULK_BLOCK_SEARCH_LENGTH,
+	CONTENT_FILTER_CLASSIFIERS,
 	contentFilterSettingsSchema,
 	getOrgContentFilterTier,
 	getOrgSpendTier,
 	getPlanClass,
 	isValidSystemBannerLink,
+	LOG_ERROR_TYPES,
 	parseUsedModel,
 	resolveTrustTierOverride,
 	SYSTEM_BANNER_SEVERITIES,
@@ -409,6 +424,10 @@ const adminMetricsSchema = z.object({
 	// fees; refunds not netted out), split by product.
 	grossRevenue: z.number(),
 	grossCreditsRevenue: z.number(),
+	// LLM SDK end-user wallet top-ups. Already included in
+	// `grossCreditsRevenue` — reported separately so SDK monetization is
+	// visible, never added to `grossRevenue` again.
+	grossSdkPaymentsRevenue: z.number(),
 	grossDevpassRevenue: z.number(),
 	// PAYG overflow top-ups purchased by DevPass orgs. Same `credit_topup`
 	// transaction type as the Credits split, attributed separately so DevPass
@@ -1389,6 +1408,11 @@ admin.openapi(getMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
 					"value",
 				),
+			// LLM SDK end-user wallet top-ups, a subset of `value`.
+			sdkValue:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.type} = 'end_user_topup'), 0)`.as(
+					"sdk_value",
+				),
 		})
 		.from(tables.transaction)
 		.innerJoin(
@@ -1414,6 +1438,7 @@ admin.openapi(getMetrics, async (c) => {
 		);
 
 	const grossCreditsRevenue = Number(grossCreditsRow?.value ?? 0);
+	const grossSdkPaymentsRevenue = Number(grossCreditsRow?.sdkValue ?? 0);
 
 	// DevPass PAYG overflow top-ups: `credit_topup` purchases on devpass orgs.
 	const [grossDevpassTopupsRow] = await db
@@ -1696,6 +1721,7 @@ admin.openapi(getMetrics, async (c) => {
 		totalRefundedCredits,
 		grossRevenue,
 		grossCreditsRevenue,
+		grossSdkPaymentsRevenue,
 		grossDevpassRevenue,
 		grossDevpassTopupsRevenue,
 		grossResetPassRevenue,
@@ -4348,6 +4374,7 @@ const getProjectLogs = createRoute({
 			source: z.string().optional(),
 			unifiedFinishReason: z.string().optional(),
 			hasError: z.string().optional(),
+			errorType: z.enum(LOG_ERROR_TYPES).optional(),
 		}),
 	},
 	responses: {
@@ -4369,8 +4396,15 @@ admin.openapi(getProjectLogs, async (c) => {
 	const { orgId, projectId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const limit = query.limit ?? 50;
-	const { cursor, provider, model, source, unifiedFinishReason, hasError } =
-		query;
+	const {
+		cursor,
+		provider,
+		model,
+		source,
+		unifiedFinishReason,
+		hasError,
+		errorType,
+	} = query;
 
 	// Verify project belongs to the organization
 	const project = await db.query.project.findFirst({
@@ -4417,8 +4451,12 @@ admin.openapi(getProjectLogs, async (c) => {
 		);
 	}
 
-	if (hasError === "true") {
-		whereConditions.push(eq(tables.log.hasError, true));
+	// `hasError=true` is the legacy shape of `errorType=any`
+	const errorFilter = buildLogErrorFilter(
+		errorType ?? (hasError === "true" ? "any" : undefined),
+	);
+	if (errorFilter) {
+		whereConditions.push(errorFilter);
 	}
 
 	if (cursor) {
@@ -5881,6 +5919,8 @@ const contentFilterSettingsResponseSchema = z
 		sampleRatePercent: z.number(),
 		enforce: z.boolean(),
 		enforceEnterprise: z.boolean(),
+		classifier: z.enum(CONTENT_FILTER_CLASSIFIERS),
+		shadowClassifier: z.enum([...CONTENT_FILTER_CLASSIFIERS, "none"]),
 		providers: z.array(
 			z.object({
 				id: z.string(),
@@ -5936,6 +5976,8 @@ admin.openapi(getContentFilterSettingsRoute, async (c) => {
 		sampleRatePercent: settings.sampleRatePercent,
 		enforce: settings.enforce,
 		enforceEnterprise: settings.enforceEnterprise,
+		classifier: settings.classifier,
+		shadowClassifier: settings.shadowClassifier,
 		providers: listContentFilterProviders(settings),
 	});
 });
@@ -5947,6 +5989,8 @@ admin.openapi(updateContentFilterSettingsRoute, async (c) => {
 		sampleRatePercent: settings.sampleRatePercent,
 		enforce: settings.enforce,
 		enforceEnterprise: settings.enforceEnterprise,
+		classifier: settings.classifier,
+		shadowClassifier: settings.shadowClassifier,
 		providers: listContentFilterProviders(settings),
 	});
 });
@@ -12330,44 +12374,6 @@ admin.openapi(getModelProviderMappings, async (c) => {
 const UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT = 100;
 const UNSTABLE_MAPPINGS_MAX_LOG_LIMIT = 1000000;
 
-// Supported time windows for the rankings, mapping each selectable value to its
-// SQL interval bound and an hours count surfaced to the UI for the description.
-const UNSTABLE_MAPPINGS_WINDOWS = {
-	"1h": { interval: sql`now() - interval '1 hour'`, hours: 1 },
-	"2h": { interval: sql`now() - interval '2 hours'`, hours: 2 },
-	"4h": { interval: sql`now() - interval '4 hours'`, hours: 4 },
-	"8h": { interval: sql`now() - interval '8 hours'`, hours: 8 },
-	"12h": { interval: sql`now() - interval '12 hours'`, hours: 12 },
-	"16h": { interval: sql`now() - interval '16 hours'`, hours: 16 },
-	"24h": { interval: sql`now() - interval '24 hours'`, hours: 24 },
-	"3d": { interval: sql`now() - interval '3 days'`, hours: 72 },
-	"7d": { interval: sql`now() - interval '7 days'`, hours: 168 },
-} as const;
-
-const unstableMappingsWindowSchema = z.enum([
-	"1h",
-	"2h",
-	"4h",
-	"8h",
-	"12h",
-	"16h",
-	"24h",
-	"3d",
-	"7d",
-]);
-
-type UnstableMappingsWindow = keyof typeof UNSTABLE_MAPPINGS_WINDOWS;
-
-function resolveUnstableMappingsWindow(
-	window: UnstableMappingsWindow | undefined,
-) {
-	return UNSTABLE_MAPPINGS_WINDOWS[window ?? "4h"];
-}
-
-// `retried` is nullable; legacy rows predate the column and are NULL. Treat
-// those as non-retried so they are not silently dropped from the rankings.
-const unstableMappingsNotRetriedClause = sql`AND ${tables.log.retried} IS DISTINCT FROM true`;
-
 // Customer-owned keys are useful when debugging a customer report, but they
 // should not affect the platform credential health ranking by default.
 const unstableMappingsPlatformOnlyClause = sql`AND ${tables.log.usedMode} <> 'api-keys'`;
@@ -12448,6 +12454,10 @@ const unstableMappingsListSchema = z.object({
 	includeByok: z.boolean(),
 	// Number of ignore matchers applied to this ranking (0 when disabled).
 	ignoredMatcherCount: z.number(),
+	// The exact `used_model` the ranking is narrowed to, if any.
+	mapping: z.string().nullable(),
+	// The canonical model id the ranking is narrowed to (all its mappings).
+	modelId: z.string().nullable(),
 });
 
 const getUnstableMappings = createRoute({
@@ -12462,10 +12472,15 @@ const getUnstableMappings = createRoute({
 				.max(UNSTABLE_MAPPINGS_MAX_LOG_LIMIT)
 				.optional(),
 			includeRetried: z.enum(["true", "false"]).optional(),
-			window: unstableMappingsWindowSchema.optional(),
+			window: mappingErrorWindowSchema.optional(),
 			ignoreExpected: z.enum(["true", "false"]).optional(),
 			splitByKey: z.enum(["true", "false"]).optional(),
 			includeByok: z.enum(["true", "false"]).optional(),
+			/** Exact `used_model` (`provider/model[:region]`); requires `provider`. */
+			model: z.string().optional(),
+			provider: z.string().optional(),
+			/** Canonical model id; matches every provider/region mapping of it. */
+			modelId: z.string().optional(),
 		}),
 	},
 	responses: {
@@ -12486,15 +12501,24 @@ admin.openapi(getUnstableMappings, async (c) => {
 	const limit = query.limit ?? 50;
 	const includeRetried = query.includeRetried === "true";
 	const logLimit = query.logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
-	const retriedClause = includeRetried
-		? sql``
-		: unstableMappingsNotRetriedClause;
+	const retriedClause = includeRetried ? sql`` : notRetriedClause;
 	const ignoreExpected = query.ignoreExpected !== "false";
 	const splitByKey = query.splitByKey === "true";
 	const includeByok = query.includeByok === "true";
 	const byokClause = includeByok ? sql`` : unstableMappingsPlatformOnlyClause;
 	const { interval: windowInterval, hours: windowHours } =
-		resolveUnstableMappingsWindow(query.window);
+		resolveMappingErrorWindow(query.window);
+	const mapping = query.model && query.provider ? query.model : null;
+	const mappingClause =
+		mapping !== null
+			? sql`AND ${tables.log.usedModel} = ${mapping} AND ${tables.log.usedProvider} = ${query.provider}`
+			: sql``;
+	const canonicalModelId = query.modelId || null;
+	// `used_model` is `provider/model[:region]`; strip both to the catalog id.
+	const modelIdClause =
+		canonicalModelId !== null
+			? sql`AND split_part(split_part(${tables.log.usedModel}, '/', 2), ':', 1) = ${canonicalModelId}`
+			: sql``;
 
 	// With the split off every row carries a constant NULL key, so the extra
 	// GROUP BY column is a no-op and both modes share one query shape.
@@ -12532,6 +12556,8 @@ admin.openapi(getUnstableMappings, async (c) => {
 				AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'
 				${retriedClause}
 				${byokClause}
+				${mappingClause}
+				${modelIdClause}
 			ORDER BY ${tables.log.createdAt} DESC
 			LIMIT ${logLimit}
 		)
@@ -12619,30 +12645,9 @@ admin.openapi(getUnstableMappings, async (c) => {
 		splitByKey,
 		includeByok,
 		ignoredMatcherCount: ignoredMatchers.length,
+		mapping,
+		modelId: canonicalModelId,
 	});
-});
-
-const unstableMappingErrorDetailSchema = z.object({
-	statusCode: z.number().nullable(),
-	statusText: z.string().nullable(),
-	responseText: z.string().nullable(),
-	cause: z.string().nullable(),
-	// The gateway's internal classification stored on the log
-	// (`unified_finish_reason`, e.g. `client_error`, `gateway_error`,
-	// `upstream_error`, `content_filter`). Surfaced because the HTTP status
-	// alone is misleading: some 4xx responses are classified as gateway or
-	// upstream errors.
-	classification: z.string().nullable(),
-	// Whether the failed request was a streaming request. Streaming and
-	// non-streaming failures often have different causes, so the drilldown
-	// groups errors by this flag.
-	streamed: z.boolean(),
-	count: z.number(),
-});
-
-const unstableMappingErrorsSchema = z.object({
-	errors: z.array(unstableMappingErrorDetailSchema),
-	sampledErrors: z.number(),
 });
 
 const getUnstableMappingErrors = createRoute({
@@ -12653,7 +12658,7 @@ const getUnstableMappingErrors = createRoute({
 			model: z.string(),
 			provider: z.string(),
 			includeRetried: z.enum(["true", "false"]).optional(),
-			window: unstableMappingsWindowSchema.optional(),
+			window: mappingErrorWindowSchema.optional(),
 			logLimit: z.coerce
 				.number()
 				.min(1)
@@ -12668,13 +12673,15 @@ const getUnstableMappingErrors = createRoute({
 			 * one).
 			 */
 			providerKeyId: z.string().optional(),
+			/** Only upstream and gateway errors, matching the Incidents counts. */
+			incidentsOnly: z.enum(["true", "false"]).optional(),
 		}),
 	},
 	responses: {
 		200: {
 			content: {
 				"application/json": {
-					schema: unstableMappingErrorsSchema.openapi({}),
+					schema: mappingErrorShapesSchema.openapi({}),
 				},
 			},
 			description:
@@ -12693,13 +12700,13 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 		ignoreExpected,
 		includeByok,
 		providerKeyId,
+		incidentsOnly,
 	} = c.req.valid("query");
 	const sampleLimit = logLimit ?? UNSTABLE_MAPPINGS_DEFAULT_LOG_LIMIT;
-	const retriedClause =
-		includeRetried === "true" ? sql`` : unstableMappingsNotRetriedClause;
+	const retriedClause = includeRetried === "true" ? sql`` : notRetriedClause;
 	const byokClause =
 		includeByok === "true" ? sql`` : unstableMappingsPlatformOnlyClause;
-	const { interval: windowInterval } = resolveUnstableMappingsWindow(window);
+	const { interval: windowInterval } = resolveMappingErrorWindow(window);
 	const providerKeyClause =
 		providerKeyId === undefined
 			? sql``
@@ -12716,62 +12723,101 @@ admin.openapi(getUnstableMappingErrors, async (c) => {
 			? sql`AND NOT COALESCE((${buildIgnoredErrorMatchExpr(ignoredMatchers)}), false)`
 			: sql``;
 
-	const rows = await db.execute<{
-		status_code: string | null;
-		status_text: string | null;
-		response_text: string | null;
-		cause: string | null;
-		classification: string | null;
-		streamed: boolean;
-		count: string;
-		sampled_errors: string;
-	}>(sql`
-		WITH recent_errors AS (
-			SELECT ${tables.log.errorDetails} AS error_details,
-				${tables.log.unifiedFinishReason} AS classification,
-				COALESCE(${tables.log.streamed}, false) AS streamed
-			FROM ${tables.log}
-			WHERE ${tables.log.hasError} = true
-				AND ${tables.log.unifiedFinishReason} IS DISTINCT FROM 'client_error'
-				AND ${tables.log.usedModel} = ${model}
-				AND ${tables.log.usedProvider} = ${provider}
-				AND ${tables.log.createdAt} >= ${windowInterval}
-				${providerKeyClause}
-				${retriedClause}
-				${byokClause}
-				${ignoredClause}
-			ORDER BY ${tables.log.createdAt} DESC
-			LIMIT ${sampleLimit}
-		)
-		SELECT error_details->>'statusCode' AS status_code,
-			error_details->>'statusText' AS status_text,
-			LEFT(error_details->>'responseText', 2000) AS response_text,
-			error_details->>'cause' AS cause,
-			classification,
-			streamed,
-			COUNT(*) AS count,
-			(SELECT COUNT(*) FROM recent_errors) AS sampled_errors
-		FROM recent_errors
-		GROUP BY status_code, status_text, response_text, cause, classification, streamed
-		ORDER BY count DESC
-		LIMIT 10
-	`);
+	return c.json(
+		await queryMappingErrorShapes({
+			usedModel: model,
+			provider,
+			windowInterval,
+			sampleLimit,
+			extraClauses: [
+				providerKeyClause,
+				retriedClause,
+				byokClause,
+				ignoredClause,
+				incidentsOnly === "true" ? incidentErrorsClause : sql``,
+			],
+		}),
+	);
+});
 
-	const sampledErrors =
-		rows.rows.length > 0 ? Number(rows.rows[0].sampled_errors) : 0;
+const unstableScopeOptionSchema = z.object({
+	id: z.string(),
+	source: z.enum(["catalogue", "airside"]),
+});
 
-	return c.json({
-		errors: rows.rows.map((r) => ({
-			statusCode: r.status_code !== null ? Number(r.status_code) : null,
-			statusText: r.status_text,
-			responseText: r.response_text,
-			cause: r.cause,
-			classification: r.classification,
-			streamed: r.streamed,
-			count: Number(r.count),
-		})),
-		sampledErrors,
-	});
+const unstableScopeOptionsSchema = z.object({
+	/** Canonical model ids, matching every provider/region mapping of one. */
+	modelIds: z.array(unstableScopeOptionSchema),
+	/** Exact `used_model` values (`provider/model[:region]`). */
+	mappings: z.array(unstableScopeOptionSchema),
+});
+
+/**
+ * Scope suggestions for the ranking filter: the static catalogue plus the
+ * DB-only Airside listings, both in the `provider/model[:region]` shape the
+ * filter matches `used_model` against. An Airside listing that supersedes a
+ * catalogue mapping is reported once, under its Airside source.
+ */
+async function listUnstableScopeOptions() {
+	const modelIds = new Map<string, CatalogueSource>();
+	const mappings = new Map<string, CatalogueSource>();
+
+	for (const model of models) {
+		modelIds.set(model.id, "catalogue");
+		for (const mapping of expandAllProviderRegions(model.providers)) {
+			const region = mapping.region ? `:${mapping.region}` : "";
+			mappings.set(`${mapping.providerId}/${model.id}${region}`, "catalogue");
+		}
+	}
+
+	const airsideRows = await db
+		.select({
+			providerId: tables.modelProviderMapping.providerId,
+			modelId: tables.modelProviderMapping.modelId,
+			region: tables.modelProviderMapping.region,
+		})
+		.from(tables.modelProviderMapping)
+		.where(
+			and(
+				eq(tables.modelProviderMapping.source, "airside"),
+				eq(tables.modelProviderMapping.status, "active"),
+			),
+		);
+
+	for (const row of airsideRows) {
+		if (!modelIds.has(row.modelId)) {
+			modelIds.set(row.modelId, "airside");
+		}
+		const region = row.region ? `:${row.region}` : "";
+		mappings.set(`${row.providerId}/${row.modelId}${region}`, "airside");
+	}
+
+	const serialize = (entries: Map<string, CatalogueSource>) =>
+		Array.from(entries, ([id, source]) => ({ id, source })).sort((a, b) =>
+			a.id.localeCompare(b.id),
+		);
+
+	return { modelIds: serialize(modelIds), mappings: serialize(mappings) };
+}
+
+const getUnstableScopeOptions = createRoute({
+	method: "get",
+	path: "/unstable-mappings/scope-options",
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: unstableScopeOptionsSchema.openapi({}),
+				},
+			},
+			description:
+				"Canonical model ids and mappings the unstable ranking can be scoped to.",
+		},
+	},
+});
+
+admin.openapi(getUnstableScopeOptions, async (c) => {
+	return c.json(await listUnstableScopeOptions());
 });
 
 // ── Ignored Error Matchers ──────────────────────────────────────────────────
@@ -15561,8 +15607,8 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			cycleStart: tables.organization.devPlanBillingCycleStart,
 			expiresAt: tables.organization.devPlanExpiresAt,
 			cancelled: tables.organization.devPlanCancelled,
+			paymentStatus: tables.organization.subscriptionPaymentStatus,
 			createdAt: tables.organization.createdAt,
-			paymentFailureCount: tables.organization.paymentFailureCount,
 			utilizationPct: utilizationExpr,
 			mrr: tierPriceExpr,
 			realCost: realCostExpr,
@@ -15675,7 +15721,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		const lastPaymentFailureAt = row.lastPaymentFailureAt
 			? new Date(row.lastPaymentFailureAt).toISOString()
 			: null;
-		const hasPaymentIssue = (row.paymentFailureCount ?? 0) > 0;
+		const hasPaymentIssue = row.paymentStatus === "past_due";
 
 		const mrrNum = Number(row.mrr ?? 0);
 		const marginNum = Number(row.margin ?? 0);
@@ -17115,7 +17161,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		.from(tables.paymentFailure)
 		.where(eq(tables.paymentFailure.organizationId, orgId));
 
-	const hasPaymentIssue = (org.paymentFailureCount ?? 0) > 0;
+	const hasPaymentIssue = org.subscriptionPaymentStatus === "past_due";
 
 	const marginPct = mrr > 0 ? (margin / mrr) * 100 : null;
 
@@ -18062,8 +18108,8 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 			cycleStart: tables.organization.chatPlanBillingCycleStart,
 			expiresAt: tables.organization.chatPlanExpiresAt,
 			cancelled: tables.organization.chatPlanCancelled,
+			paymentStatus: tables.organization.subscriptionPaymentStatus,
 			createdAt: tables.organization.createdAt,
-			paymentFailureCount: tables.organization.paymentFailureCount,
 			utilizationPct: utilizationExpr,
 			mrr: tierPriceExpr,
 			realCost: realCostExpr,
@@ -18329,7 +18375,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		const lastPaymentFailureAt = row.lastPaymentFailureAt
 			? new Date(row.lastPaymentFailureAt).toISOString()
 			: null;
-		const hasPaymentIssue = (row.paymentFailureCount ?? 0) > 0;
+		const hasPaymentIssue = row.paymentStatus === "past_due";
 
 		const mrrNum = Number(row.mrr ?? 0);
 		const marginNum = Number(row.margin ?? 0);
@@ -18936,7 +18982,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 		.from(tables.paymentFailure)
 		.where(eq(tables.paymentFailure.organizationId, orgId));
 
-	const hasPaymentIssue = (org.paymentFailureCount ?? 0) > 0;
+	const hasPaymentIssue = org.subscriptionPaymentStatus === "past_due";
 
 	const marginPct = mrr > 0 ? (margin / mrr) * 100 : null;
 

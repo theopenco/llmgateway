@@ -3,6 +3,7 @@
 	"version": "0.0.0",
 	"private": true,
 	"license": "SEE LICENSE IN ../../LICENSE",
+	"sideEffects": false,
 	"type": "module",
 	"exports": {
 		"./account-block": {
@@ -183,6 +184,16 @@
 			"types": "./dist/number-format.d.ts",
 			"import": "./dist/number-format.js",
 			"default": "./dist/number-format.js"
+		},
+		"./product-logos": {
+			"types": "./dist/components/product-logos.d.ts",
+			"import": "./dist/components/product-logos.js",
+			"default": "./dist/components/product-logos.js"
+		},
+		"./product-switcher": {
+			"types": "./dist/components/product-switcher.d.ts",
+			"import": "./dist/components/product-switcher.js",
+			"default": "./dist/components/product-switcher.js"
 		}
 	},
 	"module": "./dist/index.js",

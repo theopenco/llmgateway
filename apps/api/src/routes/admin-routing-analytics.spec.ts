@@ -109,6 +109,7 @@ describe("admin routing analytics endpoint", () => {
 		await db.delete(tables.routingExclusionHourly);
 		await db.delete(tables.modelProviderMapping);
 		await cdb.delete(tables.discount);
+		await cdb.delete(tables.routingScoreMultiplier);
 		await deleteAll();
 	});
 
@@ -487,6 +488,35 @@ describe("admin routing analytics endpoint", () => {
 		]);
 	});
 
+	it("breaks down exclusions on provider ids outside the catalogue", async () => {
+		const hour = currentHourStart();
+		await db.insert(tables.routingExclusionHourly).values([
+			{
+				id: "routing-exclusion-custom-json",
+				hourTimestamp: hour,
+				modelId: testModel.id,
+				providerId: "custom",
+				reason: "json_output",
+				excludedCount: 4,
+				candidateCount: 8,
+				excludedDecisionCount: 4,
+			},
+		]);
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const body = await res.json();
+		expect(body.exclusions).toEqual([
+			{ reason: "json_output", excludedCount: 4, details: [] },
+		]);
+		const eligibilityCustom = body.eligibility.find(
+			(e: { providerId: string }) => e.providerId === "custom",
+		);
+		expect(eligibilityCustom.exclusionRate).toBe(0.5);
+		expect(eligibilityCustom.exclusions).toEqual([
+			{ reason: "json_output", excludedCount: 4, details: [] },
+		]);
+	});
+
 	it("nests compliance rules under the compliance total", async () => {
 		const hour = currentHourStart();
 		// The gateway records the coarse code plus every rule that fired, so the
@@ -644,6 +674,38 @@ describe("admin routing analytics endpoint", () => {
 		expect(summaryA.score).toBeLessThanOrEqual(baselineSummaryA.score);
 		expect(summaryA.breakdown.priceContribution).toBeLessThanOrEqual(
 			baselineSummaryA.breakdown.priceContribution,
+		);
+	});
+
+	it("scores the routing score multiplier", async () => {
+		const before = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const baseline = await before.json();
+		const baselineSummaryB = baseline.summary.find(
+			(s: { providerId: string }) => s.providerId === providerB,
+		);
+
+		await cdb.insert(tables.routingScoreMultiplier).values({
+			id: "routing-analytics-multiplier",
+			provider: providerA,
+			model: testModel.id,
+			scoreMultiplier: "-0.5",
+		});
+
+		const res = await get(`?modelId=${testModel.id}&window=24h`, cookie);
+		const body = await res.json();
+		const mappingA = body.mappings.find(
+			(m: { providerId: string }) => m.providerId === providerA,
+		);
+		const summaryB = body.summary.find(
+			(s: { providerId: string }) => s.providerId === providerB,
+		);
+
+		// The multiplier only steers routing; the price shown is still billed.
+		expect(mappingA.routingAdjustment).toBe(-0.5);
+		expect(mappingA.discount).toBe(0);
+		// Boosting A makes every other mapping relatively more expensive.
+		expect(summaryB.breakdown.priceContribution).toBeGreaterThan(
+			baselineSummaryB.breakdown.priceContribution,
 		);
 	});
 });

@@ -1,10 +1,10 @@
 appId: io.llmgateway.lounge
 ---
 - runFlow: helpers/sign-in.yaml
-- scrollUntilVisible:
-    element: "Connectors"
-    direction: DOWN
-- tapOn: "Connectors"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Connectors"
 - tapOn:
     id: "field-search-connectors"
 - inputText: "Gmail"
@@ -28,10 +28,10 @@ appId: io.llmgateway.lounge
     visible: "Connected to Gmail."
     timeout: 20000
 - launchApp
-- scrollUntilVisible:
-    element: "Connectors"
-    direction: DOWN
-- tapOn: "Connectors"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Connectors"
 - tapOn:
     id: "field-search-connectors"
 - inputText: "Gmail"
@@ -42,10 +42,10 @@ appId: io.llmgateway.lounge
     visible: "Paused"
     timeout: 15000
 - launchApp
-- scrollUntilVisible:
-    element: "Connectors"
-    direction: DOWN
-- tapOn: "Connectors"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Connectors"
 - tapOn:
     id: "field-search-connectors"
 - inputText: "Gmail"
@@ -68,10 +68,10 @@ appId: io.llmgateway.lounge
     visible: "Connect Gmail"
     timeout: 15000
 - launchApp
-- scrollUntilVisible:
-    element: "Connectors"
-    direction: DOWN
-- tapOn: "Connectors"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Connectors"
 - tapOn:
     id: "field-search-connectors"
 - inputText: "Gmail"

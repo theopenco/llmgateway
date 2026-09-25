@@ -4,6 +4,7 @@ slug: "models-page-cloudrift-free-llama"
 date: "2025-08-16"
 title: "New Models Directory & Free Llama 3.1 70B via CloudRift"
 summary: "Browse and compare 100+ AI models with advanced filtering, plus access Meta Llama 3.1 70B Instruct FP8 completely free through our CloudRift partnership."
+tags: ["llmgateway"]
 image:
   src: "/changelog/new-models-page.png"
   alt: "New models directory showing comprehensive model comparison and free Llama 3.1 70B"

@@ -4,6 +4,7 @@ slug: "cache-aware-routing"
 date: "2026-09-05"
 title: "Adaptive Cache-Aware Provider Selection"
 summary: "Routing learns cache-hit rates and output-to-input proportions from recent project/model usage to compare providers for large prompts and sessions. Available automatically across plans, with workload defaults before enough history exists and explicit overrides on Enterprise."
+tags: ["llmgateway", "devpass"]
 image:
   src: "/changelog/cache-aware-routing.png"
   alt: "A glowing routing junction splitting a light trace toward two provider chips beside a memory-cache module and a balance scale weighing coins on a circuit board"

@@ -4,6 +4,7 @@ slug: "dynamic-routes"
 date: "2026-08-07"
 title: "Dynamic Routes"
 summary: "Define named, versioned routing flows — conditions, A/B splits, and model targets with provider fallback — and invoke them by putting dynamic/<name> in the model field. Build them visually or in JSON, publish immutable versions, and roll back instantly. Available on the Enterprise plan."
+tags: ["llmgateway"]
 image:
   src: "/changelog/dynamic-routes.png"
   alt: "A circuit board with a glowing branching flow diagram on the central chip, representing routing decision graphs"

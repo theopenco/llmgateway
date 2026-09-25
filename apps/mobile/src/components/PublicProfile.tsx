@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Switch, Text, View } from "react-native";
 
 import { api } from "@/api/client";
-import { Button, ErrorNotice, Field, styles } from "@/components/ui";
+import { colors, Button, ErrorNotice, Field, styles } from "@/components/ui";
 
 export function PublicProfile({
 	onLeaderboard,
@@ -52,6 +52,7 @@ export function PublicProfile({
 							Hide my profile picture
 						</Text>
 						<Switch
+							trackColor={{ false: colors.subtle, true: colors.accent }}
 							testID="profile-picture-switch"
 							accessibilityLabel="Hide my profile picture"
 							value={member.profileHidePicture}

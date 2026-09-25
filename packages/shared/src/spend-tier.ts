@@ -74,6 +74,15 @@ export const PATH_RATE_LIMITS: readonly PathRateLimitConfig[] = [
 		chatDefaultRpm: 120,
 	},
 	{
+		// TypeSafe's own ceiling is 1,200 requests/minute across our whole
+		// account, so the per-org limit stays below it.
+		key: "systemone",
+		prefix: "/v1/systemone",
+		defaultRpm: 600,
+		devDefaultRpm: 120,
+		chatDefaultRpm: 60,
+	},
+	{
 		key: "models",
 		prefix: "/v1/models",
 		defaultRpm: 1200,
@@ -635,6 +644,7 @@ export const INFLIGHT_LIMITED_KEYS: ReadonlySet<string> = new Set([
 	"embeddings",
 	"moderations",
 	"rerank",
+	"systemone",
 	"ocr",
 	"images",
 	"audio_speech",

@@ -21,18 +21,20 @@ appId: io.llmgateway.lounge
 - tapOn: "Done typing"
 - tapOn: "Enter the Lounge"
 - extendedWaitUntil:
-    visible: "Start a conversation"
+    visible: "New conversation"
     timeout: 20000
 - launchApp
-- assertVisible: "Start a conversation"
-- scrollUntilVisible:
-    element: "Switch workspace"
-    direction: DOWN
-    centerElement: true
-- tapOn: "Switch workspace"
+- assertVisible: "New conversation"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Switch workspace.*"
 - tapOn: "Use Test Organization"
-- assertVisible: "Start a conversation"
-- tapOn: "Projects"
+- assertVisible: "New conversation"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Projects"
 - tapOn: "Create project"
 - tapOn:
     id: "field-project-name"
@@ -57,14 +59,22 @@ appId: io.llmgateway.lounge
 - assertVisible: "A shared writing workspace"
 - assertVisible: "Write concise, helpful explanations."
 - launchApp
-- assertVisible: "Current workspace: Test Organization"
-- tapOn: "Projects"
+- runFlow: helpers/open-sidebar.yaml
+- assertVisible: ".*Current workspace: Test Organization"
+- tapOn: "Close sidebar"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Projects"
 - assertVisible: "Native writing project"
 - tapOn: "Delete Native writing project"
 - tapOn: "Delete"
 - assertNotVisible: "Native writing project"
 - launchApp
-- tapOn: "Skills"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Skills"
 - tapOn: "Create skill"
 - tapOn:
     id: "field-skill-name"
@@ -86,17 +96,19 @@ appId: io.llmgateway.lounge
 - tapOn: "Save skill"
 - assertVisible: "Clear writing"
 - launchApp
-- tapOn: "Skills"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Skills"
 - assertVisible: "Clear writing"
 - tapOn: "Delete Clear writing"
 - tapOn: "Delete"
 - assertNotVisible: "Clear writing"
 - launchApp
-- scrollUntilVisible:
-    element: "Your profile"
-    direction: DOWN
-    centerElement: true
-- tapOn: "Your profile"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Your profile"
 - assertVisible: "admin@example.com"
 - scrollUntilVisible:
     element: "Sign out"

@@ -2,12 +2,12 @@ appId: io.llmgateway.lounge
 ---
 - runFlow: helpers/sign-in.yaml
 - runFlow: helpers/organization.yaml
-- scrollUntilVisible:
-    element: "Sandbox Escape"
-    direction: DOWN
-    timeout: 20000
-- tapOn: "Sandbox Escape"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Sandbox Escape"
 - assertVisible: "Hello, World"
+- runFlow: helpers/close-chat-options.yaml
 - tapOn: "Model: .*gpt-.*mini"
 - tapOn:
     id: field-search-models
@@ -63,11 +63,10 @@ appId: io.llmgateway.lounge
     start: 50%, 60%
     end: 50%, 95%
 - launchApp
-- scrollUntilVisible:
-    element: "Sandbox Escape"
-    direction: DOWN
-    timeout: 20000
-- tapOn: "Sandbox Escape"
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Sandbox Escape"
 - assertVisible: "Model: gpt-4o-mini"
 - tapOn: "Saved runs"
 - assertVisible: "Saved Escape runs"
