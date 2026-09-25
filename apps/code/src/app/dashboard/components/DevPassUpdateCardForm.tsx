@@ -22,9 +22,11 @@ import type React from "react";
 export default function UpdateCardForm({
 	onCancel,
 	onSuccess,
+	onCardSaved,
 }: {
 	onCancel: () => void;
 	onSuccess: () => void;
+	onCardSaved: () => void;
 }) {
 	const { stripe, isLoading: stripeLoading } = useStripe();
 
@@ -39,7 +41,11 @@ export default function UpdateCardForm({
 
 	return (
 		<Elements stripe={stripe}>
-			<UpdateCardFormInner onCancel={onCancel} onSuccess={onSuccess} />
+			<UpdateCardFormInner
+				onCancel={onCancel}
+				onSuccess={onSuccess}
+				onCardSaved={onCardSaved}
+			/>
 		</Elements>
 	);
 }
@@ -47,9 +53,11 @@ export default function UpdateCardForm({
 function UpdateCardFormInner({
 	onCancel,
 	onSuccess,
+	onCardSaved,
 }: {
 	onCancel: () => void;
 	onSuccess: () => void;
+	onCardSaved: () => void;
 }) {
 	const api = useApi();
 	const queryClient = useQueryClient();
@@ -111,11 +119,12 @@ function UpdateCardFormInner({
 				body: { paymentMethodId: newPmId },
 			});
 
+			onCardSaved();
 			await queryClient.invalidateQueries({ queryKey: paymentMethodQueryKey });
 
 			if (renewalPayment.status === "failed") {
 				toast.error("Card saved, but renewal payment failed", {
-					description: renewalPayment.message,
+					description: `${renewalPayment.message} Complete the outstanding invoice above, or try another card.`,
 				});
 				return;
 			}
@@ -157,6 +166,10 @@ function UpdateCardFormInner({
 					: message;
 			toast.error(detail);
 		} finally {
+			await queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/dev-plans/outstanding-invoice")
+					.queryKey,
+			});
 			setLoading(false);
 		}
 	};

@@ -3125,6 +3125,77 @@ devPlans.openapi(getPaymentMethod, async (c) => {
 	});
 });
 
+const getOutstandingInvoice = createRoute({
+	method: "get",
+	path: "/outstanding-invoice",
+	request: {},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						invoice: z.object({ url: z.string().nullable() }).nullable(),
+					}),
+				},
+			},
+			description: "Outstanding DevPass renewal invoice",
+		},
+	},
+});
+
+devPlans.openapi(getOutstandingInvoice, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+	const personalOrg = await findPersonalOrg(user.id);
+	if (!personalOrg?.devPlanStripeSubscriptionId) {
+		return c.json({ invoice: null });
+	}
+
+	const stripe = getStripe();
+	const subscription = await stripe.subscriptions.retrieve(
+		personalOrg.devPlanStripeSubscriptionId,
+	);
+	if (!["active", "past_due", "unpaid"].includes(subscription.status)) {
+		return c.json({ invoice: null });
+	}
+	let startingAfter: string | undefined;
+	while (true) {
+		const page = await stripe.invoices.list({
+			subscription: subscription.id,
+			status: "open",
+			limit: 100,
+			...(startingAfter ? { starting_after: startingAfter } : {}),
+		});
+		for (const invoice of page.data) {
+			if (
+				invoice.status !== "open" ||
+				!invoice.attempted ||
+				invoice.amount_remaining <= 0 ||
+				invoice.billing_reason !== "subscription_cycle"
+			) {
+				continue;
+			}
+			const { paymentIntent } = await getSubscriptionPaymentConfirmation({
+				...subscription,
+				latest_invoice: invoice,
+			});
+			if (
+				paymentIntent?.status === "processing" ||
+				paymentIntent?.status === "succeeded"
+			) {
+				continue;
+			}
+			return c.json({ invoice: { url: invoice.hosted_invoice_url ?? null } });
+		}
+		if (!page.has_more || page.data.length === 0) {
+			return c.json({ invoice: null });
+		}
+		startingAfter = page.data[page.data.length - 1]?.id;
+	}
+});
+
 const removePaymentMethod = createRoute({
 	method: "delete",
 	path: "/payment-method",
