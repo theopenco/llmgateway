@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "c9ecd993-1e13-4cb0-b275-b3e3f480ac15",
-  "prevId": "d6e6ae40-021e-4e7b-8e66-f22f8c9526c3",
+  "id": "6052ed4a-b61c-4944-83c8-934d661976e6",
+  "prevId": "e3a3904d-4604-4968-81c1-77b3c0027d85",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -115,6 +115,12 @@
     {
       "isRlsEnabled": false,
       "name": "chat_support_read_status",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "compliance_provider_state",
       "entityType": "tables",
       "schema": "public"
     },
@@ -300,6 +306,12 @@
     },
     {
       "isRlsEnabled": false,
+      "name": "model_availability_watch",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
       "name": "model_history",
       "entityType": "tables",
       "schema": "public"
@@ -372,7 +384,25 @@
     },
     {
       "isRlsEnabled": false,
+      "name": "organization_alert",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "organization_alert_delivery",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
       "name": "organization_invite",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "organization_notification_channel",
       "entityType": "tables",
       "schema": "public"
     },
@@ -5240,6 +5270,100 @@
       "entityType": "columns",
       "schema": "public",
       "table": "chat_support_read_status"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "compliance_provider_state"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "compliance_provider_state"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "provider_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "compliance_provider_state"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "compliant",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "compliance_provider_state"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "failures",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "compliance_provider_state"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "policy_hash",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "compliance_provider_state"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "compliance_provider_state"
     },
     {
       "type": "text",
@@ -10565,19 +10689,6 @@
       "table": "log"
     },
     {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "error_category",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "log"
-    },
-    {
       "type": "json",
       "typeSchema": null,
       "notNull": false,
@@ -12335,6 +12446,103 @@
       "entityType": "columns",
       "schema": "public",
       "table": "model"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_availability_watch"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_availability_watch"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "model_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_availability_watch"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "created_by_user_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_availability_watch"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "available_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_availability_watch"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "armed_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_availability_watch"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "model_availability_watch"
     },
     {
       "type": "text",
@@ -15668,12 +15876,25 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
       "name": "project_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notification"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "organization_id",
       "entityType": "columns",
       "schema": "public",
       "table": "notification"
@@ -16454,6 +16675,19 @@
       "table": "organization"
     },
     {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "compliance_alert_settings",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
       "type": "text",
       "typeSchema": null,
       "notNull": false,
@@ -16597,6 +16831,22 @@
       "generated": null,
       "identity": null,
       "name": "payment_failure_started_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'current'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "subscription_payment_status",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
@@ -16812,35 +17062,6 @@
       "generated": null,
       "identity": null,
       "name": "dev_plan_included_reset_passes_used",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "false",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "dev_plan_credits_frozen",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "numeric",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "dev_plan_credits_limit_before_freeze",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"
@@ -17350,6 +17571,210 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
+      "table": "organization_alert"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_alert"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "type",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_alert"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "event_key",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_alert"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "title",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_alert"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "message",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_alert"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "href",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_alert"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_alert"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_alert_delivery"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "alert_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_alert_delivery"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "kind",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_alert_delivery"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_alert_delivery"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "sent_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_alert_delivery"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "attempts",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_alert_delivery"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "last_error",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_alert_delivery"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
       "table": "organization_invite"
     },
     {
@@ -17506,6 +17931,90 @@
       "entityType": "columns",
       "schema": "public",
       "table": "organization_invite"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_notification_channel"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_notification_channel"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "kind",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_notification_channel"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "config",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_notification_channel"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_notification_channel"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization_notification_channel"
     },
     {
       "type": "text",
@@ -23233,6 +23742,38 @@
       },
       "generated": null,
       "identity": null,
+      "name": "client_error_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "gateway_error_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_key_hourly_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
       "name": "upstream_error_count",
       "entityType": "columns",
       "schema": "public",
@@ -28639,6 +29180,45 @@
       "table": "video_job"
     },
     {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "video_job"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "video_output_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "video_job"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "image_input_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "video_job"
+    },
+    {
       "type": "jsonb",
       "typeSchema": null,
       "notNull": false,
@@ -31675,6 +32255,41 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "used_provider",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "used_model",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "has_error = true",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "log_error_used_provider_used_model_created_at_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "end_user_session_id",
           "isExpression": false,
           "asc": true,
@@ -32923,6 +33538,27 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "organization_action"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "\"sent_at\" IS NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "organization_alert_delivery_pending_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "organization_alert_delivery"
     },
     {
       "nameExplicit": true,
@@ -35896,6 +36532,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "\"log_id\" is null",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "video_job_org_pending_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "video_job"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "callback_status",
           "isExpression": false,
           "asc": true,
@@ -36634,6 +37291,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organization",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "compliance_provider_state_organization_id_organization_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "compliance_provider_state"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "provider_key_id"
       ],
       "schemaTo": "public",
@@ -37144,6 +37818,40 @@
     {
       "nameExplicit": false,
       "columns": [
+        "organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organization",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "model_availability_watch_organization_id_organization_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "model_availability_watch"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "created_by_user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "user",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "model_availability_watch_created_by_user_id_user_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "model_availability_watch"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "model_id"
       ],
       "schemaTo": "public",
@@ -37263,6 +37971,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organization",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "notification_organization_id_organization_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "notification"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "api_key_id"
       ],
       "schemaTo": "public",
@@ -37340,6 +38065,40 @@
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
+      "name": "organization_alert_organization_id_organization_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "organization_alert"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "alert_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organization_alert",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "organization_alert_delivery_alert_id_organization_alert_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "organization_alert_delivery"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organization",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
       "name": "organization_invite_organization_id_organization_id_fkey",
       "entityType": "fks",
       "schema": "public",
@@ -37378,6 +38137,23 @@
       "entityType": "fks",
       "schema": "public",
       "table": "organization_invite"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organization",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "organization_notification_channel_ybQrWLVXKeol_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "organization_notification_channel"
     },
     {
       "nameExplicit": false,
@@ -39070,6 +39846,16 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "compliance_provider_state_pkey",
+      "schema": "public",
+      "table": "compliance_provider_state",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "content_filter_hourly_model_stats_pkey",
       "schema": "public",
       "table": "content_filter_hourly_model_stats",
@@ -39370,6 +40156,16 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "model_availability_watch_pkey",
+      "schema": "public",
+      "table": "model_availability_watch",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "model_history_pkey",
       "schema": "public",
       "table": "model_history",
@@ -39490,9 +40286,39 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "organization_alert_pkey",
+      "schema": "public",
+      "table": "organization_alert",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "organization_alert_delivery_pkey",
+      "schema": "public",
+      "table": "organization_alert_delivery",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "organization_invite_pkey",
       "schema": "public",
       "table": "organization_invite",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "organization_notification_channel_pkey",
+      "schema": "public",
+      "table": "organization_notification_channel",
       "entityType": "pks"
     },
     {
@@ -40137,6 +40963,18 @@
     {
       "nameExplicit": false,
       "columns": [
+        "organization_id",
+        "provider_id"
+      ],
+      "nullsNotDistinct": false,
+      "name": "compliance_provider_state_organization_id_provider_id_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "compliance_provider_state"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "hour_timestamp",
         "organization_id",
         "project_id",
@@ -40259,6 +41097,18 @@
       "table": "global_source_stats"
     },
     {
+      "nameExplicit": false,
+      "columns": [
+        "organization_id",
+        "model_id"
+      ],
+      "nullsNotDistinct": false,
+      "name": "model_availability_watch_organization_id_model_id_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "model_availability_watch"
+    },
+    {
       "nameExplicit": true,
       "columns": [
         "model_id",
@@ -40360,6 +41210,42 @@
       "entityType": "uniques",
       "schema": "public",
       "table": "org_limit_hit_daily"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "organization_id",
+        "event_key"
+      ],
+      "nullsNotDistinct": false,
+      "name": "organization_alert_organization_id_event_key_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "organization_alert"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "alert_id",
+        "kind"
+      ],
+      "nullsNotDistinct": false,
+      "name": "organization_alert_delivery_alert_id_kind_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "organization_alert_delivery"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "organization_id",
+        "kind"
+      ],
+      "nullsNotDistinct": false,
+      "name": "organization_notification_channel_organization_id_kind_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "organization_notification_channel"
     },
     {
       "nameExplicit": true,

@@ -1,0 +1,1 @@
+ALTER TABLE "provider_model_verification" ADD COLUMN "demoted_capabilities" jsonb;
