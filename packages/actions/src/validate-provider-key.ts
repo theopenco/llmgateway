@@ -141,7 +141,6 @@ export function getValidationModel(
 
 			const kind = getProviderModelKind(model, providerMapping);
 			if (
-				!isStable ||
 				isDeprecated ||
 				isDeactivated ||
 				(kind !== "text" && kind !== "decision")
@@ -163,6 +162,7 @@ export function getValidationModel(
 					modelId: model.id,
 					externalId: providerMapping.externalId,
 					kind,
+					isStable,
 					price: averagePrice,
 					releasedAt:
 						"releasedAt" in model
@@ -180,9 +180,15 @@ export function getValidationModel(
 		? regionModels
 		: collectModels(false);
 
-	const textModels = providerModels.filter((m) => m.kind === "text");
+	// Prefer stable mappings, but never let stability empty the list: a provider
+	// whose entire catalog is a single free preview model (unstable by design)
+	// still has to be probeable, otherwise its keys can never be validated.
+	const stableModels = providerModels.filter((m) => m.isStable);
+	const candidates = stableModels.length ? stableModels : providerModels;
+
+	const textModels = candidates.filter((m) => m.kind === "text");
 	const best = pickCheapestRecentModel(
-		textModels.length ? textModels : providerModels,
+		textModels.length ? textModels : candidates,
 	);
 	return best
 		? { modelId: best.modelId, externalId: best.externalId, kind: best.kind }
@@ -367,9 +373,14 @@ export async function validateProviderKey(
 					model: pinnedModelId,
 				};
 			}
-			throw new Error(
-				`No suitable validation model found for provider ${provider}`,
-			);
+			// Nothing in the catalog can answer a probe for this provider (e.g. it
+			// only maps image or video models). The key was never judged, so
+			// rejecting it would be wrong — accept it unprobed, like a custom
+			// provider without a pinned model.
+			logger.warn("Skipping provider key validation: no probe model", {
+				provider,
+			});
+			return { valid: true };
 		}
 
 		logger.debug("Using validation model", {

@@ -543,6 +543,13 @@ export interface ProviderModelMapping {
 	 */
 	apiFormat?: ProviderApiFormat;
 	/**
+	 * Route this Perplexity mapping to the Agent API (`POST /v1/agent`,
+	 * Responses-shaped) instead of Sonar's chat/completions, which Perplexity
+	 * retires on 2026-09-27. Per mapping rather than per provider so the
+	 * mappings still on Sonar keep working until that date.
+	 */
+	usesPerplexityAgentApi?: boolean;
+	/**
 	 * Provider service tier IDs supported by this specific model mapping.
 	 * Provider definitions own the tier metadata and default multipliers;
 	 * mappings opt in to the subset actually supported by the upstream model.
