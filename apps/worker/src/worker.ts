@@ -1973,7 +1973,7 @@ async function enqueueLowBalanceEmail(
 
 	// Checked before the dry-run log and the dedup insert so a suppressed
 	// recipient never burns this cycle's slot or emits a "sent" event.
-	if (!(await canSendFollowUp(organizationId, email, "credit_alerts"))) {
+	if (!(await canSendFollowUp(email, "credit_alerts"))) {
 		logger.info("Low balance alert suppressed by email preferences", {
 			emailType,
 			organizationId,

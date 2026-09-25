@@ -2,7 +2,7 @@ import { interruptibleSleep, isStopRequested } from "@/shutdown.js";
 
 import {
 	and,
-	canSendEmailCategory,
+	isEmailSuppressed,
 	db,
 	eq,
 	followUpEmail,
@@ -183,24 +183,12 @@ The LLM Gateway Team`,
 
 // ─── Send & Record ───────────────────────────────────────────────────────────
 
-/**
- * Combined org-preference and recipient-suppression gate. A missing org is
- * treated as "no preferences", leaving the address-level check in charge.
- */
+/** Recipient-suppression gate for an optional nudge. */
 export async function canSendFollowUp(
-	organizationId: string,
 	recipientEmail: string,
 	category: EmailCategory,
 ): Promise<boolean> {
-	const org = await db.query.organization.findFirst({
-		where: { id: { eq: organizationId } },
-	});
-
-	return await canSendEmailCategory({
-		email: recipientEmail,
-		category,
-		organizationPreferences: org?.emailPreferences ?? null,
-	});
+	return !(await isEmailSuppressed(recipientEmail, category));
 }
 
 async function sendAndRecord(
@@ -214,7 +202,7 @@ async function sendAndRecord(
 	// Checked before the ledger insert: recording a send we then suppress would
 	// burn the org's once-ever slot for this type, so a later resubscribe could
 	// never be honoured.
-	if (!(await canSendFollowUp(organizationId, recipientEmail, category))) {
+	if (!(await canSendFollowUp(recipientEmail, category))) {
 		logger.info("Follow-up email suppressed by email preferences", {
 			emailType,
 			organizationId,

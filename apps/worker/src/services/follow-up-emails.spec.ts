@@ -14,8 +14,6 @@ import {
 
 import { processNoPurchaseEmails } from "./follow-up-emails.js";
 
-import type { OrganizationEmailPreferences } from "@llmgateway/db";
-
 const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
 const TWO_DAYS_AGO = new Date(Date.now() - TWO_DAYS_MS);
 
@@ -335,10 +333,7 @@ describe("processNoPurchaseEmails opt-outs", () => {
 		await db.delete(user);
 	});
 
-	async function seedEligibleOrg(
-		billingEmail: string,
-		emailPreferences: OrganizationEmailPreferences | null = null,
-	) {
+	async function seedEligibleOrg(billingEmail: string) {
 		const [owner] = await db
 			.insert(user)
 			.values({ email: billingEmail, name: "Owner", emailVerified: true })
@@ -351,7 +346,6 @@ describe("processNoPurchaseEmails opt-outs", () => {
 				status: "active",
 				devPlan: "none",
 				billingEmail,
-				emailPreferences,
 				createdAt: TWO_DAYS_AGO,
 			})
 			.returning();
@@ -391,28 +385,6 @@ describe("processNoPurchaseEmails opt-outs", () => {
 		const sent = await db.select().from(followUpEmail);
 		expect(sent).toHaveLength(1);
 		expect(sent[0].sentTo).toBe("resub@example.com");
-	});
-
-	it("skips an org that turned marketing email off", async () => {
-		await seedEligibleOrg("orgoff@example.com", {
-			marketing: false,
-			creditAlerts: true,
-		});
-
-		await processNoPurchaseEmails();
-
-		expect(await db.select().from(followUpEmail)).toHaveLength(0);
-	});
-
-	it("still nudges when only credit alerts are turned off", async () => {
-		await seedEligibleOrg("creditsoff@example.com", {
-			marketing: true,
-			creditAlerts: false,
-		});
-
-		await processNoPurchaseEmails();
-
-		expect(await db.select().from(followUpEmail)).toHaveLength(1);
 	});
 
 	it("ignores a suppression recorded for the other category", async () => {

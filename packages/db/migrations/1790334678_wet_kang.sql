@@ -7,5 +7,4 @@ CREATE TABLE "email_unsubscribe" (
 	CONSTRAINT "email_unsubscribe_email_category_unique" UNIQUE("email","category")
 );
 --> statement-breakpoint
-ALTER TABLE "organization" ADD COLUMN "email_preferences" json;--> statement-breakpoint
 CREATE INDEX "email_unsubscribe_email_idx" ON "email_unsubscribe" ("email");

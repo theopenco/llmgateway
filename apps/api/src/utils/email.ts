@@ -1,8 +1,4 @@
-import {
-	canSendEmailCategory,
-	db,
-	isOrgOwnerEmailVerified,
-} from "@llmgateway/db";
+import { isEmailSuppressed, isOrgOwnerEmailVerified } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
 	fromEmail,
@@ -77,8 +73,8 @@ export interface TransactionalEmailOptions {
 	/**
 	 * Email category. Defaults to "transactional": mandatory account mail that
 	 * carries no unsubscribe link. Any other value marks the send as optional,
-	 * which checks the recipient's suppression state and the organization's
-	 * preferences first, and attaches RFC 8058 one-click unsubscribe headers.
+	 * which checks the recipient's suppression state first and attaches RFC
+	 * 8058 one-click unsubscribe headers.
 	 */
 	category?: "transactional" | EmailCategory;
 }
@@ -147,35 +143,19 @@ export async function sendTransactionalEmail({
 		return;
 	}
 
-	// Optional mail is gated on the recipient's suppression state and the
-	// organization's preferences. Transactional mail bypasses both by design.
+	// Optional mail is gated on the recipient's suppression list. Transactional
+	// mail bypasses it by design.
 	const unsubscribeToken =
 		category === "transactional"
 			? null
 			: signUnsubscribeToken({ email: to, category });
 
-	if (category !== "transactional") {
-		const organizationPreferences = organizationId
-			? ((
-					await db.query.organization.findFirst({
-						where: { id: { eq: organizationId } },
-					})
-				)?.emailPreferences ?? null)
-			: null;
-
-		if (
-			!(await canSendEmailCategory({
-				email: to,
-				category,
-				organizationPreferences,
-			}))
-		) {
-			logger.info("Skipping email: recipient opted out of category", {
-				subject,
-				category,
-			});
-			return;
-		}
+	if (category !== "transactional" && (await isEmailSuppressed(to, category))) {
+		logger.info("Skipping email: recipient opted out of category", {
+			subject,
+			category,
+		});
+		return;
 	}
 
 	// In non-production environments, just log the email content

@@ -6,33 +6,50 @@ icon: Mail
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-LLM Gateway sends three kinds of email. Only two of them can be turned off.
+Every email we send is either account email, which you cannot turn off, or one
+of seven optional categories, all of which you can.
 
 ## Account email
 
-Invoices and receipts, payment failures, subscription changes, password resets, email verification, and team or SSO invitations. These are part of running your account, so they carry no unsubscribe link. The only way to stop them is to close your account from the [dashboard](https://llmgateway.io/dashboard).
+Invoices and receipts, payment failures, subscription changes, password resets,
+email verification, and team or SSO invitations. These are part of running your
+account, so they carry no unsubscribe link. The only way to stop them is to
+close your account from the [dashboard](https://llmgateway.io/dashboard).
 
-## Product tips and offers
+## Optional email
 
-Onboarding nudges, feature announcements, and occasional campaigns. Every one of these carries an unsubscribe link and a one-click unsubscribe header, so your mail client can opt you out without opening the message.
+Everything else carries an unsubscribe link and a one-click unsubscribe header,
+so your mail client can opt you out without opening the message:
 
-## Credit balance reminders
+- **API key budgets** — a key is approaching its total or recurring limit.
+- **Model retirements** — a model you use is due to be deprecated or deactivated.
+- **Provider issues** — elevated errors from a provider you recently used.
+- **Compliance: models available** — a watched model became usable under your
+  organization's policy.
+- **Compliance: downgrades** — a provider or watched model stopped meeting your
+  organization's policy.
+- **Product tips and offers** — onboarding nudges, feature announcements and
+  occasional campaigns.
+- **Credit balance reminders** — your balance dropped below 20% or 5% of your
+  last top-up, or your credits have not been topped up in a while.
 
-Emails sent when your balance drops below 20% or 5% of your last top-up, or when your credits have not been topped up in a while. These also carry an unsubscribe link.
+The first five are also delivered in the dashboard's notification feed, which
+you can leave on after turning their email off.
+
+## Managing them
+
+**Notifications** in the dashboard lists all seven categories with an in-app and
+an email switch each. The settings are yours rather than your organization's, so
+they follow you across every organization you belong to.
 
 <Callout type="info">
-	Unsubscribing applies to the address the email was sent to, across every
-	organization that mails it.
+	Unsubscribing applies to the email address the message was sent to. If your
+	organization's billing address differs from your account address, use the
+	unsubscribe link in the email itself to stop mail sent to that address.
 </Callout>
-
-## Turning categories off for an organization
-
-Owners and admins can switch either optional category off for a whole organization under **Organization → Preferences → Email Preferences** in the dashboard. This is independent of a per-address unsubscribe: either one stops the email.
-
-## Usage and compliance alerts
-
-Budget thresholds, model retirements, provider incidents, and compliance policy changes are controlled separately, per type, from the notifications panel in the dashboard. Organization-wide compliance alerts also have their own delivery settings under **Organization → Compliance**.
 
 ## Newsletter
 
-The newsletter is a separate opt-in list you join from the website. Its unsubscribe link is managed by our email provider and is independent of everything above.
+The newsletter is a separate opt-in list you join from the website. Its
+unsubscribe link is managed by our email provider and is independent of
+everything above.

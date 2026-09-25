@@ -3,17 +3,42 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { getApiKeyHashSecret, getApiKeyHashSecrets } from "./api-key-hash.js";
 
 /**
+ * Categories that also appear in the in-app notification feed. Delivery for
+ * these is a per-user preference on top of the address-level suppression list.
+ */
+export const notificationCategories = [
+	"budget",
+	"model_retirement",
+	"provider_issue",
+	"model_available",
+	"compliance_downgrade",
+] as const;
+export type NotificationCategory = (typeof notificationCategories)[number];
+
+/**
  * Optional email categories a recipient can unsubscribe from. Everything not
  * listed here is transactional and can only be stopped by closing the account.
  */
-export const emailCategories = ["marketing", "credit_alerts"] as const;
+export const emailCategories = [
+	...notificationCategories,
+	"marketing",
+	"credit_alerts",
+] as const;
 export type EmailCategory = (typeof emailCategories)[number];
+
+/** Categories delivered by email only; they have no in-app counterpart. */
+export type EmailOnlyCategory = Exclude<EmailCategory, NotificationCategory>;
 
 export type EmailFooterKind = "transactional" | EmailCategory;
 
 const TOKEN_VERSION = "v1";
 
 const CATEGORY_LABELS: Record<EmailCategory, string> = {
+	budget: "API key budget warnings",
+	model_retirement: "model retirement notices",
+	provider_issue: "provider incident alerts",
+	model_available: "compliance model availability alerts",
+	compliance_downgrade: "compliance downgrade alerts",
 	marketing: "product tips and offers",
 	credit_alerts: "credit balance reminders",
 };
@@ -28,6 +53,12 @@ interface UnsubscribeTokenPayload {
 
 export function isEmailCategory(value: string): value is EmailCategory {
 	return (emailCategories as readonly string[]).includes(value);
+}
+
+export function isNotificationCategory(
+	value: string,
+): value is NotificationCategory {
+	return (notificationCategories as readonly string[]).includes(value);
 }
 
 export function normalizeEmail(email: string): string {

@@ -1,8 +1,10 @@
+import { and, eq } from "drizzle-orm";
+
 import { normalizeEmail } from "@llmgateway/shared/email-unsubscribe";
 
 import { db } from "./db.js";
+import { emailUnsubscribe } from "./schema.js";
 
-import type { OrganizationEmailPreferences } from "./schema.js";
 import type { EmailCategory } from "@llmgateway/shared/email-unsubscribe";
 
 // Policy: org-scoped transactional and lifecycle emails must only be sent when
@@ -90,30 +92,38 @@ export async function isEmailSuppressed(
 	return Boolean(row);
 }
 
-/** Org-level toggle from the dashboard. Missing preferences means enabled. */
-export function isOrgCategoryEnabled(
-	preferences: OrganizationEmailPreferences | null | undefined,
-	category: EmailCategory,
-): boolean {
-	if (!preferences) {
-		return true;
-	}
-	return category === "marketing"
-		? preferences.marketing !== false
-		: preferences.creditAlerts !== false;
+/** Every category this address has unsubscribed from. */
+export async function getSuppressedCategories(
+	email: string,
+): Promise<EmailCategory[]> {
+	const rows = await db.query.emailUnsubscribe.findMany({
+		columns: { category: true },
+		where: { email: { eq: normalizeEmail(email) } },
+	});
+	return rows.map((row) => row.category);
 }
 
-/**
- * Combined gate for an optional email: the org must not have turned the
- * category off, and the recipient must not have unsubscribed.
- */
-export async function canSendEmailCategory(input: {
-	email: string;
-	category: EmailCategory;
-	organizationPreferences?: OrganizationEmailPreferences | null;
-}): Promise<boolean> {
-	if (!isOrgCategoryEnabled(input.organizationPreferences, input.category)) {
-		return false;
-	}
-	return !(await isEmailSuppressed(input.email, input.category));
+export async function suppressEmailCategory(
+	email: string,
+	category: EmailCategory,
+	source: "one_click" | "dashboard" | "admin",
+): Promise<void> {
+	await db
+		.insert(emailUnsubscribe)
+		.values({ email: normalizeEmail(email), category, source })
+		.onConflictDoNothing();
+}
+
+export async function unsuppressEmailCategory(
+	email: string,
+	category: EmailCategory,
+): Promise<void> {
+	await db
+		.delete(emailUnsubscribe)
+		.where(
+			and(
+				eq(emailUnsubscribe.email, normalizeEmail(email)),
+				eq(emailUnsubscribe.category, category),
+			),
+		);
 }

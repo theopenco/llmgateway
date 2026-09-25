@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "8500cb0d-0144-4d2e-8839-6d22650d91cc",
+  "id": "708e4986-92f1-4560-b4dc-c3111a63f001",
   "prevId": "4b8b1ca1-66a8-4ff2-8b12-c38a6734555c",
   "ddl": [
     {
@@ -16760,19 +16760,6 @@
       "generated": null,
       "identity": null,
       "name": "compliance_alert_settings",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "organization"
-    },
-    {
-      "type": "json",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "email_preferences",
       "entityType": "columns",
       "schema": "public",
       "table": "organization"

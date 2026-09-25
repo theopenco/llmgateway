@@ -30,7 +30,10 @@ import type {
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
-import type { EmailCategory } from "@llmgateway/shared/email-unsubscribe";
+import type {
+	EmailCategory,
+	NotificationCategory,
+} from "@llmgateway/shared/email-unsubscribe";
 import type { AlertAudience } from "@llmgateway/shared/organization-roles";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type z from "zod";
@@ -321,9 +324,6 @@ export const organization = pgTable(
 		// Delivery of compliance alerts (watched models becoming available,
 		// providers no longer meeting the policy). Null = alerts not configured.
 		complianceAlertSettings: json().$type<ComplianceAlertSettings>(),
-		// Org-level opt-out for the optional email categories. Null = both
-		// enabled. Transactional email (invoices, auth, invites) ignores this.
-		emailPreferences: json().$type<OrganizationEmailPreferences>(),
 		// Enterprise Google SSO auto-join. When set, users signing in via Google
 		// with a verified email at this domain are auto-added to the org as
 		// "developer". Stored lowercase, no leading "@". Unique so a domain can
@@ -923,17 +923,34 @@ export const modelSurveyResponse = pgTable(
 	],
 );
 
-// Mirrors `emailCategories` in @llmgateway/shared/email-unsubscribe. It cannot
-// be imported: drizzle-kit loads this file directly and fails on any runtime
-// import from a workspace package. `assertSameEmailCategories` below fails the
-// build if the two lists ever drift.
-const emailCategories = ["marketing", "credit_alerts"] as const;
+// Mirrors `notificationCategories` / `emailCategories` in
+// @llmgateway/shared/email-unsubscribe. They cannot be imported: drizzle-kit
+// loads this file directly and fails on any runtime import from a workspace
+// package. The assertions below fail the build if the lists ever drift.
+export const notificationTypes = [
+	"budget",
+	"model_retirement",
+	"provider_issue",
+	"model_available",
+	"compliance_downgrade",
+] as const;
+
+const emailCategories = [
+	...notificationTypes,
+	"marketing",
+	"credit_alerts",
+] as const;
 
 type SameKeys<A extends string, B extends string> = [A] extends [B]
 	? [B] extends [A]
 		? true
 		: never
 	: never;
+const assertSameNotificationTypes: SameKeys<
+	NotificationCategory,
+	(typeof notificationTypes)[number]
+> = true;
+void assertSameNotificationTypes;
 const assertSameEmailCategories: SameKeys<
 	EmailCategory,
 	(typeof emailCategories)[number]
@@ -4091,7 +4108,6 @@ export const auditLogActions = [
 	"organization.block",
 	"organization.manage",
 	"organization.sso_auto_join.update",
-	"organization.email_preferences.update",
 	// Project
 	"project.create",
 	"project.update",
@@ -6464,24 +6480,9 @@ export const playgroundRealtimeHistory = pgTable(
 	],
 );
 
-export const notificationTypes = [
-	"budget",
-	"model_retirement",
-	"provider_issue",
-	"model_available",
-	"compliance_downgrade",
-] as const;
-
 export const organizationNotificationChannelKinds = ["slack"] as const;
 export type OrganizationNotificationChannelKind =
 	(typeof organizationNotificationChannelKinds)[number];
-
-export interface OrganizationEmailPreferences {
-	/** Product tips and offers (signup nudges, usage nudges, campaigns). */
-	marketing: boolean;
-	/** Credit balance reminders (low balance, top-up nudges). */
-	creditAlerts: boolean;
-}
 
 export interface ComplianceAlertSettings {
 	inApp: boolean;

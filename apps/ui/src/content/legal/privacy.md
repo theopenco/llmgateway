@@ -83,7 +83,7 @@ We use your data to:
 - Produce usage, performance, and product analytics
 - Communicate updates, security alerts, and (where permitted) promotions
 
-Marketing email and credit balance reminders carry an unsubscribe link and a one-click unsubscribe header, and can also be switched off per organization in the dashboard. Account email — invoices, payment failures, subscription changes, password resets and invitations — is necessary to operate your account and is sent for as long as the account exists; closing your account is how you stop it. See [Email Preferences](https://docs.llmgateway.io/resources/email-preferences) for the full breakdown.
+Optional email — marketing, credit balance reminders, and the usage and compliance alerts you opt into — carries an unsubscribe link and a one-click unsubscribe header, and can also be switched off per category from Notifications in the dashboard. Account email — invoices, payment failures, subscription changes, password resets and invitations — is necessary to operate your account and is sent for as long as the account exists; closing your account is how you stop it. See [Email Preferences](https://docs.llmgateway.io/resources/email-preferences) for the full breakdown.
 
 We do **not** sell your personal information, and we do **not** use Customer Data to train AI models.
 

@@ -290,6 +290,10 @@ const ORGANIZATION_SETTINGS = [
 		label: "Preferences",
 	},
 	{
+		href: "notifications",
+		label: "Notifications",
+	},
+	{
 		href: "org/audit-logs",
 		label: "Audit Logs",
 		enterpriseOnly: true,
@@ -708,6 +712,7 @@ function OrganizationSection({
 								isActive("org/limits") ||
 								isActive("org/policies") ||
 								isActive("org/preferences") ||
+								isActive("notifications") ||
 								isActive("org/audit-logs")
 							}
 							tooltip="Settings"
@@ -1311,7 +1316,11 @@ export function DashboardSidebar({
 				icon: item.icon,
 				enterpriseGated: item.enterpriseGated,
 			})),
-			...ORGANIZATION_SETTINGS.filter(() => isOrgAdmin).map((item) => ({
+			...ORGANIZATION_SETTINGS.filter(
+				// Notifications are per-user, not an org setting, so members reach
+				// them too; everything else in this group is admin-only.
+				(item) => isOrgAdmin || item.href === "notifications",
+			).map((item) => ({
 				href:
 					"search" in item
 						? buildUrlWithParams(

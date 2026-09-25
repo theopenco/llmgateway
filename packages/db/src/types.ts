@@ -202,8 +202,6 @@ type SerializedOrganizationBase = Omit<
 	| "contentFilterLogOnly"
 	// Served by GET /orgs/{id}/compliance-alerts.
 	| "complianceAlertSettings"
-	// Served by GET /orgs/{id}/email-preferences.
-	| "emailPreferences"
 	| "devPlanBillingCycleStart"
 	| "devPlanPremiumWeekStart"
 	| "devPlanStripeSubscriptionId"

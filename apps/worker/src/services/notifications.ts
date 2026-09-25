@@ -7,6 +7,7 @@ import {
 	eq,
 	gte,
 	inArray,
+	isEmailSuppressed,
 	isNull,
 	lt,
 	sql,
@@ -20,6 +21,11 @@ import {
 	getResendClient,
 	replyToEmail,
 } from "@llmgateway/shared/email";
+import {
+	buildUnsubscribeHeaders,
+	renderFooterText,
+	signUnsubscribeToken,
+} from "@llmgateway/shared/email-unsubscribe";
 
 import {
 	isComplianceAlertRecipient,
@@ -303,6 +309,11 @@ export async function deliverNotificationEmails(
 		const recipient = await db.query.user.findFirst({
 			where: { id: item.userId, status: "active", emailVerified: true },
 		});
+		// The address, not the user, owns the suppression: unsubscribing from an
+		// inbox must stick even if the same person holds several accounts.
+		const suppressed = recipient
+			? await isEmailSuppressed(recipient.email, item.type)
+			: false;
 		if (item.organizationId) {
 			// Org alerts: the org enabled email; recipients opt out via their own
 			// preference. Skips are final, so the row leaves the pending queue.
@@ -312,6 +323,7 @@ export async function deliverNotificationEmails(
 			if (
 				!recipient ||
 				optedOut ||
+				suppressed ||
 				!(await isComplianceAlertRecipient(item.userId, item.organizationId))
 			) {
 				await db
@@ -322,6 +334,15 @@ export async function deliverNotificationEmails(
 			}
 		} else {
 			if (!recipient) {
+				continue;
+			}
+			if (suppressed) {
+				// Terminal: an unsubscribed address never becomes eligible again
+				// without an explicit resubscribe, which clears the row anyway.
+				await db
+					.update(notification)
+					.set({ email: false })
+					.where(eq(notification.id, item.id));
 				continue;
 			}
 			const preference = await db.query.notificationPreference.findFirst({
@@ -340,13 +361,18 @@ export async function deliverNotificationEmails(
 		}
 		try {
 			const uiUrl = process.env.UI_URL ?? "https://llmgateway.io";
+			const token = signUnsubscribeToken({
+				email: recipient.email,
+				category: item.type,
+			});
 			const { error } = await client.emails.send(
 				{
 					from: fromEmail,
 					replyTo: replyToEmail,
 					to: recipient.email,
 					subject: item.title,
-					text: `${item.message}\n\n${uiUrl}${item.href}\n\nManage which notifications reach you by email: ${uiUrl}/dashboard`,
+					text: `${item.message}\n\n${uiUrl}${item.href}${renderFooterText(item.type, token)}`,
+					headers: buildUnsubscribeHeaders(token),
 				},
 				{ idempotencyKey: `notification/${item.id}` },
 			);

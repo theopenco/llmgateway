@@ -1,7 +1,6 @@
 "use client";
 
 import { DeleteOrganizationSettings } from "@/components/settings/delete-organization-settings";
-import { EmailPreferencesSettings } from "@/components/settings/email-preferences-settings";
 import { NotificationChannelsSettings } from "@/components/settings/notification-channels-settings";
 import { OrganizationIdSettings } from "@/components/settings/organization-id-settings";
 import { OrganizationLogoSettings } from "@/components/settings/organization-logo-settings";
@@ -54,17 +53,6 @@ export default function PreferencesPage() {
 						</CardHeader>
 						<CardContent className="space-y-6">
 							<OrganizationLogoSettings />
-						</CardContent>
-					</Card>
-					<Card>
-						<CardHeader>
-							<CardTitle>Email Preferences</CardTitle>
-							<CardDescription>
-								Choose which optional emails this organization receives.
-							</CardDescription>
-						</CardHeader>
-						<CardContent>
-							<EmailPreferencesSettings />
 						</CardContent>
 					</Card>
 					<Card>
