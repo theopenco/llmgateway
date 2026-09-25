@@ -32,8 +32,10 @@ tariff filing still awaiting review.
 ## Registering an aircraft
 
 Click **Register aircraft**, pick the carrier (when your company holds more
-than one), and fill in the model id, display name, context size, capabilities,
-and the initial tariff. Prices are per token and accept exponent notation —
+than one), and fill in the model id, display name, family, context size, capabilities,
+accepted `tool_choice` modes, optional quantization, and the initial tariff.
+For a model already in the catalogue, **Use catalog price** copies another
+provider's flat prices as a starting point. Prices are per token and accept exponent notation —
 `2e-6` reads as $2 per million tokens.
 
 <ThemedImage
@@ -45,8 +47,9 @@ and the initial tariff. Prices are per token and accept exponent notation —
 
 <Callout type="info">
 	New listings and every later price change are reviewed by the LLM Gateway team
-	before taking effect. Everything else about a model — display name,
-	description, context size, capability flags — applies immediately.
+	before taking effect. Drafts save immediately; on a live listing, metadata
+	changes such as description, context size, capabilities, or quantization are
+	filed for review too.
 </Callout>
 
 ## Changing a price
