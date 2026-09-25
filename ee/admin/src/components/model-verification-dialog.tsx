@@ -99,11 +99,20 @@ function VerificationProbeList({ probes }: { probes?: VerificationProbes }) {
 			{probes.map((probe) => (
 				<li key={probe.label} className="flex items-start gap-1.5">
 					{probe.status === "passed" ? (
-						<CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500" />
+						<CheckCircle2
+							className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500"
+							aria-hidden="true"
+						/>
 					) : (
-						<XCircle className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />
+						<XCircle
+							className="mt-0.5 h-3 w-3 shrink-0 text-destructive"
+							aria-hidden="true"
+						/>
 					)}
 					<span className="min-w-0">
+						<span className="sr-only">
+							{probe.status === "passed" ? "Passed" : "Failed"}:{" "}
+						</span>
 						<span className="font-mono">{probe.label}</span>
 						{probe.feedback ? (
 							<span className="text-muted-foreground"> — {probe.feedback}</span>
