@@ -87,6 +87,7 @@ export function transformStreamingToOpenai(
 	options?: {
 		cacheThoughtSignatures?: boolean;
 		googleThoughtSignatureState?: Map<number, GoogleThoughtSignatureState>;
+		googleToolCallIndices?: Map<number, number>;
 	},
 ): any {
 	let transformedData = data;
@@ -653,6 +654,8 @@ export function transformStreamingToOpenai(
 				}
 
 				const toolCalls: any[] = [];
+				let toolCallIndex =
+					options?.googleToolCallIndices?.get(candidateIndex) ?? 0;
 				const thoughtSignatures: string[] = [];
 
 				parts.forEach((part, partIndex) => {
@@ -685,7 +688,7 @@ export function transformStreamingToOpenai(
 						toolCalls.push({
 							id: toolCallId,
 							type: "function",
-							index: partIndex,
+							index: toolCallIndex++,
 							function: {
 								name: part.functionCall.name,
 								arguments: JSON.stringify(part.functionCall.args ?? {}),
@@ -729,6 +732,9 @@ export function transformStreamingToOpenai(
 					}
 				});
 
+				// Google sends complete calls in separate chunks; part indices restart
+				// in each chunk, but OpenAI clients accumulate calls by stream index.
+				options?.googleToolCallIndices?.set(candidateIndex, toolCallIndex);
 				if (toolCalls.length > 0) {
 					(delta as any).tool_calls = toolCalls;
 				}
