@@ -1895,8 +1895,29 @@
     {
       "idx": 270,
       "version": "8",
-      "when": 1790157511952,
-      "tag": "1790157511_round_joseph",
+      "when": 1790138837807,
+      "tag": "1790138837_sparkling_leech",
+      "breakpoints": true
+    },
+    {
+      "idx": 271,
+      "version": "8",
+      "when": 1790160215818,
+      "tag": "1790160215_strange_serpent_society",
+      "breakpoints": true
+    },
+    {
+      "idx": 272,
+      "version": "8",
+      "when": 1790250322438,
+      "tag": "1790250322_glamorous_lord_tyger",
+      "breakpoints": true
+    },
+    {
+      "idx": 273,
+      "version": "8",
+      "when": 1790254048799,
+      "tag": "1790254048_lethal_ender_wiggin",
       "breakpoints": true
     }
   ]
