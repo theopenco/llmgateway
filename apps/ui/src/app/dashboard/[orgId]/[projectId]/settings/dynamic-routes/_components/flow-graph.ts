@@ -32,6 +32,8 @@ export function nodeReferences(node: DynamicRouteNode): string[] {
 	switch (node.type) {
 		case "conditional":
 			return [...node.conditions.map((c) => c.next), node.else];
+		case "classifier":
+			return [...node.cases.map((c) => c.next), node.else];
 		case "percentage":
 			return node.splits.map((s) => s.next);
 		default:
@@ -134,6 +136,23 @@ export function validateEditorState(state: EditorState): string[] {
 				errors.push(`Conditional "${node.id}": connect the else branch`);
 			}
 		}
+		if (node.type === "classifier") {
+			node.cases.forEach((entry, index) => {
+				if (!entry.value) {
+					errors.push(
+						`Classifier "${node.id}": case ${index + 1} needs a value`,
+					);
+				}
+				if (!entry.next) {
+					errors.push(
+						`Classifier "${node.id}": connect case ${index + 1} to a node`,
+					);
+				}
+			});
+			if (!node.else) {
+				errors.push(`Classifier "${node.id}": connect the else branch`);
+			}
+		}
 		if (node.type === "percentage") {
 			node.splits.forEach((split, index) => {
 				if (!split.next) {
@@ -204,6 +223,18 @@ export function createNode(
 				],
 				else: "",
 			};
+		case "classifier":
+			return {
+				id,
+				type: "classifier",
+				kind: "jev",
+				on: "difficulty",
+				cases: [
+					{ value: "high", next: "" },
+					{ value: "medium", next: "" },
+				],
+				else: "",
+			};
 		case "percentage":
 			return {
 				id,
@@ -234,6 +265,19 @@ export function removeNodes(state: EditorState, ids: string[]): EditorState {
 						node: {
 							...node,
 							conditions: node.conditions.map((c) => ({
+								...c,
+								next: clearRef(c.next),
+							})),
+							else: clearRef(node.else),
+						},
+					};
+				}
+				if (node.type === "classifier") {
+					return {
+						position,
+						node: {
+							...node,
+							cases: node.cases.map((c) => ({
 								...c,
 								next: clearRef(c.next),
 							})),
@@ -288,6 +332,21 @@ export function setBranchTarget(
 					node: {
 						...node,
 						conditions: node.conditions.map((c, i) =>
+							i === index ? { ...c, next: target } : c,
+						),
+					},
+				};
+			}
+			if (node.type === "classifier") {
+				if (sourceHandle === "else") {
+					return { position, node: { ...node, else: target } };
+				}
+				const index = Number(sourceHandle.slice(1));
+				return {
+					position,
+					node: {
+						...node,
+						cases: node.cases.map((c, i) =>
 							i === index ? { ...c, next: target } : c,
 						),
 					},

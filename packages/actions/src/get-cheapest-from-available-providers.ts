@@ -23,10 +23,15 @@ import {
 	getEffectiveScoringWeights,
 } from "./compute-provider-scores.js";
 
+import type { DynamicRouteClassifierKind } from "@llmgateway/shared/dynamic-route";
 import type {
 	RoutingCredentialSource,
 	RoutingExclusionReason,
 } from "@llmgateway/shared/routing-telemetry";
+import type {
+	SmartRoutingClassifier,
+	SmartRoutingDifficulty,
+} from "@llmgateway/shared/smart-routing";
 
 interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
@@ -177,6 +182,45 @@ export interface RoutingMetadata {
 		version: number;
 		// Node ids traversed during graph evaluation
 		path: string[];
+		// Verdict the route's classifier nodes branched on. Absent when the
+		// graph has none, or when the classifier produced no verdict and those
+		// nodes took their `else` branch.
+		classifier?: {
+			kind: DynamicRouteClassifierKind;
+			difficulty?: SmartRoutingDifficulty;
+			difficultyScore?: number;
+			task?: string;
+			outputType?: string;
+		};
+	};
+	// How an "auto" request resolved to a concrete model when the organization
+	// configured smart routing. Absent for the built-in default candidate set.
+	smartRouting?: {
+		classifier: SmartRoutingClassifier;
+		rubricVersion?: number;
+		// Models the configuration allowed, before availability filtering.
+		eligibleModels: string[];
+		// Models that survived filtering and were ranked, cheapest first.
+		candidateModels: string[];
+		difficulty?: SmartRoutingDifficulty;
+		difficultyScore?: number;
+		task?: string;
+		outputType?: string;
+		bestModel?: string;
+		bestModelConfidence?: number;
+		band?: SmartRoutingDifficulty;
+		selectedModel: string;
+		// Latency of the classifier call this request made; absent when it made
+		// none.
+		classifierLatencyMs?: number;
+		// True when a classifier call was attempted and produced no verdict, so
+		// the selection fell back to the cheapest candidate. A classifier that is
+		// never consulted at all — no credential, a blocking compliance policy, a
+		// single candidate — leaves this false.
+		classifierFailed: boolean;
+		// True when the verdict served came from another turn of the same sticky
+		// session rather than from this request.
+		classifierReused?: boolean;
 	};
 }
 

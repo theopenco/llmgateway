@@ -6,7 +6,7 @@ icon: Workflow
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-Dynamic routes let you move routing logic out of your application code and into the gateway. Instead of hardcoding a model, you define a named decision graph — conditions on the request, percentage-based traffic splits, and model targets — and invoke it by putting `dynamic/<name>` in the `model` field of a chat request. Dynamic routes are resolved on `/v1/chat/completions` and the endpoints that proxy through it (`/v1/responses`, `/v1/messages`, and the AI SDK gateway endpoints under `/v*/ai`) — not on embeddings, images, audio, video, rerank, OCR, or moderations:
+Dynamic routes let you move routing logic out of your application code and into the gateway. Instead of hardcoding a model, you define a named decision graph — conditions on the request, classifier verdicts, percentage-based traffic splits, and model targets — and invoke it by putting `dynamic/<name>` in the `model` field of a chat request. Dynamic routes are resolved on `/v1/chat/completions` and the endpoints that proxy through it (`/v1/responses`, `/v1/messages`, and the AI SDK gateway endpoints under `/v*/ai`) — not on embeddings, images, audio, video, rerank, OCR, or moderations:
 
 ```bash
 curl https://api.llmgateway.io/v1/chat/completions \
@@ -94,6 +94,36 @@ Supported operators:
 | `gt`, `lt` | The field is numerically greater / less than the value                    | number                    |
 | `exists`   | The field is present (no value)                                           | —                         |
 
+### `classifier`
+
+Rates the request with a classifier and branches on one of its answers. Set `kind` to the classifier to use (currently `jev`, TypeSafe's decision model) and `on` to the answer to branch on:
+
+| `on`         | Values                                                                                                                    |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `difficulty` | `low`, `medium`, `high`                                                                                                   |
+| `task`       | `coding`, `math`, `analysis`, `writing`, `extraction`, `summarization`, `translation`, `conversation`, `agentic`, `other` |
+| `outputType` | `short_answer`, `long_form`, `code`, `structured_data`                                                                    |
+
+```json
+{
+	"id": "rate",
+	"type": "classifier",
+	"kind": "jev",
+	"on": "difficulty",
+	"cases": [
+		{ "value": "high", "next": "frontier" },
+		{ "value": "low", "next": "cheap" }
+	],
+	"else": "balanced"
+}
+```
+
+The node adds one short round trip before the upstream call, and only routes that contain a `classifier` node pay for it. A [sticky session](/features/routing#sticky-session-routing) is rated once and the rest of the conversation reuses that verdict, so a multi-turn chat is not re-rated per turn.
+
+`else` covers both outcomes you need it to: no case matched, **and** no verdict was produced. The classifier is fail-open — an outage, a timeout, a missing credential, or a compliance policy that blocks its provider all take the `else` branch rather than failing the route. Give `else` a sensible default model rather than an `end` node.
+
+The verdict is recorded on the request log under `routingMetadata.dynamicRoute.classifier`, so you can see which branch was taken and why.
+
 ### `percentage`
 
 Splits traffic across branches by relative weight. The draw is **deterministic per session**: the split key is the request's session id (`x-session-id` and the other [sticky session routing](/features/routing#sticky-session-routing) signals), so a conversation keeps its assignment across requests instead of flip-flopping between experiment arms. Requests without a session id get an independent draw per request.
@@ -118,6 +148,7 @@ Graphs are validated when you save a draft and again when you publish:
 - cycles are rejected — evaluation is deterministic per request, so a revisited node would loop forever
 - model ids and provider ids must exist in the catalog, and each listed provider must actually serve the model
 - operator/value mismatches (e.g. `gt` with a non-numeric value) are rejected
+- a `classifier` node's case values must be valid for its `on` answer, and must not repeat
 
 An invalid graph can never be saved or published, and publishing re-validates against the live model catalog so a stale draft can't resurrect a removed model.
 
