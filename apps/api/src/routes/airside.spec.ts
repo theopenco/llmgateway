@@ -1557,6 +1557,72 @@ describe("airside provider portal", () => {
 		).toBeFalsy();
 	});
 
+	it("pauses and resumes a live listing without review", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const { model } = await (await createModel(cookie, company.id)).json();
+
+		const draftPause = await app.request(
+			`/airside/models/${model.id}/pause`,
+			json(cookie),
+		);
+		expect(draftPause.status).toBe(409);
+
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		const mappingStatus = async () =>
+			(
+				await db.query.modelProviderMapping.findMany({
+					where: { modelId: { eq: "mistral-large-3" } },
+				})
+			).map((row) => row.status);
+
+		const paused = await app.request(
+			`/airside/models/${model.id}/pause`,
+			json(cookie),
+		);
+		expect(paused.status).toBe(200);
+		const pausedModel = (await paused.json()).model;
+		expect(pausedModel.status).toBe("active");
+		expect(pausedModel.pausedAt).toEqual(expect.any(String));
+		expect(pausedModel.currentPricing).not.toBeNull();
+		expect(await mappingStatus()).toEqual(["inactive"]);
+		const pausedAgain = await app.request(
+			`/airside/models/${model.id}/pause`,
+			json(cookie),
+		);
+		expect(pausedAgain.status).toBe(409);
+
+		// An approval landing while paused reprices without resuming.
+		const update = await app.request(
+			`/airside/models/${model.id}/price-filings`,
+			json(cookie, { inputPrice: "4e-6", outputPrice: "9e-6" }),
+		);
+		await app.request(
+			`/admin/airside/filings/${(await update.json()).filing.id}/approve`,
+			json(cookie),
+		);
+		expect(await mappingStatus()).toEqual(["inactive"]);
+
+		const resumed = await app.request(
+			`/airside/models/${model.id}/resume`,
+			json(cookie),
+		);
+		expect(resumed.status).toBe(200);
+		expect((await resumed.json()).model.pausedAt).toBeNull();
+		expect(await mappingStatus()).toEqual(["active"]);
+		const resumedAgain = await app.request(
+			`/airside/models/${model.id}/resume`,
+			json(cookie),
+		);
+		expect(resumedAgain.status).toBe(409);
+	});
+
 	it("replaces or withdraws a pending change and waits behind a fare filing", async () => {
 		process.env.ADMIN_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");

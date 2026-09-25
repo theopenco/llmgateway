@@ -397,6 +397,17 @@ adminAirside.openapi(approveFiling, async (c) => {
 	const filing = await getPendingFiling(id);
 	// cdb: approval flips a model live — the gateway's cached lookup must see it.
 	await cdb.transaction(async (tx) => {
+		// Lock and re-read the model so a concurrent pause/resume serializes
+		// with this approval and its pausedAt decides the mapping status.
+		const [model] = await tx
+			.select()
+			.from(tables.providerDraftModel)
+			.where(eq(tables.providerDraftModel.id, filing.draftModelId))
+			.for("update")
+			.$withCache(false);
+		if (!model) {
+			throw new HTTPException(404, { message: "Model not found" });
+		}
 		// Guard on status inside the UPDATE so two concurrent reviews cannot
 		// both apply — the loser sees zero rows and conflicts.
 		const updated = await tx
@@ -419,11 +430,12 @@ adminAirside.openapi(approveFiling, async (c) => {
 			});
 		}
 		if (filing.kind === "initial") {
-			await tx
+			const [activated] = await tx
 				.update(tables.providerDraftModel)
 				.set({ status: "active" })
-				.where(eq(tables.providerDraftModel.id, filing.draftModelId));
-			await materializeAirsideModel(filing.draftModel, filing, tx);
+				.where(eq(tables.providerDraftModel.id, filing.draftModelId))
+				.returning();
+			await materializeAirsideModel(activated, filing, tx);
 		} else if (filing.kind === "metadata") {
 			const [row] = await tx
 				.update(tables.providerDraftModel)
@@ -432,7 +444,7 @@ adminAirside.openapi(approveFiling, async (c) => {
 				.returning();
 			await syncAirsideModelMetadata(row, tx);
 		} else {
-			await updateAirsideMappingPrices(filing.draftModel, filing, tx);
+			await updateAirsideMappingPrices(model, filing, tx);
 		}
 	});
 	const updated = await db.query.providerPriceFiling.findFirst({
@@ -1033,7 +1045,7 @@ adminAirside.openapi(revokeClaim, async (c) => {
 				);
 			await tx
 				.update(tables.providerDraftModel)
-				.set({ status: "delisted", delistedAt: new Date() })
+				.set({ status: "delisted", delistedAt: new Date(), pausedAt: null })
 				.where(inArray(tables.providerDraftModel.id, modelIds));
 			for (const model of companyModels) {
 				await dematerializeAirsideModel(claim.providerId, model.modelName, tx);

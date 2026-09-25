@@ -25,6 +25,7 @@ tariff filing still awaiting review.
 | ----------------------------------- | ------------------------------------------------------------------------- |
 | **Filed**                           | Drafted — waiting for the initial price filing to be approved             |
 | **In service**                      | Approved and routable as `<provider>/<model>`; billed at the filed prices |
+| **Paused**                          | In service but taken out of routing by you until resumed                  |
 | **Rejected**                        | The initial filing was rejected; fix the price and file again             |
 | **Delisted**                        | Retired — kept in history, no longer routable                             |
 | **Awaiting clearance / Fare filed** | A filing (initial or price update) is pending review                      |
@@ -59,6 +60,16 @@ new input/output prices; the model keeps serving at its current approved
 pricing until the filing is approved. Only one filing per model can be pending
 at a time, and every filing — with its review outcome and notes — is listed in
 the console's filings history.
+
+## Pausing a model
+
+**Pause** takes an in-service model out of routing without review: it stops
+receiving new requests within about a minute and keeps its approved pricing,
+pending filings, and history. **Resume** puts it back in service the same way.
+Filings approved while paused apply without resuming the model.
+
+For a model imported from the built-in catalogue, pausing behaves like
+delisting: requests fall back to the catalogue entry until you resume.
 
 ## Removing a model
 
