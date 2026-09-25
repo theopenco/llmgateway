@@ -386,6 +386,14 @@ describe("model verification", () => {
 			function: { name: "get_weather" },
 		});
 		expect(result.unsupportedToolChoices).toEqual(["required"]);
+		expect(
+			result.checks
+				.find((check) => check.id === "tools")
+				?.probes?.map((probe) => [probe.label, probe.status]),
+		).toEqual([
+			["tool_choice: required", "failed"],
+			["tool_choice: function", "passed"],
+		]);
 	});
 
 	it("only probes the tool_choice modes the listing declares", async () => {
@@ -620,6 +628,73 @@ describe("model verification", () => {
 		expect(fetchImplementation).toHaveBeenCalledTimes(8);
 		expect(effortOf(fetchImplementation.mock.calls[7][1])).toBe("minimal");
 		expect(result.unsupportedReasoningEfforts).toEqual(["medium"]);
+	});
+
+	it("reports every probed reasoning tier and its outcome", async () => {
+		const fetchImplementation = refusingEfforts(["medium", "minimal"]);
+
+		const result = await runProviderModelVerification({
+			target: reasoningOnly,
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		const reasoning = result.checks.find((check) => check.id === "reasoning");
+		expect(
+			reasoning?.probes?.map((probe) => [probe.label, probe.status]),
+		).toEqual([
+			["reasoning_effort: medium", "failed"],
+			["reasoning_effort: minimal", "failed"],
+			["reasoning_effort: low", "passed"],
+			["reasoning_effort: high", "passed"],
+			["reasoning_effort: xhigh", "passed"],
+			["reasoning_effort: max", "passed"],
+		]);
+		expect(reasoning?.probes?.[0].feedback).toContain(
+			"reasoning_effort must be",
+		);
+	});
+
+	it("carries the tiers an earlier check ruled out into the breakdown", async () => {
+		const fetchImplementation = refusingEfforts(["medium"]);
+
+		const result = await runProviderModelVerification({
+			target: { ...reasoningOnly, reasoningMaxTokens: true },
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+		});
+
+		const budget = result.checks.find(
+			(check) => check.id === "reasoning_budget",
+		);
+		expect(budget?.probes?.[0]).toEqual({
+			label: "reasoning_effort: medium",
+			status: "failed",
+			feedback: "Refused by an earlier reasoning check.",
+		});
+	});
+
+	it("streams the probe breakdown while the check is still running", async () => {
+		const fetchImplementation = refusingEfforts(["medium", "minimal"]);
+		const running: (string[] | undefined)[] = [];
+
+		await runProviderModelVerification({
+			target: reasoningOnly,
+			token: "provider-key",
+			baseUrl: "https://carrier.example",
+			fetchImplementation,
+			onCheck: (check) => {
+				if (check.id === "reasoning" && check.status === "running") {
+					running.push(check.probes?.map((probe) => probe.label));
+				}
+			},
+		});
+
+		expect(running[0]).toBeUndefined();
+		expect(running[1]).toEqual(["reasoning_effort: medium"]);
+		expect(running.at(-1)).toHaveLength(6);
 	});
 
 	it("sends a vision image the serving stack can decode", async () => {

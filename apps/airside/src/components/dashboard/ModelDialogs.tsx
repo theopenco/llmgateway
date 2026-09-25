@@ -168,11 +168,47 @@ const CAPABILITIES = [
 	{ key: "webSearch", label: "Web search" },
 ] as const;
 
-const CAPABILITY_LABELS = new Map<string, string>(
-	CAPABILITIES.map((capability) => [capability.key, capability.label]),
-);
-
 type Verification = NonNullable<AirsideModel["latestVerification"]>;
+type VerificationProbe = NonNullable<Verification["checks"][number]["probes"]>;
+
+/**
+ * The individual requests a check sent. A tool or reasoning check walks a
+ * ladder of variants, so the list is what tells a carrier which ones the
+ * deployment served and which it refused.
+ */
+function VerificationProbes({ probes }: { probes?: VerificationProbe }) {
+	if (!probes?.length) {
+		return null;
+	}
+	return (
+		<ul className="mt-1 space-y-0.5" data-testid="verification-probes">
+			{probes.map((probe) => (
+				<li key={probe.label} className="flex items-start gap-1.5">
+					{probe.status === "passed" ? (
+						<CheckCircle2
+							className="text-signal mt-0.5 size-3 shrink-0"
+							aria-hidden="true"
+						/>
+					) : (
+						<XCircle
+							className="text-destructive mt-0.5 size-3 shrink-0"
+							aria-hidden="true"
+						/>
+					)}
+					<span className="min-w-0">
+						<span className="sr-only">
+							{probe.status === "passed" ? "Passed" : "Failed"}:{" "}
+						</span>
+						<span className="font-mono">{probe.label}</span>
+						{probe.feedback ? (
+							<span className="text-muted-foreground"> — {probe.feedback}</span>
+						) : null}
+					</span>
+				</li>
+			))}
+		</ul>
+	);
+}
 
 function VerificationResults({ verification }: { verification: Verification }) {
 	const statusLabel =
@@ -210,11 +246,12 @@ function VerificationResults({ verification }: { verification: Verification }) {
 						) : (
 							<Clock3 className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
 						)}
-						<div>
+						<div className="min-w-0">
 							<p className="font-medium">{check.label}</p>
 							{check.feedback ? (
 								<p className="text-muted-foreground mt-0.5">{check.feedback}</p>
 							) : null}
+							<VerificationProbes probes={check.probes} />
 						</div>
 					</li>
 				))}
@@ -222,19 +259,14 @@ function VerificationResults({ verification }: { verification: Verification }) {
 			{verification.summary ? (
 				<p className="text-muted-foreground text-xs">{verification.summary}</p>
 			) : null}
-			{verification.demotedCapabilities?.length ? (
+			{verification.status === "failed" ? (
 				<p
-					className="text-destructive text-xs"
-					data-testid="verification-demoted"
+					className="text-muted-foreground text-xs"
+					data-testid="verification-unchanged"
 				>
-					Dropped from this listing:{" "}
-					{verification.demotedCapabilities
-						.map(
-							(capability) => CAPABILITY_LABELS.get(capability) ?? capability,
-						)
-						.join(", ")}
-					. Fix the endpoint, switch the capability back on, and verify again —
-					until then it is not checked and not routed to.
+					This run left the listing unchanged. Fix the endpoint and verify
+					again, or switch the capability off yourself if it is not something
+					this deployment does.
 				</p>
 			) : null}
 		</div>
@@ -1242,8 +1274,8 @@ export function VerifyModelDialog({
 					</DialogTitle>
 					<DialogDescription>
 						Run the declared capabilities against the upstream model. Checks run
-						in the background, and a failed one drops the capability it
-						disproved from the listing.
+						in the background and report what your endpoint answered; the
+						listing itself is left as you declared it.
 						{model.pendingFiling?.kind === "metadata"
 							? " Capabilities awaiting review are included, so a filed change is verified before it goes live."
 							: ""}
@@ -1760,7 +1792,8 @@ export function EditModelDialog({
 						/>
 						<p className="text-muted-foreground text-xs">
 							Runs the capabilities selected above against your endpoint before
-							you file them. A failed check drops the capability it disproved.{" "}
+							you file them. A failed check reports what the endpoint refused;
+							it does not change the capability.{" "}
 							<VerificationKeyHint savedKey={savedVerificationKey} />
 						</p>
 						<Button

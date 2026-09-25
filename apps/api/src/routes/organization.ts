@@ -32,6 +32,10 @@ import {
 } from "@/utils/invoice.js";
 import { providerCacheControlModeSchema } from "@/utils/provider-cache-control.js";
 import { serializeOrganization } from "@/utils/serialize-organization.js";
+import {
+	smartRoutingConfigInputSchema,
+	normalizeSmartRoutingConfig,
+} from "@/utils/smart-routing.js";
 import { isConfigurableDomain, normalizeDomain } from "@/utils/sso-domain.js";
 import {
 	isZeroDataRetentionEnabled,
@@ -78,8 +82,10 @@ import {
 } from "@llmgateway/shared";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
+import { isSmartRoutingAvailable } from "@llmgateway/shared/smart-routing";
 
 import type { ServerTypes } from "@/vars.js";
+import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 
 export const organization = new OpenAPIHono<ServerTypes>();
 
@@ -180,6 +186,7 @@ const organizationSchema = z
 		projectLimit: z.number().nullable(),
 		retentionLevel: z.enum(["retain", "none"]),
 		providerCompliancePolicy: providerCompliancePolicySchema.nullable(),
+		smartRoutingConfig: smartRoutingConfigInputSchema.nullable(),
 		ssoAutoJoinDomain: z.string().nullable(),
 		status: z.enum(["active", "inactive", "deleted"]).nullable(),
 		blockReason: z.string().nullable(),
@@ -250,6 +257,7 @@ const projectSchema = z.object({
 	endUserBrandName: z.string().nullable(),
 	endUserSupportEmail: z.string().nullable(),
 	endUserStatementDescriptorSuffix: z.string().nullable(),
+	smartRoutingConfig: smartRoutingConfigInputSchema.nullable(),
 });
 
 const createOrganizationSchema = z.object({
@@ -283,6 +291,7 @@ const updateOrganizationSchema = z.object({
 	providerCompliancePolicy: providerCompliancePolicySchema
 		.nullable()
 		.optional(),
+	smartRoutingConfig: smartRoutingConfigInputSchema.nullable().optional(),
 	ssoAutoJoinDomain: z.string().max(253).nullable().optional(),
 	autoTopUpEnabled: z.boolean().optional(),
 	autoTopUpThreshold: z.number().min(5).optional(),
@@ -685,6 +694,7 @@ organization.openapi(updateOrganization, async (c) => {
 		billingNotes,
 		retentionLevel,
 		providerCompliancePolicy,
+		smartRoutingConfig,
 		ssoAutoJoinDomain,
 		autoTopUpEnabled,
 		autoTopUpThreshold,
@@ -796,6 +806,23 @@ organization.openapi(updateOrganization, async (c) => {
 		}
 	}
 
+	// Auto-routing configuration is an enterprise feature. Clearing it stays
+	// allowed without enterprise access so a downgraded org can drop a leftover
+	// config and fall back to the built-in candidate set.
+	let normalizedSmartRoutingConfig: SmartRoutingConfig | null | undefined;
+	if (smartRoutingConfig !== undefined) {
+		if (
+			smartRoutingConfig !== null &&
+			!isSmartRoutingAvailable(userOrganization.organization?.kind)
+		) {
+			throw new HTTPException(403, {
+				message: "Smart routing is not available for this organization",
+			});
+		}
+		normalizedSmartRoutingConfig =
+			normalizeSmartRoutingConfig(smartRoutingConfig);
+	}
+
 	const effectiveCompliancePolicy =
 		providerCompliancePolicy === undefined
 			? userOrganization.organization!.providerCompliancePolicy
@@ -896,6 +923,9 @@ organization.openapi(updateOrganization, async (c) => {
 	}
 	if (providerCompliancePolicy !== undefined) {
 		updateData.providerCompliancePolicy = providerCompliancePolicy;
+	}
+	if (normalizedSmartRoutingConfig !== undefined) {
+		updateData.smartRoutingConfig = normalizedSmartRoutingConfig;
 	}
 	if (normalizedSsoDomain !== undefined) {
 		updateData.ssoAutoJoinDomain = normalizedSsoDomain;
@@ -1023,6 +1053,16 @@ organization.openapi(updateOrganization, async (c) => {
 		changes.providerCompliancePolicy = {
 			old: oldOrg.providerCompliancePolicy,
 			new: providerCompliancePolicy,
+		};
+	}
+	if (
+		normalizedSmartRoutingConfig !== undefined &&
+		JSON.stringify(oldOrg.smartRoutingConfig ?? null) !==
+			JSON.stringify(normalizedSmartRoutingConfig)
+	) {
+		changes.smartRoutingConfig = {
+			old: oldOrg.smartRoutingConfig,
+			new: normalizedSmartRoutingConfig,
 		};
 	}
 	if (

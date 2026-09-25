@@ -23,10 +23,15 @@ import {
 	getEffectiveScoringWeights,
 } from "./compute-provider-scores.js";
 
+import type { DynamicRouteClassifierKind } from "@llmgateway/shared/dynamic-route";
 import type {
 	RoutingCredentialSource,
 	RoutingExclusionReason,
 } from "@llmgateway/shared/routing-telemetry";
+import type {
+	SmartRoutingClassifier,
+	SmartRoutingDifficulty,
+} from "@llmgateway/shared/smart-routing";
 
 interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
@@ -177,6 +182,45 @@ export interface RoutingMetadata {
 		version: number;
 		// Node ids traversed during graph evaluation
 		path: string[];
+		// Verdict the route's classifier nodes branched on. Absent when the
+		// graph has none, or when the classifier produced no verdict and those
+		// nodes took their `else` branch.
+		classifier?: {
+			kind: DynamicRouteClassifierKind;
+			difficulty?: SmartRoutingDifficulty;
+			difficultyScore?: number;
+			task?: string;
+			outputType?: string;
+		};
+	};
+	// How an "auto" request resolved to a concrete model when the organization
+	// configured smart routing. Absent for the built-in default candidate set.
+	smartRouting?: {
+		classifier: SmartRoutingClassifier;
+		rubricVersion?: number;
+		// Models the configuration allowed, before availability filtering.
+		eligibleModels: string[];
+		// Models that survived filtering and were ranked, cheapest first.
+		candidateModels: string[];
+		difficulty?: SmartRoutingDifficulty;
+		difficultyScore?: number;
+		task?: string;
+		outputType?: string;
+		bestModel?: string;
+		bestModelConfidence?: number;
+		band?: SmartRoutingDifficulty;
+		selectedModel: string;
+		// Latency of the classifier call this request made; absent when it made
+		// none.
+		classifierLatencyMs?: number;
+		// True when a classifier call was attempted and produced no verdict, so
+		// the selection fell back to the cheapest candidate. A classifier that is
+		// never consulted at all — no credential, a blocking compliance policy, a
+		// single candidate — leaves this false.
+		classifierFailed: boolean;
+		// True when the verdict served came from another turn of the same sticky
+		// session rather than from this request.
+		classifierReused?: boolean;
 	};
 }
 
@@ -616,7 +660,8 @@ async function getProviderSelectionPrices<T extends AvailableModelProvider>(
  * healthy (uptime at or above the session threshold), reuse it so the upstream
  * prompt cache stays warm. Otherwise persist the just-scored best provider so
  * subsequent requests in this session reuse it. The pin only moves when its
- * provider leaves the candidate list or its uptime drops too low.
+ * provider leaves the candidate list or its uptime drops too low. Gemini
+ * sessions keep an eligible pin regardless of uptime to preserve signatures.
  */
 async function applySessionSticky<T extends AvailableModelProvider>(
 	naturalResult: ProviderSelectionResult<T>,
@@ -637,7 +682,13 @@ async function applySessionSticky<T extends AvailableModelProvider>(
 			const uptime = metricsMap?.get(
 				metricsKey(modelId, candidate.providerId, candidate.region),
 			)?.uptime;
-			if (uptime === undefined || uptime >= cfg.session.uptimeThreshold) {
+			// Gemini thought signatures are provider-bound. An uptime dip must not
+			// move a live conversation to a provider that rejects its history.
+			if (
+				modelId.startsWith("gemini-") ||
+				uptime === undefined ||
+				uptime >= cfg.session.uptimeThreshold
+			) {
 				// Re-persist so the pin's TTL keeps refreshing while the session
 				// stays active.
 				await store.set(candidate.providerId, candidate.region);

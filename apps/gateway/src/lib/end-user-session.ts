@@ -107,7 +107,7 @@ export function validateEndUserSessionModelAccess(
 	apiKey: GatewayApiKey,
 	requestedModel: string,
 	activeModelInfo?: ModelDefinition,
-	options: { autoRouting?: boolean } = {},
+	options: { smartRouting?: boolean } = {},
 ): {
 	allowed: boolean;
 	reason?: string;
@@ -129,7 +129,7 @@ export function validateEndUserSessionModelAccess(
 	// sandbox wallet) is allowed even though it isn't literally listed in scope.
 	const scopeAllows =
 		scopeModels.includes(modelDef.id) ||
-		(options.autoRouting === true && scopeModels.includes("auto"));
+		(options.smartRouting === true && scopeModels.includes("auto"));
 
 	if (!scopeAllows) {
 		return {

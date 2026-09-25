@@ -629,4 +629,89 @@ describe("dynamicRouteGraphSchema review-hardening rules", () => {
 			model: "gpt-5-nano",
 		});
 	});
+
+	describe("classifier nodes", () => {
+		const graph = {
+			entry: "rate",
+			nodes: [
+				{
+					id: "rate",
+					type: "classifier" as const,
+					kind: "jev" as const,
+					on: "difficulty" as const,
+					cases: [
+						{ value: "high", next: "big" },
+						{ value: "low", next: "small" },
+					],
+					else: "mid",
+				},
+				{ id: "big", type: "model" as const, model: "gpt-4o" },
+				{ id: "mid", type: "model" as const, model: "gpt-4o-mini" },
+				{ id: "small", type: "model" as const, model: "gpt-4.1-nano" },
+			],
+		};
+
+		it("follows the case matching the verdict", () => {
+			expect(
+				evaluateDynamicRoute(graph as any, {
+					...makeContext(),
+					classification: { difficulty: "high" },
+				}),
+			).toMatchObject({ status: "model", model: "gpt-4o" });
+			expect(
+				evaluateDynamicRoute(graph as any, {
+					...makeContext(),
+					classification: { difficulty: "low" },
+				}),
+			).toMatchObject({ status: "model", model: "gpt-4.1-nano" });
+		});
+
+		it("takes else for an unmatched verdict", () => {
+			expect(
+				evaluateDynamicRoute(graph as any, {
+					...makeContext(),
+					classification: { difficulty: "medium" },
+				}),
+			).toMatchObject({ status: "model", model: "gpt-4o-mini" });
+		});
+
+		it("takes else when there is no verdict at all", () => {
+			// The classifier is fail-open: an outage, a missing credential or a
+			// blocking compliance policy must not fail the route.
+			expect(
+				evaluateDynamicRoute(graph as any, {
+					...makeContext(),
+					classification: null,
+				}),
+			).toMatchObject({ status: "model", model: "gpt-4o-mini" });
+			expect(evaluateDynamicRoute(graph as any, makeContext())).toMatchObject({
+				status: "model",
+				model: "gpt-4o-mini",
+			});
+		});
+
+		it("branches on task as well as difficulty", () => {
+			const byTask = {
+				entry: "rate",
+				nodes: [
+					{
+						id: "rate",
+						type: "classifier" as const,
+						kind: "jev" as const,
+						on: "task" as const,
+						cases: [{ value: "coding", next: "coder" }],
+						else: "general",
+					},
+					{ id: "coder", type: "model" as const, model: "gpt-4o" },
+					{ id: "general", type: "model" as const, model: "gpt-4o-mini" },
+				],
+			};
+			expect(
+				evaluateDynamicRoute(byTask as any, {
+					...makeContext(),
+					classification: { difficulty: "low", task: "coding" },
+				}),
+			).toMatchObject({ status: "model", model: "gpt-4o" });
+		});
+	});
 });

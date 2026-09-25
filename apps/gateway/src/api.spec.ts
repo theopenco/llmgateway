@@ -3214,6 +3214,151 @@ describe("api", () => {
 		expect(logs[0].usedServiceTier).toBe("priority");
 	});
 
+	test("/v1/chat/completions forwards the Azure priority service tier", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-azure-service-tier",
+			...hashApiKeyForStorage("real-token-azure-service-tier"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-azure-service-tier",
+			...encryptProviderKeyForStorage(
+				"sk-azure-test-key",
+				"provider-key-id-azure-service-tier",
+				"org-id",
+			),
+			provider: "azure",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+			// Pin the v1 surface so a developer's LLM_AZURE_DEPLOYMENT_TYPE can't
+			// reroute the request off the mock server's /openai/v1/* aliases.
+			options: { azure_deployment_type: "ai-foundry" },
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-azure-service-tier",
+			},
+			body: JSON.stringify({
+				model: "azure/gpt-5.1",
+				service_tier: "priority",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.metadata?.used_provider).toBe("azure");
+		expect(json.metadata?.requested_service_tier).toBe("priority");
+		expect(json.metadata?.used_service_tier).toBe("priority");
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].requestedServiceTier).toBe("priority");
+		expect(logs[0].usedServiceTier).toBe("priority");
+	});
+
+	test("/v1/chat/completions forwards the tier on a legacy Azure deployment key", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-azure-legacy-service-tier",
+			...hashApiKeyForStorage("real-token-azure-legacy-service-tier"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-azure-legacy-service-tier",
+			...encryptProviderKeyForStorage(
+				"sk-azure-test-key",
+				"provider-key-id-azure-legacy-service-tier",
+				"org-id",
+			),
+			provider: "azure",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+			// The deployment-based api-version accepts and reports `service_tier`
+			// too, so the tier travels on the chat-completions path as well.
+			options: { azure_deployment_type: "openai" },
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-azure-legacy-service-tier",
+			},
+			body: JSON.stringify({
+				model: "azure/gpt-5.1",
+				service_tier: "priority",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.metadata?.used_provider).toBe("azure");
+		expect(json.metadata?.used_service_tier).toBe("priority");
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].usedServiceTier).toBe("priority");
+	});
+
+	test("/v1/chat/completions bills an Azure tier downgrade at standard", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-azure-tier-downgrade",
+			...hashApiKeyForStorage("real-token-azure-tier-downgrade"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-azure-tier-downgrade",
+			...encryptProviderKeyForStorage(
+				"sk-azure-test-key",
+				"provider-key-id-azure-tier-downgrade",
+				"org-id",
+			),
+			provider: "azure",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+			options: { azure_deployment_type: "ai-foundry" },
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-azure-tier-downgrade",
+			},
+			body: JSON.stringify({
+				model: "azure/gpt-5.1",
+				service_tier: "priority",
+				// Azure silently serves standard when the subscription lacks the
+				// entitlement, at peak, or on ramp-rate limits, echoing
+				// `service_tier: "default"`. Billing must follow the served tier.
+				messages: [{ role: "user", content: "TRIGGER_SERVICE_TIER_DOWNGRADE" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.metadata?.requested_service_tier).toBe("priority");
+		expect(json.metadata?.used_service_tier).toBeNull();
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].requestedServiceTier).toBe("priority");
+		expect(logs[0].usedServiceTier).toBeNull();
+	});
+
 	test("/v1/chat/completions omits service tier metadata without a tier request", async () => {
 		await db.insert(tables.apiKey).values({
 			id: "token-id-no-service-tier-meta",

@@ -22,6 +22,7 @@ import { usePostHog } from "posthog-js/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import DevPassPaymentRecovery from "@/app/dashboard/components/DevPassPaymentRecovery";
 import SurveyReminderDialog from "@/app/dashboard/components/SurveyReminderDialog";
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
@@ -686,6 +687,7 @@ export default function DashboardShell({
 					{/* Page content — the usage overview needs a plan, the account and
 					    billing pages do not. */}
 					<main className="min-w-0 flex-1">
+						{pathname !== "/dashboard/billing" && <DevPassPaymentRecovery />}
 						{hasActivePlan || isPlanIndependentRoute ? children : planChooser}
 					</main>
 				</div>

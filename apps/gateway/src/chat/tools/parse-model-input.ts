@@ -61,7 +61,11 @@ export function parseModelInput(modelInput: string): ParseModelInputResult {
 	}
 
 	// check if there is an exact model match
-	if (modelInput === "auto" || modelInput === "custom") {
+	if (
+		modelInput === "auto" ||
+		modelInput === "smart" ||
+		modelInput === "custom"
+	) {
 		requestedProvider = "llmgateway";
 		requestedModel = modelInput as Model;
 	} else if (modelInput.includes("/")) {
