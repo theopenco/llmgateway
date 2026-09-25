@@ -275,12 +275,14 @@ Request compatibility takes precedence over the saved pin. The gateway first fil
 
 An established pin yields only when its provider can no longer serve the session well. A session is re-scored and re-pinned to the current weighted-best provider when its provider:
 
-- Drops below the session uptime threshold (default 85%), or
+- Drops below the session uptime threshold (default 85%), except for Gemini sessions whose signatures require provider affinity, or
 - Is filtered out of the candidate set (health or compatibility filtering).
 
 Sticky requests never enter the cross-provider [automatic retry & fallback](#automatic-retry--fallback) loop — a transient failure is retried against the pinned provider only, on another configured key when several exist, or on the same platform key when only one is configured. The failure still degrades that provider's uptime metrics, which is what triggers re-pinning on a subsequent request once the uptime threshold is crossed.
 
 Re-pinning runs the same weighted algorithm again, so the replacement is the best currently available provider — not an arbitrary one.
+
+Gemini sessions keep their eligible provider through uptime dips because thought signatures cannot be replayed across Google API providers. If a pin expires or the provider becomes ineligible, moving a conversation with its old signatures can produce `Corrupted thought signature` or `Invalid thought signature`. On the pay-as-you-go API, keep a Gemini conversation on one provider with a provider-prefixed model and `X-No-Fallback: true` from its first request. For an affected conversation, resume with the provider that issued its signatures or start a new conversation. See&nbsp;[reasoning replay](/features/reasoning#gemini-thought-signatures).
 
 The selection reason in routing metadata shows `session-sticky` when a request was pinned via a session id.
 

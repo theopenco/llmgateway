@@ -183,6 +183,58 @@ describe("transformStreamingToOpenai", () => {
 		}
 	});
 
+	it("keeps Google tool indices distinct across chunks and candidates", () => {
+		const googleToolCallIndices = new Map<number, number>();
+		const transform = (indices: number[]) =>
+			transformStreamingToOpenai(
+				"google-ai-studio",
+				"gemini-3.8-flash",
+				{
+					candidates: indices.map((index) => ({
+						index,
+						content: {
+							parts: [
+								{ text: "Looking up files." },
+								{
+									functionCall: { name: "read_file", args: { path: "a.txt" } },
+									thoughtSignature: `signature-${index}`,
+								},
+								{
+									functionCall: { name: "read_file", args: { path: "b.txt" } },
+								},
+							],
+						},
+					})),
+				},
+				[],
+				undefined,
+				true,
+				undefined,
+				undefined,
+				{ googleToolCallIndices },
+			);
+
+		const first = transform([0, 1]);
+		const second = transform([1, 0]);
+		for (const choice of first.choices) {
+			expect(choice.delta.tool_calls).toMatchObject([
+				{
+					index: 0,
+					extra_content: {
+						google: { thought_signature: `signature-${choice.index}` },
+					},
+				},
+				{ index: 1 },
+			]);
+		}
+		for (const choice of second.choices) {
+			expect(choice.delta.tool_calls).toMatchObject([
+				{ index: 2 },
+				{ index: 3 },
+			]);
+		}
+	});
+
 	it("keeps streamed thought signatures inline without caching them", () => {
 		setexMock.mockClear();
 		const result = transformStreamingToOpenai(

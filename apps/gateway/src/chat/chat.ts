@@ -9700,6 +9700,7 @@ chat.openapi(completions, async (c) => {
 				// arrives, so the pair can be forwarded to native clients intact.
 				const toolSearchState: AnthropicToolSearchState = new Map();
 				const toolCallChoiceIndices = new Set<number>();
+				const googleToolCallIndices = new Map<number, number>();
 				const googleThoughtSignatureState = new Map<
 					number,
 					GoogleThoughtSignatureState
@@ -10580,6 +10581,7 @@ chat.openapi(completions, async (c) => {
 									{
 										cacheThoughtSignatures: !zeroDataRetentionEnabled,
 										googleThoughtSignatureState,
+										googleToolCallIndices,
 									},
 								);
 

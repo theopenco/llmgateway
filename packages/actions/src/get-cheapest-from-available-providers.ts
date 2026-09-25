@@ -616,7 +616,8 @@ async function getProviderSelectionPrices<T extends AvailableModelProvider>(
  * healthy (uptime at or above the session threshold), reuse it so the upstream
  * prompt cache stays warm. Otherwise persist the just-scored best provider so
  * subsequent requests in this session reuse it. The pin only moves when its
- * provider leaves the candidate list or its uptime drops too low.
+ * provider leaves the candidate list or its uptime drops too low. Gemini
+ * sessions keep an eligible pin regardless of uptime to preserve signatures.
  */
 async function applySessionSticky<T extends AvailableModelProvider>(
 	naturalResult: ProviderSelectionResult<T>,
@@ -637,7 +638,13 @@ async function applySessionSticky<T extends AvailableModelProvider>(
 			const uptime = metricsMap?.get(
 				metricsKey(modelId, candidate.providerId, candidate.region),
 			)?.uptime;
-			if (uptime === undefined || uptime >= cfg.session.uptimeThreshold) {
+			// Gemini thought signatures are provider-bound. An uptime dip must not
+			// move a live conversation to a provider that rejects its history.
+			if (
+				modelId.startsWith("gemini-") ||
+				uptime === undefined ||
+				uptime >= cfg.session.uptimeThreshold
+			) {
 				// Re-persist so the pin's TTL keeps refreshing while the session
 				// stays active.
 				await store.set(candidate.providerId, candidate.region);
