@@ -5,6 +5,7 @@ date: "2026-09-19"
 tags: ["llmgateway"]
 title: "Perplexity Sonar Moves to the Agent API"
 summary: "perplexity/sonar keeps working past Perplexity's September 27 Sonar retirement, now served over the Agent API — at lower prices, with search results and their dates unchanged."
+tags: ["llmgateway"]
 image:
   src: "/changelog/perplexity-agent-api.png"
   alt: "A compass rose over a stack of dated source cards, with an arrow moving from an old endpoint plug to a new one"
