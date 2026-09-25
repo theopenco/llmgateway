@@ -8,7 +8,6 @@ export interface Product {
 	appUrl: string;
 	appLabel: string;
 	accent: string;
-	accentSoft: string;
 }
 
 export const products: Record<ProductId, Product> = {
@@ -20,7 +19,6 @@ export const products: Record<ProductId, Product> = {
 		appUrl: "https://llmgateway.io/dashboard",
 		appLabel: "Open dashboard",
 		accent: "#3b82f6",
-		accentSoft: "#1e3a8a",
 	},
 	devpass: {
 		id: "devpass",
@@ -31,7 +29,6 @@ export const products: Record<ProductId, Product> = {
 		appUrl: "https://devpass.llmgateway.io/dashboard",
 		appLabel: "Open DevPass",
 		accent: "#10b981",
-		accentSoft: "#064e3b",
 	},
 	lounge: {
 		id: "lounge",
@@ -41,7 +38,6 @@ export const products: Record<ProductId, Product> = {
 		appUrl: "https://lounge.llmgateway.io",
 		appLabel: "Open Lounge",
 		accent: "#f43f5e",
-		accentSoft: "#881337",
 	},
 	airside: {
 		id: "airside",
@@ -51,7 +47,6 @@ export const products: Record<ProductId, Product> = {
 		appUrl: "https://airside.llmgateway.io",
 		appLabel: "Open Airside",
 		accent: "#f59e0b",
-		accentSoft: "#78350f",
 	},
 };
 

@@ -85,7 +85,11 @@ export function ProductHero({
 						className="inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-medium text-fd-foreground transition-colors hover:bg-fd-accent"
 					>
 						Quick start
-						<icons.ArrowDown className="size-3.5" aria-hidden />
+						{quickStart.startsWith("#") ? (
+							<icons.ArrowDown className="size-3.5" aria-hidden />
+						) : (
+							<icons.ArrowRight className="size-3.5" aria-hidden />
+						)}
 					</Link>
 				) : null}
 			</div>
