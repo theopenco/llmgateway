@@ -579,10 +579,16 @@ function generateApiKeys(projects: ProjectDef[]): ApiKeyDef[] {
 	const keys: ApiKeyDef[] = [];
 	let keyIdx = 0;
 	for (const proj of projects) {
-		const orgOwner = USER_ORG_MAP.find(
-			(m) => m.orgId === proj.orgId && m.role === "owner",
-		);
-		const createdBy = orgOwner?.userId ?? "user-alice";
+		const orgMembers = USER_ORG_MAP.filter((m) => m.orgId === proj.orgId);
+		// Owner first, then the remaining seats: keys round-robin across members so
+		// per-seat log filtering has more than one owner to filter on.
+		const creators = [
+			...orgMembers.filter((m) => m.role === "owner"),
+			...orgMembers.filter((m) => m.role !== "owner"),
+		].map((m) => m.userId);
+		if (creators.length === 0) {
+			creators.push("user-alice");
+		}
 		const numKeys = randomInt(1, 3);
 		for (let i = 0; i < numKeys; i++) {
 			keys.push({
@@ -591,7 +597,7 @@ function generateApiKeys(projects: ProjectDef[]): ApiKeyDef[] {
 				projectId: proj.id,
 				description:
 					i === 0 ? "Primary Key" : i === 1 ? "CI/CD Key" : "Development Key",
-				createdBy,
+				createdBy: creators[i % creators.length],
 				usage: String(randomFloat(0, 50)),
 			});
 			keyIdx++;
