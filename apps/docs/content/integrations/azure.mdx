@@ -175,7 +175,10 @@ curl -X POST https://api.llmgateway.io/v1/chat/completions \
 Requirements:
 
 - A **Global Standard** or **Data Zone (US)** deployment. Regional standard and
-  EU data zone deployments are not supported.
+  EU data zone deployments are not supported. Not every priority-capable model is
+  offered on both — some are Global Standard only, so check Microsoft's
+  [availability tables](https://learn.microsoft.com/azure/foundry/openai/concepts/priority-processing)
+  for the model you deploy.
 - Model version `2025-12-01` or later, on a model that offers the tier — see the
   provider card on the [models page](https://llmgateway.io/models?provider=azure).
 - A subscription entitled to priority processing.

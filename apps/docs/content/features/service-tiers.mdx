@@ -79,7 +79,11 @@ the exact tiers exposed by each provider card.
   publishes no Flex rate card); the multiplier is model-specific and shown on the
   model page. Azure requires a **Global Standard** or **Data Zone (US)**
   deployment of a model version `2025-12-01` or later, and a subscription
-  entitled to priority processing. Azure downgrades to standard when the
+  entitled to priority processing. Which deployment types a given model offers
+  the tier on differs per model — some are Global Standard only — so check
+  Microsoft's [priority processing
+  availability](https://learn.microsoft.com/azure/foundry/openai/concepts/priority-processing)
+  tables for the model you deploy. Azure downgrades to standard when the
   entitlement is missing, during peak load, on ramp-rate limits, and for
   long-context prompts on some models; it reports the served tier back, so a
   downgraded request is billed at standard and reported as such.
