@@ -125,6 +125,8 @@ describe("end-user top-up receipt", () => {
 		const call = sendEmailMock.mock.calls[0][0];
 		expect(call.html).toContain("<strong>LLMGTWY</strong>");
 		expect(call.html).not.toContain("LLMGTWY*");
+		// SDK receipts always carry the notice, brand suffix or not.
+		expect(call.html).toContain("merchant of record");
 	});
 
 	test("does not email twice for a redelivered payment intent", async () => {

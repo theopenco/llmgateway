@@ -2557,6 +2557,9 @@ async function sendEndUserTopUpReceipt(input: {
 		merchantSupportEmail: project?.endUserSupportEmail ?? null,
 		statementDescriptorSuffix:
 			project?.endUserStatementDescriptorSuffix ?? null,
+		// The end-user bought from the developer's product, so this is the one
+		// receipt that has to name us as merchant of record.
+		merchantOfRecordNotice: true,
 	});
 }
 
@@ -2815,6 +2818,9 @@ async function sendEndUserRefundCreditNote(input: {
 		merchantSupportEmail: project?.endUserSupportEmail ?? null,
 		statementDescriptorSuffix:
 			project?.endUserStatementDescriptorSuffix ?? null,
+		// The end-user bought from the developer's product, so this is the one
+		// receipt that has to name us as merchant of record.
+		merchantOfRecordNotice: true,
 	});
 }
 

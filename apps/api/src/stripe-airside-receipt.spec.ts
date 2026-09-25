@@ -73,6 +73,11 @@ describe("airside listing fee receipt", () => {
 		// Carriers are not organization members, so the org-owner verified gate
 		// must not be applied to them.
 		expect(call.organizationId).toBeUndefined();
+		// The listing fee is a direct LLM Gateway purchase, so it gets a plain
+		// receipt — no merchant-of-record explanation, no statement descriptor.
+		expect(call.html).not.toContain("merchant of record");
+		expect(call.html).not.toContain("LLMGTWY");
+		expect(call.html).toContain("For billing enquiries");
 	});
 
 	test("does not email again on a redelivered session", async () => {
