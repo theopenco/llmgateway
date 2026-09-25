@@ -13,11 +13,8 @@ import {
 
 import { resolveContentFilterCredential } from "./content-filter-credential.js";
 import { extractErrorCause } from "./extract-error-cause.js";
-import {
-	buildOpenAIContentFilterTextInput,
-	type GatewayContentFilterContext,
-} from "./openai-content-filter.js";
 
+import type { GatewayContentFilterContext } from "./openai-content-filter.js";
 import type { BaseMessage } from "@llmgateway/models";
 
 /**
@@ -41,6 +38,11 @@ const JEV_AUTO_ROUTING_TIMEOUT_MS = 5_000;
  * is billed per input token on every auto-routed request.
  */
 const JEV_AUTO_ROUTING_STATE_MAX_CHARS = 8_000;
+/**
+ * The system prompt is context, not the request. A coding agent's runs to tens
+ * of thousands of characters, so only enough to recognise the setting is sent.
+ */
+const JEV_AUTO_ROUTING_SYSTEM_MAX_CHARS = 1_000;
 
 const DIFFICULTY_LEVELS: AutoRoutingDifficulty[] = ["low", "medium", "high"];
 
@@ -115,17 +117,73 @@ export interface AutoRoutingClassifierInput {
 	candidates: AutoRoutingClassifierCandidate[];
 }
 
-/**
- * Keep the head of the conversation (the system prompt and the task framing)
- * and the tail of the latest turn, which is where the actual request lives.
- */
-function truncateState(text: string): string {
-	if (text.length <= JEV_AUTO_ROUTING_STATE_MAX_CHARS) {
-		return text;
+/** Keep the end of a block: the most recent content is what is being asked. */
+function keepTail(text: string, maxChars: number): string {
+	return text.length <= maxChars ? text : `…\n${text.slice(-maxChars)}`;
+}
+
+/** Keep the start of a block, for context whose framing is at the front. */
+function keepHead(text: string, maxChars: number): string {
+	return text.length <= maxChars ? text : `${text.slice(0, maxChars)}\n…`;
+}
+
+function messageText(message: BaseMessage): string {
+	if (typeof message.content === "string") {
+		return message.content;
 	}
-	const headLength = Math.floor(JEV_AUTO_ROUTING_STATE_MAX_CHARS / 2);
-	const tailLength = JEV_AUTO_ROUTING_STATE_MAX_CHARS - headLength;
-	return `${text.slice(0, headLength)}\n…\n${text.slice(-tailLength)}`;
+	if (!Array.isArray(message.content)) {
+		return "";
+	}
+	return message.content
+		.map((part) =>
+			part && typeof part === "object" && "text" in part
+				? String((part as { text?: unknown }).text ?? "")
+				: "",
+		)
+		.filter(Boolean)
+		.join("\n");
+}
+
+/**
+ * The state the classifier rates.
+ *
+ * Built from the newest turns backwards rather than from a slice of the whole
+ * conversation. A coding agent's system prompt and tool preamble run to tens of
+ * thousands of characters, so slicing the concatenated transcript kept only
+ * that preamble at both ends and dropped the user's actual request in the
+ * middle — every agent session then scored the same, on boilerplate. The
+ * request lives in the last turns, so that is what has to survive truncation.
+ */
+export function buildAutoRoutingState(messages: BaseMessage[]): {
+	system: string;
+	conversation: string;
+} {
+	const system = keepHead(
+		messages
+			.filter((message) => message.role === "system")
+			.map(messageText)
+			.filter(Boolean)
+			.join("\n\n"),
+		JEV_AUTO_ROUTING_SYSTEM_MAX_CHARS,
+	);
+
+	const turns: string[] = [];
+	let budget = JEV_AUTO_ROUTING_STATE_MAX_CHARS;
+	for (let index = messages.length - 1; index >= 0 && budget > 0; index--) {
+		const message = messages[index];
+		if (message.role === "system") {
+			continue;
+		}
+		const text = messageText(message).trim();
+		if (!text) {
+			continue;
+		}
+		const turn = `${message.role}: ${keepTail(text, budget)}`;
+		turns.unshift(turn);
+		budget -= turn.length;
+	}
+
+	return { system, conversation: turns.join("\n\n") };
 }
 
 export function buildAutoRoutingQuestions(
@@ -214,15 +272,7 @@ export async function classifyAutoRoutingRequest(
 		return null;
 	}
 
-	const systemText = input.messages
-		.filter((message) => message.role === "system")
-		.map((message) =>
-			typeof message.content === "string" ? message.content : "",
-		)
-		.join("\n\n");
-	const conversation = truncateState(
-		buildOpenAIContentFilterTextInput(input.messages),
-	);
+	const { system, conversation } = buildAutoRoutingState(input.messages);
 	if (conversation.length === 0) {
 		return null;
 	}
@@ -254,7 +304,7 @@ export async function classifyAutoRoutingRequest(
 			body: JSON.stringify({
 				model: JEV_AUTO_ROUTING_MODEL,
 				state: {
-					system: truncateState(systemText),
+					system,
 					conversation,
 					tool_names: input.toolNames,
 					has_images: input.hasImages,

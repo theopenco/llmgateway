@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
 	buildAutoRoutingQuestions,
+	buildAutoRoutingState,
 	classifyAutoRoutingRequest,
 } from "./jev-auto-routing-classifier.js";
 
@@ -84,6 +85,49 @@ describe("buildAutoRoutingQuestions", () => {
 		expect(questions.best_model.criteria["mid-model"]).toBe(
 			"Mid — medium price band.",
 		);
+	});
+});
+
+describe("buildAutoRoutingState", () => {
+	it("keeps the newest turns and drops the oldest when over budget", () => {
+		const { conversation } = buildAutoRoutingState([
+			{ role: "user", content: `OLDEST ${"x".repeat(9_000)}` },
+			{ role: "assistant", content: "ok" },
+			{ role: "user", content: "NEWEST request" },
+		] as any);
+
+		expect(conversation).toContain("NEWEST request");
+		expect(conversation.endsWith("NEWEST request")).toBe(true);
+		expect(conversation).not.toContain("OLDEST");
+	});
+
+	it("separates the system prompt from the conversation", () => {
+		const { system, conversation } = buildAutoRoutingState([
+			{ role: "system", content: "You are an agent." },
+			{ role: "user", content: "Refactor this." },
+		] as any);
+
+		expect(system).toBe("You are an agent.");
+		expect(conversation).toBe("user: Refactor this.");
+	});
+
+	it("reads text out of structured content blocks", () => {
+		const { conversation } = buildAutoRoutingState([
+			{
+				role: "user",
+				content: [
+					{ type: "text", text: "first part" },
+					{
+						type: "image_url",
+						image_url: { url: "https://example.com/a.png" },
+					},
+					{ type: "text", text: "second part" },
+				],
+			},
+		] as any);
+
+		expect(conversation).toContain("first part");
+		expect(conversation).toContain("second part");
 	});
 });
 
@@ -184,7 +228,41 @@ describe("classifyAutoRoutingRequest", () => {
 		);
 
 		expect(body.state.conversation.length).toBeLessThan(9_000);
+		// The tail survives: the newest content is what is being asked.
 		expect(body.state.conversation).toContain("TAIL");
+	});
+
+	it("keeps the user's request when an agent preamble dwarfs it", async () => {
+		// A coding agent's system prompt and tool preamble run to tens of
+		// thousands of characters. Slicing the concatenated transcript kept only
+		// that preamble and dropped the request, so every agent session scored
+		// the same — on boilerplate rather than on what was asked.
+		process.env.LLM_TYPESAFE_API_KEY = "ts-test";
+		let body: any;
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+			body = JSON.parse(String(init?.body ?? "{}"));
+			return jevResponse({ difficulty: { type: "score", score: 2 } });
+		});
+
+		await classifyAutoRoutingRequest(
+			classifierInput({
+				messages: [
+					{ role: "system" as const, content: "AGENT_PREAMBLE ".repeat(4_000) },
+					{
+						role: "user" as const,
+						content: "Prove this queue is linearizable.",
+					},
+				],
+			}),
+			CONTEXT,
+		);
+
+		expect(body.state.conversation).toContain(
+			"Prove this queue is linearizable.",
+		);
+		expect(body.state.conversation).not.toContain("AGENT_PREAMBLE");
+		expect(body.state.system).toContain("AGENT_PREAMBLE");
+		expect(body.state.system.length).toBeLessThan(1_100);
 	});
 
 	it("fails open on an upstream error", async () => {
