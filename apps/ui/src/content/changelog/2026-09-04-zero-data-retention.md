@@ -4,6 +4,7 @@ slug: "zero-data-retention"
 date: "2026-09-04"
 title: "Zero Data Retention Controls"
 summary: "Enterprise organizations can now enforce zero data retention across provider routing, LLM Gateway storage, response caches, and the Responses API. Conflicting retention and caching settings are blocked before they can weaken the policy."
+tags: ["llmgateway"]
 image:
   src: "/changelog/zero-data-retention.png"
   alt: "A glowing privacy vault on a circuit board with data routes passing through without entering storage chips"

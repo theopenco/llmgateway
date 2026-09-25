@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import SurveyReminderDialog from "@/app/dashboard/components/SurveyReminderDialog";
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import { ThemeToggle } from "@/components/landing/theme-toggle";
+import { ProductSwitcher } from "@/components/ProductSwitcher";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -547,10 +548,7 @@ export default function DashboardShell({
 			<header className="border-b border-border/50">
 				<div className="container mx-auto flex items-center justify-between px-4 py-3">
 					<div className="flex items-center gap-6">
-						<Link href="/" className="flex items-center gap-2">
-							<Code className="h-5 w-5" />
-							<span className="font-semibold">DevPass</span>
-						</Link>
+						<ProductSwitcher />
 						{hasActivePlan && (
 							<span className="hidden sm:inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium">
 								{currentPlanName}

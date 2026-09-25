@@ -31,6 +31,7 @@ import {
 	withEnterpriseSeatsForActivation,
 	withEnterpriseSeatsForPromotion,
 } from "@/lib/enterprise-seats.js";
+import { buildLogErrorFilter } from "@/lib/log-error-filter.js";
 import {
 	mappingErrorShapesSchema,
 	mappingErrorWindowSchema,
@@ -143,6 +144,7 @@ import {
 	getOrgSpendTier,
 	getPlanClass,
 	isValidSystemBannerLink,
+	LOG_ERROR_TYPES,
 	parseUsedModel,
 	resolveTrustTierOverride,
 	SYSTEM_BANNER_SEVERITIES,
@@ -422,6 +424,10 @@ const adminMetricsSchema = z.object({
 	// fees; refunds not netted out), split by product.
 	grossRevenue: z.number(),
 	grossCreditsRevenue: z.number(),
+	// LLM SDK end-user wallet top-ups. Already included in
+	// `grossCreditsRevenue` — reported separately so SDK monetization is
+	// visible, never added to `grossRevenue` again.
+	grossSdkPaymentsRevenue: z.number(),
 	grossDevpassRevenue: z.number(),
 	// PAYG overflow top-ups purchased by DevPass orgs. Same `credit_topup`
 	// transaction type as the Credits split, attributed separately so DevPass
@@ -1402,6 +1408,11 @@ admin.openapi(getMetrics, async (c) => {
 				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)), 0)`.as(
 					"value",
 				),
+			// LLM SDK end-user wallet top-ups, a subset of `value`.
+			sdkValue:
+				sql<number>`COALESCE(SUM(CAST(${tables.transaction.amount} AS NUMERIC)) FILTER (WHERE ${tables.transaction.type} = 'end_user_topup'), 0)`.as(
+					"sdk_value",
+				),
 		})
 		.from(tables.transaction)
 		.innerJoin(
@@ -1427,6 +1438,7 @@ admin.openapi(getMetrics, async (c) => {
 		);
 
 	const grossCreditsRevenue = Number(grossCreditsRow?.value ?? 0);
+	const grossSdkPaymentsRevenue = Number(grossCreditsRow?.sdkValue ?? 0);
 
 	// DevPass PAYG overflow top-ups: `credit_topup` purchases on devpass orgs.
 	const [grossDevpassTopupsRow] = await db
@@ -1709,6 +1721,7 @@ admin.openapi(getMetrics, async (c) => {
 		totalRefundedCredits,
 		grossRevenue,
 		grossCreditsRevenue,
+		grossSdkPaymentsRevenue,
 		grossDevpassRevenue,
 		grossDevpassTopupsRevenue,
 		grossResetPassRevenue,
@@ -4361,6 +4374,7 @@ const getProjectLogs = createRoute({
 			source: z.string().optional(),
 			unifiedFinishReason: z.string().optional(),
 			hasError: z.string().optional(),
+			errorType: z.enum(LOG_ERROR_TYPES).optional(),
 		}),
 	},
 	responses: {
@@ -4382,8 +4396,15 @@ admin.openapi(getProjectLogs, async (c) => {
 	const { orgId, projectId } = c.req.valid("param");
 	const query = c.req.valid("query");
 	const limit = query.limit ?? 50;
-	const { cursor, provider, model, source, unifiedFinishReason, hasError } =
-		query;
+	const {
+		cursor,
+		provider,
+		model,
+		source,
+		unifiedFinishReason,
+		hasError,
+		errorType,
+	} = query;
 
 	// Verify project belongs to the organization
 	const project = await db.query.project.findFirst({
@@ -4430,8 +4451,12 @@ admin.openapi(getProjectLogs, async (c) => {
 		);
 	}
 
-	if (hasError === "true") {
-		whereConditions.push(eq(tables.log.hasError, true));
+	// `hasError=true` is the legacy shape of `errorType=any`
+	const errorFilter = buildLogErrorFilter(
+		errorType ?? (hasError === "true" ? "any" : undefined),
+	);
+	if (errorFilter) {
+		whereConditions.push(errorFilter);
 	}
 
 	if (cursor) {
@@ -15582,8 +15607,8 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 			cycleStart: tables.organization.devPlanBillingCycleStart,
 			expiresAt: tables.organization.devPlanExpiresAt,
 			cancelled: tables.organization.devPlanCancelled,
+			paymentStatus: tables.organization.subscriptionPaymentStatus,
 			createdAt: tables.organization.createdAt,
-			paymentFailureCount: tables.organization.paymentFailureCount,
 			utilizationPct: utilizationExpr,
 			mrr: tierPriceExpr,
 			realCost: realCostExpr,
@@ -15696,7 +15721,7 @@ admin.openapi(getDevpassSubscribers, async (c) => {
 		const lastPaymentFailureAt = row.lastPaymentFailureAt
 			? new Date(row.lastPaymentFailureAt).toISOString()
 			: null;
-		const hasPaymentIssue = (row.paymentFailureCount ?? 0) > 0;
+		const hasPaymentIssue = row.paymentStatus === "past_due";
 
 		const mrrNum = Number(row.mrr ?? 0);
 		const marginNum = Number(row.margin ?? 0);
@@ -17136,7 +17161,7 @@ admin.openapi(getDevpassSubscriber, async (c) => {
 		.from(tables.paymentFailure)
 		.where(eq(tables.paymentFailure.organizationId, orgId));
 
-	const hasPaymentIssue = (org.paymentFailureCount ?? 0) > 0;
+	const hasPaymentIssue = org.subscriptionPaymentStatus === "past_due";
 
 	const marginPct = mrr > 0 ? (margin / mrr) * 100 : null;
 
@@ -18083,8 +18108,8 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 			cycleStart: tables.organization.chatPlanBillingCycleStart,
 			expiresAt: tables.organization.chatPlanExpiresAt,
 			cancelled: tables.organization.chatPlanCancelled,
+			paymentStatus: tables.organization.subscriptionPaymentStatus,
 			createdAt: tables.organization.createdAt,
-			paymentFailureCount: tables.organization.paymentFailureCount,
 			utilizationPct: utilizationExpr,
 			mrr: tierPriceExpr,
 			realCost: realCostExpr,
@@ -18350,7 +18375,7 @@ admin.openapi(getChatPlansSubscribers, async (c) => {
 		const lastPaymentFailureAt = row.lastPaymentFailureAt
 			? new Date(row.lastPaymentFailureAt).toISOString()
 			: null;
-		const hasPaymentIssue = (row.paymentFailureCount ?? 0) > 0;
+		const hasPaymentIssue = row.paymentStatus === "past_due";
 
 		const mrrNum = Number(row.mrr ?? 0);
 		const marginNum = Number(row.margin ?? 0);
@@ -18957,7 +18982,7 @@ admin.openapi(getChatPlansSubscriber, async (c) => {
 		.from(tables.paymentFailure)
 		.where(eq(tables.paymentFailure.organizationId, orgId));
 
-	const hasPaymentIssue = (org.paymentFailureCount ?? 0) > 0;
+	const hasPaymentIssue = org.subscriptionPaymentStatus === "past_due";
 
 	const marginPct = mrr > 0 ? (margin / mrr) * 100 : null;
 

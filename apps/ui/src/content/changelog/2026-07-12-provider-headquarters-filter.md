@@ -4,6 +4,7 @@ slug: "provider-headquarters-filter"
 date: "2026-07-12"
 title: "Provider Headquarters Compliance Filter"
 summary: "Restrict routing to providers headquartered in the countries you approve. Pick allowed countries on the compliance page and the gateway blocks any provider based elsewhere — before a request leaves the gateway. Available on Enterprise."
+tags: ["llmgateway"]
 image:
   src: "/changelog/provider-headquarters-filter.png"
   alt: "Provider headquarters compliance filter on LLM Gateway: a country selector with flags restricting routing by provider location"

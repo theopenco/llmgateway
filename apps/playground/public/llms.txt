@@ -1,6 +1,6 @@
 # Lounge by LLM Gateway
 
-> Lounge is an AI chat app by LLM Gateway. Use models from multiple providers in one interface; the live [catalogue](https://llmgateway.io/models) lists current availability. It supports text chat, image and video generation, side-by-side multi-model group chats, and projects with knowledge files with one membership.
+> Lounge is an AI chat app by LLM Gateway. Use models from multiple providers in one interface; the live [catalogue](https://llmgateway.io/models) lists current availability. It supports text chat, image and video generation, multi-model council debates, and projects with knowledge files with one membership.
 
 ## Memberships
 
@@ -20,7 +20,7 @@
 - [Video studio](https://lounge.llmgateway.io/video): Generate short videos from text prompts.
 - [Audio studio](https://lounge.llmgateway.io/audio): Turn text into speech with supported voices and models.
 - [Voice calls](https://lounge.llmgateway.io/realtime): Realtime speech-to-speech conversations.
-- [Group chat](https://lounge.llmgateway.io/group): One prompt to many models, compared side by side.
+- [Group chat](https://lounge.llmgateway.io/group): A council of 2–5 models taking turns debating a topic in one shared conversation.
 - [Canvas](https://lounge.llmgateway.io/canvas): Build UIs from JSON specs with live preview.
 - [Sandbox Escape](https://lounge.llmgateway.io/escape): Watch a model try to break out of a sandboxed container, with a public leaderboard.
 - [Leaderboard](https://lounge.llmgateway.io/leaderboard): The most active Lounge members.

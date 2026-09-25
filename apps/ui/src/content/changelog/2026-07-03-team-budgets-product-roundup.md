@@ -4,6 +4,7 @@ slug: "team-budgets-product-roundup"
 date: "2026-07-03"
 title: "Per-Member Budgets, Developer Role & PDF Invoices"
 summary: "Cap any teammate's spend and API keys with per-member budgets, give contractors project-scoped developer access on Enterprise, download a PDF invoice for any purchase, and see analytics bucketed in your own timezone. Plus Claude Sonnet 5 at introductory pricing, Claude Fable 5 back online, and DevPass Code on npm."
+tags: ["llmgateway", "devpass", "lounge"]
 image:
   src: "/changelog/team-budgets-product-roundup.png"
   alt: "Product roundup: per-member budgets, developer role, PDF invoices, and timezone-aware analytics on LLM Gateway"

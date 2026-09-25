@@ -5,7 +5,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 
 import {
 	redisClient,
-	SWR_PREFIX,
+	swrMirrorKey,
 	swrWrap,
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
@@ -544,7 +544,7 @@ describe("keys route", () => {
 			token: "test-token",
 		}));
 		await waitForSwrMirrorWrites();
-		expect(await redisClient.get(SWR_PREFIX + swrCacheKey)).not.toBeNull();
+		expect(await redisClient.get(swrMirrorKey(swrCacheKey))).not.toBeNull();
 
 		const res = await app.request("/keys/api/test-api-key-id/roll", {
 			method: "POST",
@@ -555,7 +555,7 @@ describe("keys route", () => {
 		expect(res.status).toBe(200);
 
 		// The cached lookup for the old token must be gone after the roll.
-		expect(await redisClient.get(SWR_PREFIX + swrCacheKey)).toBeNull();
+		expect(await redisClient.get(swrMirrorKey(swrCacheKey))).toBeNull();
 	});
 
 	test("POST /keys/api/{id}/iam busts the gateway's cached IAM rule lookups", async () => {
@@ -597,7 +597,7 @@ describe("keys route", () => {
 		// Prime both cache layers with the "no rules" result.
 		expect(await readActiveIamRules()).toHaveLength(0);
 		expect(
-			await redisClient.get(SWR_PREFIX + `iamRules:${apiKeyId}`),
+			await redisClient.get(swrMirrorKey(`iamRules:${apiKeyId}`)),
 		).not.toBeNull();
 
 		const res = await app.request(`/keys/api/${apiKeyId}/iam`, {
@@ -615,7 +615,7 @@ describe("keys route", () => {
 
 		// The SWR mirror for the api_key_iam_rule table must be gone...
 		expect(
-			await redisClient.get(SWR_PREFIX + `iamRules:${apiKeyId}`),
+			await redisClient.get(swrMirrorKey(`iamRules:${apiKeyId}`)),
 		).toBeNull();
 		// ...and the cached select must serve the new rule, not the stale miss.
 		expect(await readActiveIamRules()).toHaveLength(1);

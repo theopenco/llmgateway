@@ -226,19 +226,24 @@ sizes/qualities/durations match exactly what the deployment accepted in §6.
 
 ## 8. When something fails
 
-| Symptom                                       | Cause                                                                                                |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| JSON output cases fail                        | deployment rejects `response_format`; set `jsonOutput: false` and drop it from `supportedParameters` |
-| Reasoning-effort case 400s                    | trim the tier from `reasoningEfforts`                                                                |
-| Forced tool_choice 400s                       | narrow `supportedToolChoices`                                                                        |
-| Vision case 400s                              | `vision: false` on that mapping                                                                      |
-| Cost ~2x the provider's on reasoning requests | reasoning double-counted — add the provider to `completionIncludesReasoning`                         |
-| Cost far below on reasoning requests          | reasoning tokens never extracted (nested `completion_tokens_details`)                                |
-| Cost mismatch only on long prompts            | wrong or missing `pricingTiers` band                                                                 |
-| Manual curl hits the wrong provider           | missing `x-no-fallback: true`                                                                        |
+| Symptom                                       | Cause                                                                                                      |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| JSON output cases fail                        | deployment rejects `response_format`; set `jsonOutput: false` and drop it from `supportedParameters`       |
+| Reasoning-effort case 400s                    | trim the tier from `reasoningEfforts`                                                                      |
+| Forced tool_choice 400s                       | narrow `supportedToolChoices`                                                                              |
+| Vision case 400s                              | `vision: false` on that mapping                                                                            |
+| Cost ~2x the provider's on reasoning requests | reasoning double-counted — add the provider to `completionIncludesReasoning`                               |
+| Cost far below on reasoning requests          | reasoning tokens never extracted (nested `completion_tokens_details`)                                      |
+| Cost mismatch only on long prompts            | wrong or missing `pricingTiers` band                                                                       |
+| Manual curl hits the wrong provider           | missing `x-no-fallback: true`                                                                              |
+| `max_tokens` case returns no content          | reasoning spends the whole budget; declare the tiers the deployment actually honours in `reasoningEfforts` |
 
 If a failure predates the change, fix what's in scope and say in the PR that it
 also fails on `main`.
+
+A failing case is a metadata or gateway fix, never a reason to retire a mapping
+that still serves live requests. Before writing `deactivatedAt`, apply the
+7-day notice rule in `AGENTS.md`.
 
 ## 9. Finish
 

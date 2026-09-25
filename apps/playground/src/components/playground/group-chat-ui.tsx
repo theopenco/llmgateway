@@ -1,7 +1,14 @@
 "use client";
 
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { AlertCircle, Play, StopCircle, Trash2 } from "lucide-react";
+import {
+	AlertCircle,
+	ArrowUpRight,
+	MessagesSquare,
+	Play,
+	StopCircle,
+	RotateCcw,
+} from "lucide-react";
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
 
 import {
@@ -104,7 +111,7 @@ export const GroupChatUI = ({
 			return "Unknown";
 		}
 		const model = availableModels.find((m) => m.id === modelId);
-		return model?.id ?? modelId;
+		return model?.name ?? modelId;
 	};
 
 	const getModelColor = (modelId?: string) => {
@@ -129,12 +136,13 @@ export const GroupChatUI = ({
 
 	return (
 		<VirtualScrollContext value={virtualScrollContextValue}>
-			<div className="flex flex-col h-full min-h-0">
+			<div className="relative flex flex-1 flex-col min-h-0">
 				<div
 					ref={scrollRef}
 					className="flex-1 overflow-y-auto min-h-0"
 					onScroll={handleScroll}
 					role="log"
+					aria-label="Council discussion"
 				>
 					<div
 						className={`mx-auto max-w-2xl relative ${
@@ -150,25 +158,36 @@ export const GroupChatUI = ({
 					>
 						{messages.length === 0 ? (
 							<div className="py-10 w-full">
-								<div className="mb-6 text-center">
-									<h2 className="text-3xl font-semibold tracking-tight mb-2">
-										Group Chat Mode
-									</h2>
-									<p className="text-muted-foreground">
-										Watch different AI models discuss and collaborate on your
-										prompt
+								<div className="mb-7 text-center">
+									<div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full border border-lounge-gold/30 bg-lounge-gold/[0.08] text-lounge-gold">
+										<MessagesSquare className="size-5" />
+									</div>
+									<p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-lounge-gold">
+										The Lounge · Group chat
+									</p>
+									<h1 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+										A council of curious minds.
+									</h1>
+									<p className="mx-auto mt-3 max-w-lg text-sm leading-relaxed text-muted-foreground">
+										One topic, different perspectives. Your models take turns
+										making a case, challenging assumptions, and responding to
+										each other.
 									</p>
 								</div>
 
 								<div className="space-y-4">
 									<div>
-										<label className="text-sm font-medium mb-2 block">
-											Initial Prompt
+										<label
+											htmlFor="council-topic"
+											className="text-sm font-medium mb-2 block"
+										>
+											Bring a question to the table
 										</label>
 										<Textarea
+											id="council-topic"
 											value={initialPrompt}
 											onChange={(e) => setInitialPrompt(e.target.value)}
-											placeholder="Enter a topic or question for the models to discuss... (e.g., 'What are the pros and cons of functional programming?')"
+											placeholder="What should your council debate?"
 											className="min-h-[120px]"
 											disabled={isStreaming}
 										/>
@@ -181,7 +200,7 @@ export const GroupChatUI = ({
 											className="flex-1"
 										>
 											<Play className="size-4 mr-2" />
-											Start Conversation
+											Start discussion
 										</Button>
 									</div>
 
@@ -189,35 +208,36 @@ export const GroupChatUI = ({
 										<Alert>
 											<AlertCircle className="h-4 w-4" />
 											<AlertDescription>
-												Please select at least 2 models to start a group
-												conversation
+												Invite at least 2 models above to start the discussion.
 											</AlertDescription>
 										</Alert>
 									)}
 								</div>
 
-								<div className="mt-8 p-4 rounded-lg border bg-muted/50">
-									<h3 className="font-medium mb-2">How it works</h3>
-									<ul className="text-sm text-muted-foreground space-y-1">
-										<li>• Add 2-5 different AI models to the conversation</li>
-										<li>
-											• Enter your initial prompt or question to kick off the
-											discussion
-										</li>
-										<li>
-											• Models will take turns responding to each other in
-											sequence
-										</li>
-										<li>
-											• Each model builds on the previous responses, creating a
-											dynamic conversation
-										</li>
-										<li>
-											• You can stop the conversation at any time and start a
-											new one
-										</li>
-									</ul>
+								<div className="mt-5 grid gap-2 sm:grid-cols-2">
+									{[
+										"Should a small team ship fast or perfect the details?",
+										"Is a four-day workweek better for creative work?",
+									].map((topic) => (
+										<button
+											key={topic}
+											type="button"
+											onClick={() => {
+												setInitialPrompt(topic);
+												document.getElementById("council-topic")?.focus();
+											}}
+											className="flex items-start gap-2 rounded-xl border p-3 text-left text-xs leading-relaxed text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+										>
+											{topic}
+											<ArrowUpRight className="mt-0.5 size-3 shrink-0" />
+										</button>
+									))}
 								</div>
+								<p className="mt-5 text-center text-xs leading-relaxed text-muted-foreground">
+									Five turns per round · Stop anytime · Each reply uses credits
+									<br />
+									This discussion stays here until you leave or reload.
+								</p>
 							</div>
 						) : (
 							virtualizer.getVirtualItems().map((item) => {
@@ -277,32 +297,42 @@ export const GroupChatUI = ({
 					)}
 
 					{messages.length > 0 && (
-						<div className="flex gap-2">
-							{isStreaming ? (
-								<Button
-									onClick={onStop}
-									variant="destructive"
-									className="flex-1"
-								>
-									<StopCircle className="size-4 mr-2" />
-									Stop Conversation
-								</Button>
-							) : (
-								<>
+						<div className="mx-auto max-w-2xl space-y-3">
+							<p
+								role="status"
+								className="text-center text-xs text-muted-foreground"
+							>
+								{isStreaming
+									? "The council is discussing your topic…"
+									: "Round paused. Continue for five more turns or bring a new topic."}
+							</p>
+							<div className="flex flex-wrap gap-2">
+								{isStreaming ? (
 									<Button
-										onClick={onStart}
-										disabled={!canStart}
+										onClick={onStop}
+										variant="destructive"
 										className="flex-1"
 									>
-										<Play className="size-4 mr-2" />
-										Continue Conversation
+										<StopCircle className="size-4 mr-2" />
+										Stop discussion
 									</Button>
-									<Button onClick={onClear} variant="outline">
-										<Trash2 className="size-4 mr-2" />
-										Clear
-									</Button>
-								</>
-							)}
+								) : (
+									<>
+										<Button
+											onClick={onStart}
+											disabled={!canStart}
+											className="flex-1"
+										>
+											<Play className="size-4 mr-2" />
+											Continue discussion
+										</Button>
+										<Button onClick={onClear} variant="outline">
+											<RotateCcw className="size-4 mr-2" />
+											New discussion
+										</Button>
+									</>
+								)}
+							</div>
 						</div>
 					)}
 				</div>

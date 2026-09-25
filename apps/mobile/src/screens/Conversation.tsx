@@ -9,6 +9,7 @@ export function Conversation(props: {
 	projectId: string;
 	knowledgeProjectId?: string;
 	single?: boolean;
+	onVoice?: () => void;
 	onOpenChat: (id: string) => void;
 }) {
 	const snapshot = api.useQuery(

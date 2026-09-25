@@ -6366,6 +6366,54 @@ describe("prepareRequestBody - max_tokens forwarding", () => {
 				"Kept — a caller-supplied field we pass through.",
 			);
 		});
+
+		test("strips reasoning and reasoning_content on mistral", async () => {
+			const requestBody = (await prepareRequestBody(
+				"mistral",
+				"zai-glm-5-3",
+				null,
+				"glm-5.3",
+				[
+					{ role: "user", content: "My name is Ada." },
+					{
+						role: "assistant",
+						content: "Got it, Ada!",
+						reasoning: "Dropped — Mistral rejects this field.",
+						reasoning_content: "Dropped — Mistral rejects this one too.",
+					},
+					{ role: "user", content: "What is my name?" },
+				],
+				false,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false,
+				20,
+				null,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				false, // useResponsesApi
+			)) as any;
+
+			expect(
+				requestBody.messages.every(
+					(m: any) =>
+						m.reasoning === undefined && m.reasoning_content === undefined,
+				),
+			).toBe(true);
+			expect(requestBody.messages[1].content).toBe("Got it, Ada!");
+		});
 	});
 
 	describe("azure-ai-foundry", () => {
@@ -8389,4 +8437,40 @@ describe("prepareRequestBody - alibaba forced tool use", () => {
 			expect(requestBody.enable_thinking).toBe(false);
 		},
 	);
+});
+
+describe("prepareRequestBody - bytedance prompt caching", () => {
+	async function prepare(provider: "bytedance" | "deepinfra", model: string) {
+		return (await prepareRequestBody(
+			provider,
+			model,
+			null,
+			model,
+			[{ role: "user", content: "Hello!" }],
+			false,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			false,
+			false,
+			20,
+			null,
+		)) as any;
+	}
+
+	test("opts in on a bytedance mapping that prices cached input", async () => {
+		const requestBody = await prepare("bytedance", "seed-2-0-lite-260428");
+		expect(requestBody.caching).toEqual({ type: "enabled" });
+	});
+
+	test("leaves other providers untouched", async () => {
+		const requestBody = await prepare("deepinfra", "granite-4.2-8b");
+		expect(requestBody.caching).toBeUndefined();
+	});
 });

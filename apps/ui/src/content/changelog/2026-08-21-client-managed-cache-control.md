@@ -4,6 +4,7 @@ slug: "client-managed-cache-control"
 date: "2026-08-21"
 title: "Client-Managed Prompt Caching"
 summary: "Provider cache writes is now a three-way setting. The new Client-managed mode forwards the cache markers your client sends and never adds any of its own, so one API key can serve a coding agent that manages its own caching alongside traffic that should not pay the cache-write premium."
+tags: ["llmgateway", "devpass"]
 image:
   src: "/changelog/client-managed-cache-control.png"
   alt: "The Provider Cache Writes setting in project preferences, showing the Automatic, Client-managed, and Disabled options"

@@ -45,9 +45,12 @@ import {
 	buildVerificationTarget,
 	enqueueModelVerification,
 	modelVerificationSchema,
+	pendingFiledCapabilities,
+	resolveVerificationCredential,
+	saveClaimVerificationKey,
 	serializeVerification,
-	verificationCredentialSource,
 	verificationTargetsMatch,
+	type CapabilityOverrides,
 	type ModelVerificationRow,
 } from "@/lib/model-verification.js";
 import { notifyAirsideCrewInvite } from "@/utils/discord.js";
@@ -254,6 +257,10 @@ const claimSchema = z.object({
 	// gateway has nothing to authenticate with, so an approved listing still
 	// serves no traffic — the portal says so instead of looking healthy.
 	hasManagedCredential: z.boolean(),
+	// The carrier's saved verification key, masked. Every preflight on this
+	// provider runs on it unless the carrier pastes another one.
+	verificationKeyMasked: z.string().nullable(),
+	verificationKeySetAt: z.string().nullable(),
 	createdAt: z.string(),
 });
 
@@ -447,6 +454,8 @@ function serializeClaim(
 		// Unknown on the single-claim responses (nothing renders the warning
 		// off those); the companies listing the portal polls resolves it.
 		hasManagedCredential: credentialedProviders?.has(row.providerId) ?? true,
+		verificationKeyMasked: row.verificationKeyMasked,
+		verificationKeySetAt: row.verificationKeyUpdatedAt?.toISOString() ?? null,
 		createdAt: row.createdAt.toISOString(),
 	};
 }
@@ -492,7 +501,7 @@ function verificationTarget(
  */
 function draftVerificationTarget(
 	model: DraftModelRow,
-	proposed: z.infer<typeof proposedCapabilitiesSchema> = {},
+	proposed: CapabilityOverrides = {},
 ): ProviderModelVerificationTarget {
 	// `null` is a meaningful proposal for the list-valued fields ("no
 	// restriction" / "parameter unsupported"), so they fall back on undefined
@@ -515,11 +524,10 @@ function draftVerificationTarget(
 		jsonOutputSchema: proposed.jsonOutputSchema ?? model.jsonOutputSchema,
 		reasoning: proposed.reasoning ?? model.reasoning,
 		reasoningMaxTokens: proposed.reasoningMaxTokens ?? model.reasoningMaxTokens,
-		reasoningEfforts:
-			proposed.reasoningEfforts === undefined
-				? (model.reasoningEfforts as
-						(typeof REASONING_EFFORT_VALUES)[number][] | null)
-				: proposed.reasoningEfforts,
+		reasoningEfforts: ((proposed.reasoningEfforts === undefined
+			? model.reasoningEfforts
+			: proposed.reasoningEfforts) ?? null) as
+			(typeof REASONING_EFFORT_VALUES)[number][] | null,
 		webSearch: proposed.webSearch ?? model.webSearch,
 	});
 }
@@ -2011,6 +2019,88 @@ airside.openapi(updateClaimBranding, async (c) => {
 	return c.json({ claim: serializeClaim(updated, providerNamesById) });
 });
 
+const verificationKeySchema = z.object({
+	verificationKeyMasked: z.string().nullable(),
+	verificationKeySetAt: z.string().nullable(),
+});
+
+async function requireOwnedActiveClaim(userId: string, claimId: string) {
+	const claim = await db.query.providerClaim.findFirst({
+		where: { id: { eq: claimId } },
+	});
+	if (!claim) {
+		throw new HTTPException(404, { message: "Claim not found" });
+	}
+	await requireCompanyMembership(userId, claim.providerCompanyId);
+	if (claim.status !== "active") {
+		throw new HTTPException(409, {
+			message: "Only an active claim can hold a verification key.",
+		});
+	}
+	return claim;
+}
+
+const setVerificationKey = createRoute({
+	method: "put",
+	path: "/claims/{id}/verification-key",
+	request: {
+		params: z.object({ id: z.string() }),
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({ apiKey: z.string().min(1).max(20_000) }),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: verificationKeySchema },
+			},
+			description: "The saved verification key, masked.",
+		},
+	},
+});
+
+airside.openapi(setVerificationKey, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const { apiKey } = c.req.valid("json");
+	const claim = await requireOwnedActiveClaim(user.id, id);
+	return c.json(await saveClaimVerificationKey(claim, apiKey));
+});
+
+const deleteVerificationKey = createRoute({
+	method: "delete",
+	path: "/claims/{id}/verification-key",
+	request: { params: z.object({ id: z.string() }) },
+	responses: {
+		200: {
+			content: {
+				"application/json": { schema: verificationKeySchema },
+			},
+			description: "The cleared verification key.",
+		},
+	},
+});
+
+airside.openapi(deleteVerificationKey, async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	await requireOwnedActiveClaim(user.id, id);
+	// cdb: claim rows feed the gateway's custom-carrier resolution cache.
+	await cdb
+		.update(tables.providerClaim)
+		.set({
+			verificationKeyCiphertext: null,
+			verificationKeyMasked: null,
+			verificationKeyUpdatedAt: null,
+		})
+		.where(eq(tables.providerClaim.id, id));
+	return c.json({ verificationKeyMasked: null, verificationKeySetAt: null });
+});
+
 // ---------------------------------------------------------------------------
 // Models (fleet)
 // ---------------------------------------------------------------------------
@@ -2136,10 +2226,14 @@ airside.openapi(queueNewModelVerification, async (c) => {
 		});
 	}
 	const target = verificationTarget(body);
-	const credentialSource = await verificationCredentialSource(
+	const credential = await resolveVerificationCredential(
 		target,
 		body.apiKey,
+		claim,
 	);
+	if (body.apiKey) {
+		await saveClaimVerificationKey(claim, body.apiKey);
+	}
 	let verification: ModelVerificationRow;
 	try {
 		verification = await db.transaction(async (tx) => {
@@ -2171,9 +2265,9 @@ airside.openapi(queueNewModelVerification, async (c) => {
 				{
 					providerCompanyId: body.providerCompanyId,
 					target,
-					apiKey: body.apiKey,
+					apiKey: credential.apiKey,
 					requestedBy: user.id,
-					credentialSource,
+					credentialSource: credential.credentialSource,
 				},
 				tx,
 			);
@@ -2268,17 +2362,37 @@ airside.openapi(queueExistingModelVerification, async (c) => {
 			message: "Delisted mappings cannot be verified.",
 		});
 	}
-	const target = draftVerificationTarget(model, proposed);
-	const credentialSource = await verificationCredentialSource(target, apiKey);
+	const claim = await db.query.providerClaim.findFirst({
+		where: {
+			providerCompanyId: { eq: model.providerCompanyId },
+			providerId: { eq: model.providerId },
+			status: { eq: "active" },
+		},
+	});
+	if (!claim) {
+		throw new HTTPException(403, {
+			message: "The provider must have an active claim before verification.",
+		});
+	}
+	// Without an explicit proposal, verify what the listing currently claims —
+	// including a capability edit still awaiting review.
+	const target = draftVerificationTarget(model, {
+		...(await pendingFiledCapabilities(model.id)),
+		...proposed,
+	});
+	const credential = await resolveVerificationCredential(target, apiKey, claim);
+	if (apiKey) {
+		await saveClaimVerificationKey(claim, apiKey);
+	}
 	let verification: ModelVerificationRow;
 	try {
 		verification = await enqueueModelVerification({
 			providerCompanyId: model.providerCompanyId,
 			draftModelId: model.id,
 			target,
-			apiKey,
+			apiKey: credential.apiKey,
 			requestedBy: user.id,
-			credentialSource,
+			credentialSource: credential.credentialSource,
 		});
 	} catch (error) {
 		if (isUniqueViolation(error)) {

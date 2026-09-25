@@ -39,7 +39,7 @@ export const metadata: Metadata = {
 		template: `%s | ${BRAND.fullName}`,
 	},
 	description:
-		"The members' lounge for AI. Chat with GPT, Claude, and Gemini, generate images and video, and run multi-model group chats — every frontier model, one membership.",
+		"The members' lounge for AI. Chat with GPT, Claude, and Gemini, generate images and video, and host multi-model council debates — every frontier model, one membership.",
 	icons: {
 		icon: "/favicon/favicon.ico?v=2",
 	},
@@ -57,7 +57,7 @@ export const metadata: Metadata = {
 	openGraph: {
 		title: `${BRAND.name} — Chat with 200+ AI Models (GPT, Claude, Gemini)`,
 		description:
-			"The members' lounge for AI. Chat, generate images and videos, and run multi-model group chats — every frontier model, one membership.",
+			"The members' lounge for AI. Chat, generate images and videos, and host multi-model council debates — every frontier model, one membership.",
 		images: ["/opengraph.png?v=3"],
 		type: "website",
 		url: BRAND.url,
@@ -68,7 +68,7 @@ export const metadata: Metadata = {
 		card: "summary_large_image",
 		title: `${BRAND.name} — Chat with 200+ AI Models (GPT, Claude, Gemini)`,
 		description:
-			"The members' lounge for AI. Chat, generate images and videos, and run multi-model group chats — every frontier model, one membership.",
+			"The members' lounge for AI. Chat, generate images and videos, and host multi-model council debates — every frontier model, one membership.",
 		creator: "@llmgateway",
 	},
 };
@@ -79,7 +79,7 @@ const webSiteSchema = {
 	name: BRAND.fullName,
 	url: BRAND.url,
 	description:
-		"The members' lounge for AI — chat with 200+ models, generate images and videos, and run multi-model group chats.",
+		"The members' lounge for AI — chat with 200+ models, generate images and videos, and host multi-model council debates.",
 	publisher: {
 		"@type": "Organization",
 		name: BRAND.publisher,

@@ -2,7 +2,6 @@ import { logger } from "@llmgateway/logger";
 
 import { redisClient } from "./redis.js";
 
-// Bump with the Drizzle cache namespace to discard incompatible fallback rows.
 export const SWR_PREFIX = "swr:v2:";
 export const SWR_TABLE_INDEX_PREFIX = "swr:v2:tables:";
 export const SWR_THROTTLE_PREFIX = "swr:v2:throttle:";
@@ -26,10 +25,6 @@ export const SWR_BATCH_SIZE = 500;
 // re-primes immediately.
 export const SWR_MIRROR_WRITE_THROTTLE_SECONDS = 30;
 
-function throttleKey(key: string): string {
-	return SWR_THROTTLE_PREFIX + key;
-}
-
 // Returns true if this caller won the throttle slot and should (re)write the
 // mirror. Uses SET NX so exactly one caller per window per key wins. Fails open
 // (returns true) on Redis error so an unavailable Redis never suppresses a
@@ -37,7 +32,7 @@ function throttleKey(key: string): string {
 async function claimMirrorWrite(key: string): Promise<boolean> {
 	try {
 		const result = await redisClient.set(
-			throttleKey(key),
+			swrThrottleKey(key),
 			"1",
 			"EX",
 			SWR_MIRROR_WRITE_THROTTLE_SECONDS,
@@ -68,6 +63,22 @@ function isNoneSentinel(value: unknown): value is SwrNoneSentinel {
 	);
 }
 
+// Mirrors hold serialized database rows, so an entry written before a schema
+// change can be missing (or have renamed) columns the reader expects — served
+// during a Postgres outage, that reads as a row with fields silently gone.
+// `@llmgateway/db` stamps its column-layout fingerprint here at import, and it
+// namespaces the mirror and throttle keys rather than just tagging the payload:
+// during a rolling deploy each build then keeps its own usable fallback instead
+// of overwriting — or throttling away — the other's. The table index stays
+// unversioned, so a mutation still evicts every layout's mirror. Kept as a
+// setter rather than an import because `@llmgateway/db` depends on this
+// package, not the reverse.
+let schemaVersion = "unversioned";
+
+export function setSwrSchemaVersion(version: string): void {
+	schemaVersion = version;
+}
+
 export function getSwrStaleTtlSeconds(): number {
 	const raw = process.env.SWR_STALE_TTL_SECONDS;
 	if (!raw) {
@@ -80,8 +91,12 @@ export function getSwrStaleTtlSeconds(): number {
 	return parsed;
 }
 
-function swrKey(key: string): string {
-	return SWR_PREFIX + key;
+export function swrMirrorKey(key: string): string {
+	return `${SWR_PREFIX}${schemaVersion}:${key}`;
+}
+
+export function swrThrottleKey(key: string): string {
+	return `${SWR_THROTTLE_PREFIX}${schemaVersion}:${key}`;
 }
 
 function tableIndexKey(table: string): string {
@@ -95,7 +110,7 @@ async function writeMirror<T>(
 ): Promise<boolean> {
 	try {
 		const ttl = getSwrStaleTtlSeconds();
-		const cacheKey = swrKey(key);
+		const cacheKey = swrMirrorKey(key);
 		const payload =
 			value === undefined ? ({ [SWR_NONE_SENTINEL]: true } as const) : value;
 
@@ -123,7 +138,7 @@ async function writeMirror<T>(
 // mirror (and weaken the stale fallback) for the whole throttle window.
 async function releaseMirrorThrottle(key: string): Promise<void> {
 	try {
-		await redisClient.del(throttleKey(key));
+		await redisClient.del(swrThrottleKey(key));
 	} catch {
 		// Best-effort: the throttle key's own TTL bounds how long it can wrongly
 		// suppress writes, so a failed release is non-fatal.
@@ -133,7 +148,7 @@ async function releaseMirrorThrottle(key: string): Promise<void> {
 async function readMirror<T>(
 	key: string,
 ): Promise<{ hit: true; value: T } | { hit: false }> {
-	const cached = await redisClient.get(swrKey(key));
+	const cached = await redisClient.get(swrMirrorKey(key));
 	if (cached === null) {
 		return { hit: false };
 	}
@@ -246,8 +261,10 @@ export async function invalidateSwrByTables(tables: string[]): Promise<void> {
 		// next fetch repopulates the mirror immediately instead of waiting out
 		// the throttle window.
 		const keysArray = Array.from(allKeysToDelete);
-		const throttleKeys = keysArray.map((cacheKey) =>
-			throttleKey(cacheKey.slice(SWR_PREFIX.length)),
+		// Derived from the member rather than rebuilt from this process's schema
+		// version, so mirrors another build wrote lose their throttle marker too.
+		const throttleKeys = keysArray.map(
+			(cacheKey) => SWR_THROTTLE_PREFIX + cacheKey.slice(SWR_PREFIX.length),
 		);
 		const allUnlinkKeys = [...keysArray, ...throttleKeys];
 		for (let i = 0; i < allUnlinkKeys.length; i += SWR_BATCH_SIZE) {

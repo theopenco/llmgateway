@@ -8,6 +8,7 @@ import { bytedanceModels } from "./models/bytedance.js";
 import { deepseekModels } from "./models/deepseek.js";
 import { elevenlabsModels } from "./models/elevenlabs.js";
 import { googleModels } from "./models/google.js";
+import { ibmModels } from "./models/ibm.js";
 import { inclusionaiModels } from "./models/inclusionai.js";
 import { kinfraModels } from "./models/kinfra.js";
 import { llmgatewayModels } from "./models/llmgateway.js";
@@ -49,8 +50,17 @@ export type Price = string;
  * in ascending order of effort. Which subset a given provider mapping
  * actually supports is declared per mapping via `reasoningEfforts`.
  */
-export type ReasoningEffort =
-	"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export const REASONING_EFFORTS = [
+	"none",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+	"max",
+] as const;
+
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
 /**
  * Execution strategy accepted by the unified `reasoning.mode` parameter.
@@ -976,4 +986,5 @@ export const models = [
 	...typesafeModels,
 	...thinkingmachinesModels,
 	...stepfunModels,
+	...ibmModels,
 ] as const satisfies ModelDefinition[];

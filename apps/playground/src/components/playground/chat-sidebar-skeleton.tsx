@@ -1,8 +1,8 @@
 "use client";
 import { Loader2 } from "lucide-react";
-import Link from "next/link";
 
 import { CreditsDisplay } from "@/components/credits/credits-display";
+import { ProductSwitcher } from "@/components/product-switcher";
 import {
 	Sidebar,
 	SidebarContent,
@@ -12,7 +12,6 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { Wordmark } from "@/components/ui/wordmark";
 
 import { StudioNav } from "./studio-nav";
 
@@ -36,11 +35,7 @@ export const ChatSidebarSkeleton = ({
 			<SidebarHeader>
 				<SidebarMenu>
 					<SidebarMenuItem>
-						<SidebarMenuButton size="lg" asChild tooltip="Lounge">
-							<Link href="/" prefetch={true}>
-								<Wordmark size="sm" iconBox />
-							</Link>
-						</SidebarMenuButton>
+						<ProductSwitcher />
 					</SidebarMenuItem>
 					<SidebarMenuItem>
 						<SidebarMenuButton

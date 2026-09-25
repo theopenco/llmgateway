@@ -3,10 +3,13 @@ import { z } from "zod";
 
 import {
 	createQueuedModelVerificationChecks,
+	decryptClaimVerificationKey,
+	encryptClaimVerificationKey,
 	encryptModelVerificationCredential,
 } from "@llmgateway/actions";
-import { db, shortid, tables } from "@llmgateway/db";
+import { cdb, db, eq, shortid, tables } from "@llmgateway/db";
 import { hasProviderEnvironmentToken } from "@llmgateway/models";
+import { maskToken } from "@llmgateway/shared/mask-token";
 
 import type { ProviderModelVerificationTarget } from "@llmgateway/db";
 import type { ProviderApiFormat, ToolChoiceMode } from "@llmgateway/models";
@@ -28,6 +31,8 @@ export const modelVerificationSchema = z.object({
 		}),
 	),
 	summary: z.string().nullable(),
+	// Listing capabilities this run's failed checks dropped.
+	demotedCapabilities: z.array(z.string()).nullable(),
 	createdAt: z.string(),
 	startedAt: z.string().nullable(),
 	completedAt: z.string().nullable(),
@@ -50,6 +55,51 @@ export interface VerificationTargetInput {
 	reasoningMaxTokens?: boolean | null;
 	reasoningEfforts?: string[] | null;
 	webSearch?: boolean | null;
+}
+
+const CAPABILITY_KEYS = [
+	"streaming",
+	"vision",
+	"audio",
+	"tools",
+	"supportedToolChoices",
+	"jsonOutput",
+	"jsonOutputSchema",
+	"reasoning",
+	"reasoningMaxTokens",
+	"reasoningEfforts",
+	"webSearch",
+] as const;
+
+export type CapabilityOverrides = Pick<
+	VerificationTargetInput,
+	(typeof CAPABILITY_KEYS)[number]
+>;
+
+/**
+ * The capabilities a listing has awaiting review. A live listing keeps a
+ * capability edit in a pending filing until it is approved, so verifying the
+ * row alone would skip the very capability the carrier is trying to prove and
+ * report a pass for a run that never touched it.
+ */
+export async function pendingFiledCapabilities(
+	draftModelId: string,
+): Promise<CapabilityOverrides> {
+	const filing = await db.query.providerPriceFiling.findFirst({
+		where: {
+			draftModelId: { eq: draftModelId },
+			status: { eq: "pending" },
+			kind: { eq: "metadata" },
+		},
+	});
+	const metadata = (filing?.metadata ?? {}) as Record<string, unknown>;
+	const overrides: Record<string, unknown> = {};
+	for (const key of CAPABILITY_KEYS) {
+		if (metadata[key] !== undefined) {
+			overrides[key] = metadata[key];
+		}
+	}
+	return overrides as CapabilityOverrides;
 }
 
 export function buildVerificationTarget(
@@ -102,10 +152,53 @@ export function verificationTargetsMatch(
 	);
 }
 
+export type ProviderClaimRow = typeof tables.providerClaim.$inferSelect;
+
+export interface ResolvedVerificationCredential {
+	credentialSource: ModelVerificationRow["credentialSource"];
+	apiKey?: string;
+}
+
 /**
- * Picks the credential the worker will run the checks with. A pasted key wins;
- * otherwise a managed platform key that may serve this model, then the
- * provider's environment credential.
+ * Stores the carrier's verification key on its claim so later runs — theirs and
+ * ours — no longer need it pasted. Replaces any previous key.
+ */
+export async function saveClaimVerificationKey(
+	claim: ProviderClaimRow,
+	apiKey: string,
+): Promise<{ verificationKeyMasked: string; verificationKeySetAt: string }> {
+	const verificationKeyMasked = maskToken(apiKey, 6, 4);
+	const verificationKeyUpdatedAt = new Date();
+	// cdb: claim rows feed the gateway's custom-carrier resolution cache.
+	await cdb
+		.update(tables.providerClaim)
+		.set({
+			verificationKeyCiphertext: encryptClaimVerificationKey(
+				apiKey,
+				claim.id,
+				claim.providerCompanyId,
+			),
+			verificationKeyMasked,
+			verificationKeyUpdatedAt,
+		})
+		.where(eq(tables.providerClaim.id, claim.id));
+	return {
+		verificationKeyMasked,
+		verificationKeySetAt: verificationKeyUpdatedAt.toISOString(),
+	};
+}
+
+/**
+ * Picks the credential the worker will run the checks with.
+ *
+ * A claimed provider always runs on the carrier's own key — pasted now, or the
+ * one saved on its claim. Verification traffic is never logged or billed by us,
+ * so spending a managed or environment credential on it would put a carrier's
+ * testing on our bill with nothing in the accounting to show for it.
+ *
+ * Unclaimed catalogue mappings (admin runs) keep the platform credentials:
+ * pasted key, then a managed key that may serve this model, then the provider's
+ * environment credential.
  *
  * Only credentials the worker can actually read count. `LLM_*` variables live
  * on the gateway deployment, so the snapshot it publishes describes a process
@@ -114,12 +207,31 @@ export function verificationTargetsMatch(
  * the key the carrier could have pasted. This process shares the worker's
  * deployment environment, so its own `process.env` is the honest signal.
  */
-export async function verificationCredentialSource(
+export async function resolveVerificationCredential(
 	target: ProviderModelVerificationTarget,
 	apiKey: string | undefined,
-): Promise<ModelVerificationRow["credentialSource"]> {
+	claim: ProviderClaimRow | null,
+): Promise<ResolvedVerificationCredential> {
+	if (claim) {
+		if (apiKey) {
+			return { credentialSource: "supplied", apiKey };
+		}
+		if (claim.verificationKeyCiphertext) {
+			return {
+				credentialSource: "carrier",
+				apiKey: decryptClaimVerificationKey(
+					claim.verificationKeyCiphertext,
+					claim.id,
+					claim.providerCompanyId,
+				),
+			};
+		}
+		throw new HTTPException(400, {
+			message: "Enter a provider API key to run this verification.",
+		});
+	}
 	if (apiKey) {
-		return "supplied";
+		return { credentialSource: "supplied", apiKey };
 	}
 	const managedKeys = await db.query.providerKey.findMany({
 		where: {
@@ -136,14 +248,27 @@ export async function verificationCredentialSource(
 				key.allowedModels.includes(target.externalId),
 		)
 	) {
-		return "managed";
+		return { credentialSource: "managed" };
 	}
 	if (hasProviderEnvironmentToken(target.providerId)) {
-		return "environment";
+		return { credentialSource: "environment" };
 	}
 	throw new HTTPException(400, {
 		message: "Enter a provider API key to run this verification.",
 	});
+}
+
+/**
+ * The active claim for a provider, if a carrier owns it.
+ */
+export async function activeProviderClaim(
+	providerId: string,
+): Promise<ProviderClaimRow | null> {
+	return (
+		(await db.query.providerClaim.findFirst({
+			where: { providerId: { eq: providerId }, status: { eq: "active" } },
+		})) ?? null
+	);
 }
 
 export async function enqueueModelVerification(
@@ -191,6 +316,7 @@ export function serializeVerification(row: ModelVerificationRow) {
 		status: row.status,
 		checks: row.checks,
 		summary: row.summary,
+		demotedCapabilities: row.demotedCapabilities ?? null,
 		createdAt: row.createdAt.toISOString(),
 		startedAt: row.startedAt?.toISOString() ?? null,
 		completedAt: row.completedAt?.toISOString() ?? null,

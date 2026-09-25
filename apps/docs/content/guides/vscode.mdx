@@ -6,6 +6,22 @@ icon: Code
 
 The official&nbsp;[LLM Gateway extension](https://marketplace.visualstudio.com/items?itemName=llmgateway.llmgateway-vscode) adds LLM Gateway to the Copilot Chat model picker in VS Code. Connect your key once, then choose from the chat models available to your account.
 
+Verified with VS Code **1.135.0** and the LLM Gateway extension **0.1.0**. The video demonstrates model configuration and a real response without GitHub sign-in.
+
+## Video walkthrough
+
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/q3CXU2dgGoc"
+		title="VS Code setup and chat with LLM Gateway"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
+
 ## Prerequisites
 
 - VS Code 1.134.0 or later with Copilot Chat available.
@@ -16,7 +32,8 @@ The official&nbsp;[LLM Gateway extension](https://marketplace.visualstudio.com/i
 1. Install **LLM Gateway**, published by **llmgateway**, from the&nbsp;[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=llmgateway.llmgateway-vscode).
 2. Open the chat view, click the model picker, and choose **Manage Models…**.
 3. Select **LLM Gateway** and enter your API key when prompted.
-4. Select an LLM Gateway model from the picker and send a message.
+4. If VS Code prompts you to configure BYOK utility models, set **Chat: Byok Utility Model Default** to **Main Agent Model**.
+5. Select an LLM Gateway model from the picker and send a message.
 
 You can also install from the terminal:
 
@@ -32,7 +49,11 @@ The extension fetches models using your key and lists active chat models with st
 
 For agent mode, select a model with tool calling. Image attachments require a model with image input support. Responses stream into the chat view.
 
+The extension provides models for Copilot Chat and agent mode. It does not provide inline code completions.
+
 Both PAYG and DevPass keys use the same setup. PAYG requests use your gateway billing configuration; DevPass requests follow your plan's model access and usage limits. The extension sends canonical model IDs, so no provider prefix is needed for DevPass.
+
+BYOK chat works without GitHub sign-in or a Copilot plan. Utility tasks can use the selected model; semantic search and inline completions still have separate authentication requirements. See the&nbsp;[VS Code model documentation](https://code.visualstudio.com/docs/agent-customization/language-models).
 
 ## Settings
 

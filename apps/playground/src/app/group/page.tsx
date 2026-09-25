@@ -11,14 +11,14 @@ import type { Project, Organization } from "@/lib/types";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-	title: "Group Chat — Compare AI Models Side by Side",
+	title: "Group Chat — Your AI Council",
 	description:
-		"Send one prompt to multiple AI models and compare streamed responses, latency, and cost side by side in Lounge.",
+		"Bring a topic to a council of AI models. Watch them take turns, challenge each other, and explore different perspectives in one shared discussion.",
 	alternates: { canonical: "/group" },
 	openGraph: {
-		title: "Group Chat — Compare AI Models Side by Side | Lounge",
+		title: "Group Chat — Your AI Council | Lounge",
 		description:
-			"Send one prompt to multiple AI models and compare streamed responses, latency, and cost side by side in Lounge.",
+			"Bring a topic to a council of AI models. Watch them take turns, challenge each other, and explore different perspectives in one shared discussion.",
 		type: "website",
 		url: "https://lounge.llmgateway.io/group",
 	},
@@ -152,6 +152,7 @@ export default async function GroupPage({
 				/>
 			) : null}
 			<GroupChatClient
+				key={selectedProject?.id}
 				models={models.filter(
 					(m) =>
 						!m.output?.includes("video") && !m.output?.includes("embedding"),

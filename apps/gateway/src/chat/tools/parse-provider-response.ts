@@ -10,6 +10,7 @@ import {
 	normalizeCompletionTokens,
 } from "./extract-token-usage.js";
 import { dedupeGoogleCandidateParts } from "./google-candidates.js";
+import { normalizeMistralContent } from "./mistral-content.js";
 import {
 	buildEncryptedReasoningDetail,
 	extractReasoningDetailsText,
@@ -580,7 +581,10 @@ export function parseProviderResponse(
 		}
 		case "mistral":
 		case "novita": {
-			content = json.choices?.[0]?.message?.content ?? null;
+			const mistralChunks = normalizeMistralContent(
+				json.choices?.[0]?.message?.content,
+			);
+			content = mistralChunks.content;
 			// Extract reasoning content - check both reasoning and reasoning_content fields
 			reasoningContent =
 				json.choices?.[0]?.message?.reasoning ??
@@ -588,6 +592,7 @@ export function parseProviderResponse(
 				extractReasoningDetailsText(
 					json.choices?.[0]?.message?.reasoning_details,
 				) ??
+				mistralChunks.reasoning ??
 				null;
 			finishReason = json.choices?.[0]?.finish_reason ?? null;
 			promptTokens = json.usage?.prompt_tokens ?? null;

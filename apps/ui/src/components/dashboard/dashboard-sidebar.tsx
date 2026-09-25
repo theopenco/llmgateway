@@ -47,6 +47,7 @@ import {
 	AnimatedTerminal,
 	AnimatedUsers,
 } from "@/components/dashboard/animated-nav-icons";
+import { ProductSwitcher } from "@/components/dashboard/product-switcher";
 import { ReferralDialog } from "@/components/dashboard/referral-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useUser } from "@/hooks/useUser";
@@ -90,7 +91,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/lib/components/tooltip";
-import Logo, { LogoLockup } from "@/lib/icons/Logo";
+import { useAppConfig } from "@/lib/config";
 import { buildUrlWithParams } from "@/lib/navigation-utils";
 
 import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
@@ -343,22 +344,11 @@ function DashboardSidebarHeader({
 	onSearchSubmit: () => void;
 	searchInputRef: React.RefObject<HTMLInputElement | null>;
 }) {
-	const { buildUrl } = useDashboardNavigation();
-
 	return (
 		<SidebarHeader>
 			<SidebarMenu>
 				<SidebarMenuItem>
-					<SidebarMenuButton size="lg" asChild tooltip="LLM Gateway">
-						<Link href={buildUrl()} prefetch={true} aria-label="LLM Gateway">
-							<div className="hidden aspect-square size-8 items-center justify-center group-data-[collapsible=icon]:flex">
-								<Logo className="size-6 text-black dark:text-white" />
-							</div>
-							<span className="group-data-[collapsible=icon]:hidden">
-								<LogoLockup className="h-6 w-auto text-black dark:text-white" />
-							</span>
-						</Link>
-					</SidebarMenuButton>
+					<ProductSwitcher />
 				</SidebarMenuItem>
 			</SidebarMenu>
 			<div className="group-data-[collapsible=icon]:hidden">
@@ -1231,13 +1221,12 @@ export function DashboardSidebar({
 		return pathname.endsWith(`/${path}`);
 	};
 
+	const { devpassUrl, playgroundUrl, docsUrl } = useAppConfig();
+
 	const toolsResources = useMemo(
 		() => [
 			{
-				href:
-					process.env.NODE_ENV === "development"
-						? "http://localhost:3004"
-						: "https://devpass.llmgateway.io",
+				href: `${devpassUrl}/dashboard`,
 				label: "DevPass",
 				icon: AnimatedTerminal,
 				internal: false,
@@ -1249,22 +1238,19 @@ export function DashboardSidebar({
 				internal: true,
 			},
 			{
-				href:
-					process.env.NODE_ENV === "development"
-						? "http://localhost:3003"
-						: "https://lounge.llmgateway.io",
+				href: playgroundUrl,
 				label: "Lounge",
 				icon: AnimatedBotMessageSquare,
 				internal: false,
 			},
 			{
-				href: "https://docs.llmgateway.io",
+				href: docsUrl,
 				label: "Documentation",
 				icon: AnimatedExternalLink,
 				internal: false,
 			},
 		],
-		[],
+		[devpassUrl, playgroundUrl, docsUrl],
 	);
 
 	const isDeveloper = selectedOrganization?.role === "developer";

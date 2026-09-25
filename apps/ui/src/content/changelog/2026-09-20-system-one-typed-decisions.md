@@ -4,6 +4,7 @@ slug: "system-one-typed-decisions"
 date: "2026-09-20"
 title: "System One: Typed Decisions"
 summary: "The new /v1/systemone endpoint returns typed decisions with calibrated probabilities instead of generated text. TypeSafe's Jev 1.13 is the first decision model, billed on input tokens only."
+tags: ["llmgateway"]
 image:
   src: "/changelog/system-one-typed-decisions.png"
   alt: "A glowing decision switch on a circuit-board chip surrounded by probability dials and branching paths, representing typed decisions on LLM Gateway"

@@ -31,6 +31,7 @@ const internalOrganizationFields = [
 	"paymentFailureCount",
 	"lastPaymentFailureAt",
 	"paymentFailureStartedAt",
+	"subscriptionPaymentStatus",
 	"trustTierOverride",
 	"contentFilterTierOverride",
 	"contentFilterLogOnly",
@@ -38,8 +39,6 @@ const internalOrganizationFields = [
 	"devPlanCancelled",
 	"devPlanPendingTier",
 	"devPlanCardFingerprint",
-	"devPlanCreditsFrozen",
-	"devPlanCreditsLimitBeforeFreeze",
 	"devPlanTierChangeClaimedAt",
 	"chatPlanStripeSubscriptionId",
 	"chatPlanCancelled",
@@ -50,6 +49,8 @@ const internalOrganizationFields = [
 	"stripeConnectOnboarded",
 	"safetyIdentifier",
 	"riskFlagged",
+	// Served by GET /orgs/{id}/compliance-alerts.
+	"complianceAlertSettings",
 ];
 
 async function expectPublicOrganization(
