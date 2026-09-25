@@ -221,7 +221,10 @@ import {
 	DEFAULT_AUTO_ROUTING_MODELS,
 	type AutoRoutingClassification,
 } from "@llmgateway/shared/auto-routing";
-import { parseCustomDynamicRouteModelRef } from "@llmgateway/shared/dynamic-route";
+import {
+	graphUsesClassifier,
+	parseCustomDynamicRouteModelRef,
+} from "@llmgateway/shared/dynamic-route";
 import {
 	applyRoutingPreference,
 	type ResolvedRoutingConfig,
@@ -316,6 +319,7 @@ import {
 	mergeAirsideListingsIntoModel,
 	resolveAirsideModel,
 } from "./tools/resolve-airside-model.js";
+import { resolveDynamicRouteClassification } from "./tools/resolve-dynamic-route-classification.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import { resolvePlatformCredential } from "./tools/resolve-platform-credential.js";
 import {
@@ -3000,6 +3004,9 @@ chat.openapi(completions, async (c) => {
 	let usedExternalId: string = requestedModel;
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
+	// Verdict a dynamic route's classifier nodes branched on, recorded on the
+	// log so an operator can see why a branch was taken.
+	let dynamicRouteClassification: AutoRoutingClassification | null = null;
 	// Set when an "auto" request ran against an organization-configured
 	// candidate list. Declared at function scope so the late-built metadata
 	// paths below can attach the decision no matter which branch produced it.
@@ -3036,9 +3043,29 @@ chat.openapi(completions, async (c) => {
 				message: `Dynamic route "${dynamicRouteName}" not found, disabled, or has no published version`,
 			});
 		}
+		// Resolved before evaluation so the evaluator stays synchronous and pure,
+		// and only when the graph actually branches on a verdict — a route
+		// without a classifier node never pays for the call.
+		if (graphUsesClassifier(publishedRoute.graph)) {
+			dynamicRouteClassification = await resolveDynamicRouteClassification({
+				organization,
+				project,
+				apiKey,
+				requestId,
+				sessionId,
+				sessionStickyEnabled,
+				routingCfg,
+				messages: (messages ?? []) as BaseMessage[],
+				tools,
+				hasImages,
+				requestSignal: c.req.raw.signal,
+			});
+		}
+
 		let evaluation: DynamicRouteEvaluation;
 		try {
 			evaluation = evaluateDynamicRoute(publishedRoute.graph, {
+				classification: dynamicRouteClassification,
 				getHeader: (name) => c.req.header(name),
 				body: rawBody as Record<string, unknown>,
 				metadata: {
@@ -5657,6 +5684,17 @@ chat.openapi(completions, async (c) => {
 			name: dynamicRouteSelection.name,
 			version: dynamicRouteSelection.version,
 			path: dynamicRouteSelection.path,
+			...(dynamicRouteClassification
+				? {
+						classifier: {
+							kind: "jev" as const,
+							difficulty: dynamicRouteClassification.difficulty,
+							difficultyScore: dynamicRouteClassification.difficultyScore,
+							task: dynamicRouteClassification.task,
+							outputType: dynamicRouteClassification.outputType,
+						},
+					}
+				: {}),
 		};
 	}
 

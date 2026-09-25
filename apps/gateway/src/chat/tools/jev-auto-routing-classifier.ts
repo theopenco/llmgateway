@@ -205,16 +205,23 @@ export function buildAutoRoutingQuestions(
 			instructions: `What shape should the answer take? ${UNTRUSTED_CLAUSE}`,
 			criteria: OUTPUT_TYPE_CRITERIA,
 		},
-		best_model: {
-			type: "choice",
-			instructions: `Which of these models is the best fit for this request, balancing capability against cost? ${UNTRUSTED_CLAUSE}`,
-			criteria: Object.fromEntries(
-				candidates.map((candidate) => [
-					candidate.id,
-					`${candidate.name}${candidate.description ? ` — ${candidate.description}` : ""} — ${candidate.band} price band.`,
-				]),
-			),
-		},
+		// Only asked when the caller has a candidate list to rank. A dynamic
+		// route branches on the verdict and picks the model itself, so there is
+		// nothing to choose between.
+		...(candidates.length > 0
+			? {
+					best_model: {
+						type: "choice",
+						instructions: `Which of these models is the best fit for this request, balancing capability against cost? ${UNTRUSTED_CLAUSE}`,
+						criteria: Object.fromEntries(
+							candidates.map((candidate) => [
+								candidate.id,
+								`${candidate.name}${candidate.description ? ` — ${candidate.description}` : ""} — ${candidate.band} price band.`,
+							]),
+						),
+					},
+				}
+			: {}),
 	};
 }
 
@@ -267,10 +274,6 @@ export async function classifyAutoRoutingRequest(
 	requestSignal?: AbortSignal,
 ): Promise<AutoRoutingClassification | null> {
 	const startTime = Date.now();
-
-	if (input.candidates.length === 0) {
-		return null;
-	}
 
 	const { system, conversation } = buildAutoRoutingState(input.messages);
 	if (conversation.length === 0) {

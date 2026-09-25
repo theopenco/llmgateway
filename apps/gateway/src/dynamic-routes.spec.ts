@@ -1,7 +1,14 @@
-import { beforeAll, describe, expect, test } from "vitest";
+import {
+	afterAll,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+} from "vitest";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, eq, tables } from "@llmgateway/db";
+import { cdb, db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
@@ -19,8 +26,22 @@ describe("dynamic routes request path", () => {
 	const harness = createGatewayApiTestHarness();
 	let mockServerUrl = "";
 
+	// The classifier credential is a platform credential, so an LLM_* value left
+	// in the developer .env would send these tests upstream.
+	const originalTypesafeKey = process.env.LLM_TYPESAFE_API_KEY;
+
 	beforeAll(() => {
 		mockServerUrl = harness.mockServerUrl;
+	});
+
+	beforeEach(() => {
+		delete process.env.LLM_TYPESAFE_API_KEY;
+	});
+
+	afterAll(() => {
+		if (originalTypesafeKey !== undefined) {
+			process.env.LLM_TYPESAFE_API_KEY = originalTypesafeKey;
+		}
 	});
 
 	async function seedBase(suffix: string, providers: string[] = ["openai"]) {
@@ -433,5 +454,93 @@ describe("dynamic routes request path", () => {
 		expect(res.status).toBe(400);
 		const json = await res.json();
 		expect(json.error.message).toContain("free_models_only");
+	});
+	test("classifier node branches on the rated difficulty", async () => {
+		const token = await seedBase("classify");
+		await cdb.insert(tables.providerKey).values({
+			id: "pk-dyn-typesafe-classify",
+			...encryptProviderKeyForStorage(
+				"ts-test-key",
+				"pk-dyn-typesafe-classify",
+				null,
+			),
+			provider: "typesafe",
+			organizationId: null,
+			managed: true,
+			config: { baseUrl: mockServerUrl },
+		});
+		const routeName = await seedRoute("classify", {
+			entry: "rate",
+			nodes: [
+				{
+					id: "rate",
+					type: "classifier",
+					kind: "jev",
+					on: "difficulty",
+					cases: [
+						{ value: "high", next: "big" },
+						{ value: "low", next: "small" },
+					],
+					else: "mid",
+				},
+				modelNode("big", "gpt-4o"),
+				modelNode("mid", "gpt-4o-mini"),
+				modelNode("small", "gpt-4.1-nano"),
+			],
+		} as DynamicRouteGraph);
+
+		const hard = await chatCompletion(token, {
+			model: `dynamic/${routeName}`,
+			messages: [
+				{ role: "user", content: "HARD_TASK design a distributed scheduler" },
+			],
+		});
+		expect(hard.status).toBe(200);
+		expect((await hard.json()).model).toBe("openai/gpt-4o");
+
+		const easy = await chatCompletion(token, {
+			model: `dynamic/${routeName}`,
+			messages: [{ role: "user", content: "EASY_TASK say hi" }],
+		});
+		expect(easy.status).toBe(200);
+		expect((await easy.json()).model).toBe("openai/gpt-4.1-nano");
+
+		const decisions = (await waitForLogs(2)).map(
+			(log) => log.routingMetadata?.dynamicRoute?.classifier,
+		);
+		expect(decisions.map((d) => d?.kind)).toEqual(["jev", "jev"]);
+		expect(decisions.map((d) => d?.difficulty).sort()).toEqual(["high", "low"]);
+	});
+
+	test("classifier node takes else when no credential is configured", async () => {
+		// Fail-open: a route must not break because the classifier is unreachable.
+		const token = await seedBase("classify-nocred");
+		const routeName = await seedRoute("classify-nocred", {
+			entry: "rate",
+			nodes: [
+				{
+					id: "rate",
+					type: "classifier",
+					kind: "jev",
+					on: "difficulty",
+					cases: [{ value: "high", next: "big" }],
+					else: "mid",
+				},
+				modelNode("big", "gpt-4o"),
+				modelNode("mid", "gpt-4o-mini"),
+			],
+		} as DynamicRouteGraph);
+
+		const res = await chatCompletion(token, {
+			model: `dynamic/${routeName}`,
+			messages: [
+				{ role: "user", content: "HARD_TASK design a distributed scheduler" },
+			],
+		});
+		expect(res.status).toBe(200);
+		expect((await res.json()).model).toBe("openai/gpt-4o-mini");
+
+		const log = (await waitForLogs(1))[0];
+		expect(log?.routingMetadata?.dynamicRoute?.classifier).toBeUndefined();
 	});
 });

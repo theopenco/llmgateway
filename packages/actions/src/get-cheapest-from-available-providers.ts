@@ -27,6 +27,7 @@ import type {
 	AutoRoutingClassifier,
 	AutoRoutingDifficulty,
 } from "@llmgateway/shared/auto-routing";
+import type { DynamicRouteClassifierKind } from "@llmgateway/shared/dynamic-route";
 import type {
 	RoutingCredentialSource,
 	RoutingExclusionReason,
@@ -181,6 +182,16 @@ export interface RoutingMetadata {
 		version: number;
 		// Node ids traversed during graph evaluation
 		path: string[];
+		// Verdict the route's classifier nodes branched on. Absent when the
+		// graph has none, or when the classifier produced no verdict and those
+		// nodes took their `else` branch.
+		classifier?: {
+			kind: DynamicRouteClassifierKind;
+			difficulty?: AutoRoutingDifficulty;
+			difficultyScore?: number;
+			task?: string;
+			outputType?: string;
+		};
 	};
 	// How an "auto" request resolved to a concrete model when the organization
 	// configured auto-routing. Absent for the built-in default candidate set.

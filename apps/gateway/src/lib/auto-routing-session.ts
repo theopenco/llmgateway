@@ -9,6 +9,11 @@ export interface AutoRoutingSessionEntry {
 	selectedModel: string;
 }
 
+/** A dynamic route branches on the verdict and picks the model itself. */
+export interface ClassifierSessionEntry {
+	classification: AutoRoutingClassification;
+}
+
 export interface AutoRoutingSessionStore {
 	get: () => Promise<AutoRoutingSessionEntry | null>;
 	/**
@@ -42,32 +47,23 @@ function sessionRedisKey(
  * Shares the sticky-session TTL with provider pinning, and like it re-persists
  * on every hit so an active session keeps its pin alive.
  */
-export function createAutoRoutingSessionStore(
-	orgId: string,
-	projectId: string,
-	sessionId: string,
-	ttlSeconds: number,
-): AutoRoutingSessionStore {
-	const key = sessionRedisKey(orgId, projectId, sessionId);
+function createStore<T>(key: string, ttlSeconds: number) {
 	return {
-		get: async () => {
+		get: async (): Promise<T | null> => {
 			try {
 				const value = await redisClient.get(key);
-				if (!value) {
-					return null;
-				}
-				return JSON.parse(value) as AutoRoutingSessionEntry;
+				return value ? (JSON.parse(value) as T) : null;
 			} catch (error) {
 				// Fail open to a fresh classification: a Redis outage must not stop
-				// auto routing from resolving a model.
+				// routing from resolving a model.
 				logger.error(
-					"Error getting session auto-routing entry from Redis:",
+					"Error getting session classifier entry from Redis:",
 					error as Error,
 				);
 				return null;
 			}
 		},
-		claim: async (entry) => {
+		claim: async (entry: T): Promise<T> => {
 			try {
 				const won = await redisClient.set(
 					key,
@@ -80,28 +76,55 @@ export function createAutoRoutingSessionStore(
 					return entry;
 				}
 				const existing = await redisClient.get(key);
-				return existing
-					? (JSON.parse(existing) as AutoRoutingSessionEntry)
-					: entry;
+				return existing ? (JSON.parse(existing) as T) : entry;
 			} catch (error) {
 				// Fail open to this request's own verdict rather than failing the
 				// request over a pin that is only an optimization.
 				logger.error(
-					"Error claiming session auto-routing entry in Redis:",
+					"Error claiming session classifier entry in Redis:",
 					error as Error,
 				);
 				return entry;
 			}
 		},
-		refresh: async (entry) => {
+		refresh: async (entry: T): Promise<void> => {
 			try {
 				await redisClient.set(key, JSON.stringify(entry), "EX", ttlSeconds);
 			} catch (error) {
 				logger.error(
-					"Error refreshing session auto-routing entry in Redis:",
+					"Error refreshing session classifier entry in Redis:",
 					error as Error,
 				);
 			}
 		},
 	};
+}
+
+/**
+ * Session-scoped store for a dynamic route's classifier verdict, so a sticky
+ * session branches on one verdict for its whole conversation instead of
+ * re-rating (and re-billing) every turn.
+ */
+export function createDynamicRouteClassifierStore(
+	orgId: string,
+	projectId: string,
+	sessionId: string,
+	ttlSeconds: number,
+) {
+	return createStore<ClassifierSessionEntry>(
+		`session_route_classifier:${orgId}:${projectId}:${sessionId}`,
+		ttlSeconds,
+	);
+}
+
+export function createAutoRoutingSessionStore(
+	orgId: string,
+	projectId: string,
+	sessionId: string,
+	ttlSeconds: number,
+): AutoRoutingSessionStore {
+	return createStore<AutoRoutingSessionEntry>(
+		sessionRedisKey(orgId, projectId, sessionId),
+		ttlSeconds,
+	);
 }

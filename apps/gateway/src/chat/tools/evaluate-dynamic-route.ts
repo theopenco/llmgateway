@@ -5,6 +5,8 @@ import {
 	type DynamicRouteNode,
 } from "@llmgateway/shared/dynamic-route";
 
+import type { AutoRoutingClassification } from "@llmgateway/shared/auto-routing";
+
 export interface DynamicRouteEvaluationContext {
 	getHeader: (name: string) => string | undefined;
 	/**
@@ -25,6 +27,12 @@ export interface DynamicRouteEvaluationContext {
 	 * per-request id yields an independent draw per request.
 	 */
 	splitKey: string;
+	/**
+	 * Verdict for `classifier` nodes, resolved before evaluation so this stays
+	 * synchronous and pure. `null`/absent means no verdict was obtained — the
+	 * classifier is fail-open, so those nodes take their `else` branch.
+	 */
+	classification?: AutoRoutingClassification | null;
 }
 
 export type DynamicRouteEvaluation =
@@ -182,6 +190,14 @@ export function evaluateDynamicRoute(
 				const matched = node.conditions.find((condition) =>
 					matchesCondition(condition, ctx),
 				);
+				currentId = matched ? matched.next : node.else;
+				break;
+			}
+			case "classifier": {
+				const answer = ctx.classification?.[node.on];
+				const matched = answer
+					? node.cases.find((entry) => entry.value === answer)
+					: undefined;
 				currentId = matched ? matched.next : node.else;
 				break;
 			}

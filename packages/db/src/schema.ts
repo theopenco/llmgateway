@@ -2294,6 +2294,23 @@ export const log = pgTable(
 			// premium tier was in play.
 			serviceTierSource?: "request" | "coding-plan-default";
 			strippedParameters?: string[];
+			// Set when the request was resolved through a named dynamic route.
+			dynamicRoute?: {
+				name: string;
+				version: number;
+				// Node ids traversed during graph evaluation.
+				path: string[];
+				// Verdict the route's classifier nodes branched on. Absent when the
+				// graph has none, or when no verdict was obtained and those nodes
+				// took their `else` branch.
+				classifier?: {
+					kind: "jev";
+					difficulty?: "low" | "medium" | "high";
+					difficultyScore?: number;
+					task?: string;
+					outputType?: string;
+				};
+			};
 			// How an "auto" request resolved to a concrete model when the
 			// organization configured auto-routing. Absent for the built-in
 			// default candidate set.
