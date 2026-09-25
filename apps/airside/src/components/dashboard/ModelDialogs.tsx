@@ -173,6 +173,37 @@ const CAPABILITY_LABELS = new Map<string, string>(
 );
 
 type Verification = NonNullable<AirsideModel["latestVerification"]>;
+type VerificationProbe = NonNullable<Verification["checks"][number]["probes"]>;
+
+/**
+ * The individual requests a check sent. A tool or reasoning check walks a
+ * ladder of variants, so the list is what tells a carrier which ones the
+ * deployment served and which it refused.
+ */
+function VerificationProbes({ probes }: { probes?: VerificationProbe }) {
+	if (!probes?.length) {
+		return null;
+	}
+	return (
+		<ul className="mt-1 space-y-0.5" data-testid="verification-probes">
+			{probes.map((probe) => (
+				<li key={probe.label} className="flex items-start gap-1.5">
+					{probe.status === "passed" ? (
+						<CheckCircle2 className="text-signal mt-0.5 size-3 shrink-0" />
+					) : (
+						<XCircle className="text-destructive mt-0.5 size-3 shrink-0" />
+					)}
+					<span className="min-w-0">
+						<span className="font-mono">{probe.label}</span>
+						{probe.feedback ? (
+							<span className="text-muted-foreground"> — {probe.feedback}</span>
+						) : null}
+					</span>
+				</li>
+			))}
+		</ul>
+	);
+}
 
 function VerificationResults({ verification }: { verification: Verification }) {
 	const statusLabel =
@@ -210,11 +241,12 @@ function VerificationResults({ verification }: { verification: Verification }) {
 						) : (
 							<Clock3 className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
 						)}
-						<div>
+						<div className="min-w-0">
 							<p className="font-medium">{check.label}</p>
 							{check.feedback ? (
 								<p className="text-muted-foreground mt-0.5">{check.feedback}</p>
 							) : null}
+							<VerificationProbes probes={check.probes} />
 						</div>
 					</li>
 				))}

@@ -5002,11 +5002,23 @@ export type ProviderModelVerificationStatus =
 export type ProviderModelVerificationCheckStatus =
 	"queued" | "running" | "passed" | "failed" | "skipped";
 
+// One upstream request a check made. Checks that walk a ladder — tool_choice
+// modes, reasoning effort tiers — send several, and only the breakdown says
+// which variant the deployment actually served.
+export interface ProviderModelVerificationProbe {
+	/** What varied for this request, e.g. `reasoning_effort: medium`. */
+	label: string;
+	status: "passed" | "failed";
+	feedback?: string;
+}
+
 export interface ProviderModelVerificationCheck {
 	id: string;
 	label: string;
 	status: ProviderModelVerificationCheckStatus;
 	feedback?: string;
+	/** Per-request breakdown; present only for checks that probe variants. */
+	probes?: ProviderModelVerificationProbe[];
 }
 
 export interface ProviderModelVerificationTarget {

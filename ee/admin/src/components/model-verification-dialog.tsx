@@ -35,6 +35,11 @@ export interface ModelVerification {
 		label: string;
 		status: "queued" | "running" | "passed" | "failed" | "skipped";
 		feedback?: string;
+		probes?: {
+			label: string;
+			status: "passed" | "failed";
+			feedback?: string;
+		}[];
 	}[];
 	summary: string | null;
 	createdAt: string;
@@ -77,6 +82,39 @@ export function VerificationStatusBadge({
 	);
 }
 
+type VerificationProbes = NonNullable<
+	ModelVerification["checks"][number]["probes"]
+>;
+
+/**
+ * The individual requests a check sent. Tool and reasoning checks walk a ladder
+ * of variants, so only this list shows which ones the deployment served.
+ */
+function VerificationProbeList({ probes }: { probes?: VerificationProbes }) {
+	if (!probes?.length) {
+		return null;
+	}
+	return (
+		<ul className="mt-1 space-y-0.5" data-testid="admin-verification-probes">
+			{probes.map((probe) => (
+				<li key={probe.label} className="flex items-start gap-1.5">
+					{probe.status === "passed" ? (
+						<CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500" />
+					) : (
+						<XCircle className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />
+					)}
+					<span className="min-w-0">
+						<span className="font-mono">{probe.label}</span>
+						{probe.feedback ? (
+							<span className="text-muted-foreground"> — {probe.feedback}</span>
+						) : null}
+					</span>
+				</li>
+			))}
+		</ul>
+	);
+}
+
 function VerificationResults({
 	verification,
 }: {
@@ -107,11 +145,12 @@ function VerificationResults({
 						) : (
 							<Clock3 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 						)}
-						<div>
+						<div className="min-w-0">
 							<p className="font-medium">{check.label}</p>
 							{check.feedback ? (
 								<p className="mt-0.5 text-muted-foreground">{check.feedback}</p>
 							) : null}
+							<VerificationProbeList probes={check.probes} />
 						</div>
 					</li>
 				))}
