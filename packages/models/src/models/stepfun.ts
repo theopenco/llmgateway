@@ -30,6 +30,9 @@ export const stepfunModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "stepfun-ai/Step-3.7-Flash",
+				// DeepInfra retires this model on 2026-10-01 and silently
+				// redirects requests to XiaomiMiMo/MiMo-V2.6-Flash afterwards.
+				deactivatedAt: new Date("2026-10-01"),
 				inputPrice: "0.2e-6",
 				cachedInputPrice: "0.04e-6",
 				outputPrice: "1.15e-6",
