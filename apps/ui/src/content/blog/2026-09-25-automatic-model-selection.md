@@ -3,7 +3,7 @@ id: "blog-automatic-model-selection"
 slug: "automatic-model-selection"
 date: "2026-09-25"
 title: "Automatic Model Selection by Request Difficulty"
-summary: "Automatic model selection now reads the request before it routes it. Choose the models `smart` may resolve to, and a classifier rates each prompt so a one-line fix goes to a cheap model and a hard problem goes to a frontier one. Free for every organization while in beta."
+summary: "Automatic model selection now reads the request before it routes it. Choose the models `smart` may resolve to, and a classifier rates each prompt so a one-line fix goes to a cheap model and a hard problem goes to a frontier one. Available to every organization while in beta."
 categories: ["Announcements", "Product"]
 faqs:
   - question: "How does automatic model selection decide which model to use?"
@@ -12,6 +12,8 @@ faqs:
     answer: "It fails open. A timeout, an upstream outage, a missing credential, or a compliance policy that blocks the classifier's provider all fall back to the cheapest eligible model on your list. The request still succeeds, and the log records that the classifier did not produce a verdict."
   - question: "Does the classifier run on every turn of a conversation?"
     answer: "No. A request carrying a session id is classified once, and the rest of the conversation reuses that verdict and the model it resolved to. That avoids paying for a classifier call per turn and keeps the conversation on one model, so it does not lose the upstream prompt cache mid-thread."
+  - question: "What does the classifier cost?"
+    answer: "A Jev classification is billed at the catalogue rate for jev-1.13.0 on TypeSafe — $0.042 per million input tokens, output priced at zero — which works out to roughly $0.0001 per call. It lands on your account as its own log entry against the same project and API key as the request that triggered it, so you can read the exact amount rather than infer it. You are charged nothing for the none classifier, for a verdict reused from a sticky session, or for a classifier call that fails."
   - question: "Can a request escape the models I configured?"
     answer: "No. The configured list is a boundary, not a preference. If nothing on it can serve a request, the gateway returns a 400 rather than falling back to a model you did not approve, and free_models_only narrows your list to its free models instead of replacing it."
 image:
@@ -136,6 +138,9 @@ when your data retention window elapses.
    needs a different list.
 
 Owners and organization admins set the default; project admins can override it.
+The routing itself carries no platform fee: you pay for the models it selects,
+plus each classifier call at its catalogue rate — about $0.0001, recorded as its
+own log entry against the same project and API key.
 If you are weighing this against routing by hand, the arithmetic in
 [cutting LLM costs with request routing](/blog/cut-llm-costs-with-request-routing)
 still applies — this is the same idea, with the classification and the fallback

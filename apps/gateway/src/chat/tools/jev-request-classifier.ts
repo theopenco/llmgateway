@@ -13,8 +13,9 @@ import {
 
 import { resolveContentFilterCredential } from "./content-filter-credential.js";
 import { extractErrorCause } from "./extract-error-cause.js";
+import { logClassifierUsage } from "./log-classifier-usage.js";
 
-import type { GatewayContentFilterContext } from "./openai-content-filter.js";
+import type { ClassifierRequestContext } from "./log-classifier-usage.js";
 import type { BaseMessage } from "@llmgateway/models";
 
 /**
@@ -226,7 +227,7 @@ export function buildClassifierQuestions(
 }
 
 function logClassifierError(
-	context: GatewayContentFilterContext,
+	context: ClassifierRequestContext,
 	payload: Record<string, unknown>,
 	error?: unknown,
 ) {
@@ -235,9 +236,9 @@ function logClassifierError(
 		classifier: "jev",
 		rubricVersion: JEV_CLASSIFIER_RUBRIC_VERSION,
 		requestId: context.requestId,
-		organizationId: context.organizationId,
-		projectId: context.projectId,
-		apiKeyId: context.apiKeyId,
+		organizationId: context.project.organizationId,
+		projectId: context.project.id,
+		apiKeyId: context.apiKey.id,
 		...payload,
 		...(error instanceof Error
 			? {
@@ -270,7 +271,7 @@ function logClassifierError(
  */
 export async function classifyRequest(
 	input: RequestClassifierInput,
-	context: GatewayContentFilterContext,
+	context: ClassifierRequestContext,
 	requestSignal?: AbortSignal,
 ): Promise<RequestClassification | null> {
 	const startTime = Date.now();
@@ -338,6 +339,25 @@ export async function classifyRequest(
 			return null;
 		}
 
+		// A 200 is a call TypeSafe billed us for, whatever the answers turn out to
+		// look like, so the charge is recorded here rather than after parsing.
+		const usage = (responseJson as JevSystemOneResponse).usage;
+		const classifierCost = logClassifierUsage({
+			context,
+			modelId: JEV_CLASSIFIER_MODEL,
+			externalId: JEV_CLASSIFIER_MODEL,
+			prompt: system ? `${system}\n\n${conversation}` : conversation,
+			usage: {
+				inputTokens:
+					typeof usage?.input_tokens === "number" ? usage.input_tokens : null,
+				outputTokens:
+					typeof usage?.output_tokens === "number" ? usage.output_tokens : null,
+			},
+			answers: (responseJson as JevSystemOneResponse).answers ?? null,
+			responseSize: upstreamText.length,
+			durationMs: Date.now() - startTime,
+		});
+
 		const answers =
 			responseJson && typeof responseJson === "object"
 				? ((responseJson as JevSystemOneResponse).answers ?? null)
@@ -377,6 +397,7 @@ export async function classifyRequest(
 				: undefined,
 			bestModelConfidence: answers?.best_model?.confidence,
 			latencyMs: Date.now() - startTime,
+			cost: classifierCost,
 		};
 
 		logger.debug("gateway_request_classifier", {
@@ -384,12 +405,13 @@ export async function classifyRequest(
 			classifier: "jev",
 			rubricVersion: JEV_CLASSIFIER_RUBRIC_VERSION,
 			requestId: context.requestId,
-			organizationId: context.organizationId,
-			projectId: context.projectId,
-			apiKeyId: context.apiKeyId,
+			organizationId: context.project.organizationId,
+			projectId: context.project.id,
+			apiKeyId: context.apiKey.id,
 			durationMs: classification.latencyMs,
 			model: (responseJson as JevSystemOneResponse).model,
-			usage: (responseJson as JevSystemOneResponse).usage,
+			usage,
+			cost: classifierCost,
 			difficulty: classification.difficulty,
 			difficultyScore: classification.difficultyScore,
 			task: classification.task,

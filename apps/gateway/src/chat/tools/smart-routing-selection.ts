@@ -12,7 +12,7 @@ import {
 	JEV_CLASSIFIER_RUBRIC_VERSION,
 } from "./jev-request-classifier.js";
 
-import type { GatewayContentFilterContext } from "./openai-content-filter.js";
+import type { ClassifierRequestContext } from "./log-classifier-usage.js";
 import type { SmartRoutingSessionStore } from "@/lib/smart-routing-session.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
 import type { BaseMessage, ModelDefinition } from "@llmgateway/models";
@@ -41,7 +41,7 @@ export interface SmartRoutingSelectionParams<
 	toolNames: string[];
 	hasImages: boolean;
 	estimatedInputTokens: number;
-	context: GatewayContentFilterContext;
+	context: ClassifierRequestContext;
 	requestSignal?: AbortSignal;
 }
 
@@ -102,8 +102,10 @@ export async function selectSmartRoutingModel<
 	// True whenever the verdict being served was produced by another request of
 	// the same session rather than by this one.
 	let verdictReused = saved !== null;
-	// Latency of the call this request made, if any — never another turn's.
+	// Latency and charge of the call this request made, if any — never another
+	// turn's. A reused verdict costs nothing, so neither is set for one.
 	let classifierLatencyMs: number | undefined;
+	let classifierCost: number | undefined;
 	// A single candidate has nothing to choose between, so skip the round trip.
 	let classifierAttempted = false;
 	if (
@@ -139,6 +141,7 @@ export async function selectSmartRoutingModel<
 				params.requestSignal,
 			);
 			classifierLatencyMs = classification?.latencyMs;
+			classifierCost = classification?.cost;
 		}
 	}
 
@@ -160,11 +163,14 @@ export async function selectSmartRoutingModel<
 	}
 
 	if (sessionStore && classification) {
+		// The stored verdict is replayed by later turns, which are not billed
+		// again, so the charge must not travel with it.
+		const storedClassification = { ...classification, cost: undefined };
 		if (saved) {
 			// Re-persist on every hit so the pin's TTL keeps refreshing while the
 			// session stays active, matching sticky provider selection.
 			await sessionStore.refresh({
-				classification,
+				classification: storedClassification,
 				selectedModel: candidate.modelId,
 			});
 		} else {
@@ -172,7 +178,7 @@ export async function selectSmartRoutingModel<
 			// turn got there first, adopt its verdict so both turns of the same
 			// session agree instead of the later write silently re-pinning.
 			const entry = {
-				classification,
+				classification: storedClassification,
 				selectedModel: candidate.modelId,
 			};
 			const claimed = await sessionStore.claim(entry);
@@ -209,6 +215,7 @@ export async function selectSmartRoutingModel<
 			band,
 			selectedModel: candidate.modelId,
 			classifierLatencyMs,
+			classifierCost,
 			classifierFailed: classifierAttempted && classification === null,
 			...(verdictReused ? { classifierReused: true } : {}),
 		},

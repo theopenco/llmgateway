@@ -3050,9 +3050,16 @@ chat.openapi(completions, async (c) => {
 		if (graphUsesClassifier(publishedRoute.graph)) {
 			dynamicRouteClassification = await resolveDynamicRouteClassification({
 				organization,
-				project,
-				apiKey,
-				requestId,
+				context: {
+					requestId,
+					project,
+					apiKey,
+					retentionLevel,
+					requestedModel,
+					source,
+					userAgent,
+					apiOrigin,
+				},
 				sessionId,
 				sessionStickyEnabled,
 				routingCfg,
@@ -4190,9 +4197,13 @@ chat.openapi(completions, async (c) => {
 			estimatedInputTokens,
 			context: {
 				requestId,
-				organizationId: project.organizationId,
-				projectId: project.id,
-				apiKeyId: apiKey.id,
+				project,
+				apiKey,
+				retentionLevel,
+				requestedModel,
+				source,
+				userAgent,
+				apiOrigin,
 			},
 			requestSignal: c.req.raw.signal,
 		});

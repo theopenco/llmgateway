@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { selectSmartRoutingModel } from "./smart-routing-selection.js";
 
+import type { ClassifierRequestContext } from "./log-classifier-usage.js";
 import type { SmartRoutingSessionEntry } from "@/lib/smart-routing-session.js";
 import type { ModelDefinition } from "@llmgateway/models";
 import type { RequestClassification } from "@llmgateway/shared/smart-routing";
@@ -35,6 +36,7 @@ function classification(
 		difficulty: "low",
 		difficultyScore: 0.1,
 		latencyMs: 42,
+		cost: 0.000034,
 		...overrides,
 	};
 }
@@ -51,10 +53,11 @@ function params(overrides: Record<string, unknown> = {}) {
 		estimatedInputTokens: 10,
 		context: {
 			requestId: "r",
-			organizationId: "o",
-			projectId: "p",
-			apiKeyId: "k",
-		},
+			project: { id: "p", organizationId: "o", mode: "credits" },
+			apiKey: { id: "k", projectId: "p" },
+			retentionLevel: "retain",
+			requestedModel: "smart",
+		} as unknown as ClassifierRequestContext,
 		...overrides,
 	};
 }
@@ -82,6 +85,7 @@ describe("selectSmartRoutingModel", () => {
 		expect(result?.candidate.modelId).toBe("cheap");
 		expect(result?.decision?.classifierFailed).toBe(false);
 		expect(result?.decision?.classifierLatencyMs).toBeUndefined();
+		expect(result?.decision?.classifierCost).toBeUndefined();
 		expect(classifyRequest).not.toHaveBeenCalled();
 	});
 
@@ -107,6 +111,7 @@ describe("selectSmartRoutingModel", () => {
 
 		expect(result?.candidate.modelId).toBe(entry.selectedModel);
 		expect(result?.decision?.classifierLatencyMs).toBe(42);
+		expect(result?.decision?.classifierCost).toBe(0.000034);
 		expect(result?.decision?.classifierReused).toBeUndefined();
 	});
 
@@ -142,7 +147,10 @@ describe("selectSmartRoutingModel", () => {
 		expect(result?.candidate.modelId).toBe("top");
 		expect(result?.decision?.classifierReused).toBe(true);
 		expect(result?.decision?.classifierLatencyMs).toBeUndefined();
+		// A reused verdict made no call, so it is not charged again.
+		expect(result?.decision?.classifierCost).toBeUndefined();
 		expect(classifyRequest).not.toHaveBeenCalled();
 		expect(store.refresh).toHaveBeenCalled();
+		expect(store.refresh.mock.calls[0][0].classification.cost).toBeUndefined();
 	});
 });

@@ -7,15 +7,14 @@ import { createDynamicRouteClassifierStore } from "@/lib/smart-routing-session.j
 import { hasContentFilterCredential } from "./content-filter-credential.js";
 import { classifyRequest } from "./jev-request-classifier.js";
 
+import type { ClassifierRequestContext } from "./log-classifier-usage.js";
 import type { BaseMessage } from "@llmgateway/models";
 import type { ResolvedRoutingConfig } from "@llmgateway/shared/routing-config";
 import type { RequestClassification } from "@llmgateway/shared/smart-routing";
 
 interface ResolveDynamicRouteClassificationParams {
 	organization: Parameters<typeof getActiveCompliancePolicy>[0];
-	project: { id: string; organizationId: string };
-	apiKey: { id: string };
-	requestId: string;
+	context: ClassifierRequestContext;
 	sessionId?: string;
 	sessionStickyEnabled: boolean;
 	routingCfg: ResolvedRoutingConfig;
@@ -52,8 +51,8 @@ export async function resolveDynamicRouteClassification(
 	const sessionStore =
 		params.sessionStickyEnabled && params.sessionId
 			? createDynamicRouteClassifierStore(
-					params.project.organizationId,
-					params.project.id,
+					params.context.project.organizationId,
+					params.context.project.id,
 					params.sessionId,
 					params.routingCfg.session.ttlSeconds,
 				)
@@ -91,17 +90,16 @@ export async function resolveDynamicRouteClassification(
 			// list to rank and the best-model question is not asked.
 			candidates: [],
 		},
-		{
-			requestId: params.requestId,
-			organizationId: params.project.organizationId,
-			projectId: params.project.id,
-			apiKeyId: params.apiKey.id,
-		},
+		params.context,
 		params.requestSignal,
 	);
 
 	if (classification && sessionStore) {
-		await sessionStore.claim({ classification });
+		// The stored verdict is replayed by later turns, which are not billed
+		// again, so the charge must not travel with it.
+		await sessionStore.claim({
+			classification: { ...classification, cost: undefined },
+		});
 	}
 	return classification;
 }

@@ -90,6 +90,8 @@ export interface RequestClassification {
 	bestModel?: string;
 	bestModelConfidence?: number;
 	latencyMs?: number;
+	/** USD charged for this classifier call; absent on a reused verdict. */
+	cost?: number;
 }
 
 /**

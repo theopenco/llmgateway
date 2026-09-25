@@ -118,7 +118,7 @@ Rates the request with a classifier and branches on one of its answers. Set `kin
 }
 ```
 
-The node adds one short round trip before the upstream call, and only routes that contain a `classifier` node pay for it. A [sticky session](/features/routing#sticky-session-routing) is rated once and the rest of the conversation reuses that verdict, so a multi-turn chat is not re-rated per turn.
+The node adds one short round trip before the upstream call, and only routes that contain a `classifier` node pay for it. Each rating is billed at the catalogue rate for [`jev-1.13.0`](https://llmgateway.io/models/jev-1.13.0/typesafe) — roughly $0.0001 per call — and recorded as its own log entry against the same project and API key as the request that triggered it; see [what the classifier costs](/features/routing#what-it-costs). A [sticky session](/features/routing#sticky-session-routing) is rated once and the rest of the conversation reuses that verdict, so a multi-turn chat is not re-rated per turn.
 
 `else` covers both outcomes you need it to: no case matched, **and** no verdict was produced. The classifier is fail-open — an outage, a timeout, a missing credential, or a compliance policy that blocks its provider all take the `else` branch rather than failing the route. Give `else` a sensible default model rather than an `end` node.
 

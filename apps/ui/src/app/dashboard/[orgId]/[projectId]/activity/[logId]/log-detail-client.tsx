@@ -793,6 +793,16 @@ export function LogDetailClient({
 													mono
 												/>
 											)}
+											{log.routingMetadata.smartRouting.classifierCost !==
+												undefined && (
+												<Field
+													label="Classifier cost"
+													value={`$${Number(
+														log.routingMetadata.smartRouting.classifierCost,
+													).toFixed(8)}`}
+													mono
+												/>
+											)}
 										</>
 									)}
 									{log.routingMetadata.usedApiKeyHash && (

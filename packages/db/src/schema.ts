@@ -2328,6 +2328,9 @@ export const log = pgTable(
 				band?: "low" | "medium" | "high";
 				selectedModel: string;
 				classifierLatencyMs?: number;
+				// USD billed for the classifier call this request made, on its own
+				// log row. Absent when it made none.
+				classifierCost?: number;
 				classifierFailed: boolean;
 				// True when the verdict served came from another turn of the same
 				// sticky session rather than from this request.
