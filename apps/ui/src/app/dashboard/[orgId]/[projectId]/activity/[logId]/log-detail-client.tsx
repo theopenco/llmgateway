@@ -699,6 +699,42 @@ export function LogDetailClient({
 											mono
 										/>
 									)}
+									{log.routingMetadata.dynamicRoute && (
+										<>
+											<Field
+												label="Dynamic route"
+												value={`${log.routingMetadata.dynamicRoute.name} (v${log.routingMetadata.dynamicRoute.version})`}
+												mono
+											/>
+											{log.routingMetadata.dynamicRoute.path &&
+												log.routingMetadata.dynamicRoute.path.length > 0 && (
+													<Field
+														label="Route path"
+														value={log.routingMetadata.dynamicRoute.path.join(
+															" → ",
+														)}
+														mono
+													/>
+												)}
+											{log.routingMetadata.dynamicRoute.classifier && (
+												<Field
+													label="Route classifier"
+													value={`${log.routingMetadata.dynamicRoute.classifier.kind}: ${
+														[
+															log.routingMetadata.dynamicRoute.classifier
+																.difficulty,
+															log.routingMetadata.dynamicRoute.classifier.task,
+															log.routingMetadata.dynamicRoute.classifier
+																.outputType,
+														]
+															.filter(Boolean)
+															.join(" / ") || "no verdict"
+													}`}
+													mono
+												/>
+											)}
+										</>
+									)}
 									{log.routingMetadata.autoRouting && (
 										<>
 											<Field
