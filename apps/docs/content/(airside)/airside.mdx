@@ -1,0 +1,101 @@
+---
+title: Airside
+description: The self-serve console for model providers. Claim your listing, register models, file prices, and watch your traffic on LLM Gateway.
+icon: PlaneTakeoff
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import {
+	ProductCards,
+	ProductHero,
+	Recording,
+	SectionCards,
+} from "@/components/product";
+
+Airside is where the companies behind the models run their listing on LLM Gateway. It uses an airport metaphor: LLM Gateway is the airport, developers are passengers, and providers are **carriers**. As a carrier you claim your provider, register your fleet of models, file your fares, and see the traffic that reaches you.
+
+<ProductHero
+	product="airside"
+	screenshot="/learn/airside-console"
+	screenshotAlt="Airside console overview for a carrier"
+	screenshotLabel="airside.llmgateway.io/dashboard"
+	quickStart="#quick-start"
+/>
+
+## Quick start
+
+<Steps>
+<Step>
+
+### Sign up with your company email
+
+Create an account at [airside.llmgateway.io](https://airside.llmgateway.io). The domain of your verified email must match your provider's API endpoint or website to claim it.
+
+</Step>
+<Step>
+
+### Claim or register your carrier
+
+Claim an existing catalogue provider, or register a new one. The LLM Gateway team reviews every claim before the carrier goes live.
+
+</Step>
+<Step>
+
+### Register your fleet and file fares
+
+Add each model with its context size and capabilities, and file its per-token prices. Once a filing is approved, the model is routable as `<provider>/<model>`.
+
+</Step>
+<Step>
+
+### Watch your traffic
+
+The **Traffic** page shows requests, errors, tokens, and billed traffic per model. Invite teammates under **Crew** so your whole team can manage the listing.
+
+</Step>
+</Steps>
+
+## Take the tour
+
+<Recording
+	src="/recordings/airside-tour.mp4"
+	label="airside.llmgateway.io/dashboard"
+	title="Tour of the Airside console: operations, fleet, traffic, filings, and crew"
+/>
+
+## Explore Airside
+
+<SectionCards
+	product="airside"
+	links={[
+		{
+			title: "Airside for providers",
+			description:
+				"Claims, crew, listings, price filings, routing, and billing.",
+			href: "/features/airside",
+			icon: "PlaneTakeoff",
+		},
+		{
+			title: "Fleet",
+			description: "Manage model listings and pending price filings.",
+			href: "/learn/airside-fleet",
+			icon: "Plane",
+		},
+		{
+			title: "Pricing summary",
+			description: "The full listing economics, in Markdown.",
+			href: "https://airside.llmgateway.io/pricing.md",
+			icon: "Receipt",
+		},
+		{
+			title: "Providers on LLM Gateway",
+			description: "See how your listing appears to developers.",
+			href: "https://llmgateway.io/providers",
+			icon: "Globe",
+		},
+	]}
+/>
+
+## Other products
+
+<ProductCards exclude="airside" />

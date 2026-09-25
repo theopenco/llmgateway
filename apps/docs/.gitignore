@@ -7,8 +7,8 @@
 .source
 
 # generated api reference docs (pnpm gen-docs)
-/content/(api)/*.mdx
-!/content/(api)/index.mdx
+/content/(gateway)/(api)/*.mdx
+!/content/(gateway)/(api)/index.mdx
 
 # test & build
 /coverage

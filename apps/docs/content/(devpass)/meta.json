@@ -1,0 +1,18 @@
+{
+	"title": "DevPass",
+	"description": "Flat-price plans for AI coding tools",
+	"icon": "SquareTerminal",
+	"root": true,
+	"pages": [
+		"---Get started---",
+		"devpass",
+		"---Guides---",
+		"...guides",
+		"---Knowledge base---",
+		"...learn",
+		"---Developer tools---",
+		"...developers",
+		"---API reference---",
+		"[Key & usage limits](/v1_key_retrieve)"
+	]
+}

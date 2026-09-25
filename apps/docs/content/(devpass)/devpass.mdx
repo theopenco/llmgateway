@@ -1,0 +1,121 @@
+---
+title: DevPass
+description: Flat monthly plans for AI coding. One key for Claude Code, Cursor, OpenCode, and every other coding agent you use.
+icon: SquareTerminal
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import {
+	ProductCards,
+	ProductHero,
+	Recording,
+	SectionCards,
+} from "@/components/product";
+
+DevPass is a monthly subscription for developers who code with AI agents. Instead of topping up credits per request, you pay one flat price and get a monthly allowance that covers the models your tools call. Your DevPass key works anywhere an OpenAI- or Anthropic-compatible key does, so you keep the tools you already use.
+
+<ProductHero
+	product="devpass"
+	screenshot="/learn/devpass-dashboard"
+	screenshotAlt="DevPass dashboard with coding activity, plan usage, and the API key"
+	screenshotLabel="devpass.llmgateway.io/dashboard"
+	quickStart="#quick-start"
+/>
+
+## Quick start
+
+<Steps>
+<Step>
+
+### Pick a plan
+
+Choose a plan on the [DevPass pricing page](https://devpass.llmgateway.io/pricing). Plans come in three tiers, **Lite**, **Pro**, and **Max**. Higher tiers raise the monthly allowance and the weekly cap on [premium models](/learn/model-categories).
+
+</Step>
+<Step>
+
+### Copy your key
+
+Open the [DevPass dashboard](https://devpass.llmgateway.io/dashboard). Rotate the key under **API Key** to reveal it once. The **Quick start** panel next to it then shows the exact setup for each supported tool.
+
+</Step>
+<Step>
+
+### Point your tool at DevPass
+
+For Claude Code, set two environment variables and run `claude` as usual:
+
+```bash
+export ANTHROPIC_BASE_URL=https://api.llmgateway.io
+export ANTHROPIC_AUTH_TOKEN=your_devpass_key
+claude
+```
+
+OpenAI-compatible tools use `OPENAI_BASE_URL=https://api.llmgateway.io/v1` and `OPENAI_API_KEY` instead. Every other tool has its own [setup guide](/guides).
+
+</Step>
+<Step>
+
+### Watch your usage
+
+Requests appear in [Coding Agents](/learn/coding-agents), broken down by tool. Allowance meters on the dashboard show what is left this month and this week.
+
+</Step>
+</Steps>
+
+## Take the tour
+
+<Recording
+	src="/recordings/devpass-tour.mp4"
+	label="devpass.llmgateway.io/dashboard"
+	title="Tour of the DevPass dashboard: overview, usage, and billing"
+/>
+
+## Explore DevPass
+
+<SectionCards
+	product="devpass"
+	links={[
+		{
+			title: "Coding tool guides",
+			description:
+				"Setup for Claude Code, Codex CLI, Cursor, OpenCode, and more.",
+			href: "/guides",
+			icon: "BookOpenCheck",
+		},
+		{
+			title: "Coding Agents",
+			description: "See which tools spend your allowance, per agent.",
+			href: "/learn/coding-agents",
+			icon: "Terminal",
+		},
+		{
+			title: "Model categories and fair use",
+			description: "How premium models are capped each week.",
+			href: "/learn/model-categories",
+			icon: "Layers",
+		},
+		{
+			title: "Reset Passes",
+			description: "Restore your weekly premium allowance instantly.",
+			href: "/learn/reset-passes",
+			icon: "Stamp",
+		},
+		{
+			title: "Pay-as-you-go overflow",
+			description: "Keep coding past the monthly allowance with credits.",
+			href: "/learn/payg-overflow",
+			icon: "Wallet",
+		},
+		{
+			title: "DevPass Usage API",
+			description: "Read allowance meters from your own tool with GET /v1/key.",
+			href: "/developers/devpass-usage",
+			icon: "Gauge",
+		},
+	]}
+/>
+
+## Other products
+
+<ProductCards exclude="devpass" />

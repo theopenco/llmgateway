@@ -1,0 +1,112 @@
+---
+title: Lounge
+description: The LLM Gateway chat app. Talk to any model, compare answers side by side, and create images, video, and speech in one place.
+icon: Armchair
+---
+
+import { Step, Steps } from "fumadocs-ui/components/steps";
+import {
+	ProductCards,
+	ProductHero,
+	Recording,
+	SectionCards,
+} from "@/components/product";
+
+Lounge is the chat app built on LLM Gateway. Pick any model from the catalogue, switch mid-conversation, and compare answers side by side. The same app includes studios for images, video, and speech, plus live voice calls, on the web at [lounge.llmgateway.io](https://lounge.llmgateway.io) and on iPhone and iPad.
+
+<ProductHero
+	product="lounge"
+	screenshot="/learn/lounge-home"
+	screenshotAlt="Lounge home with the model picker and prompt suggestions"
+	screenshotLabel="lounge.llmgateway.io"
+	quickStart="#quick-start"
+/>
+
+## Quick start
+
+<Steps>
+<Step>
+
+### Sign in
+
+Open [lounge.llmgateway.io](https://lounge.llmgateway.io) and sign in with your LLM Gateway account.
+
+</Step>
+<Step>
+
+### Choose a model
+
+Use the model picker above the composer. **Auto Route** picks a provider for you based on availability and cost.
+
+</Step>
+<Step>
+
+### Chat, compare, or create
+
+Send a message, turn on **Comparison mode** to ask several models at once, or pick **Group**, **Image**, **Video**, **Audio**, or **Voice** in the sidebar.
+
+</Step>
+<Step>
+
+### Get more with a membership
+
+A [Lounge membership](/learn/chat-plans) gives you monthly credits worth more than you pay, so heavy chat usage costs less than pay-as-you-go.
+
+</Step>
+</Steps>
+
+## Take the tour
+
+<Recording
+	src="/recordings/lounge-tour.mp4"
+	label="lounge.llmgateway.io"
+	title="Tour of Lounge: chat, comparison mode, group chat, and studios"
+/>
+
+## Explore Lounge
+
+<SectionCards
+	product="lounge"
+	links={[
+		{
+			title: "Chat",
+			description: "Models, comparison mode, projects, and history.",
+			href: "/learn/playground",
+			icon: "MessageSquare",
+		},
+		{
+			title: "Group Chat",
+			description: "Let several models discuss your prompt in turn.",
+			href: "/learn/playground-group",
+			icon: "Users",
+		},
+		{
+			title: "Image, Video, and Audio Studios",
+			description: "Generate images, clips, and speech from a prompt.",
+			href: "/learn/playground-image",
+			icon: "Clapperboard",
+		},
+		{
+			title: "Voice Calls",
+			description: "Talk to a model live, speech to speech.",
+			href: "/learn/playground-realtime",
+			icon: "AudioLines",
+		},
+		{
+			title: "Connectors",
+			description: "Connect your apps with OAuth and approve every tool call.",
+			href: "/features/lounge-connectors",
+			icon: "Plug",
+		},
+		{
+			title: "Lounge for iOS",
+			description: "Chat, dictate, and create on iPhone and iPad.",
+			href: "/features/lounge-ios",
+			icon: "Smartphone",
+		},
+	]}
+/>
+
+## Other products
+
+<ProductCards exclude="lounge" />
