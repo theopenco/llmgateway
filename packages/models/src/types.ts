@@ -566,10 +566,46 @@ export interface GoogleRequestBody {
 	};
 }
 
+/**
+ * Perplexity Agent API (`POST /v1/agent`) request body. Responses-shaped, but
+ * with its own tool configuration and without the `reasoning` block the
+ * OpenAI Responses body requires, so it gets its own type rather than bending
+ * `OpenAIResponsesRequestBody`.
+ */
+export interface PerplexityAgentRequestBody {
+	/** Agent model id in `provider/model` form, e.g. `perplexity/sonar`. */
+	model: string;
+	input: OpenAIResponsesInputItem[];
+	tools?: Array<{
+		type: "web_search";
+		max_results?: number;
+		user_location?: unknown;
+		search_context_size?: string;
+		filters?: {
+			search_domain_filter?: string[];
+		};
+	}>;
+	tool_choice?: "required";
+	stream?: boolean;
+	temperature?: number;
+	top_p?: number;
+	max_output_tokens?: number;
+	text?: {
+		format?:
+			| { type: "json_object" }
+			| {
+					type: "json_schema";
+					name: string;
+					schema: Record<string, unknown>;
+			  };
+	};
+}
+
 // Generic request body type
 export type ProviderRequestBody =
 	| OpenAIRequestBody
 	| OpenAIResponsesRequestBody
+	| PerplexityAgentRequestBody
 	| AnthropicRequestBody
 	| GoogleRequestBody;
 

@@ -2691,8 +2691,8 @@ export const googleModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "google/gemma-4-31b-it",
-				inputPrice: "0.13e-6",
-				outputPrice: "0.38e-6",
+				inputPrice: "0.15e-6",
+				outputPrice: "0.4e-6",
 				requestPrice: "0",
 				contextSize: 262144,
 				maxOutput: 32768,

@@ -17,7 +17,12 @@ import {
 	splitReasoningFromTaggedContent,
 } from "./reasoning-details.js";
 
-import type { Annotation, ImageObject } from "./types.js";
+import type {
+	Annotation,
+	ImageObject,
+	SearchResult,
+	ToolCall,
+} from "./types.js";
 import type {
 	AnthropicNativeBlock,
 	Provider,
@@ -71,6 +76,7 @@ export function parseProviderResponse(
 	let anthropicNativeBlocks: AnthropicNativeBlock[] | null = null;
 	let images: ImageObject[] = [];
 	const annotations: Annotation[] = [];
+	const searchResults: SearchResult[] = [];
 	let webSearchCount = 0;
 
 	const hasInputImages = messages.some((m: any) => {
@@ -81,7 +87,16 @@ export function parseProviderResponse(
 	});
 	const imageLabel = hasInputImages ? "Image edited" : "Image generated";
 
-	switch (usedProvider) {
+	// Perplexity serves two upstream shapes until Sonar's chat/completions
+	// retires on 2026-09-27: the Agent API's `output` items, and the
+	// OpenAI-shaped Sonar body. Only the former needs its own case; the latter
+	// is parsed like any other OpenAI-compatible provider.
+	const responseShape: Provider | "perplexity-agent" =
+		usedProvider === "perplexity" && Array.isArray(json.output)
+			? "perplexity-agent"
+			: usedProvider;
+
+	switch (responseShape) {
 		case "aws-bedrock": {
 			if (Array.isArray(json.choices)) {
 				const allChoices = json.choices;
@@ -745,6 +760,108 @@ export function parseProviderResponse(
 			}
 			break;
 		}
+		case "perplexity-agent": {
+			// Responses-shaped: one `output` item per step the model took, with
+			// `message` carrying the answer and `search_results` the sources.
+			const outputItems = Array.isArray(json.output) ? json.output : [];
+			const textParts: string[] = [];
+			const calls: ToolCall[] = [];
+			for (const item of outputItems) {
+				switch (item?.type) {
+					case "message": {
+						for (const part of item.content ?? []) {
+							if (typeof part?.text === "string") {
+								textParts.push(part.text);
+							}
+						}
+						break;
+					}
+					case "search_results": {
+						for (const result of item.results ?? []) {
+							if (typeof result?.url !== "string") {
+								continue;
+							}
+							// Dates are reported per result and are often absent; a
+							// missing one stays missing rather than being inferred.
+							const searchResult: SearchResult = { url: result.url };
+							if (result.title) {
+								searchResult.title = result.title;
+							}
+							if (result.snippet) {
+								searchResult.snippet = result.snippet;
+							}
+							if (result.date) {
+								searchResult.date = result.date;
+							}
+							if (result.last_updated) {
+								searchResult.last_updated = result.last_updated;
+							}
+							if (result.source) {
+								searchResult.source = result.source;
+							}
+							searchResults.push(searchResult);
+							annotations.push({
+								type: "url_citation",
+								url_citation: {
+									url: searchResult.url,
+									title: searchResult.title,
+									date: searchResult.date,
+									last_updated: searchResult.last_updated,
+								},
+							});
+						}
+						break;
+					}
+					case "function_call": {
+						calls.push({
+							id: item.call_id ?? item.id ?? "",
+							type: "function",
+							index: calls.length,
+							function: {
+								name: item.name ?? "",
+								arguments: item.arguments ?? "",
+							},
+						});
+						break;
+					}
+				}
+			}
+
+			content = textParts.length > 0 ? textParts.join("") : null;
+			toolResults = calls.length > 0 ? calls : null;
+
+			if (calls.length > 0) {
+				finishReason = "tool_calls";
+			} else if (json.status === "incomplete") {
+				finishReason =
+					json.incomplete_details?.reason === "max_output_tokens"
+						? "length"
+						: "stop";
+			} else {
+				finishReason = "stop";
+			}
+
+			const agentUsage = json.usage;
+			if (agentUsage) {
+				promptTokens = agentUsage.input_tokens ?? null;
+				completionTokens = agentUsage.output_tokens ?? null;
+				totalTokens = agentUsage.total_tokens ?? null;
+				reasoningTokens =
+					agentUsage.output_tokens_details?.reasoning_tokens ?? null;
+				cachedTokens = agentUsage.input_tokens_details?.cached_tokens ?? null;
+				const agentCacheCreation =
+					agentUsage.input_tokens_details?.cache_creation_input_tokens ?? 0;
+				if (agentCacheCreation > 0) {
+					cacheCreationTokens = agentCacheCreation;
+					cacheCreation5mTokens = agentCacheCreation;
+				}
+				// Billed per invocation, and a run can search more than once, so take
+				// the count the provider reports rather than assuming one per request.
+				webSearchCount =
+					agentUsage.tool_calls_details?.search_web?.invocation ?? 0;
+			}
+			break;
+		}
 		default: // OpenAI format
 			// Check if this is an OpenAI / Azure image generation response (e.g. gpt-image-2)
 			// Format: { created: number, data: [{ b64_json?: string, url?: string, revised_prompt?: string }], usage?: {...} }
@@ -1355,6 +1472,7 @@ export function parseProviderResponse(
 		anthropicNativeBlocks,
 		images,
 		annotations: annotations.length > 0 ? annotations : null,
+		searchResults: searchResults.length > 0 ? searchResults : null,
 		webSearchCount: webSearchCount > 0 ? webSearchCount : null,
 	};
 }

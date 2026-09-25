@@ -305,10 +305,15 @@ export function extractTokenUsage(
 				cachedTokens = ru.input_tokens_details?.cached_tokens ?? null;
 				// GPT-5.6+ bills prompt-cache writes at 1.25x and reports them in
 				// `cache_write_tokens` (a subset of input_tokens, like cached_tokens).
+				// Perplexity's Agent API reports the same quantity as
+				// `cache_creation_input_tokens`.
 				const responsesCacheWrite =
-					ru.input_tokens_details?.cache_write_tokens ?? 0;
+					ru.input_tokens_details?.cache_write_tokens ??
+					ru.input_tokens_details?.cache_creation_input_tokens ??
+					0;
 				if (responsesCacheWrite > 0) {
 					cacheCreationTokens = responsesCacheWrite;
+					cacheCreation5mTokens = responsesCacheWrite;
 				}
 			} else if (data.usage) {
 				// Standard OpenAI Chat Completions format
