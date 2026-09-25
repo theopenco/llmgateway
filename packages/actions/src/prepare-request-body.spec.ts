@@ -4100,6 +4100,10 @@ describe("prepareRequestBody - Google AI Studio", () => {
 							nickname: {
 								const: null,
 							},
+							fixedNull: {
+								const: null,
+								enum: ["a"],
+							},
 							metadata: {
 								type: "object",
 								properties: {
@@ -4160,6 +4164,9 @@ describe("prepareRequestBody - Google AI Studio", () => {
 		expect(params.properties.nickname.const).toBeUndefined();
 		expect(params.properties.nickname.enum).toBeUndefined();
 		expect(params.properties.nickname.nullable).toBe(true);
+		// Explicit enum suppresses the null widening (#4148)
+		expect(params.properties.fixedNull.enum).toEqual(["a"]);
+		expect(params.properties.fixedNull.nullable).toBeUndefined();
 
 		// Object properties: should strip propertyNames, minProperties, maxProperties
 		expect(params.properties.metadata.propertyNames).toBeUndefined();

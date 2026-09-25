@@ -698,18 +698,20 @@ function stripUnsupportedSchemaProperties(
 
 	const cleaned: any = {};
 	let nullableFromType = false;
+	let nullableFromConst = false;
 
 	for (const [key, value] of Object.entries(schema)) {
 		// Google's `parameters` carrier has no `const` vocabulary: pin the value
 		// as a single-member `enum`, which constrains the model identically and
 		// which the carrier accepts. An explicit `enum` always wins. (#4148)
 		if (key === "const") {
-			if (value === null) {
+			if (value === null && !("enum" in schema)) {
 				// Google's Type enum has no NULL member, so a null-only
 				// constraint cannot survive as an enum: String(null) would
-				// demand the literal string "null" instead. Widen to
-				// `nullable`, which at least keeps null acceptable. (#4148)
-				cleaned.nullable = true;
+				// demand the literal string "null" instead. Record it for
+				// the emit below, where it combines with nullableFromType;
+				// an explicit `enum` suppresses it, like any const. (#4148)
+				nullableFromConst = true;
 				continue;
 			}
 			if (!("enum" in schema)) {
@@ -786,9 +788,9 @@ function stripUnsupportedSchemaProperties(
 		}
 	}
 
-	// Applied after the loop so it wins over an explicit `nullable: false` that
-	// contradicts a `"null"` member in the type list, whichever key came first.
-	if (nullableFromType) {
+	// Applied after the loop so either source wins over an explicit
+	// `nullable: false` that contradicts it, whichever key came first.
+	if (nullableFromType || nullableFromConst) {
 		cleaned.nullable = true;
 	}
 
