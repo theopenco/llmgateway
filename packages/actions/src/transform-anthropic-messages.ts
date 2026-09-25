@@ -13,7 +13,7 @@ import {
 } from "@llmgateway/models";
 
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
-import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
+import { processImageUrl } from "./process-image-url.js";
 
 /**
  * Breakpoints a request may carry across tools, system and messages together.
@@ -165,20 +165,12 @@ export async function transformAnthropicMessages(
 								},
 							};
 						} catch (error) {
-							// A size rejection is the user's to act on: degrading to a
-							// placeholder would return a 200 that silently ignores the
-							// image and still bills for the turn.
-							if (error instanceof ImageSizeLimitError) {
-								throw error;
-							}
+							// A placeholder would become model-visible prompt text while the
+							// caller receives a normal response that silently ignores the image.
 							logger.error(`Failed to fetch image ${part.image_url.url}`, {
 								err: error instanceof Error ? error : new Error(String(error)),
 							});
-							// Fallback to text representation
-							return {
-								type: "text",
-								text: `[Image failed to load: ${part.image_url.url}]`,
-							} as TextContent;
+							throw error;
 						}
 					}
 					if (isTextContent(part) && part.text) {
