@@ -809,6 +809,9 @@ export const zaiModels = [
 			{
 				providerId: "deepinfra",
 				externalId: "zai-org/GLM-5.1",
+				// DeepInfra retires this model on 2026-10-01 and silently
+				// redirects requests to zai-org/GLM-5.3 afterwards.
+				deactivatedAt: new Date("2026-10-01"),
 				inputPrice: "1.05e-6",
 				cachedInputPrice: "0.205e-6",
 				outputPrice: "3.5e-6",
