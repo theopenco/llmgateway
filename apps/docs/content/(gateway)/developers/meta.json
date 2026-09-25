@@ -5,7 +5,6 @@
 	"defaultOpen": true,
 	"pages": [
 		"index",
-		"devpass-usage",
 		"cli",
 		"mcp",
 		"ai-sdk",

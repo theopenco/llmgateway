@@ -22,11 +22,17 @@ A listing covers your whole team. Under **Crew**, company owners invite teammate
 
 ## Registering a new carrier
 
-Not in the [provider catalogue](https://llmgateway.io/providers) yet? Register your provider as a **new carrier** from the onboarding page: pick a carrier id, display name, and the base URL of your **OpenAI-compatible API** (the gateway calls `<base URL>/v1/chat/completions`, unless a listing picks a different [upstream API](#upstream-api-and-preflight)). The endpoint must live on your verified email's domain — the same anti-squatting rule as claiming — and registrations go through the same review. Once approved, your carrier appears on the public providers and models pages and its listings route like any other provider's.
+Not in the [provider catalogue](https://llmgateway.io/providers) yet? Register your provider as a **new carrier** from the onboarding page: pick a carrier id, display name, and the base URL of your **OpenAI-compatible API** (the gateway calls `<base URL>/v1/chat/completions`, unless a listing picks a different [upstream API](#upstream-api-and-preflight)). Enter the base URL only: a URL whose path contains `/v1` or `/chat/completions` is rejected, because the gateway appends the endpoint path itself and the doubled path would fail every request. The endpoint must live on your verified email's domain — the same anti-squatting rule as claiming — and registrations go through the same review. Once approved, your carrier appears on the public providers and models pages and its listings route like any other provider's.
 
 ## Listing your fleet
 
-Once your claim is active, register models under **Fleet**: model name, display name, description, context size, max output, capability flags (streaming, vision, audio input, tools, JSON output, reasoning), and the supported `reasoning_effort` tiers. A new listing is created as a draft together with an **initial price filing**; when the LLM Gateway team approves that filing, the model goes active. Everything except pricing stays freely editable afterward.
+Once your claim is active, register models under **Fleet**: model name, display name, description, family, context size, max output, capability flags (streaming, vision, audio input, tools, JSON output, reasoning), the supported `reasoning_effort` tiers, the `tool_choice` modes your endpoint accepts, and optionally the weight **quantization** you serve (`int4`, `int8`, `fp4`, `fp6`, `fp8`, `fp16`, `bf16`, or `fp32`). Approved quantization shows on the Fleet card and the public model card. If your API expects a different id than the one developers use, set the **upstream model ID**; like the upstream API, it is fixed once the model is listed.
+
+A listing can also carry optional **rate limits** in requests per minute and per day. Choose whether the cap is shared **across all organizations** (the total traffic sent to your deployment stays under it) or applies **per organization** (each organization gets its own counter, so total load grows with the number of customers). Platform-set limits always take precedence. A new listing is created as a draft together with an **initial price filing**; when the LLM Gateway team approves that filing, the model goes active.
+
+Registering a model that already exists in the catalogue reuses its identity: display name, description, and family come from the catalogue model, and **Use catalog price** copies another provider's flat prices into your initial tariff as a starting point. For a new model, the family field suggests existing catalogue families.
+
+Draft listings save immediately. On a live listing, a metadata change (description, context size, capabilities, quantization, and so on) is filed for review and applies once approved. Saving again while that change is pending replaces it in place, and saving the live values withdraws it. A pending price filing blocks metadata edits until it is reviewed.
 
 Carriers claiming a catalogue provider can also **import their catalogue models** in one click: each active catalogue model becomes a managed listing with its current price as an approved filing. Routing keeps using the catalogue entry until the LLM Gateway team retires it — from then on the Airside listing (and its filed fares) takes over. This is how a provider's models migrate from the static catalogue into carrier self-management.
 
@@ -39,6 +45,8 @@ Before a listing can be filed, Airside runs a **preflight** against your endpoin
 Re-verifying a live listing reports, it does not rewrite: a failed check names the capability your endpoint refused and leaves the listing exactly as you declared it, because one refused request is as easily a transient fault as a missing capability. Fix the endpoint and verify again, or switch the capability off yourself if the deployment genuinely does not do it. Fleet marks the listing **In service · unverified** until a run passes again.
 
 A capability you have edited on a live listing lives in a filing until we approve it, and preflight verifies **that** shape rather than the one currently serving — otherwise a run would pass without ever exercising the capability you are trying to prove. A failed check is reported next to the filing rather than removed from it; the reviewer decides.
+
+Each check lists the upstream requests it actually sent. A check can be more than one request: the tool check walks the `tool_choice` modes and the reasoning check sweeps the effort tiers, so every attempt appears nested under its check with its own pass or fail and the upstream message on failure. The breakdown fills in while the run is still going. A check fails only when every one of its requests failed.
 
 Where a check can tell the difference between a capability and a dialect, it narrows the listing itself. A `tool_choice` mode your endpoint mishandles is dropped while tool calls stay on, and a `reasoning_effort` tier your endpoint rejects outright is retried at another tier — reasoning stays on and only the rejected tiers come off your declared set. If one tier is rejected the check goes on to try the others, since a tier left declared is one the gateway will forward verbatim. So a deployment implementing only a subset of the tiers verifies without losing reasoning, and you do not have to know which subset in advance.
 
@@ -63,7 +71,7 @@ Chart axes and compact counts use `k`, `M`, `B`, or `T` for thousands through tr
 
 ## Incidents
 
-The **Incidents** page lists every mapping of your claimed providers that failed requests in the selected window (1 hour to 3 days), with its error rate, error count, upstream/gateway split, and total requests. Client errors — requests the caller got wrong — are excluded.
+The **Incidents** page lists every mapping of your claimed providers that failed requests in the selected window (1 hour to 3 days), with its error rate, error count, upstream/gateway split, and total requests. Only upstream and gateway errors count: both are retried on another key or provider, and upstream errors count against your uptime. Client errors, canceled requests, and content-filtered requests are excluded.
 
 Expand a row to see the top error shapes behind it: HTTP status, status text, a response excerpt, the cause, the gateway's classification, and whether the request was streamed. Counts always include retried attempts; the **Retried errors in details** switch drops retried attempts from the error shapes only.
 
@@ -82,6 +90,14 @@ Accepting more than the baseline margin or offering a discount makes your traffi
 	Routing reacts to live metrics: reliability and speed still matter. A cheap
 	but flaky deployment loses the election to a slightly pricier, stable one.
 </Callout>
+
+## Settings
+
+**Settings** holds the preflight **test key** for each claimed carrier, shown masked. Replace or remove it at any time; without one, preflight asks for a key on every run.
+
+## Provider resources
+
+The [Airside resources](https://airside.llmgateway.io/resources) hub collects provider guides ([how to list your LLM API](https://airside.llmgateway.io/guides/list-your-llm-api), [LLM inference pricing](https://airside.llmgateway.io/guides/llm-inference-pricing)) and free calculators for [token costs](https://airside.llmgateway.io/tools/token-cost-calculator) and [rate limits](https://airside.llmgateway.io/tools/rate-limit-calculator). They run in the browser and need no account.
 
 ## Carrier Slack channel
 

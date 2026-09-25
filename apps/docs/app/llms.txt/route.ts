@@ -1,5 +1,6 @@
 import { docsBaseUrl } from "@/lib/base-url";
 import { marketingGuideCanonical } from "@/lib/guide-canonical";
+import { productForPath } from "@/lib/products";
 import { source } from "@/lib/source";
 
 import type { InferPageType } from "fumadocs-core/source";
@@ -11,22 +12,28 @@ const DOCS_URL = docsBaseUrl;
 
 type Page = InferPageType<typeof source>;
 
-// Section headings keyed by the first URL segment, in the order they should
-// appear. Pages whose first segment isn't listed fall back to "Getting Started",
-// and OpenAPI reference pages (v1_*, health) are grouped under "API Reference".
+// LLM Gateway pages are grouped by their first URL segment; DevPass, Lounge,
+// and Airside pages are grouped by product. Unlisted segments fall back to
+// "Getting Started", and OpenAPI pages (v1_*, health) go under "API Reference".
 const SECTIONS: { key: string; title: string }[] = [
 	{ key: "", title: "Getting Started" },
 	{ key: "developers", title: "Developer Resources" },
 	{ key: "features", title: "Features" },
-	{ key: "guides", title: "Guides & AI Tooling" },
 	{ key: "integrations", title: "Provider Integrations" },
 	{ key: "learn", title: "Platform & Dashboard" },
 	{ key: "migrations", title: "Migration Guides" },
 	{ key: "resources", title: "Resources" },
 	{ key: "api", title: "API Reference" },
+	{ key: "devpass", title: "DevPass & Coding Tool Guides" },
+	{ key: "lounge", title: "Lounge" },
+	{ key: "airside", title: "Airside" },
 ];
 
 function sectionKey(page: Page): string {
+	const product = productForPath(page.path);
+	if (product.id !== "gateway") {
+		return product.id;
+	}
 	const first = page.url.split("/").filter(Boolean)[0] ?? "";
 	if (first.startsWith("v1") || first === "health") {
 		return "api";

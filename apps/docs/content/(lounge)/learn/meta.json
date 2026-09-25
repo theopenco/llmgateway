@@ -1,0 +1,12 @@
+{
+	"title": "Knowledge base",
+	"pages": [
+		"playground",
+		"playground-group",
+		"playground-image",
+		"playground-video",
+		"playground-audio",
+		"playground-realtime",
+		"chat-plans"
+	]
+}

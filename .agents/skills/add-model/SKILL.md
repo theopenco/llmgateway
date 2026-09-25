@@ -178,7 +178,7 @@ per-modality token prices. `realtimeTranscription` only on token-metered ASR
 mappings.
 
 Image and video are the one docs exception to never enumerating models: update
-`apps/docs/content/features/{image,video}-generation.mdx`.
+`apps/docs/content/(gateway)/features/{image,video}-generation.mdx`.
 
 ## 7. Verify
 

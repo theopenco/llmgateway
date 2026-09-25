@@ -11,7 +11,7 @@ Write a public changelog entry for LLM Gateway, in the house style, and hand bac
 
 Before writing, make sure you understand the feature concretely. If the user only gave a feature name, find the facts — don't guess:
 
-- Read the relevant docs page under `apps/docs/content/` (e.g. `features/<feature>.mdx`).
+- Read the relevant docs page under `apps/docs/content/` (e.g. `(gateway)/features/<feature>.mdx`).
 - Inspect the shipping commit/PR if one is referenced: `git show <sha> --stat`, then read the changed UI/API/gateway files for the exact user-facing behavior.
 - Confirm plan gating (free vs Pro vs Enterprise), exact field names, error codes, and any limits. The changelog must be accurate — never invent prices, limits, or capabilities.
 
