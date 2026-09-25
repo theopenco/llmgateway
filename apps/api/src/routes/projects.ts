@@ -9,6 +9,10 @@ import {
 	resolveProviderCacheControlMode,
 } from "@/utils/provider-cache-control.js";
 import {
+	smartRoutingConfigInputSchema,
+	normalizeSmartRoutingConfig,
+} from "@/utils/smart-routing.js";
+import {
 	isZeroDataRetentionEnabled,
 	zdrCachingConflictMessage,
 	zdrProviderCachingConflictMessage,
@@ -17,9 +21,11 @@ import {
 import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { canManageProject } from "@llmgateway/shared/organization-roles";
+import { isSmartRoutingAvailable } from "@llmgateway/shared/smart-routing";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderCacheControlMode } from "@llmgateway/models";
+import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 
 export const projects = new OpenAPIHono<ServerTypes>();
 
@@ -45,6 +51,7 @@ const projectSchema = z.object({
 	endUserMarkupPercent: z.string(),
 	endUserTopUpBonusPercent: z.string(),
 	allowedOrigins: z.array(z.string()).nullable(),
+	smartRoutingConfig: smartRoutingConfigInputSchema.nullable(),
 });
 
 const createProjectSchema = z.object({
@@ -71,6 +78,8 @@ const updateProjectSchema = z.object({
 	endUserMarkupPercent: z.number().min(0).max(100).optional(),
 	endUserTopUpBonusPercent: z.number().min(0).max(1000).optional(),
 	allowedOrigins: z.array(z.string().trim().min(1)).max(20).optional(),
+	// Null clears the override so the project inherits the organization default.
+	smartRoutingConfig: smartRoutingConfigInputSchema.nullable().optional(),
 });
 
 function normalizeAllowedOrigins(origins: string[]) {
@@ -224,6 +233,7 @@ projects.openapi(updateProject, async (c) => {
 		endUserMarkupPercent,
 		endUserTopUpBonusPercent,
 		allowedOrigins,
+		smartRoutingConfig,
 	} = c.req.valid("json");
 	const providerCacheControlMode = resolveProviderCacheControlMode(
 		c.req.valid("json"),
@@ -353,6 +363,24 @@ projects.openapi(updateProject, async (c) => {
 		updateData.allowedOrigins = normalizedAllowedOrigins;
 	}
 
+	// Auto-routing overrides are an enterprise feature. Clearing the override
+	// stays allowed without enterprise access so a downgraded org can drop a
+	// leftover project override.
+	let normalizedSmartRoutingConfig: SmartRoutingConfig | null | undefined;
+	if (smartRoutingConfig !== undefined) {
+		if (
+			smartRoutingConfig !== null &&
+			!isSmartRoutingAvailable(projectUserOrg?.organization?.kind)
+		) {
+			throw new HTTPException(403, {
+				message: "Smart routing is not available for this organization",
+			});
+		}
+		normalizedSmartRoutingConfig =
+			normalizeSmartRoutingConfig(smartRoutingConfig);
+		updateData.smartRoutingConfig = normalizedSmartRoutingConfig;
+	}
+
 	// An empty PATCH body is a valid no-op; drizzle throws "No values to set"
 	// on an empty update, so skip the query and return the project unchanged.
 	if (Object.keys(updateData).length === 0) {
@@ -456,6 +484,16 @@ projects.openapi(updateProject, async (c) => {
 		changes.endUserTopUpBonusPercent = {
 			old: project.endUserTopUpBonusPercent,
 			new: String(endUserTopUpBonusPercent),
+		};
+	}
+	if (
+		normalizedSmartRoutingConfig !== undefined &&
+		JSON.stringify(project.smartRoutingConfig ?? null) !==
+			JSON.stringify(normalizedSmartRoutingConfig)
+	) {
+		changes.smartRoutingConfig = {
+			old: project.smartRoutingConfig,
+			new: normalizedSmartRoutingConfig,
 		};
 	}
 	if (normalizedAllowedOrigins !== undefined) {

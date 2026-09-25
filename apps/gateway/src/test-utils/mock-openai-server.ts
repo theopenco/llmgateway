@@ -1455,14 +1455,23 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 		c.status(statusTrigger.statusCode as any);
 		return c.json(statusTrigger.errorResponse);
 	}
-	if (stateText.includes("TRIGGER_ERROR")) {
+	// CLASSIFIER_ERROR is separate from TRIGGER_ERROR so a test can fail only
+	// the classifier call while the chat completion it precedes still succeeds.
+	if (
+		stateText.includes("TRIGGER_ERROR") ||
+		stateText.includes("CLASSIFIER_ERROR")
+	) {
 		c.status(500);
 		return c.json(sampleErrorResponse);
 	}
 
 	// Answers are keyword-driven so tests can assert a specific verdict: a
-	// harmful-looking state scores high on every noul question.
+	// harmful-looking state scores high on every noul question, and the auto
+	// routing classifier is steered by EASY_TASK / HARD_TASK / PREFER_MODEL:<id>.
 	const harmful = /harm|kill|attack|threat/i.test(stateText);
+	const easyTask = stateText.includes("EASY_TASK");
+	const hardTask = stateText.includes("HARD_TASK");
+	const preferredModel = /PREFER_MODEL:([^\s"\\]+)/.exec(stateText)?.[1];
 	const answers: Record<string, unknown> = {};
 	for (const [id, question] of Object.entries(
 		(body.questions ?? {}) as Record<string, { type: string; criteria?: any }>,
@@ -1473,12 +1482,16 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 		}
 		if (question.type === "choice") {
 			const options = Object.keys(question.criteria ?? {});
+			const choice =
+				preferredModel && options.includes(preferredModel)
+					? preferredModel
+					: options[0];
 			answers[id] = {
 				type: "choice",
-				choice: options[0],
+				choice,
 				confidence: 0.9,
 				probabilities: Object.fromEntries(
-					options.map((option, index) => [option, index === 0 ? 1 : 0]),
+					options.map((option) => [option, option === choice ? 1 : 0]),
 				),
 			};
 			continue;
@@ -1486,18 +1499,18 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 		const levels: unknown[] = Array.isArray(question.criteria)
 			? question.criteria
 			: [];
+		// Top level by default so existing score-question specs keep their answer;
+		// EASY_TASK opts a state down to the bottom band, HARD_TASK wins over it.
+		const score = easyTask && !hardTask ? 0 : levels.length - 1;
 		answers[id] = {
 			type: "score",
-			score: levels.length - 1,
+			score,
 			confidence: 0.9,
 			legend: Object.fromEntries(
 				levels.map((level, index) => [String(index), String(level)]),
 			),
 			probabilities: Object.fromEntries(
-				levels.map((_level, index) => [
-					String(index),
-					index === levels.length - 1 ? 1 : 0,
-				]),
+				levels.map((_level, index) => [String(index), index === score ? 1 : 0]),
 			),
 		};
 	}

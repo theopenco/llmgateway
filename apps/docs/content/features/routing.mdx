@@ -567,13 +567,9 @@ The following groups can be customized per project:
 
 Auto routing automatically selects the best model for your specific use case without you having to specify a model at all.
 
-### Current Implementation
+### Default behaviour
 
-The auto routing system currently:
-
-- **Chooses cost-effective models** by default for optimal price-to-performance ratio
-- **Automatically scales to more powerful models** based on your request's context size
-- **Handles large contexts intelligently** by selecting models with appropriate context windows
+By default, auto routing picks the cheapest of a small built-in set of models that can serve the request: it filters out models whose context window, capabilities (vision, tools, reasoning, structured output) or provider availability do not fit, then selects the cheapest of what remains. Larger prompts skip the smallest model.
 
 ```bash
 # Let LLMGateway choose the optimal model
@@ -658,15 +654,6 @@ curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
 	or large-context requests.
 </Callout>
 
-### Coming Soon: Advanced Optimization
-
-We're continuously improving our auto routing capabilities. Soon you'll benefit from:
-
-- **Tool call optimization**: Automatically select models that excel at function calling and structured outputs
-- **Content-aware routing**: Analyze message content to determine the best model for specific types of requests (coding, creative writing, analysis, etc.)
-- **Performance-based routing**: Route based on historical performance data for similar requests
-- **Multi-model orchestration**: Intelligently combine multiple models for complex workflows
-
 ### How It Works
 
 1. **Request Analysis**: The system analyzes your request including message content, context size, and any special parameters
@@ -679,6 +666,41 @@ We're continuously improving our auto routing capabilities. Soon you'll benefit 
 	see which model was selected for each request.
 </Callout>
 
+## Smart Routing
+
+`"model": "auto"` above is fixed: it always picks from the same built-in set, and its behaviour does not change. **Smart routing** is a separate model string, `"model": "smart"`, where you choose the candidate models and how they are ranked.
+
+Under **Organization settings → Smart Routing** you choose up to 30 models from the [models catalogue](https://llmgateway.io/models) that `"model": "smart"` may resolve to, plus the classifier that ranks them. Individual projects can override the organization default on their **Settings → Routing** page; a project without an override inherits it. Owners and organization admins can edit the organization default, project admins the project override.
+
+Smart routing is available to every organization, including pay-as-you-go, while it is in beta. It is not available on DevPass yet. `"model": "smart"` fails rather than falling back: an organization that cannot use it gets a 403, and one that has not configured it gets a 400 naming the setting — it never degrades quietly into the `auto` candidate set.
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "smart",
+    "messages": [{"role": "user", "content": "Your request here..."}]
+  }'
+```
+
+The configured list is exhaustive. If no model on it can serve a request — for example an image request against a text-only list — the gateway returns a 400 rather than falling back to a model you did not allow. `free_models_only` narrows the list to its free models rather than replacing it, so a request parameter cannot route outside what the organization allowed.
+
+#### Classifiers
+
+- **None** — pick the cheapest model on the list that can serve the request. This is the default behaviour, restricted to your models.
+- **Jev (TypeSafe)** — rate the request before routing it.
+
+With the Jev classifier, the gateway sorts your models by blended average price and splits them into Low, Medium and High price bands. The dashboard previews that split from catalogue list prices; the gateway ranks only the providers your project can actually use, at your own rates, so the live split can differ. Each request is then classified for task type, output type and difficulty, and served from the matching band; the classifier's own model preference breaks ties inside the band when it is confident enough. A request rated High also gets a larger default reasoning effort when the selected model supports reasoning and the request left room for it — thinking is drawn from the same `max_tokens` allowance as the answer, so the cheaper default stands on a tight budget rather than risking a response that spends its whole allowance thinking.
+
+The classifier adds one short round trip before the upstream call. It fails open: if it times out or errors, the request is served by the cheapest eligible model on your list and the log records the fallback.
+
+**Sticky sessions classify once.** When a request carries a session id (see [sticky session routing](#sticky-session-routing)) and the project has it enabled, the first turn is classified and the rest of the session reuses that verdict and the model it resolved to — so a conversation is not re-rated on every turn and does not migrate between models mid-thread, which would cost it the upstream prompt cache. The pin expires with the session TTL. If the pinned model stops being available, the stored verdict is re-applied to the remaining candidates rather than triggering a fresh classification.
+
+#### Routing metadata
+
+Every smart-routed request made against a configured list records a `smartRouting` block on its log entry, visible in the request detail view: the classifier used, the eligible and surviving candidate models, the difficulty, task and output type, the classifier's preferred model and confidence, the band that was served, the selected model, the classifier latency, whether the classifier failed open, and whether the verdict was reused from earlier in the session.
+
 ## Best Practices
 
 ### For Development
@@ -688,12 +710,12 @@ We're continuously improving our auto routing capabilities. Soon you'll benefit 
 
 ### For Production
 
-- Use auto routing (`"model": "auto"`) for the best balance of cost and performance
+- Use auto routing (`"model": "auto"`) for the best balance of cost and performance, or smart routing (`"model": "smart"`) to route across models you choose
 - Monitor your usage patterns through the dashboard to understand routing decisions
 - Set up provider keys for multiple providers to maximize routing options
 
 ### For Cost Optimization
 
-- Let auto routing handle model selection to automatically use the most cost-effective options
+- Let auto routing handle model selection to automatically use the most cost-effective options, or smart routing to spend more only on the requests that need it
 - Use model IDs without provider prefixes to always get the cheapest available provider
 - Monitor your usage analytics to track cost savings from intelligent routing

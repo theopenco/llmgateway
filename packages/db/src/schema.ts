@@ -31,6 +31,7 @@ import type {
 } from "@llmgateway/models";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 import type { AlertAudience } from "@llmgateway/shared/organization-roles";
+import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type z from "zod";
 
@@ -317,6 +318,11 @@ export const organization = pgTable(
 		// only routes to providers meeting the required certifications/data
 		// policies. Null = no policy configured.
 		providerCompliancePolicy: json().$type<ProviderCompliancePolicy>(),
+		// Enterprise smart-routing ("smart" model) configuration: which models the
+		// gateway may pick from and which classifier ranks the request. Null =
+		// the built-in default candidate set and no classifier. Projects may
+		// override it with their own column.
+		smartRoutingConfig: json().$type<SmartRoutingConfig>(),
 		// Delivery of compliance alerts (watched models becoming available,
 		// providers no longer meeting the policy). Null = alerts not configured.
 		complianceAlertSettings: json().$type<ComplianceAlertSettings>(),
@@ -1262,6 +1268,9 @@ export const project = pgTable(
 		// Browser origins allowed to call the gateway with this project's
 		// ephemeral end-user session tokens (CORS allowlist).
 		allowedOrigins: json().$type<string[]>(),
+		// Per-project override of the organization's smart-routing configuration.
+		// Null = inherit the organization default.
+		smartRoutingConfig: json().$type<SmartRoutingConfig>(),
 	},
 	(table) => [index("project_organization_id_idx").on(table.organizationId)],
 );
@@ -2285,6 +2294,45 @@ export const log = pgTable(
 			// premium tier was in play.
 			serviceTierSource?: "request" | "coding-plan-default";
 			strippedParameters?: string[];
+			// Set when the request was resolved through a named dynamic route.
+			dynamicRoute?: {
+				name: string;
+				version: number;
+				// Node ids traversed during graph evaluation.
+				path: string[];
+				// Verdict the route's classifier nodes branched on. Absent when the
+				// graph has none, or when no verdict was obtained and those nodes
+				// took their `else` branch.
+				classifier?: {
+					kind: "jev";
+					difficulty?: "low" | "medium" | "high";
+					difficultyScore?: number;
+					task?: string;
+					outputType?: string;
+				};
+			};
+			// How an "auto" request resolved to a concrete model when the
+			// organization configured smart routing. Absent for the built-in
+			// default candidate set.
+			smartRouting?: {
+				classifier: "none" | "jev";
+				rubricVersion?: number;
+				eligibleModels: string[];
+				candidateModels: string[];
+				difficulty?: "low" | "medium" | "high";
+				difficultyScore?: number;
+				task?: string;
+				outputType?: string;
+				bestModel?: string;
+				bestModelConfidence?: number;
+				band?: "low" | "medium" | "high";
+				selectedModel: string;
+				classifierLatencyMs?: number;
+				classifierFailed: boolean;
+				// True when the verdict served came from another turn of the same
+				// sticky session rather than from this request.
+				classifierReused?: boolean;
+			};
 		}>(),
 		processedAt: timestamp(),
 		rawRequest: jsonb(),
