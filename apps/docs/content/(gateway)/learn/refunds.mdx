@@ -1,0 +1,58 @@
+---
+title: Self-Service Refunds
+description: Refund a recent credit top-up, DevPass payment, Lounge membership payment, or unused Reset Pass yourself
+icon: Undo2
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+Recent purchases can be refunded from the billing history without contacting support. The refund goes back to the original payment method.
+
+## Where to find it
+
+Every paid charge in a billing history has a refund button. When the charge can be refunded the button is active; when it cannot, the button is disabled and its tooltip says why.
+
+| Product     | Billing history                                                                                                 |
+| ----------- | --------------------------------------------------------------------------------------------------------------- |
+| LLM Gateway | [Transactions](/learn/transactions) in the organization settings                                                |
+| DevPass     | **Billing history** on the **Billing** page of the [DevPass dashboard](https://devpass.llmgateway.io/dashboard) |
+| Lounge      | **Billing history** on the [Lounge pricing page](https://lounge.llmgateway.io/pricing)                          |
+
+## What can be refunded
+
+| Purchase                                         | Window  | Conditions                                                                                         |
+| ------------------------------------------------ | ------- | -------------------------------------------------------------------------------------------------- |
+| **Credit top-up**                                | 14 days | Your most recent top-up, with less than 20% of its credits used                                    |
+| **DevPass** start, renewal, or upgrade           | 14 days | Your latest plan payment, the plan still active, and less than 20% of its allowance used           |
+| **Lounge membership** start, renewal, or upgrade | 14 days | Your latest membership payment, the membership still active, and less than 20% of its credits used |
+| **[Reset Pass](/learn/reset-passes)**            | 7 days  | The pass has not been redeemed                                                                     |
+
+Only the organization owner can request a refund, and each purchase can be refunded once.
+
+<Callout type="warning">
+	Refunding a plan or membership payment ends the subscription right away, not
+	at the end of the billing period. The rest of the cycle's credits are lost,
+	and using the plan again means subscribing from scratch. Refunding a top-up
+	removes its credits from your balance. Refunds cannot be undone.
+</Callout>
+
+## Requesting a refund
+
+1. Open the billing history for the product and find the charge.
+2. Click **Request refund**.
+3. Pick a reason. A short explanation is required when you choose **Other**.
+4. Confirm with **Request refund**, or **Refund and cancel** for a plan payment.
+
+## Why a refund is unavailable
+
+| Message                                             | Meaning                               |
+| --------------------------------------------------- | ------------------------------------- |
+| Refunds are available for 14 days after purchase    | The refund window has closed          |
+| Only your most recent purchase can be self-refunded | A newer top-up or plan payment exists |
+| More than 20% of these credits have been used       | Usage is above the refund threshold   |
+| The plan for this payment is no longer active       | The plan or membership already ended  |
+| Only the organization owner can request a refund    | Ask the owner to request it           |
+| This Reset Pass has already been redeemed           | Redeemed passes cannot be returned    |
+| This purchase has already been refunded             | The charge was refunded before        |
+
+For anything these rules do not cover, contact support.

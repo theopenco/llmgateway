@@ -29,6 +29,7 @@
 		"billing",
 		"transactions",
 		"invoices",
+		"refunds",
 		"referrals",
 		"policies",
 		"org-preferences",
