@@ -31,7 +31,7 @@ export function UsageNotifications() {
 		onError: () => toast.error("Could not mark notifications as read"),
 	});
 	const unread = alerts.data?.unreadCount ?? 0;
-	const settingsHref = `/dashboard/${selectedOrganization?.id}/notifications`;
+	const settingsHref = `/dashboard/${selectedOrganization?.id}/org/notifications`;
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger asChild>
