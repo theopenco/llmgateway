@@ -1919,6 +1919,13 @@
       "when": 1790254048799,
       "tag": "1790254048_lethal_ender_wiggin",
       "breakpoints": true
+    },
+    {
+      "idx": 274,
+      "version": "8",
+      "when": 1790332480259,
+      "tag": "1790332480_heavy_lionheart",
+      "breakpoints": true
     }
   ]
 }
