@@ -91,6 +91,11 @@ After a successful top-up we email the end-user a receipt with a PDF attached:
   networks cap the whole string at 22 characters, so the suffix you supply is
   limited to 13 and normalized on save.
 
+The receipt also states that LLM Gateway processed the payment and what the
+charge is called on the statement. That explanation appears **only** on these
+receipts — a direct LLM Gateway purchase has no third party to explain, so it
+gets a plain receipt instead.
+
 Refunds send a credit note the same way.
 
 <Callout type="warn">
