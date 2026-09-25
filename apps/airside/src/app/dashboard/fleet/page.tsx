@@ -510,7 +510,7 @@ export default function FleetPage() {
 														? (model.latestVerification?.summary ??
 															"The last preflight failed.")
 														: paused
-															? "Receives no traffic until you resume it."
+															? "This listing receives no traffic until you resume it. Imported catalogue models fall back to the built-in catalogue entry meanwhile."
 															: undefined
 												}
 											>
