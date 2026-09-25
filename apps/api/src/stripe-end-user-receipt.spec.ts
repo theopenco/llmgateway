@@ -184,4 +184,41 @@ describe("end-user top-up receipt", () => {
 		expect(call.subject).toContain("refund");
 		expect(call.attachments?.[0]?.filename).toMatch(/^credit-note-.*\.pdf$/);
 	});
+
+	test("the credit note states the amount actually refunded", async () => {
+		await seedWallet({ mode: "live", email: "ada@acme.test" });
+		await handleEndUserTopUpSucceeded(makeTopUpIntent("pi_receipt_7", 1050));
+		sendEmailMock.mockClear();
+
+		const topUpRow = await db.query.walletLedger.findFirst({
+			where: {
+				stripePaymentIntentId: { eq: "pi_receipt_7" },
+				type: { eq: "topup" },
+			},
+		});
+		// Stripe returned less than the full payment; the document must say so
+		// rather than quoting the original charge.
+		await handleEndUserTopUpRefunded(topUpRow!, 4.25);
+
+		const call = sendEmailMock.mock.calls[0][0];
+		// Credit notes render the returned amount as a negative total.
+		expect(call.html).toContain("USD -4.25");
+		expect(call.html).not.toContain("10.50");
+	});
+
+	test("a receipt failure never escapes the webhook handler", async () => {
+		await seedWallet({ mode: "live", email: "ada@acme.test" });
+		sendEmailMock.mockRejectedValueOnce(new Error("resend exploded"));
+
+		// A throw here would 400 the webhook and make Stripe redeliver a payment
+		// we already credited.
+		await expect(
+			handleEndUserTopUpSucceeded(makeTopUpIntent("pi_receipt_8", 1050)),
+		).resolves.toBeUndefined();
+
+		const wallet = await db.query.wallet.findFirst({
+			where: { id: { eq: WALLET_ID } },
+		});
+		expect(Number(wallet?.balance)).toBeGreaterThan(0);
+	});
 });

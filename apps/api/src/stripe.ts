@@ -2027,7 +2027,17 @@ export async function handleAirsideListingCheckout(
 	// The carrier paying the listing fee is not an organization member, so this
 	// goes out through the receipt sender rather than the org invoice path. The
 	// conditional update above makes this run exactly once per paid session.
-	await sendAirsideListingReceipt(session, providerCompanyId);
+	// Best-effort: the fee is already recorded as paid. A throw here would 400
+	// the webhook and make Stripe redeliver an event we fully processed, which
+	// then trips the "paid twice" guard above and logs a false alarm.
+	try {
+		await sendAirsideListingReceipt(session, providerCompanyId);
+	} catch (err) {
+		logger.error(
+			"Airside listing receipt failed; suppressing webhook failure",
+			err instanceof Error ? err : new Error(String(err)),
+		);
+	}
 }
 
 /**
@@ -2476,14 +2486,21 @@ export async function handleEndUserTopUpSucceeded(
 		// have no relationship with us, so the developer's brand leads and we
 		// appear as merchant of record. Live wallets only: sandbox top-ups are
 		// not real money, and Stripe never receipts test payments either.
-		await sendEndUserTopUpReceipt({
-			receiptNumber: topUpLedgerId,
-			endCustomerId: wallet.endCustomerId,
-			projectId: wallet.projectId,
-			currency: wallet.currency,
-			grossPaid,
-			bonusCredited: bonusApplied,
-		});
+		try {
+			await sendEndUserTopUpReceipt({
+				receiptNumber: topUpLedgerId,
+				endCustomerId: wallet.endCustomerId,
+				projectId: wallet.projectId,
+				currency: wallet.currency,
+				grossPaid,
+				bonusCredited: bonusApplied,
+			});
+		} catch (err) {
+			logger.error(
+				"End-user top-up receipt failed; suppressing webhook failure",
+				err instanceof Error ? err : new Error(String(err)),
+			);
+		}
 	}
 }
 
@@ -2551,6 +2568,10 @@ async function sendEndUserTopUpReceipt(input: {
  */
 export async function handleEndUserTopUpRefunded(
 	topUp: typeof tables.walletLedger.$inferSelect,
+	// Amount Stripe actually returned to the card for *this* refund, in dollars.
+	// Omitted by callers that only have the ledger row; the credit note then
+	// falls back to the full payment.
+	refundedAmount?: number,
 ) {
 	if (!topUp.stripePaymentIntentId) {
 		return;
@@ -2731,16 +2752,23 @@ export async function handleEndUserTopUpRefunded(
 		`Reversed ${reversal.amount} from end-user wallet ${topUp.walletId} on refund`,
 	);
 
-	// Credit note for the end-user. The document states the money Stripe returned
-	// to their card, not the wallet clamp — they may have already spent some of
-	// the balance, but the refund itself was for the full payment.
+	// Credit note for the end-user. The document must state what Stripe returned
+	// to their card, which is not the wallet clamp (they may have already spent
+	// some of the balance) and not necessarily the full payment either.
 	if (reversal.mode && reversal.mode !== "test" && reversal.reversalId) {
-		await sendEndUserRefundCreditNote({
-			receiptNumber: reversal.reversalId,
-			endCustomerId: topUp.endCustomerId,
-			walletId: topUp.walletId,
-			grossRefunded: Number(topUp.grossPaid ?? "0"),
-		});
+		try {
+			await sendEndUserRefundCreditNote({
+				receiptNumber: reversal.reversalId,
+				endCustomerId: topUp.endCustomerId,
+				walletId: topUp.walletId,
+				grossRefunded: refundedAmount ?? Number(topUp.grossPaid ?? "0"),
+			});
+		} catch (err) {
+			logger.error(
+				"End-user refund credit note failed; suppressing webhook failure",
+				err instanceof Error ? err : new Error(String(err)),
+			);
+		}
 	}
 }
 
@@ -3531,7 +3559,31 @@ export async function handleChargeRefunded(
 		},
 	});
 	if (walletTopUp) {
-		await handleEndUserTopUpRefunded(walletTopUp);
+		// `amount_refunded` is cumulative across repeated partial refunds, so the
+		// amount for *this* event is the most recent refund on the charge.
+		const latestRefund = charge.refunds?.data?.[0];
+		const refundedAmount =
+			typeof latestRefund?.amount === "number"
+				? latestRefund.amount / 100
+				: undefined;
+
+		// The reversal below always removes the full credited amount, so a partial
+		// refund over-reverses the wallet. There is no in-app route that issues
+		// these refunds (they come from the Stripe dashboard), so surface it
+		// loudly rather than silently mis-crediting.
+		if (charge.amount_refunded > 0 && charge.amount_refunded < charge.amount) {
+			logger.error(
+				"Partial refund on an end-user top-up; the wallet reversal removes the full credited amount",
+				new Error("Partial end-user top-up refund is not supported"),
+				{
+					paymentIntentId: payment_intent as string,
+					chargeAmount: charge.amount,
+					amountRefunded: charge.amount_refunded,
+				},
+			);
+		}
+
+		await handleEndUserTopUpRefunded(walletTopUp, refundedAmount);
 		return;
 	}
 
