@@ -1608,4 +1608,157 @@ describe("parseProviderResponse", () => {
 			expect(result.reasoningTokens).toBe(310);
 		});
 	});
+	describe("perplexity agent api", () => {
+		const agentJson = {
+			id: "resp_1",
+			object: "response",
+			status: "completed",
+			model: "perplexity/sonar",
+			output: [
+				{
+					type: "search_results",
+					queries: ["artemis news"],
+					results: [
+						{
+							id: 1,
+							url: "https://www.nasa.gov/artemis",
+							title: "Artemis News",
+							snippet: "Artemis II flew around the Moon.",
+							date: "2026-09-16",
+							last_updated: "2026-09-17",
+							source: "web",
+						},
+						{
+							id: 2,
+							url: "https://example.org/undated",
+							title: "Undated",
+						},
+					],
+				},
+				{
+					type: "message",
+					role: "assistant",
+					content: [{ type: "output_text", text: "Artemis II flew." }],
+				},
+			],
+			usage: {
+				input_tokens: 2428,
+				output_tokens: 130,
+				total_tokens: 2558,
+				input_tokens_details: {
+					cached_tokens: 12,
+					cache_creation_input_tokens: 1880,
+				},
+				output_tokens_details: { reasoning_tokens: 0 },
+				tool_calls_details: { search_web: { invocation: 2, cost_usd: 0.005 } },
+			},
+		};
+
+		it("extracts the answer, sources and usage", () => {
+			const result = parseProviderResponse(
+				"perplexity",
+				"sonar",
+				agentJson,
+				[],
+				false,
+			);
+
+			expect(result.content).toBe("Artemis II flew.");
+			expect(result.finishReason).toBe("stop");
+			expect(result.promptTokens).toBe(2428);
+			expect(result.completionTokens).toBe(130);
+			expect(result.cachedTokens).toBe(12);
+			expect(result.cacheCreationTokens).toBe(1880);
+			// Billed per invocation, so the provider's own count is authoritative.
+			expect(result.webSearchCount).toBe(2);
+		});
+
+		it("keeps per-source dates and leaves missing ones out", () => {
+			const result = parseProviderResponse(
+				"perplexity",
+				"sonar",
+				agentJson,
+				[],
+				false,
+			);
+
+			expect(result.searchResults).toEqual([
+				{
+					url: "https://www.nasa.gov/artemis",
+					title: "Artemis News",
+					snippet: "Artemis II flew around the Moon.",
+					date: "2026-09-16",
+					last_updated: "2026-09-17",
+					source: "web",
+				},
+				{ url: "https://example.org/undated", title: "Undated" },
+			]);
+			expect(result.annotations).toEqual([
+				{
+					type: "url_citation",
+					url_citation: {
+						url: "https://www.nasa.gov/artemis",
+						title: "Artemis News",
+						date: "2026-09-16",
+						last_updated: "2026-09-17",
+					},
+				},
+				{
+					type: "url_citation",
+					url_citation: {
+						url: "https://example.org/undated",
+						title: "Undated",
+						date: undefined,
+						last_updated: undefined,
+					},
+				},
+			]);
+		});
+
+		it("still parses Sonar chat/completions until it retires", () => {
+			const result = parseProviderResponse(
+				"perplexity",
+				"sonar-pro",
+				{
+					id: "chatcmpl-1",
+					object: "chat.completion",
+					choices: [
+						{
+							index: 0,
+							message: { role: "assistant", content: "Artemis II flew." },
+							finish_reason: "stop",
+						},
+					],
+					search_results: [
+						{ url: "https://www.nasa.gov/artemis", date: "2026-09-16" },
+					],
+					usage: { prompt_tokens: 15, completion_tokens: 59, total_tokens: 74 },
+				},
+				[],
+				false,
+			);
+
+			expect(result.content).toBe("Artemis II flew.");
+			expect(result.promptTokens).toBe(15);
+			expect(result.completionTokens).toBe(59);
+			// Sources ride along as a top-level passthrough field on this path.
+			expect(result.searchResults).toBeNull();
+		});
+
+		it("maps a truncated response to finish_reason length", () => {
+			const result = parseProviderResponse(
+				"perplexity",
+				"sonar",
+				{
+					...agentJson,
+					status: "incomplete",
+					incomplete_details: { reason: "max_output_tokens" },
+				},
+				[],
+				false,
+			);
+
+			expect(result.finishReason).toBe("length");
+		});
+	});
 });

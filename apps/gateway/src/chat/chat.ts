@@ -10969,6 +10969,15 @@ chat.openapi(completions, async (c) => {
 									if (data.type === "response.web_search_call.completed") {
 										webSearchCount++;
 									}
+								} else if (streamFormatProvider === "perplexity") {
+									// Perplexity's Agent API emits no per-search event, but
+									// reports the billed invocation count on the terminal event.
+									const invocations =
+										data.response?.usage?.tool_calls_details?.search_web
+											?.invocation;
+									if (typeof invocations === "number") {
+										webSearchCount = invocations;
+									}
 								}
 
 								// Extract reasoning content for logging using helper function
@@ -14285,6 +14294,7 @@ chat.openapi(completions, async (c) => {
 		toolResults,
 		images,
 		annotations,
+		searchResults,
 		webSearchCount,
 	} = parsedResponse;
 
@@ -14572,6 +14582,7 @@ chat.openapi(completions, async (c) => {
 		echoedServiceTier,
 		{ cacheThoughtSignatures: !zeroDataRetentionEnabled },
 		transportProvider,
+		searchResults,
 	);
 	// Attach opaque reasoning payloads (e.g. OpenAI encrypted reasoning) to the
 	// assistant message so clients can replay them on later turns to preserve
