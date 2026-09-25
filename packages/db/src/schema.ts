@@ -5035,6 +5035,9 @@ export const providerDraftModel = pgTable(
 			.default("draft"),
 		createdBy: text().references(() => user.id, { onDelete: "set null" }),
 		delistedAt: timestamp(),
+		// Set while the carrier has taken an active listing out of service; its
+		// catalogue mappings are inactive until resumed. No review involved.
+		pausedAt: timestamp(),
 	},
 	(table) => [
 		// Uniqueness applies only to live rows so a delisted model name can be
