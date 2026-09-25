@@ -90,3 +90,14 @@ receive `401 Unauthorized`.
 
 See [Retrieve key status](/v1_key_retrieve) for the generated API reference and
 complete response schema.
+
+## Recovering a failed renewal
+
+If your renewal fails, DevPass shows **Payment overdue** with a **Complete payment**
+link to the outstanding invoice. Follow the link to pay and complete any bank
+verification. Your allowance refreshes after payment succeeds.
+
+Updating your card in **Billing** also retries the failed renewal. Saving a card
+alone does not mean the invoice is paid: if payment remains outstanding, the
+invoice link stays visible above the card details. Return to DevPass after paying
+to refresh the payment status.

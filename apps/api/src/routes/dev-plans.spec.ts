@@ -194,6 +194,141 @@ describe("dev plan renewal recovery after a card update", () => {
 		});
 	}
 
+	function getOutstandingInvoice() {
+		return app.request("/dev-plans/outstanding-invoice", {
+			headers: { Cookie: token },
+		});
+	}
+
+	function mockOutstandingInvoice(overrides: Record<string, unknown> = {}) {
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription(),
+		);
+		stripeMock.invoices.list.mockResolvedValue({
+			data: [
+				{
+					...invoice,
+					amount_remaining: 100,
+					hosted_invoice_url: "https://invoice.stripe.com/test-invoice",
+					...overrides,
+				},
+			],
+			has_more: false,
+		});
+	}
+
+	it("finds an outstanding renewal even when saved payment status is current", async () => {
+		mockOutstandingInvoice();
+		await db
+			.update(tables.organization)
+			.set({ subscriptionPaymentStatus: "current" })
+			.where(eq(tables.organization.id, ORG_ID));
+		const response = await getOutstandingInvoice();
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			invoice: { url: "https://invoice.stripe.com/test-invoice" },
+		});
+		expect(stripeMock.invoices.list).toHaveBeenCalledWith({
+			subscription: SUBSCRIPTION_ID,
+			status: "open",
+			limit: 100,
+		});
+		expect(stripeMock.invoices.pay).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		{ status: "paid" },
+		{ status: "void" },
+		{ status: "uncollectible" },
+		{ status: "draft" },
+		{ attempted: false },
+		{ amount_remaining: 0 },
+		{ billing_reason: "subscription_create" },
+		{ billing_reason: "subscription_update" },
+	])(
+		"does not offer payment for an ineligible invoice: %j",
+		async (overrides) => {
+			mockOutstandingInvoice(overrides);
+			expect(await (await getOutstandingInvoice()).json()).toEqual({
+				invoice: null,
+			});
+		},
+	);
+
+	it.each(["processing", "succeeded"])(
+		"does not label a %s payment overdue",
+		async (status) => {
+			mockOutstandingInvoice({
+				payment_intent: { id: "pi_renewal", object: "payment_intent", status },
+			});
+			expect(await (await getOutstandingInvoice()).json()).toEqual({
+				invoice: null,
+			});
+		},
+	);
+
+	it("does not offer to pay an ended subscription", async () => {
+		mockOutstandingInvoice();
+		stripeMock.subscriptions.retrieve.mockResolvedValue(
+			retrievedSubscription({ status: "canceled" }),
+		);
+		expect(await (await getOutstandingInvoice()).json()).toEqual({
+			invoice: null,
+		});
+		expect(stripeMock.invoices.list).not.toHaveBeenCalled();
+	});
+
+	it("keeps a missing payment link distinguishable from no invoice", async () => {
+		mockOutstandingInvoice({ hosted_invoice_url: null });
+		expect(await (await getOutstandingInvoice()).json()).toEqual({
+			invoice: { url: null },
+		});
+	});
+
+	it("looks beyond the first page for an older failed renewal", async () => {
+		mockOutstandingInvoice();
+		stripeMock.invoices.list.mockResolvedValueOnce({
+			data: [
+				{ ...invoice, id: "in_upgrade", billing_reason: "subscription_update" },
+			],
+			has_more: true,
+		});
+		expect(await (await getOutstandingInvoice()).json()).toEqual({
+			invoice: { url: "https://invoice.stripe.com/test-invoice" },
+		});
+		expect(stripeMock.invoices.list).toHaveBeenLastCalledWith({
+			subscription: SUBSCRIPTION_ID,
+			status: "open",
+			limit: 100,
+			starting_after: "in_upgrade",
+		});
+	});
+
+	it("does not query Stripe without the caller's subscription", async () => {
+		await db
+			.update(tables.organization)
+			.set({ devPlanStripeSubscriptionId: null })
+			.where(eq(tables.organization.id, ORG_ID));
+		expect(await (await getOutstandingInvoice()).json()).toEqual({
+			invoice: null,
+		});
+		expect(stripeMock.invoices.list).not.toHaveBeenCalled();
+	});
+
+	it("rejects unauthenticated invoice lookups", async () => {
+		const response = await app.request("/dev-plans/outstanding-invoice");
+		expect(response.status).toBe(401);
+		expect(stripeMock.invoices.list).not.toHaveBeenCalled();
+	});
+
+	it("reports Stripe outages instead of claiming there is no outstanding invoice", async () => {
+		mockOutstandingInvoice();
+		stripeMock.invoices.list.mockRejectedValueOnce(
+			new Error("Stripe unavailable"),
+		);
+		expect((await getOutstandingInvoice()).status).toBe(500);
+	});
+
 	it("immediately pays the failed renewal with the saved card", async () => {
 		const response = await updateCard();
 		expect(response.status).toBe(200);
