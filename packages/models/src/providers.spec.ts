@@ -161,6 +161,7 @@ describe("model service tier support", () => {
 			"gpt-5.5",
 			"gpt-5.6-sol",
 			"gpt-5.6-terra",
+			"gpt-6-sol",
 			"gpt-4.1",
 		]) {
 			expect(
@@ -186,10 +187,13 @@ describe("model service tier support", () => {
 	});
 
 	it("returns no Azure tiers for unsupported models", () => {
-		// gpt-4o predates priority processing, and gpt-6-sol has no published
-		// Azure priority meter yet.
+		// gpt-4o predates priority processing. Sol is the only family member of
+		// its generation that Azure sells the tier for — luna and astra have no
+		// priority meter and downgrade a priority request to standard.
 		expect(getSupportedServiceTiers("gpt-4o", "azure")).toEqual([]);
-		expect(getSupportedServiceTiers("gpt-6-sol", "azure")).toEqual([]);
+		expect(getSupportedServiceTiers("gpt-6-luna", "azure")).toEqual([]);
+		expect(getSupportedServiceTiers("gpt-6-astra", "azure")).toEqual([]);
+		expect(getSupportedServiceTiers("gpt-5.6-luna", "azure")).toEqual([]);
 		expect(supportsServiceTier("gpt-5.5", "azure", "flex")).toBe(false);
 		expect(supportsServiceTier("gpt-5.5", "azure", "priority")).toBe(true);
 	});

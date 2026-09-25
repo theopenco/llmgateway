@@ -2803,6 +2803,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-6-sol",
+				serviceTiers: ["priority"],
 				inputPrice: "2.0e-6",
 				outputPrice: "10.0e-6",
 				cachedInputPrice: "0.2e-6",
