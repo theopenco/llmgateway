@@ -2538,6 +2538,8 @@ async function sendEndUserTopUpReceipt(input: {
 		currency: input.currency,
 		merchantBrandName: brandName,
 		merchantSupportEmail: project?.endUserSupportEmail ?? null,
+		statementDescriptorSuffix:
+			project?.endUserStatementDescriptorSuffix ?? null,
 	});
 }
 
@@ -2783,6 +2785,8 @@ async function sendEndUserRefundCreditNote(input: {
 		currency: "USD",
 		merchantBrandName: brandName,
 		merchantSupportEmail: project?.endUserSupportEmail ?? null,
+		statementDescriptorSuffix:
+			project?.endUserStatementDescriptorSuffix ?? null,
 	});
 }
 

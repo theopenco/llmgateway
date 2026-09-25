@@ -1,4 +1,5 @@
 import { logger } from "@llmgateway/logger";
+import { formatStatementDescriptor } from "@llmgateway/shared";
 
 import { sendTransactionalEmail } from "./email.js";
 import { escapeHtml, generateInvoicePDF } from "./invoice.js";
@@ -17,12 +18,15 @@ export interface ReceiptEmailInput {
 	date: Date;
 	lineItems: InvoiceLineItem[];
 	currency: string;
-	// Defaults to "invoice"; "credit_note" for refunds.
+	// Defaults to "receipt"; "credit_note" for refunds.
 	documentType?: InvoiceDocumentType;
 	// Payments SDK only: the developer whose product the payer actually used.
 	// LLM Gateway stays merchant of record either way.
 	merchantBrandName?: string | null;
 	merchantSupportEmail?: string | null;
+	// The project's configured suffix, so the email quotes the same descriptor
+	// the cardholder will actually see. Null renders our bare prefix.
+	statementDescriptorSuffix?: string | null;
 }
 
 /**
@@ -46,9 +50,10 @@ export async function sendReceiptEmail(
 		date,
 		lineItems,
 		currency,
-		documentType = "invoice",
+		documentType = "receipt",
 		merchantBrandName,
 		merchantSupportEmail,
+		statementDescriptorSuffix,
 	} = input;
 
 	try {
@@ -88,6 +93,9 @@ export async function sendReceiptEmail(
 		const escapedMerchantSupport = merchantSupportEmail
 			? escapeHtml(merchantSupportEmail)
 			: null;
+		const escapedDescriptor = escapeHtml(
+			formatStatementDescriptor(statementDescriptorSuffix ?? null),
+		);
 		const documentLabel = isCreditNote ? "Credit note" : "Receipt";
 		const filenamePrefix = isCreditNote ? "credit-note" : "receipt";
 
@@ -152,7 +160,7 @@ export async function sendReceiptEmail(
 							<td style="padding: 30px 40px; background-color: #f8f9fa; border-radius: 0 0 8px 8px; border-top: 1px solid #e9ecef;">
 								${supportBlock}
 								<p style="margin: 0 0 12px; color: #666666; font-size: 14px; line-height: 1.6;">
-									This payment was processed by LLM Gateway, the merchant of record. It appears on your statement as <strong>LLMGTWY</strong>. For billing enquiries contact <a href="mailto:${SUPPORT_EMAIL}" style="color: #000000; text-decoration: none;">${SUPPORT_EMAIL}</a>
+									This payment was processed by LLM Gateway, the merchant of record. It appears on your statement as <strong>${escapedDescriptor}</strong>. For billing enquiries contact <a href="mailto:${SUPPORT_EMAIL}" style="color: #000000; text-decoration: none;">${SUPPORT_EMAIL}</a>
 								</p>
 								<p style="margin: 0; color: #999999; font-size: 12px;">
 									You are receiving this because a payment was made with this email address.

@@ -20,9 +20,11 @@ export interface InvoiceLineItem {
 	amount: number;
 }
 
-// "invoice" for a charge, "credit_note" for a refund. A credit note renders the
-// same layout but titled as a refund document.
-export type InvoiceDocumentType = "invoice" | "credit_note";
+// "invoice" for an organization charge, "receipt" for a payer who is not an
+// organization member (Payments SDK end-users, Airside carriers), and
+// "credit_note" for a refund. All three render the same layout; only the title
+// and the number's label differ.
+export type InvoiceDocumentType = "invoice" | "credit_note" | "receipt";
 
 export interface InvoiceData {
 	invoiceNumber: string;
@@ -182,6 +184,18 @@ export function buildInvoiceDataForTransaction(
 
 export function generateInvoicePDF(data: InvoiceData): Buffer {
 	const isCreditNote = data.documentType === "credit_note";
+	const documentTitle =
+		data.documentType === "credit_note"
+			? "CREDIT NOTE"
+			: data.documentType === "receipt"
+				? "RECEIPT"
+				: "INVOICE";
+	const documentNumberLabel =
+		data.documentType === "credit_note"
+			? "Credit Note"
+			: data.documentType === "receipt"
+				? "Receipt"
+				: "Invoice";
 
 	// Validate required fields
 	if (!data.lineItems || data.lineItems.length === 0) {
@@ -205,18 +219,14 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 
 	doc.setFontSize(24);
 	doc.setFont("helvetica", "bold");
-	doc.text(isCreditNote ? "CREDIT NOTE" : "INVOICE", pageWidth / 2, yPos, {
+	doc.text(documentTitle, pageWidth / 2, yPos, {
 		align: "center",
 	});
 
 	yPos += 15;
 	doc.setFontSize(10);
 	doc.setFont("helvetica", "normal");
-	doc.text(
-		`${isCreditNote ? "Credit Note" : "Invoice"} Number: ${invoiceNumber}`,
-		20,
-		yPos,
-	);
+	doc.text(`${documentNumberLabel} Number: ${invoiceNumber}`, 20, yPos);
 	yPos += 6;
 	doc.text(
 		`Date: ${data.invoiceDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`,

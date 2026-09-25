@@ -83,6 +83,7 @@ describe("end-user top-up receipt", () => {
 			endUserEnabled: true,
 			endUserBrandName: "Acme AI",
 			endUserSupportEmail: "support@acme.test",
+			endUserStatementDescriptorSuffix: "ACME AI",
 		});
 	});
 
@@ -107,6 +108,23 @@ describe("end-user top-up receipt", () => {
 		expect(call.html).toContain("Acme AI");
 		expect(call.html).toContain("support@acme.test");
 		expect(call.html).toContain("merchant of record");
+		// The email must quote the descriptor the cardholder actually sees, not
+		// our bare prefix.
+		expect(call.html).toContain("LLMGTWY* ACME AI");
+	});
+
+	test("falls back to the bare prefix when no descriptor is configured", async () => {
+		await db
+			.update(tables.project)
+			.set({ endUserStatementDescriptorSuffix: null })
+			.where(eq(tables.project.id, PROJECT_ID));
+		await seedWallet({ mode: "live", email: "ada@acme.test" });
+
+		await handleEndUserTopUpSucceeded(makeTopUpIntent("pi_receipt_6", 1050));
+
+		const call = sendEmailMock.mock.calls[0][0];
+		expect(call.html).toContain("<strong>LLMGTWY</strong>");
+		expect(call.html).not.toContain("LLMGTWY*");
 	});
 
 	test("does not email twice for a redelivered payment intent", async () => {
