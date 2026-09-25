@@ -168,10 +168,6 @@ const CAPABILITIES = [
 	{ key: "webSearch", label: "Web search" },
 ] as const;
 
-const CAPABILITY_LABELS = new Map<string, string>(
-	CAPABILITIES.map((capability) => [capability.key, capability.label]),
-);
-
 type Verification = NonNullable<AirsideModel["latestVerification"]>;
 type VerificationProbe = NonNullable<Verification["checks"][number]["probes"]>;
 
@@ -263,19 +259,14 @@ function VerificationResults({ verification }: { verification: Verification }) {
 			{verification.summary ? (
 				<p className="text-muted-foreground text-xs">{verification.summary}</p>
 			) : null}
-			{verification.demotedCapabilities?.length ? (
+			{verification.status === "failed" ? (
 				<p
-					className="text-destructive text-xs"
-					data-testid="verification-demoted"
+					className="text-muted-foreground text-xs"
+					data-testid="verification-unchanged"
 				>
-					Dropped from this listing:{" "}
-					{verification.demotedCapabilities
-						.map(
-							(capability) => CAPABILITY_LABELS.get(capability) ?? capability,
-						)
-						.join(", ")}
-					. Fix the endpoint, switch the capability back on, and verify again —
-					until then it is not checked and not routed to.
+					This run left the listing unchanged. Fix the endpoint and verify
+					again, or switch the capability off yourself if it is not something
+					this deployment does.
 				</p>
 			) : null}
 		</div>
@@ -1283,8 +1274,8 @@ export function VerifyModelDialog({
 					</DialogTitle>
 					<DialogDescription>
 						Run the declared capabilities against the upstream model. Checks run
-						in the background, and a failed one drops the capability it
-						disproved from the listing.
+						in the background and report what your endpoint answered; the
+						listing itself is left as you declared it.
 						{model.pendingFiling?.kind === "metadata"
 							? " Capabilities awaiting review are included, so a filed change is verified before it goes live."
 							: ""}
@@ -1801,7 +1792,8 @@ export function EditModelDialog({
 						/>
 						<p className="text-muted-foreground text-xs">
 							Runs the capabilities selected above against your endpoint before
-							you file them. A failed check drops the capability it disproved.{" "}
+							you file them. A failed check reports what the endpoint refused;
+							it does not change the capability.{" "}
 							<VerificationKeyHint savedKey={savedVerificationKey} />
 						</p>
 						<Button
