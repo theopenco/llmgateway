@@ -28,12 +28,37 @@ The **Payments SDK** settings page lets you embed end-user payments and sessions
 
 Turn on **Enable end-user sessions** to allow this project to mint short-lived browser session tokens for your users.
 
-| Field               | Description                                                                                        |
-| ------------------- | -------------------------------------------------------------------------------------------------- |
-| **Markup percent**  | The percentage you add on top of provider cost for each end-user request (0–100%)                  |
-| **Allowed origins** | The browser origins permitted to use session tokens, one per line (e.g. `https://app.example.com`) |
+| Field                    | Description                                                                                         |
+| ------------------------ | --------------------------------------------------------------------------------------------------- |
+| **Markup percent**       | The percentage you add on top of provider cost for each end-user request (0–100%)                   |
+| **Top-up bonus percent** | Extra credit granted on every top-up, funded from your organization's credit balance (0 to disable) |
+| **Allowed origins**      | The browser origins permitted to use session tokens, one per line (e.g. `https://app.example.com`)  |
 
 Click **Save Settings** to apply changes.
+
+## Receipts & branding
+
+LLM Gateway is the merchant of record for every end-user top-up and stays on the
+receipt. These fields tell your end-users which product the charge came from, so
+a payment from your app is not mistaken for one they never made.
+
+| Field                    | Description                                                                 |
+| ------------------------ | --------------------------------------------------------------------------- |
+| **Brand name**           | Leads the receipt email and its PDF. Defaults to the project name           |
+| **Support email**        | Where end-users should write about a purchase. Ours is always shown as well |
+| **Statement descriptor** | Appended to our prefix on the card statement, e.g. `LLMGTWY* ACME AI`       |
+
+The statement descriptor is capped at 13 characters — the 22 characters card
+networks allow, minus our `LLMGTWY* ` prefix. It is normalized when you save
+(uppercased, with unsupported characters removed), so what you see after saving
+is exactly what cardholders will see.
+
+<Callout type="info">
+	Receipts are sent to the email address you attach to the end customer when
+	minting a session. If you pass a bare `customer: "user_123"` string, we have no
+	address to send to and no receipt goes out — pass `customer: { externalId,
+	email }` instead. Supplying it on a later session updates the stored address.
+</Callout>
 
 ## Platform secret keys
 

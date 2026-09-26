@@ -266,6 +266,36 @@ describe("generateInvoicePDF", () => {
 		expect(pdfContent).toContain("United States");
 	});
 
+	it("names the merchant brand and support email under FROM when supplied", () => {
+		const pdfBuffer = generateInvoicePDF({
+			...baseInvoiceData,
+			merchantBrandName: "Acme AI",
+			merchantSupportEmail: "support@acme.test",
+		});
+		const pdfContent = pdfBuffer.toString("latin1");
+
+		// We stay the seller; the brand line only tells the payer whose product
+		// they bought.
+		expect(pdfContent).toContain("Fake Company");
+		expect(pdfContent).toContain("On behalf of: Acme AI");
+		expect(pdfContent).toContain("Support: support@acme.test");
+	});
+
+	it("omits the merchant lines when no brand is supplied", () => {
+		const pdfBuffer = generateInvoicePDF(baseInvoiceData);
+		const pdfContent = pdfBuffer.toString("latin1");
+
+		expect(pdfContent).not.toContain("On behalf of:");
+		expect(pdfContent).not.toContain("Support:");
+	});
+
+	it("renders without an organizationId (receipt to a non-member payer)", () => {
+		const { organizationId: _omitted, ...withoutOrg } = baseInvoiceData;
+		const pdfBuffer = generateInvoicePDF(withoutOrg);
+
+		expect(pdfBuffer.toString("latin1").slice(0, 4)).toBe("%PDF");
+	});
+
 	it("includes VAT reverse charge note", () => {
 		const pdfBuffer = generateInvoicePDF(baseInvoiceData);
 		const pdfContent = pdfBuffer.toString("latin1");
