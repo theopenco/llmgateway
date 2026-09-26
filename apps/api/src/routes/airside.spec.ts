@@ -1125,6 +1125,44 @@ describe("airside provider portal", () => {
 		expect(body.daily).toHaveLength(1);
 	});
 
+	it("filters a fleet model across regions before the incident result limit", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const hour = new Date();
+		hour.setMinutes(0, 0, 0);
+		await db.insert(tables.projectHourlyModelStats).values([
+			...Array.from({ length: 201 }, (_, index) => ({
+				projectId: "test-project-id",
+				hourTimestamp: hour,
+				usedModel: `mistral/other-${index}`,
+				usedProvider: "mistral",
+				requestCount: 10,
+				upstreamErrorCount: 10,
+			})),
+			...["mistral/mistral-large-3", "mistral/mistral-large-3:eu"].map(
+				(usedModel) => ({
+					projectId: "test-project-id",
+					hourTimestamp: hour,
+					usedModel,
+					usedProvider: "mistral",
+					requestCount: 10,
+					upstreamErrorCount: 1,
+				}),
+			),
+		]);
+		const response = await app.request(
+			`/airside/incidents?providerCompanyId=${company.id}&model=mistral/mistral-large-3`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(
+			body.mappings.map((row: { usedModel: string }) => row.usedModel).sort(),
+		).toEqual(["mistral/mistral-large-3", "mistral/mistral-large-3:eu"]);
+	});
+
 	it("returns per-mapping incidents scoped to claimed providers", async () => {
 		await setUserEmail("ops@mistral.ai");
 		const company = await createCompany(cookie);

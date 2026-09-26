@@ -1482,3 +1482,9 @@ describe("getProviderEndpoint", () => {
 		});
 	});
 });
+
+it("routes GPT-6 Astra chat requests through Responses for tool support", () => {
+	expect(
+		getProviderEndpoint("openai", "https://example.com", "gpt-6-astra"),
+	).toBe("https://example.com/v1/responses");
+});

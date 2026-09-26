@@ -146,6 +146,17 @@ describe("buildClassifierState", () => {
 });
 
 describe("classifyRequest", () => {
+	it.each(["", "null"])(
+		"records usage for an empty successful response %j",
+		async (body) => {
+			process.env.LLM_TYPESAFE_API_KEY = "ts-test";
+			vi.spyOn(globalThis, "fetch").mockResolvedValue(
+				new Response(body, { status: 200 }),
+			);
+			expect(await classifyRequest(classifierInput(), CONTEXT)).toBeNull();
+			expect(insertLog).toHaveBeenCalledTimes(1);
+		},
+	);
 	const originalKey = process.env.LLM_TYPESAFE_API_KEY;
 	const originalBaseUrl = process.env.LLM_TYPESAFE_BASE_URL;
 

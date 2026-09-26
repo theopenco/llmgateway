@@ -3,6 +3,8 @@ import * as crypto from "node:crypto";
 import { redisClient } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
+import { fetchNoRedirect } from "./fetch-no-redirect.js";
+
 interface ServiceAccountKey {
 	client_email: string;
 	private_key: string;
@@ -13,6 +15,7 @@ interface ServiceAccountKey {
 const REDIS_KEY_PREFIX = "gcp:service-account:access_token";
 const TTL_SECONDS = 50 * 60;
 const TTL_MS = TTL_SECONDS * 1000;
+const TOKEN_URI = "https://oauth2.googleapis.com/token";
 
 interface MemoryCacheEntry {
 	token: string;
@@ -100,7 +103,7 @@ async function exchangeJwtForAccessToken(
 	abortSignal?: AbortSignal,
 ): Promise<string> {
 	const jwt = signJwt(sa);
-	const res = await fetch(sa.token_uri, {
+	const res = await fetchNoRedirect(TOKEN_URI, {
 		method: "POST",
 		headers: { "Content-Type": "application/x-www-form-urlencoded" },
 		body: new URLSearchParams({
@@ -111,9 +114,8 @@ async function exchangeJwtForAccessToken(
 	});
 
 	if (!res.ok) {
-		const text = await res.text();
 		throw new Error(
-			`Failed to exchange JWT for GCP access token: ${res.status} ${text}`,
+			`Failed to exchange JWT for GCP access token: ${res.status}`,
 		);
 	}
 
@@ -142,6 +144,9 @@ export async function getGcpServiceAccountAccessToken(
 		throw new Error(
 			"Invalid GCP service account key — must be valid service account JSON",
 		);
+	}
+	if (sa.token_uri !== TOKEN_URI) {
+		throw new Error("Invalid GCP service account token_uri");
 	}
 
 	const key = cacheKey(sa);

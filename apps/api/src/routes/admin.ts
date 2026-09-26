@@ -5379,7 +5379,7 @@ admin.openapi(createGlobalDiscount, async (c) => {
 		});
 	}
 
-	const [created] = await db
+	const [created] = await cdb
 		.insert(tables.discount)
 		.values({
 			organizationId: null,
@@ -5397,7 +5397,7 @@ admin.openapi(createGlobalDiscount, async (c) => {
 admin.openapi(deleteGlobalDiscount, async (c) => {
 	const { discountId } = c.req.valid("param");
 
-	const [deleted] = await db
+	const [deleted] = await cdb
 		.delete(tables.discount)
 		.where(
 			and(
@@ -5590,7 +5590,7 @@ admin.openapi(createOrganizationDiscount, async (c) => {
 		});
 	}
 
-	const [created] = await db
+	const [created] = await cdb
 		.insert(tables.discount)
 		.values({
 			organizationId: orgId,
@@ -5608,7 +5608,7 @@ admin.openapi(createOrganizationDiscount, async (c) => {
 admin.openapi(deleteOrganizationDiscount, async (c) => {
 	const { orgId, discountId } = c.req.valid("param");
 
-	const [deleted] = await db
+	const [deleted] = await cdb
 		.delete(tables.discount)
 		.where(
 			and(

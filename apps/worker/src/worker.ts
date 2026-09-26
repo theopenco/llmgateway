@@ -673,6 +673,8 @@ export async function processAutoTopUp(): Promise<void> {
 				});
 				if (
 					!freshOrg ||
+					freshOrg.riskFlagged ||
+					freshOrg.status !== "active" ||
 					!freshOrg.autoTopUpEnabled ||
 					(freshOrg.kind === "devpass" && !freshOrg.devPlanPaygEnabled) ||
 					Number(freshOrg.credits || 0) >=
@@ -3284,6 +3286,7 @@ export async function startWorker() {
 		);
 	}
 
+	activeLoops++;
 	void backfillHistoryIfNeeded()
 		.then(() => {
 			logger.info("History backfill check completed");
@@ -3301,6 +3304,9 @@ export async function startWorker() {
 				"Error during history backfill",
 				error instanceof Error ? error : new Error(String(error)),
 			);
+		})
+		.finally(() => {
+			activeLoops--;
 		});
 
 	// Start all worker loops (all sequential — each waits for completion before scheduling next run)

@@ -117,14 +117,15 @@ export async function processImageUrl(
 	userPlan: "free" | "pro" | "enterprise" | null = null,
 ): Promise<{ data: string; mimeType: string }> {
 	// Handle data URLs directly without network fetch
-	if (url.startsWith("data:")) {
+	if (url.slice(0, 5).toLowerCase() === "data:") {
 		const parsed = parseDataUrl(url);
 		if (!parsed) {
 			logger.warn("Invalid data URL format provided");
 			throw new RequestError("Invalid image data URL format");
 		}
 
-		const { mediaType: mimeType, data, isBase64 } = parsed;
+		const { data, isBase64 } = parsed;
+		const mimeType = parsed.mediaType.toLowerCase();
 
 		// Validate it's an image MIME type
 		if (!mimeType.startsWith("image/")) {
@@ -206,7 +207,11 @@ export async function processImageUrl(
 		// Content type first: an oversized non-image would otherwise be reported
 		// as a size problem, sending the user off to shrink a file that was never
 		// going to be accepted.
-		const contentType = response.headers.get("content-type");
+		const contentType = response.headers
+			.get("content-type")
+			?.split(";")[0]
+			.trim()
+			.toLowerCase();
 		if (!contentType || !contentType.startsWith("image/")) {
 			logger.warn("Invalid content type for image URL", {
 				contentType,

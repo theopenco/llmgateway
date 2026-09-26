@@ -126,6 +126,13 @@ function gmailText(value: unknown, depth = 0): string[] {
 			return [Buffer.from(body.data, "base64url").toString("utf8")];
 		}
 	}
+	if (part.mimeType === "multipart/alternative" && Array.isArray(part.parts)) {
+		const alternatives = part.parts as Record<string, unknown>[];
+		const preferred =
+			alternatives.find((child) => child.mimeType === "text/plain") ??
+			alternatives.at(-1);
+		return gmailText(preferred, depth + 1);
+	}
 	return Array.isArray(part.parts)
 		? part.parts.flatMap((child: unknown) => gmailText(child, depth + 1))
 		: [];

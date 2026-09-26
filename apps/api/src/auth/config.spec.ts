@@ -1,5 +1,7 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { app } from "@/index.js";
+import { runWithClientIp } from "@/lib/client-ip.js";
 import { setBlockedSignupCountries } from "@/utils/country-blocking.js";
 
 import { db, eq, tables } from "@llmgateway/db";
@@ -7,10 +9,29 @@ import { randomInt } from "@llmgateway/shared/random";
 
 import {
 	apiAuth,
+	checkAndRecordSignupAttempt,
 	isClientAuthError,
 	isClientJsonError,
 	redisClient,
 } from "./config.js";
+
+function authRequest(request: Request) {
+	const forwarded = request.headers.get("x-forwarded-for");
+	const peer = forwarded
+		? "10.0.0.2"
+		: (request.headers.get("cf-connecting-ip") ??
+			request.headers.get("x-real-ip") ??
+			"192.168.200.1");
+	return runWithClientIp(request.headers, peer, () => apiAuth.handler(request));
+}
+
+beforeEach(() => {
+	vi.stubEnv("TRUSTED_PROXY_CIDRS", "10.0.0.0/8");
+	vi.stubEnv("TRUSTED_PROXY_HOPS", "2");
+});
+afterEach(() => {
+	vi.unstubAllEnvs();
+});
 
 describe("isClientJsonError", () => {
 	test("matches the real Better Auth malformed-JSON messages from production", () => {
@@ -145,7 +166,7 @@ describe("API auth hooks functionality", () => {
 		const password = "Password123!";
 
 		// Sign up a new user
-		const signUpResponse = await apiAuth.handler(
+		const signUpResponse = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -206,7 +227,7 @@ describe("API auth hooks functionality", () => {
 		const password = "Password123!";
 
 		// Sign up a new user with the code app as the request origin
-		const signUpResponse = await apiAuth.handler(
+		const signUpResponse = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -264,7 +285,7 @@ describe("API auth hooks functionality", () => {
 		const email = `test-devpass-main-${Date.now()}@example.com`;
 		const password = "Password123!";
 
-		const signUpResponse = await apiAuth.handler(
+		const signUpResponse = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -293,7 +314,7 @@ describe("API auth hooks functionality", () => {
 			.set({ emailVerified: true })
 			.where(eq(tables.user.id, user!.id));
 
-		const signInResponse = await apiAuth.handler(
+		const signInResponse = await authRequest(
 			new Request("http://localhost:4002/auth/sign-in/email", {
 				method: "POST",
 				headers: {
@@ -346,7 +367,7 @@ describe("API auth hooks functionality", () => {
 		const email = `test-selfhosted-${Date.now()}@example.com`;
 		const password = "Password123!";
 
-		const signUpResponse = await apiAuth.handler(
+		const signUpResponse = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -380,7 +401,7 @@ describe("API auth hooks functionality", () => {
 		const email = `john.doe+${suffix}@example.com`;
 		const password = "Password123!";
 
-		const signUpResponse = await apiAuth.handler(
+		const signUpResponse = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -405,7 +426,7 @@ describe("API auth hooks functionality", () => {
 		const email = `someone-${Date.now()}@example.com`;
 		const password = "Password123!";
 
-		const signUpResponse = await apiAuth.handler(
+		const signUpResponse = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -458,7 +479,7 @@ describe("Auth rate limiting", () => {
 		const ipAddress = "192.168.1.100";
 
 		// First signup should succeed
-		const firstResponse = await apiAuth.handler(
+		const firstResponse = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -478,7 +499,7 @@ describe("Auth rate limiting", () => {
 
 		// First signup attempt should succeed
 		const email1 = `test1-${Date.now()}@example.com`;
-		const firstResponse = await apiAuth.handler(
+		const firstResponse = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -492,7 +513,7 @@ describe("Auth rate limiting", () => {
 
 		// Second signup attempt should be rate limited for 1 minute
 		const email2 = `test2-${Date.now()}@example.com`;
-		const secondResponse = await apiAuth.handler(
+		const secondResponse = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -514,7 +535,7 @@ describe("Auth rate limiting", () => {
 		// Third signup attempt should still be rate limited for same duration
 		// (the count doesn't increase because the IP is already blocked)
 		const email3 = `test3-${Date.now()}@example.com`;
-		const thirdResponse = await apiAuth.handler(
+		const thirdResponse = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -539,7 +560,7 @@ describe("Auth rate limiting", () => {
 
 		// First request from first IP should succeed
 		const email1 = `test-ip1-${Date.now()}@example.com`;
-		const firstResponse = await apiAuth.handler(
+		const firstResponse = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -553,7 +574,7 @@ describe("Auth rate limiting", () => {
 
 		// Second request from first IP should be rate limited
 		const email2 = `test-ip1-2-${Date.now()}@example.com`;
-		const secondResponse = await apiAuth.handler(
+		const secondResponse = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -567,7 +588,7 @@ describe("Auth rate limiting", () => {
 
 		// But request from second IP should still work
 		const emailIp2 = `test-ip2-${Date.now()}@example.com`;
-		const ip2Response = await apiAuth.handler(
+		const ip2Response = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -580,6 +601,38 @@ describe("Auth rate limiting", () => {
 		expect(ip2Response.status).toBe(200); // Should succeed (first attempt from this IP)
 	});
 
+	test("forged leading forwarded addresses share one signup limiter bucket", async () => {
+		const client = `192.168.60.${randomInt(1, 254)}`;
+		for (const [index, forged] of ["1.1.1.1", "2.2.2.2"].entries()) {
+			const response = await app.request(
+				new Request("http://localhost:4002/auth/sign-up/email", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"X-Forwarded-For": `${forged}, ${client}, 10.0.0.1`,
+						"CF-Connecting-IP": forged,
+					},
+					body: JSON.stringify({
+						email: `forwarded-${Date.now()}-${index}@example.com`,
+						password: "Password123!",
+						name: "Test User",
+					}),
+				}),
+				undefined,
+				{
+					incoming: {
+						socket: {
+							remoteAddress: "10.0.0.2",
+							remoteFamily: "IPv4",
+							remotePort: 12345,
+						},
+					},
+				},
+			);
+			expect(response.status).toBe(index === 0 ? 200 : 429);
+		}
+	});
+
 	test("should prioritize X-Forwarded-For over CF-Connecting-IP header", async () => {
 		const password = "Password123!";
 		const cfIp = `192.168.1.${randomInt(0, 255)}`;
@@ -587,7 +640,7 @@ describe("Auth rate limiting", () => {
 
 		// X-Forwarded-For is what the GCP load balancer sets, so it wins
 		const email = `test-${Date.now()}@example.com`;
-		const response = await apiAuth.handler(
+		const response = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -603,7 +656,7 @@ describe("Auth rate limiting", () => {
 
 		// Rate limited on the X-Forwarded-For IP even with a different CF IP
 		const email2 = `test2-${Date.now()}@example.com`;
-		const response2 = await apiAuth.handler(
+		const response2 = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -624,7 +677,7 @@ describe("Auth rate limiting", () => {
 		const ipAddress = "192.168.1.105";
 
 		// Test with X-Real-IP header when CF-Connecting-IP is not present
-		const response = await apiAuth.handler(
+		const response = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -644,7 +697,7 @@ describe("Auth rate limiting", () => {
 
 		// Test fallback to X-Forwarded-For (should use first IP: 192.168.1.107)
 		const email = `test-${Date.now()}@example.com`;
-		const response = await apiAuth.handler(
+		const response = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -659,7 +712,7 @@ describe("Auth rate limiting", () => {
 
 		// Second request should be rate limited
 		const email2 = `test2-${Date.now()}@example.com`;
-		const response2 = await apiAuth.handler(
+		const response2 = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -678,7 +731,7 @@ describe("Auth rate limiting", () => {
 
 		// Make 3 requests to a non-signup endpoint - should not be rate limited
 		for (let i = 0; i < 3; i++) {
-			const response = await apiAuth.handler(
+			const response = await authRequest(
 				new Request("http://localhost:4002/auth/sign-in/email", {
 					method: "POST",
 					headers: {
@@ -711,7 +764,7 @@ describe("Signup country blocking", () => {
 	});
 
 	test("does not use the client IP when the geo header is missing", async () => {
-		const response = await apiAuth.handler(
+		const response = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -730,7 +783,7 @@ describe("Signup country blocking", () => {
 	});
 
 	test("rejects sign-up using the load balancer geo header", async () => {
-		const response = await apiAuth.handler(
+		const response = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -753,7 +806,7 @@ describe("Signup country blocking", () => {
 	});
 
 	test("rejects social sign-up (requestSignUp) from a blocked country", async () => {
-		const response = await apiAuth.handler(
+		const response = await authRequest(
 			new Request("http://localhost:4002/auth/sign-in/social", {
 				method: "POST",
 				headers: {
@@ -775,7 +828,7 @@ describe("Signup country blocking", () => {
 	});
 
 	test("does not block sign-in from a blocked country", async () => {
-		const response = await apiAuth.handler(
+		const response = await authRequest(
 			new Request("http://localhost:4002/auth/sign-in/email", {
 				method: "POST",
 				headers: {
@@ -794,7 +847,7 @@ describe("Signup country blocking", () => {
 	});
 
 	test("does not block sign-up from a non-listed country", async () => {
-		const response = await apiAuth.handler(
+		const response = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -814,7 +867,7 @@ describe("Signup country blocking", () => {
 	});
 
 	test("does not block when the geo header is missing", async () => {
-		const response = await apiAuth.handler(
+		const response = await authRequest(
 			new Request("http://localhost:4002/auth/sign-up/email", {
 				method: "POST",
 				headers: {
@@ -830,5 +883,24 @@ describe("Signup country blocking", () => {
 		);
 
 		expect(response.status).not.toBe(403);
+	});
+});
+
+describe("atomic signup reservations", () => {
+	test("admits only one concurrent attempt per IP", async () => {
+		const ip = "192.0.2.123";
+		const keys = [
+			`signup_rate_limit:${ip}`,
+			`signup_rate_limit_attempts:${ip}`,
+		];
+		await redisClient.del(...keys);
+		try {
+			const attempts = await Promise.all(
+				Array.from({ length: 12 }, () => checkAndRecordSignupAttempt(ip)),
+			);
+			expect(attempts.filter((attempt) => attempt.allowed)).toHaveLength(1);
+		} finally {
+			await redisClient.del(...keys);
+		}
 	});
 });

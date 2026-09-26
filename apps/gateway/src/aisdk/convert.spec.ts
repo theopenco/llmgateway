@@ -346,6 +346,27 @@ describe("tool conversion", () => {
 });
 
 describe("chat request building", () => {
+	test("maps V4 reasoning and defaults without dropping unsupported values silently", () => {
+		const build = (reasoning: string) =>
+			buildChatRequest({
+				options: { prompt: [], reasoning },
+				modelId: "test-model",
+				stream: false,
+				specVersion: 4,
+			});
+		expect(build("high").body.reasoning_effort).toBe("high");
+		expect(build("provider-default").body.reasoning_effort).toBeUndefined();
+		expect(build("invalid").warnings).toContainEqual(
+			expect.objectContaining({ feature: "reasoning" }),
+		);
+	});
+
+	test.each(["2oops", "2.9", "02"])(
+		"does not treat %s as a supported spec version",
+		(value) => {
+			expect(parseSpecVersion(value)).toBe(4);
+		},
+	);
 	const basePrompt: SpecMessage[] = [
 		{ role: "user", content: [{ type: "text", text: "hi" }] },
 	];

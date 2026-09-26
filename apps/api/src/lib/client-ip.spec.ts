@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
 	getClientIpFromContext,
@@ -14,65 +14,68 @@ function context(headers: Record<string, string>) {
 	};
 }
 
-describe("getClientIpFromHeaders", () => {
-	test("prefers X-Forwarded-For, the header the GCP load balancer sets", () => {
-		const headers = new Headers({
-			"CF-Connecting-IP": "1.2.3.4",
-			"X-Forwarded-For": "5.6.7.8",
-			"X-Real-IP": "9.10.11.12",
-		});
-		expect(getClientIpFromHeaders(headers)).toBe("5.6.7.8");
-	});
-
-	test("falls back to CF-Connecting-IP without X-Forwarded-For", () => {
-		const headers = new Headers({
-			"CF-Connecting-IP": "1.2.3.4",
-			"X-Real-IP": "9.10.11.12",
-		});
-		expect(getClientIpFromHeaders(headers)).toBe("1.2.3.4");
-	});
-
-	test("takes the first hop of X-Forwarded-For", () => {
-		const headers = new Headers({
-			"X-Forwarded-For": "5.6.7.8, 10.0.0.1, 10.0.0.2",
-		});
-		expect(getClientIpFromHeaders(headers)).toBe("5.6.7.8");
-	});
-
-	test("falls back to X-Real-IP, X-Client-IP and Remote-Addr", () => {
-		expect(
-			getClientIpFromHeaders(new Headers({ "X-Real-IP": "9.9.9.9" })),
-		).toBe("9.9.9.9");
-		expect(
-			getClientIpFromHeaders(new Headers({ "X-Client-IP": "8.8.8.8" })),
-		).toBe("8.8.8.8");
-		expect(
-			getClientIpFromHeaders(new Headers({ "Remote-Addr": "7.7.7.7" })),
-		).toBe("7.7.7.7");
-	});
-
-	test("returns null without any IP header", () => {
-		expect(getClientIpFromHeaders(new Headers())).toBe(null);
-		expect(getClientIpFromHeaders(undefined)).toBe(null);
-	});
+afterEach(() => {
+	vi.unstubAllEnvs();
 });
 
-describe("getClientIpFromContext", () => {
-	test("uses the same precedence as header extraction", () => {
+describe("trusted client IP", () => {
+	test("ignores caller-supplied headers on a direct connection", () => {
+		const headers = new Headers({
+			"x-forwarded-for": "1.1.1.1, 10.0.0.1",
+			"cf-connecting-ip": "2.2.2.2",
+			"x-real-ip": "3.3.3.3",
+		});
+		expect(getClientIpFromHeaders(headers, "5.6.7.8")).toBe("5.6.7.8");
+		expect(getClientIpFromHeaders(headers)).toBeNull();
+	});
+
+	test("takes the GCP client at the configured trusted boundary", () => {
+		vi.stubEnv("TRUSTED_PROXY_CIDRS", "10.0.0.0/8");
+		vi.stubEnv("TRUSTED_PROXY_HOPS", "2");
+		for (const forged of ["1.1.1.1", "2.2.2.2, 3.3.3.3"]) {
+			expect(
+				getClientIpFromHeaders(
+					new Headers({
+						"x-forwarded-for": `${forged}, 5.6.7.8, 10.0.0.1`,
+						"cf-connecting-ip": "9.9.9.9",
+					}),
+					"10.0.0.2",
+				),
+			).toBe("5.6.7.8");
+		}
+	});
+
+	test("supports an explicitly configured overwritten ingress header", () => {
+		vi.stubEnv("TRUSTED_PROXY_CIDRS", "10.0.0.0/8");
+		vi.stubEnv("CLIENT_IP_HEADER", "cf-connecting-ip");
 		expect(
-			getClientIpFromContext(
-				context({
-					"cf-connecting-ip": "1.2.3.4",
-					"x-forwarded-for": "5.6.7.8",
+			getClientIpFromHeaders(
+				new Headers({
+					"cf-connecting-ip": "5.6.7.8",
+					"x-forwarded-for": "1.1.1.1",
 				}),
+				"10.0.0.1",
 			),
 		).toBe("5.6.7.8");
+	});
+
+	test("rejects invalid or short forwarded chains and normalizes IPv6", () => {
+		vi.stubEnv("TRUSTED_PROXY_CIDRS", "10.0.0.0/8");
+		vi.stubEnv("TRUSTED_PROXY_HOPS", "2");
+		for (const chain of ["1.1.1.1", "garbage, 10.0.0.1"]) {
+			expect(
+				getClientIpFromHeaders(
+					new Headers({ "x-forwarded-for": chain }),
+					"10.0.0.2",
+				),
+			).toBe("10.0.0.2");
+		}
+		expect(getClientIpFromHeaders(new Headers(), "::ffff:5.6.7.8")).toBe(
+			"5.6.7.8",
+		);
 		expect(
-			getClientIpFromContext(
-				context({ "x-forwarded-for": " 5.6.7.8 ,10.0.0.1" }),
-			),
-		).toBe("5.6.7.8");
-		expect(getClientIpFromContext(context({}))).toBe(null);
+			getClientIpFromContext(context({ "x-forwarded-for": "1.1.1.1" })),
+		).toBeNull();
 	});
 });
 

@@ -2528,6 +2528,29 @@ describe("activity endpoint", () => {
 			},
 		);
 
+		test("includes the first hour bucket intersecting a selected window", async () => {
+			const hourMs = 60 * 60 * 1000;
+			const firstHour = new Date(Date.now() - hourMs);
+			firstHour.setUTCMinutes(0, 0, 0);
+			await db.insert(tables.projectHourlySourceStats).values({
+				projectId: "test-project-id",
+				hourTimestamp: firstHour,
+				source: "first-hour-fixture",
+				requestCount: 7,
+			});
+			const response = await app.request(
+				"/activity/sources?projectId=test-project-id&timeRange=1h",
+				{ headers: { Cookie: token } },
+			);
+			expect(response.status).toBe(200);
+			const data = await response.json();
+			expect(
+				data.sources.find(
+					(row: { source: string }) => row.source === "first-hour-fixture",
+				)?.requestCount,
+			).toBe(7);
+		});
+
 		test("should default to 7d when no timeRange is provided", async () => {
 			const res = await app.request(
 				"/activity/sources?projectId=test-project-id",

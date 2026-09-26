@@ -301,14 +301,19 @@ function getCurrentHourStart(): Date {
  * Calculate and store 1-minute historical data for models for a specific minute
  * @param targetMinute The specific minute to calculate history for
  */
-async function calculateModelHistoryForMinute(targetMinute: Date) {
+type HistoryDatabase =
+	typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function calculateModelHistoryForMinute(
+	targetMinute: Date,
+	database: HistoryDatabase = db,
+) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
 	if (roundedTargetMinute < getLogRetentionCutoff()) {
 		return { totalModels: 0, activeModels: 0, inactiveModels: 0 };
 	}
 
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
-	const database = db;
 
 	// Get logs from the specified minute, aggregated by base model.
 	// Note: usedModel contains "provider/model[:region]" in logs.
@@ -603,14 +608,16 @@ async function calculateModelHistoryForMinute(targetMinute: Date) {
  * Calculate and store 1-minute historical data for model-provider mappings for a specific minute
  * @param targetMinute The specific minute to calculate history for
  */
-async function calculateHistoryForMinute(targetMinute: Date) {
+async function calculateHistoryForMinute(
+	targetMinute: Date,
+	database: HistoryDatabase = db,
+) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
 	if (roundedTargetMinute < getLogRetentionCutoff()) {
 		return { totalMappings: 0, activeMappings: 0, inactiveMappings: 0 };
 	}
 
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
-	const database = db;
 
 	// Get logs from the specified minute and normalize them back into the
 	// (base model, provider, region) tuple used by model_provider_mapping.
@@ -975,152 +982,66 @@ async function calculateHistoryForMinute(targetMinute: Date) {
 /**
  * Backfill missing history entries for periods when the worker was down
  */
+async function calculateMinuteHistory(targetMinute: Date) {
+	return await db.transaction(async (tx) => ({
+		mappingResult: await calculateHistoryForMinute(targetMinute, tx),
+		modelResult: await calculateModelHistoryForMinute(targetMinute, tx),
+	}));
+}
+
 export async function backfillHistoryIfNeeded() {
-	logger.info("Checking for missing history periods to backfill...");
-
-	try {
-		const database = db;
-
-		// Get the most recent history entry to see if we need to backfill (check both tables)
-		const latestMappingHistory = await database
-			.select({ minuteTimestamp: modelProviderMappingHistory.minuteTimestamp })
-			.from(modelProviderMappingHistory)
-			.orderBy(sql`${modelProviderMappingHistory.minuteTimestamp} DESC`)
-			.limit(1);
-
-		const latestModelHistory = await database
-			.select({ minuteTimestamp: modelHistory.minuteTimestamp })
-			.from(modelHistory)
-			.orderBy(sql`${modelHistory.minuteTimestamp} DESC`)
-			.limit(1);
-
-		// Use the most recent timestamp from either table
-		let lastMinute: Date | null = null;
-		if (latestMappingHistory.length > 0 && latestModelHistory.length > 0) {
-			const mappingTime = latestMappingHistory[0]!.minuteTimestamp.getTime();
-			const modelTime = latestModelHistory[0]!.minuteTimestamp.getTime();
-			lastMinute = new Date(Math.max(mappingTime, modelTime));
-		} else if (latestMappingHistory.length > 0) {
-			lastMinute = latestMappingHistory[0]!.minuteTimestamp;
-		} else if (latestModelHistory.length > 0) {
-			lastMinute = latestModelHistory[0]!.minuteTimestamp;
-		}
-
-		const previousMinute = getPreviousMinuteStart();
-		const earliestRetainedMinute = new Date(
-			Math.ceil(getLogRetentionCutoff().getTime() / ONE_MINUTE_MS) *
-				ONE_MINUTE_MS,
-		);
-
-		if (!lastMinute) {
-			// No history exists, start from configured backfill duration ago
-			const backfillMs = BACKFILL_DURATION_SECONDS * 1000;
-			const backfillStart = new Date(Date.now() - backfillMs);
-			const backfillStartRounded = new Date(
-				Math.max(
-					roundToMinuteStart(backfillStart).getTime(),
-					earliestRetainedMinute.getTime(),
+	const end = getPreviousMinuteStart();
+	const retainedStart =
+		Math.ceil(getLogRetentionCutoff().getTime() / ONE_MINUTE_MS) *
+		ONE_MINUTE_MS;
+	const recoveryWindowMs = 1439 * ONE_MINUTE_MS;
+	const backfillMs = BACKFILL_DURATION_SECONDS * 1000;
+	const boundedStart = new Date(
+		Math.max(end.getTime() - recoveryWindowMs, retainedStart),
+	);
+	const mappingMinutes = await db
+		.selectDistinct({ minute: modelProviderMappingHistory.minuteTimestamp })
+		.from(modelProviderMappingHistory)
+		.where(
+			and(
+				gte(modelProviderMappingHistory.minuteTimestamp, boundedStart),
+				lt(
+					modelProviderMappingHistory.minuteTimestamp,
+					new Date(end.getTime() + ONE_MINUTE_MS),
 				),
-			);
-
-			logger.info(
-				`No existing history found. Starting backfill from ${backfillStartRounded.toISOString()} to ${previousMinute.toISOString()}`,
-			);
-
-			let minute = new Date(backfillStartRounded);
-			let iterationCount = 0;
-			// Dynamic safety limit based on backfill duration (with max of 1440 for 24 hours)
-			const maxIterations = Math.min(
-				Math.ceil(BACKFILL_DURATION_SECONDS / 60),
-				1440,
-			);
-
-			while (minute <= previousMinute && iterationCount < maxIterations) {
-				const mappingResult = await calculateHistoryForMinute(minute);
-				const modelResult = await calculateModelHistoryForMinute(minute);
-				logger.info(
-					`Backfilled ${mappingResult.totalMappings} mappings and ${modelResult.totalModels} models for ${minute.toISOString()}`,
-				);
-
-				const nextMinute = roundToMinuteStart(
-					new Date(minute.getTime() + ONE_MINUTE_MS),
-				);
-
-				// Safety check to prevent infinite loops
-				if (nextMinute.getTime() <= minute.getTime()) {
-					logger.error(
-						`Loop safety break: Time calculation error at ${minute.toISOString()}`,
-					);
-					break;
-				}
-
-				minute = nextMinute;
-				iterationCount++;
-			}
-
-			if (iterationCount >= maxIterations) {
-				logger.warn(
-					`Backfill stopped at iteration limit ${maxIterations} to prevent infinite loop`,
-				);
-			}
-			return;
-		}
-
-		// Check if we're missing recent minutes (more than 2 minutes behind indicates downtime)
-		const minutesBehind = Math.floor(
-			(previousMinute.getTime() - lastMinute.getTime()) / (60 * 1000),
+			),
 		);
-
-		if (minutesBehind > 2) {
-			logger.info(
-				`Found gap of ${minutesBehind} minutes. Backfilling from ${lastMinute.toISOString()}`,
-			);
-
-			let minute = new Date(
-				Math.max(
-					lastMinute.getTime() + ONE_MINUTE_MS,
-					earliestRetainedMinute.getTime(),
+	const modelMinutes = await db
+		.selectDistinct({ minute: modelHistory.minuteTimestamp })
+		.from(modelHistory)
+		.where(
+			and(
+				gte(modelHistory.minuteTimestamp, boundedStart),
+				lt(
+					modelHistory.minuteTimestamp,
+					new Date(end.getTime() + ONE_MINUTE_MS),
 				),
-			);
-			let iterationCount = 0;
-			const maxIterations = 1440; // Safety limit for 24 hours of backfill
-
-			while (minute <= previousMinute && iterationCount < maxIterations) {
-				const mappingResult = await calculateHistoryForMinute(minute);
-				const modelResult = await calculateModelHistoryForMinute(minute);
-				logger.info(
-					`Backfilled ${mappingResult.totalMappings} mappings (${mappingResult.activeMappings} active) and ${modelResult.totalModels} models (${modelResult.activeModels} active) for ${minute.toISOString()}`,
+			),
+		);
+	const mappingTimes = new Set(
+		mappingMinutes.map(({ minute }) => minute.getTime()),
+	);
+	const modelTimes = new Set(
+		modelMinutes.map(({ minute }) => minute.getTime()),
+	);
+	const existing = [...mappingTimes, ...modelTimes];
+	const start =
+		existing.length > 0
+			? Math.min(...existing)
+			: Math.max(
+					roundToMinuteStart(new Date(Date.now() - backfillMs)).getTime(),
+					boundedStart.getTime(),
 				);
-
-				const nextMinute = roundToMinuteStart(
-					new Date(minute.getTime() + ONE_MINUTE_MS),
-				);
-
-				// Safety check to prevent infinite loops
-				if (nextMinute.getTime() <= minute.getTime()) {
-					logger.error(
-						`Loop safety break: Time calculation error at ${minute.toISOString()}`,
-					);
-					break;
-				}
-
-				minute = nextMinute;
-				iterationCount++;
-			}
-
-			if (iterationCount >= maxIterations) {
-				logger.warn(
-					`Backfill stopped at iteration limit ${maxIterations} to prevent infinite loop`,
-				);
-			}
-		} else {
-			logger.info(
-				`History is up to date. Last entry: ${lastMinute.toISOString()}`,
-			);
+	for (let time = start; time <= end.getTime(); time += ONE_MINUTE_MS) {
+		if (mappingTimes.has(time) && modelTimes.has(time)) {
+			continue;
 		}
-	} catch (error) {
-		logger.error("Error during history backfill:", error as Error);
-		throw error;
+		await calculateMinuteHistory(new Date(time));
 	}
 }
 
@@ -1136,9 +1057,8 @@ export async function calculateMinutelyHistory() {
 	);
 
 	try {
-		const mappingResult = await calculateHistoryForMinute(previousMinuteStart);
-		const modelResult =
-			await calculateModelHistoryForMinute(previousMinuteStart);
+		const { mappingResult, modelResult } =
+			await calculateMinuteHistory(previousMinuteStart);
 
 		logger.debug(
 			`Recorded history for ${mappingResult.totalMappings} model-provider mappings (${mappingResult.activeMappings} active, ${mappingResult.inactiveMappings} inactive) and ${modelResult.totalModels} models (${modelResult.activeModels} active, ${modelResult.inactiveModels} inactive)`,
@@ -1158,9 +1078,8 @@ export async function calculateCurrentMinuteHistory() {
 	const currentMinuteStart = getCurrentMinuteStart();
 
 	try {
-		const mappingResult = await calculateHistoryForMinute(currentMinuteStart);
-		const modelResult =
-			await calculateModelHistoryForMinute(currentMinuteStart);
+		const { mappingResult, modelResult } =
+			await calculateMinuteHistory(currentMinuteStart);
 
 		logger.debug(
 			`Updated current minute history for ${currentMinuteStart.toISOString()}: ${mappingResult.activeMappings} active mappings, ${modelResult.activeModels} active models`,

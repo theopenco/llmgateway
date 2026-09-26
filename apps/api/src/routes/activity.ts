@@ -1211,6 +1211,7 @@ activity.openapi(getSourceActivity, async (c) => {
 		const windowMs =
 			sourceActivityRangeHours[timeRange ?? "7d"] * 60 * 60 * 1000;
 		startDate = new Date(endDate.getTime() - windowMs);
+		startDate.setUTCMinutes(0, 0, 0);
 	}
 
 	if (!(await userHasProjectAccess(user.id, projectId))) {
