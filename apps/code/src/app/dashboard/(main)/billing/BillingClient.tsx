@@ -2,7 +2,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNowStrict } from "date-fns";
-import { AlertCircle, Info, Loader2 } from "lucide-react";
+import { Info, Loader2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePostHog } from "posthog-js/react";
@@ -498,17 +498,6 @@ export default function BillingClient({
 						</AlertDialog>
 					)}
 				</div>
-
-				{paymentPastDue && (
-					<div className="mt-5 flex gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-3.5">
-						<AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-						<p className="text-xs leading-relaxed text-destructive">
-							We could not collect your renewal payment. Update your card below
-							to retry payment now. Your allowance refreshes when payment
-							succeeds.
-						</p>
-					</div>
-				)}
 
 				{/* Clarify DevPass vs pay-as-you-go billing */}
 				<div className="mt-5 flex gap-3 rounded-lg border border-border/60 bg-muted/40 p-3.5">

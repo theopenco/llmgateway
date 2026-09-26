@@ -5,6 +5,7 @@ import {
 	type OpenAIToolInput,
 	type ProviderId,
 	type ProviderRequestBody,
+	type ReasoningEffort,
 	type ToolChoiceMode,
 	type ToolChoiceType,
 	type WebSearchTool,
@@ -26,6 +27,7 @@ import { redactToken } from "./provider-key/redact.js";
 import type {
 	ProviderKeyOptions,
 	ProviderModelVerificationCheck,
+	ProviderModelVerificationProbe,
 	ProviderModelVerificationTarget,
 } from "@llmgateway/db";
 
@@ -50,8 +52,7 @@ export interface ModelVerificationRequest {
 	response_format?: OpenAIRequestBody["response_format"];
 	tools?: OpenAIToolInput[];
 	tool_choice?: ToolChoiceType;
-	reasoning_effort?:
-		"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+	reasoning_effort?: ReasoningEffort;
 }
 
 interface ModelVerificationDefinition {
@@ -82,6 +83,13 @@ export interface ModelVerificationRunResult {
 	 * unusable responses.
 	 */
 	unsupportedToolChoices?: ToolChoiceMode[];
+	/**
+	 * Reasoning effort tiers the reasoning checks probed and the upstream refused.
+	 * Present only when another tier then proved the model reasons, so the listing
+	 * narrows its declared tiers instead of losing `reasoning` to a tier name the
+	 * deployment happens not to accept.
+	 */
+	unsupportedReasoningEfforts?: ReasoningEffort[];
 }
 
 // A 64x64 solid red PNG. Deliberately not a 1x1 pixel: several OpenAI-compatible
@@ -316,19 +324,52 @@ export function createWebSearchVerificationRequest(
 	};
 }
 
-function preferredReasoningEffort(
+/**
+ * Effort tiers the reasoning checks probe, in the order they are tried. Every
+ * non-`none` tier proves reasoning equally well, so `medium` leads as the tier
+ * most deployments accept — that keeps the usual run at a single request. The
+ * rest are ordered by how often a deployment turns out not to implement them, so
+ * a sweep cut short by its time budget has still asked the doubtful ones.
+ */
+const REASONING_EFFORT_PROBE_ORDER = [
+	"medium",
+	"minimal",
+	"low",
+	"high",
+	"xhigh",
+	"max",
+] as const satisfies readonly ReasoningEffort[];
+
+/**
+ * How long a reasoning check keeps sweeping tiers after it has already proven
+ * reasoning. Preflight runs rarely enough that the extra billed requests do not
+ * matter, so the sweep is exhaustive — but the whole run still has to finish
+ * inside the worker's stale window, and a pathologically slow endpoint can spend
+ * the per-request timeout on every tier. Past this point the check keeps what it
+ * has learned and stops; the tiers it never reached stay declared and a later
+ * re-verify can still rule them out. The budget never applies before a tier has
+ * passed: curtailing the search must not turn into disproving reasoning.
+ */
+const REASONING_EFFORT_SWEEP_BUDGET_MS = 4 * 60 * 1000;
+
+/**
+ * The tiers a reasoning check may walk. Deployments commonly accept only a
+ * subset of the unified tiers and reject the rest outright — Runware's DeepSeek
+ * V4.1, for one, 400s `minimal` and `medium` while serving
+ * `low`/`high`/`xhigh`/`max` — so a rejected tier has to be retried at another
+ * rather than read as the model not reasoning at all. A listing that declares
+ * its tiers is probed only within them; one that declares none is probed across
+ * the ladder. `none` is excluded: it proves nothing about reasoning.
+ */
+function reasoningVerificationEfforts(
 	target: ProviderModelVerificationTarget,
-): ModelVerificationRequest["reasoning_effort"] {
-	const supported = target.reasoningEfforts ?? [];
-	if (supported.length === 0 || supported.includes("medium")) {
-		return "medium";
-	}
-	for (const effort of ["high", "low", "minimal", "xhigh", "max"] as const) {
-		if (supported.includes(effort)) {
-			return effort;
-		}
-	}
-	return "medium";
+): ReasoningEffort[] {
+	const declared = (target.reasoningEfforts ?? []).filter(
+		(effort) => effort !== "none",
+	);
+	return declared.length > 0
+		? REASONING_EFFORT_PROBE_ORDER.filter((effort) => declared.includes(effort))
+		: [...REASONING_EFFORT_PROBE_ORDER];
 }
 
 function verificationDefinitions(
@@ -386,13 +427,14 @@ function verificationDefinitions(
 			request: createStructuredJsonVerificationRequest(target.modelName),
 		});
 	}
+	const [reasoningEffort] = reasoningVerificationEfforts(target);
 	if (target.reasoning) {
 		definitions.push({
 			id: "reasoning",
 			label: "Reasoning",
 			request: createReasoningVerificationRequest(
 				target.modelName,
-				preferredReasoningEffort(target),
+				reasoningEffort,
 			),
 		});
 	}
@@ -400,7 +442,10 @@ function verificationDefinitions(
 		definitions.push({
 			id: "reasoning_budget",
 			label: "Reasoning budget",
-			request: createReasoningVerificationRequest(target.modelName),
+			request: createReasoningVerificationRequest(
+				target.modelName,
+				reasoningEffort,
+			),
 		});
 	}
 	if (target.webSearch) {
@@ -737,35 +782,158 @@ function redactSecrets(text: string, secrets: Iterable<string>): string {
 	return redacted;
 }
 
+interface CheckFailure {
+	message: string;
+	/**
+	 * The upstream refused the request itself (4xx) rather than failing to serve
+	 * it. Only a refusal is evidence about what the deployment supports; a 5xx or
+	 * a transport error says nothing and must never narrow a listing.
+	 */
+	rejected: boolean;
+}
+
 async function attemptCheck(
 	definition: ModelVerificationDefinition,
 	options: RunModelVerificationOptions,
 	secrets: Set<string>,
-): Promise<string | null> {
+): Promise<CheckFailure | null> {
 	try {
 		return await executeCheck(definition, options, secrets);
 	} catch (error) {
-		return redactSecrets(
-			(error instanceof Error
-				? error.message
-				: "Verification request failed."
-			).slice(0, 500),
-			secrets,
-		);
+		return {
+			message: redactSecrets(
+				(error instanceof Error
+					? error.message
+					: "Verification request failed."
+				).slice(0, 500),
+				secrets,
+			),
+			rejected: false,
+		};
 	}
 }
 
 interface CheckOutcome {
-	failure: string | null;
+	failure: CheckFailure | null;
 	/** Probed `tool_choice` modes the upstream did not honour. */
 	unsupportedToolChoices?: ToolChoiceMode[];
+	/** Probed reasoning effort tiers the upstream refused. */
+	unsupportedReasoningEfforts?: ReasoningEffort[];
+	/** Replaces the generic "Passed" once a probe found something worth saying. */
+	feedback?: string;
+	/** Per-request breakdown for checks that probe more than one variant. */
+	probes?: ProviderModelVerificationProbe[];
+}
+
+/**
+ * Publishes the probes a running check has made so far, so a ladder that takes
+ * several billed requests shows its progress instead of one opaque spinner.
+ */
+type ProbeReporter = (
+	probes: ProviderModelVerificationProbe[],
+) => Promise<void> | void;
+
+function probeResult(
+	label: string,
+	failure: CheckFailure | null,
+): ProviderModelVerificationProbe {
+	return failure
+		? { label, status: "failed", feedback: failure.message }
+		: { label, status: "passed" };
+}
+
+/**
+ * Walk the effort ladder so a tier the deployment refuses narrows the listing's
+ * declared tiers instead of disproving reasoning altogether.
+ *
+ * A deployment that takes the first tier accepts the unified enum and the check
+ * stops there — one request, as before. Once a tier is refused every remaining
+ * tier is probed instead, because the tiers left declared are the ones the
+ * gateway will forward verbatim: leaving an untried tier in the list only moves
+ * the 4xx from preflight to a developer's request. Refusals are the only
+ * evidence used, so a 5xx or a transport error stops the sweep without taking a
+ * tier away.
+ */
+async function runReasoningCheck(
+	definition: ModelVerificationDefinition,
+	options: RunModelVerificationOptions,
+	secrets: Set<string>,
+	knownUnsupported: ReasoningEffort[],
+	reportProbes: ProbeReporter,
+): Promise<CheckOutcome> {
+	const efforts = reasoningVerificationEfforts(options.target).filter(
+		(effort) => !knownUnsupported.includes(effort),
+	);
+	const probes: ProviderModelVerificationProbe[] = knownUnsupported.map(
+		(effort) => ({
+			label: `reasoning_effort: ${effort}`,
+			status: "failed",
+			feedback: "Refused by an earlier reasoning check.",
+		}),
+	);
+	const unsupportedReasoningEfforts: ReasoningEffort[] = [];
+	let passedEffort: ReasoningEffort | undefined;
+	let lastFailure: CheckFailure | null = null;
+	const startedAt = Date.now();
+	for (const effort of efforts) {
+		if (
+			passedEffort &&
+			Date.now() - startedAt > REASONING_EFFORT_SWEEP_BUDGET_MS
+		) {
+			break;
+		}
+		const failure = await attemptCheck(
+			{
+				...definition,
+				request: { ...definition.request, reasoning_effort: effort },
+			},
+			options,
+			secrets,
+		);
+		probes.push(probeResult(`reasoning_effort: ${effort}`, failure));
+		await reportProbes(probes);
+		if (!failure) {
+			passedEffort ??= effort;
+			if (unsupportedReasoningEfforts.length === 0) {
+				break;
+			}
+			continue;
+		}
+		lastFailure = failure;
+		if (!failure.rejected) {
+			break;
+		}
+		unsupportedReasoningEfforts.push(effort);
+	}
+	if (!passedEffort) {
+		return { failure: lastFailure, probes };
+	}
+	return {
+		failure: null,
+		unsupportedReasoningEfforts,
+		probes,
+		feedback: unsupportedReasoningEfforts.length
+			? `Passed at ${passedEffort} effort. Refused: ${unsupportedReasoningEfforts.join(", ")}.`
+			: undefined,
+	};
 }
 
 async function runCheck(
 	definition: ModelVerificationDefinition,
 	options: RunModelVerificationOptions,
 	secrets: Set<string>,
+	knownUnsupportedReasoningEfforts: ReasoningEffort[],
+	reportProbes: ProbeReporter,
 ): Promise<CheckOutcome> {
+	if (definition.id === "reasoning" || definition.id === "reasoning_budget") {
+		return await runReasoningCheck(
+			definition,
+			options,
+			secrets,
+			knownUnsupportedReasoningEfforts,
+			reportProbes,
+		);
+	}
 	if (definition.id !== "tools") {
 		return { failure: await attemptCheck(definition, options, secrets) };
 	}
@@ -775,7 +943,8 @@ async function runCheck(
 	// disproving tool calling, and so each narrowing rests on a real probe.
 	const modes = toolVerificationModes(options.target.supportedToolChoices);
 	const unsupportedToolChoices: ToolChoiceMode[] = [];
-	let failure: string | null = null;
+	const probes: ProviderModelVerificationProbe[] = [];
+	let failure: CheckFailure | null = null;
 	for (const mode of modes) {
 		failure = await attemptCheck(
 			{
@@ -788,24 +957,29 @@ async function runCheck(
 			options,
 			secrets,
 		);
+		probes.push(probeResult(`tool_choice: ${mode}`, failure));
+		await reportProbes(probes);
 		if (!failure) {
-			return { failure: null, unsupportedToolChoices };
+			return { failure: null, unsupportedToolChoices, probes };
 		}
 		unsupportedToolChoices.push(mode);
 	}
-	return { failure };
+	return { failure, probes };
 }
 
 async function executeCheck(
 	definition: ModelVerificationDefinition,
 	options: RunModelVerificationOptions,
 	secrets: Set<string>,
-): Promise<string | null> {
+): Promise<CheckFailure | null> {
 	const knownProvider = providers.some(
 		(provider) => provider.id === options.target.providerId,
 	);
 	if (!knownProvider && !options.baseUrl) {
-		return `Provider ${options.target.providerId} has no registered endpoint.`;
+		return {
+			message: `Provider ${options.target.providerId} has no registered endpoint.`,
+			rejected: false,
+		};
 	}
 	if (options.baseUrl) {
 		await assertSafeProviderUrl(options.baseUrl);
@@ -923,21 +1097,31 @@ async function executeCheck(
 	});
 	const bodyText = await response.text();
 	if (!response.ok) {
-		return redactSecrets(
-			upstreamErrorMessage(bodyText, response.status),
-			secrets,
-		);
+		return {
+			message: redactSecrets(
+				upstreamErrorMessage(bodyText, response.status),
+				secrets,
+			),
+			rejected: response.status >= 400 && response.status < 500,
+		};
 	}
-	if (definition.request.stream) {
-		return validateStream(bodyText);
-	}
+	const served = definition.request.stream
+		? validateStream(bodyText)
+		: validateServedResponse(definition.id, bodyText);
+	return served ? { message: served, rejected: false } : null;
+}
+
+function validateServedResponse(
+	id: ModelVerificationCheckId,
+	bodyText: string,
+): string | null {
 	let body: unknown;
 	try {
 		body = JSON.parse(bodyText) as unknown;
 	} catch {
 		return "The provider returned a non-JSON response.";
 	}
-	return validateResponse(definition.id, body);
+	return validateResponse(id, body);
 }
 
 export async function runProviderModelVerification(
@@ -947,6 +1131,7 @@ export async function runProviderModelVerification(
 	const checks = createQueuedModelVerificationChecks(options.target);
 	const secrets = new Set([options.token]);
 	let unsupportedToolChoices: ToolChoiceMode[] | undefined;
+	let unsupportedReasoningEfforts: ReasoningEffort[] | undefined;
 	for (let index = 0; index < definitions.length; index++) {
 		const definition = definitions[index];
 		const running: ProviderModelVerificationCheck = {
@@ -956,23 +1141,46 @@ export async function runProviderModelVerification(
 		};
 		checks[index] = running;
 		await options.onCheck?.(running);
-		const outcome = await runCheck(definition, options, secrets);
+		const outcome = await runCheck(
+			definition,
+			options,
+			secrets,
+			unsupportedReasoningEfforts ?? [],
+			async (probes) => {
+				const progress: ProviderModelVerificationCheck = {
+					...running,
+					probes: [...probes],
+				};
+				checks[index] = progress;
+				await options.onCheck?.(progress);
+			},
+		);
 		const failure = outcome.failure;
 		if (outcome.unsupportedToolChoices?.length) {
 			unsupportedToolChoices = outcome.unsupportedToolChoices;
+		}
+		if (outcome.unsupportedReasoningEfforts?.length) {
+			unsupportedReasoningEfforts = [
+				...(unsupportedReasoningEfforts ?? []),
+				...outcome.unsupportedReasoningEfforts.filter(
+					(effort) => !unsupportedReasoningEfforts?.includes(effort),
+				),
+			];
 		}
 		const completed: ProviderModelVerificationCheck = failure
 			? {
 					id: definition.id,
 					label: definition.label,
 					status: "failed",
-					feedback: failure,
+					feedback: failure.message,
+					...(outcome.probes?.length ? { probes: outcome.probes } : {}),
 				}
 			: {
 					id: definition.id,
 					label: definition.label,
 					status: "passed",
-					feedback: "Passed",
+					feedback: outcome.feedback ?? "Passed",
+					...(outcome.probes?.length ? { probes: outcome.probes } : {}),
 				};
 		checks[index] = completed;
 		await options.onCheck?.(completed);
@@ -996,6 +1204,7 @@ export async function runProviderModelVerification(
 		passed: failed === 0 && passed === checks.length,
 		checks,
 		unsupportedToolChoices,
+		unsupportedReasoningEfforts,
 		summary:
 			failed === 0 && passed === checks.length
 				? `${passed} verification check${passed === 1 ? "" : "s"} passed.`

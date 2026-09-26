@@ -2,19 +2,17 @@ import { ArrowLeft, FolderOpen, LayoutGrid } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { LogsSection } from "@/components/logs-section";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+	buildLogModelOptions,
+	buildLogProviderOptions,
+} from "@/lib/log-filter-options";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 
-import {
-	models as modelDefinitions,
-	providers as providerDefinitions,
-	type ModelDefinition,
-} from "@llmgateway/models";
-
 import { ProjectCostByModelTimeseries } from "./project-cost-by-model-timeseries";
-import { ProjectLogsSection } from "./project-logs";
 import { ProjectMetricsSection } from "./project-metrics";
 
 function SignInPrompt() {
@@ -55,10 +53,15 @@ export default async function ProjectDetailPage({
 	const { orgId, projectId } = await params;
 
 	const $api = await createServerApiClient();
-	const { data: projectsData } = await $api.GET(
-		"/admin/organizations/{orgId}/projects",
-		{ params: { path: { orgId } } },
-	);
+	const [projectsRes, membersRes] = await Promise.all([
+		$api.GET("/admin/organizations/{orgId}/projects", {
+			params: { path: { orgId } },
+		}),
+		$api.GET("/admin/organizations/{orgId}/members", {
+			params: { path: { orgId } },
+		}),
+	]);
+	const projectsData = projectsRes.data;
 
 	if (!projectsData) {
 		return <SignInPrompt />;
@@ -70,20 +73,14 @@ export default async function ProjectDetailPage({
 		notFound();
 	}
 
-	const providerOptions = providerDefinitions
-		.map((p) => ({ id: p.id, label: p.name }))
-		.toSorted((a, b) => a.label.localeCompare(b.label));
-
-	const modelOptions = (modelDefinitions as readonly ModelDefinition[])
-		.map((m) => ({
-			id: m.id,
-			label: m.name ?? m.id,
-			aliases: m.aliases ?? [],
-			providerIds: Array.from(
-				new Set(m.providers.map((p) => p.providerId)),
-			).toSorted(),
+	const providerOptions = buildLogProviderOptions();
+	const modelOptions = buildLogModelOptions();
+	const seatOptions = (membersRes.data?.members ?? [])
+		.map((member) => ({
+			email: member.user.email,
+			name: member.user.name,
 		}))
-		.toSorted((a, b) => a.label.localeCompare(b.label));
+		.toSorted((a, b) => a.email.localeCompare(b.email));
 
 	return (
 		<div className="mx-auto flex w-full max-w-[1920px] flex-col gap-6 px-4 py-8 md:px-8">
@@ -134,11 +131,12 @@ export default async function ProjectDetailPage({
 				</Button>
 			</div>
 
-			<ProjectLogsSection
+			<LogsSection
 				orgId={orgId}
 				projectId={projectId}
 				providerOptions={providerOptions}
 				modelOptions={modelOptions}
+				seatOptions={seatOptions}
 			/>
 		</div>
 	);

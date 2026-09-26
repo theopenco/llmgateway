@@ -50,8 +50,17 @@ export type Price = string;
  * in ascending order of effort. Which subset a given provider mapping
  * actually supports is declared per mapping via `reasoningEfforts`.
  */
-export type ReasoningEffort =
-	"none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export const REASONING_EFFORTS = [
+	"none",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+	"max",
+] as const;
+
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
 /**
  * Execution strategy accepted by the unified `reasoning.mode` parameter.
@@ -533,6 +542,13 @@ export interface ProviderModelMapping {
 	 * surfaces for different models. Defaults to the provider's native format.
 	 */
 	apiFormat?: ProviderApiFormat;
+	/**
+	 * Route this Perplexity mapping to the Agent API (`POST /v1/agent`,
+	 * Responses-shaped) instead of Sonar's chat/completions, which Perplexity
+	 * retires on 2026-09-27. Per mapping rather than per provider so the
+	 * mappings still on Sonar keep working until that date.
+	 */
+	usesPerplexityAgentApi?: boolean;
 	/**
 	 * Provider service tier IDs supported by this specific model mapping.
 	 * Provider definitions own the tier metadata and default multipliers;

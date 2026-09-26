@@ -14,10 +14,11 @@ import {
 	extractBedrockCacheCreationDetails,
 } from "./extract-token-usage.js";
 import { mapFinishReasonToOpenai } from "./map-finish-reason-to-openai.js";
+import { normalizeMistralContent } from "./mistral-content.js";
 import { buildEncryptedReasoningDetail } from "./reasoning-details.js";
 import { transformOpenaiStreaming } from "./transform-openai-streaming.js";
 
-import type { Annotation, StreamingDelta } from "./types.js";
+import type { Annotation, SearchResult, StreamingDelta } from "./types.js";
 import type { AnthropicNativeBlock, Provider } from "@llmgateway/models";
 
 function normalizeAnthropicUsage(usage: any): any {
@@ -86,6 +87,7 @@ export function transformStreamingToOpenai(
 	options?: {
 		cacheThoughtSignatures?: boolean;
 		googleThoughtSignatureState?: Map<number, GoogleThoughtSignatureState>;
+		googleToolCallIndices?: Map<number, number>;
 	},
 ): any {
 	let transformedData = data;
@@ -652,6 +654,8 @@ export function transformStreamingToOpenai(
 				}
 
 				const toolCalls: any[] = [];
+				let toolCallIndex =
+					options?.googleToolCallIndices?.get(candidateIndex) ?? 0;
 				const thoughtSignatures: string[] = [];
 
 				parts.forEach((part, partIndex) => {
@@ -684,7 +688,7 @@ export function transformStreamingToOpenai(
 						toolCalls.push({
 							id: toolCallId,
 							type: "function",
-							index: partIndex,
+							index: toolCallIndex++,
 							function: {
 								name: part.functionCall.name,
 								arguments: JSON.stringify(part.functionCall.args ?? {}),
@@ -728,6 +732,9 @@ export function transformStreamingToOpenai(
 					}
 				});
 
+				// Google sends complete calls in separate chunks; part indices restart
+				// in each chunk, but OpenAI clients accumulate calls by stream index.
+				options?.googleToolCallIndices?.set(candidateIndex, toolCallIndex);
 				if (toolCalls.length > 0) {
 					(delta as any).tool_calls = toolCalls;
 				}
@@ -879,7 +886,13 @@ export function transformStreamingToOpenai(
 		case "meta":
 		case "meta-contributor":
 		case "aws-mantle":
+		case "perplexity":
 		case "openai": {
+			// Perplexity's Agent API streams the same `response.*` events, so it
+			// shares this case. Mappings still on Sonar's chat/completions send
+			// untyped chunks and fall through to the OpenAI-compatible path at the
+			// end of it.
+			//
 			// Azure precedes every stream with a prompt-filter-only chunk that has
 			// empty id/object/model and no choices. The default OpenAI fallback
 			// path passes the empty values through and breaks downstream
@@ -900,7 +913,12 @@ export function transformStreamingToOpenai(
 			}
 			if (data.type) {
 				switch (data.type) {
+					// The two `response.reasoning.search_*` events are Perplexity's
+					// search progress; the sources themselves arrive in full on the
+					// matching response.output_item.done below.
 					case "keepalive":
+					case "response.reasoning.search_queries":
+					case "response.reasoning.search_results":
 						transformedData = null;
 						break;
 
@@ -1001,6 +1019,41 @@ export function transformStreamingToOpenai(
 						// Surface it as a reasoning_details delta so clients can replay
 						// it on later turns to preserve reasoning across calls.
 						const doneItem = data.item;
+						// Perplexity delivers every source at once in a
+						// `search_results` item. Emit them both as annotations and as
+						// a top-level `search_results` chunk field, which is where
+						// Sonar put them and where callers read the dates from.
+						const doneSearchResults: SearchResult[] =
+							data.type === "response.output_item.done" &&
+							doneItem?.type === "search_results" &&
+							Array.isArray(doneItem.results)
+								? doneItem.results
+										.filter(
+											(result: { url?: unknown }) =>
+												typeof result?.url === "string",
+										)
+										.map((result: SearchResult) => ({
+											url: result.url,
+											...(result.title && { title: result.title }),
+											...(result.snippet && { snippet: result.snippet }),
+											...(result.date && { date: result.date }),
+											...(result.last_updated && {
+												last_updated: result.last_updated,
+											}),
+											...(result.source && { source: result.source }),
+										}))
+								: [];
+						const searchAnnotations: Annotation[] = doneSearchResults.map(
+							(result) => ({
+								type: "url_citation",
+								url_citation: {
+									url: result.url,
+									title: result.title,
+									date: result.date,
+									last_updated: result.last_updated,
+								},
+							}),
+						);
 						const encryptedReasoning =
 							data.type === "response.output_item.done" &&
 							doneItem?.type === "reasoning" &&
@@ -1024,6 +1077,9 @@ export function transformStreamingToOpenai(
 									index: 0,
 									delta: {
 										role: "assistant",
+										...(searchAnnotations.length > 0 && {
+											annotations: searchAnnotations,
+										}),
 										...(encryptedReasoning && {
 											reasoning_details: encryptedReasoning,
 										}),
@@ -1036,6 +1092,10 @@ export function transformStreamingToOpenai(
 									finish_reason: null,
 								},
 							],
+							...(doneSearchResults.length > 0 && {
+								search_results: doneSearchResults,
+								citations: doneSearchResults.map((result) => result.url),
+							}),
 							usage: null,
 						};
 						break;
@@ -1554,7 +1614,6 @@ export function transformStreamingToOpenai(
 		case "deepseek":
 		case "alibaba":
 		case "moonshot":
-		case "perplexity":
 		case "nebius":
 		case "fireworks":
 		case "canopywave":
@@ -1594,9 +1653,35 @@ export function transformStreamingToOpenai(
 				transformedData = null;
 				break;
 			}
+			// Mistral streams thinking models' content as typed chunks; flatten
+			// them back to `content` / `reasoning_content` before the shared
+			// OpenAI transform sees the delta.
+			let openaiStreamData = data;
+			if (usedProvider === "mistral" && Array.isArray(data.choices)) {
+				openaiStreamData = {
+					...data,
+					choices: data.choices.map((choice: any) => {
+						if (!Array.isArray(choice?.delta?.content)) {
+							return choice;
+						}
+						const normalized = normalizeMistralContent(choice.delta.content);
+						return {
+							...choice,
+							delta: {
+								...choice.delta,
+								content: normalized.content,
+								...(normalized.reasoning && {
+									reasoning_content: normalized.reasoning,
+								}),
+							},
+						};
+					}),
+				};
+			}
+
 			// Transform standard OpenAI streaming format with finish reason mapping
 			transformedData = transformOpenaiStreaming(
-				data,
+				openaiStreamData,
 				usedModel,
 				supportsReasoning,
 			);

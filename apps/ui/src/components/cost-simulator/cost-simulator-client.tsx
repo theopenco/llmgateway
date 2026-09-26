@@ -51,7 +51,7 @@ import type { ProviderDefinition } from "@llmgateway/models";
 const now = new Date();
 
 const textModelDefs = (models as unknown as ModelDefinition[]).filter((m) => {
-	if (m.id === "custom" || m.id === "auto") {
+	if (m.id === "custom" || m.id === "auto" || m.id === "smart") {
 		return false;
 	}
 	if (m.output?.includes("image")) {

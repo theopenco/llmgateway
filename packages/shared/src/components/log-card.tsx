@@ -183,6 +183,8 @@ export interface LogCardData {
 	organizationName?: string | null;
 	apiKeyId?: string | null;
 	apiKeyName?: string | null;
+	/** Email of the user who created the API key that served the request. */
+	apiKeyUserEmail?: string | null;
 	source?: string | null;
 	apiOrigin?: string | null;
 	mode?: string | null;
@@ -1283,6 +1285,14 @@ export function LogCard({
 									copyLabel="Copy API key ID"
 									showCopyButton={showCopyButtons}
 								/>
+								{log.apiKeyUserEmail && (
+									<>
+										<div className="text-muted-foreground">Key Owner</div>
+										<div className="font-mono text-xs break-all">
+											{log.apiKeyUserEmail}
+										</div>
+									</>
+								)}
 								<div className="text-muted-foreground">API Origin</div>
 								<div>
 									{log.apiOrigin

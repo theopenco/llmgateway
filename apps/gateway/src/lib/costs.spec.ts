@@ -1312,6 +1312,78 @@ describe("calculateCosts", () => {
 			expect(result.outputCost).toBeCloseTo(0.0021);
 		});
 
+		it("applies the Azure Priority multiplier (2.5x) to gpt-5.5", async () => {
+			const result = await calculateCosts(
+				"gpt-5.5",
+				"azure",
+				null,
+				1000,
+				700,
+				null,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.005 * 2.5);
+			expect(result.outputCost).toBeCloseTo(0.021 * 2.5);
+		});
+
+		it("applies the Azure Priority multiplier (1.75x) to gpt-4.1", async () => {
+			const result = await calculateCosts(
+				"gpt-4.1",
+				"azure",
+				null,
+				1000,
+				700,
+				null,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: "priority" },
+			);
+			expect(result.inputCost).toBeCloseTo(0.002 * 1.75);
+			expect(result.outputCost).toBeCloseTo(0.0056 * 1.75);
+		});
+
+		it("bills an Azure request Microsoft downgraded to standard at standard rates", async () => {
+			const result = await calculateCosts(
+				"gpt-5.5",
+				"azure",
+				null,
+				1000,
+				700,
+				null,
+				undefined,
+				null,
+				0,
+				undefined,
+				0,
+				null,
+				null,
+				undefined,
+				null,
+				null,
+				{ servedServiceTier: null },
+			);
+			expect(result.inputCost).toBeCloseTo(0.005);
+			expect(result.outputCost).toBeCloseTo(0.021);
+		});
+
 		it("ignores Google Vertex tiers outside the global endpoint", async () => {
 			const result = await calculateCosts(
 				"gemini-3.5-flash",

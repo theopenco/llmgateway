@@ -579,10 +579,16 @@ function generateApiKeys(projects: ProjectDef[]): ApiKeyDef[] {
 	const keys: ApiKeyDef[] = [];
 	let keyIdx = 0;
 	for (const proj of projects) {
-		const orgOwner = USER_ORG_MAP.find(
-			(m) => m.orgId === proj.orgId && m.role === "owner",
-		);
-		const createdBy = orgOwner?.userId ?? "user-alice";
+		const orgMembers = USER_ORG_MAP.filter((m) => m.orgId === proj.orgId);
+		// Owner first, then the remaining seats: keys round-robin across members so
+		// per-seat log filtering has more than one owner to filter on.
+		const creators = [
+			...orgMembers.filter((m) => m.role === "owner"),
+			...orgMembers.filter((m) => m.role !== "owner"),
+		].map((m) => m.userId);
+		if (creators.length === 0) {
+			creators.push("user-alice");
+		}
 		const numKeys = randomInt(1, 3);
 		for (let i = 0; i < numKeys; i++) {
 			keys.push({
@@ -591,7 +597,7 @@ function generateApiKeys(projects: ProjectDef[]): ApiKeyDef[] {
 				projectId: proj.id,
 				description:
 					i === 0 ? "Primary Key" : i === 1 ? "CI/CD Key" : "Development Key",
-				createdBy,
+				createdBy: creators[i % creators.length],
 				usage: String(randomFloat(0, 50)),
 			});
 			keyIdx++;
@@ -3327,6 +3333,153 @@ async function seedAirside() {
 		inputPrice: "4e-7",
 		outputPrice: "2e-6",
 	});
+
+	// Preflight history for the fleet screens: a failure the carrier fixed, then
+	// a spot check from our side.
+	const mediumTarget = {
+		providerId: "mistral",
+		modelName: "mistral-medium-4",
+		externalId: "mistral-medium-4",
+		apiFormat: "openai-chat-completions" as const,
+		region: null,
+		streaming: true,
+		vision: false,
+		audio: false,
+		tools: true,
+		supportedToolChoices: null,
+		jsonOutput: true,
+		jsonOutputSchema: false,
+		reasoning: false,
+		reasoningMaxTokens: false,
+		reasoningEfforts: null,
+		webSearch: false,
+	};
+	await upsert(tables.providerModelVerification, {
+		id: "airside-verification-medium-1",
+		providerCompanyId: "airside-company-mistral",
+		draftModelId: "airside-model-medium",
+		initiatedBy: "carrier",
+		requestedBy: "airside-user-mistral",
+		credentialSource: "carrier",
+		target: mediumTarget,
+		checks: [
+			{ id: "basic", label: "Basic completion", status: "passed" },
+			{ id: "streaming", label: "Streaming", status: "passed" },
+			{
+				id: "tools",
+				label: "Tool calls",
+				status: "failed",
+				feedback: "The model answered in prose instead of calling the tool.",
+			},
+			{ id: "json_output", label: "JSON output", status: "skipped" },
+		],
+		status: "failed",
+		summary: "Tool calling did not answer with a tool call.",
+		startedAt: daysAgo(14),
+		completedAt: daysAgo(14),
+		createdAt: daysAgo(14),
+	});
+	await upsert(tables.providerModelVerification, {
+		id: "airside-verification-medium-2",
+		providerCompanyId: "airside-company-mistral",
+		draftModelId: "airside-model-medium",
+		initiatedBy: "carrier",
+		requestedBy: "airside-user-mistral",
+		credentialSource: "carrier",
+		target: mediumTarget,
+		checks: [
+			{ id: "basic", label: "Basic completion", status: "passed" },
+			{ id: "streaming", label: "Streaming", status: "passed" },
+			{ id: "tools", label: "Tool calls", status: "passed" },
+			{ id: "json_output", label: "JSON output", status: "passed" },
+		],
+		status: "passed",
+		summary: "All declared capabilities answered as expected.",
+		startedAt: daysAgo(13),
+		completedAt: daysAgo(13),
+		createdAt: daysAgo(13),
+	});
+	await upsert(tables.providerModelVerification, {
+		id: "airside-verification-medium-3",
+		providerCompanyId: "airside-company-mistral",
+		draftModelId: "airside-model-medium",
+		initiatedBy: "admin",
+		requestedBy: "test-user-id",
+		credentialSource: "carrier",
+		target: mediumTarget,
+		checks: [
+			{ id: "basic", label: "Basic completion", status: "passed" },
+			{ id: "streaming", label: "Streaming", status: "passed" },
+			{ id: "tools", label: "Tool calls", status: "passed" },
+			{ id: "json_output", label: "JSON output", status: "passed" },
+		],
+		status: "passed",
+		summary: "All declared capabilities answered as expected.",
+		startedAt: daysAgo(2),
+		completedAt: daysAgo(2),
+		createdAt: daysAgo(2),
+	});
+
+	// The same mapping, verified from the admin dashboard against the live
+	// catalogue row rather than the listing.
+	const [mediumMapping] = await db
+		.select({ id: tables.modelProviderMapping.id })
+		.from(tables.modelProviderMapping)
+		.where(
+			and(
+				eq(tables.modelProviderMapping.modelId, "mistral-medium-4"),
+				eq(tables.modelProviderMapping.providerId, "mistral"),
+				isNull(tables.modelProviderMapping.region),
+			),
+		)
+		.limit(1);
+	if (mediumMapping) {
+		await upsert(tables.providerModelVerification, {
+			id: "airside-verification-medium-mapping-1",
+			providerCompanyId: "airside-company-mistral",
+			modelProviderMappingId: mediumMapping.id,
+			initiatedBy: "admin",
+			requestedBy: "test-user-id",
+			credentialSource: "carrier",
+			target: mediumTarget,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{ id: "streaming", label: "Streaming", status: "passed" },
+				{
+					id: "tools",
+					label: "Tool calls",
+					status: "failed",
+					feedback: "The model answered in prose instead of calling the tool.",
+				},
+				{ id: "json_output", label: "JSON output", status: "skipped" },
+			],
+			status: "failed",
+			summary: "Tool calling did not answer with a tool call.",
+			startedAt: daysAgo(6),
+			completedAt: daysAgo(6),
+			createdAt: daysAgo(6),
+		});
+		await upsert(tables.providerModelVerification, {
+			id: "airside-verification-medium-mapping",
+			providerCompanyId: "airside-company-mistral",
+			modelProviderMappingId: mediumMapping.id,
+			initiatedBy: "admin",
+			requestedBy: "test-user-id",
+			credentialSource: "carrier",
+			target: mediumTarget,
+			checks: [
+				{ id: "basic", label: "Basic completion", status: "passed" },
+				{ id: "streaming", label: "Streaming", status: "passed" },
+				{ id: "tools", label: "Tool calls", status: "passed" },
+				{ id: "json_output", label: "JSON output", status: "passed" },
+			],
+			status: "passed",
+			summary: "All declared capabilities answered as expected.",
+			startedAt: daysAgo(1),
+			completedAt: daysAgo(1),
+			createdAt: daysAgo(1),
+		});
+	}
 
 	await upsert(tables.providerDraftModel, {
 		id: "airside-model-codestral",

@@ -609,6 +609,19 @@ function stripAzureOpenaiPrefix(c: Context): Response | Promise<Response> {
 mockOpenAIServer.post("/openai/v1/responses", stripAzureOpenaiPrefix);
 mockOpenAIServer.post("/openai/v1/chat/completions", stripAzureOpenaiPrefix);
 
+// The legacy Azure deployment-based surface, where the model lives in the path
+// and the api-version in the query string. Rewrite it to the plain handler so
+// `azure_deployment_type: "openai"` keys can complete requests too.
+mockOpenAIServer.post(
+	"/openai/deployments/:deployment/chat/completions",
+	(c) => {
+		const url = new URL(c.req.url);
+		url.pathname = "/v1/chat/completions";
+		url.search = "";
+		return mockOpenAIServer.fetch(new Request(url, c.req.raw));
+	},
+);
+
 // Handle OpenAI Responses API endpoint (for gpt-5 and other models with supportsResponsesApi)
 mockOpenAIServer.post("/v1/responses", async (c) => {
 	const body = await c.req.json();
@@ -657,6 +670,15 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 		}
 	}
 
+	// Azure (and OpenAI) silently serve a premium request at standard when the
+	// tier is unavailable, echoing `service_tier: "default"`. The echoed tier,
+	// not the requested one, is what the gateway must bill.
+	const servedServiceTier = userMessage.includes(
+		"TRIGGER_SERVICE_TIER_DOWNGRADE",
+	)
+		? "default"
+		: body.service_tier;
+
 	const shouldEndAfterDoneEvent = userMessage.includes(
 		"TRIGGER_RESPONSES_DONE_WITHOUT_COMPLETED",
 	);
@@ -673,8 +695,8 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 				object: "response",
 				created_at: Math.floor(Date.now() / 1000),
 				model: body.model ?? "gpt-5-nano",
-				...(typeof body.service_tier === "string"
-					? { service_tier: body.service_tier }
+				...(typeof servedServiceTier === "string"
+					? { service_tier: servedServiceTier }
 					: {}),
 			};
 
@@ -837,8 +859,8 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 			output_tokens: 20,
 			total_tokens: 30,
 		},
-		...(typeof body.service_tier === "string"
-			? { service_tier: body.service_tier }
+		...(typeof servedServiceTier === "string"
+			? { service_tier: servedServiceTier }
 			: {}),
 		status: "completed",
 	};
@@ -1362,6 +1384,16 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		...sampleChatCompletionResponse,
 		choices,
 		usage,
+		// Echo the tier the upstream served, like OpenAI and Azure do.
+		// TRIGGER_SERVICE_TIER_DOWNGRADE forces the "served at standard" reply
+		// they send when the requested tier is unavailable.
+		...(typeof body.service_tier === "string"
+			? {
+					service_tier: userMessage.includes("TRIGGER_SERVICE_TIER_DOWNGRADE")
+						? "default"
+						: body.service_tier,
+				}
+			: {}),
 	};
 
 	return c.json(response);
@@ -1423,14 +1455,23 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 		c.status(statusTrigger.statusCode as any);
 		return c.json(statusTrigger.errorResponse);
 	}
-	if (stateText.includes("TRIGGER_ERROR")) {
+	// CLASSIFIER_ERROR is separate from TRIGGER_ERROR so a test can fail only
+	// the classifier call while the chat completion it precedes still succeeds.
+	if (
+		stateText.includes("TRIGGER_ERROR") ||
+		stateText.includes("CLASSIFIER_ERROR")
+	) {
 		c.status(500);
 		return c.json(sampleErrorResponse);
 	}
 
 	// Answers are keyword-driven so tests can assert a specific verdict: a
-	// harmful-looking state scores high on every noul question.
+	// harmful-looking state scores high on every noul question, and the auto
+	// routing classifier is steered by EASY_TASK / HARD_TASK / PREFER_MODEL:<id>.
 	const harmful = /harm|kill|attack|threat/i.test(stateText);
+	const easyTask = stateText.includes("EASY_TASK");
+	const hardTask = stateText.includes("HARD_TASK");
+	const preferredModel = /PREFER_MODEL:([^\s"\\]+)/.exec(stateText)?.[1];
 	const answers: Record<string, unknown> = {};
 	for (const [id, question] of Object.entries(
 		(body.questions ?? {}) as Record<string, { type: string; criteria?: any }>,
@@ -1441,12 +1482,16 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 		}
 		if (question.type === "choice") {
 			const options = Object.keys(question.criteria ?? {});
+			const choice =
+				preferredModel && options.includes(preferredModel)
+					? preferredModel
+					: options[0];
 			answers[id] = {
 				type: "choice",
-				choice: options[0],
+				choice,
 				confidence: 0.9,
 				probabilities: Object.fromEntries(
-					options.map((option, index) => [option, index === 0 ? 1 : 0]),
+					options.map((option) => [option, option === choice ? 1 : 0]),
 				),
 			};
 			continue;
@@ -1454,18 +1499,18 @@ mockOpenAIServer.post("/v1/systemone", async (c) => {
 		const levels: unknown[] = Array.isArray(question.criteria)
 			? question.criteria
 			: [];
+		// Top level by default so existing score-question specs keep their answer;
+		// EASY_TASK opts a state down to the bottom band, HARD_TASK wins over it.
+		const score = easyTask && !hardTask ? 0 : levels.length - 1;
 		answers[id] = {
 			type: "score",
-			score: levels.length - 1,
+			score,
 			confidence: 0.9,
 			legend: Object.fromEntries(
 				levels.map((level, index) => [String(index), String(level)]),
 			),
 			probabilities: Object.fromEntries(
-				levels.map((_level, index) => [
-					String(index),
-					index === levels.length - 1 ? 1 : 0,
-				]),
+				levels.map((_level, index) => [String(index), index === score ? 1 : 0]),
 			),
 		};
 	}

@@ -7,7 +7,7 @@ import { sendTransactionalEmail } from "./email.js";
 
 const invoiceFrom = process.env.INVOICE_FROM ?? "Fake Company\\nUnited States";
 
-function escapeHtml(unsafe: string): string {
+export function escapeHtml(unsafe: string): string {
 	return unsafe
 		.replace(/&/g, "&amp;")
 		.replace(/</g, "&lt;")
@@ -21,17 +21,21 @@ export interface InvoiceLineItem {
 	amount: number;
 }
 
-// "invoice" for a charge, "credit_note" for a refund. A credit note renders the
-// same layout but titled as a refund document.
-export type InvoiceDocumentType = "invoice" | "credit_note";
+// "invoice" for an organization charge, "receipt" for a payer who is not an
+// organization member (Payments SDK end-users, Airside carriers), and
+// "credit_note" for a refund. All three render the same layout; only the title
+// and the number's label differ.
+export type InvoiceDocumentType = "invoice" | "credit_note" | "receipt";
 
 export interface InvoiceData {
 	invoiceNumber: string;
 	invoiceDate: Date;
 	organizationName: string;
 	// Organization the invoice belongs to. Used to gate delivery on the owner's
-	// verified email; see sendTransactionalEmail.
-	organizationId: string;
+	// verified email; see sendTransactionalEmail. Omitted for receipts addressed
+	// to someone who is not an organization member (Payments SDK end-users,
+	// Airside carriers) — that gate is about the org owner, not the payer.
+	organizationId?: string;
 	billingEmail: string;
 	billingCompany?: string | null;
 	billingAddress?: string | null;
@@ -45,6 +49,10 @@ export interface InvoiceData {
 	// percentage of it that this refund covers. Shown above the line items.
 	originalAmount?: number;
 	refundPercentage?: number;
+	// Payments SDK: the developer's brand, printed under the FROM block so the
+	// end-user recognises who they bought from. LLM Gateway stays the seller.
+	merchantBrandName?: string | null;
+	merchantSupportEmail?: string | null;
 }
 
 // Human-readable fallback labels used when a transaction has no stored
@@ -177,6 +185,18 @@ export function buildInvoiceDataForTransaction(
 
 export function generateInvoicePDF(data: InvoiceData): Buffer {
 	const isCreditNote = data.documentType === "credit_note";
+	const documentTitle =
+		data.documentType === "credit_note"
+			? "CREDIT NOTE"
+			: data.documentType === "receipt"
+				? "RECEIPT"
+				: "INVOICE";
+	const documentNumberLabel =
+		data.documentType === "credit_note"
+			? "Credit Note"
+			: data.documentType === "receipt"
+				? "Receipt"
+				: "Invoice";
 
 	// Validate required fields
 	if (!data.lineItems || data.lineItems.length === 0) {
@@ -200,18 +220,14 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 
 	doc.setFontSize(24);
 	doc.setFont("helvetica", "bold");
-	doc.text(isCreditNote ? "CREDIT NOTE" : "INVOICE", pageWidth / 2, yPos, {
+	doc.text(documentTitle, pageWidth / 2, yPos, {
 		align: "center",
 	});
 
 	yPos += 15;
 	doc.setFontSize(10);
 	doc.setFont("helvetica", "normal");
-	doc.text(
-		`${isCreditNote ? "Credit Note" : "Invoice"} Number: ${invoiceNumber}`,
-		20,
-		yPos,
-	);
+	doc.text(`${documentNumberLabel} Number: ${invoiceNumber}`, 20, yPos);
 	yPos += 6;
 	doc.text(
 		`Date: ${data.invoiceDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`,
@@ -251,6 +267,16 @@ export function generateInvoicePDF(data: InvoiceData): Buffer {
 	const fromLines = invoiceFrom.replace(/\\n/g, "\n").split("\n");
 	for (const line of fromLines) {
 		doc.text(line, 20, yPos);
+		yPos += 6;
+	}
+	// Payments SDK receipts name the developer the end-user actually bought from.
+	// We stay the seller above; this only tells the payer who the product was.
+	if (data.merchantBrandName) {
+		doc.text(`On behalf of: ${data.merchantBrandName}`, 20, yPos);
+		yPos += 6;
+	}
+	if (data.merchantSupportEmail) {
+		doc.text(`Support: ${data.merchantSupportEmail}`, 20, yPos);
 		yPos += 6;
 	}
 	const fromEndY = yPos;

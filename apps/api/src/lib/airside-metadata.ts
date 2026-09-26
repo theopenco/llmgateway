@@ -1,22 +1,14 @@
 import { z } from "zod";
 
-import { TOOL_CHOICE_MODES } from "@llmgateway/models";
+import { REASONING_EFFORTS, TOOL_CHOICE_MODES } from "@llmgateway/models";
 
 import type { AirsideModelMetadataChanges, tables } from "@llmgateway/db";
 
-export const REASONING_EFFORT_VALUES = [
-	"none",
-	"minimal",
-	"low",
-	"medium",
-	"high",
-	"xhigh",
-	"max",
-] as const;
+export const REASONING_EFFORT_VALUES = REASONING_EFFORTS;
 
 export const reasoningEffortsValue = z
 	.array(z.enum(REASONING_EFFORT_VALUES))
-	.max(7);
+	.max(REASONING_EFFORTS.length);
 
 export const supportedToolChoicesValue = z
 	.array(z.enum(TOOL_CHOICE_MODES))

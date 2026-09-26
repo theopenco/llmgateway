@@ -52,6 +52,21 @@ export async function loadProjectLogsAction(
 	return data ?? null;
 }
 
+export async function loadOrganizationLogsAction(
+	orgId: string,
+	cursor?: string,
+	filters?: ProjectLogFilters,
+) {
+	const $api = await createServerApiClient();
+	const { data } = await $api.GET("/admin/organizations/{orgId}/logs", {
+		params: {
+			path: { orgId },
+			query: { limit: 50, cursor, ...filters },
+		},
+	});
+	return data ?? null;
+}
+
 export async function giftCreditsToOrganization(
 	orgId: string,
 	body: { creditAmount: number; comment?: string },

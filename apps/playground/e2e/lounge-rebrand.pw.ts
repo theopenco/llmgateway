@@ -65,7 +65,7 @@ test("compare hub positions Lounge against competitors", async ({ page }) => {
 	await expect(page.getByText("Lounge vs ChatGPT").first()).toBeVisible();
 });
 
-test("signed-in chat shows the Lounge wordmark in the sidebar", async ({
+test("signed-in chat shows the Lounge product switcher", async ({
 	page,
 	baseURL,
 }) => {
@@ -86,7 +86,11 @@ test("signed-in chat shows the Lounge wordmark in the sidebar", async ({
 	await page.click('button[type="submit"]');
 	await page.waitForURL(/\/($|\?)/, { timeout: 45_000 });
 
-	const wordmark = page.getByLabel("Lounge by LLM Gateway").first();
-	await expect(wordmark).toBeVisible({ timeout: 30_000 });
-	await expect(wordmark).toContainText("Lounge");
+	// The sidebar header is the shared product switcher, whose trigger carries
+	// the current product in its accessible name.
+	const switcher = page
+		.getByLabel("Switch product, current product The Lounge")
+		.first();
+	await expect(switcher).toBeVisible({ timeout: 30_000 });
+	await expect(switcher).toContainText("The Lounge");
 });

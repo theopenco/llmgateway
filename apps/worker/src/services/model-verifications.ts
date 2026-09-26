@@ -8,17 +8,18 @@ import {
 } from "@llmgateway/actions";
 import { and, asc, cdb, db, eq, lt, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
-import { getProviderEnvVar, TOOL_CHOICE_MODES } from "@llmgateway/models";
+import {
+	getProviderEnvVar,
+	REASONING_EFFORTS,
+	TOOL_CHOICE_MODES,
+} from "@llmgateway/models";
 
-import type {
-	ModelVerificationCapability,
-	RunModelVerificationOptions,
-} from "@llmgateway/actions";
+import type { RunModelVerificationOptions } from "@llmgateway/actions";
 import type {
 	AirsideModelMetadataChanges,
 	ProviderModelVerificationCheck,
 } from "@llmgateway/db";
-import type { ToolChoiceMode } from "@llmgateway/models";
+import type { ReasoningEffort, ToolChoiceMode } from "@llmgateway/models";
 
 type VerificationRow = typeof tables.providerModelVerification.$inferSelect;
 type VerificationRunner = (
@@ -259,181 +260,6 @@ function terminalChecks(
 	});
 }
 
-type CapabilityDemotion = Partial<
-	Pick<
-		typeof tables.providerDraftModel.$inferInsert,
-		| "streaming"
-		| "vision"
-		| "audio"
-		| "tools"
-		| "jsonOutput"
-		| "jsonOutputSchema"
-		| "reasoning"
-		| "reasoningMaxTokens"
-		| "reasoningEfforts"
-		| "webSearch"
-	>
->;
-
-/**
- * A failed check is the endpoint disproving a claim the listing advertises,
- * so the listing drops to what it actually does rather than keeping a flag
- * routing would send matching traffic to. Only the listing's own capabilities
- * move: a run against a static catalogue mapping never rewrites the
- * catalogue. Active listings serve off their materialized mapping row, so the
- * demotion has to reach that too — and a capability still awaiting review
- * leaves the pending filing, or approving it would reinstate what the
- * endpoint just rejected.
- *
- * Returns the capabilities it actually dropped, so the run can tell the
- * carrier what the failure cost instead of leaving a toggle silently off.
- */
-async function demoteDisprovedCapabilities(
-	job: VerificationRow,
-	checks: ProviderModelVerificationCheck[],
-): Promise<ModelVerificationCapability[]> {
-	if (!job.draftModelId) {
-		return [];
-	}
-	const disproved = disprovedCapabilities(checks);
-	if (disproved.length === 0) {
-		return [];
-	}
-	const model = await db.query.providerDraftModel.findFirst({
-		where: { id: { eq: job.draftModelId } },
-	});
-	if (!model || model.status === "delisted") {
-		return [];
-	}
-	const filing = await db.query.providerPriceFiling.findFirst({
-		where: {
-			draftModelId: { eq: model.id },
-			status: { eq: "pending" },
-			kind: { eq: "metadata" },
-		},
-	});
-	const filedMetadata = filing?.metadata ?? null;
-	const droppedFromFiling = new Set<string>();
-	const updates: CapabilityDemotion = {};
-	const demoted: ModelVerificationCapability[] = [];
-	for (const capability of disproved) {
-		let dropped = false;
-		// A preflight of unsaved capabilities may have tested a shape the row
-		// never claimed (other effort tiers, other tool_choice modes); that
-		// failure disproves the proposal, not what the listing serves today.
-		if (model[capability] && testedTheRowsShape(job, model, capability)) {
-			updates[capability] = false;
-			dropped = true;
-		}
-		if (filedMetadata?.[capability]) {
-			droppedFromFiling.add(capability);
-			dropped = true;
-		}
-		if (dropped) {
-			demoted.push(capability);
-		}
-	}
-	// Effort tiers and a thinking budget mean nothing once reasoning itself
-	// fails, so they go with it rather than outliving their own capability.
-	if (updates.reasoning === false) {
-		if (model.reasoningMaxTokens) {
-			updates.reasoningMaxTokens = false;
-		}
-		if (model.reasoningEfforts?.length) {
-			updates.reasoningEfforts = null;
-		}
-	}
-	if (droppedFromFiling.has("reasoning")) {
-		droppedFromFiling.add("reasoningMaxTokens");
-		droppedFromFiling.add("reasoningEfforts");
-	}
-	const filed = filedMetadata
-		? (Object.fromEntries(
-				Object.entries(filedMetadata).filter(
-					([key]) => !droppedFromFiling.has(key),
-				),
-			) as AirsideModelMetadataChanges)
-		: null;
-	if (demoted.length === 0) {
-		return [];
-	}
-	// cdb: the gateway caches listing resolution off both tables.
-	await cdb.transaction(async (tx) => {
-		if (Object.keys(updates).length > 0) {
-			await tx
-				.update(tables.providerDraftModel)
-				.set(updates)
-				.where(eq(tables.providerDraftModel.id, model.id));
-			if (model.status === "active") {
-				await tx
-					.update(tables.modelProviderMapping)
-					.set(updates)
-					.where(
-						and(
-							eq(tables.modelProviderMapping.modelId, model.modelName),
-							eq(tables.modelProviderMapping.providerId, model.providerId),
-							eq(tables.modelProviderMapping.source, "airside"),
-						),
-					);
-			}
-		}
-		if (!filing || !filed) {
-			return;
-		}
-		// A filing left proposing nothing is withdrawn rather than sent to a
-		// reviewer as an empty change.
-		if (Object.keys(filed).length === 0) {
-			await tx
-				.delete(tables.providerPriceFiling)
-				.where(
-					and(
-						eq(tables.providerPriceFiling.id, filing.id),
-						eq(tables.providerPriceFiling.status, "pending"),
-					),
-				);
-			return;
-		}
-		await tx
-			.update(tables.providerPriceFiling)
-			.set({ metadata: filed })
-			.where(
-				and(
-					eq(tables.providerPriceFiling.id, filing.id),
-					eq(tables.providerPriceFiling.status, "pending"),
-				),
-			);
-	});
-	logger.info("Demoted an Airside listing after a failed verification", {
-		verificationId: job.id,
-		draftModelId: model.id,
-		providerId: model.providerId,
-		capabilities: demoted,
-	});
-	return demoted;
-}
-
-/**
- * Whether the failed check ran against the capability as the listing declares
- * it. The booleans always match — a check only exists because the target
- * carried the flag — so only the shapes a check reads can diverge.
- */
-function testedTheRowsShape(
-	job: VerificationRow,
-	model: typeof tables.providerDraftModel.$inferSelect,
-	capability: ModelVerificationCapability,
-): boolean {
-	if (capability === "reasoning") {
-		return sameList(job.target.reasoningEfforts, model.reasoningEfforts);
-	}
-	if (capability === "tools") {
-		return sameList(
-			job.target.supportedToolChoices,
-			model.supportedToolChoices,
-		);
-	}
-	return true;
-}
-
 function sameList(
 	a: readonly string[] | null | undefined,
 	b: readonly string[] | null | undefined,
@@ -497,6 +323,109 @@ async function narrowToolChoiceSupport(
 	});
 }
 
+/**
+ * An effort tier the reasoning check probed and the upstream refused, where
+ * another tier then worked. Reasoning itself is proven, so the listing keeps it
+ * and drops only the refused tiers. The gateway forwards an effort as-is, so
+ * this is what makes the tier list it publishes match what the deployment takes.
+ *
+ * The tiers come off whichever list the run was actually targeting: the row's,
+ * or a pending filing's when the carrier is proposing a different set. Removing
+ * them from the row alone would leave the filing able to reinstate a tier the
+ * endpoint just refused.
+ */
+async function narrowReasoningEfforts(
+	job: VerificationRow,
+	unsupported: ReasoningEffort[] | undefined,
+): Promise<void> {
+	if (!job.draftModelId || !unsupported?.length) {
+		return;
+	}
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: job.draftModelId } },
+	});
+	if (!model || model.status === "delisted" || !model.reasoning) {
+		return;
+	}
+	const filing = await db.query.providerPriceFiling.findFirst({
+		where: {
+			draftModelId: { eq: model.id },
+			status: { eq: "pending" },
+			kind: { eq: "metadata" },
+		},
+	});
+	const narrow = (
+		declared: readonly ReasoningEffort[] | null,
+	): ReasoningEffort[] | undefined => {
+		const from = declared ?? REASONING_EFFORTS;
+		const kept = from.filter((effort) => !unsupported.includes(effort));
+		// Nothing left to declare reads as "no restriction", the opposite of what
+		// the probes found — but every tier refused also fails the run, so the
+		// demotion owns that outcome.
+		return kept.length === from.length || kept.length === 0 ? undefined : kept;
+	};
+	const filedEfforts = filing?.metadata?.reasoningEfforts as
+		ReasoningEffort[] | null | undefined;
+	const rowEfforts = model.reasoningEfforts as ReasoningEffort[] | null;
+	// The run targeted the filed tiers when there are any, so they are the list
+	// the refusals speak about; the row's own list only moves when it is what
+	// was probed.
+	const filed = filedEfforts === undefined ? undefined : narrow(filedEfforts);
+	const reasoningEfforts =
+		filedEfforts === undefined || sameList(filedEfforts, rowEfforts)
+			? narrow(rowEfforts)
+			: undefined;
+	if (!reasoningEfforts && !filed) {
+		return;
+	}
+	// cdb: the gateway caches listing resolution off both tables.
+	await cdb.transaction(async (tx) => {
+		if (reasoningEfforts) {
+			await tx
+				.update(tables.providerDraftModel)
+				.set({ reasoningEfforts })
+				.where(eq(tables.providerDraftModel.id, model.id));
+			if (model.status === "active") {
+				await tx
+					.update(tables.modelProviderMapping)
+					.set({ reasoningEfforts })
+					.where(
+						and(
+							eq(tables.modelProviderMapping.modelId, model.modelName),
+							eq(tables.modelProviderMapping.providerId, model.providerId),
+							eq(tables.modelProviderMapping.source, "airside"),
+						),
+					);
+			}
+		}
+		if (!filing || !filed) {
+			return;
+		}
+		await tx
+			.update(tables.providerPriceFiling)
+			.set({
+				metadata: {
+					...filing.metadata,
+					reasoningEfforts: filed,
+				} as AirsideModelMetadataChanges,
+			})
+			.where(
+				and(
+					eq(tables.providerPriceFiling.id, filing.id),
+					eq(tables.providerPriceFiling.status, "pending"),
+				),
+			);
+	});
+	logger.info("Narrowed an Airside listing's reasoning effort tiers", {
+		verificationId: job.id,
+		draftModelId: model.id,
+		providerId: model.providerId,
+		unsupported,
+		reasoningEfforts,
+		filed,
+	});
+}
+
 export async function processNextModelVerification(
 	runner: VerificationRunner = runProviderModelVerification,
 ): Promise<boolean> {
@@ -554,15 +483,24 @@ export async function processNextModelVerification(
 			return true;
 		}
 		if (!result.passed) {
-			const demoted = await demoteDisprovedCapabilities(job, result.checks);
-			if (demoted.length > 0) {
-				await db
-					.update(tables.providerModelVerification)
-					.set({ demotedCapabilities: demoted })
-					.where(eq(tables.providerModelVerification.id, job.id));
-			}
+			// A failed check is the endpoint refusing a claim the listing
+			// advertises, but one refused request is not enough evidence to take a
+			// capability away: a transient upstream fault, a rate limit and a
+			// fixture the deployment happens to dislike all look the same from
+			// here. The failure is recorded and reported; the listing is left
+			// exactly as the carrier declared it, and acting on it is a human
+			// decision for now. `demotedCapabilities` and the automatic demotion it
+			// described are deliberately left unwritten rather than removed —
+			// demotion is expected back once a failure can be corroborated.
+			logger.info("An Airside verification disproved declared capabilities", {
+				verificationId: job.id,
+				draftModelId: job.draftModelId,
+				providerId: job.target.providerId,
+				capabilities: disprovedCapabilities(result.checks),
+			});
 		}
 		await narrowToolChoiceSupport(job, result.unsupportedToolChoices);
+		await narrowReasoningEfforts(job, result.unsupportedReasoningEfforts);
 	} catch (error) {
 		if (error instanceof StaleModelVerificationAttemptError) {
 			return true;

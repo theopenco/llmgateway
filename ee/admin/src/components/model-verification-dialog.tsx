@@ -35,11 +35,23 @@ export interface ModelVerification {
 		label: string;
 		status: "queued" | "running" | "passed" | "failed" | "skipped";
 		feedback?: string;
+		probes?: {
+			label: string;
+			status: "passed" | "failed";
+			feedback?: string;
+		}[];
 	}[];
 	summary: string | null;
 	createdAt: string;
 	startedAt: string | null;
 	completedAt: string | null;
+}
+
+export interface VerificationHistoryEntry extends ModelVerification {
+	initiatedBy: "carrier" | "admin";
+	credentialSource: "supplied" | "carrier" | "managed" | "environment";
+	actorName: string | null;
+	actorEmail: string | null;
 }
 
 export function VerificationStatusBadge({
@@ -77,6 +89,48 @@ export function VerificationStatusBadge({
 	);
 }
 
+type VerificationProbes = NonNullable<
+	ModelVerification["checks"][number]["probes"]
+>;
+
+/**
+ * The individual requests a check sent. Tool and reasoning checks walk a ladder
+ * of variants, so only this list shows which ones the deployment served.
+ */
+function VerificationProbeList({ probes }: { probes?: VerificationProbes }) {
+	if (!probes?.length) {
+		return null;
+	}
+	return (
+		<ul className="mt-1 space-y-0.5" data-testid="admin-verification-probes">
+			{probes.map((probe) => (
+				<li key={probe.label} className="flex items-start gap-1.5">
+					{probe.status === "passed" ? (
+						<CheckCircle2
+							className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500"
+							aria-hidden="true"
+						/>
+					) : (
+						<XCircle
+							className="mt-0.5 h-3 w-3 shrink-0 text-destructive"
+							aria-hidden="true"
+						/>
+					)}
+					<span className="min-w-0">
+						<span className="sr-only">
+							{probe.status === "passed" ? "Passed" : "Failed"}:{" "}
+						</span>
+						<span className="font-mono">{probe.label}</span>
+						{probe.feedback ? (
+							<span className="text-muted-foreground"> — {probe.feedback}</span>
+						) : null}
+					</span>
+				</li>
+			))}
+		</ul>
+	);
+}
+
 function VerificationResults({
 	verification,
 }: {
@@ -107,11 +161,12 @@ function VerificationResults({
 						) : (
 							<Clock3 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 						)}
-						<div>
+						<div className="min-w-0">
 							<p className="font-medium">{check.label}</p>
 							{check.feedback ? (
 								<p className="mt-0.5 text-muted-foreground">{check.feedback}</p>
 							) : null}
+							<VerificationProbeList probes={check.probes} />
 						</div>
 					</li>
 				))}
@@ -119,6 +174,65 @@ function VerificationResults({
 			{verification.summary ? (
 				<p className="text-xs text-muted-foreground">{verification.summary}</p>
 			) : null}
+		</div>
+	);
+}
+
+/** UTC, so every operator reads the same instant as the gateway's logs. */
+function formatRunTime(value: string): string {
+	const [date, time] = new Date(value).toISOString().split("T");
+	return `${date} ${time.slice(0, 5)} UTC`;
+}
+
+function actorLabel(entry: VerificationHistoryEntry): string {
+	const who = entry.actorName ?? entry.actorEmail;
+	const side = entry.initiatedBy === "admin" ? "Admin" : "Carrier";
+	return who ? `${side} · ${who}` : side;
+}
+
+/**
+ * Every past run for this mapping, so a capability that broke and was later
+ * fixed stays visible instead of being overwritten by the newest result.
+ */
+function VerificationHistory({
+	entries,
+	selectedId,
+	onSelect,
+}: {
+	entries: VerificationHistoryEntry[];
+	selectedId: string;
+	onSelect: (id: string) => void;
+}) {
+	if (entries.length === 0) {
+		return null;
+	}
+	return (
+		<div className="space-y-2" data-testid="admin-verification-history">
+			<p className="text-xs font-semibold text-muted-foreground">Run history</p>
+			<ul className="divide-y divide-border rounded-lg border border-border">
+				{entries.map((entry) => (
+					<li key={entry.id}>
+						<button
+							type="button"
+							onClick={() => onSelect(entry.id)}
+							aria-current={entry.id === selectedId}
+							className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-muted/50 ${
+								entry.id === selectedId ? "bg-muted/60" : ""
+							}`}
+						>
+							<span className="min-w-0">
+								<span className="block font-medium">
+									{formatRunTime(entry.createdAt)}
+								</span>
+								<span className="block truncate text-muted-foreground">
+									{actorLabel(entry)}
+								</span>
+							</span>
+							<VerificationStatusBadge verification={entry} />
+						</button>
+					</li>
+				))}
+			</ul>
 		</div>
 	);
 }
@@ -162,15 +276,44 @@ export function ModelVerificationDialog({
 	);
 	const polled = verificationQuery.data?.entry.verification;
 	const credentialSource = verificationQuery.data?.entry.credentialSource;
-	const verification = (polled ?? latest ?? null) as ModelVerification | null;
+	// Selecting an older run swaps the panel to it; only the newest run falls
+	// back to the row's cached result while its poll is in flight.
+	const verification = (polled ??
+		(verificationId === (latest?.id ?? "") ? latest : null) ??
+		null) as ModelVerification | null;
 	const inFlight =
 		verification?.status === "queued" || verification?.status === "running";
+
+	const historyQuery = api.useQuery(
+		"get",
+		"/admin/model-verifications/history",
+		{
+			params: {
+				query: {
+					...(mappingId ? { mappingId } : {}),
+					...(draftModelId ? { draftModelId } : {}),
+				},
+			},
+		},
+		{
+			enabled: open,
+			refetchInterval: (query) =>
+				query.state.data?.entries.some(
+					(entry) => entry.status === "queued" || entry.status === "running",
+				)
+					? 2_000
+					: false,
+		},
+	);
+	const history = (historyQuery.data?.entries ??
+		[]) as VerificationHistoryEntry[];
 
 	const queue = api.useMutation("post", "/admin/model-verifications", {
 		onSuccess: (data) => {
 			setVerificationId(data.entry.verification.id);
 			setApiKey("");
 			toast.success("Verification queued.");
+			void historyQuery.refetch();
 			onSettled?.();
 		},
 		onError: (error) => {
@@ -243,6 +386,11 @@ export function ModelVerificationDialog({
 							This mapping has not been verified yet.
 						</p>
 					)}
+					<VerificationHistory
+						entries={history}
+						selectedId={verificationId}
+						onSelect={setVerificationId}
+					/>
 				</div>
 				<DialogFooter>
 					<Button

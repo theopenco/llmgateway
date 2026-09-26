@@ -294,6 +294,10 @@ const ORGANIZATION_SETTINGS = [
 		label: "Notifications",
 	},
 	{
+		href: "org/routing",
+		label: "Smart Routing",
+	},
+	{
 		href: "org/audit-logs",
 		label: "Audit Logs",
 		enterpriseOnly: true,
@@ -705,16 +709,11 @@ function OrganizationSection({
 					>
 						<SidebarMenuButton
 							asChild
-							isActive={
-								isActive("org/billing") ||
-								isActive("org/transactions") ||
-								isActive("org/referrals") ||
-								isActive("org/limits") ||
-								isActive("org/policies") ||
-								isActive("org/preferences") ||
-								isActive("org/notifications") ||
-								isActive("org/audit-logs")
-							}
+							// Derived from the list rather than repeated, so a new
+							// settings page cannot leave the parent unhighlighted.
+							isActive={ORGANIZATION_SETTINGS.some((item) =>
+								isActive(item.href),
+							)}
 							tooltip="Settings"
 						>
 							<Link

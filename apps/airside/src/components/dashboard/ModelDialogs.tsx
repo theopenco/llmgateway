@@ -168,11 +168,47 @@ const CAPABILITIES = [
 	{ key: "webSearch", label: "Web search" },
 ] as const;
 
-const CAPABILITY_LABELS = new Map<string, string>(
-	CAPABILITIES.map((capability) => [capability.key, capability.label]),
-);
-
 type Verification = NonNullable<AirsideModel["latestVerification"]>;
+type VerificationProbe = NonNullable<Verification["checks"][number]["probes"]>;
+
+/**
+ * The individual requests a check sent. A tool or reasoning check walks a
+ * ladder of variants, so the list is what tells a carrier which ones the
+ * deployment served and which it refused.
+ */
+function VerificationProbes({ probes }: { probes?: VerificationProbe }) {
+	if (!probes?.length) {
+		return null;
+	}
+	return (
+		<ul className="mt-1 space-y-0.5" data-testid="verification-probes">
+			{probes.map((probe) => (
+				<li key={probe.label} className="flex items-start gap-1.5">
+					{probe.status === "passed" ? (
+						<CheckCircle2
+							className="text-signal mt-0.5 size-3 shrink-0"
+							aria-hidden="true"
+						/>
+					) : (
+						<XCircle
+							className="text-destructive mt-0.5 size-3 shrink-0"
+							aria-hidden="true"
+						/>
+					)}
+					<span className="min-w-0">
+						<span className="sr-only">
+							{probe.status === "passed" ? "Passed" : "Failed"}:{" "}
+						</span>
+						<span className="font-mono">{probe.label}</span>
+						{probe.feedback ? (
+							<span className="text-muted-foreground"> — {probe.feedback}</span>
+						) : null}
+					</span>
+				</li>
+			))}
+		</ul>
+	);
+}
 
 function VerificationResults({ verification }: { verification: Verification }) {
 	const statusLabel =
@@ -210,11 +246,12 @@ function VerificationResults({ verification }: { verification: Verification }) {
 						) : (
 							<Clock3 className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
 						)}
-						<div>
+						<div className="min-w-0">
 							<p className="font-medium">{check.label}</p>
 							{check.feedback ? (
 								<p className="text-muted-foreground mt-0.5">{check.feedback}</p>
 							) : null}
+							<VerificationProbes probes={check.probes} />
 						</div>
 					</li>
 				))}
@@ -222,21 +259,89 @@ function VerificationResults({ verification }: { verification: Verification }) {
 			{verification.summary ? (
 				<p className="text-muted-foreground text-xs">{verification.summary}</p>
 			) : null}
-			{verification.demotedCapabilities?.length ? (
+			{verification.status === "failed" ? (
 				<p
-					className="text-destructive text-xs"
-					data-testid="verification-demoted"
+					className="text-muted-foreground text-xs"
+					data-testid="verification-unchanged"
 				>
-					Dropped from this listing:{" "}
-					{verification.demotedCapabilities
-						.map(
-							(capability) => CAPABILITY_LABELS.get(capability) ?? capability,
-						)
-						.join(", ")}
-					. Fix the endpoint, switch the capability back on, and verify again —
-					until then it is not checked and not routed to.
+					This run left the listing unchanged. Fix the endpoint and verify
+					again, or switch the capability off yourself if it is not something
+					this deployment does.
 				</p>
 			) : null}
+		</div>
+	);
+}
+
+interface VerificationHistoryEntry extends Verification {
+	initiatedBy: "carrier" | "admin";
+	actorName: string | null;
+}
+
+/** UTC, so a run reads the same for every crew member's time zone. */
+function formatRunTime(value: string): string {
+	const [date, time] = new Date(value).toISOString().split("T");
+	return `${date} ${time.slice(0, 5)} UTC`;
+}
+
+/**
+ * Past preflights for one listing, so a capability that broke and was later
+ * fixed stays on the record instead of being replaced by the newest run.
+ * Runs we started show as "LLM Gateway" — the crew sees which side ran it.
+ */
+function VerificationHistory({
+	entries,
+	selectedId,
+	onSelect,
+}: {
+	entries: VerificationHistoryEntry[];
+	selectedId: string;
+	onSelect: (id: string) => void;
+}) {
+	if (entries.length === 0) {
+		return null;
+	}
+	return (
+		<div className="space-y-2" data-testid="verification-history">
+			<p className="text-muted-foreground text-xs font-semibold">Run history</p>
+			<ul className="divide-border border-border divide-y rounded-lg border">
+				{entries.map((entry) => {
+					const passed = entry.checks.filter(
+						(check) => check.status === "passed",
+					).length;
+					return (
+						<li key={entry.id}>
+							<button
+								type="button"
+								onClick={() => onSelect(entry.id)}
+								aria-current={entry.id === selectedId}
+								className={`hover:bg-muted/50 flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs ${
+									entry.id === selectedId ? "bg-muted/60" : ""
+								}`}
+							>
+								<span className="min-w-0">
+									<span className="block font-medium">
+										{formatRunTime(entry.createdAt)}
+									</span>
+									<span className="text-muted-foreground block truncate">
+										{entry.initiatedBy === "admin"
+											? "LLM Gateway"
+											: (entry.actorName ?? "Crew")}
+									</span>
+								</span>
+								<span className="flex shrink-0 items-center gap-2">
+									<span className="text-muted-foreground">
+										{passed}/{entry.checks.length}
+									</span>
+									<span className="font-mono text-[0.65rem] tracking-wider uppercase">
+										{entry.status}
+									</span>
+								</span>
+							</button>
+						</li>
+					);
+				})}
+			</ul>
 		</div>
 	);
 }
@@ -1203,6 +1308,22 @@ export function VerifyModelDialog({
 		},
 	);
 	const verification = verificationQuery.data?.verification;
+	const historyQuery = api.useQuery(
+		"get",
+		"/airside/models/{id}/verifications",
+		{ params: { path: { id: model.id }, query: {} } },
+		{
+			enabled: open,
+			refetchInterval: (query) =>
+				query.state.data?.verifications.some(
+					(entry) => entry.status === "queued" || entry.status === "running",
+				)
+					? 2_000
+					: false,
+		},
+	);
+	const history = (historyQuery.data?.verifications ??
+		[]) as VerificationHistoryEntry[];
 	const queueVerification = api.useMutation(
 		"post",
 		"/airside/models/{id}/verifications",
@@ -1211,6 +1332,7 @@ export function VerifyModelDialog({
 				setVerificationId(data.verification.id);
 				setApiKey("");
 				await invalidate();
+				void historyQuery.refetch();
 				toast.success("Mapping verification queued.");
 			},
 			onError: (error) => {
@@ -1242,8 +1364,8 @@ export function VerifyModelDialog({
 					</DialogTitle>
 					<DialogDescription>
 						Run the declared capabilities against the upstream model. Checks run
-						in the background, and a failed one drops the capability it
-						disproved from the listing.
+						in the background and report what your endpoint answered; the
+						listing itself is left as you declared it.
 						{model.pendingFiling?.kind === "metadata"
 							? " Capabilities awaiting review are included, so a filed change is verified before it goes live."
 							: ""}
@@ -1272,9 +1394,15 @@ export function VerifyModelDialog({
 					</div>
 					{verification ? (
 						<VerificationResults verification={verification} />
-					) : model.latestVerification ? (
+					) : verificationId === (model.latestVerification?.id ?? "") &&
+					  model.latestVerification ? (
 						<VerificationResults verification={model.latestVerification} />
 					) : null}
+					<VerificationHistory
+						entries={history}
+						selectedId={verificationId}
+						onSelect={setVerificationId}
+					/>
 				</div>
 				<DialogFooter>
 					<Button
@@ -1760,7 +1888,8 @@ export function EditModelDialog({
 						/>
 						<p className="text-muted-foreground text-xs">
 							Runs the capabilities selected above against your endpoint before
-							you file them. A failed check drops the capability it disproved.{" "}
+							you file them. A failed check reports what the endpoint refused;
+							it does not change the capability.{" "}
 							<VerificationKeyHint savedKey={savedVerificationKey} />
 						</p>
 						<Button

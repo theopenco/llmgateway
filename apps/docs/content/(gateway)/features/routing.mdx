@@ -1,0 +1,727 @@
+---
+title: Routing
+description: Learn how LLMGateway intelligently routes your requests to the best available models and providers.
+icon: Route
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+LLMGateway provides flexible and intelligent routing options to help you get the best performance and cost efficiency from your AI applications. Whether you want to use specific models, providers, or let our system automatically optimize your requests, we've got you covered.
+
+LLMGateway also includes **automatic retry and fallback** — if a provider fails, your request is seamlessly retried on the next best provider, all within the same API call.
+
+## Global Provider Rate Limits
+
+Administrators can set a global RPM or RPD limit to `0` to block matching
+provider/model requests, with either **Global** or **Per-organization**
+enforcement. Remove the limit or set a positive value to resume traffic; changes
+propagate through the rate-limit cache (default 60 seconds).
+
+Existing precedence still applies: organization-specific limits and more specific
+global provider/model limits can override a provider-wide limit for the same
+window. Routing can fall back to another available provider. If a zero-limited
+provider remains selected, the request returns `429` without calling it, even
+when every candidate is rate-limited. No configured limit still means unlimited;
+other rate-limit settings retain their existing behavior.
+
+## Model Selection
+
+### Any Model Name
+
+You can use any model name from our [models page](https://llmgateway.io/models) or discover available models programmatically through the [/v1/models endpoint](/v1_models).
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+### Model ID Routing
+
+Choose a specific model ID to route to the **best available provider** for that model. LLMGateway's smart routing algorithm considers multiple factors to find the optimal provider across all configured options.
+
+#### Smart Routing Algorithm
+
+When you use a model ID without a provider prefix, LLMGateway's intelligent routing system analyzes multiple factors to select the best provider.
+
+**Weighted Scoring System**:
+
+Each factor has a **relative weight**. The factors are scored as ratios against the best provider in the candidate set (e.g. a provider that is twice as expensive as the cheapest scores `1.0` on price), and each ratio is multiplied by its weight divided by the sum of all active weights. The provider with the lowest (best) total score wins.
+
+The default weights are:
+
+| Factor          | Default weight | Notes                                                                             |
+| --------------- | -------------- | --------------------------------------------------------------------------------- |
+| **Price**       | `0.6`          | Token cost for the expected input/output mix, including cache reads when relevant |
+| **Uptime**      | `0.5`          | Provider reliability / low error rate                                             |
+| **Throughput**  | `0.05`         | Tokens per second generation speed                                                |
+| **Latency**     | `0.025`        | Time to first token — **only applied for streaming requests**                     |
+| **Cache**       | `0`            | Optional cache-support preference; cache-read savings already count toward price  |
+| **Image price** | `1.0`          | Replaces the price weight for image-generation models                             |
+
+Because the weights are relative and normalized by the sum of the active weights, price and uptime dominate routing decisions in practice, while throughput and latency act as tie-breakers between otherwise comparable providers.
+
+**Latency Weight for Non-Streaming Requests**:
+
+The latency weight only applies to streaming requests (time-to-first-token is only measured there). For non-streaming requests the latency weight is dropped and its share is redistributed proportionally across the remaining factors.
+
+**Time-Decayed Metrics Window**:
+
+Provider metrics (uptime, throughput, latency) are not a flat "last N minutes" snapshot. They are aggregated over a rolling **60-minute window** with a time-decay weighting so very recent behavior dominates while older data still contributes:
+
+- The most recent **1 minute** is weighted **10×**
+- The most recent **5 minutes** are weighted **3×**
+- The remainder of the 60-minute window is weighted **1×**
+
+This makes routing react quickly to a provider that just started failing or slowing down, without overreacting to a single noisy data point.
+
+**Prompt Caching and Token Costs**:
+
+For estimated prompts of at least **5,000 tokens**, or when choosing a session's provider, routing blends each provider's uncached and cached input prices and weights output by the expected output:input token ratio. Coding sessions that mostly reuse prompt tokens can therefore favor a provider with cheaper cache reads even when its uncached input price is higher. Providers without a cached input price use their full input price.
+
+These estimates use the project's **last 24 hours of model usage**, once it includes at least **20 successful requests and 20,000 input tokens**:
+
+- **Cache-hit rate** is cached input tokens divided by total input tokens. Each provider uses its own rate, counted across all of its regions, once it meets the same sample thresholds; otherwise it uses the project's combined rate for that model.
+- **Output:input ratio** uses the project's combined output and input tokens for that model across providers.
+
+Routing caches the usage lookup for 60 seconds. It reads hourly aggregates, which work with payload retention disabled. Hourly buckets containing gateway response-cache hits are excluded because they cannot isolate upstream usage, so projects with response caching enabled may keep using the defaults. During lookup failures, routing uses previously cached observations when available, then falls back to configured estimates. These are workload estimates, not guarantees that a particular prompt will hit a provider's cache.
+
+Without enough history, routing uses these initial workload estimates:
+
+| Workload                              | Cached input | Output:input ratio |
+| ------------------------------------- | ------------ | ------------------ |
+| General API / unknown                 | 10%          | 20%                |
+| DevPass or a recognized coding client | 90%          | 2%                 |
+| Chat organization                     | 50%          | 10%                |
+
+Recognized coding clients use the coding defaults even on regular API projects. A session id alone does not identify coding traffic. These are starting assumptions; sufficient project/model observations replace them. The dashboard reports organization defaults, while recognized coding requests use the coding profile at request time.
+
+Explicit Enterprise overrides for `thresholds.cacheHitRate` and `thresholds.cacheOutputRatio` take precedence over both workload defaults and observations. Setting them to `0` and `1`, respectively, restores list-price ranking.
+
+Both `auto` and `price` routing use these token-cost estimates. The separate **cache weight** defaults to `0`, so cache support alone does not outweigh lower estimated costs. Enterprise projects can explicitly enable that additional preference under `auto`; `price` routing always sets it to zero. Cache support appears as `cacheSupported` in routing metadata.
+
+When choosing a [session's provider](#sticky-session-routing), routing applies the workload estimate even to a short opening prompt, using observations when available and workload defaults otherwise. This estimates the session's token mix; the opening request may still incur cache misses. Small requests outside a session weight input and output prices equally and omit the cache weight.
+
+**Exponential Uptime Penalty**:
+
+Providers with uptime below 95% receive an additional exponential penalty that increases rapidly as uptime drops:
+
+- 95-100% uptime: No penalty
+- 90% uptime: ~0.07 penalty
+- 80% uptime: ~0.62 penalty
+- 70% uptime: ~1.73 penalty
+- 50% uptime: ~5.61 penalty
+
+This ensures providers experiencing significant issues are strongly deprioritized while minor fluctuations have minimal impact. The penalty threshold (default `95%`) is configurable.
+
+**Provider Priority**:
+
+Each provider has a **priority** value (default `1`) that nudges routing toward or away from it independently of live metrics:
+
+- A provider's priority is applied as a `(1 - priority)` adjustment to its score — higher priority lowers the score (more preferred), lower priority raises it (less preferred).
+- A priority of **0** disables the provider entirely, removing it from routing for that model.
+
+Provider priorities are surfaced in the routing metadata so you can see how they influenced a decision.
+
+**Epsilon-Greedy Exploration** (1% of requests by default):
+
+To solve the "cold start problem" where new or unused providers never get traffic to build up metrics, the system randomly explores different providers a small fraction of the time (default 1%, configurable). This ensures:
+
+- All providers periodically receive traffic
+- New providers can prove their reliability
+- The system adapts to changing provider performance
+- You benefit from improved routing decisions over time
+
+The exploration rate is configurable per project through the routing configuration (`thresholds.explorationRate`), and self-hosted deployments can override it globally with the `EXPLORATION_RATE` environment variable (a number between `0` and `1`).
+
+**Stable Provider Preference**:
+
+To avoid unnecessary churn between providers that score similarly, LLMGateway remembers the best provider chosen for each model and sticks with it across requests — even if another provider edges ahead slightly on the next score calculation.
+
+On every routing decision, the system checks whether the previously selected provider is still acceptable:
+
+- **Uptime hard switch**: if the preferred provider's uptime drops below **85%**, routing switches to the current best-scoring provider immediately.
+- **Score margin soft switch**: the preferred provider is replaced only when a better option's score is more than **0.15** ahead. Small fluctuations caused by metric noise or minor price differences do not trigger a switch.
+- **Periodic re-evaluation**: the preference expires after **1 hour**, at which point the next request picks the best-scoring provider fresh and stores it as the new preferred.
+
+Requests that are part of the epsilon-greedy exploration bypass this preference entirely so that all providers continue to receive periodic traffic and build up metrics.
+
+The selection reason in routing metadata will show `stable-preferred` when a request was served by the stored preference rather than the top-scored provider at that moment.
+
+<Callout type="info">
+	Self-hosted deployments can tune this behavior with three environment
+	variables: `PREFERRED_PROVIDER_TTL` (preference lifetime in seconds, default
+	`3600`), `PREFERRED_PROVIDER_UPTIME_THRESHOLD` (hard-switch uptime floor,
+	default `85`), and `PREFERRED_PROVIDER_SCORE_MARGIN` (soft-switch score gap,
+	default `0.15`). On the **Enterprise plan**, these same values can be
+	customized per project from the dashboard — see [Per-Project Routing
+	Configuration](#per-project-routing-configuration-enterprise).
+</Callout>
+
+**Routing Metadata**:
+
+Every request includes detailed routing metadata in the logs, showing:
+
+- Available providers that were considered
+- Selected provider and selection reason
+- Scores for each provider (including uptime, throughput, latency, price, priority, and cache support)
+
+This transparency allows you to understand and debug routing decisions.
+
+<Callout type="info">
+	Using model IDs without a provider prefix automatically routes to the optimal
+	provider based on reliability, speed, and cost. The system continuously learns
+	and adapts based on real-time performance metrics.
+</Callout>
+
+<Callout type="success">
+	Smart routing prioritizes reliability over cost, ensuring your requests are
+	routed to providers with proven uptime and performance, while still
+	considering cost efficiency.
+</Callout>
+
+### Routing Strategy
+
+By default, model-ID routing uses the full weighted score described above (`routing: "auto"`). When you care about a single dimension, set the `routing` field — named after the factor it optimizes — to bias provider selection toward it:
+
+| Strategy           | Behavior                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------------------ |
+| `auto` _(default)_ | Full weighted smart-routing score (price, uptime, throughput, latency, cache).             |
+| `price`            | Gives price a **90% relative weight**, including estimated cache-read costs when relevant. |
+| `throughput`       | Gives throughput a **90% relative weight**, so the fastest-generating provider wins.       |
+| `latency`          | Gives latency a **90% relative weight**, so the lowest time-to-first-token wins.           |
+
+Each non-`auto` strategy keeps a small (10%) uptime weight, and the [exponential uptime penalty](#smart-routing-algorithm) still applies on top. This means the dominant pick is still skipped in favor of another provider when it has extremely bad uptime — you get the cheapest (or fastest) provider that is actually healthy, not one that is effectively down.
+
+Because time-to-first-token is only measured for streaming requests, `routing: "latency"` only biases streaming requests; for non-streaming requests it falls back to selecting on uptime.
+
+```bash
+# Always pick the cheapest healthy provider for this model
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-v3.2",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "routing": "price"
+  }'
+```
+
+```bash
+# Always pick the highest-throughput healthy provider for this model
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-v3.2",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "routing": "throughput"
+  }'
+```
+
+<Callout type="info">
+	The `routing` field only applies to model-id routing. Combining it with a
+	specific provider (e.g. `openai/gpt-4o`) returns a `400` error, since the
+	strategy can't influence a pinned provider — remove the provider prefix to use
+	a strategy. On **coding (dev) plans**, only `auto` and `price` are allowed;
+	the other strategies return a `400` error because they would bypass the
+	prompt-cache–aware routing those plans depend on.
+</Callout>
+
+### Sticky Session Routing
+
+When a model is served by multiple providers, every request is normally scored independently — so a multi-turn conversation can bounce between providers. That defeats provider-side **prompt caching**, which only pays off when consecutive requests with a shared prefix hit the **same** provider.
+
+Sticky session routing solves this: attach a session identifier and LLMGateway pins all requests for that session to a single provider (and region), keeping the upstream prompt cache warm across the whole conversation.
+
+#### Setting the session id
+
+For chat completions, the session key is resolved in priority order:
+
+1. The `x-session-id` header
+2. The `x-session-affinity` header (sent automatically by coding agents such as opencode)
+3. The `session_id` or `session-id` header
+4. The `prompt_cache_key` body field (OpenAI-compatible)
+5. The `user` body field (OpenAI-compatible)
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "x-session-id: conversation-9f8e7d6c" \
+  -d '{
+    "model": "claude-sonnet-4-6",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+For the Anthropic Messages endpoint (`/v1/messages`), the session key is derived automatically from `metadata.user_id` — coding agents such as Claude Code embed the session id there — and forwarded internally. An explicit `x-session-id` header still takes precedence.
+
+#### How pinning works
+
+On a session's **first** request the provider is chosen by the normal weighted smart-routing score — the same price-, priority-, uptime-, and throughput-aware algorithm used for non-sticky requests. That choice is then **persisted for the session** and reused on every subsequent request, so the upstream prompt cache stays warm without bouncing the conversation between providers.
+
+The first selection uses the expected cache-hit rate and output/input mix even if the opening prompt is short. Routing uses observed project/model usage when sufficiently sampled, otherwise the workload defaults above. New usage observations affect future provider selections; a healthy existing pin stays in place as described below.
+
+Because the pinned provider is replayed directly, sticky requests **skip the epsilon-greedy exploration** — a session is never randomly bounced to a different provider mid-conversation.
+
+Request compatibility takes precedence over the saved pin. The gateway first filters mappings for requirements such as input modalities, service tiers, regions, and a non-`auto` `tool_choice`, then looks for the pinned provider in that eligible set. If the pinned mapping cannot honor the request but another mapping can, the session moves to the capable mapping and the pin is updated. For a fixed model or dynamic route where **no** mapping can honor `tool_choice`, the gateway preserves availability instead: it keeps the mappings, downgrades `tool_choice` to `auto`, and sticky routing may retain the existing pin. Automatic model selection does not use that fallback because it can choose a capable model instead.
+
+#### Falling back when a provider is down
+
+An established pin yields only when its provider can no longer serve the session well. A session is re-scored and re-pinned to the current weighted-best provider when its provider:
+
+- Drops below the session uptime threshold (default 85%), except for Gemini sessions whose signatures require provider affinity, or
+- Is filtered out of the candidate set (health or compatibility filtering).
+
+Sticky requests never enter the cross-provider [automatic retry & fallback](#automatic-retry--fallback) loop — a transient failure is retried against the pinned provider only, on another configured key when several exist, or on the same platform key when only one is configured. The failure still degrades that provider's uptime metrics, which is what triggers re-pinning on a subsequent request once the uptime threshold is crossed.
+
+Re-pinning runs the same weighted algorithm again, so the replacement is the best currently available provider — not an arbitrary one.
+
+Gemini sessions keep their eligible provider through uptime dips because thought signatures cannot be replayed across Google API providers. If a pin expires or the provider becomes ineligible, moving a conversation with its old signatures can produce `Corrupted thought signature` or `Invalid thought signature`. On the pay-as-you-go API, keep a Gemini conversation on one provider with a provider-prefixed model and `X-No-Fallback: true` from its first request. For an affected conversation, resume with the provider that issued its signatures or start a new conversation. See&nbsp;[reasoning replay](/features/reasoning#gemini-thought-signatures).
+
+The selection reason in routing metadata shows `session-sticky` when a request was pinned via a session id.
+
+<Callout type="info">
+	Sticky routing optimizes for cache locality over per-request churn. Once a
+	session is pinned it stays on its provider even if a cheaper or faster
+	alternative becomes momentarily available, since the prompt-cache savings
+	typically outweigh the difference — but the initial pick still respects price
+	and priority. Requests without a session id are unaffected and continue to use
+	the weighted smart-routing algorithm.
+</Callout>
+
+### Provider-Specific Routing
+
+To use a specific provider without any fallbacks, prefix the model name with the provider name followed by a slash:
+
+```bash
+# Use OpenAI specifically
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openai/gpt-4o",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+
+# Use DeepSeek provider specifically
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek/deepseek-v3.2",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+<Callout type="info">
+	Provider-specific routing is not available on **DevPass coding plans** —
+	provider-prefixed model ids (and custom provider routing) return a `403`
+	there. DevPass always uses the prompt-cache–aware smart routing above with
+	plain model ids. Provider pinning requires the pay-as-you-go API. See
+	[Provider routing on
+	DevPass](/learn/model-categories#provider-routing-on-devpass).
+</Callout>
+
+#### Regions
+
+Some providers expose the same model in multiple regions. In that case, LLMGateway supports two routing modes:
+
+- `provider/model` selects the best eligible region for that provider using the same routing inputs used elsewhere: recent uptime, throughput, latency, and price
+- `provider/model:region` pins the request to one exact region
+
+```bash
+# Let LLMGateway choose the best Alibaba region for DeepSeek V3.2
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "alibaba/deepseek-v3.2",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+
+# Force a specific Alibaba region
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "alibaba/deepseek-v3.2:cn-beijing",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+If your provider key stores an explicit region, that region acts like a lock and LLMGateway will only use that region for provider-specific requests. If no explicit region is configured on the provider key, provider-specific requests can still score all eligible regions for that provider.
+
+Routing metadata reflects this:
+
+- Dynamic provider-region selection shows all eligible regional scores that were considered
+- Explicitly pinned regions show only the pinned region in the score list
+
+<Callout type="info">
+	Region-aware routing only compares regions that are actually available for the
+	current project mode and provider setup. In credits mode, that means only
+	regions backed by configured environment keys. In API keys and hybrid mode, an
+	explicit provider-key region restricts the request to that region.
+</Callout>
+
+A few regions are served by an endpoint that belongs to your own account rather
+than a shared one — Alibaba Cloud's EU (Frankfurt) region has no shared
+DashScope domain and is served by your Model Studio workspace's dedicated host.
+Such a region still works from an API key alone, via the provider's shared entry
+point, but that endpoint is rate-limited and carries no SLA. Set the workspace
+ID on the provider key (copy it from the API Host shown when you create the key)
+to route through your own endpoint instead.
+
+#### Low-Uptime Protection
+
+When you specify a provider explicitly, LLMGateway checks the provider's recent uptime (from the time-decayed metrics window described above). If the uptime falls below 90%, the system automatically routes your request to the best available alternative provider to ensure reliability. This protects your application from providers experiencing temporary issues. The fallback threshold (default `90%`) is configurable.
+
+<Callout type="info">
+	If the requested provider has low uptime but no alternative providers are
+	available for that model, the request will still be sent to the originally
+	requested provider.
+</Callout>
+
+#### Disabling Fallback with X-No-Fallback Header
+
+If you need to bypass this protection and always use the exact provider you specified regardless of its current uptime, you can use the `X-No-Fallback` header:
+
+```bash
+# Force use of a specific provider even if it has low uptime
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "X-No-Fallback: true" \
+  -d '{
+    "model": "openai/gpt-4o",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+<Callout type="warn">
+	Using `X-No-Fallback: true` disables automatic provider failover. Your
+	requests will be sent to the specified provider even if it is experiencing
+	issues, which may result in higher error rates. Retries may still occur
+	against another key for the same provider when multiple keys are configured.
+</Callout>
+
+When the `X-No-Fallback` header is used, the routing metadata in logs will include `noFallback: true` to indicate that fallback was disabled for that request.
+
+## Automatic Retry & Fallback
+
+When using model ID routing (without a provider prefix), LLMGateway automatically retries failed requests on alternate providers. This happens transparently within the same API call — your application receives the successful response as if nothing went wrong.
+
+### How Retry Works
+
+1. Your request is routed to the best available provider using the smart routing algorithm
+2. If that provider fails with a retryable error (see [What Triggers a Retry](#what-triggers-a-retry) below), the gateway marks the provider as failed
+3. The next best available provider is selected and the request is retried
+4. Up to **2 retries** by default (configurable per project via the routing configuration) are attempted before returning an error to the client
+
+```
+Request → Provider A (500 error) → Provider B (200 OK) → Response
+```
+
+Both streaming and non-streaming requests support automatic retry.
+
+### What Triggers a Retry
+
+Retries are triggered by failures classified as **provider-side or gateway-side problems**:
+
+- **5xx errors** (500 Internal Server Error, 502 Bad Gateway, 503 Service Unavailable, etc.)
+- **Timeouts** (upstream provider took too long to respond)
+- **Connection failures** (network errors, DNS failures, etc.)
+- **Upstream rate limits** (a `429` from the provider)
+- **Provider account and mapping problems** — an upstream `401`/`403` (bad provider credentials), `402` (provider account out of funds), `404`/`405` (model or endpoint mapping gap), and a few specific `400` bodies that indicate the same kinds of gateway-side problems
+
+Retries are **not** triggered by:
+
+- **4xx client errors** — a request that is genuinely invalid (validation errors, unsupported parameters) fails the same way everywhere, so it is passed through with its original status instead of retried
+- **Content filter responses** (Azure ResponsibleAI, etc.)
+
+### When Retry Is Disabled
+
+Automatic retry to a different provider is disabled when:
+
+- The `X-No-Fallback: true` header is set
+- A specific provider is requested (e.g., `openai/gpt-4o`)
+- The request carries a session id and [sticky session routing](#sticky-session-routing) is enabled — the session stays pinned to its provider
+- No alternative providers are available for the requested model
+- The maximum retry count (default 2) has been exhausted
+
+Retries can still happen within the same provider when multiple keys are
+configured and the current key fails with a retryable error.
+
+### Routing Transparency
+
+Every provider attempt — both failed and successful — is recorded in the `routing` array in the response metadata (streaming and non-streaming alike) and activity logs:
+
+```json
+{
+	"metadata": {
+		"routing": [
+			{
+				"provider": "openai",
+				"model": "gpt-4o",
+				"status_code": 500,
+				"error_type": "server_error",
+				"succeeded": false,
+				"credentialSource": "byok",
+				"apiKeyHash": "f029ee9",
+				"providerKeyId": "pk_2f9a...",
+				"providerKeyLabel": "billing-team-key"
+			},
+			{
+				"provider": "azure",
+				"model": "gpt-4o",
+				"status_code": 200,
+				"error_type": "none",
+				"succeeded": true,
+				"credentialSource": "platform",
+				"apiKeyHash": "ecb88d5"
+			}
+		]
+	}
+}
+```
+
+#### Whose key served each attempt
+
+`credentialSource` says who owns the provider credential an attempt was sent with:
+
+| Value      | Meaning                                                                                                   |
+| ---------- | --------------------------------------------------------------------------------------------------------- |
+| `byok`     | Your own provider key. The provider bills you directly and the attempt is not deducted from your credits. |
+| `platform` | An LLM Gateway credential. The attempt runs on credits and is deducted from your balance.                 |
+
+This matters most in **hybrid** mode, where a request that fails on your own key falls back to LLM Gateway's credential: both attempts appear in the same `routing` array, and only `credentialSource` tells them apart — `apiKeyHash` is an opaque fingerprint that says two attempts used different keys, not which key was yours. The same value is stored on the log as `routingMetadata.usedCredentialSource` for the credential that ultimately served the request, and is shown as a **your key** / **LLM Gateway key** badge in the dashboard's routing view.
+
+#### Which of your keys ran
+
+A `byok` attempt also carries the key itself: `providerKeyId`, and `providerKeyLabel` — the key as it is named on your [provider keys](https://llmgateway.io/dashboard) page (its name, or its masked token when it has none). So when several of your keys are configured for a provider and the gateway rotates between them, each attempt says which one it used instead of leaving you to decode a fingerprint.
+
+Chat requests additionally record `routingMetadata.eligibleProviderKeys` on the log: your keys that were candidates for the provider that served the request, in selection order. It is omitted for credits-mode projects, which route on LLM Gateway credentials, and for custom providers, whose keys are scoped by their own catalogue.
+
+<Callout type="info">
+	These fields describe **your** keys only. LLM Gateway's own credentials — the
+	ones that serve credits-mode traffic — are never named: a `platform` attempt
+	still reports `credentialSource` and `apiKeyHash`, but never `providerKeyId`
+	or `providerKeyLabel`.
+</Callout>
+
+### Retried Log Tracking
+
+Each provider attempt creates its own log entry. Failed attempts that were retried are marked with:
+
+- **`retried: true`** — indicates this failed request was retried on another provider
+- **`retriedByLogId`** — the ID of the final successful log entry
+
+This allows you to distinguish between unrecovered failures and failures that were transparently recovered via retry. In the dashboard, retried logs display a "Retried" badge with a link to the successful log.
+
+### Impact on Provider Health
+
+Failed attempts still count against the provider's uptime score, even when the request was successfully retried on another provider. This means:
+
+- A provider that keeps failing will see its uptime score drop
+- Only gateway and upstream errors count: requests rejected as client errors (invalid request bodies, unsupported parameters) are excluded from both the error count and the request total, so your own bad requests never mark a provider as down
+- The exponential uptime penalty kicks in below 95% (see [Smart Routing Algorithm](#smart-routing-algorithm))
+- Future requests are automatically routed away from unreliable providers
+- Your application stays reliable without any code changes on your side
+
+<Callout type="success">
+	Automatic retry and fallback works together with smart routing to provide
+	self-healing behavior. Failing providers are automatically avoided, and your
+	requests are transparently recovered on reliable alternatives.
+</Callout>
+
+## Per-Project Routing Configuration (Enterprise)
+
+All plans use observed token usage for cache pricing when sufficient history exists. On the **Enterprise plan**, you can override the settings listed below **per project** from the dashboard under **Project Settings → Routing**, including explicit cache-pricing assumptions. The 24-hour usage window and minimum sample requirements are fixed; the **History** settings control uptime, throughput, and latency metrics.
+
+Overrides are merged on top of the defaults, so you only set the values you want to change. When a custom configuration is disabled, the project falls back to the defaults.
+
+The following groups can be customized per project:
+
+| Group                   | What it controls                                                                                                                                                                     | Defaults                                                                                                                                                                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Weights**             | Relative importance of each scoring factor                                                                                                                                           | `price 0.6`, `imagePrice 1.0`, `uptime 0.5`, `throughput 0.05`, `latency 0.025`, `cache 0`                                                                                                                                         |
+| **Thresholds**          | Cache prompt size and pricing overrides, uptime-penalty threshold, exploration rate, and fallback metrics                                                                            | `cachePromptTokens 5000`, `cacheHitRate 0.1`, `cacheOutputRatio 0.2` (coding: `0.9` / `0.02`; Chat: `0.5` / `0.1`), `uptimePenalty 95`, `defaultUptime 100`, `defaultLatency 1000`, `defaultThroughput 50`, `explorationRate 0.01` |
+| **Retry**               | Max cross-provider fallback attempts and the low-uptime reroute threshold                                                                                                            | `maxRetries 2`, `lowUptimeFallbackThreshold 90`                                                                                                                                                                                    |
+| **Timeouts**            | Per-request time limits (end-to-end, streaming, non-streaming) — see [Request Timeouts](/features/timeouts). Capped at the infrastructure defaults — an override can only lower them | `gatewayMs 1,500,000`, `streamingMs 1,200,000`, `plainMs 600,000`                                                                                                                                                                  |
+| **History**             | The metrics window and the time-decay tier boundaries and weights                                                                                                                    | `windowMinutes 60` (max 120), `tier1Minutes 1`, `tier2Minutes 5`, `tier1Weight 10`, `tier2Weight 3`, `tier3Weight 1`                                                                                                               |
+| **Sticky**              | Stable-provider preference: on/off, TTL, hard-switch uptime floor, soft-switch score margin                                                                                          | `enabled true`, `ttlSeconds 3600`, `uptimeThreshold 85`, `scoreMargin 0.15`                                                                                                                                                        |
+| **Session**             | [Sticky session routing](#sticky-session-routing): on/off, pin TTL, re-pin uptime floor                                                                                              | `enabled true`, `ttlSeconds 3600`, `uptimeThreshold 85`                                                                                                                                                                            |
+| **Provider priorities** | Per-provider priority multipliers; set a provider to `0` to disable it for that project                                                                                              | `1` for every provider                                                                                                                                                                                                             |
+
+<Callout type="info">
+	Per-project routing configuration requires the Enterprise plan. If you'd like
+	to tune routing for your workloads, contact us at contact@llmgateway.io.
+</Callout>
+
+## Optimized Auto Routing
+
+Auto routing automatically selects the best model for your specific use case without you having to specify a model at all.
+
+### Default behaviour
+
+By default, auto routing picks the cheapest of a small built-in set of models that can serve the request: it filters out models whose context window, capabilities (vision, tools, reasoning, structured output) or provider availability do not fit, then selects the cheapest of what remains. Larger prompts skip the smallest model.
+
+```bash
+# Let LLMGateway choose the optimal model
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "Your request here..."}]
+  }'
+```
+
+### Free Models Only
+
+When using auto routing, you can restrict the selection to only free models (models with zero input and output pricing) by setting the `free_models_only` parameter to `true`:
+
+```bash
+# Auto route to free models only
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "free_models_only": true
+  }'
+```
+
+<Callout type="success">
+	Adding even a small amount of credits to your account (e.g., $10) will
+	immediately upgrade your free model rate limits from 5 requests per 10 minutes
+	to 20 requests per minute (free-model use still requires a verified email).
+</Callout>
+
+<Callout type="info">
+	The `free_models_only` parameter only works with auto routing (`"model":
+	"auto"`). If no free models are available that meet your request requirements,
+	the API will return an error.
+</Callout>
+
+### Reasoning models only
+
+Just specify the `reasoning_effort` value and only a model which supports reasoning will be chosen. This parameter is not specific to the auto model.
+
+```bash
+# Auto route only to reasoning models
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "reasoning_effort": "medium"
+  }'
+```
+
+### Exclude Reasoning Models
+
+When using auto routing, you can exclude reasoning models from selection by setting the `no_reasoning` parameter to `true`. This is useful when you want faster responses or need to avoid the additional cost and latency of reasoning models:
+
+```bash
+# Auto route excluding reasoning models
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "no_reasoning": true
+  }'
+```
+
+<Callout type="info">
+	The `no_reasoning` parameter only works with auto routing (`"model": "auto"`).
+	If no non-reasoning models are available that meet your request requirements,
+	the API will return an error.
+</Callout>
+
+<Callout type="success">
+	Auto routing analyzes your payload and automatically chooses between
+	cost-effective models for simple requests and more powerful models for complex
+	or large-context requests.
+</Callout>
+
+### How It Works
+
+1. **Request Analysis**: The system analyzes your request including message content, context size, and any special parameters
+2. **Model Selection**: Based on the analysis, it selects the most appropriate model considering cost, performance, and capabilities
+3. **Transparent Routing**: Your request is seamlessly routed to the chosen model and provider
+4. **Optimized Response**: You receive the best possible response while maintaining cost efficiency
+
+<Callout type="info">
+	Auto routing decisions are transparent in your usage logs, so you can always
+	see which model was selected for each request.
+</Callout>
+
+## Smart Routing
+
+`"model": "auto"` above is fixed: it always picks from the same built-in set, and its behaviour does not change. **Smart routing** is a separate model string, `"model": "smart"`, where you choose the candidate models and how they are ranked.
+
+Under **Organization settings → Smart Routing** you choose up to 30 models from the [models catalogue](https://llmgateway.io/models) that `"model": "smart"` may resolve to, plus the classifier that ranks them. Individual projects can override the organization default on their **Settings → Routing** page; a project without an override inherits it. Owners and organization admins can edit the organization default, project admins the project override.
+
+Smart routing is available to every organization, including pay-as-you-go, while it is in beta. It is not available on DevPass yet. `"model": "smart"` fails rather than falling back: an organization that cannot use it gets a 403, and one that has not configured it gets a 400 naming the setting — it never degrades quietly into the `auto` candidate set.
+
+```bash
+curl -X POST "https://api.llmgateway.io/v1/chat/completions" \
+  -H "Authorization: Bearer $LLM_GATEWAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "smart",
+    "messages": [{"role": "user", "content": "Your request here..."}]
+  }'
+```
+
+The configured list is exhaustive. If no model on it can serve a request — for example an image request against a text-only list — the gateway returns a 400 rather than falling back to a model you did not allow. `free_models_only` narrows the list to its free models rather than replacing it, so a request parameter cannot route outside what the organization allowed.
+
+#### Classifiers
+
+- **None** — pick the cheapest model on the list that can serve the request. This is the default behaviour, restricted to your models.
+- **Jev (TypeSafe)** — rate the request before routing it.
+
+With the Jev classifier, the gateway sorts your models by blended average price and splits them into Low, Medium and High price bands. The dashboard previews that split from catalogue list prices; the gateway ranks only the providers your project can actually use, at your own rates, so the live split can differ. Each request is then classified for task type, output type and difficulty, and served from the matching band; the classifier's own model preference breaks ties inside the band when it is confident enough. A request rated High also gets a larger default reasoning effort when the selected model supports reasoning and the request left room for it — thinking is drawn from the same `max_tokens` allowance as the answer, so the cheaper default stands on a tight budget rather than risking a response that spends its whole allowance thinking.
+
+The classifier adds one short round trip before the upstream call. It fails open: if it times out or errors, the request is served by the cheapest eligible model on your list and the log records the fallback.
+
+#### What it costs
+
+Smart routing itself carries no platform fee — you pay for the models it selects. A Jev classification is billed at the catalogue rate for [`jev-1.13.0`](https://llmgateway.io/models/jev-1.13.0/typesafe) on TypeSafe, which is priced on input tokens only, and works out to roughly $0.0001 per call. Each call is recorded as its own log entry against the same organization, project and API key as the request that triggered it, so the amount is visible in your activity feed and usage analytics rather than estimated. The request's own log entry also carries the charge in its `smartRouting.classifierCost` routing metadata.
+
+The call runs on our credential, so it is billed as credits even for a project using its own provider keys. Nothing is charged for the `None` classifier, for a verdict reused from a sticky session, or for a classifier call that fails.
+
+**Sticky sessions classify once.** When a request carries a session id (see [sticky session routing](#sticky-session-routing)) and the project has it enabled, the first turn is classified and the rest of the session reuses that verdict and the model it resolved to — so a conversation is not re-rated on every turn and does not migrate between models mid-thread, which would cost it the upstream prompt cache. The pin expires with the session TTL. If the pinned model stops being available, the stored verdict is re-applied to the remaining candidates rather than triggering a fresh classification.
+
+#### Routing metadata
+
+Every smart-routed request made against a configured list records a `smartRouting` block on its log entry, visible in the request detail view: the classifier used, the eligible and surviving candidate models, the difficulty, task and output type, the classifier's preferred model and confidence, the band that was served, the selected model, the classifier latency and cost, whether the classifier failed open, and whether the verdict was reused from earlier in the session.
+
+## Best Practices
+
+### For Development
+
+- Use specific model names during development and testing
+- Leverage auto routing for production workloads to optimize costs
+
+### For Production
+
+- Use auto routing (`"model": "auto"`) for the best balance of cost and performance, or smart routing (`"model": "smart"`) to route across models you choose
+- Monitor your usage patterns through the dashboard to understand routing decisions
+- Set up provider keys for multiple providers to maximize routing options
+
+### For Cost Optimization
+
+- Let auto routing handle model selection to automatically use the most cost-effective options, or smart routing to spend more only on the requests that need it
+- Use model IDs without provider prefixes to always get the cheapest available provider
+- Monitor your usage analytics to track cost savings from intelligent routing

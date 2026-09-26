@@ -627,7 +627,26 @@ describe("worker", () => {
 					rawRequest: { input: "hello" },
 					upstreamResponse: { output: "response content" },
 					userAgent: "test-user-agent",
-					routingMetadata: { selectedProvider: "openai" },
+					routingMetadata: {
+						selectedProvider: "openai",
+						// Classifier verdicts are derived from the prompt, so they must
+						// not outlive the payloads they were derived from.
+						smartRouting: {
+							classifier: "jev",
+							eligibleModels: ["gpt-4o"],
+							candidateModels: ["gpt-4o"],
+							difficulty: "high",
+							task: "coding",
+							selectedModel: "gpt-4o",
+							classifierFailed: false,
+						},
+						dynamicRoute: {
+							name: "smart",
+							version: 1,
+							path: ["rate", "big"],
+							classifier: { kind: "jev", difficulty: "high", task: "coding" },
+						},
+					},
 					gatewayContentFilterResponse: [
 						{
 							id: "modr-retention-test",
@@ -674,6 +693,7 @@ describe("worker", () => {
 			expect(cleanedLog?.upstreamResponse).toBeNull();
 			expect(cleanedLog?.userAgent).toBeNull();
 			expect(cleanedLog?.gatewayContentFilterResponse).toBeNull();
+			// Nulling the whole column is what clears the classifier verdicts too.
 			expect(cleanedLog?.routingMetadata).toBeNull();
 			expect(cleanedLog?.dataRetentionCleanedUp).toBe(true);
 
