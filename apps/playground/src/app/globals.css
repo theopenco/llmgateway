@@ -2,7 +2,7 @@
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
 
-@source "../node_modules/streamdown/dist/*.js";
+@source "../../node_modules/streamdown/dist/*.js";
 @source "../../../../packages/shared/src/**/*.{ts,tsx}";
 
 @custom-variant dark (&:is(.dark *));
