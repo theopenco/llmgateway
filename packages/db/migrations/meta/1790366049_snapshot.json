@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "0ffde78b-854d-4ed4-b3e9-a21002d9b47e",
-  "prevId": "4b8b1ca1-66a8-4ff2-8b12-c38a6734555c",
+  "id": "30072d9b-27b3-402a-a6fc-9f4ce05f91d3",
+  "prevId": "9e85c39e-f7f8-4505-a19e-751d8d6b8f8b",
   "ddl": [
     {
       "isRlsEnabled": false,
@@ -10689,19 +10689,6 @@
       "table": "log"
     },
     {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "error_category",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "log"
-    },
-    {
       "type": "json",
       "typeSchema": null,
       "notNull": false,
@@ -16695,6 +16682,19 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "smart_routing_config",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "organization"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "compliance_alert_settings",
       "entityType": "columns",
       "schema": "public",
@@ -19795,6 +19795,19 @@
       "generated": null,
       "identity": null,
       "name": "allowed_origins",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project"
+    },
+    {
+      "type": "json",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "smart_routing_config",
       "entityType": "columns",
       "schema": "public",
       "table": "project"
@@ -23330,6 +23343,19 @@
       "generated": null,
       "identity": null,
       "name": "delisted_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "provider_draft_model"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "paused_at",
       "entityType": "columns",
       "schema": "public",
       "table": "provider_draft_model"
