@@ -1,9 +1,5 @@
 {
 	"$schema": "https://turbo.build/schema.json",
-	"remoteCache": {
-		"teamSlug": "ducktors",
-		"apiUrl": "https://trrc.ducktors.dev"
-	},
 	"dangerouslyDisablePackageManagerCheck": true,
 	"globalDependencies": [
 		".tool-versions",
