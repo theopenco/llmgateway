@@ -7,13 +7,27 @@ import {
 } from "./jev-request-classifier.js";
 
 import type { RequestClassifierCandidate } from "./jev-request-classifier.js";
+import type { ClassifierRequestContext } from "./log-classifier-usage.js";
+import type * as LogsModule from "@/lib/logs.js";
+
+const insertLog = vi.hoisted(() => vi.fn(async () => 1));
+
+vi.mock("@/lib/logs.js", async (importOriginal) => ({
+	...(await importOriginal<typeof LogsModule>()),
+	insertLog,
+}));
 
 const CONTEXT = {
 	requestId: "request-id",
-	organizationId: "org-id",
-	projectId: "project-id",
-	apiKeyId: "api-key-id",
-};
+	project: {
+		id: "project-id",
+		organizationId: "org-id",
+		mode: "credits",
+	},
+	apiKey: { id: "api-key-id", projectId: "project-id" },
+	retentionLevel: "retain",
+	requestedModel: "smart",
+} as unknown as ClassifierRequestContext;
 
 const CANDIDATES: RequestClassifierCandidate[] = [
 	{ id: "cheap-model", name: "Cheap", description: "Small model", band: "low" },
@@ -137,6 +151,7 @@ describe("classifyRequest", () => {
 
 	afterEach(() => {
 		vi.restoreAllMocks();
+		insertLog.mockClear();
 		if (originalKey === undefined) {
 			delete process.env.LLM_TYPESAFE_API_KEY;
 		} else {
@@ -314,5 +329,51 @@ describe("classifyRequest", () => {
 			await classifyRequest(classifierInput({ candidates: [] }), CONTEXT),
 		).toBeNull();
 		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	it("bills the classification to the calling org, project and key", async () => {
+		process.env.LLM_TYPESAFE_API_KEY = "ts-test";
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			jevResponse({ difficulty: { type: "score", score: 1 } }),
+		);
+
+		const result = await classifyRequest(classifierInput(), CONTEXT);
+
+		// 812 input tokens at $0.042 per million; output is priced at zero.
+		const expectedCost = 812 * 0.042e-6;
+		expect(result?.cost).toBeCloseTo(expectedCost, 12);
+		expect(insertLog).toHaveBeenCalledTimes(1);
+		const [row, options] = insertLog.mock.calls[0] as unknown as [
+			Record<string, unknown>,
+			Record<string, unknown>,
+		];
+		expect(row).toMatchObject({
+			organizationId: "org-id",
+			projectId: "project-id",
+			apiKeyId: "api-key-id",
+			requestId: "request-id",
+			requestedModel: "smart",
+			usedModel: "typesafe/jev-1.13.0",
+			usedProvider: "typesafe",
+			// A platform credential served it, so the organization pays credits
+			// even for a BYOK project.
+			usedMode: "credits",
+			promptTokens: "812",
+			completionTokens: "44",
+			estimatedCost: false,
+		});
+		expect(row.cost).toBeCloseTo(expectedCost, 12);
+		expect(row.outputCost).toBe(0);
+		expect(options).toEqual({ retentionLevel: "retain" });
+	});
+
+	it("bills nothing when the classifier call fails", async () => {
+		process.env.LLM_TYPESAFE_API_KEY = "ts-test";
+		vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response("boom", { status: 500 }),
+		);
+
+		expect(await classifyRequest(classifierInput(), CONTEXT)).toBeNull();
+		expect(insertLog).not.toHaveBeenCalled();
 	});
 });
