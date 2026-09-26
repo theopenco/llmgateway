@@ -73,6 +73,22 @@ function session(calls: string[]): BenchmarkAgentSession {
 }
 
 describe("executeAgentRequest", () => {
+	it("does not report partial usage as a complete total", async () => {
+		const last = textChunk("DONE");
+		delete last.usage;
+		const responses = [sse([toolCallChunk("ping", "{}")]), sse([last])];
+		const outcome = await executeAgentRequest({
+			client: { url: "https://example.com/v1/chat/completions" },
+			request: { messages: [{ role: "user", content: "go" }] },
+			model: "m",
+			timeoutMs: 1000,
+			fetch: (async () => responses.shift()) as typeof fetch,
+			agent: { maxTurns: 5, createSession: () => session([]) },
+			context,
+		});
+		expect(outcome.response.usage.promptTokens).toBeNull();
+		expect(outcome.response.usage.completionTokens).toBeNull();
+	});
 	it("feeds tool results back and stops when the model answers", async () => {
 		const calls: string[] = [];
 		const responses = [

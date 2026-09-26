@@ -386,15 +386,10 @@ function parseGatewayResponses(value: string): ModerationResponse[] | null {
 
 	try {
 		const parsed = JSON.parse(trimmed) as unknown;
-		if (Array.isArray(parsed)) {
-			return parsed as ModerationResponse[];
-		}
-
-		if (typeof parsed === "string") {
-			const nested = JSON.parse(parsed) as unknown;
-			if (Array.isArray(nested)) {
-				return nested as ModerationResponse[];
-			}
+		const payload: unknown = typeof parsed === "string" ? JSON.parse(parsed) : parsed;
+		const responses = Array.isArray(payload) ? payload : [payload];
+		if (responses.every((response: unknown) => typeof response === "object" && response !== null && "results" in response && Array.isArray(response.results))) {
+			return responses as ModerationResponse[];
 		}
 	} catch {
 		return null;

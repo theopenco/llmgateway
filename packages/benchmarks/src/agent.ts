@@ -32,7 +32,7 @@ export interface AgentRunOutcome {
 
 function sum(values: Array<number | null>): number | null {
 	const present = values.filter((value): value is number => value !== null);
-	return present.length === 0
+	return present.length !== values.length || present.length === 0
 		? null
 		: present.reduce((total, value) => total + value, 0);
 }

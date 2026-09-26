@@ -33,9 +33,16 @@ export function extractFinalAnswer(content: string): string {
 function exactEvaluation(
 	response: BenchmarkResponse,
 	expected: string,
+	caseSensitive = false,
 ): BenchmarkEvaluation {
-	const answer = extractFinalAnswer(response.content);
-	const normalizedExpected = normalizeAnswer(expected);
+	const answer = caseSensitive
+		? ([...response.content.matchAll(/FINAL\s*:\s*([^\n\r]+)/g)]
+				.at(-1)?.[1]
+				?.trim() ?? "")
+		: extractFinalAnswer(response.content);
+	const normalizedExpected = caseSensitive
+		? expected
+		: normalizeAnswer(expected);
 	return {
 		passed: answer === normalizedExpected,
 		answer,
@@ -291,6 +298,7 @@ function qualityCase(
 	category: string,
 	prompt: string,
 	expected: string,
+	caseSensitive = false,
 ): BenchmarkCase {
 	return {
 		id,
@@ -308,7 +316,7 @@ function qualityCase(
 			reasoningEffort: "none",
 			temperature: 0,
 		},
-		evaluate: (response) => exactEvaluation(response, expected),
+		evaluate: (response) => exactEvaluation(response, expected, caseSensitive),
 	};
 }
 
@@ -495,5 +503,6 @@ export const qualityCases: BenchmarkCase[] = [
 				.replaceAll("A", "Z")
 				.replaceAll("E", "Q");
 		})(),
+		true,
 	),
 ];
