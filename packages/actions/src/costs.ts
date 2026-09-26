@@ -1,9 +1,5 @@
 import { Decimal } from "decimal.js";
 
-import { estimateTokensFromContent } from "@/chat/tools/estimate-tokens-from-content.js";
-import { encodeChatMessages } from "@/chat/tools/tokenizer.js";
-
-import { mapXaiImageQuality, mapXaiImageResolution } from "@llmgateway/actions";
 import { getEffectiveDiscount } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import {
@@ -16,6 +12,15 @@ import {
 	getSupportedServiceTiers,
 	resolveTimeBasedPricing,
 } from "@llmgateway/models";
+import {
+	estimateChatMessageTokens,
+	estimateTokensFromText,
+} from "@llmgateway/shared";
+
+import {
+	mapXaiImageQuality,
+	mapXaiImageResolution,
+} from "./prepare-request-body.js";
 
 /**
  * Resolve the price multiplier for a served processing tier (Flex / Priority).
@@ -382,10 +387,10 @@ export async function calculateCosts(
 		// gpt-tokenizer on the gateway hot path.
 		if (!promptTokens && fullOutput) {
 			if (fullOutput.messages) {
-				calculatedPromptTokens = encodeChatMessages(fullOutput.messages);
+				calculatedPromptTokens = estimateChatMessageTokens(fullOutput.messages);
 				promptTokensEstimated = true;
 			} else if (fullOutput.prompt) {
-				calculatedPromptTokens = estimateTokensFromContent(
+				calculatedPromptTokens = estimateTokensFromText(
 					JSON.stringify(fullOutput.prompt),
 				);
 				promptTokensEstimated = true;
@@ -421,7 +426,7 @@ export async function calculateCosts(
 			}
 
 			if (completionText) {
-				calculatedCompletionTokens = estimateTokensFromContent(completionText);
+				calculatedCompletionTokens = estimateTokensFromText(completionText);
 				completionTokensEstimated = true;
 			}
 		}

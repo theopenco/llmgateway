@@ -55,13 +55,6 @@ import {
 	logComplianceBlock,
 	type ComplianceCheckContext,
 } from "@/lib/compliance.js";
-import {
-	calculateCosts as _calculateCosts,
-	isBilledFailureFinishReason,
-	isRefusalFinishReason,
-	shouldBillCancelledRequests,
-	zeroInferenceCosts,
-} from "@/lib/costs.js";
 import { customModelToProviderMapping } from "@/lib/custom-model.js";
 import { getPublishedDynamicRoute } from "@/lib/dynamic-route-loader.js";
 import {
@@ -132,6 +125,15 @@ import { summarizeZodIssues } from "@/lib/zod-issue-log.js";
 import {
 	applyGoogleServiceTier,
 	assumeServedServiceTier,
+	calculateCosts as _calculateCosts,
+	computeRoutingBaseline,
+	getDynamicRouteBaselineCandidates,
+	isRoutedRequestedModel,
+	type RoutingBaselineCandidate,
+	isBilledFailureFinishReason,
+	isRefusalFinishReason,
+	shouldBillCancelledRequests,
+	zeroInferenceCosts,
 	getCheapestFromAvailableProviders,
 	getDiscountedProviderSelectionPrice,
 	getGcpServiceAccountAccessToken,
@@ -2016,18 +2018,63 @@ chat.openapi(completions, async (c) => {
 	const logIdOverride = responsesContext?.logId;
 	const finalLogId = logIdOverride ?? shortid();
 
+	// Priciest models the router could have picked for an auto / smart /
+	// dynamic route request; filled while routing, priced per log row below.
+	const routingBaselineCandidates: RoutingBaselineCandidate[] = [];
+
+	const getRoutingBaselineFields = async (
+		logData: LogInsertData,
+	): Promise<
+		Pick<LogInsertData, "routingBaselineModel" | "routingBaselineCost">
+	> => {
+		if (
+			routingBaselineCandidates.length === 0 ||
+			sponsoredOnboarding ||
+			logData.cached ||
+			logData.retried ||
+			typeof logData.cost !== "number" ||
+			!isRoutedRequestedModel(logData.requestedModel)
+		) {
+			return {};
+		}
+		let baseline: Awaited<ReturnType<typeof computeRoutingBaseline>>;
+		try {
+			baseline = await computeRoutingBaseline({
+				candidates: routingBaselineCandidates,
+				usage: logData,
+				actualCost: logData.cost,
+				actualModel: logData.usedModel,
+				organizationId: logData.organizationId,
+			});
+		} catch (error) {
+			// An insight column must never cost us the log row itself.
+			logger.error("Failed to compute routing baseline", {
+				requestId: logData.requestId,
+				error: toError(error),
+			});
+			return {};
+		}
+		return baseline
+			? {
+					routingBaselineModel: baseline.model,
+					routingBaselineCost: baseline.cost,
+				}
+			: {};
+	};
+
 	// Wrapper that logs Responses API proxy requests under the resp_ id the
 	// client sees. Only override the id for the final log entry (retried !==
 	// true) to avoid PK conflicts when the request retries across multiple
 	// providers.
-	const insertLogEntry = (logData: LogInsertData) =>
-		insertLog({
+	const insertLogEntry = async (logData: LogInsertData) =>
+		await insertLog({
 			// Service tiers default from the request-level requested tier and the
 			// served tier resolved so far, so every log path (guardrail/validation
 			// rejections, cache hits, streaming/upstream errors, fetch errors)
 			// records them. Explicit values in logData still win.
 			requestedServiceTier,
 			usedServiceTier: servedServiceTier,
+			...(await getRoutingBaselineFields(logData)),
 			...logData,
 			...(logIdOverride && !logData.retried ? { id: logIdOverride } : {}),
 		});
@@ -3105,6 +3152,9 @@ chat.openapi(completions, async (c) => {
 			providers: evaluation.providers,
 			path: evaluation.path,
 		};
+		routingBaselineCandidates.push(
+			...getDynamicRouteBaselineCandidates(publishedRoute.graph),
+		);
 
 		const customTarget = parseCustomDynamicRouteModelRef(evaluation.model);
 		if (customTarget) {
@@ -4142,6 +4192,7 @@ chat.openapi(completions, async (c) => {
 				// pick to the selection step below so a classifier can see every
 				// candidate rather than only the running cheapest.
 				let modelPrice = Number.MAX_VALUE;
+				let cheapestProvider: ProviderModelMapping | undefined;
 				for (const provider of preferredSuitableProviders) {
 					const { price } = await getDiscountedProviderSelectionPrice(
 						provider,
@@ -4151,9 +4202,24 @@ chat.openapi(completions, async (c) => {
 							providerDiscountResolver,
 						},
 					);
-					modelPrice = Math.min(modelPrice, price.toNumber());
+					if (price.toNumber() < modelPrice) {
+						modelPrice = price.toNumber();
+						cheapestProvider = provider;
+					}
 				}
-				if (modelPrice < Number.MAX_VALUE) {
+				if (cheapestProvider) {
+					// Audio/document requests widen the candidate set to every
+					// capable model; the baseline stays within the routing list.
+					if (
+						!dynamicRouteSelection &&
+						eligibleSmartModels.includes(modelDef.id)
+					) {
+						routingBaselineCandidates.push({
+							modelId: modelDef.id,
+							providerId: cheapestProvider.providerId,
+							region: cheapestProvider.region,
+						});
+					}
 					smartRoutingCandidates.push({
 						modelId: modelDef.id,
 						modelDef,
