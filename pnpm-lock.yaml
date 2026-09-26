@@ -113,6 +113,9 @@ importers:
       '@types/node':
         specifier: 26.2.0
         version: 26.2.0
+      '@types/pg':
+        specifier: ^8.15.6
+        version: 8.15.6
       commitlint:
         specifier: 21.2.2
         version: 21.2.2(@types/node@26.2.0)(conventional-commits-parser@7.1.2)(typescript@5.9.2)
@@ -146,6 +149,9 @@ importers:
       nodemon:
         specifier: 3.1.14
         version: 3.1.14
+      pg:
+        specifier: ^8.16.3
+        version: 8.16.3
       prettier:
         specifier: ^3.9.6
         version: 3.9.6
