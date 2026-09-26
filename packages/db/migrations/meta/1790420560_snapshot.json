@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "108cf8df-df3c-4d96-b60c-3036107581d4",
+  "id": "77017ce3-4faa-4e05-b364-4ab71ccb6818",
   "prevId": "7cca7e10-10b7-4e9e-97f0-1d232f761914",
   "ddl": [
     {
@@ -487,6 +487,12 @@
     {
       "isRlsEnabled": false,
       "name": "project_hourly_model_stats",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "project_hourly_routing_stats",
       "entityType": "tables",
       "schema": "public"
     },
@@ -7439,6 +7445,19 @@
     {
       "type": "timestamp",
       "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "target_hour",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "global_aggregation_state"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": {
@@ -10689,19 +10708,6 @@
       "table": "log"
     },
     {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "error_category",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "log"
-    },
-    {
       "type": "json",
       "typeSchema": null,
       "notNull": false,
@@ -10976,6 +10982,32 @@
       "generated": null,
       "identity": null,
       "name": "discount",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "routing_baseline_model",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "log"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "routing_baseline_cost",
       "entityType": "columns",
       "schema": "public",
       "table": "log"
@@ -20600,6 +20632,186 @@
       "entityType": "columns",
       "schema": "public",
       "table": "project_hourly_model_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_routing_stats"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_routing_stats"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_routing_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "project_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_routing_stats"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "hour_timestamp",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_routing_stats"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "route_key",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_routing_stats"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "request_count",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_routing_stats"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'0'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "input_tokens",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_routing_stats"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'0'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "output_tokens",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_routing_stats"
+    },
+    {
+      "type": "numeric",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'0'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "cached_tokens",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_routing_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_routing_stats"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "0",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "baseline_cost",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "project_hourly_routing_stats"
     },
     {
       "type": "text",
@@ -34370,6 +34582,34 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
+      "name": "project_hourly_routing_stats_project_id_hour_timestamp_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "project_hourly_routing_stats"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "project_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "hour_timestamp",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
       "name": "project_hourly_source_stats_project_id_hour_timestamp_idx",
       "entityType": "indexes",
       "schema": "public",
@@ -40609,6 +40849,16 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "project_hourly_routing_stats_pkey",
+      "schema": "public",
+      "table": "project_hourly_routing_stats",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "project_hourly_source_stats_pkey",
       "schema": "public",
       "table": "project_hourly_source_stats",
@@ -41414,6 +41664,19 @@
       "entityType": "uniques",
       "schema": "public",
       "table": "project_hourly_model_stats"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "project_id",
+        "hour_timestamp",
+        "route_key"
+      ],
+      "nullsNotDistinct": false,
+      "name": "project_hourly_routing_stats_project_id_hour_timestamp_route_key_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "project_hourly_routing_stats"
     },
     {
       "nameExplicit": false,
