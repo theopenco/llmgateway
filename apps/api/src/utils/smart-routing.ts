@@ -49,6 +49,7 @@ export const smartRoutingConfigInputSchema = z.object({
 		)
 		.min(1)
 		.max(SMART_ROUTING_MAX_MODELS),
+	fallbackModel: z.string().max(256).optional(),
 });
 
 /**
@@ -70,5 +71,16 @@ export function normalizeSmartRoutingConfig(
 			message: "Auto routing requires at least one model",
 		});
 	}
-	return { classifier: config.classifier, models: modelIds };
+	// Only the classifier can fail to give a verdict; without one the cheapest
+	// model always serves the request.
+	if (!config.fallbackModel || config.classifier !== "jev") {
+		return { classifier: config.classifier, models: modelIds };
+	}
+	const fallbackModel = resolveSmartRoutingModelId(config.fallbackModel);
+	if (!fallbackModel || !modelIds.includes(fallbackModel)) {
+		throw new HTTPException(400, {
+			message: "The fallback model must be one of the configured models",
+		});
+	}
+	return { classifier: config.classifier, models: modelIds, fallbackModel };
 }

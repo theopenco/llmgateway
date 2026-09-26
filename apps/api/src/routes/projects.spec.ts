@@ -292,6 +292,48 @@ describe("projects route", () => {
 			expect(await storedConfig()).toBeNull();
 		});
 
+		test("stores a fallback model only when it is one of the configured models", async () => {
+			expect(
+				(
+					await patchSmartRouting({
+						classifier: "jev",
+						models: ["gpt-4o-mini", "gpt-4o"],
+						fallbackModel: "gpt-4o",
+					})
+				).status,
+			).toBe(200);
+			expect(await storedConfig()).toEqual({
+				classifier: "jev",
+				models: ["gpt-4o-mini", "gpt-4o"],
+				fallbackModel: "gpt-4o",
+			});
+
+			expect(
+				(
+					await patchSmartRouting({
+						classifier: "jev",
+						models: ["gpt-4o-mini"],
+						fallbackModel: "gpt-4o",
+					})
+				).status,
+			).toBe(400);
+
+			// Without a classifier there is no verdict to fall back from.
+			expect(
+				(
+					await patchSmartRouting({
+						classifier: "none",
+						models: ["gpt-4o-mini", "gpt-4o"],
+						fallbackModel: "gpt-4o",
+					})
+				).status,
+			).toBe(200);
+			expect(await storedConfig()).toEqual({
+				classifier: "none",
+				models: ["gpt-4o-mini", "gpt-4o"],
+			});
+		});
+
 		test("rejects unknown models and oversized lists", async () => {
 			expect(
 				(await patchSmartRouting({ classifier: "none", models: ["nope-9000"] }))

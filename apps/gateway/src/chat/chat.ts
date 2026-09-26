@@ -87,7 +87,7 @@ import {
 } from "@/lib/logs.js";
 import { isSponsoredOnboardingRequest } from "@/lib/onboarding-sponsorship.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
-import { streamSSE } from "@/lib/pending-work.js";
+import { streamSSE, trackPendingWork } from "@/lib/pending-work.js";
 import {
 	createSessionProviderStore,
 	getPreferredProvider,
@@ -106,7 +106,10 @@ import {
 import { getResponsesContext } from "@/lib/responses-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
-import { createSmartRoutingSessionStore } from "@/lib/smart-routing-session.js";
+import {
+	createSmartRoutingSessionStore,
+	type SmartRoutingSessionStore,
+} from "@/lib/smart-routing-session.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	buildUpstreamErrorClientPayload,
@@ -232,6 +235,7 @@ import {
 	DEFAULT_SMART_ROUTING_MODELS,
 	isSmartRoutingAvailable,
 	type RequestClassification,
+	type SmartRoutingEffort,
 } from "@llmgateway/shared/smart-routing";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
@@ -353,7 +357,10 @@ import {
 	mappingSupportsRequestedServiceTier,
 	providerKeySupportsServiceTier,
 } from "./tools/service-tier.js";
-import { selectSmartRoutingModel } from "./tools/smart-routing-selection.js";
+import {
+	describeSmartRoutingSwitch,
+	selectSmartRoutingModel,
+} from "./tools/smart-routing-selection.js";
 import { resolveTieredContentFilterPlan } from "./tools/tiered-content-filter.js";
 import {
 	encodeChatMessages,
@@ -1096,12 +1103,12 @@ const CODING_PLAN_CACHED_INPUT_FILTER_REASON =
 const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
 
 /**
- * Minimum `max_tokens` for auto routing to raise a hard request's default
- * reasoning effort to "medium". Below it the thinking budget can consume the
- * whole response allowance and return empty content, so the cheaper default
- * stands.
+ * Minimum `max_tokens` for auto routing to raise a request's default reasoning
+ * effort to "medium" / "high". Below it the thinking budget can consume the
+ * whole response allowance and return empty content, so a lower tier stands.
  */
 const SMART_ROUTING_MEDIUM_EFFORT_MIN_MAX_TOKENS = 8192;
+const SMART_ROUTING_HIGH_EFFORT_MIN_MAX_TOKENS = 16384;
 
 const IMMEDIATE_STREAM_ERROR_PEEK_LIMIT = 64 * 1024;
 
@@ -2067,8 +2074,29 @@ chat.openapi(completions, async (c) => {
 	// client sees. Only override the id for the final log entry (retried !==
 	// true) to avoid PK conflicts when the request retries across multiple
 	// providers.
-	const insertLogEntry = async (logData: LogInsertData) =>
-		await insertLog({
+	// Set once smart routing resolves a sticky session, so every final log
+	// entry feeds the session's turn and cache tracking.
+	let smartRoutingSessionStore: SmartRoutingSessionStore | undefined;
+	const insertLogEntry = async (logData: LogInsertData) => {
+		if (smartRoutingSessionStore && !logData.retried) {
+			void trackPendingWork(
+				smartRoutingSessionStore.recordActivity({
+					finishReason: logData.canceled
+						? "canceled"
+						: (logData.unifiedFinishReason ??
+							getUnifiedFinishReason(
+								logData.finishReason,
+								logData.usedProvider,
+							)),
+					provider: logData.usedProvider,
+					promptTokens: Math.round(Number(logData.promptTokens ?? 0)),
+					cachedTokens: Math.round(Number(logData.cachedTokens ?? 0)),
+					outputTokens: Math.round(Number(logData.completionTokens ?? 0)),
+					extendedCacheWrite: Number(logData.cacheWrite1hTokens ?? 0) > 0,
+				}),
+			);
+		}
+		return await insertLog({
 			// Service tiers default from the request-level requested tier and the
 			// served tier resolved so far, so every log path (guardrail/validation
 			// rejections, cache hits, streaming/upstream errors, fetch errors)
@@ -2079,6 +2107,7 @@ chat.openapi(completions, async (c) => {
 			...logData,
 			...(logIdOverride && !logData.retried ? { id: logIdOverride } : {}),
 		});
+	};
 
 	// Check for X-No-Fallback header to disable provider fallback on low uptime
 	const xNoFallbackHeaderSet =
@@ -3062,6 +3091,7 @@ chat.openapi(completions, async (c) => {
 	// paths below can attach the decision no matter which branch produced it.
 	let smartRoutingClassification: RequestClassification | null = null;
 	let smartRoutingDecision: RoutingMetadata["smartRouting"] | undefined;
+	let smartRoutingEffort: SmartRoutingEffort | undefined;
 
 	// Resolve a named dynamic route ("dynamic/<name>") to its target model and
 	// optional provider restriction. Official models continue through the auto
@@ -4242,10 +4272,29 @@ chat.openapi(completions, async (c) => {
 			}
 		}
 
+		// A sticky session keeps its model and effort across turns, and only
+		// re-evaluates them between turns once the provider's cache expired or
+		// a periodic work scan is due.
+		smartRoutingSessionStore =
+			configuredSmartModels &&
+			smartRoutingClassifier === "jev" &&
+			sessionStickyEnabled &&
+			sessionId
+				? createSmartRoutingSessionStore(
+						project.organizationId,
+						project.id,
+						sessionId,
+						routingCfg.session.ttlSeconds,
+					)
+				: undefined;
 		const smartRoutingSelection = await selectSmartRoutingModel({
 			candidates: smartRoutingCandidates,
 			configuredModels: configuredSmartModels,
 			classifier: smartRoutingClassifier,
+			fallbackModel: configuredSmartModels
+				? smartRoutingConfig?.fallbackModel
+				: undefined,
+			callerEffort: reasoning_effort !== undefined,
 			// The classifier sends prompt text to TypeSafe, so an org whose
 			// compliance policy disallows that provider must not have its prompts
 			// sent there — same fail-closed rule as the model-backed content
@@ -4253,18 +4302,7 @@ chat.openapi(completions, async (c) => {
 			classifierAllowed:
 				!compliancePolicy ||
 				isProviderIdCompliant("typesafe", compliancePolicy),
-			// A sticky session classifies once and reuses that verdict for its
-			// remaining turns, so a conversation is not re-rated (and re-billed)
-			// per turn and does not migrate between models mid-thread.
-			sessionStore:
-				sessionStickyEnabled && sessionId
-					? createSmartRoutingSessionStore(
-							project.organizationId,
-							project.id,
-							sessionId,
-							routingCfg.session.ttlSeconds,
-						)
-					: undefined,
+			sessionStore: smartRoutingSessionStore,
 			messages: (messages ?? []) as BaseMessage[],
 			toolNames: (tools ?? [])
 				.map((tool) =>
@@ -4286,7 +4324,8 @@ chat.openapi(completions, async (c) => {
 			requestSignal: c.req.raw.signal,
 		});
 		if (smartRoutingSelection) {
-			const { candidate, classification, decision } = smartRoutingSelection;
+			const { candidate, classification, decision, effort } =
+				smartRoutingSelection;
 			selectedModel = {
 				...candidate.modelDef,
 				providers: candidate.providers,
@@ -4295,6 +4334,7 @@ chat.openapi(completions, async (c) => {
 			selectedFilteredProviders = candidate.filteredOut;
 			smartRoutingClassification = classification;
 			smartRoutingDecision = decision;
+			smartRoutingEffort = effort;
 		}
 
 		let providerAgnosticSelectedProviders = selectedProviders;
@@ -5911,27 +5951,57 @@ chat.openapi(completions, async (c) => {
 		);
 
 		if (selectedModelSupportsReasoning) {
-			// A request the classifier rated hard gets a real thinking budget: the
-			// minimal default exists to keep easy auto-routed requests cheap, and
-			// applying it to a hard request wastes the model it selected.
+			// Smart routing chose an effort tier for this request (or session).
+			// Without one, a request the classifier rated hard still gets a real
+			// thinking budget: the minimal default exists to keep easy
+			// auto-routed requests cheap, and applying it to a hard request wastes
+			// the model it selected.
 			//
 			// Only when the caller left room for an answer, though. Thinking is
 			// drawn from the same max_tokens budget as the response, and a hard
 			// prompt at "medium" was measured spending ~2000 reasoning tokens — so
-			// on a tight budget this default returns finish_reason "length" with
+			// on a tight budget a higher tier returns finish_reason "length" with
 			// empty content, and it would do so on exactly the hardest requests.
-			const preferMediumEffort =
-				smartRoutingClassification?.difficulty === "high" &&
-				(max_tokens === undefined ||
-					max_tokens >= SMART_ROUTING_MEDIUM_EFFORT_MIN_MAX_TOKENS);
+			let effortTier: SmartRoutingEffort =
+				smartRoutingEffort ??
+				(smartRoutingClassification?.difficulty === "high" ? "medium" : "low");
+			if (
+				effortTier === "high" &&
+				max_tokens !== undefined &&
+				max_tokens < SMART_ROUTING_HIGH_EFFORT_MIN_MAX_TOKENS
+			) {
+				effortTier = "medium";
+			}
+			if (
+				effortTier === "medium" &&
+				max_tokens !== undefined &&
+				max_tokens < SMART_ROUTING_MEDIUM_EFFORT_MIN_MAX_TOKENS
+			) {
+				effortTier = "low";
+			}
 			const autoEffort = pickAutoReasoningEffort(
 				usedInternalModel,
 				getUsedProviderMapping()?.reasoningEfforts,
-				preferMediumEffort,
+				effortTier,
 			);
 			if (autoEffort) {
 				reasoning_effort = autoEffort;
 			}
+		}
+	}
+
+	// The harness keeps "smart" selected, so the resolved model and effort (and
+	// why they changed, on the turn they did) are reported alongside it.
+	if (smartRoutingDecision) {
+		c.header("x-llmgateway-smart-model", usedInternalModel);
+		if (reasoning_effort !== undefined) {
+			c.header("x-llmgateway-smart-effort", reasoning_effort);
+		}
+		if (smartRoutingDecision.switch) {
+			c.header(
+				"x-llmgateway-smart-change",
+				describeSmartRoutingSwitch(smartRoutingDecision.switch),
+			);
 		}
 	}
 

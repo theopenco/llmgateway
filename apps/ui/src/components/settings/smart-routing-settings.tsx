@@ -40,9 +40,11 @@ const CLASSIFIER_OPTIONS: Array<{
 		value: "jev",
 		label: "Jev (TypeSafe)",
 		description:
-			"Rate each request's difficulty, then pick from the matching price band. Adds one short classifier round trip.",
+			"Rate each request's difficulty, then pick a model from the matching price band and a reasoning effort. Sessions keep that choice and recheck it only between turns. Adds one short classifier round trip when it rates.",
 	},
 ];
+
+const CHEAPEST_FALLBACK = "__cheapest__";
 
 function formatAveragePrice(price: number | undefined): string {
 	if (price === undefined) {
@@ -83,11 +85,21 @@ export function SmartRoutingSettings({
 		value?.classifier ?? "none",
 	);
 	const [modelIds, setModelIds] = useState<string[]>(value?.models ?? []);
+	const [fallbackModel, setFallbackModel] = useState<string | undefined>(
+		value?.fallbackModel,
+	);
 
 	useEffect(() => {
 		setClassifier(value?.classifier ?? "none");
 		setModelIds(value?.models ?? []);
+		setFallbackModel(value?.fallbackModel);
 	}, [value]);
+
+	// A fallback that was removed from the list no longer applies.
+	const effectiveFallback =
+		classifier === "jev" && fallbackModel && modelIds.includes(fallbackModel)
+			? fallbackModel
+			: undefined;
 
 	// The preview applies the gateway's own ranking — blended average price,
 	// then the three-band split — to catalogue list prices. It is an estimate:
@@ -166,6 +178,37 @@ export function SmartRoutingSettings({
 				) : null}
 			</div>
 
+			{classifier === "jev" && modelIds.length > 0 ? (
+				<div className="space-y-2">
+					<Label>Fallback model</Label>
+					<Select
+						value={effectiveFallback ?? CHEAPEST_FALLBACK}
+						onValueChange={(next) =>
+							setFallbackModel(next === CHEAPEST_FALLBACK ? undefined : next)
+						}
+						disabled={!canManage}
+					>
+						<SelectTrigger className="w-full max-w-sm">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value={CHEAPEST_FALLBACK}>
+								Cheapest eligible model
+							</SelectItem>
+							{modelIds.map((id) => (
+								<SelectItem key={id} value={id}>
+									{modelsById.get(id)?.name ?? id}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					<p className="text-muted-foreground text-sm">
+						Serves a session&apos;s first turn when the classifier fails or is
+						unavailable.
+					</p>
+				</div>
+			) : null}
+
 			{preview.length > 0 ? (
 				<div className="space-y-2">
 					<Label>Difficulty bands</Label>
@@ -209,7 +252,15 @@ export function SmartRoutingSettings({
 						tooManyModels ||
 						unknownModels.length > 0
 					}
-					onClick={() => void onSave({ classifier, models: modelIds })}
+					onClick={() =>
+						void onSave({
+							classifier,
+							models: modelIds,
+							...(effectiveFallback
+								? { fallbackModel: effectiveFallback }
+								: {}),
+						})
+					}
 				>
 					{isSaving ? "Saving..." : "Save Settings"}
 				</Button>

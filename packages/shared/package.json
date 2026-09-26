@@ -120,6 +120,11 @@
 			"import": "./dist/smart-routing.js",
 			"default": "./dist/smart-routing.js"
 		},
+		"./smart-routing-policy": {
+			"types": "./dist/smart-routing-policy.d.ts",
+			"import": "./dist/smart-routing-policy.js",
+			"default": "./dist/smart-routing-policy.js"
+		},
 		"./dynamic-route": {
 			"types": "./dist/dynamic-route.d.ts",
 			"import": "./dist/dynamic-route.js",

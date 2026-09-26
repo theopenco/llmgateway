@@ -748,6 +748,54 @@ export function LogDetailClient({
 												})`}
 												mono
 											/>
+											{log.routingMetadata.smartRouting.effort && (
+												<Field
+													label="Effort"
+													value={log.routingMetadata.smartRouting.effort}
+													mono
+												/>
+											)}
+											{log.routingMetadata.smartRouting.trigger && (
+												<Field
+													label="Session check"
+													value={`${log.routingMetadata.smartRouting.trigger}${
+														log.routingMetadata.smartRouting.workChange
+															? ` (work ${log.routingMetadata.smartRouting.workChange})`
+															: ""
+													}${
+														log.routingMetadata.smartRouting.keptReason
+															? `, kept: ${log.routingMetadata.smartRouting.keptReason}`
+															: ""
+													}`}
+													mono
+												/>
+											)}
+											{log.routingMetadata.smartRouting.switch && (
+												<>
+													<Field
+														label="Switched"
+														value={`${log.routingMetadata.smartRouting.switch.fromModel}${
+															log.routingMetadata.smartRouting.switch.fromEffort
+																? ` (${log.routingMetadata.smartRouting.switch.fromEffort})`
+																: ""
+														} → ${log.routingMetadata.smartRouting.switch.toModel}${
+															log.routingMetadata.smartRouting.switch.toEffort
+																? ` (${log.routingMetadata.smartRouting.switch.toEffort})`
+																: ""
+														}`}
+														mono
+													/>
+													<Field
+														label="Switch reason"
+														value={`${log.routingMetadata.smartRouting.switch.reason}${
+															log.routingMetadata.smartRouting.switch.direction
+																? ` (${log.routingMetadata.smartRouting.switch.direction})`
+																: ""
+														}`}
+														mono
+													/>
+												</>
+											)}
 											{log.routingMetadata.smartRouting.difficulty && (
 												<Field
 													label="Difficulty"
