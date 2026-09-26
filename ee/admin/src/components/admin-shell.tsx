@@ -27,6 +27,7 @@ import {
 	ShieldCheck,
 	Sparkles,
 	Wallet,
+	Zap,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -94,6 +95,12 @@ const navItems: NavItem[] = [
 		href: "/global-stats",
 		label: "Global Stats",
 		icon: BarChart3,
+		match: "prefix",
+	},
+	{
+		href: "/load",
+		label: "Gateway Load",
+		icon: Zap,
 		match: "prefix",
 	},
 	{ href: "/discounts", label: "Discounts", icon: Percent, match: "exact" },
