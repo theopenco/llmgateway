@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { useCompany } from "@/components/dashboard/company-context";
+import { QueryError } from "@/components/dashboard/IncidentsTable";
 import { TrafficChart } from "@/components/dashboard/TrafficChart";
 import { Button } from "@/components/ui/button";
 import {
@@ -80,6 +81,15 @@ export default function TrafficPage() {
 		);
 	}
 
+	if (statsQuery.isError) {
+		return (
+			<QueryError
+				message="Could not load traffic."
+				onRetry={() => void statsQuery.refetch()}
+				retrying={statsQuery.isFetching}
+			/>
+		);
+	}
 	const stats = statsQuery.data;
 
 	return (

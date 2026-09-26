@@ -296,10 +296,7 @@ export default function DashboardShell({
 			initialResult: Awaited<ReturnType<typeof finalizeOnce>>,
 		) => {
 			let result = initialResult;
-			for (let attempt = 0; attempt < 60; attempt++) {
-				if (result?.status !== "payment_pending") {
-					return result;
-				}
+			while (result?.status === "payment_pending") {
 				setSetupActivationStatus("processing");
 				await wait(2000, signal);
 				result = await finalizeOnce();
@@ -363,10 +360,6 @@ export default function DashboardShell({
 					// Hold the success screen long enough for the stamp to land and
 					// be read before the setup param is cleared and the card unmounts.
 					await wait(1600, signal);
-				} else if (result?.status === "payment_pending") {
-					shouldClearSetupParam = false;
-					setSetupActivationStatus("processing");
-					toast.info("Payment is processing. DevPass will activate shortly.");
 				}
 			})
 			.catch((error: unknown) => {

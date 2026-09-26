@@ -61,7 +61,7 @@ If the allowance runs out with overflow off (or with an empty balance), the gate
 
 Enable overflow on the Usage page, pick a preset ($10, $25, $50, $100) or a custom amount between **$10 and $5,000**, and **Top up** — the charge goes to the card already backing your DevPass subscription, with no checkout redirect. Usage itself is metered at provider rates with no markup on tokens; a 5% platform fee applies when you buy credits (plus 1.5% for international cards). Each top-up emails a PDF invoice and appears in your billing history.
 
-Top-ups are idempotent end to end: a double-click or a retried request reuses the same charge instead of creating a second one.
+If a response is lost, retry the same amount in the same browser within 23 hours. A cookie preserves the pending attempt across reloads and amount changes, so those retries reuse the same charge. Older uncertain attempts are blocked: check your billing history or contact support before making a new attempt. Server errors keep the pending attempt until the outcome is confirmed.
 
 ## Auto-reload
 

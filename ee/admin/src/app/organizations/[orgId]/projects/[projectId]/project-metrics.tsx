@@ -108,25 +108,19 @@ export function ProjectMetricsSection({
 
 	const selectedWindow = parseWindow(searchParams.get("window"));
 	const usageMode = useUsageMode();
-	const $api = useApi();
+	const api = useApi();
 	const {
 		data: metrics,
-		isLoading: loading,
+		isPending: loading,
 		isError,
-	} = $api.useQuery(
+		refetch,
+	} = api.useQuery(
 		"get",
 		"/admin/organizations/{orgId}/projects/{projectId}/metrics",
 		{
-			params: {
-				path: { orgId, projectId },
-				query: { window: selectedWindow },
-			},
+			params: { path: { orgId, projectId }, query: { window: selectedWindow } },
 		},
-		{ staleTime: 0 },
 	);
-	const loadError = isError
-		? "Unable to load usage data. Try again shortly."
-		: null;
 
 	if (loading) {
 		return (
@@ -145,7 +139,16 @@ export function ProjectMetricsSection({
 			<section className="space-y-4">
 				<h2 className="text-lg font-semibold">Usage Metrics</h2>
 				<div className="rounded-lg border border-dashed border-border/60 p-8 text-center text-sm text-muted-foreground">
-					{loadError ?? "No usage data available."}
+					{isError ? "Unable to load usage data." : "No usage data available."}
+					{isError && (
+						<button
+							type="button"
+							onClick={() => void refetch()}
+							className="ml-2 underline"
+						>
+							Try again
+						</button>
+					)}
 				</div>
 			</section>
 		);

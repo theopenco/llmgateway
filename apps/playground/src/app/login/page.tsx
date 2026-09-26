@@ -40,13 +40,18 @@ const formSchema = z.object({
 });
 
 function getSafeRedirectUrl(url: string | null): string {
-	if (!url) {
+	if (!url?.startsWith("/")) {
 		return "/";
 	}
-	if (url.startsWith("/") && !url.startsWith("//")) {
-		return url;
+	try {
+		const origin = "https://playground.invalid";
+		const target = new URL(url, origin);
+		return target.origin === origin
+			? `${target.pathname}${target.search}${target.hash}`
+			: "/";
+	} catch {
+		return "/";
 	}
-	return "/";
 }
 
 export default function LoginPage() {

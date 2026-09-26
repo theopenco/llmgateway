@@ -172,6 +172,30 @@ export default async function ModelsPage({
 					</Suspense>
 				</div>
 
+			<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+				<div className="flex flex-wrap items-center gap-6 text-sm">
+					<div>
+						<span className="text-muted-foreground">Requests on this page</span>
+						<p className="text-xl font-semibold tabular-nums">
+							{formatCompactNumber(
+								data.models.reduce((s, m) => s + m.logsCount, 0),
+							)}
+						</p>
+					</div>
+					<div>
+						<span className="text-muted-foreground">Total Tokens</span>
+						<p className="text-xl font-semibold tabular-nums">
+							{formatCompactNumber(data.totalTokens)}
+						</p>
+						<TokenBreakdown breakdown={data} short className="mt-0.5" />
+					</div>
+					<div>
+						<span className="text-muted-foreground">Total Cost</span>
+						<p className="text-xl font-semibold tabular-nums">
+							{currencyFormatter.format(data.totalCost)}
+						</p>
+					</div>
+				</div>
 				<Suspense>
 					<CatalogFiltersBar filters={filters} />
 				</Suspense>
