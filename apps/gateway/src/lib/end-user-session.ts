@@ -58,6 +58,9 @@ export async function loadEndUserWallet(
 	if (apiKey.endUserSession.projectStatus !== "active") {
 		throw new HTTPException(401, { message: "Project is inactive" });
 	}
+	if (!apiKey.endUserSession.endUserEnabled) {
+		throw new HTTPException(403, { message: "End-user access is disabled" });
+	}
 	if (apiKey.endUserSession.walletStatus !== "active") {
 		throw new HTTPException(402, {
 			message: "End-user wallet not found or frozen",

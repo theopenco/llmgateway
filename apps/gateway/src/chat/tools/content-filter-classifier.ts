@@ -158,14 +158,11 @@ async function runClassifierChecks(
 				)
 			: await checkJevContentFilter(messages, context, requestSignal);
 
-	// Text-only requests are the common case: skip the OpenAI credential lookup
-	// and the no-op moderation call entirely when there is no image to cover.
-	if (
-		!options.imagesAllowed ||
-		buildOpenAIContentFilterImageInputs(messages).length === 0 ||
-		!(await hasOpenAIContentFilterCredential())
-	) {
+	if (buildOpenAIContentFilterImageInputs(messages).length === 0) {
 		return { ...textResult, classifier };
+	}
+	if (!options.imagesAllowed || !(await hasOpenAIContentFilterCredential())) {
+		return { ...textResult, classifier, partialModerationFailed: true };
 	}
 
 	const imageResult = await checkOpenAIContentFilter(

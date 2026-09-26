@@ -15,6 +15,7 @@ import type {
 	OpenAIResponsesRequestBody,
 	ProviderCacheControlMode,
 	ProviderModelMapping,
+	ProviderId,
 } from "@llmgateway/models";
 
 /**
@@ -1057,15 +1058,12 @@ describe("prepareRequestBody - Anthropic", () => {
 		}
 	});
 
-	test("does not fetch images inside a tool message's discarded content", async () => {
-		// The array content of a tool message is rebuilt into a tool_result block,
-		// so fetching its images buys nothing — and a size rejection would fail a
-		// request over bytes that never reach the provider.
-		// The spy rejects rather than calling through, so a regression fails the
-		// assertion below instead of reaching the network.
-		const fetchSpy = vi
-			.spyOn(globalThis, "fetch")
-			.mockRejectedValue(new Error("network access is not allowed here"));
+	test("fetches and preserves images inside tool results", async () => {
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(Buffer.from("image"), {
+				headers: { "Content-Type": "image/png" },
+			}),
+		);
 		try {
 			const requestBody = (await prepareRequestBody(
 				"anthropic",
@@ -1105,11 +1103,23 @@ describe("prepareRequestBody - Anthropic", () => {
 				undefined, // response_format
 			)) as AnthropicRequestBody;
 
-			expect(fetchSpy).not.toHaveBeenCalled();
-			const toolMsg = requestBody.messages[2]!;
-			expect(((toolMsg.content as unknown[])[0] as { type: string }).type).toBe(
-				"tool_result",
-			);
+			expect(fetchSpy).toHaveBeenCalledOnce();
+			expect(requestBody.messages[2]!.content).toMatchObject([
+				{
+					type: "tool_result",
+					tool_use_id: "call_1",
+					content: [
+						{
+							type: "image",
+							source: {
+								type: "base64",
+								media_type: "image/png",
+								data: Buffer.from("image").toString("base64"),
+							},
+						},
+					],
+				},
+			]);
 		} finally {
 			fetchSpy.mockRestore();
 		}
@@ -2271,7 +2281,7 @@ describe("prepareRequestBody - reasoning_effort none", () => {
 		["deepinfra", "hy3"],
 		["novita", "hy3"],
 		["canopywave", "kimi-k3"],
-	])(
+	] as const)(
 		"forwards none to %s when the mapping declares it",
 		async (provider, model) => {
 			// These providers are in the handlesNoneNatively allowlist, and
@@ -7965,7 +7975,7 @@ describe("prepareRequestBody - upstream prompt_cache_key", () => {
 });
 
 describe("prepareRequestBody - Xiaomi", () => {
-	test("flattens tool message with array content (text + image) to plain string", async () => {
+	test("keeps tool text and moves images to an adjacent user message", async () => {
 		const requestBody = (await prepareRequestBody(
 			"xiaomi",
 			"mimo-v2.5",
@@ -7999,7 +8009,14 @@ describe("prepareRequestBody - Xiaomi", () => {
 			false,
 		)) as any;
 
-		expect(requestBody.messages).toHaveLength(2);
+		expect(requestBody.messages).toHaveLength(3);
+		expect(requestBody.messages[2]).toMatchObject({
+			role: "user",
+			content: [
+				{ type: "text" },
+				{ type: "image_url", image_url: { url: "data:image/png;base64,abc" } },
+			],
+		});
 		expect(requestBody.messages[0].content).toBe("describe this");
 		expect(requestBody.messages[1].role).toBe("tool");
 		expect(requestBody.messages[1].content).toBe("screenshot taken");
@@ -8185,7 +8202,7 @@ describe("prepareRequestBody - Xiaomi", () => {
 
 describe("prepareRequestBody - developer role normalization", () => {
 	async function prepare(
-		provider: string,
+		provider: ProviderId,
 		model: string,
 		region: string | null = null,
 	) {

@@ -28,6 +28,11 @@ You can find all reasoning-enabled models on our [models page with reasoning fil
 
 There are two ways to control reasoning effort:
 
+The separate top-level `effort` option is available when a provider mapping lists
+`effort` in `supported_parameters` on the live [`/v1/models`](https://api.llmgateway.io/v1/models)
+endpoint. The gateway forwards it as the provider's standard effort field;
+Anthropic effort requests do not require an effort beta header.
+
 ### Option 1: Top-level `reasoning_effort`
 
 Add the `reasoning_effort` parameter directly to your request:

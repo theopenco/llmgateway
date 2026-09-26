@@ -143,7 +143,7 @@ export async function transformAnthropicMessages(
 			: undefined;
 
 		// Handle existing content
-		if (isDiscardedToolResult) {
+		if (isDiscardedToolResult && !Array.isArray(m.content)) {
 			content = [];
 		} else if (Array.isArray(m.content)) {
 			// Process all images in parallel for better performance
@@ -183,6 +183,9 @@ export async function transformAnthropicMessages(
 								text: "[Image failed to load]",
 							} as TextContent;
 						}
+					}
+					if (isDiscardedToolResult && isTextContent(part)) {
+						return { type: "text", text: part.text } as TextContent;
 					}
 					if (isTextContent(part) && part.text) {
 						if (part.cache_control) {
@@ -316,8 +319,14 @@ export async function transformAnthropicMessages(
 			// A client-side tool search returns `tool_reference` blocks in the
 			// tool_result content array. Stringifying that array would leave
 			// Anthropic nothing to expand, so replay the original blocks verbatim.
-			const resultContent: ToolResultContent["content"] =
-				m.anthropic_native_blocks && m.anthropic_native_blocks.length > 0
+			const resultContent: ToolResultContent["content"] = Array.isArray(
+				m.content,
+			)
+				? [
+						...content.map((part) => ({ ...part })),
+						...(m.anthropic_native_blocks ?? []),
+					]
+				: m.anthropic_native_blocks?.length
 					? m.anthropic_native_blocks
 					: toolResultContent;
 

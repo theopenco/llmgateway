@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import { describe, expect, it } from "vitest";
+import { utils, write } from "xlsx";
 
 import { extractFileText } from "./file-extract.js";
 
@@ -51,6 +52,34 @@ describe("extractFileText", () => {
 			buffer,
 		);
 		expect(text).toContain('"Lund, Skåne",Sweden');
+	});
+
+	it("extracts a legacy binary XLS workbook with multiple sheets", async () => {
+		const workbook = utils.book_new();
+		utils.book_append_sheet(
+			workbook,
+			utils.aoa_to_sheet([
+				["name", "value"],
+				["Lund, Skåne", 42],
+			]),
+			"Places",
+		);
+		utils.book_append_sheet(
+			workbook,
+			utils.aoa_to_sheet([["second sheet"]]),
+			"Notes",
+		);
+		const buffer: Buffer = write(workbook, {
+			type: "buffer",
+			bookType: "biff8",
+		});
+		const text = await extractFileText(
+			"places.xls",
+			"application/vnd.ms-excel",
+			buffer,
+		);
+		expect(text).toContain('# Places\nname,value\n"Lund, Skåne",42');
+		expect(text).toContain("# Notes\nsecond sheet");
 	});
 
 	it("rejects unreadable spreadsheet data", async () => {

@@ -57,12 +57,14 @@ const OWNERS: OwnerDef[] = [
 		weight: 1,
 		keys: [
 			{
-				id: "apikey-7",
+				id: "apikey-demo-carol-1",
+				create: true,
 				projectId: "proj-org-dataflow-0",
 				description: "Primary Key",
 			},
 			{
-				id: "apikey-8",
+				id: "apikey-demo-carol-2",
+				create: true,
 				projectId: "proj-org-dataflow-0",
 				description: "CI/CD Key",
 			},

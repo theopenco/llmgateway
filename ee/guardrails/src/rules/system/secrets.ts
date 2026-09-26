@@ -48,7 +48,7 @@ const SECRET_DETECTORS: Detector[] = [
 		label: "Private Key",
 		replacement: SECRET_REPLACEMENT,
 		pattern:
-			/-----BEGIN\s+(?:RSA\s+|EC\s+|OPENSSH\s+|PGP\s+)?PRIVATE\s+KEY-----/,
+			/-----BEGIN\s+((?:RSA\s+|EC\s+|OPENSSH\s+|PGP\s+|ENCRYPTED\s+)?PRIVATE\s+KEY)-----[\s\S]*?(?:-----END\s+\1-----|$)/,
 	},
 	{
 		id: "aws_access_key_id",

@@ -41,7 +41,11 @@ export async function flagUserIfAbusiveIp(options: {
 		});
 		// An admin-approved account is never re-flagged, otherwise opening the
 		// verification link from the same network would undo the review.
-		if (!user || user.riskStatus !== "none") {
+		if (!user || user.riskStatus === "approved") {
+			return;
+		}
+		if (user.riskStatus === "flagged") {
+			await syncUserRiskFlagToOrganizations(userId);
 			return;
 		}
 

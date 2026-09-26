@@ -8,6 +8,7 @@ import {
 } from "@llmgateway/shared/routing-config";
 
 import { cdb } from "./cdb.js";
+import { excludeRegionalMappingRows } from "./mapping-history-scope.js";
 import { metricsKey, type ProviderMetrics } from "./provider-metrics.js";
 import { modelProviderMappingHistory } from "./schema.js";
 import { effectiveTtftTotals } from "./ttft.js";
@@ -126,7 +127,7 @@ export async function getProviderMetricsFromHistory(
 
 	// The version segment is bumped whenever the selected columns change so a
 	// rolling deploy doesn't read rows cached in the previous shape.
-	const cacheKey = `providerMetrics:history:v5:${routingHistoryCacheKey(history)}:${modelIds.join(",")}`;
+	const cacheKey = `providerMetrics:history:v6:${routingHistoryCacheKey(history)}:${modelIds.join(",")}`;
 
 	const rows = await swrWrap<HistoryRow[]>(
 		cacheKey,
@@ -157,43 +158,43 @@ export async function getProviderMetricsFromHistory(
 							"total_logs",
 						),
 					weightedLogs:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.logsCount} * ${weightExpr}), 0)::bigint`.as(
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.logsCount} * ${weightExpr}), 0)::numeric`.as(
 							"weighted_logs",
 						),
 					weightedClientErrors:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.clientErrorsCount} * ${weightExpr}), 0)::bigint`.as(
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.clientErrorsCount} * ${weightExpr}), 0)::numeric`.as(
 							"weighted_client_errors",
 						),
 					weightedGatewayErrors:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.gatewayErrorsCount} * ${weightExpr}), 0)::bigint`.as(
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.gatewayErrorsCount} * ${weightExpr}), 0)::numeric`.as(
 							"weighted_gateway_errors",
 						),
 					weightedUpstreamErrors:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.upstreamErrorsCount} * ${weightExpr}), 0)::bigint`.as(
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.upstreamErrorsCount} * ${weightExpr}), 0)::numeric`.as(
 							"weighted_upstream_errors",
 						),
 					weightedDuration:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.totalDuration} * ${weightExpr}), 0)::bigint`.as(
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.totalDuration} * ${weightExpr}), 0)::numeric`.as(
 							"weighted_duration",
 						),
 					weightedOutputTokens:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.totalOutputTokens} * ${weightExpr}), 0)::bigint`.as(
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.totalOutputTokens} * ${weightExpr}), 0)::numeric`.as(
 							"weighted_output_tokens",
 						),
 					weightedTTFT:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.totalTimeToFirstToken} * ${weightExpr}), 0)::bigint`.as(
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.totalTimeToFirstToken} * ${weightExpr}), 0)::numeric`.as(
 							"weighted_ttft",
 						),
 					weightedTTFRT:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.totalTimeToFirstReasoningToken} * ${weightExpr}), 0)::bigint`.as(
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.totalTimeToFirstReasoningToken} * ${weightExpr}), 0)::numeric`.as(
 							"weighted_ttfrt",
 						),
 					weightedTTFTCount:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.timeToFirstTokenCount} * ${weightExpr}), 0)::bigint`.as(
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.timeToFirstTokenCount} * ${weightExpr}), 0)::numeric`.as(
 							"weighted_ttft_count",
 						),
 					weightedTTFRTCount:
-						sql<string>`coalesce(sum(${modelProviderMappingHistory.timeToFirstReasoningTokenCount} * ${weightExpr}), 0)::bigint`.as(
+						sql<string>`coalesce(sum(${modelProviderMappingHistory.timeToFirstReasoningTokenCount} * ${weightExpr}), 0)::numeric`.as(
 							"weighted_ttfrt_count",
 						),
 				})
@@ -203,6 +204,7 @@ export async function getProviderMetricsFromHistory(
 						gte(modelProviderMappingHistory.minuteTimestamp, windowStart),
 						eq(modelProviderMappingHistory.usedMode, "credits"),
 						inArray(modelProviderMappingHistory.modelId, modelIds),
+						excludeRegionalMappingRows(modelProviderMappingHistory),
 					),
 				)
 				.groupBy(

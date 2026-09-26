@@ -7,6 +7,28 @@ import {
 } from "./heal-json-response.js";
 
 describe("healJsonResponse", () => {
+	it("preserves object-like text inside strings while repairing surrounding syntax", () => {
+		const result = healJsonResponse('{"text":"{abc:1},}",}');
+		expect(result.healed).toBe(true);
+		expect(JSON.parse(result.content)).toEqual({ text: "{abc:1},}" });
+	});
+	it("rejects null object properties and inherited required properties", () => {
+		expect(
+			validateJsonSchema('{"value":null}', {
+				type: "object",
+				properties: { value: { type: "object" } },
+			}),
+		).toBe(false);
+		expect(
+			validateJsonSchema("{}", { type: "object", required: ["toString"] }),
+		).toBe(false);
+		expect(
+			validateJsonSchema('{"toString":"present"}', {
+				type: "object",
+				required: ["toString"],
+			}),
+		).toBe(true);
+	});
 	describe("valid JSON (no healing needed)", () => {
 		it("should return unmodified valid JSON object", () => {
 			const input = '{"name": "test", "value": 123}';

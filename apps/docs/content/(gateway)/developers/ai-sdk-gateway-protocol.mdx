@@ -84,6 +84,11 @@ const { balance, totalUsed } = await gateway.getCredits();
 
 ## Gateway-only options
 
+AI SDK 7's top-level `reasoning` option maps to `reasoning_effort`.
+`provider-default` leaves the provider's default unchanged; unsupported values
+produce a warning. An explicit `providerOptions.llmgateway.reasoning_effort`
+overrides the top-level setting.
+
 Features that have no field in the AI SDK call options — reasoning effort, service tier, routing strategy, prompt cache keys, plugins — are set through the `llmgateway` provider options namespace, which is passed onto the underlying request:
 
 ```ts

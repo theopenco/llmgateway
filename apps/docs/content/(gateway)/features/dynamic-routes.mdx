@@ -30,6 +30,9 @@ The graph is evaluated on every request. Once it resolves to a model, the reques
 
 A route is a JSON document with an `entry` node id and a list of nodes. Evaluation starts at `entry` and follows branches until it reaches a `model` node (route the request) or an `end` node (reject the request with a `400`).
 
+Routes support up to 100 nodes, including paths that visit all 100. Split weights
+are relative and normalized safely even when their sum exceeds the numeric range.
+
 ```json
 {
 	"entry": "tier",

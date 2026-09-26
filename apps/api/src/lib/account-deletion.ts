@@ -222,25 +222,34 @@ export async function tearDownSoleMemberOrganizations(
 		return [];
 	}
 
-	const now = new Date();
-
+	const closed: SoleMemberOrganization[] = [];
 	for (const org of organizations) {
-		const cancelled = await cancelOrganizationSubscriptions(org.subscriptions);
-
-		if (cancelled.length > 0) {
-			logger.info(
-				`Cancelled Stripe subscriptions for organization ${org.id} on account deletion of user ${userId}: ${cancelled.join(", ")}`,
-			);
+		const deleted = await db.transaction(async (tx) => {
+			const [current] = await tx
+				.select()
+				.from(tables.organization)
+				.where(eq(tables.organization.id, org.id))
+				.for("update");
+			if (!current || current.status === "deleted") {
+				return false;
+			}
+			const members = await tx.query.userOrganization.findMany({
+				where: { organizationId: { eq: org.id } },
+				columns: { userId: true },
+			});
+			if (members.length !== 1 || members[0].userId !== userId) {
+				return false;
+			}
+			await cancelOrganizationSubscriptions(current);
+			await tx
+				.update(tables.organization)
+				.set({ status: "deleted", ...getCancelledOrganizationPlanState() })
+				.where(eq(tables.organization.id, org.id));
+			return true;
+		});
+		if (deleted) {
+			closed.push(org);
 		}
-
-		await db
-			.update(tables.organization)
-			.set({
-				status: "deleted",
-				...getCancelledOrganizationPlanState(now),
-			})
-			.where(eq(tables.organization.id, org.id));
 	}
-
-	return organizations;
+	return closed;
 }

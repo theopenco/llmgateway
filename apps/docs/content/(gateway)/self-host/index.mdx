@@ -71,3 +71,22 @@ to subsequent email sign-ups without a restart. Existing users can still sign in
 The custom list starts empty and has no built-in entries. Clearing and saving it
 removes custom domain blocks. The separate disposable-email and plus-address
 checks remain active in hosted mode.
+
+## Client IPs behind a proxy
+
+The platform API uses the socket peer for sign-up limits and account risk checks.
+Forwarded headers are ignored unless the peer matches `TRUSTED_PROXY_CIDRS`, a
+comma-separated list of your ingress proxy CIDRs. Restrict access to the API so
+only that ingress can supply trusted headers.
+
+For `X-Forwarded-For`, set `TRUSTED_PROXY_HOPS` to the number of addresses your
+trusted ingress appends; the default is `1`. A Google Cloud Application Load
+Balancer appends the client and load-balancer addresses, so use `2` when it is the
+last proxy before the API. Include any additional proxy hops in this count.
+Earlier caller-supplied addresses are ignored. Confirm the socket peer range and
+header chain in your deployment before enabling trust.
+
+An ingress that overwrites a single client-IP header can use `CLIENT_IP_HEADER`
+instead, for example `cf-connecting-ip`. The CIDR check still applies. Without
+proxy configuration, all requests from a proxy share its socket-IP rate-limit
+bucket. Direct connections need no configuration.

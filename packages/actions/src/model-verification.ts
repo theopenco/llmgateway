@@ -789,6 +789,7 @@ interface CheckFailure {
 	 * a transport error says nothing and must never narrow a listing.
 	 */
 	rejected: boolean;
+	transient?: boolean;
 }
 
 async function attemptCheck(
@@ -808,6 +809,7 @@ async function attemptCheck(
 				secrets,
 			),
 			rejected: false,
+			transient: true,
 		};
 	}
 }
@@ -961,6 +963,9 @@ async function runCheck(
 		if (!failure) {
 			return { failure: null, unsupportedToolChoices, probes };
 		}
+		if (failure.transient) {
+			return { failure, probes };
+		}
 		unsupportedToolChoices.push(mode);
 	}
 	return { failure, probes };
@@ -1101,7 +1106,8 @@ async function executeCheck(
 				upstreamErrorMessage(bodyText, response.status),
 				secrets,
 			),
-			rejected: response.status >= 400 && response.status < 500,
+			rejected: response.status === 400 || response.status === 422,
+			transient: response.status !== 400 && response.status !== 422,
 		};
 	}
 	const served = definition.request.stream
