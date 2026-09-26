@@ -6,6 +6,12 @@ icon: Code
 
 The official&nbsp;[LLM Gateway extension](https://marketplace.visualstudio.com/items?itemName=llmgateway.llmgateway-vscode) adds LLM Gateway to the Copilot Chat model picker in VS Code. Connect your key once, then choose from the chat models available to your account.
 
+<Callout type="info">
+	Copilot Chat and agent mode support BYOK models. Copilot's inline code
+	completions (the gray autocomplete suggestions accepted with Tab) currently do
+	not support BYOK or custom endpoints, including LLM Gateway.
+</Callout>
+
 Verified with VS Code **1.135.0** and the LLM Gateway extension **0.1.0**. The video demonstrates model configuration and a real response without GitHub sign-in.
 
 ## Video walkthrough
@@ -48,8 +54,6 @@ The gateway URL is already configured. Your key is stored in VS Code's secret st
 The extension fetches models using your key and lists active chat models with streaming support. Your organization's model access rules and DevPass plan restrictions apply. Browse the&nbsp;[models page](https://llmgateway.io/models) for current capabilities and pricing.
 
 For agent mode, select a model with tool calling. Image attachments require a model with image input support. Responses stream into the chat view.
-
-The extension provides models for Copilot Chat and agent mode. It does not provide inline code completions.
 
 Both PAYG and DevPass keys use the same setup. PAYG requests use your gateway billing configuration; DevPass requests follow your plan's model access and usage limits. The extension sends canonical model IDs, so no provider prefix is needed for DevPass.
 
