@@ -9,7 +9,6 @@ import {
 	findOrganizationById,
 	findProjectById,
 } from "@/lib/cached-queries.js";
-import { getClientIpFromRequest } from "@/lib/client-ip.js";
 import {
 	isCodingModel,
 	providerSupportsCachedInput,
@@ -30,6 +29,7 @@ import { assertOrganizationUsable } from "@/lib/organization-access.js";
 
 import { customModelRef } from "@llmgateway/models";
 import { isChatPlanModelAllowed } from "@llmgateway/shared";
+import { getClientIpFromRequest } from "@llmgateway/shared/client-ip";
 
 import type { ComplianceCheckContext } from "@/lib/compliance.js";
 import type { ModelDefinition } from "@llmgateway/models";

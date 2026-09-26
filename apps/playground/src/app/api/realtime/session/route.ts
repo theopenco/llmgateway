@@ -5,6 +5,7 @@ import { getPlaygroundKeyForRequest } from "@/lib/constants";
 import { getUser } from "@/lib/getUser";
 
 import { models as modelDefinitions } from "@llmgateway/models";
+import { forwardedIpHeaders } from "@llmgateway/shared/client-ip";
 import {
 	getGatewayApiBaseUrl,
 	getGatewayPublicBaseUrl,
@@ -231,8 +232,6 @@ export async function POST(req: Request) {
 	// Forward the trusted ingress-derived originating IP so mint-time IAM
 	// checks see the browser's IP; the WebSocket upgrade preflight still
 	// rechecks the direct connection's IP.
-	const forwardedFor = req.headers.get("x-forwarded-for");
-
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), 25_000);
 
@@ -246,7 +245,7 @@ export async function POST(req: Request) {
 					"Content-Type": "application/json",
 					Authorization: `Bearer ${apiKey}`,
 					"x-source": LOUNGE_SOURCE,
-					...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}),
+					...forwardedIpHeaders(req.headers),
 				},
 				body: JSON.stringify({
 					expires_after: {

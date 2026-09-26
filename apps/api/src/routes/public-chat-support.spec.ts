@@ -45,7 +45,7 @@ async function sendMessage(
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			"CF-Connecting-IP": ip,
+			"X-Forwarded-For": ip,
 		},
 		body: JSON.stringify({
 			clientId,
@@ -123,7 +123,7 @@ describe("public chat support rate limiting", () => {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				"CF-Connecting-IP": ip,
+				"X-Forwarded-For": ip,
 			},
 			body: JSON.stringify({ clientId: uniqueClientId() }),
 		});
@@ -143,7 +143,7 @@ describe("public chat support rate limiting", () => {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
-					"CF-Connecting-IP": ip,
+					"X-Forwarded-For": ip,
 				},
 				body: JSON.stringify({
 					clientId: uniqueClientId(),
@@ -179,14 +179,14 @@ describe("public chat support rate limiting", () => {
 		await seedLimit("meta_burst", `ip:${ip}`, META_BURST_LIMIT_MAX);
 		const blockedGet = await app.request(
 			`/public/chat-support/conversation?clientId=${uniqueClientId()}`,
-			{ headers: { "CF-Connecting-IP": ip } },
+			{ headers: { "X-Forwarded-For": ip } },
 		);
 		expect(blockedGet.status).toBe(429);
 		const blockedPost = await app.request("/public/chat-support/reaction", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				"CF-Connecting-IP": ip,
+				"X-Forwarded-For": ip,
 			},
 			body: JSON.stringify({}),
 		});
