@@ -151,4 +151,7 @@ export interface ProjectLogFilters {
 	source?: string;
 	unifiedFinishReason?: string;
 	errorType?: LogErrorType;
+	userEmail?: string;
+	/** Only used by the organization-scoped reader. */
+	projectId?: string;
 }

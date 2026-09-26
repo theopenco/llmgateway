@@ -771,6 +771,77 @@ describe("airside provider portal", () => {
 		});
 	});
 
+	it("lists a listing's preflight history without naming our reviewers", async () => {
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const created = await createModel(cookie, company.id);
+		expect(created.status).toBe(201);
+		const { model } = await created.json();
+
+		const carrierRun = await app.request(
+			`/airside/models/${model.id}/verifications`,
+			json(cookie, { apiKey: "carrier-history-key" }),
+		);
+		expect(carrierRun.status).toBe(202);
+		const carrierRunId = (await carrierRun.json()).verification.id;
+		// Only one run may be in flight per listing, so settle this one first.
+		await db
+			.update(tables.providerModelVerification)
+			.set({ status: "failed", summary: "tools failed" })
+			.where(eq(tables.providerModelVerification.id, carrierRunId));
+
+		const carrierRow = await db.query.providerModelVerification.findFirst({
+			where: { id: { eq: carrierRunId } },
+		});
+		const adminRunId = `admin-run-${crypto.randomUUID()}`;
+		await db.insert(tables.providerModelVerification).values({
+			id: adminRunId,
+			providerCompanyId: company.id,
+			draftModelId: model.id,
+			initiatedBy: "admin",
+			requestedBy: "test-user-id",
+			target: carrierRow!.target,
+			checks: [{ id: "basic", label: "Basic completion", status: "passed" }],
+			status: "passed",
+			summary: "spot check ok",
+		});
+
+		const res = await app.request(`/airside/models/${model.id}/verifications`, {
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(200);
+		const { verifications } = await res.json();
+		// Newest first, down to the run that registered the listing.
+		expect(
+			verifications.slice(0, 2).map((entry: { id: string }) => entry.id),
+		).toEqual([adminRunId, carrierRunId]);
+		expect(verifications).toHaveLength(3);
+		// Our side is named only as the initiator; the reviewer stays anonymous.
+		expect(verifications[0]).toMatchObject({
+			initiatedBy: "admin",
+			actorName: null,
+			actorEmail: null,
+			status: "passed",
+		});
+		expect(verifications[1]).toMatchObject({
+			initiatedBy: "carrier",
+			actorName: "Test User",
+			actorEmail: null,
+			status: "failed",
+			summary: "tools failed",
+		});
+
+		// A non-member gets the company-scoped 404.
+		const outsider = await createSecondUser("nosy@example.com");
+		const denied = await app.request(
+			`/airside/models/${model.id}/verifications`,
+			{ headers: { Cookie: outsider } },
+		);
+		expect(denied.status).toBe(404);
+	});
+
 	it("verifies the capabilities a live listing has awaiting review", async () => {
 		process.env.ADMIN_EMAILS = "ops@mistral.ai";
 		await setUserEmail("ops@mistral.ai");
@@ -1555,6 +1626,72 @@ describe("airside provider portal", () => {
 				where: { id: { eq: "mistral-large-3" } },
 			}),
 		).toBeFalsy();
+	});
+
+	it("pauses and resumes a live listing without review", async () => {
+		process.env.ADMIN_EMAILS = "ops@mistral.ai";
+		await setUserEmail("ops@mistral.ai");
+		const company = await createCompany(cookie);
+		await claimProvider(cookie, company.id);
+		await activateClaim();
+		const { model } = await (await createModel(cookie, company.id)).json();
+
+		const draftPause = await app.request(
+			`/airside/models/${model.id}/pause`,
+			json(cookie),
+		);
+		expect(draftPause.status).toBe(409);
+
+		await app.request(
+			`/admin/airside/filings/${model.pendingFiling.id}/approve`,
+			json(cookie),
+		);
+		const mappingStatus = async () =>
+			(
+				await db.query.modelProviderMapping.findMany({
+					where: { modelId: { eq: "mistral-large-3" } },
+				})
+			).map((row) => row.status);
+
+		const paused = await app.request(
+			`/airside/models/${model.id}/pause`,
+			json(cookie),
+		);
+		expect(paused.status).toBe(200);
+		const pausedModel = (await paused.json()).model;
+		expect(pausedModel.status).toBe("active");
+		expect(pausedModel.pausedAt).toEqual(expect.any(String));
+		expect(pausedModel.currentPricing).not.toBeNull();
+		expect(await mappingStatus()).toEqual(["inactive"]);
+		const pausedAgain = await app.request(
+			`/airside/models/${model.id}/pause`,
+			json(cookie),
+		);
+		expect(pausedAgain.status).toBe(409);
+
+		// An approval landing while paused reprices without resuming.
+		const update = await app.request(
+			`/airside/models/${model.id}/price-filings`,
+			json(cookie, { inputPrice: "4e-6", outputPrice: "9e-6" }),
+		);
+		await app.request(
+			`/admin/airside/filings/${(await update.json()).filing.id}/approve`,
+			json(cookie),
+		);
+		expect(await mappingStatus()).toEqual(["inactive"]);
+
+		const resumed = await app.request(
+			`/airside/models/${model.id}/resume`,
+			json(cookie),
+		);
+		expect(resumed.status).toBe(200);
+		expect((await resumed.json()).model.pausedAt).toBeNull();
+		expect(await mappingStatus()).toEqual(["active"]);
+		const resumedAgain = await app.request(
+			`/airside/models/${model.id}/resume`,
+			json(cookie),
+		);
+		expect(resumedAgain.status).toBe(409);
 	});
 
 	it("replaces or withdraws a pending change and waits behind a fare filing", async () => {

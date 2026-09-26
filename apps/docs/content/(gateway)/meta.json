@@ -1,0 +1,25 @@
+{
+	"title": "LLM Gateway",
+	"description": "One OpenAI-compatible API for every model",
+	"icon": "Network",
+	"root": true,
+	"pages": [
+		"---Get started---",
+		"index",
+		"overview",
+		"quick-start",
+		"---Features---",
+		"features",
+		"---Knowledge base---",
+		"learn",
+		"---Guides---",
+		"integrations",
+		"migrations",
+		"self-host",
+		"---Developer tools---",
+		"developers",
+		"resources",
+		"---API reference---",
+		"...(api)"
+	]
+}

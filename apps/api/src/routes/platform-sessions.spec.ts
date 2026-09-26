@@ -19,7 +19,9 @@ interface SessionResponse {
 	expiresAt: string;
 }
 
-async function mintSession(customer: string): Promise<SessionResponse> {
+async function mintSession(
+	customer: string | { externalId: string; email?: string; name?: string },
+): Promise<SessionResponse> {
 	const res = await app.request("/v1/sessions", {
 		method: "POST",
 		headers: {
@@ -99,6 +101,42 @@ describe("platform sessions", () => {
 		for (const session of sessions) {
 			expect(session.tokenHash).toMatch(/^[0-9a-f]{64}$/);
 		}
+	});
+
+	test("backfills the end customer email on a later session", async () => {
+		// Without this an integration that starts with a bare externalId can never
+		// acquire an address, and we can never send the payer a receipt.
+		const first = await mintSession("customer-a");
+		let endCustomer = await db.query.endCustomer.findFirst({
+			where: { id: { eq: first.endCustomerId } },
+		});
+		expect(endCustomer?.email).toBeNull();
+
+		await mintSession({
+			externalId: "customer-a",
+			email: "ada@acme.test",
+			name: "Ada Lovelace",
+		});
+
+		endCustomer = await db.query.endCustomer.findFirst({
+			where: { id: { eq: first.endCustomerId } },
+		});
+		expect(endCustomer?.email).toBe("ada@acme.test");
+		expect(endCustomer?.name).toBe("Ada Lovelace");
+	});
+
+	test("leaves a stored email alone when a later session omits it", async () => {
+		const first = await mintSession({
+			externalId: "customer-b",
+			email: "ada@acme.test",
+		});
+
+		await mintSession("customer-b");
+
+		const endCustomer = await db.query.endCustomer.findFirst({
+			where: { id: { eq: first.endCustomerId } },
+		});
+		expect(endCustomer?.email).toBe("ada@acme.test");
 	});
 
 	test("stores session tokens hash-only and authenticates the returned token", async () => {

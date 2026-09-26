@@ -273,6 +273,79 @@ function VerificationResults({ verification }: { verification: Verification }) {
 	);
 }
 
+interface VerificationHistoryEntry extends Verification {
+	initiatedBy: "carrier" | "admin";
+	actorName: string | null;
+}
+
+/** UTC, so a run reads the same for every crew member's time zone. */
+function formatRunTime(value: string): string {
+	const [date, time] = new Date(value).toISOString().split("T");
+	return `${date} ${time.slice(0, 5)} UTC`;
+}
+
+/**
+ * Past preflights for one listing, so a capability that broke and was later
+ * fixed stays on the record instead of being replaced by the newest run.
+ * Runs we started show as "LLM Gateway" — the crew sees which side ran it.
+ */
+function VerificationHistory({
+	entries,
+	selectedId,
+	onSelect,
+}: {
+	entries: VerificationHistoryEntry[];
+	selectedId: string;
+	onSelect: (id: string) => void;
+}) {
+	if (entries.length === 0) {
+		return null;
+	}
+	return (
+		<div className="space-y-2" data-testid="verification-history">
+			<p className="text-muted-foreground text-xs font-semibold">Run history</p>
+			<ul className="divide-border border-border divide-y rounded-lg border">
+				{entries.map((entry) => {
+					const passed = entry.checks.filter(
+						(check) => check.status === "passed",
+					).length;
+					return (
+						<li key={entry.id}>
+							<button
+								type="button"
+								onClick={() => onSelect(entry.id)}
+								aria-current={entry.id === selectedId}
+								className={`hover:bg-muted/50 flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs ${
+									entry.id === selectedId ? "bg-muted/60" : ""
+								}`}
+							>
+								<span className="min-w-0">
+									<span className="block font-medium">
+										{formatRunTime(entry.createdAt)}
+									</span>
+									<span className="text-muted-foreground block truncate">
+										{entry.initiatedBy === "admin"
+											? "LLM Gateway"
+											: (entry.actorName ?? "Crew")}
+									</span>
+								</span>
+								<span className="flex shrink-0 items-center gap-2">
+									<span className="text-muted-foreground">
+										{passed}/{entry.checks.length}
+									</span>
+									<span className="font-mono text-[0.65rem] tracking-wider uppercase">
+										{entry.status}
+									</span>
+								</span>
+							</button>
+						</li>
+					);
+				})}
+			</ul>
+		</div>
+	);
+}
+
 interface RegionFareRow {
 	region: string;
 	inputPrice: string;
@@ -1235,6 +1308,22 @@ export function VerifyModelDialog({
 		},
 	);
 	const verification = verificationQuery.data?.verification;
+	const historyQuery = api.useQuery(
+		"get",
+		"/airside/models/{id}/verifications",
+		{ params: { path: { id: model.id }, query: {} } },
+		{
+			enabled: open,
+			refetchInterval: (query) =>
+				query.state.data?.verifications.some(
+					(entry) => entry.status === "queued" || entry.status === "running",
+				)
+					? 2_000
+					: false,
+		},
+	);
+	const history = (historyQuery.data?.verifications ??
+		[]) as VerificationHistoryEntry[];
 	const queueVerification = api.useMutation(
 		"post",
 		"/airside/models/{id}/verifications",
@@ -1243,6 +1332,7 @@ export function VerifyModelDialog({
 				setVerificationId(data.verification.id);
 				setApiKey("");
 				await invalidate();
+				void historyQuery.refetch();
 				toast.success("Mapping verification queued.");
 			},
 			onError: (error) => {
@@ -1304,9 +1394,15 @@ export function VerifyModelDialog({
 					</div>
 					{verification ? (
 						<VerificationResults verification={verification} />
-					) : model.latestVerification ? (
+					) : verificationId === (model.latestVerification?.id ?? "") &&
+					  model.latestVerification ? (
 						<VerificationResults verification={model.latestVerification} />
 					) : null}
+					<VerificationHistory
+						entries={history}
+						selectedId={verificationId}
+						onSelect={setVerificationId}
+					/>
 				</div>
 				<DialogFooter>
 					<Button

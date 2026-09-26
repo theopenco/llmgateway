@@ -113,6 +113,7 @@ import {
 import { getResponsesContext } from "@/lib/responses-context.js";
 import { getResolvedRoutingConfig } from "@/lib/routing-config-loader.js";
 import { getNoFallbackRoutingMetadata } from "@/lib/routing-metadata.js";
+import { createSmartRoutingSessionStore } from "@/lib/smart-routing-session.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import {
 	buildUpstreamErrorClientPayload,
@@ -216,11 +217,19 @@ import {
 	isRecognizedCodingAgent,
 	normalizeSourceToAgentId,
 } from "@llmgateway/shared";
-import { parseCustomDynamicRouteModelRef } from "@llmgateway/shared/dynamic-route";
+import {
+	graphUsesClassifier,
+	parseCustomDynamicRouteModelRef,
+} from "@llmgateway/shared/dynamic-route";
 import {
 	applyRoutingPreference,
 	type ResolvedRoutingConfig,
 } from "@llmgateway/shared/routing-config";
+import {
+	DEFAULT_SMART_ROUTING_MODELS,
+	isSmartRoutingAvailable,
+	type RequestClassification,
+} from "@llmgateway/shared/smart-routing";
 
 import { completionsRequestSchema } from "./schemas/completions.js";
 import { anthropicRequestNeedsEffortBeta } from "./tools/anthropic-effort-beta.js";
@@ -293,6 +302,7 @@ import { convertAwsEventStreamToSSE } from "./tools/parse-aws-eventstream.js";
 import { parseModelInput } from "./tools/parse-model-input.js";
 import { parseProviderResponse } from "./tools/parse-provider-response.js";
 import { parseTrailingUpstreamError } from "./tools/parse-trailing-upstream-error.js";
+import { pickAutoReasoningEffort } from "./tools/pick-auto-reasoning-effort.js";
 import {
 	exclusionReason,
 	getProviderFilterReasons,
@@ -310,6 +320,7 @@ import {
 	mergeAirsideListingsIntoModel,
 	resolveAirsideModel,
 } from "./tools/resolve-airside-model.js";
+import { resolveDynamicRouteClassification } from "./tools/resolve-dynamic-route-classification.js";
 import { resolveModelInfo } from "./tools/resolve-model-info.js";
 import { resolvePlatformCredential } from "./tools/resolve-platform-credential.js";
 import {
@@ -339,6 +350,7 @@ import {
 	mappingSupportsRequestedServiceTier,
 	providerKeySupportsServiceTier,
 } from "./tools/service-tier.js";
+import { selectSmartRoutingModel } from "./tools/smart-routing-selection.js";
 import { resolveTieredContentFilterPlan } from "./tools/tiered-content-filter.js";
 import {
 	encodeChatMessages,
@@ -1079,6 +1091,15 @@ const CODING_PLAN_CACHED_INPUT_FILTER_REASON =
 
 // Pre-compiled regex pattern to avoid recompilation per request
 const SSE_FIELD_PATTERN = /^[a-zA-Z_-]+:\s*/;
+
+/**
+ * Minimum `max_tokens` for auto routing to raise a hard request's default
+ * reasoning effort to "medium". Below it the thinking budget can consume the
+ * whole response allowance and return empty content, so the cheaper default
+ * stands.
+ */
+const SMART_ROUTING_MEDIUM_EFFORT_MIN_MAX_TOKENS = 8192;
+
 const IMMEDIATE_STREAM_ERROR_PEEK_LIMIT = 64 * 1024;
 
 function inferStreamingErrorStatusCode(
@@ -2985,6 +3006,14 @@ chat.openapi(completions, async (c) => {
 	let usedExternalId: string = requestedModel;
 	let usedRegion: string | undefined = requestedRegion;
 	let routingMetadata: RoutingMetadata | undefined;
+	// Verdict a dynamic route's classifier nodes branched on, recorded on the
+	// log so an operator can see why a branch was taken.
+	let dynamicRouteClassification: RequestClassification | null = null;
+	// Set when an "auto" request ran against an organization-configured
+	// candidate list. Declared at function scope so the late-built metadata
+	// paths below can attach the decision no matter which branch produced it.
+	let smartRoutingClassification: RequestClassification | null = null;
+	let smartRoutingDecision: RoutingMetadata["smartRouting"] | undefined;
 
 	// Resolve a named dynamic route ("dynamic/<name>") to its target model and
 	// optional provider restriction. Official models continue through the auto
@@ -3016,9 +3045,36 @@ chat.openapi(completions, async (c) => {
 				message: `Dynamic route "${dynamicRouteName}" not found, disabled, or has no published version`,
 			});
 		}
+		// Resolved before evaluation so the evaluator stays synchronous and pure,
+		// and only when the graph actually branches on a verdict — a route
+		// without a classifier node never pays for the call.
+		if (graphUsesClassifier(publishedRoute.graph)) {
+			dynamicRouteClassification = await resolveDynamicRouteClassification({
+				organization,
+				context: {
+					requestId,
+					project,
+					apiKey,
+					retentionLevel,
+					requestedModel,
+					source,
+					userAgent,
+					apiOrigin,
+				},
+				sessionId,
+				sessionStickyEnabled,
+				routingCfg,
+				messages: (messages ?? []) as BaseMessage[],
+				tools,
+				hasImages,
+				requestSignal: c.req.raw.signal,
+			});
+		}
+
 		let evaluation: DynamicRouteEvaluation;
 		try {
 			evaluation = evaluateDynamicRoute(publishedRoute.graph, {
+				classification: dynamicRouteClassification,
 				getHeader: (name) => c.req.header(name),
 				body: rawBody as Record<string, unknown>,
 				metadata: {
@@ -3165,7 +3221,7 @@ chat.openapi(completions, async (c) => {
 						customProviderName: providerKey.name,
 						activeModelInfo: { ...modelInfo, providers: [mapping] },
 						clientIp,
-						autoRouting: true,
+						smartRouting: true,
 					});
 					return customIam.allowed ? mapping : undefined;
 				}),
@@ -3387,10 +3443,11 @@ chat.openapi(completions, async (c) => {
 		}
 	};
 
-	// For auto routing, modelInfo is still the synthetic "llmgateway" model here;
-	// compliance is enforced after the real model/provider is resolved (and the
-	// auto candidate set is compliance-filtered during selection below).
-	if (usedInternalModel !== "auto") {
+	// For auto/smart routing, modelInfo is still the synthetic "llmgateway"
+	// model here; compliance is enforced after the real model/provider is
+	// resolved (and the candidate set is compliance-filtered during selection
+	// below).
+	if (usedInternalModel !== "auto" && usedInternalModel !== "smart") {
 		await enforceCompliancePolicy();
 		await enforceServiceTierKeyEligibility();
 	}
@@ -3602,10 +3659,17 @@ chat.openapi(completions, async (c) => {
 		}
 	}
 
-	// Apply routing logic after apiKey and project are available
+	// Apply routing logic after apiKey and project are available.
+	// "auto" and "smart" share this candidate loop. They differ only in where
+	// the candidate list comes from: "auto" is the fixed built-in set and is
+	// frozen so existing callers keep their behaviour, while "smart" uses the
+	// organization's configured list and classifier.
+	const isSmartRoutingModel = usedInternalModel === "smart";
 	if (
-		(usedProvider === "llmgateway" && usedInternalModel === "auto") ||
-		usedInternalModel === "auto"
+		(usedProvider === "llmgateway" &&
+			(usedInternalModel === "auto" || isSmartRoutingModel)) ||
+		usedInternalModel === "auto" ||
+		isSmartRoutingModel
 	) {
 		// Auto-routing and the context-window check below should react to image
 		// payloads, not just text (issue #2112). Recompute the estimate with an
@@ -3680,21 +3744,56 @@ chat.openapi(completions, async (c) => {
 			airsideListingsByModel.set(listing.model.id, listings);
 		}
 
-		// Find the cheapest model that meets our context size requirements
-		// Only consider hardcoded models for auto selection
-		const allowedAutoModels = [
-			"claude-opus-4-6",
-			"claude-sonnet-4-6",
-			"claude-haiku-4-5",
-		];
+		// Enterprise organizations can replace the built-in candidate set with
+		// their own, optionally ranked by a classifier. A project override wins
+		// over the organization default; losing enterprise access falls back to
+		// the built-in list rather than honouring a stale config.
+		// "smart" is an explicit opt-in, so it never degrades quietly into the
+		// built-in "auto" set: a caller that asked for their configured models
+		// and silently got someone else's defaults has no way to notice.
+		if (isSmartRoutingModel && !isSmartRoutingAvailable(organization.kind)) {
+			throw new HTTPException(403, {
+				message:
+					'Smart routing is not available for this organization. Use "auto" or a specific model.',
+			});
+		}
+		const smartRoutingConfig =
+			project.smartRoutingConfig ?? organization.smartRoutingConfig ?? null;
+		if (isSmartRoutingModel && !smartRoutingConfig) {
+			throw new HTTPException(400, {
+				message:
+					"Smart routing is not configured. Choose the models it may resolve to under Organization settings → Smart Routing, or use a specific model.",
+			});
+		}
+		// free_models_only narrows the configured list rather than replacing it:
+		// the list is a governance boundary, so a request parameter must not be
+		// able to route outside what the organization allowed. A dynamic route
+		// has already fixed the model, so it bypasses the list entirely.
+		const configuredSmartModels =
+			isSmartRoutingModel && smartRoutingConfig && !dynamicRouteSelection
+				? smartRoutingConfig.models
+				: null;
+		const eligibleSmartModels =
+			configuredSmartModels ?? DEFAULT_SMART_ROUTING_MODELS;
+		const smartRoutingClassifier = configuredSmartModels
+			? smartRoutingConfig!.classifier
+			: "none";
 
 		let selectedModel: ModelDefinition | undefined;
-		let selectedProviders: any[] = [];
+		let selectedProviders: ProviderModelMapping[] = [];
 		let selectedFilteredProviders: Array<{
 			providerId: string;
 			reasons: string[];
 		}> = [];
-		let lowestPrice = Number.MAX_VALUE;
+		// Every model that survived filtering, so the classifier can rank the
+		// full candidate set instead of the loop picking the cheapest in place.
+		const smartRoutingCandidates: Array<{
+			modelId: string;
+			modelDef: ModelDefinition;
+			providers: ProviderModelMapping[];
+			filteredOut: FilteredProvider[];
+			price: number;
+		}> = [];
 		const now = new Date(); // Cache current time for deprecation checks
 		const autoFilterOpts = {
 			webSearchTool: !!webSearchTool,
@@ -3734,7 +3833,11 @@ chat.openapi(completions, async (c) => {
 			const modelDef = listings
 				? mergeAirsideListingsIntoModel(staticModelDef, listings).modelInfo
 				: staticModelDef;
-			if (modelDef.id === "auto" || modelDef.id === "custom") {
+			if (
+				modelDef.id === "auto" ||
+				modelDef.id === "smart" ||
+				modelDef.id === "custom"
+			) {
 				continue;
 			}
 
@@ -3770,6 +3873,17 @@ chat.openapi(completions, async (c) => {
 					continue;
 				}
 			}
+			// A configured list is exhaustive: the audio/documents bypass and the
+			// Haiku size heuristic below describe the built-in candidate set only,
+			// and applying them would route outside what the organization allowed.
+			else if (configuredSmartModels) {
+				if (!configuredSmartModels.includes(modelDef.id)) {
+					continue;
+				}
+				if (effectiveFreeModelsOnly && !("free" in modelDef && modelDef.free)) {
+					continue;
+				}
+			}
 			// When free_models_only is true, only consider models marked as free
 			// Otherwise, only consider hardcoded allowed models
 			else if (effectiveFreeModelsOnly) {
@@ -3777,7 +3891,7 @@ chat.openapi(completions, async (c) => {
 					continue;
 				}
 			} else if (
-				!allowedAutoModels.includes(modelDef.id) &&
+				!eligibleSmartModels.includes(modelDef.id) &&
 				!hasAudio &&
 				!hasDocuments
 			) {
@@ -3799,7 +3913,7 @@ chat.openapi(completions, async (c) => {
 				requestedModel: modelDef.id,
 				activeModelInfo: modelDef,
 				clientIp,
-				autoRouting: true,
+				smartRouting: true,
 			});
 			const candidateAllowedProviders = candidateIam.allowedProviders;
 
@@ -3891,7 +4005,7 @@ chat.openapi(completions, async (c) => {
 								customProviderName: providerKey.name,
 								activeModelInfo: { ...modelDef, providers: [mapping] },
 								clientIp,
-								autoRouting: true,
+								smartRouting: true,
 							});
 							return customIam.allowed ? mapping : undefined;
 						}),
@@ -4024,7 +4138,10 @@ chat.openapi(completions, async (c) => {
 			);
 
 			if (preferredSuitableProviders.length > 0) {
-				// Find the cheapest among the suitable providers for this model
+				// Rank the model by its cheapest suitable provider, then defer the
+				// pick to the selection step below so a classifier can see every
+				// candidate rather than only the running cheapest.
+				let modelPrice = Number.MAX_VALUE;
 				for (const provider of preferredSuitableProviders) {
 					const { price } = await getDiscountedProviderSelectionPrice(
 						provider,
@@ -4034,19 +4151,73 @@ chat.openapi(completions, async (c) => {
 							providerDiscountResolver,
 						},
 					);
-					const totalPrice = price.toNumber();
-
-					if (totalPrice < lowestPrice) {
-						lowestPrice = totalPrice;
-						selectedModel = {
-							...modelDef,
-							providers: preferredSuitableProviders,
-						};
-						selectedProviders = preferredSuitableProviders;
-						selectedFilteredProviders = filteredOutForModel;
-					}
+					modelPrice = Math.min(modelPrice, price.toNumber());
+				}
+				if (modelPrice < Number.MAX_VALUE) {
+					smartRoutingCandidates.push({
+						modelId: modelDef.id,
+						modelDef,
+						providers: preferredSuitableProviders,
+						filteredOut: filteredOutForModel,
+						price: modelPrice,
+					});
 				}
 			}
+		}
+
+		const smartRoutingSelection = await selectSmartRoutingModel({
+			candidates: smartRoutingCandidates,
+			configuredModels: configuredSmartModels,
+			classifier: smartRoutingClassifier,
+			// The classifier sends prompt text to TypeSafe, so an org whose
+			// compliance policy disallows that provider must not have its prompts
+			// sent there — same fail-closed rule as the model-backed content
+			// filter below. Routing then falls back to the cheapest candidate.
+			classifierAllowed:
+				!compliancePolicy ||
+				isProviderIdCompliant("typesafe", compliancePolicy),
+			// A sticky session classifies once and reuses that verdict for its
+			// remaining turns, so a conversation is not re-rated (and re-billed)
+			// per turn and does not migrate between models mid-thread.
+			sessionStore:
+				sessionStickyEnabled && sessionId
+					? createSmartRoutingSessionStore(
+							project.organizationId,
+							project.id,
+							sessionId,
+							routingCfg.session.ttlSeconds,
+						)
+					: undefined,
+			messages: (messages ?? []) as BaseMessage[],
+			toolNames: (tools ?? [])
+				.map((tool) =>
+					tool.type === "function" ? tool.function?.name : undefined,
+				)
+				.filter((name): name is string => Boolean(name)),
+			hasImages,
+			estimatedInputTokens,
+			context: {
+				requestId,
+				project,
+				apiKey,
+				retentionLevel,
+				requestedModel,
+				source,
+				userAgent,
+				apiOrigin,
+			},
+			requestSignal: c.req.raw.signal,
+		});
+		if (smartRoutingSelection) {
+			const { candidate, classification, decision } = smartRoutingSelection;
+			selectedModel = {
+				...candidate.modelDef,
+				providers: candidate.providers,
+			};
+			selectedProviders = candidate.providers;
+			selectedFilteredProviders = candidate.filteredOut;
+			smartRoutingClassification = classification;
+			smartRoutingDecision = decision;
 		}
 
 		let providerAgnosticSelectedProviders = selectedProviders;
@@ -4171,6 +4342,16 @@ chat.openapi(completions, async (c) => {
 						: `Dynamic route "${dynamicRouteSelection.name}" resolved to model "${dynamicRouteSelection.model}" but no matching provider is currently available for this request`,
 				});
 			}
+			// A configured candidate list is exhaustive: falling back to the
+			// built-in default would route to a model the organization did not
+			// allow, so fail instead.
+			if (configuredSmartModels) {
+				throw new HTTPException(400, {
+					message: effectiveFreeModelsOnly
+						? "None of the configured smart-routing models are free. Remove free_models_only or use a specific model."
+						: "None of the configured smart-routing models are available for this request",
+				});
+			}
 			if (effectiveFreeModelsOnly) {
 				// If free_models_only is true but no suitable model found, return error
 				throw new HTTPException(400, {
@@ -4224,7 +4405,7 @@ chat.openapi(completions, async (c) => {
 				usedProvider === "custom" ? customProviderName : undefined,
 			activeModelInfo: modelInfo,
 			clientIp,
-			autoRouting: true,
+			smartRouting: true,
 		});
 		if (!resolvedIamValidation.allowed) {
 			throwIamException(resolvedIamValidation.reason ?? "Model access denied");
@@ -5530,11 +5711,26 @@ chat.openapi(completions, async (c) => {
 		);
 	}
 
+	if (smartRoutingDecision && routingMetadata) {
+		routingMetadata.smartRouting = smartRoutingDecision;
+	}
+
 	if (dynamicRouteSelection && routingMetadata) {
 		routingMetadata.dynamicRoute = {
 			name: dynamicRouteSelection.name,
 			version: dynamicRouteSelection.version,
 			path: dynamicRouteSelection.path,
+			...(dynamicRouteClassification
+				? {
+						classifier: {
+							kind: "jev" as const,
+							difficulty: dynamicRouteClassification.difficulty,
+							difficultyScore: dynamicRouteClassification.difficultyScore,
+							task: dynamicRouteClassification.task,
+							outputType: dynamicRouteClassification.outputType,
+						},
+					}
+				: {}),
 		};
 	}
 
@@ -5627,7 +5823,7 @@ chat.openapi(completions, async (c) => {
 	// Auto-set reasoning_effort for auto-routing when model supports reasoning
 	// Skip when web_search tool is present since it's incompatible with "minimal" reasoning effort
 	if (
-		requestedModel === "auto" &&
+		(requestedModel === "auto" || requestedModel === "smart") &&
 		reasoning_effort === undefined &&
 		finalModelInfo &&
 		!webSearchTool
@@ -5638,11 +5834,26 @@ chat.openapi(completions, async (c) => {
 		);
 
 		if (selectedModelSupportsReasoning) {
-			// Set reasoning_effort to "minimal" for gpt-5* models, "low" for others
-			if (usedInternalModel.startsWith("gpt-5")) {
-				reasoning_effort = "minimal";
-			} else {
-				reasoning_effort = "low";
+			// A request the classifier rated hard gets a real thinking budget: the
+			// minimal default exists to keep easy auto-routed requests cheap, and
+			// applying it to a hard request wastes the model it selected.
+			//
+			// Only when the caller left room for an answer, though. Thinking is
+			// drawn from the same max_tokens budget as the response, and a hard
+			// prompt at "medium" was measured spending ~2000 reasoning tokens — so
+			// on a tight budget this default returns finish_reason "length" with
+			// empty content, and it would do so on exactly the hardest requests.
+			const preferMediumEffort =
+				smartRoutingClassification?.difficulty === "high" &&
+				(max_tokens === undefined ||
+					max_tokens >= SMART_ROUTING_MEDIUM_EFFORT_MIN_MAX_TOKENS);
+			const autoEffort = pickAutoReasoningEffort(
+				usedInternalModel,
+				getUsedProviderMapping()?.reasoningEfforts,
+				preferMediumEffort,
+			);
+			if (autoEffort) {
+				reasoning_effort = autoEffort;
 			}
 		}
 	}
