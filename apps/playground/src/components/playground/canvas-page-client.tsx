@@ -2,6 +2,7 @@
 
 import { compileSpecStream } from "@json-render/core";
 import { JSONUIProvider, Renderer } from "@json-render/react";
+import { useQuery } from "@tanstack/react-query";
 import {
 	Code,
 	Download,
@@ -170,8 +171,10 @@ function CanvasPreviewSkeleton() {
 
 function CanvasEmptyState({
 	onSuggestionClick,
+	disabled,
 }: {
 	onSuggestionClick: (prompt: string) => void;
+	disabled: boolean;
 }) {
 	const [suggestions, setSuggestions] = useState<readonly string[] | null>(
 		null,
@@ -207,6 +210,7 @@ function CanvasEmptyState({
 									delay: index * 0.025,
 									ease: "easeOut",
 								}}
+								disabled={disabled}
 								onClick={() => onSuggestionClick(s)}
 								className="rounded-md border px-4 py-3 text-left text-sm hover:bg-muted/60 transition-colors"
 							>
@@ -242,6 +246,7 @@ async function getResponseErrorMessage(response: Response): Promise<string> {
 
 interface CanvasPromptInputProps {
 	isGenerating: boolean;
+	disabled: boolean;
 	onGenerate: (prompt: string) => void;
 	onStop: () => void;
 	promptRef: RefObject<HTMLTextAreaElement | null>;
@@ -249,6 +254,7 @@ interface CanvasPromptInputProps {
 
 const CanvasPromptInput = memo(function CanvasPromptInput({
 	isGenerating,
+	disabled,
 	onGenerate,
 	onStop,
 	promptRef,
@@ -264,7 +270,7 @@ const CanvasPromptInput = memo(function CanvasPromptInput({
 			<div className="mx-auto w-full max-w-3xl bg-background px-0 pb-0 pt-2 sm:px-4">
 				<PromptInput
 					onSubmit={handleSubmit}
-					aria-disabled={isGenerating}
+					aria-disabled={isGenerating || disabled}
 					className="[&_[data-slot=input-group]]:rounded-none [&_[data-slot=input-group]]:border-x-0 [&_[data-slot=input-group]]:border-b-0 sm:[&_[data-slot=input-group]]:rounded-md sm:[&_[data-slot=input-group]]:border"
 				>
 					<PromptInputBody>
@@ -273,7 +279,7 @@ const CanvasPromptInput = memo(function CanvasPromptInput({
 							value={prompt}
 							onChange={(e) => setPrompt(e.currentTarget.value)}
 							placeholder="Describe the UI you want to build..."
-							disabled={isGenerating}
+							disabled={isGenerating || disabled}
 						/>
 					</PromptInputBody>
 					<PromptInputToolbar>
@@ -283,7 +289,7 @@ const CanvasPromptInput = memo(function CanvasPromptInput({
 								<Square className="h-3.5 w-3.5" />
 							</PromptInputButton>
 						) : (
-							<PromptInputSubmit disabled={!prompt.trim()} />
+							<PromptInputSubmit disabled={disabled || !prompt.trim()} />
 						)}
 					</PromptInputToolbar>
 				</PromptInput>
@@ -351,7 +357,6 @@ export default function CanvasPageClient({
 	);
 	const isAuthenticated = !isUserLoading && !!user;
 	const showAuthDialog = !isAuthenticated && !isUserLoading && !user;
-	const ensuredProjectRef = useRef<string | null>(null);
 
 	useEffect(() => {
 		if (selectedModel) {
@@ -359,35 +364,24 @@ export default function CanvasPageClient({
 		}
 	}, [selectedModel]);
 
-	useEffect(() => {
-		if (!isAuthenticated || !selectedProject) {
-			ensuredProjectRef.current = null;
-			return;
-		}
-
-		const ensureKey = async () => {
-			if (!selectedOrganization) {
-				return;
+	const keyQuery = useQuery({
+		queryKey: ["canvas-playground-key", selectedProject?.id],
+		enabled: isAuthenticated && !!selectedOrganization && !!selectedProject,
+		staleTime: 0,
+		queryFn: async ({ signal }) => {
+			const response = await fetch("/api/ensure-playground-key", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ projectId: selectedProject?.id }),
+				signal,
+			});
+			if (!response.ok) {
+				throw new Error("Could not prepare your project for generation.");
 			}
-			const projectId = selectedProject.id;
-			if (ensuredProjectRef.current === projectId) {
-				return;
-			}
-			try {
-				const response = await fetch("/api/ensure-playground-key", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ projectId }),
-				});
-				if (response.ok && selectedProject.id === projectId) {
-					ensuredProjectRef.current = projectId;
-				}
-			} catch {
-				// ignore for now
-			}
-		};
-		void ensureKey();
-	}, [isAuthenticated, selectedOrganization, selectedProject]);
+			return true;
+		},
+	});
+	const generationReady = keyQuery.isSuccess && !keyQuery.isFetching;
 
 	const handleEditorChange = useCallback(
 		(e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -441,7 +435,7 @@ export default function CanvasPageClient({
 
 	const handleGenerate = useCallback(
 		async (prompt: string) => {
-			if (!prompt.trim() || isGenerating) {
+			if (!prompt.trim() || isGenerating || !generationReady) {
 				return;
 			}
 
@@ -542,7 +536,7 @@ export default function CanvasPageClient({
 				}
 			}
 		},
-		[applySpec, isGenerating, selectedModel],
+		[applySpec, isGenerating, selectedModel, generationReady],
 	);
 
 	const handleStop = useCallback(() => {
@@ -867,6 +861,7 @@ export default function CanvasPageClient({
 										<CanvasPreviewSkeleton />
 									) : isDefaultSpec && !isGenerating ? (
 										<CanvasEmptyState
+											disabled={!generationReady}
 											onSuggestionClick={(suggestion) => {
 												void handleGenerate(suggestion);
 											}}
@@ -882,9 +877,25 @@ export default function CanvasPageClient({
 									)}
 								</div>
 
+								{keyQuery.isError && (
+									<div
+										role="alert"
+										className="flex items-center justify-between gap-3 px-4 py-2 text-sm"
+									>
+										<span>Could not prepare your project for generation.</span>
+										<Button
+											variant="outline"
+											size="sm"
+											onClick={() => void keyQuery.refetch()}
+										>
+											Retry
+										</Button>
+									</div>
+								)}
 								{/* Prompt input */}
 								<CanvasPromptInput
 									key={promptResetKey}
+									disabled={!generationReady}
 									isGenerating={isGenerating}
 									onGenerate={(prompt) => {
 										void handleGenerate(prompt);

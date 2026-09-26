@@ -89,7 +89,7 @@ export async function GET(
 		cache: "no-store",
 	});
 
-	if (!response.ok && response.status !== 206) {
+	if (!response.ok && response.status !== 416) {
 		const body = await readGatewayResponseBody(response);
 		return NextResponse.json(
 			{ error: getGatewayErrorMessage(body, "Failed to fetch video content") },
@@ -97,7 +97,7 @@ export async function GET(
 		);
 	}
 
-	if (!response.body) {
+	if (!response.body && response.status !== 416) {
 		return NextResponse.json(
 			{ error: "No video content returned" },
 			{ status: 502 },

@@ -29,6 +29,7 @@ function replaceMdxComponents(text: string): string {
 							/^[ \t]*<([A-Z][A-Za-z0-9]*)(?:\s[^>]*)?\/>[ \t]*$/gm,
 							(_match, name: string) => MDX_COMPONENT_REPLACEMENTS[name] ?? "",
 						)
+						.replace(/<\/?[A-Z][A-Za-z0-9]*(?:\s[^>]*)?>/g, "")
 						.replace(/\n{3,}/g, "\n\n"),
 		)
 		.join("");

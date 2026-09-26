@@ -1,14 +1,9 @@
 "use client";
 
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Loader2, RefreshCw } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import {
-	useCallback,
-	useDeferredValue,
-	useEffect,
-	useMemo,
-	useState,
-} from "react";
+import { useCallback, useDeferredValue, useMemo, useState } from "react";
 
 import { LogCard } from "@/components/log-card";
 import { Button } from "@/components/ui/button";
@@ -31,10 +26,8 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import {
-	loadOrganizationLogsAction,
-	loadProjectLogsAction,
-} from "@/lib/admin-organizations";
+import { apiErrorMessage } from "@/lib/api-error";
+import { useFetchClient } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
 import {
@@ -43,11 +36,7 @@ import {
 	LOG_ERROR_TYPES,
 } from "@llmgateway/shared";
 
-import type {
-	ProjectLogEntry,
-	ProjectLogFilters,
-	ProjectLogsResponse,
-} from "@/lib/types";
+import type { ProjectLogFilters } from "@/lib/types";
 import type { LogErrorType } from "@llmgateway/shared";
 
 const UnifiedFinishReason = {
@@ -116,14 +105,6 @@ export function LogsSection({
 	const router = useRouter();
 	const pathname = usePathname();
 
-	const [logs, setLogs] = useState<ProjectLogEntry[]>([]);
-	const [loading, setLoading] = useState(true);
-	const [loadingMore, setLoadingMore] = useState(false);
-	const [refreshing, setRefreshing] = useState(false);
-	const [pagination, setPagination] = useState<
-		ProjectLogsResponse["pagination"] | null
-	>(null);
-
 	const provider = searchParams.get("provider") ?? "all";
 	const model = searchParams.get("model") ?? "all";
 	const source = searchParams.get("source") ?? "all";
@@ -163,7 +144,7 @@ export function LogsSection({
 	const [seatSearch, setSeatSearch] = useState("");
 	const deferredSeatSearch = useDeferredValue(seatSearch);
 
-	const getFilters = useCallback(() => {
+	const filters = useMemo(() => {
 		const filters: ProjectLogFilters = {};
 		if (provider !== "all") {
 			filters.provider = provider;
@@ -198,43 +179,45 @@ export function LogsSection({
 		projectId,
 	]);
 
-	const loadLogs = useCallback(
-		async (cursor?: string, options?: { background?: boolean }) => {
-			if (cursor) {
-				setLoadingMore(true);
-			} else if (options?.background) {
-				setRefreshing(true);
-			} else {
-				setLoading(true);
+	const client = useFetchClient();
+	const query = useInfiniteQuery({
+		queryKey: ["admin-logs", orgId, projectId, filters],
+		initialPageParam: undefined as string | undefined,
+		queryFn: async ({ pageParam: cursor, signal }) => {
+			const result = projectId
+				? await client.GET(
+						"/admin/organizations/{orgId}/projects/{projectId}/logs",
+						{
+							params: {
+								path: { orgId, projectId },
+								query: { limit: 50, cursor, ...filters },
+							},
+							signal,
+						},
+					)
+				: await client.GET("/admin/organizations/{orgId}/logs", {
+						params: {
+							path: { orgId },
+							query: { limit: 50, cursor, ...filters },
+						},
+						signal,
+					});
+			if (!result.data) {
+				throw new Error(
+					apiErrorMessage(result.error, "Unable to load logs", result.response),
+				);
 			}
-
-			try {
-				const data = projectId
-					? await loadProjectLogsAction(orgId, projectId, cursor, getFilters())
-					: await loadOrganizationLogsAction(orgId, cursor, getFilters());
-
-				if (data) {
-					if (cursor) {
-						setLogs((prev) => [...prev, ...data.logs]);
-					} else {
-						setLogs(data.logs);
-					}
-					setPagination(data.pagination);
-				}
-			} catch (error) {
-				console.error("Failed to load logs:", error);
-			} finally {
-				setLoading(false);
-				setLoadingMore(false);
-				setRefreshing(false);
-			}
+			return result.data;
 		},
-		[orgId, projectId, getFilters],
-	);
-
-	useEffect(() => {
-		void loadLogs();
-	}, [loadLogs]);
+		getNextPageParam: (page) =>
+			page.pagination.hasMore
+				? (page.pagination.nextCursor ?? undefined)
+				: undefined,
+	});
+	const logs = query.data?.pages.flatMap((page) => page.logs) ?? [];
+	const loading = query.isPending;
+	const loadingMore = query.isFetchingNextPage;
+	const refreshing = query.isRefetching;
 
 	const selectedModelOption = useMemo(
 		() => modelOptions.find((option) => option.id === model),
@@ -558,7 +541,7 @@ export function LogsSection({
 					variant="outline"
 					size="sm"
 					disabled={loading || loadingMore || refreshing}
-					onClick={() => void loadLogs(undefined, { background: true })}
+					onClick={() => void query.refetch()}
 					className="gap-2"
 				>
 					<RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
@@ -571,6 +554,13 @@ export function LogsSection({
 					<Loader2 className="h-4 w-4 animate-spin" />
 					Loading logs...
 				</div>
+			) : query.isError ? (
+				<div
+					role="alert"
+					className="rounded-lg border p-8 text-center text-sm text-muted-foreground"
+				>
+					Unable to load logs. Use Refresh to try again.
+				</div>
 			) : logs.length === 0 ? (
 				<div className="rounded-lg border border-dashed border-border/60 p-8 text-center text-sm text-muted-foreground">
 					{projectId
@@ -582,16 +572,14 @@ export function LogsSection({
 					{logs.map((log) => (
 						<LogCard key={log.id} log={log} />
 					))}
-					{pagination?.hasMore && (
+					{query.hasNextPage && (
 						<div className="flex justify-center pt-2">
 							<Button
 								variant="outline"
 								size="sm"
 								disabled={loadingMore}
 								onClick={() => {
-									if (pagination.nextCursor) {
-										void loadLogs(pagination.nextCursor);
-									}
+									void query.fetchNextPage();
 								}}
 							>
 								{loadingMore ? (

@@ -390,11 +390,12 @@ export function Chat({
 						);
 					}
 					await answerToolCall({
+						messageId: temporary ? undefined : message.id,
 						parts: message.toolParts ?? readToolParts(message.tools),
 						toolCallId: action.toolCallId,
 						approved: action.approved === true,
 						signal: controller.signal,
-						persist: async (parts) => {
+						persist: async (parts, serverSaved) => {
 							const reply = {
 								...messageReply(message, model),
 								tools: parts,
@@ -404,7 +405,9 @@ export function Chat({
 								if (!id) {
 									throw new Error("The conversation has not been saved.");
 								}
-								await saveReply(id, reply, message.id);
+								if (!serverSaved) {
+									await saveReply(id, reply, message.id);
+								}
 								setToolMessages((current) => ({
 									...current,
 									[message.id]: withReply(message, reply),

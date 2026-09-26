@@ -235,7 +235,8 @@ export function isTextOutput(output: string[] | null | undefined): boolean {
 		!output?.includes("video") &&
 		!output?.includes("embedding") &&
 		!output?.includes("rerank") &&
-		!output?.includes("decision")
+		!output?.includes("decision") &&
+		(!output?.includes("audio") || output.includes("text"))
 	);
 }
 

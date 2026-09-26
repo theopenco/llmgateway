@@ -139,14 +139,16 @@ export const uncertainToolOutcome =
 export async function answerToolCall({
 	parts,
 	toolCallId,
+	messageId,
 	approved,
 	persist,
 	signal,
 }: {
 	parts: ToolPart[];
 	toolCallId: string;
+	messageId?: string;
 	approved: boolean;
-	persist: (parts: ToolPart[]) => Promise<void>;
+	persist: (parts: ToolPart[], serverSaved?: boolean) => Promise<void>;
 	signal: AbortSignal;
 }): Promise<ToolPart[]> {
 	const part = parts.find((item) => item.toolCallId === toolCallId);
@@ -157,12 +159,12 @@ export async function answerToolCall({
 	}
 	const replace = (value: ToolPart) =>
 		parts.map((item) => (item.toolCallId === toolCallId ? value : item));
-	if (!approved) {
+	if (!approved && !messageId) {
 		const denied = replace(toolOutcome(part, false));
 		await persist(denied);
 		return denied;
 	}
-	if (!part.approval?.signature) {
+	if (approved && !part.approval?.signature) {
 		throw new Error(
 			"This request is no longer valid. Decline it and ask again.",
 		);
@@ -170,18 +172,48 @@ export async function answerToolCall({
 	const target = toolTarget(part);
 	const input = z.record(z.unknown()).parse(part.input);
 	signal.throwIfAborted();
-	// A crash must not leave an executable approval behind in shared history.
-	await persist(
-		replace(toolOutcome(part, true, undefined, uncertainToolOutcome)),
+	const provisional = replace(
+		toolOutcome(
+			part,
+			approved,
+			undefined,
+			approved ? uncertainToolOutcome : undefined,
+		),
 	);
+	if (messageId) {
+		await persist(provisional, true);
+	} else {
+		await persist(provisional);
+	}
 	signal.throwIfAborted();
 	try {
 		const result = await client.POST(
 			"/connectors/{connectorId}/tools/{toolName}",
-			{ params: { path: target }, body: { input }, signal },
+			{
+				params: { path: target },
+				body: { input },
+				signal,
+				...(messageId
+					? {
+							headers: {
+								"x-tool-message-id": messageId,
+								"x-tool-call-id": toolCallId,
+								"x-tool-approved": String(approved),
+							},
+						}
+					: {}),
+			},
 		);
 		if (!result.data) {
 			throw new Error("The connector did not return a result.");
+		}
+		if (messageId) {
+			if (!("tools" in result.data) || typeof result.data.tools !== "string") {
+				throw new Error("The saved tool outcome was not returned.");
+			}
+			const completed = readToolParts(result.data.tools);
+			await persist(completed, true);
+			return completed;
 		}
 		const output: unknown = JSON.parse(result.data.result);
 		const completed = replace(toolOutcome(part, true, output));

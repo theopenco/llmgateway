@@ -156,7 +156,11 @@ export default function AboutPage() {
 							.
 						</p>
 						<div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
-							<Button size="lg" className="bg-primary hover:bg-primary/90">
+							<Button
+								size="lg"
+								className="bg-primary hover:bg-primary/90"
+								asChild
+							>
 								<AuthLink href="/signup">Start Free</AuthLink>
 							</Button>
 							<Button size="lg" variant="outline" asChild>

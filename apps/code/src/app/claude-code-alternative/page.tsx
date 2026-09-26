@@ -22,7 +22,7 @@ const BASE_URL = "https://devpass.llmgateway.io";
 const PAGE_PATH = "/claude-code-alternative";
 
 const TITLE = "Claude Code Alternative (2026): Keep the CLI, Skip the Caps";
-const DESCRIPTION = `DevPass keeps the Claude Code CLI and replaces the Max subscription: one key, 200+ models (Claude included) at provider rates, from $${DEV_PLAN_PRICES.lite}/mo. No weekly caps.`;
+const DESCRIPTION = `DevPass keeps the Claude Code CLI and replaces the Max subscription: one key, 200+ models (Claude included) at provider rates, from $${DEV_PLAN_PRICES.lite}/mo. Standard models use monthly credits; premium models have a weekly fair-use allowance.`;
 
 export const metadata: Metadata = {
 	title: { absolute: `${TITLE} | DevPass` },
@@ -82,7 +82,7 @@ const comparisonFeatures = [
 	},
 	{
 		label: "Weekly usage caps",
-		devpass: "None — dollar allowance (~3× plan price)",
+		devpass: "Standard: monthly credits; premium: weekly fair use",
 		competitor: "Two weekly caps + 5-hour window",
 		highlight: true,
 	},
@@ -130,7 +130,7 @@ const faqs = [
 	{
 		question: "Does DevPass have weekly usage limits like Claude Max?",
 		answer:
-			"No. There are no 5-hour windows and no weekly caps. Each plan includes a monthly dollar allowance (about 3× the plan price) metered per request at provider rates. If you run through it, you can top up or move up a tier — you're never waiting for a timer to reset.",
+			"Standard models use monthly plan credits, metered per request at provider rates. Premium models also have a weekly fair-use allowance. Top-ups provide pay-as-you-go usage when the included allowance runs out.",
 	},
 	{
 		question: "What about Claude Pro at $20/mo?",
@@ -213,7 +213,8 @@ export default function ClaudeCodeAlternativePage() {
 							Max subscription. DevPass is one key that runs{" "}
 							{MARKETING_STATS.models} models — Claude included — through Claude
 							Code or any agent you like, metered at provider rates from $
-							{DEV_PLAN_PRICES.lite}/mo. No weekly caps.
+							{DEV_PLAN_PRICES.lite}/mo. Standard models use monthly credits;
+							premium models have a weekly fair-use allowance.
 						</p>
 
 						<div className="mt-9 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">

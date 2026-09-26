@@ -223,7 +223,22 @@ export default async function OrganizationPage({
 	const alPage = parsePage(searchParamsData?.alPage);
 	const alAction = searchParamsData?.alAction ?? "";
 	const alResource = searchParamsData?.alResource ?? "";
-	const activeTab = searchParamsData?.tab ?? "transactions";
+	const requestedTab = searchParamsData?.tab;
+	const activeTab =
+		requestedTab &&
+		[
+			"transactions",
+			"api-keys",
+			"provider-keys",
+			"members",
+			"logs",
+			"audit-logs",
+			"settings",
+			"guardrails",
+			"sso",
+		].includes(requestedTab)
+			? requestedTab
+			: "transactions";
 	const txLimit = 25;
 	const txOffset = (txPage - 1) * txLimit;
 	const akLimit = 25;
@@ -388,7 +403,11 @@ export default async function OrganizationPage({
 								apiKeyLimit={org.apiKeyLimit ?? null}
 								projectLimit={org.projectLimit ?? null}
 								trustTierOverride={
-									trustTier?.overridden ? trustTier.tier : null
+									trustTier
+										? trustTier.overridden
+											? trustTier.tier
+											: null
+										: undefined
 								}
 								contentFilterTierOverride={
 									settingsData?.organization.contentFilterTierOverride

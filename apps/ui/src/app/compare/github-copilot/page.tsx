@@ -47,7 +47,7 @@ export default function CompareGitHubCopilotPage() {
 					content={{
 						heading: "The Cost-Controlled GitHub Copilot Alternative",
 						description:
-							"Copilot's June 2026 switch to usage-based AI Credits removed the ceiling on your AI bill. LLM Gateway routes any coding agent to 200+ models with zero token markup, prompt caching, and hard budget caps per team, project, and key.",
+							"Copilot's usage-based AI Credits can add charges after you enable an additional-usage budget. LLM Gateway routes any coding agent to 200+ models with zero token markup, prompt caching, and hard budget caps per team, project, and key.",
 						badges: [
 							"No Token Markup",
 							"Hard Budget Caps",

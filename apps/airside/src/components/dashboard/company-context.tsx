@@ -19,13 +19,16 @@ interface CompanyContextValue {
 	company: AirsideCompany | null;
 	setCompanyId: (id: string) => void;
 	isLoading: boolean;
+	isError: boolean;
+	isFetching: boolean;
+	retry: () => void;
 }
 
 const CompanyContext = createContext<CompanyContextValue | null>(null);
 
 export function CompanyProvider({ children }: { children: ReactNode }) {
 	const api = useApi();
-	const { data, isLoading } = api.useQuery(
+	const { data, isLoading, isError, isFetching, refetch } = api.useQuery(
 		"get",
 		"/airside/companies",
 		{},
@@ -48,8 +51,18 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
 		});
 		const company =
 			companies.find((c) => c.id === companyId) ?? companies[0] ?? null;
-		return { companies, company, setCompanyId, isLoading };
-	}, [data?.companies, companyId, isLoading]);
+		return {
+			companies,
+			company,
+			setCompanyId,
+			isLoading,
+			isError,
+			isFetching,
+			retry: () => {
+				void refetch();
+			},
+		};
+	}, [data?.companies, companyId, isLoading, isError, isFetching, refetch]);
 
 	return <CompanyContext value={value}>{children}</CompanyContext>;
 }

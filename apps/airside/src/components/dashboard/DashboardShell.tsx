@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useCompany } from "@/components/dashboard/company-context";
+import { QueryError } from "@/components/dashboard/IncidentsTable";
 import { EmailVerificationBanner } from "@/components/EmailVerificationBanner";
 import { ProductSwitcher } from "@/components/ProductSwitcher";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -40,7 +41,8 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 	const router = useRouter();
 	const queryClient = useQueryClient();
 	const { signOut } = useAuth();
-	const { companies, company, setCompanyId } = useCompany();
+	const { companies, company, setCompanyId, isError, isFetching, retry } =
+		useCompany();
 
 	async function handleSignOut() {
 		await signOut();
@@ -125,7 +127,15 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 				<div className="mb-4 empty:hidden">
 					<EmailVerificationBanner />
 				</div>
-				{children}
+				{isError ? (
+					<QueryError
+						message="Could not load your carrier companies."
+						onRetry={retry}
+						retrying={isFetching}
+					/>
+				) : (
+					children
+				)}
 			</main>
 		</div>
 	);
