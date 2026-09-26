@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { app } from "@/index.js";
 import { posthog } from "@/posthog.js";
@@ -10,9 +10,26 @@ vi.mock("@/posthog", () => ({
 	},
 }));
 
+const proxyBindings = {
+	incoming: {
+		socket: {
+			remoteAddress: "10.0.0.2",
+			remoteFamily: "IPv4",
+			remotePort: 12345,
+		},
+	},
+};
+
 describe("beacon endpoint", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		vi.stubEnv("TRUSTED_PROXY_CIDRS", "10.0.0.0/8");
+		vi.stubEnv("TRUSTED_PROXY_HOPS", "2");
+		vi.stubEnv("CLIENT_IP_HEADER", "x-forwarded-for");
+	});
+
+	afterEach(() => {
+		vi.unstubAllEnvs();
 	});
 
 	it("should accept valid beacon data", async () => {
@@ -57,6 +74,7 @@ describe("beacon endpoint", () => {
 	});
 
 	it("should extract Cloudflare headers correctly", async () => {
+		vi.stubEnv("CLIENT_IP_HEADER", "cf-connecting-ip");
 		const beaconData = {
 			uuid: "123e4567-e89b-12d3-a456-426614174000",
 			type: "self-host",
@@ -64,17 +82,21 @@ describe("beacon endpoint", () => {
 			version: "v0.0.0-unknown",
 		};
 
-		const response = await app.request("/beacon", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"CF-Connecting-IP": "203.0.113.42",
-				"CF-IPCountry": "US",
-				"CF-Region": "California",
-				"CF-Ray": "8a1b2c3d4e5f6789-SJC",
+		const response = await app.request(
+			"/beacon",
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"CF-Connecting-IP": "203.0.113.42",
+					"CF-IPCountry": "US",
+					"CF-Region": "California",
+					"CF-Ray": "8a1b2c3d4e5f6789-SJC",
+				},
+				body: JSON.stringify(beaconData),
 			},
-			body: JSON.stringify(beaconData),
-		});
+			proxyBindings,
+		);
 
 		expect(response.status).toBe(200);
 
@@ -104,16 +126,20 @@ describe("beacon endpoint", () => {
 			version: "v0.0.0-unknown",
 		};
 
-		const response = await app.request("/beacon", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"X-Forwarded-For": "198.51.100.25, 203.0.113.1",
-				"X-Google-Cloud-Region": "us-central1",
-				"X-Cloud-Trace-Context": "105445aa7843bc8bf206b120001000/1;o=1",
+		const response = await app.request(
+			"/beacon",
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Forwarded-For": "198.51.100.25, 203.0.113.1",
+					"X-Google-Cloud-Region": "us-central1",
+					"X-Cloud-Trace-Context": "105445aa7843bc8bf206b120001000/1;o=1",
+				},
+				body: JSON.stringify(beaconData),
 			},
-			body: JSON.stringify(beaconData),
-		});
+			proxyBindings,
+		);
 
 		expect(response.status).toBe(200);
 
@@ -143,16 +169,20 @@ describe("beacon endpoint", () => {
 			version: "v0.0.0-unknown",
 		};
 
-		const response = await app.request("/beacon", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"X-Forwarded-For": "198.51.100.25, 203.0.113.1",
-				"X-Client-Region": "DE",
-				"X-Client-City": "Stuttgart",
+		const response = await app.request(
+			"/beacon",
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Forwarded-For": "198.51.100.25, 203.0.113.1",
+					"X-Client-Region": "DE",
+					"X-Client-City": "Stuttgart",
+				},
+				body: JSON.stringify(beaconData),
 			},
-			body: JSON.stringify(beaconData),
-		});
+			proxyBindings,
+		);
 
 		expect(response.status).toBe(200);
 
@@ -173,7 +203,8 @@ describe("beacon endpoint", () => {
 		});
 	});
 
-	it("should handle X-Real-IP fallback", async () => {
+	it("uses X-Real-IP when explicitly configured", async () => {
+		vi.stubEnv("CLIENT_IP_HEADER", "x-real-ip");
 		const beaconData = {
 			uuid: "123e4567-e89b-12d3-a456-426614174000",
 			type: "self-host",
@@ -181,14 +212,18 @@ describe("beacon endpoint", () => {
 			version: "v0.0.0-unknown",
 		};
 
-		const response = await app.request("/beacon", {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"X-Real-IP": "192.0.2.123",
+		const response = await app.request(
+			"/beacon",
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Real-IP": "192.0.2.123",
+				},
+				body: JSON.stringify(beaconData),
 			},
-			body: JSON.stringify(beaconData),
-		});
+			proxyBindings,
+		);
 
 		expect(response.status).toBe(200);
 
