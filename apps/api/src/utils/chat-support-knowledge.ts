@@ -310,7 +310,9 @@ export async function getKnowledgeReferenceDocs(): Promise<
 	);
 	const docs = fetched.filter((doc): doc is KnowledgeOverview => doc !== null);
 
-	if (docs.length > 0) {
+	// Only cache a complete set so a doc that failed to load is retried on the
+	// next request instead of staying missing for the whole cache window.
+	if (docs.length === KNOWLEDGE_REFERENCE_DOCS.length) {
 		try {
 			await redisClient.set(
 				REFERENCE_DOCS_CACHE_KEY,
