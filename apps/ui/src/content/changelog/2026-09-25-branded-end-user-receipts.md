@@ -1,5 +1,5 @@
 ---
-id: "104"
+id: "111"
 slug: "branded-end-user-receipts"
 date: "2026-09-25"
 title: "Branded Payments SDK Receipts"
