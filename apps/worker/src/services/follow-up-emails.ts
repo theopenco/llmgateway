@@ -83,13 +83,7 @@ async function sendFollowUpEmail(opts: {
 }): Promise<void> {
 	const client = getResendClient();
 	if (!client) {
-		logger.error(
-			"RESEND_API_KEY is not configured. Follow-up email will not be sent.",
-			new Error(
-				`Resend not configured for email to ${opts.to} with subject: ${opts.subject}`,
-			),
-		);
-		return;
+		throw new Error("Resend is not configured for follow-up emails");
 	}
 
 	const { data, error } = await client.emails.send({
@@ -228,7 +222,19 @@ async function sendAndRecord(
 	}
 
 	if (process.env.EMAIL_FOLLOW_UPS === "true") {
-		await sendFollowUpEmail({ to: recipientEmail, subject, text, category });
+		try {
+			await sendFollowUpEmail({ to: recipientEmail, subject, text, category });
+		} catch (error) {
+			await db
+				.delete(followUpEmail)
+				.where(
+					and(
+						eq(followUpEmail.organizationId, organizationId),
+						eq(followUpEmail.emailType, emailType),
+					),
+				);
+			throw error;
+		}
 		await interruptibleSleep(1000);
 	} else {
 		logger.info("Follow-up email (dry run)", {

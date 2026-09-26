@@ -396,15 +396,12 @@ function getCurrentHourStart(): Date {
  * Calculate and store 1-minute historical data for models for a specific minute
  * @param targetMinute The specific minute to calculate history for
  */
-interface MinuteHistoryOptions {
-	// Skip rows unchanged since this process last wrote the same minute; see
-	// upsertMinuteRows. Only the frequent current-minute refresh sets this.
-	incremental?: boolean;
-}
+type HistoryDatabase =
+	typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 async function calculateModelHistoryForMinute(
 	targetMinute: Date,
-	options: MinuteHistoryOptions = {},
+	database: HistoryDatabase = db,
 ) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
 	if (roundedTargetMinute < getLogRetentionCutoff()) {
@@ -416,7 +413,6 @@ async function calculateModelHistoryForMinute(
 	const minuteAlreadyWritten = writeCache?.processed === true;
 
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
-	const database = db;
 
 	// Get logs from the specified minute, aggregated by base model.
 	// Note: usedModel contains "provider/model[:region]" in logs.
@@ -755,7 +751,7 @@ async function calculateModelHistoryForMinute(
  */
 async function calculateHistoryForMinute(
 	targetMinute: Date,
-	options: MinuteHistoryOptions = {},
+	database: HistoryDatabase = db,
 ) {
 	const roundedTargetMinute = roundToMinuteStart(targetMinute);
 	if (roundedTargetMinute < getLogRetentionCutoff()) {
@@ -770,7 +766,6 @@ async function calculateHistoryForMinute(
 	const minuteAlreadyWritten = writeCache?.processed === true;
 
 	const minuteEnd = new Date(roundedTargetMinute.getTime() + ONE_MINUTE_MS);
-	const database = db;
 
 	// Get logs from the specified minute and normalize them back into the
 	// (base model, provider, region) tuple used by model_provider_mapping.
@@ -1185,63 +1180,69 @@ async function calculateHistoryForMinute(
 	};
 }
 
-type AggregationJob =
-	"minute-usage" | "hourly-usage" | "routing" | "content-filter";
-
-async function beginProgress(job: AggregationJob, bucket: Date) {
-	await db
-		.insert(aggregationProgress)
-		.values({ job, bucketTimestamp: bucket })
-		.onConflictDoUpdate({
-			target: [aggregationProgress.job, aggregationProgress.bucketTimestamp],
-			set: { finalizedAt: null },
-		});
+/**
+ * Backfill missing history entries for periods when the worker was down
+ */
+async function calculateMinuteHistory(targetMinute: Date) {
+	return await db.transaction(async (tx) => ({
+		mappingResult: await calculateHistoryForMinute(targetMinute, tx),
+		modelResult: await calculateModelHistoryForMinute(targetMinute, tx),
+	}));
 }
 
-async function recordProgress(
-	job: AggregationJob,
-	bucket: Date,
-	finalized: boolean,
-) {
-	const now = new Date();
-	await db
-		.insert(aggregationProgress)
-		.values({
-			job,
-			bucketTimestamp: bucket,
-			refreshedAt: now,
-			finalizedAt: finalized ? now : null,
-		})
-		.onConflictDoUpdate({
-			target: [aggregationProgress.job, aggregationProgress.bucketTimestamp],
-			set: { refreshedAt: now, ...(finalized ? { finalizedAt: now } : {}) },
-		});
-}
-
-// Live refresh and recovery must not overwrite each other with older snapshots.
-const bucketWork = new Map<string, Promise<unknown>>();
-async function serializeBucket<T>(
-	key: string,
-	work: () => Promise<T>,
-): Promise<T> {
-	const previous = bucketWork.get(key);
-	const next = (async () => {
-		if (previous) {
-			try {
-				await previous;
-			} catch {
-				/* The owner reports the failure; retry this bucket. */
-			}
+export async function backfillHistoryIfNeeded() {
+	const end = getPreviousMinuteStart();
+	const retainedStart =
+		Math.ceil(getLogRetentionCutoff().getTime() / ONE_MINUTE_MS) *
+		ONE_MINUTE_MS;
+	const recoveryWindowMs = 1439 * ONE_MINUTE_MS;
+	const backfillMs = BACKFILL_DURATION_SECONDS * 1000;
+	const boundedStart = new Date(
+		Math.max(end.getTime() - recoveryWindowMs, retainedStart),
+	);
+	const mappingMinutes = await db
+		.selectDistinct({ minute: modelProviderMappingHistory.minuteTimestamp })
+		.from(modelProviderMappingHistory)
+		.where(
+			and(
+				gte(modelProviderMappingHistory.minuteTimestamp, boundedStart),
+				lt(
+					modelProviderMappingHistory.minuteTimestamp,
+					new Date(end.getTime() + ONE_MINUTE_MS),
+				),
+			),
+		);
+	const modelMinutes = await db
+		.selectDistinct({ minute: modelHistory.minuteTimestamp })
+		.from(modelHistory)
+		.where(
+			and(
+				gte(modelHistory.minuteTimestamp, boundedStart),
+				lt(
+					modelHistory.minuteTimestamp,
+					new Date(end.getTime() + ONE_MINUTE_MS),
+				),
+			),
+		);
+	const mappingTimes = new Set(
+		mappingMinutes.map(({ minute }) => minute.getTime()),
+	);
+	const modelTimes = new Set(
+		modelMinutes.map(({ minute }) => minute.getTime()),
+	);
+	const existing = [...mappingTimes, ...modelTimes];
+	const start =
+		existing.length > 0
+			? Math.min(...existing)
+			: Math.max(
+					roundToMinuteStart(new Date(Date.now() - backfillMs)).getTime(),
+					boundedStart.getTime(),
+				);
+	for (let time = start; time <= end.getTime(); time += ONE_MINUTE_MS) {
+		if (mappingTimes.has(time) && modelTimes.has(time)) {
+			continue;
 		}
-		return await work();
-	})();
-	bucketWork.set(key, next);
-	try {
-		return await next;
-	} finally {
-		if (bucketWork.get(key) === next) {
-			bucketWork.delete(key);
-		}
+		await calculateMinuteHistory(new Date(time));
 	}
 }
 
@@ -1370,7 +1371,7 @@ export async function calculateMinutelyHistory() {
 
 	try {
 		const { mappingResult, modelResult } =
-			await refreshMinute(previousMinuteStart);
+			await calculateMinuteHistory(previousMinuteStart);
 
 		logger.debug(
 			`Recorded history for ${mappingResult.totalMappings} model-provider mappings (${mappingResult.activeMappings} active, ${mappingResult.inactiveMappings} inactive) and ${modelResult.totalModels} models (${modelResult.activeModels} active, ${modelResult.inactiveModels} inactive)`,
@@ -1390,10 +1391,8 @@ export async function calculateCurrentMinuteHistory() {
 	const currentMinuteStart = getCurrentMinuteStart();
 
 	try {
-		const { mappingResult, modelResult } = await refreshMinute(
-			currentMinuteStart,
-			true,
-		);
+		const { mappingResult, modelResult } =
+			await calculateMinuteHistory(currentMinuteStart);
 
 		logger.debug(
 			`Updated current minute history for ${currentMinuteStart.toISOString()}: ${mappingResult.activeMappings} active mappings, ${modelResult.activeModels} active models`,

@@ -351,7 +351,9 @@ export const incidentsResponseSchema = z.object({
 	),
 });
 
-const providerNamesById = new Map(providers.map((p) => [p.id, p.name]));
+const providerNamesById = new Map<string, string>(
+	providers.map((p) => [p.id, p.name]),
+);
 
 /**
  * Per-mapping upstream + gateway error counts from the hourly rollups.
@@ -361,12 +363,12 @@ export async function queryIncidentMappings({
 	providerIds,
 	windowHours,
 	mapping,
-	includeByok,
+	model,
 }: {
 	providerIds: string[];
 	windowHours: number;
 	mapping: string | null;
-	includeByok: boolean;
+	model?: string;
 }): Promise<z.infer<typeof incidentsResponseSchema>["mappings"]> {
 	if (providerIds.length === 0) {
 		return [];
@@ -404,10 +406,13 @@ export async function queryIncidentMappings({
 				inArray(mph.usedProvider, providerIds),
 				gte(mph.hourTimestamp, since),
 				mapping !== null ? eq(mph.usedModel, mapping) : undefined,
+				model
+					? sql`split_part(${mph.usedModel}, ':', 1) = ${model}`
+					: undefined,
 			),
 		)
 		.groupBy(mph.usedProvider, mph.usedModel)
-		.having(mapping !== null ? undefined : sql`${errorExpr} > 0`)
+		.having(mapping !== null || model ? undefined : sql`${errorExpr} > 0`)
 		.orderBy(desc(sql`COALESCE(${errorRateExpr}, 0)`), desc(sql`${errorExpr}`))
 		.limit(200);
 

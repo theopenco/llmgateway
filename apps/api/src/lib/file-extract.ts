@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import { extractText, getDocumentProxy } from "unpdf";
+import { read, utils } from "xlsx";
 
 // Defensive cap mirroring the upload route's base64 limit, so the extractor
 // stays safe even if called from a new code path without an upstream guard.
@@ -61,6 +62,13 @@ export async function extractFileText(
 	}
 
 	if (isSpreadsheet(name, mimeType)) {
+		if (buffer.subarray(0, 8).equals(Buffer.from("d0cf11e0a1b11ae1", "hex"))) {
+			const workbook = read(buffer, { type: "buffer" });
+			return workbook.SheetNames.map(
+				(sheetName) =>
+					`# ${sheetName}\n${utils.sheet_to_csv(workbook.Sheets[sheetName]!)}`,
+			).join("\n\n");
+		}
 		const workbook = new ExcelJS.Workbook();
 		// exceljs's bundled types declare `Buffer extends ArrayBuffer`, which is
 		// incompatible with Node's Buffer type; the loader accepts a Node Buffer

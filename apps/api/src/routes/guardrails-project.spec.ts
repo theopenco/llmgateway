@@ -52,6 +52,27 @@ describe("project guardrails API", () => {
 		});
 	}
 
+	test.each(["custom_regex", "blocked_terms"] as const)(
+		"rejects unsupported %s expressions before saving",
+		async (type) => {
+			const config =
+				type === "custom_regex"
+					? { type, pattern: "secret(?=value)" }
+					: {
+							type,
+							terms: ["secret(?=value)"],
+							matchType: "regex",
+							caseSensitive: false,
+						};
+			const res = await authed("/guardrails/projects/test-project-id/rules", {
+				method: "POST",
+				body: JSON.stringify({ name: "Regex rule", type, config }),
+			});
+			expect(res.status).toBe(400);
+			expect(await db.query.guardrailRule.findMany()).toHaveLength(0);
+		},
+	);
+
 	test("requires authentication", async () => {
 		const res = await app.request(
 			"/guardrails/projects/test-project-id/config",

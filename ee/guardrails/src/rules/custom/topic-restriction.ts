@@ -1,3 +1,5 @@
+import { createLiteralRegex } from "./literal-regex.js";
+
 import type {
 	TopicRestrictionRuleConfig,
 	GuardrailAction,
@@ -93,14 +95,17 @@ export function checkTopicRestriction(
 		const keywords = TOPIC_KEYWORDS[topic.toLowerCase()];
 		if (keywords) {
 			for (const keyword of keywords) {
-				if (contentLower.includes(keyword.toLowerCase())) {
+				if (createLiteralRegex(keyword, false, true).test(contentLower)) {
 					matches.push(`${topic}: ${keyword}`);
 					break; // One match per topic is enough
 				}
 			}
 		} else {
 			// Treat the topic itself as a keyword to search for
-			if (contentLower.includes(topic.toLowerCase())) {
+			if (
+				topic.trim() &&
+				createLiteralRegex(topic, false, true).test(contentLower)
+			) {
 				matches.push(topic);
 			}
 		}

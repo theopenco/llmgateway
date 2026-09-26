@@ -14,6 +14,7 @@ import {
 	isNull,
 } from "@llmgateway/db";
 
+import { createLiteralRegex } from "./rules/custom/literal-regex.js";
 import {
 	systemRules,
 	redactPii,
@@ -22,6 +23,7 @@ import {
 	checkCustomRegex,
 	checkTopicRestriction,
 } from "./rules/index.js";
+import { checkFileType, checkFileSize } from "./rules/system/files.js";
 
 import type {
 	GuardrailInput,
@@ -215,7 +217,7 @@ export async function checkGuardrails(
 		rulesChecked++;
 
 		for (const { content, messageIndex } of textContents) {
-			const result = rule.check(content, ruleConfig);
+			const result = rule.check(content, ruleConfig, config.allowedFileTypes);
 
 			if (!result.passed) {
 				// The PII and secrets rules report detector labels rather than
@@ -249,6 +251,68 @@ export async function checkGuardrails(
 					action: ruleConfig.action,
 					matchedPattern: result.matches.join(", "),
 					matchedContent: matchedContent.substring(0, 100),
+				});
+			}
+		}
+	}
+
+	const fileRule = config.systemRules.file_types;
+	if (fileRule?.enabled) {
+		const files = [...(input.files ?? [])];
+		for (const message of input.messages) {
+			if (!Array.isArray(message.content)) {
+				continue;
+			}
+			for (const part of message.content) {
+				if (part.type === "text") {
+					continue;
+				}
+				if (part.input_audio) {
+					const format = part.input_audio.format.toLowerCase();
+					files.push({
+						name: "audio",
+						type: `audio/${format === "mp3" || format === "mpga" ? "mpeg" : format === "m4a" ? "mp4" : format}`,
+						size: Buffer.byteLength(part.input_audio.data, "base64"),
+					});
+					continue;
+				}
+				const data = part.image_url?.url ?? part.file?.file_data;
+				if (!part.image_url && !part.file) {
+					continue;
+				}
+				const comma = data?.indexOf(",") ?? -1;
+				const header = data?.slice(0, Math.max(0, comma));
+				let type = "unknown";
+				let size = 0;
+				if (header?.slice(0, 5).toLowerCase() === "data:") {
+					type = header.slice(5).split(";")[0].toLowerCase();
+					const payload = data!.slice(comma + 1);
+					try {
+						size = /;base64$/i.test(header)
+							? Buffer.byteLength(payload, "base64")
+							: Buffer.byteLength(decodeURIComponent(payload));
+					} catch {
+						type = "unknown";
+					}
+				}
+				files.push({ name: part.file?.filename ?? "attachment", type, size });
+			}
+		}
+		for (const file of files) {
+			const invalidType = !checkFileType(file.type, config.allowedFileTypes);
+			const invalidSize = !checkFileSize(
+				file.size / (1024 * 1024),
+				config.maxFileSizeMb,
+			);
+			if (invalidType || invalidSize) {
+				violations.push({
+					ruleId: "system:file_types",
+					ruleName: "File Type Restrictions",
+					category: "files",
+					action: fileRule.action === "redact" ? "block" : fileRule.action,
+					matchedPattern: invalidType
+						? `Blocked file type: ${file.type}`
+						: `File exceeds ${config.maxFileSizeMb}MB`,
 				});
 			}
 		}
@@ -308,12 +372,18 @@ export async function checkGuardrails(
 				});
 
 				if (result.action === "redact" && result.matches.length > 0) {
+					const termsConfig =
+						rule.type === "blocked_terms"
+							? (rule.config as BlockedTermsRuleConfig)
+							: undefined;
 					redactions.push({
 						ruleId: rule.id,
 						messageIndex,
 						kind: "mask",
 						matches: result.matches,
 						pattern: result.matches.join(", "),
+						caseSensitive: termsConfig?.caseSensitive,
+						wholeWord: termsConfig?.matchType === "exact",
 					});
 				}
 			}
@@ -386,9 +456,7 @@ export function applyRedactions(
 
 		const hasPii = messageRedactions.some((r) => r.kind === "pii");
 		const hasSecrets = messageRedactions.some((r) => r.kind === "secrets");
-		const maskMatches = messageRedactions
-			.filter((r) => r.kind === "mask")
-			.flatMap((r) => r.matches);
+		const masks = messageRedactions.filter((r) => r.kind === "mask");
 
 		const redactText = (text: string): string => {
 			let result = text;
@@ -398,8 +466,15 @@ export function applyRedactions(
 			if (hasSecrets) {
 				result = redactSecrets(result).redacted;
 			}
-			for (const match of maskMatches) {
-				result = maskMatch(result, match);
+			for (const mask of masks) {
+				for (const match of mask.matches) {
+					if (match.trim()) {
+						result = result.replace(
+							createLiteralRegex(match, mask.caseSensitive, mask.wholeWord),
+							(value) => "*".repeat(value.length),
+						);
+					}
+				}
 			}
 			return result;
 		};
@@ -418,18 +493,6 @@ export function applyRedactions(
 
 		return { ...message, content };
 	});
-}
-
-function escapeRegex(str: string): string {
-	return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function maskMatch(content: string, match: string): string {
-	if (!match || !match.trim()) {
-		return content;
-	}
-	const regex = new RegExp(escapeRegex(match), "gi");
-	return content.replace(regex, (m) => "*".repeat(m.length));
 }
 
 function extractTextContent(

@@ -1,6 +1,7 @@
 import {
 	hasProviderEnvironmentToken,
 	type Provider,
+	type EnvVarVariant,
 	providers,
 } from "@llmgateway/models";
 
@@ -26,10 +27,11 @@ export const EMPTY_MANAGED_PROVIDER_AVAILABILITY: ManagedProviderAvailability =
 export function environmentServesProvider(
 	providerId: string,
 	managed: ManagedProviderAvailability = EMPTY_MANAGED_PROVIDER_AVAILABILITY,
+	variant?: EnvVarVariant,
 ): boolean {
 	return (
 		!managed.configured.has(providerId) &&
-		hasProviderEnvironmentToken(providerId as Provider)
+		hasProviderEnvironmentToken(providerId as Provider, variant)
 	);
 }
 
@@ -84,14 +86,20 @@ export function platformCredentialServesDefaultRegion(
 export function getPlatformBackedProviders(
 	managed: ManagedProviderAvailability = EMPTY_MANAGED_PROVIDER_AVAILABILITY,
 	providerIds?: string[],
+	variant?: EnvVarVariant,
 ): string[] {
-	const candidateIds = providerIds ?? providers.map((provider) => provider.id);
-	return candidateIds.filter(
-		(providerId) =>
-			providerId !== "llmgateway" &&
-			(platformCredentialServesDefaultRegion(providerId, managed) ||
-				environmentServesProvider(providerId, managed)),
-	);
+	const candidateProviders = providerIds
+		? providers.filter((provider) => providerIds.includes(provider.id))
+		: providers;
+
+	return candidateProviders
+		.filter((provider) => provider.id !== "llmgateway")
+		.filter(
+			(provider) =>
+				platformCredentialServesDefaultRegion(provider.id, managed) ||
+				environmentServesProvider(provider.id, managed, variant),
+		)
+		.map((provider) => provider.id);
 }
 
 export function getAvailableProvidersForProjectMode(
@@ -99,6 +107,7 @@ export function getAvailableProvidersForProjectMode(
 	providerKeys: Array<{ provider: string }>,
 	providerIds?: string[],
 	managed?: ManagedProviderAvailability,
+	variant?: EnvVarVariant,
 ): {
 	availableProviders: string[];
 	providersWithKeys: Set<string>;
@@ -112,7 +121,11 @@ export function getAvailableProvidersForProjectMode(
 		};
 	}
 
-	const platformProviders = getPlatformBackedProviders(managed, providerIds);
+	const platformProviders = getPlatformBackedProviders(
+		managed,
+		providerIds,
+		variant,
+	);
 
 	if (projectMode === "credits") {
 		return {

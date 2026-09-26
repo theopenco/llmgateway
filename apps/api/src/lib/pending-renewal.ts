@@ -79,7 +79,20 @@ async function voidSubscriptionInvoices(
 	const stripe = getStripe();
 	let pending: Stripe.Invoice[];
 	try {
-		pending = await getPendingSubscriptionInvoices(subscriptionId);
+		pending = [];
+		for (const status of ["draft", "open"] as const) {
+			let startingAfter: string | undefined;
+			do {
+				const page = await stripe.invoices.list({
+					subscription: subscriptionId,
+					status,
+					limit: 100,
+					...(startingAfter && { starting_after: startingAfter }),
+				});
+				pending.push(...page.data);
+				startingAfter = page.has_more ? page.data.at(-1)?.id : undefined;
+			} while (startingAfter);
+		}
 	} catch (error) {
 		logger.error(
 			`Failed to list pending invoices for subscription ${subscriptionId} (${reason})`,

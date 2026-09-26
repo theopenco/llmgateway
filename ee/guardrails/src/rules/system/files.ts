@@ -6,7 +6,10 @@ export function checkFileType(
 	fileType: string,
 	allowedTypes: string[],
 ): boolean {
-	return allowedTypes.includes(fileType);
+	return allowedTypes.some(
+		(allowed) =>
+			allowed.toLowerCase() === fileType.split(";")[0].trim().toLowerCase(),
+	);
 }
 
 export function checkFileSize(sizeMb: number, maxSizeMb: number): boolean {
@@ -19,9 +22,7 @@ export const fileTypesRule: SystemRule = {
 	category: "files",
 	defaultEnabled: true,
 	defaultAction: "block",
-	check: (content, config) => {
-		// This rule is checked separately for file uploads
-		// The content check here is for base64 encoded files in messages
+	check: (content, config, allowedTypes = defaultAllowedFileTypes) => {
 		if (!config.enabled) {
 			return { passed: true, matches: [] };
 		}
@@ -29,11 +30,11 @@ export const fileTypesRule: SystemRule = {
 		const matches: string[] = [];
 
 		// Check for base64 data URIs with potentially dangerous types
-		const dataUriPattern = /data:([^;]+);base64,[A-Za-z0-9+/]+=*/g;
+		const dataUriPattern = /data:([^;,\s]*)(?:;[^,\s]*)?,/gi;
 		let match;
 		while ((match = dataUriPattern.exec(content)) !== null) {
 			const mimeType = match[1];
-			if (!defaultAllowedFileTypes.includes(mimeType)) {
+			if (!checkFileType(mimeType, allowedTypes)) {
 				matches.push(`Blocked file type: ${mimeType}`);
 			}
 		}

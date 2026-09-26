@@ -4448,6 +4448,7 @@ const incidentsRoute = createRoute({
 			providerId: z.string().optional(),
 			/** Exact `used_model` (`provider/model[:region]`). */
 			mapping: z.string().optional(),
+			model: z.string().optional(),
 			window: incidentsWindowSchema.default("24h").optional(),
 			/** Include errors and requests served by customers' own keys. */
 			includeByok: z.enum(["true", "false"]).optional(),
@@ -4484,7 +4485,7 @@ airside.openapi(incidentsRoute, async (c) => {
 			providerIds,
 			windowHours,
 			mapping,
-			includeByok: query.includeByok === "true",
+			model: query.model,
 		}),
 	});
 });

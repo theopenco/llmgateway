@@ -141,11 +141,19 @@ function pickPercentageBranch(
 	node: Extract<DynamicRouteNode, { type: "percentage" }>,
 	ctx: DynamicRouteEvaluationContext,
 ): string {
-	const total = node.splits.reduce((sum, split) => sum + split.weight, 0);
+	const largestWeight = Math.max(...node.splits.map((split) => split.weight));
+	const scale =
+		node.splits.reduce((sum, split) => sum + split.weight, 0) === Infinity
+			? largestWeight
+			: 1;
+	const total = node.splits.reduce((sum, split) => {
+		const weight = split.weight / scale;
+		return sum + weight;
+	}, 0);
 	const draw = (fnv1a(`${ctx.splitKey}:${node.id}`) / 0x100000000) * total;
 	let cumulative = 0;
 	for (const split of node.splits) {
-		cumulative += split.weight;
+		cumulative += split.weight / scale;
 		if (draw < cumulative) {
 			return split.next;
 		}

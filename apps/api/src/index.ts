@@ -1,6 +1,7 @@
 // eslint-disable-next-line import/order
 import "dotenv/config";
 
+import { getConnInfo } from "@hono/node-server/conninfo";
 import { swaggerUI } from "@hono/swagger-ui";
 import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { APICallError } from "ai";
@@ -22,6 +23,7 @@ import {
 
 import { redisClient } from "./auth/config.js";
 import { authHandler } from "./auth/handler.js";
+import { runWithClientIp } from "./lib/client-ip.js";
 import { tracingMiddleware } from "./middleware/tracing.js";
 import { beacon } from "./routes/beacon.js";
 import { cliSkills } from "./routes/cli-skills.js";
@@ -59,6 +61,7 @@ import { v1Master } from "./routes/v1-master.js";
 import { stripeRoutes } from "./stripe.js";
 
 import type { ServerTypes } from "./vars.js";
+import type { HttpBindings } from "@hono/node-server";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 export const config = {
@@ -88,6 +91,11 @@ const requestLifecycleMiddleware = createRequestLifecycleMiddleware({
 });
 
 // Add tracing middleware first so instrumentation stays active for downstream handlers
+app.use("*", async (c, next) => {
+	const bindings = c.env as Partial<HttpBindings> | undefined;
+	const peerIp = bindings?.incoming ? getConnInfo(c).remote.address : undefined;
+	await runWithClientIp(c.req.raw.headers, peerIp, next);
+});
 app.use("*", tracingMiddleware);
 app.use("*", requestLifecycleMiddleware);
 app.use("*", honoRequestLogger);

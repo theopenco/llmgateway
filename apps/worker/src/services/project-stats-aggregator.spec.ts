@@ -8,6 +8,7 @@ import {
 	refreshProjectHourlyStats,
 	refreshCurrentHourStats,
 	resetProjectStatsRefreshState,
+	aggregateHistoricalStats,
 } from "./project-stats-aggregator.js";
 
 const statsTables = [
@@ -75,6 +76,11 @@ async function readAllStats() {
 
 describe("batched project stats refresh", () => {
 	async function cleanup() {
+		await db
+			.delete(tables.globalAggregationState)
+			.where(
+				eq(tables.globalAggregationState.id, "source-logical-requests-v1"),
+			);
 		await db.delete(tables.log).where(eq(tables.log.organizationId, orgId));
 		for (const table of statsTables) {
 			await db
@@ -134,8 +140,205 @@ describe("batched project stats refresh", () => {
 
 	afterEach(async () => {
 		vi.useRealTimers();
+		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
 		await cleanup();
 	});
+
+	test("rolls back a failed hourly refresh and repairs it on retry", async () => {
+		await db.insert(tables.log).values(logValues());
+		const transaction = db.transaction.bind(db);
+		const injected = vi.spyOn(db, "transaction").mockImplementationOnce(
+			async (callback) =>
+				await transaction(async (tx) => {
+					await callback(tx);
+					throw new Error("injected aggregation failure");
+				}),
+		);
+		await expect(refreshCurrentHourStats()).rejects.toThrow(
+			"injected aggregation failure",
+		);
+		expect((await readAllStats()).every((rows) => rows.length === 0)).toBe(
+			true,
+		);
+		injected.mockRestore();
+		await refreshCurrentHourStats();
+		expect((await readAllStats()).every((rows) => rows.length === 1)).toBe(
+			true,
+		);
+	});
+
+	test.each(["backfill", "stale"])(
+		"zero-day %s lookback includes old buckets",
+		async (phase) => {
+			vi.stubEnv(
+				"STATS_BACKFILL_ENABLED",
+				phase === "backfill" ? "true" : "false",
+			);
+			vi.stubEnv("STATS_STALE_ENABLED", phase === "stale" ? "true" : "false");
+			vi.stubEnv("STATS_BACKFILL_DAYS", "0");
+			vi.stubEnv("STATS_STALE_DAYS", "0");
+			const oldHour = new Date("2026-07-01T10:00:00Z");
+			await db
+				.insert(tables.log)
+				.values(logValues({ createdAt: new Date(oldHour.getTime() + 60_000) }));
+			if (phase === "stale") {
+				await db.insert(tables.projectHourlyStats).values({
+					projectId: projectIds[0],
+					hourTimestamp: oldHour,
+					updatedAt: oldHour,
+				});
+			}
+			await aggregateHistoricalStats();
+			const rows = await db
+				.select()
+				.from(tables.projectHourlyStats)
+				.where(eq(tables.projectHourlyStats.hourTimestamp, oldHour));
+			expect(rows[0]?.requestCount).toBe(1);
+		},
+	);
+
+	test("source request counters exclude retry attempts while billing includes them", async () => {
+		const finalId = randomUUID();
+		await db.insert(tables.log).values([
+			logValues({ id: finalId }),
+			logValues({
+				retriedByLogId: finalId,
+				usedMode: "api-keys",
+				hasError: true,
+				unifiedFinishReason: "upstream_error",
+				streamed: false,
+				duration: 999,
+				timeToFirstToken: null,
+			}),
+		]);
+		await refreshCurrentHourStats();
+		for (const table of [
+			tables.projectHourlySourceStats,
+			tables.apiKeyHourlySourceStats,
+		]) {
+			const [row] = await db
+				.select()
+				.from(table)
+				.where(eq(table.projectId, projectIds[0]));
+			expect(row).toMatchObject({
+				requestCount: 1,
+				creditsRequestCount: 1,
+				apiKeysRequestCount: 0,
+				errorCount: 0,
+				upstreamErrorCount: 0,
+				completedCount: 1,
+				streamedCount: 1,
+				nonStreamedCount: 0,
+				totalDuration: 100,
+				durationCount: 1,
+				totalTimeToFirstToken: 40,
+				timeToFirstTokenCount: 1,
+				cost: 0.5,
+				creditsCost: 0.25,
+				apiKeysCost: 0.25,
+				totalTokens: "60",
+			});
+		}
+		expect(
+			(
+				await db.query.projectHourlyStats.findFirst({
+					where: { projectId: projectIds[0] },
+				})
+			)?.requestCount,
+		).toBe(2);
+	});
+
+	test.each(["invalid", "Infinity", "-1"])(
+		"invalid lookback %s retains the default windows",
+		async (value) => {
+			vi.stubEnv("STATS_BACKFILL_ENABLED", "true");
+			vi.stubEnv("STATS_BACKFILL_DAYS", value);
+			vi.stubEnv("STATS_STALE_DAYS", value);
+			await db
+				.insert(tables.log)
+				.values([
+					logValues({ createdAt: new Date("2026-09-11T10:01:00Z") }),
+					logValues({ createdAt: new Date("2026-07-01T10:01:00Z") }),
+				]);
+			await aggregateHistoricalStats();
+			const rows = await db.query.projectHourlyStats.findMany({
+				where: { projectId: projectIds[0] },
+			});
+			expect(rows.map((row) => row.hourTimestamp.toISOString())).toEqual([
+				"2026-09-11T10:00:00.000Z",
+			]);
+		},
+	);
+
+	test.each([0, 1, 2])(
+		"repairs source counters only with complete retained logs (%s missing)",
+		async (missing) => {
+			const repairHour = new Date("2026-09-12T08:00:00Z");
+			const finalId = randomUUID();
+			await db.insert(tables.log).values([
+				logValues({
+					id: finalId,
+					createdAt: new Date("2026-09-12T08:01:00Z"),
+				}),
+				logValues({
+					createdAt: new Date("2026-09-12T08:02:00Z"),
+					retriedByLogId: finalId,
+				}),
+			]);
+			vi.setSystemTime(new Date("2026-09-12T08:30:00Z"));
+			await refreshCurrentHourStats();
+			for (const table of [
+				tables.projectHourlySourceStats,
+				tables.apiKeyHourlySourceStats,
+			]) {
+				await db
+					.update(table)
+					.set({
+						requestCount: 2,
+						creditsRequestCount: 2,
+						durationCount: 2,
+						totalDuration: 200,
+					})
+					.where(eq(table.projectId, projectIds[0]));
+			}
+			if (missing === 1) {
+				await db.delete(tables.log).where(eq(tables.log.id, finalId));
+			}
+			if (missing === 2) {
+				await db.delete(tables.log).where(eq(tables.log.organizationId, orgId));
+			}
+			await db.insert(tables.globalAggregationState).values({
+				id: "source-logical-requests-v1",
+				lastProcessedHour: repairHour,
+				targetHour: new Date("2026-09-12T09:00:00Z"),
+			});
+			vi.setSystemTime(new Date("2026-09-12T10:30:00Z"));
+			await refreshProjectHourlyStats();
+			for (const table of [
+				tables.projectHourlySourceStats,
+				tables.apiKeyHourlySourceStats,
+			]) {
+				const [row] = await db
+					.select()
+					.from(table)
+					.where(eq(table.projectId, projectIds[0]));
+				expect(row).toMatchObject({
+					requestCount: missing === 0 ? 1 : 2,
+					cost: 0.5,
+					totalTokens: "60",
+				});
+			}
+			await refreshProjectHourlyStats();
+			expect(
+				(
+					await db.query.globalAggregationState.findFirst({
+						where: { id: "source-logical-requests-v1" },
+					})
+				)?.lastProcessedHour,
+			).toEqual(new Date("2026-09-12T09:00:00Z"));
+		},
+	);
 
 	test("keeps projects, keys, sources and hour boundaries separate", async () => {
 		await db.insert(tables.log).values([

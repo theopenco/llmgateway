@@ -25,7 +25,6 @@ export function mapInternalErrorTypeToAnthropic(
 		case "client_error":
 			return "invalid_request_error";
 		case "gateway_error":
-			return "authentication_error";
 		case "upstream_error":
 			return "api_error";
 	}

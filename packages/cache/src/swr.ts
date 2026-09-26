@@ -285,3 +285,12 @@ export async function invalidateSwrByTables(tables: string[]): Promise<void> {
 		);
 	}
 }
+
+export async function invalidateSwrKeys(keys: string[]): Promise<void> {
+	if (keys.length === 0) {
+		return;
+	}
+	await redisClient.unlink(
+		...keys.flatMap((key) => [swrMirrorKey(key), swrThrottleKey(key)]),
+	);
+}
