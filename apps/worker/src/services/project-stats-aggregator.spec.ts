@@ -81,6 +81,9 @@ describe("batched project stats refresh", () => {
 				.where(inArray(table.projectId, [...projectIds, ...extraProjectIds]));
 		}
 		await db
+			.delete(tables.projectHourlyRoutingStats)
+			.where(inArray(tables.projectHourlyRoutingStats.projectId, projectIds));
+		await db
 			.delete(tables.project)
 			.where(eq(tables.project.organizationId, orgId));
 		await db
@@ -209,6 +212,36 @@ describe("batched project stats refresh", () => {
 			where: { projectId: projectIds[0] },
 		});
 		expect(models[0].providerMarginAmount).toBeCloseTo(0.1);
+	});
+
+	test("rolls routed requests up per route", async () => {
+		await db.insert(tables.log).values([
+			logValues({
+				requestedModel: "auto",
+				routingBaselineModel: "anthropic/claude-opus-4-6",
+				routingBaselineCost: 1,
+			}),
+			logValues({
+				requestedModel: "auto",
+				routingBaselineModel: "anthropic/claude-opus-4-6",
+				routingBaselineCost: 0.5,
+			}),
+			logValues({ requestedModel: "auto" }),
+		]);
+		await refreshCurrentHourStats();
+
+		const rows = await db.query.projectHourlyRoutingStats.findMany({
+			where: { projectId: { in: projectIds } },
+		});
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			projectId: projectIds[0],
+			routeKey: "auto",
+			requestCount: 2,
+			inputTokens: "20",
+			cost: 0.5,
+			baselineCost: 1.5,
+		});
 	});
 
 	test("skips unchanged detail writes and propagates corrected and late logs", async () => {

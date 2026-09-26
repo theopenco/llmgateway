@@ -1926,6 +1926,88 @@ describe("activity endpoint", () => {
 
 	// A developer may only ever see traffic from the api keys they created, even
 	// inside a project they were granted. Project access is not key access.
+	describe("GET /activity/routing-savings", () => {
+		test("sums routed spend against the baseline per route and day", async () => {
+			const hour = new Date();
+			hour.setUTCMinutes(0, 0, 0);
+			await db.insert(tables.projectHourlyRoutingStats).values([
+				{
+					projectId: "test-project-id",
+					hourTimestamp: hour,
+					routeKey: "auto",
+					requestCount: 3,
+					cost: 0.25,
+					baselineCost: 1,
+				},
+				{
+					projectId: "test-project-id",
+					hourTimestamp: hour,
+					routeKey: "dynamic/support",
+					requestCount: 1,
+					cost: 0.5,
+					baselineCost: 0.5,
+				},
+				{
+					projectId: "test-project-id-2",
+					hourTimestamp: hour,
+					routeKey: "auto",
+					requestCount: 9,
+					cost: 9,
+					baselineCost: 90,
+				},
+			]);
+
+			const res = await app.request(
+				"/activity/routing-savings?projectId=test-project-id",
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const body = await res.json();
+			expect(body.totals).toEqual({
+				requestCount: 4,
+				cost: 0.75,
+				baselineCost: 1.5,
+				savings: 0.75,
+			});
+			expect(
+				body.routes.map((route: { routeKey: string; savings: number }) => [
+					route.routeKey,
+					route.savings,
+				]),
+			).toEqual([
+				["auto", 0.75],
+				["dynamic/support", 0],
+			]);
+			expect(body.daily).toHaveLength(8);
+			expect(
+				body.daily.reduce(
+					(sum: number, day: { baselineCost: number }) =>
+						sum + day.baselineCost,
+					0,
+				),
+			).toBeCloseTo(1.5);
+		});
+
+		test("rejects a project the user cannot access", async () => {
+			await db.insert(tables.organization).values({
+				id: "other-org-id",
+				name: "Other Organization",
+				billingEmail: "other@example.com",
+			});
+			await db.insert(tables.project).values({
+				id: "other-project-id",
+				name: "Other Project",
+				organizationId: "other-org-id",
+			});
+
+			const res = await app.request(
+				"/activity/routing-savings?projectId=other-project-id",
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(403);
+		});
+	});
+
 	describe("developer key scoping", () => {
 		const OTHER_KEY = "teammate-key";
 
@@ -2053,6 +2135,14 @@ describe("activity endpoint", () => {
 		test("rejects the project sources breakdown", async () => {
 			const res = await app.request(
 				"/activity/sources?projectId=test-project-id",
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(403);
+		});
+
+		test("rejects the project routing savings", async () => {
+			const res = await app.request(
+				"/activity/routing-savings?projectId=test-project-id",
 				{ headers: { Cookie: token } },
 			);
 			expect(res.status).toBe(403);

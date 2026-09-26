@@ -3115,6 +3115,35 @@ async function seed() {
 	}
 	await bulkInsert(tables.projectHourlySourceStats, testProjectSourceStats);
 
+	// Routed traffic for the Test Project, so the routing savings card renders.
+	const testProjectRoutingStats: Array<
+		typeof tables.projectHourlyRoutingStats.$inferInsert
+	> = [];
+	for (let h = 0; h < 30 * 24; h++) {
+		const hourTs = hoursAgo(h);
+		hourTs.setMinutes(0, 0, 0);
+		for (const routeKey of ["auto", "smart", "dynamic/support"]) {
+			if (secureRandom() < 0.5) {
+				continue;
+			}
+			const reqCount = randomInt(1, 20);
+			const cost = reqCount * randomFloat(0.001, 0.02);
+			testProjectRoutingStats.push({
+				id: `test-phrs-${testProjectRoutingStats.length}`,
+				projectId: "test-project-id",
+				hourTimestamp: hourTs,
+				routeKey,
+				requestCount: reqCount,
+				inputTokens: String(reqCount * randomInt(200, 4000)),
+				outputTokens: String(reqCount * randomInt(100, 2500)),
+				cachedTokens: "0",
+				cost: Number(cost.toFixed(6)),
+				baselineCost: Number((cost * randomFloat(1.5, 5)).toFixed(6)),
+			});
+		}
+	}
+	await bulkInsert(tables.projectHourlyRoutingStats, testProjectRoutingStats);
+
 	// Seed providers, models, and mappings
 	const seedProviders = generateSeedProviders();
 	await bulkInsert(tables.provider, seedProviders);
