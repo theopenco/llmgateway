@@ -40,6 +40,11 @@ export const DEFAULT_SMART_ROUTING_MODELS = [
 export const smartRoutingConfigSchema = z.object({
 	classifier: z.enum(SMART_ROUTING_CLASSIFIERS),
 	models: z.array(z.string()).min(1).max(SMART_ROUTING_MAX_MODELS),
+	/**
+	 * Serves a session's opening turn when the classifier gives no verdict.
+	 * Must be one of `models`; unset means the cheapest candidate.
+	 */
+	fallbackModel: z.string().optional(),
 });
 
 export type SmartRoutingConfig = z.infer<typeof smartRoutingConfigSchema>;
@@ -76,6 +81,27 @@ export type SmartRoutingOutputType =
 	(typeof SMART_ROUTING_OUTPUT_TYPES)[number];
 
 /**
+ * Reasoning effort tier the classifier asks for. Mapped onto the concrete
+ * values a provider mapping declares when the request is prepared.
+ */
+export const SMART_ROUTING_EFFORTS = ["low", "medium", "high"] as const;
+export type SmartRoutingEffort = (typeof SMART_ROUTING_EFFORTS)[number];
+
+/**
+ * How the work of a session moved since the verdict it is being served under.
+ * `different` is a change of kind at a similar difficulty.
+ */
+export const SMART_ROUTING_WORK_CHANGES = [
+	"same",
+	"easier",
+	"harder",
+	"different",
+	"unclear",
+] as const;
+export type SmartRoutingWorkChange =
+	(typeof SMART_ROUTING_WORK_CHANGES)[number];
+
+/**
  * Below this calibrated confidence the classifier's preferred model is ignored
  * and the band's cheapest candidate wins: a coin-flip preference must not push
  * the request onto a pricier model.
@@ -89,6 +115,10 @@ export interface RequestClassification {
 	outputType?: SmartRoutingOutputType;
 	bestModel?: string;
 	bestModelConfidence?: number;
+	effort?: SmartRoutingEffort;
+	/** Only set by a recheck of an existing session choice. */
+	workChange?: SmartRoutingWorkChange;
+	workChangeConfidence?: number;
 	latencyMs?: number;
 	/** USD charged for this classifier call; absent on a reused verdict. */
 	cost?: number;

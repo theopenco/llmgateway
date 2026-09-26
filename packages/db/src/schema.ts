@@ -2347,6 +2347,22 @@ export const log = pgTable(
 				// True when the verdict served came from another turn of the same
 				// sticky session rather than from this request.
 				classifierReused?: boolean;
+				trigger?: "initial" | "reused" | "mid-turn" | "cache-expired" | "scan";
+				effort?: "low" | "medium" | "high";
+				effortSource?: "classifier" | "caller";
+				workChange?: "same" | "easier" | "harder" | "different" | "unclear";
+				keptReason?: string;
+				// Present on the request where the model or effort changed.
+				switch?: {
+					fromModel: string;
+					toModel: string;
+					fromEffort?: "low" | "medium" | "high";
+					toEffort?: "low" | "medium" | "high";
+					direction?: "upgrade" | "downgrade" | "lateral";
+					reason: string;
+					estimatedStayUsd?: number;
+					estimatedSwitchUsd?: number;
+				};
 			};
 		}>(),
 		processedAt: timestamp(),
