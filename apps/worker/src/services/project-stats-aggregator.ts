@@ -7,6 +7,7 @@ import {
 	projectHourlyStats,
 	projectHourlyModelStats,
 	projectHourlySourceStats,
+	projectHourlyRoutingStats,
 	apiKeyHourlyStats,
 	apiKeyHourlyModelStats,
 	apiKeyHourlySourceStats,
@@ -207,6 +208,38 @@ export function getBaseAggregationFields() {
 export function getCommonAggregationFields() {
 	return {
 		...getBaseAggregationFields(),
+		// Latency. Sums plus their own sample counts, so the `accumulate` upsert
+		// can add slices together — an average cannot be composed that way.
+		// `sum(integer)` accumulates in bigint, so unlike the money columns there
+		// is no float drift to guard against; the result is cast to bigint rather
+		// than int because `::int` raises "integer out of range" once a busy
+		// project-hour passes 2.1e9 ms instead of saturating.
+		totalDuration: sql<number>`coalesce(sum(${log.duration}), 0)::bigint`.as(
+			"totalDuration",
+		),
+		// `log.duration` is NOT NULL, so this equals requestCount for every row
+		// written from here on. It exists so buckets aggregated before these
+		// columns can be told apart from buckets that genuinely averaged 0 ms.
+		durationCount: sql<number>`count(${log.duration})::int`.as("durationCount"),
+		// `count` skips nulls, and only streamed, non-cached, successful requests
+		// record a first-token time, so each TTFT average divides by its own
+		// samples. The reasoning pair is carried too so `avgEffectiveTtft` can
+		// prefer it, exactly as it does for the model history tables.
+		totalTimeToFirstToken:
+			sql<number>`coalesce(sum(${log.timeToFirstToken}), 0)::bigint`.as(
+				"totalTimeToFirstToken",
+			),
+		timeToFirstTokenCount: sql<number>`count(${log.timeToFirstToken})::int`.as(
+			"timeToFirstTokenCount",
+		),
+		totalTimeToFirstReasoningToken:
+			sql<number>`coalesce(sum(${log.timeToFirstReasoningToken}), 0)::bigint`.as(
+				"totalTimeToFirstReasoningToken",
+			),
+		timeToFirstReasoningTokenCount:
+			sql<number>`count(${log.timeToFirstReasoningToken})::int`.as(
+				"timeToFirstReasoningTokenCount",
+			),
 		// Per-mode breakdowns
 		creditsRequestCount:
 			sql<number>`sum(case when ${log.usedMode} = 'credits' then 1 else 0 end)::int`.as(
@@ -437,6 +470,76 @@ async function recalculateProjectHourlySourceStats(
 				...statsUpdate(
 					getTableColumns(projectHourlySourceStats),
 					getCommonAggregationFields(),
+					true,
+					window.accumulate,
+				),
+			});
+	}
+}
+
+function getRoutingAggregationFields() {
+	return {
+		requestCount: sql<number>`count(*)::int`.as("requestCount"),
+		inputTokens:
+			sql<string>`coalesce(sum(cast(${log.promptTokens} as numeric)), 0)`.as(
+				"inputTokens",
+			),
+		outputTokens:
+			sql<string>`coalesce(sum(cast(${log.completionTokens} as numeric)), 0)`.as(
+				"outputTokens",
+			),
+		cachedTokens:
+			sql<string>`coalesce(sum(cast(${log.cachedTokens} as numeric)), 0)`.as(
+				"cachedTokens",
+			),
+		cost: sumLogMoney(log.cost, "cost"),
+		baselineCost: sumLogMoney(log.routingBaselineCost, "baselineCost"),
+	};
+}
+
+/**
+ * Calculate hourly routing savings for a batch of projects: routed requests
+ * (those carrying a routing baseline) grouped by the requested route.
+ */
+export async function recalculateProjectHourlyRoutingStats(
+	projectIds: string[],
+	hourTimestamp: string,
+	window: LogWindow = {},
+) {
+	const rows = await db
+		.select({
+			projectId: log.projectId,
+			routeKey: log.requestedModel,
+			...getRoutingAggregationFields(),
+		})
+		.from(log)
+		.where(
+			and(
+				inArray(log.projectId, projectIds),
+				hourLogWindow(hourTimestamp, window),
+				isNotNull(log.routingBaselineCost),
+			),
+		)
+		.groupBy(log.projectId, log.requestedModel);
+
+	for (let offset = 0; offset < rows.length; offset += STATS_WRITE_BATCH_SIZE) {
+		await db
+			.insert(projectHourlyRoutingStats)
+			.values(
+				rows.slice(offset, offset + STATS_WRITE_BATCH_SIZE).map((stat) => ({
+					...stat,
+					hourTimestamp: sql`${hourTimestamp}::timestamp`,
+				})),
+			)
+			.onConflictDoUpdate({
+				target: [
+					projectHourlyRoutingStats.projectId,
+					projectHourlyRoutingStats.hourTimestamp,
+					projectHourlyRoutingStats.routeKey,
+				],
+				...statsUpdate(
+					getTableColumns(projectHourlyRoutingStats),
+					getRoutingAggregationFields(),
 					true,
 					window.accumulate,
 				),
@@ -728,6 +831,7 @@ async function recalculateBucket(
 	await recalculateProjectHourlyStats(projectIds, hourTimestamp, window);
 	await recalculateProjectHourlyModelStats(projectIds, hourTimestamp, window);
 	await recalculateProjectHourlySourceStats(projectIds, hourTimestamp, window);
+	await recalculateProjectHourlyRoutingStats(projectIds, hourTimestamp, window);
 	await recalculateApiKeyHourlyStats(projectIds, hourTimestamp, window);
 	await recalculateApiKeyHourlyModelStats(projectIds, hourTimestamp, window);
 	await recalculateApiKeyHourlySourceStatsForProjects(

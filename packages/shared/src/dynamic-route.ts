@@ -286,6 +286,14 @@ export function graphUsesClassifier(graph: DynamicRouteGraph): boolean {
 	return graph.nodes.some((node) => node.type === "classifier");
 }
 
+export function getDynamicRouteModelNodes(
+	graph: DynamicRouteGraph,
+): DynamicRouteModelNode[] {
+	return graph.nodes.filter(
+		(node): node is DynamicRouteModelNode => node.type === "model",
+	);
+}
+
 export const dynamicRouteGraphSchema = z
 	.object({
 		entry: nodeIdSchema,

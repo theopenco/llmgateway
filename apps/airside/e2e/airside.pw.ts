@@ -295,6 +295,11 @@ test("existing mappings report failed verification checks", async ({
 			await route.fulfill({ status: 204, headers: corsHeaders(route) });
 			return;
 		}
+		// The history list shares this path; only the queueing POST is mocked.
+		if (route.request().method() !== "POST") {
+			await route.fallback();
+			return;
+		}
 		await route.fulfill({
 			status: 202,
 			contentType: "application/json",

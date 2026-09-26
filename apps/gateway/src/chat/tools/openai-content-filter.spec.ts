@@ -8,6 +8,16 @@ import {
 	checkOpenAIContentFilter,
 } from "./openai-content-filter.js";
 
+import type * as CachedQueries from "@/lib/cached-queries.js";
+
+// These cases cover the env credential path. Without this, a managed key left
+// in the worker's DB or Redis cache by another spec file silently wins.
+vi.mock("@/lib/cached-queries.js", async (importOriginal) => ({
+	...(await importOriginal<typeof CachedQueries>()),
+	hasManagedProviderCredential: vi.fn(async () => false),
+	findManagedProviderKey: vi.fn(async () => undefined),
+}));
+
 describe("buildOpenAIContentFilterTextInput", () => {
 	it("flattens text-only messages into a single moderation string", () => {
 		expect(

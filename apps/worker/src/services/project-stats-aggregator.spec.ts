@@ -43,6 +43,8 @@ function logValues(
 		usedModel: "test-model",
 		usedProvider: "test-provider",
 		duration: 100,
+		timeToFirstToken: 40,
+		streamed: true,
 		responseSize: 100,
 		mode: "credits",
 		usedMode: "credits",
@@ -78,6 +80,9 @@ describe("batched project stats refresh", () => {
 				.delete(table)
 				.where(inArray(table.projectId, [...projectIds, ...extraProjectIds]));
 		}
+		await db
+			.delete(tables.projectHourlyRoutingStats)
+			.where(inArray(tables.projectHourlyRoutingStats.projectId, projectIds));
 		await db
 			.delete(tables.project)
 			.where(eq(tables.project.organizationId, orgId));
@@ -134,7 +139,12 @@ describe("batched project stats refresh", () => {
 	test("keeps projects, keys, sources and hour boundaries separate", async () => {
 		await db.insert(tables.log).values([
 			logValues(),
-			logValues({ usedMode: "api-keys", source: null }),
+			logValues({
+				usedMode: "api-keys",
+				source: null,
+				timeToFirstToken: null,
+				streamed: false,
+			}),
 			logValues({
 				projectId: projectIds[1],
 				apiKeyId: "batch-key-end_user_customer",
@@ -161,6 +171,12 @@ describe("batched project stats refresh", () => {
 			creditsRequestCount: 2,
 			apiKeysRequestCount: 1,
 			totalTokens: "90",
+			totalDuration: 300,
+			durationCount: 3,
+			// Only two of the three logs streamed, so the TTFT average must not
+			// divide by requestCount.
+			totalTimeToFirstToken: 80,
+			timeToFirstTokenCount: 2,
 		});
 		expect(
 			projects.find((row) => row.projectId === projectIds[1]),
@@ -196,6 +212,36 @@ describe("batched project stats refresh", () => {
 			where: { projectId: projectIds[0] },
 		});
 		expect(models[0].providerMarginAmount).toBeCloseTo(0.1);
+	});
+
+	test("rolls routed requests up per route", async () => {
+		await db.insert(tables.log).values([
+			logValues({
+				requestedModel: "auto",
+				routingBaselineModel: "anthropic/claude-opus-4-6",
+				routingBaselineCost: 1,
+			}),
+			logValues({
+				requestedModel: "auto",
+				routingBaselineModel: "anthropic/claude-opus-4-6",
+				routingBaselineCost: 0.5,
+			}),
+			logValues({ requestedModel: "auto" }),
+		]);
+		await refreshCurrentHourStats();
+
+		const rows = await db.query.projectHourlyRoutingStats.findMany({
+			where: { projectId: { in: projectIds } },
+		});
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			projectId: projectIds[0],
+			routeKey: "auto",
+			requestCount: 2,
+			inputTokens: "20",
+			cost: 0.5,
+			baselineCost: 1.5,
+		});
 	});
 
 	test("skips unchanged detail writes and propagates corrected and late logs", async () => {
@@ -386,6 +432,11 @@ describe("batched project stats refresh", () => {
 				requestCount: 3,
 				cost: 0.75,
 				totalTokens: "90",
+				// Sums and counts are the only latency shape that survives the
+				// incremental `col + excluded.col` upsert.
+				totalDuration: 300,
+				durationCount: 3,
+				timeToFirstTokenCount: 3,
 			});
 		}
 		for (const rows of [model, source, keyModel, keySource, credential]) {

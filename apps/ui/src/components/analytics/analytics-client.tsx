@@ -17,6 +17,7 @@ import { CostByModelCard } from "@/components/analytics/cost-by-model-card";
 import { CostByModelOverTimeCard } from "@/components/analytics/cost-by-model-over-time-card";
 import { DimensionUsageCard } from "@/components/analytics/dimension-usage-card";
 import { DimensionUsageOverTimeCard } from "@/components/analytics/dimension-usage-over-time-card";
+import { RoutingSavingsCard } from "@/components/analytics/routing-savings-card";
 import { TokenUsageCard } from "@/components/analytics/token-usage-card";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import {
@@ -169,6 +170,26 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 		},
 	);
 
+	const routingSavings = api.useQuery(
+		"get",
+		"/activity/routing-savings",
+		{
+			params: {
+				query: {
+					projectId: projectId ?? "",
+					from: fromStr,
+					to: toStr,
+					timezone: displayTimeZone,
+				},
+			},
+		},
+		{
+			enabled: !!projectId,
+			refetchOnWindowFocus: false,
+			staleTime: 1000 * 60 * 5,
+		},
+	);
+
 	const usageMode = useUsageMode();
 	const activity: DailyActivity[] = useMemo(
 		() =>
@@ -280,6 +301,12 @@ export function AnalyticsClient({ projectId }: AnalyticsClientProps) {
 						loading={isLoading}
 						title={copy.ranked}
 						description={`Ranked ${dimensionNoun} totals across the selected range`}
+					/>
+				)}
+				{!routingSavings.isError && (
+					<RoutingSavingsCard
+						data={routingSavings.data}
+						loading={routingSavings.isLoading}
 					/>
 				)}
 			</div>

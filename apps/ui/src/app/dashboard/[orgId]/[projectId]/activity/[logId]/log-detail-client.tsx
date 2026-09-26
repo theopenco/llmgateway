@@ -1122,6 +1122,14 @@ export function LogDetailClient({
 												}
 											/>
 										)}
+										{log.routingBaselineCost !== null &&
+											log.routingBaselineCost !== undefined && (
+												<Field
+													label="Priciest Routing Candidate"
+													value={`$${log.routingBaselineCost.toFixed(8)} (${log.routingBaselineModel ?? "unknown"})`}
+													muted
+												/>
+											)}
 										{log.pricingTier && (
 											<Field label="Pricing Tier" value={log.pricingTier} />
 										)}
@@ -1275,6 +1283,9 @@ export function LogDetailClient({
 										label="Unified Finish Reason"
 										value={log.unifiedFinishReason ?? "-"}
 									/>
+									{log.errorCategory && (
+										<Field label="Error Category" value={log.errorCategory} />
+									)}
 								</TooltipProvider>
 							</div>
 						</Section>

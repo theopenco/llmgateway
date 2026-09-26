@@ -35,7 +35,22 @@ import { readFileSync } from "fs";
 
 import { Resend } from "resend";
 
-import { and, db, eq, gt, isNotNull, ne, or, tables } from "@llmgateway/db";
+import {
+	and,
+	db,
+	eq,
+	gt,
+	isEmailSuppressed,
+	isNotNull,
+	ne,
+	or,
+	tables,
+} from "@llmgateway/db";
+import {
+	buildUnsubscribeHeaders,
+	renderFooterText,
+	signUnsubscribeToken,
+} from "@llmgateway/shared/email-unsubscribe";
 
 const FROM = "Luca from LLMGateway <contact@mail.llmgateway.io>";
 const REPLY_TO = "luca.steeb@llmgateway.io";
@@ -113,13 +128,19 @@ async function sendWithRetry(
 	subject: string,
 	body: string,
 ): Promise<{ success: boolean; id?: string; error?: unknown }> {
+	const token = signUnsubscribeToken({
+		email: recipient.email,
+		category: "marketing",
+	});
+
 	for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
 		const { data, error } = await resend.emails.send({
 			from: FROM,
 			to: recipient.email,
 			subject,
-			text: body,
+			text: `${body}${renderFooterText("marketing", token)}`,
 			replyTo: REPLY_TO,
+			headers: buildUnsubscribeHeaders(token),
 		});
 
 		if (!error) {
@@ -183,7 +204,14 @@ async function main() {
 
 	let sent = 0;
 	let failed = 0;
+	let skipped = 0;
 	for (const recipient of recipients) {
+		if (await isEmailSuppressed(recipient.email, "marketing")) {
+			skipped++;
+			console.log(`Skipped ${recipient.email}: unsubscribed from marketing`);
+			continue;
+		}
+
 		const result = await sendWithRetry(resend, recipient, subject, body);
 		if (result.success) {
 			sent++;
@@ -195,7 +223,7 @@ async function main() {
 		await sleep(RATE_LIMIT_DELAY_MS);
 	}
 
-	console.log(`\nDone. Sent: ${sent}, Failed: ${failed}.`);
+	console.log(`\nDone. Sent: ${sent}, Failed: ${failed}, Skipped: ${skipped}.`);
 }
 
 void main()

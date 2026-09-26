@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
+import {
+	buildUnsubscribeHeaders,
+	buildUnsubscribeUrl,
+	signUnsubscribeToken,
+} from "@llmgateway/shared/email-unsubscribe";
 
 import {
 	deliverNotificationEmails,
@@ -26,6 +31,7 @@ function daysFromNow(days: number) {
 beforeEach(async () => {
 	await db.delete(tables.notification);
 	await db.delete(tables.notificationPreference);
+	await db.delete(tables.emailUnsubscribe);
 	await db.delete(tables.apiKeyHourlyModelStats);
 	await db.delete(tables.project);
 	await db.delete(tables.userOrganization);
@@ -222,6 +228,41 @@ describe("usage notifications", () => {
 			.where(eq(tables.userOrganization.userId, "alert-owner"));
 		await deliverNotificationEmails(now);
 		expect(send).toHaveBeenCalledTimes(2);
+	});
+	it("carries one-click unsubscribe headers and an unsubscribe footer", async () => {
+		await enable("budget", "alert-owner", true);
+		await processNotifications(now);
+		expect(send).toHaveBeenCalledTimes(1);
+		const payload = send.mock.calls[0][0];
+		const token = signUnsubscribeToken({
+			email: "owner@example.com",
+			category: "budget",
+		});
+		expect(payload.headers).toEqual(buildUnsubscribeHeaders(token));
+		expect(payload.text).toContain(buildUnsubscribeUrl(token));
+	});
+	it("stops emailing an address that used the one-click link, permanently", async () => {
+		await enable("budget", "alert-owner", true);
+		await db.insert(tables.emailUnsubscribe).values({
+			email: "owner@example.com",
+			category: "budget",
+			source: "one_click",
+		});
+		await processNotifications(now);
+		expect(send).not.toHaveBeenCalled();
+		// Terminal: the row leaves the pending queue instead of blocking it for
+		// the full retry window.
+		expect((await db.query.notification.findFirst())?.email).toBe(false);
+	});
+	it("keeps emailing when the suppression is for another category", async () => {
+		await enable("budget", "alert-owner", true);
+		await db.insert(tables.emailUnsubscribe).values({
+			email: "owner@example.com",
+			category: "marketing",
+			source: "one_click",
+		});
+		await processNotifications(now);
+		expect(send).toHaveBeenCalledTimes(1);
 	});
 	it("does not email unverified users or users who opted out", async () => {
 		await enable("budget", "alert-owner", true);

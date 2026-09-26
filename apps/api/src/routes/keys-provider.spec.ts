@@ -28,6 +28,13 @@ vi.mock("@llmgateway/actions", async (importOriginal) => {
 describe("provider keys route", () => {
 	let token: string;
 
+	async function setPlan(plan: "free" | "pro" | "enterprise") {
+		await db
+			.update(tables.organization)
+			.set({ plan })
+			.where(eq(tables.organization.id, "test-org-id"));
+	}
+
 	afterEach(async () => {
 		await deleteAll();
 	});
@@ -431,6 +438,7 @@ describe("provider keys route", () => {
 	});
 
 	test("POST /keys/provider rejects duplicate custom provider names", async () => {
+		await setPlan("enterprise");
 		await db.insert(tables.providerKey).values({
 			id: "test-custom-provider-key-id",
 			...encryptProviderKeyForStorage(
@@ -657,6 +665,7 @@ describe("provider keys route", () => {
 		});
 
 		test("rejects allowed models on a custom provider key", async () => {
+			await setPlan("enterprise");
 			const res = await createKey({
 				provider: "custom",
 				name: "myprovider",
@@ -887,6 +896,7 @@ describe("provider keys route", () => {
 
 	describe("PATCH /keys/provider/{id} rename", () => {
 		async function seedCustomKey(id = "test-custom-key-id", name = "mycustom") {
+			await setPlan("enterprise");
 			await db.insert(tables.providerKey).values({
 				id,
 				...encryptProviderKeyForStorage("test-custom-token", id, "test-org-id"),
@@ -1011,6 +1021,81 @@ describe("provider keys route", () => {
 			).changes.name;
 			expect(change.old).toBe("mycustom");
 			expect(change.new).toBe("renamed-provider");
+		});
+	});
+
+	describe("custom providers outside enterprise", () => {
+		beforeEach(async () => {
+			await db.insert(tables.providerKey).values({
+				id: "test-custom-key-id",
+				...encryptProviderKeyForStorage(
+					"test-custom-token",
+					"test-custom-key-id",
+					"test-org-id",
+				),
+				provider: "custom",
+				name: "mycustom",
+				baseUrl: "https://example.com",
+				organizationId: "test-org-id",
+			});
+		});
+
+		async function patchCustomKey(body: Record<string, unknown>) {
+			return await app.request("/keys/provider/test-custom-key-id", {
+				method: "PATCH",
+				headers: { "Content-Type": "application/json", Cookie: token },
+				body: JSON.stringify(body),
+			});
+		}
+
+		test.each(["free", "pro"] as const)(
+			"rejects creating a custom provider on the %s plan",
+			async (plan) => {
+				await setPlan(plan);
+				const res = await app.request("/keys/provider", {
+					method: "POST",
+					headers: { "Content-Type": "application/json", Cookie: token },
+					body: JSON.stringify({
+						provider: "custom",
+						token: "new-custom-token",
+						name: "newcustom",
+						baseUrl: "https://example-2.com",
+						organizationId: "test-org-id",
+					}),
+				});
+				expect(res.status).toBe(403);
+				expect((await res.json()).message).toContain("enterprise plan");
+			},
+		);
+
+		test.each([
+			{ name: "renamed" },
+			{ description: "label" },
+			{ usageLimit: "10" },
+			{ customModelsOnly: true },
+		])("rejects editing an existing custom provider: %o", async (body) => {
+			const res = await patchCustomKey(body);
+			expect(res.status).toBe(403);
+			expect((await res.json()).message).toContain("enterprise plan");
+		});
+
+		test("still allows toggling status and deleting", async () => {
+			const off = await patchCustomKey({ status: "inactive" });
+			expect(off.status).toBe(200);
+			const on = await patchCustomKey({ status: "active" });
+			expect(on.status).toBe(200);
+
+			const del = await app.request("/keys/provider/test-custom-key-id", {
+				method: "DELETE",
+				headers: { Cookie: token },
+			});
+			expect(del.status).toBe(200);
+		});
+
+		test("allows editing on the enterprise plan", async () => {
+			await setPlan("enterprise");
+			const res = await patchCustomKey({ description: "label" });
+			expect(res.status).toBe(200);
 		});
 	});
 

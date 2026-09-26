@@ -6,6 +6,9 @@ export const redisClient = new Redis({
 	host: process.env.REDIS_HOST ?? "localhost",
 	port: Number(process.env.REDIS_PORT) || 6379,
 	password: process.env.REDIS_PASSWORD,
+	// Logical database index. Deployments leave this at 0; the unit suite gives
+	// every vitest worker its own so the files can run in parallel.
+	db: Number(process.env.REDIS_DB) || 0,
 	// Batch commands issued in the same event-loop tick into one round trip.
 	// The gateway hot path issues dozens of independent commands per request
 	// (rate-limit peeks, discount lookups, cached queries) on this single

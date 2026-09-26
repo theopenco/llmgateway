@@ -290,6 +290,10 @@ const ORGANIZATION_SETTINGS = [
 		label: "Preferences",
 	},
 	{
+		href: "org/notifications",
+		label: "Notifications",
+	},
+	{
 		href: "org/routing",
 		label: "Smart Routing",
 	},
@@ -1311,7 +1315,11 @@ export function DashboardSidebar({
 				icon: item.icon,
 				enterpriseGated: item.enterpriseGated,
 			})),
-			...ORGANIZATION_SETTINGS.filter(() => isOrgAdmin).map((item) => ({
+			...ORGANIZATION_SETTINGS.filter(
+				// Notifications are per-user, not an org setting, so members reach
+				// them too; everything else in this group is admin-only.
+				(item) => isOrgAdmin || item.href === "org/notifications",
+			).map((item) => ({
 				href:
 					"search" in item
 						? buildUrlWithParams(

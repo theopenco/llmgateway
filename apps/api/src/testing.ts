@@ -49,6 +49,7 @@ export async function deleteAll() {
 			await db.delete(projectHourlyStats);
 			await db.delete(projectHourlyModelStats);
 			await db.delete(projectHourlySourceStats);
+			await db.delete(tables.projectHourlyRoutingStats);
 			await db.delete(apiKeyHourlyStats);
 			await db.delete(apiKeyHourlyModelStats);
 			await db.delete(apiKeyHourlySourceStats);
@@ -72,6 +73,8 @@ export async function deleteAll() {
 			await db.delete(tables.organization);
 			await db.delete(tables.user);
 			await db.delete(tables.systemSetting);
+			// No foreign keys, so nothing cascades it away.
+			await db.delete(tables.emailUnsubscribe);
 			return;
 		} catch (error) {
 			if (attempt >= 3 || !isDeadlockError(error)) {
@@ -162,6 +165,29 @@ function getCommonAggregationFields() {
 		cacheWriteTokens:
 			sql<string>`coalesce(sum(cast(${tables.log.cacheWriteTokens} as numeric)), 0)`.as(
 				"cacheWriteTokens",
+			),
+		totalDuration:
+			sql<number>`coalesce(sum(${tables.log.duration}), 0)::bigint`.as(
+				"totalDuration",
+			),
+		durationCount: sql<number>`count(${tables.log.duration})::int`.as(
+			"durationCount",
+		),
+		totalTimeToFirstToken:
+			sql<number>`coalesce(sum(${tables.log.timeToFirstToken}), 0)::bigint`.as(
+				"totalTimeToFirstToken",
+			),
+		timeToFirstTokenCount:
+			sql<number>`count(${tables.log.timeToFirstToken})::int`.as(
+				"timeToFirstTokenCount",
+			),
+		totalTimeToFirstReasoningToken:
+			sql<number>`coalesce(sum(${tables.log.timeToFirstReasoningToken}), 0)::bigint`.as(
+				"totalTimeToFirstReasoningToken",
+			),
+		timeToFirstReasoningTokenCount:
+			sql<number>`count(${tables.log.timeToFirstReasoningToken})::int`.as(
+				"timeToFirstReasoningTokenCount",
 			),
 		cost: sql<number>`coalesce(sum(cast(${tables.log.cost} as double precision)), 0)`.as(
 			"cost",

@@ -148,6 +148,10 @@ export const redisClient = new Redis({
 	host: process.env.REDIS_HOST ?? "localhost",
 	port: Number(process.env.REDIS_PORT) || 6379,
 	password: process.env.REDIS_PASSWORD,
+	// Must honour the same logical database as @llmgateway/cache: session and
+	// rate-limit keys are named after fixed user ids, so without this every
+	// parallel test worker shares them on database 0.
+	db: Number(process.env.REDIS_DB) || 0,
 });
 
 redisClient.on("error", (err: unknown) =>

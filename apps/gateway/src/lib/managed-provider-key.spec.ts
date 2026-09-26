@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { resolvePlatformCredential } from "@/chat/tools/resolve-platform-credential.js";
 
@@ -32,6 +32,14 @@ import {
 
 const ORG_ID = "test-org-managed-keys";
 
+// Managed-credential lookups are cached per provider, and the cleanups below
+// delete rows without busting that cache. Leave none of it for the next spec
+// file in this worker: a stale managed credential makes a provider ignore its
+// LLM_* environment entirely.
+afterAll(async () => {
+	await redisClient.flushdb();
+});
+
 async function insertManaged(
 	values: Partial<InferInsertModel<typeof providerKey>> & { id: string },
 ) {
@@ -43,6 +51,14 @@ async function insertManaged(
 		...encryptProviderKeyForStorage(`token-${values.id}`, values.id, null),
 	});
 }
+
+// Rows are deleted per case, but the managed-credential lookup stays cached in
+// this worker's Redis and would leak into later spec files.
+afterAll(async () => {
+	await waitForSwrMirrorWrites();
+	await db.delete(providerKey);
+	await redisClient.flushdb();
+});
 
 describe("findManagedProviderKey", () => {
 	beforeEach(async () => {

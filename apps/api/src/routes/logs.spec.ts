@@ -818,6 +818,7 @@ describe("logs route", () => {
 				finishReason: "upstream_error",
 				unifiedFinishReason: "upstream_error",
 				hasError: true,
+				errorCategory: "upstream",
 				errorDetails: {
 					statusCode: 0,
 					statusText: "TypeError",
@@ -845,6 +846,7 @@ describe("logs route", () => {
 				(entry: { id: string }) => entry.id === "fetch-failed-log-id",
 			);
 			expect(log.errorDetails.cause).toBe(CAUSE);
+			expect(log.errorCategory).toBe("upstream");
 		});
 
 		test("detail endpoint serves the error cause", async () => {
@@ -857,6 +859,7 @@ describe("logs route", () => {
 
 			expect(res.status).toBe(200);
 			const json = await res.json();
+			expect(json.log.errorCategory).toBe("upstream");
 			expect(json.log.errorDetails).toEqual({
 				statusCode: 0,
 				statusText: "TypeError",

@@ -31,7 +31,7 @@
 		"stripe:listen": "stripe listen --api-key \"$(grep -E '^STRIPE_SECRET_KEY=' .env | head -1 | cut -d= -f2-)\" --forward-to localhost:4002/stripe/webhook",
 		"test:browser": "playwright test",
 		"test:e2e": "pnpm build:core && E2E_TEST=true vitest run -c vitest/vitest.e2e.config.mts --no-file-parallelism",
-		"test:unit": "pnpm build:core && vitest run --no-file-parallelism",
+		"test:unit": "pnpm build:core && vitest run",
 		"wait-for-services": "./scripts/wait-for-services.sh"
 	},
 	"commitlint": {
@@ -49,6 +49,7 @@
 		"@steebchen/prettier-config": "^1.5.0",
 		"@types/canvas-confetti": "1.9.0",
 		"@types/node": "26.2.0",
+		"@types/pg": "^8.15.6",
 		"commitlint": "21.2.2",
 		"concurrently": "^10.0.4",
 		"dotenv": "17.4.2",
@@ -60,6 +61,7 @@
 		"husky": "^9.1.7",
 		"lint-staged": "16.4.0",
 		"nodemon": "3.1.14",
+		"pg": "^8.16.3",
 		"prettier": "^3.9.6",
 		"resolve-tspaths": "0.8.23",
 		"semantic-release": "^24.2.5",

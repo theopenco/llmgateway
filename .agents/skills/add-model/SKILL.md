@@ -28,7 +28,7 @@ git diff origin/main...HEAD -- packages/models/src/models/
 | Definitions, field docs                     | `packages/models/src/models/<family>.ts`; types in `packages/models/src/models.ts`                                                   |
 | Providers, env vars, regions, service tiers | `packages/models/src/providers.ts`                                                                                                   |
 | Catalogue invariants                        | `packages/models/src/model-metadata.spec.ts`, `packages/models/src/providers.spec.ts`, `packages/models/src/realtime-models.spec.ts` |
-| Cost engine                                 | `apps/gateway/src/lib/costs.ts`                                                                                                      |
+| Cost engine                                 | `packages/actions/src/costs.ts`                                                                                                       |
 | Token extraction                            | `apps/gateway/src/chat/tools/extract-token-usage.ts`, `apps/gateway/src/chat/tools/parse-provider-response.ts`                       |
 | Request shaping                             | `packages/actions/src/prepare-request-body.ts`                                                                                       |
 | New-provider endpoint wiring                | `packages/actions/src/get-provider-endpoint.ts`                                                                                      |
@@ -195,7 +195,7 @@ pnpm exec vitest run --no-file-parallelism \
   packages/models/src/model-metadata.spec.ts \
   packages/models/src/providers.spec.ts \
   packages/models/src/realtime-models.spec.ts \
-  apps/gateway/src/lib/costs.spec.ts
+  packages/actions/src/costs.spec.ts
 
 TEST_MODELS="<provider>/<model>" FULL_MODE=true pnpm test:e2e
 ```

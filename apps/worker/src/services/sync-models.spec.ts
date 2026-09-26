@@ -1,40 +1,51 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 import { db, provider, model, modelProviderMapping, eq } from "@llmgateway/db";
 
 import { syncProvidersAndModels } from "./sync-models.js";
 
-describe("sync-models", () => {
-	beforeEach(async () => {
-		// Clean up test data before each test
-		await db.delete(modelProviderMapping);
-		await db.delete(model);
-		await db.delete(provider);
-	});
+const DRIFT_MODEL_ID = "claude-3-5-sonnet";
+const DRIFT_PROVIDER_ID = "anthropic";
+const AIRSIDE_MODEL_ID = "gpt-4o";
+const AIRSIDE_PROVIDER_ID = "openai";
 
-	afterEach(async () => {
-		// Clean up test data after each test
-		await db.delete(modelProviderMapping);
-		await db.delete(model);
-		await db.delete(provider);
-	});
+/**
+ * A catalogue pass writes every provider, model and mapping row by row, which
+ * takes well past the default hook timeout on a loaded machine.
+ */
+const SYNC_TIMEOUT_MS = 180_000;
+
+async function resetCatalogue() {
+	await db.delete(modelProviderMapping);
+	await db.delete(model);
+	await db.delete(provider);
+}
+
+/**
+ * A sync pass writes every provider, model and mapping in the catalogue one row
+ * at a time, which makes it the single slowest operation in the unit suite.
+ * These tests therefore share two passes — one to populate, one to re-sync —
+ * rather than taking a pass each.
+ */
+describe("sync-models", () => {
+	beforeAll(async () => {
+		await resetCatalogue();
+		await syncProvidersAndModels();
+	}, SYNC_TIMEOUT_MS);
+
+	afterAll(resetCatalogue, SYNC_TIMEOUT_MS);
 
 	it("should sync providers from @llmgateway/models package", async () => {
-		await syncProvidersAndModels();
-
 		const providers = await db.select().from(provider);
 
-		// Should have synced providers from the models package
 		expect(providers.length).toBeGreaterThan(0);
 
-		// Check for specific known providers
 		const providerIds = providers.map((p) => p.id);
 		expect(providerIds).toContain("openai");
 		expect(providerIds).toContain("anthropic");
 		expect(providerIds).toContain("google-ai-studio");
 		expect(providerIds).toContain("glacier");
 
-		// Verify provider properties
 		const openaiProvider = providers.find((p) => p.id === "openai");
 		expect(openaiProvider).toBeTruthy();
 		expect(openaiProvider?.name).toBe("OpenAI");
@@ -43,19 +54,14 @@ describe("sync-models", () => {
 	});
 
 	it("should sync models from @llmgateway/models package", async () => {
-		await syncProvidersAndModels();
-
 		const models = await db.select().from(model);
 
-		// Should have synced models from the models package
 		expect(models.length).toBeGreaterThan(0);
 
-		// Check for specific known models
 		const modelIds = models.map((m) => m.id);
 		expect(modelIds).toContain("gpt-4o");
 		expect(modelIds).toContain("claude-3-5-sonnet");
 
-		// Verify model properties
 		const gptModel = models.find((m) => m.id === "gpt-4o");
 		expect(gptModel).toBeTruthy();
 		expect(gptModel?.family).toBe("openai");
@@ -63,14 +69,10 @@ describe("sync-models", () => {
 	});
 
 	it("should sync model-provider mappings", async () => {
-		await syncProvidersAndModels();
-
 		const mappings = await db.select().from(modelProviderMapping);
 
-		// Should have synced model-provider mappings
 		expect(mappings.length).toBeGreaterThan(0);
 
-		// Check for specific known mappings
 		const gptOpenaiMapping = mappings.find(
 			(m) => m.modelId === "gpt-4o" && m.providerId === "openai",
 		);
@@ -79,158 +81,125 @@ describe("sync-models", () => {
 		expect(gptOpenaiMapping?.status).toBe("active");
 	});
 
-	it("should update existing providers on conflict", async () => {
-		// Insert initial provider data
-		await db.insert(provider).values({
-			id: "openai",
-			name: "Old OpenAI Name",
-			description: "Old description",
-			streaming: false,
-			cancellation: false,
-			color: "#000000",
-			website: "https://old-website.com",
-			status: "active",
-		});
-
-		await syncProvidersAndModels();
-
-		const providers = await db
-			.select()
-			.from(provider)
-			.where(eq(provider.id, "openai"));
-
-		expect(providers).toHaveLength(1);
-		const openaiProvider = providers[0]!;
-		expect(openaiProvider.name).toBe("OpenAI"); // Should be updated
-		expect(openaiProvider.streaming).toBe(true); // Should be updated
-		expect(openaiProvider.updatedAt).not.toBeNull();
-	});
-
-	it("should update existing models on conflict", async () => {
-		// Insert initial model data
-		await db.insert(model).values({
-			id: "gpt-4o",
-			name: "Old GPT-4o Name",
-			family: "old-family",
-			status: "active",
-		});
-
-		await syncProvidersAndModels();
-
-		const models = await db.select().from(model).where(eq(model.id, "gpt-4o"));
-
-		expect(models).toHaveLength(1);
-		const gptModel = models[0]!;
-		expect(gptModel.family).toBe("openai"); // Should be updated
-		expect(gptModel.updatedAt).not.toBeNull();
-	});
-
-	it("should update existing model-provider mappings", async () => {
-		// First sync to create providers and models
-		await syncProvidersAndModels();
-
-		// Modify an existing mapping
-		const existingMapping = await db
+	it("should handle models with pricing information", async () => {
+		const [mappingWithPricing] = await db
 			.select()
 			.from(modelProviderMapping)
 			.where(eq(modelProviderMapping.modelId, "gpt-4o"))
 			.limit(1);
 
-		if (existingMapping[0]) {
+		expect(mappingWithPricing).toBeTruthy();
+		expect(mappingWithPricing!.inputPrice).not.toBeNull();
+		expect(mappingWithPricing!.outputPrice).not.toBeNull();
+	});
+
+	describe("a second pass", () => {
+		let driftedMappingId: string;
+		let catalogueExternalId: string | null;
+		let airsideMappingId: string;
+		let mappingCountBeforeResync: number;
+
+		beforeAll(async () => {
+			await db
+				.update(provider)
+				.set({ name: "Old OpenAI Name", streaming: false })
+				.where(eq(provider.id, "openai"));
+
+			await db
+				.update(model)
+				.set({ name: "Old GPT-4o Name", family: "old-family" })
+				.where(eq(model.id, "gpt-4o"));
+
+			const drifted = await db.query.modelProviderMapping.findFirst({
+				where: {
+					modelId: { eq: DRIFT_MODEL_ID },
+					providerId: { eq: DRIFT_PROVIDER_ID },
+					region: { isNull: true },
+				},
+			});
+			expect(drifted).toBeTruthy();
+			driftedMappingId = drifted!.id;
+			catalogueExternalId = drifted!.externalId;
+			await db
+				.update(modelProviderMapping)
+				.set({ externalId: "old-model-name", streaming: false })
+				.where(eq(modelProviderMapping.id, driftedMappingId));
+
+			const airside = await db.query.modelProviderMapping.findFirst({
+				where: {
+					modelId: { eq: AIRSIDE_MODEL_ID },
+					providerId: { eq: AIRSIDE_PROVIDER_ID },
+					region: { isNull: true },
+				},
+			});
+			expect(airside).toBeTruthy();
+			airsideMappingId = airside!.id;
 			await db
 				.update(modelProviderMapping)
 				.set({
-					externalId: "old-model-name",
-					streaming: false,
+					source: "airside",
+					externalId: "carrier-gpt-4o",
+					inputPrice: "9e-6",
+					audio: true,
 				})
-				.where(eq(modelProviderMapping.id, existingMapping[0].id));
-		}
+				.where(eq(modelProviderMapping.id, airsideMappingId));
 
-		// Sync again
-		await syncProvidersAndModels();
+			mappingCountBeforeResync = (await db.select().from(modelProviderMapping))
+				.length;
 
-		// Check that the mapping was updated
-		const updatedMapping = await db
-			.select()
-			.from(modelProviderMapping)
-			.where(eq(modelProviderMapping.id, existingMapping[0]!.id));
+			await syncProvidersAndModels();
+		}, SYNC_TIMEOUT_MS);
 
-		expect(updatedMapping).toHaveLength(1);
-		expect(updatedMapping[0]?.externalId).toBe("gpt-4o"); // Should be restored
-		expect(updatedMapping[0]?.streaming).toBe(true); // Should be restored
-		expect(updatedMapping[0]?.updatedAt).not.toBeNull();
-	});
+		it("restores a drifted provider", async () => {
+			const [openaiProvider] = await db
+				.select()
+				.from(provider)
+				.where(eq(provider.id, "openai"));
 
-	it("preserves Airside-owned model-provider mappings", async () => {
-		await syncProvidersAndModels();
-		const mapping = await db.query.modelProviderMapping.findFirst({
-			where: {
-				modelId: { eq: "gpt-4o" },
-				providerId: { eq: "openai" },
-				region: { isNull: true },
-			},
+			expect(openaiProvider!.name).toBe("OpenAI");
+			expect(openaiProvider!.streaming).toBe(true);
+			expect(openaiProvider!.updatedAt).not.toBeNull();
 		});
-		expect(mapping).toBeTruthy();
-		await db
-			.update(modelProviderMapping)
-			.set({
+
+		it("restores a drifted model", async () => {
+			const [gptModel] = await db
+				.select()
+				.from(model)
+				.where(eq(model.id, "gpt-4o"));
+
+			expect(gptModel!.family).toBe("openai");
+			expect(gptModel!.updatedAt).not.toBeNull();
+		});
+
+		it("restores a drifted model-provider mapping", async () => {
+			const [restored] = await db
+				.select()
+				.from(modelProviderMapping)
+				.where(eq(modelProviderMapping.id, driftedMappingId));
+
+			expect(restored!.externalId).toBe(catalogueExternalId);
+			expect(restored!.streaming).toBe(true);
+			expect(restored!.updatedAt).not.toBeNull();
+		});
+
+		it("preserves Airside-owned model-provider mappings", async () => {
+			const [preserved] = await db
+				.select()
+				.from(modelProviderMapping)
+				.where(eq(modelProviderMapping.id, airsideMappingId));
+
+			expect(preserved).toMatchObject({
 				source: "airside",
 				externalId: "carrier-gpt-4o",
-				inputPrice: "9e-6",
 				audio: true,
-			})
-			.where(eq(modelProviderMapping.id, mapping!.id));
-
-		await syncProvidersAndModels();
-
-		const [preserved] = await db
-			.select()
-			.from(modelProviderMapping)
-			.where(eq(modelProviderMapping.id, mapping!.id));
-		expect(preserved).toMatchObject({
-			source: "airside",
-			externalId: "carrier-gpt-4o",
-			audio: true,
+			});
+			expect(Number(preserved!.inputPrice)).toBeCloseTo(9e-6);
 		});
-		expect(Number(preserved!.inputPrice)).toBeCloseTo(9e-6);
-	});
 
-	it("should create new model-provider mappings for new models", async () => {
-		// First, create just providers
-		await syncProvidersAndModels();
+		it("never drops existing mappings", async () => {
+			const mappings = await db.select().from(modelProviderMapping);
 
-		const initialMappingCount = await db.select().from(modelProviderMapping);
-
-		// Run sync again (simulating a new model being added to the models package)
-		await syncProvidersAndModels();
-
-		const finalMappingCount = await db.select().from(modelProviderMapping);
-
-		// Should have the same or more mappings (depending on if new models were added)
-		expect(finalMappingCount.length).toBeGreaterThanOrEqual(
-			initialMappingCount.length,
-		);
-	});
-
-	it("should handle models with pricing information", async () => {
-		await syncProvidersAndModels();
-
-		// Find a mapping that should have pricing
-		const mappingWithPricing = await db
-			.select()
-			.from(modelProviderMapping)
-			.where(eq(modelProviderMapping.modelId, "gpt-4o"))
-			.limit(1);
-
-		if (mappingWithPricing[0]) {
-			// Should have pricing information
-			expect(mappingWithPricing[0].inputPrice).not.toBeNull();
-			expect(mappingWithPricing[0].outputPrice).not.toBeNull();
-		}
-	});
-
-	it("should handle errors gracefully", async () => {
-		// This test ensures the function doesn't throw on edge cases
-		await expect(syncProvidersAndModels()).resolves.not.toThrow();
+			expect(mappings.length).toBeGreaterThanOrEqual(mappingCountBeforeResync);
+		});
 	});
 });

@@ -2,17 +2,18 @@ import { createLogEntry } from "@/chat/tools/create-log-entry.js";
 import { extractCustomHeaders } from "@/chat/tools/extract-custom-headers.js";
 import {
 	findApiKeyByToken,
-	findOrganizationById,
+	findOrganizationCachedById,
 	findProjectById,
 } from "@/lib/cached-queries.js";
 import { getEffectiveRetentionLevel } from "@/lib/compliance.js";
 import { parseApiToken } from "@/lib/extract-api-token.js";
-import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
+import { insertLog } from "@/lib/logs.js";
+import { getOrganizationBlockReason } from "@/lib/organization-access.js";
 
 import { shortid } from "@llmgateway/db";
 import { logger, toError } from "@llmgateway/logger";
 
-import type { ApiOrigin } from "@llmgateway/db";
+import type { ApiOrigin, LogErrorCategory } from "@llmgateway/db";
 import type { Context } from "hono";
 
 interface ClientErrorLogContext {
@@ -20,6 +21,7 @@ interface ClientErrorLogContext {
 	project: NonNullable<Awaited<ReturnType<typeof findProjectById>>>;
 	requestId: string;
 	retentionLevel: "retain" | "none";
+	organization: Awaited<ReturnType<typeof findOrganizationCachedById>>;
 }
 
 interface LogGatewayClientErrorOptions {
@@ -27,6 +29,8 @@ interface LogGatewayClientErrorOptions {
 	rawBody: unknown;
 	message: string;
 	cause: string;
+	statusCode?: number;
+	errorCategory?: LogErrorCategory;
 }
 
 async function resolveLogContext(
@@ -38,17 +42,20 @@ async function resolveLogContext(
 	}
 
 	const apiKey = await findApiKeyByToken(token);
-	if (!apiKey || apiKey.status !== "active") {
+	if (!apiKey) {
 		return null;
 	}
 
 	const project = await findProjectById(apiKey.projectId);
-	if (!project || project.status === "deleted") {
+	if (!project) {
 		return null;
 	}
 
-	const organization = await findOrganizationById(project.organizationId);
-	const requestId = c.req.header("x-request-id")?.trim() || shortid(40);
+	const organization = await findOrganizationCachedById(project.organizationId);
+	const requestId =
+		c.res.headers.get("x-request-id") ||
+		c.req.header("x-request-id")?.trim() ||
+		shortid(40);
 	c.header("x-request-id", requestId);
 
 	return {
@@ -56,6 +63,7 @@ async function resolveLogContext(
 		project,
 		requestId,
 		retentionLevel: getEffectiveRetentionLevel(organization),
+		organization,
 	};
 }
 
@@ -85,7 +93,7 @@ function readMessages(raw: unknown, apiOrigin: ApiOrigin): unknown[] {
 
 /**
  * Persists a zero-cost client-error row for a request rejected before the
- * normal chat logging flow. Best-effort: logging never masks the original 400.
+ * normal logging flow. Logging failures never mask the original rejection.
  */
 export async function logGatewayClientError(
 	c: Context,
@@ -98,6 +106,16 @@ export async function logGatewayClientError(
 		}
 
 		const requestedModel = readString(options.rawBody, "model") ?? "unknown";
+
+		const statusCode = options.statusCode ?? 400;
+		const organization = logContext.organization;
+		const blocked = organization && getOrganizationBlockReason(organization);
+		const accountCategory =
+			blocked?.status === statusCode && blocked.message === options.message
+				? organization?.status === "deleted"
+					? "account_disabled"
+					: "account_review"
+				: undefined;
 
 		await insertLog(
 			{
@@ -129,11 +147,12 @@ export async function logGatewayClientError(
 				cachedTokens: null,
 				cacheWriteTokens: null,
 				hasError: true,
+				errorCategory: options.errorCategory ?? accountCategory,
 				streamed: false,
 				canceled: false,
 				errorDetails: {
-					statusCode: 400,
-					statusText: "Bad Request",
+					statusCode,
+					statusText: statusCode === 400 ? "Bad Request" : "Request Rejected",
 					responseText: options.message,
 					cause: options.cause,
 				},
@@ -156,7 +175,7 @@ export async function logGatewayClientError(
 				pricingTier: null,
 				requestedServiceTier: null,
 				usedServiceTier: null,
-				dataStorageCost: calculateDataStorageCost(null, null, null, null),
+				dataStorageCost: "0",
 				cached: false,
 				tools: null,
 				toolResults: null,
