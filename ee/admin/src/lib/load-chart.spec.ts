@@ -5,18 +5,23 @@ import { buildLoadChart } from "./load-chart";
 const point = (
 	timestamp: string,
 	rps: number,
-	entries: { key: string; rps: number }[],
+	entries: { key: string; rps: number; avgDurationMs?: number | null }[],
 	partial = false,
+	avgDurationMs: number | null = null,
 ) => ({
 	timestamp,
 	partial,
 	bucketSeconds: 60,
 	requestCount: rps * 60,
 	rps,
+	avgDurationMs,
+	avgTimeToFirstTokenMs: null,
 	entries: entries.map((entry) => ({
 		key: entry.key,
 		requestCount: entry.rps * 60,
 		rps: entry.rps,
+		avgDurationMs: entry.avgDurationMs ?? null,
+		avgTimeToFirstTokenMs: null,
 	})),
 });
 
@@ -87,5 +92,52 @@ describe("buildLoadChart", () => {
 			totalKeys: 1,
 		});
 		expect(chart.rows.map((row) => row.partial)).toEqual([false, true]);
+	});
+
+	it("plots latency per series without an Other band", () => {
+		const chart = buildLoadChart({
+			series: [{ key: "a", label: "a" }],
+			data: [
+				point(
+					"2026-09-26T13:00:00Z",
+					10,
+					[{ key: "a", rps: 4, avgDurationMs: 820 }],
+					false,
+					910,
+				),
+			],
+			totalKeys: 7,
+			metric: "duration",
+		});
+
+		// An average has no residual, so the ranked series must not be topped up
+		// with a synthetic remainder the way the additive rps view is.
+		expect(chart.restCount).toBe(0);
+		expect(chart.series).toHaveLength(1);
+		expect(chart.rows[0]).toMatchObject({ series_0: 820, total: 910 });
+		expect(chart.rows[0].series_other).toBeUndefined();
+	});
+
+	it("leaves latency gaps null so the line breaks instead of dropping to zero", () => {
+		const chart = buildLoadChart({
+			series: [
+				{ key: "a", label: "a" },
+				{ key: "b", label: "b" },
+			],
+			data: [
+				point(
+					"2026-09-26T13:00:00Z",
+					2,
+					[{ key: "a", rps: 2, avgDurationMs: 500 }],
+					false,
+					500,
+				),
+			],
+			totalKeys: 2,
+			metric: "duration",
+		});
+
+		expect(chart.rows[0].series_0).toBe(500);
+		expect(chart.rows[0].series_1).toBeNull();
 	});
 });

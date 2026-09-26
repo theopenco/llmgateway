@@ -38,6 +38,8 @@ interface LoadOverview {
 		peakAt: string | null;
 		totalRequests: number;
 		errorRate: number | null;
+		avgDurationMs: number | null;
+		avgTimeToFirstTokenMs: number | null;
 	};
 	series: { key: string; label: string }[];
 	data: {
@@ -46,7 +48,15 @@ interface LoadOverview {
 		bucketSeconds: number;
 		requestCount: number;
 		rps: number;
-		entries: { key: string; requestCount: number; rps: number }[];
+		avgDurationMs: number | null;
+		avgTimeToFirstTokenMs: number | null;
+		entries: {
+			key: string;
+			requestCount: number;
+			rps: number;
+			avgDurationMs: number | null;
+			avgTimeToFirstTokenMs: number | null;
+		}[];
 	}[];
 	breakdown: {
 		key: string;
@@ -56,6 +66,8 @@ interface LoadOverview {
 		peakRps: number;
 		share: number;
 		errorRate: number | null;
+		avgDurationMs: number | null;
+		avgTimeToFirstTokenMs: number | null;
 	}[];
 	totalKeys: number;
 }
@@ -162,6 +174,9 @@ describe("admin — gateway load", () => {
 				minuteTimestamp: closedMinute,
 				logsCount: 120,
 				errorsCount: 12,
+				totalDuration: 120 * 800,
+				totalTimeToFirstToken: 60 * 250,
+				timeToFirstTokenCount: 60,
 			},
 			{
 				modelId: MODEL_ID,
@@ -215,7 +230,14 @@ describe("admin — gateway load", () => {
 				requestCount: 7200,
 				errorCount: 72,
 				creditsRequestCount: 7200,
+				totalDuration: 7200 * 1500,
+				durationCount: 7200,
+				totalTimeToFirstToken: 3600 * 400,
+				timeToFirstTokenCount: 3600,
 			},
+			// Deliberately left without latency samples: this is what a bucket
+			// aggregated before the latency columns existed looks like, and it
+			// must read as "unknown", not as 0 ms.
 			{
 				projectId: PROJECT_B,
 				hourTimestamp: closedHour,
@@ -395,6 +417,61 @@ describe("admin — gateway load", () => {
 		});
 		// The per-mode request columns have no matching error split.
 		expect(credits.summary.errorRate).toBeNull();
+	});
+
+	test("reports average duration and TTFT per organization", async () => {
+		const body = await fetchLoad(cookie, {
+			window: "1d",
+			groupBy: "organization",
+		});
+
+		const orgA = body.breakdown.find((row) => row.key === ORG_A);
+		expect(orgA?.avgDurationMs).toBeCloseTo(1500, 6);
+		// TTFT divides by its own sample count, not by requestCount — only half
+		// the requests streamed.
+		expect(orgA?.avgTimeToFirstTokenMs).toBeCloseTo(400, 6);
+
+		// Org B's bucket carries no latency samples, which is what a bucket
+		// aggregated before these columns existed looks like. Dividing its zero
+		// sum by requestCount would report a confident 0 ms.
+		const orgB = body.breakdown.find((row) => row.key === ORG_B);
+		expect(orgB?.avgDurationMs).toBeNull();
+		expect(orgB?.avgTimeToFirstTokenMs).toBeNull();
+
+		// The summary is count-weighted across both orgs, so it is org A's
+		// samples alone rather than the mean of 1500 and nothing.
+		expect(body.summary.avgDurationMs).toBeCloseTo(1500, 6);
+	});
+
+	test("withholds latency when a mode narrows the tenant rollup", async () => {
+		const body = await fetchLoad(cookie, {
+			window: "1d",
+			groupBy: "organization",
+			mode: "credits",
+		});
+
+		// One blended duration sum against a credits-only request count would be
+		// an average of the wrong population.
+		expect(body.summary.avgDurationMs).toBeNull();
+		expect(body.summary.avgTimeToFirstTokenMs).toBeNull();
+		expect(body.breakdown.every((row) => row.avgDurationMs === null)).toBe(
+			true,
+		);
+	});
+
+	test("reports average duration on the mapping-history axis", async () => {
+		const body = await fetchLoad(cookie, { window: "1h", groupBy: "model" });
+
+		// 120 requests x 800ms in the closed minute, and no duration recorded in
+		// the other two minutes, over 210 requests total.
+		expect(body.summary.avgDurationMs).toBeCloseTo((120 * 800) / 210, 6);
+		expect(body.summary.avgTimeToFirstTokenMs).toBeCloseTo(250, 6);
+
+		const closed = body.data.find(
+			(point) =>
+				point.timestamp === closedMinute.toISOString().replace(".000", ""),
+		);
+		expect(closed?.avgDurationMs).toBeCloseTo(800, 6);
 	});
 
 	test("ranks organizations from the project rollup", async () => {

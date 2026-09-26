@@ -166,6 +166,29 @@ function getCommonAggregationFields() {
 			sql<string>`coalesce(sum(cast(${tables.log.cacheWriteTokens} as numeric)), 0)`.as(
 				"cacheWriteTokens",
 			),
+		totalDuration:
+			sql<number>`coalesce(sum(${tables.log.duration}), 0)::bigint`.as(
+				"totalDuration",
+			),
+		durationCount: sql<number>`count(${tables.log.duration})::int`.as(
+			"durationCount",
+		),
+		totalTimeToFirstToken:
+			sql<number>`coalesce(sum(${tables.log.timeToFirstToken}), 0)::bigint`.as(
+				"totalTimeToFirstToken",
+			),
+		timeToFirstTokenCount:
+			sql<number>`count(${tables.log.timeToFirstToken})::int`.as(
+				"timeToFirstTokenCount",
+			),
+		totalTimeToFirstReasoningToken:
+			sql<number>`coalesce(sum(${tables.log.timeToFirstReasoningToken}), 0)::bigint`.as(
+				"totalTimeToFirstReasoningToken",
+			),
+		timeToFirstReasoningTokenCount:
+			sql<number>`count(${tables.log.timeToFirstReasoningToken})::int`.as(
+				"timeToFirstReasoningTokenCount",
+			),
 		cost: sql<number>`coalesce(sum(cast(${tables.log.cost} as double precision)), 0)`.as(
 			"cost",
 		),

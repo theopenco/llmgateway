@@ -22,6 +22,7 @@ import { pickMappingHistoryTable } from "@/utils/history-window.js";
 import {
 	and,
 	asc,
+	avgEffectiveTtft,
 	db,
 	desc,
 	eq,
@@ -36,7 +37,7 @@ import {
 import { getProviderDefinition } from "@llmgateway/models";
 
 import type { ServerTypes } from "@/vars.js";
-import type { AnyColumn, SQL } from "@llmgateway/db";
+import type { AnyColumn, SQL, TtftTotals } from "@llmgateway/db";
 
 export const adminLoad = new OpenAPIHono<ServerTypes>();
 
@@ -169,22 +170,108 @@ function canonicalModelExpression(column: AnyColumn) {
 	return sql<string>`split_part(case when position('/' in ${column}) > 0 then split_part(${column}, '/', 2) else ${column} end, ':', 1)`;
 }
 
-interface BucketTotalRow {
+/**
+ * Latency is carried as sums plus their own sample counts all the way to the
+ * response, so every rollup step stays count-weighted. Averaging per-bucket
+ * averages would let a minute with three requests outweigh one with thousands.
+ *
+ * The TTFT members are exactly `TtftTotals`, so `avgEffectiveTtft` applies to
+ * both sources unchanged and the page cannot report one definition of TTFT on
+ * the model axis and another on the organization axis.
+ */
+interface LatencyTotals extends TtftTotals {
+	totalDuration: number;
+	durationCount: number;
+}
+
+interface BucketTotalRow extends LatencyTotals {
 	bucket: string;
 	requestCount: number;
 	errorCount: number;
 }
 
-interface KeyTotalRow {
+interface KeyTotalRow extends LatencyTotals {
 	key: string;
 	requestCount: number;
 	errorCount: number;
 }
 
-interface KeyBucketRow {
+interface KeyBucketRow extends LatencyTotals {
 	bucket: string;
 	key: string;
 	requestCount: number;
+}
+
+function emptyLatency(): LatencyTotals {
+	return {
+		totalDuration: 0,
+		durationCount: 0,
+		totalTimeToFirstToken: 0,
+		timeToFirstTokenCount: 0,
+		totalTimeToFirstReasoningToken: 0,
+		timeToFirstReasoningTokenCount: 0,
+	};
+}
+
+function addLatency(into: LatencyTotals, from: LatencyTotals): void {
+	into.totalDuration += from.totalDuration;
+	into.durationCount += from.durationCount;
+	into.totalTimeToFirstToken += from.totalTimeToFirstToken;
+	into.timeToFirstTokenCount += from.timeToFirstTokenCount;
+	into.totalTimeToFirstReasoningToken += from.totalTimeToFirstReasoningToken;
+	into.timeToFirstReasoningTokenCount += from.timeToFirstReasoningTokenCount;
+}
+
+/**
+ * `SUM(bigint)` comes back as `numeric`, which the driver hands over as a
+ * string, so every sum is cast to float8 — a millisecond total tops out far
+ * inside float8's exact-integer range.
+ */
+function latencySums(table: {
+	totalDuration: AnyColumn;
+	durationCount: AnyColumn;
+	totalTimeToFirstToken: AnyColumn;
+	timeToFirstTokenCount: AnyColumn;
+	totalTimeToFirstReasoningToken: AnyColumn;
+	timeToFirstReasoningTokenCount: AnyColumn;
+}) {
+	return {
+		totalDuration:
+			sql<number>`COALESCE(SUM(${table.totalDuration}), 0)::float8`.as(
+				"total_duration",
+			),
+		durationCount:
+			sql<number>`COALESCE(SUM(${table.durationCount}), 0)::float8`.as(
+				"duration_count",
+			),
+		totalTimeToFirstToken:
+			sql<number>`COALESCE(SUM(${table.totalTimeToFirstToken}), 0)::float8`.as(
+				"total_ttft",
+			),
+		timeToFirstTokenCount:
+			sql<number>`COALESCE(SUM(${table.timeToFirstTokenCount}), 0)::float8`.as(
+				"ttft_count",
+			),
+		totalTimeToFirstReasoningToken:
+			sql<number>`COALESCE(SUM(${table.totalTimeToFirstReasoningToken}), 0)::float8`.as(
+				"total_ttfrt",
+			),
+		timeToFirstReasoningTokenCount:
+			sql<number>`COALESCE(SUM(${table.timeToFirstReasoningTokenCount}), 0)::float8`.as(
+				"ttfrt_count",
+			),
+	};
+}
+
+function readLatency(row: LatencyTotals): LatencyTotals {
+	return {
+		totalDuration: Number(row.totalDuration),
+		durationCount: Number(row.durationCount),
+		totalTimeToFirstToken: Number(row.totalTimeToFirstToken),
+		timeToFirstTokenCount: Number(row.timeToFirstTokenCount),
+		totalTimeToFirstReasoningToken: Number(row.totalTimeToFirstReasoningToken),
+		timeToFirstReasoningTokenCount: Number(row.timeToFirstReasoningTokenCount),
+	};
 }
 
 /**
@@ -226,6 +313,17 @@ function mappingHistorySource(scope: LoadScope): LoadSource {
 	const bucketExpr = bucketExpression(mphTs, scope.bucket);
 	const requests = sql<number>`COALESCE(SUM(${mph.logsCount}), 0)::float8`;
 	const errors = sql<number>`COALESCE(SUM(${mph.errorsCount}), 0)::float8`;
+	// The mapping history has no dedicated duration sample count — every logged
+	// request contributes one — so `logsCount` is the denominator, which is also
+	// what the model history endpoints divide by.
+	const latency = latencySums({
+		totalDuration: mph.totalDuration,
+		durationCount: mph.logsCount,
+		totalTimeToFirstToken: mph.totalTimeToFirstToken,
+		timeToFirstTokenCount: mph.timeToFirstTokenCount,
+		totalTimeToFirstReasoningToken: mph.totalTimeToFirstReasoningToken,
+		timeToFirstReasoningTokenCount: mph.timeToFirstReasoningTokenCount,
+	});
 
 	return {
 		async bucketTotals() {
@@ -234,6 +332,7 @@ function mappingHistorySource(scope: LoadScope): LoadSource {
 					bucket: bucketExpr.as("bucket"),
 					requestCount: requests.as("request_count"),
 					errorCount: errors.as("error_count"),
+					...latency,
 				})
 				.from(mph)
 				.where(and(...filters))
@@ -243,6 +342,7 @@ function mappingHistorySource(scope: LoadScope): LoadSource {
 				bucket: row.bucket,
 				requestCount: Number(row.requestCount),
 				errorCount: Number(row.errorCount),
+				...readLatency(row),
 			}));
 		},
 		async keyTotals() {
@@ -251,6 +351,7 @@ function mappingHistorySource(scope: LoadScope): LoadSource {
 					key: keyExpr.as("key"),
 					requestCount: requests.as("request_count"),
 					errorCount: errors.as("error_count"),
+					...latency,
 				})
 				.from(mph)
 				.where(and(...filters))
@@ -259,6 +360,7 @@ function mappingHistorySource(scope: LoadScope): LoadSource {
 				key: row.key,
 				requestCount: Number(row.requestCount),
 				errorCount: Number(row.errorCount),
+				...readLatency(row),
 			}));
 		},
 		async keyBuckets(keys) {
@@ -267,6 +369,7 @@ function mappingHistorySource(scope: LoadScope): LoadSource {
 					bucket: bucketExpr.as("bucket"),
 					key: keyExpr.as("key"),
 					requestCount: requests.as("request_count"),
+					...latency,
 				})
 				.from(mph)
 				.where(and(...filters, inArray(keyExpr, keys)))
@@ -276,6 +379,7 @@ function mappingHistorySource(scope: LoadScope): LoadSource {
 				bucket: row.bucket,
 				key: row.key,
 				requestCount: Number(row.requestCount),
+				...readLatency(row),
 			}));
 		},
 	};
@@ -339,6 +443,10 @@ function projectStatsSource(scope: LoadScope): LoadSource {
 	const bucketExpr = bucketExpression(statsTable.hourTimestamp, scope.bucket);
 	const requests = sql<number>`COALESCE(SUM(${countColumn}), 0)::float8`;
 	const errors = sql<number>`COALESCE(SUM(${statsTable.errorCount}), 0)::float8`;
+	// `durationCount` is deliberately not `requestCount` here: buckets aggregated
+	// before the latency columns existed carry a zero count, which is what makes
+	// the response say "unknown" instead of "0 ms".
+	const latency = latencySums(statsTable);
 	// Every tenant rollup keys on projectId only; the organization id lives one
 	// hop up, so the join is unconditional and the org filter and the org
 	// grouping stay on the same code path.
@@ -351,6 +459,7 @@ function projectStatsSource(scope: LoadScope): LoadSource {
 					bucket: bucketExpr.as("bucket"),
 					requestCount: requests.as("request_count"),
 					errorCount: errors.as("error_count"),
+					...latency,
 				})
 				.from(statsTable)
 				.innerJoin(tables.project, joinProject)
@@ -361,6 +470,7 @@ function projectStatsSource(scope: LoadScope): LoadSource {
 				bucket: row.bucket,
 				requestCount: Number(row.requestCount),
 				errorCount: Number(row.errorCount),
+				...readLatency(row),
 			}));
 		},
 		async keyTotals() {
@@ -369,6 +479,7 @@ function projectStatsSource(scope: LoadScope): LoadSource {
 					key: keyExpr.as("key"),
 					requestCount: requests.as("request_count"),
 					errorCount: errors.as("error_count"),
+					...latency,
 				})
 				.from(statsTable)
 				.innerJoin(tables.project, joinProject)
@@ -378,6 +489,7 @@ function projectStatsSource(scope: LoadScope): LoadSource {
 				key: row.key,
 				requestCount: Number(row.requestCount),
 				errorCount: Number(row.errorCount),
+				...readLatency(row),
 			}));
 		},
 		async keyBuckets(keys) {
@@ -386,6 +498,7 @@ function projectStatsSource(scope: LoadScope): LoadSource {
 					bucket: bucketExpr.as("bucket"),
 					key: keyExpr.as("key"),
 					requestCount: requests.as("request_count"),
+					...latency,
 				})
 				.from(statsTable)
 				.innerJoin(tables.project, joinProject)
@@ -396,6 +509,7 @@ function projectStatsSource(scope: LoadScope): LoadSource {
 				bucket: row.bucket,
 				key: row.key,
 				requestCount: Number(row.requestCount),
+				...readLatency(row),
 			}));
 		},
 	};
@@ -479,10 +593,18 @@ const loadSeriesSchema = z.object({
 	label: z.string(),
 });
 
+// `null` means "no sample in this bucket" — a gap the client must draw as a
+// gap, never as a zero.
+const latencyShape = {
+	avgDurationMs: z.number().nullable(),
+	avgTimeToFirstTokenMs: z.number().nullable(),
+};
+
 const loadPointEntrySchema = z.object({
 	key: z.string(),
 	requestCount: z.number(),
 	rps: z.number(),
+	...latencyShape,
 });
 
 const loadPointSchema = z.object({
@@ -493,6 +615,7 @@ const loadPointSchema = z.object({
 	bucketSeconds: z.number(),
 	requestCount: z.number(),
 	rps: z.number(),
+	...latencyShape,
 	entries: z.array(loadPointEntrySchema),
 });
 
@@ -504,6 +627,7 @@ const loadBreakdownRowSchema = z.object({
 	peakRps: z.number(),
 	share: z.number(),
 	errorRate: z.number().nullable(),
+	...latencyShape,
 });
 
 const loadOverviewResponseSchema = z.object({
@@ -524,6 +648,7 @@ const loadOverviewResponseSchema = z.object({
 		peakAt: z.string().nullable(),
 		totalRequests: z.number(),
 		errorRate: z.number().nullable(),
+		...latencyShape,
 	}),
 	series: z.array(loadSeriesSchema),
 	data: z.array(loadPointSchema),
@@ -602,14 +727,40 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 	const totalsByBucket = new Map(
 		bucketTotals.map((row) => [row.bucket, row.requestCount]),
 	);
+	const latencyByBucket = new Map(bucketTotals.map((row) => [row.bucket, row]));
 	const countsByKeyBucket = new Map<string, number>();
+	const latencyByKeyBucket = new Map<string, LatencyTotals>();
 	for (const row of keyBuckets) {
+		const cell = `${row.key}\u0000${row.bucket}`;
 		countsByKeyBucket.set(
-			`${row.key}\u0000${row.bucket}`,
-			(countsByKeyBucket.get(`${row.key}\u0000${row.bucket}`) ?? 0) +
-				row.requestCount,
+			cell,
+			(countsByKeyBucket.get(cell) ?? 0) + row.requestCount,
 		);
+		let totals = latencyByKeyBucket.get(cell);
+		if (!totals) {
+			totals = emptyLatency();
+			latencyByKeyBucket.set(cell, totals);
+		}
+		addLatency(totals, row);
 	}
+
+	// The per-mode request columns on the tenant rollups have no matching error
+	// or latency split, so a mode-filtered view there would pair credits-only
+	// requests with blended errors and blended latency. The mapping history keys
+	// on `used_mode`, so both stay exact there.
+	const modeComparable =
+		scope.mode === "total" || scope.source === "mapping-history";
+
+	const latencyFor = (totals: LatencyTotals | undefined) =>
+		totals && modeComparable
+			? {
+					avgDurationMs:
+						totals.durationCount > 0
+							? totals.totalDuration / totals.durationCount
+							: null,
+					avgTimeToFirstTokenMs: avgEffectiveTtft(totals),
+				}
+			: { avgDurationMs: null, avgTimeToFirstTokenMs: null };
 
 	const data = allBuckets.map((timestamp) => {
 		const seconds = secondsFor.get(timestamp) ?? BUCKET_SECONDS[scope.bucket];
@@ -620,9 +771,16 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 			bucketSeconds: seconds,
 			requestCount,
 			rps: toRps(requestCount, seconds),
+			...latencyFor(latencyByBucket.get(timestamp)),
 			entries: topKeys.map(({ key }) => {
-				const count = countsByKeyBucket.get(`${key}\u0000${timestamp}`) ?? 0;
-				return { key, requestCount: count, rps: toRps(count, seconds) };
+				const cell = `${key}\u0000${timestamp}`;
+				const count = countsByKeyBucket.get(cell) ?? 0;
+				return {
+					key,
+					requestCount: count,
+					rps: toRps(count, seconds),
+					...latencyFor(latencyByKeyBucket.get(cell)),
+				};
 			}),
 		};
 	});
@@ -659,17 +817,13 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 		}
 	}
 
-	// The per-mode request columns on the tenant rollups have no matching error
-	// split, so a mode-filtered view there would pair credits-only requests with
-	// blended errors. The mapping history keys on `used_mode`, so it is exact.
-	const errorsComparable =
-		scope.mode === "total" || scope.source === "mapping-history";
-
 	let totalRequests = 0;
 	let totalErrors = 0;
+	const totalLatency = emptyLatency();
 	for (const row of bucketTotals) {
 		totalRequests += row.requestCount;
 		totalErrors += row.errorCount;
+		addLatency(totalLatency, row);
 	}
 
 	return c.json({
@@ -689,9 +843,10 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 				peakPoint && peakPoint.requestCount > 0 ? peakPoint.timestamp : null,
 			totalRequests,
 			errorRate:
-				errorsComparable && totalRequests > 0
+				modeComparable && totalRequests > 0
 					? totalErrors / totalRequests
 					: null,
+			...latencyFor(totalLatency),
 		},
 		series: topKeys.map(({ key }) => ({ key, label: labelFor(key) })),
 		data,
@@ -703,9 +858,10 @@ adminLoad.openapi(getLoadOverview, async (c) => {
 			peakRps: peakByKey.get(row.key) ?? 0,
 			share: totalRequests > 0 ? row.requestCount / totalRequests : 0,
 			errorRate:
-				errorsComparable && row.requestCount > 0
+				modeComparable && row.requestCount > 0
 					? row.errorCount / row.requestCount
 					: null,
+			...latencyFor(row),
 		})),
 		totalKeys: rankedKeys.length,
 	});
