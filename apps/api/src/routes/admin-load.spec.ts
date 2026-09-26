@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
@@ -89,10 +89,22 @@ describe("admin — gateway load", () => {
 	let cookie: string;
 	let closedMinute: Date;
 	let currentMinute: Date;
+	let leadingMinute: Date;
 	let closedHour: Date;
 	let currentHour: Date;
 
 	beforeEach(async () => {
+		// The fixtures are anchored to the current minute and hour, and the
+		// handler reads its own clock a second or two later. Without pinning, a
+		// minute boundary crossing mid-test turns the in-progress bucket into a
+		// settled one and every rate assertion shifts. Pinning mid-minute keeps
+		// the two in agreement; only `Date` is faked, so the pg driver's timers
+		// keep running.
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(
+			new Date(floorTo(new Date(), MINUTE_MS).getTime() + 30_000),
+		);
+
 		process.env.ADMIN_EMAILS = "admin@example.com";
 		cookie = await createTestUser();
 		await clearCatalogFixtures();
@@ -100,6 +112,8 @@ describe("admin — gateway load", () => {
 		const now = new Date();
 		currentMinute = floorTo(now, MINUTE_MS);
 		closedMinute = new Date(currentMinute.getTime() - MINUTE_MS);
+		const windowStartMs = now.getTime() - HOUR_MS;
+		leadingMinute = floorTo(new Date(windowStartMs), MINUTE_MS);
 		currentHour = floorTo(now, HOUR_MS);
 		closedHour = new Date(currentHour.getTime() - HOUR_MS);
 
@@ -130,6 +144,16 @@ describe("admin — gateway load", () => {
 		]);
 
 		await db.insert(tables.modelProviderMappingHistory).values([
+			// The first minute the 1h window covers. Its row is stamped at the
+			// floor of the bucket, which is earlier than `now - 1h`.
+			{
+				modelId: MODEL_ID,
+				providerId: PROVIDER_ID,
+				modelProviderMappingId: ROOT_MAPPING_ID,
+				usedMode: "credits",
+				minuteTimestamp: leadingMinute,
+				logsCount: 60,
+			},
 			{
 				modelId: MODEL_ID,
 				providerId: PROVIDER_ID,
@@ -260,6 +284,7 @@ describe("admin — gateway load", () => {
 	});
 
 	afterEach(async () => {
+		vi.useRealTimers();
 		await clearCatalogFixtures();
 		await deleteAll();
 	});
@@ -314,8 +339,21 @@ describe("admin — gateway load", () => {
 		expect(body.summary.peakAt).toBe(
 			closedMinute.toISOString().replace(".000", ""),
 		);
-		expect(body.summary.totalRequests).toBe(150);
-		expect(body.summary.errorRate).toBeCloseTo(12 / 150, 6);
+		expect(body.summary.totalRequests).toBe(210);
+		expect(body.summary.errorRate).toBeCloseTo(12 / 210, 6);
+	});
+
+	test("counts the bucket the window opens in", async () => {
+		const body = await fetchLoad(cookie, { window: "1h", groupBy: "model" });
+
+		// The grid starts at the floor of `now - 1h`, so the range filter has to
+		// start there too — otherwise the first point is permanently zero.
+		const first = body.data[0];
+		expect(first.timestamp).toBe(
+			leadingMinute.toISOString().replace(".000", ""),
+		);
+		expect(first.requestCount).toBe(60);
+		expect(first.rps).toBeCloseTo(1, 6);
 	});
 
 	test("excludes regional mapping rows from the provider axis", async () => {
@@ -326,7 +364,7 @@ describe("admin — gateway load", () => {
 			expect.objectContaining({
 				key: PROVIDER_ID,
 				label: "Load Provider",
-				requestCount: 150,
+				requestCount: 210,
 			}),
 		]);
 	});

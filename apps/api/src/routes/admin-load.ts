@@ -9,6 +9,7 @@ import {
 	isPartialBucket,
 	loadBucketSchema,
 	toRps,
+	truncateToLoadBucket,
 	type LoadBucket,
 } from "@/lib/load-buckets.js";
 import {
@@ -140,6 +141,19 @@ function resolveLoadScope(query: LoadQuery, now: Date = new Date()): LoadScope {
 	};
 }
 
+/**
+ * Start of the range the SQL filters use.
+ *
+ * Rollup rows are stamped with the floor of their bucket, and the zero-fill
+ * grid starts at the floor of the window too. Filtering on the raw window start
+ * would therefore exclude the row for the very first bucket the chart draws, so
+ * every view would open on a permanent zero — and `avgRps`, which counts that
+ * bucket's seconds in full, would be dragged down with it.
+ */
+function loadRangeStart(scope: LoadScope): Date {
+	return truncateToLoadBucket(scope.startDate, scope.bucket);
+}
+
 function bucketExpression(column: AnyColumn, unit: LoadBucket) {
 	// `unit` comes from a zod enum, so the raw interpolation cannot carry input.
 	return sql<string>`to_char(date_trunc(${sql.raw(`'${unit}'`)}, ${column}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
@@ -190,19 +204,7 @@ function mappingHistorySource(scope: LoadScope): LoadSource {
 	const { table: mph, bucket: mphTs } = pickMappingHistoryTable(
 		scope.bucket !== "minute",
 	);
-	// The hourly rollup only holds whole hours, so an un-floored range start
-	// would drop the hour the window opens in.
-	const rangeStart =
-		scope.bucket === "minute"
-			? scope.startDate
-			: new Date(
-					Date.UTC(
-						scope.startDate.getUTCFullYear(),
-						scope.startDate.getUTCMonth(),
-						scope.startDate.getUTCDate(),
-						scope.startDate.getUTCHours(),
-					),
-				);
+	const rangeStart = loadRangeStart(scope);
 
 	const keyExpr =
 		scope.groupBy === "provider"
@@ -323,7 +325,7 @@ function projectStatsSource(scope: LoadScope): LoadSource {
 			break;
 	}
 
-	const filters = [gte(statsTable.hourTimestamp, scope.startDate)];
+	const filters = [gte(statsTable.hourTimestamp, loadRangeStart(scope))];
 	if (scope.organizationId) {
 		filters.push(eq(tables.project.organizationId, scope.organizationId));
 	}

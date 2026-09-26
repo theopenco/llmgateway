@@ -250,12 +250,13 @@ export function LoadClient() {
 			? `Last completed ${currentSeconds >= 86400 ? "day" : "hour"}`
 			: `Last ${Math.max(1, Math.round(currentSeconds / 60))} minutes`;
 
+	const grain = data?.bucket === "day" ? "day" : "hour";
 	const grainNote =
 		data?.source === "mapping-history"
 			? data.bucket === "minute"
 				? "1-minute samples from the model rollup — refreshed every few seconds."
-				: "Hourly rollup of the model history."
-			: "Hourly tenant rollup — the in-progress hour is pro-rated over its elapsed seconds.";
+				: `${grain === "day" ? "Daily" : "Hourly"} rollup of the model history.`
+			: `${grain === "day" ? "Daily" : "Hourly"} tenant rollup — the in-progress ${grain} is pro-rated over its elapsed seconds.`;
 
 	const exportCsv = useCallback(() => {
 		if (!data) {
