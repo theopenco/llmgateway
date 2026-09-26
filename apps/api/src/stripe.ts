@@ -5220,7 +5220,11 @@ export async function handleSubscriptionUpdated(
 					to: organization.billingEmail,
 					organizationId: organization.id,
 					subject: "Before you go — could we get your feedback?",
-					html: generateDevPlanCancellationFeedbackEmailHtml(),
+					html: generateDevPlanCancellationFeedbackEmailHtml(
+						organization.billingEmail,
+					),
+					// A feedback survey is a retention ask, not account mail.
+					category: "marketing",
 				});
 
 				logger.info(
