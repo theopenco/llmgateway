@@ -1,0 +1,79 @@
+---
+title: DevPass Code Integration
+description: Install DevPass Code, connect an LLM Gateway key, select a model, and verify a real coding task.
+icon: DevPassCode
+---
+
+[DevPass Code](https://github.com/theopenco/devpass-code) is a terminal coding agent built for LLM Gateway. This walkthrough was verified with DevPass Code 1.18.11.
+
+## Video walkthrough
+
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/A_cILp7Klf8"
+		title="DevPass Code setup and coding demo with LLM Gateway"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
+
+## Install
+
+```bash
+pnpm add -g devpass-code
+devpass-code --version
+```
+
+See the&nbsp;[project repository](https://github.com/theopenco/devpass-code) for other installation options.
+
+## Connect LLM Gateway
+
+The recorded walkthrough uses an existing gateway API key:
+
+```bash
+export LLMGATEWAY_API_KEY="your_api_key"
+```
+
+Create your key in the&nbsp;[dashboard](https://llmgateway.io/dashboard). Alternatively, run `devpass-code auth login`, choose **LLM Gateway** or **LLM Gateway DevPass**, and follow the browser-login or key-entry flow.
+
+Browser login creates a credential and returns it to the tool through a local callback. If you have reached your organization's active-key limit, manage your keys in the dashboard before retrying.
+
+## Choose a model
+
+Place a `devpass-code.json` in your project:
+
+```json
+{
+	"model": "llmgateway/deepseek-v4-flash"
+}
+```
+
+Then launch the agent:
+
+```bash
+cd your-project
+devpass-code
+```
+
+You can also select the model with `--model llmgateway/deepseek-v4-flash` or use the model picker. Browse the&nbsp;[live catalogue](https://llmgateway.io/models?features=tools) for other coding models.
+
+The `llmgateway/` prefix identifies the agent's provider. The remaining model ID is canonical, which is also the form required for&nbsp;[DevPass](https://devpass.llmgateway.io) plan routing.
+
+## Verify the connection
+
+Open a small project and ask the agent to read a file, make a change, and run its tests. Our recorded example fixes a TypeScript slugifier and passes all three tests with `deepseek-v4-flash` through LLM Gateway.
+
+`Hello, LLM Gateway!` becomes `hello-llm-gateway`; repeated separators collapse into one hyphen; empty and punctuation-only inputs stay empty. The demo uses Node.js 24 to run `node --test slugify.test.ts` directly.
+
+Review the diff and test output, then check the request in your&nbsp;[LLM Gateway dashboard](https://llmgateway.io/dashboard). Choose other compatible models from the&nbsp;[live catalogue](https://llmgateway.io/models?features=tools).
+
+![DevPass Code completing the coding task through LLM Gateway](/images/guides/devpass-code/verified-session.png)
+
+## Troubleshooting
+
+Check that `LLMGATEWAY_API_KEY` is available to the process and that the model ID matches the picker. If a project opens with an unexpected model, check its `devpass-code.json` and pass `--model` explicitly.
+
+DevPass Code tags requests with `x-source: devpass-code` for attribution in your dashboard.

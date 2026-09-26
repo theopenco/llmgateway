@@ -1,8 +1,9 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback } from "react";
-
+import {
+	FilterPendingSpinner,
+	useFilterNavigation,
+} from "@/components/filter-navigation";
 import { Button } from "@/components/ui/button";
 
 export function SegmentedQueryToggle({
@@ -20,36 +21,35 @@ export function SegmentedQueryToggle({
 	options: { value: string; label: string }[];
 	label?: string;
 }) {
-	const router = useRouter();
-	const pathname = usePathname();
-	const searchParams = useSearchParams();
-
-	const handleSelect = useCallback(
-		(next: string) => {
-			const params = new URLSearchParams(searchParams.toString());
-			if (next === defaultValue) {
-				params.delete(param);
-			} else {
-				params.set(param, next);
-			}
-			const queryString = params.toString();
-			router.push(queryString ? `${pathname}?${queryString}` : pathname);
-		},
-		[router, pathname, searchParams, param, defaultValue],
-	);
+	const { isPending, pendingKey, navigate } = useFilterNavigation();
 
 	return (
-		<div className="flex items-center gap-1" aria-label={label}>
-			{options.map((option) => (
-				<Button
-					key={option.value}
-					variant={value === option.value ? "default" : "outline"}
-					size="sm"
-					onClick={() => handleSelect(option.value)}
-				>
-					{option.label}
-				</Button>
-			))}
+		<div className="flex flex-wrap items-center gap-1" aria-label={label}>
+			{options.map((option) => {
+				const optionKey = `${param}:${option.value}`;
+				return (
+					<Button
+						key={option.value}
+						variant={value === option.value ? "default" : "outline"}
+						size="sm"
+						disabled={isPending}
+						onClick={() =>
+							navigate(optionKey, (params) => {
+								if (option.value === defaultValue) {
+									params.delete(param);
+								} else {
+									params.set(param, option.value);
+								}
+							})
+						}
+					>
+						{pendingKey === optionKey && (
+							<FilterPendingSpinner className="h-3.5 w-3.5" />
+						)}
+						{option.label}
+					</Button>
+				);
+			})}
 		</div>
 	);
 }

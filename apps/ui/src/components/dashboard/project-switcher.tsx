@@ -12,6 +12,8 @@ import {
 	DropdownMenuGroup,
 } from "@/lib/components/dropdown-menu";
 
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
+
 import { NewProjectDialog } from "./new-project-dialog";
 
 import type { Project, Organization } from "@/lib/types";
@@ -34,7 +36,7 @@ export function ProjectSwitcher({
 	const [isNewProjectDialogOpen, setIsNewProjectDialogOpen] = useState(false);
 
 	// Project-scoped "developer" members can't create projects.
-	const canCreateProjects = currentOrganization?.role !== "developer";
+	const canCreateProjects = isOrganizationAdmin(currentOrganization?.role);
 
 	return (
 		<>

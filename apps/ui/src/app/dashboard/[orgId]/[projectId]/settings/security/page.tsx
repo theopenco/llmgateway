@@ -5,6 +5,7 @@ import { useState } from "react";
 import { createAddPasskeyFunction } from "@/components/passkeys/add-passkey";
 import { PasskeyList } from "@/components/passkeys/passkey-list";
 import { useUpdatePassword } from "@/hooks/useUser";
+import { getApiErrorMessage } from "@/lib/api-error";
 import { useAuthClient } from "@/lib/auth-client";
 import { Button } from "@/lib/components/button";
 import {
@@ -58,8 +59,7 @@ export default function SecurityPage() {
 		} catch (error) {
 			toast({
 				title: "Error",
-				description:
-					error instanceof Error ? error.message : "An error occurred",
+				description: getApiErrorMessage(error, "An error occurred"),
 				variant: "destructive",
 			});
 		}

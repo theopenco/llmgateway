@@ -4,8 +4,10 @@ import { logger } from "@llmgateway/logger";
 import {
 	type ModelDefinition,
 	models,
+	getProviderDefinition,
 	expandAllProviderRegions,
 	type ProviderModelMapping,
+	type ReasoningMode,
 	type ProviderId,
 	type BaseMessage,
 	type FunctionParameter,
@@ -14,6 +16,7 @@ import {
 	type OpenAIRequestBody,
 	type OpenAIResponsesRequestBody,
 	type OpenAIToolInput,
+	type PerplexityAgentRequestBody,
 	type PromptCacheOptions,
 	type PromptCacheRetention,
 	type ProviderCacheControlMode,
@@ -36,9 +39,10 @@ import {
 	toAnthropicToolSearchTool,
 	usesAnthropicMessagesApi,
 } from "./anthropic-tool-search.js";
+import { fetchNoRedirect } from "./fetch-no-redirect.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { parseToolCallArguments } from "./parse-tool-call-arguments.js";
-import { ImageSizeLimitError, processImageUrl } from "./process-image-url.js";
+import { processImageUrl } from "./process-image-url.js";
 import { RequestError } from "./request-error.js";
 import { mappingSupportsToolChoice } from "./tool-choice-support.js";
 import {
@@ -47,7 +51,8 @@ import {
 } from "./transform-anthropic-messages.js";
 import { transformGoogleMessages } from "./transform-google-messages.js";
 
-type OpenAIImageQuality = "low" | "medium" | "high" | "auto";
+type OpenAIImageQuality = "low" | "medium" | "high" | "xhigh" | "max" | "auto";
+type OpenAIImageModeration = "auto" | "low";
 
 export { RequestError } from "./request-error.js";
 
@@ -183,12 +188,13 @@ interface OpenAIImageRequest {
 	user?: string;
 	size?: string;
 	quality?: OpenAIImageQuality;
+	moderation?: OpenAIImageModeration;
 	n?: number;
 	image?: string | string[];
 }
 
 /**
- * Narrow a free-form quality string to the values gpt-image-2 accepts.
+ * Narrow a free-form quality string to GPT Image quality values.
  * Returns undefined for unknown values so they get dropped from the request.
  */
 function normalizeImageQuality(
@@ -202,8 +208,27 @@ function normalizeImageQuality(
 		normalized === "low" ||
 		normalized === "medium" ||
 		normalized === "high" ||
+		normalized === "xhigh" ||
+		normalized === "max" ||
 		normalized === "auto"
 	) {
+		return normalized;
+	}
+	return undefined;
+}
+
+/**
+ * Narrow a free-form moderation string to the GPT Image moderation values.
+ * Returns undefined for unknown values so they get dropped from the request.
+ */
+function normalizeImageModeration(
+	moderation: string | undefined,
+): OpenAIImageModeration | undefined {
+	if (!moderation) {
+		return undefined;
+	}
+	const normalized = moderation.toLowerCase();
+	if (normalized === "auto" || normalized === "low") {
 		return normalized;
 	}
 	return undefined;
@@ -237,7 +262,7 @@ async function fetchImageAsBlob(
 	// SSRF: the URL comes from the request body, so validate it does not resolve
 	// to an internal host and refuse redirects before fetching.
 	await assertSafeUserContentUrl(url);
-	const response = await fetch(url, { redirect: "error" });
+	const response = await fetchNoRedirect(url);
 	if (!response.ok) {
 		throw new Error(
 			`Failed to fetch image ${url}: ${response.status} ${response.statusText}`,
@@ -1314,6 +1339,7 @@ export async function prepareRequestBody(
 		aspect_ratio?: string;
 		image_size?: string;
 		image_quality?: string;
+		moderation?: string;
 		n?: number;
 		seed?: number;
 	},
@@ -1332,6 +1358,13 @@ export async function prepareRequestBody(
 	session_id?: string,
 	reasoning_context?: "auto" | "current_turn" | "all_turns",
 	safety_identifier?: string,
+	/**
+	 * The mapping routing actually selected. Only Airside-listed pairs differ
+	 * from the static catalogue lookup below — their capabilities live in the
+	 * carrier's row — and only the `tool_choice` resolution reads it so far.
+	 */
+	resolvedProviderMapping?: ProviderModelMapping,
+	reasoning_mode?: ReasoningMode,
 ): Promise<ProviderRequestBody | FormData> {
 	tools = normalizeToolParameters(tools);
 	// Anthropic's server-side tool search (`defer_loading` plus the tool search
@@ -1452,6 +1485,7 @@ export async function prepareRequestBody(
 		// OpenAI returns a 4xx for unsupported sizes, which we propagate.
 		const openaiSize = image_config?.image_size;
 		const openaiQuality = normalizeImageQuality(image_config?.image_quality);
+		const openaiModeration = normalizeImageModeration(image_config?.moderation);
 
 		const openaiImageRequest: OpenAIImageRequest = {
 			model: usedExternalId,
@@ -1459,6 +1493,7 @@ export async function prepareRequestBody(
 			...(safety_identifier !== undefined && { user: safety_identifier }),
 			...(openaiSize && { size: openaiSize }),
 			...(openaiQuality && { quality: openaiQuality }),
+			...(openaiModeration && { moderation: openaiModeration }),
 			...(image_config?.n && { n: image_config.n }),
 		};
 
@@ -1476,6 +1511,9 @@ export async function prepareRequestBody(
 			}
 			if (openaiImageRequest.quality) {
 				formData.append("quality", openaiImageRequest.quality);
+			}
+			if (openaiImageRequest.moderation) {
+				formData.append("moderation", openaiImageRequest.moderation);
 			}
 			if (openaiImageRequest.n !== undefined) {
 				formData.append("n", String(openaiImageRequest.n));
@@ -1957,8 +1995,11 @@ export async function prepareRequestBody(
 		});
 	}
 
-	if (usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") {
-		// Novita rejects empty text blocks alongside otherwise valid image input.
+	if (
+		(usedProvider === "novita" && usedInternalModel === "glm-5.3-flash") ||
+		usedProvider === "runpod"
+	) {
+		// These deployments reject empty text blocks in otherwise valid messages.
 		processedMessages = processedMessages.map((message) => {
 			if (!Array.isArray(message.content)) {
 				return message;
@@ -2013,8 +2054,38 @@ export async function prepareRequestBody(
 		);
 	}
 
-	// Keep a pre-strip reference for the OpenAI Responses API path below, which
-	// converts `reasoning_details` entries back into `reasoning` input items.
+	const messagesWithGoogleSignatures = processedMessages;
+	processedMessages = processedMessages.map((message: BaseMessage) => {
+		if (
+			!message.tool_calls?.some((call) => call.extra_content) &&
+			(!Array.isArray(message.content) ||
+				!message.content.some(
+					(part) => isTextContent(part) && part.extra_content,
+				))
+		) {
+			return message;
+		}
+		return {
+			...message,
+			...(Array.isArray(message.content) && {
+				content: message.content.map((part) => {
+					if (!isTextContent(part) || !part.extra_content) {
+						return part;
+					}
+					const { extra_content: _extraContent, ...rest } = part;
+					return rest;
+				}),
+			}),
+			...(message.tool_calls && {
+				tool_calls: message.tool_calls.map(
+					({ extra_content: _extraContent, ...rest }) => rest,
+				),
+			}),
+		};
+	});
+
+	// Responses converts opaque reasoning to native input items; Google
+	// restores signatures from the original metadata above.
 	const messagesWithReasoningDetails = processedMessages;
 
 	// `reasoning_details` is the gateway's carrier for opaque reasoning payloads
@@ -2072,6 +2143,22 @@ export async function prepareRequestBody(
 		});
 	}
 
+	// Mistral validates the message schema just as strictly and rejects both
+	// `reasoning` and `reasoning_content` with "Extra inputs are not permitted".
+	if (usedProvider === "mistral") {
+		processedMessages = processedMessages.map((m) => {
+			if (m.reasoning === undefined && m.reasoning_content === undefined) {
+				return m;
+			}
+			const {
+				reasoning: _reasoning,
+				reasoning_content: _reasoningContent,
+				...rest
+			} = m;
+			return rest;
+		});
+	}
+
 	// Start with a base structure that can be modified for each provider
 	const requestBody: any = {
 		model: usedExternalId,
@@ -2105,11 +2192,13 @@ export async function prepareRequestBody(
 
 	let resolvedToolChoice = isWebSearchToolChoice ? undefined : tool_choice;
 	if (tool_choice && !isWebSearchToolChoice) {
-		const mapping = modelDef?.providers.find(
-			(p) =>
-				p.providerId === usedProvider &&
-				((p as ProviderModelMapping).region ?? null) === usedRegion,
-		) as ProviderModelMapping | undefined;
+		const mapping =
+			resolvedProviderMapping ??
+			(modelDef?.providers.find(
+				(p) =>
+					p.providerId === usedProvider &&
+					((p as ProviderModelMapping).region ?? null) === usedRegion,
+			) as ProviderModelMapping | undefined);
 
 		// `reasoning_effort` is already normalized above, so "none" here means the
 		// mapping really turns thinking off upstream — which some mappings require
@@ -2132,15 +2221,8 @@ export async function prepareRequestBody(
 				resolvedToolChoice.type === "function"));
 
 	if (forcesToolUse && usedProvider === "alibaba") {
-		const providerMapping = modelDef?.providers.find(
-			(p) =>
-				p.providerId === usedProvider &&
-				((p as ProviderModelMapping).region ?? null) === usedRegion,
-		);
 		const isExplicitThinkingModel =
-			providerMapping &&
-			"reasoning" in providerMapping &&
-			providerMapping.reasoning === true;
+			providerMappingForOptions?.reasoning === true;
 		if (!isExplicitThinkingModel) {
 			requestBody.enable_thinking = false;
 		}
@@ -2250,11 +2332,13 @@ export async function prepareRequestBody(
 									...(reasoning_effort !== undefined && {
 										effort: reasoning_effort,
 									}),
-									summary: "detailed",
+									summary:
+										providerMappingForOptions?.reasoningSummary ?? "detailed",
 								}
 							: {
 									effort: responsesReasoningEffort,
-									summary: "detailed",
+									summary:
+										providerMappingForOptions?.reasoningSummary ?? "detailed",
 									// reasoning.context is only documented on OpenAI's
 									// Responses API surface; other providers reject
 									// unknown reasoning fields.
@@ -2262,6 +2346,14 @@ export async function prepareRequestBody(
 										(usedProvider === "openai" || usedProvider === "azure") && {
 											context: reasoning_context,
 										}),
+									// Capability validation already rejected requests no
+									// mapping can serve; the mapping check here keeps a
+									// fallback route from sending the field to a deployment
+									// that rejects it.
+									...(reasoning_mode !== undefined &&
+										providerMappingForOptions?.reasoningModes?.includes(
+											reasoning_mode,
+										) && { mode: reasoning_mode }),
 								},
 				};
 
@@ -2281,12 +2373,22 @@ export async function prepareRequestBody(
 					// provider-stored responses, so opt out to keep the provider's
 					// zero-retention data policy accurate.
 					responsesBody.store = false;
+					const prefix = usedRegion
+						? getProviderDefinition(usedProvider)?.regionConfig
+								?.modelPrefixMap?.[usedRegion]
+						: undefined;
+					if (prefix) {
+						responsesBody.model = `${prefix}${usedExternalId}`;
+					}
 				}
 
-				if (usedProvider === "openai") {
+				if (usedProvider === "openai" || usedProvider === "azure") {
 					if (supportedServiceTier) {
 						responsesBody.service_tier = supportedServiceTier;
 					}
+				}
+
+				if (usedProvider === "openai") {
 					if (
 						allowProviderCacheWrites &&
 						prompt_cache_retention !== undefined &&
@@ -2484,13 +2586,13 @@ export async function prepareRequestBody(
 					}
 				}
 
-				if (usedProvider === "openai") {
+				if (usedProvider === "openai" || usedProvider === "azure") {
 					if (supportedServiceTier) {
 						requestBody.service_tier = supportedServiceTier;
 					}
-					// Azure is intentionally excluded on this path: chat completions
-					// may hit a legacy deployment-based api-version that rejects
-					// unknown body fields, and the deployment type isn't known here.
+				}
+
+				if (usedProvider === "openai") {
 					if (allowProviderCacheWrites) {
 						const upstreamCacheKey =
 							(prompt_cache_key !== undefined
@@ -2820,17 +2922,8 @@ export async function prepareRequestBody(
 			if (presence_penalty !== undefined) {
 				requestBody.presence_penalty = presence_penalty;
 			}
-			// DashScope doesn't recognize `reasoning_effort`; thinking is
-			// controlled via `enable_thinking` (boolean) and `thinking_budget`
-			// (max thinking tokens), and thinking models think by default.
-			// Mappings whose thinking is budget-controlled declare
-			// `reasoningMaxTokens`, so translate the unified reasoning parameters
-			// only for them: `none` becomes an explicit disable, every other tier
-			// becomes an explicit enable with a native budget (mirroring the
-			// Google tier-to-budget mapping), and an explicit
-			// `reasoning.max_tokens` is forwarded as the budget verbatim. When no
-			// reasoning parameter is set, send nothing and keep the provider
-			// default.
+			// Budget-controlled mappings use enable_thinking and thinking_budget;
+			// mappings declaring native reasoning_effort receive it directly.
 			if (
 				supportsReasoning &&
 				providerMappingForOptions?.reasoningMaxTokens === true &&
@@ -2868,6 +2961,14 @@ export async function prepareRequestBody(
 					requestBody.enable_thinking = true;
 					requestBody.thinking_budget = thinkingBudget;
 				}
+			} else if (
+				supportsReasoning &&
+				reasoning_effort !== undefined &&
+				providerMappingForOptions?.supportedParameters?.includes(
+					"reasoning_effort",
+				)
+			) {
+				requestBody.reasoning_effort = reasoning_effort;
 			}
 			break;
 		}
@@ -3716,10 +3817,10 @@ export async function prepareRequestBody(
 									},
 								});
 							} catch (error) {
-								// A size rejection is the user's to act on: degrading to a
+								// A client rejection is the user's to act on: degrading to a
 								// placeholder would return a 200 that silently ignores the
 								// image and still bills for the turn.
-								if (error instanceof ImageSizeLimitError) {
+								if (error instanceof RequestError) {
 									throw error;
 								}
 								logger.error("Failed to process image for Bedrock", {
@@ -4036,7 +4137,7 @@ export async function prepareRequestBody(
 			delete requestBody.tool_choice;
 
 			requestBody.contents = await transformGoogleMessages(
-				processedMessages,
+				messagesWithGoogleSignatures,
 				isProd,
 				maxImageSizeMB,
 				userPlan,
@@ -4331,6 +4432,99 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "perplexity": {
+			// Perplexity retires Sonar's chat/completions on 2026-09-27. Mappings
+			// flagged for the Agent API send a Responses-shaped body to
+			// `/v1/agent` instead; the rest keep the legacy path below until then.
+			if (providerMappingForOptions?.usesPerplexityAgentApi) {
+				// Perplexity rejects an empty text part outright ("content part N:
+				// text cannot be empty") where the chat-completions upstreams
+				// tolerated it, so drop the empties and any message left with
+				// nothing to say. Both carry no information, so nothing is lost.
+				const agentInput = transformMessagesForResponsesApi(
+					messagesWithReasoningDetails,
+				)
+					.map((item) => {
+						if (!Array.isArray(item?.content)) {
+							return item;
+						}
+						return {
+							...item,
+							content: item.content.filter(
+								(part: { text?: unknown }) =>
+									typeof part?.text !== "string" || part.text.trim() !== "",
+							),
+						};
+					})
+					.filter(
+						(item) => !Array.isArray(item?.content) || item.content.length > 0,
+					);
+
+				const agentBody: PerplexityAgentRequestBody = {
+					model: usedExternalId,
+					input: agentInput,
+				};
+
+				// Sonar searched on every call. The Agent API leaves the decision to
+				// the model unless the search is forced, so force it here to keep
+				// these model ids grounded the way callers already rely on. Verified
+				// live: without a forced tool_choice the same prompt comes back with
+				// no search_results item and no search charge.
+				const webSearch: NonNullable<
+					PerplexityAgentRequestBody["tools"]
+				>[number] = { type: "web_search" };
+				if (webSearchTool?.max_uses !== undefined) {
+					webSearch.max_results = webSearchTool.max_uses;
+				}
+				if (webSearchTool?.user_location) {
+					webSearch.user_location = webSearchTool.user_location;
+				}
+				if (webSearchTool?.search_context_size) {
+					webSearch.search_context_size = webSearchTool.search_context_size;
+				}
+				// Only `allowed_domains` maps cleanly: Perplexity's
+				// `search_domain_filter` takes a "-example.com" entry to exclude, so
+				// blocked domains go through with the documented minus prefix.
+				const domainFilter = [
+					...(webSearchTool?.allowed_domains ?? []),
+					...(webSearchTool?.blocked_domains ?? []).map((d) => `-${d}`),
+				];
+				if (domainFilter.length > 0) {
+					webSearch.filters = { search_domain_filter: domainFilter };
+				}
+				agentBody.tools = [webSearch];
+				agentBody.tool_choice = "required";
+
+				if (stream) {
+					agentBody.stream = true;
+				}
+				if (temperature !== undefined) {
+					agentBody.temperature = temperature;
+				}
+				if (top_p !== undefined) {
+					agentBody.top_p = top_p;
+				}
+				if (max_tokens !== undefined) {
+					agentBody.max_output_tokens = max_tokens;
+				}
+				if (response_format?.type === "json_schema") {
+					if (response_format.json_schema) {
+						agentBody.text = {
+							format: {
+								type: "json_schema",
+								name: response_format.json_schema.name ?? "response",
+								schema: response_format.json_schema.schema as Record<
+									string,
+									unknown
+								>,
+							},
+						};
+					}
+				} else if (response_format?.type === "json_object") {
+					agentBody.text = { format: { type: "json_object" } };
+				}
+
+				return agentBody;
+			}
 			if (stream) {
 				requestBody.stream_options = {
 					include_usage: true,
@@ -4610,6 +4804,15 @@ export async function prepareRequestBody(
 			}
 			break;
 		}
+	}
+
+	// BytePlus only caches a prompt prefix when the request opts in; without the
+	// flag it always reports zero cached tokens, whatever the prompt length.
+	if (
+		usedProvider === "bytedance" &&
+		providerMappingForOptions?.cachedInputPrice
+	) {
+		requestBody.caching = { type: "enabled" };
 	}
 
 	// vLLM chat-template thinking flags are handled after the provider switch so

@@ -1,0 +1,91 @@
+---
+title: Hermes Agent Integration
+description: Connect Hermes Agent to LLM Gateway using a custom endpoint, then verify tool use, file edits, and tests.
+icon: Hermes
+---
+
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) supports custom OpenAI-compatible endpoints. This walkthrough was verified with Hermes Agent 0.21.0.
+
+## Video walkthrough
+
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/kYvQQ6EuyJY"
+		title="Hermes Agent setup and coding demo with LLM Gateway"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
+
+## Install
+
+Follow the&nbsp;[official installation instructions](https://github.com/NousResearch/hermes-agent#installation), then open a new terminal and check:
+
+```bash
+hermes --version
+```
+
+## Configure the connection
+
+Run `hermes setup` and choose **Custom OpenAI-compatible endpoint**. Enter:
+
+| Setting          | Value                                                        |
+| ---------------- | ------------------------------------------------------------ |
+| Base URL         | `https://api.llmgateway.io/v1`                               |
+| API key          | A key from your [dashboard](https://llmgateway.io/dashboard) |
+| Model            | `deepseek-v4-flash`                                          |
+| Terminal backend | `local` for this walkthrough                                 |
+
+You can also configure the files directly. Merge the following into `~/.hermes/config.yaml`:
+
+```yaml
+model:
+  provider: custom
+  default: deepseek-v4-flash
+  base_url: https://api.llmgateway.io/v1
+terminal:
+  backend: local
+```
+
+Store the credentials in `~/.hermes/.env`:
+
+```dotenv
+OPENAI_API_KEY=your_api_key
+OPENAI_BASE_URL=https://api.llmgateway.io/v1
+```
+
+Keep the credentials file private. `HERMES_HOME` can point Hermes at a separate configuration directory.
+
+## Start coding
+
+```bash
+cd your-project
+hermes chat
+```
+
+For a single task that exits when finished:
+
+```bash
+hermes chat --oneshot -q "Fix the failing test and run it again"
+```
+
+Use `--toolsets terminal,file` to limit this demo to shell and file tools. You can change the model for a session with `--model`.
+
+## Verify the connection
+
+Open a small project and ask the agent to read a file, make a change, and run its tests. Our recorded example fixes a TypeScript slugifier and passes all three tests with `deepseek-v4-flash` through LLM Gateway.
+
+`Hello, LLM Gateway!` becomes `hello-llm-gateway`; repeated separators collapse into one hyphen; empty and punctuation-only inputs stay empty. The demo uses Node.js 24 to run `node --test slugify.test.ts` directly.
+
+Review the diff and test output, then check the request in your&nbsp;[LLM Gateway dashboard](https://llmgateway.io/dashboard). Choose other compatible models from the&nbsp;[live catalogue](https://llmgateway.io/models?features=tools).
+
+![Hermes Agent completing the coding task through LLM Gateway](/images/guides/hermes-agent/verified-session.png)
+
+## Troubleshooting
+
+Run `hermes doctor` to inspect the configuration. Missing credentials for optional providers do not prevent your configured custom endpoint from working.
+
+If requests use another provider, check both `model.provider: custom` and `model.base_url`. If TypeScript tests fail before running, check the Node.js version inside Hermes's terminal tool; it can differ from the version in your outer shell.

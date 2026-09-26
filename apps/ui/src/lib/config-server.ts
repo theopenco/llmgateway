@@ -9,8 +9,9 @@ export interface AppConfig {
 	twitterUrl: string;
 	docsUrl: string;
 	playgroundUrl: string;
-	adminUrl: string;
+	devpassUrl: string;
 	airsideUrl: string;
+	adminUrl: string;
 	posthogKey?: string;
 	posthogHost?: string;
 	githubAuth: boolean;
@@ -32,8 +33,17 @@ export function getConfig(): AppConfig {
 		twitterUrl: process.env.TWITTER_URL ?? "https://x.com/llmgateway",
 		docsUrl: process.env.DOCS_URL ?? "http://localhost:3005",
 		playgroundUrl: process.env.PLAYGROUND_URL ?? "http://localhost:3003",
+		devpassUrl:
+			process.env.CODE_URL ??
+			(process.env.NODE_ENV === "development"
+				? "http://localhost:3004"
+				: "https://devpass.llmgateway.io"),
+		airsideUrl:
+			process.env.AIRSIDE_URL ??
+			(process.env.NODE_ENV === "development"
+				? "http://localhost:3007"
+				: "https://airside.llmgateway.io"),
 		adminUrl: process.env.ADMIN_URL ?? "http://localhost:3006",
-		airsideUrl: process.env.AIRSIDE_URL ?? "http://localhost:3007",
 		posthogKey: process.env.POSTHOG_KEY,
 		posthogHost: process.env.POSTHOG_HOST,
 		githubAuth: !!process.env.GITHUB_CLIENT_ID,

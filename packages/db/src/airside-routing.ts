@@ -30,7 +30,7 @@ export function computeAirsideAdjustment(
 	discountPercent: number,
 	marginPercent: number,
 ): number {
-	return clampAdjustment(
-		AIRSIDE_BASELINE_MARGIN - marginPercent - discountPercent,
-	);
+	const adjustedPrice =
+		(1 - discountPercent) * (1 + AIRSIDE_BASELINE_MARGIN - marginPercent);
+	return clampAdjustment(adjustedPrice - 1);
 }

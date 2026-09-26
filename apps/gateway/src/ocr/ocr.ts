@@ -43,8 +43,13 @@ import {
 	assertTestWalletModelAllowed,
 } from "@/lib/end-user-session.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
+import {
+	rateLimitHeaders,
+	standardErrorResponses,
+} from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
+import { fetchProvider } from "@/lib/fetch-provider.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { formatUsedModelForDisplay } from "@/lib/model-response-id.js";
@@ -63,6 +68,7 @@ import { logger } from "@llmgateway/logger";
 import { models as modelDefinitions } from "@llmgateway/models";
 
 import type { RoutingAttempt } from "@/chat/tools/retry-with-fallback.js";
+import type { openAIErrorSchema } from "@/lib/error-schemas.js";
 import type { ServerTypes } from "@/vars.js";
 import type { RoutingMetadata } from "@llmgateway/actions";
 import type { InferSelectModel, tables } from "@llmgateway/db";
@@ -154,15 +160,6 @@ const ocrResponseSchema = z
 	.openapi({
 		description: "OCR response payload returned by the upstream provider.",
 	});
-
-const ocrErrorSchema = z.object({
-	error: z.object({
-		message: z.string(),
-		type: z.string(),
-		param: z.string().nullable(),
-		code: z.string(),
-	}),
-});
 
 type OcrRequest = z.infer<typeof ocrRequestSchema>;
 
@@ -325,6 +322,7 @@ const createOcr = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: ocrResponseSchema,
@@ -332,50 +330,7 @@ const createOcr = createRoute({
 			},
 			description: "OCR response.",
 		},
-		400: {
-			content: { "application/json": { schema: ocrErrorSchema } },
-			description: "Invalid request body or parameters.",
-		},
-		401: {
-			content: { "application/json": { schema: ocrErrorSchema } },
-			description: "Unauthorized request.",
-		},
-		402: {
-			content: { "application/json": { schema: ocrErrorSchema } },
-			description: "Payment required / insufficient credits.",
-		},
-		403: {
-			content: { "application/json": { schema: ocrErrorSchema } },
-			description: "Forbidden upstream response.",
-		},
-		404: {
-			content: { "application/json": { schema: ocrErrorSchema } },
-			description: "Not found upstream response.",
-		},
-		410: {
-			content: { "application/json": { schema: ocrErrorSchema } },
-			description: "Archived or unavailable project.",
-		},
-		429: {
-			content: { "application/json": { schema: ocrErrorSchema } },
-			description: "Rate limited upstream response.",
-		},
-		500: {
-			content: { "application/json": { schema: ocrErrorSchema } },
-			description: "Internal server error.",
-		},
-		502: {
-			content: { "application/json": { schema: ocrErrorSchema } },
-			description: "Failed to connect to the upstream provider.",
-		},
-		503: {
-			content: { "application/json": { schema: ocrErrorSchema } },
-			description: "Service unavailable upstream response.",
-		},
-		504: {
-			content: { "application/json": { schema: ocrErrorSchema } },
-			description: "Upstream provider timeout.",
-		},
+		...standardErrorResponses(),
 	},
 });
 
@@ -807,7 +762,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 			let fetchError: Error | null = null;
 			try {
 				const fetchSignal = createCombinedSignal(controller);
-				upstreamResponse = await fetch(attempt.upstreamUrl, {
+				upstreamResponse = await fetchProvider(attempt.upstreamUrl, {
 					method: "POST",
 					// SSRF: never follow redirects on an authenticated provider request. A
 					// tenant-supplied baseUrl could 3xx to an internal host at request
@@ -1104,7 +1059,7 @@ ocr.openapi(createOcr, async (c): Promise<any> => {
 					continue;
 				}
 
-				const normalizedUpstreamError: z.infer<typeof ocrErrorSchema> = {
+				const normalizedUpstreamError: z.infer<typeof openAIErrorSchema> = {
 					error: {
 						message:
 							typeof upstreamJson === "string"

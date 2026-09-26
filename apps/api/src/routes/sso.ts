@@ -687,7 +687,7 @@ sso.openapi(updateProvider, async (c) => {
 const roleMappingSchema = z.object({
 	id: z.string(),
 	groupName: z.string(),
-	role: z.enum(["owner", "admin", "developer"]),
+	role: z.enum(["owner", "admin", "project_admin", "developer"]),
 });
 
 const listRoleMappings = createRoute({
@@ -735,7 +735,7 @@ const createRoleMapping = createRoute({
 					schema: z.object({
 						organizationId: z.string().trim().min(1),
 						groupName: z.string().trim().min(1).max(255),
-						role: z.enum(["owner", "admin", "developer"]),
+						role: z.enum(["owner", "admin", "project_admin", "developer"]),
 					}),
 				},
 			},

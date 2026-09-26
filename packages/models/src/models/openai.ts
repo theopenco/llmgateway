@@ -350,6 +350,8 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-4.1",
+				serviceTiers: ["priority"],
+				serviceTierMultipliers: { priority: 1.75 },
 				deactivatedAt: new Date("2027-04-14"),
 				inputPrice: "2.0e-6",
 				outputPrice: "8.0e-6",
@@ -1209,6 +1211,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.1",
+				serviceTiers: ["priority"],
 				deactivatedAt: new Date("2027-05-15"),
 				inputPrice: "1.25e-6",
 				outputPrice: "10.0e-6",
@@ -1418,6 +1421,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.2",
+				serviceTiers: ["priority"],
 				deactivatedAt: new Date("2027-06-08"),
 				inputPrice: "1.75e-6",
 				outputPrice: "14.0e-6",
@@ -1589,6 +1593,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.4",
+				serviceTiers: ["priority"],
 				deactivatedAt: new Date("2027-09-02"),
 				inputPrice: "2.5e-6",
 				outputPrice: "15.0e-6",
@@ -1708,6 +1713,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.4-mini",
+				serviceTiers: ["priority"],
 				deactivatedAt: new Date("2027-09-21"),
 				inputPrice: "0.75e-6",
 				outputPrice: "4.5e-6",
@@ -1828,6 +1834,8 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.5",
+				serviceTiers: ["priority"],
+				serviceTierMultipliers: { priority: 2.5 },
 				deactivatedAt: new Date("2027-10-26"),
 				inputPrice: "5.0e-6",
 				outputPrice: "30.0e-6",
@@ -1902,26 +1910,28 @@ export const openaiModels = [
 				externalId: "gpt-5.6-sol",
 				serviceTiers: ["flex", "priority"],
 				serviceTierMultipliers: { priority: 2 },
-				inputPrice: "5.0e-6",
-				outputPrice: "30.0e-6",
-				cachedInputPrice: "0.5e-6",
-				cacheWriteInputPrice: "6.25e-6",
+				// Promotional pricing through at least 2026-11-21; standard rates are
+				// 5.0/30.0 short context and 10.0/45.0 long context.
+				inputPrice: "4.0e-6",
+				outputPrice: "20.0e-6",
+				cachedInputPrice: "0.4e-6",
+				cacheWriteInputPrice: "5.0e-6",
 				pricingTiers: [
 					{
 						name: "Up to 272K",
 						upToTokens: 272000,
-						inputPrice: "5.0e-6",
-						outputPrice: "30.0e-6",
-						cachedInputPrice: "0.5e-6",
-						cacheWriteInputPrice: "6.25e-6",
+						inputPrice: "4.0e-6",
+						outputPrice: "20.0e-6",
+						cachedInputPrice: "0.4e-6",
+						cacheWriteInputPrice: "5.0e-6",
 					},
 					{
 						name: "Over 272K",
 						upToTokens: Infinity,
-						inputPrice: "10.0e-6",
-						outputPrice: "45.0e-6",
-						cachedInputPrice: "1.0e-6",
-						cacheWriteInputPrice: "12.5e-6",
+						inputPrice: "8.0e-6",
+						outputPrice: "30.0e-6",
+						cachedInputPrice: "0.8e-6",
+						cacheWriteInputPrice: "10.0e-6",
 					},
 				],
 				requestPrice: "0",
@@ -1934,6 +1944,7 @@ export const openaiModels = [
 				webSearchPrice: "0.01",
 				reasoning: true,
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningModes: ["standard", "pro"],
 				reasoningOutput: "omit",
 				verbosity: true,
 				supportsResponsesApi: true,
@@ -1953,27 +1964,34 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.6-sol",
+				serviceTiers: ["priority"],
 				deactivatedAt: new Date("2028-01-11"),
-				inputPrice: "5.0e-6",
-				outputPrice: "30.0e-6",
-				cachedInputPrice: "0.5e-6",
-				cacheWriteInputPrice: "6.25e-6",
+				// Azure runs its own promo on these rates, 2026-09-01 through at
+				// least 2026-11-30 — a different window from OpenAI's 2026-11-21.
+				// Standard rates are 5.0/30.0 short context and 10.0/45.0 long
+				// context, which is still all the public pricing page shows; the
+				// Global Standard meters in the Azure retail prices API bill the
+				// promotional rates below.
+				inputPrice: "4.0e-6",
+				outputPrice: "20.0e-6",
+				cachedInputPrice: "0.4e-6",
+				cacheWriteInputPrice: "5.0e-6",
 				pricingTiers: [
 					{
 						name: "Up to 272K",
 						upToTokens: 272000,
-						inputPrice: "5.0e-6",
-						outputPrice: "30.0e-6",
-						cachedInputPrice: "0.5e-6",
-						cacheWriteInputPrice: "6.25e-6",
+						inputPrice: "4.0e-6",
+						outputPrice: "20.0e-6",
+						cachedInputPrice: "0.4e-6",
+						cacheWriteInputPrice: "5.0e-6",
 					},
 					{
 						name: "Over 272K",
 						upToTokens: Infinity,
-						inputPrice: "10.0e-6",
-						outputPrice: "45.0e-6",
-						cachedInputPrice: "1.0e-6",
-						cacheWriteInputPrice: "12.5e-6",
+						inputPrice: "8.0e-6",
+						outputPrice: "30.0e-6",
+						cachedInputPrice: "0.8e-6",
+						cacheWriteInputPrice: "10.0e-6",
 					},
 				],
 				requestPrice: "0",
@@ -2003,29 +2021,73 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-sol",
+				// Global cross-region inference (global.openai.gpt-5.6-sol)
+				// runs on the Runtime endpoint at OpenAI's own rates; the 10%
+				// data-residency premium below applies to the in-region Mantle
+				// deployments only. Both are promotional through at least
+				// 2026-11-21; the standard rates are 5.0/30.0 global and
+				// 5.5/33.0 in-region. In-region pricing is identical across the
+				// concrete regions, so those entries carry no overrides.
 				// Sol is the one family member AWS has not deployed to us-west-2 —
 				// that region 404s with "The model 'openai.gpt-5.6-sol' does not
-				// exist". Pricing is identical across regions, so the entries carry
-				// no per-region overrides.
-				regions: [{ id: "us-east-1" }, { id: "us-east-2" }],
-				// Mantle is in-region-only (the model cards list Geo and Global
-				// cross-region as unsupported, and AWS lists global cross-region
-				// pricing as "coming soon"), and AWS prices in-region inference at
-				// OpenAI's data-residency tier — a flat 10% premium over the
-				// standard first-party rates. Unlike the usual Bedrock geo/global
-				// split there is no cheaper global rate to route to yet.
-				// AWS displays the cache-write rate rounded to $6.88/M.
-				inputPrice: "5.5e-6",
-				outputPrice: "33.0e-6",
-				cachedInputPrice: "0.55e-6",
-				cacheWriteInputPrice: "6.875e-6",
+				// exist".
+				regions: [
+					{
+						id: "global",
+						inputPrice: "4.0e-6",
+						outputPrice: "20.0e-6",
+						cachedInputPrice: "0.4e-6",
+						cacheWriteInputPrice: "5.0e-6",
+						pricingTiers: [
+							{
+								name: "Up to 272K",
+								upToTokens: 272000,
+								inputPrice: "4.0e-6",
+								outputPrice: "20.0e-6",
+								cachedInputPrice: "0.4e-6",
+								cacheWriteInputPrice: "5.0e-6",
+							},
+							{
+								name: "Over 272K",
+								upToTokens: Infinity,
+								inputPrice: "8.0e-6",
+								outputPrice: "30.0e-6",
+								cachedInputPrice: "0.8e-6",
+								cacheWriteInputPrice: "10.0e-6",
+							},
+						],
+					},
+					{ id: "us-east-1" },
+					{ id: "us-east-2" },
+				],
+				inputPrice: "4.4e-6",
+				outputPrice: "22.0e-6",
+				cachedInputPrice: "0.44e-6",
+				cacheWriteInputPrice: "5.5e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "4.4e-6",
+						outputPrice: "22.0e-6",
+						cachedInputPrice: "0.44e-6",
+						cacheWriteInputPrice: "5.5e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "8.8e-6",
+						outputPrice: "33.0e-6",
+						cachedInputPrice: "0.88e-6",
+						cacheWriteInputPrice: "11.0e-6",
+					},
+				],
 				requestPrice: "0",
-				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
-				// first-party). AWS's "272K" is 272 * 1024: upstream rejects prompts
-				// of 278528 tokens or more. No pricingTiers because AWS publishes a
-				// single flat rate for Mantle and does not expose OpenAI's
-				// long-context tier at all.
-				contextSize: 278528,
+				// AWS documents a 1M window but both routes reject the prompt
+				// well before that: 921600 tokens is accepted and 922000 is
+				// rejected with `context_length_exceeded`, identically on the
+				// Mantle and global endpoints (probed on Luna).
+				contextSize: 921600,
 				maxOutput: 128000,
 				streaming: true,
 				// Bedrock Mantle only accepts data:/s3:// image URLs; the gateway
@@ -2033,19 +2095,22 @@ export const openaiModels = [
 				// (see prepare-request-body.ts).
 				vision: true,
 				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
 				reasoning: true,
+				// AWS rejects the explicit `detailed` and `concise` summary modes
+				// with `unsupported_parameter` on both routes; `auto` is accepted.
+				reasoningSummary: "auto",
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
 				verbosity: true,
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
-					"temperature",
-					"top_p",
-					"frequency_penalty",
-					"presence_penalty",
+					"max_tokens",
 					"response_format",
 					"verbosity",
+					"tools",
+					"tool_choice",
 				],
 				jsonOutput: true,
 			},
@@ -2096,6 +2161,7 @@ export const openaiModels = [
 				webSearchPrice: "0.01",
 				reasoning: true,
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningModes: ["standard", "pro"],
 				reasoningOutput: "omit",
 				verbosity: true,
 				supportsResponsesApi: true,
@@ -2115,6 +2181,7 @@ export const openaiModels = [
 				test: "skip",
 				providerId: "azure",
 				externalId: "gpt-5.6-terra",
+				serviceTiers: ["priority"],
 				deactivatedAt: new Date("2028-01-11"),
 				inputPrice: "2.0e-6",
 				outputPrice: "12.0e-6",
@@ -2165,30 +2232,69 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-terra",
-				// Pricing is identical across regions, so the entries carry no
-				// per-region overrides.
+				// Global cross-region inference (global.openai.gpt-5.6-terra)
+				// runs on the Runtime endpoint at OpenAI's own rates; the 10%
+				// data-residency premium below applies to the in-region Mantle
+				// deployments only. In-region pricing is identical across the
+				// concrete regions, so those entries carry no overrides.
 				regions: [
+					{
+						id: "global",
+						inputPrice: "2.0e-6",
+						outputPrice: "12.0e-6",
+						cachedInputPrice: "0.2e-6",
+						cacheWriteInputPrice: "2.5e-6",
+						pricingTiers: [
+							{
+								name: "Up to 272K",
+								upToTokens: 272000,
+								inputPrice: "2.0e-6",
+								outputPrice: "12.0e-6",
+								cachedInputPrice: "0.2e-6",
+								cacheWriteInputPrice: "2.5e-6",
+							},
+							{
+								name: "Over 272K",
+								upToTokens: Infinity,
+								inputPrice: "4.0e-6",
+								outputPrice: "18.0e-6",
+								cachedInputPrice: "0.4e-6",
+								cacheWriteInputPrice: "5.0e-6",
+							},
+						],
+					},
 					{ id: "us-east-1" },
 					{ id: "us-east-2" },
 					{ id: "us-west-2" },
 				],
-				// Mantle is in-region-only (the model cards list Geo and Global
-				// cross-region as unsupported, and AWS lists global cross-region
-				// pricing as "coming soon"), and AWS prices in-region inference at
-				// OpenAI's data-residency tier — a flat 10% premium over the
-				// standard first-party rates. Unlike the usual Bedrock geo/global
-				// split there is no cheaper global rate to route to yet.
 				inputPrice: "2.2e-6",
 				outputPrice: "13.2e-6",
 				cachedInputPrice: "0.22e-6",
 				cacheWriteInputPrice: "2.75e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "2.2e-6",
+						outputPrice: "13.2e-6",
+						cachedInputPrice: "0.22e-6",
+						cacheWriteInputPrice: "2.75e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "4.4e-6",
+						outputPrice: "19.8e-6",
+						cachedInputPrice: "0.44e-6",
+						cacheWriteInputPrice: "5.5e-6",
+					},
+				],
 				requestPrice: "0",
-				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
-				// first-party). AWS's "272K" is 272 * 1024: upstream rejects prompts
-				// of 278528 tokens or more. No pricingTiers because AWS publishes a
-				// single flat rate for Mantle and does not expose OpenAI's
-				// long-context tier at all.
-				contextSize: 278528,
+				// AWS documents a 1M window but both routes reject the prompt
+				// well before that: 921600 tokens is accepted and 922000 is
+				// rejected with `context_length_exceeded`, identically on the
+				// Mantle and global endpoints (probed on Luna).
+				contextSize: 921600,
 				maxOutput: 128000,
 				streaming: true,
 				// Bedrock Mantle only accepts data:/s3:// image URLs; the gateway
@@ -2196,19 +2302,22 @@ export const openaiModels = [
 				// (see prepare-request-body.ts).
 				vision: true,
 				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
 				reasoning: true,
+				// AWS rejects the explicit `detailed` and `concise` summary modes
+				// with `unsupported_parameter` on both routes; `auto` is accepted.
+				reasoningSummary: "auto",
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
 				verbosity: true,
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
-					"temperature",
-					"top_p",
-					"frequency_penalty",
-					"presence_penalty",
+					"max_tokens",
 					"response_format",
 					"verbosity",
+					"tools",
+					"tool_choice",
 				],
 				jsonOutput: true,
 			},
@@ -2259,6 +2368,7 @@ export const openaiModels = [
 				webSearchPrice: "0.01",
 				reasoning: true,
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningModes: ["standard", "pro"],
 				reasoningOutput: "omit",
 				verbosity: true,
 				supportsResponsesApi: true,
@@ -2328,30 +2438,69 @@ export const openaiModels = [
 			{
 				providerId: "aws-mantle",
 				externalId: "openai.gpt-5.6-luna",
-				// Pricing is identical across regions, so the entries carry no
-				// per-region overrides.
+				// Global cross-region inference (global.openai.gpt-5.6-luna)
+				// runs on the Runtime endpoint at OpenAI's own rates; the 10%
+				// data-residency premium below applies to the in-region Mantle
+				// deployments only. In-region pricing is identical across the
+				// concrete regions, so those entries carry no overrides.
 				regions: [
+					{
+						id: "global",
+						inputPrice: "0.2e-6",
+						outputPrice: "1.2e-6",
+						cachedInputPrice: "0.02e-6",
+						cacheWriteInputPrice: "0.25e-6",
+						pricingTiers: [
+							{
+								name: "Up to 272K",
+								upToTokens: 272000,
+								inputPrice: "0.2e-6",
+								outputPrice: "1.2e-6",
+								cachedInputPrice: "0.02e-6",
+								cacheWriteInputPrice: "0.25e-6",
+							},
+							{
+								name: "Over 272K",
+								upToTokens: Infinity,
+								inputPrice: "0.4e-6",
+								outputPrice: "1.8e-6",
+								cachedInputPrice: "0.04e-6",
+								cacheWriteInputPrice: "0.5e-6",
+							},
+						],
+					},
 					{ id: "us-east-1" },
 					{ id: "us-east-2" },
 					{ id: "us-west-2" },
 				],
-				// Mantle is in-region-only (the model cards list Geo and Global
-				// cross-region as unsupported, and AWS lists global cross-region
-				// pricing as "coming soon"), and AWS prices in-region inference at
-				// OpenAI's data-residency tier — a flat 10% premium over the
-				// standard first-party rates. Unlike the usual Bedrock geo/global
-				// split there is no cheaper global rate to route to yet.
 				inputPrice: "0.22e-6",
 				outputPrice: "1.32e-6",
 				cachedInputPrice: "0.022e-6",
 				cacheWriteInputPrice: "0.275e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "0.22e-6",
+						outputPrice: "1.32e-6",
+						cachedInputPrice: "0.022e-6",
+						cacheWriteInputPrice: "0.275e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "0.44e-6",
+						outputPrice: "1.98e-6",
+						cachedInputPrice: "0.044e-6",
+						cacheWriteInputPrice: "0.55e-6",
+					},
+				],
 				requestPrice: "0",
-				// AWS caps the Mantle deployment at a 272K context (vs 1.05M
-				// first-party). AWS's "272K" is 272 * 1024: upstream rejects prompts
-				// of 278528 tokens or more. No pricingTiers because AWS publishes a
-				// single flat rate for Mantle and does not expose OpenAI's
-				// long-context tier at all.
-				contextSize: 278528,
+				// AWS documents a 1M window but both routes reject the prompt
+				// well before that: 921600 tokens is accepted and 922000 is
+				// rejected with `context_length_exceeded`, identically on the
+				// Mantle and global endpoints (probed on Luna).
+				contextSize: 921600,
 				maxOutput: 128000,
 				streaming: true,
 				// Bedrock Mantle only accepts data:/s3:// image URLs; the gateway
@@ -2359,19 +2508,22 @@ export const openaiModels = [
 				// (see prepare-request-body.ts).
 				vision: true,
 				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
 				reasoning: true,
+				// AWS rejects the explicit `detailed` and `concise` summary modes
+				// with `unsupported_parameter` on both routes; `auto` is accepted.
+				reasoningSummary: "auto",
 				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
 				verbosity: true,
 				supportsResponsesApi: true,
 				jsonOutputSchema: true,
 				supportedParameters: [
-					"temperature",
-					"top_p",
-					"frequency_penalty",
-					"presence_penalty",
+					"max_tokens",
 					"response_format",
 					"verbosity",
+					"tools",
+					"tool_choice",
 				],
 				jsonOutput: true,
 			},
@@ -2472,6 +2624,331 @@ export const openaiModels = [
 				webSearchPrice: "0.01",
 				reasoning: true,
 				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"verbosity",
+					"tools",
+					"tool_choice",
+				],
+				jsonOutput: true,
+			},
+			{
+				providerId: "aws-mantle",
+				externalId: "openai.gpt-6-astra",
+				reasoningSummary: "auto",
+				regions: [
+					{ id: "global" },
+					{
+						id: "us",
+						inputPrice: "11.0e-6",
+						outputPrice: "55.0e-6",
+						cachedInputPrice: "1.1e-6",
+						cacheWriteInputPrice: "13.75e-6",
+						pricingTiers: [
+							{
+								name: "Up to 272K",
+								upToTokens: 272000,
+								inputPrice: "11.0e-6",
+								outputPrice: "55.0e-6",
+								cachedInputPrice: "1.1e-6",
+								cacheWriteInputPrice: "13.75e-6",
+							},
+							{
+								name: "Over 272K",
+								upToTokens: Infinity,
+								inputPrice: "22.0e-6",
+								outputPrice: "82.5e-6",
+								cachedInputPrice: "2.2e-6",
+								cacheWriteInputPrice: "27.5e-6",
+							},
+						],
+					},
+					{
+						id: "us-west-2",
+						inputPrice: "11.0e-6",
+						outputPrice: "55.0e-6",
+						cachedInputPrice: "1.1e-6",
+						cacheWriteInputPrice: "13.75e-6",
+						pricingTiers: [
+							{
+								name: "Up to 272K",
+								upToTokens: 272000,
+								inputPrice: "11.0e-6",
+								outputPrice: "55.0e-6",
+								cachedInputPrice: "1.1e-6",
+								cacheWriteInputPrice: "13.75e-6",
+							},
+							{
+								name: "Over 272K",
+								upToTokens: Infinity,
+								inputPrice: "22.0e-6",
+								outputPrice: "82.5e-6",
+								cachedInputPrice: "2.2e-6",
+								cacheWriteInputPrice: "27.5e-6",
+							},
+						],
+					},
+				],
+				inputPrice: "10.0e-6",
+				outputPrice: "50.0e-6",
+				cachedInputPrice: "1.0e-6",
+				cacheWriteInputPrice: "12.5e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "10.0e-6",
+						outputPrice: "50.0e-6",
+						cachedInputPrice: "1.0e-6",
+						cacheWriteInputPrice: "12.5e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "20.0e-6",
+						outputPrice: "75.0e-6",
+						cachedInputPrice: "2.0e-6",
+						cacheWriteInputPrice: "25.0e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"verbosity",
+					"tools",
+					"tool_choice",
+				],
+				jsonOutput: true,
+			},
+		],
+	},
+	{
+		id: "gpt-6-sol",
+		name: "GPT-6 Sol",
+		description: "GPT-6 model built for complex coding and agentic workflows.",
+		family: "openai",
+		releasedAt: new Date("2026-09-22"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "gpt-6-sol",
+				serviceTiers: ["flex", "priority"],
+				serviceTierMultipliers: { priority: 2 },
+				inputPrice: "2.0e-6",
+				outputPrice: "10.0e-6",
+				cachedInputPrice: "0.2e-6",
+				cacheWriteInputPrice: "2.5e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "2.0e-6",
+						outputPrice: "10.0e-6",
+						cachedInputPrice: "0.2e-6",
+						cacheWriteInputPrice: "2.5e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "4.0e-6",
+						outputPrice: "15.0e-6",
+						cachedInputPrice: "0.4e-6",
+						cacheWriteInputPrice: "5.0e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.01",
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningModes: ["standard", "pro"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"verbosity",
+					"tools",
+					"tool_choice",
+				],
+				jsonOutput: true,
+			},
+			{
+				test: "skip",
+				providerId: "azure",
+				externalId: "gpt-6-sol",
+				serviceTiers: ["priority"],
+				inputPrice: "2.0e-6",
+				outputPrice: "10.0e-6",
+				cachedInputPrice: "0.2e-6",
+				cacheWriteInputPrice: "2.5e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "2.0e-6",
+						outputPrice: "10.0e-6",
+						cachedInputPrice: "0.2e-6",
+						cacheWriteInputPrice: "2.5e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "4.0e-6",
+						outputPrice: "15.0e-6",
+						cachedInputPrice: "0.4e-6",
+						cacheWriteInputPrice: "5.0e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.01",
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"verbosity",
+					"tools",
+					"tool_choice",
+				],
+				jsonOutput: true,
+			},
+		],
+	},
+	{
+		id: "gpt-6-luna",
+		name: "GPT-6 Luna",
+		description:
+			"OpenAI's most efficient GPT-6 model for focused, high-volume tasks.",
+		family: "openai",
+		releasedAt: new Date("2026-09-22"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "gpt-6-luna",
+				serviceTiers: ["flex", "priority"],
+				serviceTierMultipliers: { priority: 2 },
+				inputPrice: "0.1e-6",
+				outputPrice: "0.5e-6",
+				cachedInputPrice: "0.01e-6",
+				cacheWriteInputPrice: "0.125e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "0.1e-6",
+						outputPrice: "0.5e-6",
+						cachedInputPrice: "0.01e-6",
+						cacheWriteInputPrice: "0.125e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "0.2e-6",
+						outputPrice: "0.75e-6",
+						cachedInputPrice: "0.02e-6",
+						cacheWriteInputPrice: "0.25e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.01",
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
+				reasoningModes: ["standard", "pro"],
+				reasoningOutput: "omit",
+				verbosity: true,
+				supportsResponsesApi: true,
+				jsonOutputSchema: true,
+				supportedParameters: [
+					"max_tokens",
+					"response_format",
+					"verbosity",
+					"tools",
+					"tool_choice",
+				],
+				jsonOutput: true,
+			},
+			{
+				test: "skip",
+				providerId: "azure",
+				externalId: "gpt-6-luna",
+				inputPrice: "0.1e-6",
+				outputPrice: "0.5e-6",
+				cachedInputPrice: "0.01e-6",
+				cacheWriteInputPrice: "0.125e-6",
+				pricingTiers: [
+					{
+						name: "Up to 272K",
+						upToTokens: 272000,
+						inputPrice: "0.1e-6",
+						outputPrice: "0.5e-6",
+						cachedInputPrice: "0.01e-6",
+						cacheWriteInputPrice: "0.125e-6",
+					},
+					{
+						name: "Over 272K",
+						upToTokens: Infinity,
+						inputPrice: "0.2e-6",
+						outputPrice: "0.75e-6",
+						cachedInputPrice: "0.02e-6",
+						cacheWriteInputPrice: "0.25e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 1050000,
+				maxOutput: 128000,
+				streaming: true,
+				vision: true,
+				tools: true,
+				supportedToolChoices: ["auto", "none", "required", "function"],
+				webSearch: true,
+				webSearchPrice: "0.01",
+				reasoning: true,
+				reasoningEfforts: ["none", "low", "medium", "high", "xhigh", "max"],
 				reasoningOutput: "omit",
 				verbosity: true,
 				supportsResponsesApi: true,
@@ -2770,6 +3247,98 @@ export const openaiModels = [
 				requestPrice: "0",
 				contextSize: 272000,
 				maxOutput: 128000,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
+	{
+		id: "gpt-image-2.5-sunburst",
+		name: "GPT Image 2.5 Sunburst",
+		description:
+			"OpenAI's most capable image generation and editing model, built for precise edits from text and image inputs.",
+		family: "openai",
+		output: ["image"],
+		releasedAt: new Date("2026-09-08"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "openai",
+				externalId: "gpt-image-2.5-sunburst",
+				inputPrice: "5e-6",
+				outputPrice: "0",
+				cachedInputPrice: "1.25e-6",
+				imageInputPrice: "8e-6",
+				cachedImageInputPrice: "2e-6",
+				imageOutputPrice: "30e-6",
+				requestPrice: "0",
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+			{
+				test: "skip",
+				providerId: "azure",
+				externalId: "gpt-image-2.5-sunburst",
+				deactivatedAt: new Date("2027-09-08"),
+				inputPrice: "5e-6",
+				outputPrice: "0",
+				cachedInputPrice: "1.25e-6",
+				imageInputPrice: "8e-6",
+				cachedImageInputPrice: "2e-6",
+				imageOutputPrice: "30e-6",
+				requestPrice: "0",
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+		],
+	},
+	{
+		id: "gpt-image-2.5-flare",
+		name: "GPT Image 2.5 Flare",
+		description:
+			"OpenAI's fast image generation and editing model for everyday workflows, supporting text and image inputs.",
+		family: "openai",
+		output: ["image"],
+		releasedAt: new Date("2026-09-08"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "openai",
+				externalId: "gpt-image-2.5-flare",
+				inputPrice: "5e-6",
+				outputPrice: "0",
+				cachedInputPrice: "1.25e-6",
+				imageInputPrice: "8e-6",
+				cachedImageInputPrice: "2e-6",
+				imageOutputPrice: "30e-6",
+				requestPrice: "0",
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				imageGenerations: true,
+			},
+			{
+				test: "skip",
+				providerId: "azure",
+				externalId: "gpt-image-2.5-flare",
+				deactivatedAt: new Date("2027-09-08"),
+				inputPrice: "5e-6",
+				outputPrice: "0",
+				cachedInputPrice: "1.25e-6",
+				imageInputPrice: "8e-6",
+				cachedImageInputPrice: "2e-6",
+				imageOutputPrice: "30e-6",
+				requestPrice: "0",
 				streaming: false,
 				vision: true,
 				tools: false,
@@ -3098,6 +3667,7 @@ export const openaiModels = [
 				tools: false,
 				jsonOutput: false,
 				realtimeTranscription: true,
+				realtimeTranscriptionTurnDetection: true,
 				test: "skip",
 			},
 		],
@@ -3127,6 +3697,62 @@ export const openaiModels = [
 				tools: false,
 				jsonOutput: false,
 				realtimeTranscription: true,
+				realtimeTranscriptionTurnDetection: true,
+				test: "skip",
+			},
+		],
+	},
+	{
+		id: "gpt-live-transcribe",
+		name: "GPT Live Transcribe",
+		description:
+			"OpenAI's low-latency streaming speech-to-text model. Served only through the gateway's /v1/realtime WebSocket endpoint as a transcription session (intent=transcription) or as the input-audio transcription model of a speech-to-speech session, billed per minute of audio.",
+		family: "openai",
+		output: ["text"],
+		stability: "beta",
+		releasedAt: new Date("2026-07-28"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "gpt-live-transcribe",
+				inputPrice: "0",
+				outputPrice: "0",
+				inputAudioHourPrice: "1.02",
+				requestPrice: "0",
+				streaming: false,
+				vision: false,
+				audio: true,
+				tools: false,
+				jsonOutput: false,
+				realtimeTranscription: true,
+				test: "skip",
+			},
+		],
+	},
+	{
+		id: "gpt-transcribe",
+		name: "GPT Transcribe",
+		description:
+			"OpenAI's speech-to-text model for completed audio, billed per minute. Served through the gateway's /v1/realtime WebSocket endpoint as a transcription session (intent=transcription) or as the input-audio transcription model of a speech-to-speech session, transcribing each turn once its audio is committed.",
+		family: "openai",
+		output: ["text"],
+		stability: "beta",
+		releasedAt: new Date("2026-07-28"),
+		providers: [
+			{
+				providerId: "openai",
+				externalId: "gpt-transcribe",
+				inputPrice: "0",
+				outputPrice: "0",
+				inputAudioHourPrice: "0.27",
+				requestPrice: "0",
+				streaming: false,
+				vision: false,
+				audio: true,
+				tools: false,
+				jsonOutput: false,
+				realtimeTranscription: true,
+				realtimeTranscriptionTurnDetection: true,
 				test: "skip",
 			},
 		],

@@ -31,16 +31,16 @@
 
 ## Developer resources
 
+- [LLM Gateway developer resources](https://llmgateway.io/developers): API documentation, authentication, developer dashboard, and MCP entry points.
+- [LLM Gateway authentication](https://docs.llmgateway.io/features/api-keys): Create, rotate, and scope API keys; authenticate with the Authorization: Bearer header.
+- [LLM Gateway developer dashboard](https://llmgateway.io/dashboard): Sign in to manage projects, keys, usage, and spending limits.
+- [LLM Gateway API versioning and deprecation policy](https://docs.llmgateway.io/resources/api-versioning): Compatibility, deprecation notices, and sunset conventions.
+- [LLM Gateway rate limits](https://docs.llmgateway.io/resources/rate-limits): Quota headers and retry guidance.
+
 - [OpenAPI specification](https://llmgateway.io/openapi.json): Machine-readable spec for the LLM Gateway API (also at https://api.llmgateway.io/openapi.json). Every operation has an operationId, typed schemas, and typed 4xx/5xx error responses.
 - [API base URL](https://api.llmgateway.io/v1): OpenAI-compatible; authenticate with `Authorization: Bearer <api-key>`.
 - [API docs](https://docs.llmgateway.io): Reference and integration guides; full docs as markdown at https://llmgateway.io/llms-full.txt.
 - [Quick start](https://docs.llmgateway.io/quick-start): First request in minutes with any OpenAI SDK.
-- [MCP server](https://api.llmgateway.io/mcp): Model Context Protocol server (Streamable HTTP). OAuth scopes and metadata: https://api.llmgateway.io/.well-known/oauth-protected-resource and /.well-known/oauth-authorization-server.
-- Versioning: the API is path-versioned (`/v1`); breaking changes only ship under a new version. Deprecations are announced in the [changelog](https://llmgateway.io/changelog).
-- Rate limits: 429 responses include `Retry-After` and `RateLimit-*` headers; back off until `Retry-After` elapses.
-
-## Notes
-
-- See the live [catalogue](https://llmgateway.io/models) for current model availability.
-- The API is OpenAI-compatible; point your existing SDK at the gateway base URL.
-- Pages with a markdown representation honor `Accept: text/markdown` (currently / and /pricing).
+- [MCP server](https://api.llmgateway.io/mcp): Model Context Protocol server (Streamable HTTP). Connect at https://llmgateway.io/mcp or the API-domain URL. Public discovery uses GET; tool calls require an API key. OAuth metadata: https://api.llmgateway.io/.well-known/oauth-protected-resource/mcp.
+- [API versioning](https://docs.llmgateway.io/resources/api-versioning): The API is path-versioned (`/v1`); breaking changes only ship under a new version. Deprecations are announced in the [changelog](https://llmgateway.io/changelog).
+- [Rate limits](https://docs.llmgateway.io/resources/rate-limits): 429 responses include `Retry-After` and `RateLimit`, `RateLimit-Policy`, and legacy `RateLimit-*` headers; back off until `Retry-After` elapses.

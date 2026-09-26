@@ -20,8 +20,11 @@ import { Label } from "@/lib/components/label";
 import { Switch } from "@/lib/components/switch";
 import { useFetchClient } from "@/lib/fetch-client";
 
+import { canManageProject } from "@llmgateway/shared/organization-roles";
+
 import { RoutingContactSalesCard } from "./routing-contact-sales-card";
 import { RoutingStrategyCard } from "./routing-strategy-card";
+import { SmartRoutingCard } from "./smart-routing-card";
 
 type NumericFieldGroup = Record<string, number | undefined>;
 
@@ -100,12 +103,12 @@ const THRESHOLD_FIELDS: { key: string; label: string; help: string }[] = [
 	{
 		key: "cacheHitRate",
 		label: "Cache Hit Rate",
-		help: "Assumed cache-hit rate (0-1) used to price cached input into ranking",
+		help: "Cache-hit rate (0-1) used to price cached input; set it to override the rate learned from recent usage",
 	},
 	{
 		key: "cacheOutputRatio",
 		label: "Cache Output Ratio",
-		help: "Assumed output:input token ratio for large-prompt requests (1 = parity)",
+		help: "Output:input token ratio for large prompts (1 = parity); set it to override the ratio learned from recent usage",
 	},
 	{
 		key: "uptimePenalty",
@@ -321,8 +324,7 @@ export function RoutingConfigClient({
 
 	const role = teamData?.members.find((m) => m.userId === user?.id)?.role;
 	const canManage =
-		selectedOrganization?.enterpriseAccess === true &&
-		(role === "owner" || role === "admin");
+		selectedOrganization?.enterpriseAccess === true && canManageProject(role);
 
 	const [state, setState] = useState<RoutingConfigState>(emptyState());
 	const [defaults, setDefaults] = useState<DefaultsResponse | null>(null);
@@ -403,6 +405,8 @@ export function RoutingConfigClient({
 						</div>
 
 						<RoutingStrategyCard orgId={orgId} projectId={projectId} />
+
+						<SmartRoutingCard orgId={orgId} projectId={projectId} />
 
 						<RoutingContactSalesCard />
 					</div>
@@ -573,6 +577,8 @@ export function RoutingConfigClient({
 					) : null}
 
 					<RoutingStrategyCard orgId={orgId} projectId={projectId} />
+
+					<SmartRoutingCard orgId={orgId} projectId={projectId} />
 
 					<Card>
 						<CardHeader className="flex flex-row items-center justify-between">

@@ -62,10 +62,8 @@ describe("createLogEntry", () => {
 		expect(entry({ source: "https://www.lounge.llmgateway.io" }).source).toBe(
 			"lounge.llmgateway.io",
 		);
-		expect(entry({ source: "invalid_source?request=123" }).source).toBe(
-			"unknown",
-		);
-		expect(entry({ source: "a".repeat(10_000) }).source).toBe("unknown");
+		expect(entry({ source: "invalid_source?request=123" }).source).toBeNull();
+		expect(entry({ source: "a".repeat(10_000) }).source).toBeNull();
 		expect(entry().source).toBeNull();
 	});
 
@@ -77,11 +75,11 @@ describe("createLogEntry", () => {
 					entry({ source: validateSource(`app-${index}.example.com`) }).source,
 			),
 		);
-		expect([...sources]).toEqual(["unknown"]);
+		expect([...sources]).toEqual([null]);
 		expect(
 			entry({ source: validateSource(undefined, "https://www.example.com") })
 				.source,
-		).toBe("unknown");
+		).toBeNull();
 		expect(entry({ source: "custom-claw-1" }).source).toBe("openclaw");
 		expect(entry({ source: "custom-claw-2" }).source).toBe("openclaw");
 	});

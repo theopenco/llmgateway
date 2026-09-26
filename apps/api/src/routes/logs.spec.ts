@@ -439,6 +439,10 @@ describe("logs route", () => {
 		});
 
 		test("should sign video content URLs without relying on a specific model id", async () => {
+			const contentUrl = new URL(
+				"/v1/videos/logs/test-log-id-video/content",
+				process.env.GATEWAY_URL ?? "http://localhost:4001",
+			).toString();
 			await db.insert(tables.log).values({
 				id: "test-log-id-video",
 				requestId: "test-log-id-video",
@@ -451,8 +455,7 @@ describe("logs route", () => {
 				usedModel: "future-video-model",
 				usedProvider: "example-video",
 				responseSize: 1000,
-				content:
-					"http://localhost:4001/v1/videos/logs/test-log-id-video/content",
+				content: contentUrl,
 				finishReason: "completed",
 				unifiedFinishReason: "completed",
 				videoOutputCost: 1.5,
@@ -476,9 +479,9 @@ describe("logs route", () => {
 					log.id === "test-log-id-video",
 			);
 
-			expect(videoLog?.content).toMatch(
-				/^http:\/\/localhost:4001\/v1\/videos\/logs\/test-log-id-video\/content\?token=/,
-			);
+			const signedUrl = new URL(videoLog.content);
+			expect(`${signedUrl.origin}${signedUrl.pathname}`).toBe(contentUrl);
+			expect(signedUrl.searchParams.get("token")).toBeTruthy();
 		});
 	});
 
@@ -698,6 +701,21 @@ describe("logs route", () => {
 					statusText: `${SECRET} exploded`,
 					responseText: `{"error":{"message":"${SECRET} quota exceeded on api.secretvendor.com"}}`,
 				},
+				gatewayContentFilterEvaluation: {
+					sampled: true,
+					provider: "granite",
+					tier: 1,
+					overridden: true,
+					level: "strict",
+					violation: true,
+					action: "logged",
+					enforced: false,
+					exemptReason: "org_log_only",
+					flagged: true,
+					matchedCategories: ["violence"],
+					categoryScores: { violence: 0.9 },
+					moderationFailed: false,
+				},
 				messages: JSON.stringify([{ role: "user", content: "Hello" }]),
 				mode: "credits",
 				usedMode: "credits",
@@ -731,6 +749,28 @@ describe("logs route", () => {
 				statusText: "Internal Server Error",
 				responseText: "Upstream provider error (500 Internal Server Error)",
 			});
+		});
+
+		// The evaluation carries the admin-set pin and exemption state.
+		test("list and detail endpoints omit gatewayContentFilterEvaluation", async () => {
+			const params = new URLSearchParams({ projectId: "test-project-id" });
+			const listRes = await app.request("/logs?" + params, {
+				method: "GET",
+				headers: { Cookie: token },
+			});
+			expect(listRes.status).toBe(200);
+			const listText = await listRes.text();
+			expect(listText).not.toContain("gatewayContentFilterEvaluation");
+			expect(listText).not.toContain("org_log_only");
+
+			const detailRes = await app.request("/logs/stealth-error-log-id", {
+				method: "GET",
+				headers: { Cookie: token },
+			});
+			expect(detailRes.status).toBe(200);
+			const detailText = await detailRes.text();
+			expect(detailText).not.toContain("gatewayContentFilterEvaluation");
+			expect(detailText).not.toContain("org_log_only");
 		});
 
 		test("detail endpoint omits internalErrorDetails and its content", async () => {
@@ -940,6 +980,82 @@ describe("logs route", () => {
 			const json = await res.json();
 			const ids = json.logs.map((log: { id: string }) => log.id);
 			expect(ids).toContain("teammate-log-id");
+		});
+	});
+
+	describe("error type filter", () => {
+		beforeEach(async () => {
+			const base = {
+				organizationId: "test-org-id",
+				projectId: "test-project-id",
+				apiKeyId: "test-api-key-id",
+				duration: 100,
+				requestedModel: "gpt-4",
+				requestedProvider: "openai",
+				usedModel: "gpt-4",
+				usedProvider: "openai",
+				responseSize: 100,
+				mode: "api-keys" as const,
+				usedMode: "api-keys" as const,
+			};
+			await db.insert(tables.log).values([
+				{
+					...base,
+					id: "log-client-error",
+					requestId: "log-client-error",
+					unifiedFinishReason: "client_error",
+				},
+				{
+					...base,
+					id: "log-gateway-error",
+					requestId: "log-gateway-error",
+					unifiedFinishReason: "gateway_error",
+				},
+				{
+					...base,
+					id: "log-upstream-error",
+					requestId: "log-upstream-error",
+					unifiedFinishReason: "upstream_error",
+					hasError: false,
+				},
+				{
+					...base,
+					id: "log-flagged-error",
+					requestId: "log-flagged-error",
+					unifiedFinishReason: "completed",
+					hasError: true,
+				},
+			]);
+		});
+
+		const fetchIds = async (errorType: string) => {
+			const res = await app.request(
+				`/logs?projectId=test-project-id&errorType=${errorType}`,
+				{ headers: { Cookie: token } },
+			);
+			expect(res.status).toBe(200);
+			const json = await res.json();
+			return json.logs.map((log: { id: string }) => log.id) as string[];
+		};
+
+		test("any matches the error flag and error finish reasons", async () => {
+			const ids = await fetchIds("any");
+			expect(ids.sort()).toEqual([
+				"log-client-error",
+				"log-flagged-error",
+				"log-gateway-error",
+				"log-upstream-error",
+			]);
+		});
+
+		test("narrows to a single error class", async () => {
+			expect(await fetchIds("gateway_error")).toEqual(["log-gateway-error"]);
+			expect(await fetchIds("upstream_error")).toEqual(["log-upstream-error"]);
+			expect(await fetchIds("client_error")).toEqual(["log-client-error"]);
+		});
+
+		test("all does not filter", async () => {
+			expect((await fetchIds("all")).length).toBeGreaterThan(4);
 		});
 	});
 });

@@ -181,7 +181,7 @@ export function DepartureBoard() {
 		>
 			<div className="border-border text-muted-foreground flex items-center justify-between border-b px-4 py-2.5 font-mono text-[0.65rem] tracking-[0.25em] uppercase">
 				<span>Departures — model traffic</span>
-				<span className="text-primary animate-beacon">● LIVE</span>
+				<span className="text-primary">Illustration</span>
 			</div>
 			<div className="overflow-x-auto">
 				<table className="w-full font-mono text-xs">

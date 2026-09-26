@@ -40,12 +40,12 @@ function baseLogData(overrides: Partial<LogInsertData> = {}): LogInsertData {
 		errorDetails: {
 			statusCode: 400,
 			statusText: "Bad Request",
-			responseText: "secret echoed prompt",
+			responseText: "Access to this model is not allowed for this account.",
 		},
 		internalErrorDetails: {
 			statusCode: 400,
 			statusText: "Bad Request",
-			responseText: "secret provider error",
+			responseText: "Upstream account access denied",
 		},
 		...overrides,
 	} as LogInsertData;
@@ -68,19 +68,12 @@ describe("stripRetentionSensitiveLogFields", () => {
 		expect(stripped.upstreamResponse).toBeNull();
 	});
 
-	it("keeps error status metadata but drops the error body", () => {
-		const stripped = stripRetentionSensitiveLogFields(baseLogData());
+	it("preserves public and internal error details", () => {
+		const input = baseLogData();
+		const stripped = stripRetentionSensitiveLogFields(input);
 
-		expect(stripped.errorDetails).toEqual({
-			statusCode: 400,
-			statusText: "Bad Request",
-			responseText: "",
-		});
-		expect(stripped.internalErrorDetails).toEqual({
-			statusCode: 400,
-			statusText: "Bad Request",
-			responseText: "",
-		});
+		expect(stripped.errorDetails).toEqual(input.errorDetails);
+		expect(stripped.internalErrorDetails).toEqual(input.internalErrorDetails);
 		expect(
 			stripRetentionSensitiveLogFields(baseLogData({ errorDetails: null }))
 				.errorDetails,
@@ -98,8 +91,6 @@ describe("stripRetentionSensitiveLogFields", () => {
 				)
 			) {
 				expect(stripped[key]).toBeNull();
-			} else if (key === "errorDetails" || key === "internalErrorDetails") {
-				expect(stripped[key]).not.toBeNull();
 			} else {
 				expect(stripped[key]).toEqual(input[key]);
 			}

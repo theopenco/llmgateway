@@ -1,0 +1,131 @@
+appId: io.llmgateway.lounge
+---
+- runFlow: helpers/sign-in.yaml
+- runFlow: helpers/organization.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Voice calls"
+- runFlow: helpers/close-chat-options.yaml
+- tapOn: "Model: Choose"
+- tapOn:
+    id: "field-search-models"
+- inputText: "gpt-realtime-mini"
+- tapOn: "Done typing"
+- tapOn: "Choose GPT Realtime Mini"
+- tapOn: "Voice: marin"
+- tapOn: "cedar"
+- tapOn:
+    text: "Start voice call"
+    waitToSettleTimeoutMs: 200
+- runFlow:
+    when:
+      visible: "Allow"
+    commands:
+      - tapOn: "Allow"
+- extendedWaitUntil:
+    visible: "End call"
+    timeout: 30000
+- scrollUntilVisible:
+    element: "Hello! Let's talk."
+    direction: DOWN
+    timeout: 15000
+- scrollUntilVisible:
+    element: "Mute microphone"
+    direction: UP
+- tapOn:
+    text: "Mute microphone"
+    waitToSettleTimeoutMs: 200
+- assertVisible: "Microphone muted"
+- tapOn:
+    text: "End call"
+    waitToSettleTimeoutMs: 200
+- scrollUntilVisible:
+    element: "Continue this call"
+    direction: DOWN
+    timeout: 20000
+- scrollUntilVisible:
+    element: "Replay assistant turn 2"
+    direction: DOWN
+- tapOn: "Replay assistant turn 2"
+- scrollUntilVisible:
+    element: "Play"
+    direction: DOWN
+    timeout: 15000
+- tapOn:
+    text: "Play"
+    waitToSettleTimeoutMs: 200
+- assertVisible: "Pause playback"
+- tapOn:
+    text: "Pause playback"
+    waitToSettleTimeoutMs: 200
+- scrollUntilVisible:
+    element: "Continue this call"
+    direction: UP
+    centerElement: true
+- tapOn:
+    text: "Continue this call"
+    waitToSettleTimeoutMs: 200
+- scrollUntilVisible:
+    element: "End call"
+    direction: UP
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: "Hello! Let's talk."
+      index: 1
+    direction: DOWN
+    timeout: 15000
+- scrollUntilVisible:
+    element: "Mute microphone"
+    direction: UP
+    centerElement: true
+- tapOn:
+    text: "Mute microphone"
+    waitToSettleTimeoutMs: 200
+- scrollUntilVisible:
+    element: "Copy call transcript"
+    direction: DOWN
+    timeout: 15000
+- tapOn:
+    text: "Copy call transcript"
+    waitToSettleTimeoutMs: 200
+- assertVisible: "Transcript copied"
+- pressKey: Home
+- launchApp:
+    stopApp: false
+- scrollUntilVisible:
+    element: "Continue this call"
+    direction: UP
+    centerElement: true
+    timeout: 20000
+- scrollUntilVisible:
+    element: ".*4 turns"
+    direction: DOWN
+- scrollUntilVisible:
+    element: "Rename call"
+    direction: DOWN
+- tapOn: "Rename call"
+- eraseText: 100
+- inputText: "Native voice conversation"
+- tapOn: "OK"
+- launchApp
+- runFlow: helpers/organization.yaml
+- runFlow:
+    file: helpers/navigate.yaml
+    env:
+      DESTINATION: "Voice calls"
+- scrollUntilVisible:
+    element: "Open saved call: Native voice conversation"
+    direction: DOWN
+- tapOn: "Open saved call: Native voice conversation"
+- scrollUntilVisible:
+    element: "Continue this call"
+    direction: UP
+    centerElement: true
+- scrollUntilVisible:
+    element: "Delete call"
+    direction: DOWN
+- tapOn: "Delete call"
+- tapOn: "Delete saved call"
+- assertNotVisible: "Open saved call: Native voice conversation"

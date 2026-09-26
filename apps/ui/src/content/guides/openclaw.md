@@ -2,17 +2,44 @@
 id: openclaw
 slug: openclaw
 title: OpenClaw Integration
-description: Use GPT-5.4, Claude Opus, Gemini, or any model with OpenClaw across Discord, WhatsApp, Telegram, and more. Simple configuration, full cost tracking.
-date: 2026-01-26
+date: 2026-09-23
+description: Configure OpenClaw with LLM Gateway, verify a local coding task, and understand provider aliases and tool permissions.
 ---
 
-OpenClaw is a self-hosted gateway that connects your favorite chat apps—WhatsApp, Telegram, Discord, iMessage, and more—to AI coding agents. With LLM Gateway as a custom provider, you can route all your OpenClaw traffic through a single API, use any of 200+ models, and keep full visibility into usage and costs.
+[OpenClaw](https://openclaw.ai) runs agents locally and connects them to messaging channels. Configure LLM Gateway as a custom model provider, then verify a local task before connecting a channel.
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Keep the `llmgateway/` prefix in your OpenClaw config — it names OpenClaw's local provider entry (e.g. `llmgateway/gpt-5.4`). But the model ID after it must be a canonical ID without a gateway provider prefix (`llmgateway/claude-sonnet-4-5`, not `llmgateway/anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+## Video walkthrough
 
-## Quick Start
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/QlfT3wCB7X0"
+		title="OpenClaw with LLM Gateway walkthrough"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
 
-Add LLM Gateway as a custom provider in your `~/.openclaw/openclaw.json`:
+## Install
+
+Use a Node.js version supported by the current&nbsp;[OpenClaw installation guide](https://docs.openclaw.ai/install). The recorded version requires Node 24.16+ or 26.1+.
+
+```bash
+pnpm add -g openclaw
+openclaw --version
+```
+
+## Configure the provider
+
+Export a key from the workspace you want to use:
+
+```bash
+export LLMGATEWAY_API_KEY="your_api_key"
+```
+
+Merge this provider into `~/.openclaw/openclaw.json`. Replace `MODEL_ID`, the display name, and the example limits with values for your chosen model from the&nbsp;[live catalogue](https://llmgateway.io/models?features=tools).
 
 ```json
 {
@@ -25,21 +52,9 @@ Add LLM Gateway as a custom provider in your `~/.openclaw/openclaw.json`:
         "api": "openai-completions",
         "models": [
           {
-            "id": "gpt-5.4",
-            "name": "GPT-5.4",
-            "contextWindow": 128000,
-            "maxTokens": 32000
-          },
-          {
-            "id": "claude-opus-4-6",
-            "name": "Claude Opus 4.6",
+            "id": "MODEL_ID",
+            "name": "Gateway coding model",
             "contextWindow": 200000,
-            "maxTokens": 8192
-          },
-          {
-            "id": "gemini-3.1-pro-preview",
-            "name": "Gemini 3.1 Pro",
-            "contextWindow": 1000000,
             "maxTokens": 8192
           }
         ]
@@ -48,107 +63,51 @@ Add LLM Gateway as a custom provider in your `~/.openclaw/openclaw.json`:
   },
   "agents": {
     "defaults": {
-      "model": {
-        "primary": "llmgateway/gpt-5.4"
-      }
+      "model": { "primary": "llmgateway/MODEL_ID" }
     }
   }
 }
 ```
 
-Then set your API key:
+`llmgateway/` in the primary model names OpenClaw's local provider entry. The nested `id` is the model identifier sent to LLM Gateway.
+
+With a&nbsp;[DevPass](https://devpass.llmgateway.io) key, retain OpenClaw's local `llmgateway/` prefix and use a canonical model ID included in your plan. Do not add an upstream provider prefix inside the nested model ID.
+
+## Verify a local agent task
+
+From a small project you can review, run:
 
 ```bash
-export LLMGATEWAY_API_KEY=llmgtwy_your_api_key_here
+openclaw agent exec   --config ~/.openclaw/openclaw.json   --cwd .   --code-mode direct   "Read the failing test, fix the implementation, and run the tests. Do not change the tests or use subagents."
 ```
 
-## Why Use LLM Gateway with OpenClaw
+`agent exec` runs one agent turn without a running OpenClaw gateway. It can execute commands and change files in the selected workspace, so use a controlled project. A successful exit alone does not prove the task was completed: inspect the diff and run the tests independently.
 
-- **Model flexibility** — Switch between GPT-5.4, Claude Opus, Gemini, or any of 200+ models
-- **Cost tracking** — Monitor exactly how much your chat agents cost to run
-- **Single bill** — No need to manage multiple API provider accounts
-- **Response caching** — Repeated queries hit cache, reducing costs
-- **Rate limit handling** — Automatic fallback between providers
-
-## Configuration Options
-
-### Switching Models
-
-Change the primary model in your config to switch between any model:
+For a focused coding workflow, restrict the tool policy in your configuration:
 
 ```json
 {
-  "agents": {
-    "defaults": {
-      "model": { "primary": "llmgateway/claude-opus-4-6" }
-    }
+  "tools": {
+    "profile": "coding",
+    "allow": ["read", "write", "edit", "exec", "process"]
   }
 }
 ```
 
-### Model Fallback Chain
+Merge this with your configuration rather than replacing the provider settings. Review the&nbsp;[OpenClaw agent command reference](https://docs.openclaw.ai/cli/agent) for execution policy and isolation options. `--auth-env-only` cannot be combined with `--config`.
 
-OpenClaw supports fallback models. If the primary model is unavailable, it automatically falls back:
+## Connect channels after verification
 
-```json
-{
-  "agents": {
-    "defaults": {
-      "model": {
-        "primary": "llmgateway/gpt-5.4",
-        "fallbacks": ["llmgateway/claude-opus-4-6"]
-      }
-    }
-  }
-}
-```
+Follow OpenClaw's channel-specific setup for the messaging service you use. Review who can reach the agent and which tools it may call before enabling incoming messages.
 
-## Available Models
+Requests use the workspace associated with your gateway key. Review model usage and errors in that workspace's dashboard.
 
-LLM Gateway uses canonical model IDs with smart routing—automatically selecting the best provider based on uptime, throughput, price, and latency. You can use any model from the [models page](https://llmgateway.io/models). Flagship models include:
+## Troubleshooting
 
-| Model                    | Best For                                    |
-| ------------------------ | ------------------------------------------- |
-| `gpt-5.4`                | Latest OpenAI flagship, highest quality     |
-| `claude-opus-4-6`        | Anthropic's most capable model              |
-| `claude-sonnet-4-6`      | Fast reasoning with extended thinking       |
-| `gemini-3.1-pro-preview` | Google's latest flagship, 1M context window |
-| `o3`                     | Advanced reasoning tasks                    |
-| `gpt-5.4-pro`            | Premium tier with extended reasoning        |
-| `gemini-3.6-flash`       | Fast responses, good for high-volume        |
-| `claude-haiku-4-5`       | Cost-effective, quick responses             |
-| `grok-3`                 | xAI flagship                                |
-| `deepseek-v3.1`          | Open-source with tool support               |
+**Startup rejects Node.js:** update to a supported runtime and check the version in the shell launching OpenClaw.
 
-For more details on routing behavior, see the [routing documentation](https://docs.llmgateway.io/features/routing).
+**The model is unavailable:** check the primary provider alias, nested model ID, account access, and catalogue limits.
 
-## Monitoring Usage
+**The agent only describes a plan:** verify that tools are enabled and the selected model actually returns tool calls. Try a compatible tool-capable model and inspect the resulting file changes; a text-only answer is not evidence of execution.
 
-Once configured, all OpenClaw requests appear in your LLM Gateway dashboard:
-
-- **Request logs** — See every message and response
-- **Cost breakdown** — Track spending by model and time period
-- **Usage analytics** — Understand your AI usage patterns across channels
-
-## Tips for Chat Agents
-
-### Optimize Costs
-
-1. **Use smaller models for simple tasks** — Claude Haiku or Gemini Flash handle basic Q&A well
-2. **Enable caching** — LLM Gateway caches identical requests automatically
-3. **Set token limits** — Configure max tokens to prevent runaway costs
-
-### Improve Response Quality
-
-1. **Choose the right model** — Claude Opus excels at nuanced conversation, GPT-5.4 at general tasks
-2. **Use system prompts** — Configure your agent's personality and capabilities
-3. **Test multiple models** — LLM Gateway makes it easy to A/B test different providers
-
-## Get Started
-
-1. [Sign up free](https://llmgateway.io/signup) — no credit card required
-2. Create or roll an API key in the dashboard and copy the newly shown secret
-3. Add LLM Gateway as a custom provider in your OpenClaw config
-4. Start chatting across your connected channels
-
-Questions? Check [our docs](https://docs.llmgateway.io) or [join Discord](https://llmgateway.io/discord).
+**A key is missing:** export the environment variable before launching OpenClaw, including when starting it through a service manager.

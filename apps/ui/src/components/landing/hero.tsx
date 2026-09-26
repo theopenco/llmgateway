@@ -4,47 +4,50 @@ import Link from "next/link";
 
 import { AuthLink } from "@/components/shared/auth-link";
 import { ShimmerButton } from "@/lib/components/shimmer-button";
+import {
+	OPENROUTER_GLYPH_PATH,
+	OPENROUTER_GLYPH_VIEWBOX,
+} from "@/lib/openrouter-mark";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
-import {
-	GitHubCopilotIcon,
-	providerLogoUrls,
-} from "@llmgateway/shared/components";
+import { GitHubCopilotIcon } from "@llmgateway/shared/components";
 
 import { Navbar } from "./navbar";
+import { ProviderLogo } from "./provider-logo";
 
-import type { ProviderId } from "@llmgateway/models";
+import type dimensions from "@/lib/provider-logo-dimensions.json";
 
 // Provider logos configuration
-const PROVIDER_LOGOS: { name: string; providerId: ProviderId }[] = [
-	{ name: "OpenAI", providerId: "openai" },
-	{ name: "Anthropic", providerId: "anthropic" },
-	{ name: "Together AI", providerId: "together-ai" },
-	{ name: "Groq", providerId: "groq" },
-	{ name: "xAI", providerId: "xai" },
-	{ name: "DeepSeek", providerId: "deepseek" },
-	{ name: "Perplexity", providerId: "perplexity" },
-	{ name: "Ai Studio", providerId: "google-ai-studio" },
-	{ name: "Moonshot", providerId: "moonshot" },
-	{ name: "Novita", providerId: "novita" },
-	{ name: "Nebius", providerId: "nebius" },
-	{ name: "Zai", providerId: "zai" },
-	{ name: "NanoGPT", providerId: "nanogpt" },
-	{ name: "Canopywave", providerId: "canopywave" },
-	{ name: "AWS Bedrock", providerId: "aws-bedrock" },
-	{ name: "Azure", providerId: "azure" },
-	{ name: "Inference.net", providerId: "inference.net" },
-	{ name: "Mistral", providerId: "mistral" },
-	{ name: "Alibaba", providerId: "alibaba" },
-	{ name: "ByteDance", providerId: "bytedance" },
-	{ name: "Cerebras", providerId: "cerebras" },
-	{ name: "Google Vertex", providerId: "google-vertex" },
-	{ name: "MiniMax", providerId: "minimax" },
-	{ name: "SCX.ai", providerId: "scx-ai" },
-	{ name: "Gonka24", providerId: "gonka24" },
-	{ name: "Runware", providerId: "runware" },
-	{ name: "Fireworks", providerId: "fireworks" },
-];
+const PROVIDER_LOGOS: { name: string; providerId: keyof typeof dimensions }[] =
+	[
+		{ name: "OpenAI", providerId: "openai" },
+		{ name: "Anthropic", providerId: "anthropic" },
+		{ name: "Together AI", providerId: "together-ai" },
+		{ name: "Groq", providerId: "groq" },
+		{ name: "xAI", providerId: "xai" },
+		{ name: "DeepSeek", providerId: "deepseek" },
+		{ name: "Perplexity", providerId: "perplexity" },
+		{ name: "Ai Studio", providerId: "google-ai-studio" },
+		{ name: "Moonshot", providerId: "moonshot" },
+		{ name: "Novita", providerId: "novita" },
+		{ name: "Nebius", providerId: "nebius" },
+		{ name: "Zai", providerId: "zai" },
+		{ name: "NanoGPT", providerId: "nanogpt" },
+		{ name: "Canopywave", providerId: "canopywave" },
+		{ name: "AWS Bedrock", providerId: "aws-bedrock" },
+		{ name: "Azure", providerId: "azure" },
+		{ name: "Inference.net", providerId: "inference.net" },
+		{ name: "Mistral", providerId: "mistral" },
+		{ name: "Alibaba", providerId: "alibaba" },
+		{ name: "ByteDance", providerId: "bytedance" },
+		{ name: "Cerebras", providerId: "cerebras" },
+		{ name: "Google Vertex", providerId: "google-vertex" },
+		{ name: "MiniMax", providerId: "minimax" },
+		{ name: "SCX.ai", providerId: "scx-ai" },
+		{ name: "Gonka24", providerId: "gonka24" },
+		{ name: "Runware", providerId: "runware" },
+		{ name: "Fireworks", providerId: "fireworks" },
+	];
 
 interface MigrationData {
 	slug: string;
@@ -57,13 +60,12 @@ const providerIcons: Record<string, React.ReactNode> = {
 	OpenRouter: (
 		<svg
 			fill="currentColor"
-			fillRule="evenodd"
-			viewBox="0 0 24 24"
+			viewBox={OPENROUTER_GLYPH_VIEWBOX}
 			xmlns="http://www.w3.org/2000/svg"
 			className="size-5"
 			aria-hidden="true"
 		>
-			<path d="m16.804 1.957 7.22 4.105v.087L16.73 10.21l.017-2.117-.821-.03c-1.059-.028-1.611.002-2.268.11-1.064.175-2.038.577-3.147 1.352L8.345 11.03c-.284.195-.495.336-.68.455l-.515.322-.397.234.385.23.53.338c.476.314 1.17.796 2.701 1.866 1.11.775 2.083 1.177 3.147 1.352l.3.045c.694.091 1.375.094 2.825.033l.022-2.159 7.22 4.105v.087L16.589 22l.014-1.862-.635.022c-1.386.042-2.137.002-3.138-.162-1.694-.28-3.26-.926-4.881-2.059l-2.158-1.5a21.997 21.997 0 0 0-.755-.498l-.467-.28a55.927 55.927 0 0 0-.76-.43C2.908 14.73.563 14.116 0 14.116V9.888l.14.004c.564-.007 2.91-.622 3.809-1.124l1.016-.58.438-.274c.428-.28 1.072-.726 2.686-1.853 1.621-1.133 3.186-1.78 4.881-2.059 1.152-.19 1.974-.213 3.814-.138z" />
+			<path d={OPENROUTER_GLYPH_PATH} />
 		</svg>
 	),
 	LiteLLM: (
@@ -308,17 +310,11 @@ export function Hero({
 								</Link>
 							</div>
 							<div className="group-hover:blur-xs mx-auto mt-12 grid max-w-3xl grid-cols-5 gap-x-10 gap-y-6 transition-all duration-500 group-hover:opacity-50 sm:grid-cols-6 sm:gap-x-12 sm:gap-y-10 lg:grid-cols-8">
-								{PROVIDER_LOGOS.map((provider) => {
-									const LogoComponent = providerLogoUrls[provider.providerId];
-
-									return (
-										<div key={provider.name} className="flex">
-											{LogoComponent && (
-												<LogoComponent className="mx-auto h-16 w-fit object-contain" />
-											)}
-										</div>
-									);
-								})}
+								{PROVIDER_LOGOS.map((provider) => (
+									<div key={provider.name} className="flex">
+										<ProviderLogo provider={provider.providerId} />
+									</div>
+								))}
 							</div>
 						</div>
 					</section>

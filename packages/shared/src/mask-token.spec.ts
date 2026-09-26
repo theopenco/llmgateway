@@ -3,6 +3,25 @@ import { describe, expect, it } from "vitest";
 import { maskToken } from "./mask-token.js";
 
 describe("maskToken", () => {
+	it("shows a prefix and suffix when trailing characters are requested", () => {
+		expect(maskToken("12345678901234567890", 4, 4)).toBe("1234•••••7890");
+	});
+
+	it.each([
+		["", ""],
+		["abc", "••••"],
+		["abcd", "••••"],
+		["abcde", "••••e"],
+		["abcdefgh", "••••efgh"],
+		["abcdefghi", "a••••fghi"],
+		["abcdefghijkl", "abcd••••ijkl"],
+	])(
+		"keeps at least four characters hidden in %j with a suffix",
+		(token, mask) => {
+			expect(maskToken(token, 4, 4)).toBe(mask);
+		},
+	);
+
 	it("masks all characters after the visible ones", () => {
 		const masked = maskToken("12345678901234567890", 12);
 		expect(masked).toBe("123456789012•••••");

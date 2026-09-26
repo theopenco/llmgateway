@@ -4,6 +4,7 @@ slug: "claude-fable-5-access-suspended"
 date: "2026-06-13"
 title: "Claude Fable 5 Access Suspended"
 summary: "We've temporarily suspended access to Claude Fable 5 across all providers while we work through a usage-policy matter with Anthropic. Requests to the model now return a clear error, and routing automatically skips it."
+tags: ["llmgateway"]
 image:
   src: "/changelog/claude-fable-5-reve-and-new-models.png"
   alt: "Claude Fable 5 access temporarily suspended on LLM Gateway"

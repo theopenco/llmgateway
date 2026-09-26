@@ -1,5 +1,7 @@
 // Shared icon components for the guides OpenGraph images (index + [slug] routes).
 
+import { Terminal } from "lucide-react";
+
 interface OgIconProps {
 	size?: number;
 }
@@ -325,8 +327,16 @@ export const GitHubCopilotIcon = ({ size = 100 }: OgIconProps) => (
 	</svg>
 );
 
-// Map slugs to their icons
-// Empryo Icon — raster mark, served from the marketing site's public dir.
+export const AnvilOgIcon = ({ size = 100 }: OgIconProps) => (
+	<img
+		src="https://llmgateway.io/integrations/anvil.svg"
+		alt="Anvil"
+		width={size}
+		height={size}
+		style={{ objectFit: "contain" }}
+	/>
+);
+
 export const EmpryoIcon = ({ size = 100 }: OgIconProps) => (
 	<img
 		src="https://llmgateway.io/integrations/empryo.png"
@@ -352,11 +362,14 @@ export function getIconForGuide(slug: string) {
 		continue: ContinueIcon,
 		"hermes-agent": HermesIcon,
 		pi: PiIcon,
+		"oh-my-pi": PiIcon,
 		"kimi-code": KimiIcon,
 		mimocode: MimoCodeIcon,
 		"kilo-code": KiloCodeIcon,
 		"devpass-code": DevPassCodeIcon,
+		anvil: AnvilOgIcon,
 		empryo: EmpryoIcon,
+		reasonix: ({ size }) => <Terminal size={size} color="#ffffff" />,
 		"github-copilot": GitHubCopilotIcon,
 		mcp: McpIcon,
 	};

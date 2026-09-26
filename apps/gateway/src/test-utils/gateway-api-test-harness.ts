@@ -2,11 +2,17 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
 
 import { db, eq, pool, tables } from "@llmgateway/db";
 import { getProviderDefinition, models } from "@llmgateway/models";
-import { getGatewayPublicBaseUrl } from "@llmgateway/shared";
+import {
+	CONTENT_FILTER_SETTING_ID,
+	DEFAULT_CONTENT_FILTER_SETTINGS,
+	getGatewayPublicBaseUrl,
+	type ContentFilterSettings,
+} from "@llmgateway/shared";
 import { verifyVideoContentAccessToken } from "@llmgateway/shared/video-access";
 
 import {
 	resetMockVideoState,
+	resetMockAudioState,
 	startMockServer,
 	stopMockServer,
 } from "./mock-openai-server.js";
@@ -25,6 +31,13 @@ const GATEWAY_TEST_DB_LOCK_ID = 41001;
 
 async function resetGatewayTestData() {
 	await db.delete(tables.log);
+	await db.delete(tables.contentFilterHourlyModelStats);
+	await db.delete(tables.contentFilterHourlyStats);
+	await db.delete(tables.systemSetting);
+	// Routing reads uptime/latency from a 60-minute history window, so metric
+	// rows a test seeds (e.g. a 0%-uptime provider) must not leak into later
+	// tests' provider selection — or collide with a re-seed in the same minute.
+	await db.delete(tables.modelProviderMappingHistory);
 	await db.delete(tables.webhookDeliveryLog);
 	await db.delete(tables.videoJob);
 	await db.delete(tables.apiKey);
@@ -52,6 +65,9 @@ async function resetGatewayTestData() {
 	await db.delete(tables.providerRoutingSettings);
 	await db.delete(tables.providerCompany);
 	await db.delete(tables.routingScoreMultiplier);
+	// Global rate limits carry no organization, so they survive the org delete
+	// below and would cap later tests.
+	await db.delete(tables.rateLimit);
 	await db.delete(tables.userOrganization);
 	await db.delete(tables.project);
 	await db.delete(tables.organization);
@@ -161,6 +177,7 @@ export function createGatewayApiTestHarness() {
 		]);
 		await clearCache();
 		resetMockVideoState();
+		resetMockAudioState();
 		await resetGatewayTestData();
 		await seedGatewayTestData();
 	});
@@ -196,6 +213,52 @@ export function createGatewayApiTestHarness() {
 				.update(tables.organization)
 				.set({ credits })
 				.where(eq(tables.organization.id, TEST_ORGANIZATION_ID));
+		},
+		async setOrganizationPlan(plan: "free" | "pro" | "enterprise") {
+			await db
+				.update(tables.organization)
+				.set({ plan })
+				.where(eq(tables.organization.id, TEST_ORGANIZATION_ID));
+		},
+		async setTrustTierOverride(trustTierOverride: number | null) {
+			await db
+				.update(tables.organization)
+				.set({ trustTierOverride })
+				.where(eq(tables.organization.id, TEST_ORGANIZATION_ID));
+		},
+		async setContentFilterTierOverride(
+			contentFilterTierOverride: number | null,
+		) {
+			await db
+				.update(tables.organization)
+				.set({ contentFilterTierOverride })
+				.where(eq(tables.organization.id, TEST_ORGANIZATION_ID));
+		},
+		async setContentFilterLogOnly(contentFilterLogOnly: boolean) {
+			await db
+				.update(tables.organization)
+				.set({ contentFilterLogOnly })
+				.where(eq(tables.organization.id, TEST_ORGANIZATION_ID));
+		},
+		// The gateway pins this row in cache for a minute, so clear it after
+		// writing.
+		async setContentFilterSettings(settings: Partial<ContentFilterSettings>) {
+			const value = JSON.stringify({
+				...DEFAULT_CONTENT_FILTER_SETTINGS,
+				...settings,
+			});
+			await db
+				.insert(tables.systemSetting)
+				.values({
+					id: CONTENT_FILTER_SETTING_ID,
+					enabled: settings.enabled ?? true,
+					value,
+				})
+				.onConflictDoUpdate({
+					target: tables.systemSetting.id,
+					set: { enabled: settings.enabled ?? true, value },
+				});
+			await clearCache();
 		},
 		async setDevPlan(options: {
 			devPlan: "lite" | "pro" | "max";

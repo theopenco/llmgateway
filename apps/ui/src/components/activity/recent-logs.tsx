@@ -48,8 +48,12 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/lib/components/select";
+import { useDashboardState } from "@/lib/dashboard-state";
 import { useApi } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
+
+import { LOG_ERROR_TYPE_LABELS, LOG_ERROR_TYPES } from "@llmgateway/shared";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type { paths } from "@/lib/api/v1";
 import type { Log } from "@llmgateway/db";
@@ -125,6 +129,7 @@ function setCookie(name: string, value: string, days = 365) {
 }
 
 function FirstLogTopUpPrompt() {
+	const { selectedOrganization } = useDashboardState();
 	const [dismissed, setDismissed] = useState(true);
 
 	useEffect(() => {
@@ -134,7 +139,7 @@ function FirstLogTopUpPrompt() {
 		}
 	}, []);
 
-	if (dismissed) {
+	if (dismissed || !isOrganizationAdmin(selectedOrganization?.role)) {
 		return null;
 	}
 
@@ -213,6 +218,9 @@ export function RecentLogs({
 	);
 	const [usedMode, setUsedMode] = useState<string | undefined>(
 		searchParams.get("usedMode") ?? undefined,
+	);
+	const [errorType, setErrorType] = useState<string | undefined>(
+		searchParams.get("errorType") ?? undefined,
 	);
 
 	const api = useApi();
@@ -338,6 +346,9 @@ export function RecentLogs({
 	if (usedMode && usedMode !== "all") {
 		queryParams.usedMode = usedMode;
 	}
+	if (errorType && errorType !== "all") {
+		queryParams.errorType = errorType;
+	}
 	if (projectId) {
 		queryParams.projectId = projectId;
 	}
@@ -352,7 +363,8 @@ export function RecentLogs({
 		customHeaderValue === (searchParams.get("customHeaderValue") ?? "") &&
 		sessionId === (searchParams.get("sessionId") ?? "") &&
 		apiKeyId === (searchParams.get("apiKeyId") ?? undefined) &&
-		usedMode === (searchParams.get("usedMode") ?? undefined);
+		usedMode === (searchParams.get("usedMode") ?? undefined) &&
+		errorType === (searchParams.get("errorType") ?? undefined);
 
 	const {
 		data,
@@ -477,6 +489,7 @@ export function RecentLogs({
 		model,
 		apiKeyId,
 		usedMode,
+		errorType,
 		customHeaderKey.trim() || undefined,
 		customHeaderValue.trim() || undefined,
 		sessionId.trim() || undefined,
@@ -492,6 +505,7 @@ export function RecentLogs({
 		setModel(undefined);
 		setApiKeyId(undefined);
 		setUsedMode(undefined);
+		setErrorType(undefined);
 		setCustomHeaderKey("");
 		setCustomHeaderValue("");
 		setSessionId("");
@@ -503,6 +517,7 @@ export function RecentLogs({
 			model: undefined,
 			apiKeyId: undefined,
 			usedMode: undefined,
+			errorType: undefined,
 			customHeaderKey: undefined,
 			customHeaderValue: undefined,
 			sessionId: undefined,
@@ -691,6 +706,22 @@ export function RecentLogs({
 								<SelectItem value="all">All billing</SelectItem>
 								<SelectItem value="credits">Credits</SelectItem>
 								<SelectItem value="api-keys">BYOK</SelectItem>
+							</SelectContent>
+						</Select>
+
+						<Select
+							onValueChange={handleFilterChange("errorType", setErrorType)}
+							value={errorType ?? "all"}
+						>
+							<SelectTrigger className="w-full">
+								<SelectValue placeholder="Filter by error" />
+							</SelectTrigger>
+							<SelectContent>
+								{LOG_ERROR_TYPES.map((value) => (
+									<SelectItem key={value} value={value}>
+										{LOG_ERROR_TYPE_LABELS[value]}
+									</SelectItem>
+								))}
 							</SelectContent>
 						</Select>
 

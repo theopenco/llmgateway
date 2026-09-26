@@ -1,0 +1,118 @@
+---
+title: OpenCode Integration
+description: Connect OpenCode to LLM Gateway and verify a coding task.
+icon: OpenCode
+---
+
+[OpenCode](https://opencode.ai) is an open-source coding agent for your terminal, desktop, and editor. LLM Gateway is a built-in provider, with usage tracked in your gateway dashboard.
+
+This walkthrough was verified with OpenCode 1.18.27, including a file edit and a successful test run.
+
+## Video walkthrough
+
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/OZzcmjzkCNo"
+		title="OpenCode setup and coding demo with LLM Gateway"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
+
+## Install
+
+Use the&nbsp;[OpenCode download page](https://opencode.ai/download) for your platform, or install the CLI:
+
+```bash
+pnpm add -g opencode-ai
+opencode --version
+```
+
+## Connect your API key
+
+Start OpenCode in your project:
+
+```bash
+opencode
+```
+
+Run `/connect`, search for **LLM Gateway**, and enter a key from your&nbsp;[LLM Gateway dashboard](https://llmgateway.io/dashboard). OpenCode saves credentials for later sessions.
+
+Open `/models` to choose a model. Browse the&nbsp;[live catalogue](https://llmgateway.io/models) for current capabilities and pricing.
+
+> **Using DevPass?** Select a canonical model ID without an upstream provider prefix. Provider-pinned routing is not available on coding plans.
+
+## Configure with an environment variable
+
+For scripts or a project-specific configuration, set your key:
+
+```bash
+export LLMGATEWAY_API_KEY="your_api_key"
+```
+
+Add an `opencode.json` in the project root:
+
+```json
+{
+	"provider": {
+		"llmgateway": {
+			"options": {
+				"apiKey": "{env:LLMGATEWAY_API_KEY}"
+			}
+		}
+	},
+	"model": "llmgateway/deepseek-v4-flash"
+}
+```
+
+`llmgateway` is OpenCode's provider ID. The rest of the `model` string is the gateway model ID. The example uses the model tested in this walkthrough; replace it with one from the live catalogue.
+
+The provider already defines the gateway endpoint, so this configuration only supplies the key and model. For a custom endpoint override, use `provider.llmgateway.options.baseURL` with `https://api.llmgateway.io/v1`.
+
+## Verify a coding task
+
+Ask OpenCode to fix a specific file and run its tests:
+
+```text
+Fix slugify.ts so all tests pass. Read the files, make the smallest fix,
+run node --test slugify.test.ts, and summarize. Do not edit the tests.
+```
+
+Review the diff, approve commands as needed, and check the test output. Then confirm the request's model, tokens, and cost in your&nbsp;[dashboard](https://llmgateway.io/dashboard).
+
+You can also run a one-shot task:
+
+```bash
+opencode run --model llmgateway/deepseek-v4-flash "Explain this project"
+```
+
+## Switching models
+
+Use `/models` in the terminal, or list the provider's available IDs:
+
+```bash
+opencode models llmgateway
+```
+
+Copy an exact ID from that output into the `model` field or the `--model` option. Canonical IDs let the gateway choose the upstream provider; provider-prefixed IDs select a specific deployment when your account supports pinned routing.
+
+![OpenCode completing the coding task through LLM Gateway](/images/guides/opencode/verified-session.png)
+
+## Troubleshooting
+
+### Provider not found
+
+Check `opencode --version` and run `opencode models llmgateway`. The verified version uses `llmgateway`; older instructions referring to `llmgateway-providers` may not match your installed release.
+
+### Authentication error
+
+Check that the key is active and available in the shell that launches OpenCode. The environment reference uses OpenCode's `{env:VARIABLE_NAME}` syntax.
+
+### Model missing
+
+Refresh the model picker or restart OpenCode. Copy the exact ID from `opencode models llmgateway` and compare it with the&nbsp;[gateway catalogue](https://llmgateway.io/models).
+
+See&nbsp;[OpenCode's provider documentation](https://opencode.ai/docs/providers/#llm-gateway) for additional configuration options.

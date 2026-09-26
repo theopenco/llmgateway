@@ -6,11 +6,15 @@ import { type ReactNode, useEffect } from "react";
 import { DashboardSidebar } from "@/components/dashboard/dashboard-sidebar";
 import { EnterpriseLicenseBanner } from "@/components/dashboard/enterprise-license-banner";
 import { MobileHeader } from "@/components/dashboard/mobile-header";
+import { OrganizationRouteGuard } from "@/components/dashboard/organization-route-guard";
 import { PlanExpiryBanner } from "@/components/dashboard/plan-expiry-banner";
 import { TopBar } from "@/components/dashboard/top-bar";
 import { EmailVerificationBanner } from "@/components/email-verification-banner";
 import { DashboardProvider } from "@/lib/dashboard-context";
 import { useDashboardState } from "@/lib/dashboard-state";
+import { useSystemBanner } from "@/lib/system-banner-context";
+
+import { SystemBannerBar } from "@llmgateway/shared/system-banner";
 
 import type { AnnouncementEntry } from "@/components/dashboard/changelog-notifications";
 
@@ -32,6 +36,7 @@ export function DashboardLayoutClient({
 	announcementEntries = [],
 }: DashboardLayoutClientProps) {
 	const posthog = usePostHog();
+	const systemBanner = useSystemBanner();
 
 	const {
 		organizations,
@@ -84,11 +89,12 @@ export function DashboardLayoutClient({
 							onProjectCreated={handleProjectCreated}
 							announcementEntries={announcementEntries}
 						/>
+						<SystemBannerBar banner={systemBanner} />
 						<EmailVerificationBanner />
 						<EnterpriseLicenseBanner />
 						<PlanExpiryBanner />
 						<main className="bg-background relative w-full flex-1 overflow-y-auto overflow-x-hidden pt-10 pb-4 px-4 md:p-6 lg:p-8">
-							{children}
+							<OrganizationRouteGuard>{children}</OrganizationRouteGuard>
 						</main>
 					</div>
 				</div>

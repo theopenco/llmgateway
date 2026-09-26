@@ -3,9 +3,81 @@
 import { Check, Copy, Eye, ImageIcon, Sparkles, Wrench } from "lucide-react";
 import { useState } from "react";
 
+import { ModelDiscountBadge } from "@/components/model-discount-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { useApi } from "@/lib/fetch-client";
+import { formatPrice } from "@/lib/model-utils";
+
+import {
+	effectiveUnitPrice,
+	isMappingDeactivated,
+} from "@llmgateway/shared/components";
+
+function CatalogPricing({
+	modelId,
+	image = false,
+}: {
+	modelId: string;
+	image?: boolean;
+}) {
+	const api = useApi();
+	const { data, isPending, isError } = api.useQuery(
+		"get",
+		"/internal/models",
+		{},
+		{ staleTime: 60_000 },
+	);
+	const model = data?.models.find((candidate) => candidate.id === modelId);
+	const mappings =
+		model?.mappings.filter(
+			(mapping) =>
+				mapping.status === "active" && !isMappingDeactivated(mapping),
+		) ?? [];
+	if (isPending || isError || mappings.length === 0) {
+		return (
+			<p className="text-xs text-muted-foreground">
+				{isPending ? "Loading prices…" : "Pricing unavailable"}
+			</p>
+		);
+	}
+	const fields = image
+		? (["requestPrice"] as const)
+		: (["inputPrice", "outputPrice"] as const);
+	return (
+		<div className="text-xs space-y-1">
+			<div className="text-muted-foreground">Pricing from:</div>
+			<div className="flex gap-3">
+				{fields.map((field) => {
+					const prices = mappings
+						.map((mapping) =>
+							effectiveUnitPrice(mapping[field], mapping.discount),
+						)
+						.filter((price): price is number => price !== null);
+					const price = prices.length ? Math.min(...prices) : null;
+					return (
+						<span key={field}>
+							<span className="font-mono font-medium">
+								{price === null
+									? "—"
+									: image
+										? `$${price.toFixed(3)}/req`
+										: formatPrice(price)}
+							</span>{" "}
+							{!image && (
+								<span className="text-muted-foreground">
+									{field === "inputPrice" ? "in" : "out"}
+								</span>
+							)}
+						</span>
+					);
+				})}
+			</div>
+			<ModelDiscountBadge mappings={mappings} />
+		</div>
+	);
+}
 
 /**
  * Model data structure from list-models tool
@@ -185,21 +257,7 @@ function ModelCard({ model }: { model: ModelData }) {
 				</div>
 			</div>
 
-			<div className="text-xs space-y-1">
-				<div className="text-muted-foreground">Pricing:</div>
-				<div className="flex gap-3">
-					<span>
-						<span className="font-mono font-medium">{model.pricing.input}</span>{" "}
-						<span className="text-muted-foreground">in</span>
-					</span>
-					<span>
-						<span className="font-mono font-medium">
-							{model.pricing.output}
-						</span>{" "}
-						<span className="text-muted-foreground">out</span>
-					</span>
-				</div>
-			</div>
+			<CatalogPricing modelId={model.id} />
 
 			{capabilities.length > 0 && (
 				<div className="flex flex-wrap gap-1">
@@ -281,15 +339,7 @@ function ImageModelCard({ model }: { model: ImageModelData }) {
 				</Button>
 			</div>
 
-			{model.requestPrice !== undefined && model.requestPrice > 0 && (
-				<div className="text-xs">
-					<span className="text-muted-foreground">Price:</span>
-					<span className="ml-1 font-mono font-medium">
-						${model.requestPrice}
-					</span>
-					<span className="text-muted-foreground"> / request</span>
-				</div>
-			)}
+			<CatalogPricing modelId={model.id} image />
 		</div>
 	);
 }

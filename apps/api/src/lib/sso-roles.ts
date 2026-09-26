@@ -1,6 +1,6 @@
 import { cdb, db, eq, tables } from "@llmgateway/db";
 
-export type OrgRole = "owner" | "admin" | "developer";
+export type OrgRole = "owner" | "admin" | "project_admin" | "developer";
 
 export interface RoleChange {
 	old: OrgRole;
@@ -9,8 +9,9 @@ export interface RoleChange {
 
 const ROLE_RANK: Record<OrgRole, number> = {
 	developer: 1,
-	admin: 2,
-	owner: 3,
+	project_admin: 2,
+	admin: 3,
+	owner: 4,
 };
 
 // Recompute an org member's role from their SCIM group memberships and the

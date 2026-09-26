@@ -42,6 +42,15 @@ export function Footer() {
 					<Link href="/login" className="hover:text-foreground">
 						Sign in
 					</Link>
+					<Link href="/resources" className="hover:text-foreground">
+						Guides & tools
+					</Link>
+					<a
+						href={`${config.uiUrl}/rankings`}
+						className="hover:text-foreground"
+					>
+						Model rankings
+					</a>
 				</nav>
 			</div>
 		</footer>

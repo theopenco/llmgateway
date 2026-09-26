@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { extractTokenUsage } from "./extract-token-usage.js";
 import { transformStreamingToOpenai } from "./transform-streaming-to-openai.js";
 
 const { warn, error, setexMock } = vi.hoisted(() => ({
@@ -9,6 +10,7 @@ const { warn, error, setexMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@llmgateway/cache", () => ({
+	setSwrSchemaVersion: vi.fn(),
 	redisClient: {
 		get: vi.fn(),
 		// The caller chains .catch() on this, so it must be thenable.
@@ -26,6 +28,47 @@ vi.mock("@llmgateway/logger", () => ({
 }));
 
 describe("transformStreamingToOpenai", () => {
+	it.each([false, true])(
+		"preserves Runpod cached usage with top-level usage: %s",
+		(topLevelUsage) => {
+			const usage = {
+				prompt_tokens: 22612,
+				completion_tokens: 43,
+				total_tokens: 22655,
+				completion_tokens_details: { reasoning_tokens: 27 },
+				prompt_tokens_details: { cached_tokens: 22528 },
+			};
+			const data = {
+				id: "chatcmpl-test",
+				object: "chat.completion.chunk",
+				created: 1234567890,
+				choices: [{ index: 0, delta: {}, finish_reason: "stop", usage }],
+				...(topLevelUsage && { usage }),
+			};
+			const result = transformStreamingToOpenai(
+				"runpod",
+				"runpod/kimi-k3",
+				data,
+				[],
+			);
+
+			expect(result.usage).toEqual({
+				prompt_tokens: 22612,
+				completion_tokens: 43,
+				total_tokens: 22655,
+				reasoning_tokens: 27,
+				prompt_tokens_details: { cached_tokens: 22528 },
+			});
+			expect(extractTokenUsage(data, "runpod")).toMatchObject({
+				promptTokens: 22612,
+				completionTokens: 43,
+				totalTokens: 22655,
+				reasoningTokens: 27,
+				cachedTokens: 22528,
+			});
+		},
+	);
+
 	it("replaces upstream model ids with the canonical mapping", () => {
 		const result = transformStreamingToOpenai(
 			"deepinfra",
@@ -137,6 +180,58 @@ describe("transformStreamingToOpenai", () => {
 		expect(new Set(ids).size).toBe(3);
 		for (const id of ids) {
 			expect(id.startsWith("read_file_")).toBe(true);
+		}
+	});
+
+	it("keeps Google tool indices distinct across chunks and candidates", () => {
+		const googleToolCallIndices = new Map<number, number>();
+		const transform = (indices: number[]) =>
+			transformStreamingToOpenai(
+				"google-ai-studio",
+				"gemini-3.8-flash",
+				{
+					candidates: indices.map((index) => ({
+						index,
+						content: {
+							parts: [
+								{ text: "Looking up files." },
+								{
+									functionCall: { name: "read_file", args: { path: "a.txt" } },
+									thoughtSignature: `signature-${index}`,
+								},
+								{
+									functionCall: { name: "read_file", args: { path: "b.txt" } },
+								},
+							],
+						},
+					})),
+				},
+				[],
+				undefined,
+				true,
+				undefined,
+				undefined,
+				{ googleToolCallIndices },
+			);
+
+		const first = transform([0, 1]);
+		const second = transform([1, 0]);
+		for (const choice of first.choices) {
+			expect(choice.delta.tool_calls).toMatchObject([
+				{
+					index: 0,
+					extra_content: {
+						google: { thought_signature: `signature-${choice.index}` },
+					},
+				},
+				{ index: 1 },
+			]);
+		}
+		for (const choice of second.choices) {
+			expect(choice.delta.tool_calls).toMatchObject([
+				{ index: 2 },
+				{ index: 3 },
+			]);
 		}
 	});
 
@@ -869,5 +964,154 @@ describe("transformStreamingToOpenai", () => {
 			"[transform-streaming-to-openai] Google streaming chunk missing candidates",
 			expect.objectContaining({ hasCandidates: false }),
 		);
+	});
+	it("tracks signed text offsets separately for streamed candidates", () => {
+		const googleThoughtSignatureState = new Map<
+			number,
+			{ textOffset: number; index: number }
+		>();
+		const transform = (candidates: unknown[]) =>
+			transformStreamingToOpenai(
+				"google-vertex",
+				"gemini-3.5-flash",
+				{ candidates },
+				[],
+				undefined,
+				true,
+				undefined,
+				undefined,
+				{ googleThoughtSignatureState },
+			);
+		transform([
+			{ index: 0, content: { parts: [{ text: "First" }] } },
+			{ index: 1, content: { parts: [{ text: "Second" }] } },
+		]);
+		const result = transform([
+			{
+				index: 1,
+				content: {
+					parts: [{ text: "", thoughtSignature: "second-signature" }],
+				},
+			},
+			{
+				index: 0,
+				content: { parts: [{ text: "", thoughtSignature: "first-signature" }] },
+			},
+		]);
+		expect(result.choices[0].delta.reasoning_details).toMatchObject([
+			{
+				signature: "second-signature",
+				index: 0,
+				google_part: { text_offset: 6 },
+			},
+		]);
+		expect(result.choices[1].delta.reasoning_details).toMatchObject([
+			{
+				signature: "first-signature",
+				index: 0,
+				google_part: { text_offset: 5 },
+			},
+		]);
+	});
+});
+
+describe("perplexity agent api streaming", () => {
+	it("emits sources with dates on the search_results item", () => {
+		const result = transformStreamingToOpenai(
+			"perplexity",
+			"perplexity/sonar",
+			{
+				type: "response.output_item.done",
+				output_index: 0,
+				response: { id: "resp_1", created_at: 1789819970 },
+				item: {
+					type: "search_results",
+					queries: ["artemis"],
+					results: [
+						{
+							id: 1,
+							url: "https://www.nasa.gov/artemis",
+							title: "Artemis News",
+							snippet: "Artemis II flew.",
+							date: "2026-09-16",
+							last_updated: "2026-09-17",
+							source: "web",
+						},
+					],
+				},
+			},
+			[],
+		);
+
+		expect(result.search_results).toEqual([
+			{
+				url: "https://www.nasa.gov/artemis",
+				title: "Artemis News",
+				snippet: "Artemis II flew.",
+				date: "2026-09-16",
+				last_updated: "2026-09-17",
+				source: "web",
+			},
+		]);
+		expect(result.citations).toEqual(["https://www.nasa.gov/artemis"]);
+		expect(result.choices[0].delta.annotations).toEqual([
+			{
+				type: "url_citation",
+				url_citation: {
+					url: "https://www.nasa.gov/artemis",
+					title: "Artemis News",
+					date: "2026-09-16",
+					last_updated: "2026-09-17",
+				},
+			},
+		]);
+	});
+
+	it("maps output_text deltas to content", () => {
+		const result = transformStreamingToOpenai(
+			"perplexity",
+			"perplexity/sonar",
+			{
+				type: "response.output_text.delta",
+				delta: "Artemis",
+				response: { id: "resp_1", created_at: 1789819970 },
+			},
+			[],
+		);
+
+		expect(result.choices[0].delta.content).toBe("Artemis");
+	});
+
+	it("drops Perplexity's search progress events", () => {
+		expect(
+			transformStreamingToOpenai(
+				"perplexity",
+				"perplexity/sonar",
+				{ type: "response.reasoning.search_queries", queries: ["artemis"] },
+				[],
+			),
+		).toBeNull();
+	});
+
+	it("still handles Sonar chat/completions chunks", () => {
+		const result = transformStreamingToOpenai(
+			"perplexity",
+			"perplexity/sonar-pro",
+			{
+				id: "chunk-1",
+				object: "chat.completion.chunk",
+				created: 1234567890,
+				model: "sonar-pro",
+				choices: [{ index: 0, delta: { content: "hi" }, finish_reason: null }],
+				search_results: [{ url: "https://example.com", date: "2026-09-01" }],
+			},
+			[],
+		);
+
+		expect(result.choices[0].delta.content).toBe("hi");
+		// Top-level passthrough is how Sonar callers already receive sources.
+		expect(result.search_results).toEqual([
+			{ url: "https://example.com", date: "2026-09-01" },
+		]);
 	});
 });

@@ -1,3 +1,5 @@
+export { formatCompactNumber as formatCompact } from "@llmgateway/shared/number-format";
+
 // Derived provider metrics (uptime %, latency averages, throughput) are only
 // statistically meaningful once a provider has served a reasonable number of
 // requests in the window. Below this threshold surfaces hide the numbers
@@ -15,22 +17,6 @@ export const MIN_REQUESTS_FOR_STATS = 1000;
 // here would hide well-sampled TTFT from any provider whose traffic is mostly
 // non-streaming.
 export const MIN_TTFT_SAMPLES_FOR_STATS = 100;
-
-export function formatCompact(n: number): string {
-	if (n >= 1_000_000_000_000) {
-		return `${(n / 1_000_000_000_000).toFixed(1)}T`;
-	}
-	if (n >= 1_000_000_000) {
-		return `${(n / 1_000_000_000).toFixed(1)}B`;
-	}
-	if (n >= 1_000_000) {
-		return `${(n / 1_000_000).toFixed(1)}M`;
-	}
-	if (n >= 1_000) {
-		return `${(n / 1_000).toFixed(1)}k`;
-	}
-	return n.toLocaleString();
-}
 
 export function hasEnoughRequestsForStats(logsCount: number): boolean {
 	return logsCount > MIN_REQUESTS_FOR_STATS;

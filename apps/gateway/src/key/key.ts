@@ -6,6 +6,7 @@ import {
 	findOrganizationById,
 	findProjectById,
 } from "@/lib/cached-queries.js";
+import { rateLimitHeaders } from "@/lib/error-schemas.js";
 import { standardErrorResponses } from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
@@ -70,6 +71,7 @@ const getKey = createRoute({
 	request: {},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"application/json": {
 					schema: keyResponseSchema,

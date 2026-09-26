@@ -1,4 +1,5 @@
 import type { paths } from "./api/v1";
+import type { LogErrorType } from "@llmgateway/shared";
 
 export type User = {
 	id: string;
@@ -71,6 +72,7 @@ export type DiscountOptions = GetJsonResponse<"/admin/discounts/options">;
 export type ProviderModelMapping = DiscountOptions["mappings"][number];
 export type RateLimitOptions = GetJsonResponse<"/admin/rate-limits/options">;
 export type RateLimitModelMapping = RateLimitOptions["mappings"][number];
+export type RateLimitProviderOption = RateLimitOptions["providers"][number];
 export type RateLimitsListResponse = GetJsonResponse<"/admin/rate-limits">;
 export type RateLimitEntry = RateLimitsListResponse["rateLimits"][number];
 
@@ -91,6 +93,10 @@ export type ProviderDetailResponse =
 	GetJsonResponse<"/admin/providers/{providerId}">;
 export type ProviderModelStats = ProviderDetailResponse["models"][number];
 
+// Unstable mappings
+export type UnstableScopeOptions =
+	GetJsonResponse<"/admin/unstable-mappings/scope-options">;
+
 // Mapping detail
 export type MappingDetailResponse =
 	GetJsonResponse<"/admin/providers/{providerId}/models/{modelId}">;
@@ -108,6 +114,7 @@ export type CostByModelTimeseriesResponse =
 	GetJsonResponse<"/admin/organizations/{orgId}/cost-by-model-timeseries">;
 export type ModelView = CostByModelTimeseriesResponse["modelView"];
 export type CostTimeseriesGroupBy = CostByModelTimeseriesResponse["groupBy"];
+export type CostTimeseriesBucket = CostByModelTimeseriesResponse["bucket"];
 export type OrganizationCostGroupBy = Extract<
 	CostTimeseriesGroupBy,
 	"model" | "project" | "api-key" | "user"
@@ -126,3 +133,22 @@ export type ModelProviderMappingsResponse =
 	GetJsonResponse<"/admin/model-provider-mappings">;
 export type ModelProviderMappingEntry =
 	ModelProviderMappingsResponse["mappings"][number];
+
+// Benchmarks
+export type BenchmarkOptionsResponse =
+	GetJsonResponse<"/admin/benchmarks/options">;
+export type BenchmarkModelOption = BenchmarkOptionsResponse["models"][number];
+export type BenchmarkProfileOption =
+	BenchmarkOptionsResponse["profiles"][number];
+export type BenchmarkRunsResponse = GetJsonResponse<"/admin/benchmarks/runs">;
+export type BenchmarkRunSummary = BenchmarkRunsResponse["runs"][number];
+export type BenchmarkRunDetailResponse =
+	GetJsonResponse<"/admin/benchmarks/runs/{id}">;
+
+export interface ProjectLogFilters {
+	provider?: string;
+	model?: string;
+	source?: string;
+	unifiedFinishReason?: string;
+	errorType?: LogErrorType;
+}

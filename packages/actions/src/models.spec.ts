@@ -68,10 +68,10 @@ describe("Models", () => {
 		const hasImagePricing = (provider: ProviderModelMapping) =>
 			!!provider.imageInputPrice || !!provider.imageOutputPrice;
 
-		// Embedding models bill only on input tokens and set outputPrice=0
-		// because they don't produce text output.
+		// Embedding and typed-decision models bill only on input tokens and set
+		// outputPrice=0 because they don't produce text output.
 		const isEmbeddingProvider = (provider: ProviderModelMapping) =>
-			provider.embeddings === true;
+			provider.embeddings === true || provider.decisions === true;
 
 		const isZero = (p: string | undefined) =>
 			p !== undefined && Number(p) === 0;
@@ -775,6 +775,60 @@ describe("getCheapestFromAvailableProviders", () => {
 			expect(store.value).toEqual({ providerId: "openai", region: undefined });
 		});
 
+		it("keeps a Gemini session on its signature provider despite low uptime", async () => {
+			const model = {
+				id: "gemini-session-test",
+				providers: [
+					{
+						providerId: "google-ai-studio",
+						externalId: "gemini-session-test",
+						inputPrice: "1e-6",
+						outputPrice: "2e-6",
+					},
+					{
+						providerId: "google-vertex",
+						externalId: "gemini-session-test",
+						inputPrice: "1e-6",
+						outputPrice: "2e-6",
+					},
+				],
+			};
+			const metricsMap = new Map(
+				model.providers.map((provider) => [
+					metricsKey(model.id, provider.providerId, undefined),
+					{
+						modelId: model.id,
+						providerId: provider.providerId,
+						uptime: provider.providerId === "google-vertex" ? 50 : 100,
+						averageLatency: 200,
+						throughput: 100,
+						totalRequests: 100,
+					},
+				]),
+			);
+			const natural = await getCheapestFromAvailableProviders(
+				model.providers,
+				model,
+				{ metricsMap },
+			);
+			expect(natural?.provider.providerId).toBe("google-ai-studio");
+
+			const store = createMemoryStore({ providerId: "google-vertex" });
+			const result = await getCheapestFromAvailableProviders(
+				model.providers,
+				model,
+				{
+					metricsMap,
+					sessionProviderStore: store,
+				},
+			);
+			expect(result?.provider.providerId).toBe("google-vertex");
+			expect(result?.metadata.selectionReason).toBe("session-sticky");
+			expect(store.setCalls).toEqual([
+				{ providerId: "google-vertex", region: undefined },
+			]);
+		});
+
 		it("keeps the pin when uptime is exactly at the threshold", async () => {
 			const store = createMemoryStore({ providerId: "deepseek" });
 			const result = await getCheapestFromAvailableProviders(
@@ -1366,6 +1420,7 @@ describe("getCheapestFromAvailableProviders", () => {
 		const equalPriority = resolveRoutingConfig(
 			{ providerPriorities: { embercloud: 1, deepinfra: 1 } },
 			buildProviderPriorityDefaults(),
+			"devpass",
 		);
 
 		it("routes small prompts to the cheapest list price", async () => {

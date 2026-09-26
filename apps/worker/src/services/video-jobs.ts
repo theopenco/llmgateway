@@ -14,6 +14,8 @@ import {
 	db,
 	eq,
 	findManagedProviderKeyById,
+	type GatewayContentFilterEvaluation,
+	gatewayContentFilterEvaluationSchema,
 	type InferSelectModel,
 	inArray,
 	isNull,
@@ -43,6 +45,7 @@ import {
 } from "@llmgateway/models";
 import {
 	buildGatewayVideoLogContentUrl,
+	buildVideoUsage,
 	getVideoProxyRedisKey,
 	isContentFilterErrorText,
 	VIDEO_PROXY_REDIS_TTL_SECONDS,
@@ -53,6 +56,7 @@ import {
 	parseGcsUri,
 } from "@llmgateway/shared/gcs";
 import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-access";
+import { isMinimaxV2VideoModel } from "@llmgateway/shared/video-generation-config";
 
 const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
 const WEBHOOK_DELIVERY_TIMEOUT_MS = 30_000;
@@ -110,6 +114,7 @@ const VIDEO_RESOLUTION_HD = "hd";
 const VIDEO_RESOLUTION_1080P = "1080p";
 const VIDEO_RESOLUTION_720P = "720p";
 const VIDEO_RESOLUTION_480P = "480p";
+const VIDEO_RESOLUTION_768P = "768p";
 const VIDEO_DEFAULT_RESOLUTION = "default";
 const ACTIVE_VIDEO_STATUSES = ["queued", "in_progress"] as const;
 const TERMINAL_VIDEO_STATUS_VALUES: Array<VideoJobRecord["status"]> = [
@@ -793,6 +798,7 @@ async function serializeVideoJob(job: VideoJobRecord, logId?: string | null) {
 					},
 				]
 			: undefined,
+		usage: buildVideoUsage(job),
 	};
 }
 
@@ -838,6 +844,21 @@ function getStoredVideoDebugPayload(
 	return null;
 }
 
+// Stamped by the gateway at submission when the tiered content filter sampled
+// the request; surfaces on the log row so violations aggregate per org.
+function getStoredContentFilterEvaluation(
+	job: VideoJobRecord,
+): GatewayContentFilterEvaluation | null {
+	for (const candidate of getVideoMetadataCandidates(job)) {
+		const value = candidate.llmgateway_content_filter_evaluation;
+		const parsed = gatewayContentFilterEvaluationSchema.safeParse(value);
+		if (parsed.success) {
+			return parsed.data;
+		}
+	}
+	return null;
+}
+
 function getFormattedRequestedVideoModel(job: VideoJobRecord): string {
 	return job.requestedProvider
 		? `${job.requestedProvider}/${job.model}`
@@ -873,7 +894,7 @@ function getRequestedVideoMetadata(job: VideoJobRecord): {
 	size: string;
 	width: number;
 	height: number;
-	resolution: "480p" | "720p" | "1080p" | "hd" | "4k";
+	resolution: "480p" | "720p" | "768p" | "1080p" | "hd" | "4k";
 } | null {
 	const size = getRequestedVideoSize(job);
 	if (!size) {
@@ -891,13 +912,14 @@ function getRequestedVideoMetadata(job: VideoJobRecord): {
 		return null;
 	}
 
-	let requestedResolution: "480p" | "720p" | "1080p" | "hd" | "4k" | null =
-		null;
+	let requestedResolution:
+		"480p" | "720p" | "768p" | "1080p" | "hd" | "4k" | null = null;
 	for (const candidate of getVideoMetadataCandidates(job)) {
 		const value = readNestedValue(candidate, "llmgateway_requested_resolution");
 		if (
 			value === "480p" ||
 			value === "720p" ||
+			value === "768p" ||
 			value === "1080p" ||
 			value === "hd" ||
 			value === "4k"
@@ -912,6 +934,7 @@ function getRequestedVideoMetadata(job: VideoJobRecord): {
 			if (
 				value === "480p" ||
 				value === "720p" ||
+				value === "768p" ||
 				value === "1080p" ||
 				value === "hd" ||
 				value === "4k"
@@ -1240,12 +1263,17 @@ function inferVideoIncludesAudioFromPricing(
 	return null;
 }
 
-function getVideoPricing(job: VideoJobRecord): Record<string, string> | null {
+function getVideoMapping(
+	job: VideoJobRecord,
+): ProviderModelMapping | undefined {
 	const model = models.find((item) => item.id === job.model);
-	const mapping = model?.providers.find(
+	return model?.providers.find(
 		(provider) => provider.providerId === job.usedProvider,
 	) as ProviderModelMapping | undefined;
-	return mapping?.perSecondPrice ?? null;
+}
+
+function getVideoPricing(job: VideoJobRecord): Record<string, string> | null {
+	return getVideoMapping(job)?.perSecondPrice ?? null;
 }
 
 function getVideoRequestPrice(job: VideoJobRecord): number | null {
@@ -1343,11 +1371,13 @@ function getVideoOutputCost(job: VideoJobRecord): number {
 			? VIDEO_RESOLUTION_HD
 			: requestedResolution === VIDEO_RESOLUTION_1080P
 				? VIDEO_RESOLUTION_1080P
-				: requestedResolution === VIDEO_RESOLUTION_720P
-					? VIDEO_RESOLUTION_720P
-					: requestedResolution === VIDEO_RESOLUTION_480P
-						? VIDEO_RESOLUTION_480P
-						: VIDEO_DEFAULT_RESOLUTION;
+				: requestedResolution === VIDEO_RESOLUTION_768P
+					? VIDEO_RESOLUTION_768P
+					: requestedResolution === VIDEO_RESOLUTION_720P
+						? VIDEO_RESOLUTION_720P
+						: requestedResolution === VIDEO_RESOLUTION_480P
+							? VIDEO_RESOLUTION_480P
+							: VIDEO_DEFAULT_RESOLUTION;
 	const resolutionCandidates = [
 		requestedResolution,
 		resolutionKey,
@@ -1445,7 +1475,15 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 			const imageInputCost =
 				jobToLog.status === "completed" ? getVideoImageInputCost(jobToLog) : 0;
 			const totalCost = Number((videoOutputCost + imageInputCost).toFixed(6));
-			const responsePayload = await serializeVideoJob(jobToLog, logId);
+			const costFields = {
+				cost: totalCost,
+				videoOutputCost,
+				imageInputCost,
+			};
+			const responsePayload = await serializeVideoJob(
+				{ ...jobToLog, ...costFields },
+				logId,
+			);
 			const responseSize = JSON.stringify(responsePayload).length;
 
 			const rawVideoError =
@@ -1488,6 +1526,8 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 			const failureUnifiedFinishReason = isContentFilterFailure
 				? UnifiedFinishReason.CONTENT_FILTER
 				: UnifiedFinishReason.UPSTREAM_ERROR;
+			const contentFilterEvaluation =
+				getStoredContentFilterEvaluation(jobToLog);
 
 			const logValues: LogInsertData = {
 				id: logId,
@@ -1526,6 +1566,10 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 				internalErrorDetails: redactStealthProviderError
 					? rawErrorDetails
 					: undefined,
+				internalContentFilter: contentFilterEvaluation?.violation
+					? true
+					: undefined,
+				gatewayContentFilterEvaluation: contentFilterEvaluation,
 				cost: totalCost,
 				requestCost: 0,
 				imageInputCost,
@@ -1568,10 +1612,10 @@ async function finalizeVideoJob(job: VideoJobRecord): Promise<void> {
 
 			await tx
 				.update(tables.videoJob)
-				.set({ logId })
+				.set({ logId, ...costFields })
 				.where(eq(tables.videoJob.id, jobToLog.id));
 
-			return { ...jobToLog, logId };
+			return { ...jobToLog, logId, ...costFields };
 		});
 
 		if (claimedJob?.contentUrl) {
@@ -1813,10 +1857,73 @@ async function fetchAlibabaStatus(
 	});
 }
 
+async function fetchMinimaxV2Status(
+	job: VideoJobRecord,
+	providerContext: ResolvedVideoProviderContext,
+): Promise<Record<string, unknown>> {
+	const url = joinUrl(
+		providerContext.baseUrl,
+		`/v2/query/video_generation/${job.upstreamId}`,
+	);
+	const { body, response } = await fetchJsonResponse(url, {
+		method: "GET",
+		headers: getVideoProviderHeaders(job, providerContext),
+	});
+
+	if (!response.ok) {
+		throw new Error(
+			typeof body.error === "object" &&
+				body.error &&
+				"message" in body.error &&
+				typeof body.error.message === "string"
+				? body.error.message
+				: `MiniMax status request failed with status ${response.status}`,
+		);
+	}
+
+	const task =
+		body.task && typeof body.task === "object"
+			? (body.task as Record<string, unknown>)
+			: {};
+	const normalizedStatus = normalizeVideoStatus(task.status);
+	const content =
+		task.content && typeof task.content === "object"
+			? (task.content as Record<string, unknown>)
+			: null;
+	const videoUrl =
+		normalizedStatus === "completed" && typeof content?.url === "string"
+			? content.url
+			: null;
+
+	return addRequestedVideoMetadata(job, {
+		...body,
+		status: normalizedStatus,
+		progress:
+			normalizedStatus === "in_progress"
+				? 50
+				: normalizedStatus === "queued"
+					? 0
+					: 100,
+		url: videoUrl,
+		mime_type: videoUrl ? "video/mp4" : undefined,
+		error:
+			normalizedStatus === "failed"
+				? (extractError(task) ?? {
+						message: "MiniMax video generation failed",
+					})
+				: null,
+	});
+}
+
 async function fetchMinimaxStatus(
 	job: VideoJobRecord,
 	providerContext: ResolvedVideoProviderContext,
 ): Promise<Record<string, unknown>> {
+	const externalId = getVideoMapping(job)?.externalId;
+	if (externalId && isMinimaxV2VideoModel(externalId)) {
+		return await fetchMinimaxV2Status(job, providerContext);
+	}
+
 	const url = joinUrl(
 		providerContext.baseUrl,
 		`/v1/query/video_generation?task_id=${job.upstreamId}`,

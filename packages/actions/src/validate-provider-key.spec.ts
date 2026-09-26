@@ -22,11 +22,14 @@ describe("getPinnedValidationModel", () => {
 		expect(
 			getPinnedValidationModel("mistral", "mistral-ocr-latest")?.kind,
 		).toBe("ocr");
+		expect(getPinnedValidationModel("typesafe", "jev-1.13.0")?.kind).toBe(
+			"decision",
+		);
 	});
 });
 
 describe("getValidationModel", () => {
-	it("only selects text models for automatic validation", () => {
+	it("selects text models, falling back to decision models", () => {
 		for (const provider of providers) {
 			const selected = getValidationModel(provider.id);
 			if (!selected) {
@@ -35,8 +38,10 @@ describe("getValidationModel", () => {
 			expect(
 				getPinnedValidationModel(provider.id, selected.modelId)?.kind,
 				provider.id,
-			).toBe("text");
+			).toBe(selected.kind);
+			expect(["text", "decision"], provider.id).toContain(selected.kind);
 		}
+		expect(getValidationModel("typesafe")?.kind).toBe("decision");
 	});
 
 	it("never selects an OCR model for provider key validation", () => {
@@ -54,7 +59,39 @@ describe("getValidationModel", () => {
 		expect(usesOcr).toBeFalsy();
 	});
 
-	it("selects a model from the newer half of the provider's releases", () => {
+	// Providers whose whole catalog is a single free preview model are unstable
+	// by design. Filtering them out left no probe model, so saving a key for
+	// such a provider failed with "No suitable validation model found".
+	it("falls back to unstable models when a provider has no stable one", () => {
+		for (const provider of providers) {
+			const hasProbeableMapping = models.some((model) =>
+				model.providers.some(
+					(p) =>
+						p.providerId === provider.id &&
+						["text", "decision"].includes(
+							getProviderModelKind(model, p) ?? "",
+						) &&
+						!(
+							"deprecatedAt" in p &&
+							p.deprecatedAt &&
+							new Date() >= p.deprecatedAt
+						) &&
+						!(
+							"deactivatedAt" in p &&
+							p.deactivatedAt &&
+							new Date() >= p.deactivatedAt
+						),
+				),
+			);
+			if (hasProbeableMapping) {
+				expect(getValidationModel(provider.id), provider.id).not.toBeNull();
+			}
+		}
+		expect(getValidationModel("atria")?.modelId).toBe("atria-dawn-preview");
+	});
+
+	it("selects a model from the newer half of the provider's text releases", () => {
+		const now = new Date();
 		const selected = getValidationModel("openai");
 		expect(selected).not.toBeNull();
 
@@ -71,8 +108,13 @@ describe("getValidationModel", () => {
 				m.providers.some(
 					(p) =>
 						p.providerId === "openai" &&
-						!("deprecatedAt" in p && p.deprecatedAt) &&
-						!("deactivatedAt" in p && p.deactivatedAt),
+						getProviderModelKind(m, p) === "text" &&
+						!("deprecatedAt" in p && p.deprecatedAt && now >= p.deprecatedAt) &&
+						!(
+							"deactivatedAt" in p &&
+							p.deactivatedAt &&
+							now >= p.deactivatedAt
+						),
 				),
 			)
 			.map((m) => (m.releasedAt as Date).getTime());
@@ -321,6 +363,24 @@ describe("validateProviderKey model-specific probes", () => {
 		);
 	});
 
+	it("probes a decision-only provider via System One", async () => {
+		const fetchMock = mockSuccess();
+
+		const result = await validateProviderKey("typesafe", "ts-test");
+
+		expect(result).toEqual({ valid: true, model: "jev-1.13.0" });
+		expect(fetchMock.mock.calls[0][0]).toBe(
+			"https://api.typesafe.ai/v1/systemone",
+		);
+		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({
+			model: "jev-1.13.0",
+			state: "Hello",
+			questions: {
+				greeting: { type: "noul", instructions: "Is this a greeting?" },
+			},
+		});
+	});
+
 	it("sends a minimal inline image to the OCR endpoint", async () => {
 		const fetchMock = mockSuccess();
 
@@ -421,9 +481,9 @@ describe("validateProviderKey model-specific probes", () => {
 		expect(body.parameters.size).toBe("1024*1024");
 	});
 
-	it("constructs probes for every active image, OCR, and embedding mapping", async () => {
+	it("constructs probes for every active image, OCR, embedding, and decision mapping", async () => {
 		const fetchMock = mockSuccess();
-		const supportedKinds = new Set(["image", "ocr", "embedding"]);
+		const supportedKinds = new Set(["image", "ocr", "embedding", "decision"]);
 		const seen = new Set<string>();
 
 		for (const model of models) {

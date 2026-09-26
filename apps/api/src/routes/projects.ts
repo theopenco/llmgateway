@@ -9,6 +9,10 @@ import {
 	resolveProviderCacheControlMode,
 } from "@/utils/provider-cache-control.js";
 import {
+	smartRoutingConfigInputSchema,
+	normalizeSmartRoutingConfig,
+} from "@/utils/smart-routing.js";
+import {
 	isZeroDataRetentionEnabled,
 	zdrCachingConflictMessage,
 	zdrProviderCachingConflictMessage,
@@ -16,9 +20,12 @@ import {
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { canManageProject } from "@llmgateway/shared/organization-roles";
+import { isSmartRoutingAvailable } from "@llmgateway/shared/smart-routing";
 
 import type { ServerTypes } from "@/vars.js";
 import type { ProviderCacheControlMode } from "@llmgateway/models";
+import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 
 export const projects = new OpenAPIHono<ServerTypes>();
 
@@ -44,6 +51,7 @@ const projectSchema = z.object({
 	endUserMarkupPercent: z.string(),
 	endUserTopUpBonusPercent: z.string(),
 	allowedOrigins: z.array(z.string()).nullable(),
+	smartRoutingConfig: smartRoutingConfigInputSchema.nullable(),
 });
 
 const createProjectSchema = z.object({
@@ -70,6 +78,8 @@ const updateProjectSchema = z.object({
 	endUserMarkupPercent: z.number().min(0).max(100).optional(),
 	endUserTopUpBonusPercent: z.number().min(0).max(1000).optional(),
 	allowedOrigins: z.array(z.string().trim().min(1)).max(20).optional(),
+	// Null clears the override so the project inherits the organization default.
+	smartRoutingConfig: smartRoutingConfigInputSchema.nullable().optional(),
 });
 
 function normalizeAllowedOrigins(origins: string[]) {
@@ -223,6 +233,7 @@ projects.openapi(updateProject, async (c) => {
 		endUserMarkupPercent,
 		endUserTopUpBonusPercent,
 		allowedOrigins,
+		smartRoutingConfig,
 	} = c.req.valid("json");
 	const providerCacheControlMode = resolveProviderCacheControlMode(
 		c.req.valid("json"),
@@ -274,22 +285,11 @@ projects.openapi(updateProject, async (c) => {
 	const projectUserOrg = userOrgs.find(
 		(userOrg) => userOrg.organizationId === project.organizationId,
 	);
-	const isAdminOrOwner =
-		projectUserOrg?.role === "owner" || projectUserOrg?.role === "admin";
+	const isProjectAdmin = canManageProject(projectUserOrg?.role);
 
-	// Project settings are admin-only; project-scoped "developer" members cannot
-	// edit projects.
-	if (!isAdminOrOwner) {
+	if (!isProjectAdmin) {
 		throw new HTTPException(403, {
-			message:
-				"Only organization owners and admins can update project settings",
-		});
-	}
-
-	if (isUpdatingEndUserSettings && !isAdminOrOwner) {
-		throw new HTTPException(403, {
-			message:
-				"Only organization owners and admins can update Payments SDK settings",
+			message: "Only project admins can update project settings",
 		});
 	}
 
@@ -300,18 +300,6 @@ projects.openapi(updateProject, async (c) => {
 		throw new HTTPException(403, {
 			message:
 				"The Payments SDK is currently in preview and opt-in only. Contact us to enable it for your project.",
-		});
-	}
-
-	// Changing the billing mode (e.g. enabling BYOK "api-keys" mode) is a
-	// privileged operation: it controls whether tenant-supplied provider keys
-	// and base URLs are used for inference. Restrict it to owners/admins, but
-	// only when the value actually changes so clients that PATCH the full
-	// settings object with an unchanged mode are not rejected.
-	if (mode !== undefined && mode !== project.mode && !isAdminOrOwner) {
-		throw new HTTPException(403, {
-			message:
-				"Only organization owners and admins can change the project mode",
 		});
 	}
 
@@ -373,6 +361,24 @@ projects.openapi(updateProject, async (c) => {
 	if (allowedOrigins !== undefined) {
 		normalizedAllowedOrigins = normalizeAllowedOrigins(allowedOrigins);
 		updateData.allowedOrigins = normalizedAllowedOrigins;
+	}
+
+	// Auto-routing overrides are an enterprise feature. Clearing the override
+	// stays allowed without enterprise access so a downgraded org can drop a
+	// leftover project override.
+	let normalizedSmartRoutingConfig: SmartRoutingConfig | null | undefined;
+	if (smartRoutingConfig !== undefined) {
+		if (
+			smartRoutingConfig !== null &&
+			!isSmartRoutingAvailable(projectUserOrg?.organization?.kind)
+		) {
+			throw new HTTPException(403, {
+				message: "Smart routing is not available for this organization",
+			});
+		}
+		normalizedSmartRoutingConfig =
+			normalizeSmartRoutingConfig(smartRoutingConfig);
+		updateData.smartRoutingConfig = normalizedSmartRoutingConfig;
 	}
 
 	// An empty PATCH body is a valid no-op; drizzle throws "No values to set"
@@ -478,6 +484,16 @@ projects.openapi(updateProject, async (c) => {
 		changes.endUserTopUpBonusPercent = {
 			old: project.endUserTopUpBonusPercent,
 			new: String(endUserTopUpBonusPercent),
+		};
+	}
+	if (
+		normalizedSmartRoutingConfig !== undefined &&
+		JSON.stringify(project.smartRoutingConfig ?? null) !==
+			JSON.stringify(normalizedSmartRoutingConfig)
+	) {
+		changes.smartRoutingConfig = {
+			old: project.smartRoutingConfig,
+			new: normalizedSmartRoutingConfig,
 		};
 	}
 	if (normalizedAllowedOrigins !== undefined) {

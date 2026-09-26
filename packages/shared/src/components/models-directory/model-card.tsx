@@ -56,7 +56,9 @@ import {
 } from "@/deactivation";
 import { discountFraction } from "@/lib/discount";
 import { cn } from "@/lib/utils";
+import { formatNumber } from "@/number-format";
 
+import { getDefaultProviderMapping } from "./default-provider-mapping";
 import {
 	formatContextSize,
 	formatDeprecationDate,
@@ -666,7 +668,9 @@ export function ProviderSection({
 	providerHref?: string;
 	headerExtra?: React.ReactNode;
 }) {
-	const [activeRegionIdx, setActiveRegionIdx] = useState(0);
+	const [selectedRegion, setSelectedRegion] = useState<
+		string | null | undefined
+	>();
 	const mappingDetailsId = useId();
 	const [showTokenPricing, setShowTokenPricing] = useState(false);
 	const [showMappingDetails, setShowMappingDetails] = useState(false);
@@ -675,7 +679,12 @@ export function ProviderSection({
 	>("peak");
 	const [selectedServiceTierId, setSelectedServiceTierId] =
 		useState("standard");
-	const activeMapping = mappings[activeRegionIdx] ?? mappings[0];
+	const activeMapping =
+		mappings.find(
+			(mapping) =>
+				selectedRegion !== undefined &&
+				(mapping.region ?? null) === selectedRegion,
+		) ?? getDefaultProviderMapping(mappings);
 	const isDeactivated = isMappingDeactivated(activeMapping);
 	const isScheduled =
 		!isDeactivated &&
@@ -871,13 +880,14 @@ export function ProviderSection({
 						<button
 							key={`${mapping.providerId}-${mapping.region ?? "default"}-${idx}`}
 							type="button"
+							aria-pressed={activeMapping === mapping}
 							onClick={(e) => {
 								e.stopPropagation();
-								setActiveRegionIdx(idx);
+								setSelectedRegion(mapping.region ?? null);
 							}}
 							className={cn(
 								"px-2 py-1 rounded text-[10px] font-medium transition-colors whitespace-nowrap",
-								activeRegionIdx === idx
+								activeMapping === mapping
 									? "bg-background text-foreground shadow-sm border border-border/50"
 									: "text-muted-foreground hover:text-foreground",
 							)}
@@ -1374,8 +1384,8 @@ export function ProviderSection({
 												activeMapping.pricingTiers![index - 1]?.upToTokens ?? 0;
 											const label =
 												tier.upToTokens === null
-													? `>${(prevTokens / 1000).toLocaleString()}K tokens`
-													: `≤${(tier.upToTokens / 1000).toLocaleString()}K tokens`;
+													? `>${formatNumber(prevTokens / 1000)}K tokens`
+													: `≤${formatNumber(tier.upToTokens / 1000)}K tokens`;
 											return (
 												<div
 													key={index}

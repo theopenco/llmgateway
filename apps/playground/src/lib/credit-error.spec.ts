@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	chatPlanCreditErrorMessage,
 	isInsufficientCreditsError,
+	organizationCreditErrorMessage,
 } from "./credit-error";
 
 describe("isInsufficientCreditsError", () => {
@@ -38,6 +39,29 @@ describe("isInsufficientCreditsError", () => {
 			false,
 		);
 		expect(isInsufficientCreditsError(undefined, undefined)).toBe(false);
+	});
+});
+
+describe("organizationCreditErrorMessage", () => {
+	it.each(["developer", "project_admin", undefined])(
+		"directs %s to an administrator",
+		(role) => {
+			expect(
+				organizationCreditErrorMessage("Please add credits", role, 402),
+			).toBe(
+				"Your organization has insufficient credits. Contact an organization administrator.",
+			);
+		},
+	);
+	it.each(["owner", "admin"])("preserves top-up guidance for %s", (role) => {
+		expect(
+			organizationCreditErrorMessage("Please add credits", role, 402),
+		).toBe("Please add credits");
+	});
+	it("preserves unrelated errors", () => {
+		expect(
+			organizationCreditErrorMessage("Invalid image size", "developer", 400),
+		).toBe("Invalid image size");
 	});
 });
 

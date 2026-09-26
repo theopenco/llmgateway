@@ -7,14 +7,11 @@ import Link from "next/link";
 import { useApi } from "@/lib/fetch-client";
 import { formatCredits } from "@/lib/format-credits";
 
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
+
 import { TopUpCreditsDialog } from "./top-up-credits-dialog";
 
-interface Organization {
-	id: string;
-	name: string;
-	credits: string;
-	plan: "free" | "pro" | "enterprise";
-}
+import type { Organization } from "@/lib/types";
 
 interface CreditsDisplayProps {
 	organization: Organization | null;
@@ -37,6 +34,10 @@ export function CreditsDisplay({
 	});
 	const plan = planQuery.data;
 	const hasActivePlan = isChatPlanOrg && plan && plan.chatPlan !== "none";
+
+	if (!isChatPlanOrg && !isOrganizationAdmin(organization?.role)) {
+		return null;
+	}
 
 	if (isLoading) {
 		return (

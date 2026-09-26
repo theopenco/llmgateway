@@ -30,12 +30,19 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
-	getVideoDurations,
-	getVideoSizeLabel,
-	getVideoSizes,
+	findVideoSize,
+	getVideoOrientation,
+	getVideoOrientationLabel,
+	getVideoOrientations,
+	getVideoResolution,
+	getVideoResolutionLabel,
+	getVideoResolutions,
+	getVideoSizeDimensions,
 	type VideoDuration,
 	type VideoFrameInputs,
 	type VideoInputImage,
+	type VideoOrientation,
+	type VideoResolution,
 	type VideoSize,
 } from "@/lib/video-gen";
 
@@ -52,6 +59,7 @@ interface VideoControlsProps {
 	audioToggleDisabled: boolean;
 	audioToggleDisabledReason?: string;
 	canUseFrameInputs: boolean;
+	canUseEndFrameInputs: boolean;
 	canUseReferenceInputs: boolean;
 	canUseReferenceVideoInputs: boolean;
 	canUseReferenceAudioInputs: boolean;
@@ -65,12 +73,19 @@ interface VideoControlsProps {
 	setReferenceAudios: Dispatch<SetStateAction<string[]>>;
 	supportedVideoSizes: VideoSize[];
 	supportedVideoDurations: VideoDuration[];
+	// Estimated cost of one generation across the models it will run on; null
+	// when a selected model has no eligible mapping or no pricing.
+	estimatedCostUsd: number | null;
 	isGenerating: boolean;
 	onGenerate: () => void;
 	imageInputRequired?: boolean;
 }
 
 type UploadTarget = "frame-start" | "frame-end" | "reference";
+
+function formatEstimate(value: number): string {
+	return value > 0 && value < 0.01 ? "<$0.01" : `$${value.toFixed(2)}`;
+}
 
 export function VideoControls({
 	prompt,
@@ -85,6 +100,7 @@ export function VideoControls({
 	audioToggleDisabled,
 	audioToggleDisabledReason,
 	canUseFrameInputs,
+	canUseEndFrameInputs,
 	canUseReferenceInputs,
 	canUseReferenceVideoInputs,
 	canUseReferenceAudioInputs,
@@ -98,6 +114,7 @@ export function VideoControls({
 	setReferenceAudios,
 	supportedVideoSizes,
 	supportedVideoDurations,
+	estimatedCostUsd,
 	isGenerating,
 	onGenerate,
 	imageInputRequired,
@@ -108,6 +125,43 @@ export function VideoControls({
 	const [isDragging, setIsDragging] = useState(false);
 	const [uploadTarget, setUploadTarget] = useState<UploadTarget>("frame-start");
 	const [referenceVideoDraft, setReferenceVideoDraft] = useState("");
+
+	// The size picker is split into resolution and aspect ratio. Each list is
+	// built from the sizes the selection supports, plus the current value so
+	// the picker never goes blank while a selection change is being normalized.
+	const resolution = getVideoResolution(videoSize);
+	const orientation = getVideoOrientation(videoSize);
+	const resolutions = getVideoResolutions(supportedVideoSizes);
+	if (!resolutions.includes(resolution)) {
+		resolutions.push(resolution);
+	}
+	const orientations = getVideoOrientations(supportedVideoSizes, resolution);
+	if (!orientations.includes(orientation)) {
+		orientations.push(orientation);
+	}
+	const durations = supportedVideoDurations.includes(videoDuration)
+		? supportedVideoDurations
+		: [...supportedVideoDurations, videoDuration].sort((a, b) => a - b);
+
+	const selectResolution = (next: VideoResolution) => {
+		const size =
+			findVideoSize(supportedVideoSizes, next, orientation) ??
+			findVideoSize(
+				supportedVideoSizes,
+				next,
+				orientation === "landscape" ? "portrait" : "landscape",
+			);
+		if (size) {
+			setVideoSize(size);
+		}
+	};
+
+	const selectOrientation = (next: VideoOrientation) => {
+		const size = findVideoSize(supportedVideoSizes, resolution, next);
+		if (size) {
+			setVideoSize(size);
+		}
+	};
 
 	const addReferenceVideo = useCallback(() => {
 		const url = referenceVideoDraft.trim();
@@ -156,15 +210,24 @@ export function VideoControls({
 		selectedModels.length > 0 &&
 		!missingRequiredImage;
 	const canAcceptInput = canUseFrameInputs || canUseReferenceInputs;
+	// A last frame is only accepted alongside a first frame.
+	const canAddEndFrame = canUseEndFrameInputs && !!frameInputs.start;
+	const endFrameDisabledReason = !canUseFrameInputs
+		? "Frame input not supported by selected model"
+		: !canUseEndFrameInputs
+			? "The selected model only accepts a first frame"
+			: !frameInputs.start
+				? "Add a first frame before a last frame"
+				: undefined;
 	const defaultUploadTarget: UploadTarget = !canUseReferenceInputs
-		? frameInputs.start
+		? frameInputs.start && canAddEndFrame
 			? "frame-end"
 			: "frame-start"
 		: !canUseFrameInputs ||
 			  uploadTarget === "reference" ||
 			  referenceImages.length > 0
 			? "reference"
-			: frameInputs.start
+			: frameInputs.start && canAddEndFrame
 				? "frame-end"
 				: "frame-start";
 
@@ -180,6 +243,10 @@ export function VideoControls({
 				(target === "frame-start" || target === "frame-end") &&
 				!canUseFrameInputs
 			) {
+				return;
+			}
+
+			if (target === "frame-end" && !canAddEndFrame) {
 				return;
 			}
 
@@ -232,6 +299,7 @@ export function VideoControls({
 		},
 		[
 			canAcceptInput,
+			canAddEndFrame,
 			canUseFrameInputs,
 			canUseReferenceInputs,
 			defaultUploadTarget,
@@ -353,6 +421,12 @@ export function VideoControls({
 		setUploadTarget(target);
 		fileInputRef.current?.click();
 	};
+
+	const videoCount = selectedModels.length;
+	const estimateTitle =
+		estimatedCostUsd === null
+			? undefined
+			: `Estimated cost for ${videoCount} video${videoCount === 1 ? "" : "s"} at ${getVideoSizeDimensions(videoSize)} for ${videoDuration}s. The actual charge is settled when the job finishes.`;
 
 	return (
 		<div className="border-b bg-background p-4">
@@ -524,12 +598,8 @@ export function VideoControls({
 							variant="outline"
 							size="sm"
 							onClick={() => openFilePicker("frame-end")}
-							disabled={isGenerating || !canUseFrameInputs}
-							title={
-								!canUseFrameInputs
-									? "Frame input not supported by selected model"
-									: undefined
-							}
+							disabled={isGenerating || !canAddEndFrame}
+							title={endFrameDisabledReason}
 						>
 							<ImagePlus className="mr-1.5 h-4 w-4" />
 							{frameInputs.end ? "Replace last" : "Last frame"}
@@ -624,41 +694,76 @@ export function VideoControls({
 						</div>
 					)}
 					<Select
-						value={videoSize}
-						onValueChange={(val) => setVideoSize(val as VideoSize)}
+						value={resolution}
+						onValueChange={(val) => selectResolution(val as VideoResolution)}
+						disabled={isGenerating}
 					>
-						<SelectTrigger size="sm" className="min-w-[160px]">
+						<SelectTrigger
+							size="sm"
+							className="min-w-[96px]"
+							aria-label="Resolution"
+							title="Resolution"
+						>
 							<SelectValue placeholder="Resolution" />
 						</SelectTrigger>
 						<SelectContent>
-							{getVideoSizes().map((size) => (
-								<SelectItem
-									key={size}
-									value={size}
-									disabled={!supportedVideoSizes.includes(size)}
-								>
-									{getVideoSizeLabel(size)}
+							{resolutions.map((option) => (
+								<SelectItem key={option} value={option}>
+									{getVideoResolutionLabel(option)}
 								</SelectItem>
 							))}
 						</SelectContent>
 					</Select>
 					<Select
+						value={orientation}
+						onValueChange={(val) => selectOrientation(val as VideoOrientation)}
+						disabled={isGenerating || orientations.length < 2}
+					>
+						<SelectTrigger
+							size="sm"
+							className="min-w-[120px]"
+							aria-label="Aspect ratio"
+							title={
+								orientations.length < 2
+									? `Only ${getVideoOrientationLabel(orientation).toLowerCase()} is available at ${getVideoResolutionLabel(resolution)} for the selected model`
+									: "Aspect ratio"
+							}
+						>
+							<SelectValue placeholder="Aspect ratio" />
+						</SelectTrigger>
+						<SelectContent>
+							{orientations.map((option) => (
+								<SelectItem key={option} value={option}>
+									{getVideoOrientationLabel(option)}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					<span
+						className="text-xs text-muted-foreground tabular-nums"
+						title="Output size"
+					>
+						{getVideoSizeDimensions(videoSize)}
+					</span>
+					<Select
 						value={String(videoDuration)}
 						onValueChange={(val) =>
 							setVideoDuration(Number(val) as VideoDuration)
 						}
+						disabled={isGenerating}
 					>
-						<SelectTrigger size="sm" className="min-w-[100px]">
+						<SelectTrigger
+							size="sm"
+							className="min-w-[80px]"
+							aria-label="Duration"
+							title="Duration"
+						>
 							<SelectValue placeholder="Duration" />
 						</SelectTrigger>
 						<SelectContent>
-							{getVideoDurations().map((duration) => (
-								<SelectItem
-									key={duration}
-									value={String(duration)}
-									disabled={!supportedVideoDurations.includes(duration)}
-								>
-									{duration} seconds
+							{durations.map((duration) => (
+								<SelectItem key={duration} value={String(duration)}>
+									{duration}s
 								</SelectItem>
 							))}
 						</SelectContent>
@@ -683,6 +788,14 @@ export function VideoControls({
 						<p className="text-sm text-destructive">
 							This model requires a start frame image
 						</p>
+					)}
+					{estimatedCostUsd !== null && (
+						<span
+							className="text-sm text-muted-foreground tabular-nums"
+							title={estimateTitle}
+						>
+							≈ {formatEstimate(estimatedCostUsd)}
+						</span>
 					)}
 					<Button
 						onClick={onGenerate}

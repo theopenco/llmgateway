@@ -42,7 +42,10 @@ import {
 	expandAllProviderRegions,
 	type StabilityLevel,
 } from "@llmgateway/models";
-import { isMappingDeactivated } from "@llmgateway/shared/components";
+import {
+	getDefaultProviderMapping,
+	isMappingDeactivated,
+} from "@llmgateway/shared/components";
 
 import type { Metadata } from "next";
 
@@ -55,6 +58,17 @@ export default async function ModelProviderPage({ params }: PageProps) {
 	const decodedName = decodeURIComponent(name);
 	const decodedProvider = decodeURIComponent(provider);
 
+	// fetchServerData resolves to null on failure, including after an early 404.
+	const modelDataPromise = Promise.all([
+		fetchServerData<{ discounts: DiscountData[] }>(
+			"GET",
+			"/public/discounts/model/{modelId}",
+			{ params: { path: { modelId: decodedName } } },
+		),
+		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
+			params: { query: { modelId: decodedName } },
+		}),
+	]);
 	const modelDef = await findPublicModelDefinition(decodedName);
 
 	if (!modelDef) {
@@ -73,25 +87,14 @@ export default async function ModelProviderPage({ params }: PageProps) {
 		permanentRedirect(`/models/${encodeURIComponent(decodedName)}`);
 	}
 
-	const staticProviderMapping = providerMappings[0];
+	const staticProviderMapping = getDefaultProviderMapping(providerMappings);
 
 	const providerInfo =
 		providerDefinitions.find((p) => p.id === decodedProvider) ??
 		((await fetchProviders()).find(
 			(provider) => provider.id === decodedProvider,
 		) as unknown as (typeof providerDefinitions)[number] | undefined);
-
-	// Fetch global discounts and apply to provider
-	const [discountData, ratingsData] = await Promise.all([
-		fetchServerData<{ discounts: DiscountData[] }>(
-			"GET",
-			"/public/discounts/model/{modelId}",
-			{ params: { path: { modelId: decodedName } } },
-		),
-		fetchServerData<ModelRatingsData>("GET", "/public/model-ratings", {
-			params: { query: { modelId: decodedName } },
-		}),
-	]);
+	const [discountData, ratingsData] = await modelDataPromise;
 	const discounts = discountData?.discounts ?? [];
 	// A provider whose mappings are all deactivated still renders this page, but
 	// nothing can be routed to it — so it must not advertise a discounted price.

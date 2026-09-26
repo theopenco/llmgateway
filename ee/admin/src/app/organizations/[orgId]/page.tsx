@@ -23,6 +23,7 @@ import { EnterpriseDealDialog } from "@/components/enterprise-deal-dialog";
 import { GiftCreditsDialog } from "@/components/gift-credits-dialog";
 import { ManualCreditsDialog } from "@/components/manual-credits-dialog";
 import { PlanTermBadge } from "@/components/plan-term-badge";
+import { RefundPaymentDialog } from "@/components/refund-payment-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -39,6 +40,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { refundDevpassPayment } from "@/lib/admin-devpass";
 import {
 	addEnterpriseDealToOrganization,
 	addManualCreditsToOrganization,
@@ -61,6 +63,7 @@ import { AuditLogsTab } from "./audit-logs-tab";
 import { GuardrailsTab } from "./guardrails-tab";
 import { ManageOrgDialog } from "./manage-org-dialog";
 import { MemberAccessTab } from "./member-access-tab";
+import { OrgContentFilterActivity } from "./org-content-filter-activity";
 import { OrgCostByModel } from "./org-cost-by-model";
 import { OrgCostByModelTimeseries } from "./org-cost-by-model-timeseries";
 import { OrgMetricsSection } from "./org-metrics";
@@ -290,6 +293,7 @@ export default async function OrganizationPage({
 	]);
 	const transactionsData = transactionsRes.data;
 	const trustTier = orgMetricsRes.data?.trustTier;
+	const contentFilterTier = orgMetricsRes.data?.contentFilterTier;
 	const projectsData = projectsRes.data;
 	const apiKeysData = apiKeysRes.data;
 	const providerKeysData = providerKeysRes.data;
@@ -376,6 +380,12 @@ export default async function OrganizationPage({
 								projectLimit={org.projectLimit ?? null}
 								trustTierOverride={
 									trustTier?.overridden ? trustTier.tier : null
+								}
+								contentFilterTierOverride={
+									settingsData?.organization.contentFilterTierOverride
+								}
+								contentFilterLogOnly={
+									settingsData?.organization.contentFilterLogOnly
 								}
 								planExpiresAt={org.planExpiresAt ?? null}
 								planStartedAt={org.planStartedAt ?? null}
@@ -464,6 +474,17 @@ export default async function OrganizationPage({
 											: trustTier.exempt === "dev"
 												? "Dev plan limits"
 												: "Chat plan limits"}
+							</p>
+							<p className="mt-1 text-xs text-muted-foreground">
+								<Link
+									href="#content-filter"
+									className="underline-offset-2 hover:underline"
+								>
+									Content filter:{" "}
+									{!contentFilterTier
+										? "default"
+										: `tier ${contentFilterTier.tier} · ${contentFilterTier.level}${contentFilterTier.overridden ? " · manual" : ""}${contentFilterTier.exempt ? " · enterprise" : ""}${contentFilterTier.logOnly ? " · log only" : ""}`}
+								</Link>
 							</p>
 						</div>
 					</div>
@@ -596,9 +617,9 @@ export default async function OrganizationPage({
 									disabledReason={
 										getOrgDeletionBlockedReason(org.credits) ?? undefined
 									}
-									onBlock={async (id) => {
+									onBlock={async (id, reason) => {
 										"use server";
-										return await blockOrganization(id);
+										return await blockOrganization(id, reason);
 									}}
 								/>
 							</div>
@@ -612,6 +633,8 @@ export default async function OrganizationPage({
 			<OrgCostByModel orgId={orgId} />
 
 			<OrgCostByModelTimeseries orgId={orgId} />
+
+			<OrgContentFilterActivity orgId={orgId} />
 
 			{projects.length > 0 && (
 				<section className="space-y-4">
@@ -789,6 +812,49 @@ export default async function OrganizationPage({
 														)}
 													</TableCell>
 													<TableCell className="text-right">
+														{transaction.refundability && (
+															<div className="flex items-center justify-end gap-2">
+																{parseFloat(
+																	transaction.refundability.refundedAmount,
+																) > 0 && (
+																	<Badge variant="outline">
+																		refunded{" "}
+																		{creditsFormatter.format(
+																			parseFloat(
+																				transaction.refundability
+																					.refundedAmount,
+																			),
+																		)}
+																	</Badge>
+																)}
+																<RefundPaymentDialog
+																	transactionId={transaction.id}
+																	transactionLabel={formatTransactionType(
+																		transaction.type,
+																	)}
+																	amount={transaction.amount ?? "0"}
+																	refundedAmount={
+																		transaction.refundability.refundedAmount
+																	}
+																	refundableAmount={
+																		transaction.refundability.refundableAmount
+																	}
+																	refundable={
+																		transaction.refundability.refundable
+																	}
+																	refundIneligibleReason={
+																		transaction.refundability.reason
+																	}
+																	onRefund={async (refundData) => {
+																		"use server";
+																		return await refundDevpassPayment(
+																			orgId,
+																			refundData,
+																		);
+																	}}
+																/>
+															</div>
+														)}
 														{transaction.type === "enterprise_license_fee" ? (
 															<EnterpriseDealDialog
 																orgName={org.name}

@@ -2,8 +2,10 @@ import { ShieldAlert } from "lucide-react";
 import Link from "next/link";
 
 import { BlockedSignupCountriesForm } from "@/components/blocked-signup-countries-form";
+import { BlockedSignupEmailDomainsForm } from "@/components/blocked-signup-email-domains-form";
 import { CreditPurchaseBlockToggle } from "@/components/credit-purchase-block-toggle";
 import { ForceThreeDSecureForm } from "@/components/force-three-d-secure-form";
+import { SystemBannerForm } from "@/components/system-banner-form";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
@@ -14,14 +16,21 @@ import {
 } from "@/components/ui/card";
 import {
 	getBlockedSignupCountries,
+	getBlockedSignupEmailDomains,
 	getCreditPurchaseBlock,
 	getForceThreeDSecure,
+	getSystemBanner,
 	updateBlockedSignupCountries,
+	updateBlockedSignupEmailDomains,
 	updateCreditPurchaseBlock,
 	updateForceThreeDSecure,
+	updateSystemBanner,
 } from "@/lib/admin-settings";
 
-import type { ForceThreeDSecureMode } from "@/lib/admin-settings";
+import type {
+	ForceThreeDSecureMode,
+	SystemBannerSettingInput,
+} from "@/lib/admin-settings";
 
 function SignInPrompt() {
 	return (
@@ -44,17 +53,26 @@ function SignInPrompt() {
 }
 
 export default async function SettingsPage() {
-	const [creditPurchaseBlock, blockedSignupCountries, forceThreeDSecure] =
-		await Promise.all([
-			getCreditPurchaseBlock(),
-			getBlockedSignupCountries(),
-			getForceThreeDSecure(),
-		]);
+	const [
+		creditPurchaseBlock,
+		blockedSignupCountries,
+		blockedSignupEmailDomains,
+		forceThreeDSecure,
+		systemBanner,
+	] = await Promise.all([
+		getCreditPurchaseBlock(),
+		getBlockedSignupCountries(),
+		getBlockedSignupEmailDomains(),
+		getForceThreeDSecure(),
+		getSystemBanner(),
+	]);
 
 	if (
 		creditPurchaseBlock === null ||
 		blockedSignupCountries === null ||
-		forceThreeDSecure === null
+		blockedSignupEmailDomains === null ||
+		forceThreeDSecure === null ||
+		systemBanner === null
 	) {
 		return <SignInPrompt />;
 	}
@@ -70,6 +88,18 @@ export default async function SettingsPage() {
 		"use server";
 
 		return await updateBlockedSignupCountries(countries);
+	}
+
+	async function handleSaveEmailDomains(domains: string[]) {
+		"use server";
+		return await updateBlockedSignupEmailDomains(domains);
+	}
+
+	async function handleSaveBanner(input: SystemBannerSettingInput) {
+		"use server";
+
+		const result = await updateSystemBanner(input);
+		return { ok: result.banner !== null, message: result.message };
 	}
 
 	async function handleSaveThreeDSecure(mode: ForceThreeDSecureMode) {
@@ -88,10 +118,24 @@ export default async function SettingsPage() {
 				<div>
 					<h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
 					<p className="text-sm text-muted-foreground">
-						Platform-wide emergency switches
+						Platform-wide announcements and emergency switches
 					</p>
 				</div>
 			</header>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Announcement banner</CardTitle>
+					<CardDescription>
+						Shown at the top of the main dashboard and landing pages, DevPass,
+						the docs and Airside. Use it for incidents and short-lived notices —
+						switch it off as soon as it stops being true.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<SystemBannerForm banner={systemBanner} onSave={handleSaveBanner} />
+				</CardContent>
+			</Card>
 
 			<Card>
 				<CardHeader>
@@ -126,6 +170,23 @@ export default async function SettingsPage() {
 					<BlockedSignupCountriesForm
 						countries={blockedSignupCountries.countries}
 						onSave={handleSaveCountries}
+					/>
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Blocked sign-up email domains</CardTitle>
+					<CardDescription>
+						In hosted mode, email sign-ups from these domains and their
+						subdomains are rejected. Existing users can still sign in.
+						Disposable email and plus-address checks remain active.
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<BlockedSignupEmailDomainsForm
+						domains={blockedSignupEmailDomains.domains}
+						onSave={handleSaveEmailDomains}
 					/>
 				</CardContent>
 			</Card>

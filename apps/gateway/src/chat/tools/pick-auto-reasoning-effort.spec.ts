@@ -50,6 +50,21 @@ describe("pickAutoReasoningEffort", () => {
 		).toBe("low");
 	});
 
+	it("prefers medium for classifier-hard requests when supported", () => {
+		expect(
+			pickAutoReasoningEffort("gpt-5-mini", ["minimal", "low", "medium"], true),
+		).toBe("medium");
+		expect(pickAutoReasoningEffort("claude-opus-4.5", undefined, true)).toBe(
+			"medium",
+		);
+	});
+
+	it("sets nothing for a hard request when medium is unsupported", () => {
+		expect(
+			pickAutoReasoningEffort("gpt-5-pro", ["high", "xhigh"], true),
+		).toBeUndefined();
+	});
+
 	it("keeps the previous default when the mapping declares no efforts", () => {
 		expect(pickAutoReasoningEffort("gpt-5-mini", undefined)).toBe("minimal");
 		expect(pickAutoReasoningEffort("claude-opus-4.5", undefined)).toBe("low");

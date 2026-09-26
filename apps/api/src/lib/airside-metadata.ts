@@ -1,24 +1,34 @@
 import { z } from "zod";
 
+import { REASONING_EFFORTS, TOOL_CHOICE_MODES } from "@llmgateway/models";
+
 import type { AirsideModelMetadataChanges, tables } from "@llmgateway/db";
 
-export const REASONING_EFFORT_VALUES = [
-	"none",
-	"minimal",
-	"low",
-	"medium",
-	"high",
-	"xhigh",
-	"max",
-] as const;
+export const REASONING_EFFORT_VALUES = REASONING_EFFORTS;
 
 export const reasoningEffortsValue = z
 	.array(z.enum(REASONING_EFFORT_VALUES))
-	.max(7);
+	.max(REASONING_EFFORTS.length);
+
+export const supportedToolChoicesValue = z
+	.array(z.enum(TOOL_CHOICE_MODES))
+	.max(TOOL_CHOICE_MODES.length);
+
+export const quantizationValue = z.enum([
+	"int4",
+	"int8",
+	"fp4",
+	"fp6",
+	"fp8",
+	"fp16",
+	"bf16",
+	"fp32",
+]);
 
 /** Non-price fields a carrier may change on a listing. On an active listing
  *  the diff is filed for admin approval instead of applied. */
 export const airsideModelMetadataSchema = z.object({
+	quantization: quantizationValue.nullish(),
 	displayName: z.string().max(200).nullish(),
 	description: z.string().max(2000).nullish(),
 	family: z.string().min(1).max(100).optional(),
@@ -28,6 +38,10 @@ export const airsideModelMetadataSchema = z.object({
 	vision: z.boolean().optional(),
 	audio: z.boolean().optional(),
 	tools: z.boolean().optional(),
+	// Narrowing what the upstream accepts, unlike jsonOutputSchema/
+	// reasoningMaxTokens/webSearch, which stay out of this schema because a
+	// carrier may not raise them without a verification proving them.
+	supportedToolChoices: supportedToolChoicesValue.nullish(),
 	jsonOutput: z.boolean().optional(),
 	reasoning: z.boolean().optional(),
 	reasoningEfforts: reasoningEffortsValue.nullish(),

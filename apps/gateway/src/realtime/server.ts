@@ -17,6 +17,7 @@ import {
 import {
 	findRealtimeMapping,
 	findRealtimeTranscriptionMapping,
+	findTranscriptionSessionMapping,
 } from "./catalog.js";
 import {
 	CLIENT_SECRET_PREFIX,
@@ -30,7 +31,10 @@ import { runRealtimePreflight } from "./preflight.js";
 import { RealtimeProxySession } from "./session.js";
 
 import type { RealtimeMappingMatch } from "./catalog.js";
-import type { RealtimePreflightResult } from "./preflight.js";
+import type {
+	RealtimePreflightResult,
+	RealtimeSessionType,
+} from "./preflight.js";
 import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 import type { WebSocket } from "ws";
@@ -54,12 +58,17 @@ interface ShutdownableSession {
 export function realtimeModelIdsMatch(
 	requestedModel: string,
 	pinnedModel: string,
+	sessionType: RealtimeSessionType = "realtime",
 ): boolean {
 	if (requestedModel === pinnedModel) {
 		return true;
 	}
-	const requestedMatch = findRealtimeMapping(requestedModel);
-	const pinnedMatch = findRealtimeMapping(pinnedModel);
+	const resolve =
+		sessionType === "transcription"
+			? findTranscriptionSessionMapping
+			: findRealtimeMapping;
+	const requestedMatch = resolve(requestedModel);
+	const pinnedMatch = resolve(pinnedModel);
 	return (
 		requestedMatch !== null &&
 		pinnedMatch !== null &&
@@ -292,6 +301,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 
 			let token = headerToken;
 			let requestedModel = url.searchParams.get("model") ?? undefined;
+			let intent = url.searchParams.get("intent") ?? undefined;
 			let source = extractSource(req);
 			let secretTranscriptionModel: string | null = null;
 			let pinnedInstructions: string | null = null;
@@ -326,9 +336,24 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 					);
 					return;
 				}
+				const secretIntent =
+					record.sessionType === "transcription" ? "transcription" : undefined;
+				if (intent !== undefined && intent !== secretIntent) {
+					writeHttpError(
+						socket,
+						400,
+						"intent_mismatch",
+						"The requested intent does not match the session type this client secret was minted for.",
+					);
+					return;
+				}
 				if (
 					requestedModel &&
-					!realtimeModelIdsMatch(requestedModel, record.model)
+					!realtimeModelIdsMatch(
+						requestedModel,
+						record.model,
+						record.sessionType,
+					)
 				) {
 					writeHttpError(
 						socket,
@@ -339,6 +364,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 					return;
 				}
 				requestedModel = record.model;
+				intent = secretIntent;
 				token = record.token;
 				source = record.source;
 				secretTranscriptionModel = record.transcriptionModel;
@@ -354,6 +380,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 				preflight = await runRealtimePreflight({
 					token,
 					requestedModel,
+					intent,
 					clientIp: extractClientIp(req),
 				});
 			} catch (error) {
@@ -368,9 +395,11 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 
 			// Resolve/validate a pinned transcription model against the session's
 			// resolved upstream provider now that preflight determined it. A
-			// mapping deactivated since mint time invalidates the pin.
-			let allowedTranscription: RealtimeMappingMatch | null = null;
-			if (secretTranscriptionModel) {
+			// mapping deactivated since mint time invalidates the pin. A
+			// transcription session is pinned to its own model.
+			let allowedTranscription: RealtimeMappingMatch | null =
+				preflight.sessionType === "transcription" ? preflight.match : null;
+			if (secretTranscriptionModel && !allowedTranscription) {
 				allowedTranscription = findRealtimeTranscriptionMapping(
 					secretTranscriptionModel,
 					preflight.match.mapping.providerId,
@@ -581,6 +610,7 @@ export function attachRealtimeServer(server: Server): RealtimeServer {
 						sessionId: sessionRecord.id,
 						organizationId: preflight.project.organizationId,
 						model: preflight.match.modelId,
+						sessionType: preflight.sessionType,
 						usedMode: preflight.usedMode,
 					});
 				});

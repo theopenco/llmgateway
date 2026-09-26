@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import type { paths } from "@/lib/api/v1";
 import type { Page, Route } from "@playwright/test";
 
 // Requires a freshly seeded local stack (`pnpm setup` + dev servers): the
@@ -23,6 +24,36 @@ function corsHeaders(route: Route) {
 		"access-control-allow-headers": "content-type",
 		"access-control-allow-methods": "GET,POST,OPTIONS",
 	};
+}
+
+async function openModelEditor(page: Page, modelName: string) {
+	await page.getByTestId(`edit-${modelName}`).click();
+	const dialog = page.getByRole("dialog", {
+		name: `Edit ${modelName}`,
+		exact: true,
+		includeHidden: true,
+	});
+	await expect(dialog).toBeVisible();
+	return dialog;
+}
+
+async function waitForModelEditorClosed(page: Page, modelName: string) {
+	// Radix restores focus after its exit animation and portal teardown.
+	await expect(page.getByRole("dialog", { includeHidden: true })).toHaveCount(
+		0,
+	);
+	await expect(page.getByTestId(`edit-${modelName}`)).toBeFocused();
+}
+
+async function saveModelEditor(page: Page, modelName: string) {
+	const response = page.waitForResponse(
+		(response) =>
+			response.request().method() === "PATCH" &&
+			/\/airside\/models\/[^/]+$/.test(new URL(response.url()).pathname),
+	);
+	await page.getByTestId("edit-model-submit").click();
+	expect((await response).status()).toBe(200);
+	await waitForModelEditorClosed(page, modelName);
 }
 
 test("landing page shows the departure board and CTA", async ({ page }) => {
@@ -52,6 +83,68 @@ test("seeded carrier sees operations and its claimed provider", async ({
 	await expect(operations).toContainText("mistral-large-4");
 });
 
+test("dashboard labels follow approved provider branding", async ({ page }) => {
+	type CompaniesResponse =
+		paths["/airside/companies"]["get"]["responses"]["200"]["content"]["application/json"];
+	let providerName = "Approved Carrier";
+	let pendingBranding: { name: string } | null = { name: "Pending Carrier" };
+	let claimStatuses: ("active" | "pending" | "rejected")[] = [
+		"active",
+		"pending",
+		"rejected",
+	];
+	await page.route("**/airside/companies", async (route) => {
+		const response = await route.fetch();
+		const data = (await response.json()) as CompaniesResponse;
+		await route.fulfill({
+			response,
+			json: {
+				companies: data.companies.map((company) => ({
+					...company,
+					name: "Original Company",
+					claims: claimStatuses.map((status, index) => ({
+						...company.claims[0],
+						id: `branding-claim-${index}`,
+						providerId: `branding-provider-${index}`,
+						providerName,
+						pendingBranding,
+						status,
+					})),
+				})),
+			},
+		});
+	});
+	await login(page);
+	const heading = page.getByRole("heading", { level: 1 });
+	const selector = page.getByTestId("company-select");
+	await expect(heading).toHaveText("Approved Carrier");
+	await expect(selector).toHaveText("Approved Carrier");
+
+	providerName = "Updated Carrier";
+	pendingBranding = null;
+	await expect(heading).toHaveText("Updated Carrier", { timeout: 40_000 });
+	await expect(selector).toHaveText("Updated Carrier");
+	await selector.click();
+	await expect(
+		page.getByRole("option", { name: "Updated Carrier", exact: true }),
+	).toBeVisible();
+	await page.keyboard.press("Escape");
+	await page.reload();
+	await expect(heading).toHaveText("Updated Carrier");
+	await expect(selector).toHaveText("Updated Carrier");
+
+	for (const statuses of [
+		["active", "active"],
+		["pending", "rejected"],
+		[],
+	] as const) {
+		claimStatuses = [...statuses];
+		await page.reload();
+		await expect(heading).toHaveText("Original Company");
+		await expect(selector).toHaveText("Original Company");
+	}
+});
+
 test("fleet lists seeded models with their filing states", async ({ page }) => {
 	await login(page);
 	await page.goto("/dashboard/fleet");
@@ -71,6 +164,56 @@ test("fleet lists seeded models with their filing states", async ({ page }) => {
 	await expect(updating).toContainText("Fare filed");
 	// A pending filing blocks a second one.
 	await expect(page.getByTestId("file-fare-codestral-3")).toBeDisabled();
+});
+
+test("quantization edits persist on draft cards", async ({ page }) => {
+	await login(page);
+	await page.goto("/dashboard/fleet");
+	const draft = page.getByTestId("model-strip-mistral-large-4");
+	for (const quantization of ["FP8", "Unknown"]) {
+		const dialog = await openModelEditor(page, "mistral-large-4");
+		await dialog.getByLabel("Quantization", { exact: true }).click();
+		await page.getByRole("option", { name: quantization, exact: true }).click();
+		await saveModelEditor(page, "mistral-large-4");
+		await page.reload();
+		await expect(draft).toBeVisible();
+		if (quantization === "Unknown") {
+			await expect(draft).not.toContainText("Quant:");
+		} else {
+			await expect(draft).toContainText(`Quant: ${quantization}`);
+		}
+		await openModelEditor(page, "mistral-large-4");
+		await expect(dialog.getByLabel("Quantization", { exact: true })).toHaveText(
+			quantization,
+		);
+		await page.keyboard.press("Escape");
+		await waitForModelEditorClosed(page, "mistral-large-4");
+	}
+});
+
+test("quantization edits stay pending on live models and can be withdrawn", async ({
+	page,
+}) => {
+	await login(page);
+	await page.goto("/dashboard/fleet");
+	const dialog = await openModelEditor(page, "mistral-medium-4");
+	await dialog.getByLabel("Quantization", { exact: true }).click();
+	await page.getByRole("option", { name: "BF16", exact: true }).click();
+	await saveModelEditor(page, "mistral-medium-4");
+	await page.reload();
+	const active = page.getByTestId("model-strip-mistral-medium-4");
+	await expect(active).toContainText("Change filed");
+	await expect(active).not.toContainText("Quant: BF16");
+	await openModelEditor(page, "mistral-medium-4");
+	await expect(dialog.getByLabel("Quantization", { exact: true })).toHaveText(
+		"BF16",
+	);
+	await dialog.getByLabel("Quantization", { exact: true }).click();
+	await page.getByRole("option", { name: "Unknown", exact: true }).click();
+	await saveModelEditor(page, "mistral-medium-4");
+	await page.reload();
+	await expect(active).toContainText("In service");
+	await expect(active).not.toContainText("Change filed");
 });
 
 test("registering a model requires provider preflight", async ({ page }) => {
@@ -119,10 +262,12 @@ test("registering a model requires provider preflight", async ({ page }) => {
 	await page.getByTestId("register-model-button").click();
 	await page.getByTestId("model-name-input").fill("pw-preflight-model");
 	await page.getByLabel("Family").fill("playwright");
+	await page.getByLabel("Quantization", { exact: true }).click();
+	await page.getByRole("option", { name: "FP8", exact: true }).click();
 	// Prices are entered as dollars per million tokens.
 	await page.getByTestId("input-price").fill("1");
 	await page.getByTestId("output-price").fill("3");
-	await expect(page.getByLabel("Provider API key (if needed)")).toHaveAttribute(
+	await expect(page.getByLabel("Provider test key")).toHaveAttribute(
 		"type",
 		"password",
 	);
@@ -130,7 +275,7 @@ test("registering a model requires provider preflight", async ({ page }) => {
 		"Run preflight",
 	);
 	await expect(page.getByTestId("verification-results")).not.toBeVisible();
-	await page.getByLabel("Provider API key (if needed)").fill("pw-provider-key");
+	await page.getByLabel("Provider test key").fill("pw-provider-key");
 	await page.getByTestId("register-model-submit").click();
 	await expect(page.getByTestId("verification-results")).toContainText(
 		"Passed",
@@ -201,7 +346,7 @@ test("existing mappings report failed verification checks", async ({
 	await login(page);
 	await page.goto("/dashboard/fleet");
 	await page.getByTestId("verify-mistral-medium-4").click();
-	await page.getByLabel("Provider API key (if needed)").fill("pw-provider-key");
+	await page.getByLabel("Provider test key").fill("pw-provider-key");
 	await page.getByRole("button", { name: "Run verification" }).click();
 	await expect(page.getByTestId("verification-results")).toContainText(
 		"The required tool call was not returned.",
@@ -301,6 +446,13 @@ test("new provider signs up and claims by email domain", async ({ page }) => {
 	await expect(page.getByTestId("confirm-register-carrier")).toBeDisabled();
 	await page
 		.getByTestId("carrier-base-url-input")
+		.fill("https://api.deepseek.com/v1");
+	await expect(page.getByTestId("carrier-base-url-hint")).toContainText(
+		"Base URL only",
+	);
+	await expect(page.getByTestId("confirm-register-carrier")).toBeDisabled();
+	await page
+		.getByTestId("carrier-base-url-input")
 		.fill("https://api.deepseek.com");
 	await expect(page.getByTestId("confirm-register-carrier")).toBeEnabled();
 	await page.keyboard.press("Escape");
@@ -313,4 +465,32 @@ test("new provider signs up and claims by email domain", async ({ page }) => {
 		timeout: 15_000,
 	});
 	await expect(page.getByTestId("crew-channel-card")).toContainText(email);
+});
+
+test("settings saves and removes the carrier's test key", async ({ page }) => {
+	await login(page);
+	await page.goto("/dashboard/settings");
+	const card = page.getByTestId("verification-key-mistral");
+	await expect(card).toContainText("No test key saved");
+
+	await page
+		.getByTestId("verification-key-input-mistral")
+		.fill("pw-carrier-test-key");
+	await page.getByTestId("verification-key-save-mistral").click();
+	await expect(
+		page.getByTestId("verification-key-masked-mistral"),
+	).toBeVisible();
+	await expect(card).not.toContainText("pw-carrier-test-key");
+
+	// With a saved key, preflight no longer needs one pasted.
+	await page.goto("/dashboard/fleet");
+	await page.getByTestId("verify-mistral-medium-4").click();
+	await expect(
+		page.getByRole("button", { name: "Run verification" }),
+	).toBeEnabled();
+	await page.keyboard.press("Escape");
+
+	await page.goto("/dashboard/settings");
+	await page.getByTestId("verification-key-remove-mistral").click();
+	await expect(card).toContainText("No test key saved");
 });

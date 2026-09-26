@@ -1,15 +1,16 @@
-"use client";
-import { DiscordLogoIcon } from "@radix-ui/react-icons";
 import { GithubIcon } from "lucide-react";
 import Link from "next/link";
 
 import Newsletter from "@/components/landing/newsletter";
-import { useAppConfig } from "@/lib/config";
+import { getConfig } from "@/lib/config-server";
 import { XIcon } from "@/lib/icons/XIcon";
 import { listedProviders } from "@/lib/providers-catalog";
 
+// Server component on purpose: the provider directory below pulls the full
+// model catalogue via providers-catalog, which must stay out of the client
+// bundle of every marketing page that renders the footer.
 export default function Footer() {
-	const config = useAppConfig();
+	const config = getConfig();
 
 	return (
 		<footer className="relative py-12 bg-background">
@@ -47,7 +48,9 @@ export default function Footer() {
 								className="flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-card/40 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
 								aria-label="Discord"
 							>
-								<DiscordLogoIcon className="h-4 w-4" />
+								<svg className="h-4 w-4" viewBox="0 0 15 15" aria-hidden="true">
+									<use href="/landing-icons.svg#discord" />
+								</svg>
 							</a>
 						</div>
 						<a
@@ -152,7 +155,7 @@ export default function Footer() {
 								</li>
 								<li>
 									<Link
-										href="/add-provider"
+										href="https://airside.llmgateway.io"
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
 									>
@@ -291,6 +294,14 @@ export default function Footer() {
 									>
 										Documentation
 									</a>
+								</li>
+								<li>
+									<Link
+										href="/developers"
+										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
+									>
+										Developer resources
+									</Link>
 								</li>
 								<li>
 									<Link
@@ -542,7 +553,7 @@ export default function Footer() {
 										className="text-sm hover:underline underline-offset-4 hover:text-foreground"
 										prefetch={true}
 									>
-										Azure AI Foundry
+										Microsoft Foundry
 									</Link>
 								</li>
 								<li>

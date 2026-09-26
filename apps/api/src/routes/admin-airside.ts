@@ -16,6 +16,12 @@ import {
 	type AirsideModelMetadataInput,
 	currentMetadataFor,
 } from "@/lib/airside-metadata.js";
+import {
+	incidentsResponseSchema,
+	incidentsWindowSchema,
+	queryIncidentMappings,
+	resolveMappingErrorWindow,
+} from "@/lib/mapping-error-shapes.js";
 import { adminMiddleware } from "@/middleware/admin.js";
 
 import {
@@ -57,6 +63,19 @@ const adminFilingSchema = z.object({
 	outputPrice: z.string(),
 	cachedInputPrice: z.string().nullable(),
 	requestPrice: z.string().nullable(),
+	// Per-region overrides carried by the filing; approving replaces the
+	// listing's regional pricing with exactly this set.
+	regionPrices: z
+		.array(
+			z.object({
+				region: z.string(),
+				inputPrice: z.string(),
+				outputPrice: z.string(),
+				cachedInputPrice: z.string().nullable(),
+				requestPrice: z.string().nullable(),
+			}),
+		)
+		.nullable(),
 	// "metadata" filings: the proposed changes and the listing's current
 	// values for the same keys, for diffing.
 	metadata: airsideModelMetadataSchema.nullable(),
@@ -90,6 +109,17 @@ const adminFilingSchema = z.object({
 		.object({
 			inputPrice: z.string(),
 			outputPrice: z.string(),
+			// Live regional fares, so a filing that changes or drops a region
+			// shows the reviewer what it replaces.
+			regionPrices: z
+				.array(
+					z.object({
+						region: z.string(),
+						inputPrice: z.string(),
+						outputPrice: z.string(),
+					}),
+				)
+				.nullable(),
 		})
 		.nullable(),
 });
@@ -183,6 +213,15 @@ function serializeAdminFiling(row: FilingWithRelations) {
 		outputPrice: row.outputPrice,
 		cachedInputPrice: row.cachedInputPrice,
 		requestPrice: row.requestPrice,
+		regionPrices: row.regionPrices
+			? row.regionPrices.map((entry) => ({
+					region: entry.region,
+					inputPrice: entry.inputPrice,
+					outputPrice: entry.outputPrice,
+					cachedInputPrice: entry.cachedInputPrice ?? null,
+					requestPrice: entry.requestPrice ?? null,
+				}))
+			: null,
 		metadata: (row.metadata ?? null) as AirsideModelMetadataInput | null,
 		currentMetadata: row.metadata
 			? (currentMetadataFor(
@@ -211,7 +250,17 @@ function serializeAdminFiling(row: FilingWithRelations) {
 			website: row.providerCompany.website,
 		},
 		currentPricing: approved
-			? { inputPrice: approved.inputPrice, outputPrice: approved.outputPrice }
+			? {
+					inputPrice: approved.inputPrice,
+					outputPrice: approved.outputPrice,
+					regionPrices: approved.regionPrices
+						? approved.regionPrices.map((entry) => ({
+								region: entry.region,
+								inputPrice: entry.inputPrice,
+								outputPrice: entry.outputPrice,
+							}))
+						: null,
+				}
 			: null,
 	};
 }
@@ -348,6 +397,17 @@ adminAirside.openapi(approveFiling, async (c) => {
 	const filing = await getPendingFiling(id);
 	// cdb: approval flips a model live — the gateway's cached lookup must see it.
 	await cdb.transaction(async (tx) => {
+		// Lock and re-read the model so a concurrent pause/resume serializes
+		// with this approval and its pausedAt decides the mapping status.
+		const [model] = await tx
+			.select()
+			.from(tables.providerDraftModel)
+			.where(eq(tables.providerDraftModel.id, filing.draftModelId))
+			.for("update")
+			.$withCache(false);
+		if (!model) {
+			throw new HTTPException(404, { message: "Model not found" });
+		}
 		// Guard on status inside the UPDATE so two concurrent reviews cannot
 		// both apply — the loser sees zero rows and conflicts.
 		const updated = await tx
@@ -370,11 +430,12 @@ adminAirside.openapi(approveFiling, async (c) => {
 			});
 		}
 		if (filing.kind === "initial") {
-			await tx
+			const [activated] = await tx
 				.update(tables.providerDraftModel)
 				.set({ status: "active" })
-				.where(eq(tables.providerDraftModel.id, filing.draftModelId));
-			await materializeAirsideModel(filing.draftModel, filing, tx);
+				.where(eq(tables.providerDraftModel.id, filing.draftModelId))
+				.returning();
+			await materializeAirsideModel(activated, filing, tx);
 		} else if (filing.kind === "metadata") {
 			const [row] = await tx
 				.update(tables.providerDraftModel)
@@ -383,7 +444,7 @@ adminAirside.openapi(approveFiling, async (c) => {
 				.returning();
 			await syncAirsideModelMetadata(row, tx);
 		} else {
-			await updateAirsideMappingPrices(filing.draftModel, filing, tx);
+			await updateAirsideMappingPrices(model, filing, tx);
 		}
 	});
 	const updated = await db.query.providerPriceFiling.findFirst({
@@ -984,7 +1045,7 @@ adminAirside.openapi(revokeClaim, async (c) => {
 				);
 			await tx
 				.update(tables.providerDraftModel)
-				.set({ status: "delisted", delistedAt: new Date() })
+				.set({ status: "delisted", delistedAt: new Date(), pausedAt: null })
 				.where(inArray(tables.providerDraftModel.id, modelIds));
 			for (const model of companyModels) {
 				await dematerializeAirsideModel(claim.providerId, model.modelName, tx);
@@ -1011,6 +1072,47 @@ adminAirside.openapi(revokeClaim, async (c) => {
 	});
 	return c.json({
 		claim: await serializeAdminClaim(updated as ClaimWithRelations),
+	});
+});
+
+const listIncidents = createRoute({
+	method: "get",
+	path: "/airside/incidents",
+	request: {
+		query: z.object({
+			providerId: z.string(),
+			/** Exact `used_model` (`provider/model[:region]`). */
+			mapping: z.string().optional(),
+			window: incidentsWindowSchema.default("24h").optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: incidentsResponseSchema.openapi({}),
+				},
+			},
+			description:
+				"Per-mapping upstream + gateway error counts of one provider — the carrier's Incidents view.",
+		},
+	},
+});
+
+adminAirside.openapi(listIncidents, async (c) => {
+	const query = c.req.valid("query");
+	const { hours: windowHours } = resolveMappingErrorWindow(query.window, "24h");
+	const mapping = query.mapping ?? null;
+	const providerIds = [query.providerId];
+	return c.json({
+		windowHours,
+		providerIds,
+		mapping,
+		mappings: await queryIncidentMappings({
+			providerIds,
+			windowHours,
+			mapping,
+		}),
 	});
 });
 

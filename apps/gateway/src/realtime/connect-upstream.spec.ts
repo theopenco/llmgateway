@@ -100,6 +100,17 @@ describe("resolveUpstreamTarget", () => {
 		);
 	});
 
+	it("connects transcription sessions with intent=transcription and no model", () => {
+		const target = resolveUpstreamTarget({
+			...buildPreflight("openai", "gpt-live-transcribe"),
+			sessionType: "transcription",
+		} as unknown as RealtimePreflightResult);
+		expect(target.url).toBe(
+			"wss://api.openai.com/v1/realtime?intent=transcription",
+		);
+		expect(target.headers.Authorization).toBe("Bearer upstream-secret");
+	});
+
 	it("leaves the OpenAI URL and headers unchanged", () => {
 		const target = resolveUpstreamTarget(
 			buildPreflight("openai", "gpt-realtime-2.1-mini"),

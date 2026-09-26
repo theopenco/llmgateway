@@ -64,6 +64,11 @@ describe("getServiceTier", () => {
 		);
 	});
 
+	it("returns the configured Azure Priority tier and no Flex tier", () => {
+		expect(getServiceTier("azure", "priority")?.multiplier).toBe(2);
+		expect(getServiceTier("azure", "flex")).toBeUndefined();
+	});
+
 	it("returns undefined for unknown tiers or providers without tiers", () => {
 		expect(getServiceTier("google-vertex", "nope")).toBeUndefined();
 		expect(getServiceTier("anthropic", "priority")).toBeUndefined();
@@ -143,6 +148,54 @@ describe("model service tier support", () => {
 				(tier) => tier.id === "priority",
 			)?.multiplier,
 		).toBe(2);
+	});
+
+	it("returns explicit Azure tiers for supported models", () => {
+		// Azure sells Priority processing only — never Flex — and the premium is
+		// 2x except on gpt-4.1 (1.75x) and gpt-5.5 (2.5x).
+		for (const model of [
+			"gpt-5.1",
+			"gpt-5.2",
+			"gpt-5.4",
+			"gpt-5.4-mini",
+			"gpt-5.5",
+			"gpt-5.6-sol",
+			"gpt-5.6-terra",
+			"gpt-6-sol",
+			"gpt-4.1",
+		]) {
+			expect(
+				getSupportedServiceTiers(model, "azure").map((tier) => tier.id),
+				`azure ${model} tiers`,
+			).toEqual(["priority"]);
+		}
+		expect(
+			getSupportedServiceTiers("gpt-4.1", "azure").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(1.75);
+		expect(
+			getSupportedServiceTiers("gpt-5.5", "azure").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(2.5);
+		expect(
+			getSupportedServiceTiers("gpt-5.1", "azure").find(
+				(tier) => tier.id === "priority",
+			)?.multiplier,
+		).toBe(2);
+	});
+
+	it("returns no Azure tiers for unsupported models", () => {
+		// gpt-4o predates priority processing. Sol is the only family member of
+		// its generation that Azure sells the tier for — luna and astra have no
+		// priority meter and downgrade a priority request to standard.
+		expect(getSupportedServiceTiers("gpt-4o", "azure")).toEqual([]);
+		expect(getSupportedServiceTiers("gpt-6-luna", "azure")).toEqual([]);
+		expect(getSupportedServiceTiers("gpt-6-astra", "azure")).toEqual([]);
+		expect(getSupportedServiceTiers("gpt-5.6-luna", "azure")).toEqual([]);
+		expect(supportsServiceTier("gpt-5.5", "azure", "flex")).toBe(false);
+		expect(supportsServiceTier("gpt-5.5", "azure", "priority")).toBe(true);
 	});
 
 	it("returns explicit Google Vertex tiers for supported models", () => {
@@ -347,6 +400,7 @@ describe("AWS Bedrock Anthropic regions", () => {
 	});
 
 	const expectedRegionsByModelId = new Map<string, string[]>([
+		["claude-fable-5-1", ["global", "us"]],
 		["claude-sonnet-4-5", ["global", "us", "eu", "au", "jp"]],
 		["claude-sonnet-4-5-20250929", ["global", "us", "eu", "au", "jp"]],
 		["claude-sonnet-4-6", ["global", "us", "eu", "au", "jp", "eu-west-2"]],

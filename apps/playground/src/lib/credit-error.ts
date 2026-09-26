@@ -1,3 +1,5 @@
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
+
 const CREDIT_ERROR_PATTERN =
 	/(available credits|insufficient (?:credits|balance|funds)|add credits|out of credits|not enough credits)/i;
 
@@ -24,4 +26,15 @@ export function chatPlanCreditErrorMessage(
 	return subscribed
 		? `You've used all your plan credits. Upgrade your plan to continue generating ${noun}.`
 		: `Subscribe to a plan to continue generating ${noun}.`;
+}
+
+export function organizationCreditErrorMessage(
+	message: string,
+	role: string | undefined,
+	status?: number,
+): string {
+	return !isOrganizationAdmin(role) &&
+		isInsufficientCreditsError(status, message)
+		? "Your organization has insufficient credits. Contact an organization administrator."
+		: message;
 }

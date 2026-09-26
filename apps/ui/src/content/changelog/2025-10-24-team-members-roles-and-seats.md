@@ -4,6 +4,7 @@ slug: "team-members-roles-and-seats"
 date: "2025-10-24"
 title: "Team Members: Roles, Seats, and Access Controls"
 summary: "Invite teammates, assign roles (Owner, Admin, Developer), track included seats, and add more seats as your org grows. Pro includes team management; Enterprise adds SSO/SAML, SCIM, audit logs, and advanced permissions."
+tags: ["llmgateway"]
 image:
   src: "/changelog/team-members-roles-and-seats.png"
   alt: "Team Members management with role controls and seat usage"

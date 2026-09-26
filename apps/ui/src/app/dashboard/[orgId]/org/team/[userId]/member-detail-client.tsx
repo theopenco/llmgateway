@@ -36,7 +36,7 @@ import {
 import { useApi } from "@/lib/fetch-client";
 import { applyUsageMode, pickCost, pickRequests } from "@/lib/usage-mode";
 
-import { deriveStabilityMetrics } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { Route } from "next";
 
@@ -128,13 +128,7 @@ export function MemberDetailClient() {
 	);
 
 	const summary = data?.summary;
-	const errorRate = summary
-		? (deriveStabilityMetrics(
-				summary.requestCount,
-				summary.errorCount + summary.clientErrorCount,
-				summary.clientErrorCount,
-			).errorRate ?? 0)
-		: 0;
+	const errorRate = summary?.errorRate ?? 0;
 
 	const activity = (data?.activity ?? []).map((row) => ({
 		...row,
@@ -143,9 +137,14 @@ export function MemberDetailClient() {
 		),
 	}));
 
-	const topModels = (data?.topModels ?? [])
-		.map((m) => applyUsageMode(m, usageMode))
-		.sort((a, b) => b.cost - a.cost);
+	// Only the costliest model is displayed, so track the max instead of sorting.
+	let topModel: { key: string; cost: number } | undefined;
+	for (const entry of data?.topModels ?? []) {
+		const row = applyUsageMode(entry, usageMode);
+		if (!topModel || row.cost > topModel.cost) {
+			topModel = row;
+		}
+	}
 	const topProviders = (data?.topProviders ?? [])
 		.map((p) => applyUsageMode(p, usageMode))
 		.sort((a, b) => b.cost - a.cost);
@@ -159,24 +158,24 @@ export function MemberDetailClient() {
 		},
 		{
 			label: "Total Tokens",
-			value: (summary?.totalTokens ?? 0).toLocaleString(),
+			value: formatNumber(summary?.totalTokens ?? 0),
 		},
 		{
 			label: "Requests",
-			value: (summary ? pickRequests(summary, usageMode) : 0).toLocaleString(),
+			value: formatNumber(summary ? pickRequests(summary, usageMode) : 0),
 		},
 		{ label: "Error Rate", value: `${errorRate.toFixed(1)}%` },
 		{
 			label: "Client Errors",
-			value: (summary?.clientErrorCount ?? 0).toLocaleString(),
+			value: formatNumber(summary?.clientErrorCount ?? 0),
 		},
-		{ label: "API Keys", value: (summary?.apiKeyCount ?? 0).toLocaleString() },
+		{ label: "API Keys", value: formatNumber(summary?.apiKeyCount ?? 0) },
 	];
 
 	const mostUsed = [
 		{
 			label: "Most used model",
-			value: topModels[0]?.key ?? "—",
+			value: topModel?.key ?? "—",
 			icon: Sparkles,
 		},
 		{
@@ -432,7 +431,7 @@ export function MemberDetailClient() {
 														{currencyFormatter.format(p.cost)}
 													</TableCell>
 													<TableCell className="text-right">
-														{p.requestCount.toLocaleString()}
+														{formatNumber(p.requestCount)}
 													</TableCell>
 												</TableRow>
 											))

@@ -29,8 +29,7 @@
 		"build": "tsc && resolve-tspaths",
 		"dev": "tsc-watch --onSuccess 'resolve-tspaths'",
 		"format": "eslint --fix . && prettier --write .",
-		"lint": "eslint . && prettier --check .",
-		"test": "vitest run --config vitest.config.ts"
+		"lint": "eslint . && prettier --check ."
 	},
 	"dependencies": {
 		"@llmgateway/models": "workspace:*"

@@ -20,6 +20,7 @@ import { useApi } from "@/lib/fetch-client";
 import Spinner from "@/lib/icons/Spinner";
 
 import { CREDIT_TOP_UP_MAX_AMOUNT } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 function AutoTopUpSettings() {
 	const { toast } = useToast();
@@ -28,6 +29,7 @@ function AutoTopUpSettings() {
 
 	const { selectedOrganization } = useDashboardState();
 	const organizationId = selectedOrganization?.id;
+	const isOwner = selectedOrganization?.role === "owner";
 	const { data: paymentMethods } = api.useQuery(
 		"get",
 		"/payments/payment-methods",
@@ -150,6 +152,11 @@ function AutoTopUpSettings() {
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="space-y-4">
+				{!isOwner && (
+					<p className="text-sm text-muted-foreground">
+						Only organization owners can change auto top-up settings.
+					</p>
+				)}
 				<div className="flex items-center justify-between">
 					<div className="space-y-0.5">
 						<Label htmlFor="auto-topup-enabled">Enable</Label>
@@ -162,7 +169,7 @@ function AutoTopUpSettings() {
 						id="auto-topup-enabled"
 						checked={enabled}
 						onCheckedChange={(checked) => setEnabled(!!checked)}
-						disabled={!hasDefaultPaymentMethod}
+						disabled={!isOwner || !hasDefaultPaymentMethod}
 					/>
 				</div>
 
@@ -191,7 +198,7 @@ function AutoTopUpSettings() {
 							min={5}
 							value={threshold}
 							onChange={(e) => setThreshold(Number(e.target.value))}
-							disabled={!enabled}
+							disabled={!isOwner || !enabled}
 						/>
 						<p className="text-xs text-muted-foreground">
 							Minimum $5. Top-up when credits fall below this amount.
@@ -207,17 +214,16 @@ function AutoTopUpSettings() {
 							step={1}
 							value={amount}
 							onChange={(e) => setAmount(Number(e.target.value))}
-							disabled={!enabled}
+							disabled={!isOwner || !enabled}
 						/>
 						<p className="text-xs text-muted-foreground">
-							Minimum $10. Maximum $
-							{CREDIT_TOP_UP_MAX_AMOUNT.toLocaleString("en-US")}. Amount to add
-							when auto top-up triggers.
+							Minimum $10. Maximum ${formatNumber(CREDIT_TOP_UP_MAX_AMOUNT)}.
+							Amount to add when auto top-up triggers.
 						</p>
 						{amount > CREDIT_TOP_UP_MAX_AMOUNT ? (
 							<p className="text-xs text-destructive">
 								Maximum top-up amount is $
-								{CREDIT_TOP_UP_MAX_AMOUNT.toLocaleString("en-US")}.
+								{formatNumber(CREDIT_TOP_UP_MAX_AMOUNT)}.
 							</p>
 						) : !Number.isInteger(amount) ? (
 							<p className="text-xs text-destructive">
@@ -266,6 +272,7 @@ function AutoTopUpSettings() {
 					<Button
 						onClick={handleSave}
 						disabled={
+							!isOwner ||
 							Boolean(updateOrganization.isPending) ||
 							threshold < 5 ||
 							amount < 10 ||

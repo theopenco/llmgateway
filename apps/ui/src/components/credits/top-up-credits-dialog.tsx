@@ -46,6 +46,8 @@ import {
 	CREDIT_TOP_UP_MIN_AMOUNT,
 	isCreditTopUpAmountInRange,
 } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type React from "react";
 
@@ -64,7 +66,17 @@ interface TopUpCreditsDialogProps {
 	children: React.ReactNode;
 }
 
-export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
+export function TopUpCreditsDialog(props: TopUpCreditsDialogProps) {
+	const { selectedOrganization } = useDashboardState();
+	if (!isOrganizationAdmin(selectedOrganization?.role)) {
+		return null;
+	}
+	return (
+		<BillingTopUpCreditsDialog key={selectedOrganization?.id} {...props} />
+	);
+}
+
+function BillingTopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 	const [open, setOpen] = useState(false);
 	const [step, setStep] = useState<
 		"amount" | "payment" | "select-payment" | "confirm-payment" | "success"
@@ -78,7 +90,9 @@ export function TopUpCreditsDialog({ children }: TopUpCreditsDialogProps) {
 	const { selectedOrganization } = useDashboardState();
 	const organizationId = selectedOrganization?.id;
 	const alreadyHasAutoTopUp = selectedOrganization?.autoTopUpEnabled ?? false;
-	const { stripe, isLoading: stripeLoading } = useStripe();
+	// The dialog is mounted (closed) on every dashboard route via the sidebar,
+	// so only load Stripe.js once it is actually opened.
+	const { stripe, isLoading: stripeLoading } = useStripe(open);
 	const api = useApi();
 	const posthog = usePostHog();
 
@@ -261,6 +275,7 @@ function AmountStep({
 	alreadyHasAutoTopUp: boolean;
 	onNext: () => void;
 }) {
+	const { selectedOrganization } = useDashboardState();
 	const presets: { value: number; badge?: string }[] = [
 		{ value: 10 },
 		{ value: 25 },
@@ -285,7 +300,7 @@ function AmountStep({
 		: maxCheckoutAmount < CREDIT_TOP_UP_MIN_AMOUNT
 			? "Your account tier's 24-hour top-up allowance is currently used up"
 			: amount > maxCheckoutAmount
-				? `Maximum $${maxCheckoutAmount.toLocaleString("en-US")} from your account tier's remaining 24-hour allowance`
+				? `Maximum $${formatNumber(maxCheckoutAmount)} from your account tier's remaining 24-hour allowance`
 				: amount < CREDIT_TOP_UP_MIN_AMOUNT
 					? `Minimum $${CREDIT_TOP_UP_MIN_AMOUNT}`
 					: !Number.isInteger(amount)
@@ -415,7 +430,7 @@ function AmountStep({
 						{amountValidationMessage ??
 							(amount > maxCardAmount
 								? `Card maximum $${maxCardAmount} after processing fees; use checkout below for this amount`
-								: `Type any amount from $${CREDIT_TOP_UP_MIN_AMOUNT} to $${maxCheckoutAmount.toLocaleString("en-US")}`)}
+								: `Type any amount from $${CREDIT_TOP_UP_MIN_AMOUNT} to $${formatNumber(maxCheckoutAmount)}`)}
 					</p>
 					{topUpLimitLoaded && !topUpLimitError ? (
 						<div
@@ -567,7 +582,7 @@ function AmountStep({
 				) : null}
 
 				{/* Auto-reload toggle */}
-				{!alreadyHasAutoTopUp ? (
+				{selectedOrganization?.role === "owner" && !alreadyHasAutoTopUp ? (
 					<div className="flex items-center justify-between rounded-lg border border-dashed p-3">
 						<div className="space-y-0.5 pr-3">
 							<p className="text-sm font-medium">Never run out of credits</p>
@@ -906,7 +921,10 @@ function SuccessStep({
 	const [saving, setSaving] = useState(false);
 	const [autoTopUpApplied, setAutoTopUpApplied] = useState(false);
 
-	const shouldOfferAutoTopUp = !alreadyHasAutoTopUp && autoTopUpIntent;
+	const shouldOfferAutoTopUp =
+		selectedOrganization?.role === "owner" &&
+		!alreadyHasAutoTopUp &&
+		autoTopUpIntent;
 
 	useEffect(() => {
 		const duration = 2000;

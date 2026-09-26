@@ -12,6 +12,7 @@ import Link from "next/link";
 import { CrewChannelCard } from "@/components/CrewChannelCard";
 import { useCompany } from "@/components/dashboard/company-context";
 import { TrafficChart } from "@/components/dashboard/TrafficChart";
+import { RelativeDate } from "@/components/RelativeDate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -115,7 +116,7 @@ export default function OperationsPage() {
 						Operations · last 30 days
 					</p>
 					<h1 className="font-display text-3xl font-black tracking-tight">
-						{company.name}
+						{company.displayName}
 					</h1>
 				</div>
 				<div className="flex flex-wrap gap-2">
@@ -208,9 +209,14 @@ export default function OperationsPage() {
 										key={filing.id}
 										className="border-border flex items-center justify-between rounded-md border px-3 py-2"
 									>
-										<span className="font-mono text-sm">
-											{filing.modelName}
-										</span>
+										<div className="min-w-0">
+											<span className="font-mono text-sm">
+												{filing.modelName}
+											</span>
+											<p className="text-muted-foreground text-xs">
+												filed <RelativeDate date={filing.createdAt} />
+											</p>
+										</div>
 										<Badge variant="pending">
 											{filing.kind === "initial"
 												? "New listing"

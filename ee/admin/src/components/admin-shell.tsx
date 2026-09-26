@@ -7,6 +7,7 @@ import {
 	BarChart3,
 	Building2,
 	Cpu,
+	FlaskConical,
 	Gauge,
 	GitMerge,
 	KeyRound,
@@ -23,7 +24,9 @@ import {
 	Server,
 	Settings,
 	ShieldAlert,
+	ShieldCheck,
 	Sparkles,
+	Wallet,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -46,6 +49,7 @@ import {
 	SidebarTrigger,
 	useSidebar,
 } from "@/components/ui/sidebar";
+import { WhiteLabelSeatWarning } from "@/components/white-label-seat-warning";
 import { useUser } from "@/hooks/useUser";
 import { useAuth } from "@/lib/auth-client";
 
@@ -85,6 +89,7 @@ const navItems: NavItem[] = [
 		icon: MessageSquare,
 		match: "prefix",
 	},
+	{ href: "/sdk", label: "LLM SDK", icon: Wallet, match: "prefix" },
 	{
 		href: "/global-stats",
 		label: "Global Stats",
@@ -122,6 +127,12 @@ const navItems: NavItem[] = [
 		href: "/unstable-mappings",
 		label: "Unstable Mappings",
 		icon: Activity,
+		match: "prefix",
+	},
+	{
+		href: "/benchmarks",
+		label: "Benchmarks",
+		icon: FlaskConical,
 		match: "prefix",
 	},
 	{
@@ -171,6 +182,12 @@ const navItems: NavItem[] = [
 		label: "Limit Hits",
 		icon: ShieldAlert,
 		match: "prefix",
+	},
+	{
+		href: "/content-filter",
+		label: "Content Filter",
+		icon: ShieldCheck,
+		match: "exact",
 	},
 	{ href: "/settings", label: "Settings", icon: Settings, match: "exact" },
 ];
@@ -339,6 +356,9 @@ export function AdminShell({ children, signedIn }: AdminShellProps) {
 			</Sidebar>
 			<SidebarInset>
 				<MobileHeader />
+				{user?.isAdmin && license?.kind === "white_label" && (
+					<WhiteLabelSeatWarning />
+				)}
 				{whiteLabelExpiryTerm && (
 					<Alert
 						className={

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { useCompany } from "@/components/dashboard/company-context";
 import { ProviderBrandingFields } from "@/components/ProviderBrandingFields";
+import { RelativeDate } from "@/components/RelativeDate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -213,7 +214,8 @@ function FareEditor({
 	);
 
 	const pending = setting.pendingFiling;
-	const adjustment = baselineMargin - margin - discount;
+	const adjustedPrice = (1 - discount) * (1 + baselineMargin - margin);
+	const adjustment = adjustedPrice - 1;
 	const dirty =
 		discount !== setting.discountPercent || margin !== setting.marginPercent;
 
@@ -247,6 +249,9 @@ function FareEditor({
 						{formatPercent(pending.marginPercent)}
 					</p>
 					<p className="text-muted-foreground mt-1 text-xs">
+						Filed <RelativeDate date={pending.createdAt} />.
+					</p>
+					<p className="text-muted-foreground mt-1 text-xs">
 						Our team reviews every fare change before it reaches dispatch. Your
 						live fares stay in effect until then.
 					</p>
@@ -277,8 +282,8 @@ function FareEditor({
 					onValueChange={([value]) => setDiscount(value / 100)}
 				/>
 				<p className="text-muted-foreground mt-1.5 text-xs">
-					A fare sale: dispatch prices you this much cheaper when electing a
-					carrier. It never changes what you're paid per token.
+					Once approved, this lowers customer prices and appears on model cards.
+					Explicit customer or platform discounts take precedence.
 				</p>
 			</div>
 

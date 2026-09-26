@@ -205,4 +205,8 @@ data:
   {{- if .models }}
   LLM_CONTENT_FILTER_MODELS: {{ .models | quote }}
   {{- end }}
+  # Rendered unconditionally so a literal 0 threshold is not dropped; the
+  # gateway treats an empty value as its default.
+  LLM_CONTENT_FILTER_TIER_STRICT_SCORE_THRESHOLD: {{ .tierStrictScoreThreshold | quote }}
+  LLM_CONTENT_FILTER_TIER_LENIENT_SCORE_THRESHOLD: {{ .tierLenientScoreThreshold | quote }}
   {{- end }}

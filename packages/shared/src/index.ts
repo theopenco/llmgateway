@@ -221,10 +221,16 @@ export {
 	LOUNGE_SOURCE,
 } from "./lounge-source.js";
 
-export { MARKETING_STATS, RUNWARE_PROMO } from "./marketing.js";
+export {
+	getActiveProviderPromo,
+	MARKETING_STATS,
+	RUNWARE_PROMO,
+	SCX_PROMO,
+} from "./marketing.js";
 
 export {
 	deriveStabilityMetrics,
+	type StabilityCounts,
 	type StabilityMetrics,
 } from "./stability-metrics.js";
 
@@ -236,9 +242,30 @@ export {
 	getOnboardingSponsorSecret,
 } from "./onboarding.js";
 
-export { isContentFilterErrorText } from "./content-filter.js";
+export {
+	CONTENT_FILTER_CLASSIFIERS,
+	CONTENT_FILTER_SETTING_ID,
+	contentFilterSettingsSchema,
+	DEFAULT_CONTENT_FILTER_SETTINGS,
+	GATEWAY_CONTENT_FILTER_MESSAGE,
+	isContentFilterErrorText,
+	parseContentFilterSettings,
+	type ContentFilterClassifier,
+	type ContentFilterSettings,
+} from "./content-filter.js";
 
 export { FAILURE_LABELS, failureLabel } from "./compliance-failure-labels.js";
+export {
+	ERROR_CLASSIFICATIONS,
+	INCIDENT_BREAKDOWN_DESCRIPTION,
+	isLogErrorType,
+	LOG_ERROR_TYPE_LABELS,
+	LOG_ERROR_TYPES,
+} from "./error-classification.js";
+export type {
+	ErrorClassification,
+	LogErrorType,
+} from "./error-classification.js";
 
 export {
 	MAX_BULK_BLOCK_ORGANIZATIONS,
@@ -248,6 +275,8 @@ export {
 export {
 	CUSTOM_PROVIDER_NAME_MESSAGE,
 	CUSTOM_PROVIDER_NAME_REGEX,
+	PROVIDER_BASE_URL_ENDPOINT_PATH_MESSAGE,
+	providerBaseUrlHasEndpointPath,
 	RESERVED_CUSTOM_PROVIDER_NAME_MESSAGE,
 	RESERVED_CUSTOM_PROVIDER_NAMES,
 } from "./custom-providers.js";
@@ -269,6 +298,7 @@ export {
 
 export {
 	buildProviderPriorityDefaults,
+	DEFAULT_CACHE_PRICING_BY_ORG_KIND,
 	DEFAULT_ROUTING_HISTORY,
 	DEFAULT_ROUTING_RETRY,
 	DEFAULT_ROUTING_SESSION,
@@ -276,6 +306,7 @@ export {
 	DEFAULT_ROUTING_THRESHOLDS,
 	DEFAULT_ROUTING_TIMEOUTS,
 	DEFAULT_ROUTING_WEIGHTS,
+	getDefaultCachePricing,
 	getDefaultRoutingConfig,
 	historyMatchesDefaults,
 	type ProviderPriorityOverrides,
@@ -285,6 +316,7 @@ export {
 	routingHistoryCacheKey,
 	type RoutingConfigOverrides,
 	type RoutingHistoryConfig,
+	type RoutingOrganizationKind,
 	type RoutingRetryConfig,
 	type RoutingSessionConfig,
 	type RoutingStickyConfig,
@@ -294,19 +326,24 @@ export {
 } from "./routing-config.js";
 
 export {
+	COMPLIANCE_EXCLUSION_REASONS,
+	complianceExclusionReason,
 	isRoutingCredentialSource,
+	isRoutingExclusionDetailReason,
 	isRoutingExclusionReason,
 	isRoutingSelectionReason,
 	ROUTING_CREDENTIAL_SOURCE_DESCRIPTIONS,
 	ROUTING_CREDENTIAL_SOURCE_LABELS,
 	ROUTING_EXCLUSION_REASON_LABELS,
 	ROUTING_EXCLUSION_REASON_MESSAGES,
+	ROUTING_EXCLUSION_REASON_PARENTS,
 	ROUTING_EXCLUSION_REASONS,
 	ROUTING_SELECTION_KIND_LABELS,
 	ROUTING_SELECTION_KINDS,
 	ROUTING_SELECTION_REASON_LABELS,
 	ROUTING_SELECTION_REASONS,
 	routingExclusionReasonMessage,
+	routingExclusionReasonParent,
 	routingSelectionKind,
 	type RoutingCredentialSource,
 	type RoutingExclusionReason,
@@ -362,6 +399,13 @@ export {
 	TOPUP_VELOCITY_RESERVATION_TTL_SECONDS,
 	TOPUP_VELOCITY_WINDOW_MS,
 	topUpVelocityKey,
+	contentFilterLevelForTier,
+	getOrgContentFilterTier,
+	LENIENT_CONTENT_FILTER_TIER_MIN,
+	resolveContentFilterTierOverride,
+	type ContentFilterLevel,
+	type ContentFilterTierOrg,
+	type ResolvedContentFilterTier,
 	type NextSpendTierInfo,
 	type OrgLimitType,
 	type PathRateLimitConfig,
@@ -384,3 +428,41 @@ export {
 	type McpUsageBreakdownInput,
 	type McpUsageScope,
 } from "./mcp-usage.js";
+
+export {
+	formatMonthLabel,
+	MODEL_SEARCH_MAX_PAGE_SIZE,
+	MODEL_SEARCH_MAX_QUERY_LENGTH,
+	MODEL_SEARCH_PAGE_SIZE,
+	type ModelSearchEntry,
+	type ModelSearchHit,
+	type ModelSearchOptions,
+	type ModelSearchPage,
+	type ModelSearchProvider,
+	monthKeyOf,
+	normalizeSearchText,
+	scoreModelSearchEntry,
+	searchMatchRanges,
+	searchModelEntries,
+	searchModelProviders,
+	searchWords,
+	tokenizeSearchQuery,
+	UNKNOWN_MONTH_KEY,
+	withinOneEdit,
+} from "./model-search.js";
+
+export {
+	isSystemBannerSeverity,
+	isValidSystemBannerLink,
+	normalizeSystemBanner,
+	parseSystemBanner,
+	serializeSystemBanner,
+	SYSTEM_BANNER_DEFAULT_LINK_LABEL,
+	SYSTEM_BANNER_LINK_LABEL_MAX_LENGTH,
+	SYSTEM_BANNER_MESSAGE_MAX_LENGTH,
+	SYSTEM_BANNER_SEVERITIES,
+	type SystemBanner,
+	type SystemBannerSeverity,
+} from "./system-banner.js";
+
+export { buildVideoUsage, type VideoUsage } from "./video-usage.js";

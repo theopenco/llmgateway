@@ -5,12 +5,15 @@ import {
 	Download,
 	KeyRound,
 	Loader2,
+	Pause,
 	Pencil,
+	Play,
 	Plus,
 	ShieldCheck,
 	Stamp,
 	TriangleAlert,
 	Trash2,
+	X,
 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -23,6 +26,7 @@ import {
 	RegisterModelDialog,
 	VerifyModelDialog,
 } from "@/components/dashboard/ModelDialogs";
+import { RelativeDate } from "@/components/RelativeDate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useApi } from "@/lib/fetch-client";
@@ -48,6 +52,153 @@ const STATUS_META: Record<
 	rejected: { label: "Rejected", variant: "destructive" },
 	delisted: { label: "Delisted", variant: "secondary" },
 };
+
+type RegionPrice = NonNullable<
+	NonNullable<AirsideModel["currentPricing"]>["regionPrices"]
+>[number];
+
+function RegionFareChip({
+	model,
+	entry,
+}: {
+	model: AirsideModel;
+	entry: RegionPrice;
+}) {
+	const api = useApi();
+	const queryClient = useQueryClient();
+	const [confirming, setConfirming] = useState(false);
+
+	const removeRegion = api.useMutation(
+		"delete",
+		"/airside/models/{id}/regions/{region}",
+		{
+			onSuccess: async () => {
+				await queryClient.invalidateQueries({
+					queryKey: api.queryOptions("get", "/airside/models", {
+						params: {
+							query: { providerCompanyId: model.providerCompanyId },
+						},
+					}).queryKey,
+				});
+				// Removal lands as an auto-approved filing in the filings history.
+				await queryClient.invalidateQueries({
+					queryKey: api.queryOptions("get", "/airside/filings", {
+						params: {
+							query: { providerCompanyId: model.providerCompanyId },
+						},
+					}).queryKey,
+				});
+				toast.success(`Region '${entry.region}' removed.`);
+			},
+			onError: (error) => {
+				toast.error(
+					(error as { message?: string })?.message ??
+						"Failed to remove the region",
+				);
+			},
+		},
+	);
+
+	const removable = model.status === "active" && !model.pendingFiling;
+
+	return (
+		<span
+			className="border-border inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-xs"
+			title={`${formatPerMillion(entry.inputPrice)} in · ${formatPerMillion(entry.outputPrice)} out`}
+		>
+			{entry.region}
+			{removable ? (
+				confirming ? (
+					<button
+						type="button"
+						className="text-destructive font-semibold"
+						disabled={removeRegion.isPending}
+						data-testid={`confirm-remove-region-${model.modelName}-${entry.region}`}
+						onBlur={() => setConfirming(false)}
+						onClick={() =>
+							removeRegion.mutate({
+								params: { path: { id: model.id, region: entry.region } },
+							})
+						}
+					>
+						remove?
+					</button>
+				) : (
+					<button
+						type="button"
+						aria-label={`Remove region ${entry.region}`}
+						className="text-muted-foreground hover:text-destructive"
+						data-testid={`remove-region-${model.modelName}-${entry.region}`}
+						onClick={() => setConfirming(true)}
+					>
+						<X className="size-3" />
+					</button>
+				)
+			) : null}
+		</span>
+	);
+}
+
+function PauseModelButton({ model }: { model: AirsideModel }) {
+	const api = useApi();
+	const queryClient = useQueryClient();
+	const paused = !!model.pausedAt;
+
+	const options = {
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/airside/models", {
+					params: {
+						query: { providerCompanyId: model.providerCompanyId },
+					},
+				}).queryKey,
+			});
+			toast.success(
+				paused
+					? `${model.modelName} is back in service.`
+					: `${model.modelName} paused — it receives no traffic until resumed.`,
+			);
+		},
+		onError: (error: unknown) => {
+			toast.error(
+				(error as { message?: string })?.message ??
+					(paused ? "Failed to resume model" : "Failed to pause model"),
+			);
+		},
+	};
+	const pause = api.useMutation("post", "/airside/models/{id}/pause", options);
+	const resume = api.useMutation(
+		"post",
+		"/airside/models/{id}/resume",
+		options,
+	);
+
+	if (model.status !== "active") {
+		return null;
+	}
+
+	const mutation = paused ? resume : pause;
+
+	return (
+		<Button
+			size="sm"
+			variant="outline"
+			disabled={mutation.isPending}
+			data-testid={`${paused ? "resume" : "pause"}-${model.modelName}`}
+			onClick={() => mutation.mutate({ params: { path: { id: model.id } } })}
+		>
+			{paused ? (
+				<>
+					<Play className="size-3.5" /> Resume
+				</>
+			) : (
+				<>
+					<Pause className="size-3.5" /> Pause
+				</>
+			)}
+		</Button>
+	);
+}
 
 function DeleteModelButton({ model }: { model: AirsideModel }) {
 	const api = useApi();
@@ -318,14 +469,29 @@ export default function FleetPage() {
 			) : (
 				<ul className="space-y-3">
 					{models.map((model) => {
-						const status = STATUS_META[model.status];
+						const paused = model.status === "active" && !!model.pausedAt;
+						const status = paused
+							? { label: "Paused", variant: "secondary" as const }
+							: STATUS_META[model.status];
+						// A live listing whose last preflight failed still serves
+						// traffic, so the badge says so rather than claiming a clean
+						// bill of health it no longer has.
+						const unverified =
+							model.status === "active" &&
+							!paused &&
+							model.latestVerification?.status === "failed";
 						return (
 							<li
 								key={model.id}
 								data-testid={`model-strip-${model.modelName}`}
 								className={cn(
 									"border-border bg-card rounded-lg border border-l-4 p-4",
-									model.status === "active" && "border-l-signal",
+									model.status === "active" &&
+										(paused
+											? "border-l-muted-foreground"
+											: unverified
+												? "border-l-primary"
+												: "border-l-signal"),
 									model.status === "draft" && "border-l-primary",
 									model.status === "rejected" && "border-l-destructive",
 									model.status === "delisted" && "border-l-muted opacity-60",
@@ -337,7 +503,21 @@ export default function FleetPage() {
 											<span className="font-mono font-bold tracking-wide">
 												{model.modelName}
 											</span>
-											<Badge variant={status.variant}>{status.label}</Badge>
+											<Badge
+												variant={unverified ? "pending" : status.variant}
+												title={
+													unverified
+														? (model.latestVerification?.summary ??
+															"The last preflight failed.")
+														: paused
+															? "This listing receives no traffic until you resume it. Imported catalogue models fall back to the built-in catalogue entry meanwhile."
+															: undefined
+												}
+											>
+												{unverified
+													? `${status.label} · unverified`
+													: status.label}
+											</Badge>
 											{model.pendingFiling ? (
 												<Badge variant="pending">
 													<Stamp className="size-3" />
@@ -345,7 +525,12 @@ export default function FleetPage() {
 														? "Awaiting clearance"
 														: model.pendingFiling.kind === "metadata"
 															? "Change filed"
-															: "Fare filed"}
+															: "Fare filed"}{" "}
+													·{" "}
+													<RelativeDate
+														date={model.pendingFiling.createdAt}
+														className="font-normal"
+													/>
 												</Badge>
 											) : null}
 											{model.latestVerification ? (
@@ -360,7 +545,11 @@ export default function FleetPage() {
 													title={model.latestVerification.summary ?? undefined}
 												>
 													<ShieldCheck className="size-3" />
-													Verification {model.latestVerification.status}
+													Verification {model.latestVerification.status} ·{" "}
+													<RelativeDate
+														date={model.latestVerification.createdAt}
+														className="font-normal"
+													/>
 												</Badge>
 											) : null}
 										</div>
@@ -386,10 +575,26 @@ export default function FleetPage() {
 															? "Vertex API"
 															: "Carrier default"}
 											</span>
+											{model.quantization ? (
+												<span className="font-mono">
+													Quant: {model.quantization.toUpperCase()}
+												</span>
+											) : null}
 											{model.contextSize ? (
 												<span className="font-mono">
 													{Math.round(model.contextSize / 1000)}k ctx
 												</span>
+											) : null}
+											<span>
+												Registered <RelativeDate date={model.createdAt} />
+											</span>
+											{model.status === "active" ? (
+												<Link
+													href={`/dashboard/incidents?mapping=${encodeURIComponent(`${model.providerId}/${model.modelName}`)}`}
+													className="text-primary hover:underline"
+												>
+													Incidents →
+												</Link>
 											) : null}
 										</div>
 									</div>
@@ -408,6 +613,17 @@ export default function FleetPage() {
 													out
 												</span>
 											</div>
+											{model.currentPricing?.regionPrices?.length ? (
+												<div className="mt-1 flex flex-wrap justify-end gap-1">
+													{model.currentPricing.regionPrices.map((entry) => (
+														<RegionFareChip
+															key={entry.region}
+															model={model}
+															entry={entry}
+														/>
+													))}
+												</div>
+											) : null}
 										</div>
 										<div className="flex items-center gap-1">
 											{model.status !== "delisted" ? (
@@ -421,6 +637,7 @@ export default function FleetPage() {
 															<ShieldCheck className="size-3.5" /> Verify
 														</Button>
 													</VerifyModelDialog>
+													<PauseModelButton model={model} />
 													<FileFareDialog model={model}>
 														<Button
 															size="sm"

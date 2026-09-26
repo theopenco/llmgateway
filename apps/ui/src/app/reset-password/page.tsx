@@ -1,6 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
 import Link from "next/link";
@@ -35,6 +36,7 @@ const formSchema = z
 	});
 
 function ResetPasswordForm() {
+	const queryClient = useQueryClient();
 	const searchParams = useSearchParams();
 	const router = useRouter();
 	const authClient = useAuthClient();
@@ -71,6 +73,7 @@ function ResetPasswordForm() {
 				return;
 			}
 
+			queryClient.clear();
 			toast({
 				title: "Password updated",
 				description: "Sign in with your new password.",

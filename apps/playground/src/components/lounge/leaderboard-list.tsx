@@ -1,5 +1,7 @@
 import { Trophy } from "lucide-react";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import type { LoungeLeaderboardEntry } from "@/lib/lounge-leaderboard";
 
 function initials(name: string | null, username: string): string {
@@ -77,7 +79,7 @@ function LeaderboardRow({ entry }: { entry: LoungeLeaderboardEntry }) {
 
 			<div className="flex-shrink-0 text-right">
 				<div className="text-sm font-semibold tabular-nums">
-					{entry.points.toLocaleString()}
+					{formatNumber(entry.points)}
 				</div>
 				<div className="text-[11px] text-muted-foreground">points</div>
 			</div>

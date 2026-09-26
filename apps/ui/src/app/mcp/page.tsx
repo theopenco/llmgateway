@@ -7,7 +7,7 @@ export const metadata = {
 	description:
 		"Connect your AI assistant to LLM Gateway. Track usage and costs, find your most-used models, providers and coding apps, and generate text or images.",
 	openGraph: {
-		title: "MCP Server — Usage, Costs & Model Access",
+		title: "LLM Gateway MCP Server — Usage, Costs & Model Access",
 		description:
 			"Connect your AI assistant to LLM Gateway. Track usage and costs, find your most-used models, providers and coding apps, and generate text or images.",
 	},
@@ -21,7 +21,7 @@ export default function McpPage() {
 				<div className="container mx-auto px-4 sm:px-6 lg:px-8">
 					<div className="mx-auto max-w-2xl text-center mb-16">
 						<h1 className="mb-4 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
-							MCP Server
+							LLM Gateway MCP Server
 						</h1>
 						<p className="text-lg text-muted-foreground leading-relaxed">
 							Ask your AI assistant about your usage, costs, and most-used

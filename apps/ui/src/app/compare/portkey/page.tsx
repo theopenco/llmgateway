@@ -14,13 +14,18 @@ const portkeyFaqs: CompareFaqItem[] = [
 			"Yes. LLM Gateway is fully open source (AGPLv3) and self-hostable, with automatic provider routing and fallback, real-time cost and latency analytics, and transparent per-token pricing with no markup. Unlike Portkey, the entire gateway can run on your own infrastructure.",
 	},
 	{
+		question: "What happened to Portkey?",
+		answer:
+			"Palo Alto Networks announced its acquisition of Portkey on April 30, 2026 and closed it on May 29, 2026. Portkey is now sold as the Prisma AIRS AI Gateway inside Palo Alto's security platform, while the MIT-licensed gateway stays on GitHub. If you're evaluating it today, plan for a security vendor's roadmap and enterprise sales motion rather than the standalone LLMOps startup it used to be.",
+	},
+	{
 		question: "Is LLM Gateway open source?",
 		answer:
 			"Yes — the gateway is licensed under AGPLv3 and free to self-host forever. Portkey's gateway is open source, but its broader LLMOps platform is a proprietary hosted product.",
 	},
 	{
 		question: "How does pricing compare to Portkey?",
-		answer: `Pay per token at provider rates with a flat 5% platform fee on credits, or bring your own provider keys and pay providers directly for free. There are no per-seat or request-volume tiers, and optional full data retention is billed at ${MARKETING_STATS.dataStoragePrice}.`,
+		answer: `Pay per token at provider rates with a flat 5% platform fee on credits, or bring your own provider keys and pay providers directly for free. There are no per-seat or log-volume tiers, and optional full data retention is billed at ${MARKETING_STATS.dataStoragePrice}. Portkey's hosted Production plan is $49 per month for 100k logged requests plus $9 per additional 100k, with enterprise pricing on request.`,
 	},
 	{
 		question: "Can I migrate from Portkey without changing my code?",
@@ -42,7 +47,7 @@ export default function ComparePortkeyPage() {
 					content={{
 						heading: "Looking for a Portkey Alternative?",
 						description:
-							"Compare LLM Gateway's fully open-source platform, automatic provider routing, and transparent pricing against Portkey's gateway and LLMOps suite.",
+							"Compare LLM Gateway's fully open-source platform, automatic provider routing, and transparent pricing against Portkey — now the Prisma AIRS AI Gateway from Palo Alto Networks.",
 						badges: [
 							"Fully Open Source",
 							"Automatic Routing",
@@ -78,7 +83,7 @@ export async function generateMetadata() {
 	return {
 		title: "LLM Gateway vs Portkey — The Open Portkey Alternative",
 		description:
-			"Compare open-source routing, image and video generation, and transparent pricing vs Portkey's gateway and LLMOps suite.",
+			"Compare open-source routing, image and video generation, and transparent pricing vs Portkey, now Palo Alto Networks' Prisma AIRS AI Gateway.",
 		alternates: { canonical: "/compare/portkey" },
 		openGraph: {
 			title: "LLM Gateway vs Portkey — Feature Comparison",

@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { z } from "zod";
 
 import { findArenaMatch, getArenaBenchmarks } from "@/lib/arena-benchmarks.js";
+import { loadPublicDiscounts } from "@/lib/public-discounts.js";
 
 import {
 	and,
@@ -12,9 +13,7 @@ import {
 	eq,
 	excludeRegionalMappingRows,
 	gte,
-	isNull,
 	modelProviderMappingHistory,
-	or,
 	sql,
 	tables,
 } from "@llmgateway/db";
@@ -23,7 +22,16 @@ import {
 	providers as providerDefinitions,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
-import { deriveStabilityMetrics } from "@llmgateway/shared";
+import {
+	deriveStabilityMetrics,
+	formatMonthLabel,
+	MODEL_SEARCH_MAX_PAGE_SIZE,
+	MODEL_SEARCH_MAX_QUERY_LENGTH,
+	searchModelEntries,
+	searchModelProviders,
+	type ModelSearchEntry,
+	type ModelSearchProvider,
+} from "@llmgateway/shared";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -123,6 +131,9 @@ const modelProviderMappingSchema = z.object({
 	webSearch: z.boolean().nullable(),
 	webSearchPrice: z.string().nullable(),
 	realtime: z.boolean().nullable(),
+	speechGenerations: z.boolean().nullable(),
+	realtimeTranscription: z.boolean().nullable(),
+	realtimeTranscriptionTurnDetection: z.boolean().nullable(),
 	supportedVoices: z.array(z.string()).nullable(),
 	discount: z.string().nullable(),
 	stability: z.enum(["stable", "beta", "unstable", "experimental"]).nullable(),
@@ -185,7 +196,7 @@ const getModelsRoute = createRoute({
 internalModels.openapi(getModelsRoute, async (c) => {
 	const now = new Date();
 
-	const [models, activeMappings, globalDiscounts] = await Promise.all([
+	const [models, activeMappings, getPublicDiscount] = await Promise.all([
 		db.query.model.findMany({
 			where: {
 				status: { eq: "active" },
@@ -202,22 +213,7 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				createdAt: "desc",
 			},
 		}),
-		db
-			.select({
-				provider: tables.discount.provider,
-				model: tables.discount.model,
-				discountPercent: tables.discount.discountPercent,
-			})
-			.from(tables.discount)
-			.where(
-				and(
-					isNull(tables.discount.organizationId),
-					or(
-						isNull(tables.discount.expiresAt),
-						gte(tables.discount.expiresAt, now),
-					),
-				),
-			),
+		loadPublicDiscounts(),
 	]);
 
 	const mappingsByModelId = new Map<string, typeof activeMappings>();
@@ -229,45 +225,6 @@ internalModels.openapi(getModelsRoute, async (c) => {
 			mappingsByModelId.set(mapping.modelId, [mapping]);
 		}
 	}
-
-	// Find the best global discount for a given provider+model. Discounts are
-	// always keyed by the canonical model ID.
-	const getGlobalDiscount = (
-		providerId: string,
-		modelId: string,
-	): string | null => {
-		// Precedence: provider+model > provider > model
-		const providerModel = globalDiscounts.find(
-			(d) => d.provider === providerId && d.model === modelId,
-		);
-		if (providerModel) {
-			return providerModel.discountPercent;
-		}
-
-		const providerOnly = globalDiscounts.find(
-			(d) => d.provider === providerId && d.model === null,
-		);
-		if (providerOnly) {
-			return providerOnly.discountPercent;
-		}
-
-		const modelOnly = globalDiscounts.find(
-			(d) => d.provider === null && d.model === modelId,
-		);
-		if (modelOnly) {
-			return modelOnly.discountPercent;
-		}
-
-		// Fully global (null provider + null model)
-		const fullyGlobal = globalDiscounts.find(
-			(d) => d.provider === null && d.model === null,
-		);
-		if (fullyGlobal) {
-			return fullyGlobal.discountPercent;
-		}
-
-		return null;
-	};
 
 	// Transform and apply effective discount
 	const transformedModels = models.map((model) => ({
@@ -281,8 +238,15 @@ internalModels.openapi(getModelsRoute, async (c) => {
 					) ?? null;
 			return {
 				...mapping,
-				discount: getGlobalDiscount(mapping.providerId, model.id),
-				quantization: sharedMapping?.quantization ?? null,
+				discount:
+					mapping.deactivatedAt && mapping.deactivatedAt <= now
+						? null
+						: (getPublicDiscount(mapping.providerId, model.id)
+								?.discountPercent ?? null),
+				quantization:
+					mapping.source === "airside"
+						? mapping.quantization
+						: (sharedMapping?.quantization ?? null),
 				// Airside-materialized mappings carry their own efforts in the DB
 				// row; static rows are served from the shared definition.
 				reasoningEfforts:
@@ -296,6 +260,10 @@ internalModels.openapi(getModelsRoute, async (c) => {
 				audio: mapping.audio ?? sharedMapping?.audio ?? null,
 				document: sharedMapping?.document ?? null,
 				realtime: sharedMapping?.realtime ?? null,
+				speechGenerations: sharedMapping?.speechGenerations ?? null,
+				realtimeTranscription: sharedMapping?.realtimeTranscription ?? null,
+				realtimeTranscriptionTurnDetection:
+					sharedMapping?.realtimeTranscriptionTurnDetection ?? null,
 				supportedVoices: sharedMapping?.supportedVoices ?? null,
 				imageOutputPrice:
 					sharedMapping?.imageOutputPrice !== undefined
@@ -452,6 +420,238 @@ internalModels.openapi(getModelsRoute, async (c) => {
 	return c.json({ models: transformedModels });
 });
 
+// GET /internal/models/search - Lightweight ranked search for the ⌘K palette
+const modelSearchResultSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	family: z.string(),
+	addedAt: z.string().nullable(),
+	free: z.boolean(),
+	providerIds: z.array(z.string()),
+	monthKey: z.string(),
+	monthLabel: z.string(),
+});
+
+const modelSearchProviderSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+});
+
+const searchModelsRoute = createRoute({
+	operationId: "internal_search_models",
+	summary: "Search models",
+	description:
+		"Ranked model search for the command palette. Without a query the catalogue is paged newest month first; with one, hits are ranked by relevance. Follow `nextCursor` to load the next page.",
+	method: "get",
+	path: "/models/search",
+	request: {
+		query: z.object({
+			q: z.string().max(MODEL_SEARCH_MAX_QUERY_LENGTH).optional(),
+			cursor: z.string().max(64).optional(),
+			limit: z.coerce
+				.number()
+				.int()
+				.min(1)
+				.max(MODEL_SEARCH_MAX_PAGE_SIZE)
+				.optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						models: z.array(modelSearchResultSchema),
+						// Matching providers, only on the first page of a query.
+						providers: z.array(modelSearchProviderSchema),
+						nextCursor: z.string().nullable(),
+						total: z.number(),
+						groupedByMonth: z.boolean(),
+					}),
+				},
+			},
+			description: "One page of search results",
+		},
+	},
+});
+
+interface ModelSearchRows {
+	models: Array<{
+		id: string;
+		name: string;
+		family: string;
+		aliases: string[] | null;
+		createdAt: Date;
+		releasedAt: Date | null;
+		free: boolean | null;
+	}>;
+	mappings: Array<{
+		modelId: string;
+		providerId: string;
+		deactivatedAt: Date | null;
+		requestPrice: string | null;
+	}>;
+	providers: ModelSearchProvider[];
+}
+
+// The palette queries on every keystroke, so the narrow rows it needs are
+// memoised per process for a short window instead of re-read per request.
+const MODEL_SEARCH_ROWS_TTL_MS = 30_000;
+let modelSearchRowsMemo: {
+	loadedAt: number;
+	rows: Promise<ModelSearchRows>;
+} | null = null;
+
+export function resetModelSearchRowsMemo() {
+	modelSearchRowsMemo = null;
+}
+
+async function fetchModelSearchRows(): Promise<ModelSearchRows> {
+	const [models, mappings, providers, claims] = await Promise.all([
+		db.query.model.findMany({
+			where: { status: { eq: "active" } },
+			columns: {
+				id: true,
+				name: true,
+				family: true,
+				aliases: true,
+				createdAt: true,
+				releasedAt: true,
+				free: true,
+			},
+		}),
+		db.query.modelProviderMapping.findMany({
+			where: { status: { eq: "active" } },
+			columns: {
+				modelId: true,
+				providerId: true,
+				deactivatedAt: true,
+				requestPrice: true,
+			},
+		}),
+		db.query.provider.findMany({
+			where: { status: { eq: "active" } },
+			columns: { id: true, name: true },
+		}),
+		db.query.providerClaim.findMany({
+			where: { status: { eq: "active" } },
+			columns: { providerId: true, customName: true },
+		}),
+	]);
+	const customNameByProvider = new Map(
+		claims.map((claim) => [claim.providerId, claim.customName]),
+	);
+	return {
+		models,
+		mappings,
+		providers: providers.map((provider) => ({
+			id: provider.id,
+			name:
+				customNameByProvider.get(provider.id) ?? provider.name ?? provider.id,
+		})),
+	};
+}
+
+function loadModelSearchRows(): Promise<ModelSearchRows> {
+	const now = Date.now();
+	if (
+		modelSearchRowsMemo &&
+		now - modelSearchRowsMemo.loadedAt < MODEL_SEARCH_ROWS_TTL_MS
+	) {
+		return modelSearchRowsMemo.rows;
+	}
+	const rows = fetchModelSearchRows();
+	const memo = { loadedAt: now, rows };
+	modelSearchRowsMemo = memo;
+	rows.catch(() => {
+		if (modelSearchRowsMemo === memo) {
+			modelSearchRowsMemo = null;
+		}
+	});
+	return rows;
+}
+
+export function buildModelSearchEntries(
+	rows: ModelSearchRows,
+	now: Date = new Date(),
+): ModelSearchEntry[] {
+	const providerNameById = new Map(
+		rows.providers.map((provider) => [provider.id, provider.name]),
+	);
+	const activeMappingsByModel = new Map<string, ModelSearchRows["mappings"]>();
+	for (const mapping of rows.mappings) {
+		if (mapping.deactivatedAt && mapping.deactivatedAt <= now) {
+			continue;
+		}
+		const existing = activeMappingsByModel.get(mapping.modelId);
+		if (existing) {
+			existing.push(mapping);
+		} else {
+			activeMappingsByModel.set(mapping.modelId, [mapping]);
+		}
+	}
+	return rows.models.flatMap((model) => {
+		const active = activeMappingsByModel.get(model.id);
+		if (model.id === "custom" || !active) {
+			return [];
+		}
+		const providerIds = Array.from(
+			new Set(active.map((mapping) => mapping.providerId)),
+		);
+		return [
+			{
+				id: model.id,
+				name: model.name,
+				family: model.family,
+				aliases: model.aliases ?? [],
+				addedAt: (model.createdAt ?? model.releasedAt)?.toISOString() ?? null,
+				free:
+					model.free === true &&
+					active.some(
+						(mapping) =>
+							!mapping.requestPrice || parseFloat(mapping.requestPrice) === 0,
+					),
+				providerIds,
+				providerNames: providerIds.map(
+					(providerId) => providerNameById.get(providerId) ?? providerId,
+				),
+			},
+		];
+	});
+}
+
+internalModels.openapi(searchModelsRoute, async (c) => {
+	const { q, cursor, limit } = c.req.valid("query");
+	const rows = await loadModelSearchRows();
+	const page = searchModelEntries(buildModelSearchEntries(rows), {
+		query: q,
+		cursor,
+		limit,
+	});
+	const providers = cursor
+		? []
+		: searchModelProviders(
+				rows.providers.filter((provider) => provider.name !== "LLM Gateway"),
+				q,
+			);
+	return c.json({
+		models: page.items.map(({ entry, monthKey }) => ({
+			id: entry.id,
+			name: entry.name,
+			family: entry.family,
+			addedAt: entry.addedAt,
+			free: entry.free,
+			providerIds: entry.providerIds,
+			monthKey,
+			monthLabel: formatMonthLabel(monthKey),
+		})),
+		providers,
+		nextCursor: page.nextCursor,
+		total: page.total,
+		groupedByMonth: page.groupedByMonth,
+	});
+});
+
 // GET /internal/providers - Returns providers sorted by createdAt desc
 const getProvidersRoute = createRoute({
 	operationId: "internal_get_providers",
@@ -580,13 +780,13 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
 					"logsCount",
 				),
-			errorsCount:
-				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
-					"errorsCount",
-				),
 			clientErrorsCount:
 				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
 					"clientErrorsCount",
+				),
+			gatewayErrorsCount:
+				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.gatewayErrorsCount}), 0)`.as(
+					"gatewayErrorsCount",
 				),
 			upstreamErrorsCount:
 				sql<number>`COALESCE(SUM(${modelProviderMappingHistory.upstreamErrorsCount}), 0)`.as(
@@ -631,11 +831,12 @@ internalModels.openapi(modelBenchmarksRoute, async (c) => {
 
 	const providers = windowed.map((m) => {
 		const logsCount = Number(m.logsCount);
-		const { errorsCount, errorRate, uptime } = deriveStabilityMetrics(
+		const { errorsCount, errorRate, uptime } = deriveStabilityMetrics({
 			logsCount,
-			Number(m.errorsCount),
-			Number(m.clientErrorsCount),
-		);
+			clientErrorsCount: Number(m.clientErrorsCount),
+			gatewayErrorsCount: Number(m.gatewayErrorsCount),
+			upstreamErrorsCount: Number(m.upstreamErrorsCount),
+		});
 		const cachedCount = Number(m.cachedCount);
 		const totalDuration = Number(m.totalDuration);
 		const totalOutputTokens = Number(m.totalOutputTokens);
@@ -710,6 +911,7 @@ const uptimeProviderSchema = z.object({
 	logsCount: z.number(),
 	errorsCount: z.number(),
 	clientErrorsCount: z.number(),
+	gatewayErrorsCount: z.number(),
 	upstreamErrorsCount: z.number(),
 	uptime: z.number().nullable(),
 	avgTtft: z.number().nullable(),
@@ -786,10 +988,6 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.logsCount}), 0)`.as(
 						"logs_count",
 					),
-				errorsCount:
-					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.errorsCount}), 0)`.as(
-						"errors_count",
-					),
 				clientErrorsCount:
 					sql<number>`COALESCE(SUM(${modelProviderMappingHistory.clientErrorsCount}), 0)`.as(
 						"client_errors_count",
@@ -863,7 +1061,6 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			points: Array<{
 				timestamp: string;
 				logsCount: number;
-				errorsCount: number;
 				clientErrorsCount: number;
 				gatewayErrorsCount: number;
 				upstreamErrorsCount: number;
@@ -900,7 +1097,6 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 		entry.points.push({
 			timestamp: r.minuteTimestamp.toISOString(),
 			logsCount: Number(r.logsCount),
-			errorsCount: Number(r.errorsCount),
 			clientErrorsCount: Number(r.clientErrorsCount),
 			gatewayErrorsCount: Number(r.gatewayErrorsCount),
 			upstreamErrorsCount: Number(r.upstreamErrorsCount),
@@ -918,8 +1114,8 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 
 	const providers = Array.from(byProvider.values()).map((p) => {
 		let totalLogs = 0;
-		let totalErrors = 0;
 		let totalClientErrors = 0;
+		let totalGatewayErrors = 0;
 		let totalUpstreamErrors = 0;
 		let totalDuration = 0;
 		let totalTtft = 0;
@@ -930,8 +1126,8 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 
 		const points = p.points.map((pt) => {
 			totalLogs += pt.logsCount;
-			totalErrors += pt.errorsCount;
 			totalClientErrors += pt.clientErrorsCount;
+			totalGatewayErrors += pt.gatewayErrorsCount;
 			totalUpstreamErrors += pt.upstreamErrorsCount;
 			totalDuration += pt.totalDuration;
 			totalTtft += pt.totalTimeToFirstToken;
@@ -945,11 +1141,12 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			// (much later) first content token.
 			const { total: pointTtft, count: pointTtftCount } =
 				effectiveTtftTotals(pt);
-			const pointMetrics = deriveStabilityMetrics(
-				pt.logsCount,
-				pt.errorsCount,
-				pt.clientErrorsCount,
-			);
+			const pointMetrics = deriveStabilityMetrics({
+				logsCount: pt.logsCount,
+				clientErrorsCount: pt.clientErrorsCount,
+				gatewayErrorsCount: pt.gatewayErrorsCount,
+				upstreamErrorsCount: pt.upstreamErrorsCount,
+			});
 			return {
 				timestamp: pt.timestamp,
 				logsCount: pt.logsCount,
@@ -966,11 +1163,12 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			};
 		});
 
-		const stability = deriveStabilityMetrics(
-			totalLogs,
-			totalErrors,
-			totalClientErrors,
-		);
+		const stability = deriveStabilityMetrics({
+			logsCount: totalLogs,
+			clientErrorsCount: totalClientErrors,
+			gatewayErrorsCount: totalGatewayErrors,
+			upstreamErrorsCount: totalUpstreamErrors,
+		});
 		const uptime =
 			stability.uptime !== null ? Math.round(stability.uptime * 10) / 10 : null;
 		// Output tokens only — including prompt tokens would inflate throughput
@@ -993,6 +1191,7 @@ internalModels.openapi(modelUptimeRoute, async (c) => {
 			logsCount: totalLogs,
 			errorsCount: stability.errorsCount,
 			clientErrorsCount: totalClientErrors,
+			gatewayErrorsCount: totalGatewayErrors,
 			upstreamErrorsCount: totalUpstreamErrors,
 			uptime,
 			avgTtft:

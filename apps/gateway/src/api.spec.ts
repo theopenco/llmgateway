@@ -6,6 +6,7 @@ import { encryptProviderKeyForStorage } from "@llmgateway/actions";
 import { redisClient } from "@llmgateway/cache";
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
+import { GATEWAY_CONTENT_FILTER_MESSAGE } from "@llmgateway/shared";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
@@ -1529,7 +1530,7 @@ describe("api", () => {
 		expect(log.finishReason).toBe("client_error");
 		expect(log.apiOrigin).toBe("chat-completions");
 		expect(log.errorDetails?.cause).toBe("invalid_parameters");
-		expect(log.source).toBe("unknown");
+		expect(log.source).toBeNull();
 	});
 
 	test("/v1/responses logs invalid message roles", async () => {
@@ -1726,6 +1727,70 @@ describe("api", () => {
 		expect(res.status).toBe(200);
 	});
 
+	test("/v1/chat/completions records which compliance rule dropped a provider", async () => {
+		await db
+			.update(tables.organization)
+			.set({
+				plan: "enterprise",
+				providerCompliancePolicy: {
+					enabled: true,
+					blockedProviders: ["azure", "aws-mantle"],
+				},
+			})
+			.where(eq(tables.organization.id, "org-id"));
+
+		await db.insert(tables.apiKey).values({
+			id: "token-id-compliance-reasons",
+			...hashApiKeyForStorage("real-token-compliance-reasons"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-compliance-reasons",
+			...encryptProviderKeyForStorage(
+				"sk-test-key",
+				"provider-key-id-compliance-reasons",
+				"org-id",
+			),
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-compliance-reasons",
+			},
+			body: JSON.stringify({
+				model: "gpt-5.6-sol",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+
+		const logs = await waitForLogs(1);
+		const filtered = (logs[0].routingMetadata?.filteredProviders ?? []).filter(
+			(f) => f.codes?.includes("compliance"),
+		);
+		expect(filtered.map((f) => f.providerId).sort()).toEqual([
+			"aws-mantle",
+			"azure",
+		]);
+		// The coarse code stays, so the exclusion totals are unchanged; the rule
+		// that actually fired is recorded next to it.
+		for (const entry of filtered) {
+			expect(entry.codes).toContain("compliance_blocked_provider");
+			expect(entry.reasons).toContain(
+				"compliance: on the blocked-providers list",
+			);
+		}
+	});
+
 	test("/v1/chat/completions enforces an enabled compliance policy on non-enterprise plans", async () => {
 		// Regression: enforcement used to be gated on enterprise access, so a
 		// plan change (or a gateway without a valid enterprise license) silently
@@ -1880,7 +1945,7 @@ describe("api", () => {
 					Authorization: "Bearer real-token-devpass-no-training",
 				},
 				body: JSON.stringify({
-					model: "deepseek-v4-flash",
+					model: "deepseek-v4.1-flash",
 					messages: [{ role: "user", content: "Hello compliance!" }],
 				}),
 			});
@@ -3147,6 +3212,151 @@ describe("api", () => {
 		expect(logs.length).toBe(1);
 		expect(logs[0].requestedServiceTier).toBe("priority");
 		expect(logs[0].usedServiceTier).toBe("priority");
+	});
+
+	test("/v1/chat/completions forwards the Azure priority service tier", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-azure-service-tier",
+			...hashApiKeyForStorage("real-token-azure-service-tier"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-azure-service-tier",
+			...encryptProviderKeyForStorage(
+				"sk-azure-test-key",
+				"provider-key-id-azure-service-tier",
+				"org-id",
+			),
+			provider: "azure",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+			// Pin the v1 surface so a developer's LLM_AZURE_DEPLOYMENT_TYPE can't
+			// reroute the request off the mock server's /openai/v1/* aliases.
+			options: { azure_deployment_type: "ai-foundry" },
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-azure-service-tier",
+			},
+			body: JSON.stringify({
+				model: "azure/gpt-5.1",
+				service_tier: "priority",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.metadata?.used_provider).toBe("azure");
+		expect(json.metadata?.requested_service_tier).toBe("priority");
+		expect(json.metadata?.used_service_tier).toBe("priority");
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].requestedServiceTier).toBe("priority");
+		expect(logs[0].usedServiceTier).toBe("priority");
+	});
+
+	test("/v1/chat/completions forwards the tier on a legacy Azure deployment key", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-azure-legacy-service-tier",
+			...hashApiKeyForStorage("real-token-azure-legacy-service-tier"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-azure-legacy-service-tier",
+			...encryptProviderKeyForStorage(
+				"sk-azure-test-key",
+				"provider-key-id-azure-legacy-service-tier",
+				"org-id",
+			),
+			provider: "azure",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+			// The deployment-based api-version accepts and reports `service_tier`
+			// too, so the tier travels on the chat-completions path as well.
+			options: { azure_deployment_type: "openai" },
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-azure-legacy-service-tier",
+			},
+			body: JSON.stringify({
+				model: "azure/gpt-5.1",
+				service_tier: "priority",
+				messages: [{ role: "user", content: "Hello!" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.metadata?.used_provider).toBe("azure");
+		expect(json.metadata?.used_service_tier).toBe("priority");
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].usedServiceTier).toBe("priority");
+	});
+
+	test("/v1/chat/completions bills an Azure tier downgrade at standard", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id-azure-tier-downgrade",
+			...hashApiKeyForStorage("real-token-azure-tier-downgrade"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id-azure-tier-downgrade",
+			...encryptProviderKeyForStorage(
+				"sk-azure-test-key",
+				"provider-key-id-azure-tier-downgrade",
+				"org-id",
+			),
+			provider: "azure",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+			options: { azure_deployment_type: "ai-foundry" },
+		});
+
+		const res = await app.request("/v1/chat/completions", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: "Bearer real-token-azure-tier-downgrade",
+			},
+			body: JSON.stringify({
+				model: "azure/gpt-5.1",
+				service_tier: "priority",
+				// Azure silently serves standard when the subscription lacks the
+				// entitlement, at peak, or on ramp-rate limits, echoing
+				// `service_tier: "default"`. Billing must follow the served tier.
+				messages: [{ role: "user", content: "TRIGGER_SERVICE_TIER_DOWNGRADE" }],
+			}),
+		});
+
+		expect(res.status).toBe(200);
+		const json = await res.json();
+		expect(json.metadata?.requested_service_tier).toBe("priority");
+		expect(json.metadata?.used_service_tier).toBeNull();
+
+		const logs = await waitForLogs(1);
+		expect(logs.length).toBe(1);
+		expect(logs[0].requestedServiceTier).toBe("priority");
+		expect(logs[0].usedServiceTier).toBeNull();
 	});
 
 	test("/v1/chat/completions omits service tier metadata without a tier request", async () => {
@@ -6380,7 +6590,9 @@ describe("api", () => {
 			expect(res.status).toBe(200);
 
 			const json = await res.json();
-			expect(json.choices[0].message.content).toBeNull();
+			expect(json.choices[0].message.content).toBe(
+				GATEWAY_CONTENT_FILTER_MESSAGE,
+			);
 			expect(json.choices[0].finish_reason).toBe("content_filter");
 			expect(json.usage.total_tokens).toBe(0);
 			expect(fetchSpy).toHaveBeenCalledOnce();
@@ -8187,6 +8399,69 @@ describe("api", () => {
 				process.env.LLM_GOOGLE_VERTEX_BASE_URL = previousVertexBaseUrl;
 			}
 		}
+	});
+
+	test("/v1/chat/completions logs a provider rate-limit rejection", async () => {
+		await db.insert(tables.apiKey).values({
+			id: "token-id",
+			...hashApiKeyForStorage("real-token"),
+			projectId: "project-id",
+			description: "Test API Key",
+			createdBy: "user-id",
+		});
+
+		await db.insert(tables.providerKey).values({
+			id: "provider-key-id",
+			...encryptProviderKeyForStorage(
+				"openai-key",
+				"provider-key-id",
+				"org-id",
+			),
+			provider: "openai",
+			organizationId: "org-id",
+			baseUrl: mockServerUrl,
+		});
+
+		await db.insert(tables.rateLimit).values({
+			id: "rate-limit-openai",
+			organizationId: "org-id",
+			provider: "openai",
+			model: "gpt-4o-mini",
+			maxRpm: 1,
+		});
+
+		const makeRequest = (content: string) =>
+			app.request("/v1/chat/completions", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer real-token",
+					"x-no-fallback": "true",
+				},
+				body: JSON.stringify({
+					model: "openai/gpt-4o-mini",
+					messages: [{ role: "user", content }],
+				}),
+			});
+
+		const firstRes = await makeRequest("Rate limit log request one");
+		expect(firstRes.status).toBe(200);
+
+		const secondRes = await makeRequest("Rate limit log request two");
+		expect(secondRes.status).toBe(429);
+		const secondJson = await secondRes.json();
+		expect(secondJson.error.message).toContain("Rate limit exceeded");
+
+		const logs = await waitForLogs(2);
+		const rejectionLog = logs.find(
+			(log) => log.finishReason === "client_error",
+		);
+		expect(rejectionLog).toBeDefined();
+		expect(rejectionLog?.hasError).toBe(true);
+		expect(rejectionLog?.errorDetails?.statusCode).toBe(429);
+		expect(rejectionLog?.errorDetails?.responseText).toContain(
+			"Rate limit exceeded",
+		);
 	});
 
 	// Non-streaming responses are cached in OpenAI format, so the stored

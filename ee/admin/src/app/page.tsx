@@ -4,6 +4,7 @@ import {
 	CircleDollarSign,
 	Gift,
 	PiggyBank,
+	PlaneTakeoff,
 	TrendingUp,
 	Users,
 } from "lucide-react";
@@ -33,7 +34,7 @@ const numberFormatter = new Intl.NumberFormat("en-US", {
 	maximumFractionDigits: 0,
 });
 
-type Accent = "green" | "blue" | "violet" | "amber" | "teal";
+type Accent = "green" | "blue" | "violet" | "amber" | "teal" | "rose";
 
 const accentTick: Record<Accent, string> = {
 	green: "bg-emerald-500 dark:bg-emerald-400",
@@ -41,6 +42,7 @@ const accentTick: Record<Accent, string> = {
 	violet: "bg-violet-500 dark:bg-violet-400",
 	amber: "bg-amber-500 dark:bg-amber-400",
 	teal: "bg-teal-500 dark:bg-teal-400",
+	rose: "bg-rose-500 dark:bg-rose-400",
 };
 
 const accentIcon: Record<Accent, string> = {
@@ -49,6 +51,7 @@ const accentIcon: Record<Accent, string> = {
 	violet: "text-violet-600 dark:text-violet-400",
 	amber: "text-amber-600 dark:text-amber-400",
 	teal: "text-teal-600 dark:text-teal-400",
+	rose: "text-rose-600 dark:text-rose-400",
 };
 
 function revealAt(index: number): CSSProperties {
@@ -107,17 +110,44 @@ function SectionHeader({
 	);
 }
 
-function LedgerRow({ label, value }: { label: string; value: string }) {
+function LedgerRow({
+	label,
+	value,
+	indent = false,
+}: {
+	label: string;
+	value: string;
+	/** Nested under the row above, whose total already includes this one. */
+	indent?: boolean;
+}) {
 	return (
-		<div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
-			<dt className="shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+		<div
+			className={cn(
+				"flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5",
+				// Elbow connector drawn on the row, not the label, so it stays out
+				// of the accessible name.
+				indent &&
+					"relative pl-4 before:absolute before:top-0 before:left-0.5 before:h-2 before:w-2 before:rounded-bl-[3px] before:border-b before:border-l before:border-border",
+			)}
+		>
+			<dt
+				className={cn(
+					"shrink-0 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground",
+					indent && "text-muted-foreground/70",
+				)}
+			>
 				{label}
 			</dt>
 			<span
 				aria-hidden
 				className="min-w-3 flex-1 self-end border-b border-dotted border-foreground/20 pb-1"
 			/>
-			<dd className="ml-auto font-mono text-[13px] font-medium tabular-nums tracking-tight">
+			<dd
+				className={cn(
+					"ml-auto font-mono text-[13px] font-medium tabular-nums tracking-tight",
+					indent && "text-[12px] text-muted-foreground",
+				)}
+			>
 				{value}
 			</dd>
 		</div>
@@ -133,6 +163,7 @@ function MetricCell({
 	accent,
 	rows,
 	hero = false,
+	rowsGrid = false,
 	className,
 	style,
 }: {
@@ -142,8 +173,15 @@ function MetricCell({
 	sublabel: string;
 	icon: ReactNode;
 	accent: Accent;
-	rows: { label: string; value: string }[];
+	rows: {
+		label: string;
+		value: string;
+		/** Rows nested under this one, whose total already includes them. */
+		sub?: { label: string; value: string }[];
+	}[];
 	hero?: boolean;
+	/** Lay the ledger rows out in the hero's two-column grid. */
+	rowsGrid?: boolean;
 	className?: string;
 	style?: CSSProperties;
 }) {
@@ -199,14 +237,30 @@ function MetricCell({
 			<dl
 				className={cn(
 					"relative mt-auto border-t border-border/50 pt-4",
-					hero
-						? "grid grid-cols-1 gap-x-8 gap-y-2 sm:grid-cols-2"
+					hero || rowsGrid
+						? // items-start: a stretched row would drop its dotted leader to
+							// the bottom of a taller neighbouring cell.
+							"grid grid-cols-1 items-start gap-x-8 gap-y-2 sm:grid-cols-2"
 						: "flex flex-col gap-2",
 				)}
 			>
-				{rows.map((row) => (
-					<LedgerRow key={row.label} label={row.label} value={row.value} />
-				))}
+				{rows.map((row) =>
+					row.sub?.length ? (
+						<div key={row.label} className="flex flex-col gap-2">
+							<LedgerRow label={row.label} value={row.value} />
+							{row.sub.map((subRow) => (
+								<LedgerRow
+									key={subRow.label}
+									label={subRow.label}
+									value={subRow.value}
+									indent
+								/>
+							))}
+						</div>
+					) : (
+						<LedgerRow key={row.label} label={row.label} value={row.value} />
+					),
+				)}
 			</dl>
 		</article>
 	);
@@ -315,6 +369,14 @@ export default async function Page({
 								{
 									label: "Credits Stripe",
 									value: currencyFormatter.format(metrics.grossCreditsRevenue),
+									sub: [
+										{
+											label: "SDK payments",
+											value: currencyFormatter.format(
+												metrics.grossSdkPaymentsRevenue,
+											),
+										},
+									],
 								},
 								{
 									label: "Credits external",
@@ -463,6 +525,21 @@ export default async function Page({
 									value: currencyFormatter.format(metrics.totalBonusCredits),
 								},
 							]}
+						/>
+						<MetricCell
+							label="Airside margin"
+							value={metrics.airsideMarginProfit}
+							format="currency"
+							sublabel="Gateway margin earned on Airside-carrier traffic"
+							icon={<PlaneTakeoff className="h-4 w-4" strokeWidth={1.75} />}
+							accent="rose"
+							rowsGrid
+							className="sm:col-span-2 xl:col-span-3"
+							style={revealAt(7)}
+							rows={metrics.airsideMarginByCarrier.map((carrier) => ({
+								label: carrier.companyName,
+								value: currencyFormatter.format(carrier.amount),
+							}))}
 						/>
 					</div>
 				</div>

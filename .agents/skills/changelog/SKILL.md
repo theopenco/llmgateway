@@ -11,7 +11,7 @@ Write a public changelog entry for LLM Gateway, in the house style, and hand bac
 
 Before writing, make sure you understand the feature concretely. If the user only gave a feature name, find the facts — don't guess:
 
-- Read the relevant docs page under `apps/docs/content/` (e.g. `features/<feature>.mdx`).
+- Read the relevant docs page under `apps/docs/content/` (e.g. `(gateway)/features/<feature>.mdx`).
 - Inspect the shipping commit/PR if one is referenced: `git show <sha> --stat`, then read the changed UI/API/gateway files for the exact user-facing behavior.
 - Confirm plan gating (free vs Pro vs Enterprise), exact field names, error codes, and any limits. The changelog must be accurate — never invent prices, limits, or capabilities.
 
@@ -53,6 +53,7 @@ slug: "<slug>"
 date: "<YYYY-MM-DD>"
 title: "<Title Case, ~3–7 words>"
 summary: "<1–3 sentences: what shipped, the concrete benefit, and the plan if gated. This is the OG description and the listing blurb.>"
+tags: ["llmgateway"]
 image:
   src: "/changelog/<slug>.png"
   alt: "<Descriptive alt text: the feature and what the image shows>"
@@ -70,6 +71,10 @@ image:
 
 **[<Docs link> →](https://docs.llmgateway.io/...)** | **[<Secondary CTA> →](https://llmgateway.io/...)**
 ```
+
+Set `tags` to every product substantively covered: `llmgateway`, `devpass`,
+`lounge`, or `airside`. Use multiple tags for roundups. Former Chat/Playground
+features belong to `lounge`; a generic "try it" link alone does not earn a tag.
 
 ### House style (match existing entries)
 
@@ -99,7 +104,8 @@ frontmatter dimensions to the generated file.
 - Put the feature's concept at the center: a glowing element mounted on the central chip (e.g. a glowing doorway for the gateway, a glowing key for API keys). Concept over literalism.
 - Surround it with supporting glossy rounded 3D icons that fit the feature (chat bubbles, keys, charts, coins…) in vivid purple, lime green, and mint, each on small pedestals on the board.
 - Add the render feel: subtle depth of field at the edges, soft reflections, premium 3D render, vibrant against the dark board.
-- **Says "no text, no words, no letters, no UI chrome"** — AI image text is unreliable; the title lives in the page, not the image.
+- Reserve the top-left corner as clean negative space: no logo, icon, wordmark, or brand text.
+- **Says "no text, no words, no letters, no logos, no UI chrome"** — the title lives on the page; composite the official logo afterward.
 - Specifies the aspect: "wide 3:2 landscape composition, 1536×1024".
 
 Output the prompt in a fenced block, then the save path, e.g.:
@@ -113,15 +119,30 @@ bright neon-teal light traces flowing across it toward a central raised chip.
 On the chip sits a glowing <concept element>. Around it, glossy rounded 3D
 <supporting icons> in vivid purple, lime green, and mint stand on small
 pedestals on the board. Subtle depth of field at the edges, soft reflections,
-premium 3D render. Wide 3:2 landscape composition, 1536×1024. No text, no
-words, no letters, no UI chrome.
+premium 3D render. Leave the top-left corner empty for the official logo.
+Wide 3:2 landscape composition, 1536×1024. No text, no words, no letters,
+no logos, no UI chrome.
 ```
 
-Save the result to: apps/ui/public/changelog/<slug>.png
+Save the background to: /tmp/<slug>-bg.png
 ````
 
-Generate the image with gpt-image-2, then put the PNG at that path and inspect
-its actual dimensions before validating.
+Generate the background with gpt-image-2, then composite the official aligned
+lockup using the same helper as blog posts:
+
+```bash
+.agents/skills/blog/scripts/composite-logo.sh \
+  /tmp/<slug>-bg.png apps/ui/public/changelog/<slug>.png
+file apps/ui/public/changelog/<slug>.png
+```
+
+The helper uses `apps/ui/public/brand/logo-with-name-white.svg` at 360 px wide,
+positioned at (72, 72) on a 1536×1024 background. It checks for `rsvg-convert`,
+`ffmpeg`, and `ffprobe` and validates dimensions. Inspect the final PNG: the
+symbol and name must be vertically centered on one line. Keep the outlined
+lockup intact; never retype the name, resize the symbol independently, or
+composite over an existing logo. For text-based OG cards, use the shared
+`apps/ui/src/lib/og.tsx` template, which renders the same lockup.
 
 ## Step 4 — Validate
 

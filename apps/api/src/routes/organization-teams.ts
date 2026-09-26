@@ -68,7 +68,7 @@ const teamNameSchema = z.string().trim().min(1).max(100);
 
 interface OrganizationAdminContext {
 	membership: {
-		role: "owner" | "admin" | "developer";
+		role: "owner" | "admin" | "project_admin" | "developer";
 		organization: {
 			id: string;
 			plan: "free" | "pro" | "enterprise";

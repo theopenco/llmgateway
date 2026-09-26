@@ -3,6 +3,8 @@ import { Cache, type MutationOption } from "drizzle-orm/cache/core";
 import { invalidateSwrByTables } from "@llmgateway/cache";
 import { logger } from "@llmgateway/logger";
 
+import { SCHEMA_CACHE_VERSION } from "./schema-cache-version.js";
+
 import type { Redis } from "ioredis";
 
 interface CacheConfig {
@@ -17,16 +19,29 @@ interface CacheConfig {
 
 export class RedisCache extends Cache {
 	private readonly redisClient: Redis;
-	private readonly keyPrefix = "drizzle:cache:";
+	// Cached rows are positional, so a column layout change silently shifts
+	// their values when newer code maps them (see SCHEMA_CACHE_VERSION). The
+	// layout fingerprint in the key makes entries from another layout
+	// unreachable instead of wrong — no manual version bump needed.
+	private readonly keyPrefix: string;
+	// The index and timestamp keys stay unversioned on purpose: during a rolling
+	// deploy both layouts are live, and a mutation from either must evict the
+	// other's entries too.
 	private readonly tablePrefix = "drizzle:tables:";
 	private readonly tagPrefix = "drizzle:tags:";
 	private readonly tableKeysPrefix = "drizzle:table_keys:";
 	private readonly defaultTtl = 60; // 1 minute in seconds
 	private readonly batchSize = 500; // Max keys to process in one batch
 
-	public constructor(redisClient: Redis) {
+	// `schemaVersion` is only ever passed by tests that need to act as a second
+	// build with a different column layout.
+	public constructor(
+		redisClient: Redis,
+		schemaVersion: string = SCHEMA_CACHE_VERSION,
+	) {
 		super();
 		this.redisClient = redisClient;
+		this.keyPrefix = `drizzle:cache:${schemaVersion}:`;
 	}
 
 	public strategy(): "all" {

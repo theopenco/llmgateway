@@ -52,6 +52,27 @@ describe("completionsRequestSchema reasoning_effort", () => {
 		expect(result.data?.reasoning?.effort).toBe("max");
 	});
 
+	it("preserves reasoning.mode so it reaches the provider", () => {
+		const result = completionsRequestSchema.safeParse({
+			model: "gpt-5.6-sol",
+			messages: [{ role: "user", content: "hi" }],
+			reasoning: { effort: "high", mode: "pro" },
+		});
+
+		expect(result.success).toBe(true);
+		expect(result.data?.reasoning).toEqual({ effort: "high", mode: "pro" });
+	});
+
+	it("rejects an unknown reasoning.mode", () => {
+		const result = completionsRequestSchema.safeParse({
+			model: "gpt-5.6-sol",
+			messages: [{ role: "user", content: "hi" }],
+			reasoning: { mode: "turbo" },
+		});
+
+		expect(result.success).toBe(false);
+	});
+
 	it("leaves other effort levels unchanged", () => {
 		const result = completionsRequestSchema.safeParse({
 			model: "deepseek-v4",
@@ -93,5 +114,35 @@ describe("completionsRequestSchema routing", () => {
 			routing: "balanced",
 		});
 		expect(result.success).toBe(false);
+	});
+});
+
+describe("Gemini replay metadata", () => {
+	it("preserves text and tool signatures through validation", () => {
+		const extra_content = { google: { thought_signature: "test-signature" } };
+		const message = {
+			role: "assistant",
+			content: [{ type: "text", text: "Answer", extra_content }],
+			tool_calls: [
+				{
+					id: "call_test",
+					type: "function",
+					function: { name: "lookup", arguments: "{}" },
+					extra_content,
+				},
+			],
+			reasoning_details: [
+				{
+					type: "reasoning.text",
+					format: "google-gemini-v1",
+					signature: "test-signature",
+				},
+			],
+		};
+		const result = completionsRequestSchema.parse({
+			model: "gemini-3.5-flash",
+			messages: [message],
+		});
+		expect(result.messages[0]).toEqual(message);
 	});
 });

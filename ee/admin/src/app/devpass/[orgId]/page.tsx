@@ -10,6 +10,7 @@ import { notFound } from "next/navigation";
 
 import { CopyableId } from "@/components/copyable-id";
 import { GiftCreditsDialog } from "@/components/gift-credits-dialog";
+import { RefundPaymentDialog } from "@/components/refund-payment-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,13 +28,13 @@ import {
 	refundDevpassPayment,
 } from "@/lib/admin-devpass";
 import { giftCreditsToOrganization } from "@/lib/admin-organizations";
+import { formatRenewalSummary } from "@/lib/renewal-state";
 import { requireSession } from "@/lib/require-session";
 import { createServerApiClient } from "@/lib/server-api";
 import { cn } from "@/lib/utils";
 
 import { CancelSubscriptionDialog } from "./cancel-subscription-dialog";
 import { GiftResetPassesDialog } from "./gift-reset-passes-dialog";
-import { RefundPaymentDialog } from "./refund-payment-dialog";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
@@ -377,7 +378,7 @@ export default async function DevpassDetailPage({
 						{currencyFormatter.format(sub.mrr)}
 					</div>
 					<div className="mt-1 text-xs text-muted-foreground">
-						Renews {formatDate(sub.expiresAt)}
+						{formatRenewalSummary(sub, formatDate)}
 					</div>
 					{sub.pendingTier && (
 						<div className="mt-1 text-xs text-amber-600">

@@ -125,9 +125,10 @@ file apps/ui/public/blog/<slug>.png   # → PNG image data, 1536 x 1024
 
 The helper checks for `rsvg-convert`, `ffmpeg`, and `ffprobe` before doing any
 work and validates the output dimensions. View the final file to confirm the
-wordmark sits cleanly in the top-left. Pass
-`apps/ui/public/brand/logo-white.svg` as the optional third argument when only
-the icon fits.
+360 px wide lockup sits at (72, 72), with the symbol and name vertically
+centered on one line. Use the supplied outlined SVG unchanged; never retype
+“LLM Gateway”, enlarge the symbol independently, or substitute the symbol-only
+asset. Composite onto a clean background, never over an existing logo.
 
 If the API key or required image tools are unavailable, do not claim the image
 was generated. Hand back the exact prompt, missing precondition, and expected

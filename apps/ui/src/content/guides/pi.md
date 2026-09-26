@@ -2,17 +2,48 @@
 id: pi
 slug: pi
 title: Pi Coding Agent Integration
-description: Use any model with Pi coding agent through LLM Gateway — GPT-5.5, Gemini 3.1 Pro, Claude Opus 4.7, DeepSeek V4, and 200+ others in your terminal.
-date: 2026-05-13
+description: Connect Pi to LLM Gateway with a custom provider, keep your key in an environment variable, and verify a coding task.
+date: 2026-09-07
 ---
 
-[Pi](https://pi.dev) is a minimal terminal-based coding agent that gives an AI full access to read, write, edit, and run shell commands in your project. By pointing Pi at LLM Gateway, you can use any of our 200+ models with full cost tracking and caching.
+[Pi](https://pi.dev) is a terminal coding agent with tools for reading files, editing code, and running commands. Add LLM Gateway as a custom provider to choose from the&nbsp;[live model catalogue](https://llmgateway.io/models) and track usage in one dashboard.
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+This setup was verified with Pi 0.85.1, including file edits and a successful test run.
 
-## Quick Start
+## Video walkthrough
 
-Configure Pi to use LLM Gateway by editing `~/.pi/agent/models.json`:
+<div className="relative aspect-video">
+  <iframe
+    className="absolute inset-0 h-full w-full rounded-lg border-0"
+    src="https://www.youtube-nocookie.com/embed/6Cvarlu7dpI"
+    title="Pi setup and coding demo with LLM Gateway"
+    loading="lazy"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    referrerPolicy="strict-origin-when-cross-origin"
+    allowFullScreen
+  ></iframe>
+</div>
+
+## Install Pi
+
+Install the current package:
+
+```bash
+pnpm add -g @earendil-works/pi-coding-agent
+pi --version
+```
+
+The older `@mariozechner/pi-coding-agent` package is deprecated. See the&nbsp;[Pi website](https://pi.dev) for installation options.
+
+## Configure the provider
+
+Create an API key in your&nbsp;[LLM Gateway dashboard](https://llmgateway.io/dashboard), then set it in the shell where you will run Pi:
+
+```bash
+export LLMGATEWAY_API_KEY="your_api_key"
+```
+
+Add this provider to `~/.pi/agent/models.json`. Merge it with any existing providers:
 
 ```json
 {
@@ -20,54 +51,67 @@ Configure Pi to use LLM Gateway by editing `~/.pi/agent/models.json`:
     "llmgateway": {
       "baseUrl": "https://api.llmgateway.io/v1",
       "api": "openai-completions",
-      "apiKey": "llmgtwy_your_api_key_here",
+      "apiKey": "$LLMGATEWAY_API_KEY",
+      "headers": { "x-source": "pi" },
       "models": [
-        { "id": "gpt-5.5", "name": "GPT-5.5" },
-        { "id": "claude-opus-4-7", "name": "Claude Opus 4.7" },
-        { "id": "gemini-3.1-pro", "name": "Gemini 3.1 Pro" },
-        { "id": "deepseek-v4", "name": "DeepSeek V4", "reasoning": true }
+        {
+          "id": "deepseek-v4-flash",
+          "reasoning": true,
+          "contextWindow": 1050000,
+          "maxTokens": 4096
+        }
       ]
     }
   }
 }
 ```
 
-Then run `pi` in any project directory and type `/model` to select your LLM Gateway model.
+The model is a working example. Choose a text model with tool support from the&nbsp;[models page](https://llmgateway.io/models), and use its exact ID. Match `reasoning` and `contextWindow` to the selected model. This example caps the response at 4,096 tokens with `maxTokens`.
 
-## Setup Steps
+**Keep the `$` in `"$LLMGATEWAY_API_KEY"`.** Current Pi interpolates environment variables only with `$NAME` or `${NAME}`. A plain `"LLMGATEWAY_API_KEY"` is sent as the literal key and causes an authentication error.
 
-1. **Get Your API Key** — Log in to your [LLM Gateway dashboard](https://llmgateway.io/dashboard) and create a new API key
-2. **Edit models.json** — Add the LLM Gateway provider config shown above to `~/.pi/agent/models.json`
-3. **Select Model** — Run `pi`, type `/model`, and pick your model
-4. **Start Coding** — All requests route through LLM Gateway with full cost tracking
+> **Using DevPass?** Use a canonical model ID without an upstream provider prefix. Coding plans let the gateway select the serving provider.
 
-## Adding More Models
+## Select the model
 
-Add any model from the [models page](https://llmgateway.io/models) to the `models` array in your config:
-
-```json
-{ "id": "gpt-5.5-mini", "name": "GPT-5.5 Mini" },
-{ "id": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6" },
-{ "id": "gemini-3.1-flash", "name": "Gemini 3.1 Flash" },
-{ "id": "deepseek-v4-mini", "name": "DeepSeek V4 Mini", "reasoning": true }
-```
-
-## Using Environment Variables
-
-Reference an env var instead of hardcoding your key:
-
-```json
-"apiKey": "LLM_GATEWAY_API_KEY"
-```
+Start Pi from your project directory and open the model picker:
 
 ```bash
-export LLM_GATEWAY_API_KEY=llmgtwy_your_api_key_here
+pi
 ```
+
+Type `/model`, then choose the LLM Gateway model. Pi reloads `models.json` when you open the picker, so configuration changes do not require a restart.
+
+You can also select the provider and model when launching:
+
+```bash
+pi --provider llmgateway --model deepseek-v4-flash
+```
+
+## Verify the connection
+
+Give Pi a small task with a clear check:
+
+```text
+Fix slugify.ts so all tests pass. Read the files, make the smallest fix,
+run node --test slugify.test.ts, and summarize. Do not edit the tests.
+```
+
+Inspect the resulting diff and test output. Requests appear in your&nbsp;[LLM Gateway dashboard](https://llmgateway.io/dashboard), with the model, token usage, and cost.
+
+For a one-shot command:
+
+```bash
+pi --provider llmgateway --model deepseek-v4-flash -p "Explain this project"
+```
+
+![Pi completing the coding task through LLM Gateway](/images/guides/pi/verified-session.png)
 
 ## Troubleshooting
 
-- **Auth errors**: Verify API key and base URL (`https://api.llmgateway.io/v1`)
-- **Model not found**: Copy model IDs exactly from the [models page](https://llmgateway.io/models)
-- **Connection issues**: Ensure `api` is set to `"openai-completions"`
+- **Authentication error:** Check that the shell variable is set, the key is active, and `apiKey` includes the `$` prefix.
+- **Model missing:** Copy its exact ID from the live catalogue, then reopen `/model`.
+- **Wrong endpoint:** Use `https://api.llmgateway.io/v1` with `api: "openai-completions"`.
+- **Unsupported reasoning setting:** Match the model's reasoning support and supported effort levels.
 
-Need help? Join our [Discord community](https://llmgateway.io/discord).
+See Pi's&nbsp;[custom provider documentation](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md) for advanced configuration.

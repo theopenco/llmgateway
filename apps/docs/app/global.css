@@ -3,6 +3,9 @@
 @import "fumadocs-ui/css/preset.css";
 @import "fumadocs-openapi/css/preset.css";
 
+/* The shared announcement banner ships Tailwind classes from outside this app. */
+@source "../../../packages/shared/src/components/system-banner.tsx";
+
 :root {
 	--fd-layout-width: 1600px;
 }

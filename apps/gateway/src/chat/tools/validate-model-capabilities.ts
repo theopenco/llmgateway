@@ -8,6 +8,7 @@ import type {
 	ModelDefinition,
 	Provider,
 	ProviderModelMapping,
+	ReasoningMode,
 	WebSearchTool,
 } from "@llmgateway/models";
 
@@ -17,6 +18,7 @@ export interface ValidateModelCapabilitiesOptions {
 	};
 	reasoning_effort?: string;
 	reasoning_max_tokens?: number;
+	reasoning_mode?: ReasoningMode;
 	verbosity?: string;
 	tools?: unknown[];
 	tool_choice?: unknown;
@@ -30,7 +32,7 @@ export interface ValidateModelCapabilitiesOptions {
  * Validates that a model supports the requested capabilities.
  *
  * Checks JSON output, JSON schema output, reasoning, tools, and web search capabilities.
- * For "auto" and "custom" models, these checks are skipped as capabilities will be resolved dynamically.
+ * For "auto", "smart" and "custom" models, these checks are skipped as capabilities will be resolved dynamically.
  *
  * @throws HTTPException if the model doesn't support a requested capability
  */
@@ -44,6 +46,7 @@ export function validateModelCapabilities(
 		response_format,
 		reasoning_effort,
 		reasoning_max_tokens,
+		reasoning_mode,
 		verbosity,
 		tools,
 		tool_choice,
@@ -67,8 +70,13 @@ export function validateModelCapabilities(
 	validateModelOutput(modelInfo, requestedModel, ["text", "image"]);
 
 	// Validate vision capability when the request contains images.
-	// Skip this check for "auto" and "custom" models as they will be resolved dynamically.
-	if (hasImages && requestedModel !== "auto" && requestedModel !== "custom") {
+	// Skip this check for "auto", "smart" and "custom" models as they will be resolved dynamically.
+	if (
+		hasImages &&
+		requestedModel !== "auto" &&
+		requestedModel !== "smart" &&
+		requestedModel !== "custom"
+	) {
 		const providersToCheck = requestedProvider
 			? modelInfo.providers.filter(
 					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
@@ -89,10 +97,11 @@ export function validateModelCapabilities(
 	}
 
 	// Validate document capability when the request contains `file` content blocks.
-	// Skip for "auto" and "custom" models (router/transform handle dynamic resolution).
+	// Skip for "auto", "smart" and "custom" models (router/transform handle dynamic resolution).
 	if (
 		hasDocuments &&
 		requestedModel !== "auto" &&
+		requestedModel !== "smart" &&
 		requestedModel !== "custom"
 	) {
 		const providersToCheck = requestedProvider
@@ -122,6 +131,7 @@ export function validateModelCapabilities(
 	if (
 		hasAssistantPrefill &&
 		requestedModel !== "auto" &&
+		requestedModel !== "smart" &&
 		requestedModel !== "custom"
 	) {
 		const providersToCheck = requestedProvider
@@ -172,7 +182,11 @@ export function validateModelCapabilities(
 			: modelInfo.providers;
 
 		// For non-auto/custom models, check if the provider supports json_schema
-		if (requestedModel !== "auto" && requestedModel !== "custom") {
+		if (
+			requestedModel !== "auto" &&
+			requestedModel !== "smart" &&
+			requestedModel !== "custom"
+		) {
 			const supportsJsonSchema = providersToCheck.some(
 				(provider) =>
 					(provider as ProviderModelMapping).jsonOutputSchema === true,
@@ -187,10 +201,11 @@ export function validateModelCapabilities(
 	}
 
 	// Check if reasoning_effort is specified but model doesn't support reasoning
-	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
+	// Skip this check for "auto", "smart" and "custom" models as they will be resolved dynamically
 	if (
 		reasoning_effort !== undefined &&
 		requestedModel !== "auto" &&
+		requestedModel !== "smart" &&
 		requestedModel !== "custom"
 	) {
 		const providersToCheck = requestedProvider
@@ -224,10 +239,11 @@ export function validateModelCapabilities(
 	}
 
 	// Check if verbosity is specified but model doesn't support it
-	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
+	// Skip this check for "auto", "smart" and "custom" models as they will be resolved dynamically
 	if (
 		verbosity !== undefined &&
 		requestedModel !== "auto" &&
+		requestedModel !== "smart" &&
 		requestedModel !== "custom"
 	) {
 		const providersToCheck = requestedProvider
@@ -248,10 +264,11 @@ export function validateModelCapabilities(
 	}
 
 	// Check if reasoning.max_tokens is specified but model doesn't support it
-	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
+	// Skip this check for "auto", "smart" and "custom" models as they will be resolved dynamically
 	if (
 		reasoning_max_tokens !== undefined &&
 		requestedModel !== "auto" &&
+		requestedModel !== "smart" &&
 		requestedModel !== "custom"
 	) {
 		const providersToCheck = requestedProvider
@@ -291,11 +308,39 @@ export function validateModelCapabilities(
 		}
 	}
 
+	// Rejecting here is what keeps an unsupported mode from being dropped on
+	// the way upstream: the request would otherwise succeed in standard mode
+	// while the caller believes they paid for pro.
+	if (
+		reasoning_mode !== undefined &&
+		requestedModel !== "auto" &&
+		requestedModel !== "smart" &&
+		requestedModel !== "custom"
+	) {
+		const providersToCheck = requestedProvider
+			? modelInfo.providers.filter(
+					(p) => (p as ProviderModelMapping).providerId === requestedProvider,
+				)
+			: modelInfo.providers;
+		const supportsMode = providersToCheck.some((provider) =>
+			(provider as ProviderModelMapping).reasoningModes?.includes(
+				reasoning_mode,
+			),
+		);
+
+		if (!supportsMode) {
+			throw new HTTPException(400, {
+				message: `Model ${requestedModel} does not support reasoning.mode "${reasoning_mode}". Remove the reasoning.mode parameter or use a model whose reasoning_modes on /v1/models include it.`,
+			});
+		}
+	}
+
 	// Check if tools are specified but model doesn't support them
-	// Skip this check for "auto" and "custom" models as they will be resolved dynamically
+	// Skip this check for "auto", "smart" and "custom" models as they will be resolved dynamically
 	if (
 		(tools !== undefined || tool_choice !== undefined) &&
 		requestedModel !== "auto" &&
+		requestedModel !== "smart" &&
 		requestedModel !== "custom"
 	) {
 		const providersToCheck = requestedProvider

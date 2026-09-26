@@ -2,6 +2,7 @@ import { Inter, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 
 import { Providers } from "@/components/providers";
 import { getConfig } from "@/lib/config-server";
+import { fetchSystemBanner } from "@/lib/system-banner";
 import { getTimeZonePreference } from "@/lib/timezone-server";
 
 import "./globals.css";
@@ -97,6 +98,7 @@ export const metadata: Metadata = {
 const organizationSchema = {
 	"@context": "https://schema.org",
 	"@type": "Organization",
+	"@id": "https://llmgateway.io/#organization",
 	name: "LLM Gateway",
 	alternateName: "LLMGateway",
 	url: "https://llmgateway.io",
@@ -132,6 +134,8 @@ const organizationSchema = {
 const websiteSchema = {
 	"@context": "https://schema.org",
 	"@type": "WebSite",
+	"@id": "https://llmgateway.io/#website",
+	publisher: { "@id": "https://llmgateway.io/#organization" },
 	name: "LLM Gateway",
 	alternateName: ["LLMGateway", "llmgateway.io"],
 	url: "https://llmgateway.io",
@@ -151,7 +155,10 @@ export default async function RootLayout({
 	children: ReactNode;
 }) {
 	const config = getConfig();
-	const timeZone = await getTimeZonePreference();
+	const [timeZone, systemBanner] = await Promise.all([
+		getTimeZonePreference(),
+		fetchSystemBanner(),
+	]);
 
 	return (
 		<html
@@ -160,6 +167,12 @@ export default async function RootLayout({
 			suppressHydrationWarning
 		>
 			<head>
+				<link
+					rel="service-desc"
+					type="application/vnd.oai.openapi+json"
+					href="/openapi.json"
+				/>
+				<link rel="service-doc" href="/developers" />
 				<link rel="preconnect" href="https://internal.llmgateway.io" />
 				<link rel="preconnect" href="https://docs.llmgateway.io" />
 				<script
@@ -178,7 +191,11 @@ export default async function RootLayout({
 				/>
 			</head>
 			<body className="min-h-screen antialiased">
-				<Providers config={config} timeZone={timeZone}>
+				<Providers
+					config={config}
+					timeZone={timeZone}
+					systemBanner={systemBanner}
+				>
 					{children}
 				</Providers>
 			</body>

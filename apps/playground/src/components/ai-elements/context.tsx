@@ -12,9 +12,23 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 
+import { formatCompactNumber } from "@llmgateway/shared/number-format";
+
 import type { LanguageModelUsage } from "ai";
 
 const PERCENT_MAX = 100;
+
+// These components re-render on every streamed token, so the formatters must
+// not be constructed per render.
+const percentFormat = new Intl.NumberFormat("en-US", {
+	style: "percent",
+	maximumFractionDigits: 1,
+});
+
+const usdFormat = new Intl.NumberFormat("en-US", {
+	style: "currency",
+	currency: "USD",
+});
 const ICON_RADIUS = 10;
 const ICON_VIEWBOX = 24;
 const ICON_CENTER = 12;
@@ -111,10 +125,7 @@ export type ContextTriggerProps = ComponentProps<typeof Button>;
 export const ContextTrigger = ({ children, ...props }: ContextTriggerProps) => {
 	const { usedTokens, maxOutputTokens } = useContextValue();
 	const usedPercent = usedTokens / maxOutputTokens;
-	const renderedPercent = new Intl.NumberFormat("en-US", {
-		style: "percent",
-		maximumFractionDigits: 1,
-	}).format(usedPercent);
+	const renderedPercent = percentFormat.format(usedPercent);
 
 	return (
 		<HoverCardTrigger asChild>
@@ -151,16 +162,9 @@ export const ContextContentHeader = ({
 }: ContextContentHeader) => {
 	const { usedTokens, maxOutputTokens } = useContextValue();
 	const usedPercent = usedTokens / maxOutputTokens;
-	const displayPct = new Intl.NumberFormat("en-US", {
-		style: "percent",
-		maximumFractionDigits: 1,
-	}).format(usedPercent);
-	const used = new Intl.NumberFormat("en-US", {
-		notation: "compact",
-	}).format(usedTokens);
-	const total = new Intl.NumberFormat("en-US", {
-		notation: "compact",
-	}).format(maxOutputTokens);
+	const displayPct = percentFormat.format(usedPercent);
+	const used = formatCompactNumber(usedTokens);
+	const total = formatCompactNumber(maxOutputTokens);
 
 	return (
 		<div className={cn("w-full space-y-2 p-3", className)} {...props}>
@@ -210,10 +214,7 @@ export const ContextContentFooter = ({
 				},
 			}).totalUSD
 		: undefined;
-	const totalCost = new Intl.NumberFormat("en-US", {
-		style: "currency",
-		currency: "USD",
-	}).format(costUSD ?? 0);
+	const totalCost = usdFormat.format(costUSD ?? 0);
 
 	return (
 		<div
@@ -257,10 +258,7 @@ export const ContextInputUsage = ({
 				usage: { input: inputTokens, output: 0 },
 			}).totalUSD
 		: undefined;
-	const inputCostText = new Intl.NumberFormat("en-US", {
-		style: "currency",
-		currency: "USD",
-	}).format(inputCost ?? 0);
+	const inputCostText = usdFormat.format(inputCost ?? 0);
 
 	return (
 		<div
@@ -297,10 +295,7 @@ export const ContextOutputUsage = ({
 				usage: { input: 0, output: outputTokens },
 			}).totalUSD
 		: undefined;
-	const outputCostText = new Intl.NumberFormat("en-US", {
-		style: "currency",
-		currency: "USD",
-	}).format(outputCost ?? 0);
+	const outputCostText = usdFormat.format(outputCost ?? 0);
 
 	return (
 		<div
@@ -321,7 +316,7 @@ export const ContextReasoningUsage = ({
 	...props
 }: ContextReasoningUsageProps) => {
 	const { usage, modelId } = useContextValue();
-	const reasoningTokens = usage?.reasoningTokens ?? 0;
+	const reasoningTokens = usage?.outputTokenDetails?.reasoningTokens ?? 0;
 
 	if (children) {
 		return children;
@@ -337,10 +332,7 @@ export const ContextReasoningUsage = ({
 				usage: { reasoningTokens },
 			}).totalUSD
 		: undefined;
-	const reasoningCostText = new Intl.NumberFormat("en-US", {
-		style: "currency",
-		currency: "USD",
-	}).format(reasoningCost ?? 0);
+	const reasoningCostText = usdFormat.format(reasoningCost ?? 0);
 
 	return (
 		<div
@@ -361,7 +353,7 @@ export const ContextCacheUsage = ({
 	...props
 }: ContextCacheUsageProps) => {
 	const { usage, modelId } = useContextValue();
-	const cacheTokens = usage?.cachedInputTokens ?? 0;
+	const cacheTokens = usage?.inputTokenDetails?.cacheReadTokens ?? 0;
 
 	if (children) {
 		return children;
@@ -377,10 +369,7 @@ export const ContextCacheUsage = ({
 				usage: { cacheReads: cacheTokens, input: 0, output: 0 },
 			}).totalUSD
 		: undefined;
-	const cacheCostText = new Intl.NumberFormat("en-US", {
-		style: "currency",
-		currency: "USD",
-	}).format(cacheCost ?? 0);
+	const cacheCostText = usdFormat.format(cacheCost ?? 0);
 
 	return (
 		<div
@@ -401,11 +390,7 @@ const TokensWithCost = ({
 	costText?: string;
 }) => (
 	<span>
-		{tokens === undefined
-			? "—"
-			: new Intl.NumberFormat("en-US", {
-					notation: "compact",
-				}).format(tokens)}
+		{tokens === undefined ? "—" : formatCompactNumber(tokens)}
 		{costText ? (
 			<span className="ml-2 text-muted-foreground">• {costText}</span>
 		) : null}

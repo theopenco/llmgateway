@@ -1,6 +1,7 @@
 import { logger } from "@llmgateway/logger";
 import { assertSafeUserContentUrl } from "@llmgateway/shared/url-safety-node";
 
+import { fetchNoRedirect } from "./fetch-no-redirect.js";
 import { parseDataUrl } from "./parse-data-url.js";
 import { RequestError } from "./request-error.js";
 
@@ -190,7 +191,7 @@ export async function processImageUrl(
 	await assertSafeUserContentUrl(url);
 
 	try {
-		const response = await fetch(url, { redirect: "error" });
+		const response = await fetchNoRedirect(url);
 
 		if (!response.ok) {
 			logger.warn(`Failed to fetch image from URL (${response.status})`, {
@@ -243,10 +244,7 @@ export async function processImageUrl(
 			mimeType: contentType,
 		};
 	} catch (error) {
-		// Typed client errors (bad status, wrong content type, size rejections)
-		// carry a message the caller is meant to see, and every one of them is
-		// already logged at warn where it is thrown — re-logging them here would
-		// raise an expected client outcome to error level twice over.
+		// Preserve client errors for the gateway's 4xx response and request log.
 		if (error instanceof RequestError) {
 			throw error;
 		}

@@ -35,6 +35,7 @@ export const curatedCategoryModelIds: Record<
 		"deepseek-v3.2",
 		"deepseek-v4-pro",
 		"deepseek-v4-flash",
+		"deepseek-v4.1-flash",
 		"grok-4-1-fast-non-reasoning",
 		"grok-4-3",
 		"kimi-k2",
@@ -55,6 +56,7 @@ export const curatedCategoryModelIds: Record<
 	]),
 	coding: new Set([
 		"claude-fable-5-1",
+		"claude-opus-5-5",
 		"claude-fable-5",
 		"claude-opus-4-8",
 		"claude-sonnet-5",
@@ -64,6 +66,7 @@ export const curatedCategoryModelIds: Record<
 		"gpt-5.2-codex",
 		"gpt-5.1-codex",
 		"gpt-5.1-codex-mini",
+		"gpt-6-sol",
 		"gpt-5.6-sol",
 		"gpt-5.6-terra",
 		"gpt-5.5",
@@ -86,6 +89,7 @@ export const curatedCategoryModelIds: Record<
 		"devstral-2512",
 		"devstral-small-2507",
 		"deepseek-v4-pro",
+		"deepseek-v4.1-flash",
 		"deepseek-v3.2",
 		"glm-5.2",
 		"glm-5.1",
@@ -94,6 +98,7 @@ export const curatedCategoryModelIds: Record<
 		"minimax-m2.7",
 	]),
 	"creative-writing": new Set([
+		"claude-opus-5-5",
 		"claude-opus-4-8",
 		"claude-sonnet-5",
 		"claude-fable-5-1",
@@ -118,6 +123,7 @@ export const curatedCategoryModelIds: Record<
 		"gemini-3.1-pro-preview",
 		"gemini-3.6-flash",
 		"gemini-3.1-flash-lite",
+		"gpt-6-luna",
 		"gpt-5.6-terra",
 		"gpt-5.6-luna",
 		"gpt-5.4",
@@ -128,6 +134,7 @@ export const curatedCategoryModelIds: Record<
 		"qwen3.7-plus",
 		"qwen3-235b-a22b-instruct-2507",
 		"deepseek-v4-flash",
+		"deepseek-v4.1-flash",
 		"mistral-large-2512",
 		"seed-1-8-251228",
 		"gemma-4-31b-it",
@@ -141,6 +148,7 @@ export const curatedCategoryModelIds: Record<
 		"gpt-5.2-pro",
 		"o4-mini",
 		"claude-opus-4-8",
+		"claude-opus-5-5",
 		"claude-fable-5-1",
 		"claude-fable-5",
 		"gemini-3.1-pro-preview",
@@ -226,7 +234,8 @@ export function isTextOutput(output: string[] | null | undefined): boolean {
 		!output?.includes("image") &&
 		!output?.includes("video") &&
 		!output?.includes("embedding") &&
-		!output?.includes("rerank")
+		!output?.includes("rerank") &&
+		!output?.includes("decision")
 	);
 }
 

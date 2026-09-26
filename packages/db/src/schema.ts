@@ -17,14 +17,21 @@ import {
 } from "drizzle-orm/pg-core";
 import { customAlphabet } from "nanoid";
 
-import type { gatewayContentFilterResponseSchema } from "./log-payloads.js";
+import type {
+	gatewayContentFilterEvaluationSchema,
+	gatewayContentFilterResponseSchema,
+} from "./log-payloads.js";
 import type { errorDetails, tools, toolChoice, toolResults } from "./types.js";
 import type {
+	Quantization,
 	ProviderApiFormat,
+	ToolChoiceMode,
 	ProviderComplianceAttestation,
 	ProviderCompliancePolicy,
 } from "@llmgateway/models";
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
+import type { AlertAudience } from "@llmgateway/shared/organization-roles";
+import type { SmartRoutingConfig } from "@llmgateway/shared/smart-routing";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import type z from "zod";
 
@@ -81,6 +88,7 @@ export const user = pgTable(
 		})
 			.notNull()
 			.default("active"),
+		blockReason: text(),
 		// High-risk flag raised when the sign-up or email-verification request came
 		// from an IP that AbuseIPDB reports as abusive. A flagged user cannot buy
 		// credits or run inference in any of their organizations (mirrored onto
@@ -310,6 +318,14 @@ export const organization = pgTable(
 		// only routes to providers meeting the required certifications/data
 		// policies. Null = no policy configured.
 		providerCompliancePolicy: json().$type<ProviderCompliancePolicy>(),
+		// Enterprise smart-routing ("smart" model) configuration: which models the
+		// gateway may pick from and which classifier ranks the request. Null =
+		// the built-in default candidate set and no classifier. Projects may
+		// override it with their own column.
+		smartRoutingConfig: json().$type<SmartRoutingConfig>(),
+		// Delivery of compliance alerts (watched models becoming available,
+		// providers no longer meeting the policy). Null = alerts not configured.
+		complianceAlertSettings: json().$type<ComplianceAlertSettings>(),
 		// Enterprise Google SSO auto-join. When set, users signing in via Google
 		// with a verified email at this domain are auto-added to the org as
 		// "developer". Stored lowercase, no leading "@". Unique so a domain can
@@ -318,6 +334,7 @@ export const organization = pgTable(
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		}).default("active"),
+		blockReason: text(),
 		// Mirror of the AbuseIPDB high-risk flag on the member who created this
 		// organization (see `user.riskStatus`). Denormalized because the gateway
 		// already loads the organization on every request, so inference can be
@@ -332,11 +349,25 @@ export const organization = pgTable(
 		paymentFailureCount: integer().notNull().default(0),
 		lastPaymentFailureAt: timestamp(),
 		paymentFailureStartedAt: timestamp(),
+		// Payment state of this org's subscription-backed plan. Renewal dates only
+		// advance after a paid invoice; this separately records dunning so an unpaid
+		// renewal is visible without pretending the next cycle has started.
+		subscriptionPaymentStatus: text({
+			enum: ["current", "past_due"],
+		})
+			.notNull()
+			.default("current"),
 		// Admin-set trust-tier pin (0-4). When set it takes precedence over the
 		// computed age/spend tier everywhere (RPM multiplier, spend caps, top-up
 		// allowance) — both to hold an abusive org down and to lift a vetted org
 		// up. NULL = automatic ladder.
 		trustTierOverride: integer(),
+		// Admin-set gateway content filter tier pin (0-4): 0-2 strict, 3+ lenient.
+		// NULL = follows the trust tier above.
+		contentFilterTierOverride: integer(),
+		// When true the gateway content filter still samples and logs this org's
+		// requests but never blocks them.
+		contentFilterLogOnly: boolean().notNull().default(false),
 		// Organization kind:
 		// - "default": regular dashboard/team org.
 		// - "devpass": per-user personal org backing the Dev Plans (DevPass) product.
@@ -376,11 +407,6 @@ export const organization = pgTable(
 		// counter clears on subscribe/upgrade/renewal (included passes don't
 		// roll over).
 		devPlanIncludedResetPassesUsed: integer().notNull().default(0),
-		// Set when dunning freezes dev-plan spend (limit capped to used). The
-		// pre-freeze limit is preserved so recovery restores the exact value
-		// (which may be a prorated mid-cycle amount), not a full tier cap.
-		devPlanCreditsFrozen: boolean().notNull().default(false),
-		devPlanCreditsLimitBeforeFreeze: decimal(),
 		devPlanBillingCycleStart: timestamp(),
 		// Lease held while a dev plan upgrade request is in flight, guarding
 		// against a double charge from racing requests (e.g. a double-clicked
@@ -1068,7 +1094,7 @@ export const userOrganization = pgTable(
 			.notNull()
 			.default("manual"),
 		role: text({
-			enum: ["owner", "admin", "developer"],
+			enum: ["owner", "admin", "project_admin", "developer"],
 		})
 			.notNull()
 			.default("owner"),
@@ -1123,7 +1149,7 @@ export const organizationInvite = pgTable(
 		// Stored lowercased; matched case-insensitively against the signup email.
 		email: text().notNull(),
 		role: text({
-			enum: ["owner", "admin", "developer"],
+			enum: ["owner", "admin", "project_admin", "developer"],
 		})
 			.notNull()
 			.default("developer"),
@@ -1242,6 +1268,9 @@ export const project = pgTable(
 		// Browser origins allowed to call the gateway with this project's
 		// ephemeral end-user session tokens (CORS allowlist).
 		allowedOrigins: json().$type<string[]>(),
+		// Per-project override of the organization's smart-routing configuration.
+		// Null = inherit the organization default.
+		smartRoutingConfig: json().$type<SmartRoutingConfig>(),
 	},
 	(table) => [index("project_organization_id_idx").on(table.organizationId)],
 );
@@ -1376,10 +1405,7 @@ export const endUserSession = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		// Legacy plaintext column. New sessions store only tokenHash; backfilled
-		// rows retain plaintext during the staged rollout.
-		token: text().unique(),
-		tokenHash: text().unique(),
+		tokenHash: text().notNull().unique(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
 		})
@@ -1561,11 +1587,8 @@ export const apiKey = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		// Legacy plaintext column. New writes store only tokenHash + tokenMasked;
-		// backfilled rows retain plaintext during the staged rollout.
-		token: text().unique(),
 		tokenHash: text().unique(),
-		tokenMasked: text(),
+		tokenMasked: text().notNull(),
 		description: text().notNull(),
 		status: text({
 			enum: ["active", "inactive", "deleted"],
@@ -1621,6 +1644,10 @@ export const apiKey = pgTable(
 			.where(
 				sql`${table.keyType} = 'end_user_customer' AND ${table.status} = 'active'`,
 			),
+		check(
+			"api_key_token_hash_required",
+			sql`${table.keyType} = 'platform_publishable' OR ${table.tokenHash} IS NOT NULL`,
+		),
 	],
 );
 
@@ -1883,20 +1910,14 @@ export const providerKey = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		// Legacy plaintext column. New writes set this to NULL and populate
-		// tokenCiphertext + tokenMasked instead. Existing rows from before
-		// BYOK encryption was added still carry plaintext here and are read
-		// through the legacy branch of readProviderKey().
-		token: text(),
-		tokenCiphertext: text(),
-		tokenMasked: text(),
+		tokenCiphertext: text().notNull(),
+		tokenMasked: text().notNull(),
 		// HMAC-SHA256 fingerprint of the plaintext token, computed at write time
 		// with the same helper the gateway uses for `log.usedApiKeyHash`. Lets an
 		// operator tie a credential to the requests it served without the
 		// plaintext ever being readable back: the admin dashboard shows this and
-		// the mask, and never decrypts. NULL for rows written before this column
-		// existed; it is filled on the next token write.
-		tokenHash: text(),
+		// the mask, and never decrypts.
+		tokenHash: text().notNull(),
 		provider: text().notNull(),
 		name: text(), // Optional name for custom providers (lowercase a-z with single hyphens)
 		// Organization-owned label shown alongside this key in routing and log
@@ -1981,13 +2002,6 @@ export const providerKey = pgTable(
 		index("provider_key_managed_provider_idx").on(
 			table.managed,
 			table.provider,
-		),
-		// Exactly one storage form per row: a legacy plaintext token XOR an
-		// encrypted one. Also rejects rows with neither, which readProviderKey
-		// could never resolve into a credential.
-		check(
-			"provider_key_token_xor",
-			sql`(${table.token} IS NULL) <> (${table.tokenCiphertext} IS NULL)`,
 		),
 		// Managed credentials are platform-owned and never belong to an org;
 		// every other row must be org-scoped.
@@ -2082,6 +2096,7 @@ export const API_ORIGINS = [
 	"speech",
 	"transcriptions",
 	"rerank",
+	"systemone",
 ] as const;
 
 export type ApiOrigin = (typeof API_ORIGINS)[number];
@@ -2279,6 +2294,48 @@ export const log = pgTable(
 			// premium tier was in play.
 			serviceTierSource?: "request" | "coding-plan-default";
 			strippedParameters?: string[];
+			// Set when the request was resolved through a named dynamic route.
+			dynamicRoute?: {
+				name: string;
+				version: number;
+				// Node ids traversed during graph evaluation.
+				path: string[];
+				// Verdict the route's classifier nodes branched on. Absent when the
+				// graph has none, or when no verdict was obtained and those nodes
+				// took their `else` branch.
+				classifier?: {
+					kind: "jev";
+					difficulty?: "low" | "medium" | "high";
+					difficultyScore?: number;
+					task?: string;
+					outputType?: string;
+				};
+			};
+			// How an "auto" request resolved to a concrete model when the
+			// organization configured smart routing. Absent for the built-in
+			// default candidate set.
+			smartRouting?: {
+				classifier: "none" | "jev";
+				rubricVersion?: number;
+				eligibleModels: string[];
+				candidateModels: string[];
+				difficulty?: "low" | "medium" | "high";
+				difficultyScore?: number;
+				task?: string;
+				outputType?: string;
+				bestModel?: string;
+				bestModelConfidence?: number;
+				band?: "low" | "medium" | "high";
+				selectedModel: string;
+				classifierLatencyMs?: number;
+				// USD billed for the classifier call this request made, on its own
+				// log row. Absent when it made none.
+				classifierCost?: number;
+				classifierFailed: boolean;
+				// True when the verdict served came from another turn of the same
+				// sticky session rather than from this request.
+				classifierReused?: boolean;
+			};
 		}>(),
 		processedAt: timestamp(),
 		rawRequest: jsonb(),
@@ -2307,6 +2364,10 @@ export const log = pgTable(
 		internalContentFilter: boolean(),
 		gatewayContentFilterResponse:
 			jsonb().$type<z.infer<typeof gatewayContentFilterResponseSchema>>(),
+		// Outcome of the tiered gateway content filter for sampled requests.
+		// Metadata only (categories and scores), so it is kept at every retention level.
+		gatewayContentFilterEvaluation:
+			jsonb().$type<z.infer<typeof gatewayContentFilterEvaluationSchema>>(),
 		responsesApiId: text(),
 		responsesApiData: jsonb(),
 		// Realtime WebSocket sessions: one log row per billable terminal event
@@ -2362,6 +2423,11 @@ export const log = pgTable(
 		index("log_provider_key_id_created_at_idx")
 			.on(table.providerKeyId, table.createdAt)
 			.where(sql`provider_key_id IS NOT NULL`),
+		// Serves the per-mapping error drilldowns (admin unstable-mappings, airside
+		// incidents). Build CONCURRENTLY out of band in prod before deploying.
+		index("log_error_used_provider_used_model_created_at_idx")
+			.on(table.usedProvider, table.usedModel, table.createdAt)
+			.where(sql`has_error = true`),
 		index("log_end_user_session_id_created_at_idx")
 			.on(table.endUserSessionId, table.createdAt)
 			.where(sql`end_user_session_id IS NOT NULL`),
@@ -2557,6 +2623,10 @@ export const videoJob = pgTable(
 		callbackEventType: text(),
 		callbackDeliveredAt: timestamp(),
 		resultLoggedAt: timestamp(),
+		// Billed cost, stamped by the worker at finalization (null until then).
+		cost: real(),
+		videoOutputCost: real(),
+		imageInputCost: real(),
 		routingMetadata: jsonb().$type<{
 			availableProviders?: string[];
 			selectedProvider?: string;
@@ -2630,6 +2700,11 @@ export const videoJob = pgTable(
 		),
 		index("video_job_upstream_id_idx").on(table.upstreamId),
 		index("video_job_log_id_idx").on(table.logId),
+		// Unfinalized jobs per org: the gateway sums their reserved spend on
+		// every video submission.
+		index("video_job_org_pending_idx")
+			.on(table.organizationId)
+			.where(sql`${table.logId} is null`),
 		index("video_job_callback_status_idx").on(table.callbackStatus),
 		index("video_job_end_user_session_id_idx").on(table.endUserSessionId),
 	],
@@ -2841,7 +2916,7 @@ export const ssoRoleMapping = pgTable(
 			.references(() => organization.id, { onDelete: "cascade" }),
 		groupName: text().notNull(),
 		role: text({
-			enum: ["owner", "admin", "developer"],
+			enum: ["owner", "admin", "project_admin", "developer"],
 		}).notNull(),
 	},
 	(table) => [
@@ -3131,6 +3206,8 @@ export const chatShare = pgTable(
 			.references(() => user.id, { onDelete: "cascade" }),
 		title: text().notNull(),
 		model: text().notNull(),
+		allowDiscovery: boolean().notNull().default(false),
+		allowForking: boolean().notNull().default(false),
 		messages: jsonb().notNull(),
 	},
 	(table) => [
@@ -3389,6 +3466,7 @@ export const modelProviderMapping = pgTable(
 		cacheWriteInputPrice1h: decimal(),
 		imageInputPrice: decimal(),
 		requestPrice: decimal(),
+		quantization: text().$type<Quantization>(),
 		contextSize: integer(),
 		maxOutput: integer(),
 		streaming: boolean().notNull().default(false),
@@ -3401,6 +3479,10 @@ export const modelProviderMapping = pgTable(
 		// keep null and are served from the shared mapping definition instead.
 		reasoningEfforts: json().$type<string[]>(),
 		tools: boolean(),
+		// Which `tool_choice` modes the upstream accepts; null/empty means all
+		// of them. Populated for Airside-materialized mappings only — static
+		// rows keep their catalogue definition.
+		supportedToolChoices: json().$type<ToolChoiceMode[]>(),
 		jsonOutput: boolean().default(false).notNull(),
 		jsonOutputSchema: boolean().default(false).notNull(),
 		webSearch: boolean().default(false).notNull(),
@@ -3921,6 +4003,91 @@ export const routingExclusionHourly = pgTable(
 	],
 );
 
+// Sentinel category for the per-(org, project, hour) totals row.
+export const CONTENT_FILTER_STATS_ALL_CATEGORY = "all";
+
+// Hourly rollup of log.gatewayContentFilterEvaluation, so abuse rates can be
+// read per organization without scanning `log`. The "all" category row carries
+// the sampled/violation/blocked totals; category rows carry violationCount only.
+export const contentFilterHourlyStats = pgTable(
+	"content_filter_hourly_stats",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		hourTimestamp: timestamp().notNull(),
+		organizationId: text().notNull(),
+		projectId: text().notNull(),
+		category: text().notNull(),
+		sampledCount: integer().notNull().default(0),
+		violationCount: integer().notNull().default(0),
+		blockedCount: integer().notNull().default(0),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.organizationId,
+			table.projectId,
+			table.category,
+		),
+		index("content_filter_hourly_stats_org_ts_idx").on(
+			table.organizationId,
+			table.hourTimestamp,
+		),
+		index("content_filter_hourly_stats_ts_idx").on(table.hourTimestamp),
+	],
+);
+
+// Hourly rollup of log.gatewayContentFilterEvaluation broken out by the model
+// that served the request, so abuse can be attributed to a model or provider
+// without scanning `log`. Mirrors contentFilterHourlyStats: the "all" category
+// row carries the sampled/violation/blocked totals, category rows carry
+// violationCount only. A request retried across providers is counted once per
+// distinct (usedModel, usedProvider) it touched, so these rows can sum to more
+// than the contentFilterHourlyStats totals.
+export const contentFilterHourlyModelStats = pgTable(
+	"content_filter_hourly_model_stats",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		hourTimestamp: timestamp().notNull(),
+		organizationId: text().notNull(),
+		projectId: text().notNull(),
+		usedModel: text().notNull(),
+		usedProvider: text().notNull(),
+		category: text().notNull(),
+		sampledCount: integer().notNull().default(0),
+		violationCount: integer().notNull().default(0),
+		blockedCount: integer().notNull().default(0),
+	},
+	(table) => [
+		unique().on(
+			table.hourTimestamp,
+			table.organizationId,
+			table.projectId,
+			table.usedModel,
+			table.usedProvider,
+			table.category,
+		),
+		index("content_filter_hourly_model_stats_org_ts_idx").on(
+			table.organizationId,
+			table.hourTimestamp,
+		),
+		index("content_filter_hourly_model_stats_model_ts_idx").on(
+			table.usedModel,
+			table.hourTimestamp,
+		),
+		index("content_filter_hourly_model_stats_ts_idx").on(table.hourTimestamp),
+	],
+);
+
 // Audit Log - Enterprise feature for tracking all API actions
 export const auditLogActions = [
 	// Organization
@@ -3982,6 +4149,12 @@ export const auditLogActions = [
 	"organization_skill.create",
 	"organization_skill.update",
 	"organization_skill.delete",
+	// Compliance alerts
+	"notification_channel.update",
+	"notification_channel.delete",
+	"compliance_alert.watch_create",
+	"compliance_alert.watch_delete",
+	"compliance_alert.settings_update",
 	// Subscription
 	"subscription.create",
 	"subscription.cancel",
@@ -4067,6 +4240,8 @@ export const auditLogResourceTypes = [
 	"provider_key",
 	"custom_model",
 	"organization_skill",
+	"notification_channel",
+	"compliance_alert",
 	"subscription",
 	"payment_method",
 	"payment",
@@ -4731,6 +4906,13 @@ export const providerClaim = pgTable(
 		// Branding edits on an active claim wait here for admin approval.
 		// null = nothing pending; a null value inside clears that image.
 		pendingBranding: jsonb().$type<AirsidePendingBranding>(),
+		// The carrier's own provider credential, used only to run verification
+		// checks against this provider — never to serve traffic. Verification
+		// requests are not logged or billed by us, so they have to burn a
+		// carrier credential rather than a platform one.
+		verificationKeyCiphertext: text(),
+		verificationKeyMasked: text(),
+		verificationKeyUpdatedAt: timestamp(),
 		claimedBy: text().references(() => user.id, { onDelete: "set null" }),
 		status: text({ enum: ["pending", "active", "rejected", "revoked"] })
 			.notNull()
@@ -4757,6 +4939,7 @@ export const providerClaim = pgTable(
 // filing. A newly added model stays `draft` until its initial filing is
 // approved. Prices are text to preserve exponent notation (see customModel).
 export interface AirsideModelMetadataChanges {
+	quantization?: Quantization | null;
 	displayName?: string | null;
 	description?: string | null;
 	family?: string;
@@ -4766,6 +4949,7 @@ export interface AirsideModelMetadataChanges {
 	vision?: boolean;
 	audio?: boolean;
 	tools?: boolean;
+	supportedToolChoices?: ToolChoiceMode[] | null;
 	jsonOutput?: boolean;
 	jsonOutputSchema?: boolean;
 	reasoning?: boolean;
@@ -4815,12 +4999,18 @@ export const providerDraftModel = pgTable(
 		displayName: text(),
 		description: text(),
 		family: text(),
+		quantization: text().$type<Quantization>(),
 		contextSize: integer(),
 		maxOutput: integer(),
 		streaming: boolean().notNull().default(true),
 		vision: boolean().notNull().default(false),
 		audio: boolean().notNull().default(false),
 		tools: boolean().notNull().default(false),
+		// Which `tool_choice` modes the deployment accepts (subset of
+		// ToolChoiceMode); null = all of them. Carriers narrow this when their
+		// serving stack mishandles a mode, e.g. answering "required" with the
+		// raw tool markup as assistant content.
+		supportedToolChoices: jsonb().$type<ToolChoiceMode[]>(),
 		jsonOutput: boolean().notNull().default(false),
 		jsonOutputSchema: boolean().notNull().default(false),
 		reasoning: boolean().notNull().default(false),
@@ -4845,6 +5035,9 @@ export const providerDraftModel = pgTable(
 			.default("draft"),
 		createdBy: text().references(() => user.id, { onDelete: "set null" }),
 		delistedAt: timestamp(),
+		// Set while the carrier has taken an active listing out of service; its
+		// catalogue mappings are inactive until resumed. No review involved.
+		pausedAt: timestamp(),
 	},
 	(table) => [
 		// Uniqueness applies only to live rows so a delisted model name can be
@@ -4863,11 +5056,23 @@ export type ProviderModelVerificationStatus =
 export type ProviderModelVerificationCheckStatus =
 	"queued" | "running" | "passed" | "failed" | "skipped";
 
+// One upstream request a check made. Checks that walk a ladder — tool_choice
+// modes, reasoning effort tiers — send several, and only the breakdown says
+// which variant the deployment actually served.
+export interface ProviderModelVerificationProbe {
+	/** What varied for this request, e.g. `reasoning_effort: medium`. */
+	label: string;
+	status: "passed" | "failed";
+	feedback?: string;
+}
+
 export interface ProviderModelVerificationCheck {
 	id: string;
 	label: string;
 	status: ProviderModelVerificationCheckStatus;
 	feedback?: string;
+	/** Per-request breakdown; present only for checks that probe variants. */
+	probes?: ProviderModelVerificationProbe[];
 }
 
 export interface ProviderModelVerificationTarget {
@@ -4875,10 +5080,14 @@ export interface ProviderModelVerificationTarget {
 	modelName: string;
 	externalId: string;
 	apiFormat?: ProviderApiFormat;
+	/** Regional deployment of the mapping; undefined targets the default region. */
+	region?: string | null;
 	streaming: boolean;
 	vision: boolean;
 	audio: boolean;
 	tools: boolean;
+	/** Declared `tool_choice` modes; null/empty means all of them. */
+	supportedToolChoices?: ToolChoiceMode[] | null;
 	jsonOutput: boolean;
 	jsonOutputSchema: boolean;
 	reasoning: boolean;
@@ -4887,9 +5096,10 @@ export interface ProviderModelVerificationTarget {
 	webSearch: boolean;
 }
 
-// One queued verification of an Airside mapping. The target is frozen when
-// queued so an edit cannot change what a completed run proved. A supplied
-// credential is encrypted for this row only and erased on terminal status.
+// One queued verification of an Airside mapping or a catalogue mapping. The
+// target is frozen when queued so an edit cannot change what a completed run
+// proved. A supplied or carrier-stored credential is copied into this row,
+// encrypted for it alone, and erased on terminal status.
 export const providerModelVerification = pgTable(
 	"provider_model_verification",
 	{
@@ -4899,12 +5109,24 @@ export const providerModelVerification = pgTable(
 			.notNull()
 			.defaultNow()
 			.$onUpdate(() => new Date()),
-		providerCompanyId: text()
+		// Null for admin-initiated runs against a catalogue mapping, which
+		// belong to no carrier.
+		providerCompanyId: text().references(() => providerCompany.id, {
+			onDelete: "cascade",
+		}),
+		// "carrier" runs are queued from Airside and always carry a company;
+		// "admin" runs are queued from the admin dashboard and resolve their
+		// credential without an active provider claim.
+		initiatedBy: text({ enum: ["carrier", "admin"] })
 			.notNull()
-			.references(() => providerCompany.id, { onDelete: "cascade" }),
+			.default("carrier"),
 		// Null for an unsubmitted new mapping; populated for an existing mapping
 		// and when a successful new-mapping verification is consumed.
 		draftModelId: text().references(() => providerDraftModel.id, {
+			onDelete: "cascade",
+		}),
+		// Set when the run targets a live catalogue mapping instead of a draft.
+		modelProviderMappingId: text().references(() => modelProviderMapping.id, {
 			onDelete: "cascade",
 		}),
 		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
@@ -4914,10 +5136,15 @@ export const providerModelVerification = pgTable(
 			.notNull()
 			.default("queued"),
 		credentialCiphertext: text(),
-		credentialSource: text({ enum: ["supplied", "managed", "environment"] })
+		credentialSource: text({
+			enum: ["supplied", "carrier", "managed", "environment"],
+		})
 			.notNull()
 			.default("supplied"),
 		summary: text(),
+		// Listing capabilities this run's failed checks cleared, so the carrier
+		// is told what the failure dropped instead of finding a toggle off.
+		demotedCapabilities: jsonb().$type<string[]>(),
 		attempts: integer().notNull().default(0),
 		startedAt: timestamp(),
 		completedAt: timestamp(),
@@ -4933,6 +5160,10 @@ export const providerModelVerification = pgTable(
 			table.draftModelId,
 			table.createdAt,
 		),
+		index("provider_model_verification_mapping_idx").on(
+			table.modelProviderMappingId,
+			table.createdAt,
+		),
 		index("provider_model_verification_queue_idx").on(
 			table.status,
 			table.createdAt,
@@ -4942,8 +5173,23 @@ export const providerModelVerification = pgTable(
 			.where(
 				sql`draft_model_id IS NOT NULL AND status IN ('queued', 'running')`,
 			),
+		uniqueIndex("provider_model_verification_active_mapping_uidx")
+			.on(table.modelProviderMappingId)
+			.where(
+				sql`model_provider_mapping_id IS NOT NULL AND status IN ('queued', 'running')`,
+			),
 	],
 );
+
+// Per-region price override carried by a price filing. Missing optional
+// fields inherit the filing's flat (default-region) values.
+export interface AirsideRegionPrice {
+	region: string;
+	inputPrice: string;
+	outputPrice: string;
+	cachedInputPrice?: string | null;
+	requestPrice?: string | null;
+}
 
 // A pricing proposal ("tariff filing") for a provider-listed model. Admins
 // approve or reject filings in the admin dashboard; the model's effective
@@ -4974,6 +5220,9 @@ export const providerPriceFiling = pgTable(
 		outputPrice: text().notNull(),
 		cachedInputPrice: text(),
 		requestPrice: text(),
+		// Per-region price overrides; an approved filing's set fully replaces the
+		// listing's regional pricing. Null/empty = default-region pricing only.
+		regionPrices: jsonb().$type<AirsideRegionPrice[]>(),
 		metadata: jsonb().$type<AirsideModelMetadataChanges>(),
 		status: text({ enum: ["pending", "approved", "rejected"] })
 			.notNull()
@@ -5418,8 +5667,10 @@ export const providerKeyHourlyStats = pgTable(
 		hourTimestamp: timestamp().notNull(), // Start of the hour bucket
 		requestCount: integer().notNull().default(0),
 		errorCount: integer().notNull().default(0),
-		// Subset of errorCount: failures the provider returned, which is what
-		// distinguishes an unhealthy credential from a misbehaving caller.
+		// Unified finish-reason split, so the error rate can exclude client
+		// errors the same way deriveStabilityMetrics does elsewhere.
+		clientErrorCount: integer().notNull().default(0),
+		gatewayErrorCount: integer().notNull().default(0),
 		upstreamErrorCount: integer().notNull().default(0),
 		cacheCount: integer().notNull().default(0),
 		inputTokens: decimal().notNull().default("0"),
@@ -5809,7 +6060,93 @@ export const globalSourceStats = pgTable(
 	],
 );
 
-// Singleton state row for the incremental global-stats aggregator.
+// Global per-credential model statistics — the model breakdown of
+// globalModelStats split by the provider key that served each request. Only
+// rows with a non-null `log.providerKeyId` land here (see
+// providerKeyHourlyStats), so summing this table never reproduces the global
+// totals; it answers "which models did this credential serve, at what cost".
+export const globalProviderKeyModelStats = pgTable(
+	"global_provider_key_model_stats",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		dayTimestamp: timestamp().notNull(), // Start of the UTC day bucket
+		providerKeyId: text().notNull(),
+		usedModel: text().notNull(),
+		usedProvider: text().notNull(),
+		// See globalModelStats for the semantics of these two dimensions.
+		usedMode: text({ enum: GLOBAL_STATS_USED_MODES })
+			.notNull()
+			.default("unknown"),
+		orgKind: text({ enum: GLOBAL_STATS_ORG_KINDS })
+			.notNull()
+			.default("unknown"),
+		// Request counts
+		requestCount: integer().notNull().default(0),
+		errorCount: integer().notNull().default(0),
+		cacheCount: integer().notNull().default(0),
+		streamedCount: integer().notNull().default(0),
+		nonStreamedCount: integer().notNull().default(0),
+		// Unified finish reason counts
+		completedCount: integer().notNull().default(0),
+		lengthLimitCount: integer().notNull().default(0),
+		contentFilterCount: integer().notNull().default(0),
+		toolCallsCount: integer().notNull().default(0),
+		canceledCount: integer().notNull().default(0),
+		unknownFinishCount: integer().notNull().default(0),
+		// Error type counts (subset of errorCount)
+		clientErrorCount: integer().notNull().default(0),
+		gatewayErrorCount: integer().notNull().default(0),
+		upstreamErrorCount: integer().notNull().default(0),
+		// Token counts
+		inputTokens: decimal().notNull().default("0"),
+		outputTokens: decimal().notNull().default("0"),
+		totalTokens: decimal().notNull().default("0"),
+		reasoningTokens: decimal().notNull().default("0"),
+		cachedTokens: decimal().notNull().default("0"),
+		cacheWriteTokens: decimal().notNull().default("0"),
+		// Costs
+		cost: real().notNull().default(0),
+		inputCost: real().notNull().default(0),
+		outputCost: real().notNull().default(0),
+		requestCost: real().notNull().default(0),
+		dataStorageCost: real().notNull().default(0),
+		discountSavings: real().notNull().default(0),
+		imageInputCost: real().notNull().default(0),
+		imageOutputCost: real().notNull().default(0),
+		audioInputCost: real().notNull().default(0),
+		audioOutputCost: real().notNull().default(0),
+		videoOutputCost: real().notNull().default(0),
+		cachedInputCost: real().notNull().default(0),
+		cacheWriteInputCost: real().notNull().default(0),
+	},
+	(table) => [
+		// Named explicitly: the auto-generated six-column name exceeds Postgres'
+		// 63-byte identifier limit.
+		unique("global_provider_key_model_stats_day_key_model_unique").on(
+			table.dayTimestamp,
+			table.providerKeyId,
+			table.usedModel,
+			table.usedProvider,
+			table.usedMode,
+			table.orgKind,
+		),
+		index("global_provider_key_model_stats_day_timestamp_idx").on(
+			table.dayTimestamp,
+		),
+		index("global_provider_key_model_stats_key_day_idx").on(
+			table.providerKeyId,
+			table.dayTimestamp,
+		),
+	],
+);
+
+// Independent cursors for global stats ("singleton") and provider-key model
+// stats ("provider-key-model"), so adding a rollup cannot skip its history.
 // `lastProcessedHour` is the last UTC bucket that has been folded into the
 // daily stats. `lastSafetyNetDay` is the most recent UTC day that has been
 // fully recomputed by the safety-net pass.
@@ -6144,5 +6481,267 @@ export const playgroundRealtimeHistory = pgTable(
 	},
 	(table) => [
 		index("playground_realtime_history_user_id_idx").on(table.userId),
+	],
+);
+
+export const notificationTypes = [
+	"budget",
+	"model_retirement",
+	"provider_issue",
+	"model_available",
+	"compliance_downgrade",
+] as const;
+
+export const organizationNotificationChannelKinds = ["slack"] as const;
+export type OrganizationNotificationChannelKind =
+	(typeof organizationNotificationChannelKinds)[number];
+
+export interface ComplianceAlertSettings {
+	inApp: boolean;
+	email: boolean;
+	channels: OrganizationNotificationChannelKind[];
+	downgrades: boolean;
+	/** Lowest role that receives alerts; higher roles are always included. */
+	recipientAudience: AlertAudience;
+}
+
+export const notificationPreference = pgTable(
+	"notification_preference",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		type: text({ enum: notificationTypes }).notNull(),
+		inApp: boolean().notNull().default(false),
+		email: boolean().notNull().default(false),
+		budgetThreshold: integer().notNull().default(80),
+	},
+	(table) => [unique().on(table.userId, table.type)],
+);
+
+export const notification = pgTable(
+	"notification",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		// Null for organization-scoped alerts, which set organizationId instead.
+		projectId: text().references(() => project.id, { onDelete: "cascade" }),
+		organizationId: text().references(() => organization.id, {
+			onDelete: "cascade",
+		}),
+		apiKeyId: text().references(() => apiKey.id, { onDelete: "cascade" }),
+		type: text({ enum: notificationTypes }).notNull(),
+		eventKey: text().notNull(),
+		title: text().notNull(),
+		message: text().notNull(),
+		href: text().notNull(),
+		inApp: boolean().notNull(),
+		email: boolean().notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+		readAt: timestamp(),
+		emailSentAt: timestamp(),
+	},
+	(table) => [
+		unique().on(table.userId, table.eventKey),
+		index("notification_user_created_idx").on(table.userId, table.createdAt),
+		index("notification_pending_email_idx")
+			.on(table.createdAt)
+			.where(sql`${table.email} = true AND ${table.emailSentAt} IS NULL`),
+	],
+);
+
+// Org-wide delivery targets (e.g. a Slack incoming webhook). `config` is
+// encrypted with the provider-key keyring.
+export const organizationNotificationChannel = pgTable(
+	"organization_notification_channel",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		kind: text({ enum: organizationNotificationChannelKinds }).notNull(),
+		config: text().notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+	},
+	(table) => [unique().on(table.organizationId, table.kind)],
+);
+
+// One org-level event; fanned out to recipients' `notification` rows and to
+// one `organization_alert_delivery` per enabled channel.
+export const organizationAlert = pgTable(
+	"organization_alert",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		type: text({ enum: notificationTypes }).notNull(),
+		eventKey: text().notNull(),
+		title: text().notNull(),
+		message: text().notNull(),
+		href: text().notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+	},
+	(table) => [unique().on(table.organizationId, table.eventKey)],
+);
+
+export const organizationAlertDelivery = pgTable(
+	"organization_alert_delivery",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		alertId: text()
+			.notNull()
+			.references(() => organizationAlert.id, { onDelete: "cascade" }),
+		kind: text({ enum: organizationNotificationChannelKinds }).notNull(),
+		createdAt: timestamp().notNull().defaultNow(),
+		sentAt: timestamp(),
+		attempts: integer().notNull().default(0),
+		lastError: text(),
+	},
+	(table) => [
+		unique().on(table.alertId, table.kind),
+		index("organization_alert_delivery_pending_idx")
+			.on(table.createdAt)
+			.where(sql`${table.sentAt} IS NULL`),
+	],
+);
+
+// A model an organization wants to hear about once it becomes usable under
+// its compliance policy. `availableAt` is null while the model is blocked.
+export const modelAvailabilityWatch = pgTable(
+	"model_availability_watch",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		modelId: text().notNull(),
+		createdByUserId: text().references(() => user.id, {
+			onDelete: "set null",
+		}),
+		availableAt: timestamp(),
+		// Start of the current blocked period; scopes the availability alert.
+		armedAt: timestamp().notNull().defaultNow(),
+		createdAt: timestamp().notNull().defaultNow(),
+	},
+	(table) => [unique().on(table.organizationId, table.modelId)],
+);
+
+// Last-seen compliance verdict per provider, used to detect providers that
+// stop meeting an organization's policy without the policy itself changing.
+export const complianceProviderState = pgTable(
+	"compliance_provider_state",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		organizationId: text()
+			.notNull()
+			.references(() => organization.id, { onDelete: "cascade" }),
+		providerId: text().notNull(),
+		compliant: boolean().notNull(),
+		failures: json().$type<string[]>().notNull(),
+		policyHash: text().notNull(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+	},
+	(table) => [unique().on(table.organizationId, table.providerId)],
+);
+
+export const loungeConnection = pgTable(
+	"lounge_connection",
+	{
+		id: text().primaryKey().$defaultFn(shortid),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		connectorId: text().notNull(),
+		credentials: text().notNull(),
+		enabled: boolean().notNull().default(true),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+	},
+	(table) => [
+		uniqueIndex("lounge_connection_user_connector_idx").on(
+			table.userId,
+			table.connectorId,
+		),
+	],
+);
+
+export const loungeConnectorAuthorization = pgTable(
+	"lounge_connector_authorization",
+	{
+		id: text().primaryKey(),
+		userId: text()
+			.notNull()
+			.references(() => user.id, { onDelete: "cascade" }),
+		sessionId: text().notNull(),
+		consumed: boolean().notNull().default(false),
+		connectorId: text().notNull(),
+		credentials: text().notNull(),
+		expiresAt: timestamp().notNull(),
+	},
+	(table) => [
+		index("lounge_connector_authorization_user_idx").on(table.userId),
+		index("lounge_connector_authorization_expiry_idx").on(table.expiresAt),
+	],
+);
+
+export interface BenchmarkRunTargetSummary {
+	targetId: string;
+	displayName: string;
+	mapping: string;
+	source: "airside" | "catalogue";
+}
+
+export const benchmarkRun = pgTable(
+	"benchmark_run",
+	{
+		id: text().primaryKey().notNull().$defaultFn(shortid),
+		createdAt: timestamp().notNull().defaultNow(),
+		updatedAt: timestamp()
+			.notNull()
+			.defaultNow()
+			.$onUpdate(() => new Date()),
+		requestedBy: text().references(() => user.id, { onDelete: "set null" }),
+		modelId: text().notNull(),
+		// Mapping selectors exactly as submitted, e.g. ["openai", "vertex:us"].
+		// Empty means every active mapping of the model.
+		mappings: json().$type<string[]>().notNull().default([]),
+		profile: text({ enum: ["smoke", "standard", "coding", "load"] })
+			.notNull()
+			.default("smoke"),
+		budgetMs: integer().notNull().default(120000),
+		timeoutMs: integer().notNull().default(60000),
+		runs: integer(),
+		seed: integer().notNull().default(1),
+		status: text({
+			enum: ["queued", "running", "completed", "failed", "canceled"],
+		})
+			.notNull()
+			.default("queued"),
+		attempts: integer().notNull().default(0),
+		startedAt: timestamp(),
+		completedAt: timestamp(),
+		targets: json().$type<BenchmarkRunTargetSummary[]>(),
+		// The rendered BenchmarkResult with per-trial response bodies stripped;
+		// full transcripts would be megabytes per run.
+		result: jsonb().$type<Record<string, unknown>>(),
+		error: text(),
+	},
+	(table) => [
+		index("benchmark_run_queue_idx").on(table.status, table.createdAt),
+		index("benchmark_run_model_idx").on(table.modelId, table.createdAt),
 	],
 );

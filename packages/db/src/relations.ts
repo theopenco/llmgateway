@@ -695,6 +695,12 @@ export const relations = defineRelations(schema, (r) => ({
 			to: r.organization.id,
 		}),
 	},
+	organizationAlertDelivery: {
+		alert: r.one.organizationAlert({
+			from: r.organizationAlertDelivery.alertId,
+			to: r.organizationAlert.id,
+		}),
+	},
 	organizationSkill: {
 		organization: r.one.organization({
 			from: r.organizationSkill.organizationId,
@@ -767,6 +773,10 @@ export const relations = defineRelations(schema, (r) => ({
 		draftModel: r.one.providerDraftModel({
 			from: r.providerModelVerification.draftModelId,
 			to: r.providerDraftModel.id,
+		}),
+		modelProviderMapping: r.one.modelProviderMapping({
+			from: r.providerModelVerification.modelProviderMappingId,
+			to: r.modelProviderMapping.id,
 		}),
 	},
 	providerCompanyInvite: {

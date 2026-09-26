@@ -75,6 +75,48 @@ export const minimaxModels = [
 				tools: true,
 				jsonOutput: false,
 			},
+			{
+				providerId: "tencent",
+				externalId: "minimax-m3",
+				// TokenHub bills M3 in two input-length bands; the mapping-level
+				// prices mirror the first band so a request that never crosses
+				// 512K is priced identically either way.
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.06e-6",
+				outputPrice: "1.2e-6",
+				pricingTiers: [
+					{
+						name: "Up to 512K",
+						upToTokens: 512000,
+						inputPrice: "0.3e-6",
+						outputPrice: "1.2e-6",
+						cachedInputPrice: "0.06e-6",
+					},
+					{
+						name: "Over 512K",
+						upToTokens: Infinity,
+						inputPrice: "0.6e-6",
+						outputPrice: "2.4e-6",
+						cachedInputPrice: "0.12e-6",
+					},
+				],
+				requestPrice: "0",
+				contextSize: 1000000,
+				maxOutput: 131072,
+				streaming: true,
+				reasoning: true,
+				// Thinking cannot be disabled on the M2/M3 family, so the "off"
+				// tiers are not offered.
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				// Reasoning comes back inline in the content as <think> tags
+				// rather than in reasoning_content.
+				splitTaggedReasoning: true,
+				vision: true,
+				tools: true,
+				// response_format is accepted and then ignored — a json_object
+				// request for a plain sentence comes back as prose.
+				jsonOutput: false,
+			},
 		],
 	},
 	{
@@ -168,6 +210,23 @@ export const minimaxModels = [
 				vision: false,
 				tools: true,
 				jsonOutput: true,
+			},
+			{
+				providerId: "tencent",
+				externalId: "minimax-m2.7",
+				inputPrice: "0.3e-6",
+				cachedInputPrice: "0.06e-6",
+				outputPrice: "1.2e-6",
+				requestPrice: "0",
+				contextSize: 200000,
+				maxOutput: 128000,
+				streaming: true,
+				reasoning: true,
+				reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+				splitTaggedReasoning: true,
+				vision: false,
+				tools: true,
+				jsonOutput: false,
 			},
 		],
 	},
@@ -510,6 +569,47 @@ export const minimaxModels = [
 				supportedVideoDurationsSecondsImageToVideo: [6, 10],
 				supportsVideoAudio: false,
 				supportsVideoWithoutAudio: true,
+			},
+		],
+	},
+	{
+		id: "minimax-h3-max",
+		name: "MiniMax H3 Max",
+		description:
+			"MiniMax's fast H3 video model with native synchronized audio, supporting text-to-video and first/last-frame image-to-video from 5 to 15 seconds at 480p or 768p.",
+		family: "minimax",
+		output: ["video"],
+		maxVideoDurationSeconds: 15,
+		releasedAt: new Date("2026-09-08"),
+		providers: [
+			{
+				test: "skip",
+				providerId: "minimax",
+				externalId: "MiniMax-H3-Max",
+				inputPrice: "0",
+				outputPrice: "0",
+				requestPrice: "0",
+				perSecondPrice: {
+					"480p": "0.05",
+					"768p": "0.08",
+				},
+				contextSize: 7000,
+				maxOutput: 1,
+				streaming: false,
+				vision: true,
+				tools: false,
+				jsonOutput: false,
+				videoGenerations: true,
+				supportedVideoSizes: [
+					"848x480",
+					"854x480",
+					"480x854",
+					"1366x768",
+					"768x1366",
+				],
+				supportedVideoDurationsSeconds: [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+				supportsVideoAudio: true,
+				supportsVideoWithoutAudio: false,
 			},
 		],
 	},

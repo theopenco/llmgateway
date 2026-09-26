@@ -20,6 +20,7 @@ import { getProviderHistory } from "@/lib/admin-history";
 import { cn } from "@/lib/utils";
 
 import { deriveStabilityMetrics, getProviderIcon } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
 
 import type { HistoryWindow } from "@/components/history-chart";
 import type { PageWindow } from "@/lib/page-window";
@@ -104,10 +105,6 @@ function SortableHeader({
 	);
 }
 
-function formatNumber(n: number) {
-	return new Intl.NumberFormat("en-US").format(n);
-}
-
 const currencyFormatter = new Intl.NumberFormat("en-US", {
 	style: "currency",
 	currency: "USD",
@@ -134,11 +131,12 @@ function ProviderRow({
 	usageMode: UsageMode;
 }) {
 	const [expanded, setExpanded] = useState(false);
-	const stability = deriveStabilityMetrics(
-		provider.logsCount,
-		provider.errorsCount + provider.clientErrorsCount,
-		provider.clientErrorsCount,
-	);
+	const stability = deriveStabilityMetrics({
+		logsCount: provider.logsCount,
+		clientErrorsCount: provider.clientErrorsCount,
+		gatewayErrorsCount: provider.gatewayErrorsCount,
+		upstreamErrorsCount: provider.upstreamErrorsCount,
+	});
 	const errorRate = (stability.errorRate ?? 0).toFixed(1);
 
 	const ProviderIcon = getProviderIcon(provider.id);

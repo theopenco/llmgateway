@@ -153,6 +153,7 @@ describe("scim audit logging", () => {
 		expect(logs[0]?.userId).toBe("test-user-id");
 		expect(logs[0]?.resourceType).toBe("scim_user");
 		expect(logs[0]?.metadata?.source).toBe("scim");
+		expect(logs[0]?.metadata?.actorType).toBe("system");
 		expect(logs[0]?.metadata?.targetUserEmail).toBe("jane@example.com");
 	});
 
@@ -353,6 +354,7 @@ describe("scim audit logging", () => {
 
 		expect(logs).toHaveLength(1);
 		expect(logs[0]?.resourceType).toBe("scim_group");
+		expect(logs[0]?.metadata?.actorType).toBe("system");
 		expect(logs[0]?.metadata?.resourceName).toBe("Engineering");
 	});
 
@@ -478,31 +480,34 @@ describe("scim audit logging", () => {
 		});
 	});
 
-	test("privileged role mappings take precedence over team mappings", async () => {
-		await createTeamMapping("Engineering", "admin-mapped-team");
-		await db.insert(tables.ssoRoleMapping).values({
-			organizationId: ORG_ID,
-			groupName: "Admins",
-			role: "admin",
-		});
-		const userId = await provisionUser("mapped-admin@example.com");
-
-		for (const displayName of ["Engineering", "Admins"]) {
-			const response = await app.request("/scim/v2/Groups", {
-				method: "POST",
-				headers: scimHeaders(),
-				body: JSON.stringify({
-					displayName,
-					members: [{ value: userId }],
-				}),
+	test.each(["admin", "project_admin"] as const)(
+		"%s role mappings take precedence over team mappings",
+		async (role) => {
+			await createTeamMapping("Engineering", "admin-mapped-team");
+			await db.insert(tables.ssoRoleMapping).values({
+				organizationId: ORG_ID,
+				groupName: "Admins",
+				role,
 			});
-			expect(response.status).toBe(201);
-		}
-		expect(await getMembership(userId)).toMatchObject({
-			role: "admin",
-			teamId: null,
-		});
-	});
+			const userId = await provisionUser("mapped-admin@example.com");
+
+			for (const displayName of ["Engineering", "Admins"]) {
+				const response = await app.request("/scim/v2/Groups", {
+					method: "POST",
+					headers: scimHeaders(),
+					body: JSON.stringify({
+						displayName,
+						members: [{ value: userId }],
+					}),
+				});
+				expect(response.status).toBe(201);
+			}
+			expect(await getMembership(userId)).toMatchObject({
+				role,
+				teamId: null,
+			});
+		},
+	);
 
 	test("the first mapped group name wins and reactivation restores it", async () => {
 		await createTeamMapping("Zulu", "zulu-team");

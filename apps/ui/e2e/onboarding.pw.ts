@@ -131,7 +131,7 @@ test("a brand new account completes onboarding without verifying its email", asy
 	// An API key is provisioned for the new project.
 	const apiKey = page.getByTestId("onboarding-api-key");
 	await expect(apiKey).toBeVisible({ timeout: 30_000 });
-	await expect(apiKey).toContainText("llmgtwy_");
+	await expect(apiKey).toHaveText(/^llmg(?:twy|dev)_[A-Za-z0-9]+$/);
 
 	const completion = page.waitForResponse(
 		(response: Response) =>

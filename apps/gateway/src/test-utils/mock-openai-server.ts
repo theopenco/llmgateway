@@ -139,13 +139,15 @@ function getResponsesApiUserMessage(input: unknown): string {
 		return "";
 	}
 
-	const userItem = input.find(
-		(item) =>
-			item &&
-			typeof item === "object" &&
-			"role" in item &&
-			item.role === "user",
-	);
+	const userItem = [...input]
+		.reverse()
+		.find(
+			(item) =>
+				item &&
+				typeof item === "object" &&
+				"role" in item &&
+				item.role === "user",
+		);
 	if (!userItem || typeof userItem !== "object" || !("content" in userItem)) {
 		return "";
 	}
@@ -500,6 +502,7 @@ export function resetFailOnceCounter() {
 
 export function resetMockVideoState() {
 	videoCounter = 0;
+	videoAsset = undefined;
 	videoJobs.clear();
 	videoStatusResponses.clear();
 	webhookDeliveries.length = 0;
@@ -550,6 +553,26 @@ export function getMockVideo(videoId: string): MockVideoJobState | undefined {
 	return videoJobs.get(videoId);
 }
 
+export function getMockVideos(): MockVideoJobState[] {
+	return [...videoJobs.values()];
+}
+
+const mockAudioAssets = new Map<string, Uint8Array<ArrayBuffer>>();
+
+export function setMockAudioAsset(format: string, bytes: Uint8Array) {
+	mockAudioAssets.set(format, new Uint8Array(bytes));
+}
+
+export function resetMockAudioState() {
+	mockAudioAssets.clear();
+}
+
+let videoAsset: Uint8Array<ArrayBuffer> | undefined;
+
+export function setMockVideoAsset(bytes: Uint8Array) {
+	videoAsset = new Uint8Array(bytes);
+}
+
 export function setMockVideoStatusResponse(
 	videoId: string,
 	status: number,
@@ -586,6 +609,19 @@ function stripAzureOpenaiPrefix(c: Context): Response | Promise<Response> {
 mockOpenAIServer.post("/openai/v1/responses", stripAzureOpenaiPrefix);
 mockOpenAIServer.post("/openai/v1/chat/completions", stripAzureOpenaiPrefix);
 
+// The legacy Azure deployment-based surface, where the model lives in the path
+// and the api-version in the query string. Rewrite it to the plain handler so
+// `azure_deployment_type: "openai"` keys can complete requests too.
+mockOpenAIServer.post(
+	"/openai/deployments/:deployment/chat/completions",
+	(c) => {
+		const url = new URL(c.req.url);
+		url.pathname = "/v1/chat/completions";
+		url.search = "";
+		return mockOpenAIServer.fetch(new Request(url, c.req.raw));
+	},
+);
+
 // Handle OpenAI Responses API endpoint (for gpt-5 and other models with supportsResponsesApi)
 mockOpenAIServer.post("/v1/responses", async (c) => {
 	const body = await c.req.json();
@@ -595,6 +631,13 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 	// content is an array of parts, so extract the text rather than calling
 	// `.includes` on the raw content (which would miss array-form messages).
 	const userMessage = getResponsesApiUserMessage(body.input);
+	const timeoutDelay = extractTimeoutDelay(userMessage);
+	if (timeoutDelay) {
+		await delay(timeoutDelay);
+	}
+	const reasoning = userMessage.includes("TRIGGER_REASONING")
+		? "Let me think about this step by step."
+		: undefined;
 
 	// Check if this request should trigger an error response
 	const statusTrigger = extractStatusCodeTrigger(userMessage);
@@ -627,6 +670,15 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 		}
 	}
 
+	// Azure (and OpenAI) silently serve a premium request at standard when the
+	// tier is unavailable, echoing `service_tier: "default"`. The echoed tier,
+	// not the requested one, is what the gateway must bill.
+	const servedServiceTier = userMessage.includes(
+		"TRIGGER_SERVICE_TIER_DOWNGRADE",
+	)
+		? "default"
+		: body.service_tier;
+
 	const shouldEndAfterDoneEvent = userMessage.includes(
 		"TRIGGER_RESPONSES_DONE_WITHOUT_COMPLETED",
 	);
@@ -643,8 +695,8 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 				object: "response",
 				created_at: Math.floor(Date.now() / 1000),
 				model: body.model ?? "gpt-5-nano",
-				...(typeof body.service_tier === "string"
-					? { service_tier: body.service_tier }
+				...(typeof servedServiceTier === "string"
+					? { service_tier: servedServiceTier }
 					: {}),
 			};
 
@@ -659,12 +711,26 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 				id: String(eventId++),
 			});
 
+			if (reasoning) {
+				await stream.writeSSE({
+					data: JSON.stringify({
+						type: "response.reasoning_summary_text.delta",
+						delta: reasoning,
+						item_id: "rs_123",
+						output_index: 0,
+						summary_index: 0,
+						response: responseBase,
+					}),
+					id: String(eventId++),
+				});
+			}
+
 			await stream.writeSSE({
 				data: JSON.stringify({
 					type: "response.content_part.added",
 					content_index: 0,
 					item_id: "msg_123",
-					output_index: 0,
+					output_index: reasoning ? 1 : 0,
 					part: {
 						type: "output_text",
 						text: assistantContent,
@@ -683,7 +749,7 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 					type: "response.output_text.done",
 					content_index: 0,
 					item_id: "msg_123",
-					output_index: 0,
+					output_index: reasoning ? 1 : 0,
 					response: {
 						...responseBase,
 						status: shouldEndAfterDoneEvent ? "completed" : "in_progress",
@@ -704,7 +770,7 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 					type: "response.content_part.done",
 					content_index: 0,
 					item_id: "msg_123",
-					output_index: 0,
+					output_index: reasoning ? 1 : 0,
 					part: {
 						type: "output_text",
 						text: assistantContent,
@@ -725,6 +791,23 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 
 			if (shouldEndAfterDoneEvent || shouldEndAfterIntermediateDoneEvent) {
 				return;
+			}
+
+			if (userMessage.includes("TRIGGER_SOURCES")) {
+				await stream.writeSSE({
+					data: JSON.stringify({
+						type: "response.output_text.annotation.added",
+						annotation: {
+							type: "url_citation",
+							url: "https://example.com/guide",
+							title: "Lounge test source",
+							start_index: 0,
+							end_index: 5,
+						},
+						response: responseBase,
+					}),
+					id: String(eventId++),
+				});
 			}
 
 			await stream.writeSSE({
@@ -752,6 +835,14 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 		created_at: Math.floor(Date.now() / 1000),
 		model: body.model ?? "gpt-5-nano",
 		output: [
+			...(reasoning
+				? [
+						{
+							type: "reasoning",
+							summary: [{ type: "summary_text", text: reasoning }],
+						},
+					]
+				: []),
 			{
 				type: "message",
 				role: "assistant",
@@ -768,8 +859,8 @@ mockOpenAIServer.post("/v1/responses", async (c) => {
 			output_tokens: 20,
 			total_tokens: 30,
 		},
-		...(typeof body.service_tier === "string"
-			? { service_tier: body.service_tier }
+		...(typeof servedServiceTier === "string"
+			? { service_tier: servedServiceTier }
 			: {}),
 		status: "completed",
 	};
@@ -841,6 +932,20 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 			});
 		}
 		// Subsequent requests succeed - fall through to normal response
+	} else if (userMessage.includes("TRIGGER_FAIL_ONCE_ANTHROPIC_ACCESS")) {
+		failOnceCounter++;
+		if (failOnceCounter === 1) {
+			return c.json(
+				{
+					error: {
+						message:
+							"Access to Anthropic models is not allowed for this account",
+						type: "invalid_request_error",
+					},
+				},
+				400,
+			);
+		}
 	} else if (userMessage.includes("TRIGGER_FAIL_ONCE_INVALID_KEY")) {
 		failOnceCounter++;
 		if (failOnceCounter === 1) {
@@ -1279,6 +1384,16 @@ mockOpenAIServer.post("/v1/chat/completions", async (c) => {
 		...sampleChatCompletionResponse,
 		choices,
 		usage,
+		// Echo the tier the upstream served, like OpenAI and Azure do.
+		// TRIGGER_SERVICE_TIER_DOWNGRADE forces the "served at standard" reply
+		// they send when the requested tier is unavailable.
+		...(typeof body.service_tier === "string"
+			? {
+					service_tier: userMessage.includes("TRIGGER_SERVICE_TIER_DOWNGRADE")
+						? "default"
+						: body.service_tier,
+				}
+			: {}),
 	};
 
 	return c.json(response);
@@ -1327,6 +1442,83 @@ mockOpenAIServer.post("/v1/moderations", async (c) => {
 				},
 			},
 		],
+	});
+});
+
+mockOpenAIServer.post("/v1/systemone", async (c) => {
+	const body = await c.req.json();
+	const stateText =
+		typeof body.state === "string" ? body.state : JSON.stringify(body.state);
+
+	const statusTrigger = extractStatusCodeTrigger(stateText);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+	// CLASSIFIER_ERROR is separate from TRIGGER_ERROR so a test can fail only
+	// the classifier call while the chat completion it precedes still succeeds.
+	if (
+		stateText.includes("TRIGGER_ERROR") ||
+		stateText.includes("CLASSIFIER_ERROR")
+	) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	// Answers are keyword-driven so tests can assert a specific verdict: a
+	// harmful-looking state scores high on every noul question, and the auto
+	// routing classifier is steered by EASY_TASK / HARD_TASK / PREFER_MODEL:<id>.
+	const harmful = /harm|kill|attack|threat/i.test(stateText);
+	const easyTask = stateText.includes("EASY_TASK");
+	const hardTask = stateText.includes("HARD_TASK");
+	const preferredModel = /PREFER_MODEL:([^\s"\\]+)/.exec(stateText)?.[1];
+	const answers: Record<string, unknown> = {};
+	for (const [id, question] of Object.entries(
+		(body.questions ?? {}) as Record<string, { type: string; criteria?: any }>,
+	)) {
+		if (question.type === "noul") {
+			answers[id] = { type: "noul", noul: harmful ? 0.97 : 0.01 };
+			continue;
+		}
+		if (question.type === "choice") {
+			const options = Object.keys(question.criteria ?? {});
+			const choice =
+				preferredModel && options.includes(preferredModel)
+					? preferredModel
+					: options[0];
+			answers[id] = {
+				type: "choice",
+				choice,
+				confidence: 0.9,
+				probabilities: Object.fromEntries(
+					options.map((option) => [option, option === choice ? 1 : 0]),
+				),
+			};
+			continue;
+		}
+		const levels: unknown[] = Array.isArray(question.criteria)
+			? question.criteria
+			: [];
+		// Top level by default so existing score-question specs keep their answer;
+		// EASY_TASK opts a state down to the bottom band, HARD_TASK wins over it.
+		const score = easyTask && !hardTask ? 0 : levels.length - 1;
+		answers[id] = {
+			type: "score",
+			score,
+			confidence: 0.9,
+			legend: Object.fromEntries(
+				levels.map((level, index) => [String(index), String(level)]),
+			),
+			probabilities: Object.fromEntries(
+				levels.map((_level, index) => [String(index), index === score ? 1 : 0]),
+			),
+		};
+	}
+
+	return c.json({
+		model: body.model === "jev-latest" ? "jev-1.13.0" : body.model,
+		answers,
+		usage: { input_tokens: 441, output_tokens: 69 },
 	});
 });
 
@@ -1394,8 +1586,10 @@ mockOpenAIServer.post("/v1/audio/speech", async (c) => {
 		wav: "audio/wav",
 		pcm: "audio/pcm",
 	};
-	// Deterministic mock audio payload (not a real encoded stream).
-	const audio = Buffer.from("MOCK_OPENAI_AUDIO");
+	const fixture = mockAudioAssets.get(format);
+	const audio = fixture
+		? Buffer.from(fixture)
+		: Buffer.from("MOCK_OPENAI_AUDIO");
 
 	// gpt-4o-mini-tts requests stream_format=sse: emit audio deltas followed by a
 	// done event carrying token usage, mirroring OpenAI's SSE schema.
@@ -1517,6 +1711,36 @@ mockOpenAIServer.post("/v1/text-to-speech/:voiceId", async (c) => {
 	const audio = Buffer.from("MOCK_ELEVENLABS_AUDIO");
 
 	return c.body(audio, 200, { "Content-Type": contentType });
+});
+
+// DeepInfra rerank: POST /v1/inference/{owner}/{model} scores each document
+// against the query and reports the input tokens the gateway bills on.
+mockOpenAIServer.post("/v1/inference/:owner/:model", async (c) => {
+	const body = await c.req.json();
+	const documents: string[] = Array.isArray(body.documents)
+		? body.documents
+		: [];
+	const queries: string[] = Array.isArray(body.queries) ? body.queries : [];
+	const combinedInput = [...queries, ...documents].join(" ");
+
+	const statusTrigger = extractStatusCodeTrigger(combinedInput);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	if (combinedInput.includes("TRIGGER_ERROR")) {
+		c.status(500);
+		return c.json(sampleErrorResponse);
+	}
+
+	return c.json({
+		scores: documents.map((_, index) => {
+			const penalty = index * 0.1;
+			return 1 - penalty;
+		}),
+		input_tokens: combinedInput.length,
+	});
 });
 
 mockOpenAIServer.post("/v1/embeddings", async (c) => {
@@ -2223,6 +2447,76 @@ mockOpenAIServer.post("/api/v1/model/generateVideo", async (c) => {
 	});
 });
 
+mockOpenAIServer.post("/v2/video_generation", async (c) => {
+	const body = await c.req.json();
+	const content: Record<string, unknown>[] = Array.isArray(body.content)
+		? body.content
+		: [];
+	const promptItem = content.find((item) => item.type === "text");
+	const prompt = typeof promptItem?.text === "string" ? promptItem.text : "";
+	const statusTrigger = extractStatusCodeTrigger(prompt);
+	if (statusTrigger) {
+		c.status(statusTrigger.statusCode as any);
+		return c.json(statusTrigger.errorResponse);
+	}
+
+	videoCounter++;
+	const id = `minimax_task_${videoCounter}`;
+	videoJobs.set(id, {
+		id,
+		object: "video",
+		model: typeof body.model === "string" ? body.model : "minimax-video",
+		status: "queued",
+		progress: 0,
+		requestBody: body,
+		duration: typeof body.duration === "number" ? body.duration : undefined,
+		resolution:
+			typeof body.resolution === "string" ? body.resolution : undefined,
+		ratio: typeof body.ratio === "string" ? body.ratio : undefined,
+		created_at: Math.floor(Date.now() / 1000),
+		completed_at: null,
+		expires_at: null,
+		error: null,
+	});
+
+	return c.json({ task_id: id });
+});
+
+mockOpenAIServer.get("/v2/query/video_generation/:id", async (c) => {
+	const id = c.req.param("id");
+	const job = videoJobs.get(id);
+	if (!job) {
+		c.status(400);
+		return c.json({
+			type: "error",
+			error: { type: "bad_request_error", message: "invalid task_id" },
+		});
+	}
+
+	return c.json({
+		task: {
+			id,
+			model: job.model,
+			status:
+				job.status === "completed"
+					? "succeeded"
+					: job.status === "in_progress"
+						? "running"
+						: job.status,
+			...(job.status === "completed"
+				? { content: { url: `${currentMockServerUrl}/mock-assets/${id}` } }
+				: {}),
+			...(job.status === "failed"
+				? { error: { code: "1026", message: job.error?.message } }
+				: {}),
+			resolution: job.resolution,
+			duration: job.duration,
+			ratio: job.ratio,
+			task_type: "generation",
+		},
+	});
+});
+
 const vertexPublisherModelHandler = async (
 	c: Context,
 	next: () => Promise<void>,
@@ -2673,12 +2967,7 @@ mockOpenAIServer.get("/mock-gcs/:bucket/*", async (c) => {
 			videoJob.storageUri === `gs://${bucket}/${objectPath}`,
 	);
 
-	return new Response(`mock-video-${job?.id ?? objectPath}`, {
-		status: 200,
-		headers: {
-			"Content-Type": "video/mp4",
-		},
-	});
+	return mockVideoContentResponse(job?.id ?? objectPath, c.req.header("range"));
 });
 
 mockOpenAIServer.get("/api/v1/model/prediction/:id", async (c) => {
@@ -2711,12 +3000,46 @@ mockOpenAIServer.get("/api/v1/model/prediction/:id", async (c) => {
 	});
 });
 
-mockOpenAIServer.get("/mock-assets/:id", async (c) => {
-	const id = c.req.param("id");
-	return c.body(`mock-video-${id}`, 200, {
-		"Content-Type": "video/mp4",
+function mockVideoContentResponse(id: string, range?: string) {
+	if (videoAsset) {
+		const headers = { "Content-Type": "video/mp4", "Accept-Ranges": "bytes" };
+		if (range) {
+			const match = /^bytes=(\d+)-(\d*)$/.exec(range);
+			const start = Number(match?.[1]);
+			const end = Math.min(
+				Number(match?.[2] || videoAsset.length - 1),
+				videoAsset.length - 1,
+			);
+			if (!match || start > end || start >= videoAsset.length) {
+				return new Response(null, {
+					status: 416,
+					headers: {
+						...headers,
+						"Content-Range": `bytes */${videoAsset.length}`,
+					},
+				});
+			}
+			return new Response(videoAsset.slice(start, end + 1), {
+				status: 206,
+				headers: {
+					...headers,
+					"Content-Length": String(end - start + 1),
+					"Content-Range": `bytes ${start}-${end}/${videoAsset.length}`,
+				},
+			});
+		}
+		return new Response(videoAsset, {
+			headers: { ...headers, "Content-Length": String(videoAsset.length) },
+		});
+	}
+	return new Response(`mock-video-${id}`, {
+		headers: { "Content-Type": "video/mp4" },
 	});
-});
+}
+
+mockOpenAIServer.get("/mock-assets/:id", (c) =>
+	mockVideoContentResponse(c.req.param("id"), c.req.header("range")),
+);
 
 mockOpenAIServer.post("/mock-callback/:name", async (c) => {
 	const name = c.req.param("name");
@@ -2915,7 +3238,12 @@ mockOpenAIServer.post("/model/:model/converse-stream", async (c) => {
 
 let server: any = null;
 
-export function startMockServer(port = 0): Promise<string> {
+export function startMockServer(
+	port = 0,
+	handleRequest: (request: Request) => Response | Promise<Response> = (
+		request,
+	) => mockOpenAIServer.fetch(request),
+): Promise<string> {
 	return new Promise((resolve) => {
 		if (server) {
 			resolve(currentMockServerUrl);
@@ -2924,7 +3252,7 @@ export function startMockServer(port = 0): Promise<string> {
 
 		server = serve(
 			{
-				fetch: mockOpenAIServer.fetch,
+				fetch: handleRequest,
 				port,
 			},
 			(info) => {

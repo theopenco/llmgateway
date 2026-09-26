@@ -4,11 +4,13 @@ import {
 	countryCodeToFlag,
 	customProviderRef,
 	getAttestationComplianceFailures,
+	getCompliantProvidersForModel,
 	getProviderComplianceFailures,
 	getProviderCountries,
 	getProviderDefinition,
 	getProviderRefPolicyListFailures,
 	isAttestationCompliant,
+	isLiveMapping,
 	isModelAllowedByPolicy,
 	isProviderCompliant,
 	isProviderRefAllowedByPolicy,
@@ -705,6 +707,20 @@ describe("provider headquarters country mappings are complete", () => {
 });
 
 describe("compliance failure reasons", () => {
+	it("checks Runpod certifications and unknown data handling", () => {
+		expect(
+			getProviderComplianceFailures(getProviderDefinition("runpod")!, {
+				enabled: true,
+				requireSoc2Type2: true,
+				requireIso27001: true,
+				requireGdpr: true,
+				blockApiTraining: true,
+				blockPromptLogging: true,
+				zeroDataRetention: true,
+			}),
+		).toEqual(["blockApiTraining", "blockPromptLogging", "zeroDataRetention"]);
+	});
+
 	it("reports every unmet requirement for a provider", () => {
 		const provider = makeProvider(
 			{
@@ -894,6 +910,78 @@ describe("blockStealthProviders", () => {
 				enabled: true,
 				blockStealthProviders: true,
 			}),
+		).toEqual([]);
+	});
+});
+
+describe("isLiveMapping", () => {
+	const now = new Date("2026-01-01");
+
+	it("is false once a mapping is deprecated or deactivated", () => {
+		const providerId = "openai";
+		expect(isLiveMapping({ providerId }, now)).toBe(true);
+		expect(
+			isLiveMapping({ providerId, deprecatedAt: new Date("2026-02-01") }, now),
+		).toBe(true);
+		expect(
+			isLiveMapping({ providerId, deprecatedAt: new Date("2025-12-01") }, now),
+		).toBe(false);
+		expect(isLiveMapping({ providerId, deactivatedAt: now }, now)).toBe(false);
+	});
+});
+
+describe("getCompliantProvidersForModel", () => {
+	const policy: ProviderCompliancePolicy = {
+		enabled: true,
+		allowedCountries: ["US"],
+	};
+	const now = new Date("2026-01-01");
+
+	it("returns only compliant, active providers", () => {
+		expect(
+			getCompliantProvidersForModel(
+				"some-model",
+				[
+					{ providerId: "deepseek" },
+					{ providerId: "openai" },
+					{ providerId: "unknown-carrier" },
+				],
+				policy,
+				now,
+			),
+		).toEqual(["openai"]);
+	});
+
+	it("ignores deprecated and deactivated mappings", () => {
+		expect(
+			getCompliantProvidersForModel(
+				"some-model",
+				[
+					{ providerId: "openai", deprecatedAt: new Date("2025-12-01") },
+					{ providerId: "openai", deactivatedAt: new Date("2025-12-01") },
+				],
+				policy,
+				now,
+			),
+		).toEqual([]);
+		expect(
+			getCompliantProvidersForModel(
+				"some-model",
+				[{ providerId: "openai", deprecatedAt: new Date("2026-02-01") }],
+				policy,
+				now,
+			),
+		).toEqual(["openai"]);
+	});
+
+	it("respects the model lists", () => {
+		expect(
+			getCompliantProvidersForModel(
+				"some-model",
+				[{ providerId: "openai" }],
+				{ ...policy, blockedModels: ["some-model"] },
+				now,
+			),
 		).toEqual([]);
 	});
 });

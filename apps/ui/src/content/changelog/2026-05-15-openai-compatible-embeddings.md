@@ -4,6 +4,7 @@ slug: "openai-compatible-embeddings"
 date: "2026-05-15"
 title: "OpenAI-Compatible Embeddings"
 summary: "Turn text into vectors for semantic search, clustering, and RAG — through the same gateway you already use for chat."
+tags: ["llmgateway"]
 image:
   src: "/changelog/embeddings-support.png"
   alt: "LLM Gateway now supports OpenAI-compatible embeddings"

@@ -9,6 +9,7 @@ import { logAuditEvent } from "@llmgateway/audit";
 import { db, eq, tables } from "@llmgateway/db";
 import { logger } from "@llmgateway/logger";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+import { isProjectScopedRole } from "@llmgateway/shared/organization-roles";
 
 /**
  * Accept every pending, non-expired organization invite matching the user's
@@ -55,7 +56,7 @@ export async function acceptPendingInvitesForUser(user: {
 				continue;
 			}
 			if (
-				invite.role === "developer" &&
+				isProjectScopedRole(invite.role) &&
 				!hasOrganizationEnterpriseAccess(org.id, org.plan)
 			) {
 				continue;
@@ -103,7 +104,7 @@ export async function acceptPendingInvitesForUser(user: {
 							.returning({ id: tables.userOrganization.id }),
 				);
 
-				if (invite.role === "developer" && invite.projectIds?.length) {
+				if (isProjectScopedRole(invite.role) && invite.projectIds?.length) {
 					// Grant only the invited projects that still exist in the org.
 					const projects = await db.query.project.findMany({
 						where: {

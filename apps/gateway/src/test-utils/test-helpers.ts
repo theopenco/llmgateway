@@ -3,7 +3,7 @@ import { processLogQueue } from "worker";
 import { RESPONSES_STORAGE_KEY_PREFIX } from "@/responses/tools/response-state.js";
 
 import { redisClient } from "@llmgateway/cache";
-import { db, inArray, tables, eq } from "@llmgateway/db";
+import { and, db, inArray, tables, eq, sql } from "@llmgateway/db";
 
 /**
  * Reset Redis state between tests, except the Responses API state store.
@@ -81,6 +81,17 @@ export async function cleanupTestOrganization(
  * @param intervalMs Interval between checks in milliseconds
  * @returns Promise that resolves with true if logs are found, false if timed out
  */
+/**
+ * Drop the rows the request classifier bills its own calls on. Routing
+ * assertions want the request's own log entry, and a classified request now
+ * writes two.
+ */
+export function requestLogs<T extends { usedProvider: string }>(
+	logs: T[],
+): T[] {
+	return logs.filter((log) => log.usedProvider !== "typesafe");
+}
+
 export async function waitForLogs(
 	expectedCount = 1,
 	maxWaitMs = 10000,
@@ -159,11 +170,19 @@ export async function waitForLogByRequestId(
 			console.warn("processLogQueue failed, retrying:", error);
 		}
 
-		// Query for the specific log entry by request ID
+		// Query for the request's terminal log entry. A provider fallback logs
+		// each failed attempt under the same request id with `retried: true`
+		// before the final row lands; without the filter the unordered limit(1)
+		// can race and return a superseded attempt instead of the outcome.
 		const logs = await db
 			.select()
 			.from(tables.log)
-			.where(eq(tables.log.requestId, requestId))
+			.where(
+				and(
+					eq(tables.log.requestId, requestId),
+					sql`${tables.log.retried} IS NOT TRUE`,
+				),
+			)
 			.limit(1);
 
 		const log = logs[0] || null;

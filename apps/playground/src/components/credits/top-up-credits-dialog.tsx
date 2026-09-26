@@ -31,6 +31,8 @@ import {
 	CREDIT_TOP_UP_MIN_AMOUNT,
 	isCreditTopUpAmountInRange,
 } from "@llmgateway/shared";
+import { formatNumber } from "@llmgateway/shared/number-format";
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import type React from "react";
 
@@ -49,12 +51,36 @@ interface TopUpCreditsDialogProps {
 	children?: React.ReactNode;
 	open?: boolean;
 	onOpenChange?: (open: boolean) => void;
-	// The org credits should be added to (the playground's Chat org). When
-	// omitted, the API falls back to the user's first organization.
+	// The organization receiving the credits.
 	organizationId?: string;
 }
 
-export function TopUpCreditsDialog({
+export function TopUpCreditsDialog(props: TopUpCreditsDialogProps) {
+	const api = useApi();
+	const { data } = api.useQuery(
+		"get",
+		"/orgs",
+		{
+			params: { query: { includeChat: "true" } },
+		},
+		{ enabled: Boolean(props.organizationId) },
+	);
+	const organization = data?.organizations.find(
+		(org) => org.id === props.organizationId,
+	);
+	if (!organization || !isOrganizationAdmin(organization.role)) {
+		return null;
+	}
+	return (
+		<BillingTopUpCreditsDialog
+			key={organization.id}
+			{...props}
+			organizationId={organization.id}
+		/>
+	);
+}
+
+function BillingTopUpCreditsDialog({
 	children,
 	open: controlledOpen,
 	onOpenChange: controlledOnOpenChange,
@@ -81,7 +107,7 @@ export function TopUpCreditsDialog({
 		api.useQuery(
 			"get",
 			"/payments/payment-methods",
-			{},
+			{ params: { query: { organizationId } } },
 			{
 				enabled: open, // Only fetch when dialog is open
 			},
@@ -263,7 +289,7 @@ function AmountStep({
 	const isAmountValid = isCreditTopUpAmountInRange(amount);
 	const amountValidationMessage =
 		amount > CREDIT_TOP_UP_MAX_AMOUNT
-			? `Maximum top-up amount is $${CREDIT_TOP_UP_MAX_AMOUNT.toLocaleString("en-US")}.`
+			? `Maximum top-up amount is $${formatNumber(CREDIT_TOP_UP_MAX_AMOUNT)}.`
 			: amount < CREDIT_TOP_UP_MIN_AMOUNT
 				? `Minimum top-up amount is $${CREDIT_TOP_UP_MIN_AMOUNT}.`
 				: !Number.isInteger(amount)
@@ -273,7 +299,7 @@ function AmountStep({
 		"post",
 		"/payments/calculate-fees",
 		{
-			body: { amount },
+			body: { amount, organizationId },
 		},
 		{
 			enabled: isAmountValid,
@@ -335,7 +361,7 @@ function AmountStep({
 					/>
 					<p className="text-xs text-muted-foreground">
 						Minimum ${CREDIT_TOP_UP_MIN_AMOUNT}. Maximum $
-						{CREDIT_TOP_UP_MAX_AMOUNT.toLocaleString("en-US")}.
+						{formatNumber(CREDIT_TOP_UP_MAX_AMOUNT)}.
 					</p>
 					{amountValidationMessage ? (
 						<p className="text-xs text-destructive">
@@ -493,7 +519,9 @@ function PaymentStep({
 			let stripePaymentMethodId: string | undefined;
 
 			if (saveCard) {
-				const { clientSecret: setupSecret } = await setupIntentMutation({});
+				const { clientSecret: setupSecret } = await setupIntentMutation({
+					body: { organizationId },
+				});
 
 				const setupResult = await stripe.confirmCardSetup(setupSecret, {
 					payment_method: {
@@ -755,7 +783,7 @@ function ConfirmPaymentStep({
 		"post",
 		"/payments/calculate-fees",
 		{
-			body: { amount, paymentMethodId },
+			body: { amount, paymentMethodId, organizationId },
 		},
 	);
 

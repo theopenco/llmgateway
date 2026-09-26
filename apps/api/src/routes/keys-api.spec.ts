@@ -5,7 +5,7 @@ import { createTestUser, deleteAll } from "@/testing.js";
 
 import {
 	redisClient,
-	SWR_PREFIX,
+	swrMirrorKey,
 	swrWrap,
 	waitForSwrMirrorWrites,
 } from "@llmgateway/cache";
@@ -39,6 +39,10 @@ async function seedOtherMemberKey(budget: {
 		organizationId: "test-org-id",
 		role: "developer",
 		...budget,
+	});
+	await db.insert(tables.userProject).values({
+		userOrganizationId: "other-user-org-id",
+		projectId: "test-project-id",
 	});
 	await db.insert(tables.apiKey).values({
 		id: "other-api-key-id",
@@ -540,7 +544,7 @@ describe("keys route", () => {
 			token: "test-token",
 		}));
 		await waitForSwrMirrorWrites();
-		expect(await redisClient.get(SWR_PREFIX + swrCacheKey)).not.toBeNull();
+		expect(await redisClient.get(swrMirrorKey(swrCacheKey))).not.toBeNull();
 
 		const res = await app.request("/keys/api/test-api-key-id/roll", {
 			method: "POST",
@@ -551,7 +555,7 @@ describe("keys route", () => {
 		expect(res.status).toBe(200);
 
 		// The cached lookup for the old token must be gone after the roll.
-		expect(await redisClient.get(SWR_PREFIX + swrCacheKey)).toBeNull();
+		expect(await redisClient.get(swrMirrorKey(swrCacheKey))).toBeNull();
 	});
 
 	test("POST /keys/api/{id}/iam busts the gateway's cached IAM rule lookups", async () => {
@@ -593,7 +597,7 @@ describe("keys route", () => {
 		// Prime both cache layers with the "no rules" result.
 		expect(await readActiveIamRules()).toHaveLength(0);
 		expect(
-			await redisClient.get(SWR_PREFIX + `iamRules:${apiKeyId}`),
+			await redisClient.get(swrMirrorKey(`iamRules:${apiKeyId}`)),
 		).not.toBeNull();
 
 		const res = await app.request(`/keys/api/${apiKeyId}/iam`, {
@@ -611,7 +615,7 @@ describe("keys route", () => {
 
 		// The SWR mirror for the api_key_iam_rule table must be gone...
 		expect(
-			await redisClient.get(SWR_PREFIX + `iamRules:${apiKeyId}`),
+			await redisClient.get(swrMirrorKey(`iamRules:${apiKeyId}`)),
 		).toBeNull();
 		// ...and the cached select must serve the new rule, not the stale miss.
 		expect(await readActiveIamRules()).toHaveLength(1);
@@ -768,6 +772,15 @@ describe("keys route", () => {
 		const ids = json.apiKeys.map((key: { id: string }) => key.id);
 		expect(ids).toContain("other-api-key-id");
 		expect(ids).not.toContain("test-api-key-id");
+
+		await db
+			.delete(tables.userProject)
+			.where(eq(tables.userProject.userOrganizationId, "other-user-org-id"));
+		const revoked = await app.request("/keys/api", {
+			headers: { Cookie: devToken },
+		});
+		expect(revoked.status).toBe(200);
+		expect((await revoked.json()).apiKeys).toEqual([]);
 	});
 
 	test("POST /keys/api creates a period usage limit", async () => {

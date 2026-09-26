@@ -47,6 +47,7 @@ import {
 	AnimatedTerminal,
 	AnimatedUsers,
 } from "@/components/dashboard/animated-nav-icons";
+import { ProductSwitcher } from "@/components/dashboard/product-switcher";
 import { ReferralDialog } from "@/components/dashboard/referral-dialog";
 import { useDashboardNavigation } from "@/hooks/useDashboardNavigation";
 import { useUser } from "@/hooks/useUser";
@@ -90,8 +91,10 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/lib/components/tooltip";
-import Logo from "@/lib/icons/Logo";
+import { useAppConfig } from "@/lib/config";
 import { buildUrlWithParams } from "@/lib/navigation-utils";
+
+import { isOrganizationAdmin } from "@llmgateway/shared/organization-roles";
 
 import { OrganizationSwitcher } from "./organization-switcher";
 
@@ -287,6 +290,10 @@ const ORGANIZATION_SETTINGS = [
 		label: "Preferences",
 	},
 	{
+		href: "org/routing",
+		label: "Smart Routing",
+	},
+	{
 		href: "org/audit-logs",
 		label: "Audit Logs",
 		enterpriseOnly: true,
@@ -341,22 +348,11 @@ function DashboardSidebarHeader({
 	onSearchSubmit: () => void;
 	searchInputRef: React.RefObject<HTMLInputElement | null>;
 }) {
-	const { buildUrl } = useDashboardNavigation();
-
 	return (
 		<SidebarHeader>
 			<SidebarMenu>
 				<SidebarMenuItem>
-					<SidebarMenuButton size="lg" asChild tooltip="LLM Gateway">
-						<Link href={buildUrl()} prefetch={true}>
-							<div className="flex aspect-square size-8 items-center justify-center">
-								<Logo className="size-6 text-black dark:text-white" />
-							</div>
-							<span className="text-lg font-bold tracking-tight">
-								LLM Gateway
-							</span>
-						</Link>
-					</SidebarMenuButton>
+					<ProductSwitcher />
 				</SidebarMenuItem>
 			</SidebarMenu>
 			<div className="group-data-[collapsible=icon]:hidden">
@@ -709,15 +705,11 @@ function OrganizationSection({
 					>
 						<SidebarMenuButton
 							asChild
-							isActive={
-								isActive("org/billing") ||
-								isActive("org/transactions") ||
-								isActive("org/referrals") ||
-								isActive("org/limits") ||
-								isActive("org/policies") ||
-								isActive("org/preferences") ||
-								isActive("org/audit-logs")
-							}
+							// Derived from the list rather than repeated, so a new
+							// settings page cannot leave the parent unhighlighted.
+							isActive={ORGANIZATION_SETTINGS.some((item) =>
+								isActive(item.href),
+							)}
 							tooltip="Settings"
 						>
 							<Link
@@ -1229,13 +1221,12 @@ export function DashboardSidebar({
 		return pathname.endsWith(`/${path}`);
 	};
 
+	const { devpassUrl, playgroundUrl, docsUrl } = useAppConfig();
+
 	const toolsResources = useMemo(
 		() => [
 			{
-				href:
-					process.env.NODE_ENV === "development"
-						? "http://localhost:3004"
-						: "https://devpass.llmgateway.io",
+				href: `${devpassUrl}/dashboard`,
 				label: "DevPass",
 				icon: AnimatedTerminal,
 				internal: false,
@@ -1247,25 +1238,23 @@ export function DashboardSidebar({
 				internal: true,
 			},
 			{
-				href:
-					process.env.NODE_ENV === "development"
-						? "http://localhost:3003"
-						: "https://lounge.llmgateway.io",
+				href: playgroundUrl,
 				label: "Lounge",
 				icon: AnimatedBotMessageSquare,
 				internal: false,
 			},
 			{
-				href: "https://docs.llmgateway.io",
+				href: docsUrl,
 				label: "Documentation",
 				icon: AnimatedExternalLink,
 				internal: false,
 			},
 		],
-		[],
+		[devpassUrl, playgroundUrl, docsUrl],
 	);
 
 	const isDeveloper = selectedOrganization?.role === "developer";
+	const isOrgAdmin = isOrganizationAdmin(selectedOrganization?.role);
 
 	// Flat index of every link the sidebar can show for the current role, used
 	// by the search box to filter across all sections at once.
@@ -1310,14 +1299,19 @@ export function DashboardSidebar({
 				section: "Project Settings",
 				enterpriseGated: "enterpriseOnly" in item && item.enterpriseOnly,
 			})),
-			...ORGANIZATION_NAVIGATION.map((item) => ({
+			...ORGANIZATION_NAVIGATION.filter(
+				(item) =>
+					isOrgAdmin ||
+					item.href === "org/models" ||
+					item.href === "org/skills",
+			).map((item) => ({
 				href: buildOrgUrl(item.href),
 				label: item.label,
 				section: "Organization",
 				icon: item.icon,
 				enterpriseGated: item.enterpriseGated,
 			})),
-			...ORGANIZATION_SETTINGS.map((item) => ({
+			...ORGANIZATION_SETTINGS.filter(() => isOrgAdmin).map((item) => ({
 				href:
 					"search" in item
 						? buildUrlWithParams(
@@ -1340,6 +1334,7 @@ export function DashboardSidebar({
 		];
 	}, [
 		isDeveloper,
+		isOrgAdmin,
 		selectedOrganization?.enterpriseAccess,
 		buildUrl,
 		buildOrgUrl,
@@ -1548,13 +1543,22 @@ export function DashboardSidebar({
 							</SidebarGroupContent>
 						</SidebarGroup>
 
-						<OrganizationSection
-							isActive={isActive}
-							isMobile={isMobile}
-							toggleSidebar={toggleSidebar}
-							searchParams={searchParams}
-							isEnterprise={selectedOrganization?.enterpriseAccess === true}
-						/>
+						{isOrgAdmin ? (
+							<OrganizationSection
+								isActive={isActive}
+								isMobile={isMobile}
+								toggleSidebar={toggleSidebar}
+								searchParams={searchParams}
+								isEnterprise={selectedOrganization?.enterpriseAccess === true}
+							/>
+						) : (
+							<DeveloperOrgSection
+								isActive={isActive}
+								isMobile={isMobile}
+								toggleSidebar={toggleSidebar}
+								isEnterprise={selectedOrganization?.enterpriseAccess === true}
+							/>
+						)}
 
 						<ToolsResourcesSection
 							toolsResources={toolsResources}
@@ -1569,7 +1573,7 @@ export function DashboardSidebar({
 			<SidebarFooter>
 				{/* Org credits + upgrade prompts are org-level; hide them from
 				    project-scoped developers. */}
-				{selectedOrganization?.role !== "developer" && (
+				{isOrgAdmin && (
 					<>
 						<CreditsDisplay selectedOrganization={selectedOrganization} />
 						<UpgradeCTA

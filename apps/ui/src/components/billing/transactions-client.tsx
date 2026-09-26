@@ -53,7 +53,6 @@ interface RefundEligibility {
 		| "not_owner"
 		| "not_latest_purchase"
 		| "plan_inactive"
-		| "credits_frozen"
 		| "usage_exceeded"
 		| "pass_already_used";
 }
@@ -71,9 +70,11 @@ interface Transaction {
 		| "subscription_end"
 		| "dev_plan_start"
 		| "dev_plan_renewal"
+		| "dev_plan_upgrade"
 		| "dev_plan_reset_pass"
 		| "chat_plan_start"
-		| "chat_plan_renewal";
+		| "chat_plan_renewal"
+		| "chat_plan_upgrade";
 	creditAmount: string | null;
 	amount: string | null;
 	status: "pending" | "completed" | "failed";
@@ -92,7 +93,6 @@ const REFUND_INELIGIBILITY_COPY: Record<
 	not_owner: "Only the organization owner can request a refund",
 	not_latest_purchase: "Only your most recent purchase can be self-refunded",
 	plan_inactive: "The plan for this payment is no longer active",
-	credits_frozen: "Refunds are unavailable while credits are frozen",
 	usage_exceeded: `More than ${SELF_REFUND_USAGE_PERCENT}% of these credits have been used`,
 	pass_already_used: "This Reset Pass has already been redeemed",
 };
@@ -103,8 +103,10 @@ function isPlanPayment(type: Transaction["type"]): boolean {
 	return (
 		type === "dev_plan_start" ||
 		type === "dev_plan_renewal" ||
+		type === "dev_plan_upgrade" ||
 		type === "chat_plan_start" ||
-		type === "chat_plan_renewal"
+		type === "chat_plan_renewal" ||
+		type === "chat_plan_upgrade"
 	);
 }
 

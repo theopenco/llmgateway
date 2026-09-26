@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -12,6 +13,114 @@ import { logger } from "@llmgateway/logger";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 describe("MCP endpoint", () => {
+	test("serves public discovery without credentials", async () => {
+		const response = await app.request("/mcp");
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({
+			transport: "streamable-http",
+			endpoint: "https://gateway.example.com/mcp",
+			capabilities: { tools: {} },
+		});
+		expect(response.headers.get("Cache-Control")).toBe("no-store");
+		const head = await app.request("/mcp", { method: "HEAD" });
+		expect(head.status).toBe(200);
+		expect(await head.text()).toBe("");
+	});
+
+	test("supports the SDK Streamable HTTP client", async () => {
+		await seedActiveKey();
+		const client = new Client({ name: "protocol-test", version: "1.0.0" });
+		const transport = new StreamableHTTPClientTransport(
+			new URL("http://localhost/mcp"),
+			{
+				requestInit: { headers: { Authorization: "Bearer real-token" } },
+				fetch: async (input, init) =>
+					await app.request(new Request(input, init)),
+			},
+		);
+		try {
+			await client.connect(transport);
+			expect(client.getServerVersion()?.name).toBe("llmgateway");
+			const tools = await client.listTools();
+			expect(tools.tools.map((tool) => tool.name)).toContain("list-models");
+			const result = await client.callTool({
+				name: "list-models",
+				arguments: { limit: 1 },
+			});
+			expect(result.isError).not.toBe(true);
+		} finally {
+			await client.close();
+		}
+	});
+
+	test("validates Streamable HTTP messages, origins, and versions", async () => {
+		await seedActiveKey();
+		const headers = {
+			Authorization: "Bearer real-token",
+			"Content-Type": "application/json",
+			Accept: "application/json, text/event-stream",
+			"MCP-Protocol-Version": "2025-11-25",
+		};
+		const notification = await app.request("/mcp", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({
+				jsonrpc: "2.0",
+				method: "notifications/initialized",
+			}),
+		});
+		expect(notification.status).toBe(202);
+		expect(await notification.text()).toBe("");
+		for (const body of [
+			"[{}]",
+			"{",
+			JSON.stringify({ jsonrpc: "2.0", method: "ping", id: null }),
+		]) {
+			const response = await app.request("/mcp", {
+				method: "POST",
+				headers,
+				body,
+			});
+			expect(response.status).toBe(400);
+		}
+		const invalidVersion = await app.request("/mcp", {
+			method: "POST",
+			headers: { ...headers, "MCP-Protocol-Version": "unknown" },
+			body: JSON.stringify({ jsonrpc: "2.0", method: "ping", id: 1 }),
+		});
+		expect(invalidVersion.status).toBe(400);
+		for (const accept of ["application/json", "text/event-stream"]) {
+			const invalidGetVersion = await app.request("/mcp", {
+				headers: {
+					...headers,
+					Accept: accept,
+					"MCP-Protocol-Version": "unknown",
+				},
+			});
+			expect(invalidGetVersion.status).toBe(400);
+			const get = await app.request("/mcp", {
+				headers: { ...headers, Accept: accept },
+			});
+			expect(get.status).toBe(405);
+		}
+		const invalidOrigin = await app.request("/mcp", {
+			headers: { Origin: "https://untrusted.example" },
+		});
+		expect(invalidOrigin.status).toBe(403);
+		for (const method of ["GET", "HEAD", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
+			const response = await app.request("/mcp", { method, headers });
+			expect(response.status, method).toBe(405);
+			expect(response.headers.get("Allow"), method).toBe("POST");
+		}
+		const unauthenticated = await app.request("/mcp", {
+			method: "POST",
+			headers: { Accept: headers.Accept },
+		});
+		expect(unauthenticated.status).toBe(401);
+		expect(unauthenticated.headers.get("WWW-Authenticate")).toContain(
+			"oauth-protected-resource/mcp",
+		);
+	});
 	async function seedActiveKey() {
 		await db
 			.insert(tables.user)

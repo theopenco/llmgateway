@@ -1,3 +1,4 @@
+import { changelogPath, changelogTags } from "@/lib/changelog";
 import { enterpriseFeatures } from "@/lib/enterprise-features";
 import { features } from "@/lib/features";
 import { slugify } from "@/lib/slugify";
@@ -66,6 +67,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
 	// Static pages
 	const staticPages: MetadataRoute.Sitemap = [
+		{ url: `${baseUrl}/developers`, changeFrequency: "monthly", priority: 0.8 },
 		{
 			url: baseUrl,
 			changeFrequency: "weekly",
@@ -526,6 +528,30 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 			priority: 0.5,
 		}));
 
+	const changelogTagPages: MetadataRoute.Sitemap = changelogTags.flatMap(
+		(tag) => {
+			const entries = allChangelogs.filter(
+				(entry) => !entry.draft && entry.tags.includes(tag),
+			);
+			if (!entries.length) {
+				return [];
+			}
+			return [
+				{
+					url: `${baseUrl}${changelogPath(tag)}`,
+					lastModified: new Date(
+						entries
+							.map((entry) => entry.date)
+							.sort()
+							.at(-1)!,
+					),
+					changeFrequency: "weekly" as const,
+					priority: 0.5,
+				},
+			];
+		},
+	);
+
 	// Legal pages
 	const legalPages: MetadataRoute.Sitemap = allLegals.map((legal) => ({
 		url: `${baseUrl}/legal/${legal.slug}`,
@@ -577,6 +603,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 		...blogCategoryPages,
 		...guidePages,
 		...changelogPages,
+		...changelogTagPages,
 		...legalPages,
 		...migrationPages,
 		...useCasePages,

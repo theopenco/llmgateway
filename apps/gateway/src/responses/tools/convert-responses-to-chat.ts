@@ -1,8 +1,11 @@
 import { UNREPLAYABLE_ITEM_TYPES } from "@/responses/schemas.js";
 
+import { isGoogleReasoningDetail } from "@llmgateway/actions";
+
 import { flattenToolName } from "./tool-registry.js";
 
 import type { ResponsesRequest } from "@/responses/schemas.js";
+import type { GoogleExtraContent } from "@llmgateway/models";
 
 // Unreplayable items, plus tool declarations already lifted into `tools`. They
 // have no chat completions equivalent, so they are skipped rather than turned
@@ -17,6 +20,7 @@ function isToolCallItem(item: unknown): item is {
 	call_id: string;
 	name: string;
 	namespace?: string;
+	extra_content?: GoogleExtraContent;
 	arguments?: string;
 	input?: string;
 } {
@@ -31,6 +35,7 @@ interface ChatMessage {
 	tool_calls?: Array<{
 		id: string;
 		type: "function";
+		extra_content?: GoogleExtraContent;
 		function: {
 			name: string;
 			arguments: string;
@@ -40,6 +45,7 @@ interface ChatMessage {
 	reasoning?: string;
 	reasoning_details?: Array<Record<string, unknown>>;
 	phase?: "commentary" | "final_answer";
+	content_before_tool_calls?: boolean;
 }
 
 interface PendingReasoning {
@@ -127,6 +133,10 @@ export function convertResponsesInputToMessages(
 	// and attach to the next assistant message so the provider layer can replay
 	// the reasoning (encrypted payloads and/or text) on this turn.
 	const pendingReasoning: PendingReasoning = { texts: [], details: [] };
+	// Signed assistant message immediately preceding a tool call, folded into
+	// that tool call's assistant message so the signed turn stays whole.
+	let pendingToolMessage:
+		{ text: string; phase?: ChatMessage["phase"] } | undefined;
 	const pendingGeneratedImages: Array<Record<string, unknown>> = [];
 
 	let i = 0;
@@ -152,6 +162,9 @@ export function convertResponsesInputToMessages(
 				}
 				toolCalls.push({
 					id: current.call_id,
+					...(current.extra_content
+						? { extra_content: current.extra_content }
+						: {}),
 					type: "function",
 					function: {
 						name: flattenToolName(current.name, current.namespace),
@@ -169,8 +182,10 @@ export function convertResponsesInputToMessages(
 
 			// Fold trailing assistant message content (if any) into this same
 			// assistant message rather than emitting it as a separate message.
-			let foldedContent: string | null = null;
-			let foldedPhase: ChatMessage["phase"];
+			let foldedContent: string | null = pendingToolMessage?.text || null;
+			let foldedPhase = pendingToolMessage?.phase;
+			const contentBeforeToolCalls = foldedContent !== null;
+			pendingToolMessage = undefined;
 			while (i < input.length) {
 				const next = input[i] as Record<string, unknown> | undefined;
 				if (
@@ -178,6 +193,11 @@ export function convertResponsesInputToMessages(
 					next.type === "message" &&
 					(next.role === "assistant" || next.role === undefined)
 				) {
+					if (Array.isArray(next.reasoning_details)) {
+						pendingReasoning.details.push(
+							...next.reasoning_details.filter(isGoogleReasoningDetail),
+						);
+					}
 					const text = extractTextFromContent(next.content);
 					if (text) {
 						foldedContent = (foldedContent ?? "") + text;
@@ -196,6 +216,7 @@ export function convertResponsesInputToMessages(
 				content: foldedContent,
 				tool_calls: toolCalls,
 				...(foldedPhase ? { phase: foldedPhase } : {}),
+				...(contentBeforeToolCalls ? { content_before_tool_calls: true } : {}),
 				...takePendingReasoning(pendingReasoning),
 			});
 			continue;
@@ -252,12 +273,14 @@ export function convertResponsesInputToMessages(
 		// Regular message items
 		const msg = item as {
 			role: string;
+			reasoning_details?: Array<Record<string, unknown>>;
 			phase?: "commentary" | "final_answer";
 			content?: string | Array<Record<string, unknown>> | null;
 			name?: string;
 			tool_calls?: Array<{
 				id: string;
 				type: "function";
+				extra_content?: GoogleExtraContent;
 				function: { name: string; arguments: string };
 			}>;
 			tool_call_id?: string;
@@ -296,6 +319,23 @@ export function convertResponsesInputToMessages(
 							: (convertedContent ?? [])),
 					]
 				: convertedContent;
+		if (role === "assistant" && msg.reasoning_details) {
+			const googleDetails = msg.reasoning_details.filter(
+				isGoogleReasoningDetail,
+			);
+			pendingReasoning.details.push(...googleDetails);
+			// Streaming emits a signed message (text or an empty signature carrier)
+			// ahead of the function call it belongs to. Keep both on the same
+			// assistant turn so the provider sees the signed turn it produced.
+			if (googleDetails.length > 0 && isToolCallItem(input[i + 1])) {
+				pendingToolMessage = {
+					text: extractTextFromContent(content),
+					phase: msg.phase,
+				};
+				i++;
+				continue;
+			}
+		}
 		const chatMsg: ChatMessage = {
 			role,
 			content,
@@ -393,7 +433,12 @@ function convertContent(
 			item.type === "output_text" ||
 			item.type === "text"
 		) {
-			return { type: "text", text: item.text, ...breakpoint };
+			return {
+				type: "text",
+				text: item.text,
+				...(item.extra_content ? { extra_content: item.extra_content } : {}),
+				...breakpoint,
+			};
 		}
 		if (item.type === "input_image") {
 			return {

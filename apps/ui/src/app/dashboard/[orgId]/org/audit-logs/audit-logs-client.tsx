@@ -375,7 +375,9 @@ export function AuditLogsClient() {
 													</div>
 													<div className="text-sm">
 														<span className="font-medium">
-															{log.user?.email ?? log.userId}
+															{log.metadata?.actorType === "system"
+																? "System"
+																: (log.user?.email ?? log.userId)}
 														</span>
 													</div>
 													<div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -464,14 +466,20 @@ export function AuditLogsClient() {
 														/>
 													</td>
 													<td className="p-4 align-middle">
-														<div className="flex flex-col">
+														{log.metadata?.actorType === "system" ? (
 															<span className="text-sm font-medium">
-																{log.user?.name ?? "—"}
+																System
 															</span>
-															<span className="text-xs text-muted-foreground">
-																{log.user?.email ?? log.userId}
-															</span>
-														</div>
+														) : (
+															<div className="flex flex-col">
+																<span className="text-sm font-medium">
+																	{log.user?.name ?? "—"}
+																</span>
+																<span className="text-xs text-muted-foreground">
+																	{log.user?.email ?? log.userId}
+																</span>
+															</div>
+														)}
 													</td>
 													<td className="p-4 align-middle">
 														<Badge variant={getActionBadgeVariant(log.action)}>

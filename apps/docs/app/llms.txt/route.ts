@@ -1,5 +1,6 @@
 import { docsBaseUrl } from "@/lib/base-url";
 import { marketingGuideCanonical } from "@/lib/guide-canonical";
+import { productForPath } from "@/lib/products";
 import { source } from "@/lib/source";
 
 import type { InferPageType } from "fumadocs-core/source";
@@ -11,21 +12,28 @@ const DOCS_URL = docsBaseUrl;
 
 type Page = InferPageType<typeof source>;
 
-// Section headings keyed by the first URL segment, in the order they should
-// appear. Pages whose first segment isn't listed fall back to "Getting Started",
-// and OpenAPI reference pages (v1_*, health) are grouped under "API Reference".
+// LLM Gateway pages are grouped by their first URL segment; DevPass, Lounge,
+// and Airside pages are grouped by product. Unlisted segments fall back to
+// "Getting Started", and OpenAPI pages (v1_*, health) go under "API Reference".
 const SECTIONS: { key: string; title: string }[] = [
 	{ key: "", title: "Getting Started" },
+	{ key: "developers", title: "Developer Resources" },
 	{ key: "features", title: "Features" },
-	{ key: "guides", title: "Guides & AI Tooling" },
 	{ key: "integrations", title: "Provider Integrations" },
 	{ key: "learn", title: "Platform & Dashboard" },
 	{ key: "migrations", title: "Migration Guides" },
 	{ key: "resources", title: "Resources" },
 	{ key: "api", title: "API Reference" },
+	{ key: "devpass", title: "DevPass & Coding Tool Guides" },
+	{ key: "lounge", title: "Lounge" },
+	{ key: "airside", title: "Airside" },
 ];
 
 function sectionKey(page: Page): string {
+	const product = productForPath(page.path);
+	if (product.id !== "gateway") {
+		return product.id;
+	}
 	const first = page.url.split("/").filter(Boolean)[0] ?? "";
 	if (first.startsWith("v1") || first === "health") {
 		return "api";
@@ -56,13 +64,13 @@ export async function GET() {
 
 > LLM Gateway is an open-source, OpenAI-compatible API gateway for routing, managing, and analyzing requests across LLM providers. Use one API key, track usage and cost, configure caching and guardrails, and self-host or use the managed cloud.
 
-## Key facts
+Use the live [model catalogue](${SITE_URL}/models) for availability, pricing, and capabilities. The API base URL is \`https://api.llmgateway.io/v1\`. Migrate by changing your SDK base URL and API key. The AGPLv3 core is self-hostable with Docker; a managed cloud is also available.
 
-- One OpenAI-compatible API; see the live [model catalogue](${SITE_URL}/models) for availability, pricing, and capabilities.
-- Migrate by changing only the base URL (\`https://api.llmgateway.io/v1\`) and your API key — no code rewrites.
-- Open source (AGPLv3 core) with a managed cloud option; self-hosting supported via Docker.
-- Built-in usage analytics, per-model/provider cost breakdowns, automatic routing, fallbacks, caching, and guardrails.
-- API base URL: \`https://api.llmgateway.io/v1\` · Docs: ${DOCS_URL} · Site: ${SITE_URL}
+## Developer entry points
+
+- [LLM Gateway developer resources](${SITE_URL}/developers): Documentation, authentication, dashboard, and MCP.
+- [LLM Gateway OpenAPI specification](${SITE_URL}/openapi.json): Typed request, response, and error schemas.
+- [LLM Gateway developer dashboard](${SITE_URL}/dashboard): Projects, API keys, usage, and budgets.
 
 ## Product pages
 

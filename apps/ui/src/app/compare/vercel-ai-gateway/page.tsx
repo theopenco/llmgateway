@@ -21,16 +21,16 @@ const vercelFaqs: CompareFaqItem[] = [
 	{
 		question: "Does it work with the Vercel AI SDK?",
 		answer:
-			"Yes. LLM Gateway ships a first-class AI SDK provider (`@llmgateway/ai-sdk-provider`), so you keep using `generateText` and `streamText` — just point them at LLM Gateway instead of the default gateway.",
+			"Yes. LLM Gateway ships a first-class AI SDK provider (`@llmgateway/ai-sdk-provider`), so you keep using `generateText` and `streamText`. It also implements the AI SDK gateway protocol, so code that passes bare model strings can keep every line and just repoint the default gateway provider at LLM Gateway.",
 	},
 	{
 		question: "How does pricing compare to Vercel AI Gateway?",
-		answer: `Both charge no markup on tokens. On the managed tier LLM Gateway adds a flat 5% platform fee on credits, or 0% when you bring your own provider keys; optional full data retention is billed at ${MARKETING_STATS.dataStoragePrice}. Self-hosting the AGPLv3 build is free, and there are no team-seat or governance add-ons gated behind a higher plan.`,
+		answer: `Both charge no markup on tokens. On Vercel, bringing your own keys needs the paid tier, purchased credits expire after a year, and several controls bill on their own meters: custom reporting, a team-wide provider allowlist, team-wide zero data retention, and trace drains. On the managed tier LLM Gateway adds a flat 5% platform fee on credits, or 0% when you bring your own provider keys at any tier; optional full data retention is billed at ${MARKETING_STATS.dataStoragePrice}. Self-hosting the AGPLv3 build is free, and there are no governance add-ons gated behind a higher plan.`,
 	},
 	{
 		question: "What can LLM Gateway do that Vercel AI Gateway doesn't?",
 		answer:
-			"Run on your own infrastructure under an open-source license, generate images and video through the same API, and use built-in guardrails (PII, prompt injection, secrets) without a paid add-on.",
+			"Run on your own infrastructure under an open-source license, generate images and video through the same API, and use built-in guardrails (PII, prompt injection, jailbreak, secrets). Vercel's governance controls cover allowlists and data retention, not content scanning.",
 	},
 ];
 

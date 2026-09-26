@@ -23,10 +23,15 @@ import {
 	getEffectiveScoringWeights,
 } from "./compute-provider-scores.js";
 
+import type { DynamicRouteClassifierKind } from "@llmgateway/shared/dynamic-route";
 import type {
 	RoutingCredentialSource,
 	RoutingExclusionReason,
 } from "@llmgateway/shared/routing-telemetry";
+import type {
+	SmartRoutingClassifier,
+	SmartRoutingDifficulty,
+} from "@llmgateway/shared/smart-routing";
 
 interface ProviderScore<T extends AvailableModelProvider> {
 	provider: T;
@@ -177,6 +182,49 @@ export interface RoutingMetadata {
 		version: number;
 		// Node ids traversed during graph evaluation
 		path: string[];
+		// Verdict the route's classifier nodes branched on. Absent when the
+		// graph has none, or when the classifier produced no verdict and those
+		// nodes took their `else` branch.
+		classifier?: {
+			kind: DynamicRouteClassifierKind;
+			difficulty?: SmartRoutingDifficulty;
+			difficultyScore?: number;
+			task?: string;
+			outputType?: string;
+		};
+	};
+	// How an "auto" request resolved to a concrete model when the organization
+	// configured smart routing. Absent for the built-in default candidate set.
+	smartRouting?: {
+		classifier: SmartRoutingClassifier;
+		rubricVersion?: number;
+		// Models the configuration allowed, before availability filtering.
+		eligibleModels: string[];
+		// Models that survived filtering and were ranked, cheapest first.
+		candidateModels: string[];
+		difficulty?: SmartRoutingDifficulty;
+		difficultyScore?: number;
+		task?: string;
+		outputType?: string;
+		bestModel?: string;
+		bestModelConfidence?: number;
+		band?: SmartRoutingDifficulty;
+		selectedModel: string;
+		// Latency of the classifier call this request made; absent when it made
+		// none.
+		classifierLatencyMs?: number;
+		// USD billed for the classifier call this request made, on its own log
+		// row. Absent when it made none — a reused session verdict is not
+		// re-billed.
+		classifierCost?: number;
+		// True when a classifier call was attempted and produced no verdict, so
+		// the selection fell back to the cheapest candidate. A classifier that is
+		// never consulted at all — no credential, a blocking compliance policy, a
+		// single candidate — leaves this false.
+		classifierFailed: boolean;
+		// True when the verdict served came from another turn of the same sticky
+		// session rather than from this request.
+		classifierReused?: boolean;
 	};
 }
 
@@ -210,6 +258,8 @@ export interface ProviderSelectionOptions {
 	 * weighted score.
 	 */
 	promptTokens?: number;
+	/** Use session pricing when scoring regions or metadata without updating a pin. */
+	session?: boolean;
 	/**
 	 * Sticky-routing session store. When provided (and session stickiness is
 	 * enabled), the provider is selected with the normal weighted-score
@@ -553,13 +603,27 @@ async function getProviderSelectionPrices<T extends AvailableModelProvider>(
 				modelWithPricing.providers,
 				provider,
 			);
+			const metrics = options?.metricsMap?.get(
+				metricsKey(modelWithPricing.id, provider.providerId, provider.region),
+			);
+			const overrides = options?.routingConfig?.cachePricingOverrides;
+			const observedCachePricing = cachePricing && {
+				hitRate:
+					overrides?.cacheHitRate !== undefined
+						? cachePricing.hitRate
+						: (metrics?.cacheHitRate ?? cachePricing.hitRate),
+				outputRatio:
+					overrides?.cacheOutputRatio !== undefined
+						? cachePricing.outputRatio
+						: (metrics?.cacheOutputRatio ?? cachePricing.outputRatio),
+			};
 			const { price, discount } = await getDiscountedProviderSelectionPrice(
 				providerInfo,
 				modelWithPricing.id,
 				{
 					...options,
 					videoPricing,
-					cachePricing,
+					cachePricing: observedCachePricing,
 				},
 			);
 			let routingMultiplier = new Decimal(1);
@@ -600,7 +664,8 @@ async function getProviderSelectionPrices<T extends AvailableModelProvider>(
  * healthy (uptime at or above the session threshold), reuse it so the upstream
  * prompt cache stays warm. Otherwise persist the just-scored best provider so
  * subsequent requests in this session reuse it. The pin only moves when its
- * provider leaves the candidate list or its uptime drops too low.
+ * provider leaves the candidate list or its uptime drops too low. Gemini
+ * sessions keep an eligible pin regardless of uptime to preserve signatures.
  */
 async function applySessionSticky<T extends AvailableModelProvider>(
 	naturalResult: ProviderSelectionResult<T>,
@@ -621,7 +686,13 @@ async function applySessionSticky<T extends AvailableModelProvider>(
 			const uptime = metricsMap?.get(
 				metricsKey(modelId, candidate.providerId, candidate.region),
 			)?.uptime;
-			if (uptime === undefined || uptime >= cfg.session.uptimeThreshold) {
+			// Gemini thought signatures are provider-bound. An uptime dip must not
+			// move a live conversation to a provider that rejects its history.
+			if (
+				modelId.startsWith("gemini-") ||
+				uptime === undefined ||
+				uptime >= cfg.session.uptimeThreshold
+			) {
 				// Re-persist so the pin's TTL keeps refreshing while the session
 				// stays active.
 				await store.set(candidate.providerId, candidate.region);
@@ -672,12 +743,17 @@ export async function getCheapestFromAvailableProviders<
 	const promptTokens = options?.promptTokens;
 	const cfg = options?.routingConfig ?? getDefaultRoutingConfig();
 	const { thresholds } = cfg;
+	const sessionStore = options?.sessionProviderStore;
+	const sessionSticky = sessionStore !== undefined && cfg.session.enabled;
 	// Use higher price weight for image generation models
 	const isImageModel = modelWithPricing.output?.includes("image") ?? false;
 	const cacheSupportRelevant =
-		promptTokens !== undefined && promptTokens >= thresholds.cachePromptTokens;
-	// Rank cache-relevant requests on the price a cached workload pays. Below
-	// the prompt-size threshold ranking is unchanged.
+		(promptTokens !== undefined &&
+			promptTokens >= thresholds.cachePromptTokens) ||
+		// Choose a session's provider for its expected workload, even when the
+		// opening prompt is short and only cold-start estimates are available.
+		sessionSticky ||
+		(options?.session === true && cfg.session.enabled);
 	const cachePricing: CachePricingContext | undefined = cacheSupportRelevant
 		? {
 				hitRate: Math.min(1, Math.max(0, thresholds.cacheHitRate)),
@@ -731,8 +807,6 @@ export async function getCheapestFromAvailableProviders<
 	// is enabled for the project), the provider is scored with the normal
 	// weighted algorithm below and then pinned for the session via the store.
 	// Exploration is skipped so the deterministic best is what gets persisted.
-	const sessionStore = options?.sessionProviderStore;
-	const sessionSticky = sessionStore !== undefined && cfg.session.enabled;
 
 	// Epsilon-greedy exploration: randomly select a provider some % of the time
 	// (configurable per project via thresholds.explorationRate). Skip during tests

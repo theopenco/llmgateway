@@ -4,6 +4,7 @@ slug: "image-studio-and-more"
 date: "2026-02-27"
 title: "Image Studio, Image Edits API & More"
 summary: "A dedicated Image Studio in the Playground for gallery-based generation with multi-model comparison, an OpenAI-compatible /v1/images/edits endpoint, and a wave of image generation improvements."
+tags: ["llmgateway", "lounge"]
 image:
   src: "/changelog/image-studio.png"
   alt: "Image Studio in the Playground comparing generations across Gemini 3.1 Flash Image, Gemini 3 Pro Image, and Qwen Image side by side"

@@ -3,6 +3,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { apiKeyScopeFilter } from "@/lib/api-key-scope-filter.js";
+import { buildLogErrorFilter } from "@/lib/log-error-filter.js";
 import {
 	getActiveUserOrganizationIds,
 	getApiKeyScope,
@@ -34,23 +35,29 @@ import {
 	toolResults,
 	tools,
 } from "@llmgateway/db";
+import { LOG_ERROR_TYPES } from "@llmgateway/shared";
 import { buildSignedGatewayVideoLogContentUrl } from "@llmgateway/shared/video-access";
 
 import type { ServerTypes } from "@/vars.js";
+import type { LogErrorType } from "@llmgateway/shared";
 
 export const logs = new OpenAPIHono<ServerTypes>();
 
-// internalErrorDetails is omitted: public log queries never select it.
+// Admin-only columns are omitted: public log queries never select them.
 type LogRecord = Omit<
 	InferSelectModel<typeof tables.log>,
-	"internalErrorDetails"
+	"internalErrorDetails" | "gatewayContentFilterEvaluation"
 >;
 
 // internalErrorDetails holds the raw upstream error for stealth providers and
-// must never leave the internal admin surface, so strip it from the columns
-// served by the public logs endpoints.
-const { internalErrorDetails: _internalErrorDetails, ...publicLogColumns } =
-	getTableColumns(tables.log);
+// gatewayContentFilterEvaluation records the admin-set content filter pin and
+// exemption state; neither may leave the internal admin surface, so strip
+// them from the columns served by the public logs endpoints.
+const {
+	internalErrorDetails: _internalErrorDetails,
+	gatewayContentFilterEvaluation: _gatewayContentFilterEvaluation,
+	...publicLogColumns
+} = getTableColumns(tables.log);
 
 const logSelection = {
 	...publicLogColumns,
@@ -327,6 +334,11 @@ const querySchema = z.object({
 			"Filter logs by billing mode: credits (billed against the organization balance) or api-keys (BYOK provider keys, not billed)",
 		example: "credits",
 	}),
+	errorType: z.enum(LOG_ERROR_TYPES).optional().openapi({
+		description:
+			"Filter logs by error class: any (all errored requests), client_error, gateway_error or upstream_error",
+		example: "any",
+	}),
 });
 
 const get = createRoute({
@@ -405,6 +417,7 @@ logs.openapi(get, async (c) => {
 		requestId,
 		sessionId,
 		usedMode,
+		errorType,
 	} = {
 		...query,
 		apiKeyId: sanitize(query.apiKeyId),
@@ -423,6 +436,7 @@ logs.openapi(get, async (c) => {
 		requestId: sanitize(query.requestId),
 		sessionId: sanitize(query.sessionId),
 		usedMode: sanitize(query.usedMode) as "credits" | "api-keys" | undefined,
+		errorType: sanitize(query.errorType) as LogErrorType | undefined,
 	};
 
 	// Set default limit if not provided or enforce max limit
@@ -611,6 +625,12 @@ logs.openapi(get, async (c) => {
 		whereConditions.push(
 			eq(tables.log.unifiedFinishReason, unifiedFinishReason),
 		);
+	}
+
+	// Add error class filter
+	const errorFilter = buildLogErrorFilter(errorType);
+	if (errorFilter) {
+		whereConditions.push(errorFilter);
 	}
 
 	// Add billing mode filter

@@ -2,8 +2,11 @@ import { createRoute, OpenAPIHono } from "@hono/zod-openapi";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
+import { userHasProjectAccess } from "@/utils/authorization.js";
+
 import { cdb, db, eq, tables } from "@llmgateway/db";
 import { hasOrganizationEnterpriseAccess } from "@llmgateway/shared/enterprise-license";
+import { canManageProject } from "@llmgateway/shared/organization-roles";
 import {
 	buildProviderPriorityDefaults,
 	DEFAULT_ROUTING_HISTORY,
@@ -13,7 +16,9 @@ import {
 	DEFAULT_ROUTING_THRESHOLDS,
 	DEFAULT_ROUTING_TIMEOUTS,
 	DEFAULT_ROUTING_WEIGHTS,
+	getDefaultCachePricing,
 	resolveRoutingConfig,
+	type RoutingOrganizationKind,
 	ROUTING_HISTORY_MAX_WINDOW_MINUTES,
 } from "@llmgateway/shared/routing-config";
 
@@ -36,12 +41,13 @@ export async function checkProjectEnterpriseAccess(
 	projectId: string,
 ): Promise<{
 	project: { id: string; organizationId: string };
+	organizationKind: RoutingOrganizationKind;
 }> {
 	const project = await db.query.project.findFirst({
 		where: { id: { eq: projectId } },
 	});
 
-	if (!project) {
+	if (!project || project.status === "deleted") {
 		throw new HTTPException(404, { message: "Project not found" });
 	}
 
@@ -61,9 +67,12 @@ export async function checkProjectEnterpriseAccess(
 		});
 	}
 
-	if (userOrg.role !== "owner" && userOrg.role !== "admin") {
+	if (
+		!canManageProject(userOrg.role) ||
+		!(await userHasProjectAccess(userId, projectId))
+	) {
 		throw new HTTPException(403, {
-			message: "Only owners and admins can manage routing configuration",
+			message: "Only project admins can manage routing configuration",
 		});
 	}
 
@@ -80,6 +89,7 @@ export async function checkProjectEnterpriseAccess(
 
 	return {
 		project: { id: project.id, organizationId: project.organizationId },
+		organizationKind: userOrg.organization?.kind ?? "default",
 	};
 }
 
@@ -222,6 +232,12 @@ const resolvedConfigSchema = z.object({
 		defaultThroughput: z.number(),
 		explorationRate: z.number(),
 	}),
+	cachePricingOverrides: z
+		.object({
+			cacheHitRate: z.number().optional(),
+			cacheOutputRatio: z.number().optional(),
+		})
+		.optional(),
 	retry: z.object({
 		maxRetries: z.number(),
 		lowUptimeFallbackThreshold: z.number(),
@@ -435,7 +451,10 @@ routingConfig.openapi(getResolved, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 	const { projectId } = c.req.param();
-	await checkProjectEnterpriseAccess(user.id, projectId);
+	const { organizationKind } = await checkProjectEnterpriseAccess(
+		user.id,
+		projectId,
+	);
 
 	const row = await db.query.routingConfig.findFirst({
 		where: { projectId: { eq: projectId } },
@@ -456,6 +475,7 @@ routingConfig.openapi(getResolved, async (c) => {
 				}
 			: null,
 		buildProviderPriorityDefaults(),
+		organizationKind,
 	);
 
 	return c.json(resolved);
@@ -531,11 +551,17 @@ routingConfig.openapi(getDefaults, async (c) => {
 		throw new HTTPException(401, { message: "Unauthorized" });
 	}
 	const { projectId } = c.req.param();
-	await checkProjectEnterpriseAccess(user.id, projectId);
+	const { organizationKind } = await checkProjectEnterpriseAccess(
+		user.id,
+		projectId,
+	);
 
 	return c.json({
 		weights: DEFAULT_ROUTING_WEIGHTS,
-		thresholds: DEFAULT_ROUTING_THRESHOLDS,
+		thresholds: {
+			...DEFAULT_ROUTING_THRESHOLDS,
+			...getDefaultCachePricing(organizationKind),
+		},
 		retry: DEFAULT_ROUTING_RETRY,
 		timeouts: DEFAULT_ROUTING_TIMEOUTS,
 		history: DEFAULT_ROUTING_HISTORY,

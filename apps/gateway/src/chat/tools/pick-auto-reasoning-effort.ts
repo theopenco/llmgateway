@@ -9,10 +9,13 @@ import type { ReasoningEffort } from "@llmgateway/models";
 export function pickAutoReasoningEffort(
 	modelId: string,
 	supportedEfforts: ReasoningEffort[] | undefined,
+	preferMediumEffort = false,
 ): ReasoningEffort | undefined {
-	const preferred: ReasoningEffort[] = modelId.startsWith("gpt-5")
-		? ["minimal", "none", "low"]
-		: ["low"];
+	const preferred: ReasoningEffort[] = preferMediumEffort
+		? ["medium"]
+		: modelId.startsWith("gpt-5")
+			? ["minimal", "none", "low"]
+			: ["low"];
 	if (!supportedEfforts) {
 		return preferred[0];
 	}

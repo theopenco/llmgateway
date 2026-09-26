@@ -64,6 +64,7 @@ describe("benchmark adapters", () => {
 				},
 				streamChunks: [],
 				error: null,
+				agent: null,
 			},
 			{
 				caseId: benchmarkCase.id,

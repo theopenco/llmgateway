@@ -33,7 +33,7 @@ jobs:
           echo "nodejs_version=$(cat .tool-versions | grep 'nodejs' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
           echo "pnpm_version=$(cat .tool-versions | grep 'pnpm' | cut -d ' ' -f 2)" >> "$GITHUB_ENV"
 
-      - uses: pnpm/action-setup@v6.0.10
+      - uses: pnpm/action-setup@v6.1.0
         with:
           version: ${{ env.pnpm_version }}
 
@@ -57,7 +57,7 @@ jobs:
           fi
           echo "period=${PERIOD}" >> "$GITHUB_OUTPUT"
 
-      - name: Send traffic report
+      - name: Send traffic report for Gateway, DevPass, Lounge, AirSide and Docs
         env:
           POSTHOG_PERSONAL_API_KEY: ${{ secrets.POSTHOG_PERSONAL_API_KEY }}
           # Project id is non-secret config; the script requires it explicitly

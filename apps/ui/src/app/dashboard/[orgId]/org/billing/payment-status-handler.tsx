@@ -22,33 +22,31 @@ export function PaymentStatusHandler({
 	const api = useApi();
 	const queryClient = useQueryClient();
 	const { selectedOrganization } = useDashboardState();
-	const handled = useRef(false);
+	const toastHandled = useRef(false);
+	const nudgeHandled = useRef(false);
 	const [showNudge, setShowNudge] = useState(false);
 	const [autoTopUpEnabled, setAutoTopUpEnabled] = useState(true);
 	const [saving, setSaving] = useState(false);
 	const updateOrganization = api.useMutation("patch", "/orgs/{id}");
 
+	const isOwner = selectedOrganization?.role === "owner";
 	const alreadyHasAutoTopUp = selectedOrganization?.autoTopUpEnabled ?? false;
 
 	useEffect(() => {
-		if (handled.current) {
+		if (toastHandled.current) {
 			return;
 		}
 		if (!paymentStatus) {
 			return;
 		}
 
-		handled.current = true;
+		toastHandled.current = true;
 
 		if (paymentStatus === "success") {
 			toast({
 				title: "Payment successful",
 				description: "Your payment has been processed successfully.",
 			});
-			if (!alreadyHasAutoTopUp) {
-				setShowNudge(true);
-				posthog.capture("auto_topup_nudge_shown");
-			}
 		} else if (paymentStatus === "canceled") {
 			toast({
 				title: "Payment canceled",
@@ -56,10 +54,31 @@ export function PaymentStatusHandler({
 				variant: "destructive",
 			});
 		}
-	}, [paymentStatus, toast, alreadyHasAutoTopUp, posthog]);
+	}, [paymentStatus, toast]);
+
+	useEffect(() => {
+		if (
+			nudgeHandled.current ||
+			paymentStatus !== "success" ||
+			!selectedOrganization
+		) {
+			return;
+		}
+		nudgeHandled.current = true;
+		if (isOwner && !alreadyHasAutoTopUp) {
+			setShowNudge(true);
+			posthog.capture("auto_topup_nudge_shown");
+		}
+	}, [
+		paymentStatus,
+		selectedOrganization,
+		alreadyHasAutoTopUp,
+		posthog,
+		isOwner,
+	]);
 
 	const handleEnable = async () => {
-		if (!selectedOrganization) {
+		if (!selectedOrganization || !isOwner) {
 			return;
 		}
 		setSaving(true);
@@ -98,7 +117,7 @@ export function PaymentStatusHandler({
 		setShowNudge(false);
 	};
 
-	if (!showNudge) {
+	if (!showNudge || !isOwner) {
 		return null;
 	}
 

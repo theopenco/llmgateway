@@ -33,6 +33,10 @@ interface KpisResponse {
 	topupRevenueThisMonth: number;
 	topupRevenueAllTime: number;
 	totalOverflowCostCycle: number;
+	planMargin: number;
+	gatewayMarginCycle: number;
+	resetPassRevenueCycle: number;
+	paygFeeCycle: number;
 	totalMargin: number;
 }
 
@@ -146,8 +150,13 @@ describe("admin devpass PAYG overflow reporting", () => {
 		expect(kpis.topupRevenueAllTime).toBe(26.25);
 		expect(kpis.topupRevenueThisMonth).toBe(26.25);
 		expect(kpis.totalOverflowCostCycle).toBe(3);
-		// Universe margin mirrors the per-org decomposition.
-		expect(kpis.totalMargin).toBe(79 - 237);
+		// Universe plan margin mirrors the per-org decomposition.
+		expect(kpis.planMargin).toBe(79 - 237);
+		// The $26.25 top-up granted $25 of credits: $1.25 of fee is margin.
+		expect(kpis.paygFeeCycle).toBe(1.25);
+		expect(kpis.gatewayMarginCycle).toBe(0);
+		expect(kpis.resetPassRevenueCycle).toBe(0);
+		expect(kpis.totalMargin).toBe(79 - 237 + 1.25);
 	});
 
 	it("dedicated /admin/devpass/payg reports top-up revenue windows", async () => {
@@ -208,6 +217,50 @@ describe("admin devpass PAYG overflow reporting", () => {
 			gross: 26.25,
 			refunds: 5,
 			net: 21.25,
+		});
+	});
+
+	it("uses UTC month and day boundaries for top-ups and refunds", async () => {
+		await db.delete(tables.transaction);
+		const now = new Date();
+		const monthStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+		const dayMs = 24 * 60 * 60 * 1000;
+		const offsets = [-1, 0, 30 * 60 * 1000, dayMs - 1, dayMs];
+		const topups = await db
+			.insert(tables.transaction)
+			.values(
+				offsets.map((offset, index) => ({
+					organizationId: ORG_ID,
+					type: "credit_topup" as const,
+					amount: String(2 ** index),
+					creditAmount: String(2 ** index),
+					status: "completed" as const,
+					createdAt: new Date(monthStart + offset),
+				})),
+			)
+			.returning();
+		await db.insert(tables.transaction).values(
+			topups.map((topup) => ({
+				organizationId: ORG_ID,
+				type: "credit_refund" as const,
+				amount: "1",
+				creditAmount: "0",
+				status: "completed" as const,
+				relatedTransactionId: topup.id,
+				createdAt: topup.createdAt,
+			})),
+		);
+		const day = new Date(monthStart).toISOString().slice(0, 10);
+		const response = await app.request(
+			`/admin/devpass/payg?from=${day}&to=${day}`,
+			{ headers: { Cookie: cookie } },
+		);
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as { topups: unknown };
+		expect(body.topups).toEqual({
+			allTime: { gross: 31, refunds: 5, net: 26 },
+			thisMonth: { gross: 30, refunds: 4, net: 26 },
+			range: { from: day, to: day, gross: 14, refunds: 3, net: 11 },
 		});
 	});
 

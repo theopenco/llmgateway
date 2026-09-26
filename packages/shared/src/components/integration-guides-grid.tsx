@@ -4,6 +4,7 @@ import { ArrowUpRight, Clock, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import {
+	AnvilIcon,
 	AutohandIcon,
 	ClineIcon,
 	CodexIcon,
@@ -39,11 +40,27 @@ export interface IntegrationGuide {
 
 export const DEFAULT_INTEGRATION_GUIDES: IntegrationGuide[] = [
 	{
+		name: "Oh My Pi",
+		description:
+			"Connect Oh My Pi to LLM Gateway or DevPass, discover models, and run coding tasks from your terminal.",
+		href: "/guides/oh-my-pi",
+		icon: PiIcon,
+		comingSoon: false,
+	},
+	{
 		name: "DevPass Code",
 		description:
 			"Our open-source terminal coding agent built for LLM Gateway. One browser login, every model, no per-provider keys.",
 		href: "/guides/devpass-code",
 		icon: DevPassCodeIcon,
+		comingSoon: false,
+	},
+	{
+		name: "Anvil",
+		description:
+			"Use LLM Gateway with Anvil, the chat-first desktop workspace for repo-aware agent delivery — connect with one browser login.",
+		href: "/guides/anvil",
+		icon: AnvilIcon,
 		comingSoon: false,
 	},
 	{
@@ -187,10 +204,10 @@ export const DEFAULT_INTEGRATION_GUIDES: IntegrationGuide[] = [
 	{
 		name: "VS Code",
 		description:
-			"Native VS Code integration for AI-powered code completion and chat.",
-		href: "#",
+			"Use your PAYG or DevPass key in Copilot Chat and agent mode with the official LLM Gateway native extension.",
+		href: "https://docs.llmgateway.io/guides/vscode",
 		icon: VSCodeIcon,
-		comingSoon: true,
+		comingSoon: false,
 	},
 ];
 

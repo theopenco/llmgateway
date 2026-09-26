@@ -2,87 +2,63 @@
 id: github-copilot
 slug: github-copilot
 title: GitHub Copilot App Integration
-description: Use any tool-calling model in GitHub's Copilot desktop app through LLM Gateway. One BYOK provider, full cost tracking.
-date: 2026-07-28
+date: 2026-09-23
+description: Configure the GitHub Copilot app with LLM Gateway, review account prerequisites, and choose a compatible agent model.
 ---
 
-The [GitHub Copilot app](https://github.com/features/ai/github-app) is GitHub's desktop app for agent-driven development — start agent sessions from issues, pull requests, or prompts, run parallel workflows in isolated workspaces, and merge PRs without leaving the app. It supports bring your own key (BYOK), so you can run agent sessions against your own model provider.
+The&nbsp;[GitHub Copilot app](https://github.com/features/ai/github-app) supports custom model providers for agent sessions. Add LLM Gateway as an OpenAI-compatible endpoint and choose a model available to your workspace.
 
-Add LLM Gateway as that provider and every session can use Claude, Gemini, GPT, or any model in the [catalog](https://llmgateway.io/models) that supports tool calling — with full cost visibility in your dashboard.
+## Video walkthrough
 
-One provider entry. No config files. Works on any Copilot plan, or with no Copilot plan at all.
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/_0ApXCTletU"
+		title="GitHub Copilot App setup with LLM Gateway"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
 
-> **Using DevPass?** This integration also works with a [DevPass](https://devpass.llmgateway.io) plan key. Use canonical model IDs without a provider prefix (`claude-sonnet-4-5`, not `anthropic/claude-sonnet-4-5`) — provider-pinned routing is not available on coding plans; the gateway picks the provider for you.
+## Install and sign in
 
-## Quick Start
+Install the app from GitHub's official download page and sign in with your GitHub account. Review the requested authorization before approving it.
 
-**1. Install the GitHub Copilot app** from [github.com/features/ai/github-app](https://github.com/features/ai/github-app) (macOS, Windows, or Linux) and sign in with your GitHub account.
+GitHub account sign-in is required even when you supply your own model key. GitHub documents BYOK access without a Copilot subscription; managed accounts may be subject to organization policy. See its&nbsp;[BYOK setup guide](https://docs.github.com/en/copilot/how-tos/github-copilot-app/use-byok-models) for current requirements. The feature is in public preview.
 
-**2. Get your LLM Gateway API key** — [sign up free](https://llmgateway.io/signup), create a key in the dashboard, and copy it when shown (it starts with `llmgtwy_`).
+## Add LLM Gateway
 
-**3. Add LLM Gateway as a model provider** in the app:
+1. Open app **Settings → Model providers**.
+2. Click **Add provider** and choose an **OpenAI-compatible** endpoint.
+3. Enter a display name, your gateway workspace key, and the base URL `https://api.llmgateway.io/v1`.
+4. Save the provider and open the session's model picker.
 
-1. Open **Settings** → **Model Providers**
-2. Select **Add provider** and choose the **OpenAI-compatible** provider type
-3. Set the **Base URL** to:
+Provider credentials are stored in the system credential store. Choose a model with tool calling and streaming support from the&nbsp;[live catalogue](https://llmgateway.io/models?features=tools), then test it in a small local project.
 
-```txt
-https://api.llmgateway.io/v1
-```
+With a&nbsp;[DevPass](https://devpass.llmgateway.io) key, use a canonical model included in your plan. Upstream provider prefixes pin routing and are not supported on coding plans.
 
-4. Paste your LLM Gateway API key and save
+## Check reasoning settings
 
-**4. Pick a model.** LLM Gateway's models now appear in the model picker alongside Copilot-hosted models. Choose one when you start a session — each session can use a different model.
+Model discovery may supply only model IDs. If the app does not retain your reasoning selection, edit the model under **Model providers** and configure its supported reasoning effort levels.
 
-## Why This Works
+Use only levels supported by the selected model and mapping. The model's live catalogue page shows these capabilities; the models API exposes declared levels under `providers[].reasoning_efforts`.
 
-LLM Gateway's `/v1` endpoint is fully OpenAI-compatible. The Copilot app fetches the model list from the gateway and routes each agent session through it, and we route requests to the right provider behind the scenes. This means:
+## Verify a session
 
-- **Use any tool-calling model** — Claude, Gemini, GPT, and the rest of the catalog in Copilot agent sessions
-- **Keep your workflow** — sessions, workspaces, and PR merging work exactly the same
-- **Track costs** — every request appears in your LLM Gateway dashboard
-- **Automatic caching** — repeated requests hit cache, saving money
+Choose the connected provider and model explicitly. Ask the agent to inspect a small project, fix one failing test, and run the tests without changing them. Review permissions, the resulting diff, and the actual command output.
 
-## Choosing Models
-
-All models available to your account show up in the app's model picker; agent sessions work with models that support tool calling and streaming. Browse the [models page](https://llmgateway.io/models) to compare capabilities and pricing, or check [discounted models](/models?discounted=true) for savings up to 90%.
-
-## Good to Know
-
-- **Keys stay local** — the app stores your API key in the OS keychain and never reads it back into the UI.
-- **Any plan works** — BYOK providers work on every Copilot plan, including Free. You don't need a paid Copilot subscription to run agent sessions through LLM Gateway.
-- **Business and Enterprise** — adding model providers is gated by the **Enable custom models** (BYOK) policy, which your admin must turn on. Accessing the Copilot app itself also requires the Copilot CLI enabled in policy settings.
-- **Agent sessions only** — BYOK covers the app's model-powered agent sessions. Inline code completions in your editor still use Copilot's own service.
-
-## GitHub Copilot in VS Code
-
-Copilot Chat in VS Code supports custom endpoints too. Run **Chat: Manage Language Models** from the Command Palette, choose **Add Models** → **Custom Endpoint**, enter your LLM Gateway API key, and select **Chat Completions** as the API type (LLM Gateway is OpenAI-compatible). Then point the model `url` at `https://api.llmgateway.io/v1/chat/completions` in the generated `chatLanguageModels.json`. Your gateway models then appear in the VS Code chat model picker.
+Check usage in the workspace that issued your gateway key. A configured provider or successful sign-in alone does not prove that an agent task completed.
 
 ## Troubleshooting
 
-### Models don't appear in the picker
+**Sign-in expires:** restart the app's sign-in flow and complete the browser authorization before the device code expires.
 
-1. Verify the Base URL is exactly `https://api.llmgateway.io/v1` (note the `/v1` at the end)
-2. Check your API key starts with `llmgtwy_` and is active in your [dashboard](https://llmgateway.io/dashboard)
+**The provider or model is missing:** update the app, check the saved base URL and active key, and review managed-account policy.
 
-### 401 Unauthorized
+**Reasoning selection resets:** configure supported levels on the provider's model entry.
 
-Your API key is invalid or was revoked. Generate a new key in the dashboard and update the provider entry in **Settings** → **Model Providers**.
+**A request is rejected:** inspect the error, model capability, and workspace access. Do not assume every catalogue model supports the app's agent workflow.
 
-### 402 or credit errors
-
-Your LLM Gateway organization is out of credits. Top up in the [dashboard](https://llmgateway.io/dashboard) — BYOK sessions bill through LLM Gateway, not Copilot premium requests.
-
-### Provider option is missing
-
-BYOK in the Copilot app shipped in June 2026 — update to the latest app version. On Business or Enterprise plans, ask your admin to enable the **Enable custom models** (BYOK) policy — and the Copilot CLI policy if you can't access the app at all.
-
-## Get Started
-
-1. [Sign up free](https://llmgateway.io/signup) — no credit card required
-2. Create or roll an API key in the dashboard and copy the newly shown secret
-3. Install the [GitHub Copilot app](https://github.com/features/ai/github-app) and sign in
-4. Add LLM Gateway under **Settings** → **Model Providers** with the base URL above
-5. Start an agent session with any model
-
-Questions? Check [our docs](https://docs.llmgateway.io) or [join Discord](https://llmgateway.io/discord).
+For editor-based Copilot setup, see the separate&nbsp;[VS Code guide](https://docs.llmgateway.io/guides/vscode).

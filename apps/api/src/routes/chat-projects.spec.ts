@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
+import * as playgroundKey from "@/utils/playground-key.js";
 
 import { db, tables } from "@llmgateway/db";
 
@@ -53,8 +54,53 @@ describe("chat-projects", () => {
 	});
 
 	afterEach(async () => {
+		vi.restoreAllMocks();
 		await deleteAll();
 	});
+
+	test.each([true, false])(
+		"file indexing respects an explicit billing key and keeps the personal fallback: %s",
+		async (explicitKey) => {
+			const project = await createProject(token);
+			const resolveKey = vi
+				.spyOn(playgroundKey, "resolvePlaygroundToken")
+				.mockResolvedValue("test-token");
+			const upstream = vi
+				.spyOn(globalThis, "fetch")
+				.mockResolvedValue(
+					new Response(
+						JSON.stringify({ data: [{ index: 0, embedding: [1, 0] }] }),
+						{ headers: { "Content-Type": "application/json" } },
+					),
+				);
+			const res = await app.request(`/chat-projects/${project.id}/files`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: token,
+					...(explicitKey ? { "x-llmgateway-key": "test-token" } : {}),
+				},
+				body: JSON.stringify({
+					name: "notes.md",
+					mimeType: "text/markdown",
+					content: "Project reference material.",
+				}),
+			});
+			expect(res.status).toBe(201);
+			expect(await res.json()).toMatchObject({
+				file: { status: "ready", chunkCount: 1 },
+			});
+			expect(resolveKey).toHaveBeenCalledTimes(explicitKey ? 0 : 1);
+			expect(upstream).toHaveBeenCalledWith(
+				expect.stringContaining("/embeddings"),
+				expect.objectContaining({
+					headers: expect.objectContaining({
+						authorization: "Bearer test-token",
+					}),
+				}),
+			);
+		},
+	);
 
 	test("POST / creates a project with defaults", async () => {
 		const res = await app.request("/chat-projects", {

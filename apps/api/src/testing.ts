@@ -44,6 +44,8 @@ export async function deleteAll() {
 		try {
 			await db.delete(tables.log);
 			await db.delete(tables.auditLog);
+			await db.delete(tables.contentFilterHourlyModelStats);
+			await db.delete(tables.contentFilterHourlyStats);
 			await db.delete(projectHourlyStats);
 			await db.delete(projectHourlyModelStats);
 			await db.delete(projectHourlySourceStats);
@@ -51,6 +53,7 @@ export async function deleteAll() {
 			await db.delete(apiKeyHourlyModelStats);
 			await db.delete(apiKeyHourlySourceStats);
 			await db.delete(providerKeyHourlyStats);
+			await db.delete(tables.globalProviderKeyModelStats);
 			await db.delete(tables.apiKey);
 			await db.delete(tables.providerKey);
 			await db.delete(tables.providerPriceFiling);
@@ -456,6 +459,14 @@ export async function aggregateLogsForTesting() {
 			errorCount:
 				sql<number>`sum(case when ${tables.log.hasError} = true then 1 else 0 end)::int`.as(
 					"errorCount",
+				),
+			clientErrorCount:
+				sql<number>`sum(case when ${tables.log.unifiedFinishReason} = 'client_error' then 1 else 0 end)::int`.as(
+					"clientErrorCount",
+				),
+			gatewayErrorCount:
+				sql<number>`sum(case when ${tables.log.unifiedFinishReason} = 'gateway_error' then 1 else 0 end)::int`.as(
+					"gatewayErrorCount",
 				),
 			upstreamErrorCount:
 				sql<number>`sum(case when ${tables.log.unifiedFinishReason} = 'upstream_error' then 1 else 0 end)::int`.as(

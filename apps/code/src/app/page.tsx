@@ -1,5 +1,6 @@
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
+import { Suspense } from "react";
 
 import { CodingModelsShowcase } from "@/components/CodingModelsShowcase";
 import { Faq } from "@/components/Faq";
@@ -18,7 +19,7 @@ import { FlickeringGrid } from "@/components/ui/flickering-grid";
 import { Marquee } from "@/components/ui/marquee";
 import { NumberTicker } from "@/components/ui/number-ticker";
 import { marqueeTools } from "@/lib/agent-tools";
-import { codingModelCards } from "@/lib/coding-models";
+import { getCodingModelCards } from "@/lib/coding-models";
 import { getConfig } from "@/lib/config-server";
 import { buildDevPassProductSchema } from "@/lib/product-schema";
 
@@ -95,6 +96,12 @@ const steps = [
 			"Claude Opus 4.8 for architecture, GPT-5.5 for review, Gemini 3.1 Pro for fresh eyes — same key, no extra cost.",
 	},
 ];
+
+// Fetched inside Suspense: the model catalogue comes from a network call and
+// only feeds a below-the-fold section, so it must not block the hero.
+async function CodingModels() {
+	return <CodingModelsShowcase models={await getCodingModelCards()} />;
+}
 
 export default function LandingPage() {
 	const config = getConfig();
@@ -451,7 +458,9 @@ export default function LandingPage() {
 								instead.
 							</p>
 						</div>
-						<CodingModelsShowcase models={codingModelCards} />
+						<Suspense fallback={null}>
+							<CodingModels />
+						</Suspense>
 					</div>
 				</section>
 

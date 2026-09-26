@@ -1,23 +1,16 @@
 import { ImageResponse } from "next/og";
 
-import { findPublicModelDefinition } from "@/lib/airside-model-fallback";
 import { discountFraction, getEffectiveProviderDiscount } from "@/lib/discount";
-import { fetchModelDiscounts, fetchProviders } from "@/lib/fetch-models";
 import Logo from "@/lib/icons/Logo";
+import { getModelOgData } from "@/lib/model-og";
+import { getOgModelFamilyIcon, getOgProviderIcon } from "@/lib/og-icons";
 import { formatContextSize } from "@/lib/utils";
 
 import {
 	providers as providerDefinitions,
 	type ProviderModelMapping,
 } from "@llmgateway/models";
-import {
-	AWSBedrockIconStatic,
-	FireworksIconStatic,
-	getProviderIcon,
-	GoogleStudioAIIconStatic,
-	MinimaxIconStatic,
-	XAIIconStatic,
-} from "@llmgateway/shared/components";
+import { ogIconSize } from "@llmgateway/shared/components";
 
 export const size = {
 	width: 1200,
@@ -25,25 +18,6 @@ export const size = {
 };
 export const contentType = "image/png";
 export const revalidate = 60;
-
-const getOgProviderIcon = (providerId: string) => {
-	if (providerId === "aws-bedrock" || providerId === "aws-mantle") {
-		return AWSBedrockIconStatic;
-	}
-	if (providerId === "minimax") {
-		return MinimaxIconStatic;
-	}
-	if (providerId === "google-ai-studio") {
-		return GoogleStudioAIIconStatic;
-	}
-	if (providerId === "xai") {
-		return XAIIconStatic;
-	}
-	if (providerId === "fireworks") {
-		return FireworksIconStatic;
-	}
-	return getProviderIcon(providerId);
-};
 
 interface ImageProps {
 	params: Promise<{ name: string; provider: string }>;
@@ -56,7 +30,9 @@ function getEffectivePricePerMillion(
 	if (
 		!mapping?.inputPrice &&
 		!mapping?.outputPrice &&
-		!mapping?.cachedInputPrice
+		!mapping?.cachedInputPrice &&
+		!mapping?.imageInputPrice &&
+		!mapping?.imageOutputPrice
 	) {
 		return null;
 	}
@@ -79,6 +55,8 @@ function getEffectivePricePerMillion(
 		input: applyDiscount(mapping.inputPrice),
 		output: applyDiscount(mapping.outputPrice),
 		cachedInput: applyDiscount(mapping.cachedInputPrice),
+		imageInput: applyDiscount(mapping.imageInputPrice),
+		imageOutput: applyDiscount(mapping.imageOutputPrice),
 	};
 }
 
@@ -88,14 +66,11 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 		const decodedName = decodeURIComponent(name);
 		const decodedProvider = decodeURIComponent(provider);
 
-		const [model, apiProviders, discounts] = await Promise.all([
-			findPublicModelDefinition(decodedName),
-			fetchProviders().catch((error: unknown) => {
-				console.error("Failed to fetch providers for OpenGraph image:", error);
-				return [];
-			}),
-			fetchModelDiscounts(decodedName),
-		]);
+		const {
+			model,
+			providers: apiProviders,
+			discounts,
+		} = await getModelOgData(decodedName, decodedProvider);
 
 		if (!model) {
 			return new ImageResponse(
@@ -150,9 +125,10 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 		const providerInfo =
 			providerDefinitions.find((p) => p.id === selectedMapping.providerId) ??
 			apiProviders.find((p) => p.id === selectedMapping.providerId);
-		const ProviderIcon = selectedMapping
-			? getOgProviderIcon(selectedMapping.providerId)
-			: null;
+		// The card leads with the model maker's mark, not the mark of whichever
+		// provider mapping generated it — `/models/gpt-5.6-sol` would otherwise
+		// share as an AWS card.
+		const FamilyIcon = getOgModelFamilyIcon(model.family);
 		const effectiveDiscount = selectedMapping
 			? getEffectiveProviderDiscount(
 					discounts,
@@ -212,10 +188,15 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 			isImageGen &&
 			perImagePrice !== undefined &&
 			Object.keys(perImagePrice).length > 0;
+		const hasImageTokenPricing =
+			isImageGen && pricing?.imageOutput !== undefined;
 		const hasPositiveTokenPrice = [
 			pricing?.input,
 			pricing?.output,
 			pricing?.cachedInput,
+			...(hasImageTokenPricing
+				? [pricing?.imageInput, pricing?.imageOutput]
+				: []),
 		].some((p) => (p?.original ?? 0) > 0);
 		// Per-image mappings declare token prices as the string "0" — placeholder
 		// values, not real token pricing — so zero token prices only count when
@@ -224,8 +205,25 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 			!isOcr &&
 			!hasCharPricing &&
 			!hasAudioHourPricing &&
-			Boolean(pricing?.input ?? pricing?.output ?? pricing?.cachedInput) &&
+			(hasImageTokenPricing ||
+				Boolean(pricing?.input ?? pricing?.output ?? pricing?.cachedInput)) &&
 			(hasPositiveTokenPrice || !hasPerImagePricing);
+		const tokenPrices = hasImageTokenPricing
+			? [
+					{ label: "Text input", price: pricing?.input },
+					{ label: "Image input", price: pricing?.imageInput },
+					{ label: "Image output", price: pricing?.imageOutput },
+				].filter(({ price }) => price !== undefined)
+			: [
+					{
+						label: hasPricingTiers ? "Input (starting at)" : "Input",
+						price: pricing?.input,
+					},
+					{
+						label: hasPricingTiers ? "Output (starting at)" : "Output",
+						price: pricing?.output,
+					},
+				];
 
 		const contextSize = selectedMapping?.contextSize ?? 0;
 
@@ -277,12 +275,17 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 								style={{
 									textDecoration: "line-through",
 									color: "#6B7280",
-									fontSize: 36,
+									fontSize: hasImageTokenPricing ? 30 : 36,
 								}}
 							>
 								{original}
 							</span>
-							<span style={{ fontWeight: 700, fontSize: 56 }}>
+							<span
+								style={{
+									fontWeight: 700,
+									fontSize: hasImageTokenPricing ? 48 : 56,
+								}}
+							>
 								{discounted}
 							</span>
 						</div>
@@ -298,7 +301,16 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 					</div>
 				);
 			}
-			return <span style={{ fontWeight: 700, fontSize: 56 }}>{original}</span>;
+			return (
+				<span
+					style={{
+						fontWeight: 700,
+						fontSize: hasImageTokenPricing ? 48 : 56,
+					}}
+				>
+					{original}
+				</span>
+			);
 		};
 
 		const formatUnitPrice = (value: number, unit: string) => {
@@ -377,23 +389,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 								overflow: "hidden",
 							}}
 						>
-							{ProviderIcon ? (
-								<ProviderIcon width={56} height={56} />
-							) : (
-								<span
-									style={{
-										fontSize: 36,
-										fontWeight: 700,
-									}}
-								>
-									{(
-										providerInfo?.name ??
-										(selectedMapping?.providerId || "LLM")
-									)
-										.charAt(0)
-										.toUpperCase()}
-								</span>
-							)}
+							<FamilyIcon {...ogIconSize(FamilyIcon, 56)} />
 						</div>
 						<div
 							style={{
@@ -428,7 +424,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 						</div>
 					</div>
 
-					{supportingProviders.length > 1 && (
+					{supportingProviders.length > 0 && (
 						<div
 							style={{
 								display: "flex",
@@ -452,7 +448,7 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 										overflow: "hidden",
 									}}
 								>
-									<Icon width={30} height={30} />
+									<Icon {...ogIconSize(Icon, 30)} />
 								</div>
 							))}
 						</div>
@@ -507,36 +503,38 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 						style={{
 							display: "flex",
 							flexDirection: "row",
-							gap: 32,
+							gap: hasImageTokenPricing ? 24 : 32,
 						}}
 					>
 						{/* Context */}
-						<div
-							style={{
-								display: "flex",
-								flexDirection: "column",
-								gap: 10,
-								padding: "28px 36px",
-								backgroundColor: "#0A0A0A",
-								borderRadius: 20,
-								border: "1px solid #1F2937",
-							}}
-						>
-							<span
+						{!hasImageTokenPricing && (
+							<div
 								style={{
-									color: "#9CA3AF",
-									fontSize: 20,
-									fontWeight: 500,
-									textTransform: "uppercase",
-									letterSpacing: "0.05em",
+									display: "flex",
+									flexDirection: "column",
+									gap: 10,
+									padding: "28px 36px",
+									backgroundColor: "#0A0A0A",
+									borderRadius: 20,
+									border: "1px solid #1F2937",
 								}}
 							>
-								Context
-							</span>
-							<span style={{ fontSize: 56, fontWeight: 700 }}>
-								{contextSize ? formatContextSize(contextSize) : "—"}
-							</span>
-						</div>
+								<span
+									style={{
+										color: "#9CA3AF",
+										fontSize: 20,
+										fontWeight: 500,
+										textTransform: "uppercase",
+										letterSpacing: "0.05em",
+									}}
+								>
+									Context
+								</span>
+								<span style={{ fontSize: 56, fontWeight: 700 }}>
+									{contextSize ? formatContextSize(contextSize) : "—"}
+								</span>
+							</div>
+						)}
 
 						{/* Per-hour input audio price for transcription models */}
 						{hasAudioHourPricing && (
@@ -735,61 +733,35 @@ export default async function ModelProviderOgImage({ params }: ImageProps) {
 							</div>
 						)}
 
-						{/* Input - only show if has token pricing */}
-						{hasTokenPricing && (
-							<div
-								style={{
-									display: "flex",
-									flexDirection: "column",
-									gap: 10,
-									padding: "28px 36px",
-									backgroundColor: "#0A0A0A",
-									borderRadius: 20,
-									border: "1px solid #1F2937",
-								}}
-							>
-								<span
+						{hasTokenPricing &&
+							tokenPrices.map(({ label, price }) => (
+								<div
+									key={label}
 									style={{
-										color: "#9CA3AF",
-										fontSize: 20,
-										fontWeight: 500,
-										textTransform: "uppercase",
-										letterSpacing: "0.05em",
+										display: "flex",
+										flexDirection: "column",
+										...(hasImageTokenPricing ? { flex: 1 } : {}),
+										gap: 10,
+										padding: hasImageTokenPricing ? 28 : "28px 36px",
+										backgroundColor: "#0A0A0A",
+										borderRadius: 20,
+										border: "1px solid #1F2937",
 									}}
 								>
-									{hasPricingTiers ? "Input (starting at)" : "Input"}
-								</span>
-								{formatDollars(pricing?.input ?? undefined, discountNum)}
-							</div>
-						)}
-
-						{/* Output - only show if has token pricing */}
-						{hasTokenPricing && (
-							<div
-								style={{
-									display: "flex",
-									flexDirection: "column",
-									gap: 10,
-									padding: "28px 36px",
-									backgroundColor: "#0A0A0A",
-									borderRadius: 20,
-									border: "1px solid #1F2937",
-								}}
-							>
-								<span
-									style={{
-										color: "#9CA3AF",
-										fontSize: 20,
-										fontWeight: 500,
-										textTransform: "uppercase",
-										letterSpacing: "0.05em",
-									}}
-								>
-									{hasPricingTiers ? "Output (starting at)" : "Output"}
-								</span>
-								{formatDollars(pricing?.output ?? undefined, discountNum)}
-							</div>
-						)}
+									<span
+										style={{
+											color: "#9CA3AF",
+											fontSize: 20,
+											fontWeight: 500,
+											textTransform: "uppercase",
+											letterSpacing: "0.05em",
+										}}
+									>
+										{label}
+									</span>
+									{formatDollars(price, discountNum)}
+								</div>
+							))}
 					</div>
 				</div>
 

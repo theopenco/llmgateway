@@ -20,6 +20,7 @@ import {
 	eq,
 	excludeRegionalMappingRows,
 	getEffectiveDiscount,
+	getRoutingScoreAdjustment,
 	gte,
 	modelProviderMappingHistoryHourly,
 	routingElectionHourly,
@@ -33,7 +34,10 @@ import {
 import { deriveStabilityMetrics } from "@llmgateway/shared";
 import { isMappingDeactivated } from "@llmgateway/shared/deactivation";
 import { getDefaultRoutingConfig } from "@llmgateway/shared/routing-config";
-import { routingSelectionKind } from "@llmgateway/shared/routing-telemetry";
+import {
+	routingExclusionReasonParent,
+	routingSelectionKind,
+} from "@llmgateway/shared/routing-telemetry";
 
 import type { ServerTypes } from "@/vars.js";
 
@@ -108,6 +112,7 @@ const routingMappingSchema = z
 		listPrice: z.number(),
 		discount: z.number(),
 		price: z.number(),
+		routingAdjustment: z.number(),
 		cacheSupported: z.boolean(),
 		routable: z.boolean(),
 		excludedReasons: z.array(z.string()),
@@ -124,12 +129,63 @@ const serviceTierCountsSchema = z
 	})
 	.openapi({});
 
-const exclusionEntrySchema = z
+const exclusionDetailSchema = z
 	.object({
 		reason: z.string(),
 		excludedCount: z.number(),
 	})
 	.openapi({});
+
+const exclusionEntrySchema = z
+	.object({
+		reason: z.string(),
+		excludedCount: z.number(),
+		/**
+		 * Finer-grained reasons that break this one down — currently which
+		 * compliance rule fired. Recorded alongside the parent, never instead of
+		 * it, so they are nested here rather than listed as siblings: a consumer
+		 * summing both would count every drop twice.
+		 */
+		details: z.array(exclusionDetailSchema),
+	})
+	.openapi({});
+
+/**
+ * Turn a flat reason -> count map into top-level entries with their detail
+ * reasons nested. A detail whose parent has no row (data written before the
+ * detail codes existed, or a partially rerun rollup) stays top-level rather
+ * than being attached to an invented parent count.
+ */
+function toExclusionEntries(
+	reasonMap: Map<string, number> | undefined,
+): z.infer<typeof exclusionEntrySchema>[] {
+	const totals = new Map<string, number>();
+	const detailsByParent = new Map<string, Map<string, number>>();
+	for (const [reason, excludedCount] of reasonMap ?? []) {
+		const parent = routingExclusionReasonParent(reason);
+		if (parent && reasonMap?.has(parent)) {
+			let details = detailsByParent.get(parent);
+			if (!details) {
+				details = new Map();
+				detailsByParent.set(parent, details);
+			}
+			details.set(reason, (details.get(reason) ?? 0) + excludedCount);
+			continue;
+		}
+		totals.set(reason, (totals.get(reason) ?? 0) + excludedCount);
+	}
+	return Array.from(totals, ([reason, excludedCount]) => ({
+		reason,
+		excludedCount,
+		details: Array.from(
+			detailsByParent.get(reason) ?? [],
+			([detailReason, detailCount]) => ({
+				reason: detailReason,
+				excludedCount: detailCount,
+			}),
+		).sort((a, b) => b.excludedCount - a.excludedCount),
+	})).sort((a, b) => b.excludedCount - a.excludedCount);
+}
 
 /**
  * Runtime eligibility for one mapping: how often it was actually a candidate,
@@ -255,8 +311,9 @@ const routingAnalyticsResponseSchema = z
 
 interface HourlyTotals {
 	requestCount: number;
-	errorCount: number;
 	clientErrorCount: number;
+	gatewayErrorCount: number;
+	upstreamErrorCount: number;
 	totalDuration: number;
 	totalOutputTokens: number;
 	totalTimeToFirstToken: number;
@@ -272,8 +329,9 @@ interface HourlyTotals {
 function emptyTotals(): HourlyTotals {
 	return {
 		requestCount: 0,
-		errorCount: 0,
 		clientErrorCount: 0,
+		gatewayErrorCount: 0,
+		upstreamErrorCount: 0,
 		totalDuration: 0,
 		totalOutputTokens: 0,
 		totalTimeToFirstToken: 0,
@@ -292,8 +350,9 @@ function addRow(
 	row: typeof modelProviderMappingHistoryHourly.$inferSelect,
 ): void {
 	totals.requestCount += row.logsCount;
-	totals.errorCount += row.errorsCount;
 	totals.clientErrorCount += row.clientErrorsCount;
+	totals.gatewayErrorCount += row.gatewayErrorsCount;
+	totals.upstreamErrorCount += row.upstreamErrorsCount;
 	totals.totalDuration += row.totalDuration;
 	totals.totalOutputTokens += row.totalOutputTokens;
 	totals.totalTimeToFirstToken += row.totalTimeToFirstToken;
@@ -331,11 +390,12 @@ function deriveMetrics(totals: HourlyTotals): DerivedMetrics {
 	if (totals.requestCount <= 0) {
 		return { uptime: null, latency: null, throughput: null };
 	}
-	const { uptime } = deriveStabilityMetrics(
-		totals.requestCount,
-		totals.errorCount,
-		totals.clientErrorCount,
-	);
+	const { uptime } = deriveStabilityMetrics({
+		logsCount: totals.requestCount,
+		clientErrorsCount: totals.clientErrorCount,
+		gatewayErrorsCount: totals.gatewayErrorCount,
+		upstreamErrorsCount: totals.upstreamErrorCount,
+	});
 	const { total: effectiveTtft, count: effectiveTtftCount } =
 		effectiveTtftTotals(totals);
 	const latency =
@@ -364,8 +424,13 @@ interface MappingInfo {
 	listPrice: number;
 	/** Platform-wide discount fraction applied to listPrice (0 when none). */
 	discount: number;
-	/** Selection price the score is computed from: listPrice * (1 - discount). */
+	/** Selection price after discounts: listPrice * (1 - discount). */
 	price: number;
+	/**
+	 * Signed routing-score multiplier plus Airside margin adjustment; the score
+	 * uses price * (1 + routingAdjustment), matching live election.
+	 */
+	routingAdjustment: number;
 	cacheSupported: boolean;
 	routable: boolean;
 	excludedReasons: string[];
@@ -412,6 +477,13 @@ async function buildMappingInfos(
 							.discount,
 				},
 			);
+			const rawAdjustment = Number(
+				await getRoutingScoreAdjustment(mapping.providerId, model.id),
+			);
+			const routingAdjustment =
+				Number.isFinite(rawAdjustment) && rawAdjustment >= -1
+					? rawAdjustment
+					: 0;
 			return {
 				providerId: mapping.providerId,
 				providerName: providerDef?.name ?? mapping.providerId,
@@ -423,6 +495,7 @@ async function buildMappingInfos(
 				listPrice: getProviderSelectionPrice(mapping).toNumber(),
 				discount: discount.toNumber(),
 				price: price.toNumber(),
+				routingAdjustment,
 				cacheSupported: providerSupportsCaching(mapping),
 				routable: excludedReasons.length === 0,
 				excludedReasons,
@@ -443,7 +516,7 @@ function scoreEntries(
 	const candidates: CandidateScoreInput[] = routableMappings.map((mapping) => {
 		const metrics = metricsByProvider.get(mapping.providerId);
 		return {
-			price: new Decimal(mapping.price),
+			price: new Decimal(mapping.price).times(1 + mapping.routingAdjustment),
 			uptime: metrics?.uptime ?? undefined,
 			latency: metrics?.latency ?? undefined,
 			throughput: metrics?.throughput ?? undefined,
@@ -703,7 +776,7 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 				return {
 					providerId: mapping.providerId,
 					requestCount: totals.requestCount,
-					errorCount: totals.errorCount,
+					errorCount: totals.gatewayErrorCount + totals.upstreamErrorCount,
 					clientErrorCount: totals.clientErrorCount,
 					uptime: metrics.uptime !== null ? round(metrics.uptime, 2) : null,
 					latency: metrics.latency !== null ? round(metrics.latency, 0) : null,
@@ -740,7 +813,7 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 		return {
 			providerId: mapping.providerId,
 			requestCount: totals.requestCount,
-			errorCount: totals.errorCount,
+			errorCount: totals.gatewayErrorCount + totals.upstreamErrorCount,
 			uptime: metrics.uptime !== null ? round(metrics.uptime, 2) : null,
 			latency: metrics.latency !== null ? round(metrics.latency, 0) : null,
 			throughput:
@@ -756,27 +829,26 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 		cacheRelevant: false,
 	});
 
-	const eligibility = mappings.map((mapping) => {
-		const reasonMap = exclusionsByProvider.get(mapping.providerId);
-		const exclusions = Array.from(
-			reasonMap ?? [],
-			([reason, excludedCount]) => ({
-				reason,
-				excludedCount,
-			}),
-		).sort((a, b) => b.excludedCount - a.excludedCount);
+	// Exclusions can land on provider ids outside the catalogue mappings (e.g.
+	// `custom` provider keys in auto routing). The model-wide totals include
+	// them, so the per-provider breakdown must too or those reasons show a
+	// total with nothing behind it.
+	const eligibilityProviderIds = new Set([
+		...mappings.map((mapping) => mapping.providerId),
+		...exclusionsByProvider.keys(),
+	]);
+	const eligibility = Array.from(eligibilityProviderIds, (providerId) => {
+		const exclusions = toExclusionEntries(exclusionsByProvider.get(providerId));
 		// One request can drop a mapping for several reasons at once, so the
 		// per-reason counts in `exclusions` sum to more than the requests the
 		// mapping was actually unavailable for. `excludedCount` is the decision
 		// count the aggregator recorded separately: each request counted once,
 		// whatever it tripped. Deriving the rate from the reason sum instead would
 		// report a mapping that served most of its requests as 0% eligible.
-		const excludedCount =
-			excludedDecisionsByProvider.get(mapping.providerId) ?? 0;
-		const candidateCount =
-			candidateCountByProvider.get(mapping.providerId) ?? 0;
+		const excludedCount = excludedDecisionsByProvider.get(providerId) ?? 0;
+		const candidateCount = candidateCountByProvider.get(providerId) ?? 0;
 		return {
-			providerId: mapping.providerId,
+			providerId,
 			candidateCount,
 			excludedCount,
 			exclusionRate:
@@ -786,7 +858,7 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 			topReason: exclusions[0]?.reason ?? null,
 			exclusions,
 			serviceTier: serviceTierCounts(
-				windowTotals.get(mapping.providerId) ?? emptyTotals(),
+				windowTotals.get(providerId) ?? emptyTotals(),
 			),
 		};
 	});
@@ -852,10 +924,7 @@ adminRoutingAnalytics.openapi(getRoutingAnalytics, async (c) => {
 			).sort((a, b) => b.requestCount - a.requestCount),
 		},
 		eligibility,
-		exclusions: Array.from(modelExclusionTotals, ([reason, excludedCount]) => ({
-			reason,
-			excludedCount,
-		})).sort((a, b) => b.excludedCount - a.excludedCount),
+		exclusions: toExclusionEntries(modelExclusionTotals),
 		serviceTier: serviceTierCounts(modelServiceTierTotals),
 	});
 });

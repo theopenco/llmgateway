@@ -26,6 +26,8 @@ import {
 } from "@/lib/components/select";
 import { useApi } from "@/lib/fetch-client";
 
+import { formatNumber } from "@llmgateway/shared/number-format";
+
 import type { paths } from "@/lib/api/v1";
 import type { Log } from "@llmgateway/db";
 
@@ -54,6 +56,7 @@ const KNOWN_SOURCES = [
 	"opencode",
 	"cursor",
 	"autohand",
+	"anvil",
 	"empryo",
 	"soulforge",
 ] as const;
@@ -64,6 +67,7 @@ const SOURCE_OPTIONS = [
 	{ value: "opencode", label: "OpenCode" },
 	{ value: "cursor", label: "Cursor" },
 	{ value: "autohand", label: "Autohand Code" },
+	{ value: "anvil", label: "Anvil" },
 	{ value: "empryo", label: "Empryo" },
 	{ value: "soulforge", label: "SoulForge" },
 ] as const;
@@ -167,6 +171,8 @@ function formatSourceLabel(source: string): string {
 			return "Cursor";
 		case "autohand":
 			return "Autohand Code";
+		case "anvil":
+			return "Anvil";
 		case "empryo":
 			return "Empryo";
 		case "soulforge":
@@ -223,7 +229,7 @@ function SessionCard({
 						</div>
 						<div className="flex items-center gap-1" title="Total tokens">
 							<Cpu className="h-3.5 w-3.5" />
-							{session.totalTokens.toLocaleString()}
+							{formatNumber(session.totalTokens)}
 						</div>
 						<div className="flex items-center gap-1" title="Duration">
 							<Clock className="h-3.5 w-3.5" />

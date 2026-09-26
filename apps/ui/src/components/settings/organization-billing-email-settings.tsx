@@ -110,7 +110,10 @@ export function OrganizationBillingEmailSettings() {
 	};
 
 	return (
-		<div className="space-y-4">
+		<fieldset
+			disabled={selectedOrganization.role !== "owner"}
+			className="space-y-4"
+		>
 			<div>
 				<h3 className="text-lg font-medium">Billing Information</h3>
 				<p className="text-muted-foreground text-sm">
@@ -210,6 +213,6 @@ export function OrganizationBillingEmailSettings() {
 					{updateOrganization.isPending ? "Saving..." : "Save Settings"}
 				</Button>
 			</div>
-		</div>
+		</fieldset>
 	);
 }

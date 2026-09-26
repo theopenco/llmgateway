@@ -39,14 +39,20 @@ import {
 	getEffectiveRetentionLevel,
 } from "@/lib/compliance.js";
 import { getLicensedOrganizationEnvVariant } from "@/lib/enterprise.js";
+import {
+	rateLimitHeaders,
+	standardErrorResponses,
+} from "@/lib/error-schemas.js";
 import { extractApiToken } from "@/lib/extract-api-token.js";
 import { createFailedKeyTracker } from "@/lib/failed-key-tracker.js";
+import { fetchProvider } from "@/lib/fetch-provider.js";
 import { throwIamException, validateRequestModelAccess } from "@/lib/iam.js";
 import { calculateDataStorageCost, insertLog } from "@/lib/logs.js";
 import { assertOrganizationUsable } from "@/lib/organization-access.js";
 import { assertSpendLimit } from "@/lib/spend-limit.js";
 import { createCombinedSignal, isTimeoutError } from "@/lib/timeout-config.js";
 
+import { fetchNoRedirect, RedirectError } from "@llmgateway/actions";
 import {
 	getGoogleVertexPublisherModelPath,
 	getProviderHeaders,
@@ -118,15 +124,6 @@ interface SpeechErrorBody {
 		code: string;
 	};
 }
-
-const speechErrorSchema = z.object({
-	error: z.object({
-		message: z.string(),
-		type: z.string(),
-		param: z.string().nullable(),
-		code: z.string(),
-	}),
-});
 
 /** Minimal shape of a Gemini `generateContent` response part. */
 interface GeminiPart {
@@ -417,6 +414,7 @@ const createSpeech = createRoute({
 	},
 	responses: {
 		200: {
+			headers: rateLimitHeaders,
 			content: {
 				"audio/wav": { schema: z.any() },
 				"audio/mpeg": { schema: z.any() },
@@ -424,34 +422,7 @@ const createSpeech = createRoute({
 			},
 			description: "Generated audio.",
 		},
-		400: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Invalid request body or parameters.",
-		},
-		401: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Unauthorized request.",
-		},
-		402: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Payment required / insufficient credits.",
-		},
-		403: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Forbidden.",
-		},
-		500: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Internal server error.",
-		},
-		502: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Failed to connect to the upstream provider.",
-		},
-		504: {
-			content: { "application/json": { schema: speechErrorSchema } },
-			description: "Upstream provider timeout.",
-		},
+		...standardErrorResponses(),
 	},
 });
 
@@ -1034,7 +1005,7 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 			let fetchError: Error | null = null;
 			try {
 				const fetchSignal = createCombinedSignal(controller);
-				upstreamResponse = await fetch(attempt.upstreamUrl, {
+				upstreamResponse = await fetchProvider(attempt.upstreamUrl, {
 					method: "POST",
 					// SSRF: never follow redirects on an authenticated provider request. A
 					// tenant-supplied baseUrl could 3xx to an internal host at request
@@ -1644,9 +1615,11 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 				const audioUrl = dashScopeJson.output?.audio?.url;
 				let out: Buffer | null = null;
 				let downloadError: string | null = null;
+				let downloadStatusCode: number | null = null;
+				let redirectBlocked = false;
 				if (typeof audioUrl === "string" && audioUrl) {
 					try {
-						const audioResponse = await fetch(audioUrl, {
+						const audioResponse = await fetchNoRedirect(audioUrl, {
 							// The download URL is provider-issued; still never follow
 							// redirects so the response can't be bounced elsewhere.
 							redirect: "error",
@@ -1655,15 +1628,20 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						if (audioResponse.ok) {
 							out = Buffer.from(await audioResponse.arrayBuffer());
 						} else {
+							downloadStatusCode = audioResponse.status;
 							downloadError = `Audio download failed with status ${audioResponse.status}`;
 						}
 					} catch (error) {
+						redirectBlocked = error instanceof RedirectError;
 						downloadError =
 							error instanceof Error ? error.message : String(error);
 					}
 				}
 
 				if (out === null || out.length === 0) {
+					const errorStatusCode = redirectBlocked
+						? 400
+						: (downloadStatusCode ?? 502);
 					logger.warn("Speech API - no audio in DashScope response", {
 						requestId,
 						model: upstreamModel,
@@ -1673,8 +1651,8 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 						buildRoutingAttempt(
 							providerId,
 							modelDefId,
-							upstreamResponse.status,
-							"upstream_error",
+							errorStatusCode,
+							redirectBlocked ? "client_error" : "upstream_error",
 							false,
 							{
 								apiKeyHash: usedApiKeyHash,
@@ -1685,57 +1663,60 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 							},
 						),
 					);
-					await insertLog({
-						...baseLogEntry,
-						id: finalLogId,
-						routingMetadata: buildSpeechRoutingMetadata(
-							usedApiKeyHash,
-							credentialSource,
-							usedProviderKey,
-						),
-						duration,
-						timeToFirstToken: null,
-						timeToFirstReasoningToken: null,
-						responseSize: upstreamText.length,
-						content: null,
-						reasoningContent: null,
-						finishReason: "upstream_error",
-						promptTokens: null,
-						completionTokens: null,
-						totalTokens: null,
-						reasoningTokens: null,
-						cachedTokens: null,
-						hasError: true,
-						streamed: false,
-						canceled: false,
-						errorDetails: {
-							statusCode: upstreamResponse.status,
-							statusText: "no_audio",
-							responseText: (downloadError ?? upstreamText).slice(0, 2000),
+					await insertLog(
+						{
+							...baseLogEntry,
+							id: finalLogId,
+							routingMetadata: buildSpeechRoutingMetadata(
+								usedApiKeyHash,
+								credentialSource,
+								usedProviderKey,
+							),
+							duration,
+							timeToFirstToken: null,
+							timeToFirstReasoningToken: null,
+							responseSize: upstreamText.length,
+							content: null,
+							reasoningContent: null,
+							finishReason: redirectBlocked ? "client_error" : "upstream_error",
+							promptTokens: null,
+							completionTokens: null,
+							totalTokens: null,
+							reasoningTokens: null,
+							cachedTokens: null,
+							hasError: true,
+							streamed: false,
+							canceled: false,
+							errorDetails: {
+								statusCode: errorStatusCode,
+								statusText: redirectBlocked ? "Bad Request" : "no_audio",
+								responseText: (downloadError ?? upstreamText).slice(0, 2000),
+							},
+							inputCost: 0,
+							outputCost: 0,
+							cachedInputCost: 0,
+							requestCost: 0,
+							webSearchCost: 0,
+							imageInputTokens: null,
+							imageOutputTokens: null,
+							imageInputCost: null,
+							imageOutputCost: null,
+							cost: 0,
+							estimatedCost: false,
+							discount: null,
+							pricingTier: null,
+							dataStorageCost: calculateDataStorageCost(
+								null,
+								null,
+								null,
+								null,
+								retentionLevel,
+							),
+							cached: false,
+							toolResults: null,
 						},
-						inputCost: 0,
-						outputCost: 0,
-						cachedInputCost: 0,
-						requestCost: 0,
-						webSearchCost: 0,
-						imageInputTokens: null,
-						imageOutputTokens: null,
-						imageInputCost: null,
-						imageOutputCost: null,
-						cost: 0,
-						estimatedCost: false,
-						discount: null,
-						pricingTier: null,
-						dataStorageCost: calculateDataStorageCost(
-							null,
-							null,
-							null,
-							null,
-							retentionLevel,
-						),
-						cached: false,
-						toolResults: null,
-					});
+						{ retentionLevel },
+					);
 					return c.json(
 						{
 							error: {
@@ -1744,12 +1725,12 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 										? `Failed to download synthesized audio: ${downloadError}`
 										: (dashScopeJson.message ??
 											"The model did not return any audio. The content may have been filtered."),
-								type: "upstream_error",
+								type: redirectBlocked ? "client_error" : "upstream_error",
 								param: null,
-								code: "no_audio",
+								code: redirectBlocked ? "unexpected_redirect" : "no_audio",
 							},
 						} satisfies SpeechErrorBody,
-						502,
+						redirectBlocked ? 400 : 502,
 					);
 				}
 
@@ -1776,53 +1757,56 @@ speech.openapi(createSpeech, async (c): Promise<Response> => {
 					),
 				);
 
-				await insertLog({
-					...baseLogEntry,
-					id: finalLogId,
-					routingMetadata: buildSpeechRoutingMetadata(
-						usedApiKeyHash,
-						credentialSource,
-						usedProviderKey,
-					),
-					duration,
-					timeToFirstToken: null,
-					timeToFirstReasoningToken: null,
-					responseSize: out.length,
-					content: `[audio: ${out.length} bytes, audio/wav]`,
-					reasoningContent: null,
-					finishReason: "stop",
-					promptTokens: null,
-					completionTokens: null,
-					totalTokens: null,
-					reasoningTokens: null,
-					cachedTokens: null,
-					hasError: false,
-					streamed: false,
-					canceled: false,
-					errorDetails: null,
-					inputCost,
-					outputCost: 0,
-					cachedInputCost: 0,
-					requestCost,
-					webSearchCost: 0,
-					imageInputTokens: null,
-					imageOutputTokens: null,
-					imageInputCost: null,
-					imageOutputCost: null,
-					cost,
-					estimatedCost: false,
-					discount: null,
-					pricingTier: null,
-					dataStorageCost: calculateDataStorageCost(
-						null,
-						null,
-						null,
-						null,
-						retentionLevel,
-					),
-					cached: false,
-					toolResults: null,
-				});
+				await insertLog(
+					{
+						...baseLogEntry,
+						id: finalLogId,
+						routingMetadata: buildSpeechRoutingMetadata(
+							usedApiKeyHash,
+							credentialSource,
+							usedProviderKey,
+						),
+						duration,
+						timeToFirstToken: null,
+						timeToFirstReasoningToken: null,
+						responseSize: out.length,
+						content: `[audio: ${out.length} bytes, audio/wav]`,
+						reasoningContent: null,
+						finishReason: "stop",
+						promptTokens: null,
+						completionTokens: null,
+						totalTokens: null,
+						reasoningTokens: null,
+						cachedTokens: null,
+						hasError: false,
+						streamed: false,
+						canceled: false,
+						errorDetails: null,
+						inputCost,
+						outputCost: 0,
+						cachedInputCost: 0,
+						requestCost,
+						webSearchCost: 0,
+						imageInputTokens: null,
+						imageOutputTokens: null,
+						imageInputCost: null,
+						imageOutputCost: null,
+						cost,
+						estimatedCost: false,
+						discount: null,
+						pricingTier: null,
+						dataStorageCost: calculateDataStorageCost(
+							null,
+							null,
+							null,
+							null,
+							retentionLevel,
+						),
+						cached: false,
+						toolResults: null,
+					},
+					{ retentionLevel },
+				);
 
 				return c.body(toArrayBuffer(out), 200, {
 					"Content-Type": "audio/wav",

@@ -1,0 +1,58 @@
+---
+title: Kilo Code Integration
+icon: KiloCode
+description: Connect Kilo Code to LLM Gateway or DevPass, select a model, and review agent edits and commands.
+---
+
+[Kilo Code](https://kilo.ai/) is a coding agent for VS Code. Its provider settings include separate LLM Gateway and DevPass connections.
+
+## Video walkthrough
+
+<div className="relative aspect-video">
+	<iframe
+		className="absolute inset-0 h-full w-full rounded-lg border-0"
+		src="https://www.youtube-nocookie.com/embed/RoX_EF-aaEQ"
+		title="Kilo Code setup and coding demo with LLM Gateway"
+		loading="lazy"
+		allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+		referrerPolicy="strict-origin-when-cross-origin"
+		allowFullScreen
+	></iframe>
+</div>
+
+## Install and choose permissions
+
+Install **Kilo Code** from the&nbsp;[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=kilocode.kilo-code), then open its sidebar panel.
+
+On first launch, choose how much autonomy to allow. **Review First** lets you inspect edits and shell commands before approving them. Start with a small project and a focused task.
+
+## Connect your workspace
+
+1. Open Kilo's **Settings**, then **Providers**.
+2. Click **Show more providers** and search for `llm`.
+3. Choose **LLM Gateway** for pay-as-you-go usage or **DevPass (LLM Gateway)** for a coding plan.
+4. Paste a key from the matching workspace dashboard and submit it.
+
+The built-in provider supplies the endpoint; you do not need to enter a base URL.
+
+## Select the model for this chat
+
+Click the model picker at the bottom of the chat and select a tool-capable model from your connected provider. Check the active model before sending a task: setting a default under **Settings > Models** does not necessarily change an already-open chat.
+
+Use the&nbsp;[live model catalogue](https://llmgateway.io/models?features=tools) to check capabilities. For DevPass, choose a canonical model ID included in your plan; upstream provider prefixes pin routing and are not supported on coding plans.
+
+## Verify a coding task
+
+Ask Kilo to inspect a function, fix a failing test case, and run the existing tests without changing them. In **Review First** mode, inspect the proposed diff and use **Allow once** for the edit and test command when appropriate.
+
+Review the command output and final diff. The key determines which workspace receives the requests; inspect usage in that workspace's dashboard.
+
+## Troubleshooting
+
+**The provider is missing:** expand **Show more providers**, search for `llm`, and check that Kilo is current.
+
+**The chat still uses another provider:** select the model in the chat itself, even if you already changed the default in Settings.
+
+**Authentication fails:** verify that the key is active and matches the selected billing mode.
+
+**A task pauses:** check whether Kilo is waiting for permission to edit a file or run a command.

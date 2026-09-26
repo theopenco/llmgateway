@@ -73,7 +73,7 @@ export function validateAllowedModels(
 /**
  * The allowed model a save-time probe should be sent to, or undefined when the
  * key is unrestricted (probe the provider's default validation model) or when
- * none of its allowed models can answer a chat completion.
+ * none of its allowed models can answer a chat completion or System One call.
  *
  * A restricted key is probed with one of its own models because the whole point
  * of the restriction is that the upstream account may not have the provider's
@@ -88,12 +88,16 @@ export function pickAllowedValidationModel(
 	if (!allowedModels || allowedModels.length === 0) {
 		return undefined;
 	}
-	return allowedModels.find(
-		(modelId) =>
-			getPinnedValidationModel(
-				provider as ProviderId,
-				modelId,
-				validationOptions,
-			)?.chatCapable === true,
-	);
+	const pinned = allowedModels.map((modelId) => ({
+		modelId,
+		model: getPinnedValidationModel(
+			provider as ProviderId,
+			modelId,
+			validationOptions,
+		),
+	}));
+	return (
+		pinned.find(({ model }) => model?.chatCapable) ??
+		pinned.find(({ model }) => model?.kind === "decision")
+	)?.modelId;
 }

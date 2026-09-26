@@ -33,5 +33,5 @@ export function normalizeLogSource(
 	}
 
 	// Keep wildcard agent recognition from creating unbounded aggregation keys.
-	return CLAW_FORK_PATTERN.test(normalized) ? "openclaw" : "unknown";
+	return CLAW_FORK_PATTERN.test(normalized) ? "openclaw" : null;
 }

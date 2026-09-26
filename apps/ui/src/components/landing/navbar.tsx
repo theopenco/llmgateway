@@ -48,15 +48,16 @@ import {
 	NavigationMenuTrigger,
 } from "@/lib/components/navigation-menu";
 import { useAppConfig } from "@/lib/config";
-import Logo from "@/lib/icons/Logo";
+import { LogoLockup } from "@/lib/icons/Logo";
+import { useSystemBanner } from "@/lib/system-banner-context";
 import { cn } from "@/lib/utils";
 
 import { MARKETING_STATS } from "@llmgateway/shared";
+import { SystemBannerBar } from "@llmgateway/shared/system-banner";
 
-import { RunwarePromoBanner } from "./runware-promo-banner";
+import { ProviderPromoBanner } from "./provider-promo-banner";
 import { ThemeToggle } from "./theme-toggle";
 
-import type { ApiModel, ApiProvider } from "@/lib/fetch-models";
 import type { Route } from "next";
 
 function IconMenuItem({
@@ -139,13 +140,9 @@ function IconMenuItem({
 export const Navbar = ({
 	children,
 	sticky = true,
-	models,
-	providers,
 }: {
 	children?: React.ReactNode;
 	sticky?: boolean;
-	models?: ApiModel[];
-	providers?: ApiProvider[];
 }) => {
 	const config = useAppConfig();
 	const posthog = usePostHog();
@@ -423,6 +420,7 @@ export const Navbar = ({
 		},
 	];
 
+	const systemBanner = useSystemBanner();
 	const [menuState, setMenuState] = useState(false);
 	const [isScrolled, setIsScrolled] = useState(false);
 	const [openMobileSection, setOpenMobileSection] = useState<string | null>(
@@ -439,11 +437,14 @@ export const Navbar = ({
 
 	return (
 		<header>
+			{/* In flow, above the fixed nav, so it pushes the page down instead
+			    of covering it. */}
+			<SystemBannerBar banner={systemBanner} />
 			<nav
 				data-state={menuState && "active"}
 				className={cn("z-20 w-full px-2 group", sticky && "fixed")}
 			>
-				<RunwarePromoBanner collapsed={isScrolled} />
+				<ProviderPromoBanner collapsed={isScrolled} />
 				<div
 					className={cn(
 						"mt-2 mx-auto max-w-[1400px] px-6 transition-all duration-300",
@@ -453,16 +454,9 @@ export const Navbar = ({
 				>
 					<div className="relative flex flex-wrap items-center justify-between gap-6 py-3 nav:flex-nowrap nav:gap-0 nav:py-4">
 						{/* Logo */}
-						<div className="flex w-full justify-between nav:w-auto">
-							<Link
-								href="/"
-								className="flex items-center space-x-2"
-								prefetch={true}
-							>
-								<Logo className="h-8 w-8 rounded-full text-black dark:text-white" />
-								<span className="text-xl font-bold tracking-tight text-zinc-900 dark:text-white whitespace-nowrap">
-									LLM Gateway
-								</span>
+						<div className="flex w-full justify-between nav:mr-4 nav:w-auto nav:shrink-0">
+							<Link href="/" className="flex items-center" prefetch={true}>
+								<LogoLockup className="h-6 w-auto shrink-0 text-black dark:text-white" />
 							</Link>
 
 							<button
@@ -478,7 +472,7 @@ export const Navbar = ({
 						{/* Desktop center nav */}
 						<div className="m-auto hidden items-center gap-1 nav:flex min-w-0">
 							<div className="w-[140px] xl:w-[160px]">
-								<ModelSearch models={models} providers={providers} />
+								<ModelSearch />
 							</div>
 							<NavigationMenu viewport={false} delayDuration={300}>
 								<NavigationMenuList className="flex gap-0.5 text-sm">
@@ -625,7 +619,7 @@ export const Navbar = ({
 							{/* Mobile nav */}
 							<div className="nav:hidden">
 								<div className="mb-4">
-									<ModelSearch models={models} providers={providers} />
+									<ModelSearch />
 								</div>
 								<ul className="text-base">
 									<li>

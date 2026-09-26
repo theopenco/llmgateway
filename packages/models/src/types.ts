@@ -36,9 +36,14 @@ export interface CacheControl {
 export type ProviderCacheControlMode = "auto" | "passthrough" | "off";
 
 // Base content types
+export interface GoogleExtraContent {
+	google?: { thought_signature?: string };
+}
+
 export interface TextContent {
 	type: "text";
 	text: string;
+	extra_content?: GoogleExtraContent;
 	cache_control?: CacheControl;
 	prompt_cache_breakpoint?: PromptCacheBreakpoint;
 }
@@ -138,6 +143,7 @@ export type MessageContent =
 export interface ToolCall {
 	id: string;
 	type: "function";
+	extra_content?: GoogleExtraContent;
 	function: {
 		name: string;
 		arguments: string;
@@ -447,8 +453,9 @@ export interface OpenAIResponsesRequestBody {
 	safety_identifier?: string;
 	reasoning: {
 		effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-		summary: "detailed";
+		summary: "auto" | "detailed";
 		context?: "auto" | "current_turn" | "all_turns";
+		mode?: "standard" | "pro";
 	};
 	/**
 	 * Provider-side response storage (Responses API statefulness). The gateway
@@ -559,10 +566,46 @@ export interface GoogleRequestBody {
 	};
 }
 
+/**
+ * Perplexity Agent API (`POST /v1/agent`) request body. Responses-shaped, but
+ * with its own tool configuration and without the `reasoning` block the
+ * OpenAI Responses body requires, so it gets its own type rather than bending
+ * `OpenAIResponsesRequestBody`.
+ */
+export interface PerplexityAgentRequestBody {
+	/** Agent model id in `provider/model` form, e.g. `perplexity/sonar`. */
+	model: string;
+	input: OpenAIResponsesInputItem[];
+	tools?: Array<{
+		type: "web_search";
+		max_results?: number;
+		user_location?: unknown;
+		search_context_size?: string;
+		filters?: {
+			search_domain_filter?: string[];
+		};
+	}>;
+	tool_choice?: "required";
+	stream?: boolean;
+	temperature?: number;
+	top_p?: number;
+	max_output_tokens?: number;
+	text?: {
+		format?:
+			| { type: "json_object" }
+			| {
+					type: "json_schema";
+					name: string;
+					schema: Record<string, unknown>;
+			  };
+	};
+}
+
 // Generic request body type
 export type ProviderRequestBody =
 	| OpenAIRequestBody
 	| OpenAIResponsesRequestBody
+	| PerplexityAgentRequestBody
 	| AnthropicRequestBody
 	| GoogleRequestBody;
 
@@ -638,6 +681,7 @@ export type RequestBodyPreparer = (
 		aspect_ratio?: string;
 		image_size?: string;
 		image_quality?: string;
+		moderation?: string;
 		n?: number;
 		seed?: number;
 	},

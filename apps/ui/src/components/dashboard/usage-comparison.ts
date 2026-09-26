@@ -1,7 +1,9 @@
 import {
 	addDays,
+	addMonths,
 	differenceInCalendarDays,
 	format,
+	isValid,
 	subDays,
 	subMonths,
 } from "date-fns";
@@ -37,7 +39,20 @@ function parseDay(value: string | null): Date | null {
 		return null;
 	}
 	const date = new Date(`${value}T00:00:00`);
-	return format(date, "yyyy-MM-dd") === value ? date : null;
+	return isValid(date) && format(date, "yyyy-MM-dd") === value ? date : null;
+}
+
+export function namedUsageComparisonRange(
+	mode: "previous-week" | "previous-month",
+	from: Date,
+): UsageDateRange {
+	return {
+		from,
+		to:
+			mode === "previous-week"
+				? addDays(from, 6)
+				: subDays(addMonths(from, 1), 1),
+	};
 }
 
 export function resolveUsageComparisonRange(
@@ -46,10 +61,6 @@ export function resolveUsageComparisonRange(
 	searchParams?: SearchParamsReader,
 ): UsageDateRange | null {
 	const selectedStart = parseDay(searchParams?.get("compareFrom") ?? null);
-	const rangeDays = differenceInCalendarDays(current.to, current.from);
-	const rangeFromStart = selectedStart
-		? { from: selectedStart, to: addDays(selectedStart, rangeDays) }
-		: null;
 
 	switch (mode) {
 		case "previous-period": {
@@ -60,25 +71,15 @@ export function resolveUsageComparisonRange(
 			};
 		}
 		case "previous-week":
-			if (rangeFromStart && rangeFromStart.to >= current.from) {
-				return null;
-			}
-			return (
-				rangeFromStart ?? {
-					from: subDays(current.from, 7),
-					to: subDays(current.to, 7),
-				}
-			);
-		case "previous-month":
-			if (rangeFromStart && rangeFromStart.to >= current.from) {
-				return null;
-			}
-			return (
-				rangeFromStart ?? {
-					from: subMonths(current.from, 1),
-					to: subMonths(current.to, 1),
-				}
-			);
+		case "previous-month": {
+			const from =
+				selectedStart ??
+				(mode === "previous-week"
+					? subDays(current.from, 7)
+					: subMonths(current.from, 1));
+			const range = namedUsageComparisonRange(mode, from);
+			return range.to < current.from ? range : null;
+		}
 		case "custom": {
 			const from = parseDay(searchParams?.get("compareFrom") ?? null);
 			const to = parseDay(searchParams?.get("compareTo") ?? null);

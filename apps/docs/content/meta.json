@@ -1,26 +1,4 @@
 {
-	"title": "LLM Gateway",
-	"description": "LLM Gateway Documentation",
-	"icon": "Building",
-	"root": true,
-	"pages": [
-		"---Get started---",
-		"index",
-		"overview",
-		"quick-start",
-		"---AI Gateway---",
-		"features",
-		"resources",
-		"integrations",
-		"migrations",
-		"self-host",
-		"---Developers---",
-		"developers",
-		"---DevPass & Coding Tools---",
-		"guides",
-		"---Knowledge base---",
-		"learn",
-		"---References---",
-		"...(api)"
-	]
+	"title": "Documentation",
+	"pages": ["(gateway)", "(devpass)", "(lounge)", "(airside)"]
 }

@@ -4,7 +4,7 @@ import { app } from "@/index.js";
 import { createTestUser, deleteAll } from "@/testing.js";
 
 import { encryptProviderKeyForStorage } from "@llmgateway/actions";
-import { db, tables } from "@llmgateway/db";
+import { db, eq, tables } from "@llmgateway/db";
 import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 interface MappingEntry {
@@ -15,17 +15,26 @@ interface MappingEntry {
 	providerKeyManaged: boolean | null;
 	logsCount: number;
 	errorsCount: number;
+	errorRate: number;
 }
 
 interface ListBody {
 	mappings: MappingEntry[];
+	sampledLogs: number;
 	splitByKey: boolean;
 	includeByok: boolean;
+	mapping: string | null;
+	modelId: string | null;
 }
 
 interface ErrorsBody {
 	errors: { statusCode: number | null; count: number }[];
 	sampledErrors: number;
+}
+
+interface ScopeOptionsBody {
+	modelIds: { id: string; source: string }[];
+	mappings: { id: string; source: string }[];
 }
 
 describe("admin unstable mappings", () => {
@@ -88,10 +97,14 @@ describe("admin unstable mappings", () => {
 		hasError = false,
 		statusCode = 500,
 		classification,
+		usedModel = "openai/gpt-4o-mini",
+		usedProvider = "openai",
 	}: {
 		providerKeyId?: string | null;
 		hasError?: boolean;
 		statusCode?: number;
+		usedModel?: string;
+		usedProvider?: string;
 		classification?: "client_error" | "gateway_error" | "upstream_error";
 	}) {
 		logIndex++;
@@ -113,10 +126,10 @@ describe("admin unstable mappings", () => {
 				: null,
 			duration: 100,
 			usedMode: providerKeyId === "um-key-b" ? "api-keys" : "credits",
-			requestedModel: "openai/gpt-4o-mini",
-			requestedProvider: "openai",
-			usedModel: "gpt-4o-mini",
-			usedProvider: "openai",
+			requestedModel: usedModel,
+			requestedProvider: usedProvider,
+			usedModel,
+			usedProvider,
 			responseSize: 10,
 			mode: "credits",
 		});
@@ -187,6 +200,44 @@ describe("admin unstable mappings", () => {
 		expect(body.mappings).toHaveLength(0);
 	});
 
+	test("includes BYOK speech failures only when BYOK traffic is requested", async () => {
+		await db
+			.update(tables.providerKey)
+			.set({ provider: "alibaba" })
+			.where(eq(tables.providerKey.id, "um-key-b"));
+		const usedModel = "alibaba/qwen-audio-3.0-tts-flash";
+		await seedLog({
+			usedModel,
+			usedProvider: "alibaba",
+			providerKeyId: "um-key-b",
+			hasError: true,
+			statusCode: 200,
+			classification: "upstream_error",
+		});
+
+		for (const includeByok of [false, true]) {
+			const query = `ignoreExpected=false&includeByok=${includeByok}`;
+			const body = await getMappings(`?${query}`);
+			expect(body.mappings).toHaveLength(includeByok ? 1 : 0);
+			if (includeByok) {
+				expect(body.mappings[0]).toMatchObject({
+					usedModel,
+					providerId: "alibaba",
+					logsCount: 1,
+					errorsCount: 1,
+					errorRate: 1,
+				});
+			}
+			const res = await app.request(
+				`/admin/unstable-mappings/errors?model=${usedModel}&provider=alibaba&${query}`,
+				{ headers: { Cookie: cookie } },
+			);
+			expect(res.status).toBe(200);
+			const errors = (await res.json()) as ErrorsBody;
+			expect(errors.sampledErrors).toBe(includeByok ? 1 : 0);
+		}
+	});
+
 	test("splits the mapping per provider key with labels", async () => {
 		await seedMixedTraffic();
 
@@ -222,7 +273,7 @@ describe("admin unstable mappings", () => {
 
 		async function getErrors(extra = ""): Promise<ErrorsBody> {
 			const res = await app.request(
-				`/admin/unstable-mappings/errors?model=gpt-4o-mini&provider=openai${extra}`,
+				`/admin/unstable-mappings/errors?model=openai/gpt-4o-mini&provider=openai${extra}`,
 				{ headers: { Cookie: cookie } },
 			);
 			expect(res.status).toBe(200);
@@ -242,5 +293,119 @@ describe("admin unstable mappings", () => {
 		const unattributed = await getErrors("&providerKeyId=__unattributed__");
 		expect(unattributed.sampledErrors).toBe(1);
 		expect(unattributed.errors[0].statusCode).toBe(503);
+	});
+
+	test("filters the ranking to one mapping", async () => {
+		await seedLog({ hasError: true });
+		await seedLog({});
+		await seedLog({
+			usedModel: "openai/gpt-4o",
+			hasError: true,
+		});
+
+		const unfiltered = await getMappings();
+		expect(unfiltered.mapping).toBeNull();
+		expect(unfiltered.mappings).toHaveLength(2);
+		expect(unfiltered.sampledLogs).toBe(3);
+
+		const body = await getMappings("?model=openai/gpt-4o-mini&provider=openai");
+		expect(body.mapping).toBe("openai/gpt-4o-mini");
+		expect(body.mappings).toHaveLength(1);
+		expect(body.mappings[0]).toMatchObject({
+			usedModel: "openai/gpt-4o-mini",
+			logsCount: 2,
+			errorsCount: 1,
+		});
+		expect(body.sampledLogs).toBe(2);
+	});
+
+	test("filters the ranking to every mapping of a canonical model", async () => {
+		await seedLog({ usedModel: "openai/gpt-4o", hasError: true });
+		await seedLog({
+			usedModel: "azure/gpt-4o:eastus",
+			usedProvider: "azure",
+			hasError: true,
+		});
+		await seedLog({ usedModel: "azure/gpt-4o:eastus", usedProvider: "azure" });
+		await seedLog({ usedModel: "openai/gpt-4o-mini", hasError: true });
+
+		const body = await getMappings("?modelId=gpt-4o");
+		expect(body.modelId).toBe("gpt-4o");
+		expect(body.sampledLogs).toBe(3);
+		expect(body.mappings.map((m) => m.usedModel).sort()).toEqual([
+			"azure/gpt-4o:eastus",
+			"openai/gpt-4o",
+		]);
+	});
+
+	test("scope options cover airside listings and the catalogue", async () => {
+		const providerId = "um-airside-carrier";
+		const modelId = "um-airside-model";
+		async function clearAirsideFixtures() {
+			await db
+				.delete(tables.modelProviderMapping)
+				.where(eq(tables.modelProviderMapping.providerId, providerId));
+			await db.delete(tables.model).where(eq(tables.model.id, modelId));
+			await db
+				.delete(tables.provider)
+				.where(eq(tables.provider.id, providerId));
+		}
+
+		await clearAirsideFixtures();
+		await db.insert(tables.provider).values({
+			id: providerId,
+			name: "UM Airside Carrier",
+			description: "test",
+		});
+		await db.insert(tables.model).values({
+			id: modelId,
+			name: "UM Airside Model",
+			family: "test",
+		});
+		await db.insert(tables.modelProviderMapping).values([
+			{
+				id: "um-airside-mapping",
+				modelId,
+				providerId,
+				externalId: modelId,
+				source: "airside",
+			},
+			{
+				id: "um-airside-mapping-eu",
+				modelId,
+				providerId,
+				externalId: modelId,
+				region: "eu-west",
+				source: "airside",
+			},
+		]);
+
+		try {
+			const res = await app.request("/admin/unstable-mappings/scope-options", {
+				headers: { Cookie: cookie },
+			});
+			expect(res.status).toBe(200);
+			const body = (await res.json()) as ScopeOptionsBody;
+
+			expect(body.mappings).toContainEqual({
+				id: `${providerId}/${modelId}`,
+				source: "airside",
+			});
+			// Regional listings are addressable: the filter matches `used_model`.
+			expect(body.mappings).toContainEqual({
+				id: `${providerId}/${modelId}:eu-west`,
+				source: "airside",
+			});
+			expect(body.modelIds).toContainEqual({
+				id: modelId,
+				source: "airside",
+			});
+			expect(body.mappings).toContainEqual({
+				id: "openai/gpt-4o-mini",
+				source: "catalogue",
+			});
+		} finally {
+			await clearAirsideFixtures();
+		}
 	});
 });

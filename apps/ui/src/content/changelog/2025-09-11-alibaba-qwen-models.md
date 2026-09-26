@@ -4,6 +4,7 @@ slug: "alibaba-qwen-models-support"
 date: "2025-09-11"
 title: "New Alibaba Qwen Models: Qwen3 Next, Max, Plus, Flash, Vision"
 summary: "Added support for qwen-max, qwen-max-latest, qwen-plus-latest, qwen-flash, qwen-vl-max, qwen-vl-plus and the new Qwen3 Next 80B A3B Instruct and Thinking models."
+tags: ["llmgateway"]
 image:
   src: "/changelog/alibaba-qwen-models-support-09-11.png"
   alt: "Alibaba Qwen models now available on LLM Gateway"
