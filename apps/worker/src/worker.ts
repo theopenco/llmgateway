@@ -73,6 +73,7 @@ import {
 	PROJECT_STATS_REFRESH_INTERVAL_SECONDS,
 	refreshProjectHourlyStats,
 } from "./services/project-stats-aggregator.js";
+import { runRoutingBaselineBackfillStep } from "./services/routing-baseline-backfill.js";
 import {
 	backfillHistoryIfNeeded,
 	backfillHourlyHistoryIfNeeded,
@@ -125,6 +126,7 @@ const LIMIT_HIT_FLUSH_LOCK_KEY = "limit_hit_flush";
 const STALE_TOPUP_PI_LOCK_KEY = "stale_topup_pi_cancel";
 const WEBHOOK_DELIVERY_LOCK_KEY = "platform_webhook_delivery";
 const MARGIN_PAYOUT_LOCK_KEY = "margin_payout";
+const ROUTING_BASELINE_BACKFILL_LOCK_KEY = "routing_baseline_backfill";
 const LOCK_DURATION_MINUTES = 5;
 // LLM SDK: emit a wallet.low_balance webhook when a wallet's balance
 // crosses below this (USD) on a usage debit.
@@ -2553,6 +2555,37 @@ async function runProjectStatsLoop() {
 	}
 }
 
+async function runRoutingBaselineBackfillLoop() {
+	activeLoops++;
+	try {
+		while (!isStopRequested()) {
+			try {
+				if (!(await acquireLock(ROUTING_BASELINE_BACKFILL_LOCK_KEY))) {
+					await interruptibleSleep(60_000);
+					continue;
+				}
+				let pending: boolean;
+				try {
+					pending = await runRoutingBaselineBackfillStep();
+				} finally {
+					await releaseLock(ROUTING_BASELINE_BACKFILL_LOCK_KEY);
+				}
+				if (!pending) {
+					break;
+				}
+			} catch (error) {
+				logger.error(
+					"Error in routing baseline backfill loop",
+					error instanceof Error ? error : new Error(String(error)),
+				);
+				await interruptibleSleep(5000);
+			}
+		}
+	} finally {
+		activeLoops--;
+	}
+}
+
 async function runGlobalStatsLoop() {
 	activeLoops++;
 	const interval = GLOBAL_STATS_INTERVAL_SECONDS * 1000;
@@ -3307,6 +3340,9 @@ export async function startWorker() {
 		`- Global stats: runs every ${GLOBAL_STATS_INTERVAL_SECONDS} seconds, processes closed buckets incrementally`,
 	);
 	logger.info(
+		"- Routing baseline backfill: prices routed requests of the last 30 days once, then stops",
+	);
+	logger.info(
 		"- Follow-up emails: runs every hour to check for lifecycle emails",
 	);
 	logger.info(
@@ -3322,6 +3358,7 @@ export async function startWorker() {
 	void runAggregatedStatsLoop();
 	void runProjectStatsLoop();
 	void runGlobalStatsLoop();
+	void runRoutingBaselineBackfillLoop();
 	for (let i = 0; i < LOG_QUEUE_CONCURRENCY; i++) {
 		void runLogQueueLoop(i);
 	}

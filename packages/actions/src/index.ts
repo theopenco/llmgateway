@@ -8,6 +8,8 @@ export * from "./transform-google-messages.js";
 export * from "./google-thought-signatures.js";
 export * from "./get-provider-headers.js";
 export * from "./apply-service-tier.js";
+export * from "./costs.js";
+export * from "./routing-baseline.js";
 export * from "./prepare-request-body.js";
 export * from "./get-provider-endpoint.js";
 export * from "./compute-provider-scores.js";
