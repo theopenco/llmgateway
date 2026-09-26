@@ -192,6 +192,17 @@ export function RoutingSavingsCard({
 								/>
 							</LineChart>
 						</ChartContainer>
+						<div className="-mt-3 flex flex-wrap gap-x-4 gap-y-1 px-2 text-xs text-muted-foreground sm:px-0">
+							{Object.values(chartConfig).map(({ label, color }) => (
+								<div key={label} className="flex items-center gap-1.5">
+									<span
+										className="inline-block h-2.5 w-2.5 rounded-sm"
+										style={{ backgroundColor: color }}
+									/>
+									{label}
+								</div>
+							))}
+						</div>
 
 						<Table>
 							<TableHeader>
