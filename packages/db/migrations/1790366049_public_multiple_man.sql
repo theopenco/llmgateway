@@ -1,0 +1,1 @@
+ALTER TABLE "provider_draft_model" ADD COLUMN "paused_at" timestamp;

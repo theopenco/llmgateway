@@ -3,7 +3,7 @@ id: "104"
 slug: "smart-routing"
 date: "2026-09-25"
 title: "Smart Routing"
-summary: "A new `smart` model string: choose which models it may resolve to, and let a classifier rate each request so easy prompts go to a cheap model and hard ones go to a frontier model. Existing `auto` behaviour is unchanged. Free for every organization while in beta; not available on DevPass yet."
+summary: "A new `smart` model string: choose which models it may resolve to, and let a classifier rate each request so easy prompts go to a cheap model and hard ones go to a frontier model. Existing `auto` behaviour is unchanged. Available to every organization while in beta; not available on DevPass yet."
 tags: ["llmgateway"]
 image:
   src: "/changelog/smart-routing.png"
@@ -96,10 +96,17 @@ served and the selected model — on the request's log entry, visible in the
 activity detail view. That metadata is cleared with the rest of the request
 payload when your data retention window elapses.
 
-Smart routing is **free while in beta**, for every organization including
-pay-as-you-go — you pay only for the models it routes to. It is not available
-on DevPass yet. Organization owners and admins set the default; project admins
-can override it per project.
+Smart routing itself carries no platform fee — you pay for the models it routes
+to, plus the classifier call when you use one. A Jev classification is billed at
+the catalogue rate for
+[`jev-1.13.0`](https://llmgateway.io/models/jev-1.13.0/typesafe) and lands on
+your account as its own log entry, against the same project and API key as the
+request that triggered it. The `none` classifier, a verdict reused from a sticky
+session, and a classifier call that fails are all charged nothing.
+
+Smart routing is available to every organization including pay-as-you-go while
+it is in beta. It is not available on DevPass yet. Organization owners and
+admins set the default; project admins can override it per project.
 
 ---
 

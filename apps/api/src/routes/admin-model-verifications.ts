@@ -10,6 +10,9 @@ import {
 	pendingFiledCapabilities,
 	resolveVerificationCredential,
 	serializeVerification,
+	serializeVerificationHistoryEntry,
+	verificationActors,
+	verificationHistoryEntrySchema,
 	type CapabilityOverrides,
 	type ModelVerificationRow,
 } from "@/lib/model-verification.js";
@@ -240,6 +243,53 @@ adminModelVerifications.openapi(queueVerification, async (c) => {
 		throw error;
 	}
 	return c.json({ entry: serializeEntry(verification) }, 202);
+});
+
+const listVerificationHistory = createRoute({
+	method: "get",
+	path: "/model-verifications/history",
+	request: {
+		query: z.object({
+			// Exactly one anchor, mirroring the queue route.
+			mappingId: z.string().optional(),
+			draftModelId: z.string().optional(),
+			limit: z.coerce.number().int().min(1).max(100).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						entries: z.array(verificationHistoryEntrySchema),
+					}),
+				},
+			},
+			description: "Past verification runs, newest first.",
+		},
+	},
+});
+
+adminModelVerifications.openapi(listVerificationHistory, async (c) => {
+	const { mappingId, draftModelId, limit } = c.req.valid("query");
+	if (Boolean(mappingId) === Boolean(draftModelId)) {
+		throw new HTTPException(400, {
+			message: "Provide exactly one of mappingId or draftModelId.",
+		});
+	}
+	const rows = await db.query.providerModelVerification.findMany({
+		where: mappingId
+			? { modelProviderMappingId: { eq: mappingId } }
+			: { draftModelId: { eq: draftModelId! } },
+		orderBy: { createdAt: "desc" },
+		limit: limit ?? 20,
+	});
+	const actors = await verificationActors(rows);
+	return c.json({
+		entries: rows.map((row) =>
+			serializeVerificationHistoryEntry(row, actors, { audience: "admin" }),
+		),
+	});
 });
 
 const getVerification = createRoute({

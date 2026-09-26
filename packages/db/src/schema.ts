@@ -1268,6 +1268,18 @@ export const project = pgTable(
 		// Browser origins allowed to call the gateway with this project's
 		// ephemeral end-user session tokens (CORS allowlist).
 		allowedOrigins: json().$type<string[]>(),
+		// Shown on the end-user's receipt so the payment is recognisable as coming
+		// from the developer's product. LLM Gateway remains merchant of record and
+		// stays on the document. Null = fall back to the project name.
+		endUserBrandName: text(),
+		// Support address printed on the end-user receipt. Null = our own contact
+		// address.
+		endUserSupportEmail: text(),
+		// Appended to our Stripe statement-descriptor prefix (LLMGTWY* <suffix>) on
+		// end-user top-up charges. Capped at 13 characters: the 22-character total
+		// Stripe allows minus "LLMGTWY* ". Normalized on write so the stored value
+		// can never make paymentIntents.create fail.
+		endUserStatementDescriptorSuffix: text(),
 		// Per-project override of the organization's smart-routing configuration.
 		// Null = inherit the organization default.
 		smartRoutingConfig: json().$type<SmartRoutingConfig>(),
@@ -2328,6 +2340,9 @@ export const log = pgTable(
 				band?: "low" | "medium" | "high";
 				selectedModel: string;
 				classifierLatencyMs?: number;
+				// USD billed for the classifier call this request made, on its own
+				// log row. Absent when it made none.
+				classifierCost?: number;
 				classifierFailed: boolean;
 				// True when the verdict served came from another turn of the same
 				// sticky session rather than from this request.
@@ -5032,6 +5047,9 @@ export const providerDraftModel = pgTable(
 			.default("draft"),
 		createdBy: text().references(() => user.id, { onDelete: "set null" }),
 		delistedAt: timestamp(),
+		// Set while the carrier has taken an active listing out of service; its
+		// catalogue mappings are inactive until resumed. No review involved.
+		pausedAt: timestamp(),
 	},
 	(table) => [
 		// Uniqueness applies only to live rows so a delisted model name can be

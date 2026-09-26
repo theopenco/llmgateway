@@ -31,7 +31,10 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { loadProjectLogsAction } from "@/lib/admin-organizations";
+import {
+	loadOrganizationLogsAction,
+	loadProjectLogsAction,
+} from "@/lib/admin-organizations";
 import { cn } from "@/lib/utils";
 
 import {
@@ -80,16 +83,34 @@ interface ModelOption {
 	providerIds: string[];
 }
 
-export function ProjectLogsSection({
+export interface SeatOption {
+	email: string;
+	name: string | null;
+}
+
+export interface LogsProjectOption {
+	id: string;
+	name: string;
+}
+
+export function LogsSection({
 	orgId,
 	projectId,
 	providerOptions,
 	modelOptions,
+	seatOptions,
+	projectOptions,
+	title = "Recent Logs",
 }: {
 	orgId: string;
-	projectId: string;
+	/** Omit to read every project in the organization. */
+	projectId?: string;
 	providerOptions: ProviderOption[];
 	modelOptions: ModelOption[];
+	seatOptions: SeatOption[];
+	/** Only rendered in the organization-wide view. */
+	projectOptions?: LogsProjectOption[];
+	title?: string;
 }) {
 	const searchParams = useSearchParams();
 	const router = useRouter();
@@ -107,6 +128,8 @@ export function ProjectLogsSection({
 	const model = searchParams.get("model") ?? "all";
 	const source = searchParams.get("source") ?? "all";
 	const unifiedFinishReason = searchParams.get("unifiedFinishReason") ?? "all";
+	const userEmail = searchParams.get("userEmail") ?? "all";
+	const logProject = searchParams.get("logProject") ?? "all";
 	const errorTypeParam = searchParams.get("errorType") ?? "all";
 	const errorType: LogErrorType = isLogErrorType(errorTypeParam)
 		? errorTypeParam
@@ -135,6 +158,11 @@ export function ProjectLogsSection({
 	const [modelSearch, setModelSearch] = useState("");
 	const deferredModelSearch = useDeferredValue(modelSearch);
 
+	// Seat (user email) picker state
+	const [seatPickerOpen, setSeatPickerOpen] = useState(false);
+	const [seatSearch, setSeatSearch] = useState("");
+	const deferredSeatSearch = useDeferredValue(seatSearch);
+
 	const getFilters = useCallback(() => {
 		const filters: ProjectLogFilters = {};
 		if (provider !== "all") {
@@ -152,8 +180,23 @@ export function ProjectLogsSection({
 		if (errorType !== "all") {
 			filters.errorType = errorType;
 		}
+		if (userEmail !== "all") {
+			filters.userEmail = userEmail;
+		}
+		if (!projectId && logProject !== "all") {
+			filters.projectId = logProject;
+		}
 		return Object.keys(filters).length > 0 ? filters : undefined;
-	}, [provider, model, source, unifiedFinishReason, errorType]);
+	}, [
+		provider,
+		model,
+		source,
+		unifiedFinishReason,
+		errorType,
+		userEmail,
+		logProject,
+		projectId,
+	]);
 
 	const loadLogs = useCallback(
 		async (cursor?: string, options?: { background?: boolean }) => {
@@ -166,12 +209,9 @@ export function ProjectLogsSection({
 			}
 
 			try {
-				const data = await loadProjectLogsAction(
-					orgId,
-					projectId,
-					cursor,
-					getFilters(),
-				);
+				const data = projectId
+					? await loadProjectLogsAction(orgId, projectId, cursor, getFilters())
+					: await loadOrganizationLogsAction(orgId, cursor, getFilters());
 
 				if (data) {
 					if (cursor) {
@@ -182,7 +222,7 @@ export function ProjectLogsSection({
 					setPagination(data.pagination);
 				}
 			} catch (error) {
-				console.error("Failed to load project logs:", error);
+				console.error("Failed to load logs:", error);
 			} finally {
 				setLoading(false);
 				setLoadingMore(false);
@@ -226,6 +266,37 @@ export function ProjectLogsSection({
 		});
 	}, [deferredModelSearch, modelOptions, provider]);
 
+	const seatSearchTerm = deferredSeatSearch.trim();
+
+	const filteredSeatOptions = useMemo(() => {
+		const normalizedSearch = seatSearchTerm.toLowerCase();
+		if (!normalizedSearch) {
+			return seatOptions;
+		}
+		return seatOptions.filter((option) =>
+			[option.email, option.name ?? ""].some((field) =>
+				field.toLowerCase().includes(normalizedSearch),
+			),
+		);
+	}, [seatOptions, seatSearchTerm]);
+
+	// Former members and users from other organizations never show up in the
+	// member list, so an arbitrary email stays selectable.
+	const showSeatFreeText =
+		seatSearchTerm.length > 0 &&
+		!seatOptions.some(
+			(option) => option.email.toLowerCase() === seatSearchTerm.toLowerCase(),
+		);
+
+	const applySeat = useCallback(
+		(value: string) => {
+			updateFilters({ userEmail: value });
+			setSeatPickerOpen(false);
+			setSeatSearch("");
+		},
+		[updateFilters],
+	);
+
 	const handleProviderChange = useCallback(
 		(value: string) => {
 			const updates: Record<string, string> = { provider: value };
@@ -246,9 +317,103 @@ export function ProjectLogsSection({
 
 	return (
 		<section className="space-y-4">
-			<h2 className="text-lg font-semibold">Recent Logs</h2>
+			<h2 className="text-lg font-semibold">{title}</h2>
 
 			<div className="flex flex-wrap gap-2">
+				{!projectId && projectOptions && projectOptions.length > 0 && (
+					<Select
+						value={logProject}
+						onValueChange={(value) => updateFilters({ logProject: value })}
+					>
+						<SelectTrigger className="w-[200px]">
+							<SelectValue placeholder="Filter by project" />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="all">All projects</SelectItem>
+							{projectOptions.map((p) => (
+								<SelectItem key={p.id} value={p.id}>
+									{p.name}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				)}
+
+				<Popover open={seatPickerOpen} onOpenChange={setSeatPickerOpen}>
+					<PopoverTrigger asChild>
+						<Button
+							variant="outline"
+							role="combobox"
+							aria-expanded={seatPickerOpen}
+							className="w-[240px] justify-between"
+							title="Filter by the user whose API key served the request"
+						>
+							<span className="truncate">
+								{userEmail !== "all" ? userEmail : "Filter by user"}
+							</span>
+							<ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+						</Button>
+					</PopoverTrigger>
+					<PopoverContent className="w-[300px] p-0" align="start">
+						<Command shouldFilter={false}>
+							<CommandInput
+								placeholder="Search or type an email..."
+								value={seatSearch}
+								onValueChange={setSeatSearch}
+							/>
+							<CommandList>
+								{filteredSeatOptions.length === 0 && !showSeatFreeText && (
+									<CommandEmpty>No members found.</CommandEmpty>
+								)}
+								<CommandItem value="all" onSelect={() => applySeat("all")}>
+									<Check
+										className={cn(
+											"h-4 w-4",
+											userEmail === "all" ? "opacity-100" : "opacity-0",
+										)}
+									/>
+									All users
+								</CommandItem>
+								{showSeatFreeText && (
+									<CommandItem
+										value={`free-text-${seatSearchTerm}`}
+										onSelect={() => applySeat(seatSearchTerm)}
+									>
+										<Check className="h-4 w-4 opacity-0" />
+										<span className="truncate">
+											Use &ldquo;{seatSearchTerm}&rdquo;
+										</span>
+									</CommandItem>
+								)}
+								{filteredSeatOptions.map((option) => (
+									<CommandItem
+										key={option.email}
+										value={option.email}
+										onSelect={() => applySeat(option.email)}
+									>
+										<Check
+											className={cn(
+												"h-4 w-4",
+												userEmail === option.email
+													? "opacity-100"
+													: "opacity-0",
+											)}
+										/>
+										<div className="flex min-w-0 flex-col">
+											<span className="truncate">{option.email}</span>
+											{option.name ? (
+												<span className="truncate text-xs text-muted-foreground">
+													{option.name}
+												</span>
+											) : null}
+										</div>
+									</CommandItem>
+								))}
+							</CommandList>
+						</Command>
+					</PopoverContent>
+				</Popover>
+
 				<Select value={provider} onValueChange={handleProviderChange}>
 					<SelectTrigger className="w-[160px]">
 						<SelectValue placeholder="Filter by provider" />
@@ -408,7 +573,9 @@ export function ProjectLogsSection({
 				</div>
 			) : logs.length === 0 ? (
 				<div className="rounded-lg border border-dashed border-border/60 p-8 text-center text-sm text-muted-foreground">
-					No logs found for this project.
+					{projectId
+						? "No logs found for this project."
+						: "No logs found for this organization."}
 				</div>
 			) : (
 				<div className="space-y-2">

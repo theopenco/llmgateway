@@ -661,8 +661,8 @@ export function orgInflightKey(organizationId: string): string {
 /**
  * How long an in-flight slot may live before it is considered leaked and
  * reaped (a pod that crashed mid-stream never releases its slots). Must stay
- * above the longest legitimate request — streams get a 20-minute grace
- * (`SHUTDOWN_GRACE_PERIOD_MS`/`AI_STREAMING_TIMEOUT_MS`) — so a legit
+ * above the longest legitimate request — streams run up to 20 minutes
+ * (`AI_STREAMING_TIMEOUT_MS`) — so a legit
  * long-runner at worst frees its slot early, which only errs permissive.
  */
 export function getOrgInflightStaleSeconds(): number {

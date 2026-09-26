@@ -65,11 +65,51 @@ Before you write any code, configure the project you want to embed:
 1. Open the LLM Gateway dashboard and select your project.
 2. Go to **Settings → Payments SDK** and turn on **End-user sessions** (this requires the preview to be enabled for your project).
 3. _(Optional)_ Set a **markup percent** — the margin you earn on every top-up — and/or a **top-up bonus percent** to gift end-users extra credit (funded from your organization's credit balance).
-4. Add the browser origins allowed to call the gateway, one per line (e.g. `https://app.example.com`), then click **Save Settings**.
-5. Under **Platform Secret Keys**, click **Create Live Key** (or **Create Test Key**) and copy the `sk_…` value immediately.
-6. Store it as a server-side environment variable, for example `LLMGATEWAY_SECRET_KEY`.
+4. Add the browser origins allowed to call the gateway, one per line (e.g. `https://app.example.com`).
+5. Under **Receipts & branding**, set your **brand name**, **support email** and **statement descriptor** so end-user payments are recognisable as yours (see below), then click **Save Settings**.
+6. Under **Platform Secret Keys**, click **Create Live Key** (or **Create Test Key**) and copy the `sk_…` value immediately.
+7. Store it as a server-side environment variable, for example `LLMGATEWAY_SECRET_KEY`.
 
 The platform secret key (`sk_…`) is different from a regular gateway API key (`llmgtwy_…`): it mints end-user sessions and must only ever be used from your backend.
+
+## Receipts and statement descriptors
+
+LLM Gateway is the **merchant of record** for every end-user top-up. Your
+end-users are charged by us, and the receipt and card statement both carry our
+details — which is confusing for someone who only ever visited _your_ product.
+The branding fields exist to close that gap.
+
+After a successful top-up we email the end-user a receipt with a PDF attached:
+
+- Your **brand name** leads the email and appears on the PDF as the product the
+  payment was for. It defaults to the project name.
+- Your **support email**, when set, is the first contact address on the receipt.
+  Ours appears below it, since we are the merchant of record and have to stay
+  reachable for billing questions.
+- Your **statement descriptor** is appended to our prefix on the cardholder's
+  statement, giving `LLMGTWY* ACME AI` rather than a bare `LLMGTWY`. Card
+  networks cap the whole string at 22 characters, so the suffix you supply is
+  limited to 13 and normalized on save.
+
+The receipt also states that LLM Gateway processed the payment and what the
+charge is called on the statement. That explanation appears **only** on these
+receipts — a direct LLM Gateway purchase has no third party to explain, so it
+gets a plain receipt instead.
+
+Refunds send a credit note the same way.
+
+<Callout type="warn">
+	We can only send a receipt to an address we have. Mint sessions with
+	`customer: { externalId: "user_123", email: "user@example.com" }` — a bare
+	`customer: "user_123"` string leaves the end customer without an email and no
+	receipt is sent. Passing the email on a later session updates the stored
+	record.
+</Callout>
+
+<Callout type="info">
+	Test-mode wallets never receive receipts, matching Stripe's own behaviour of
+	not emailing receipts for sandbox payments.
+</Callout>
 
 <Callout>
 	**Test mode.** A `sk_test_…` key is a sandbox key: end-user wallet top-ups go

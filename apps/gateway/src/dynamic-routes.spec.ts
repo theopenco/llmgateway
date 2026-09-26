@@ -13,7 +13,7 @@ import { hashApiKeyForStorage } from "@llmgateway/shared/api-key-hash";
 
 import { app } from "./app.js";
 import { createGatewayApiTestHarness } from "./test-utils/gateway-api-test-harness.js";
-import { waitForLogs } from "./test-utils/test-helpers.js";
+import { requestLogs, waitForLogs } from "./test-utils/test-helpers.js";
 
 import type { DynamicRouteGraph } from "@llmgateway/shared/dynamic-route";
 
@@ -505,7 +505,8 @@ describe("dynamic routes request path", () => {
 		expect(easy.status).toBe(200);
 		expect((await easy.json()).model).toBe("openai/gpt-4.1-nano");
 
-		const decisions = (await waitForLogs(2)).map(
+		// Four rows: two requests, each with its own billed classifier call.
+		const decisions = requestLogs(await waitForLogs(4)).map(
 			(log) => log.routingMetadata?.dynamicRoute?.classifier,
 		);
 		expect(decisions.map((d) => d?.kind)).toEqual(["jev", "jev"]);

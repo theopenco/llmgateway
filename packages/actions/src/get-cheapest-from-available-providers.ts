@@ -213,6 +213,10 @@ export interface RoutingMetadata {
 		// Latency of the classifier call this request made; absent when it made
 		// none.
 		classifierLatencyMs?: number;
+		// USD billed for the classifier call this request made, on its own log
+		// row. Absent when it made none — a reused session verdict is not
+		// re-billed.
+		classifierCost?: number;
 		// True when a classifier call was attempted and produced no verdict, so
 		// the selection fell back to the cheapest candidate. A classifier that is
 		// never consulted at all — no credential, a blocking compliance policy, a
