@@ -68,6 +68,34 @@ describe("insertLog retention stripping", () => {
 		dbInsertValues.mockClear();
 	});
 
+	it.each([
+		["llmgateway", 429, "rate_limit"],
+		["llmgateway", 402, "billing"],
+		["llmgateway", 401, "authentication"],
+		["llmgateway", 403, "permission"],
+		["openai", 429, "upstream"],
+	] as const)(
+		"classifies %s %s before queuing without payload retention",
+		async (usedProvider, statusCode, category) => {
+			await insertLog(
+				baseLogData({
+					usedProvider,
+					hasError: true,
+					finishReason: "client_error",
+					errorDetails: {
+						statusCode,
+						statusText: "Rejected",
+						responseText: "Rejected",
+					},
+				}),
+				{ retentionLevel: "none" },
+			);
+			const published = publishToQueue.mock.calls[0][1] as LogInsertData;
+			expect(published.errorCategory).toBe(category);
+			expect(published.messages).toBeNull();
+		},
+	);
+
 	it("strips payload fields before publishing when retention is none", async () => {
 		await insertLog(baseLogData({}), { retentionLevel: "none" });
 
