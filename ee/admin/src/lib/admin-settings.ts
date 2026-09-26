@@ -1,5 +1,6 @@
 "use server";
 
+import { apiErrorMessage } from "./api-error";
 import { createServerApiClient } from "./server-api";
 
 import type { SystemBannerSeverity } from "@llmgateway/shared";
@@ -91,8 +92,19 @@ export interface ContentFilterSettingsInput {
 
 export async function getContentFilterSettings() {
 	const $api = await createServerApiClient();
-	const { data } = await $api.GET("/admin/settings/content-filter");
-	return data ?? null;
+	const { data, error, response } = await $api.GET(
+		"/admin/settings/content-filter",
+	);
+	if (!response.ok || !data) {
+		throw new Error(
+			apiErrorMessage(
+				error,
+				"Failed to load content filter settings",
+				response,
+			),
+		);
+	}
+	return data;
 }
 
 export async function updateContentFilterSettings(

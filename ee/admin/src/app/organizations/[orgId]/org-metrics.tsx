@@ -10,20 +10,19 @@ import {
 	TrendingDown,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
 
 import { TokenTimeRangeToggle } from "@/components/token-time-range-toggle";
 import {
 	UsageModeSelector,
 	useUsageMode,
 } from "@/components/usage-mode-selector";
-import { loadMetricsAction } from "@/lib/admin-organizations";
+import { useApi } from "@/lib/fetch-client";
 import { pickCost, pickRequests } from "@/lib/usage-mode";
 import { cn } from "@/lib/utils";
 
 import { formatCompactNumber } from "@llmgateway/shared/number-format";
 
-import type { OrganizationMetrics, TokenWindow } from "@/lib/types";
+import type { TokenWindow } from "@/lib/types";
 
 const validWindows = new Set<TokenWindow>([
 	"1h",
@@ -103,23 +102,15 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 
 	const window = parseWindow(searchParams.get("window"));
 	const usageMode = useUsageMode();
-	const [metrics, setMetrics] = useState<OrganizationMetrics | null>(null);
-	const [loading, setLoading] = useState(true);
-
-	const loadMetrics = useCallback(
-		async (w: TokenWindow) => {
-			setLoading(true);
-			const data = await loadMetricsAction(orgId, w);
-			setMetrics(data);
-			setLoading(false);
-		},
-		[orgId],
-	);
-
-	// Load metrics automatically on mount and when window changes
-	useEffect(() => {
-		void loadMetrics(window);
-	}, [loadMetrics, window]);
+	const api = useApi();
+	const {
+		data: metrics,
+		isPending: loading,
+		isError,
+		refetch,
+	} = api.useQuery("get", "/admin/organizations/{orgId}", {
+		params: { path: { orgId }, query: { window: window } },
+	});
 
 	if (loading) {
 		return (
@@ -138,7 +129,16 @@ export function OrgMetricsSection({ orgId }: { orgId: string }) {
 			<section className="space-y-4">
 				<h2 className="text-lg font-semibold">Usage Metrics</h2>
 				<div className="rounded-lg border border-dashed border-border/60 p-8 text-center text-sm text-muted-foreground">
-					No usage data available.
+					{isError ? "Unable to load usage data." : "No usage data available."}
+					{isError && (
+						<button
+							type="button"
+							onClick={() => void refetch()}
+							className="ml-2 underline"
+						>
+							Try again
+						</button>
+					)}
 				</div>
 			</section>
 		);

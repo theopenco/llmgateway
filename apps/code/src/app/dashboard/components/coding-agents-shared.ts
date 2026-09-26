@@ -193,7 +193,7 @@ export function computeModelBreakdown(logs: ApiLog[]): ModelUsage[] {
 			};
 			map.set(key, entry);
 		}
-		entry.requestCount += 1;
+		entry.requestCount += log.retriedByLogId ? 0 : 1;
 		entry.promptTokens += Number(log.promptTokens ?? 0);
 		entry.completionTokens += Number(log.completionTokens ?? 0);
 		entry.totalTokens += Number(log.totalTokens ?? 0);

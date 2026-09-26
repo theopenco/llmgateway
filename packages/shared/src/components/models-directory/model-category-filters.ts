@@ -240,7 +240,8 @@ export function isTextOutput(output: string[] | null | undefined): boolean {
 		!output?.includes("embedding") &&
 		!output?.includes("rerank") &&
 		!output?.includes("decision") &&
-		!output?.includes("search")
+		!output?.includes("search") &&
+		(!output?.includes("audio") || output.includes("text"))
 	);
 }
 

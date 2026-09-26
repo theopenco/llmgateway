@@ -224,6 +224,7 @@ export function AISearchInput(props: ComponentProps<"form">) {
 
 function List(props: Omit<ComponentProps<"div">, "dir">) {
 	const containerRef = useRef<HTMLDivElement>(null);
+	const contentRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		if (!containerRef.current) {
@@ -244,7 +245,7 @@ function List(props: Omit<ComponentProps<"div">, "dir">) {
 		const observer = new ResizeObserver(callback);
 		callback();
 
-		const element = containerRef.current?.firstElementChild;
+		const element = contentRef.current;
 
 		if (element) {
 			observer.observe(element);
@@ -264,7 +265,9 @@ function List(props: Omit<ComponentProps<"div">, "dir">) {
 				props.className,
 			)}
 		>
-			{props.children}
+			<div ref={contentRef} className="min-h-full shrink-0">
+				{props.children}
+			</div>
 		</div>
 	);
 }

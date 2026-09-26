@@ -206,15 +206,6 @@ export async function POST(req: Request) {
 			{ status: 429 },
 		);
 	}
-	if (!isGlobalAllowed(GLOBAL_HOURLY_LIMIT_MAX, HOURLY_LIMIT_WINDOW_MS)) {
-		return Response.json(
-			{
-				error:
-					"Ask AI is experiencing unusually high volume. Please try again later.",
-			},
-			{ status: 429 },
-		);
-	}
 
 	const llmgateway = createLLMGateway({
 		apiKey,
@@ -230,6 +221,16 @@ export async function POST(req: Request) {
 		return Response.json(
 			{ error: "Too many messages in conversation" },
 			{ status: 400 },
+		);
+	}
+
+	if (!isGlobalAllowed(GLOBAL_HOURLY_LIMIT_MAX, HOURLY_LIMIT_WINDOW_MS)) {
+		return Response.json(
+			{
+				error:
+					"Ask AI is experiencing unusually high volume. Please try again later.",
+			},
+			{ status: 429 },
 		);
 	}
 

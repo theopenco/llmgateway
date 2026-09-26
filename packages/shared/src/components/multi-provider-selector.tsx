@@ -61,7 +61,7 @@ export function MultiProviderSelector({
 		isPolicyAware && compatibleOnly
 			? providers.filter(
 					(provider) =>
-						provider.meetsPolicy !== false ||
+						provider.meetsPolicy === true ||
 						selectedProviders.includes(provider.id),
 				)
 			: providers;
