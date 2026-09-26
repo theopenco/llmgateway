@@ -107,6 +107,7 @@ import {
 	gte,
 	inArray,
 	invalidateOrganizationsCache,
+	isEmailSuppressed,
 	isNotNull,
 	isNull,
 	lt,
@@ -154,6 +155,11 @@ import {
 	fromEmail,
 	replyToEmail,
 } from "@llmgateway/shared/email";
+import {
+	buildUnsubscribeHeaders,
+	renderFooterText,
+	signUnsubscribeToken,
+} from "@llmgateway/shared/email-unsubscribe";
 
 import type { ServerTypes } from "@/vars.js";
 import type { SystemBanner } from "@llmgateway/shared";
@@ -13340,6 +13346,12 @@ const sendEmail = createRoute({
 						to: z.string().email(),
 						subject: z.string().min(1),
 						body: z.string().min(1),
+						/**
+						 * Admins compose the body, so only they can say what it is.
+						 * "marketing" honours the suppression list and adds an
+						 * unsubscribe footer and headers.
+						 */
+						category: z.enum(["transactional", "marketing"]),
 					}),
 				},
 			},
@@ -13360,7 +13372,7 @@ const sendEmail = createRoute({
 });
 
 admin.openapi(sendEmail, async (c) => {
-	const { to, subject, body: emailBody } = c.req.valid("json");
+	const { to, subject, body: emailBody, category } = c.req.valid("json");
 
 	const { getResendClient, fromEmail, replyToEmail } =
 		await import("@llmgateway/shared/email");
@@ -13373,12 +13385,27 @@ admin.openapi(sendEmail, async (c) => {
 		);
 	}
 
+	const isMarketing = category === "marketing";
+	if (isMarketing && (await isEmailSuppressed(to, "marketing"))) {
+		return c.json({
+			success: false,
+			message: "Recipient has unsubscribed from marketing email.",
+		});
+	}
+
+	const token = isMarketing
+		? signUnsubscribeToken({ email: to, category: "marketing" })
+		: null;
+
 	const { error } = await resend.emails.send({
 		from: fromEmail,
 		to: [to],
 		replyTo: replyToEmail,
 		subject,
-		text: emailBody,
+		text: token
+			? `${emailBody}${renderFooterText("marketing", token)}`
+			: `${emailBody}${renderFooterText("transactional")}`,
+		...(token ? { headers: buildUnsubscribeHeaders(token) } : {}),
 	});
 
 	if (error) {

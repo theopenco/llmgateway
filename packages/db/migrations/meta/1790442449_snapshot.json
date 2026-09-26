@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "257b5c18-14cd-4106-aa90-e0bd2d228301",
+  "id": "ec114b85-60e0-400d-86bd-18c29bbdb769",
   "prevId": "c01d95c9-b5e3-449a-af2c-9ccd10329be1",
   "ddl": [
     {
@@ -175,6 +175,12 @@
     {
       "isRlsEnabled": false,
       "name": "dynamic_route_version",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "email_unsubscribe",
       "entityType": "tables",
       "schema": "public"
     },
@@ -1788,102 +1794,6 @@
       "table": "api_key_hourly_model_stats"
     },
     {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_duration",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_model_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "duration_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_model_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_model_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_model_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_reasoning_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_model_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_reasoning_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_model_stats"
-    },
-    {
       "type": "real",
       "typeSchema": null,
       "notNull": true,
@@ -2605,102 +2515,6 @@
       "table": "api_key_hourly_source_stats"
     },
     {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_duration",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "duration_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_reasoning_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_reasoning_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_source_stats"
-    },
-    {
       "type": "real",
       "typeSchema": null,
       "notNull": true,
@@ -3404,102 +3218,6 @@
       "generated": null,
       "identity": null,
       "name": "cache_write_tokens",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_duration",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "duration_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_reasoning_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "api_key_hourly_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_reasoning_token_count",
       "entityType": "columns",
       "schema": "public",
       "table": "api_key_hourly_stats"
@@ -6972,6 +6690,77 @@
       "entityType": "columns",
       "schema": "public",
       "table": "dynamic_route_version"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_unsubscribe"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "now()",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_unsubscribe"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "email",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_unsubscribe"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "category",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_unsubscribe"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": {
+        "value": "'one_click'",
+        "type": "unknown"
+      },
+      "generated": null,
+      "identity": null,
+      "name": "source",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "email_unsubscribe"
     },
     {
       "type": "text",
@@ -20615,102 +20404,6 @@
       "table": "project_hourly_model_stats"
     },
     {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_duration",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_model_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "duration_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_model_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_model_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_model_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_reasoning_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_model_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_reasoning_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_model_stats"
-    },
-    {
       "type": "real",
       "typeSchema": null,
       "notNull": true,
@@ -21615,102 +21308,6 @@
       "table": "project_hourly_source_stats"
     },
     {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_duration",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "duration_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_source_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_source_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_reasoning_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_source_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_reasoning_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_source_stats"
-    },
-    {
       "type": "real",
       "typeSchema": null,
       "notNull": true,
@@ -22401,102 +21998,6 @@
       "generated": null,
       "identity": null,
       "name": "cache_write_tokens",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_duration",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "duration_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_token_count",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_stats"
-    },
-    {
-      "type": "bigint",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "total_time_to_first_reasoning_token",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "project_hourly_stats"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": {
-        "value": "0",
-        "type": "unknown"
-      },
-      "generated": null,
-      "identity": null,
-      "name": "time_to_first_reasoning_token_count",
       "entityType": "columns",
       "schema": "public",
       "table": "project_hourly_stats"
@@ -32324,6 +31825,27 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "email",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "email_unsubscribe_email_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "email_unsubscribe"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "project_id",
           "isExpression": false,
           "asc": true,
@@ -40918,6 +40440,16 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "email_unsubscribe_pkey",
+      "schema": "public",
+      "table": "email_unsubscribe",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "end_customer_pkey",
       "schema": "public",
       "table": "end_customer",
@@ -42020,6 +41552,18 @@
       "entityType": "uniques",
       "schema": "public",
       "table": "dynamic_route_version"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "email",
+        "category"
+      ],
+      "nullsNotDistinct": false,
+      "name": "email_unsubscribe_email_category_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "email_unsubscribe"
     },
     {
       "nameExplicit": false,
