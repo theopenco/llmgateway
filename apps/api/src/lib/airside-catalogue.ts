@@ -114,7 +114,7 @@ export async function materializeAirsideModel(
 			reasoningMaxTokens: model.reasoningMaxTokens,
 			reasoningEfforts: model.reasoningEfforts,
 			webSearch: model.webSearch,
-			status: "active" as const,
+			status: model.pausedAt ? ("inactive" as const) : ("active" as const),
 			deactivatedAt: null,
 		};
 		if (existingMapping.length > 0) {
@@ -380,4 +380,21 @@ export async function dematerializeAirsideModel(
 		return;
 	}
 	await cdb.transaction(remove);
+}
+/** Take a listing's catalogue mappings out of (or back into) service. */
+export async function setAirsideModelServing(
+	model: DraftModelRow,
+	serving: boolean,
+	transaction: CatalogueTransaction,
+): Promise<void> {
+	await transaction
+		.update(tables.modelProviderMapping)
+		.set({ status: serving ? "active" : "inactive" })
+		.where(
+			and(
+				eq(tables.modelProviderMapping.modelId, model.modelName),
+				eq(tables.modelProviderMapping.providerId, model.providerId),
+				eq(tables.modelProviderMapping.source, "airside"),
+			),
+		);
 }

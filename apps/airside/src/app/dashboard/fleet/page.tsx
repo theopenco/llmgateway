@@ -5,7 +5,9 @@ import {
 	Download,
 	KeyRound,
 	Loader2,
+	Pause,
 	Pencil,
+	Play,
 	Plus,
 	ShieldCheck,
 	Stamp,
@@ -134,6 +136,67 @@ function RegionFareChip({
 				)
 			) : null}
 		</span>
+	);
+}
+
+function PauseModelButton({ model }: { model: AirsideModel }) {
+	const api = useApi();
+	const queryClient = useQueryClient();
+	const paused = !!model.pausedAt;
+
+	const options = {
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({
+				queryKey: api.queryOptions("get", "/airside/models", {
+					params: {
+						query: { providerCompanyId: model.providerCompanyId },
+					},
+				}).queryKey,
+			});
+			toast.success(
+				paused
+					? `${model.modelName} is back in service.`
+					: `${model.modelName} paused — it receives no traffic until resumed.`,
+			);
+		},
+		onError: (error: unknown) => {
+			toast.error(
+				(error as { message?: string })?.message ??
+					(paused ? "Failed to resume model" : "Failed to pause model"),
+			);
+		},
+	};
+	const pause = api.useMutation("post", "/airside/models/{id}/pause", options);
+	const resume = api.useMutation(
+		"post",
+		"/airside/models/{id}/resume",
+		options,
+	);
+
+	if (model.status !== "active") {
+		return null;
+	}
+
+	const mutation = paused ? resume : pause;
+
+	return (
+		<Button
+			size="sm"
+			variant="outline"
+			disabled={mutation.isPending}
+			data-testid={`${paused ? "resume" : "pause"}-${model.modelName}`}
+			onClick={() => mutation.mutate({ params: { path: { id: model.id } } })}
+		>
+			{paused ? (
+				<>
+					<Play className="size-3.5" /> Resume
+				</>
+			) : (
+				<>
+					<Pause className="size-3.5" /> Pause
+				</>
+			)}
+		</Button>
 	);
 }
 
@@ -406,12 +469,16 @@ export default function FleetPage() {
 			) : (
 				<ul className="space-y-3">
 					{models.map((model) => {
-						const status = STATUS_META[model.status];
+						const paused = model.status === "active" && !!model.pausedAt;
+						const status = paused
+							? { label: "Paused", variant: "secondary" as const }
+							: STATUS_META[model.status];
 						// A live listing whose last preflight failed still serves
 						// traffic, so the badge says so rather than claiming a clean
 						// bill of health it no longer has.
 						const unverified =
 							model.status === "active" &&
+							!paused &&
 							model.latestVerification?.status === "failed";
 						return (
 							<li
@@ -420,7 +487,11 @@ export default function FleetPage() {
 								className={cn(
 									"border-border bg-card rounded-lg border border-l-4 p-4",
 									model.status === "active" &&
-										(unverified ? "border-l-primary" : "border-l-signal"),
+										(paused
+											? "border-l-muted-foreground"
+											: unverified
+												? "border-l-primary"
+												: "border-l-signal"),
 									model.status === "draft" && "border-l-primary",
 									model.status === "rejected" && "border-l-destructive",
 									model.status === "delisted" && "border-l-muted opacity-60",
@@ -438,7 +509,9 @@ export default function FleetPage() {
 													unverified
 														? (model.latestVerification?.summary ??
 															"The last preflight failed.")
-														: undefined
+														: paused
+															? "This listing receives no traffic until you resume it. Imported catalogue models fall back to the built-in catalogue entry meanwhile."
+															: undefined
 												}
 											>
 												{unverified
@@ -564,6 +637,7 @@ export default function FleetPage() {
 															<ShieldCheck className="size-3.5" /> Verify
 														</Button>
 													</VerifyModelDialog>
+													<PauseModelButton model={model} />
 													<FileFareDialog model={model}>
 														<Button
 															size="sm"

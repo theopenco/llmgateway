@@ -115,6 +115,11 @@
 			"import": "./dist/routing-config.js",
 			"default": "./dist/routing-config.js"
 		},
+		"./smart-routing": {
+			"types": "./dist/smart-routing.d.ts",
+			"import": "./dist/smart-routing.js",
+			"default": "./dist/smart-routing.js"
+		},
 		"./dynamic-route": {
 			"types": "./dist/dynamic-route.d.ts",
 			"import": "./dist/dynamic-route.js",

@@ -75,7 +75,12 @@ function getModelByJsonCapability(
 	const isChat = (m: ModelDefinition) =>
 		(m.output ?? ["text"]).some((o) => o === "text" || o === "image");
 	const m = (models as readonly ModelDefinition[]).find((model) => {
-		if (!isChat(model) || model.id === "auto" || model.id === "custom") {
+		if (
+			!isChat(model) ||
+			model.id === "auto" ||
+			model.id === "smart" ||
+			model.id === "custom"
+		) {
 			return false;
 		}
 		const soft = model.providers.some(

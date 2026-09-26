@@ -69,6 +69,11 @@ export default function ListingGuide() {
 					LLMGateway usage or billing. Resolve failed checks before submitting
 					the model. Changing the verified mapping requires a new verification.
 				</p>
+				<p className="mt-3">
+					Every preflight stays on the record. The Verify dialog lists past runs
+					for the listing — yours and the ones we run from our side — so you can
+					select an older run and see what failed before it was fixed.
+				</p>
 			</section>
 			<section>
 				<h2>4. Submit prices for review</h2>

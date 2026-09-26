@@ -19,6 +19,13 @@ import { useCustomProviderSelection } from "@/hooks/useCustomProviders";
 import { Button } from "@/lib/components/button";
 import { Input } from "@/lib/components/input";
 import { Label } from "@/lib/components/label";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/lib/components/select";
 
 import {
 	type ModelDefinition,
@@ -31,6 +38,8 @@ import {
 	type SelectableProviderOption,
 } from "@llmgateway/shared/components";
 import {
+	DYNAMIC_ROUTE_CLASSIFIER_FIELDS,
+	DYNAMIC_ROUTE_CLASSIFIER_KINDS,
 	DYNAMIC_ROUTE_METADATA_PATHS,
 	type DynamicRouteCondition,
 	type DynamicRouteGraph,
@@ -69,6 +78,7 @@ const SELECTABLE_MODELS = models.filter(
 const NODE_TYPE_LABELS: Record<DynamicRouteNode["type"], string> = {
 	model: "Model",
 	conditional: "Conditional",
+	classifier: "Classifier",
 	percentage: "Percentage",
 	end: "End",
 };
@@ -206,6 +216,52 @@ function ConditionalFlowNode({
 	);
 }
 
+function ClassifierFlowNode({
+	data,
+	selected,
+}: {
+	data: FlowNodeData;
+	selected?: boolean;
+}) {
+	const node = data.node as Extract<DynamicRouteNode, { type: "classifier" }>;
+	return (
+		<div className={nodeCardClass(Boolean(selected))}>
+			<Handle
+				type="target"
+				position={Position.Left}
+				id="in"
+				className={targetHandleClass}
+			/>
+			<NodeTitle node={node} label="Classifier" />
+			<div className="mb-1 text-[10px] text-muted-foreground">
+				{node.kind} · {node.on}
+			</div>
+			<div className="space-y-1">
+				{node.cases.map((entry, index) => (
+					<div key={index} className={branchRowClass(selected)}>
+						{entry.value || "?"}
+						<Handle
+							type="source"
+							position={Position.Right}
+							id={`c${index}`}
+							className={sourceHandleClass}
+						/>
+					</div>
+				))}
+				<div className={branchRowClass(selected)}>
+					else
+					<Handle
+						type="source"
+						position={Position.Right}
+						id="else"
+						className={sourceHandleClass}
+					/>
+				</div>
+			</div>
+		</div>
+	);
+}
+
 function PercentageFlowNode({
 	data,
 	selected,
@@ -270,6 +326,7 @@ const NODE_TYPES = {
 	start: StartFlowNode,
 	model: ModelFlowNode,
 	conditional: ConditionalFlowNode,
+	classifier: ClassifierFlowNode,
 	percentage: PercentageFlowNode,
 	end: EndFlowNode,
 };
@@ -354,6 +411,30 @@ function RouteFlowEditorInner({
 							target: condition.next,
 							targetHandle: "in",
 							label: `#${index + 1}`,
+						});
+					}
+				});
+				if (node.else) {
+					edges.push({
+						id: `${node.id}:else`,
+						source: node.id,
+						sourceHandle: "else",
+						target: node.else,
+						targetHandle: "in",
+						label: "else",
+					});
+				}
+			}
+			if (node.type === "classifier") {
+				node.cases.forEach((entry, index) => {
+					if (entry.next) {
+						edges.push({
+							id: `${node.id}:c${index}`,
+							source: node.id,
+							sourceHandle: `c${index}`,
+							target: entry.next,
+							targetHandle: "in",
+							label: entry.value || `#${index + 1}`,
 						});
 					}
 				});
@@ -629,6 +710,9 @@ function NodeInspector({
 			)}
 			{node.type === "conditional" && (
 				<ConditionalInspector node={node} onChange={onChange} />
+			)}
+			{node.type === "classifier" && (
+				<ClassifierInspector node={node} onChange={onChange} />
 			)}
 			{node.type === "percentage" && (
 				<PercentageInspector node={node} onChange={onChange} />
@@ -933,6 +1017,141 @@ function ConditionalInspector({
 			<p className="text-[10px] text-muted-foreground">
 				Conditions are evaluated top to bottom; the first match wins. Wire each
 				condition&apos;s handle (and the else handle) on the canvas.
+			</p>
+		</div>
+	);
+}
+
+function ClassifierInspector({
+	node,
+	onChange,
+}: {
+	node: Extract<DynamicRouteNode, { type: "classifier" }>;
+	onChange: (updater: (node: DynamicRouteNode) => DynamicRouteNode) => void;
+}) {
+	const allowed = DYNAMIC_ROUTE_CLASSIFIER_FIELDS[node.on];
+	return (
+		<div className="space-y-2">
+			<div className="grid grid-cols-2 gap-2">
+				<div>
+					<Label className="text-[11px]">Classifier</Label>
+					<Select
+						value={node.kind}
+						onValueChange={(kind: string) =>
+							onChange((n) =>
+								n.type === "classifier"
+									? { ...n, kind: kind as typeof n.kind }
+									: n,
+							)
+						}
+					>
+						<SelectTrigger className="h-7 text-xs">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{DYNAMIC_ROUTE_CLASSIFIER_KINDS.map((kind) => (
+								<SelectItem key={kind} value={kind}>
+									{kind}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</div>
+				<div>
+					<Label className="text-[11px]">Branch on</Label>
+					<Select
+						value={node.on}
+						onValueChange={(on: string) =>
+							onChange((n) =>
+								n.type === "classifier"
+									? // Values belong to the old answer, so reset them.
+										{
+											...n,
+											on: on as typeof n.on,
+											cases: n.cases.map((c) => ({ ...c, value: "" })),
+										}
+									: n,
+							)
+						}
+					>
+						<SelectTrigger className="h-7 text-xs">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{Object.keys(DYNAMIC_ROUTE_CLASSIFIER_FIELDS).map((field) => (
+								<SelectItem key={field} value={field}>
+									{field}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</div>
+			</div>
+			{node.cases.map((entry, index) => (
+				<div key={index} className="flex items-center gap-2">
+					<Select
+						value={entry.value}
+						onValueChange={(value: string) =>
+							onChange((n) =>
+								n.type === "classifier"
+									? {
+											...n,
+											cases: n.cases.map((c, i) =>
+												i === index ? { ...c, value } : c,
+											),
+										}
+									: n,
+							)
+						}
+					>
+						<SelectTrigger className="h-7 flex-1 text-xs">
+							<SelectValue placeholder="value" />
+						</SelectTrigger>
+						<SelectContent>
+							{allowed.map((value) => (
+								<SelectItem key={value} value={value}>
+									{value}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					{node.cases.length > 1 && (
+						<button
+							type="button"
+							aria-label={`Remove case ${index + 1}`}
+							className="text-[11px] text-muted-foreground hover:text-destructive"
+							onClick={() =>
+								onChange((n) =>
+									n.type === "classifier"
+										? { ...n, cases: n.cases.filter((_, i) => i !== index) }
+										: n,
+								)
+							}
+						>
+							remove
+						</button>
+					)}
+				</div>
+			))}
+			<Button
+				variant="outline"
+				size="sm"
+				className="h-7 w-full text-xs"
+				disabled={node.cases.length >= allowed.length}
+				onClick={() =>
+					onChange((n) =>
+						n.type === "classifier"
+							? { ...n, cases: [...n.cases, { value: "", next: "" }] }
+							: n,
+					)
+				}
+			>
+				Add case
+			</Button>
+			<p className="text-[10px] text-muted-foreground">
+				The classifier rates each request and the matching case is followed.
+				Adds one short round trip; a sticky session is rated once. If the
+				classifier is unavailable the else branch is taken.
 			</p>
 		</div>
 	);

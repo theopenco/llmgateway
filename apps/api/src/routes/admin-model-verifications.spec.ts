@@ -25,6 +25,15 @@ interface Entry {
 	};
 }
 
+interface HistoryEntry {
+	id: string;
+	status: string;
+	summary: string | null;
+	initiatedBy: "carrier" | "admin";
+	actorName: string | null;
+	actorEmail: string | null;
+}
+
 describe("admin model verifications", () => {
 	let cookie: string;
 
@@ -207,6 +216,46 @@ describe("admin model verifications", () => {
 		const body = (await res.json()) as { entries: Entry[] };
 		expect(body.entries).toHaveLength(1);
 		expect(body.entries[0].mappingId).toBe("mv-mapping");
+	});
+
+	test("lists every past run for a mapping with who triggered it", async () => {
+		const first = (await (await queue({ mappingId: "mv-mapping" })).json()) as {
+			entry: Entry;
+		};
+		await db
+			.update(tables.providerModelVerification)
+			.set({ status: "failed", summary: "vision failed" })
+			.where(
+				eq(tables.providerModelVerification.id, first.entry.verification.id),
+			);
+		const second = (await (
+			await queue({ mappingId: "mv-mapping" })
+		).json()) as {
+			entry: Entry;
+		};
+
+		const res = await app.request(
+			"/admin/model-verifications/history?mappingId=mv-mapping",
+			{ headers: { Cookie: cookie } },
+		);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { entries: HistoryEntry[] };
+		expect(body.entries.map((entry) => entry.id)).toEqual([
+			second.entry.verification.id,
+			first.entry.verification.id,
+		]);
+		expect(body.entries[1].status).toBe("failed");
+		expect(body.entries[1].summary).toBe("vision failed");
+		expect(body.entries[0].initiatedBy).toBe("admin");
+		expect(body.entries[0].actorName).toBe("Test User");
+		expect(body.entries[0].actorEmail).toBe("admin@example.com");
+	});
+
+	test("history needs exactly one anchor", async () => {
+		const res = await app.request("/admin/model-verifications/history", {
+			headers: { Cookie: cookie },
+		});
+		expect(res.status).toBe(400);
 	});
 
 	test("cancels a queued run and frees the mapping", async () => {

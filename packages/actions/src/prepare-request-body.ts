@@ -16,6 +16,7 @@ import {
 	type OpenAIRequestBody,
 	type OpenAIResponsesRequestBody,
 	type OpenAIToolInput,
+	type PerplexityAgentRequestBody,
 	type PromptCacheOptions,
 	type PromptCacheRetention,
 	type ProviderCacheControlMode,
@@ -2381,10 +2382,13 @@ export async function prepareRequestBody(
 					}
 				}
 
-				if (usedProvider === "openai") {
+				if (usedProvider === "openai" || usedProvider === "azure") {
 					if (supportedServiceTier) {
 						responsesBody.service_tier = supportedServiceTier;
 					}
+				}
+
+				if (usedProvider === "openai") {
 					if (
 						allowProviderCacheWrites &&
 						prompt_cache_retention !== undefined &&
@@ -2582,13 +2586,13 @@ export async function prepareRequestBody(
 					}
 				}
 
-				if (usedProvider === "openai") {
+				if (usedProvider === "openai" || usedProvider === "azure") {
 					if (supportedServiceTier) {
 						requestBody.service_tier = supportedServiceTier;
 					}
-					// Azure is intentionally excluded on this path: chat completions
-					// may hit a legacy deployment-based api-version that rejects
-					// unknown body fields, and the deployment type isn't known here.
+				}
+
+				if (usedProvider === "openai") {
 					if (allowProviderCacheWrites) {
 						const upstreamCacheKey =
 							(prompt_cache_key !== undefined
@@ -4428,6 +4432,99 @@ export async function prepareRequestBody(
 			break;
 		}
 		case "perplexity": {
+			// Perplexity retires Sonar's chat/completions on 2026-09-27. Mappings
+			// flagged for the Agent API send a Responses-shaped body to
+			// `/v1/agent` instead; the rest keep the legacy path below until then.
+			if (providerMappingForOptions?.usesPerplexityAgentApi) {
+				// Perplexity rejects an empty text part outright ("content part N:
+				// text cannot be empty") where the chat-completions upstreams
+				// tolerated it, so drop the empties and any message left with
+				// nothing to say. Both carry no information, so nothing is lost.
+				const agentInput = transformMessagesForResponsesApi(
+					messagesWithReasoningDetails,
+				)
+					.map((item) => {
+						if (!Array.isArray(item?.content)) {
+							return item;
+						}
+						return {
+							...item,
+							content: item.content.filter(
+								(part: { text?: unknown }) =>
+									typeof part?.text !== "string" || part.text.trim() !== "",
+							),
+						};
+					})
+					.filter(
+						(item) => !Array.isArray(item?.content) || item.content.length > 0,
+					);
+
+				const agentBody: PerplexityAgentRequestBody = {
+					model: usedExternalId,
+					input: agentInput,
+				};
+
+				// Sonar searched on every call. The Agent API leaves the decision to
+				// the model unless the search is forced, so force it here to keep
+				// these model ids grounded the way callers already rely on. Verified
+				// live: without a forced tool_choice the same prompt comes back with
+				// no search_results item and no search charge.
+				const webSearch: NonNullable<
+					PerplexityAgentRequestBody["tools"]
+				>[number] = { type: "web_search" };
+				if (webSearchTool?.max_uses !== undefined) {
+					webSearch.max_results = webSearchTool.max_uses;
+				}
+				if (webSearchTool?.user_location) {
+					webSearch.user_location = webSearchTool.user_location;
+				}
+				if (webSearchTool?.search_context_size) {
+					webSearch.search_context_size = webSearchTool.search_context_size;
+				}
+				// Only `allowed_domains` maps cleanly: Perplexity's
+				// `search_domain_filter` takes a "-example.com" entry to exclude, so
+				// blocked domains go through with the documented minus prefix.
+				const domainFilter = [
+					...(webSearchTool?.allowed_domains ?? []),
+					...(webSearchTool?.blocked_domains ?? []).map((d) => `-${d}`),
+				];
+				if (domainFilter.length > 0) {
+					webSearch.filters = { search_domain_filter: domainFilter };
+				}
+				agentBody.tools = [webSearch];
+				agentBody.tool_choice = "required";
+
+				if (stream) {
+					agentBody.stream = true;
+				}
+				if (temperature !== undefined) {
+					agentBody.temperature = temperature;
+				}
+				if (top_p !== undefined) {
+					agentBody.top_p = top_p;
+				}
+				if (max_tokens !== undefined) {
+					agentBody.max_output_tokens = max_tokens;
+				}
+				if (response_format?.type === "json_schema") {
+					if (response_format.json_schema) {
+						agentBody.text = {
+							format: {
+								type: "json_schema",
+								name: response_format.json_schema.name ?? "response",
+								schema: response_format.json_schema.schema as Record<
+									string,
+									unknown
+								>,
+							},
+						};
+					}
+				} else if (response_format?.type === "json_object") {
+					agentBody.text = { format: { type: "json_object" } };
+				}
+
+				return agentBody;
+			}
 			if (stream) {
 				requestBody.stream_options = {
 					include_usage: true,

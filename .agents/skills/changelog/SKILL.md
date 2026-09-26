@@ -11,7 +11,7 @@ Write a public changelog entry for LLM Gateway, in the house style, and hand bac
 
 Before writing, make sure you understand the feature concretely. If the user only gave a feature name, find the facts — don't guess:
 
-- Read the relevant docs page under `apps/docs/content/` (e.g. `features/<feature>.mdx`).
+- Read the relevant docs page under `apps/docs/content/` (e.g. `(gateway)/features/<feature>.mdx`).
 - Inspect the shipping commit/PR if one is referenced: `git show <sha> --stat`, then read the changed UI/API/gateway files for the exact user-facing behavior.
 - Confirm plan gating (free vs Pro vs Enterprise), exact field names, error codes, and any limits. The changelog must be accurate — never invent prices, limits, or capabilities.
 
@@ -24,20 +24,21 @@ Before writing, make sure you understand the feature concretely. If the user onl
 ## Step 1 — Pick the date, id, and slug
 
 - **Date**: today, `YYYY-MM-DD`. Entries sort by date descending, so this puts the entry at the top.
-- **id**: the next integer after the current highest. Find it with:
+- **id**: the next integer after the current highest, as a plain integer string
+  (never a suffixed value like `38b`). Find it with:
 
   ```bash
   rg --no-filename '^id:' apps/ui/src/content/changelog/*.md | sed 's/[^0-9]//g' | sort -n | tail -1
   ```
 
-  Use that number + 1, as a string. Also check for existing duplicates before
-  adding the entry:
+  Use that number + 1. `apps/ui/src/content/content-ids.spec.ts` fails on
+  duplicate ids, so run it after adding the entry:
 
   ```bash
-  rg --no-filename '^id:' apps/ui/src/content/changelog/*.md | sed 's/[^0-9]//g' | sort -n | uniq -d
+  npx vitest run apps/ui/src/content/content-ids.spec.ts
   ```
 
-  If this prints an existing duplicate, report it and still choose an unused id
+  If it reports a pre-existing duplicate, report it and still choose an unused id
   above the current maximum; do not silently renumber published entries.
 
 - **slug**: short kebab-case, feature-focused (e.g. `custom-model-catalog`). The slug must match the filename suffix and the `image.src` filename, and becomes the URL `/changelog/<slug>`.

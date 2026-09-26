@@ -414,7 +414,7 @@ describe("model verification worker", () => {
 		expect(stored?.status).toBe("passed");
 	});
 
-	it("drops the capabilities a failed re-verification disproved", async () => {
+	it("leaves the listing alone when checks fail", async () => {
 		const { draftModelId, modelName, providerId, verificationId } =
 			await seedActiveListing();
 		await processNextModelVerification(async () => ({
@@ -444,37 +444,36 @@ describe("model verification worker", () => {
 			summary: "2 of 5 verification checks failed.",
 		}));
 
+		// One refused request does not prove the deployment cannot do it, so the
+		// run only reports the failure.
 		const listing = await db.query.providerDraftModel.findFirst({
 			where: { id: { eq: draftModelId } },
 		});
 		expect(listing).toMatchObject({
 			streaming: true,
-			tools: false,
-			reasoning: false,
-			// Effort tiers and the budget go with the reasoning they describe,
-			// even though only the reasoning check itself failed.
-			reasoningMaxTokens: false,
-			reasoningEfforts: null,
+			tools: true,
+			reasoning: true,
+			reasoningMaxTokens: true,
+			reasoningEfforts: ["low", "high"],
 		});
 		const mapping = await db.query.modelProviderMapping.findFirst({
 			where: { modelId: { eq: modelName }, providerId: { eq: providerId } },
 		});
 		expect(mapping).toMatchObject({
 			streaming: true,
-			tools: false,
-			reasoning: false,
-			reasoningMaxTokens: false,
-			reasoningEfforts: null,
+			tools: true,
+			reasoning: true,
+			reasoningMaxTokens: true,
+			reasoningEfforts: ["low", "high"],
 		});
-		// What the failure cost is recorded on the run, so the carrier is told
-		// instead of finding the toggle off on the next visit.
 		const run = await db.query.providerModelVerification.findFirst({
 			where: { id: { eq: verificationId } },
 		});
-		expect(run?.demotedCapabilities).toEqual(["tools", "reasoning"]);
+		expect(run?.status).toBe("failed");
+		expect(run?.demotedCapabilities).toBeNull();
 	});
 
-	it("drops a disproved capability from the filing awaiting review", async () => {
+	it("leaves a filing awaiting review intact when its capability fails", async () => {
 		const { draftModelId, verificationId } = await seedActiveListing({
 			reasoning: false,
 			reasoningMaxTokens: false,
@@ -499,71 +498,15 @@ describe("model verification worker", () => {
 			summary: "1 of 2 verification checks failed.",
 		}));
 
-		// Approving the filing would otherwise reinstate what the endpoint
-		// just rejected; the rest of the change survives.
+		// The reviewer sees the filing as the carrier proposed it, with the run's
+		// failure next to it, rather than a change silently pruned.
 		const filing = await db.query.providerPriceFiling.findFirst({
 			where: { draftModelId: { eq: draftModelId }, status: { eq: "pending" } },
 		});
-		expect(filing?.metadata).toEqual({ maxOutput: 4096 });
-		const run = await db.query.providerModelVerification.findFirst({
-			where: { id: { eq: verificationId } },
-		});
-		expect(run?.demotedCapabilities).toEqual(["reasoning"]);
-	});
-
-	it("withdraws a filing left proposing nothing", async () => {
-		const { draftModelId } = await seedActiveListing({
-			reasoning: false,
-			reasoningMaxTokens: false,
-			reasoningEfforts: undefined,
-			pendingMetadata: { reasoning: true },
-		});
-		await processNextModelVerification(async () => ({
-			passed: false,
-			checks: [
-				{ id: "basic", label: "Basic completion", status: "passed" },
-				{
-					id: "reasoning",
-					label: "Reasoning",
-					status: "failed",
-					feedback: "No reasoning content was returned.",
-				},
-			],
-			summary: "1 of 2 verification checks failed.",
-		}));
-
-		const filing = await db.query.providerPriceFiling.findFirst({
-			where: { draftModelId: { eq: draftModelId } },
-		});
-		expect(filing).toBeUndefined();
-	});
-
-	it("keeps a capability the run tested in a shape the listing never claimed", async () => {
-		const { draftModelId, verificationId } = await seedActiveListing({
-			targetReasoningEfforts: ["max"],
-		});
-		await processNextModelVerification(async () => ({
-			passed: false,
-			checks: [
-				{ id: "basic", label: "Basic completion", status: "passed" },
-				{
-					id: "reasoning",
-					label: "Reasoning",
-					status: "failed",
-					feedback: "Unsupported reasoning_effort: max.",
-				},
-			],
-			summary: "1 of 2 verification checks failed.",
-		}));
-
-		// The preflight disproved the proposed effort tier, not the tiers the
-		// listing serves today.
-		const listing = await db.query.providerDraftModel.findFirst({
-			where: { id: { eq: draftModelId } },
-		});
-		expect(listing).toMatchObject({
+		expect(filing?.metadata).toEqual({
 			reasoning: true,
 			reasoningEfforts: ["low", "high"],
+			maxOutput: 4096,
 		});
 		const run = await db.query.providerModelVerification.findFirst({
 			where: { id: { eq: verificationId } },

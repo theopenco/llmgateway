@@ -4287,8 +4287,12 @@ const logEntrySchema = z.object({
 	traceId: z.string().nullable(),
 	sessionId: z.string().nullable(),
 	projectId: z.string(),
+	projectName: z.string().nullable(),
 	organizationId: z.string(),
 	apiKeyId: z.string(),
+	apiKeyName: z.string().nullable(),
+	apiKeyUserId: z.string().nullable(),
+	apiKeyUserEmail: z.string().nullable(),
 	promptTokens: z.string().nullable(),
 	completionTokens: z.string().nullable(),
 	totalTokens: z.string().nullable(),
@@ -4358,73 +4362,48 @@ const projectLogsSchema = z.object({
 	}),
 });
 
-const getProjectLogs = createRoute({
-	method: "get",
-	path: "/organizations/{orgId}/projects/{projectId}/logs",
-	request: {
-		params: z.object({
-			orgId: z.string(),
-			projectId: z.string(),
-		}),
-		query: z.object({
-			limit: z.coerce.number().min(1).max(100).default(50).optional(),
-			cursor: z.string().optional(),
-			provider: z.string().optional(),
-			model: z.string().optional(),
-			source: z.string().optional(),
-			unifiedFinishReason: z.string().optional(),
-			hasError: z.string().optional(),
-			errorType: z.enum(LOG_ERROR_TYPES).optional(),
-		}),
-	},
-	responses: {
-		200: {
-			content: {
-				"application/json": {
-					schema: projectLogsSchema.openapi({}),
-				},
-			},
-			description: "Project logs.",
-		},
-		404: {
-			description: "Project not found.",
-		},
-	},
+interface AdminLogQuery {
+	limit?: number;
+	cursor?: string;
+	provider?: string;
+	model?: string;
+	source?: string;
+	unifiedFinishReason?: string;
+	hasError?: string;
+	errorType?: (typeof LOG_ERROR_TYPES)[number];
+	userEmail?: string;
+	projectId?: string;
+}
+
+const adminLogQuerySchema = z.object({
+	limit: z.coerce.number().min(1).max(100).default(50).optional(),
+	cursor: z.string().optional(),
+	provider: z.string().optional(),
+	model: z.string().optional(),
+	source: z.string().optional(),
+	unifiedFinishReason: z.string().optional(),
+	hasError: z.string().optional(),
+	errorType: z.enum(LOG_ERROR_TYPES).optional(),
+	// Seat filter: matches logs whose API key was created by the user with this
+	// email (case-insensitive). Scanning `log` is acceptable here because the
+	// query is always narrowed to one organization or project.
+	userEmail: z.string().optional(),
 });
 
-admin.openapi(getProjectLogs, async (c) => {
-	const { orgId, projectId } = c.req.valid("param");
-	const query = c.req.valid("query");
+/**
+ * Shared reader for the admin log views. `scope` narrows to one project or one
+ * organization; every filter below applies identically to both.
+ */
+async function fetchAdminLogs(scope: SQLWrapper, query: AdminLogQuery) {
 	const limit = query.limit ?? 50;
-	const {
-		cursor,
-		provider,
-		model,
-		source,
-		unifiedFinishReason,
-		hasError,
-		errorType,
-	} = query;
+	const whereConditions: SQLWrapper[] = [scope];
 
-	// Verify project belongs to the organization
-	const project = await db.query.project.findFirst({
-		where: {
-			id: { eq: projectId },
-			organizationId: { eq: orgId },
-		},
-	});
-
-	if (!project) {
-		throw new HTTPException(404, {
-			message: "Project not found",
-		});
+	if (query.projectId) {
+		whereConditions.push(eq(tables.log.projectId, query.projectId));
 	}
 
-	const whereConditions = [eq(tables.log.projectId, projectId)];
-
-	// Add filter conditions
-	if (provider) {
-		const providerValues = provider.split(",").filter(Boolean);
+	if (query.provider) {
+		const providerValues = query.provider.split(",").filter(Boolean);
 		if (providerValues.length === 1) {
 			whereConditions.push(eq(tables.log.usedProvider, providerValues[0]));
 		} else if (providerValues.length > 1) {
@@ -4432,38 +4411,52 @@ admin.openapi(getProjectLogs, async (c) => {
 		}
 	}
 
-	if (model) {
+	if (query.model) {
 		whereConditions.push(
 			sql`CASE WHEN ${tables.log.usedModel} LIKE '%/%'
 				THEN SPLIT_PART(${tables.log.usedModel}, '/', 2)
 				ELSE ${tables.log.usedModel}
-			END = ${model}`,
+			END = ${query.model}`,
 		);
 	}
 
-	if (source) {
-		whereConditions.push(eq(tables.log.source, source));
+	if (query.source) {
+		whereConditions.push(eq(tables.log.source, query.source));
 	}
 
-	if (unifiedFinishReason) {
+	if (query.unifiedFinishReason) {
 		whereConditions.push(
-			eq(tables.log.unifiedFinishReason, unifiedFinishReason),
+			eq(tables.log.unifiedFinishReason, query.unifiedFinishReason),
+		);
+	}
+
+	const userEmail = query.userEmail?.trim();
+	if (userEmail) {
+		whereConditions.push(
+			inArray(
+				tables.log.apiKeyId,
+				db
+					.select({ id: tables.apiKey.id })
+					.from(tables.apiKey)
+					.innerJoin(tables.user, eq(tables.user.id, tables.apiKey.createdBy))
+					.where(sql`lower(${tables.user.email}) = ${userEmail.toLowerCase()}`),
+			),
 		);
 	}
 
 	// `hasError=true` is the legacy shape of `errorType=any`
 	const errorFilter = buildLogErrorFilter(
-		errorType ?? (hasError === "true" ? "any" : undefined),
+		query.errorType ?? (query.hasError === "true" ? "any" : undefined),
 	);
 	if (errorFilter) {
 		whereConditions.push(errorFilter);
 	}
 
-	if (cursor) {
+	if (query.cursor) {
 		const cursorLog = await db
 			.select({ createdAt: tables.log.createdAt })
 			.from(tables.log)
-			.where(eq(tables.log.id, cursor))
+			.where(eq(tables.log.id, query.cursor))
 			.limit(1);
 
 		if (cursorLog.length === 0) {
@@ -4478,7 +4471,7 @@ admin.openapi(getProjectLogs, async (c) => {
 				lt(tables.log.createdAt, cursorCreatedAt),
 				and(
 					eq(tables.log.createdAt, cursorCreatedAt),
-					lt(tables.log.id, cursor),
+					lt(tables.log.id, query.cursor),
 				),
 			)!,
 		);
@@ -4497,8 +4490,12 @@ admin.openapi(getProjectLogs, async (c) => {
 			traceId: tables.log.traceId,
 			sessionId: tables.log.sessionId,
 			projectId: tables.log.projectId,
+			projectName: tables.project.name,
 			organizationId: tables.log.organizationId,
 			apiKeyId: tables.log.apiKeyId,
+			apiKeyName: tables.apiKey.description,
+			apiKeyUserId: tables.user.id,
+			apiKeyUserEmail: tables.user.email,
 			promptTokens: tables.log.promptTokens,
 			completionTokens: tables.log.completionTokens,
 			totalTokens: tables.log.totalTokens,
@@ -4559,6 +4556,9 @@ admin.openapi(getProjectLogs, async (c) => {
 			routingMetadata: tables.log.routingMetadata,
 		})
 		.from(tables.log)
+		.leftJoin(tables.project, eq(tables.project.id, tables.log.projectId))
+		.leftJoin(tables.apiKey, eq(tables.apiKey.id, tables.log.apiKeyId))
+		.leftJoin(tables.user, eq(tables.user.id, tables.apiKey.createdBy))
 		.where(and(...whereConditions))
 		.orderBy(desc(tables.log.createdAt), desc(tables.log.id))
 		.limit(limit + 1);
@@ -4570,7 +4570,7 @@ admin.openapi(getProjectLogs, async (c) => {
 			? paginatedLogs[paginatedLogs.length - 1].id
 			: null;
 
-	return c.json({
+	return {
 		logs: paginatedLogs.map((l) => ({
 			...l,
 			content:
@@ -4595,7 +4595,100 @@ admin.openapi(getProjectLogs, async (c) => {
 			hasMore,
 			limit,
 		},
+	};
+}
+
+const getProjectLogs = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/projects/{projectId}/logs",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+			projectId: z.string(),
+		}),
+		query: adminLogQuerySchema,
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: projectLogsSchema.openapi({}),
+				},
+			},
+			description: "Project logs.",
+		},
+		404: {
+			description: "Project not found.",
+		},
+	},
+});
+
+admin.openapi(getProjectLogs, async (c) => {
+	const { orgId, projectId } = c.req.valid("param");
+	const query = c.req.valid("query");
+
+	// Verify project belongs to the organization
+	const project = await db.query.project.findFirst({
+		where: {
+			id: { eq: projectId },
+			organizationId: { eq: orgId },
+		},
 	});
+
+	if (!project) {
+		throw new HTTPException(404, {
+			message: "Project not found",
+		});
+	}
+
+	return c.json(
+		await fetchAdminLogs(eq(tables.log.projectId, projectId), query),
+	);
+});
+
+const getOrganizationLogs = createRoute({
+	method: "get",
+	path: "/organizations/{orgId}/logs",
+	request: {
+		params: z.object({
+			orgId: z.string(),
+		}),
+		query: adminLogQuerySchema.extend({
+			projectId: z.string().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: projectLogsSchema.openapi({}),
+				},
+			},
+			description: "Organization logs.",
+		},
+		404: {
+			description: "Organization not found.",
+		},
+	},
+});
+
+admin.openapi(getOrganizationLogs, async (c) => {
+	const { orgId } = c.req.valid("param");
+	const query = c.req.valid("query");
+
+	const organization = await db.query.organization.findFirst({
+		where: { id: { eq: orgId } },
+	});
+
+	if (!organization) {
+		throw new HTTPException(404, {
+			message: "Organization not found",
+		});
+	}
+
+	return c.json(
+		await fetchAdminLogs(eq(tables.log.organizationId, orgId), query),
+	);
 });
 
 // ==================== Discount Management ====================

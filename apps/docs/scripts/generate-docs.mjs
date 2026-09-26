@@ -10,7 +10,7 @@ const openapi = createOpenAPI({
 	proxyUrl: "/api/proxy",
 });
 
-const out = "./content/(api)";
+const out = "./content/(gateway)/(api)";
 
 async function addDescriptionsFromContent() {
 	const entries = await readdir(out);

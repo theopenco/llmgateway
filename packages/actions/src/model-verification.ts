@@ -27,6 +27,7 @@ import { redactToken } from "./provider-key/redact.js";
 import type {
 	ProviderKeyOptions,
 	ProviderModelVerificationCheck,
+	ProviderModelVerificationProbe,
 	ProviderModelVerificationTarget,
 } from "@llmgateway/db";
 
@@ -820,6 +821,25 @@ interface CheckOutcome {
 	unsupportedReasoningEfforts?: ReasoningEffort[];
 	/** Replaces the generic "Passed" once a probe found something worth saying. */
 	feedback?: string;
+	/** Per-request breakdown for checks that probe more than one variant. */
+	probes?: ProviderModelVerificationProbe[];
+}
+
+/**
+ * Publishes the probes a running check has made so far, so a ladder that takes
+ * several billed requests shows its progress instead of one opaque spinner.
+ */
+type ProbeReporter = (
+	probes: ProviderModelVerificationProbe[],
+) => Promise<void> | void;
+
+function probeResult(
+	label: string,
+	failure: CheckFailure | null,
+): ProviderModelVerificationProbe {
+	return failure
+		? { label, status: "failed", feedback: failure.message }
+		: { label, status: "passed" };
 }
 
 /**
@@ -839,9 +859,17 @@ async function runReasoningCheck(
 	options: RunModelVerificationOptions,
 	secrets: Set<string>,
 	knownUnsupported: ReasoningEffort[],
+	reportProbes: ProbeReporter,
 ): Promise<CheckOutcome> {
 	const efforts = reasoningVerificationEfforts(options.target).filter(
 		(effort) => !knownUnsupported.includes(effort),
+	);
+	const probes: ProviderModelVerificationProbe[] = knownUnsupported.map(
+		(effort) => ({
+			label: `reasoning_effort: ${effort}`,
+			status: "failed",
+			feedback: "Refused by an earlier reasoning check.",
+		}),
 	);
 	const unsupportedReasoningEfforts: ReasoningEffort[] = [];
 	let passedEffort: ReasoningEffort | undefined;
@@ -862,6 +890,8 @@ async function runReasoningCheck(
 			options,
 			secrets,
 		);
+		probes.push(probeResult(`reasoning_effort: ${effort}`, failure));
+		await reportProbes(probes);
 		if (!failure) {
 			passedEffort ??= effort;
 			if (unsupportedReasoningEfforts.length === 0) {
@@ -876,11 +906,12 @@ async function runReasoningCheck(
 		unsupportedReasoningEfforts.push(effort);
 	}
 	if (!passedEffort) {
-		return { failure: lastFailure };
+		return { failure: lastFailure, probes };
 	}
 	return {
 		failure: null,
 		unsupportedReasoningEfforts,
+		probes,
 		feedback: unsupportedReasoningEfforts.length
 			? `Passed at ${passedEffort} effort. Refused: ${unsupportedReasoningEfforts.join(", ")}.`
 			: undefined,
@@ -892,6 +923,7 @@ async function runCheck(
 	options: RunModelVerificationOptions,
 	secrets: Set<string>,
 	knownUnsupportedReasoningEfforts: ReasoningEffort[],
+	reportProbes: ProbeReporter,
 ): Promise<CheckOutcome> {
 	if (definition.id === "reasoning" || definition.id === "reasoning_budget") {
 		return await runReasoningCheck(
@@ -899,6 +931,7 @@ async function runCheck(
 			options,
 			secrets,
 			knownUnsupportedReasoningEfforts,
+			reportProbes,
 		);
 	}
 	if (definition.id !== "tools") {
@@ -910,6 +943,7 @@ async function runCheck(
 	// disproving tool calling, and so each narrowing rests on a real probe.
 	const modes = toolVerificationModes(options.target.supportedToolChoices);
 	const unsupportedToolChoices: ToolChoiceMode[] = [];
+	const probes: ProviderModelVerificationProbe[] = [];
 	let failure: CheckFailure | null = null;
 	for (const mode of modes) {
 		failure = await attemptCheck(
@@ -923,12 +957,14 @@ async function runCheck(
 			options,
 			secrets,
 		);
+		probes.push(probeResult(`tool_choice: ${mode}`, failure));
+		await reportProbes(probes);
 		if (!failure) {
-			return { failure: null, unsupportedToolChoices };
+			return { failure: null, unsupportedToolChoices, probes };
 		}
 		unsupportedToolChoices.push(mode);
 	}
-	return { failure };
+	return { failure, probes };
 }
 
 async function executeCheck(
@@ -1110,6 +1146,14 @@ export async function runProviderModelVerification(
 			options,
 			secrets,
 			unsupportedReasoningEfforts ?? [],
+			async (probes) => {
+				const progress: ProviderModelVerificationCheck = {
+					...running,
+					probes: [...probes],
+				};
+				checks[index] = progress;
+				await options.onCheck?.(progress);
+			},
 		);
 		const failure = outcome.failure;
 		if (outcome.unsupportedToolChoices?.length) {
@@ -1129,12 +1173,14 @@ export async function runProviderModelVerification(
 					label: definition.label,
 					status: "failed",
 					feedback: failure.message,
+					...(outcome.probes?.length ? { probes: outcome.probes } : {}),
 				}
 			: {
 					id: definition.id,
 					label: definition.label,
 					status: "passed",
 					feedback: outcome.feedback ?? "Passed",
+					...(outcome.probes?.length ? { probes: outcome.probes } : {}),
 				};
 		checks[index] = completed;
 		await options.onCheck?.(completed);

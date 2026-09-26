@@ -28,6 +28,16 @@ export const modelVerificationSchema = z.object({
 			label: z.string(),
 			status: z.enum(["queued", "running", "passed", "failed", "skipped"]),
 			feedback: z.string().optional(),
+			// Per-request breakdown for checks that probe several variants.
+			probes: z
+				.array(
+					z.object({
+						label: z.string(),
+						status: z.enum(["passed", "failed"]),
+						feedback: z.string().optional(),
+					}),
+				)
+				.optional(),
 		}),
 	),
 	summary: z.string().nullable(),
@@ -320,5 +330,68 @@ export function serializeVerification(row: ModelVerificationRow) {
 		createdAt: row.createdAt.toISOString(),
 		startedAt: row.startedAt?.toISOString() ?? null,
 		completedAt: row.completedAt?.toISOString() ?? null,
+	};
+}
+
+/**
+ * One past run, for the verification history shown in Airside and the admin
+ * dashboard. `actor` is who triggered it: a carrier crew member by name, or
+ * null for a run we started ourselves — carriers see the initiator side, not
+ * the name of the reviewer on our end.
+ */
+export const verificationHistoryEntrySchema = modelVerificationSchema.extend({
+	initiatedBy: z.enum(["carrier", "admin"]),
+	credentialSource: z.enum(["supplied", "carrier", "managed", "environment"]),
+	actorName: z.string().nullable(),
+	actorEmail: z.string().nullable(),
+});
+
+export interface VerificationActor {
+	name: string | null;
+	email: string | null;
+}
+
+/**
+ * Names for the users who triggered these runs. `requestedBy` is nulled when a
+ * user is deleted, so a run can outlive its initiator and keep only its side.
+ */
+export async function verificationActors(
+	rows: ModelVerificationRow[],
+): Promise<Map<string, VerificationActor>> {
+	const ids = [
+		...new Set(rows.map((row) => row.requestedBy).filter((id) => id !== null)),
+	];
+	if (ids.length === 0) {
+		return new Map();
+	}
+	const users = await db.query.user.findMany({
+		where: { id: { in: ids } },
+		columns: { id: true, name: true, email: true },
+	});
+	return new Map(
+		users.map((entry) => [
+			entry.id,
+			{ name: entry.name ?? null, email: entry.email ?? null },
+		]),
+	);
+}
+
+/**
+ * `audience: "carrier"` hides who on our side ran a check — the carrier learns
+ * that we did, never which reviewer — and never exposes an email.
+ */
+export function serializeVerificationHistoryEntry(
+	row: ModelVerificationRow,
+	actors: Map<string, VerificationActor>,
+	{ audience }: { audience: "admin" | "carrier" },
+) {
+	const hidden = audience === "carrier" && row.initiatedBy === "admin";
+	const actor = !hidden && row.requestedBy ? actors.get(row.requestedBy) : null;
+	return {
+		...serializeVerification(row),
+		initiatedBy: row.initiatedBy,
+		credentialSource: row.credentialSource,
+		actorName: actor?.name ?? null,
+		actorEmail: audience === "admin" ? (actor?.email ?? null) : null,
 	};
 }

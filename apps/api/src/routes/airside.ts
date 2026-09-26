@@ -7,6 +7,7 @@ import { z } from "zod";
 import {
 	dematerializeAirsideModel,
 	materializeAirsideModel,
+	setAirsideModelServing,
 	staticCatalogueHasActiveMapping,
 	syncAirsideModelMetadata,
 	updateAirsideMappingPrices,
@@ -49,6 +50,9 @@ import {
 	resolveVerificationCredential,
 	saveClaimVerificationKey,
 	serializeVerification,
+	serializeVerificationHistoryEntry,
+	verificationActors,
+	verificationHistoryEntrySchema,
 	verificationTargetsMatch,
 	type CapabilityOverrides,
 	type ModelVerificationRow,
@@ -361,6 +365,8 @@ const modelSchema = z.object({
 	// "global" = one counter across all organizations, "per_org" = one each.
 	rateLimitScope: z.enum(["global", "per_org"]),
 	status: z.enum(["draft", "active", "rejected", "delisted"]),
+	// Set while an active listing is paused by the carrier.
+	pausedAt: z.string().nullable(),
 	createdAt: z.string(),
 	updatedAt: z.string(),
 	currentPricing: filingSchema.nullable(),
@@ -600,6 +606,7 @@ function serializeModel(
 		maxRpd: row.maxRpd,
 		rateLimitScope: row.rateLimitScope,
 		status: row.status,
+		pausedAt: row.pausedAt ? row.pausedAt.toISOString() : null,
 		createdAt: row.createdAt.toISOString(),
 		updatedAt: row.updatedAt.toISOString(),
 		currentPricing: approved ? serializeFiling(approved) : null,
@@ -2405,6 +2412,55 @@ airside.openapi(queueExistingModelVerification, async (c) => {
 	return c.json({ verification: serializeVerification(verification) }, 202);
 });
 
+const listModelVerifications = createRoute({
+	method: "get",
+	path: "/models/{id}/verifications",
+	request: {
+		params: z.object({ id: z.string() }),
+		query: z.object({
+			limit: z.coerce.number().int().min(1).max(100).optional(),
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						verifications: z.array(verificationHistoryEntrySchema),
+					}),
+				},
+			},
+			description: "Past preflight runs for this listing, newest first.",
+		},
+	},
+});
+
+airside.openapi(listModelVerifications, async (c) => {
+	const user = requireUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const { limit } = c.req.valid("query");
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: id } },
+		columns: { providerCompanyId: true },
+	});
+	if (!model) {
+		throw new HTTPException(404, { message: "Model not found" });
+	}
+	await requireCompanyMembership(user.id, model.providerCompanyId);
+	const rows = await db.query.providerModelVerification.findMany({
+		where: { draftModelId: { eq: id } },
+		orderBy: { createdAt: "desc" },
+		limit: limit ?? 20,
+	});
+	const actors = await verificationActors(rows);
+	return c.json({
+		// Carriers see which side ran a check, not who on ours did.
+		verifications: rows.map((row) =>
+			serializeVerificationHistoryEntry(row, actors, { audience: "carrier" }),
+		),
+	});
+});
+
 const listModels = createRoute({
 	method: "get",
 	path: "/models",
@@ -3051,7 +3107,7 @@ airside.openapi(deleteModel, async (c) => {
 	await cdb.transaction(async (tx) => {
 		await tx
 			.update(tables.providerDraftModel)
-			.set({ status: "delisted", delistedAt: new Date() })
+			.set({ status: "delisted", delistedAt: new Date(), pausedAt: null })
 			.where(eq(tables.providerDraftModel.id, id));
 		// A delisted model's pending filing would otherwise linger in the admin
 		// queue and approve as a silent no-op.
@@ -3093,6 +3149,96 @@ airside.openapi(deleteModel, async (c) => {
 		await dematerializeAirsideModel(model.providerId, model.modelName, tx);
 	});
 	return c.json({ status: "delisted" as const });
+});
+
+const modelServiceRoute = (action: "pause" | "resume") =>
+	createRoute({
+		method: "post",
+		path: `/models/{id}/${action}`,
+		request: {
+			params: z.object({ id: z.string() }),
+		},
+		responses: {
+			200: {
+				content: {
+					"application/json": {
+						schema: z.object({ model: modelSchema }),
+					},
+				},
+				description:
+					action === "pause"
+						? "The paused model. Applies immediately without review: the listing stops receiving traffic until resumed. Filings stay open and apply to the paused listing."
+						: "The resumed model, back in service immediately.",
+			},
+		},
+	});
+
+async function setModelPaused(
+	userId: string,
+	id: string,
+	paused: boolean,
+): Promise<DraftModelRow> {
+	const model = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: id } },
+	});
+	if (!model) {
+		throw new HTTPException(404, { message: "Model not found" });
+	}
+	await requireCompanyMembership(userId, model.providerCompanyId);
+	// cdb: the gateway caches listing resolution off the mapping table. The
+	// row lock serializes against a concurrent approval re-materializing it.
+	return await cdb.transaction(async (tx) => {
+		const [locked] = await tx
+			.select()
+			.from(tables.providerDraftModel)
+			.where(eq(tables.providerDraftModel.id, id))
+			.for("update")
+			.$withCache(false);
+		if (!locked || locked.status !== "active") {
+			throw new HTTPException(409, {
+				message: "Only models in service can be paused or resumed.",
+			});
+		}
+		if (!!locked.pausedAt === paused) {
+			throw new HTTPException(409, {
+				message: paused
+					? "This model is already paused."
+					: "This model is not paused.",
+			});
+		}
+		const [row] = await tx
+			.update(tables.providerDraftModel)
+			.set({ pausedAt: paused ? new Date() : null })
+			.where(eq(tables.providerDraftModel.id, id))
+			.returning();
+		await setAirsideModelServing(row, !paused, tx);
+		return row;
+	});
+}
+
+async function serializeModelById(row: DraftModelRow) {
+	const withRelations = await db.query.providerDraftModel.findFirst({
+		where: { id: { eq: row.id } },
+		with: {
+			priceFilings: true,
+			modelVerifications: { orderBy: { createdAt: "desc" }, limit: 1 },
+		},
+	});
+	return serializeModel({ ...withRelations, ...row });
+}
+
+airside.openapi(modelServiceRoute("pause"), async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const row = await setModelPaused(user.id, id, true);
+	return c.json({ model: await serializeModelById(row) });
+});
+
+airside.openapi(modelServiceRoute("resume"), async (c) => {
+	const user = requireVerifiedUser(c.get("user"));
+	const { id } = c.req.valid("param");
+	const row = await setModelPaused(user.id, id, false);
+	return c.json({ model: await serializeModelById(row) });
 });
 
 const deleteModelRegion = createRoute({

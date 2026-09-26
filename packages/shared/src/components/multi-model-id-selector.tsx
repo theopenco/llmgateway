@@ -86,7 +86,7 @@ export function MultiModelIdSelector({
 								className="flex items-center gap-1 font-mono text-[11px]"
 								title={
 									unknown
-										? "Not selectable here — check for a typo."
+										? "Not selectable here — it may be retired, unavailable, or a typo."
 										: undefined
 								}
 							>
