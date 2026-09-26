@@ -12,7 +12,6 @@ export function extractImages(data: any, provider: Provider): ImageObject[] {
 	switch (provider) {
 		case "google-ai-studio":
 		case "glacier":
-		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
 			const parts = data.candidates?.[0]?.content?.parts ?? [];

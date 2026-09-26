@@ -496,7 +496,6 @@ export function transformStreamingToOpenai(
 
 		case "google-ai-studio":
 		case "glacier":
-		case "iceberg":
 		case "google-vertex":
 		case "quartz": {
 			const buildUsage = (
@@ -1633,7 +1632,6 @@ export function transformStreamingToOpenai(
 		case "baidu":
 		case "consensusprotocol":
 		case "atria":
-		case "granite":
 		case "xiaomi":
 		case "azure-ai-foundry":
 		case "vertex-openai":
