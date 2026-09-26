@@ -36,20 +36,33 @@ describe("notifications API", () => {
 			headers: headers(),
 		});
 		expect(response.status).toBe(200);
-		const { preferences } = await response.json();
-		expect(preferences).toHaveLength(5);
+		const { email, preferences } = await response.json();
+		expect(email).toBe("admin@example.com");
+		expect(preferences).toHaveLength(7);
 		expect(
 			preferences
-				.filter((p: { inApp: boolean }) => p.inApp)
-				.map((p: { type: string }) => p.type),
+				.filter((p: { inApp: boolean | null }) => p.inApp)
+				.map((p: { category: string }) => p.category),
 		).toEqual(["model_available", "compliance_downgrade"]);
+		// The two email-only categories are on by default; the notification ones
+		// stay opt-in apart from the org alerts.
 		expect(
 			preferences
 				.filter((p: { email: boolean }) => p.email)
-				.map((p: { type: string }) => p.type),
-		).toEqual(["model_available", "compliance_downgrade"]);
+				.map((p: { category: string }) => p.category),
+		).toEqual([
+			"model_available",
+			"compliance_downgrade",
+			"marketing",
+			"credit_alerts",
+		]);
+		expect(
+			preferences
+				.filter((p: { inApp: boolean | null }) => p.inApp === null)
+				.map((p: { category: string }) => p.category),
+		).toEqual(["marketing", "credit_alerts"]);
 		const value = {
-			type: "budget",
+			category: "budget",
 			inApp: true,
 			email: false,
 			budgetThreshold: 90,
@@ -68,6 +81,83 @@ describe("notifications API", () => {
 		});
 		expect(invalid.status).toBe(400);
 	});
+	it("records an email-only opt-out on the suppression list and clears it", async () => {
+		const off = await app.request("/notifications/preferences", {
+			method: "PUT",
+			headers: headers(),
+			body: JSON.stringify({
+				category: "marketing",
+				inApp: null,
+				email: false,
+				budgetThreshold: null,
+			}),
+		});
+		expect(off.status).toBe(200);
+		expect(
+			await db.query.emailUnsubscribe.findFirst({
+				where: { email: "admin@example.com", category: "marketing" },
+			}),
+		).toMatchObject({ source: "dashboard" });
+		// No preference row: email-only categories live solely on the list.
+		expect(await db.select().from(tables.notificationPreference)).toHaveLength(
+			0,
+		);
+
+		const { preferences } = await (
+			await app.request("/notifications/preferences", { headers: headers() })
+		).json();
+		expect(
+			preferences.find((p: { category: string }) => p.category === "marketing"),
+		).toMatchObject({ email: false });
+
+		const on = await app.request("/notifications/preferences", {
+			method: "PUT",
+			headers: headers(),
+			body: JSON.stringify({
+				category: "marketing",
+				inApp: null,
+				email: true,
+				budgetThreshold: null,
+			}),
+		});
+		expect(on.status).toBe(200);
+		expect(await db.select().from(tables.emailUnsubscribe)).toHaveLength(0);
+	});
+	it("reports a suppressed notification category as off and re-enabling clears it", async () => {
+		await db.insert(tables.emailUnsubscribe).values({
+			email: "admin@example.com",
+			category: "budget",
+			source: "one_click",
+		});
+		await db.insert(tables.notificationPreference).values({
+			userId: "test-user-id",
+			type: "budget",
+			inApp: true,
+			email: true,
+			budgetThreshold: 80,
+		});
+
+		const { preferences } = await (
+			await app.request("/notifications/preferences", { headers: headers() })
+		).json();
+		// The preference still says yes; the suppression list overrides it.
+		expect(
+			preferences.find((p: { category: string }) => p.category === "budget"),
+		).toMatchObject({ inApp: true, email: false });
+
+		const saved = await app.request("/notifications/preferences", {
+			method: "PUT",
+			headers: headers(),
+			body: JSON.stringify({
+				category: "budget",
+				inApp: true,
+				email: true,
+				budgetThreshold: 80,
+			}),
+		});
+		expect(saved.status).toBe(200);
+		expect(await db.select().from(tables.emailUnsubscribe)).toHaveLength(0);
+	});
 	it("enforces verified email on the server", async () => {
 		await db
 			.update(tables.user)
@@ -77,7 +167,7 @@ describe("notifications API", () => {
 			method: "PUT",
 			headers: headers(),
 			body: JSON.stringify({
-				type: "budget",
+				category: "budget",
 				inApp: true,
 				email: true,
 				budgetThreshold: 80,
@@ -94,7 +184,7 @@ describe("notifications API", () => {
 			await app.request("/notifications/preferences", { headers: headers() })
 		).json();
 		const preference = preferences.find(
-			(p: { type: string }) => p.type === "model_available",
+			(p: { category: string }) => p.category === "model_available",
 		);
 		expect(preference).toMatchObject({ inApp: true, email: false });
 		const saved = await app.request("/notifications/preferences", {
