@@ -14,7 +14,7 @@ image:
 
 If you're building an AI feature into your product, you hit the same two problems fast: **how do your users pay for the AI they use**, and **how do you not rebuild billing, wallets, and model plumbing from scratch?**
 
-Today we're shipping the **Payments SDK** — think Stripe + Stripe Elements, but for AI. It's a payments product, not a normal AI client SDK like the OpenAI SDK: it embeds end-user **payments and sessions** into your own site. Your end-users get their own wallet, buy credits **inside your app**, and pay per request for any model the gateway supports. LLM Gateway is the merchant of record, you set a markup, and the margin is yours.
+Today we're shipping the **Payments SDK** — think Stripe + Stripe Elements, but for AI. It's a payments product, not a normal AI client SDK like the OpenAI SDK: it embeds end-user **payments and sessions** into your own site. Your end-users get their own wallet, buy credits **inside your app**, and pay per request for any model the gateway supports. LLM Gateway is the merchant of record, you set a markup, and the margin is yours — while the receipt and card statement your users see carry **your** brand, not ours.
 
 <video src="/blog/llmgateway-topup-flow.webm" controls autoplay muted loop playsinline style="width: 100%; border-radius: 12px; margin: 1.5rem 0;">
   Your browser does not support the video tag.
@@ -113,5 +113,7 @@ There's a complete, runnable Next.js example — backend session route, provider
 ➡️ **[theopenco/llmgateway-templates → templates/embeddable-credits](https://github.com/theopenco/llmgateway-templates/tree/main/templates/embeddable-credits)**
 
 Full reference is in the [Embeddable Payments docs](https://docs.llmgateway.io/features/embeddable-payments). Embeddable Payments is currently in preview and opt-in only — [contact us](mailto:contact@llmgateway.io) to enable it for your project. Once it's on, open your project's **Settings → Payments SDK** to enable end-user sessions and create a platform secret key — and you can be live in an afternoon.
+
+The same page is where you brand the payment itself. Set a **brand name**, a **support email** and a **statement descriptor**, and your users get a receipt led by your name with a card statement reading `LLMGTWY* YOURBRAND` — so the charge is recognisable as yours rather than as one they never made.
 
 <BlogCta variant="gateway" location="bottom" />

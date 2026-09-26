@@ -20,6 +20,7 @@ import {
 
 import { logAuditEvent } from "@llmgateway/audit";
 import { cdb, db, eq, tables } from "@llmgateway/db";
+import { normalizeStatementDescriptorSuffix } from "@llmgateway/shared";
 import { canManageProject } from "@llmgateway/shared/organization-roles";
 import { isSmartRoutingAvailable } from "@llmgateway/shared/smart-routing";
 
@@ -51,6 +52,9 @@ const projectSchema = z.object({
 	endUserMarkupPercent: z.string(),
 	endUserTopUpBonusPercent: z.string(),
 	allowedOrigins: z.array(z.string()).nullable(),
+	endUserBrandName: z.string().nullable(),
+	endUserSupportEmail: z.string().nullable(),
+	endUserStatementDescriptorSuffix: z.string().nullable(),
 	smartRoutingConfig: smartRoutingConfigInputSchema.nullable(),
 });
 
@@ -78,6 +82,16 @@ const updateProjectSchema = z.object({
 	endUserMarkupPercent: z.number().min(0).max(100).optional(),
 	endUserTopUpBonusPercent: z.number().min(0).max(1000).optional(),
 	allowedOrigins: z.array(z.string().trim().min(1)).max(20).optional(),
+	endUserBrandName: z.string().trim().min(1).max(64).nullable().optional(),
+	endUserSupportEmail: z.string().trim().email().nullable().optional(),
+	// Length is enforced by normalizeStatementDescriptorSuffix rather than zod:
+	// what we persist has to be Stripe-safe no matter what arrives here.
+	endUserStatementDescriptorSuffix: z
+		.string()
+		.trim()
+		.max(64)
+		.nullable()
+		.optional(),
 	// Null clears the override so the project inherits the organization default.
 	smartRoutingConfig: smartRoutingConfigInputSchema.nullable().optional(),
 });
@@ -233,6 +247,9 @@ projects.openapi(updateProject, async (c) => {
 		endUserMarkupPercent,
 		endUserTopUpBonusPercent,
 		allowedOrigins,
+		endUserBrandName,
+		endUserSupportEmail,
+		endUserStatementDescriptorSuffix,
 		smartRoutingConfig,
 	} = c.req.valid("json");
 	const providerCacheControlMode = resolveProviderCacheControlMode(
@@ -281,7 +298,10 @@ projects.openapi(updateProject, async (c) => {
 		endUserEnabled !== undefined ||
 		endUserMarkupPercent !== undefined ||
 		endUserTopUpBonusPercent !== undefined ||
-		allowedOrigins !== undefined;
+		allowedOrigins !== undefined ||
+		endUserBrandName !== undefined ||
+		endUserSupportEmail !== undefined ||
+		endUserStatementDescriptorSuffix !== undefined;
 	const projectUserOrg = userOrgs.find(
 		(userOrg) => userOrg.organizationId === project.organizationId,
 	);
@@ -305,6 +325,7 @@ projects.openapi(updateProject, async (c) => {
 
 	const updateData: Partial<typeof tables.project.$inferInsert> = {};
 	let normalizedAllowedOrigins: string[] | undefined;
+	let normalizedStatementDescriptorSuffix: string | null | undefined;
 
 	if (name !== undefined) {
 		updateData.name = name;
@@ -361,6 +382,22 @@ projects.openapi(updateProject, async (c) => {
 	if (allowedOrigins !== undefined) {
 		normalizedAllowedOrigins = normalizeAllowedOrigins(allowedOrigins);
 		updateData.allowedOrigins = normalizedAllowedOrigins;
+	}
+
+	if (endUserBrandName !== undefined) {
+		updateData.endUserBrandName = endUserBrandName || null;
+	}
+
+	if (endUserSupportEmail !== undefined) {
+		updateData.endUserSupportEmail = endUserSupportEmail || null;
+	}
+
+	if (endUserStatementDescriptorSuffix !== undefined) {
+		normalizedStatementDescriptorSuffix = normalizeStatementDescriptorSuffix(
+			endUserStatementDescriptorSuffix,
+		);
+		updateData.endUserStatementDescriptorSuffix =
+			normalizedStatementDescriptorSuffix;
 	}
 
 	// Auto-routing overrides are an enterprise feature. Clearing the override
@@ -507,6 +544,34 @@ projects.openapi(updateProject, async (c) => {
 				new: normalizedAllowedOrigins,
 			};
 		}
+	}
+	if (
+		endUserBrandName !== undefined &&
+		(endUserBrandName || null) !== project.endUserBrandName
+	) {
+		changes.endUserBrandName = {
+			old: project.endUserBrandName,
+			new: endUserBrandName || null,
+		};
+	}
+	if (
+		endUserSupportEmail !== undefined &&
+		(endUserSupportEmail || null) !== project.endUserSupportEmail
+	) {
+		changes.endUserSupportEmail = {
+			old: project.endUserSupportEmail,
+			new: endUserSupportEmail || null,
+		};
+	}
+	if (
+		normalizedStatementDescriptorSuffix !== undefined &&
+		normalizedStatementDescriptorSuffix !==
+			project.endUserStatementDescriptorSuffix
+	) {
+		changes.endUserStatementDescriptorSuffix = {
+			old: project.endUserStatementDescriptorSuffix,
+			new: normalizedStatementDescriptorSuffix,
+		};
 	}
 
 	if (Object.keys(changes).length > 0) {
