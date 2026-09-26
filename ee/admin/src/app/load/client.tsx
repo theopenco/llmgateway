@@ -56,8 +56,9 @@ import {
 } from "@/components/usage-mode-selector";
 import { downloadCsv } from "@/lib/download-csv";
 import { useApi } from "@/lib/fetch-client";
+import { formatDurationMs } from "@/lib/format-duration";
 import { formatRps, formatShare } from "@/lib/format-rps";
-import { buildLoadChart } from "@/lib/load-chart";
+import { buildLoadChart, type LoadMetric } from "@/lib/load-chart";
 
 import { formatNumber } from "@llmgateway/shared/number-format";
 
@@ -81,6 +82,30 @@ const MODEL_VIEW_OPTIONS: { value: ModelView; label: string }[] = [
 	{ value: "canonical", label: "Canonical" },
 	{ value: "mapping", label: "Mappings" },
 ];
+
+const METRIC_OPTIONS: { value: LoadMetric; label: string }[] = [
+	{ value: "rps", label: "Req/s" },
+	{ value: "duration", label: "Duration" },
+	{ value: "ttft", label: "TTFT" },
+];
+
+const METRIC_TITLES: Record<LoadMetric, string> = {
+	rps: "Requests per second",
+	duration: "Average request duration",
+	ttft: "Average time to first token",
+};
+
+const METRIC_RANK_LABELS: Record<LoadMetric, string> = {
+	rps: "Average request rate over the selected window.",
+	duration: "Average request duration over the selected window.",
+	ttft: "Average time to first token over the selected window.",
+};
+
+function parseMetric(value: string | null): LoadMetric {
+	return METRIC_OPTIONS.some((option) => option.value === value)
+		? (value as LoadMetric)
+		: "rps";
+}
 
 const GROUP_LABELS: Record<GroupBy, string> = {
 	model: "Model",
@@ -160,8 +185,12 @@ export function LoadClient() {
 	const modelView: ModelView =
 		searchParams.get("modelView") === "mapping" ? "mapping" : "canonical";
 	const mode = useUsageMode();
+	const metric = parseMetric(searchParams.get("metric"));
+	// Stacking averages is meaningless, and the "Other" band a stacked chart
+	// needs cannot be derived from one either, so the latency metrics are always
+	// drawn as lines regardless of the chart param.
 	const chartType: ChartType =
-		searchParams.get("chart") === "bar" ? "bar" : "line";
+		metric === "rps" && searchParams.get("chart") === "bar" ? "bar" : "line";
 	const live = searchParams.get("live") === "1";
 	const organizationId = searchParams.get("organizationId") || undefined;
 	const projectId = searchParams.get("projectId") || undefined;
@@ -210,8 +239,9 @@ export function LoadClient() {
 				series: data?.series ?? [],
 				data: data?.data ?? [],
 				totalKeys: data?.totalKeys ?? 0,
+				metric,
 			}),
-		[data],
+		[data, metric],
 	);
 
 	const chartConfig = useMemo<ChartConfig>(() => {
@@ -239,9 +269,34 @@ export function LoadClient() {
 			})),
 		[breakdown],
 	);
+	const rankKey =
+		metric === "duration"
+			? "avgDurationMs"
+			: metric === "ttft"
+				? "avgTimeToFirstTokenMs"
+				: "avgRps";
 	const rankChartConfig = useMemo<ChartConfig>(
-		() => ({ avgRps: { label: "Avg req/s" } }),
-		[],
+		() => ({
+			[rankKey]: {
+				label: METRIC_OPTIONS.find((o) => o.value === metric)?.label,
+			},
+		}),
+		[metric, rankKey],
+	);
+
+	// One formatter drives the axis, the tooltip and the legend so a metric
+	// switch can never leave "req/s" hanging off a millisecond value.
+	const formatMetric = useCallback(
+		(value: number | null | undefined) =>
+			metric === "rps"
+				? `${formatRps(Number(value ?? 0))} req/s`
+				: formatDurationMs(value ?? null),
+		[metric],
+	);
+	const formatMetricAxis = useCallback(
+		(value: number) =>
+			metric === "rps" ? formatRps(value) : formatDurationMs(value),
+		[metric],
 	);
 
 	const currentSeconds = data?.summary.currentSeconds ?? 0;
@@ -249,6 +304,16 @@ export function LoadClient() {
 		currentSeconds >= 3600
 			? `Last completed ${currentSeconds >= 86400 ? "day" : "hour"}`
 			: `Last ${Math.max(1, Math.round(currentSeconds / 60))} minutes`;
+
+	// The tenant rollups carry one blended latency sum with no per-mode split,
+	// and buckets aggregated before the latency columns existed have no samples
+	// at all — both surface as nulls, so say which one it is.
+	const latencyHint =
+		mode !== "total" && data?.source === "project-stats"
+			? "Unavailable for a single billing mode"
+			: data?.summary.avgDurationMs === null
+				? "No samples recorded in this window"
+				: `Across the last ${activeWindow}`;
 
 	const grain = data?.bucket === "day" ? "day" : "hour";
 	const grainNote =
@@ -270,6 +335,8 @@ export function LoadClient() {
 			"peak_rps",
 			"share",
 			"error_rate",
+			"avg_duration_ms",
+			"avg_ttft_ms",
 		];
 		const escape = (value: string) =>
 			/[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
@@ -284,6 +351,10 @@ export function LoadClient() {
 					row.peakRps.toFixed(4),
 					row.share.toFixed(4),
 					row.errorRate === null ? "" : row.errorRate.toFixed(4),
+					row.avgDurationMs === null ? "" : row.avgDurationMs.toFixed(0),
+					row.avgTimeToFirstTokenMs === null
+						? ""
+						: row.avgTimeToFirstTokenMs.toFixed(0),
 				].join(","),
 			),
 		];
@@ -332,6 +403,16 @@ export function LoadClient() {
 						compact
 					/>
 				) : null}
+				<SegmentedUrlSelector
+					param="metric"
+					value={metric}
+					defaultValue="rps"
+					options={METRIC_OPTIONS}
+					compact
+					// A stacked bar chart is only meaningful for the additive
+					// metric, so selecting a latency one drops the pin.
+					extraParams={{ chart: null }}
+				/>
 				<UsageModeSelector compact />
 				<LoadEntitySelector
 					type="organization"
@@ -354,12 +435,14 @@ export function LoadClient() {
 					allLabel="All API keys"
 					searchPlaceholder="Search API keys…"
 				/>
-				<ChartTypeToggle
-					value={chartType}
-					onValueChange={(next) =>
-						setParam("chart", next === "bar" ? "bar" : null)
-					}
-				/>
+				{metric === "rps" ? (
+					<ChartTypeToggle
+						value={chartType}
+						onValueChange={(next) =>
+							setParam("chart", next === "bar" ? "bar" : null)
+						}
+					/>
+				) : null}
 				<Button
 					variant="outline"
 					size="sm"
@@ -380,7 +463,7 @@ export function LoadClient() {
 				</Card>
 			) : null}
 
-			<section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+			<section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
 				<StatCard
 					label="Current"
 					value={`${formatRps(data?.summary.currentRps ?? 0)} req/s`}
@@ -414,11 +497,23 @@ export function LoadClient() {
 					}
 					loading={isLoading}
 				/>
+				<StatCard
+					label="Avg duration"
+					value={formatDurationMs(data?.summary.avgDurationMs)}
+					hint={latencyHint}
+					loading={isLoading}
+				/>
+				<StatCard
+					label="Avg TTFT"
+					value={formatDurationMs(data?.summary.avgTimeToFirstTokenMs)}
+					hint={latencyHint}
+					loading={isLoading}
+				/>
 			</section>
 
 			<Card>
 				<CardHeader>
-					<CardTitle>Requests per second</CardTitle>
+					<CardTitle>{METRIC_TITLES[metric]}</CardTitle>
 					<CardDescription>{grainNote}</CardDescription>
 				</CardHeader>
 				<CardContent>
@@ -447,7 +542,7 @@ export function LoadClient() {
 									tickLine={false}
 									axisLine={false}
 									width={56}
-									tickFormatter={(value: number) => formatRps(value)}
+									tickFormatter={formatMetricAxis}
 								/>
 								<ChartTooltip
 									content={
@@ -455,7 +550,7 @@ export function LoadClient() {
 											labelFormatter={(value) =>
 												bucketTickFormat(data?.bucket ?? "hour", String(value))
 											}
-											formatter={(value) => `${formatRps(Number(value))} req/s`}
+											formatter={(value) => formatMetric(Number(value))}
 										/>
 									}
 								/>
@@ -504,7 +599,7 @@ export function LoadClient() {
 									tickLine={false}
 									axisLine={false}
 									width={56}
-									tickFormatter={(value: number) => formatRps(value)}
+									tickFormatter={formatMetricAxis}
 								/>
 								<ChartTooltip
 									content={
@@ -512,7 +607,7 @@ export function LoadClient() {
 											labelFormatter={(value) =>
 												bucketTickFormat(data?.bucket ?? "hour", String(value))
 											}
-											formatter={(value) => `${formatRps(Number(value))} req/s`}
+											formatter={(value) => formatMetric(Number(value))}
 										/>
 									}
 								/>
@@ -557,9 +652,7 @@ export function LoadClient() {
 					<CardTitle>
 						Top {GROUP_LABELS[groupBy].toLowerCase()}s by load
 					</CardTitle>
-					<CardDescription>
-						Average request rate over the selected window.
-					</CardDescription>
+					<CardDescription>{METRIC_RANK_LABELS[metric]}</CardDescription>
 				</CardHeader>
 				<CardContent>
 					{breakdown.length === 0 ? (
@@ -580,10 +673,10 @@ export function LoadClient() {
 								<CartesianGrid horizontal={false} />
 								<XAxis
 									type="number"
-									dataKey="avgRps"
+									dataKey={rankKey}
 									tickLine={false}
 									axisLine={false}
-									tickFormatter={(value: number) => formatRps(value)}
+									tickFormatter={formatMetricAxis}
 								/>
 								<YAxis
 									type="category"
@@ -595,11 +688,11 @@ export function LoadClient() {
 								<ChartTooltip
 									content={
 										<ChartTooltipContent
-											formatter={(value) => `${formatRps(Number(value))} req/s`}
+											formatter={(value) => formatMetric(Number(value))}
 										/>
 									}
 								/>
-								<Bar dataKey="avgRps" radius={[0, 3, 3, 0]} />
+								<Bar dataKey={rankKey} radius={[0, 3, 3, 0]} />
 							</BarChart>
 						</ChartContainer>
 					)}
@@ -625,13 +718,15 @@ export function LoadClient() {
 								<TableHead className="text-right">Peak req/s</TableHead>
 								<TableHead className="text-right">Share</TableHead>
 								<TableHead className="text-right">Errors</TableHead>
+								<TableHead className="text-right">Avg duration</TableHead>
+								<TableHead className="text-right">Avg TTFT</TableHead>
 							</TableRow>
 						</TableHeader>
 						<TableBody>
 							{breakdown.length === 0 ? (
 								<TableRow>
 									<TableCell
-										colSpan={6}
+										colSpan={8}
 										className="py-8 text-center text-sm text-muted-foreground"
 									>
 										No traffic in this window.
@@ -668,6 +763,12 @@ export function LoadClient() {
 											{row.errorRate === null
 												? "—"
 												: `${(row.errorRate * 100).toFixed(1)}%`}
+										</TableCell>
+										<TableCell className="text-right tabular-nums">
+											{formatDurationMs(row.avgDurationMs)}
+										</TableCell>
+										<TableCell className="text-right tabular-nums">
+											{formatDurationMs(row.avgTimeToFirstTokenMs)}
 										</TableCell>
 									</TableRow>
 								))

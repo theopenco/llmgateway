@@ -5363,6 +5363,26 @@ export const projectHourlyStats = pgTable(
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
 		cacheWriteTokens: decimal().notNull().default("0"),
+		// Latency. Sums plus their own sample counts, never a stored average: the
+		// live refresh accumulates slices with `col + excluded.col`. Summed over a
+		// whole project-hour these exceed int32, so the sums are bigint.
+		//
+		// `durationCount` is not the same thing as `requestCount`: a bucket
+		// aggregated before these columns existed carries a zero count, which is
+		// what lets the read side say "unknown" rather than "0 ms".
+		totalDuration: bigint({ mode: "number" }).notNull().default(0),
+		durationCount: integer().notNull().default(0),
+		// The TTFT column names match model_provider_mapping_history so
+		// avgEffectiveTtft() works on these rows unchanged — without the reasoning
+		// pair the tenant axis would report a different metric than the model axis
+		// for every reasoning model. Only streamed, non-cached, successful requests
+		// record either sample, hence the separate counts.
+		totalTimeToFirstToken: bigint({ mode: "number" }).notNull().default(0),
+		timeToFirstTokenCount: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -5431,6 +5451,15 @@ export const projectHourlyModelStats = pgTable(
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
 		cacheWriteTokens: decimal().notNull().default("0"),
+		// See project_hourly_stats: latency sums and their sample counts.
+		totalDuration: bigint({ mode: "number" }).notNull().default(0),
+		durationCount: integer().notNull().default(0),
+		totalTimeToFirstToken: bigint({ mode: "number" }).notNull().default(0),
+		timeToFirstTokenCount: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -5528,6 +5557,15 @@ export const projectHourlySourceStats = pgTable(
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
 		cacheWriteTokens: decimal().notNull().default("0"),
+		// See project_hourly_stats: latency sums and their sample counts.
+		totalDuration: bigint({ mode: "number" }).notNull().default(0),
+		durationCount: integer().notNull().default(0),
+		totalTimeToFirstToken: bigint({ mode: "number" }).notNull().default(0),
+		timeToFirstTokenCount: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -5607,6 +5645,15 @@ export const apiKeyHourlyStats = pgTable(
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
 		cacheWriteTokens: decimal().notNull().default("0"),
+		// See project_hourly_stats: latency sums and their sample counts.
+		totalDuration: bigint({ mode: "number" }).notNull().default(0),
+		durationCount: integer().notNull().default(0),
+		totalTimeToFirstToken: bigint({ mode: "number" }).notNull().default(0),
+		timeToFirstTokenCount: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -5759,6 +5806,15 @@ export const apiKeyHourlyModelStats = pgTable(
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
 		cacheWriteTokens: decimal().notNull().default("0"),
+		// See project_hourly_stats: latency sums and their sample counts.
+		totalDuration: bigint({ mode: "number" }).notNull().default(0),
+		durationCount: integer().notNull().default(0),
+		totalTimeToFirstToken: bigint({ mode: "number" }).notNull().default(0),
+		timeToFirstTokenCount: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),
@@ -5844,6 +5900,15 @@ export const apiKeyHourlySourceStats = pgTable(
 		reasoningTokens: decimal().notNull().default("0"),
 		cachedTokens: decimal().notNull().default("0"),
 		cacheWriteTokens: decimal().notNull().default("0"),
+		// See project_hourly_stats: latency sums and their sample counts.
+		totalDuration: bigint({ mode: "number" }).notNull().default(0),
+		durationCount: integer().notNull().default(0),
+		totalTimeToFirstToken: bigint({ mode: "number" }).notNull().default(0),
+		timeToFirstTokenCount: integer().notNull().default(0),
+		totalTimeToFirstReasoningToken: bigint({ mode: "number" })
+			.notNull()
+			.default(0),
+		timeToFirstReasoningTokenCount: integer().notNull().default(0),
 		// Costs
 		cost: real().notNull().default(0),
 		inputCost: real().notNull().default(0),

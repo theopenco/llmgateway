@@ -1,7 +1,11 @@
+export type LoadMetric = "rps" | "duration" | "ttft";
+
 export interface LoadChartPointEntry {
 	key: string;
 	requestCount: number;
 	rps: number;
+	avgDurationMs: number | null;
+	avgTimeToFirstTokenMs: number | null;
 }
 
 export interface LoadChartPoint {
@@ -10,6 +14,8 @@ export interface LoadChartPoint {
 	bucketSeconds: number;
 	requestCount: number;
 	rps: number;
+	avgDurationMs: number | null;
+	avgTimeToFirstTokenMs: number | null;
 	entries: LoadChartPointEntry[];
 }
 
@@ -21,11 +27,11 @@ export interface LoadChartSeries {
 
 export interface LoadChartRow extends Record<
 	string,
-	number | string | boolean
+	number | string | boolean | null | undefined
 > {
 	timestamp: string;
 	partial: boolean;
-	total: number;
+	total: number | null;
 }
 
 export interface LoadChart {
@@ -34,25 +40,50 @@ export interface LoadChart {
 	restCount: number;
 }
 
+function metricValue(
+	source: {
+		rps: number;
+		avgDurationMs: number | null;
+		avgTimeToFirstTokenMs: number | null;
+	},
+	metric: LoadMetric,
+): number | null {
+	switch (metric) {
+		case "duration":
+			return source.avgDurationMs;
+		case "ttft":
+			return source.avgTimeToFirstTokenMs;
+		default:
+			return source.rps;
+	}
+}
+
 /**
- * Pivots the overview payload into Recharts rows of requests per second.
+ * Pivots the overview payload into Recharts rows of the requested metric.
  *
  * Series get positional `series_N` keys: model ids contain dots and slashes,
  * which are unsafe both as Recharts data paths and as CSS custom property
  * suffixes. The API only returns per-bucket entries for the ranked keys, so
- * the remainder of each bucket's total becomes a single "Other" series rather
- * than silently shrinking the stack.
+ * for `rps` the remainder of each bucket's total becomes a single "Other"
+ * series rather than silently shrinking the stack.
+ *
+ * The latency metrics get no "Other" band and no zero-fill: an average has no
+ * residual to derive one from, and a bucket with no sample is a gap in the
+ * line, not a drop to zero.
  */
 export function buildLoadChart({
 	series,
 	data,
 	totalKeys,
+	metric = "rps",
 }: {
 	series: { key: string; label: string }[];
 	data: LoadChartPoint[];
 	totalKeys: number;
+	metric?: LoadMetric;
 }): LoadChart {
-	const restCount = Math.max(0, totalKeys - series.length);
+	const additive = metric === "rps";
+	const restCount = additive ? Math.max(0, totalKeys - series.length) : 0;
 	const chartSeries: LoadChartSeries[] = series.map((item, index) => ({
 		chartKey: `series_${index}`,
 		label: item.label,
@@ -74,10 +105,10 @@ export function buildLoadChart({
 		const row: LoadChartRow = {
 			timestamp: point.timestamp,
 			partial: point.partial,
-			total: point.rps,
+			total: metricValue(point, metric),
 		};
 		for (const entry of chartSeries) {
-			row[entry.chartKey] = 0;
+			row[entry.chartKey] = additive ? 0 : null;
 		}
 		let accounted = 0;
 		for (const entry of point.entries) {
@@ -85,8 +116,13 @@ export function buildLoadChart({
 			if (!chartKey) {
 				continue;
 			}
-			row[chartKey] = Number(row[chartKey]) + entry.rps;
-			accounted += entry.rps;
+			const value = metricValue(entry, metric);
+			if (!additive) {
+				row[chartKey] = value;
+				continue;
+			}
+			row[chartKey] = Number(row[chartKey]) + (value ?? 0);
+			accounted += value ?? 0;
 		}
 		if (restCount > 0) {
 			row.series_other = Math.max(0, point.rps - accounted);

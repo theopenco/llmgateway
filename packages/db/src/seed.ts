@@ -969,6 +969,8 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 			const totalCost = baseRequests * costPerReq;
 			const creditsReqCount = Math.floor(baseRequests * 0.6);
 			const apiKeysReqCount = baseRequests - creditsReqCount;
+			const avgDurationMs = randomInt(600, 9000);
+			const avgTtftMs = randomInt(150, 1200);
 
 			stats.push({
 				id: `phs-${statIdx}`,
@@ -993,6 +995,12 @@ function generateProjectHourlyStats(projects: ProjectDef[]) {
 				totalTokens: String(inputTokens + outputTokens),
 				reasoningTokens: String(randomInt(0, Math.floor(outputTokens * 0.3))),
 				cachedTokens: String(randomInt(0, Math.floor(inputTokens * 0.2))),
+				totalDuration: baseRequests * avgDurationMs,
+				durationCount: baseRequests,
+				// Only streamed requests record a first-token time, which is what
+				// makes the seeded TTFT denominator differ from requestCount.
+				totalTimeToFirstToken: streamedCount * avgTtftMs,
+				timeToFirstTokenCount: streamedCount,
 				cost: Number(totalCost.toFixed(4)),
 				inputCost: Number((totalCost * 0.4).toFixed(4)),
 				outputCost: Number((totalCost * 0.5).toFixed(4)),
@@ -1040,6 +1048,9 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 				const errCount = secureRandom() < 0.1 ? randomInt(1, 3) : 0;
 				const inputTok = reqCount * randomInt(100, 1500);
 				const outputTok = reqCount * randomInt(50, 1000);
+				const streamedReqs = Math.floor(reqCount * 0.6);
+				const avgDurationMs = randomInt(600, 9000);
+				const avgTtftMs = randomInt(150, 1200);
 				/* eslint-disable no-mixed-operators */
 				const costVal =
 					(inputTok / 1000) * modelDef.inputPrice +
@@ -1071,6 +1082,10 @@ function generateProjectHourlyModelStats(projects: ProjectDef[]) {
 					totalTokens: String(inputTok + outputTok),
 					reasoningTokens: "0",
 					cachedTokens: "0",
+					totalDuration: reqCount * avgDurationMs,
+					durationCount: reqCount,
+					totalTimeToFirstToken: streamedReqs * avgTtftMs,
+					timeToFirstTokenCount: streamedReqs,
 					cost: Number(costVal.toFixed(6)),
 					inputCost: Number(
 						((inputTok / 1000) * modelDef.inputPrice).toFixed(6),
