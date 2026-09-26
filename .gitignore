@@ -40,6 +40,7 @@ output-*.png
 generate-image-*.png
 .playwright-mcp
 playwright-report/
+blob-report/
 test-results/
 *.mp4
 # Shipped marketing assets, deliberately committed despite the blanket *.mp4 rule

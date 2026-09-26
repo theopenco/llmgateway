@@ -21,8 +21,9 @@ export default defineConfig({
 	workers: 1,
 	forbidOnly: !!process.env.CI,
 	timeout: 90_000,
+	// CI shards emit blobs that the workflow merges into one HTML report.
 	reporter: process.env.CI
-		? [["github"], ["html", { open: "never" }]]
+		? [["github"], ["blob"]]
 		: [["list"], ["html", { open: "never" }]],
 	use: {
 		trace: "retain-on-failure",
