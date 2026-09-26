@@ -14,6 +14,17 @@ export function rangeDaysInclusive(fromStr: string, toStr: string): number {
 	return Math.round((to - from) / 86_400_000) + 1;
 }
 
+export function eachDay(fromStr: string, toStr: string): string[] {
+	const slots: string[] = [];
+	const cur = new Date(`${fromStr}T00:00:00Z`);
+	const end = new Date(`${toStr}T00:00:00Z`);
+	while (cur.getTime() <= end.getTime()) {
+		slots.push(cur.toISOString().slice(0, 10));
+		cur.setUTCDate(cur.getUTCDate() + 1);
+	}
+	return slots;
+}
+
 // Resolve the query window and the local calendar day-labels used to pad the
 // series. from/to are interpreted as wall-clock days in the caller's timezone
 // (defaulting to UTC), so the returned fromStr/toStr always line up with the

@@ -235,6 +235,13 @@ describe("dynamic routes request path", () => {
 			version: 1,
 			path: ["tier", "premium"],
 		});
+
+		// The cheap branch is priced against the priciest model in the route.
+		const basicLog = logs.find((l) => l.usedModel.includes("gpt-5-nano"));
+		expect(basicLog?.routingBaselineModel).toMatch(/\/gpt-4o-mini$/);
+		expect(Number(basicLog?.routingBaselineCost)).toBeGreaterThan(
+			Number(basicLog?.cost),
+		);
 	});
 
 	test("body conditions read the raw request body, not the stripped copy", async () => {

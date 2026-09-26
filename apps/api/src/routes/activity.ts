@@ -3,12 +3,17 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 
 import { apiKeyScopeFilter } from "@/lib/api-key-scope-filter.js";
+import { resolveDateRange } from "@/lib/date-range.js";
 import {
 	mapModeSplit,
 	modeSplitFields,
 	modeSplitSchema,
 } from "@/lib/mode-split.js";
 import { requireEnterpriseAdmin } from "@/lib/require-enterprise-admin.js";
+import {
+	getRoutingSavings,
+	routingSavingsSchema,
+} from "@/lib/routing-savings.js";
 import { getUserUsageBreakdown } from "@/lib/user-usage-breakdown.js";
 import {
 	getApiKeyScope,
@@ -20,6 +25,7 @@ import {
 	bucketDate,
 	generateTimeSlots,
 	isValidTimeZone,
+	timezoneQueryField,
 	zonedTimeToUtc,
 } from "@/utils/timezone.js";
 
@@ -1294,4 +1300,59 @@ activity.openapi(getSourceActivity, async (c) => {
 				: null,
 		})),
 	});
+});
+
+const getRoutingSavingsActivity = createRoute({
+	method: "get",
+	path: "/routing-savings",
+	request: {
+		query: z.object({
+			projectId: z.string(),
+			from: z.string().optional(),
+			to: z.string().optional(),
+			timezone: timezoneQueryField,
+		}),
+	},
+	responses: {
+		200: {
+			content: {
+				"application/json": {
+					schema: routingSavingsSchema,
+				},
+			},
+			description:
+				"Spend of auto, smart and dynamic route requests vs. the priciest model the router could have picked",
+		},
+	},
+});
+
+activity.openapi(getRoutingSavingsActivity, async (c) => {
+	const user = c.get("user");
+	if (!user) {
+		throw new HTTPException(401, { message: "Unauthorized" });
+	}
+
+	const { projectId, from, to, timezone } = c.req.valid("query");
+	if (!(await userHasProjectAccess(user.id, projectId))) {
+		throw new HTTPException(403, {
+			message: "You don't have access to this project",
+		});
+	}
+	// Like project sources, the routing rollup has no apiKeyId column, so a
+	// key-scoped developer would see teammates' traffic.
+	if (isKeyScoped(await getApiKeyScope(user.id, [projectId]))) {
+		throw new HTTPException(403, {
+			message:
+				"Only organization owners and admins can view project routing savings",
+		});
+	}
+
+	const timeZone = timezone ?? "UTC";
+	return c.json(
+		await getRoutingSavings({
+			projectIds: [projectId],
+			timeZone,
+			...resolveDateRange(from, to, timeZone),
+		}),
+	);
 });
