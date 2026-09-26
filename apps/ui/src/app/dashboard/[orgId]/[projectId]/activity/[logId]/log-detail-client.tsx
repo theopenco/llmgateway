@@ -771,19 +771,30 @@ export function LogDetailClient({
 												/>
 											)}
 											{log.routingMetadata.smartRouting.switch && (
-												<Field
-													label="Switched"
-													value={`${log.routingMetadata.smartRouting.switch.fromModel}${
-														log.routingMetadata.smartRouting.switch.fromEffort
-															? ` (${log.routingMetadata.smartRouting.switch.fromEffort})`
-															: ""
-													} → ${log.routingMetadata.smartRouting.switch.toModel}${
-														log.routingMetadata.smartRouting.switch.toEffort
-															? ` (${log.routingMetadata.smartRouting.switch.toEffort})`
-															: ""
-													}: ${log.routingMetadata.smartRouting.switch.reason}`}
-													mono
-												/>
+												<>
+													<Field
+														label="Switched"
+														value={`${log.routingMetadata.smartRouting.switch.fromModel}${
+															log.routingMetadata.smartRouting.switch.fromEffort
+																? ` (${log.routingMetadata.smartRouting.switch.fromEffort})`
+																: ""
+														} → ${log.routingMetadata.smartRouting.switch.toModel}${
+															log.routingMetadata.smartRouting.switch.toEffort
+																? ` (${log.routingMetadata.smartRouting.switch.toEffort})`
+																: ""
+														}`}
+														mono
+													/>
+													<Field
+														label="Switch reason"
+														value={`${log.routingMetadata.smartRouting.switch.reason}${
+															log.routingMetadata.smartRouting.switch.direction
+																? ` (${log.routingMetadata.smartRouting.switch.direction})`
+																: ""
+														}`}
+														mono
+													/>
+												</>
 											)}
 											{log.routingMetadata.smartRouting.difficulty && (
 												<Field
